@@ -1,3 +1,4 @@
+import Head from "next/head";
 import { useContext } from "react";
 import ConversationDetails from "../components/ConversationDetails";
 import SideBar from "../components/SideBar";
@@ -28,10 +29,10 @@ export default function Home() {
         </path>
       </svg>
       <div className="flex flex-col items-center mt-10">
-        <h1 className="text-[#e9edef] text-3xl font-extralight">WhatsApp Web</h1>
+        <h1 className="text-[#e9edef] text-3xl font-extralight">NOVSY</h1>
         <div className="flex flex-col mt-4 w-11/12 text-center text-[#8696a0] text-base font-light">
-          <h2>Agora você pode enviar e receber mensagens sem precisar manter seu celular conectado à internet</h2>
-          <h2>Use o WhatsApp em até quatro aparelhos conectados e um celular ao mesmo tempo.</h2>
+          <h2>Chat privado para creadores y fans</h2>
+          <h2>Envía contenido exclusivo y responde solicitudes sin depender del móvil.</h2>
         </div>
         <div className="my-6 border-b-[1px] border-[rgba(134,150,160,0.15)] w-full">
         </div>
@@ -41,7 +42,7 @@ export default function Home() {
             <path fill="currentColor" d="M10.426 14.235a.767.767 0 0 1-.765-.765c0-.421.344-.765.765-.765s.765.344.765.765-.344.765-.765.765zM4.309 3.529h12.235v8.412H4.309V3.529zm12.235 9.942c.841 0 1.522-.688 1.522-1.529l.008-8.412c0-.842-.689-1.53-1.53-1.53H4.309c-.841 0-1.53.688-1.53 1.529v8.412c0 .841.688 1.529 1.529 1.529H1.25c0 .842.688 1.53 1.529 1.53h15.294c.841 0 1.529-.688 1.529-1.529h-3.058z">
             </path>
           </svg>
-          <span className="text-sm font-light">Make calls from desktop with WhatsApp for Windows. <a href="https://www.whatsapp.com/download" className="text-[#53bdeb]">Baixe Aqui</a></span>
+          <span className="text-sm font-light">Gestiona tu comunidad desde escritorio y mantén la conversación activa con tus fans.</span>
         </div>
       </div>
       
@@ -50,6 +51,9 @@ export default function Home() {
 
   return (
     <div className="flex justify-center">
+      <Head>
+        <title>NOVSY – Chat privado</title>
+      </Head>
       <div className="flex w-full xl:container h-screen xl:py-4">
         <SideBar />
         <div className="flex w-[70%] bg-[#222E35]">

@@ -7,7 +7,7 @@ export default function SideBar() {
   const conversationsList = conversations.conversation_list;
   const [ search, setSearch ] = useState("");
   const filteredConversationsList = search.length > 0
-    ? conversationsList.filter( conversationList => conversationList.contactName.toLowerCase().includes(search))
+    ? conversationsList.filter(conversationList => conversationList.contactName.toLowerCase().includes(search.toLowerCase()))
     : conversationsList;
 
   return (
@@ -46,7 +46,7 @@ export default function SideBar() {
             </svg>
           </div>
           <div className="">
-            <input className="w-[96%] h-9 rounded-lg bg-[#202c33] text-white text-sm px-10" placeholder="Pesquisar ou começar uma nova conversa" value={search} onChange={e => setSearch(e.target.value)} />
+            <input className="w-[96%] h-9 rounded-lg bg-[#202c33] text-white text-sm px-10" placeholder="Buscar o iniciar un nuevo chat" value={search} onChange={e => setSearch(e.target.value)} />
           </div>
         </div>
         <div className="flex w-[5%] h-full items-center justify-center">
