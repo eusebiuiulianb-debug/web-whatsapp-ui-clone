@@ -5,6 +5,8 @@
       "lastMessage": "¡Bienvenida a la comunidad!",
       "lastTime": "19:15",
       "image": "avatar.jpg",
+      "membershipStatus": "Suscripción mensual",
+      "daysLeft": 12,
       "messageHistory": [
         {
           "me": false,
@@ -21,6 +23,8 @@
       "lastMessage": "Necesito un poco más de contexto para grabarlo",
       "lastTime": "18:10",
       "image": "avatar3.png",
+      "membershipStatus": "Contenido individual",
+      "daysLeft": 0,
       "messageHistory": [
         {
           "me": false,
@@ -37,6 +41,8 @@
       "lastMessage": "Te comparto un adelanto en exclusiva hoy",
       "lastTime": "12:48",
       "image": "avatar2.jpg",
+      "membershipStatus": "Prueba 7 días",
+      "daysLeft": 1,
       "messageHistory": [
         {
           "me": false,
@@ -53,6 +59,8 @@
       "lastMessage": "Live premium este jueves a las 20h",
       "lastTime": "09:30",
       "image": "avatar.jpg",
+      "membershipStatus": "Suscripción mensual",
+      "daysLeft": 5,
       "messageHistory": [
         {
           "me": false,

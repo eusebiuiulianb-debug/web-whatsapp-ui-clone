@@ -13,5 +13,6 @@ La app se levanta en modo desarrollo en `http://localhost:3000`.
 
 ## Incluye ahora
 - Header de creador con avatar inicial, nombre y tiempo de respuesta.
-- Conversaciones de ejemplo con fans (Ana, Javier, Lucía, Diego).
+- Conversaciones de ejemplo con fans (Ana, Javier, Lucía, Diego) y estado de suscripción estático (tipo y días restantes).
+- Acciones rápidas del creador que rellenan el mensaje con plantillas.
 - Mejora básica de vista móvil: lista y chat se apilan en pantallas pequeñas.

@@ -5,12 +5,28 @@ import MessageBalloon from "../MessageBalloon";
 
 export default function ConversationDetails() {
   const { conversation, message, setMessage } = useContext(ConversationContext);
-  const { contactName, image, messageHistory } = conversation;
+  const { contactName, image, messageHistory, membershipStatus, daysLeft } = conversation;
   const [ messageSend, setMessageSend ] = useState("");
 
   useEffect( () => {
     setMessage(messageHistory || []);
+    setMessageSend("");
   }, [conversation]);
+
+  function membershipLabel() {
+    const status = membershipStatus || "Contenido individual";
+    if (daysLeft === undefined || daysLeft === null || daysLeft === 0) {
+      return `${status} · sin suscripción activa`;
+    }
+    if (daysLeft === 1) {
+      return `${status} · expira mañana`;
+    }
+    return `${status} · ${daysLeft} días restantes`;
+  }
+
+  function handleQuickReply(template: string) {
+    setMessageSend(template);
+  }
 
   function changeHandler(evt: KeyboardEvent<HTMLInputElement>) {
     const { key } = evt;
@@ -28,7 +44,10 @@ export default function ConversationDetails() {
         <div className="flex justify-between bg-[#202c33] w-full h-14">
           <div className="flex items-center gap-4 h-full">
             <Avatar width="w-10" height="h-10" image={image} />
-            <h1 className="text-white font-normal">{contactName}</h1>
+            <div className="flex flex-col leading-tight">
+              <h1 className="text-white font-normal">{contactName}</h1>
+              <span className="text-[#8696a0] text-xs">{membershipLabel()}</span>
+            </div>
           </div>
           <div className="flex items-center text-[#8696a0] gap-2">
             <svg viewBox="0 0 24 24" width="24" height="24" className="cursor-pointer">
@@ -40,6 +59,29 @@ export default function ConversationDetails() {
             </svg>
           </div>
         </div>
+      </div>
+      <div className="flex w-full bg-[#111b21] px-4 md:px-6 py-3 gap-2 overflow-x-auto border-b border-[rgba(134,150,160,0.15)]">
+        <button
+          type="button"
+          className="flex-shrink-0 bg-[#2a3942] hover:bg-[#3b4a54] text-white text-sm px-3 py-2 rounded-lg border border-[rgba(134,150,160,0.2)] whitespace-nowrap"
+          onClick={() => handleQuickReply("¡Gracias por escribirme! ¿Qué te gustaría trabajar o ver primero?")}
+        >
+          Saludo rápido
+        </button>
+        <button
+          type="button"
+          className="flex-shrink-0 bg-[#2a3942] hover:bg-[#3b4a54] text-white text-sm px-3 py-2 rounded-lg border border-[rgba(134,150,160,0.2)] whitespace-nowrap"
+          onClick={() => handleQuickReply("Te dejo aquí el pack de bienvenida con los primeros contenidos recomendados para ti: [añade aquí el enlace o instrucciones].")}
+        >
+          Pack bienvenida
+        </button>
+        <button
+          type="button"
+          className="flex-shrink-0 bg-[#2a3942] hover:bg-[#3b4a54] text-white text-sm px-3 py-2 rounded-lg border border-[rgba(134,150,160,0.2)] whitespace-nowrap"
+          onClick={() => handleQuickReply("Si quieres acceder a todo el contenido y al chat prioritario, aquí tienes el enlace de suscripción mensual: [pega aquí tu enlace de suscripción].")}
+        >
+          Enlace suscripción
+        </button>
       </div>
       <div className="flex flex-col w-full flex-1 px-4 md:px-24 py-6 overflow-y-auto" style={{ backgroundImage: "url('/assets/images/background.jpg')" }}>
         {
@@ -64,7 +106,7 @@ export default function ConversationDetails() {
           </svg>
         </div>
         <div className="flex w-[85%] h-12 ml-3">
-          <input type={"text"} className="bg-[#2a3942] rounded-lg w-full px-3 py-3 text-white" placeholder="Mensagem" onKeyDown={(evt) => changeHandler(evt) } onChange={ (evt) => setMessageSend(evt.target.value) } value={messageSend} />
+          <input type={"text"} className="bg-[#2a3942] rounded-lg w-full px-3 py-3 text-white" placeholder="Mensaje" onKeyDown={(evt) => changeHandler(evt) } onChange={ (evt) => setMessageSend(evt.target.value) } value={messageSend} />
         </div>
         <div className="flex justify-center items-center w-[5%] h-12">
           <svg viewBox="0 0 24 24" width="24" height="24" className="cursor-pointer">
