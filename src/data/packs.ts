@@ -25,3 +25,5 @@ export const packs: Pack[] = [
     description: "Sesión intensiva + material extra para pareja."
   }
 ];
+
+export default packs;

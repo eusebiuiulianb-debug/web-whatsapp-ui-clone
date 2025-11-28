@@ -3,10 +3,13 @@ import ConversationList from "../ConversationList";
 import conversations from "../../data.json";
 import { useState } from "react";
 import CreatorHeader from "../CreatorHeader";
+import { useCreatorConfig } from "../../context/CreatorConfigContext";
 
 export default function SideBar() {
   const conversationsList = conversations.conversation_list;
   const [ search, setSearch ] = useState("");
+  const { config } = useCreatorConfig();
+  const creatorInitial = config.creatorName?.trim().charAt(0) || "E";
   const filteredConversationsList = search.length > 0
     ? conversationsList.filter(conversationList => conversationList.contactName.toLowerCase().includes(search.toLowerCase()))
     : conversationsList;
@@ -39,10 +42,10 @@ export default function SideBar() {
         </div>
       </div>
       <CreatorHeader
-        name="Eusebiu"
+        name={config.creatorName}
         role="Creador"
-        subtitle="Responde en menos de 24h"
-        initial="E"
+        subtitle={config.creatorSubtitle}
+        initial={creatorInitial}
       />
       <div className="flex bg-[#111b21] w-full h-max px-3 py-2">
         <div className="relative w-[95%] h-max">

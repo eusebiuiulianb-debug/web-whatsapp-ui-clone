@@ -2,13 +2,16 @@ import { KeyboardEvent, useContext, useEffect, useState } from "react";
 import { ConversationContext } from "../../context/ConversationContext";
 import Avatar from "../Avatar";
 import MessageBalloon from "../MessageBalloon";
-import { packs } from "../../data/packs";
+import { useCreatorConfig } from "../../context/CreatorConfigContext";
+import CreatorSettingsPanel from "../CreatorSettingsPanel";
 
 export default function ConversationDetails() {
   const { conversation, message, setMessage } = useContext(ConversationContext);
   const { contactName, image, messageHistory, membershipStatus, daysLeft } = conversation;
   const [ messageSend, setMessageSend ] = useState("");
   const [ isPackListOpen, setIsPackListOpen ] = useState(false);
+  const [ isSettingsOpen, setIsSettingsOpen ] = useState(false);
+  const { config } = useCreatorConfig();
 
   useEffect( () => {
     setMessage(messageHistory || []);
@@ -26,13 +29,14 @@ export default function ConversationDetails() {
     return `${status} · ${daysLeft} días restantes`;
   }
 
-  function handleQuickReply(template: string) {
-    setMessageSend(template);
+  function handleQuickReply(template?: string) {
+    const text = template || "";
+    setMessageSend(text);
     setIsPackListOpen(false);
   }
 
   function handleSelectPack(packId: string) {
-    const selectedPack = packs.find(pack => pack.id === packId);
+    const selectedPack = config.packs.find(pack => pack.id === packId);
     if (!selectedPack) return;
 
     const template = `Te propongo el ${selectedPack.name} (${selectedPack.price}): ${selectedPack.description} Si te encaja, te envío el enlace de pago: [pega aquí tu enlace].`;
@@ -52,6 +56,7 @@ export default function ConversationDetails() {
 
   return (
     <div className="flex flex-col w-full h-full min-h-[60vh]">
+      <CreatorSettingsPanel isOpen={isSettingsOpen} onClose={() => setIsSettingsOpen(false)} />
       <div className="flex justify-between w-full px-4">
         <div className="flex justify-between bg-[#202c33] w-full h-14">
           <div className="flex items-center gap-4 h-full">
@@ -66,9 +71,11 @@ export default function ConversationDetails() {
               <path fill="currentColor" d="M15.9 14.3H15l-.3-.3c1-1.1 1.6-2.7 1.6-4.3 0-3.7-3-6.7-6.7-6.7S3 6 3 9.7s3 6.7 6.7 6.7c1.6 0 3.2-.6 4.3-1.6l.3.3v.8l5.1 5.1 1.5-1.5-5-5.2zm-6.2 0c-2.6 0-4.6-2.1-4.6-4.6s2.1-4.6 4.6-4.6 4.6 2.1 4.6 4.6-2 4.6-4.6 4.6z">
               </path>
             </svg>
-            <svg viewBox="0 0 24 24" width="24" height="24" className="cursor-pointer">
-              <path fill="currentColor" d="M12 7a2 2 0 1 0-.001-4.001A2 2 0 0 0 12 7zm0 2a2 2 0 1 0-.001 3.999A2 2 0 0 0 12 9zm0 6a2 2 0 1 0-.001 3.999A2 2 0 0 0 12 15z"></path>
-            </svg>
+            <button type="button" onClick={() => setIsSettingsOpen(true)} aria-label="Ajustes del creador">
+              <svg viewBox="0 0 24 24" width="24" height="24" className="cursor-pointer text-[#8696a0]">
+                <path fill="currentColor" d="M12 7a2 2 0 1 0-.001-4.001A2 2 0 0 0 12 7zm0 2a2 2 0 1 0-.001 3.999A2 2 0 0 0 12 9zm0 6a2 2 0 1 0-.001 3.999A2 2 0 0 0 12 15z"></path>
+              </svg>
+            </button>
           </div>
         </div>
       </div>
@@ -77,21 +84,21 @@ export default function ConversationDetails() {
           <button
             type="button"
             className="flex-shrink-0 bg-[#2a3942] hover:bg-[#3b4a54] text-white text-sm px-3 py-2 rounded-lg border border-[rgba(134,150,160,0.2)] whitespace-nowrap"
-            onClick={() => handleQuickReply("¡Gracias por escribirme! ¿Qué te gustaría trabajar o ver primero?")}
+            onClick={() => handleQuickReply(config.quickReplies.saludoRapido)}
           >
             Saludo rápido
           </button>
           <button
             type="button"
             className="flex-shrink-0 bg-[#2a3942] hover:bg-[#3b4a54] text-white text-sm px-3 py-2 rounded-lg border border-[rgba(134,150,160,0.2)] whitespace-nowrap"
-            onClick={() => handleQuickReply("Te dejo aquí el pack de bienvenida con los primeros contenidos recomendados para ti: [añade aquí el enlace o instrucciones].")}
+            onClick={() => handleQuickReply(config.quickReplies.packBienvenida)}
           >
             Pack bienvenida
           </button>
           <button
             type="button"
             className="flex-shrink-0 bg-[#2a3942] hover:bg-[#3b4a54] text-white text-sm px-3 py-2 rounded-lg border border-[rgba(134,150,160,0.2)] whitespace-nowrap"
-            onClick={() => handleQuickReply("Si quieres acceder a todo el contenido y al chat prioritario, aquí tienes el enlace de suscripción mensual: [pega aquí tu enlace de suscripción].")}
+            onClick={() => handleQuickReply(config.quickReplies.enlaceSuscripcion)}
           >
             Enlace suscripción
           </button>
@@ -107,7 +114,7 @@ export default function ConversationDetails() {
           isPackListOpen && (
             <div className="flex flex-col gap-2 bg-[#0c1317] border border-[rgba(134,150,160,0.2)] rounded-lg p-3 w-full">
               {
-                packs.map(pack => (
+                config.packs.map(pack => (
                   <button
                     key={pack.id}
                     type="button"

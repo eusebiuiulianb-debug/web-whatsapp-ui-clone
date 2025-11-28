@@ -24,3 +24,8 @@ La app se levanta en modo desarrollo en `http://localhost:3000`.
 ## Página pública de creador
 - Ruta `/creator` como landing pública con avatar, descripción y listado de packs.
 - Incluye botón “Entrar al chat privado” que navega a `/`.
+
+## Ajustes del creador
+- Panel accesible desde el chat (menú de opciones) para editar nombre, subtítulo y descripción del creador.
+- Permite cambiar textos de respuestas rápidas y editar nombre, precio y descripción de los packs.
+- Los cambios se guardan en `localStorage` bajo la clave `novsy_creator_config` y afectan tanto al chat (`/`) como a la página pública (`/creator`) en ese navegador.

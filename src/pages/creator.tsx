@@ -1,8 +1,11 @@
 import Head from "next/head";
 import Link from "next/link";
-import { packs } from "../data/packs";
+import { useCreatorConfig } from "../context/CreatorConfigContext";
 
 export default function CreatorPage() {
+  const { config } = useCreatorConfig();
+  const creatorInitial = config.creatorName?.trim().charAt(0) || "E";
+
   return (
     <div className="min-h-screen bg-[#0b141a] text-white">
       <Head>
@@ -11,14 +14,13 @@ export default function CreatorPage() {
       <div className="max-w-5xl mx-auto px-4 py-10 flex flex-col gap-8">
         <header className="flex flex-col items-center gap-4 text-center">
           <div className="flex items-center justify-center w-20 h-20 rounded-full bg-[#2a3942] text-white text-3xl font-semibold">
-            E
+            {creatorInitial}
           </div>
           <div className="flex flex-col gap-2">
-            <h1 className="text-3xl font-semibold">Eusebiu · Creador</h1>
-            <p className="text-[#aebac1] text-lg">Chat privado, audios personalizados y contenidos exclusivos para fans.</p>
+            <h1 className="text-3xl font-semibold">{config.creatorName} · Creador</h1>
+            <p className="text-[#aebac1] text-lg">{config.creatorSubtitle}</p>
             <p className="text-[#cfd6db] text-base leading-relaxed">
-              Bienvenido a mi espacio en NOVSY. Aquí comparto avances, envío audios personalizados y respondo tus ideas para crear contenido hecho a tu medida.
-              Únete para acceder a sesiones 1:1, material exclusivo y priorizar tus pedidos.
+              {config.creatorDescription}
             </p>
           </div>
           <Link href="/" legacyBehavior>
@@ -31,7 +33,7 @@ export default function CreatorPage() {
         <section className="flex flex-col gap-4">
           <h2 className="text-2xl font-semibold">Packs disponibles</h2>
           <div className="grid gap-4 md:grid-cols-2">
-            {packs.map(pack => (
+            {config.packs.map(pack => (
               <div key={pack.id} className="flex flex-col gap-2 bg-[#111b21] border border-[rgba(134,150,160,0.2)] rounded-lg p-4">
                 <div className="flex items-center justify-between">
                   <h3 className="text-lg font-semibold">{pack.name}</h3>
