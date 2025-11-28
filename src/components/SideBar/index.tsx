@@ -2,6 +2,7 @@ import Avatar from "../Avatar";
 import ConversationList from "../ConversationList";
 import conversations from "../../data.json";
 import { useState } from "react";
+import CreatorHeader from "../CreatorHeader";
 
 export default function SideBar() {
   const conversationsList = conversations.conversation_list;
@@ -11,7 +12,7 @@ export default function SideBar() {
     : conversationsList;
 
   return (
-    <div className="flex flex-col w-[480px] h-full bg-[#202c33]" style={{borderRight: "1px solid rgba(134,150,160,0.15)"}}>
+    <div className="flex flex-col w-full md:w-[480px] bg-[#202c33] min-h-[320px] md:h-full" style={{borderRight: "1px solid rgba(134,150,160,0.15)"}}>
       <div className="flex items-center justify-between w-full px-4">
         <div className="flex bg-[#202c33] w-full h-14 py-3 items-center">
           <div className="flex cursor-pointer">
@@ -37,6 +38,12 @@ export default function SideBar() {
           </div>
         </div>
       </div>
+      <CreatorHeader
+        name="Eusebiu"
+        role="Creador"
+        subtitle="Responde en menos de 24h"
+        initial="E"
+      />
       <div className="flex bg-[#111b21] w-full h-max px-3 py-2">
         <div className="relative w-[95%] h-max">
           <div className="absolute text-[#AEBAC1] h-full w-9">
@@ -56,7 +63,7 @@ export default function SideBar() {
           </svg>
         </div>
       </div>
-      <div className="flex flex-col w-full overflow-y-scroll" id="conversation">
+      <div className="flex flex-col w-full flex-1 overflow-y-auto" id="conversation">
         {
           filteredConversationsList.map( (conversation, index) => {
             return (

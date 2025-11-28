@@ -7,7 +7,7 @@ import { ConversationContext } from "../context/ConversationContext";
 export default function Home() {
   const { conversation } = useContext(ConversationContext);
   const IconHome = () => (
-    <div className="flex flex-col w-full h-full items-center justify-center">
+    <div className="flex flex-col w-full h-full items-center justify-center px-6">
       <svg width="360" viewBox="0 0 303 172" fill="none" preserveAspectRatio="xMidYMid meet" className="">
         <path fillRule="evenodd" clipRule="evenodd" d="M229.565 160.229c32.647-10.984 57.366-41.988 53.825-86.81-5.381-68.1-71.025-84.993-111.918-64.932C115.998 35.7 108.972 40.16 69.239 40.16c-29.594 0-59.726 14.254-63.492 52.791-2.73 27.933 8.252 52.315 48.89 64.764 73.962 22.657 143.38 13.128 174.928 2.513Z" fill="#364147"></path><path fillRule="evenodd" clipRule="evenodd" d="M131.589 68.942h.01c6.261 0 11.336-5.263 11.336-11.756S137.86 45.43 131.599 45.43c-5.081 0-9.381 3.466-10.822 8.242a7.302 7.302 0 0 0-2.404-.405c-4.174 0-7.558 3.51-7.558 7.838s3.384 7.837 7.558 7.837h13.216ZM105.682 128.716c3.504 0 6.344-2.808 6.344-6.27 0-3.463-2.84-6.27-6.344-6.27-1.156 0-2.24.305-3.173.839v-.056c0-6.492-5.326-11.756-11.896-11.756-5.29 0-9.775 3.413-11.32 8.132a8.025 8.025 0 0 0-2.163-.294c-4.38 0-7.93 3.509-7.93 7.837 0 4.329 3.55 7.838 7.93 7.838h28.552Z" fill="#F1F1F2" fillOpacity=".38">
         </path>
@@ -28,21 +28,17 @@ export default function Home() {
         <path d="m230.198 129.97 68.493-4.777.42 5.996c.055.781-.098 1.478-.363 1.972-.27.5-.611.726-.923.748l-165.031 11.509c-.312.022-.681-.155-1.017-.613-.332-.452-.581-1.121-.636-1.902l-.42-5.996 68.494-4.776c.261.79.652 1.483 1.142 1.998.572.6 1.308.986 2.125.929l24.889-1.736c.817-.057 1.491-.54 1.974-1.214.413-.577.705-1.318.853-2.138Z" fill="#42CBA5" stroke="#316474"></path><path d="m230.367 129.051 69.908-4.876.258 3.676a1.51 1.51 0 0 1-1.403 1.61l-168.272 11.735a1.51 1.51 0 0 1-1.613-1.399l-.258-3.676 69.909-4.876a3.323 3.323 0 0 0 3.188 1.806l25.378-1.77a3.32 3.32 0 0 0 2.905-2.23Z" fill="#EEFAF6" stroke="#316474"></path><circle transform="rotate(-3.989 1304.861 -2982.552) skewX(.021)" fill="#42CBA5" stroke="#316474" r="15.997"></circle><path d="m208.184 87.11-3.407-2.75-.001-.002a1.952 1.952 0 0 0-2.715.25 1.89 1.89 0 0 0 .249 2.692l.002.001 5.077 4.11v.001a1.95 1.95 0 0 0 2.853-.433l8.041-12.209a1.892 1.892 0 0 0-.573-2.643 1.95 1.95 0 0 0-2.667.567l-6.859 10.415Z" fill="#fff" stroke="#316474">
         </path>
       </svg>
-      <div className="flex flex-col items-center mt-10">
-        <h1 className="text-[#e9edef] text-3xl font-extralight">NOVSY</h1>
-        <div className="flex flex-col mt-4 w-11/12 text-center text-[#8696a0] text-base font-light">
-          <h2>Chat privado para creadores y fans</h2>
-          <h2>Envía contenido exclusivo y responde solicitudes sin depender del móvil.</h2>
+      <div className="flex flex-col items-center mt-10 w-full">
+        <h1 className="text-[#e9edef] text-3xl font-light text-center">Selecciona un fan para iniciar el chat</h1>
+        <div className="flex flex-col mt-4 w-full md:w-10/12 text-center text-[#8696a0] text-base font-light gap-2">
+          <p>Aquí verás los mensajes privados y podrás responder con texto, audio y enlaces a tu contenido.</p>
+          <p>Activa a tu comunidad en NOVSY sin depender del móvil.</p>
         </div>
         <div className="my-6 border-b-[1px] border-[rgba(134,150,160,0.15)] w-full">
         </div>
 
-        <div className="flex gap-2 text-[#8696a0]">
-          <svg viewBox="0 0 21 18" width="21" height="18">
-            <path fill="currentColor" d="M10.426 14.235a.767.767 0 0 1-.765-.765c0-.421.344-.765.765-.765s.765.344.765.765-.344.765-.765.765zM4.309 3.529h12.235v8.412H4.309V3.529zm12.235 9.942c.841 0 1.522-.688 1.522-1.529l.008-8.412c0-.842-.689-1.53-1.53-1.53H4.309c-.841 0-1.53.688-1.53 1.529v8.412c0 .841.688 1.529 1.529 1.529H1.25c0 .842.688 1.53 1.529 1.53h15.294c.841 0 1.529-.688 1.529-1.529h-3.058z">
-            </path>
-          </svg>
-          <span className="text-sm font-light">Gestiona tu comunidad desde escritorio y mantén la conversación activa con tus fans.</span>
+        <div className="flex gap-2 text-[#8696a0] text-sm font-light text-center">
+          <span>Gestiona tu comunidad desde escritorio y mantén la conversación activa con tus fans.</span>
         </div>
       </div>
       
@@ -54,9 +50,9 @@ export default function Home() {
       <Head>
         <title>NOVSY – Chat privado</title>
       </Head>
-      <div className="flex w-full xl:container h-screen xl:py-4">
+      <div className="flex flex-col md:flex-row w-full xl:container min-h-screen md:h-screen xl:py-4">
         <SideBar />
-        <div className="flex w-[70%] bg-[#222E35]">
+        <div className="flex w-full md:w-[70%] bg-[#222E35] flex-1 min-h-[60vh]">
           {
             conversation.contactName
               ? <ConversationDetails />

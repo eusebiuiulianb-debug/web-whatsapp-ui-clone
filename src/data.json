@@ -2,39 +2,39 @@
   "conversation_list": [
     {
       "contactName": "Ana",
-      "lastMessage": "Nueva suscriptora, espera tu mensaje de bienvenida",
+      "lastMessage": "¡Bienvenida a la comunidad!",
       "lastTime": "19:15",
       "image": "avatar.jpg",
       "messageHistory": [
         {
-          "me": true,
-          "message": "¡Hola Ana! Gracias por unirte a la comunidad."
+          "me": false,
+          "message": "Hola, soy Ana. Acabo de suscribirme y me encanta tu contenido."
         },
         {
-          "me": false,
-          "message": "Hola! Me encantan tus contenidos, soy nueva suscriptora :)"
+          "me": true,
+          "message": "¡Bienvenida, Ana! Gracias por unirte a la comunidad, dime qué te gustaría ver primero."
         }
       ]
     },
     {
       "contactName": "Javier",
-      "lastMessage": "Pedido de audio personalizado con su nombre",
+      "lastMessage": "Necesito un poco más de contexto para grabarlo",
       "lastTime": "18:10",
       "image": "avatar3.png",
       "messageHistory": [
         {
-          "me": true,
-          "message": "¡Listo! Puedo grabarlo hoy mismo y te lo envío."
+          "me": false,
+          "message": "¿Puedes grabar un audio personalizado diciendo mi nombre para un reel?"
         },
         {
-          "me": false,
-          "message": "¿Me grabas un audio diciendo mi nombre para un reel?"
+          "me": true,
+          "message": "Claro, Javier. ¿Tienes alguna frase o tono específico? Si me das contexto, lo grabo hoy mismo."
         }
       ]
     },
     {
       "contactName": "Lucía",
-      "lastMessage": "Quiere adelanto del próximo contenido exclusivo",
+      "lastMessage": "Te comparto un adelanto en exclusiva hoy",
       "lastTime": "12:48",
       "image": "avatar2.jpg",
       "messageHistory": [
@@ -44,13 +44,13 @@
         },
         {
           "me": true,
-          "message": "Claro, estoy editando un clip para subirlo hoy."
+          "message": "Sí, estoy editando un clip exclusivo. Te envío el avance hoy en la tarde."
         }
       ]
     },
     {
       "contactName": "Diego",
-      "lastMessage": "Consulta sobre la próxima sesión en vivo",
+      "lastMessage": "Live premium este jueves a las 20h",
       "lastTime": "09:30",
       "image": "avatar.jpg",
       "messageHistory": [
@@ -60,7 +60,7 @@
         },
         {
           "me": true,
-          "message": "Sí, el jueves a las 20h. Te mando recordatorio por aquí."
+          "message": "Sí, Diego. El live premium es este jueves a las 20h, te mando recordatorio por aquí."
         }
       ]
     }

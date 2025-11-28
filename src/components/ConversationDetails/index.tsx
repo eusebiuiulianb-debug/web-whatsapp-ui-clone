@@ -9,13 +9,13 @@ export default function ConversationDetails() {
   const [ messageSend, setMessageSend ] = useState("");
 
   useEffect( () => {
-    setMessage(messageHistory);
+    setMessage(messageHistory || []);
   }, [conversation]);
 
   function changeHandler(evt: KeyboardEvent<HTMLInputElement>) {
     const { key } = evt;
 
-    if ( key ==="Enter") {
+    if ( key ==="Enter" && messageSend.trim().length > 0) {
       const teste = { "me": true, "message": messageSend };
       setMessage([...message, teste]);
       setMessageSend("");
@@ -23,7 +23,7 @@ export default function ConversationDetails() {
   }
 
   return (
-    <div className="flex flex-col w-full">
+    <div className="flex flex-col w-full h-full min-h-[60vh]">
       <div className="flex justify-between w-full px-4">
         <div className="flex justify-between bg-[#202c33] w-full h-14">
           <div className="flex items-center gap-4 h-full">
@@ -41,7 +41,7 @@ export default function ConversationDetails() {
           </div>
         </div>
       </div>
-      <div className="flex flex-col w-full h-full px-24 py-6 overflow-y-auto" style={{ backgroundImage: "url('/assets/images/background.jpg')" }}>
+      <div className="flex flex-col w-full flex-1 px-4 md:px-24 py-6 overflow-y-auto" style={{ backgroundImage: "url('/assets/images/background.jpg')" }}>
         {
           message.map( ( messageConversation, index ) => {
             const { me, message } = messageConversation;
