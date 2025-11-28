@@ -20,3 +20,7 @@ La app se levanta en modo desarrollo en `http://localhost:3000`.
 ## Packs de ejemplo
 - Catálogo estático de packs (bienvenida, mensual y especial) con nombre, precio y descripción.
 - El botón “Elegir pack” despliega la lista y al seleccionar uno se pre-llena el mensaje con la plantilla correspondiente (sin enviarlo automáticamente).
+
+## Página pública de creador
+- Ruta `/creator` como landing pública con avatar, descripción y listado de packs.
+- Incluye botón “Entrar al chat privado” que navega a `/`.
