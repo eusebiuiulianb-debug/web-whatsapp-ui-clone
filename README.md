@@ -36,3 +36,10 @@ La app se levanta en modo desarrollo en `http://localhost:3000`.
 - Etiqueta “Nuevo fan” para los más recientes.
 - Información de última conexión / en línea en el header del chat.
 - Indicador “✔✔ Visto” en el último mensaje enviado por el creador.
+
+## API interna mock
+- Endpoints Next.js disponibles:
+  - `/api/creator` devuelve creador y packs mock desde `src/server/mockData`.
+  - `/api/fans` devuelve la lista de fans con estados de demo.
+  - `/api/messages?fanId=...` devuelve los mensajes mock de cada fan.
+- La UI consume estos endpoints vía `fetch`, combinando los datos del creador con la configuración local (localStorage) cuando exista.

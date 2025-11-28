@@ -3,16 +3,43 @@ import { ConversationContext } from "../../context/ConversationContext";
 import Avatar from "../Avatar";
 import MessageBalloon from "../MessageBalloon";
 import { useCreatorConfig } from "../../context/CreatorConfigContext";
+import { Message as ApiMessage } from "../../types/chat";
 
 export default function ConversationDetails() {
   const { conversation, message, setMessage } = useContext(ConversationContext);
-  const { contactName, image, messageHistory, membershipStatus, daysLeft, lastSeen } = conversation;
+  const { contactName, image, membershipStatus, daysLeft, lastSeen, id } = conversation;
   const [ messageSend, setMessageSend ] = useState("");
   const [ isPackListOpen, setIsPackListOpen ] = useState(false);
+  const [ isLoadingMessages, setIsLoadingMessages ] = useState(false);
+  const [ messagesError, setMessagesError ] = useState("");
   const { config } = useCreatorConfig();
 
   useEffect( () => {
-    setMessage(messageHistory || []);
+    if (!id) return;
+    async function fetchMessages() {
+      try {
+        setIsLoadingMessages(true);
+        setMessagesError("");
+        setMessage([]);
+        const res = await fetch(`/api/messages?fanId=${id}`);
+        if (!res.ok) throw new Error("error");
+        const data = await res.json();
+        const mapped = (data.messages as ApiMessage[]).map(msg => ({
+          me: msg.from === "creator",
+          message: msg.text,
+          seen: !!msg.isLastFromCreator,
+          time: msg.time,
+        }));
+        setMessage(mapped);
+      } catch (_err) {
+        setMessagesError("Error cargando mensajes");
+      } finally {
+        setIsLoadingMessages(false);
+      }
+    }
+    fetchMessages();
+  }, [id]);
+  useEffect(() => {
     setMessageSend("");
   }, [conversation]);
 
@@ -145,13 +172,15 @@ export default function ConversationDetails() {
       <div className="flex flex-col w-full flex-1 px-4 md:px-24 py-6 overflow-y-auto" style={{ backgroundImage: "url('/assets/images/background.jpg')" }}>
         {
           message.map( ( messageConversation, index ) => {
-            const { me, message, seen } = messageConversation;
+            const { me, message, seen, time } = messageConversation;
 
             return (
-              <MessageBalloon key={index} me={me} message={message} seen={seen} />
+              <MessageBalloon key={index} me={me} message={message} seen={seen} time={time} />
             )
           } )
         }
+        {isLoadingMessages && <div className="text-center text-[#aebac1] text-sm mt-2">Cargando mensajes...</div>}
+        {messagesError && !isLoadingMessages && <div className="text-center text-red-400 text-sm mt-2">{messagesError}</div>}
       </div>
       <footer className="flex items-center bg-[#202c33] w-full h-16 py-3 text-[#8696a0]">
         <div className="flex py-1 pl-5 gap-3">

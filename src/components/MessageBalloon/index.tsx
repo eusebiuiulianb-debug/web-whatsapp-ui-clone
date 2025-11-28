@@ -4,6 +4,7 @@ interface MessageBalloonProps {
   me: boolean;
   message: string;
   seen?: boolean;
+  time?: string;
 }
 
 export default function MessageBalloon(props: MessageBalloonProps) {
@@ -14,8 +15,12 @@ export default function MessageBalloon(props: MessageBalloonProps) {
   const borderRounded = me ? "rounded-tr-none" : "rounded-tl-none";
 
   useEffect(() => {
-    setTime(refreshTime());
-  }, [])
+    if (props.time) {
+      setTime(props.time);
+    } else {
+      setTime(refreshTime());
+    }
+  }, [props.time])
 
   function refreshTime() {
     const date = new Date();

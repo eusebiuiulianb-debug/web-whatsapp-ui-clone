@@ -20,15 +20,38 @@ const CreatorConfigContext = createContext<CreatorConfigContextType>({
 
 export function CreatorConfigProvider({ children }: { children: ReactNode }) {
   const [config, setConfigState] = useState<CreatorConfig>(DEFAULT_CREATOR_CONFIG);
+  const [isLoaded, setIsLoaded] = useState(false);
 
   useEffect(() => {
-    const loaded = loadCreatorConfig();
-    setConfigState(loaded);
+    async function initConfig() {
+      try {
+        const response = await fetch("/api/creator");
+        if (!response.ok) throw new Error("failed");
+        const data = await response.json();
+        const baseConfig: CreatorConfig = {
+          creatorName: data.creator?.name || DEFAULT_CREATOR_CONFIG.creatorName,
+          creatorSubtitle: data.creator?.subtitle || DEFAULT_CREATOR_CONFIG.creatorSubtitle,
+          creatorDescription: data.creator?.description || DEFAULT_CREATOR_CONFIG.creatorDescription,
+          quickReplies: DEFAULT_CREATOR_CONFIG.quickReplies,
+          packs: data.packs || DEFAULT_CREATOR_CONFIG.packs,
+        };
+        const merged = loadCreatorConfig(baseConfig);
+        setConfigState(merged);
+      } catch (_err) {
+        const fallback = loadCreatorConfig();
+        setConfigState(fallback);
+      } finally {
+        setIsLoaded(true);
+      }
+    }
+    initConfig();
   }, []);
 
   useEffect(() => {
-    saveCreatorConfig(config);
-  }, [config]);
+    if (isLoaded) {
+      saveCreatorConfig(config);
+    }
+  }, [config, isLoaded]);
 
   function setConfig(newConfig: CreatorConfig) {
     setConfigState(newConfig);

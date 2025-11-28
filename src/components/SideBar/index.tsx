@@ -1,19 +1,53 @@
 import ConversationList from "../ConversationList";
-import conversations from "../../data.json";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import CreatorHeader from "../CreatorHeader";
 import { useCreatorConfig } from "../../context/CreatorConfigContext";
 import CreatorSettingsPanel from "../CreatorSettingsPanel";
+import { Fan } from "../../types/chat";
+import { ConversationListData } from "../../types/Conversation";
 
 export default function SideBar() {
-  const conversationsList = conversations.conversation_list;
   const [ search, setSearch ] = useState("");
   const [ isSettingsOpen, setIsSettingsOpen ] = useState(false);
+  const [ fans, setFans ] = useState<ConversationListData[]>([]);
+  const [ loadingFans, setLoadingFans ] = useState(true);
+  const [ fansError, setFansError ] = useState("");
   const { config } = useCreatorConfig();
   const creatorInitial = config.creatorName?.trim().charAt(0) || "E";
   const filteredConversationsList = search.length > 0
-    ? conversationsList.filter(conversationList => conversationList.contactName.toLowerCase().includes(search.toLowerCase()))
-    : conversationsList;
+    ? fans.filter(fan => fan.contactName.toLowerCase().includes(search.toLowerCase()))
+    : fans;
+
+  useEffect(() => {
+    async function fetchFans() {
+      try {
+        setLoadingFans(true);
+        const res = await fetch("/api/fans");
+        if (!res.ok) throw new Error("Error fetching fans");
+        const data = await res.json();
+        const mapped: ConversationListData[] = (data.fans as Fan[]).map((fan) => ({
+          id: fan.id,
+          contactName: fan.name,
+          lastMessage: fan.preview,
+          lastTime: fan.time,
+          image: fan.avatar || "avatar.jpg",
+          messageHistory: [],
+          membershipStatus: fan.membershipStatus,
+          daysLeft: fan.daysLeft,
+          unreadCount: fan.unreadCount,
+          isNew: fan.isNew,
+          lastSeen: fan.lastSeen,
+        }));
+        setFans(mapped);
+        setFansError("");
+      } catch (_err) {
+        setFansError("Error cargando fans");
+      } finally {
+        setLoadingFans(false);
+      }
+    }
+    fetchFans();
+  }, []);
 
   return (
     <div className="flex flex-col w-full md:w-[480px] bg-[#202c33] min-h-[320px] md:h-full" style={{borderRight: "1px solid rgba(134,150,160,0.15)"}}>
@@ -45,13 +79,17 @@ export default function SideBar() {
         </div>
       </div>
       <div className="flex flex-col w-full flex-1 overflow-y-auto" id="conversation">
-        {
-          filteredConversationsList.map( (conversation, index) => {
-            return (
-              <ConversationList key={index} isFirstConversation={index == 0} data={conversation} />
-            )
-          })
-        }
+        {loadingFans && (
+          <div className="text-center text-[#aebac1] py-4 text-sm">Cargando fans...</div>
+        )}
+        {fansError && !loadingFans && (
+          <div className="text-center text-red-400 py-4 text-sm">{fansError}</div>
+        )}
+        {!loadingFans && !fansError && filteredConversationsList.map((conversation, index) => {
+          return (
+            <ConversationList key={conversation.id || index} isFirstConversation={index == 0} data={conversation} />
+          )
+        })}
       </div>
     </div>
   )

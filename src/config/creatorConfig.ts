@@ -31,24 +31,24 @@ export const DEFAULT_CREATOR_CONFIG: CreatorConfig = {
 
 const isBrowser = () => typeof window !== "undefined";
 
-export function loadCreatorConfig(): CreatorConfig {
-  if (!isBrowser()) return DEFAULT_CREATOR_CONFIG;
+export function loadCreatorConfig(baseConfig: CreatorConfig = DEFAULT_CREATOR_CONFIG): CreatorConfig {
+  if (!isBrowser()) return baseConfig;
 
   try {
     const stored = window.localStorage.getItem(STORAGE_KEY);
-    if (!stored) return DEFAULT_CREATOR_CONFIG;
+    if (!stored) return baseConfig;
     const parsed = JSON.parse(stored);
     return {
-      ...DEFAULT_CREATOR_CONFIG,
+      ...baseConfig,
       ...parsed,
       quickReplies: {
-        ...DEFAULT_CREATOR_CONFIG.quickReplies,
+        ...baseConfig.quickReplies,
         ...(parsed.quickReplies || {}),
       },
-      packs: parsed.packs || DEFAULT_CREATOR_CONFIG.packs,
+      packs: parsed.packs || baseConfig.packs,
     };
   } catch (_err) {
-    return DEFAULT_CREATOR_CONFIG;
+    return baseConfig;
   }
 }
 
