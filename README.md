@@ -26,6 +26,7 @@ La app se levanta en modo desarrollo en `http://localhost:3000`.
 - Incluye botón “Entrar al chat privado” que navega a `/`.
 
 ## Ajustes del creador
-- Panel accesible desde el chat (menú de opciones) para editar nombre, subtítulo y descripción del creador.
+- La barra superior de la app ahora es la barra del creador (avatar, nombre, estado, enlace al perfil público y menú de ajustes).
+- El panel es accesible desde el menú de tres puntos de esa barra (arriba a la izquierda) para editar nombre, subtítulo y descripción del creador.
 - Permite cambiar textos de respuestas rápidas y editar nombre, precio y descripción de los packs.
 - Los cambios se guardan en `localStorage` bajo la clave `novsy_creator_config` y afectan tanto al chat (`/`) como a la página pública (`/creator`) en ese navegador.
