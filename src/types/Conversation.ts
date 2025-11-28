@@ -1,6 +1,7 @@
 interface Message {
   me: boolean;
   message: string;
+  seen?: boolean;
 }
 
 interface Conversation {
@@ -9,6 +10,9 @@ interface Conversation {
   image: string;
   membershipStatus?: string;
   daysLeft?: number;
+  unreadCount?: number;
+  isNew?: boolean;
+  lastSeen?: string;
 }
 
 interface ConversationListData {
@@ -19,6 +23,9 @@ interface ConversationListData {
   messageHistory: Message[];
   membershipStatus?: string;
   daysLeft?: number;
+  unreadCount?: number;
+  isNew?: boolean;
+  lastSeen?: string;
 }
 
 export type { Message, Conversation, ConversationListData }

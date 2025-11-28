@@ -30,3 +30,9 @@ La app se levanta en modo desarrollo en `http://localhost:3000`.
 - El panel es accesible desde el menú de tres puntos de esa barra (arriba a la izquierda) para editar nombre, subtítulo y descripción del creador.
 - Permite cambiar textos de respuestas rápidas y editar nombre, precio y descripción de los packs.
 - Los cambios se guardan en `localStorage` bajo la clave `novsy_creator_config` y afectan tanto al chat (`/`) como a la página pública (`/creator`) en ese navegador.
+
+## Detalles de demo
+- Contadores de no leídos en la lista de fans y vista en negrita cuando hay mensajes pendientes.
+- Etiqueta “Nuevo fan” para los más recientes.
+- Información de última conexión / en línea en el header del chat.
+- Indicador “✔✔ Visto” en el último mensaje enviado por el creador.

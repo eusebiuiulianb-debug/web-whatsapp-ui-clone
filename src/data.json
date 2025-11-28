@@ -7,6 +7,9 @@
       "image": "avatar.jpg",
       "membershipStatus": "Suscripción mensual",
       "daysLeft": 12,
+      "unreadCount": 2,
+      "isNew": true,
+      "lastSeen": "hoy a las 19:10",
       "messageHistory": [
         {
           "me": false,
@@ -14,7 +17,8 @@
         },
         {
           "me": true,
-          "message": "¡Bienvenida, Ana! Gracias por unirte a la comunidad, dime qué te gustaría ver primero."
+          "message": "¡Bienvenida, Ana! Gracias por unirte a la comunidad, dime qué te gustaría ver primero.",
+          "seen": true
         }
       ]
     },
@@ -25,6 +29,9 @@
       "image": "avatar3.png",
       "membershipStatus": "Contenido individual",
       "daysLeft": 0,
+      "unreadCount": 1,
+      "isNew": true,
+      "lastSeen": "hoy a las 18:05",
       "messageHistory": [
         {
           "me": false,
@@ -32,7 +39,8 @@
         },
         {
           "me": true,
-          "message": "Claro, Javier. ¿Tienes alguna frase o tono específico? Si me das contexto, lo grabo hoy mismo."
+          "message": "Claro, Javier. ¿Tienes alguna frase o tono específico? Si me das contexto, lo grabo hoy mismo.",
+          "seen": true
         }
       ]
     },
@@ -43,6 +51,9 @@
       "image": "avatar2.jpg",
       "membershipStatus": "Prueba 7 días",
       "daysLeft": 1,
+      "unreadCount": 0,
+      "isNew": false,
+      "lastSeen": "ayer a las 22:34",
       "messageHistory": [
         {
           "me": false,
@@ -61,6 +72,9 @@
       "image": "avatar.jpg",
       "membershipStatus": "Suscripción mensual",
       "daysLeft": 5,
+      "unreadCount": 0,
+      "isNew": false,
+      "lastSeen": "en línea ahora",
       "messageHistory": [
         {
           "me": false,
@@ -68,7 +82,8 @@
         },
         {
           "me": true,
-          "message": "Sí, Diego. El live premium es este jueves a las 20h, te mando recordatorio por aquí."
+          "message": "Sí, Diego. El live premium es este jueves a las 20h, te mando recordatorio por aquí.",
+          "seen": true
         }
       ]
     }

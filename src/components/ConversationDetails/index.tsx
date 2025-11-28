@@ -6,7 +6,7 @@ import { useCreatorConfig } from "../../context/CreatorConfigContext";
 
 export default function ConversationDetails() {
   const { conversation, message, setMessage } = useContext(ConversationContext);
-  const { contactName, image, messageHistory, membershipStatus, daysLeft } = conversation;
+  const { contactName, image, messageHistory, membershipStatus, daysLeft, lastSeen } = conversation;
   const [ messageSend, setMessageSend ] = useState("");
   const [ isPackListOpen, setIsPackListOpen ] = useState(false);
   const { config } = useCreatorConfig();
@@ -52,6 +52,19 @@ export default function ConversationDetails() {
     }
   }
 
+  function lastSeenLabel() {
+    if (!lastSeen) return null;
+    if (lastSeen.toLowerCase() === "en línea ahora") {
+      return (
+        <div className="flex items-center gap-2 text-xs text-[#53bdeb]">
+          <span className="w-2 h-2 rounded-full bg-[#25d366]" />
+          <span>En línea ahora</span>
+        </div>
+      );
+    }
+    return <span className="text-[#8696a0] text-xs">Última conexión: {lastSeen}</span>;
+  }
+
   return (
     <div className="flex flex-col w-full h-full min-h-[60vh]">
       <div className="flex justify-between w-full px-4">
@@ -61,6 +74,7 @@ export default function ConversationDetails() {
             <div className="flex flex-col leading-tight">
               <h1 className="text-white font-normal">{contactName}</h1>
               <span className="text-[#8696a0] text-xs">{membershipLabel()}</span>
+              {lastSeenLabel()}
             </div>
           </div>
           <div className="flex items-center text-[#8696a0] gap-2">
@@ -131,10 +145,10 @@ export default function ConversationDetails() {
       <div className="flex flex-col w-full flex-1 px-4 md:px-24 py-6 overflow-y-auto" style={{ backgroundImage: "url('/assets/images/background.jpg')" }}>
         {
           message.map( ( messageConversation, index ) => {
-            const { me, message } = messageConversation;
+            const { me, message, seen } = messageConversation;
 
             return (
-              <MessageBalloon key={index} me={me} message={message} />
+              <MessageBalloon key={index} me={me} message={message} seen={seen} />
             )
           } )
         }
