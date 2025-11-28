@@ -2,11 +2,13 @@ import { KeyboardEvent, useContext, useEffect, useState } from "react";
 import { ConversationContext } from "../../context/ConversationContext";
 import Avatar from "../Avatar";
 import MessageBalloon from "../MessageBalloon";
+import { packs } from "../../data/packs";
 
 export default function ConversationDetails() {
   const { conversation, message, setMessage } = useContext(ConversationContext);
   const { contactName, image, messageHistory, membershipStatus, daysLeft } = conversation;
   const [ messageSend, setMessageSend ] = useState("");
+  const [ isPackListOpen, setIsPackListOpen ] = useState(false);
 
   useEffect( () => {
     setMessage(messageHistory || []);
@@ -26,6 +28,16 @@ export default function ConversationDetails() {
 
   function handleQuickReply(template: string) {
     setMessageSend(template);
+    setIsPackListOpen(false);
+  }
+
+  function handleSelectPack(packId: string) {
+    const selectedPack = packs.find(pack => pack.id === packId);
+    if (!selectedPack) return;
+
+    const template = `Te propongo el ${selectedPack.name} (${selectedPack.price}): ${selectedPack.description} Si te encaja, te envío el enlace de pago: [pega aquí tu enlace].`;
+    setMessageSend(template);
+    setIsPackListOpen(false);
   }
 
   function changeHandler(evt: KeyboardEvent<HTMLInputElement>) {
@@ -60,28 +72,59 @@ export default function ConversationDetails() {
           </div>
         </div>
       </div>
-      <div className="flex w-full bg-[#111b21] px-4 md:px-6 py-3 gap-2 overflow-x-auto border-b border-[rgba(134,150,160,0.15)]">
-        <button
-          type="button"
-          className="flex-shrink-0 bg-[#2a3942] hover:bg-[#3b4a54] text-white text-sm px-3 py-2 rounded-lg border border-[rgba(134,150,160,0.2)] whitespace-nowrap"
-          onClick={() => handleQuickReply("¡Gracias por escribirme! ¿Qué te gustaría trabajar o ver primero?")}
-        >
-          Saludo rápido
-        </button>
-        <button
-          type="button"
-          className="flex-shrink-0 bg-[#2a3942] hover:bg-[#3b4a54] text-white text-sm px-3 py-2 rounded-lg border border-[rgba(134,150,160,0.2)] whitespace-nowrap"
-          onClick={() => handleQuickReply("Te dejo aquí el pack de bienvenida con los primeros contenidos recomendados para ti: [añade aquí el enlace o instrucciones].")}
-        >
-          Pack bienvenida
-        </button>
-        <button
-          type="button"
-          className="flex-shrink-0 bg-[#2a3942] hover:bg-[#3b4a54] text-white text-sm px-3 py-2 rounded-lg border border-[rgba(134,150,160,0.2)] whitespace-nowrap"
-          onClick={() => handleQuickReply("Si quieres acceder a todo el contenido y al chat prioritario, aquí tienes el enlace de suscripción mensual: [pega aquí tu enlace de suscripción].")}
-        >
-          Enlace suscripción
-        </button>
+      <div className="flex flex-col w-full bg-[#111b21] px-4 md:px-6 py-3 gap-2 border-b border-[rgba(134,150,160,0.15)]">
+        <div className="flex gap-2 overflow-x-auto pb-1">
+          <button
+            type="button"
+            className="flex-shrink-0 bg-[#2a3942] hover:bg-[#3b4a54] text-white text-sm px-3 py-2 rounded-lg border border-[rgba(134,150,160,0.2)] whitespace-nowrap"
+            onClick={() => handleQuickReply("¡Gracias por escribirme! ¿Qué te gustaría trabajar o ver primero?")}
+          >
+            Saludo rápido
+          </button>
+          <button
+            type="button"
+            className="flex-shrink-0 bg-[#2a3942] hover:bg-[#3b4a54] text-white text-sm px-3 py-2 rounded-lg border border-[rgba(134,150,160,0.2)] whitespace-nowrap"
+            onClick={() => handleQuickReply("Te dejo aquí el pack de bienvenida con los primeros contenidos recomendados para ti: [añade aquí el enlace o instrucciones].")}
+          >
+            Pack bienvenida
+          </button>
+          <button
+            type="button"
+            className="flex-shrink-0 bg-[#2a3942] hover:bg-[#3b4a54] text-white text-sm px-3 py-2 rounded-lg border border-[rgba(134,150,160,0.2)] whitespace-nowrap"
+            onClick={() => handleQuickReply("Si quieres acceder a todo el contenido y al chat prioritario, aquí tienes el enlace de suscripción mensual: [pega aquí tu enlace de suscripción].")}
+          >
+            Enlace suscripción
+          </button>
+          <button
+            type="button"
+            className="flex-shrink-0 bg-[#2a3942] hover:bg-[#3b4a54] text-white text-sm px-3 py-2 rounded-lg border border-[rgba(134,150,160,0.2)] whitespace-nowrap"
+            onClick={() => setIsPackListOpen(!isPackListOpen)}
+          >
+            Elegir pack
+          </button>
+        </div>
+        {
+          isPackListOpen && (
+            <div className="flex flex-col gap-2 bg-[#0c1317] border border-[rgba(134,150,160,0.2)] rounded-lg p-3 w-full">
+              {
+                packs.map(pack => (
+                  <button
+                    key={pack.id}
+                    type="button"
+                    className="text-left bg-[#1f2c33] hover:bg-[#2a3942] text-white px-3 py-2 rounded-lg border border-[rgba(134,150,160,0.15)]"
+                    onClick={() => handleSelectPack(pack.id)}
+                  >
+                    <div className="flex justify-between text-sm font-medium">
+                      <span>{pack.name}</span>
+                      <span className="text-[#53bdeb]">{pack.price}</span>
+                    </div>
+                    <p className="text-[#8696a0] text-xs mt-1">{pack.description}</p>
+                  </button>
+                ))
+              }
+            </div>
+          )
+        }
       </div>
       <div className="flex flex-col w-full flex-1 px-4 md:px-24 py-6 overflow-y-auto" style={{ backgroundImage: "url('/assets/images/background.jpg')" }}>
         {

@@ -16,3 +16,7 @@ La app se levanta en modo desarrollo en `http://localhost:3000`.
 - Conversaciones de ejemplo con fans (Ana, Javier, Lucía, Diego) y estado de suscripción estático (tipo y días restantes).
 - Acciones rápidas del creador que rellenan el mensaje con plantillas.
 - Mejora básica de vista móvil: lista y chat se apilan en pantallas pequeñas.
+
+## Packs de ejemplo
+- Catálogo estático de packs (bienvenida, mensual y especial) con nombre, precio y descripción.
+- El botón “Elegir pack” despliega la lista y al seleccionar uno se pre-llena el mensaje con la plantilla correspondiente (sin enviarlo automáticamente).
