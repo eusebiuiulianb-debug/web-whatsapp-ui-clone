@@ -7,7 +7,8 @@ import { useCreatorConfig } from "../../context/CreatorConfigContext";
 import { Message as ApiMessage, Fan } from "../../types/chat";
 import { Message as ConversationMessage, ConversationListData } from "../../types/Conversation";
 import { getAccessLabel, getAccessState } from "../../lib/access";
-import { FollowUpTag, getFollowUpTag } from "../../utils/followUp";
+import { FollowUpTag, getFollowUpTag, getUrgencyLevel } from "../../utils/followUp";
+import { PACKS } from "../../config/packs";
 import { getRecommendedFan } from "../../utils/recommendedFan";
 
 export default function ConversationDetails() {
@@ -44,12 +45,7 @@ export default function ConversationDetails() {
   const { config } = useCreatorConfig();
   const accessState = getAccessState({ membershipStatus, daysLeft });
   const accessLabel = getAccessLabel({ membershipStatus, daysLeft });
-  const packLabelMap = {
-    trial: "Prueba 7 días",
-    monthly: "Suscripción mensual",
-    special: "Contenido individual",
-  } as const;
-  const packLabel = selectedPackType ? packLabelMap[selectedPackType] : accessLabel;
+  const packLabel = selectedPackType ? PACKS[selectedPackType].name : accessLabel;
   const followUpTag: FollowUpTag =
     conversationFollowUpTag ?? getFollowUpTag(membershipStatus, daysLeft);
 

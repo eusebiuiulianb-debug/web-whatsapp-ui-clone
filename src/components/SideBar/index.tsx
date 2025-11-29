@@ -8,6 +8,7 @@ import { ConversationListData } from "../../types/Conversation";
 import clsx from "clsx";
 import { getFollowUpTag, getUrgencyLevel, needsFollowUpToday } from "../../utils/followUp";
 import { getRecommendedFan } from "../../utils/recommendedFan";
+import { PACKS } from "../../config/packs";
 
 export default function SideBar() {
   const [ search, setSearch ] = useState("");
@@ -20,6 +21,8 @@ export default function SideBar() {
   const [ showOnlyWithNotes, setShowOnlyWithNotes ] = useState(false);
   const [ tierFilter, setTierFilter ] = useState<"all" | "new" | "regular" | "priority">("all");
   const [ onlyWithNextAction, setOnlyWithNextAction ] = useState(false);
+  const [ showPacksPanel, setShowPacksPanel ] = useState(false);
+  const packsCount = Object.keys(PACKS).length;
   const { config } = useCreatorConfig();
   const creatorInitial = config.creatorName?.trim().charAt(0) || "E";
 
@@ -295,8 +298,42 @@ export default function SideBar() {
             <span className={clsx(tierFilter === "new" && "font-semibold text-amber-300")}>Nuevos</span>
             <span className={clsx(tierFilter === "new" && "font-semibold text-amber-300")}>{newCount}</span>
           </button>
+          <button
+            type="button"
+            onClick={() => setShowPacksPanel((prev) => !prev)}
+            className="flex justify-between text-left"
+          >
+            <span className={clsx(showPacksPanel && "font-semibold text-amber-300")}>Packs disponibles ({packsCount})</span>
+            <span className={clsx(showPacksPanel && "font-semibold text-amber-300")}>⋯</span>
+          </button>
         </div>
       </div>
+      {showPacksPanel && (
+        <div className="mb-2 px-3">
+          <div className="flex flex-col gap-2 rounded-xl border border-slate-700 bg-slate-900/80 px-3 py-3 text-[11px] text-slate-200">
+            <div className="flex items-center justify-between">
+              <span className="font-semibold text-slate-100">Packs disponibles</span>
+              <button
+                type="button"
+                className="text-slate-400 hover:text-slate-200 text-xs"
+                onClick={() => setShowPacksPanel(false)}
+              >
+                Cerrar
+              </button>
+            </div>
+            {Object.values(PACKS).map((pack) => (
+              <div key={pack.code} className="rounded-lg bg-slate-950/60 px-3 py-2 border border-slate-800">
+                <div className="flex items-center justify-between text-[12px] text-slate-100">
+                  <span className="font-semibold">{pack.name}</span>
+                  <span className="text-amber-200">{pack.price} €</span>
+                </div>
+                <div className="text-[11px] text-slate-400">{pack.durationDays} días</div>
+                <p className="text-[11px] text-slate-300 mt-1">{pack.description}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
       {recommendedFan && (
         <div className="mb-2 px-3">
           <div className="flex items-center justify-between rounded-xl border border-amber-500/60 bg-slate-900/80 px-3 py-2">

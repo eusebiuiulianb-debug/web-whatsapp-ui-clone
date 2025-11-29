@@ -5,6 +5,7 @@ import { ConversationListData } from "../../types/Conversation"
 import { getAccessState } from "../../lib/access";
 import { getFollowUpTag } from "../../utils/followUp";
 import clsx from "clsx";
+import { PACKS } from "../../config/packs";
 
 interface ConversationListProps {
   isFirstConversation?: boolean;
@@ -97,7 +98,13 @@ export default function ConversationList(props: ConversationListProps) {
             <div className="flex items-center gap-2 mt-1">
               {membershipStatus ? (
                 <span className="inline-flex items-center rounded-full bg-slate-800/80 text-[10px] text-amber-200 px-2 py-[1px] w-fit">
-                  {membershipStatus}
+                  {(() => {
+                    const statusLower = membershipStatus.toLowerCase();
+                    if (statusLower.includes("prueba")) return PACKS.trial.shortLabel;
+                    if (statusLower.includes("suscripción")) return PACKS.monthly.shortLabel;
+                    if (statusLower.includes("especial")) return PACKS.special.shortLabel;
+                    return membershipStatus;
+                  })()}
                 </span>
               ) : null}
               {daysLabel ? (
