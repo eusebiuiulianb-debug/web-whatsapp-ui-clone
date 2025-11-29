@@ -1,3 +1,5 @@
+import type { FollowUpTag, UrgencyLevel } from "../utils/followUp";
+
 export interface Creator {
   id: string;
   name: string;
@@ -23,6 +25,14 @@ export interface Fan {
   membershipStatus: string;
   daysLeft?: number;
   lastSeen: string;
+  lastCreatorMessageAt?: string | null;
+  notesCount?: number;
+  followUpTag?: FollowUpTag;
+  urgencyLevel?: UrgencyLevel;
+  paidGrantsCount?: number;
+  lifetimeValue?: number;
+  customerTier?: "new" | "regular" | "priority";
+  nextAction?: string | null;
 }
 
 export interface Message {

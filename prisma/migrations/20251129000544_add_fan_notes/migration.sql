@@ -1,0 +1,10 @@
+-- CreateTable
+CREATE TABLE "FanNote" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "fanId" TEXT NOT NULL,
+    "creatorId" TEXT NOT NULL,
+    "content" TEXT NOT NULL,
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT "FanNote_fanId_fkey" FOREIGN KEY ("fanId") REFERENCES "Fan" ("id") ON DELETE RESTRICT ON UPDATE CASCADE,
+    CONSTRAINT "FanNote_creatorId_fkey" FOREIGN KEY ("creatorId") REFERENCES "Creator" ("id") ON DELETE RESTRICT ON UPDATE CASCADE
+);

@@ -5,6 +5,9 @@ import { useCreatorConfig } from "../../context/CreatorConfigContext";
 import CreatorSettingsPanel from "../CreatorSettingsPanel";
 import { Fan } from "../../types/chat";
 import { ConversationListData } from "../../types/Conversation";
+import clsx from "clsx";
+import { getFollowUpTag, getUrgencyLevel, needsFollowUpToday } from "../../utils/followUp";
+import { getRecommendedFan } from "../../utils/recommendedFan";
 
 export default function SideBar() {
   const [ search, setSearch ] = useState("");
@@ -12,11 +15,123 @@ export default function SideBar() {
   const [ fans, setFans ] = useState<ConversationListData[]>([]);
   const [ loadingFans, setLoadingFans ] = useState(true);
   const [ fansError, setFansError ] = useState("");
+  const [ showPriorityOnly, setShowPriorityOnly ] = useState(false);
+  const [ followUpFilter, setFollowUpFilter ] = useState<"all" | "today" | "expired">("all");
+  const [ showOnlyWithNotes, setShowOnlyWithNotes ] = useState(false);
+  const [ tierFilter, setTierFilter ] = useState<"all" | "new" | "regular" | "priority">("all");
+  const [ onlyWithNextAction, setOnlyWithNextAction ] = useState(false);
   const { config } = useCreatorConfig();
   const creatorInitial = config.creatorName?.trim().charAt(0) || "E";
-  const filteredConversationsList = search.length > 0
-    ? fans.filter(fan => fan.contactName.toLowerCase().includes(search.toLowerCase()))
-    : fans;
+
+  type FanData = ConversationListData & { priorityScore?: number };
+
+  function mapFans(rawFans: Fan[]): ConversationListData[] {
+    return rawFans.map((fan) => ({
+      id: fan.id,
+      contactName: fan.name,
+      lastMessage: fan.preview,
+      lastTime: fan.time,
+      image: fan.avatar || "avatar.jpg",
+      messageHistory: [],
+      membershipStatus: fan.membershipStatus,
+      daysLeft: fan.daysLeft,
+      unreadCount: fan.unreadCount,
+      isNew: fan.isNew,
+      lastSeen: fan.lastSeen,
+      lastCreatorMessageAt: fan.lastCreatorMessageAt,
+      followUpTag: getFollowUpTag(fan.membershipStatus, fan.daysLeft),
+      urgencyLevel: getUrgencyLevel(getFollowUpTag(fan.membershipStatus, fan.daysLeft), fan.daysLeft),
+      notesCount: fan.notesCount ?? 0,
+      paidGrantsCount: fan.paidGrantsCount ?? 0,
+      lifetimeValue: fan.lifetimeValue ?? 0,
+      customerTier: fan.customerTier ?? "new",
+      nextAction: fan.nextAction ?? null,
+    }));
+  }
+
+  function getPriorityScore(fan: FanData): number {
+    let score = 0;
+    if (fan.isNew) score += 2;
+    if ((fan.unreadCount ?? 0) > 0) score += 2;
+    const status = fan.membershipStatus?.toLowerCase() ?? "";
+    if (status.includes("suscripción") || status.includes("contenido individual")) {
+      score += 2;
+    }
+    if (typeof fan.daysLeft === "number" && fan.daysLeft <= 3) {
+      score += 1;
+    }
+    return score;
+  }
+
+  const fansWithScore: FanData[] = fans.map((fan) => ({
+    ...fan,
+    priorityScore: getPriorityScore(fan),
+  }));
+
+  const totalCount = fans.length;
+  const followUpTodayCount = fans.filter((fan) =>
+    needsFollowUpToday(fan.followUpTag ?? getFollowUpTag(fan.membershipStatus, fan.daysLeft), fan.lastCreatorMessageAt)
+  ).length;
+  const expiredCount = fans.filter((fan) => (fan.followUpTag ?? getFollowUpTag(fan.membershipStatus, fan.daysLeft)) === "expired").length;
+  const withNotesCount = fans.filter((fan) => (fan.notesCount ?? 0) > 0).length;
+  const withNextActionCount = fans.filter((fan) => {
+    const na = fan.nextAction;
+    return typeof na === "string" && na.trim().length > 0;
+  }).length;
+  const priorityCount = fans.filter((fan) => (fan.customerTier ?? "new") === "priority").length;
+  const regularCount = fans.filter((fan) => (fan.customerTier ?? "new") === "regular").length;
+  const newCount = fans.filter((fan) => (fan.customerTier ?? "new") === "new").length;
+
+  function applyFilter(
+    filter: "all" | "today" | "expired",
+    onlyNotes = false,
+    tier: "all" | "new" | "regular" | "priority" = tierFilter,
+    onlyNextAction = onlyWithNextAction
+  ) {
+    setFollowUpFilter(filter);
+    setShowOnlyWithNotes(onlyNotes);
+    setTierFilter(tier);
+    setOnlyWithNextAction(onlyNextAction);
+  }
+
+  const filteredConversationsList = (search.length > 0 ? fansWithScore.filter(fan => fan.contactName.toLowerCase().includes(search.toLowerCase())) : fansWithScore)
+    .filter(fan => (showPriorityOnly ? (fan.priorityScore ?? 0) > 0 : true))
+    .filter((fan) => (!showOnlyWithNotes ? true : (fan.notesCount ?? 0) > 0))
+    .filter((fan) => {
+      if (!onlyWithNextAction) return true;
+      const na = fan.nextAction;
+      return typeof na === "string" && na.trim().length > 0;
+    })
+    .filter((fan) => {
+      const tag = fan.followUpTag ?? getFollowUpTag(fan.membershipStatus, fan.daysLeft);
+      if (followUpFilter === "all") return true;
+      if (followUpFilter === "expired") return tag === "expired";
+      if (followUpFilter === "today") return needsFollowUpToday(tag, fan.lastCreatorMessageAt);
+      return true;
+    })
+    .filter((fan) => {
+      const tier = fan.customerTier ?? "new";
+      if (tierFilter === "all") return true;
+      return tier === tierFilter;
+    })
+    .sort((a, b) => {
+      if (followUpFilter === "today") {
+        const order = { high: 0, medium: 1, low: 2, none: 3 } as const;
+        const ua = order[a.urgencyLevel ?? "none"];
+        const ub = order[b.urgencyLevel ?? "none"];
+        if (ua !== ub) return ua - ub;
+        const da = typeof a.daysLeft === "number" ? a.daysLeft : Number.POSITIVE_INFINITY;
+        const db = typeof b.daysLeft === "number" ? b.daysLeft : Number.POSITIVE_INFINITY;
+        return da - db;
+      }
+
+      if (showPriorityOnly && (b.priorityScore ?? 0) !== (a.priorityScore ?? 0)) {
+        return (b.priorityScore ?? 0) - (a.priorityScore ?? 0);
+      }
+      return 0;
+    });
+
+  const recommendedFan = getRecommendedFan(fansWithScore);
 
   useEffect(() => {
     async function fetchFans() {
@@ -25,19 +140,8 @@ export default function SideBar() {
         const res = await fetch("/api/fans");
         if (!res.ok) throw new Error("Error fetching fans");
         const data = await res.json();
-        const mapped: ConversationListData[] = (data.fans as Fan[]).map((fan) => ({
-          id: fan.id,
-          contactName: fan.name,
-          lastMessage: fan.preview,
-          lastTime: fan.time,
-          image: fan.avatar || "avatar.jpg",
-          messageHistory: [],
-          membershipStatus: fan.membershipStatus,
-          daysLeft: fan.daysLeft,
-          unreadCount: fan.unreadCount,
-          isNew: fan.isNew,
-          lastSeen: fan.lastSeen,
-        }));
+        const rawFans = Array.isArray(data.fans) ? (data.fans as Fan[]) : [];
+        const mapped: ConversationListData[] = mapFans(rawFans);
         setFans(mapped);
         setFansError("");
       } catch (_err) {
@@ -47,6 +151,38 @@ export default function SideBar() {
       }
     }
     fetchFans();
+  }, []);
+
+  useEffect(() => {
+    function handleFanDataUpdated(event: Event) {
+      const custom = event as CustomEvent;
+      const rawFans = Array.isArray(custom.detail?.fans) ? (custom.detail.fans as Fan[]) : null;
+      if (rawFans) {
+        setFans(mapFans(rawFans));
+        setFansError("");
+        setLoadingFans(false);
+        return;
+      }
+      // Fallback: refetch
+      (async () => {
+        try {
+          setLoadingFans(true);
+          const res = await fetch("/api/fans");
+          if (!res.ok) throw new Error("Error fetching fans");
+          const data = await res.json();
+          const mapped = mapFans(Array.isArray(data.fans) ? (data.fans as Fan[]) : []);
+          setFans(mapped);
+          setFansError("");
+        } catch (_err) {
+          setFansError("Error cargando fans");
+        } finally {
+          setLoadingFans(false);
+        }
+      })();
+    }
+
+    window.addEventListener("fanDataUpdated", handleFanDataUpdated as EventListener);
+    return () => window.removeEventListener("fanDataUpdated", handleFanDataUpdated as EventListener);
   }, []);
 
   return (
@@ -64,19 +200,172 @@ export default function SideBar() {
           <div className="absolute text-[#AEBAC1] h-full w-9">
             <svg viewBox="0 0 24 24" width="24" height="24" className="left-[50%] right-[50%] ml-auto mr-auto h-full">
               <path fill="currentColor" d="M15.009 13.805h-.636l-.22-.219a5.184 5.184 0 0 0 1.256-3.386 5.207 5.207 0 1 0-5.207 5.208 5.183 5.183 0 0 0 3.385-1.255l.221.22v.635l4.004 3.999 1.194-1.195-3.997-4.007zm-4.808 0a3.605 3.605 0 1 1 0-7.21 3.605 3.605 0 0 1 0 7.21z">
-              </path>
-            </svg>
+            </path>
+          </svg>
           </div>
           <div className="">
             <input className="w-[96%] h-9 rounded-lg bg-[#202c33] text-white text-sm px-10" placeholder="Buscar o iniciar un nuevo chat" value={search} onChange={e => setSearch(e.target.value)} />
           </div>
         </div>
         <div className="flex w-[5%] h-full items-center justify-center">
-          <svg viewBox="0 0 24 24" width="20" height="20" preserveAspectRatio="xMidYMid meet" className="text-[#778690]">
-            <path fill="currentColor" d="M10 18.1h4v-2h-4v2zm-7-12v2h18v-2H3zm3 7h12v-2H6v2z">
-            </path>
-          </svg>
+          <button
+            type="button"
+            onClick={() => setShowPriorityOnly((prev) => !prev)}
+            className={clsx(
+              "inline-flex h-8 w-8 items-center justify-center rounded-full border transition",
+              showPriorityOnly
+                ? "border-emerald-400 bg-emerald-500/20 text-emerald-200"
+                : "border-slate-700 bg-slate-800/60 text-slate-300 hover:bg-slate-700"
+            )}
+            aria-pressed={showPriorityOnly}
+            title={showPriorityOnly ? "Mostrar todos los chats" : "Mostrar solo prioritarios"}
+          >
+            <svg viewBox="0 0 24 24" width="20" height="20" preserveAspectRatio="xMidYMid meet">
+              <path fill="currentColor" d="M10 18.1h4v-2h-4v2zm-7-12v2h18v-2H3zm3 7h12v-2H6v2z">
+              </path>
+            </svg>
+          </button>
         </div>
+      </div>
+      <div className="mb-2 px-3">
+        <div className="flex flex-col gap-1 rounded-xl border border-slate-700 bg-slate-900/80 px-3 py-2 text-[11px] text-slate-300">
+          <button
+            type="button"
+            onClick={() => applyFilter("all", false)}
+            className="flex justify-between text-left"
+          >
+            <span className={clsx("text-slate-400", followUpFilter === "all" && !showOnlyWithNotes && "font-semibold text-amber-300")}>Hoy</span>
+            <span className={clsx("font-semibold text-slate-100", followUpFilter === "all" && !showOnlyWithNotes && "text-amber-300")}>
+              {totalCount} fan{totalCount === 1 ? "" : "s"}
+            </span>
+          </button>
+          <button
+            type="button"
+            onClick={() => applyFilter("today", false)}
+            className="flex justify-between text-left"
+          >
+            <span className={clsx(followUpFilter === "today" && !showOnlyWithNotes && "font-semibold text-amber-300")}>Seguimiento</span>
+            <span className={clsx(followUpFilter === "today" && !showOnlyWithNotes && "font-semibold text-amber-300")}>{followUpTodayCount}</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => applyFilter("expired", false)}
+            className="flex justify-between text-left"
+          >
+            <span className={clsx(followUpFilter === "expired" && !showOnlyWithNotes && "font-semibold text-amber-300")}>Caducados</span>
+            <span className={clsx(followUpFilter === "expired" && !showOnlyWithNotes && "font-semibold text-amber-300")}>{expiredCount}</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => applyFilter("all", true)}
+            className="flex justify-between text-left"
+          >
+            <span className={clsx(showOnlyWithNotes && "font-semibold text-amber-300")}>Con notas</span>
+            <span className={clsx(showOnlyWithNotes && "font-semibold text-amber-300")}>{withNotesCount}</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => applyFilter(followUpFilter, showOnlyWithNotes, tierFilter, !onlyWithNextAction)}
+            className="flex justify-between text-left"
+          >
+            <span className={clsx(onlyWithNextAction && "font-semibold text-amber-300")}>⚡ Con próxima acción</span>
+            <span className={clsx(onlyWithNextAction && "font-semibold text-amber-300")}>{withNextActionCount}</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => applyFilter(followUpFilter, showOnlyWithNotes, tierFilter === "priority" ? "all" : "priority")}
+            className="flex justify-between text-left"
+          >
+            <span className={clsx(tierFilter === "priority" && "font-semibold text-amber-300")}>🔥 Alta prioridad</span>
+            <span className={clsx(tierFilter === "priority" && "font-semibold text-amber-300")}>{priorityCount}</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => applyFilter(followUpFilter, showOnlyWithNotes, tierFilter === "regular" ? "all" : "regular")}
+            className="flex justify-between text-left"
+          >
+            <span className={clsx(tierFilter === "regular" && "font-semibold text-amber-300")}>Habituales</span>
+            <span className={clsx(tierFilter === "regular" && "font-semibold text-amber-300")}>{regularCount}</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => applyFilter(followUpFilter, showOnlyWithNotes, tierFilter === "new" ? "all" : "new")}
+            className="flex justify-between text-left"
+          >
+            <span className={clsx(tierFilter === "new" && "font-semibold text-amber-300")}>Nuevos</span>
+            <span className={clsx(tierFilter === "new" && "font-semibold text-amber-300")}>{newCount}</span>
+          </button>
+        </div>
+      </div>
+      {recommendedFan && (
+        <div className="mb-2 px-3">
+          <div className="flex items-center justify-between rounded-xl border border-amber-500/60 bg-slate-900/80 px-3 py-2">
+            <div className="flex flex-col">
+              <span className="text-[11px] text-slate-400">Siguiente recomendado</span>
+              <span className="text-sm font-semibold text-slate-50">{recommendedFan.contactName}</span>
+              <span className="text-[11px] text-slate-500">
+                {(recommendedFan.customerTier === "priority"
+                  ? "Alta prioridad"
+                  : recommendedFan.customerTier === "regular"
+                  ? "Habitual"
+                  : "Nuevo") +
+                  ` · ${Math.round(recommendedFan.lifetimeValue ?? 0)} €` +
+                  (recommendedFan.followUpTag === "trial_soon" && typeof recommendedFan.daysLeft === "number"
+                    ? ` · prueba – ${recommendedFan.daysLeft} d`
+                    : recommendedFan.followUpTag === "monthly_soon" && typeof recommendedFan.daysLeft === "number"
+                    ? ` · suscripción – ${recommendedFan.daysLeft} d`
+                    : recommendedFan.daysLeft !== undefined && recommendedFan.daysLeft !== null
+                    ? ` · ${recommendedFan.daysLeft} d`
+                    : "")}
+              </span>
+            </div>
+            <button
+              type="button"
+              className="rounded-lg bg-amber-500/90 px-2 py-1 text-xs font-semibold text-slate-900 hover:bg-amber-500"
+              onClick={() => setConversation(recommendedFan)}
+            >
+              Abrir chat
+            </button>
+          </div>
+        </div>
+      )}
+      <div className="mb-2 flex gap-2 text-xs px-3">
+        <button
+          type="button"
+          onClick={() => applyFilter("all", false, tierFilter, onlyWithNextAction)}
+          className={clsx(
+            "rounded-full border px-3 py-1",
+            followUpFilter === "all"
+              ? "border-slate-400 bg-slate-700/60 text-slate-50"
+              : "border-slate-600 bg-slate-800/60 text-slate-300"
+          )}
+        >
+          Todos{totalCount > 0 ? ` (${totalCount})` : ""}
+        </button>
+        <button
+          type="button"
+          onClick={() => applyFilter("today", false, tierFilter, onlyWithNextAction)}
+          className={clsx(
+            "rounded-full border px-3 py-1",
+            followUpFilter === "today"
+              ? "border-amber-400 bg-amber-500/10 text-amber-100"
+              : "border-amber-700 bg-slate-800/60 text-amber-200/80"
+          )}
+        >
+          Seguimiento hoy{followUpTodayCount > 0 ? ` (${followUpTodayCount})` : ""}
+        </button>
+        <button
+          type="button"
+          onClick={() => applyFilter("expired", false, tierFilter, onlyWithNextAction)}
+          className={clsx(
+            "rounded-full border px-3 py-1",
+            followUpFilter === "expired"
+              ? "border-rose-400 bg-rose-500/10 text-rose-100"
+              : "border-rose-800 bg-slate-800/60 text-rose-200/80"
+          )}
+        >
+          Caducados{expiredCount > 0 ? ` (${expiredCount})` : ""}
+        </button>
       </div>
       <div className="flex flex-col w-full flex-1 overflow-y-auto" id="conversation">
         {loadingFans && (
@@ -84,6 +373,11 @@ export default function SideBar() {
         )}
         {fansError && !loadingFans && (
           <div className="text-center text-red-400 py-4 text-sm">{fansError}</div>
+        )}
+        {showPriorityOnly && filteredConversationsList.length === 0 && (
+          <div className="px-4 py-3 text-xs text-slate-400">
+            No hay chats prioritarios por ahora.
+          </div>
         )}
         {!loadingFans && !fansError && filteredConversationsList.map((conversation, index) => {
           return (

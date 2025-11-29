@@ -1,0 +1,9 @@
+-- CreateTable
+CREATE TABLE "AccessGrant" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "fanId" TEXT NOT NULL,
+    "type" TEXT NOT NULL,
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "expiresAt" DATETIME NOT NULL,
+    CONSTRAINT "AccessGrant_fanId_fkey" FOREIGN KEY ("fanId") REFERENCES "Fan" ("id") ON DELETE RESTRICT ON UPDATE CASCADE
+);

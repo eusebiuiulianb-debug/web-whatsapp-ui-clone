@@ -1,3 +1,5 @@
+import type { FollowUpTag, UrgencyLevel } from "../utils/followUp";
+
 interface Message {
   me: boolean;
   message: string;
@@ -16,6 +18,14 @@ interface Conversation {
   isNew?: boolean;
   lastSeen?: string;
   lastTime?: string;
+  followUpTag?: FollowUpTag;
+  lastCreatorMessageAt?: string | null;
+  notesCount?: number;
+  urgencyLevel?: UrgencyLevel;
+  paidGrantsCount?: number;
+  lifetimeValue?: number;
+  customerTier?: "new" | "regular" | "priority";
+  nextAction?: string | null;
 }
 
 interface ConversationListData {
@@ -30,6 +40,14 @@ interface ConversationListData {
   unreadCount?: number;
   isNew?: boolean;
   lastSeen?: string;
+  followUpTag?: FollowUpTag;
+  lastCreatorMessageAt?: string | null;
+  notesCount?: number;
+  urgencyLevel?: UrgencyLevel;
+  paidGrantsCount?: number;
+  lifetimeValue?: number;
+  customerTier?: "new" | "regular" | "priority";
+  nextAction?: string | null;
 }
 
 export type { Message, Conversation, ConversationListData }

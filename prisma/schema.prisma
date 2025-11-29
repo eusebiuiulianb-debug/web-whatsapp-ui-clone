@@ -1,0 +1,78 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model Creator {
+  id          String @id @default("creator-1")
+  name        String
+  subtitle    String
+  description String
+  packs       Pack[]
+  fans        Fan[]
+  notes       FanNote[]
+}
+
+model Pack {
+  id          String  @id
+  name        String
+  price       String
+  description String
+  creatorId   String
+  creator     Creator @relation(fields: [creatorId], references: [id])
+}
+
+model Fan {
+  id               String    @id
+  name             String
+  avatar           String?
+  preview          String?
+  time             String?
+  unreadCount      Int       @default(0)
+  isNew            Boolean   @default(false)
+  membershipStatus String?
+  daysLeft         Int?
+  lastSeen         String?
+  nextAction       String?
+  creatorId        String
+  creator          Creator   @relation(fields: [creatorId], references: [id])
+  messages         Message[]
+  accessGrants     AccessGrant[]
+  notes            FanNote[]
+}
+
+model Message {
+  id                String  @id
+  fanId             String
+  from              String
+  text              String
+  time              String?
+  isLastFromCreator Boolean @default(false)
+  fan               Fan     @relation(fields: [fanId], references: [id])
+}
+
+model AccessGrant {
+  id         String   @id @default(cuid())
+  fanId      String
+  fan        Fan      @relation(fields: [fanId], references: [id])
+  type       String
+  createdAt  DateTime @default(now())
+  expiresAt  DateTime
+}
+
+model FanNote {
+  id        String   @id @default(cuid())
+  fan       Fan      @relation(fields: [fanId], references: [id])
+  fanId     String
+  creator   Creator  @relation(fields: [creatorId], references: [id])
+  creatorId String
+  content   String
+  createdAt DateTime @default(now())
+}
