@@ -11,6 +11,7 @@ function addDays(base: Date, days: number) {
 
 async function main() {
   await prisma.message.deleteMany();
+  await prisma.contentItem.deleteMany();
   await prisma.accessGrant.deleteMany();
   await prisma.fan.deleteMany();
   await prisma.pack.deleteMany();
@@ -47,6 +48,35 @@ async function main() {
         name: "Pack especial",
         price: "49 €",
         description: "Sesión intensiva + material extra para pareja.",
+        creatorId: creator.id,
+      },
+    ],
+  });
+
+  await prisma.contentItem.createMany({
+    data: [
+      {
+        id: "content-img-1",
+        title: "Galería íntima · set 01",
+        type: "IMAGE",
+        visibility: "INCLUDED_MONTHLY",
+        externalUrl: "https://example.com/galeria-01",
+        creatorId: creator.id,
+      },
+      {
+        id: "content-vid-1",
+        title: "Clip VIP · noche en casa",
+        type: "VIDEO",
+        visibility: "VIP",
+        externalUrl: "https://example.com/clip-vip",
+        creatorId: creator.id,
+      },
+      {
+        id: "content-aud-1",
+        title: "Susurros para dormir",
+        type: "AUDIO",
+        visibility: "EXTRA",
+        externalUrl: "https://example.com/audio-susurros",
         creatorId: creator.id,
       },
     ],
@@ -132,6 +162,17 @@ async function main() {
         text: "¡Bienvenida, Ana! Gracias por unirte a la comunidad, dime qué te gustaría ver primero.",
         time: "19:10",
         isLastFromCreator: true,
+        type: "TEXT",
+      },
+      {
+        id: "diego-3",
+        fanId: "diego",
+        from: "creator",
+        text: "Contenido adjunto",
+        time: "10:15",
+        isLastFromCreator: true,
+        type: "CONTENT",
+        contentItemId: "content-vid-1",
       },
     ],
   });

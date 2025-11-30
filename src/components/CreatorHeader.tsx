@@ -29,6 +29,16 @@ export default function CreatorHeader({ name, role, subtitle, initial, onOpenSet
             Ver perfil público
           </a>
         </Link>
+        <Link href="/library" legacyBehavior>
+          <a className="text-xs text-sky-300 hover:underline whitespace-nowrap">
+            Biblioteca
+          </a>
+        </Link>
+        <Link href="/creator/edit" legacyBehavior>
+          <a className="text-xs text-amber-300 hover:underline whitespace-nowrap">
+            Editar perfil
+          </a>
+        </Link>
         <div className="relative">
           <button
             type="button"

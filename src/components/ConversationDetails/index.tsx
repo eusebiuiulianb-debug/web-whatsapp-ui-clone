@@ -10,6 +10,7 @@ import { getAccessLabel, getAccessState } from "../../lib/access";
 import { FollowUpTag, getFollowUpTag, getUrgencyLevel } from "../../utils/followUp";
 import { PACKS } from "../../config/packs";
 import { getRecommendedFan } from "../../utils/recommendedFan";
+import { ContentItem, getContentTypeLabel, getContentVisibilityLabel } from "../../types/content";
 
 export default function ConversationDetails() {
   const { conversation, message: messages, setMessage, setConversation } = useContext(ConversationContext);
@@ -42,6 +43,10 @@ export default function ConversationDetails() {
   const [ historyError, setHistoryError ] = useState("");
   const [ nextActionDraft, setNextActionDraft ] = useState("");
   const [ recommendedFan, setRecommendedFan ] = useState<ConversationListData | null>(null);
+  const [ showContentModal, setShowContentModal ] = useState(false);
+  const [ contentItems, setContentItems ] = useState<ContentItem[]>([]);
+  const [ contentLoading, setContentLoading ] = useState(false);
+  const [ contentError, setContentError ] = useState("");
   const { config } = useCreatorConfig();
   const accessState = getAccessState({ membershipStatus, daysLeft });
   const accessLabel = getAccessLabel({ membershipStatus, daysLeft });
@@ -360,6 +365,23 @@ export default function ConversationDetails() {
     }
   }
 
+  async function fetchContentItems() {
+    try {
+      setContentLoading(true);
+      setContentError("");
+      const res = await fetch("/api/content");
+      if (!res.ok) throw new Error("error");
+      const data = await res.json();
+      const items = Array.isArray(data.items) ? (data.items as ContentItem[]) : [];
+      setContentItems(items);
+    } catch (_err) {
+      setContentError("Error cargando contenidos");
+      setContentItems([]);
+    } finally {
+      setContentLoading(false);
+    }
+  }
+
   async function fetchRecommendedFan(rawFans?: Fan[]) {
     try {
       const fansData = rawFans
@@ -413,12 +435,26 @@ export default function ConversationDetails() {
   }
 
   function mapApiMessagesToState(apiMessages: ApiMessage[]): ConversationMessage[] {
-    return apiMessages.map((msg) => ({
-      me: msg.from === "creator",
-      message: msg.text,
-      seen: !!msg.isLastFromCreator,
-      time: msg.time,
-    }));
+    return apiMessages.map((msg) => {
+      const isContent = msg.type === "CONTENT";
+      return {
+        me: msg.from === "creator",
+        message: msg.text,
+        seen: !!msg.isLastFromCreator,
+        time: msg.time || "",
+        kind: isContent ? "content" : "text",
+        type: msg.type,
+        contentItem: msg.contentItem
+          ? {
+              id: msg.contentItem.id,
+              title: msg.contentItem.title,
+              type: msg.contentItem.type,
+              visibility: msg.contentItem.visibility,
+              externalUrl: msg.contentItem.externalUrl,
+            }
+          : null,
+      };
+    });
   }
 
   useEffect(() => {
@@ -461,6 +497,10 @@ export default function ConversationDetails() {
   }, [id]);
 
   useEffect(() => {
+    fetchContentItems();
+  }, []);
+
+  useEffect(() => {
     if (!id || !showNotes) return;
     fetchFanNotes(id);
   }, [id, showNotes]);
@@ -495,7 +535,7 @@ export default function ConversationDetails() {
   function changeHandler(evt: KeyboardEvent<HTMLInputElement>) {
     const { key } = evt;
 
-    if (key === "Enter") {
+    if (key === "Enter" && !evt.shiftKey) {
       evt.preventDefault();
       handleSendMessage();
     }
@@ -507,23 +547,33 @@ export default function ConversationDetails() {
     if (!trimmedMessage) return;
 
     try {
+      setMessagesError("");
       const res = await fetch("/api/messages", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ fanId: id, text: trimmedMessage, from: "creator" }),
+        body: JSON.stringify({ fanId: id, text: trimmedMessage, from: "creator", type: "TEXT" }),
       });
 
       if (!res.ok) {
         console.error("Error enviando mensaje");
+        setMessagesError("Error enviando mensaje");
         return;
       }
 
       const data = await res.json();
-      const mapped = mapApiMessagesToState(data.messages as ApiMessage[]);
-      setMessage(mapped);
+      const apiMessages: ApiMessage[] = Array.isArray(data.messages)
+        ? (data.messages as ApiMessage[])
+        : data.message
+        ? [data.message as ApiMessage]
+        : [];
+      const mapped = mapApiMessagesToState(apiMessages);
+      if (mapped.length > 0) {
+        setMessage((prev) => [...(prev || []), ...mapped]);
+      }
       setMessageSend("");
     } catch (err) {
       console.error("Error enviando mensaje", err);
+      setMessagesError("Error enviando mensaje");
     }
   }
 
@@ -596,6 +646,41 @@ export default function ConversationDetails() {
     } catch (err) {
       console.error("Error guardando nota", err);
       setNotesError("Error guardando nota");
+    }
+  }
+
+  async function handleAttachContent(item: ContentItem) {
+    if (!id) return;
+    try {
+      const res = await fetch("/api/messages", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          fanId: id,
+          from: "creator",
+          type: "CONTENT",
+          contentItemId: item.id,
+          text: "",
+        }),
+      });
+
+      if (!res.ok) throw new Error("error");
+      const data = await res.json();
+      const apiMessages: ApiMessage[] = Array.isArray(data.messages)
+        ? (data.messages as ApiMessage[])
+        : data.message
+        ? [data.message as ApiMessage]
+        : [];
+      const mapped = mapApiMessagesToState(apiMessages);
+      if (mapped.length > 0) {
+        setMessage((prev) => [...(prev || []), ...mapped]);
+      }
+      setMessagesError("");
+      setShowContentModal(false);
+    } catch (err) {
+      console.error("Error adjuntando contenido", err);
+      setMessagesError("Error adjuntando contenido");
+      setShowContentModal(false);
     }
   }
 
@@ -979,17 +1064,25 @@ export default function ConversationDetails() {
       })()}
       <div className="flex flex-col w-full flex-1 px-4 md:px-24 py-6 overflow-y-auto" style={{ backgroundImage: "url('/assets/images/background.jpg')" }}>
         {messages.map((messageConversation, index) => {
-          const { me, message, seen, time } = messageConversation;
+          if (messageConversation.kind === "content") {
+            return (
+              <ContentAttachmentCard
+                key={`content-${messageConversation.contentItem?.id || index}`}
+                message={messageConversation}
+              />
+            );
+          }
 
+          const { me, message, seen, time } = messageConversation;
           return (
             <MessageBalloon key={index} me={me} message={message} seen={seen} time={time} />
-          )
+          );
         })}
         {isLoadingMessages && <div className="text-center text-[#aebac1] text-sm mt-2">Cargando mensajes...</div>}
         {messagesError && !isLoadingMessages && <div className="text-center text-red-400 text-sm mt-2">{messagesError}</div>}
       </div>
-      <footer className="flex items-center bg-[#202c33] w-full h-16 py-3 text-[#8696a0]">
-        <div className="flex py-1 pl-5 gap-3">
+      <footer className="flex items-center bg-[#202c33] w-full h-auto py-3 px-4 text-[#8696a0] gap-3">
+        <div className="flex items-center gap-3 py-1">
           <svg viewBox="0 0 24 24" width="24" height="24" className="cursor-pointer">
             <path fill="currentColor" d="M9.153 11.603c.795 0 1.439-.879 1.439-1.962s-.644-1.962-1.439-1.962-1.439.879-1.439 1.962.644 1.962 1.439 1.962zm-3.204 1.362c-.026-.307-.131 5.218 6.063 5.551 6.066-.25 6.066-5.551 6.066-5.551-6.078 1.416-12.129 0-12.129 0zm11.363 1.108s-.669 1.959-5.051 1.959c-3.505 0-5.388-1.164-5.607-1.959 0 0 5.912 1.055 10.658 0zM11.804 1.011C5.609 1.011.978 6.033.978 12.228s4.826 10.761 11.021 10.761S23.02 18.423 23.02 12.228c.001-6.195-5.021-11.217-11.216-11.217zM12 21.354c-5.273 0-9.381-3.886-9.381-9.159s3.942-9.548 9.215-9.548 9.548 4.275 9.548 9.548c-.001 5.272-4.109 9.159-9.382 9.159zm3.108-9.751c.795 0 1.439-.879 1.439-1.962s-.644-1.962-1.439-1.962-1.439.879-1.439 1.962.644 1.962 1.439 1.962z">
             </path>
@@ -998,8 +1091,18 @@ export default function ConversationDetails() {
             <path fill="currentColor" d="M1.816 15.556v.002c0 1.502.584 2.912 1.646 3.972s2.472 1.647 3.974 1.647a5.58 5.58 0 0 0 3.972-1.645l9.547-9.548c.769-.768 1.147-1.767 1.058-2.817-.079-.968-.548-1.927-1.319-2.698-1.594-1.592-4.068-1.711-5.517-.262l-7.916 7.915c-.881.881-.792 2.25.214 3.261.959.958 2.423 1.053 3.263.215l5.511-5.512c.28-.28.267-.722.053-.936l-.244-.244c-.191-.191-.567-.349-.957.04l-5.506 5.506c-.18.18-.635.127-.976-.214-.098-.097-.576-.613-.213-.973l7.915-7.917c.818-.817 2.267-.699 3.23.262.5.501.802 1.1.849 1.685.051.573-.156 1.111-.589 1.543l-9.547 9.549a3.97 3.97 0 0 1-2.829 1.171 3.975 3.975 0 0 1-2.83-1.173 3.973 3.973 0 0 1-1.172-2.828c0-1.071.415-2.076 1.172-2.83l7.209-7.211c.157-.157.264-.579.028-.814L11.5 4.36a.572.572 0 0 0-.834.018l-7.205 7.207a5.577 5.577 0 0 0-1.645 3.971z">
             </path>
           </svg>
+          <button
+            type="button"
+            onClick={() => {
+              fetchContentItems();
+              setShowContentModal(true);
+            }}
+            className="ml-2 rounded-lg border border-slate-700 bg-slate-800/70 px-3 py-1.5 text-xs font-semibold text-slate-100 hover:border-amber-400/70 hover:text-amber-100 transition"
+          >
+            Adjuntar contenido
+          </button>
         </div>
-        <div className="flex w-[85%] h-12 ml-3">
+        <div className="flex flex-1 h-12">
           <input
             type={"text"}
             className="bg-[#2a3942] rounded-lg w-full px-3 py-3 text-white"
@@ -1010,13 +1113,77 @@ export default function ConversationDetails() {
             disabled={accessState === "expired"}
           />
         </div>
-        <div className="flex justify-center items-center w-[5%] h-12">
+        <div className="flex justify-center items-center h-12">
           <svg viewBox="0 0 24 24" width="24" height="24" className="cursor-pointer" onClick={handleSendMessage}>
             <path fill="currentColor" d="M11.999 14.942c2.001 0 3.531-1.53 3.531-3.531V4.35c0-2.001-1.53-3.531-3.531-3.531S8.469 2.35 8.469 4.35v7.061c0 2.001 1.53 3.531 3.53 3.531zm6.238-3.53c0 3.531-2.942 6.002-6.237 6.002s-6.237-2.471-6.237-6.002H3.761c0 4.001 3.178 7.297 7.061 7.885v3.884h2.354v-3.884c3.884-.588 7.061-3.884 7.061-7.885h-2z">
             </path>
           </svg>
         </div>
       </footer>
+      {showContentModal && (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 px-4">
+          <div className="w-full max-w-lg rounded-2xl bg-slate-900 p-6 border border-slate-800 shadow-xl">
+            <div className="flex items-center justify-between mb-2">
+              <div>
+                <h3 className="text-lg font-semibold text-white">Adjuntar contenido</h3>
+                <p className="text-sm text-slate-300">Elige qué quieres enviar a este fan.</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowContentModal(false)}
+                className="text-slate-400 hover:text-white"
+              >
+                ✕
+              </button>
+            </div>
+            <div className="mt-3 flex flex-col gap-2 max-h-[60vh] overflow-y-auto">
+              {contentLoading && <div className="text-sm text-slate-300">Cargando contenidos...</div>}
+              {contentError && !contentLoading && (
+                <div className="text-sm text-rose-300">{contentError}</div>
+              )}
+              {!contentLoading && !contentError && contentItems.length === 0 && (
+                <div className="text-sm text-slate-400">Aún no hay contenidos.</div>
+              )}
+              {!contentLoading && !contentError && contentItems.map((item) => (
+                <div
+                  key={item.id}
+                  className="rounded-xl border border-slate-800 bg-slate-900/70 px-3 py-3 flex items-start justify-between gap-3"
+                >
+                  <div className="flex flex-col gap-1">
+                    <div className="flex items-center gap-2 text-sm font-semibold text-white">
+                      <span className="text-lg">{getContentEmoji(item.type)}</span>
+                      <span>{item.title}</span>
+                    </div>
+                    <div className="flex items-center gap-2 text-xs text-slate-300">
+                      <span>{getContentTypeLabel(item.type)}</span>
+                      <span className="w-1 h-1 rounded-full bg-slate-600" />
+                      <span
+                        className={`inline-flex items-center rounded-full px-2 py-0.5 border text-[11px] ${
+                          item.visibility === "VIP"
+                            ? "border-amber-400/80 text-amber-200"
+                            : item.visibility === "EXTRA"
+                            ? "border-sky-400/70 text-sky-200"
+                            : "border-emerald-400/70 text-emerald-200"
+                        }`}
+                      >
+                        {getContentVisibilityLabel(item.visibility)}
+                      </span>
+                    </div>
+                    <span className="text-[11px] text-slate-500">Añadido el {formatContentDate(item.createdAt)}</span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => handleAttachContent(item)}
+                    className="self-center rounded-lg border border-amber-400/80 bg-amber-500/10 px-3 py-1.5 text-xs font-semibold text-amber-100 hover:bg-amber-500/20 transition"
+                  >
+                    Adjuntar
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
       {accessState === "expired" && (
         <div className="px-4 md:px-6 py-2 text-xs text-[#f5c065] bg-[#2a1f16]">
           El acceso de {contactName} ha caducado. Renueva su pack para seguir respondiendo.
@@ -1024,4 +1191,72 @@ export default function ConversationDetails() {
       )}
     </div>
   )
+}
+
+function ContentAttachmentCard({ message }: { message: ConversationMessage }) {
+  const content = message.contentItem;
+  const title = content?.title || message.message || "Contenido adjunto";
+  const visibilityLabel = content ? getContentVisibilityLabel(content.visibility) : "";
+  const typeLabel = content ? getContentTypeLabel(content.type) : "Contenido";
+  const emoji = getContentEmoji(content?.type);
+  const alignItems = message.me ? "items-end" : "items-start";
+  const externalUrl = content?.externalUrl;
+
+  const badgeClass = (() => {
+    if (visibilityLabel.toLowerCase().includes("vip")) return "border-amber-400/80 text-amber-200";
+    if (visibilityLabel.toLowerCase().includes("extra")) return "border-sky-400/70 text-sky-200";
+    if (visibilityLabel.toLowerCase().includes("incluido")) return "border-emerald-400/70 text-emerald-200";
+    return "border-slate-600 text-slate-200";
+  })();
+
+  function openContent() {
+    if (externalUrl) {
+      window.open(externalUrl, "_blank");
+    } else {
+      alert("Demo: aquí se abriría el contenido real");
+    }
+  }
+
+  return (
+    <div className={`flex flex-col ${alignItems} w-full h-max`}>
+      <div className="flex flex-col min-w-[5%] max-w-[65%] bg-[#202c33] border border-slate-800 p-3 text-white rounded-lg mb-3 shadow-sm">
+        <div className="flex items-center gap-2 text-sm font-semibold">
+          <span className="text-lg">{emoji}</span>
+          <span className="truncate">{title}</span>
+        </div>
+        <div className="flex items-center gap-2 text-[11px] text-slate-300 mt-1">
+          <span>{typeLabel}</span>
+          {visibilityLabel && <span className="w-1 h-1 rounded-full bg-slate-600" />}
+          {visibilityLabel && (
+            <span className={`inline-flex items-center rounded-full px-2 py-0.5 border text-[11px] ${badgeClass}`}>
+              {visibilityLabel}
+            </span>
+          )}
+        </div>
+        <button
+          type="button"
+          className="mt-2 inline-flex w-fit items-center rounded-md border border-slate-700 bg-slate-800/80 px-3 py-1 text-xs font-semibold text-amber-200 hover:border-amber-400/70 hover:text-amber-100 transition"
+          onClick={openContent}
+        >
+          Ver contenido
+        </button>
+        <div className="flex justify-end items-center gap-2 text-[hsla(0,0%,100%,0.6)] text-xs mt-2">
+          <span>{message.time}</span>
+          {message.me && message.seen ? <span className="text-[#8edafc] text-[11px]">✔✔ Visto</span> : null}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function getContentEmoji(type?: string) {
+  if (type === "VIDEO") return "🎥";
+  if (type === "AUDIO") return "🎧";
+  return "📷";
+}
+
+function formatContentDate(dateString: string) {
+  const date = new Date(dateString);
+  if (Number.isNaN(date.getTime())) return dateString;
+  return date.toLocaleDateString("es-ES", { day: "2-digit", month: "short", year: "numeric" });
 }

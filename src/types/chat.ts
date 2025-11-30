@@ -1,4 +1,5 @@
 import type { FollowUpTag, UrgencyLevel } from "../utils/followUp";
+import type { ContentType, ContentVisibility } from "./content";
 
 export interface Creator {
   id: string;
@@ -42,4 +43,13 @@ export interface Message {
   text: string;
   time: string;
   isLastFromCreator?: boolean;
+  type?: "TEXT" | "CONTENT";
+  contentItem?: {
+    id: string;
+    title: string;
+    type: ContentType;
+    visibility: ContentVisibility;
+    externalUrl: string;
+    createdAt: string;
+  } | null;
 }

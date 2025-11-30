@@ -18,7 +18,7 @@ async function handleGet(req: NextApiRequest, res: NextApiResponse) {
   const { fanId } = req.query;
 
   if (!fanId || typeof fanId !== "string") {
-    return res.status(400).json({ error: "fanId is required" });
+    return res.status(200).json({ messages: [] });
   }
 
   try {
@@ -27,15 +27,10 @@ async function handleGet(req: NextApiRequest, res: NextApiResponse) {
       orderBy: { time: "asc" },
     });
 
-    if (!messages || messages.length === 0) {
-      const fanExists = await prisma.fan.findUnique({ where: { id: fanId } });
-      if (!fanExists) return res.status(404).json({ error: "Fan not found" });
-    }
-
-    const mappedMessages = mapMessages(messages);
-    return res.status(200).json({ messages: mappedMessages });
+    console.log("DEBUG get messages for fan", fanId, "count", messages.length);
+    return res.status(200).json({ messages });
   } catch (_err) {
-    return res.status(500).json({ error: "Error loading messages" });
+    return res.status(200).json({ messages: [] });
   }
 }
 
@@ -46,7 +41,7 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
     return res.status(400).json({ error: "fanId is required" });
   }
 
-  if (!text || typeof text !== "string") {
+  if (!text || typeof text !== "string" || text.trim().length === 0) {
     return res.status(400).json({ error: "text is required" });
   }
 
@@ -63,43 +58,21 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
       data: { isLastFromCreator: false },
     });
 
-    await prisma.message.create({
+    const created = await prisma.message.create({
       data: {
         id: `${fanId}-${Date.now()}`,
         fanId,
         from: normalizedFrom,
-        text,
+        text: typeof text === "string" ? text : "",
         time,
         isLastFromCreator: normalizedFrom === "creator",
       },
     });
 
-    const messages = await prisma.message.findMany({
-      where: { fanId },
-      orderBy: { time: "asc" },
-    });
-
-    const mappedMessages = mapMessages(messages);
-    return res.status(201).json({ messages: mappedMessages });
-  } catch (_err) {
+    console.log("DEBUG created message", created);
+    return res.status(201).json({ message: created });
+  } catch (err) {
+    console.error("Error creating message (debug):", err);
     return res.status(500).json({ error: "Error creating message" });
   }
-}
-
-function mapMessages(messages: Array<{
-  id: string;
-  fanId: string;
-  from: string;
-  text: string;
-  time: string | null;
-  isLastFromCreator: boolean | null;
-}>) {
-  return messages.map((msg) => ({
-    id: msg.id,
-    fanId: msg.fanId,
-    from: msg.from,
-    text: msg.text,
-    time: msg.time || "",
-    isLastFromCreator: msg.isLastFromCreator ?? false,
-  }));
 }

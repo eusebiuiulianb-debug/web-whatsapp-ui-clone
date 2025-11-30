@@ -18,6 +18,7 @@ model Creator {
   packs       Pack[]
   fans        Fan[]
   notes       FanNote[]
+  contentItems ContentItem[]
 }
 
 model Pack {
@@ -56,6 +57,39 @@ model Message {
   time              String?
   isLastFromCreator Boolean @default(false)
   fan               Fan     @relation(fields: [fanId], references: [id])
+  type              MessageType @default(TEXT)
+  contentItemId     String?
+  contentItem       ContentItem? @relation("MessageContentItems", fields: [contentItemId], references: [id])
+}
+
+model ContentItem {
+  id          String           @id @default(cuid())
+  creator     Creator          @relation(fields: [creatorId], references: [id])
+  creatorId   String
+  type        ContentType
+  title       String
+  visibility  ContentVisibility
+  externalUrl String
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+  messages    Message[]        @relation("MessageContentItems")
+}
+
+enum ContentType {
+  IMAGE
+  VIDEO
+  AUDIO
+}
+
+enum ContentVisibility {
+  INCLUDED_MONTHLY
+  VIP
+  EXTRA
+}
+
+enum MessageType {
+  TEXT
+  CONTENT
 }
 
 model AccessGrant {

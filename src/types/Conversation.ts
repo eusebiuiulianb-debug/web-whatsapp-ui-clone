@@ -1,10 +1,20 @@
 import type { FollowUpTag, UrgencyLevel } from "../utils/followUp";
+import type { ContentType, ContentVisibility } from "./content";
 
 interface Message {
   me: boolean;
   message: string;
   seen?: boolean;
   time?: string;
+  kind?: "text" | "content";
+  type?: "TEXT" | "CONTENT";
+  contentItem?: {
+    id: string;
+    title: string;
+    type: ContentType;
+    visibility: ContentVisibility;
+    externalUrl?: string;
+  } | null;
 }
 
 interface Conversation {
