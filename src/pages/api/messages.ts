@@ -25,6 +25,7 @@ async function handleGet(req: NextApiRequest, res: NextApiResponse) {
     const messages = await prisma.message.findMany({
       where: { fanId },
       orderBy: { time: "asc" },
+      include: { contentItem: true },
     });
 
     console.log("DEBUG get messages for fan", fanId, "count", messages.length);
@@ -35,14 +36,24 @@ async function handleGet(req: NextApiRequest, res: NextApiResponse) {
 }
 
 async function handlePost(req: NextApiRequest, res: NextApiResponse) {
-  const { fanId, text, from } = req.body || {};
+  const { fanId, text, from, type, contentItemId } = req.body || {};
 
   if (!fanId || typeof fanId !== "string") {
     return res.status(400).json({ error: "fanId is required" });
   }
 
-  if (!text || typeof text !== "string" || text.trim().length === 0) {
-    return res.status(400).json({ error: "text is required" });
+  const normalizedType = type === "CONTENT" ? "CONTENT" : "TEXT";
+
+  if (normalizedType === "TEXT") {
+    if (!text || typeof text !== "string" || text.trim().length === 0) {
+      return res.status(400).json({ error: "text is required" });
+    }
+  }
+
+  if (normalizedType === "CONTENT") {
+    if (!contentItemId || typeof contentItemId !== "string") {
+      return res.status(400).json({ error: "contentItemId is required for content messages" });
+    }
   }
 
   const normalizedFrom = from === "fan" ? "fan" : "creator";
@@ -66,11 +77,14 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
         text: typeof text === "string" ? text : "",
         time,
         isLastFromCreator: normalizedFrom === "creator",
+        type: normalizedType,
+        contentItemId: normalizedType === "CONTENT" ? (contentItemId as string) : null,
       },
+      include: { contentItem: true },
     });
 
     console.log("DEBUG created message", created);
-    return res.status(201).json({ message: created });
+    return res.status(200).json({ message: created });
   } catch (err) {
     console.error("Error creating message (debug):", err);
     return res.status(500).json({ error: "Error creating message" });

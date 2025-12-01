@@ -41,6 +41,9 @@ export default async function handler(_req: NextApiRequest, res: NextApiResponse
             b.expiresAt.getTime() - a.expiresAt.getTime() ||
             b.createdAt.getTime() - a.createdAt.getTime()
         )[0];
+      const activeGrantTypes = fan.accessGrants
+        .filter((grant) => grant.expiresAt >= now)
+        .map((grant) => grant.type);
 
       let membershipStatus = fan.membershipStatus || "";
       let daysLeft = fan.daysLeft ?? 0;
@@ -94,6 +97,7 @@ export default async function handler(_req: NextApiRequest, res: NextApiResponse
         lifetimeValue,
         customerTier,
         nextAction: fan.nextAction || null,
+        activeGrantTypes,
       };
     });
 

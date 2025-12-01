@@ -9,6 +9,8 @@ import clsx from "clsx";
 import { getFollowUpTag, getUrgencyLevel, needsFollowUpToday } from "../../utils/followUp";
 import { getRecommendedFan } from "../../utils/recommendedFan";
 import { PACKS } from "../../config/packs";
+import { getLastReadForFan, loadUnreadMap, UnreadMap } from "../../utils/unread";
+import type { Message } from "../../types/chat";
 
 export default function SideBar() {
   const [ search, setSearch ] = useState("");
@@ -22,6 +24,7 @@ export default function SideBar() {
   const [ tierFilter, setTierFilter ] = useState<"all" | "new" | "regular" | "priority">("all");
   const [ onlyWithNextAction, setOnlyWithNextAction ] = useState(false);
   const [ showPacksPanel, setShowPacksPanel ] = useState(false);
+  const [ unreadMap, setUnreadMap ] = useState<UnreadMap>({});
   const packsCount = Object.keys(PACKS).length;
   const { config } = useCreatorConfig();
   const creatorInitial = config.creatorName?.trim().charAt(0) || "E";
@@ -70,6 +73,51 @@ export default function SideBar() {
     ...fan,
     priorityScore: getPriorityScore(fan),
   }));
+
+  function parseMessageTimestamp(msg: Message): number | null {
+    const idParts = (msg.id || "").split("-");
+    const last = idParts[idParts.length - 1];
+    const num = Number(last);
+    if (Number.isFinite(num) && last.length >= 10) return num;
+    return null;
+  }
+
+  async function updateUnreadCounts(fanList: ConversationListData[], map: UnreadMap) {
+    const entries = await Promise.all(
+      fanList.map(async (fan) => {
+        const lastRead = getLastReadForFan(map, fan.id);
+        if (!lastRead) return { id: fan.id, count: 0 };
+        try {
+          const res = await fetch(`/api/messages?fanId=${fan.id}`);
+          if (!res.ok) throw new Error("error");
+          const data = await res.json();
+          const msgs = Array.isArray(data.messages) ? (data.messages as Message[]) : [];
+          const lrTs = lastRead.getTime();
+          const unread = msgs.filter((msg) => {
+            if (msg.from !== "fan") return false;
+            const ts = parseMessageTimestamp(msg);
+            if (ts === null) return false;
+            return ts > lrTs;
+          }).length;
+          return { id: fan.id, count: unread };
+        } catch (_err) {
+          return { id: fan.id, count: 0 };
+        }
+      })
+    );
+
+    const byId = entries.reduce<Record<string, number>>((acc, curr) => {
+      acc[curr.id] = curr.count;
+      return acc;
+    }, {});
+
+    setFans((prev) =>
+      prev.map((fan) => ({
+        ...fan,
+        unreadCount: byId[fan.id] ?? fan.unreadCount,
+      }))
+    );
+  }
 
   const totalCount = fans.length;
   const followUpTodayCount = fans.filter((fan) =>
@@ -137,6 +185,7 @@ export default function SideBar() {
   const recommendedFan = getRecommendedFan(fansWithScore);
 
   useEffect(() => {
+    setUnreadMap(loadUnreadMap());
     async function fetchFans() {
       try {
         setLoadingFans(true);
@@ -147,6 +196,7 @@ export default function SideBar() {
         const mapped: ConversationListData[] = mapFans(rawFans);
         setFans(mapped);
         setFansError("");
+        updateUnreadCounts(mapped, loadUnreadMap());
       } catch (_err) {
         setFansError("Error cargando fans");
       } finally {
@@ -185,8 +235,18 @@ export default function SideBar() {
     }
 
     window.addEventListener("fanDataUpdated", handleFanDataUpdated as EventListener);
-    return () => window.removeEventListener("fanDataUpdated", handleFanDataUpdated as EventListener);
+    const handleUnreadUpdated = () => setUnreadMap(loadUnreadMap());
+    window.addEventListener("unreadUpdated", handleUnreadUpdated);
+    return () => {
+      window.removeEventListener("fanDataUpdated", handleFanDataUpdated as EventListener);
+      window.removeEventListener("unreadUpdated", handleUnreadUpdated);
+    };
   }, []);
+
+  useEffect(() => {
+    if (fans.length === 0) return;
+    updateUnreadCounts(fans, unreadMap);
+  }, [fans, unreadMap]);
 
   return (
     <div className="flex flex-col w-full md:w-[480px] bg-[#202c33] min-h-[320px] md:h-full" style={{borderRight: "1px solid rgba(134,150,160,0.15)"}}>

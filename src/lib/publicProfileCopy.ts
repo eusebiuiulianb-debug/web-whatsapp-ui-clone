@@ -57,25 +57,46 @@ export const PROFILE_COPY: Record<PublicProfileMode, CreatorCopy> = {
     packs: {
       welcome: {
         badge: "Primera vez",
-        description: ["Mensaje de bienvenida personalizado.", "Algunas publicaciones privadas para empezar a conocernos."],
+        description: [
+          "Mensaje de bienvenida personalizado.",
+          "Algunas publicaciones privadas para empezar a conocernos.",
+        ],
         cta: "Elegir este pack",
       },
       monthly: {
         badge: "Recomendado",
-        description: ["Acceso a todo mi contenido exclusivo del mes.", "Chat 1:1 conmigo mientras dure la suscripción."],
+        description: [
+          "Acceso a todo mi contenido exclusivo del mes.",
+          "Chat 1:1 conmigo mientras dure la suscripción.",
+        ],
         cta: "Elegir este pack",
       },
       special: {
         badge: "VIP",
-        description: ["Día con prioridad total en el chat (leo y respondo tus mensajes primero).", "Contenido extra pensado solo para ti."],
+        description: [
+          "Día con prioridad total en el chat (leo y respondo tus mensajes primero).",
+          "Contenido extra pensado solo para ti.",
+        ],
         cta: "Elegir este pack",
       },
     },
     freebies: {
       items: [
-        { title: "Mini feed público", description: "Algunas publicaciones abiertas para que veas mi estilo y mi energía.", cta: "Ver feed" },
-        { title: "Carta para nuevos fans", description: "Una carta donde te explico cómo uso el chat y qué puedes esperar de mí aquí dentro.", cta: "Leer carta" },
-        { title: "Clips recientes", description: "Pequeños clips de redes para que me pongas cara y voz antes de entrar al privado.", cta: "Ver clips" },
+        {
+          title: "Mini feed público",
+          description: "Algunas publicaciones abiertas para que veas mi estilo y mi energía.",
+          cta: "Ver feed",
+        },
+        {
+          title: "Carta para nuevos fans",
+          description: "Una carta donde te explico cómo uso el chat y qué puedes esperar de mí aquí dentro.",
+          cta: "Leer carta",
+        },
+        {
+          title: "Clips recientes",
+          description: "Pequeños clips de redes para que me pongas cara y voz antes de entrar al privado.",
+          cta: "Ver clips",
+        },
       ],
     },
     faq: {

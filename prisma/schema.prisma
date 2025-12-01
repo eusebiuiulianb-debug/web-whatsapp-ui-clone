@@ -66,25 +66,42 @@ model ContentItem {
   id          String           @id @default(cuid())
   creator     Creator          @relation(fields: [creatorId], references: [id])
   creatorId   String
+  pack        ContentPack      @default(WELCOME)
+  slug        String?
   type        ContentType
   title       String
-  visibility  ContentVisibility
-  externalUrl String
+  description String?
+  order       Int              @default(0)
+  mediaPath   String?
+  durationSec Int?
+  isPreview   Boolean          @default(false)
+  visibility  ContentVisibility @default(INCLUDED_MONTHLY)
+  externalUrl String?
   createdAt   DateTime         @default(now())
   updatedAt   DateTime         @updatedAt
   messages    Message[]        @relation("MessageContentItems")
+
+  @@unique([creatorId, slug])
+  @@index([pack, order])
 }
 
 enum ContentType {
   IMAGE
   VIDEO
   AUDIO
+  TEXT
 }
 
 enum ContentVisibility {
   INCLUDED_MONTHLY
   VIP
   EXTRA
+}
+
+enum ContentPack {
+  WELCOME
+  MONTHLY
+  SPECIAL
 }
 
 enum MessageType {

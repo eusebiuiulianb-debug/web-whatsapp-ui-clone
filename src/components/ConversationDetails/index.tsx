@@ -11,6 +11,10 @@ import { FollowUpTag, getFollowUpTag, getUrgencyLevel } from "../../utils/follow
 import { PACKS } from "../../config/packs";
 import { getRecommendedFan } from "../../utils/recommendedFan";
 import { ContentItem, getContentTypeLabel, getContentVisibilityLabel } from "../../types/content";
+import { defaultExtraPresets, ExtraPreset, ExtraPresetKey } from "../../config/extraPresets";
+import { loadExtraPresets, saveExtraPresets } from "../../utils/extraPresetsStorage";
+import { EditExtraPresetsModal } from "../conversation/EditExtraPresetsModal";
+import { loadUnreadMap, saveUnreadMap, updateLastReadForFan } from "../../utils/unread";
 
 export default function ConversationDetails() {
   const { conversation, message: messages, setMessage, setConversation } = useContext(ConversationContext);
@@ -41,12 +45,19 @@ export default function ConversationDetails() {
   const [ notesError, setNotesError ] = useState("");
   const [ showHistory, setShowHistory ] = useState(false);
   const [ historyError, setHistoryError ] = useState("");
+  const [ showExtraTemplates, setShowExtraTemplates ] = useState(false);
   const [ nextActionDraft, setNextActionDraft ] = useState("");
   const [ recommendedFan, setRecommendedFan ] = useState<ConversationListData | null>(null);
   const [ showContentModal, setShowContentModal ] = useState(false);
-  const [ contentItems, setContentItems ] = useState<ContentItem[]>([]);
+  const [ isAttachmentMenuOpen, setIsAttachmentMenuOpen ] = useState(false);
+  type ContentWithFlags = ContentItem & { hasBeenSentToFan?: boolean };
+  const [ contentItems, setContentItems ] = useState<ContentWithFlags[]>([]);
   const [ contentLoading, setContentLoading ] = useState(false);
   const [ contentError, setContentError ] = useState("");
+  const [ loadingPaymentId, setLoadingPaymentId ] = useState<string | null>(null);
+  type PresetsRecord = Record<ExtraPresetKey, ExtraPreset>;
+  const [ presets, setPresets ] = useState<PresetsRecord>(defaultExtraPresets);
+  const [ showEditExtra, setShowEditExtra ] = useState(false);
   const { config } = useCreatorConfig();
   const accessState = getAccessState({ membershipStatus, daysLeft });
   const accessLabel = getAccessLabel({ membershipStatus, daysLeft });
@@ -231,29 +242,20 @@ export default function ConversationDetails() {
       'Si quieres, dime en una frase: “Lo que más me pesa ahora es ______”.';
     fillMessage(quickGreeting);
     setShowPackSelector(false);
+    setShowExtraTemplates(false);
   }
 
   function handleWelcomePack() {
     const welcomePackMessage =
-      "Te dejo aquí el Pack de bienvenida (9 €): primer contacto + 3 audios base personalizados para ti.\n\n" +
-      "👉 [pega aquí tu enlace]\n\n" +
-      "Cuando los escuches, respóndeme con una frase: “Lo que más me ha removido es ______”. Así sé por dónde seguir contigo.";
+      "Te propongo el Pack bienvenida (9 €): primer contacto + 3 audios base personalizados. Si te encaja, te envío el enlace de pago.";
     fillMessage(welcomePackMessage);
-    setShowPackSelector(true);
+    setShowPackSelector(false);
+    setShowExtraTemplates(false);
   }
 
   function handleChoosePack() {
-    const choosePackMessage =
-      "Te resumo rápido las opciones que tengo ahora mismo:\n\n" +
-      "1️⃣ Pack bienvenida – 9 €\n" +
-      "   Primer contacto + 3 audios base personalizados.\n\n" +
-      "2️⃣ Suscripción mensual – 25 €/mes\n" +
-      "   Chat 1:1 conmigo + contenido nuevo cada semana.\n\n" +
-      "3️⃣ Pack especial pareja – 49 €\n" +
-      "   Sesión intensiva + material extra para pareja.\n\n" +
-      "Dime con cuál te resuena más (1, 2 o 3) y te paso el enlace directo.";
-    fillMessage(choosePackMessage);
     setShowPackSelector((prev) => !prev);
+    setShowExtraTemplates(false);
   }
 
   function handleSubscriptionLink() {
@@ -264,6 +266,12 @@ export default function ConversationDetails() {
       "Si tienes alguna duda antes de entrar, dímelo y lo aclaramos.";
     fillMessage(subscriptionLinkMessage);
     setShowPackSelector(false);
+    setShowExtraTemplates(false);
+  }
+
+  async function handleSendQuickExtra(message: string) {
+    await sendMessageText(message);
+    setShowExtraTemplates(false);
   }
 
   function fillMessageFromPackType(type: "trial" | "monthly" | "special") {
@@ -365,14 +373,15 @@ export default function ConversationDetails() {
     }
   }
 
-  async function fetchContentItems() {
+  async function fetchContentItems(targetFanId?: string) {
     try {
       setContentLoading(true);
       setContentError("");
-      const res = await fetch("/api/content");
+      const url = targetFanId ? `/api/content?fanId=${encodeURIComponent(targetFanId)}` : "/api/content";
+      const res = await fetch(url);
       if (!res.ok) throw new Error("error");
       const data = await res.json();
-      const items = Array.isArray(data.items) ? (data.items as ContentItem[]) : [];
+      const items = Array.isArray(data.items) ? (data.items as ContentWithFlags[]) : [];
       setContentItems(items);
     } catch (_err) {
       setContentError("Error cargando contenidos");
@@ -457,25 +466,35 @@ export default function ConversationDetails() {
     });
   }
 
-  useEffect(() => {
+  async function fetchMessages(shouldShowLoading = false) {
     if (!id) return;
-    async function fetchMessages() {
-      try {
+    try {
+      if (shouldShowLoading) {
         setIsLoadingMessages(true);
-        setMessagesError("");
         setMessage([]);
-        const res = await fetch(`/api/messages?fanId=${id}`);
-        if (!res.ok) throw new Error("error");
-        const data = await res.json();
-        const mapped = mapApiMessagesToState(data.messages as ApiMessage[]);
-        setMessage(mapped);
-      } catch (_err) {
-        setMessagesError("Error cargando mensajes");
-      } finally {
+      }
+      setMessagesError("");
+      const res = await fetch(`/api/messages?fanId=${id}`);
+      if (!res.ok) throw new Error("error");
+      const data = await res.json();
+      const mapped = mapApiMessagesToState(data.messages as ApiMessage[]);
+      setMessage(mapped);
+    } catch (_err) {
+      setMessagesError("Error cargando mensajes");
+    } finally {
+      if (shouldShowLoading) {
         setIsLoadingMessages(false);
       }
     }
-    fetchMessages();
+  }
+
+  useEffect(() => {
+    if (!id) return;
+    fetchMessages(true);
+    const timer = setInterval(() => {
+      fetchMessages(false);
+    }, 4000);
+    return () => clearInterval(timer);
   }, [id]);
   useEffect(() => {
     setMessageSend("");
@@ -497,8 +516,23 @@ export default function ConversationDetails() {
   }, [id]);
 
   useEffect(() => {
-    fetchContentItems();
+    if (id) {
+      fetchContentItems(id);
+    }
+  }, [id]);
+
+  useEffect(() => {
+    const loaded = loadExtraPresets();
+    setPresets(loaded);
   }, []);
+
+  useEffect(() => {
+    if (!id) return;
+    const map = loadUnreadMap();
+    const updated = updateLastReadForFan(map, id, new Date());
+    saveUnreadMap(updated);
+    window.dispatchEvent(new Event("unreadUpdated"));
+  }, [id]);
 
   useEffect(() => {
     if (!id || !showNotes) return;
@@ -523,12 +557,14 @@ export default function ConversationDetails() {
     setSelectedPackType(mappedType as "trial" | "monthly" | "special");
     fillMessage(buildPackProposalMessage(selectedPack));
     setShowPackSelector(true);
+    setShowExtraTemplates(false);
   }
 
   function handleSelectPackChip(event: MouseEvent<HTMLButtonElement>, type: "trial" | "monthly" | "special") {
     event.stopPropagation();
     setSelectedPackType(type);
     setShowPackSelector(true);
+    setShowExtraTemplates(false);
     fillMessageFromPackType(type);
   }
 
@@ -541,9 +577,9 @@ export default function ConversationDetails() {
     }
   }
 
-  async function handleSendMessage() {
+  async function sendMessageText(text: string) {
     if (!id) return;
-    const trimmedMessage = messageSend.trim();
+    const trimmedMessage = text.trim();
     if (!trimmedMessage) return;
 
     try {
@@ -574,6 +610,44 @@ export default function ConversationDetails() {
     } catch (err) {
       console.error("Error enviando mensaje", err);
       setMessagesError("Error enviando mensaje");
+    }
+  }
+
+  async function handleSendMessage() {
+    await sendMessageText(messageSend);
+  }
+
+  async function handleCreatePaymentLink(item: ContentWithFlags) {
+    if (!id) return;
+    if (loadingPaymentId) return;
+    setLoadingPaymentId(item.id);
+    try {
+      const res = await fetch("/api/payments/demo-link", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          fanId: id,
+          contentId: item.id,
+          price: 29,
+          currency: "EUR",
+        }),
+      });
+
+      if (!res.ok) {
+        console.error("Error creando link de pago");
+        setLoadingPaymentId(null);
+        return;
+      }
+
+      const data = await res.json();
+      const url = data?.url;
+      if (typeof url === "string" && url.trim().length > 0) {
+        await sendMessageText(`Te dejo aquí el enlace para este pack: ${url}`);
+      }
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setLoadingPaymentId(null);
     }
   }
 
@@ -649,7 +723,7 @@ export default function ConversationDetails() {
     }
   }
 
-  async function handleAttachContent(item: ContentItem) {
+  async function handleAttachContent(item: ContentWithFlags) {
     if (!id) return;
     try {
       const res = await fetch("/api/messages", {
@@ -800,7 +874,11 @@ export default function ConversationDetails() {
           <button
             type="button"
             className="text-xs font-medium rounded-full border border-slate-600 bg-slate-800/80 text-slate-100 px-3 py-1 transition hover:bg-slate-700"
-            onClick={() => setShowNotes((prev) => !prev)}
+            onClick={() => {
+              setShowNotes((prev) => !prev);
+              setShowExtraTemplates(false);
+              setShowHistory(false);
+            }}
           >
             Notas
           </button>
@@ -814,12 +892,29 @@ export default function ConversationDetails() {
             onClick={() => {
               setShowHistory((prev) => !prev);
               setShowNotes(false);
+              setShowExtraTemplates(false);
               if (!showHistory && id) {
                 fetchHistory(id);
               }
             }}
           >
             Historial
+          </button>
+          <button
+            type="button"
+            className={`text-xs font-medium rounded-full border px-3 py-1 transition ${
+              showExtraTemplates
+                ? "border-amber-400 bg-amber-500/10 text-amber-100"
+                : "border-slate-600 bg-slate-800/80 text-slate-100 hover:bg-slate-700"
+            }`}
+            onClick={() => {
+              setShowExtraTemplates((prev) => !prev);
+              setShowPackSelector(false);
+              setShowNotes(false);
+              setShowHistory(false);
+            }}
+          >
+            Extra
           </button>
         </div>
         {showPackSelector && (
@@ -868,8 +963,10 @@ export default function ConversationDetails() {
                 : pack.name.toLowerCase().includes("mensual")
                 ? "monthly"
                 : "special";
+              const hasActiveMonthlyPack = getPackStatusForType("monthly").status === "active";
               const isSelected = packType === selectedPackType;
               const packStatus = getPackStatusForType(packType as "trial" | "monthly" | "special");
+              const isSpecialBlocked = packType === "special" && !hasActiveMonthlyPack;
               return (
                 <button
                   key={pack.id}
@@ -902,12 +999,18 @@ export default function ConversationDetails() {
                         className="inline-flex items-center justify-center rounded-full border border-amber-400/90 px-3 py-1 text-xs font-semibold text-amber-200 hover:bg-amber-500/15 hover:border-amber-300 focus:outline-none focus:ring-1 focus:ring-amber-400/60 transition"
                         onClick={(e) => {
                           e.stopPropagation();
+                          if (isSpecialBlocked) return;
                           handleGrant(packType as "trial" | "monthly" | "special");
                         }}
-                        disabled={grantLoadingType === packType}
+                        disabled={grantLoadingType === packType || isSpecialBlocked}
                       >
                         {grantLoadingType === packType ? "Concediendo..." : "Conceder acceso"}
                       </button>
+                    )}
+                    {isSpecialBlocked && (
+                      <p className="text-[11px] text-slate-400">
+                        Solo disponible para fans con suscripción mensual activa.
+                      </p>
                     )}
                   </div>
                 </button>
@@ -915,7 +1018,49 @@ export default function ConversationDetails() {
             })}
           </div>
         )}
+        {showExtraTemplates && (
+          <div className="flex flex-col gap-3 bg-slate-800/60 border border-slate-700 rounded-lg p-3 w-full">
+            <div className="mb-1 flex items-center justify-between">
+              <h3 className="text-sm font-semibold text-white">Contenido extra rápido</h3>
+              <button
+                type="button"
+                className="text-xs text-slate-300 hover:text-white underline-offset-2 hover:underline"
+                onClick={() => setShowEditExtra(true)}
+              >
+                Editar textos
+              </button>
+            </div>
+            <div className="grid gap-3 md:grid-cols-3">
+              {(["PHOTO", "VIDEO", "COMBO"] as ExtraPresetKey[]).map((key) => {
+                const preset = presets[key];
+                return (
+                  <button
+                    key={key}
+                    type="button"
+                    className="flex flex-col items-start rounded-xl bg-slate-900/60 p-4 text-left ring-1 ring-slate-800 hover:bg-slate-800"
+                    onClick={() => handleSendQuickExtra(preset.message)}
+                  >
+                    <p className="text-sm font-semibold text-white">{preset.title}</p>
+                    <p className="mt-1 text-xs text-slate-300">{preset.subtitle}</p>
+                    <p className="mt-3 text-[11px] text-slate-400">Envía mensaje predefinido</p>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
       </header>
+      {showEditExtra && (
+        <EditExtraPresetsModal
+          presets={presets}
+          onSave={(next) => {
+            setPresets(next);
+            saveExtraPresets(next);
+            setShowEditExtra(false);
+          }}
+          onClose={() => setShowEditExtra(false)}
+        />
+      )}
       {showNotes && (
         <div className="mb-3 mx-4 rounded-xl border border-slate-700 bg-slate-900/80 px-3 py-3 text-xs text-slate-100 flex flex-col gap-3 max-h-64">
           <div className="flex items-center justify-between gap-2">
@@ -1087,20 +1232,42 @@ export default function ConversationDetails() {
             <path fill="currentColor" d="M9.153 11.603c.795 0 1.439-.879 1.439-1.962s-.644-1.962-1.439-1.962-1.439.879-1.439 1.962.644 1.962 1.439 1.962zm-3.204 1.362c-.026-.307-.131 5.218 6.063 5.551 6.066-.25 6.066-5.551 6.066-5.551-6.078 1.416-12.129 0-12.129 0zm11.363 1.108s-.669 1.959-5.051 1.959c-3.505 0-5.388-1.164-5.607-1.959 0 0 5.912 1.055 10.658 0zM11.804 1.011C5.609 1.011.978 6.033.978 12.228s4.826 10.761 11.021 10.761S23.02 18.423 23.02 12.228c.001-6.195-5.021-11.217-11.216-11.217zM12 21.354c-5.273 0-9.381-3.886-9.381-9.159s3.942-9.548 9.215-9.548 9.548 4.275 9.548 9.548c-.001 5.272-4.109 9.159-9.382 9.159zm3.108-9.751c.795 0 1.439-.879 1.439-1.962s-.644-1.962-1.439-1.962-1.439.879-1.439 1.962.644 1.962 1.439 1.962z">
             </path>
           </svg>
-          <svg viewBox="0 0 24 24" width="24" height="24" className="cursor-pointer">
-            <path fill="currentColor" d="M1.816 15.556v.002c0 1.502.584 2.912 1.646 3.972s2.472 1.647 3.974 1.647a5.58 5.58 0 0 0 3.972-1.645l9.547-9.548c.769-.768 1.147-1.767 1.058-2.817-.079-.968-.548-1.927-1.319-2.698-1.594-1.592-4.068-1.711-5.517-.262l-7.916 7.915c-.881.881-.792 2.25.214 3.261.959.958 2.423 1.053 3.263.215l5.511-5.512c.28-.28.267-.722.053-.936l-.244-.244c-.191-.191-.567-.349-.957.04l-5.506 5.506c-.18.18-.635.127-.976-.214-.098-.097-.576-.613-.213-.973l7.915-7.917c.818-.817 2.267-.699 3.23.262.5.501.802 1.1.849 1.685.051.573-.156 1.111-.589 1.543l-9.547 9.549a3.97 3.97 0 0 1-2.829 1.171 3.975 3.975 0 0 1-2.83-1.173 3.973 3.973 0 0 1-1.172-2.828c0-1.071.415-2.076 1.172-2.83l7.209-7.211c.157-.157.264-.579.028-.814L11.5 4.36a.572.572 0 0 0-.834.018l-7.205 7.207a5.577 5.577 0 0 0-1.645 3.971z">
-            </path>
-          </svg>
-          <button
-            type="button"
-            onClick={() => {
-              fetchContentItems();
-              setShowContentModal(true);
-            }}
-            className="ml-2 rounded-lg border border-slate-700 bg-slate-800/70 px-3 py-1.5 text-xs font-semibold text-slate-100 hover:border-amber-400/70 hover:text-amber-100 transition"
-          >
-            Adjuntar contenido
-          </button>
+          <div className="relative">
+            <button
+              type="button"
+              onClick={() => setIsAttachmentMenuOpen((prev) => !prev)}
+              className="flex items-center justify-center"
+            >
+              <svg viewBox="0 0 24 24" width="24" height="24" className="cursor-pointer">
+                <path fill="currentColor" d="M1.816 15.556v.002c0 1.502.584 2.912 1.646 3.972s2.472 1.647 3.974 1.647a5.58 5.58 0 0 0 3.972-1.645l9.547-9.548c.769-.768 1.147-1.767 1.058-2.817-.079-.968-.548-1.927-1.319-2.698-1.594-1.592-4.068-1.711-5.517-.262l-7.916 7.915c-.881.881-.792 2.25.214 3.261.959.958 2.423 1.053 3.263.215l5.511-5.512c.28-.28.267-.722.053-.936l-.244-.244c-.191-.191-.567-.349-.957.04l-5.506 5.506c-.18.18-.635.127-.976-.214-.098-.097-.576-.613-.213-.973l7.915-7.917c.818-.817 2.267-.699 3.23.262.5.501.802 1.1.849 1.685.051.573-.156 1.111-.589 1.543l-9.547 9.549a3.97 3.97 0 0 1-2.829 1.171 3.975 3.975 0 0 1-2.83-1.173 3.973 3.973 0 0 1-1.172-2.828c0-1.071.415-2.076 1.172-2.83l7.209-7.211c.157-.157.264-.579.028-.814L11.5 4.36a.572.572 0 0 0-.834.018l-7.205 7.207a5.577 5.577 0 0 0-1.645 3.971z">
+                </path>
+              </svg>
+            </button>
+            {isAttachmentMenuOpen && (
+              <div className="absolute bottom-12 left-0 z-20 w-56 rounded-xl bg-slate-900 border border-slate-700 shadow-lg">
+                <button
+                  type="button"
+                  className="flex w-full items-center gap-2 px-3 py-2 text-sm text-slate-100 hover:bg-slate-800"
+                  onClick={() => {
+                    setIsAttachmentMenuOpen(false);
+                    fetchContentItems(id);
+                    setShowContentModal(true);
+                  }}
+                >
+                  <span>Adjuntar contenido</span>
+                </button>
+                {false && (
+                  <button
+                    type="button"
+                    disabled
+                    className="flex w-full items-center gap-2 px-3 py-2 text-sm text-slate-500 cursor-not-allowed"
+                  >
+                    Subir archivo (próximamente)
+                  </button>
+                )}
+              </div>
+            )}
+          </div>
         </div>
         <div className="flex flex-1 h-12">
           <input
@@ -1154,30 +1321,66 @@ export default function ConversationDetails() {
                       <span className="text-lg">{getContentEmoji(item.type)}</span>
                       <span>{item.title}</span>
                     </div>
-                    <div className="flex items-center gap-2 text-xs text-slate-300">
-                      <span>{getContentTypeLabel(item.type)}</span>
-                      <span className="w-1 h-1 rounded-full bg-slate-600" />
-                      <span
-                        className={`inline-flex items-center rounded-full px-2 py-0.5 border text-[11px] ${
-                          item.visibility === "VIP"
-                            ? "border-amber-400/80 text-amber-200"
-                            : item.visibility === "EXTRA"
-                            ? "border-sky-400/70 text-sky-200"
-                            : "border-emerald-400/70 text-emerald-200"
-                        }`}
-                      >
-                        {getContentVisibilityLabel(item.visibility)}
-                      </span>
-                    </div>
+                    {(() => {
+                      const isExtra = item.visibility === "EXTRA";
+                      const alreadySent = !!item.hasBeenSentToFan;
+                      const typeLabel = mapTypeToLabel(item.type);
+                      const visibilityLabel = isExtra ? "Extra de pago" : "Incluido en tu suscripción";
+                      const description = isExtra
+                        ? alreadySent
+                          ? `${typeLabel} · Extra por chat · Ya enviado a este fan`
+                          : `${typeLabel} · Extra por chat`
+                        : `${typeLabel} · Incluido en tu suscripción`;
+                      return (
+                        <div className="flex items-center gap-2 text-xs text-slate-300">
+                          <span>{description}</span>
+                          <span className="w-1 h-1 rounded-full bg-slate-600" />
+                          <span
+                            className={`inline-flex items-center rounded-full px-2 py-0.5 text-[11px] ${
+                              isExtra ? "border border-amber-400/70 text-amber-300" : "bg-emerald-500/10 text-emerald-300"
+                            }`}
+                          >
+                            {visibilityLabel}
+                          </span>
+                        </div>
+                      );
+                    })()}
                     <span className="text-[11px] text-slate-500">Añadido el {formatContentDate(item.createdAt)}</span>
                   </div>
-                  <button
-                    type="button"
-                    onClick={() => handleAttachContent(item)}
-                    className="self-center rounded-lg border border-amber-400/80 bg-amber-500/10 px-3 py-1.5 text-xs font-semibold text-amber-100 hover:bg-amber-500/20 transition"
-                  >
-                    Adjuntar
-                  </button>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      className={clsx(
+                        "rounded-full border px-3 py-1.5 text-xs font-semibold transition",
+                        item.visibility === "EXTRA" && item.hasBeenSentToFan
+                          ? "border-slate-700 text-slate-500 cursor-not-allowed"
+                          : "border-amber-400/80 text-amber-100 bg-amber-500/10 hover:bg-amber-500/20"
+                      )}
+                      onClick={() => {
+                        const isExtra = item.visibility === "EXTRA";
+                        const alreadySent = !!item.hasBeenSentToFan;
+                        if (isExtra && alreadySent) {
+                          const ok = window.confirm(
+                            "Este extra ya se lo enviaste a este fan. Si vas a volver a cobrarle por él, asegúrate de que está de acuerdo. ¿Quieres enviarlo otra vez?"
+                          );
+                          if (!ok) return;
+                        }
+                        handleAttachContent(item);
+                      }}
+                    >
+                      Adjuntar
+                    </button>
+                    {item.visibility === "EXTRA" && (
+                      <button
+                        type="button"
+                        className="rounded-full border border-slate-600 px-3 py-1 text-xs text-slate-200 hover:bg-slate-800 disabled:opacity-60"
+                        disabled={loadingPaymentId === item.id}
+                        onClick={() => handleCreatePaymentLink(item)}
+                      >
+                        {loadingPaymentId === item.id ? "Creando link…" : "Link de pago"}
+                      </button>
+                    )}
+                  </div>
                 </div>
               ))}
             </div>
@@ -1253,6 +1456,14 @@ function getContentEmoji(type?: string) {
   if (type === "VIDEO") return "🎥";
   if (type === "AUDIO") return "🎧";
   return "📷";
+}
+
+function mapTypeToLabel(type?: string): string {
+  if (type === "IMAGE") return "Foto";
+  if (type === "VIDEO") return "Vídeo";
+  if (type === "AUDIO") return "Audio";
+  if (type === "TEXT") return "Texto";
+  return type || "";
 }
 
 function formatContentDate(dateString: string) {

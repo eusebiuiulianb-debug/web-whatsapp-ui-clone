@@ -34,6 +34,7 @@ export interface Fan {
   lifetimeValue?: number;
   customerTier?: "new" | "regular" | "priority";
   nextAction?: string | null;
+  activeGrantTypes?: string[];
 }
 
 export interface Message {

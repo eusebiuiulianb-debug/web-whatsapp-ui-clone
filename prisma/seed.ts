@@ -12,6 +12,7 @@ function addDays(base: Date, days: number) {
 async function main() {
   await prisma.message.deleteMany();
   await prisma.contentItem.deleteMany();
+  await prisma.fanNote.deleteMany();
   await prisma.accessGrant.deleteMany();
   await prisma.fan.deleteMany();
   await prisma.pack.deleteMany();
@@ -53,34 +54,207 @@ async function main() {
     ],
   });
 
-  await prisma.contentItem.createMany({
-    data: [
-      {
-        id: "content-img-1",
-        title: "Galería íntima · set 01",
-        type: "IMAGE",
-        visibility: "INCLUDED_MONTHLY",
-        externalUrl: "https://example.com/galeria-01",
-        creatorId: creator.id,
-      },
-      {
-        id: "content-vid-1",
-        title: "Clip VIP · noche en casa",
-        type: "VIDEO",
-        visibility: "VIP",
-        externalUrl: "https://example.com/clip-vip",
-        creatorId: creator.id,
-      },
-      {
-        id: "content-aud-1",
-        title: "Susurros para dormir",
-        type: "AUDIO",
-        visibility: "EXTRA",
-        externalUrl: "https://example.com/audio-susurros",
-        creatorId: creator.id,
-      },
-    ],
-  });
+  const welcomeContent = [
+    {
+      creatorId: creator.id,
+      pack: "WELCOME",
+      slug: "bienvenida-carta",
+      type: "TEXT",
+      title: "Carta de bienvenida",
+      description: "Quién soy, qué haremos aquí y cómo funciona tu espacio privado conmigo.",
+      order: 10,
+      isPreview: false,
+    },
+    {
+      creatorId: creator.id,
+      pack: "WELCOME",
+      slug: "bienvenida-como-aprovechar",
+      type: "TEXT",
+      title: "Cómo aprovechar tu espacio privado",
+      description: "Reglas básicas, tiempos de respuesta y cómo pedirme lo que necesitas.",
+      order: 20,
+      isPreview: false,
+    },
+    {
+      id: "content-vid-1",
+      creatorId: creator.id,
+      pack: "WELCOME",
+      slug: "video-presentacion-creador",
+      type: "VIDEO",
+      title: "Quién soy y qué haremos aquí",
+      description: "Vídeo corto donde me ves y te cuento qué vamos a cuidar en este chat.",
+      order: 30,
+      durationSec: 60,
+      mediaPath: "/media/welcome/video_presentacion.mp4",
+      isPreview: false,
+    },
+    {
+      creatorId: creator.id,
+      pack: "WELCOME",
+      slug: "video-tour-contenido",
+      type: "VIDEO",
+      title: "Cómo funciona el contenido dentro",
+      description: "Pequeño tour por los packs y tipos de contenido que vas a encontrar.",
+      order: 40,
+      durationSec: 120,
+      mediaPath: "/media/welcome/video_tour.mp4",
+      isPreview: false,
+    },
+    {
+      creatorId: creator.id,
+      pack: "MONTHLY",
+      slug: "audio-calibracion",
+      type: "AUDIO",
+      title: "Audio 1 · Calibrar cómo llegas hoy",
+      description: "Unos minutos para que notes cómo llegas antes de empezar a escribir.",
+      order: 50,
+      durationSec: 240,
+      mediaPath: "/media/welcome/audio_calibracion.mp3",
+      isPreview: false,
+    },
+    {
+      creatorId: creator.id,
+      pack: "MONTHLY",
+      slug: "audio-ritual-antes-de-escribir",
+      type: "AUDIO",
+      title: "Audio 2 · Ritual rápido antes de escribir",
+      description: "Pequeño ritual sensorial para bajar revoluciones y escribir desde otro lugar.",
+      order: 60,
+      durationSec: 300,
+      mediaPath: "/media/welcome/audio_ritual.mp3",
+      isPreview: false,
+    },
+    {
+      creatorId: creator.id,
+      pack: "MONTHLY",
+      slug: "audio-muestra-experiencia",
+      type: "AUDIO",
+      title: "Audio 3 · Muestra de experiencia íntima",
+      description: "Mini experiencia que adelanta cómo son mis audios profundos de pareja.",
+      order: 70,
+      durationSec: 420,
+      mediaPath: "/media/welcome/audio_muestra.mp3",
+      isPreview: false,
+    },
+    {
+      creatorId: creator.id,
+      pack: "MONTHLY",
+      slug: "foto-escena-1-casa",
+      type: "IMAGE",
+      title: "Escena 1 · Nosotros en casa",
+      description: "Foto realista de pareja cotidiana en casa.",
+      order: 80,
+      mediaPath: "/media/welcome/foto_escena1.jpg",
+      isPreview: false,
+    },
+    {
+      creatorId: creator.id,
+      pack: "MONTHLY",
+      slug: "foto-detalle-manos",
+      type: "IMAGE",
+      title: "Escena 2 · Detalle de manos",
+      description: "Manos y gesto íntimo sin ser explícito.",
+      order: 90,
+      mediaPath: "/media/welcome/foto_manos.jpg",
+      isPreview: false,
+    },
+    {
+      creatorId: creator.id,
+      pack: "MONTHLY",
+      slug: "foto-escena-miradas",
+      type: "IMAGE",
+      title: "Escena 3 · Miradas",
+      description: "Foto centrada en la mirada y la conexión.",
+      order: 100,
+      mediaPath: "/media/welcome/foto_miradas.jpg",
+      isPreview: false,
+    },
+    {
+      creatorId: creator.id,
+      pack: "MONTHLY",
+      slug: "foto-cineritual-1",
+      type: "IMAGE",
+      title: "Cine-ritual 1",
+      description: "Foto con tu estética más cuidada.",
+      order: 110,
+      mediaPath: "/media/welcome/foto_cineritual1.jpg",
+      isPreview: false,
+    },
+    {
+      creatorId: creator.id,
+      pack: "SPECIAL",
+      slug: "foto-cineritual-2",
+      type: "IMAGE",
+      title: "Cine-ritual 2",
+      description: "Segunda variación de la escena cine-ritual.",
+      order: 120,
+      mediaPath: "/media/welcome/foto_cineritual2.jpg",
+      isPreview: false,
+    },
+    {
+      creatorId: creator.id,
+      pack: "SPECIAL",
+      slug: "foto-cineritual-3",
+      type: "IMAGE",
+      title: "Cine-ritual 3",
+      description: "Tercera variación, jugando con otro ángulo o luz.",
+      order: 130,
+      mediaPath: "/media/welcome/foto_cineritual3.jpg",
+      isPreview: false,
+    },
+    {
+      creatorId: creator.id,
+      pack: "MONTHLY",
+      slug: "foto-detalle-ritual",
+      type: "IMAGE",
+      title: "Detalle · Objetos del ritual",
+      description: "Velas, manta, cama; el entorno donde puede ocurrir la intimidad.",
+      order: 140,
+      mediaPath: "/media/welcome/foto_detalle_ritual.jpg",
+      isPreview: false,
+    },
+    {
+      creatorId: creator.id,
+      pack: "MONTHLY",
+      slug: "foto-detalle-espacio-chat",
+      type: "IMAGE",
+      title: "Detalle · Espacio de conversación",
+      description: "Sofá o rincón donde imaginamos las conversaciones profundas.",
+      order: 150,
+      mediaPath: "/media/welcome/foto_espacio_chat.jpg",
+      isPreview: false,
+    },
+    {
+      creatorId: creator.id,
+      pack: "MONTHLY",
+      slug: "foto-nosotros-de-espaldas",
+      type: "IMAGE",
+      title: "Detalle · Nosotros de espaldas",
+      description: "Presencia de pareja, cuidando intimidad y anonimato.",
+      order: 160,
+      mediaPath: "/media/welcome/foto_espaldas.jpg",
+      isPreview: false,
+    },
+  ];
+
+  await Promise.all(
+    welcomeContent.map(({ id, ...item }) =>
+      prisma.contentItem.upsert({
+        where: {
+          creatorId_slug: { creatorId: creator.id, slug: item.slug ?? "" },
+        },
+        update: {
+          ...item,
+          creatorId: creator.id,
+        },
+        create: {
+          ...item,
+          id,
+          creatorId: creator.id,
+        },
+      })
+    )
+  );
 
   await prisma.$transaction([
     prisma.fan.create({
