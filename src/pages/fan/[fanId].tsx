@@ -97,8 +97,9 @@ export default function FanChatPage({ includedContent, initialAccessSummary }: F
       const fans = Array.isArray(data.fans) ? data.fans : [];
       const target = fans.find((fan: any) => fan.id === targetFanId);
       const hasHistory =
-        (target?.paidGrantsCount ?? 0) > 0 ||
-        (typeof target?.membershipStatus === "string" && target.membershipStatus.trim().length > 0);
+        typeof target?.hasAccessHistory === "boolean"
+          ? target.hasAccessHistory
+          : (target?.paidGrantsCount ?? 0) > 0;
       const summary = getAccessSummary({
         membershipStatus: target?.membershipStatus,
         daysLeft: target?.daysLeft,
@@ -405,34 +406,28 @@ export const getServerSideProps: GetServerSideProps<FanChatPageProps> = async (c
     });
 
     if (fan) {
-      hasAccessHistory =
-        fan.accessGrants.length > 0 || (fan.membershipStatus?.trim().length ?? 0) > 0;
-      membershipStatus = fan.membershipStatus || null;
-      daysLeft = typeof fan.daysLeft === "number" ? fan.daysLeft : null;
+      hasAccessHistory = fan.accessGrants.length > 0;
 
-      const activeGrants = fan.accessGrants
-        .filter((grant) => grant.expiresAt >= now)
-        .sort(
-          (a, b) =>
-            b.expiresAt.getTime() - a.expiresAt.getTime() ||
-            b.createdAt.getTime() - a.createdAt.getTime()
-        );
-
+      const activeGrants = fan.accessGrants.filter((grant) => grant.expiresAt > now);
       activeGrantTypes = activeGrants.map((grant) => grant.type);
 
-      const primaryGrant = activeGrants[0];
-      if (primaryGrant) {
-        const mapTypeToStatus: Record<string, string> = {
-          trial: "Prueba 7 días",
-          monthly: "Suscripción mensual",
-          special: "Contenido individual",
-          single: "Contenido individual",
-        };
-        membershipStatus = mapTypeToStatus[primaryGrant.type] || membershipStatus;
-        const diffMs = primaryGrant.expiresAt.getTime() - now.getTime();
-        const msPerDay = 1000 * 60 * 60 * 24;
-        const diffDays = Math.ceil(diffMs / msPerDay);
-        daysLeft = diffDays > 0 ? diffDays : 0;
+      const latestExpiry = activeGrants.reduce<Date | null>((acc, grant) => {
+        if (!acc) return grant.expiresAt;
+        return grant.expiresAt > acc ? grant.expiresAt : acc;
+      }, null);
+
+      daysLeft = latestExpiry
+        ? Math.max(0, Math.ceil((latestExpiry.getTime() - now.getTime()) / (1000 * 60 * 60 * 24)))
+        : hasAccessHistory
+        ? 0
+        : null;
+
+      if (activeGrants.length > 0) {
+        membershipStatus = "active";
+      } else if (hasAccessHistory) {
+        membershipStatus = "expired";
+      } else {
+        membershipStatus = "none";
       }
     }
   }

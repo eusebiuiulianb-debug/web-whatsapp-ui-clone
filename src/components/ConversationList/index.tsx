@@ -32,27 +32,40 @@ export default function ConversationList(props: ConversationListProps) {
   const chosenBadge = badgeStyles[accessState];
   const daysLabel = daysLeft !== undefined && daysLeft !== null ? `${daysLeft} d` : "";
   const nameTint = accessState === "expired" ? "text-[#7d8a93]" : nameClasses;
-  const followUpTag = getFollowUpTag(membershipStatus, daysLeft);
+  const followUpTag = getFollowUpTag(membershipStatus, daysLeft, data.activeGrantTypes);
   const notesCount = data.notesCount ?? 0;
-  const customerTier = data.customerTier ?? "new";
-  const lifetimeValue = data.lifetimeValue ?? 0;
+  const customerTier = (data.customerTier ?? "new") as "new" | "regular" | "vip" | "priority";
+  const lifetimeValue = data.lifetimeSpend ?? data.lifetimeValue ?? 0; // usar siempre el gasto total acumulado
+  const hasNextAction = typeof data.nextAction === "string" && data.nextAction.trim().length > 0;
+  const lastNoteSummary = data.lastNoteSummary ?? data.lastNoteSnippet ?? null;
+  const nextActionSummary = data.nextActionSummary ?? data.nextActionSnippet ?? null;
+  const nextActionTooltip = nextActionSummary
+    ? shorten(nextActionSummary, 100)
+    : data.nextAction
+    ? shorten(data.nextAction, 100)
+    : "";
 
-  function renderFanSummary(fan: ConversationListData) {
-    const tier = fan.customerTier ?? "new";
-    const lv = Math.round(fan.lifetimeValue ?? 0);
-    const notes = fan.notesCount ?? 0;
-    const notesLabel = `${notes} nota${notes === 1 ? "" : "s"}`;
-    const next = fan.nextAction && fan.nextAction.trim().length > 0 ? ` · ⚡ Próx.: ${shorten(fan.nextAction, 40)}` : "";
-    if (tier === "priority") {
-      return { label: "🔥 Alta prioridad", rest: ` · ${lv} € · ${notesLabel}${next}`, isPriority: true };
-    }
-    if (tier === "regular") {
-      return { label: "Habitual", rest: ` · ${lv} € · ${notesLabel}${next}`, isPriority: false };
-    }
-    return { label: "Nuevo", rest: ` · ${lv} € · ${notesLabel}${next}`, isPriority: false };
+  function normalizeTier(tier: string | undefined) {
+    const lower = (tier || "").toLowerCase();
+    if (lower === "vip" || lower === "priority") return "vip";
+    if (lower === "regular") return "regular";
+    return "new";
   }
 
-  const summary = renderFanSummary(data);
+  const normalizedTier = normalizeTier(customerTier);
+  const tierLabel = normalizedTier === "vip" ? "VIP" : normalizedTier === "regular" ? "Habitual" : "Nuevo";
+  const isHighPriority = normalizedTier === "vip"; // alta prioridad solo si es VIP por gasto
+  const totalSpent = Math.round(lifetimeValue ?? 0);
+  const notesLabel = `${notesCount} nota${notesCount === 1 ? "" : "s"}`;
+  const tierBadgeClass = clsx(
+    "inline-flex items-center rounded-full px-2 py-[2px] text-[11px] font-medium",
+    normalizedTier === "vip"
+      ? "border border-amber-400 text-amber-200 bg-amber-500/10"
+    : normalizedTier === "regular"
+      ? "border border-emerald-400 text-emerald-200 bg-emerald-500/10"
+      : "border border-[#53bdeb] text-[#53bdeb]"
+  );
+
   function shorten(text: string, max = 70) {
     if (!text) return "";
     const trimmed = text.trim();
@@ -74,7 +87,17 @@ export default function ConversationList(props: ConversationListProps) {
           <div className="flex flex-col gap-[2px] min-w-0 w-full">
             <div className="flex items-center gap-2 min-w-0">
               <span className={`truncate ${nameTint}`}>{contactName}</span>
-              {isNew ? <span className="text-[11px] px-2 py-[2px] rounded-full border border-[#53bdeb] text-[#53bdeb]">Nuevo</span> : null}
+              {/* Chip de nivel según el tier del fan, usando la misma paleta que el botón amarillo */}
+              <span className={tierBadgeClass}>
+                {tierLabel}
+              </span>
+              {/* Chip de alta prioridad solo para VIP */}
+              {isHighPriority && (
+                <span className="inline-flex items-center gap-1 rounded-full bg-amber-400/90 px-2 py-0.5 text-[11px] font-medium leading-none text-neutral-950">
+                  <span aria-hidden>🔥</span>
+                  <span>Alta prioridad</span>
+                </span>
+              )}
               {followUpTag !== "none" && (
                 <span
                   className={clsx(
@@ -92,8 +115,30 @@ export default function ConversationList(props: ConversationListProps) {
             </div>
             <span className={`truncate ${previewClasses}`}>{lastMessage}</span>
             <div className="flex items-center gap-1 text-[11px] text-slate-500">
-              <span className={summary.isPriority ? "text-amber-300" : undefined}>{summary.label}</span>
-              <span>{summary.rest}</span>
+              <span>{`${totalSpent} €`}</span>
+              <span className="w-1 h-1 rounded-full bg-slate-600" />
+              <span>{notesLabel}</span>
+              {isHighPriority && (
+                <span className="inline-flex items-center text-amber-300" aria-label="Alta prioridad">
+                  🔥
+                </span>
+              )}
+              {notesCount > 0 && (
+                <span
+                  className="inline-flex items-center gap-1 text-slate-400"
+                  title={lastNoteSummary || ""}
+                >
+                  <span aria-hidden>📝</span>
+                </span>
+              )}
+              {hasNextAction && (
+                <span
+                  className="inline-flex items-center gap-1 text-slate-400"
+                  title={nextActionTooltip}
+                >
+                  <span aria-hidden>⚡</span>
+                </span>
+              )}
             </div>
             <div className="flex items-center gap-2 mt-1">
               {membershipStatus ? (

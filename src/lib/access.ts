@@ -32,8 +32,16 @@ export function getAccessLabel({
   membershipStatus,
   daysLeft,
 }: AccessInput): string {
-  if (!membershipStatus || membershipStatus.trim().length === 0) return "Acceso caducado";
+  const normalized = (membershipStatus || "").toLowerCase();
   const remaining = daysLeft ?? 0;
+  if (!membershipStatus || normalized === "none") return "Acceso caducado";
+  if (normalized === "expired") return "Acceso caducado";
+  if (normalized === "active") {
+    if (remaining <= 0) return "Acceso activo";
+    const suffix = remaining === 1 ? "día restante" : "días restantes";
+    return `Acceso activo · ${remaining} ${suffix}`;
+  }
+  if (!membershipStatus || membershipStatus.trim().length === 0) return "Acceso caducado";
   if (remaining <= 0) return `${membershipStatus} · acceso caducado`;
   const suffix = remaining === 1 ? "día restante" : "días restantes";
   return `${membershipStatus} · ${remaining} ${suffix}`;
@@ -78,8 +86,11 @@ function resolveActiveFlags({
 export function getAccessSummary({ membershipStatus, daysLeft, hasAccessHistory, activeGrantTypes }: AccessInput): AccessSummary {
   const legacyState = getAccessState({ membershipStatus, daysLeft });
   const remaining = Math.max(0, daysLeft ?? 0);
+  const normalizedStatus = (membershipStatus || "").toLowerCase();
   const inferredHistory =
-    typeof membershipStatus === "string" && membershipStatus.trim().length > 0
+    normalizedStatus === "none"
+      ? false
+      : typeof membershipStatus === "string" && membershipStatus.trim().length > 0
       ? true
       : Boolean((daysLeft ?? 0) > 0);
   const hasHistory = hasAccessHistory ?? inferredHistory;

@@ -1,16 +1,17 @@
 import ConversationList from "../ConversationList";
-import { useEffect, useState } from "react";
+import { useContext, useEffect, useState } from "react";
 import CreatorHeader from "../CreatorHeader";
 import { useCreatorConfig } from "../../context/CreatorConfigContext";
 import CreatorSettingsPanel from "../CreatorSettingsPanel";
 import { Fan } from "../../types/chat";
 import { ConversationListData } from "../../types/Conversation";
 import clsx from "clsx";
-import { getFollowUpTag, getUrgencyLevel, needsFollowUpToday } from "../../utils/followUp";
+import { getFollowUpTag, getUrgencyLevel, shouldFollowUpToday, isExpiredAccess } from "../../utils/followUp";
 import { getRecommendedFan } from "../../utils/recommendedFan";
 import { PACKS } from "../../config/packs";
 import { getLastReadForFan, loadUnreadMap, UnreadMap } from "../../utils/unread";
 import type { Message } from "../../types/chat";
+import { ConversationContext } from "../../context/ConversationContext";
 
 export default function SideBar() {
   const [ search, setSearch ] = useState("");
@@ -21,15 +22,24 @@ export default function SideBar() {
   const [ showPriorityOnly, setShowPriorityOnly ] = useState(false);
   const [ followUpFilter, setFollowUpFilter ] = useState<"all" | "today" | "expired">("all");
   const [ showOnlyWithNotes, setShowOnlyWithNotes ] = useState(false);
-  const [ tierFilter, setTierFilter ] = useState<"all" | "new" | "regular" | "priority">("all");
+  const [ tierFilter, setTierFilter ] = useState<"all" | "new" | "regular" | "vip">("all");
   const [ onlyWithNextAction, setOnlyWithNextAction ] = useState(false);
   const [ showPacksPanel, setShowPacksPanel ] = useState(false);
   const [ unreadMap, setUnreadMap ] = useState<UnreadMap>({});
   const packsCount = Object.keys(PACKS).length;
   const { config } = useCreatorConfig();
   const creatorInitial = config.creatorName?.trim().charAt(0) || "E";
+  const { setConversation } = useContext(ConversationContext);
 
   type FanData = ConversationListData & { priorityScore?: number };
+
+  function normalizeTier(tier?: string | null): "new" | "regular" | "vip" {
+    if (!tier) return "new";
+    const lower = tier.toLowerCase();
+    if (lower === "priority" || lower === "vip") return "vip";
+    if (lower === "regular") return "regular";
+    return "new";
+  }
 
   function mapFans(rawFans: Fan[]): ConversationListData[] {
     return rawFans.map((fan) => ({
@@ -45,33 +55,51 @@ export default function SideBar() {
       isNew: fan.isNew,
       lastSeen: fan.lastSeen,
       lastCreatorMessageAt: fan.lastCreatorMessageAt,
-      followUpTag: getFollowUpTag(fan.membershipStatus, fan.daysLeft),
-      urgencyLevel: getUrgencyLevel(getFollowUpTag(fan.membershipStatus, fan.daysLeft), fan.daysLeft),
+      activeGrantTypes: fan.activeGrantTypes ?? [],
+      hasAccessHistory: fan.hasAccessHistory ?? false,
+      followUpTag: fan.followUpTag ?? getFollowUpTag(fan.membershipStatus, fan.daysLeft, fan.activeGrantTypes),
+      urgencyLevel: getUrgencyLevel(
+        fan.followUpTag ?? getFollowUpTag(fan.membershipStatus, fan.daysLeft, fan.activeGrantTypes),
+        fan.daysLeft
+      ),
       notesCount: fan.notesCount ?? 0,
       paidGrantsCount: fan.paidGrantsCount ?? 0,
       lifetimeValue: fan.lifetimeValue ?? 0,
-      customerTier: fan.customerTier ?? "new",
+      customerTier: normalizeTier(fan.customerTier),
       nextAction: fan.nextAction ?? null,
+      priorityScore: fan.priorityScore,
+      lastNoteSnippet: fan.lastNoteSnippet ?? null,
+      nextActionSnippet: fan.nextActionSnippet ?? null,
+      lastNoteSummary: fan.lastNoteSummary ?? fan.lastNoteSnippet ?? null,
+      nextActionSummary: fan.nextActionSummary ?? fan.nextActionSnippet ?? null,
     }));
   }
 
-  function getPriorityScore(fan: FanData): number {
-    let score = 0;
-    if (fan.isNew) score += 2;
-    if ((fan.unreadCount ?? 0) > 0) score += 2;
-    const status = fan.membershipStatus?.toLowerCase() ?? "";
-    if (status.includes("suscripción") || status.includes("contenido individual")) {
-      score += 2;
+  function computePriorityScore(fan: FanData): number {
+    const tag = fan.followUpTag ?? getFollowUpTag(fan.membershipStatus, fan.daysLeft, fan.activeGrantTypes);
+    const isExpiredToday = tag === "expired" && (fan.daysLeft ?? 0) === 0;
+    let urgencyScore = 0;
+    switch (isExpiredToday ? "expired_today" : tag) {
+      case "trial_soon":
+      case "monthly_soon":
+        urgencyScore = 3;
+        break;
+      case "expired_today":
+        urgencyScore = 2;
+        break;
+      default:
+        urgencyScore = 0;
     }
-    if (typeof fan.daysLeft === "number" && fan.daysLeft <= 3) {
-      score += 1;
-    }
-    return score;
+
+    const tier = normalizeTier(fan.customerTier);
+    const tierScore = tier === "vip" ? 2 : tier === "regular" ? 1 : 0;
+
+    return urgencyScore * 10 + tierScore;
   }
 
   const fansWithScore: FanData[] = fans.map((fan) => ({
     ...fan,
-    priorityScore: getPriorityScore(fan),
+    priorityScore: typeof fan.priorityScore === "number" ? fan.priorityScore : computePriorityScore(fan),
   }));
 
   function parseMessageTimestamp(msg: Message): number | null {
@@ -121,23 +149,33 @@ export default function SideBar() {
 
   const totalCount = fans.length;
   const followUpTodayCount = fans.filter((fan) =>
-    needsFollowUpToday(fan.followUpTag ?? getFollowUpTag(fan.membershipStatus, fan.daysLeft), fan.lastCreatorMessageAt)
+    shouldFollowUpToday({
+      membershipStatus: fan.membershipStatus,
+      daysLeft: fan.daysLeft,
+      followUpTag: fan.followUpTag ?? getFollowUpTag(fan.membershipStatus, fan.daysLeft, fan.activeGrantTypes),
+    })
   ).length;
-  const expiredCount = fans.filter((fan) => (fan.followUpTag ?? getFollowUpTag(fan.membershipStatus, fan.daysLeft)) === "expired").length;
+  const expiredCount = fans.filter((fan) =>
+    isExpiredAccess({
+      membershipStatus: fan.membershipStatus,
+      daysLeft: fan.daysLeft,
+      followUpTag: fan.followUpTag ?? getFollowUpTag(fan.membershipStatus, fan.daysLeft, fan.activeGrantTypes),
+    })
+  ).length;
   const withNotesCount = fans.filter((fan) => (fan.notesCount ?? 0) > 0).length;
   const withNextActionCount = fans.filter((fan) => {
     const na = fan.nextAction;
     return typeof na === "string" && na.trim().length > 0;
   }).length;
-  const priorityCount = fans.filter((fan) => (fan.customerTier ?? "new") === "priority").length;
-  const regularCount = fans.filter((fan) => (fan.customerTier ?? "new") === "regular").length;
-  const newCount = fans.filter((fan) => (fan.customerTier ?? "new") === "new").length;
+  const priorityCount = fans.filter((fan) => normalizeTier(fan.customerTier) === "vip").length;
+  const regularCount = fans.filter((fan) => normalizeTier(fan.customerTier) === "regular").length;
+  const newCount = fans.filter((fan) => normalizeTier(fan.customerTier) === "new").length;
 
   function applyFilter(
     filter: "all" | "today" | "expired",
     onlyNotes = false,
-    tier: "all" | "new" | "regular" | "priority" = tierFilter,
-    onlyNextAction = onlyWithNextAction
+    tier: "all" | "new" | "regular" | "vip" = "all",
+    onlyNextAction = false
   ) {
     setFollowUpFilter(filter);
     setShowOnlyWithNotes(onlyNotes);
@@ -154,23 +192,42 @@ export default function SideBar() {
       return typeof na === "string" && na.trim().length > 0;
     })
     .filter((fan) => {
-      const tag = fan.followUpTag ?? getFollowUpTag(fan.membershipStatus, fan.daysLeft);
+      const tag = fan.followUpTag ?? getFollowUpTag(fan.membershipStatus, fan.daysLeft, fan.activeGrantTypes);
       if (followUpFilter === "all") return true;
-      if (followUpFilter === "expired") return tag === "expired";
-      if (followUpFilter === "today") return needsFollowUpToday(tag, fan.lastCreatorMessageAt);
+      if (followUpFilter === "expired") {
+        return isExpiredAccess({ membershipStatus: fan.membershipStatus, daysLeft: fan.daysLeft, followUpTag: tag });
+      }
+      if (followUpFilter === "today") {
+        return shouldFollowUpToday({
+          membershipStatus: fan.membershipStatus,
+          daysLeft: fan.daysLeft,
+          followUpTag: tag,
+        });
+      }
       return true;
     })
     .filter((fan) => {
-      const tier = fan.customerTier ?? "new";
+      const tier = normalizeTier(fan.customerTier);
       if (tierFilter === "all") return true;
       return tier === tierFilter;
     })
     .sort((a, b) => {
       if (followUpFilter === "today") {
-        const order = { high: 0, medium: 1, low: 2, none: 3 } as const;
-        const ua = order[a.urgencyLevel ?? "none"];
-        const ub = order[b.urgencyLevel ?? "none"];
-        if (ua !== ub) return ua - ub;
+        const pa = a.priorityScore ?? 0;
+        const pb = b.priorityScore ?? 0;
+        if (pa !== pb) return pb - pa;
+        const da = typeof a.daysLeft === "number" ? a.daysLeft : Number.POSITIVE_INFINITY;
+        const db = typeof b.daysLeft === "number" ? b.daysLeft : Number.POSITIVE_INFINITY;
+        if (da !== db) return da - db;
+        const la = a.lastCreatorMessageAt ? new Date(a.lastCreatorMessageAt).getTime() : 0;
+        const lb = b.lastCreatorMessageAt ? new Date(b.lastCreatorMessageAt).getTime() : 0;
+        return lb - la;
+      }
+
+      if (tierFilter === "vip") {
+        const pa = a.priorityScore ?? 0;
+        const pb = b.priorityScore ?? 0;
+        if (pa !== pb) return pb - pa;
         const da = typeof a.daysLeft === "number" ? a.daysLeft : Number.POSITIVE_INFINITY;
         const db = typeof b.daysLeft === "number" ? b.daysLeft : Number.POSITIVE_INFINITY;
         return da - db;
@@ -336,11 +393,11 @@ export default function SideBar() {
           </button>
           <button
             type="button"
-            onClick={() => applyFilter(followUpFilter, showOnlyWithNotes, tierFilter === "priority" ? "all" : "priority")}
+            onClick={() => applyFilter(followUpFilter, showOnlyWithNotes, tierFilter === "vip" ? "all" : "vip")}
             className="flex justify-between text-left"
           >
-            <span className={clsx(tierFilter === "priority" && "font-semibold text-amber-300")}>🔥 Alta prioridad</span>
-            <span className={clsx(tierFilter === "priority" && "font-semibold text-amber-300")}>{priorityCount}</span>
+            <span className={clsx(tierFilter === "vip" && "font-semibold text-amber-300")}>🔥 Alta prioridad</span>
+            <span className={clsx(tierFilter === "vip" && "font-semibold text-amber-300")}>{priorityCount}</span>
           </button>
           <button
             type="button"
@@ -401,7 +458,7 @@ export default function SideBar() {
               <span className="text-[11px] text-slate-400">Siguiente recomendado</span>
               <span className="text-sm font-semibold text-slate-50">{recommendedFan.contactName}</span>
               <span className="text-[11px] text-slate-500">
-                {(recommendedFan.customerTier === "priority"
+                {(recommendedFan.customerTier === "priority" || recommendedFan.customerTier === "vip"
                   ? "Alta prioridad"
                   : recommendedFan.customerTier === "regular"
                   ? "Habitual"
@@ -429,7 +486,7 @@ export default function SideBar() {
       <div className="mb-2 flex gap-2 text-xs px-3">
         <button
           type="button"
-          onClick={() => applyFilter("all", false, tierFilter, onlyWithNextAction)}
+          onClick={() => applyFilter("all", false, "all", false)}
           className={clsx(
             "rounded-full border px-3 py-1",
             followUpFilter === "all"
@@ -441,7 +498,7 @@ export default function SideBar() {
         </button>
         <button
           type="button"
-          onClick={() => applyFilter("today", false, tierFilter, onlyWithNextAction)}
+          onClick={() => applyFilter("today", false, "all", false)}
           className={clsx(
             "rounded-full border px-3 py-1",
             followUpFilter === "today"
@@ -453,7 +510,7 @@ export default function SideBar() {
         </button>
         <button
           type="button"
-          onClick={() => applyFilter("expired", false, tierFilter, onlyWithNextAction)}
+          onClick={() => applyFilter("expired", false, "all", false)}
           className={clsx(
             "rounded-full border px-3 py-1",
             followUpFilter === "expired"
@@ -462,6 +519,23 @@ export default function SideBar() {
           )}
         >
           Caducados{expiredCount > 0 ? ` (${expiredCount})` : ""}
+        </button>
+        <button
+          type="button"
+          onClick={() => {
+            setFollowUpFilter("all");
+            setShowOnlyWithNotes(false);
+            setOnlyWithNextAction(false);
+            setTierFilter(tierFilter === "vip" ? "all" : "vip");
+          }}
+          className={clsx(
+            "rounded-full border px-3 py-1",
+            tierFilter === "vip"
+              ? "border-amber-400 bg-amber-500/10 text-amber-100"
+              : "border-amber-700 bg-slate-800/60 text-amber-200/80"
+          )}
+        >
+          Alta prioridad{priorityCount > 0 ? ` (${priorityCount})` : ""}
         </button>
       </div>
       <div className="flex flex-col w-full flex-1 overflow-y-auto" id="conversation">

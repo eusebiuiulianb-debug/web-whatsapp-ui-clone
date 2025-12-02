@@ -32,9 +32,16 @@ export interface Fan {
   urgencyLevel?: UrgencyLevel;
   paidGrantsCount?: number;
   lifetimeValue?: number;
-  customerTier?: "new" | "regular" | "priority";
+  customerTier?: "new" | "regular" | "vip" | "priority";
   nextAction?: string | null;
   activeGrantTypes?: string[];
+  hasAccessHistory?: boolean;
+  priorityScore?: number;
+  lastNoteSnippet?: string | null;
+  nextActionSnippet?: string | null;
+  lastNoteSummary?: string | null;
+  nextActionSummary?: string | null;
+  lifetimeSpend?: number;
 }
 
 export interface Message {

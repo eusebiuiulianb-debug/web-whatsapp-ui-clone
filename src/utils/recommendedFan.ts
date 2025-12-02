@@ -1,33 +1,53 @@
 import { ConversationListData } from "../types/Conversation";
-import { getFollowUpTag, needsFollowUpToday } from "./followUp";
+import { getFollowUpTag, shouldFollowUpToday } from "./followUp";
 
 export function getRecommendedFan(list: ConversationListData[]): ConversationListData | undefined {
   const candidates = list.filter((fan) =>
-    needsFollowUpToday(fan.followUpTag ?? getFollowUpTag(fan.membershipStatus, fan.daysLeft), fan.lastCreatorMessageAt)
+    shouldFollowUpToday({
+      membershipStatus: fan.membershipStatus,
+      daysLeft: fan.daysLeft,
+      followUpTag: fan.followUpTag ?? getFollowUpTag(fan.membershipStatus, fan.daysLeft, fan.activeGrantTypes),
+    })
   );
 
-  const orderTier = { priority: 0, regular: 1, new: 2 } as const;
-  const orderTag = { trial_soon: 0, monthly_soon: 1 } as const;
+  const normalizeTier = (tier?: string | null) => {
+    const lower = (tier || "").toLowerCase();
+    if (lower === "vip" || lower === "priority") return "vip";
+    if (lower === "regular") return "regular";
+    return "new";
+  };
+
+  const computePriorityScore = (fan: ConversationListData): number => {
+    const tag = fan.followUpTag ?? getFollowUpTag(fan.membershipStatus, fan.daysLeft, fan.activeGrantTypes);
+    const isExpiredToday = tag === "expired" && (fan.daysLeft ?? 0) === 0;
+    let urgencyScore = 0;
+    switch (isExpiredToday ? "expired_today" : tag) {
+      case "trial_soon":
+      case "monthly_soon":
+        urgencyScore = 3;
+        break;
+      case "expired_today":
+        urgencyScore = 2;
+        break;
+      default:
+        urgencyScore = 0;
+    }
+    const tier = normalizeTier(fan.customerTier);
+    const tierScore = tier === "vip" ? 2 : tier === "regular" ? 1 : 0;
+    return urgencyScore * 10 + tierScore;
+  };
 
   return candidates.sort((a, b) => {
-    const ta = orderTier[a.customerTier ?? "new"] ?? 2;
-    const tb = orderTier[b.customerTier ?? "new"] ?? 2;
-    if (ta !== tb) return ta - tb;
-
-    const ua = orderTag[a.followUpTag as keyof typeof orderTag] ?? 2;
-    const ub = orderTag[b.followUpTag as keyof typeof orderTag] ?? 2;
-    if (ua !== ub) return ua - ub;
-
-    const na = a.nextAction ? 0 : 1;
-    const nb = b.nextAction ? 0 : 1;
-    if (na !== nb) return na - nb;
+    const pa = typeof a.priorityScore === "number" ? a.priorityScore : computePriorityScore(a);
+    const pb = typeof b.priorityScore === "number" ? b.priorityScore : computePriorityScore(b);
+    if (pa !== pb) return pb - pa;
 
     const da = typeof a.daysLeft === "number" ? a.daysLeft : Number.POSITIVE_INFINITY;
     const db = typeof b.daysLeft === "number" ? b.daysLeft : Number.POSITIVE_INFINITY;
     if (da !== db) return da - db;
 
-    const lva = typeof a.lifetimeValue === "number" ? a.lifetimeValue : 0;
-    const lvb = typeof b.lifetimeValue === "number" ? b.lifetimeValue : 0;
-    return lvb - lva;
+    const la = a.lastCreatorMessageAt ? new Date(a.lastCreatorMessageAt).getTime() : 0;
+    const lb = b.lastCreatorMessageAt ? new Date(b.lastCreatorMessageAt).getTime() : 0;
+    return lb - la;
   })[0];
 }
