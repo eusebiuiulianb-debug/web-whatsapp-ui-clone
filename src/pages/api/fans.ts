@@ -1,6 +1,9 @@
 import type { NextApiRequest, NextApiResponse } from "next";
+import { Prisma } from "@prisma/client";
 import prisma from "../../lib/prisma";
-import { getFollowUpTag } from "../../utils/followUp";
+import { getFollowUpTag, shouldFollowUpToday } from "../../utils/followUp";
+import { sendBadRequest, sendServerError } from "../../lib/apiError";
+import { HIGH_PRIORITY_LIMIT } from "../../config/customers";
 
 function parseMessageTimestamp(messageId: string): Date | null {
   const parts = messageId.split("-");
@@ -27,8 +30,41 @@ function truncateSnippet(text: string | null | undefined, max = 80): string | nu
   return `${trimmed.slice(0, max - 1)}…`;
 }
 
-export default async function handler(_req: NextApiRequest, res: NextApiResponse) {
+const MAX_LIMIT = 100;
+
+export default async function handler(req: NextApiRequest, res: NextApiResponse) {
+  const { limit: limitParam, cursor, filter = "all", q } = req.query;
+  const parsedLimit = Number(limitParam);
+  const limit = Number.isFinite(parsedLimit) && parsedLimit > 0 ? Math.min(parsedLimit, MAX_LIMIT) : 30;
+  if (parsedLimit !== undefined && (!Number.isFinite(parsedLimit) || parsedLimit <= 0)) {
+    return sendBadRequest(res, "limit must be a positive number");
+  }
+
+  const cursorId = typeof cursor === "string" ? cursor : undefined;
+  const search = typeof q === "string" && q.trim().length > 0 ? q.trim() : null;
+
   try {
+    const where: Prisma.FanWhereInput = {};
+
+    if (filter === "notes") {
+      where.notes = { some: {} };
+    } else if (filter === "nextAction") {
+      where.nextAction = { not: null, not: "" };
+    } else if (filter === "new") {
+      where.isNew = true;
+    } else if (filter === "expired") {
+      where.accessGrants = { some: { expiresAt: { lte: new Date() } } };
+    }
+
+    if (search) {
+      where.OR = [
+        ...(where.OR ?? []),
+        { name: { contains: search, mode: "insensitive" } },
+        { nextAction: { contains: search, mode: "insensitive" } },
+        { notes: { some: { content: { contains: search, mode: "insensitive" } } } },
+      ];
+    }
+
     const fans = await prisma.fan.findMany({
       include: {
         accessGrants: true,
@@ -43,11 +79,45 @@ export default async function handler(_req: NextApiRequest, res: NextApiResponse
         },
         _count: { select: { notes: true } },
       },
+      orderBy: { id: "asc" },
+      take: limit + 1,
+      ...(cursorId
+        ? {
+            cursor: { id: cursorId },
+            skip: 1,
+          }
+        : {}),
+      where,
     });
 
     const now = new Date();
 
-    const mappedFans = fans.map((fan) => {
+    const fanIds = fans.map((fan) => fan.id);
+    type ExtraStats = { count: number; totalAmount: number; maxTier: string | null };
+    const extrasByFan = new Map<string, ExtraStats>();
+
+    if (fanIds.length > 0) {
+      try {
+        const extras = await prisma.extraPurchase.findMany({
+          where: { fanId: { in: fanIds } },
+          select: { fanId: true, amount: true, tier: true },
+        });
+        const tierPriority: Record<string, number> = { T0: 0, T1: 1, T2: 2, T3: 3 };
+        for (const purchase of extras) {
+          const current = extrasByFan.get(purchase.fanId) ?? { count: 0, totalAmount: 0, maxTier: null };
+          const nextCount = current.count + 1;
+          const nextTotal = current.totalAmount + (purchase.amount ?? 0);
+          const shouldUpdateTier =
+            current.maxTier === null || (tierPriority[purchase.tier] ?? 0) > (tierPriority[current.maxTier] ?? 0);
+          const nextTier = shouldUpdateTier ? purchase.tier : current.maxTier;
+          extrasByFan.set(purchase.fanId, { count: nextCount, totalAmount: nextTotal, maxTier: nextTier });
+        }
+      } catch (err) {
+        console.error("Error calculating extra metrics", err);
+      }
+    }
+
+    let mappedFans = fans.map((fan) => {
       // Grants con acceso vigente
       const activeGrants = fan.accessGrants.filter((grant) => grant.expiresAt > now);
       const hasAccessHistory = fan.accessGrants.length > 0;
@@ -119,6 +189,14 @@ export default async function handler(_req: NextApiRequest, res: NextApiResponse
       const nextActionSnippet = truncateSnippet(fan.nextAction);
       const lastNoteSummary = lastNoteSnippet;
       const nextActionSummary = nextActionSnippet;
+      const extrasInfo = extrasByFan.get(fan.id) ?? { count: 0, totalAmount: 0, maxTier: null };
+      const hasMonthly = activeGrantTypes.includes("monthly");
+      const hasSpecial = activeGrantTypes.includes("special");
+      const NOVSY_EXTRA_THRESHOLD = 30;
+      const extrasTotal = extrasInfo.totalAmount ?? (extrasInfo as any).spent ?? 0;
+      const isNovsy = hasMonthly || hasSpecial || (extrasTotal ?? 0) >= NOVSY_EXTRA_THRESHOLD;
+      const novsyStatus: "NOVSY" | null = isNovsy ? "NOVSY" : null;
+      const isHighPriority = lifetimeSpend + (extrasTotal ?? 0) >= HIGH_PRIORITY_LIMIT;
 
       // Campos clave que consume el CRM:
       // - membershipStatus: "active" | "expired" | "none"
@@ -150,12 +228,40 @@ export default async function handler(_req: NextApiRequest, res: NextApiResponse
         nextActionSnippet,
         lastNoteSummary,
         nextActionSummary,
+        extrasCount: extrasInfo.count,
+        extrasSpentTotal: extrasTotal,
+        maxExtraTier: extrasInfo.maxTier,
+        novsyStatus,
+        isHighPriority,
       };
     });
 
-    return res.status(200).json({ fans: mappedFans });
+    // Filtros adicionales que requieren cálculo (se aplican tras mapear)
+    if (filter === "today") {
+      mappedFans = mappedFans.filter((fan) =>
+        shouldFollowUpToday({
+          membershipStatus: fan.membershipStatus,
+          daysLeft: fan.daysLeft,
+          followUpTag: fan.followUpTag ?? getFollowUpTag(fan.membershipStatus, fan.daysLeft, fan.activeGrantTypes),
+        })
+      );
+    }
+
+    if (filter === "followup") {
+      mappedFans = mappedFans.filter((fan) => fan.followUpTag && fan.followUpTag !== "none");
+    }
+
+    if (filter === "highPriority" && mappedFans.length) {
+      mappedFans = mappedFans.filter((fan) => fan.isHighPriority === true);
+    }
+
+    const hasMore = mappedFans.length > limit;
+    const items = mappedFans.slice(0, limit);
+    const nextCursor = hasMore ? items[items.length - 1]?.id ?? null : null;
+
+    return res.status(200).json({ ok: true, items, nextCursor, hasMore });
   } catch (error) {
     console.error("Error loading fans data", error);
-    return res.status(500).json({ error: "Error loading fans data" });
+    return sendServerError(res, "Error loading fans data");
   }
 }

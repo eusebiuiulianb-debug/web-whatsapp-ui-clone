@@ -1,34 +1,40 @@
 import { useState } from "react";
-import { ExtraPreset, ExtraPresetKey } from "../../config/extraPresets";
-
-type PresetsRecord = Record<ExtraPresetKey, ExtraPreset>;
+import {
+  DEFAULT_EXTRA_PRESETS,
+  ExtraPresetKey,
+  ExtraPresetsConfig,
+} from "../../config/extrasPresets";
 
 type Props = {
-  presets: PresetsRecord;
-  onSave: (next: PresetsRecord) => void;
+  presets: ExtraPresetsConfig;
+  onSave: (next: ExtraPresetsConfig) => void;
   onClose: () => void;
 };
 
-const order: ExtraPresetKey[] = ["PHOTO", "VIDEO", "COMBO"];
+const order: ExtraPresetKey[] = [
+  "PHOTO_DAY",
+  "PHOTO_NIGHT",
+  "VIDEO_DAY",
+  "VIDEO_NIGHT",
+  "COMBO_DAY",
+  "COMBO_NIGHT",
+];
 
 const labels: Record<ExtraPresetKey, string> = {
-  PHOTO: "Foto extra",
-  VIDEO: "Vídeo extra",
-  COMBO: "Combo foto + vídeo",
+  PHOTO_DAY: "Foto extra – Día",
+  PHOTO_NIGHT: "Foto extra – Noche",
+  VIDEO_DAY: "Vídeo extra – Día",
+  VIDEO_NIGHT: "Vídeo extra – Noche",
+  COMBO_DAY: "Combo – Día",
+  COMBO_NIGHT: "Combo – Noche",
 };
 
 export function EditExtraPresetsModal({ presets, onSave, onClose }: Props) {
-  const [local, setLocal] = useState<PresetsRecord>(presets);
+  const [local, setLocal] = useState<ExtraPresetsConfig>(presets);
   const [saving, setSaving] = useState(false);
 
-  function updateField(key: ExtraPresetKey, field: keyof ExtraPreset, value: string) {
-    setLocal((prev) => ({
-      ...prev,
-      [key]: {
-        ...prev[key],
-        [field]: value,
-      },
-    }));
+  function updateField(key: ExtraPresetKey, value: string) {
+    setLocal((prev) => ({ ...prev, [key]: value }));
   }
 
   async function handleSave() {
@@ -52,50 +58,36 @@ export function EditExtraPresetsModal({ presets, onSave, onClose }: Props) {
           </button>
         </div>
 
-        <div className="space-y-6 max-h-[70vh] overflow-y-auto pr-2">
-          {order.map((key) => {
-            const preset = local[key];
-            return (
-              <section
-                key={key}
-                className="rounded-lg bg-neutral-950/40 p-4 ring-1 ring-neutral-800"
-              >
-                <h3 className="mb-2 text-sm font-semibold text-neutral-50">{labels[key]}</h3>
+        <div className="mb-2 text-[11px] text-neutral-400">
+          Puedes usar el placeholder {"{precio}"} en cada texto; se sustituirá por el importe sugerido del tier.
+        </div>
 
-                <div className="mb-3 grid gap-4 md:grid-cols-2">
-                  <div>
-                    <label className="mb-1 block text-xs text-neutral-300">Título de la tarjeta</label>
-                    <input
-                      className="w-full rounded-md bg-neutral-800 px-3 py-2 text-sm text-neutral-50 outline-none ring-1 ring-neutral-700 focus:ring-emerald-500"
-                      value={preset.title}
-                      onChange={(e) => updateField(key, "title", e.target.value)}
-                    />
-                  </div>
-                  <div>
-                    <label className="mb-1 block text-xs text-neutral-300">Subtítulo</label>
-                    <input
-                      className="w-full rounded-md bg-neutral-800 px-3 py-2 text-sm text-neutral-50 outline-none ring-1 ring-neutral-700 focus:ring-emerald-500"
-                      value={preset.subtitle}
-                      onChange={(e) => updateField(key, "subtitle", e.target.value)}
-                    />
-                  </div>
-                </div>
-
-                <div>
-                  <label className="mb-1 block text-xs text-neutral-300">Mensaje que se envía en el chat</label>
-                  <textarea
-                    className="w-full rounded-md bg-neutral-800 px-3 py-2 text-sm text-neutral-50 outline-none ring-1 ring-neutral-700 focus:ring-emerald-500"
-                    rows={4}
-                    value={preset.message}
-                    onChange={(e) => updateField(key, "message", e.target.value)}
-                  />
-                </div>
-              </section>
-            );
-          })}
+        <div className="space-y-4 max-h-[70vh] overflow-y-auto pr-2">
+          {order.map((key) => (
+            <section
+              key={key}
+              className="rounded-lg bg-neutral-950/40 p-4 ring-1 ring-neutral-800"
+            >
+              <h3 className="mb-2 text-sm font-semibold text-neutral-50">{labels[key]}</h3>
+              <textarea
+                className="w-full rounded-md bg-neutral-800 px-3 py-2 text-sm text-neutral-50 outline-none ring-1 ring-neutral-700 focus:ring-emerald-500"
+                rows={4}
+                value={local[key]}
+                onChange={(e) => updateField(key, e.target.value)}
+              />
+            </section>
+          ))}
         </div>
 
         <div className="mt-4 flex justify-end gap-2">
+          <button
+            type="button"
+            className="rounded-md px-3 py-2 text-sm text-neutral-300 hover:bg-neutral-800"
+            onClick={() => setLocal(DEFAULT_EXTRA_PRESETS)}
+            disabled={saving}
+          >
+            Restaurar por defecto
+          </button>
           <button
             type="button"
             className="rounded-md px-3 py-2 text-sm text-neutral-300 hover:bg-neutral-800"

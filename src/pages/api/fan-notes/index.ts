@@ -1,5 +1,6 @@
 import type { NextApiRequest, NextApiResponse } from "next";
 import prisma from "../../../lib/prisma";
+import { sendBadRequest, sendServerError } from "../../../lib/apiError";
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method === "GET") {
@@ -17,7 +18,7 @@ async function handleGet(req: NextApiRequest, res: NextApiResponse) {
   const { fanId } = req.query;
 
   if (!fanId || typeof fanId !== "string") {
-    return res.status(400).json({ error: "fanId is required" });
+    return sendBadRequest(res, "fanId is required");
   }
 
   try {
@@ -31,7 +32,7 @@ async function handleGet(req: NextApiRequest, res: NextApiResponse) {
     return res.status(200).json({ notes });
   } catch (err) {
     console.error("Error loading fan notes", err);
-    return res.status(500).json({ error: "Internal error" });
+    return sendServerError(res);
   }
 }
 
@@ -39,12 +40,12 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
   const { fanId, content } = req.body || {};
 
   if (!fanId || typeof fanId !== "string") {
-    return res.status(400).json({ error: "fanId is required" });
+    return sendBadRequest(res, "fanId is required");
   }
 
   const trimmedContent = typeof content === "string" ? content.trim() : "";
   if (!trimmedContent) {
-    return res.status(400).json({ error: "content is required" });
+    return sendBadRequest(res, "content is required");
   }
 
   try {
@@ -61,7 +62,7 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
     return res.status(201).json({ note });
   } catch (err) {
     console.error("Error creating fan note", err);
-    return res.status(500).json({ error: "Internal error" });
+    return sendServerError(res);
   }
 }
 

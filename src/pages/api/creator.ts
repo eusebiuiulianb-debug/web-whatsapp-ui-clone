@@ -1,5 +1,6 @@
 import type { NextApiRequest, NextApiResponse } from "next";
 import prisma from "../../lib/prisma";
+import { sendServerError } from "../../lib/apiError";
 
 export default async function handler(_req: NextApiRequest, res: NextApiResponse) {
   try {
@@ -28,6 +29,6 @@ export default async function handler(_req: NextApiRequest, res: NextApiResponse
 
     return res.status(200).json({ creator: mappedCreator, packs: mappedPacks });
   } catch (_err) {
-    return res.status(500).json({ error: "Error loading creator data" });
+    return sendServerError(res, "Error loading creator data");
   }
 }

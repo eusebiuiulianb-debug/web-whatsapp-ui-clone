@@ -1,24 +1,33 @@
 import { FormEvent, useEffect, useState } from "react";
 import { useRouter } from "next/router";
-import { Content, ContentPack, ContentType, ContentVisibility } from "@prisma/client";
+import { Content, ContentPack, ContentType, ContentVisibility, ExtraTier, TimeOfDay } from "@prisma/client";
 
 type NewContentModalProps = {
   mode: "create" | "edit";
   initialContent?: Content;
+  createDefaults?: {
+    visibility?: ContentVisibility;
+    extraTier?: ExtraTier;
+    timeOfDay?: TimeOfDay;
+  };
   onClose: () => void;
 };
 
 const typeOptions = Object.values(ContentType);
 const packOptions = Object.values(ContentPack);
 const visibilityOptions = Object.values(ContentVisibility);
+const extraTierOptions: ExtraTier[] = ["T0", "T1", "T2", "T3"];
+const timeOfDayOptions: TimeOfDay[] = ["ANY", "DAY", "NIGHT"];
 
-export function NewContentModal({ onClose, mode, initialContent }: NewContentModalProps) {
+export function NewContentModal({ onClose, mode, initialContent, createDefaults }: NewContentModalProps) {
   const router = useRouter();
   const [title, setTitle] = useState(initialContent?.title ?? "");
   const [description, setDescription] = useState(initialContent?.description ?? "");
   const [type, setType] = useState<ContentType>(initialContent?.type ?? typeOptions[0]);
   const [pack, setPack] = useState<ContentPack>(initialContent?.pack ?? packOptions[0]);
-  const [visibility, setVisibility] = useState<ContentVisibility>(initialContent?.visibility ?? visibilityOptions[0]);
+  const [visibility, setVisibility] = useState<ContentVisibility>(initialContent?.visibility ?? createDefaults?.visibility ?? visibilityOptions[0]);
+  const [extraTier, setExtraTier] = useState<ExtraTier>(initialContent?.extraTier ?? createDefaults?.extraTier ?? "T1");
+  const [timeOfDay, setTimeOfDay] = useState<TimeOfDay>(initialContent?.timeOfDay ?? createDefaults?.timeOfDay ?? "ANY");
   const [mediaPath, setMediaPath] = useState(initialContent?.mediaPath ?? "");
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
@@ -30,6 +39,8 @@ export function NewContentModal({ onClose, mode, initialContent }: NewContentMod
       setType(initialContent.type);
       setPack(initialContent.pack);
       setVisibility(initialContent.visibility);
+      setExtraTier(initialContent.extraTier ?? "T1");
+      setTimeOfDay(initialContent.timeOfDay ?? "ANY");
       setMediaPath(initialContent.mediaPath);
     }
     if (mode === "create") {
@@ -37,10 +48,12 @@ export function NewContentModal({ onClose, mode, initialContent }: NewContentMod
       setDescription("");
       setType(typeOptions[0]);
       setPack(packOptions[0]);
-      setVisibility(visibilityOptions[0]);
+      setVisibility(createDefaults?.visibility ?? visibilityOptions[0]);
+      setExtraTier(createDefaults?.extraTier ?? "T1");
+      setTimeOfDay(createDefaults?.timeOfDay ?? "ANY");
       setMediaPath("");
     }
-  }, [mode, initialContent]);
+  }, [mode, initialContent, createDefaults]);
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
@@ -60,6 +73,8 @@ export function NewContentModal({ onClose, mode, initialContent }: NewContentMod
           type,
           pack,
           visibility,
+          extraTier: visibility === "EXTRA" ? extraTier : undefined,
+          timeOfDay: visibility === "EXTRA" ? timeOfDay : undefined,
           mediaPath,
         }),
       });
@@ -155,7 +170,14 @@ export function NewContentModal({ onClose, mode, initialContent }: NewContentMod
               <select
                 className="w-full rounded-md bg-neutral-800 px-2 py-2 text-sm text-neutral-50 outline-none ring-1 ring-neutral-700 focus:ring-emerald-500"
                 value={visibility}
-                onChange={(e) => setVisibility(e.target.value as ContentVisibility)}
+                onChange={(e) => {
+                  const nextVisibility = e.target.value as ContentVisibility;
+                  setVisibility(nextVisibility);
+                  if (nextVisibility === "EXTRA") {
+                    setExtraTier((prev) => prev || "T1");
+                    setTimeOfDay((prev) => prev || "ANY");
+                  }
+                }}
               >
                 {visibilityOptions.map((v) => (
                   <option key={v} value={v}>
@@ -177,6 +199,44 @@ export function NewContentModal({ onClose, mode, initialContent }: NewContentMod
               required
             />
           </div>
+
+          {visibility === "EXTRA" && (
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+              <div>
+                <label className="mb-1 block text-xs text-neutral-300">Tier del extra</label>
+                <select
+                  className="w-full rounded-md bg-neutral-800 px-2 py-2 text-sm text-neutral-50 outline-none ring-1 ring-neutral-700 focus:ring-emerald-500"
+                  value={extraTier}
+                  onChange={(e) => setExtraTier(e.target.value as ExtraTier)}
+                >
+                  {extraTierOptions.map((option) => (
+                    <option key={option} value={option}>
+                      {option === "T0" && "T0 – Gratis / incluido"}
+                      {option === "T1" && "T1 – Foto extra básica"}
+                      {option === "T2" && "T2 – Vídeo extra"}
+                      {option === "T3" && "T3 – Techo / pack caro"}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="mb-1 block text-xs text-neutral-300">Momento del día</label>
+                <select
+                  className="w-full rounded-md bg-neutral-800 px-2 py-2 text-sm text-neutral-50 outline-none ring-1 ring-neutral-700 focus:ring-emerald-500"
+                  value={timeOfDay}
+                  onChange={(e) => setTimeOfDay(e.target.value as TimeOfDay)}
+                >
+                  {timeOfDayOptions.map((option) => (
+                    <option key={option} value={option}>
+                      {option === "ANY" && "Cualquiera"}
+                      {option === "DAY" && "Día"}
+                      {option === "NIGHT" && "Noche"}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+          )}
 
           {errorMsg && <p className="text-sm text-red-400">{errorMsg}</p>}
 

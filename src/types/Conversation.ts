@@ -44,6 +44,11 @@ interface Conversation {
   lastNoteSummary?: string | null;
   nextActionSummary?: string | null;
   lifetimeSpend?: number;
+  extrasCount?: number;
+  extrasSpentTotal?: number;
+  maxExtraTier?: string | null;
+  novsyStatus?: "NOVSY" | null;
+  isHighPriority?: boolean;
 }
 
 interface ConversationListData {
@@ -74,6 +79,11 @@ interface ConversationListData {
   lastNoteSummary?: string | null;
   nextActionSummary?: string | null;
   lifetimeSpend?: number;
+  extrasCount?: number;
+  extrasSpentTotal?: number;
+  maxExtraTier?: string | null;
+  novsyStatus?: "NOVSY" | null;
+  isHighPriority?: boolean;
 }
 
 export type { Message, Conversation, ConversationListData }

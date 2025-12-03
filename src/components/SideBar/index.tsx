@@ -1,10 +1,11 @@
 import ConversationList from "../ConversationList";
-import { useContext, useEffect, useState } from "react";
+import { useCallback, useContext, useEffect, useState } from "react";
 import CreatorHeader from "../CreatorHeader";
 import { useCreatorConfig } from "../../context/CreatorConfigContext";
 import CreatorSettingsPanel from "../CreatorSettingsPanel";
 import { Fan } from "../../types/chat";
 import { ConversationListData } from "../../types/Conversation";
+import { ExtrasSummary } from "../../types/extras";
 import clsx from "clsx";
 import { getFollowUpTag, getUrgencyLevel, shouldFollowUpToday, isExpiredAccess } from "../../utils/followUp";
 import { getRecommendedFan } from "../../utils/recommendedFan";
@@ -12,6 +13,7 @@ import { PACKS } from "../../config/packs";
 import { getLastReadForFan, loadUnreadMap, UnreadMap } from "../../utils/unread";
 import type { Message } from "../../types/chat";
 import { ConversationContext } from "../../context/ConversationContext";
+import { EXTRAS_UPDATED_EVENT } from "../../constants/events";
 
 export default function SideBar() {
   const [ search, setSearch ] = useState("");
@@ -24,12 +26,18 @@ export default function SideBar() {
   const [ showOnlyWithNotes, setShowOnlyWithNotes ] = useState(false);
   const [ tierFilter, setTierFilter ] = useState<"all" | "new" | "regular" | "vip">("all");
   const [ onlyWithNextAction, setOnlyWithNextAction ] = useState(false);
+  const [ onlyWithExtras, setOnlyWithExtras ] = useState(false);
   const [ showPacksPanel, setShowPacksPanel ] = useState(false);
+  const [ nextCursor, setNextCursor ] = useState<string | null>(null);
+  const [ hasMore, setHasMore ] = useState(false);
+  const [ isLoadingMore, setIsLoadingMore ] = useState(false);
   const [ unreadMap, setUnreadMap ] = useState<UnreadMap>({});
   const packsCount = Object.keys(PACKS).length;
   const { config } = useCreatorConfig();
   const creatorInitial = config.creatorName?.trim().charAt(0) || "E";
   const { setConversation } = useContext(ConversationContext);
+  const [ extrasSummary, setExtrasSummary ] = useState<ExtrasSummary | null>(null);
+  const [ extrasSummaryError, setExtrasSummaryError ] = useState<string | null>(null);
 
   type FanData = ConversationListData & { priorityScore?: number };
 
@@ -65,6 +73,11 @@ export default function SideBar() {
       notesCount: fan.notesCount ?? 0,
       paidGrantsCount: fan.paidGrantsCount ?? 0,
       lifetimeValue: fan.lifetimeValue ?? 0,
+      extrasCount: fan.extrasCount ?? 0,
+      extrasSpentTotal: fan.extrasSpentTotal ?? 0,
+      maxExtraTier: (fan as any).maxExtraTier ?? null,
+      novsyStatus: (fan as any).novsyStatus ?? null,
+      isHighPriority: (fan as any).isHighPriority ?? false,
       customerTier: normalizeTier(fan.customerTier),
       nextAction: fan.nextAction ?? null,
       priorityScore: fan.priorityScore,
@@ -167,9 +180,10 @@ export default function SideBar() {
     const na = fan.nextAction;
     return typeof na === "string" && na.trim().length > 0;
   }).length;
-  const priorityCount = fans.filter((fan) => normalizeTier(fan.customerTier) === "vip").length;
+  const priorityCount = fans.filter((fan) => (fan as any).isHighPriority === true).length;
   const regularCount = fans.filter((fan) => normalizeTier(fan.customerTier) === "regular").length;
   const newCount = fans.filter((fan) => normalizeTier(fan.customerTier) === "new").length;
+  const withExtrasCount = fans.filter((fan) => (fan.extrasCount ?? 0) > 0).length;
 
   function applyFilter(
     filter: "all" | "today" | "expired",
@@ -186,6 +200,7 @@ export default function SideBar() {
   const filteredConversationsList = (search.length > 0 ? fansWithScore.filter(fan => fan.contactName.toLowerCase().includes(search.toLowerCase())) : fansWithScore)
     .filter(fan => (showPriorityOnly ? (fan.priorityScore ?? 0) > 0 : true))
     .filter((fan) => (!showOnlyWithNotes ? true : (fan.notesCount ?? 0) > 0))
+    .filter((fan) => (!onlyWithExtras ? true : (fan.extrasCount ?? 0) > 0))
     .filter((fan) => {
       if (!onlyWithNextAction) return true;
       const na = fan.nextAction;
@@ -207,8 +222,9 @@ export default function SideBar() {
       return true;
     })
     .filter((fan) => {
-      const tier = normalizeTier(fan.customerTier);
       if (tierFilter === "all") return true;
+      if (tierFilter === "vip") return fan.isHighPriority === true;
+      const tier = normalizeTier(fan.customerTier);
       return tier === tierFilter;
     })
     .sort((a, b) => {
@@ -240,28 +256,61 @@ export default function SideBar() {
     });
 
   const recommendedFan = getRecommendedFan(fansWithScore);
+  const apiFilter = (() => {
+    if (showOnlyWithNotes) return "notes";
+    if (onlyWithNextAction) return "nextAction";
+    if (tierFilter === "new") return "new";
+    if (followUpFilter === "expired") return "expired";
+    if (followUpFilter === "today") return "today";
+    return "all";
+  })();
+
+  const refreshExtrasSummary = useCallback(async () => {
+    try {
+      const res = await fetch("/api/extras/summary");
+      if (!res.ok) throw new Error("Failed to fetch extras summary");
+      const data = (await res.json()) as ExtrasSummary;
+      setExtrasSummary(data);
+      setExtrasSummaryError(null);
+    } catch (err) {
+      console.error("Error fetching extras summary", err);
+      setExtrasSummaryError("extras-summary-failed");
+    }
+  }, []);
 
   useEffect(() => {
     setUnreadMap(loadUnreadMap());
-    async function fetchFans() {
-      try {
-        setLoadingFans(true);
-        const res = await fetch("/api/fans");
-        if (!res.ok) throw new Error("Error fetching fans");
-        const data = await res.json();
-        const rawFans = Array.isArray(data.fans) ? (data.fans as Fan[]) : [];
-        const mapped: ConversationListData[] = mapFans(rawFans);
-        setFans(mapped);
-        setFansError("");
-        updateUnreadCounts(mapped, loadUnreadMap());
-      } catch (_err) {
-        setFansError("Error cargando fans");
-      } finally {
-        setLoadingFans(false);
-      }
+    fetchFansPage();
+    void refreshExtrasSummary();
+  }, [refreshExtrasSummary]);
+
+  async function fetchFansPage(cursor?: string | null, append = false) {
+    try {
+      if (append) setIsLoadingMore(true);
+      else setLoadingFans(true);
+      const params = new URLSearchParams();
+      params.set("limit", "30");
+      params.set("filter", apiFilter);
+      if (search.trim()) params.set("q", search.trim());
+      if (cursor) params.set("cursor", cursor);
+      const res = await fetch(`/api/fans?${params.toString()}`);
+      if (!res.ok) throw new Error("Error fetching fans");
+      const data = await res.json();
+      const rawItems = Array.isArray(data.items) ? (data.items as Fan[]) : [];
+      const mapped: ConversationListData[] = mapFans(rawItems);
+      setFans((prev) => (append ? [...prev, ...mapped] : mapped));
+      setFansError("");
+      setNextCursor(typeof data.nextCursor === "string" ? data.nextCursor : null);
+      setHasMore(Boolean(data.hasMore));
+      updateUnreadCounts(mapped, loadUnreadMap());
+    } catch (_err) {
+      setFansError("Error cargando fans");
+      if (!append) setFans([]);
+    } finally {
+      setLoadingFans(false);
+      setIsLoadingMore(false);
     }
-    fetchFans();
-  }, []);
+  }
 
   useEffect(() => {
     function handleFanDataUpdated(event: Event) {
@@ -271,39 +320,42 @@ export default function SideBar() {
         setFans(mapFans(rawFans));
         setFansError("");
         setLoadingFans(false);
+        setHasMore(false);
+        setNextCursor(null);
         return;
       }
-      // Fallback: refetch
-      (async () => {
-        try {
-          setLoadingFans(true);
-          const res = await fetch("/api/fans");
-          if (!res.ok) throw new Error("Error fetching fans");
-          const data = await res.json();
-          const mapped = mapFans(Array.isArray(data.fans) ? (data.fans as Fan[]) : []);
-          setFans(mapped);
-          setFansError("");
-        } catch (_err) {
-          setFansError("Error cargando fans");
-        } finally {
-          setLoadingFans(false);
-        }
-      })();
+      fetchFansPage();
     }
 
     window.addEventListener("fanDataUpdated", handleFanDataUpdated as EventListener);
     const handleUnreadUpdated = () => setUnreadMap(loadUnreadMap());
     window.addEventListener("unreadUpdated", handleUnreadUpdated);
+    const handleExtrasUpdated = () => {
+      void refreshExtrasSummary();
+    };
+    window.addEventListener(EXTRAS_UPDATED_EVENT, handleExtrasUpdated);
     return () => {
       window.removeEventListener("fanDataUpdated", handleFanDataUpdated as EventListener);
       window.removeEventListener("unreadUpdated", handleUnreadUpdated);
+      window.removeEventListener(EXTRAS_UPDATED_EVENT, handleExtrasUpdated);
     };
-  }, []);
+  }, [apiFilter, refreshExtrasSummary, search]);
 
   useEffect(() => {
     if (fans.length === 0) return;
     updateUnreadCounts(fans, unreadMap);
   }, [fans, unreadMap]);
+
+  useEffect(() => {
+    // refetch on filter/search changes
+    fetchFansPage();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [apiFilter, search, showPriorityOnly, followUpFilter, showOnlyWithNotes, tierFilter, onlyWithNextAction, onlyWithExtras]);
+
+  function formatCurrency(value: number) {
+    const rounded = Math.round((value ?? 0) * 100) / 100;
+    return `${rounded % 1 === 0 ? rounded.toFixed(0) : rounded.toFixed(2)} €`;
+  }
 
   return (
     <div className="flex flex-col w-full md:w-[480px] bg-[#202c33] min-h-[320px] md:h-full" style={{borderRight: "1px solid rgba(134,150,160,0.15)"}}>
@@ -348,6 +400,22 @@ export default function SideBar() {
         </div>
       </div>
       <div className="mb-2 px-3">
+        {extrasSummary && (
+          <div className="mb-2 rounded-xl border border-slate-700 bg-slate-900/80 px-3 py-2 text-[11px] text-slate-300">
+            <div className="flex justify-between">
+              <span>Extras hoy</span>
+              <span className="font-semibold">
+                {extrasSummary.today.count} venta{extrasSummary.today.count === 1 ? "" : "s"} · {formatCurrency(extrasSummary.today.amount)}
+              </span>
+            </div>
+            <div className="flex justify-between text-slate-400">
+              <span>Últimos 7 días</span>
+              <span className="font-semibold text-slate-200">
+                {extrasSummary.last7Days.count} venta{extrasSummary.last7Days.count === 1 ? "" : "s"} · {formatCurrency(extrasSummary.last7Days.amount)}
+              </span>
+            </div>
+          </div>
+        )}
         <div className="flex flex-col gap-1 rounded-xl border border-slate-700 bg-slate-900/80 px-3 py-2 text-[11px] text-slate-300">
           <button
             type="button"
@@ -364,7 +432,7 @@ export default function SideBar() {
             onClick={() => applyFilter("today", false)}
             className="flex justify-between text-left"
           >
-            <span className={clsx(followUpFilter === "today" && !showOnlyWithNotes && "font-semibold text-amber-300")}>Seguimiento</span>
+            <span className={clsx(followUpFilter === "today" && !showOnlyWithNotes && "font-semibold text-amber-300")}>Seguimiento hoy</span>
             <span className={clsx(followUpFilter === "today" && !showOnlyWithNotes && "font-semibold text-amber-300")}>{followUpTodayCount}</span>
           </button>
           <button
@@ -390,6 +458,17 @@ export default function SideBar() {
           >
             <span className={clsx(onlyWithNextAction && "font-semibold text-amber-300")}>⚡ Con próxima acción</span>
             <span className={clsx(onlyWithNextAction && "font-semibold text-amber-300")}>{withNextActionCount}</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => setOnlyWithExtras((prev) => !prev)}
+            className="flex justify-between text-left"
+          >
+            <span className={clsx(onlyWithExtras && "font-semibold text-amber-300")}>
+              <span aria-hidden className="mr-1">💰</span>
+              Con extras
+            </span>
+            <span className={clsx(onlyWithExtras && "font-semibold text-amber-300")}>{withExtrasCount}</span>
           </button>
           <button
             type="button"
@@ -555,6 +634,23 @@ export default function SideBar() {
             <ConversationList key={conversation.id || index} isFirstConversation={index == 0} data={conversation} />
           )
         })}
+        {!loadingFans && !fansError && hasMore && (
+          <div className="px-4 py-3">
+            <button
+              type="button"
+              disabled={isLoadingMore}
+              onClick={() => fetchFansPage(nextCursor, true)}
+              className={clsx(
+                "w-full rounded-lg border px-3 py-2 text-sm font-semibold",
+                isLoadingMore
+                  ? "border-slate-700 bg-slate-800/60 text-slate-400 cursor-not-allowed"
+                  : "border-amber-400 bg-amber-500/10 text-amber-100 hover:bg-amber-500/20"
+              )}
+            >
+              {isLoadingMore ? "Cargando..." : "Cargar más"}
+            </button>
+          </div>
+        )}
       </div>
     </div>
   )

@@ -1,5 +1,6 @@
 import type { NextApiRequest, NextApiResponse } from "next";
 import prisma from "../../lib/prisma";
+import { sendBadRequest, sendServerError } from "../../lib/apiError";
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method === "GET") {
@@ -18,7 +19,7 @@ async function handleGet(req: NextApiRequest, res: NextApiResponse) {
   const { fanId } = req.query;
 
   if (!fanId || typeof fanId !== "string") {
-    return res.status(200).json({ messages: [] });
+    return sendBadRequest(res, "fanId is required");
   }
 
   try {
@@ -28,10 +29,10 @@ async function handleGet(req: NextApiRequest, res: NextApiResponse) {
       include: { contentItem: true },
     });
 
-    console.log("DEBUG get messages for fan", fanId, "count", messages.length);
     return res.status(200).json({ messages });
-  } catch (_err) {
-    return res.status(200).json({ messages: [] });
+  } catch (err) {
+    console.error("Error fetching messages", err);
+    return sendServerError(res);
   }
 }
 
@@ -39,20 +40,20 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
   const { fanId, text, from, type, contentItemId } = req.body || {};
 
   if (!fanId || typeof fanId !== "string") {
-    return res.status(400).json({ error: "fanId is required" });
+    return sendBadRequest(res, "fanId is required");
   }
 
   const normalizedType = type === "CONTENT" ? "CONTENT" : "TEXT";
 
   if (normalizedType === "TEXT") {
     if (!text || typeof text !== "string" || text.trim().length === 0) {
-      return res.status(400).json({ error: "text is required" });
+      return sendBadRequest(res, "text is required");
     }
   }
 
   if (normalizedType === "CONTENT") {
     if (!contentItemId || typeof contentItemId !== "string") {
-      return res.status(400).json({ error: "contentItemId is required for content messages" });
+      return sendBadRequest(res, "contentItemId is required for content messages");
     }
   }
 
@@ -83,10 +84,9 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
       include: { contentItem: true },
     });
 
-    console.log("DEBUG created message", created);
     return res.status(200).json({ message: created });
   } catch (err) {
-    console.error("Error creating message (debug):", err);
-    return res.status(500).json({ error: "Error creating message" });
+    console.error("Error creating message", err);
+    return sendServerError(res);
   }
 }

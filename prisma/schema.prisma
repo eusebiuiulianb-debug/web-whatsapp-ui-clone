@@ -47,6 +47,7 @@ model Fan {
   messages         Message[]
   accessGrants     AccessGrant[]
   notes            FanNote[]
+  extraPurchases   ExtraPurchase[]
 }
 
 model Message {
@@ -76,10 +77,14 @@ model ContentItem {
   durationSec Int?
   isPreview   Boolean          @default(false)
   visibility  ContentVisibility @default(INCLUDED_MONTHLY)
+  isExtra     Boolean          @default(false)
+  extraTier   ExtraTier?
+  timeOfDay   TimeOfDay        @default(ANY)
   externalUrl String?
   createdAt   DateTime         @default(now())
   updatedAt   DateTime         @updatedAt
   messages    Message[]        @relation("MessageContentItems")
+  extraPurchases ExtraPurchase[]
 
   @@unique([creatorId, slug])
   @@index([pack, order])
@@ -104,6 +109,19 @@ enum ContentPack {
   SPECIAL
 }
 
+enum ExtraTier {
+  T0
+  T1
+  T2
+  T3
+}
+
+enum TimeOfDay {
+  DAY
+  NIGHT
+  ANY
+}
+
 enum MessageType {
   TEXT
   CONTENT
@@ -126,4 +144,16 @@ model FanNote {
   creatorId String
   content   String
   createdAt DateTime @default(now())
+}
+
+model ExtraPurchase {
+  id            String      @id @default(cuid())
+  fan           Fan         @relation(fields: [fanId], references: [id])
+  fanId         String
+  contentItem   ContentItem @relation(fields: [contentItemId], references: [id])
+  contentItemId String
+  tier          ExtraTier
+  amount        Int
+  sessionTag    String?
+  createdAt     DateTime    @default(now())
 }

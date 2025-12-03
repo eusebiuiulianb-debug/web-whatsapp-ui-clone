@@ -42,6 +42,11 @@ export interface Fan {
   lastNoteSummary?: string | null;
   nextActionSummary?: string | null;
   lifetimeSpend?: number;
+  extrasCount?: number;
+  extrasSpentTotal?: number;
+  maxExtraTier?: string | null;
+  novsyStatus?: "NOVSY" | null;
+  isHighPriority?: boolean;
 }
 
 export interface Message {

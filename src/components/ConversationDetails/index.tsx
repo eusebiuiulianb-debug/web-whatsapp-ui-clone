@@ -11,17 +11,28 @@ import { FollowUpTag, getFollowUpTag, getUrgencyLevel } from "../../utils/follow
 import { PACKS } from "../../config/packs";
 import { getRecommendedFan } from "../../utils/recommendedFan";
 import { ContentItem, getContentTypeLabel, getContentVisibilityLabel } from "../../types/content";
-import { defaultExtraPresets, ExtraPreset, ExtraPresetKey } from "../../config/extraPresets";
-import { loadExtraPresets, saveExtraPresets } from "../../utils/extraPresetsStorage";
 import { EditExtraPresetsModal } from "../conversation/EditExtraPresetsModal";
 import { loadUnreadMap, saveUnreadMap, updateLastReadForFan } from "../../utils/unread";
 import { getTimeOfDayTag } from "../../utils/contentTags";
-import { demoContentLibrary, DemoContentItem, DemoContentPack } from "../../config/contentLibrary";
+import {
+  buildExtraText,
+  ExtraPresetKind,
+  ExtraPresetsConfig,
+  getPresetKeyFor,
+  loadExtraPresets,
+  saveExtraPresets,
+} from "../../config/extrasPresets";
 
 const PACK_ESPECIAL_UPSELL_TEXT =
   "Veo que lo que estás pidiendo entra ya en el terreno de mi Pack especial: incluye todo lo de tu suscripción mensual + fotos y escenas extra más intensas. Si quieres subir de nivel, son 49 € y te lo dejo desbloqueado en este chat.";
 const PACK_MONTHLY_UPSELL_TEXT =
   'Te propongo subir al siguiente nivel: la suscripción mensual. Incluye fotos, vídeos y guías extra para seguir trabajando en tu relación. Si te interesa, dime "MENSUAL" y te paso el enlace.';
+
+const CONTENT_PACKS = [
+  { code: "WELCOME" as const, label: "Pack bienvenida" },
+  { code: "MONTHLY" as const, label: "Suscripción mensual" },
+  { code: "SPECIAL" as const, label: "Pack especial pareja" },
+] as const;
 
 function getReengageTemplate(name: string) {
   const cleanName = name?.trim() || "";
@@ -64,7 +75,14 @@ export default function ConversationDetails() {
   const [ recommendedFan, setRecommendedFan ] = useState<ConversationListData | null>(null);
   const [ showContentModal, setShowContentModal ] = useState(false);
   const [ isAttachmentMenuOpen, setIsAttachmentMenuOpen ] = useState(false);
-  type ContentWithFlags = ContentItem & { hasBeenSentToFan?: boolean };
+  type TimeOfDayValue = "DAY" | "NIGHT" | "ANY";
+  type ContentWithFlags = ContentItem & {
+    pack: "WELCOME" | "MONTHLY" | "SPECIAL";
+    hasBeenSentToFan?: boolean;
+    isExtra?: boolean;
+    extraTier?: "T0" | "T1" | "T2" | "T3" | null;
+    timeOfDay?: TimeOfDayValue;
+  };
   const [ contentItems, setContentItems ] = useState<ContentWithFlags[]>([]);
   const [ contentLoading, setContentLoading ] = useState(false);
   const [ contentError, setContentError ] = useState("");
@@ -72,8 +90,23 @@ export default function ConversationDetails() {
   const [ selectedContentIds, setSelectedContentIds ] = useState<string[]>([]);
   type TimeOfDayFilter = "all" | "day" | "night";
   const [ timeOfDayFilter, setTimeOfDayFilter ] = useState<TimeOfDayFilter>("all");
-  type PresetsRecord = Record<ExtraPresetKey, ExtraPreset>;
-  const [ presets, setPresets ] = useState<PresetsRecord>(defaultExtraPresets);
+  const [ timeOfDay, setTimeOfDay ] = useState<TimeOfDayValue>(getCurrentTimeOfDay());
+  const [ extraHistory, setExtraHistory ] = useState<
+    {
+      id: string;
+      tier: "T0" | "T1" | "T2" | "T3";
+      amount: number;
+      sessionTag?: string | null;
+      createdAt: string;
+      contentItem: { id: string; title: string; type: string; timeOfDay?: TimeOfDayValue; isExtra?: boolean; extraTier?: string | null };
+    }[]
+  >([]);
+  const [ extraHistoryError, setExtraHistoryError ] = useState("");
+  const [ isLoadingExtraHistory, setIsLoadingExtraHistory ] = useState(false);
+  const [ selectedExtraId, setSelectedExtraId ] = useState<string>("");
+  const [ extraAmount, setExtraAmount ] = useState<number | "">("");
+  const [ extraError, setExtraError ] = useState<string | null>(null);
+  const [ extraPresets, setExtraPresets ] = useState<ExtraPresetsConfig>(() => loadExtraPresets());
   const [ showEditExtra, setShowEditExtra ] = useState(false);
   const { config } = useCreatorConfig();
   const accessState = getAccessState({ membershipStatus, daysLeft });
@@ -82,6 +115,22 @@ export default function ConversationDetails() {
   const followUpTag: FollowUpTag =
     conversationFollowUpTag ?? getFollowUpTag(membershipStatus, daysLeft, conversation.activeGrantTypes);
   const normalizedGrants = (conversation.activeGrantTypes ?? []).map((t) => t.toLowerCase());
+  const EXTRA_PRICES: Record<"T0" | "T1" | "T2" | "T3", number> = {
+    T0: 0,
+    T1: 9,
+    T2: 25,
+    T3: 60,
+  }; // TODO: leer estos precios desde config
+  const EXTRA_CARD_LABELS: Record<ExtraPresetKind, { title: string; subtitle: string }> = {
+    PHOTO: { title: "Foto extra", subtitle: "1 foto nueva solo para ti" },
+    VIDEO: { title: "Vídeo extra", subtitle: "Vídeo corto grabado ahora" },
+    COMBO: { title: "Combo foto + vídeo", subtitle: "3 fotos + 1 vídeo más intenso" },
+  };
+  const EXTRA_KIND_TIER: Record<ExtraPresetKind, "T1" | "T2" | "T3"> = {
+    PHOTO: "T1",
+    VIDEO: "T2",
+    COMBO: "T3",
+  };
   const hasWelcome = normalizedGrants.includes("welcome") || normalizedGrants.includes("trial");
   const hasMonthly = normalizedGrants.includes("monthly");
   const hasSpecial = normalizedGrants.includes("special");
@@ -169,6 +218,11 @@ export default function ConversationDetails() {
       nextActionSummary: fan.nextActionSummary,
       urgencyLevel: getUrgencyLevel(getFollowUpTag(fan.membershipStatus, fan.daysLeft, fan.activeGrantTypes), fan.daysLeft),
       paidGrantsCount: fan.paidGrantsCount,
+      extrasCount: fan.extrasCount ?? 0,
+      extrasSpentTotal: fan.extrasSpentTotal ?? 0,
+      maxExtraTier: (fan as any).maxExtraTier ?? null,
+      novsyStatus: (fan as any).novsyStatus ?? null,
+      isHighPriority: (fan as any).isHighPriority ?? false,
     }));
   }
 
@@ -241,6 +295,11 @@ export default function ConversationDetails() {
     if (lower === "monthly") return 2;
     if (lower === "trial" || lower === "welcome") return 1;
     return null;
+  }
+
+  function getCurrentTimeOfDay(): TimeOfDayValue {
+    const h = new Date().getHours();
+    return h >= 7 && h < 19 ? "DAY" : "NIGHT";
   }
 
   function getFanMaxPackLevel() {
@@ -338,8 +397,14 @@ export default function ConversationDetails() {
     setShowExtraTemplates(false);
   }
 
-  async function handleSendQuickExtra(message: string) {
-    await sendMessageText(message);
+  async function handleSendQuickExtra(kind: ExtraPresetKind) {
+    const mode = timeOfDay === "NIGHT" ? "NIGHT" : "DAY";
+    const key = getPresetKeyFor(kind, mode);
+    const tier = EXTRA_KIND_TIER[kind];
+    const price = EXTRA_PRICES[tier] ?? EXTRA_PRICES.T1;
+    const text = buildExtraText(key, extraPresets, price);
+
+    await sendMessageText(text);
     setShowExtraTemplates(false);
   }
 
@@ -406,7 +471,12 @@ export default function ConversationDetails() {
       const res = await fetch(`/api/access/grant?fanId=${fanId}`);
       if (!res.ok) throw new Error("error");
       const data = await res.json();
-      setAccessGrants(Array.isArray(data.grants) ? data.grants : []);
+      const grants = Array.isArray(data.activeGrants)
+        ? data.activeGrants
+        : Array.isArray(data.grants)
+        ? data.grants
+        : [];
+      setAccessGrants(grants);
     } catch (_err) {
       setAccessGrants([]);
     } finally {
@@ -438,10 +508,11 @@ export default function ConversationDetails() {
   async function fetchHistory(fanId: string) {
     try {
       setHistoryError("");
-      const res = await fetch(`/api/access/grant?fanId=${fanId}`);
+      const res = await fetch(`/api/fans/history?fanId=${fanId}`);
       if (!res.ok) throw new Error("error");
       const data = await res.json();
-      setAccessGrants(Array.isArray(data.grants) ? data.grants : []);
+      const history = Array.isArray(data.history) ? data.history : [];
+      setAccessGrants(history);
     } catch (_err) {
       setHistoryError("Error cargando historial");
     }
@@ -462,6 +533,28 @@ export default function ConversationDetails() {
       setContentItems([]);
     } finally {
       setContentLoading(false);
+    }
+  }
+
+  async function fetchExtrasHistory(fanId: string) {
+    try {
+      setExtraHistoryError("");
+      setIsLoadingExtraHistory(true);
+      const res = await fetch(`/api/extras?fanId=${fanId}`);
+      if (!res.ok) {
+        console.error("Error fetching extras", res.statusText);
+        setExtraHistory([]);
+        setExtraHistoryError("");
+        return;
+      }
+      const data = await res.json();
+      const history = Array.isArray(data.history) ? data.history : [];
+      setExtraHistory(history);
+    } catch (_err) {
+      setExtraHistory([]);
+      setExtraHistoryError("");
+    } finally {
+      setIsLoadingExtraHistory(false);
     }
   }
 
@@ -511,6 +604,11 @@ export default function ConversationDetails() {
           lastCreatorMessageAt: targetFan.lastCreatorMessageAt ?? conversation.lastCreatorMessageAt,
           notesCount: targetFan.notesCount ?? conversation.notesCount,
           nextAction: targetFan.nextAction ?? conversation.nextAction,
+          extrasCount: targetFan.extrasCount ?? conversation.extrasCount,
+          extrasSpentTotal: targetFan.extrasSpentTotal ?? conversation.extrasSpentTotal,
+          maxExtraTier: (targetFan as any).maxExtraTier ?? conversation.maxExtraTier,
+          novsyStatus: (targetFan as any).novsyStatus ?? conversation.novsyStatus ?? null,
+          isHighPriority: (targetFan as any).isHighPriority ?? conversation.isHighPriority ?? false,
         });
         await fetchRecommendedFan(rawFans);
       }
@@ -599,7 +697,7 @@ export default function ConversationDetails() {
 
   useEffect(() => {
     const loaded = loadExtraPresets();
-    setPresets(loaded);
+    setExtraPresets(loaded);
   }, []);
 
   useEffect(() => {
@@ -619,6 +717,11 @@ export default function ConversationDetails() {
     if (!id || !showHistory) return;
     fetchHistory(id);
   }, [id, showHistory]);
+
+  useEffect(() => {
+    if (!id || !showExtraTemplates) return;
+    fetchExtrasHistory(id);
+  }, [id, showExtraTemplates]);
 
 
   function handleSelectPack(packId: string) {
@@ -744,7 +847,12 @@ export default function ConversationDetails() {
         return;
       }
 
-      await fetchAccessGrants(id);
+      const data = await res.json();
+      if (Array.isArray(data.activeGrants)) {
+        setAccessGrants(data.activeGrants);
+      } else {
+        await fetchAccessGrants(id);
+      }
       setSelectedPackType(type);
       setShowPackSelector(true);
       await refreshFanData(id);
@@ -824,8 +932,9 @@ export default function ConversationDetails() {
     }
   }
 
-  async function handleAttachContent(item: ContentWithFlags) {
+  async function handleAttachContent(item: ContentWithFlags, options?: { keepOpen?: boolean }) {
     if (!id) return;
+    const keepOpen = options?.keepOpen ?? false;
     try {
       const res = await fetch("/api/messages", {
         method: "POST",
@@ -851,11 +960,15 @@ export default function ConversationDetails() {
         setMessage((prev) => [...(prev || []), ...mapped]);
       }
       setMessagesError("");
-      setShowContentModal(false);
+      if (!keepOpen) {
+        setShowContentModal(false);
+      }
     } catch (err) {
       console.error("Error adjuntando contenido", err);
       setMessagesError("Error adjuntando contenido");
-      setShowContentModal(false);
+      if (!keepOpen) {
+        setShowContentModal(false);
+      }
     }
   }
 
@@ -880,6 +993,11 @@ export default function ConversationDetails() {
     : membershipStatus
     ? `${membershipStatus}${effectiveDaysLeft ? ` – ${effectiveDaysLeft} días restantes` : ""}`
     : "";
+  const extrasCountDisplay = conversation.extrasCount ?? 0;
+  const extrasSpentDisplay = Math.round(conversation.extrasSpentTotal ?? 0);
+  const extrasAmount = conversation.extrasSpentTotal ?? 0;
+  const lifetimeAmount = conversation.lifetimeSpend ?? 0;
+  const subsAmount = Math.max(0, lifetimeAmount - extrasAmount);
 
   function formatTier(tier?: "new" | "regular" | "priority" | "vip") {
     if (tier === "priority" || tier === "vip") return "Alta prioridad";
@@ -889,6 +1007,7 @@ export default function ConversationDetails() {
 
   const lifetimeValueDisplay = Math.round(conversation.lifetimeValue ?? 0);
   const notesCountDisplay = conversation.notesCount ?? 0;
+  const novsyStatus = conversation.novsyStatus ?? null;
 
   const filteredItems = contentItems.filter((item) => {
     const tag = getTimeOfDayTag(item.title ?? "");
@@ -904,19 +1023,24 @@ export default function ConversationDetails() {
     <div className="flex flex-col w-full h-full min-h-[60vh]">
       <header className="flex flex-col gap-3 border-b border-slate-800 bg-slate-900/80 px-4 py-3">
         <div className="flex items-start justify-between gap-3">
-          <div className="flex items-start gap-3">
-            <Avatar width="w-10" height="h-10" image={image} />
-            <div className="flex flex-col gap-1 leading-tight">
-              <div className="flex flex-wrap items-center gap-2">
-                <h1 className="text-sm font-semibold text-slate-50">{contactName}</h1>
-                <span className="inline-flex items-center rounded-full bg-slate-800/80 text-[11px] text-amber-200 px-2 py-[1px]">
-                  {packLabel}
-                </span>
-                <span
-                  className={`w-2 h-2 rounded-full ${
-                    accessState === "active"
-                      ? "bg-[#25d366]"
-                      : accessState === "expiring"
+            <div className="flex items-start gap-3">
+              <Avatar width="w-10" height="h-10" image={image} />
+              <div className="flex flex-col gap-1 leading-tight">
+                <div className="flex flex-wrap items-center gap-2">
+                  <h1 className="text-sm font-semibold text-slate-50">{contactName}</h1>
+                  <span className="inline-flex items-center rounded-full bg-slate-800/80 text-[11px] text-amber-200 px-2 py-[1px]">
+                    {packLabel}
+                  </span>
+                  {novsyStatus === "NOVSY" && (
+                    <span className="inline-flex items-center rounded-full border border-emerald-400/80 bg-emerald-500/10 text-[11px] text-emerald-100 px-2 py-[1px]">
+                      Extras
+                    </span>
+                  )}
+                  <span
+                    className={`w-2 h-2 rounded-full ${
+                      accessState === "active"
+                        ? "bg-[#25d366]"
+                        : accessState === "expiring"
                       ? "bg-[#f5c065]"
                       : "bg-[#7d8a93]"
                   }`}
@@ -927,11 +1051,19 @@ export default function ConversationDetails() {
                 {membershipDetails && lastSeen && <span className="w-1 h-1 rounded-full bg-slate-500" />}
                 {lastSeenLabel()}
               </div>
+              {extrasCountDisplay > 0 && (
+                <div className="text-[11px] text-slate-400">
+                  Extras: {extrasCountDisplay} · {extrasSpentDisplay} €
+                </div>
+              )}
               <div className="text-xs text-slate-400">
                 <span className={conversation.customerTier === "priority" || conversation.customerTier === "vip" ? "text-amber-300 font-semibold" : ""}>
                   {formatTier(conversation.customerTier)}
                 </span>
                 {` · ${lifetimeValueDisplay} € gastados · ${notesCountDisplay} nota${notesCountDisplay === 1 ? "" : "s"}`}
+              </div>
+              <div className="text-[11px] text-slate-400">
+                Total gastado: {Math.round(lifetimeAmount)} € · Suscripciones: {Math.round(subsAmount)} € · Extras: {Math.round(extrasAmount)} €
               </div>
               {conversation.nextAction && (
                 <div className="text-[11px] text-slate-400">
@@ -1084,6 +1216,39 @@ export default function ConversationDetails() {
               const isSelected = packType === selectedPackType;
               const packStatus = getPackStatusForType(packType as "trial" | "monthly" | "special");
               const isSpecialBlocked = packType === "special" && !hasActiveMonthlyPack;
+              const isIncludedByHigher =
+                packType === "trial"
+                  ? hasMonthly || hasSpecial
+                  : packType === "monthly"
+                  ? hasSpecial
+                  : false;
+              const isActive = packStatus.status === "active";
+              const showActiveBadge = isActive;
+              const showExpiredBadge = packStatus.status === "expired" && !isIncludedByHigher && !isActive;
+              const disableButton =
+                isIncludedByHigher || isActive || (packType === "special" && !hasMonthly) || grantLoadingType === packType;
+              const buttonLabel =
+                packType === "trial"
+                  ? isIncludedByHigher
+                    ? hasSpecial
+                      ? "Incluido en tu Pack especial"
+                      : "Incluido en tu suscripción mensual"
+                    : "Conceder acceso"
+                  : packType === "monthly"
+                  ? isIncludedByHigher
+                    ? "Incluido en tu Pack especial"
+                    : "Conceder acceso"
+                  : "Conceder acceso";
+              const helperText =
+                packType === "special" && !hasMonthly
+                  ? "Solo disponible para fans con suscripción mensual activa."
+                  : isIncludedByHigher && packType === "trial" && hasMonthly
+                  ? "Incluido en tu suscripción mensual."
+                  : isIncludedByHigher && packType === "trial" && hasSpecial
+                  ? "Incluido en tu Pack especial."
+                  : isIncludedByHigher && packType === "monthly" && hasSpecial
+                  ? "Incluido en tu Pack especial."
+                  : null;
               return (
                 <button
                   key={pack.id}
@@ -1100,17 +1265,20 @@ export default function ConversationDetails() {
                   </div>
                     <p className="text-[#a1b0b7] text-xs mt-1">{pack.description}</p>
                   <div className="flex items-center gap-2 mt-2">
-                    {packStatus.status === "active" && (
+                    {showActiveBadge && (
                       <span className="inline-flex items-center rounded-full border border-amber-400/80 bg-amber-500/10 px-2.5 py-0.5 text-xs font-medium text-amber-300">
                         Activo{packStatus.daysLeft ? ` · ${packStatus.daysLeft} días restantes` : ""}
                       </span>
                     )}
-                    {packStatus.status === "expired" && (
+                    {showExpiredBadge && (
                       <span className="inline-flex items-center rounded-full border border-slate-500/70 bg-slate-800/50 px-2.5 py-0.5 text-xs font-medium text-slate-300">
                         Expirado
                       </span>
                     )}
-                    {packStatus.status !== "active" && (
+                    {helperText && (
+                      <span className="text-[11px] text-slate-400">{helperText}</span>
+                    )}
+                    {!disableButton && (
                       <button
                         type="button"
                         className="inline-flex items-center justify-center rounded-full border border-amber-400/90 px-3 py-1 text-xs font-semibold text-amber-200 hover:bg-amber-500/15 hover:border-amber-300 focus:outline-none focus:ring-1 focus:ring-amber-400/60 transition"
@@ -1119,10 +1287,15 @@ export default function ConversationDetails() {
                           if (isSpecialBlocked) return;
                           handleGrant(packType as "trial" | "monthly" | "special");
                         }}
-                        disabled={grantLoadingType === packType || isSpecialBlocked}
+                        disabled={disableButton}
                       >
-                        {grantLoadingType === packType ? "Concediendo..." : "Conceder acceso"}
+                        {grantLoadingType === packType ? "Concediendo..." : buttonLabel}
                       </button>
+                    )}
+                    {(disableButton && !showActiveBadge && !showExpiredBadge && !helperText && isIncludedByHigher) && (
+                      <span className="text-[11px] text-slate-400">
+                        Incluido en tu pack actual.
+                      </span>
                     )}
                     {isSpecialBlocked && (
                       <p className="text-[11px] text-slate-400">
@@ -1138,24 +1311,198 @@ export default function ConversationDetails() {
         {showExtraTemplates && (
           <div className="flex flex-col gap-3 bg-slate-800/60 border border-slate-700 rounded-lg p-3 w-full">
             <div className="mb-1 flex items-center justify-between">
-              <h3 className="text-sm font-semibold text-white">Contenido extra rápido</h3>
-              <button
-                type="button"
-                className="text-xs text-slate-300 hover:text-white underline-offset-2 hover:underline"
-                onClick={() => setShowEditExtra(true)}
-              >
-                Editar textos
-              </button>
+              <h3 className="text-sm font-semibold text-white">Extras · PPV</h3>
+              <div className="flex items-center gap-2">
+                <div className="flex items-center gap-1 text-[11px] text-slate-300">
+                  <span>Modo</span>
+                  <div className="inline-flex rounded-full border border-slate-600 bg-slate-900">
+                    {(["DAY", "NIGHT"] as TimeOfDayValue[]).map((val) => (
+                      <button
+                        key={val}
+                        type="button"
+                        onClick={() => setTimeOfDay(val)}
+                        className={clsx(
+                          "px-2 py-0.5 text-[11px] font-semibold rounded-full",
+                          timeOfDay === val
+                            ? "bg-amber-500/20 text-amber-100 border border-amber-400/70"
+                            : "text-slate-200"
+                        )}
+                      >
+                        {val === "DAY" ? "Día" : "Noche"}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  className="text-xs text-slate-300 hover:text-white underline-offset-2 hover:underline"
+                  onClick={() => setShowEditExtra(true)}
+                >
+                  Editar textos
+                </button>
+              </div>
             </div>
+
+            <div className="rounded-lg border border-slate-700 bg-slate-900/70 p-3 space-y-2">
+              <h4 className="text-sm font-semibold text-white">Registrar venta de extra</h4>
+              <div className="flex flex-col md:flex-row gap-2">
+                <select
+                  className="flex-1 rounded-lg bg-slate-900 border border-slate-700 px-3 py-2 text-xs text-slate-100"
+                  value={selectedExtraId}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    setSelectedExtraId(val);
+                    const item = contentItems.find((c) => c.id === val);
+                    const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
+                    const tier = (item?.extraTier as "T0" | "T1" | "T2" | "T3") ?? DEFAULT_EXTRA_TIER;
+                    if (tier && EXTRA_PRICES[tier] !== undefined) {
+                      setExtraAmount(EXTRA_PRICES[tier]);
+                    }
+                  }}
+                >
+                  <option value="">Selecciona un extra</option>
+                  {contentItems
+                    .filter((item) => {
+                      const isExtraItem = item.isExtra === true || item.visibility === "EXTRA";
+                      const matchesTimeOfDay =
+                        !item.timeOfDay || item.timeOfDay === "ANY" || item.timeOfDay === timeOfDay;
+                      return isExtraItem && matchesTimeOfDay;
+                    })
+                    .map((item) => {
+                      const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1"; // TODO: permitir editar extraTier en la biblioteca
+                      const tier = (item.extraTier as "T0" | "T1" | "T2" | "T3") ?? DEFAULT_EXTRA_TIER;
+                      const suggested = EXTRA_PRICES[tier] ?? 0;
+                      return (
+                        <option key={item.id} value={item.id}>
+                          {`${item.title} · ${tier} · ${suggested} €`}
+                        </option>
+                      );
+                    })}
+                </select>
+                <input
+                  type="number"
+                  className="w-32 rounded-lg bg-slate-900 border border-slate-700 px-3 py-2 text-xs text-slate-100"
+                  value={extraAmount}
+                  onChange={(e) => setExtraAmount(e.target.value === "" ? "" : Number(e.target.value))}
+                  placeholder="Importe"
+                />
+                <button
+                  type="button"
+                  className="rounded-lg border border-emerald-400 bg-emerald-500/10 px-3 py-2 text-xs font-semibold text-emerald-100 hover:bg-emerald-500/20"
+                  onClick={async () => {
+                    if (!id || !selectedExtraId) {
+                      setExtraError("Selecciona fan y extra.");
+                      return;
+                    }
+                    const item = contentItems.find((c) => c.id === selectedExtraId);
+                    const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
+                    const tier = (item?.extraTier as "T0" | "T1" | "T2" | "T3") ?? DEFAULT_EXTRA_TIER;
+                    if (!item || !tier) {
+                      setExtraError("El extra seleccionado no tiene tier asignado.");
+                      return;
+                    }
+                    if (extraAmount === "" || typeof extraAmount !== "number" || Number.isNaN(extraAmount)) {
+                      setExtraError("Introduce un importe válido.");
+                      return;
+                    }
+                    const sessionTag = `${timeOfDay}_${new Date().toISOString().slice(0, 10)}`;
+                    setExtraError("");
+                    try {
+                      const payload = {
+                        fanId: id,
+                        contentItemId: item.id,
+                        tier,
+                        amount: Number(extraAmount),
+                        sessionTag,
+                      };
+                      const res = await fetch("/api/extras", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify(payload),
+                      });
+                      if (!res.ok) {
+                        const errText = await res.text();
+                        console.error("Error registering extra", res.status, errText);
+                        setExtraError(errText || "No se pudo registrar el extra.");
+                        return;
+                      }
+                      setSelectedExtraId("");
+                      setExtraAmount("");
+                      await fetchExtrasHistory(id);
+                      await refreshFanData(id);
+                      if (typeof window !== "undefined") {
+                        window.dispatchEvent(new CustomEvent("novsy:extras-updated"));
+                      }
+                    } catch (_err) {
+                      setExtraError("No se pudo registrar el extra.");
+                    }
+                  }}
+                >
+                  Registrar extra
+                </button>
+              </div>
+              {extraError && <div className="text-[11px] text-rose-300">{extraError}</div>}
+            </div>
+
+            <div className="rounded-lg border border-slate-700 bg-slate-900/70 p-3 space-y-2">
+              <div className="flex items-center justify-between">
+                <h4 className="text-sm font-semibold text-white">Historial de extras</h4>
+                {isLoadingExtraHistory && <span className="text-[11px] text-slate-400">Cargando...</span>}
+              </div>
+              <div className="text-[11px] text-slate-400">
+                {(conversation.extrasCount ?? 0) > 0 ? (
+                  <span>
+                    {`Este fan te ha comprado ${conversation.extrasCount} extra${(conversation.extrasCount ?? 0) !== 1 ? "s" : ""} por un total de ${Math.round(conversation.extrasSpentTotal ?? 0)} €.`}
+                  </span>
+                ) : (
+                  <span>Todavía no has vendido extras a este fan.</span>
+                )}
+              </div>
+              {extraHistoryError && <div className="text-xs text-rose-300">{extraHistoryError}</div>}
+              {!extraHistoryError && extraHistory.length === 0 && (
+                <div className="text-xs text-slate-400">Todavía no hay extras registrados para este fan.</div>
+              )}
+              {!extraHistoryError && extraHistory.length > 0 && (
+                <div className="flex flex-col gap-2 max-h-64 overflow-y-auto">
+                  {extraHistory.map((entry) => {
+                    const dateStr = new Date(entry.createdAt).toLocaleDateString("es-ES");
+                    const session =
+                      entry.sessionTag && entry.sessionTag.includes("_")
+                        ? entry.sessionTag.split("_")[0]
+                        : entry.contentItem?.timeOfDay ?? "ANY";
+                    const tier = entry.tier;
+                    return (
+                      <div
+                        key={entry.id}
+                        className="rounded-md border border-slate-700 bg-slate-900/80 px-2 py-2 text-xs text-slate-200"
+                      >
+                        <div className="flex items-center justify-between">
+                          <span className="font-semibold">{entry.contentItem?.title || "Extra"}</span>
+                          <span className="text-slate-400">{dateStr}</span>
+                        </div>
+                        <div className="flex items-center gap-2 text-[11px] text-slate-300">
+                          <span>{session === "DAY" ? "Día" : session === "NIGHT" ? "Noche" : "Cualquiera"}</span>
+                          <span>·</span>
+                          <span>{`Tier ${tier}`}</span>
+                          <span>·</span>
+                          <span>{`${entry.amount} €`}</span>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+
             <div className="grid gap-3 md:grid-cols-3">
-              {(["PHOTO", "VIDEO", "COMBO"] as ExtraPresetKey[]).map((key) => {
-                const preset = presets[key];
+              {(["PHOTO", "VIDEO", "COMBO"] as ExtraPresetKind[]).map((key) => {
+                const preset = EXTRA_CARD_LABELS[key];
                 return (
                   <button
                     key={key}
                     type="button"
                     className="flex flex-col items-start rounded-xl bg-slate-900/60 p-4 text-left ring-1 ring-slate-800 hover:bg-slate-800"
-                    onClick={() => handleSendQuickExtra(preset.message)}
+                    onClick={() => handleSendQuickExtra(key)}
                   >
                     <p className="text-sm font-semibold text-white">{preset.title}</p>
                     <p className="mt-1 text-xs text-slate-300">{preset.subtitle}</p>
@@ -1203,9 +1550,9 @@ export default function ConversationDetails() {
       )}
       {showEditExtra && (
         <EditExtraPresetsModal
-          presets={presets}
+          presets={extraPresets}
           onSave={(next) => {
-            setPresets(next);
+            setExtraPresets(next);
             saveExtraPresets(next);
             setShowEditExtra(false);
           }}
@@ -1315,6 +1662,11 @@ export default function ConversationDetails() {
           <div className="flex items-center justify-between gap-2">
             <span className="font-semibold text-slate-100">Historial de compras</span>
           </div>
+          {extrasCountDisplay > 0 && (
+            <div className="text-[11px] text-slate-400">
+              Este fan ha comprado {extrasCountDisplay} extra{extrasCountDisplay !== 1 ? "s" : ""} por un total de {extrasSpentDisplay} € (detalle en la pestaña "Extra").
+            </div>
+          )}
           {historyError && <div className="text-[11px] text-rose-300">{historyError}</div>}
           {!historyError && accessGrants.length === 0 && (
             <div className="text-[11px] text-slate-400">Sin historial de compras todavía.</div>
@@ -1350,13 +1702,14 @@ export default function ConversationDetails() {
           fanName: firstName,
         });
         if (!followUpTemplates.length) return null;
+        // Nota: followUpTag es el mismo dato que alimenta el filtro "Seguimiento hoy" (via getFollowUpTag + shouldFollowUpToday en el sidebar); aquí solo cambiamos el texto visible.
         return (
           <div className="mb-3 mx-4 rounded-xl border border-slate-700 bg-slate-900/70 px-3 py-2 text-xs text-slate-200 flex flex-col gap-2">
             <div className="flex items-center justify-between gap-2">
               <span className="font-semibold">
-                {followUpTag === "trial_soon" && `Seguimiento · Prueba · ${effectiveDaysLeft ?? daysLeft ?? ""} días`}
-                {followUpTag === "monthly_soon" && `Seguimiento · Suscripción · ${effectiveDaysLeft ?? daysLeft ?? ""} días`}
-                {followUpTag === "expired" && "Seguimiento · Acceso caducado"}
+                {followUpTag === "trial_soon" && `Próxima acción · Prueba · ${effectiveDaysLeft ?? daysLeft ?? ""} días`}
+                {followUpTag === "monthly_soon" && `Próxima acción · Suscripción · ${effectiveDaysLeft ?? daysLeft ?? ""} días`}
+                {followUpTag === "expired" && "Próxima acción · Acceso caducado"}
               </span>
               {accessGrantsLoading && <span className="text-[10px] text-slate-400">Actualizando...</span>}
             </div>
@@ -1478,30 +1831,31 @@ export default function ConversationDetails() {
                 <div className="text-sm text-rose-300">No se ha podido cargar la información de packs.</div>
               )}
               {!contentError &&
-                demoContentLibrary.map((pack) => {
+                CONTENT_PACKS.map((packMeta) => {
                   const isUnlocked =
-                    pack.packId === "welcome"
+                    packMeta.code === "WELCOME"
                       ? hasWelcome
-                      : pack.packId === "monthly"
+                      : packMeta.code === "MONTHLY"
                       ? hasMonthly || hasSpecial
                       : hasSpecial;
                   const badgeText = isUnlocked
                     ? "Incluido en su pack"
-                    : pack.packId === "special" && !hasMonthly
+                    : packMeta.code === "SPECIAL" && !hasMonthly
                     ? "Pack superior (requiere suscripción mensual)"
                     : "Pack superior (no incluido)";
                   const badgeClass = isUnlocked
                     ? "border-emerald-400 text-emerald-200 bg-emerald-500/10"
                     : "border-slate-600 text-slate-300";
+                  const packItems = contentItems.filter((item) => item.pack === packMeta.code);
                   return (
-                    <div key={pack.packId} className="rounded-xl border border-slate-800 bg-slate-900/70 p-3">
+                    <div key={packMeta.code} className="rounded-xl border border-slate-800 bg-slate-900/70 p-3">
                       <div className="flex flex-wrap items-center justify-between gap-2">
-                        <div className="text-sm font-semibold text-white">{pack.packLabel}</div>
+                        <div className="text-sm font-semibold text-white">{packMeta.label}</div>
                         <div className="flex items-center gap-2">
                           <span className={clsx("inline-flex items-center rounded-full px-2 py-0.5 text-[11px] border", badgeClass)}>
                             {badgeText}
                           </span>
-                          {!isUnlocked && pack.packId === "monthly" && canOfferMonthly && (
+                          {!isUnlocked && packMeta.code === "MONTHLY" && canOfferMonthly && (
                             <button
                               type="button"
                               className="text-[11px] font-semibold text-amber-200 underline-offset-2 hover:underline"
@@ -1510,7 +1864,7 @@ export default function ConversationDetails() {
                               Ofrecer suscripción mensual
                             </button>
                           )}
-                          {!isUnlocked && pack.packId === "special" && canOfferSpecial && (
+                          {!isUnlocked && packMeta.code === "SPECIAL" && canOfferSpecial && (
                             <button
                               type="button"
                               className="text-[11px] font-semibold text-amber-200 underline-offset-2 hover:underline"
@@ -1521,11 +1875,15 @@ export default function ConversationDetails() {
                           )}
                         </div>
                       </div>
+                      {contentLoading && packItems.length === 0 && (
+                        <div className="text-xs text-slate-400 mt-2">Cargando contenidos…</div>
+                      )}
                       <div className="mt-2 flex flex-col gap-2">
-                        {pack.items.map((item) => {
+                        {packItems.map((item) => {
                           const locked = !isUnlocked;
                           const selected = selectedContentIds.includes(item.id);
-                          const typeEmoji = item.type === "photo" ? "🖼️" : item.type === "video" ? "🎬" : "📦";
+                          const typeEmoji =
+                            item.type === "IMAGE" ? "🖼️" : item.type === "VIDEO" ? "🎬" : item.type === "AUDIO" ? "🎧" : "📄";
                           return (
                             <label
                               key={item.id}
@@ -1541,6 +1899,11 @@ export default function ConversationDetails() {
                               <div className="flex items-center gap-2">
                                 <span className="text-base">{locked ? "🔒" : typeEmoji}</span>
                                 <span>{item.title}</span>
+                                {item.hasBeenSentToFan && (
+                                  <span className="text-[10px] text-emerald-300 border border-emerald-400/60 rounded-full px-2 py-[1px]">
+                                    Enviado
+                                  </span>
+                                )}
                               </div>
                               {!locked && (
                                 <input
@@ -1557,6 +1920,9 @@ export default function ConversationDetails() {
                             </label>
                           );
                         })}
+                        {!contentLoading && packItems.length === 0 && (
+                          <div className="text-xs text-slate-500">No hay contenidos en este pack.</div>
+                        )}
                       </div>
                     </div>
                   );
@@ -1584,19 +1950,13 @@ export default function ConversationDetails() {
                 )}
                 onClick={async () => {
                   if (selectedContentIds.length === 0) return;
-                  const allItems = demoContentLibrary.flatMap((p) => p.items.map((i) => ({ ...i, pack: p })));
-                  const chosen = allItems.filter((i) => selectedContentIds.includes(i.id));
+                  const chosen = contentItems.filter((item) => selectedContentIds.includes(item.id));
                   if (chosen.length === 0) return;
-                  const highestPack = chosen.reduce<DemoContentPack>((acc, curr) => {
-                    const pack = curr.pack as DemoContentPack;
-                    if (!acc) return pack;
-                    return pack.level > acc.level ? pack : acc;
-                  }, chosen[0].pack as DemoContentPack);
-                  const message =
-                    chosen.length === 1
-                      ? `Te envío un contenido de tu ${highestPack.packLabel}: ${chosen[0].title}.`
-                      : `Te envío ${chosen.length} contenidos de tu ${highestPack.packLabel}.`;
-                  await sendMessageText(message);
+                  // Enviamos cada contenido como mensaje CONTENT para mantener consistencia con /api/messages.
+                  for (const item of chosen) {
+                    // eslint-disable-next-line no-await-in-loop
+                    await handleAttachContent(item, { keepOpen: true });
+                  }
                   setShowContentModal(false);
                   setSelectedContentIds([]);
                 }}

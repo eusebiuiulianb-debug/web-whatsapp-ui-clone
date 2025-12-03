@@ -44,6 +44,7 @@ export default function ConversationList(props: ConversationListProps) {
     : data.nextAction
     ? shorten(data.nextAction, 100)
     : "";
+  const novsyStatus = (data as any).novsyStatus ?? null;
 
   function normalizeTier(tier: string | undefined) {
     const lower = (tier || "").toLowerCase();
@@ -54,9 +55,12 @@ export default function ConversationList(props: ConversationListProps) {
 
   const normalizedTier = normalizeTier(customerTier);
   const tierLabel = normalizedTier === "vip" ? "VIP" : normalizedTier === "regular" ? "Habitual" : "Nuevo";
-  const isHighPriority = normalizedTier === "vip"; // alta prioridad solo si es VIP por gasto
+  const isHighPriority = (data as any).isHighPriority === true || normalizedTier === "vip";
   const totalSpent = Math.round(lifetimeValue ?? 0);
   const notesLabel = `${notesCount} nota${notesCount === 1 ? "" : "s"}`;
+  const extrasCount = data.extrasCount ?? 0;
+  const extrasSpent = Math.round(data.extrasSpentTotal ?? 0);
+  const hasExtrasPaid = data.extrasSpentTotal !== null && data.extrasSpentTotal !== undefined && data.extrasSpentTotal > 0;
   const tierBadgeClass = clsx(
     "inline-flex items-center rounded-full px-2 py-[2px] text-[11px] font-medium",
     normalizedTier === "vip"
@@ -91,6 +95,11 @@ export default function ConversationList(props: ConversationListProps) {
               <span className={tierBadgeClass}>
                 {tierLabel}
               </span>
+              {novsyStatus === "NOVSY" && (
+                <span className="inline-flex items-center rounded-full border border-emerald-400/80 bg-emerald-500/10 px-2 py-[1px] text-[10px] text-emerald-100">
+                  Extras
+                </span>
+              )}
               {/* Chip de alta prioridad solo para VIP */}
               {isHighPriority && (
                 <span className="inline-flex items-center gap-1 rounded-full bg-amber-400/90 px-2 py-0.5 text-[11px] font-medium leading-none text-neutral-950">
@@ -118,6 +127,12 @@ export default function ConversationList(props: ConversationListProps) {
               <span>{`${totalSpent} €`}</span>
               <span className="w-1 h-1 rounded-full bg-slate-600" />
               <span>{notesLabel}</span>
+              {hasExtrasPaid ? (
+                <>
+                  <span className="w-1 h-1 rounded-full bg-slate-600" />
+                  <span>{`Extras: ${extrasCount} · ${extrasSpent} €`}</span>
+                </>
+              ) : null}
               {isHighPriority && (
                 <span className="inline-flex items-center text-amber-300" aria-label="Alta prioridad">
                   🔥
