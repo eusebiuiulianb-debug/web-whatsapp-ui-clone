@@ -143,12 +143,15 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
       const paidGrants = fan.accessGrants.filter((grant) => grant.type === "monthly" || grant.type === "special" || grant.type === "single");
       const paidGrantsCount = paidGrants.length;
-      const lifetimeSpend = fan.accessGrants.reduce((acc, grant) => acc + getGrantAmount(grant.type), 0);
+      const subscriptionSpend = fan.accessGrants.reduce((acc, grant) => acc + getGrantAmount(grant.type), 0);
+      const extrasInfo = extrasByFan.get(fan.id) ?? { count: 0, totalAmount: 0, maxTier: null };
+      const extrasTotal = extrasInfo.totalAmount ?? (extrasInfo as any).spent ?? 0;
+      const totalSpend = subscriptionSpend + (extrasTotal ?? 0);
       // Tiers por gasto total acumulado: <50 nuevo, 50-199 habitual, >=200 vip (alta prioridad)
       let customerTier: "new" | "regular" | "vip";
-      if (lifetimeSpend >= 200) {
+      if (totalSpend >= 200) {
         customerTier = "vip";
-      } else if (lifetimeSpend >= 50) {
+      } else if (totalSpend >= 50) {
         customerTier = "regular";
       } else {
         customerTier = "new";
@@ -189,14 +192,12 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       const nextActionSnippet = truncateSnippet(fan.nextAction);
       const lastNoteSummary = lastNoteSnippet;
       const nextActionSummary = nextActionSnippet;
-      const extrasInfo = extrasByFan.get(fan.id) ?? { count: 0, totalAmount: 0, maxTier: null };
       const hasMonthly = activeGrantTypes.includes("monthly");
       const hasSpecial = activeGrantTypes.includes("special");
       const NOVSY_EXTRA_THRESHOLD = 30;
-      const extrasTotal = extrasInfo.totalAmount ?? (extrasInfo as any).spent ?? 0;
       const isNovsy = hasMonthly || hasSpecial || (extrasTotal ?? 0) >= NOVSY_EXTRA_THRESHOLD;
       const novsyStatus: "NOVSY" | null = isNovsy ? "NOVSY" : null;
-      const isHighPriority = lifetimeSpend + (extrasTotal ?? 0) >= HIGH_PRIORITY_LIMIT;
+      const isHighPriority = totalSpend >= HIGH_PRIORITY_LIMIT;
 
       // Campos clave que consume el CRM:
       // - membershipStatus: "active" | "expired" | "none"
@@ -216,8 +217,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         notesCount: fan._count?.notes ?? 0,
         lastCreatorMessageAt: lastCreatorMessage ? lastCreatorMessage.toISOString() : null,
         paidGrantsCount,
-        lifetimeValue: lifetimeSpend, // mantenemos compatibilidad pero usando el gasto total real
-        lifetimeSpend,
+        lifetimeValue: totalSpend, // mantenemos compatibilidad pero usando el gasto total real
+        lifetimeSpend: totalSpend,
         customerTier,
         nextAction: fan.nextAction || null,
         activeGrantTypes,

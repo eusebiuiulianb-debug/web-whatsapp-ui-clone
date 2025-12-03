@@ -1,5 +1,5 @@
 import { createContext, ReactNode, useState } from "react";
-import { Message, Conversation } from "../types/Conversation";
+import { Message, Conversation, ConversationListData } from "../types/Conversation";
 
 interface ConversationProviderProps {
   children: ReactNode;
@@ -10,6 +10,12 @@ interface ConversationContextType {
   message: Message[];
   setConversation: ( conversation: Conversation ) => void;
   setMessage: ( message: Message[] ) => void;
+  queueMode: boolean;
+  setQueueMode: (value: boolean) => void;
+  todayQueue: ConversationListData[];
+  setTodayQueue: (list: ConversationListData[]) => void;
+  queueIndex: number;
+  setQueueIndex: (idx: number) => void;
 }
 
 export const ConversationContext = createContext({} as ConversationContextType);
@@ -17,6 +23,9 @@ export const ConversationContext = createContext({} as ConversationContextType);
 export const ConversationProvider = ({ children }: ConversationProviderProps) => {
   const [ conversation, setConversationData ] = useState<Conversation>({} as Conversation);
   const [ message, setMessageData ] = useState<Message[]>([]);
+  const [ queueMode, setQueueMode ] = useState(false);
+  const [ todayQueue, setTodayQueue ] = useState<ConversationListData[]>([]);
+  const [ queueIndex, setQueueIndex ] = useState(0);
 
   function setConversation(conversation: Conversation) {
     setConversationData(conversation);
@@ -33,6 +42,12 @@ export const ConversationProvider = ({ children }: ConversationProviderProps) =>
       message,
       setConversation,
       setMessage,
+      queueMode,
+      setQueueMode,
+      todayQueue,
+      setTodayQueue,
+      queueIndex,
+      setQueueIndex,
     }}>
       {children}
     </ConversationContext.Provider>

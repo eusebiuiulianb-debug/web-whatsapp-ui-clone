@@ -25,7 +25,7 @@ export default function SideBar() {
   const [ followUpFilter, setFollowUpFilter ] = useState<"all" | "today" | "expired">("all");
   const [ showOnlyWithNotes, setShowOnlyWithNotes ] = useState(false);
   const [ tierFilter, setTierFilter ] = useState<"all" | "new" | "regular" | "vip">("all");
-  const [ onlyWithNextAction, setOnlyWithNextAction ] = useState(false);
+  const [ onlyWithFollowUp, setOnlyWithFollowUp ] = useState(false);
   const [ onlyWithExtras, setOnlyWithExtras ] = useState(false);
   const [ showPacksPanel, setShowPacksPanel ] = useState(false);
   const [ nextCursor, setNextCursor ] = useState<string | null>(null);
@@ -35,7 +35,16 @@ export default function SideBar() {
   const packsCount = Object.keys(PACKS).length;
   const { config } = useCreatorConfig();
   const creatorInitial = config.creatorName?.trim().charAt(0) || "E";
-  const { setConversation } = useContext(ConversationContext);
+  const {
+    conversation,
+    setConversation,
+    queueMode,
+    setQueueMode,
+    todayQueue,
+    setTodayQueue,
+    queueIndex,
+    setQueueIndex,
+  } = useContext(ConversationContext);
   const [ extrasSummary, setExtrasSummary ] = useState<ExtrasSummary | null>(null);
   const [ extrasSummaryError, setExtrasSummaryError ] = useState<string | null>(null);
 
@@ -115,6 +124,66 @@ export default function SideBar() {
     priorityScore: typeof fan.priorityScore === "number" ? fan.priorityScore : computePriorityScore(fan),
   }));
 
+  function getLastActivityTimestamp(fan: FanData): number {
+    if (fan.lastCreatorMessageAt) {
+      const d = new Date(fan.lastCreatorMessageAt);
+      if (!Number.isNaN(d.getTime())) return d.getTime();
+    }
+    // fallback: try parsing lastTime if it resembles a timestamp
+    const maybe = Date.parse(fan.lastTime || "");
+    return Number.isNaN(maybe) ? 0 : maybe;
+  }
+
+  function buildTodayQueue(list: FanData[]): FanData[] {
+    const groupHighPriority: FanData[] = [];
+    const groupFollowUp: FanData[] = [];
+    const groupUnread: FanData[] = [];
+    const groupExtras: FanData[] = [];
+    const groupRest: FanData[] = [];
+
+    list.forEach((fan) => {
+      const tag = fan.followUpTag ?? getFollowUpTag(fan.membershipStatus, fan.daysLeft, fan.activeGrantTypes);
+      const shouldFollow = shouldFollowUpToday({
+        membershipStatus: fan.membershipStatus,
+        daysLeft: fan.daysLeft,
+        followUpTag: tag,
+      });
+      const hasUnread = (fan.unreadCount ?? 0) > 0;
+      const hasExtrasSpend = (fan.extrasSpentTotal ?? 0) > 0;
+      const isPriority = fan.isHighPriority === true;
+
+      if (isPriority && (shouldFollow || hasUnread)) {
+        groupHighPriority.push(fan);
+        return;
+      }
+      if (shouldFollow) {
+        groupFollowUp.push(fan);
+        return;
+      }
+      if (hasUnread) {
+        groupUnread.push(fan);
+        return;
+      }
+      if (hasExtrasSpend) {
+        groupExtras.push(fan);
+        return;
+      }
+      groupRest.push(fan);
+    });
+
+    const byRecent = (a: FanData, b: FanData) => getLastActivityTimestamp(b) - getLastActivityTimestamp(a);
+    const byExtrasSpent = (a: FanData, b: FanData) =>
+      (b.extrasSpentTotal ?? 0) - (a.extrasSpentTotal ?? 0) || byRecent(a, b);
+
+    return [
+      ...groupHighPriority.sort(byRecent),
+      ...groupFollowUp.sort(byRecent),
+      ...groupUnread.sort(byRecent),
+      ...groupExtras.sort(byExtrasSpent),
+      ...groupRest.sort(byRecent),
+    ];
+  }
+
   function parseMessageTimestamp(msg: Message): number | null {
     const idParts = (msg.id || "").split("-");
     const last = idParts[idParts.length - 1];
@@ -176,35 +245,35 @@ export default function SideBar() {
     })
   ).length;
   const withNotesCount = fans.filter((fan) => (fan.notesCount ?? 0) > 0).length;
-  const withNextActionCount = fans.filter((fan) => {
-    const na = fan.nextAction;
-    return typeof na === "string" && na.trim().length > 0;
+  const withFollowUpCount = fans.filter((fan) => {
+    const tag = fan.followUpTag ?? getFollowUpTag(fan.membershipStatus, fan.daysLeft, fan.activeGrantTypes);
+    return tag && tag !== "none";
   }).length;
   const priorityCount = fans.filter((fan) => (fan as any).isHighPriority === true).length;
   const regularCount = fans.filter((fan) => normalizeTier(fan.customerTier) === "regular").length;
   const newCount = fans.filter((fan) => normalizeTier(fan.customerTier) === "new").length;
-  const withExtrasCount = fans.filter((fan) => (fan.extrasCount ?? 0) > 0).length;
+  const withExtrasCount = fans.filter((fan) => (fan.extrasSpentTotal ?? 0) > 0).length;
 
   function applyFilter(
     filter: "all" | "today" | "expired",
     onlyNotes = false,
     tier: "all" | "new" | "regular" | "vip" = "all",
-    onlyNextAction = false
+    onlyFollowUp = false
   ) {
     setFollowUpFilter(filter);
     setShowOnlyWithNotes(onlyNotes);
     setTierFilter(tier);
-    setOnlyWithNextAction(onlyNextAction);
+    setOnlyWithFollowUp(onlyFollowUp);
   }
 
   const filteredConversationsList = (search.length > 0 ? fansWithScore.filter(fan => fan.contactName.toLowerCase().includes(search.toLowerCase())) : fansWithScore)
     .filter(fan => (showPriorityOnly ? (fan.priorityScore ?? 0) > 0 : true))
     .filter((fan) => (!showOnlyWithNotes ? true : (fan.notesCount ?? 0) > 0))
-    .filter((fan) => (!onlyWithExtras ? true : (fan.extrasCount ?? 0) > 0))
+    .filter((fan) => (!onlyWithExtras ? true : (fan.extrasSpentTotal ?? 0) > 0))
     .filter((fan) => {
-      if (!onlyWithNextAction) return true;
-      const na = fan.nextAction;
-      return typeof na === "string" && na.trim().length > 0;
+      if (!onlyWithFollowUp) return true;
+      const tag = fan.followUpTag ?? getFollowUpTag(fan.membershipStatus, fan.daysLeft, fan.activeGrantTypes);
+      return tag && tag !== "none";
     })
     .filter((fan) => {
       const tag = fan.followUpTag ?? getFollowUpTag(fan.membershipStatus, fan.daysLeft, fan.activeGrantTypes);
@@ -255,10 +324,27 @@ export default function SideBar() {
       return 0;
     });
 
+  const visibleList: FanData[] = queueMode ? buildTodayQueue(filteredConversationsList as FanData[]) : (filteredConversationsList as FanData[]);
+  const attendedTodayCount = fans.filter((fan) => {
+    if (!fan.lastCreatorMessageAt) return false;
+    const d = new Date(fan.lastCreatorMessageAt);
+    if (Number.isNaN(d.getTime())) return false;
+    const now = new Date();
+    return (
+      d.getFullYear() === now.getFullYear() &&
+      d.getMonth() === now.getMonth() &&
+      d.getDate() === now.getDate()
+    );
+  }).length;
+  const queueLength = todayQueue.length;
+  const vipInQueue = todayQueue.filter((fan) => fan.isHighPriority).length;
+  const extrasTodayCount = extrasSummary?.today.count ?? 0;
+  const extrasTodayAmount = extrasSummary?.today.amount ?? 0;
+
   const recommendedFan = getRecommendedFan(fansWithScore);
   const apiFilter = (() => {
     if (showOnlyWithNotes) return "notes";
-    if (onlyWithNextAction) return "nextAction";
+    if (onlyWithFollowUp) return "followup";
     if (tierFilter === "new") return "new";
     if (followUpFilter === "expired") return "expired";
     if (followUpFilter === "today") return "today";
@@ -330,14 +416,54 @@ export default function SideBar() {
     window.addEventListener("fanDataUpdated", handleFanDataUpdated as EventListener);
     const handleUnreadUpdated = () => setUnreadMap(loadUnreadMap());
     window.addEventListener("unreadUpdated", handleUnreadUpdated);
-    const handleExtrasUpdated = () => {
+    const handleExtrasUpdated = (event: Event) => {
+      const custom = event as CustomEvent;
+      const detail = custom.detail as
+        | {
+            fanId?: string;
+            totals?: {
+              extrasCount?: number;
+              extrasSpentTotal?: number;
+              lifetimeSpend?: number;
+              lifetimeValue?: number;
+              customerTier?: "new" | "regular" | "vip";
+              isHighPriority?: boolean;
+            };
+          }
+        | undefined;
+
+      if (detail?.fanId && detail?.totals) {
+        setFans((prev) =>
+          prev.map((fan) =>
+            fan.id === detail.fanId
+              ? {
+                  ...fan,
+                  extrasCount: detail.totals?.extrasCount ?? fan.extrasCount,
+                  extrasSpentTotal: detail.totals?.extrasSpentTotal ?? fan.extrasSpentTotal,
+                  lifetimeSpend: detail.totals?.lifetimeSpend ?? fan.lifetimeSpend,
+                  lifetimeValue:
+                    detail.totals?.lifetimeValue ??
+                    detail.totals?.lifetimeSpend ??
+                    fan.lifetimeValue ??
+                    fan.lifetimeSpend,
+                  customerTier: detail.totals?.customerTier ?? fan.customerTier,
+                  isHighPriority:
+                    typeof detail.totals?.isHighPriority === "boolean"
+                      ? detail.totals.isHighPriority
+                      : fan.isHighPriority,
+                }
+              : fan
+          )
+        );
+      }
+
       void refreshExtrasSummary();
     };
-    window.addEventListener(EXTRAS_UPDATED_EVENT, handleExtrasUpdated);
+    window.addEventListener(EXTRAS_UPDATED_EVENT, handleExtrasUpdated as EventListener);
     return () => {
       window.removeEventListener("fanDataUpdated", handleFanDataUpdated as EventListener);
       window.removeEventListener("unreadUpdated", handleUnreadUpdated);
-      window.removeEventListener(EXTRAS_UPDATED_EVENT, handleExtrasUpdated);
+      window.removeEventListener(EXTRAS_UPDATED_EVENT, handleExtrasUpdated as EventListener);
     };
   }, [apiFilter, refreshExtrasSummary, search]);
 
@@ -350,7 +476,26 @@ export default function SideBar() {
     // refetch on filter/search changes
     fetchFansPage();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [apiFilter, search, showPriorityOnly, followUpFilter, showOnlyWithNotes, tierFilter, onlyWithNextAction, onlyWithExtras]);
+  }, [apiFilter, search, showPriorityOnly, followUpFilter, showOnlyWithNotes, tierFilter, onlyWithFollowUp, onlyWithExtras]);
+
+  useEffect(() => {
+    if (!queueMode) return;
+    const queue = buildTodayQueue(filteredConversationsList as FanData[]);
+    setTodayQueue(queue);
+    if (conversation?.id) {
+      const idx = queue.findIndex((f) => f.id === conversation.id);
+      setQueueIndex(idx >= 0 ? idx : queueIndex);
+    } else if (queue.length > 0 && queueIndex >= queue.length) {
+      setQueueIndex(0);
+    }
+  }, [queueMode, filteredConversationsList, conversation?.id, queueIndex, setQueueIndex, setTodayQueue]);
+
+  useEffect(() => {
+    if (!queueMode) return;
+    if (!conversation?.id) return;
+    const idx = todayQueue.findIndex((f) => f.id === conversation.id);
+    if (idx >= 0 && idx !== queueIndex) setQueueIndex(idx);
+  }, [conversation?.id, queueMode, queueIndex, setQueueIndex, todayQueue]);
 
   function formatCurrency(value: number) {
     const rounded = Math.round((value ?? 0) * 100) / 100;
@@ -400,6 +545,32 @@ export default function SideBar() {
         </div>
       </div>
       <div className="mb-2 px-3">
+        <div className="mb-2 rounded-xl border border-slate-700 bg-slate-900/80 px-3 py-2 text-[11px] text-slate-300">
+          <div className="flex justify-between">
+            <span className="font-semibold text-slate-100">Resumen de hoy</span>
+            <span className="text-slate-400">Ventas y actividad</span>
+          </div>
+          <div className="mt-2 grid grid-cols-2 gap-2 text-[11px]">
+            <div className="flex flex-col rounded-lg bg-slate-950/60 px-2 py-1.5">
+              <span className="text-slate-400">Chats atendidos</span>
+              <span className="text-slate-50 font-semibold">{attendedTodayCount}</span>
+            </div>
+            <div className="flex flex-col rounded-lg bg-slate-950/60 px-2 py-1.5">
+              <span className="text-slate-400">Ventas hoy (cola)</span>
+              <span className="text-slate-50 font-semibold">{queueLength}</span>
+            </div>
+            <div className="flex flex-col rounded-lg bg-slate-950/60 px-2 py-1.5">
+              <span className="text-slate-400">VIP en cola</span>
+              <span className="text-slate-50 font-semibold">{vipInQueue}</span>
+            </div>
+            <div className="flex flex-col rounded-lg bg-slate-950/60 px-2 py-1.5">
+              <span className="text-slate-400">Extras vendidos hoy</span>
+              <span className="text-slate-50 font-semibold">
+                {extrasTodayCount} venta{extrasTodayCount === 1 ? "" : "s"} · {formatCurrency(extrasTodayAmount)}
+              </span>
+            </div>
+          </div>
+        </div>
         {extrasSummary && (
           <div className="mb-2 rounded-xl border border-slate-700 bg-slate-900/80 px-3 py-2 text-[11px] text-slate-300">
             <div className="flex justify-between">
@@ -453,11 +624,11 @@ export default function SideBar() {
           </button>
           <button
             type="button"
-            onClick={() => applyFilter(followUpFilter, showOnlyWithNotes, tierFilter, !onlyWithNextAction)}
+            onClick={() => applyFilter(followUpFilter, showOnlyWithNotes, tierFilter, !onlyWithFollowUp)}
             className="flex justify-between text-left"
           >
-            <span className={clsx(onlyWithNextAction && "font-semibold text-amber-300")}>⚡ Con próxima acción</span>
-            <span className={clsx(onlyWithNextAction && "font-semibold text-amber-300")}>{withNextActionCount}</span>
+            <span className={clsx(onlyWithFollowUp && "font-semibold text-amber-300")}>⚡ Con próxima acción</span>
+            <span className={clsx(onlyWithFollowUp && "font-semibold text-amber-300")}>{withFollowUpCount}</span>
           </button>
           <button
             type="button"
@@ -604,7 +775,7 @@ export default function SideBar() {
           onClick={() => {
             setFollowUpFilter("all");
             setShowOnlyWithNotes(false);
-            setOnlyWithNextAction(false);
+            setOnlyWithFollowUp(false);
             setTierFilter(tierFilter === "vip" ? "all" : "vip");
           }}
           className={clsx(
@@ -615,6 +786,34 @@ export default function SideBar() {
           )}
         >
           Alta prioridad{priorityCount > 0 ? ` (${priorityCount})` : ""}
+        </button>
+        <button
+          type="button"
+          onClick={() => {
+            const next = !queueMode;
+            setQueueMode(next);
+            if (!next) {
+              setTodayQueue([]);
+              setQueueIndex(0);
+            } else {
+              const queue = buildTodayQueue(filteredConversationsList as FanData[]);
+              setTodayQueue(queue);
+              if (conversation?.id) {
+                const idx = queue.findIndex((f) => f.id === conversation.id);
+                setQueueIndex(idx >= 0 ? idx : 0);
+              } else {
+                setQueueIndex(0);
+              }
+            }
+          }}
+          className={clsx(
+            "rounded-full border px-3 py-1",
+            queueMode
+              ? "border-emerald-400 bg-emerald-500/10 text-emerald-100"
+              : "border-emerald-700 bg-slate-800/60 text-emerald-200/80"
+          )}
+        >
+          Ventas hoy
         </button>
       </div>
       <div className="flex flex-col w-full flex-1 overflow-y-auto" id="conversation">
@@ -629,7 +828,7 @@ export default function SideBar() {
             No hay chats prioritarios por ahora.
           </div>
         )}
-        {!loadingFans && !fansError && filteredConversationsList.map((conversation, index) => {
+        {!loadingFans && !fansError && visibleList.map((conversation, index) => {
           return (
             <ConversationList key={conversation.id || index} isFirstConversation={index == 0} data={conversation} />
           )

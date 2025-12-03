@@ -22,6 +22,8 @@ import {
   loadExtraPresets,
   saveExtraPresets,
 } from "../../config/extrasPresets";
+import { HIGH_PRIORITY_LIMIT } from "../../config/customers";
+import { EXTRAS_UPDATED_EVENT } from "../../constants/events";
 
 const PACK_ESPECIAL_UPSELL_TEXT =
   "Veo que lo que estás pidiendo entra ya en el terreno de mi Pack especial: incluye todo lo de tu suscripción mensual + fotos y escenas extra más intensas. Si quieres subir de nivel, son 49 € y te lo dejo desbloqueado en este chat.";
@@ -40,7 +42,16 @@ function getReengageTemplate(name: string) {
 }
 
 export default function ConversationDetails() {
-  const { conversation, message: messages, setMessage, setConversation } = useContext(ConversationContext);
+  const {
+    conversation,
+    message: messages,
+    setMessage,
+    setConversation,
+    queueMode,
+    todayQueue,
+    queueIndex,
+    setQueueIndex,
+  } = useContext(ConversationContext);
   const {
     contactName,
     image,
@@ -323,6 +334,18 @@ export default function ConversationDetails() {
     return exp > now ? "Activo" : "Caducado";
   }
 
+  function getCustomerTierFromSpend(total: number): "new" | "regular" | "vip" {
+    if (total >= 200) return "vip";
+    if (total >= 50) return "regular";
+    return "new";
+  }
+
+  function getQueuePosition() {
+    if (!queueMode || !conversation?.id) return { index: -1, size: todayQueue.length };
+    const idx = todayQueue.findIndex((f) => f.id === conversation.id);
+    return { index: idx, size: todayQueue.length };
+  }
+
   function fillMessage(template: string) {
     setMessageSend(template);
   }
@@ -384,6 +407,18 @@ export default function ConversationDetails() {
   function handleChoosePack() {
     setShowPackSelector((prev) => !prev);
     setShowExtraTemplates(false);
+  }
+
+  function handleNextInQueue() {
+    if (!queueMode) return;
+    const currentIdx = queueStatus.index >= 0 ? queueStatus.index : queueIndex;
+    const nextIdx = Math.min(currentIdx + 1, todayQueue.length - 1);
+    if (nextIdx <= currentIdx || nextIdx < 0 || nextIdx >= todayQueue.length) return;
+    const nextFan = todayQueue[nextIdx];
+    setQueueIndex(nextIdx);
+    if (nextFan) {
+      setConversation(nextFan as any);
+    }
   }
 
   function handleSubscriptionLink() {
@@ -694,6 +729,16 @@ export default function ConversationDetails() {
       fetchContentItems(id);
     }
   }, [id]);
+
+  useEffect(() => {
+    if (!queueMode) return;
+    if (!conversation?.id) return;
+    const idx = todayQueue.findIndex((f) => f.id === conversation.id);
+    // Si el fan actual no está en la cola, mantenemos queueMode activo pero ocultamos el botón de siguiente.
+    if (idx >= 0 && idx !== queueIndex) {
+      setQueueIndex(idx);
+    }
+  }, [conversation?.id, queueMode, todayQueue, queueIndex, setQueueIndex]);
 
   useEffect(() => {
     const loaded = loadExtraPresets();
@@ -1008,6 +1053,9 @@ export default function ConversationDetails() {
   const lifetimeValueDisplay = Math.round(conversation.lifetimeValue ?? 0);
   const notesCountDisplay = conversation.notesCount ?? 0;
   const novsyStatus = conversation.novsyStatus ?? null;
+  const queueStatus = getQueuePosition();
+  const isInQueue = queueMode && queueStatus.index >= 0;
+  const hasNextInQueue = isInQueue && queueStatus.index < (queueStatus.size - 1);
 
   const filteredItems = contentItems.filter((item) => {
     const tag = getTimeOfDayTag(item.title ?? "");
@@ -1074,8 +1122,26 @@ export default function ConversationDetails() {
                 Último mensaje tuyo: {formatLastCreatorMessage(lastCreatorMessageAt)}
               </div>
             </div>
-          </div>
+        </div>
           <div className="flex items-center text-[#8696a0] gap-2">
+            {queueMode && todayQueue.length > 1 && queueStatus.index >= 0 && (
+              <div className="flex items-center gap-2 text-[11px] text-emerald-200 mr-2">
+                <span>{`Ventas de hoy: ${queueStatus.index + 1} de ${queueStatus.size}`}</span>
+                <button
+                  type="button"
+                  disabled={!hasNextInQueue}
+                  onClick={handleNextInQueue}
+                  className={clsx(
+                    "rounded-full border px-2 py-1 text-xs font-semibold transition",
+                    hasNextInQueue
+                      ? "border-emerald-400 bg-emerald-500/10 text-emerald-100 hover:bg-emerald-500/20"
+                      : "border-slate-700 bg-slate-800/60 text-slate-400 cursor-not-allowed"
+                  )}
+                >
+                  {hasNextInQueue ? "▶ Siguiente venta" : "Última venta"}
+                </button>
+              </div>
+            )}
             <svg viewBox="0 0 24 24" width="24" height="24" className="cursor-pointer">
               <path fill="currentColor" d="M15.9 14.3H15l-.3-.3c1-1.1 1.6-2.7 1.6-4.3 0-3.7-3-6.7-6.7-6.7S3 6 3 9.7s3 6.7 6.7 6.7c1.6 0 3.2-.6 4.3-1.6l.3.3v.8l5.1 5.1 1.5-1.5-5-5.2zm-6.2 0c-2.6 0-4.6-2.1-4.6-4.6s2.1-4.6 4.6-4.6 4.6 2.1 4.6 4.6-2 4.6-4.6 4.6z">
               </path>
@@ -1408,16 +1474,17 @@ export default function ConversationDetails() {
                     const sessionTag = `${timeOfDay}_${new Date().toISOString().slice(0, 10)}`;
                     setExtraError("");
                     try {
-                      const payload = {
-                        fanId: id,
-                        contentItemId: item.id,
-                        tier,
-                        amount: Number(extraAmount),
-                        sessionTag,
-                      };
-                      const res = await fetch("/api/extras", {
-                        method: "POST",
-                        headers: { "Content-Type": "application/json" },
+                    const amountNumber = Number(extraAmount);
+                    const payload = {
+                      fanId: id,
+                      contentItemId: item.id,
+                      tier,
+                      amount: amountNumber,
+                      sessionTag,
+                    };
+                    const res = await fetch("/api/extras", {
+                      method: "POST",
+                      headers: { "Content-Type": "application/json" },
                         body: JSON.stringify(payload),
                       });
                       if (!res.ok) {
@@ -1428,10 +1495,40 @@ export default function ConversationDetails() {
                       }
                       setSelectedExtraId("");
                       setExtraAmount("");
+                      const prevExtrasCount = conversation.extrasCount ?? 0;
+                      const prevExtrasTotal = conversation.extrasSpentTotal ?? 0;
+                      const prevLifetime = conversation.lifetimeSpend ?? 0;
+                      const updatedExtrasCount = prevExtrasCount + 1;
+                      const updatedExtrasTotal = prevExtrasTotal + amountNumber;
+                      const updatedLifetime = prevLifetime + amountNumber;
+                      const updatedTier = getCustomerTierFromSpend(updatedLifetime);
+                      const updatedHighPriority = updatedLifetime >= HIGH_PRIORITY_LIMIT;
+                      setConversation({
+                        ...conversation,
+                        extrasCount: updatedExtrasCount,
+                        extrasSpentTotal: updatedExtrasTotal,
+                        lifetimeSpend: updatedLifetime,
+                        lifetimeValue: updatedLifetime,
+                        customerTier: updatedTier,
+                        isHighPriority: updatedHighPriority,
+                      });
                       await fetchExtrasHistory(id);
-                      await refreshFanData(id);
                       if (typeof window !== "undefined") {
-                        window.dispatchEvent(new CustomEvent("novsy:extras-updated"));
+                        window.dispatchEvent(
+                          new CustomEvent(EXTRAS_UPDATED_EVENT, {
+                            detail: {
+                              fanId: id,
+                              totals: {
+                                extrasCount: updatedExtrasCount,
+                                extrasSpentTotal: updatedExtrasTotal,
+                                lifetimeSpend: updatedLifetime,
+                                lifetimeValue: updatedLifetime,
+                                customerTier: updatedTier,
+                                isHighPriority: updatedHighPriority,
+                              },
+                            },
+                          })
+                        );
                       }
                     } catch (_err) {
                       setExtraError("No se pudo registrar el extra.");
