@@ -1,5 +1,5 @@
 import ConversationList from "../ConversationList";
-import { useCallback, useContext, useEffect, useState } from "react";
+import { useCallback, useContext, useEffect, useRef, useState } from "react";
 import CreatorHeader from "../CreatorHeader";
 import { useCreatorConfig } from "../../context/CreatorConfigContext";
 import CreatorSettingsPanel from "../CreatorSettingsPanel";
@@ -14,6 +14,7 @@ import { getLastReadForFan, loadUnreadMap, UnreadMap } from "../../utils/unread"
 import type { Message } from "../../types/chat";
 import { ConversationContext } from "../../context/ConversationContext";
 import { EXTRAS_UPDATED_EVENT } from "../../constants/events";
+import { HIGH_PRIORITY_LIMIT } from "../../config/customers";
 
 export default function SideBar() {
   const [ search, setSearch ] = useState("");
@@ -27,6 +28,8 @@ export default function SideBar() {
   const [ tierFilter, setTierFilter ] = useState<"all" | "new" | "regular" | "vip">("all");
   const [ onlyWithFollowUp, setOnlyWithFollowUp ] = useState(false);
   const [ onlyWithExtras, setOnlyWithExtras ] = useState(false);
+  const [ showLegend, setShowLegend ] = useState(false);
+  const [ focusMode, setFocusMode ] = useState(false);
   const [ showPacksPanel, setShowPacksPanel ] = useState(false);
   const [ nextCursor, setNextCursor ] = useState<string | null>(null);
   const [ hasMore, setHasMore ] = useState(false);
@@ -340,6 +343,7 @@ export default function SideBar() {
   const vipInQueue = todayQueue.filter((fan) => fan.isHighPriority).length;
   const extrasTodayCount = extrasSummary?.today.count ?? 0;
   const extrasTodayAmount = extrasSummary?.today.amount ?? 0;
+  const legendRef = useRef<HTMLDivElement | null>(null);
 
   const recommendedFan = getRecommendedFan(fansWithScore);
   const apiFilter = (() => {
@@ -479,6 +483,18 @@ export default function SideBar() {
   }, [apiFilter, search, showPriorityOnly, followUpFilter, showOnlyWithNotes, tierFilter, onlyWithFollowUp, onlyWithExtras]);
 
   useEffect(() => {
+    if (!showLegend) return;
+    function handleClickOutside(event: MouseEvent) {
+      const target = event.target as Node | null;
+      if (legendRef.current && target && !legendRef.current.contains(target)) {
+        setShowLegend(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [showLegend]);
+
+  useEffect(() => {
     if (!queueMode) return;
     const queue = buildTodayQueue(filteredConversationsList as FanData[]);
     setTodayQueue(queue);
@@ -512,38 +528,6 @@ export default function SideBar() {
         initial={creatorInitial}
         onOpenSettings={() => setIsSettingsOpen(true)}
       />
-      <div className="flex bg-[#111b21] w-full h-max px-3 py-2">
-        <div className="relative w-[95%] h-max">
-          <div className="absolute text-[#AEBAC1] h-full w-9">
-            <svg viewBox="0 0 24 24" width="24" height="24" className="left-[50%] right-[50%] ml-auto mr-auto h-full">
-              <path fill="currentColor" d="M15.009 13.805h-.636l-.22-.219a5.184 5.184 0 0 0 1.256-3.386 5.207 5.207 0 1 0-5.207 5.208 5.183 5.183 0 0 0 3.385-1.255l.221.22v.635l4.004 3.999 1.194-1.195-3.997-4.007zm-4.808 0a3.605 3.605 0 1 1 0-7.21 3.605 3.605 0 0 1 0 7.21z">
-            </path>
-          </svg>
-          </div>
-          <div className="">
-            <input className="w-[96%] h-9 rounded-lg bg-[#202c33] text-white text-sm px-10" placeholder="Buscar o iniciar un nuevo chat" value={search} onChange={e => setSearch(e.target.value)} />
-          </div>
-        </div>
-        <div className="flex w-[5%] h-full items-center justify-center">
-          <button
-            type="button"
-            onClick={() => setShowPriorityOnly((prev) => !prev)}
-            className={clsx(
-              "inline-flex h-8 w-8 items-center justify-center rounded-full border transition",
-              showPriorityOnly
-                ? "border-emerald-400 bg-emerald-500/20 text-emerald-200"
-                : "border-slate-700 bg-slate-800/60 text-slate-300 hover:bg-slate-700"
-            )}
-            aria-pressed={showPriorityOnly}
-            title={showPriorityOnly ? "Mostrar todos los chats" : "Mostrar solo prioritarios"}
-          >
-            <svg viewBox="0 0 24 24" width="20" height="20" preserveAspectRatio="xMidYMid meet">
-              <path fill="currentColor" d="M10 18.1h4v-2h-4v2zm-7-12v2h18v-2H3zm3 7h12v-2H6v2z">
-              </path>
-            </svg>
-          </button>
-        </div>
-      </div>
       <div className="mb-2 px-3">
         <div className="mb-2 rounded-xl border border-slate-700 bg-slate-900/80 px-3 py-2 text-[11px] text-slate-300">
           <div className="flex justify-between">
@@ -588,22 +572,78 @@ export default function SideBar() {
           </div>
         )}
         <div className="flex flex-col gap-1 rounded-xl border border-slate-700 bg-slate-900/80 px-3 py-2 text-[11px] text-slate-300">
-          <button
-            type="button"
-            onClick={() => applyFilter("all", false)}
-            className="flex justify-between text-left"
-          >
-            <span className={clsx("text-slate-400", followUpFilter === "all" && !showOnlyWithNotes && "font-semibold text-amber-300")}>Hoy</span>
-            <span className={clsx("font-semibold text-slate-100", followUpFilter === "all" && !showOnlyWithNotes && "text-amber-300")}>
-              {totalCount} fan{totalCount === 1 ? "" : "s"}
-            </span>
-          </button>
+          <div className="flex items-center justify-between">
+            <button
+              type="button"
+              onClick={() => applyFilter("all", false)}
+              className="flex flex-1 justify-between text-left pr-2"
+            >
+              <span className={clsx("text-slate-400", followUpFilter === "all" && !showOnlyWithNotes && "font-semibold text-amber-300")}>Hoy</span>
+              <span className={clsx("font-semibold text-slate-100", followUpFilter === "all" && !showOnlyWithNotes && "text-amber-300")}>
+                {totalCount} fan{totalCount === 1 ? "" : "s"}
+              </span>
+            </button>
+            <button
+              type="button"
+              aria-label="Qué significa cada etiqueta"
+              onClick={() => setShowLegend((prev) => !prev)}
+              className={clsx(
+                "ml-2 inline-flex h-6 w-6 items-center justify-center rounded-full border text-xs font-bold transition",
+                showLegend
+                  ? "border-emerald-400 bg-emerald-500/20 text-emerald-100"
+                  : "border-slate-600 bg-slate-800/60 text-slate-200 hover:border-emerald-400/70 hover:text-emerald-100"
+              )}
+            >
+              i
+            </button>
+          </div>
+          {showLegend && (
+            <div
+              ref={legendRef}
+              className="mt-2 rounded-xl border border-slate-700 bg-slate-900/90 px-3 py-3 text-[11px] text-slate-200 shadow-lg"
+            >
+              <div className="flex items-center justify-between mb-1">
+                <span className="text-[12px] font-semibold text-slate-100">Qué significa cada etiqueta</span>
+                <button
+                  type="button"
+                  className="text-[11px] text-slate-400 hover:text-slate-100"
+                  onClick={() => setShowLegend(false)}
+                >
+                  Cerrar
+                </button>
+              </div>
+              <ul className="space-y-1 text-slate-300">
+                <li><span className="font-semibold">VIP</span> → Ha gastado más de {HIGH_PRIORITY_LIMIT} € en total contigo.</li>
+                <li><span className="font-semibold">🔥 Alta prioridad</span> → Clientes que más han gastado (se atienden primero).</li>
+                <li><span className="font-semibold">Extras</span> → Ya te han comprado contenido extra (PPV).</li>
+                <li><span className="font-semibold">⚡ Próxima acción</span> → Le debes un mensaje o seguimiento hoy.</li>
+                <li><span className="font-semibold">Seguimiento hoy</span> → Suscripción a punto de renovarse o tarea marcada para hoy.</li>
+                <li><span className="font-semibold">Ventas hoy</span> → Lista de chats importantes para hoy, ordenados por prioridad.</li>
+              </ul>
+              <div className="mt-3 border-t border-slate-700 pt-2">
+                <div className="text-[12px] font-semibold text-slate-100 mb-1">Cómo usarlo hoy</div>
+                <ol className="list-decimal list-inside space-y-1 text-slate-300">
+                  <li>Enciende «Ventas hoy» para ver tu cola del día.</li>
+                  <li>Usa «Siguiente venta» hasta vaciar la cola.</li>
+                  <li>Revisa «Alta prioridad» y «Con extras» para cerrar el día.</li>
+                </ol>
+              </div>
+            </div>
+          )}
           <button
             type="button"
             onClick={() => applyFilter("today", false)}
             className="flex justify-between text-left"
           >
-            <span className={clsx(followUpFilter === "today" && !showOnlyWithNotes && "font-semibold text-amber-300")}>Seguimiento hoy</span>
+            <span className={clsx(followUpFilter === "today" && !showOnlyWithNotes && "font-semibold text-amber-300")}>
+              Seguimiento hoy
+              <span
+                className="ml-1 inline-flex h-4 w-4 items-center justify-center rounded-full border border-slate-500 text-[9px] text-slate-300"
+                title="Chats con renovación o tarea marcada para hoy."
+              >
+                i
+              </span>
+            </span>
             <span className={clsx(followUpFilter === "today" && !showOnlyWithNotes && "font-semibold text-amber-300")}>{followUpTodayCount}</span>
           </button>
           <button
@@ -627,7 +667,15 @@ export default function SideBar() {
             onClick={() => applyFilter(followUpFilter, showOnlyWithNotes, tierFilter, !onlyWithFollowUp)}
             className="flex justify-between text-left"
           >
-            <span className={clsx(onlyWithFollowUp && "font-semibold text-amber-300")}>⚡ Con próxima acción</span>
+            <span className={clsx(onlyWithFollowUp && "font-semibold text-amber-300")}>
+              ⚡ Con próxima acción
+              <span
+                className="ml-1 inline-flex h-4 w-4 items-center justify-center rounded-full border border-slate-500 text-[9px] text-slate-300"
+                title="Tienes una tarea anotada para este fan (nota con rayo)."
+              >
+                i
+              </span>
+            </span>
             <span className={clsx(onlyWithFollowUp && "font-semibold text-amber-300")}>{withFollowUpCount}</span>
           </button>
           <button
@@ -638,6 +686,12 @@ export default function SideBar() {
             <span className={clsx(onlyWithExtras && "font-semibold text-amber-300")}>
               <span aria-hidden className="mr-1">💰</span>
               Con extras
+              <span
+                className="ml-1 inline-flex h-4 w-4 items-center justify-center rounded-full border border-slate-500 text-[9px] text-slate-300"
+                title="Este fan ya te ha comprado contenido extra (PPV)."
+              >
+                i
+              </span>
             </span>
             <span className={clsx(onlyWithExtras && "font-semibold text-amber-300")}>{withExtrasCount}</span>
           </button>
@@ -646,7 +700,15 @@ export default function SideBar() {
             onClick={() => applyFilter(followUpFilter, showOnlyWithNotes, tierFilter === "vip" ? "all" : "vip")}
             className="flex justify-between text-left"
           >
-            <span className={clsx(tierFilter === "vip" && "font-semibold text-amber-300")}>🔥 Alta prioridad</span>
+            <span className={clsx(tierFilter === "vip" && "font-semibold text-amber-300")}>
+              🔥 Alta prioridad
+              <span
+                className="ml-1 inline-flex h-4 w-4 items-center justify-center rounded-full border border-slate-500 text-[9px] text-slate-300"
+                title={`Fans que más han gastado contigo (VIP / límite ${HIGH_PRIORITY_LIMIT} €).`}
+              >
+                i
+              </span>
+            </span>
             <span className={clsx(tierFilter === "vip" && "font-semibold text-amber-300")}>{priorityCount}</span>
           </button>
           <button
@@ -816,6 +878,41 @@ export default function SideBar() {
           Ventas hoy
         </button>
       </div>
+      <div className="px-3 mb-3 flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
+        <div className="relative flex-1">
+          <div className="absolute text-[#AEBAC1] h-full w-9">
+            <svg viewBox="0 0 24 24" width="24" height="24" className="left-[50%] right-[50%] ml-auto mr-auto h-full">
+              <path fill="currentColor" d="M15.009 13.805h-.636l-.22-.219a5.184 5.184 0 0 0 1.256-3.386 5.207 5.207 0 1 0-5.207 5.208 5.183 5.183 0 0 0 3.385-1.255l.221.22v.635l4.004 3.999 1.194-1.195-3.997-4.007zm-4.808 0a3.605 3.605 0 1 1 0-7.21 3.605 3.605 0 0 1 0 7.21z">
+            </path>
+          </svg>
+          </div>
+          <input
+            className="w-full h-9 rounded-lg bg-[#202c33] text-white text-sm px-10"
+            placeholder="Buscar o iniciar un nuevo chat"
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+          />
+        </div>
+        <div className="flex items-center justify-end lg:justify-center">
+          <button
+            type="button"
+            onClick={() => setFocusMode((prev) => !prev)}
+            className={clsx(
+              "inline-flex h-8 w-8 items-center justify-center rounded-full border transition",
+              focusMode
+                ? "border-emerald-400 bg-emerald-500/20 text-emerald-200"
+                : "border-slate-700 bg-slate-800/60 text-slate-300 hover:bg-slate-700"
+            )}
+            aria-pressed={focusMode}
+            title={focusMode ? "Salir de modo foco" : "Modo foco: ocultar lista de chats"}
+          >
+            <svg viewBox="0 0 24 24" width="20" height="20" preserveAspectRatio="xMidYMid meet">
+              <path fill="currentColor" d="M10 18.1h4v-2h-4v2zm-7-12v2h18v-2H3zm3 7h12v-2H6v2z">
+              </path>
+            </svg>
+          </button>
+        </div>
+      </div>
       <div className="flex flex-col w-full flex-1 overflow-y-auto" id="conversation">
         {loadingFans && (
           <div className="text-center text-[#aebac1] py-4 text-sm">Cargando fans...</div>
@@ -828,12 +925,28 @@ export default function SideBar() {
             No hay chats prioritarios por ahora.
           </div>
         )}
-        {!loadingFans && !fansError && visibleList.map((conversation, index) => {
+        {!loadingFans && !fansError && visibleList.length === 0 && (
+          <div className="text-center text-[#aebac1] py-4 text-sm px-4 whitespace-pre-line">
+            {(() => {
+              if (followUpFilter === "today") {
+                return "Hoy no tienes seguimientos pendientes.\nVerás personas aquí cuando su suscripción esté cerca de renovarse o les marques «Próxima acción» ⚡ en el chat.";
+              }
+              if (tierFilter === "vip") {
+                return `Aún no tienes clientes de alta prioridad.\nSe marcan 🔥 cuando alguien ha gastado más de ${HIGH_PRIORITY_LIMIT} € en total contigo.`;
+              }
+              if (queueMode) {
+                return "No hay ventas en cola.\nTip: revisa el filtro «Con extras» y ofrece un nuevo pack o contenido extra.";
+              }
+              return "No hay fans que cumplan este filtro por ahora.";
+            })()}
+          </div>
+        )}
+        {!loadingFans && !fansError && !focusMode && visibleList.map((conversation, index) => {
           return (
             <ConversationList key={conversation.id || index} isFirstConversation={index == 0} data={conversation} />
           )
         })}
-        {!loadingFans && !fansError && hasMore && (
+        {!loadingFans && !fansError && !focusMode && hasMore && (
           <div className="px-4 py-3">
             <button
               type="button"

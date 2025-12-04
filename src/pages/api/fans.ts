@@ -59,9 +59,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     if (search) {
       where.OR = [
         ...(where.OR ?? []),
-        { name: { contains: search, mode: "insensitive" } },
-        { nextAction: { contains: search, mode: "insensitive" } },
-        { notes: { some: { content: { contains: search, mode: "insensitive" } } } },
+        { name: { contains: search } },
+        { nextAction: { contains: search } },
+        { notes: { some: { content: { contains: search } } } },
       ];
     }
 

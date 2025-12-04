@@ -1,11 +1,14 @@
 import Head from "next/head";
-import { useContext } from "react";
+import { useContext, useEffect, useRef, useState } from "react";
+import clsx from "clsx";
 import ConversationDetails from "../components/ConversationDetails";
 import SideBar from "../components/SideBar";
 import { ConversationContext } from "../context/ConversationContext";
 
 export default function Home() {
   const { conversation } = useContext(ConversationContext);
+  const [ mobileView, setMobileView ] = useState<"board" | "chat">("board");
+  const conversationSectionRef = useRef<HTMLDivElement | null>(null);
   const IconHome = () => (
     <div className="flex flex-col w-full h-full items-center justify-center px-6">
       <svg width="360" viewBox="0 0 303 172" fill="none" preserveAspectRatio="xMidYMid meet" className="">
@@ -45,19 +48,47 @@ export default function Home() {
     </div>
   )
 
+  useEffect(() => {
+    if (!conversation.id) return;
+    if (typeof window === "undefined") return;
+    if (window.innerWidth >= 1024) return;
+    setMobileView("chat");
+    conversationSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }, [conversation.id]);
+
+  useEffect(() => {
+    if (conversation.id) return;
+    setMobileView("board");
+  }, [conversation.id]);
+
   return (
     <div className="flex justify-center">
       <Head>
         <title>NOVSY – Chat privado</title>
       </Head>
-      <div className="flex flex-col md:flex-row w-full xl:container min-h-screen md:h-screen xl:py-4">
-        <SideBar />
-        <div className="flex w-full md:w-[70%] bg-[#222E35] flex-1 min-h-[60vh]">
-          {
-            conversation.contactName
-              ? <ConversationDetails />
-              : <IconHome />
-          }
+      <div className="flex flex-col w-full xl:container min-h-screen overflow-y-auto lg:overflow-hidden">
+        <div className="flex flex-col md:flex-row w-full flex-1 min-h-0 lg:h-[100dvh] lg:max-h-[100dvh] xl:py-4">
+          <div
+            className={clsx(
+              "flex",
+              mobileView === "chat" ? "hidden lg:flex" : "flex"
+            )}
+          >
+            <SideBar />
+          </div>
+          <div
+            ref={conversationSectionRef}
+            className={clsx(
+              "flex flex-col w-full md:w-[70%] bg-[#222E35] flex-1 min-h-0 overflow-hidden",
+              mobileView === "board" ? "hidden lg:flex" : "flex"
+            )}
+          >
+            {
+              conversation.contactName
+                ? <ConversationDetails onBackToBoard={() => setMobileView("board")} />
+                : <IconHome />
+            }
+          </div>
         </div>
       </div>
     </div>

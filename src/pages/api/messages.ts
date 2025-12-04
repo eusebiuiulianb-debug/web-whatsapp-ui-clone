@@ -25,7 +25,7 @@ async function handleGet(req: NextApiRequest, res: NextApiResponse) {
   try {
     const messages = await prisma.message.findMany({
       where: { fanId },
-      orderBy: { time: "asc" },
+      orderBy: { id: "asc" },
       include: { contentItem: true },
     });
 

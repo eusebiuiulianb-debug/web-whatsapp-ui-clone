@@ -1,4 +1,4 @@
-import { KeyboardEvent, MouseEvent, useContext, useEffect, useState } from "react";
+import { KeyboardEvent, MouseEvent, useContext, useEffect, useRef, useState } from "react";
 import clsx from "clsx";
 import { ConversationContext } from "../../context/ConversationContext";
 import Avatar from "../Avatar";
@@ -25,6 +25,10 @@ import {
 import { HIGH_PRIORITY_LIMIT } from "../../config/customers";
 import { EXTRAS_UPDATED_EVENT } from "../../constants/events";
 
+type ConversationDetailsProps = {
+  onBackToBoard?: () => void;
+};
+
 const PACK_ESPECIAL_UPSELL_TEXT =
   "Veo que lo que estás pidiendo entra ya en el terreno de mi Pack especial: incluye todo lo de tu suscripción mensual + fotos y escenas extra más intensas. Si quieres subir de nivel, son 49 € y te lo dejo desbloqueado en este chat.";
 const PACK_MONTHLY_UPSELL_TEXT =
@@ -41,7 +45,7 @@ function getReengageTemplate(name: string) {
   return `Hola ${cleanName || "allí"}, soy Eusebiu. Hoy termina tu acceso a este espacio privado. Si quieres que sigamos trabajando juntos en tu relación y tu vida sexual, puedo ofrecerte renovar la suscripción o prepararte un pack especial solo para ti. Si te interesa, dime “QUIERO SEGUIR” y lo vemos juntos.`;
 }
 
-export default function ConversationDetails() {
+export default function ConversationDetails({ onBackToBoard }: ConversationDetailsProps) {
   const {
     conversation,
     message: messages,
@@ -119,6 +123,7 @@ export default function ConversationDetails() {
   const [ extraError, setExtraError ] = useState<string | null>(null);
   const [ extraPresets, setExtraPresets ] = useState<ExtraPresetsConfig>(() => loadExtraPresets());
   const [ showEditExtra, setShowEditExtra ] = useState(false);
+  const fanHeaderRef = useRef<HTMLDivElement | null>(null);
   const { config } = useCreatorConfig();
   const accessState = getAccessState({ membershipStatus, daysLeft });
   const accessLabel = getAccessLabel({ membershipStatus, daysLeft });
@@ -142,6 +147,8 @@ export default function ConversationDetails() {
     VIDEO: "T2",
     COMBO: "T3",
   };
+  const [ showQuickSheet, setShowQuickSheet ] = useState(false);
+  const [ isDesktop, setIsDesktop ] = useState(false);
   const hasWelcome = normalizedGrants.includes("welcome") || normalizedGrants.includes("trial");
   const hasMonthly = normalizedGrants.includes("monthly");
   const hasSpecial = normalizedGrants.includes("special");
@@ -181,6 +188,14 @@ export default function ConversationDetails() {
     setNextActionDate(parsed.date);
     setNextActionTime(parsed.time);
   }, [conversation.id, conversation.nextAction]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const updateViewport = () => setIsDesktop(window.innerWidth >= 1024);
+    updateViewport();
+    window.addEventListener("resize", updateViewport);
+    return () => window.removeEventListener("resize", updateViewport);
+  }, []);
 
   function getPackTypeFromName(name: string) {
     const lower = name.toLowerCase();
@@ -1050,12 +1065,63 @@ export default function ConversationDetails() {
     return "Nuevo";
   }
 
+  const handleViewProfile = () => {
+    if (isDesktop) {
+      fanHeaderRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+      return;
+    }
+    setShowQuickSheet(true);
+  };
+
+  const handleOpenNotesFromSheet = () => {
+    setShowQuickSheet(false);
+    setShowNotes(true);
+    setShowExtraTemplates(false);
+    setShowHistory(false);
+    if (id) fetchFanNotes(id);
+  };
+
+  const handleOpenHistoryFromSheet = () => {
+    setShowQuickSheet(false);
+    setShowHistory(true);
+    setShowNotes(false);
+    setShowExtraTemplates(false);
+    if (id) fetchHistory(id);
+  };
+  const handleRenewAction = () => {
+    let text: string;
+    if (followUpTag === "trial_soon") {
+      text = buildFollowUpTrialMessage(firstName);
+    } else if (followUpTag === "expired") {
+      text = buildFollowUpExpiredMessage(firstName);
+    } else {
+      text = buildFollowUpMonthlyMessage(firstName);
+    }
+    fillMessage(text);
+    setShowPackSelector(false);
+    setShowExtraTemplates(false);
+  };
+
   const lifetimeValueDisplay = Math.round(conversation.lifetimeValue ?? 0);
   const notesCountDisplay = conversation.notesCount ?? 0;
   const novsyStatus = conversation.novsyStatus ?? null;
   const queueStatus = getQueuePosition();
   const isInQueue = queueMode && queueStatus.index >= 0;
   const hasNextInQueue = isInQueue && queueStatus.index < (queueStatus.size - 1);
+  const statusTags: string[] = [];
+  if (conversation.isHighPriority) {
+    statusTags.push("VIP");
+  } else {
+    statusTags.push(formatTier(conversation.customerTier));
+  }
+  statusTags.push(`${Math.round(lifetimeAmount)} €`);
+  if (conversation.nextAction) {
+    const shortNext = conversation.nextAction.length > 60 ? `${conversation.nextAction.slice(0, 57)}…` : conversation.nextAction;
+    statusTags.push(`Próxima acción: ${shortNext}`);
+  }
+  const statusLine = statusTags.join(" · ");
+  const showRenewAction =
+    followUpTag === "trial_soon" || followUpTag === "monthly_soon" || followUpTag === "expired" || followUpTag === "today";
 
   const filteredItems = contentItems.filter((item) => {
     const tag = getTimeOfDayTag(item.title ?? "");
@@ -1069,7 +1135,88 @@ export default function ConversationDetails() {
 
   return (
     <div className="flex flex-col w-full h-full min-h-[60vh]">
-      <header className="flex flex-col gap-3 border-b border-slate-800 bg-slate-900/80 px-4 py-3">
+      {onBackToBoard && (
+        <div className="md:hidden flex items-center justify-between gap-3 px-4 pt-3">
+          <button
+            type="button"
+            onClick={onBackToBoard}
+            className="rounded-full px-3 py-1 text-sm bg-slate-800 text-slate-100 hover:bg-slate-700"
+          >
+            ← Volver
+          </button>
+          <div className="flex-1 min-w-0 flex items-center gap-2 text-sm">
+            <span className="font-semibold truncate">{contactName}</span>
+            {(conversation.isHighPriority || (conversation.extrasCount ?? 0) > 0) && (
+              <span className="inline-flex items-center rounded-full bg-slate-800/80 text-[11px] text-amber-200 px-2 py-[1px]">
+                {conversation.isHighPriority ? "VIP" : "Extras"}
+              </span>
+            )}
+          </div>
+          <button
+            type="button"
+            onClick={handleViewProfile}
+            className="rounded-full px-3 py-1 text-sm bg-slate-800 text-slate-100 hover:bg-slate-700"
+          >
+            Ver ficha
+          </button>
+        </div>
+      )}
+      <header
+        ref={fanHeaderRef}
+        className="flex flex-col gap-3 border-b border-slate-800 bg-slate-900/80 px-4 py-3"
+      >
+        {/* Mini ficha solo móvil, bajo la barra superior */}
+        <div className="md:hidden mt-1 rounded-2xl bg-slate-900/80 px-3 py-2 shadow-lg shadow-black/40 flex flex-col gap-2 text-xs">
+          <div className="flex items-center gap-3">
+            <Avatar width="w-9" height="h-9" image={image} />
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-2">
+                <span className="text-sm font-semibold text-slate-50 truncate">{contactName}</span>
+                <span
+                  className={`w-2 h-2 rounded-full ${
+                    accessState === "active"
+                      ? "bg-[#25d366]"
+                      : accessState === "expiring"
+                      ? "bg-[#f5c065]"
+                      : "bg-[#7d8a93]"
+                  }`}
+                />
+              </div>
+              <div className="flex flex-wrap items-center gap-2 text-[11px] text-slate-300">
+                <span className="inline-flex items-center rounded-full bg-slate-800/80 text-amber-200 px-2 py-[1px]">
+                  {packLabel}
+                </span>
+                <span className="inline-flex items-center rounded-full bg-slate-800/80 text-slate-200 px-2 py-[1px]">
+                  {formatTier(conversation.customerTier)}
+                </span>
+                {conversation.isHighPriority && (
+                  <span className="inline-flex items-center rounded-full bg-amber-500/20 text-amber-200 px-2 py-[1px]">
+                    🔥 Alta prioridad
+                  </span>
+                )}
+                {extrasCountDisplay > 0 && (
+                  <span className="inline-flex items-center rounded-full bg-emerald-500/15 text-emerald-100 px-2 py-[1px]">
+                    Extras
+                  </span>
+                )}
+              </div>
+            </div>
+          </div>
+          <div className="flex flex-col gap-1 text-[11px] text-slate-300">
+            <div className="flex justify-between gap-2">
+              <span className="truncate">Total gastado: {Math.round(lifetimeAmount)} €</span>
+              <span className="truncate text-right">
+                Extras: {extrasCountDisplay} · {extrasSpentDisplay} €
+              </span>
+            </div>
+            {conversation.nextAction && (
+              <p className="leading-snug text-slate-200">
+                Próxima acción: <span className="text-slate-100">{conversation.nextAction}</span>
+              </p>
+            )}
+          </div>
+        </div>
+
         <div className="flex items-start justify-between gap-3">
             <div className="flex items-start gap-3">
               <Avatar width="w-10" height="h-10" image={image} />
@@ -1844,67 +1991,122 @@ export default function ConversationDetails() {
         {isLoadingMessages && <div className="text-center text-[#aebac1] text-sm mt-2">Cargando mensajes...</div>}
         {messagesError && !isLoadingMessages && <div className="text-center text-red-400 text-sm mt-2">{messagesError}</div>}
       </div>
-      <footer className="flex items-center bg-[#202c33] w-full h-auto py-3 px-4 text-[#8696a0] gap-3">
-        <div className="flex items-center gap-3 py-1">
-          <svg viewBox="0 0 24 24" width="24" height="24" className="cursor-pointer">
-            <path fill="currentColor" d="M9.153 11.603c.795 0 1.439-.879 1.439-1.962s-.644-1.962-1.439-1.962-1.439.879-1.439 1.962.644 1.962 1.439 1.962zm-3.204 1.362c-.026-.307-.131 5.218 6.063 5.551 6.066-.25 6.066-5.551 6.066-5.551-6.078 1.416-12.129 0-12.129 0zm11.363 1.108s-.669 1.959-5.051 1.959c-3.505 0-5.388-1.164-5.607-1.959 0 0 5.912 1.055 10.658 0zM11.804 1.011C5.609 1.011.978 6.033.978 12.228s4.826 10.761 11.021 10.761S23.02 18.423 23.02 12.228c.001-6.195-5.021-11.217-11.216-11.217zM12 21.354c-5.273 0-9.381-3.886-9.381-9.159s3.942-9.548 9.215-9.548 9.548 4.275 9.548 9.548c-.001 5.272-4.109 9.159-9.382 9.159zm3.108-9.751c.795 0 1.439-.879 1.439-1.962s-.644-1.962-1.439-1.962-1.439.879-1.439 1.962.644 1.962 1.439 1.962z">
-            </path>
-          </svg>
-          <div className="relative">
+      <footer className="flex flex-col bg-[#202c33] w-full h-auto py-3 px-4 text-[#8696a0] gap-3">
+        <div className="flex flex-col gap-2 rounded-lg border border-slate-700 bg-slate-900/70 px-3 py-2">
+          <div className="text-[11px] font-semibold text-slate-100 truncate">{statusLine}</div>
+          <div className="flex flex-wrap items-center gap-2">
             <button
               type="button"
-              onClick={() => setIsAttachmentMenuOpen((prev) => !prev)}
-              className="flex items-center justify-center"
+              className="whitespace-nowrap rounded-full border border-slate-600 bg-slate-800/70 px-3 py-1 text-[11px] font-semibold text-slate-100 hover:border-emerald-400 hover:text-emerald-100 transition"
+              onClick={handleQuickGreeting}
             >
-              <svg viewBox="0 0 24 24" width="24" height="24" className="cursor-pointer">
-                <path fill="currentColor" d="M1.816 15.556v.002c0 1.502.584 2.912 1.646 3.972s2.472 1.647 3.974 1.647a5.58 5.58 0 0 0 3.972-1.645l9.547-9.548c.769-.768 1.147-1.767 1.058-2.817-.079-.968-.548-1.927-1.319-2.698-1.594-1.592-4.068-1.711-5.517-.262l-7.916 7.915c-.881.881-.792 2.25.214 3.261.959.958 2.423 1.053 3.263.215l5.511-5.512c.28-.28.267-.722.053-.936l-.244-.244c-.191-.191-.567-.349-.957.04l-5.506 5.506c-.18.18-.635.127-.976-.214-.098-.097-.576-.613-.213-.973l7.915-7.917c.818-.817 2.267-.699 3.23.262.5.501.802 1.1.849 1.685.051.573-.156 1.111-.589 1.543l-9.547 9.549a3.97 3.97 0 0 1-2.829 1.171 3.975 3.975 0 0 1-2.83-1.173 3.973 3.973 0 0 1-1.172-2.828c0-1.071.415-2.076 1.172-2.83l7.209-7.211c.157-.157.264-.579.028-.814L11.5 4.36a.572.572 0 0 0-.834.018l-7.205 7.207a5.577 5.577 0 0 0-1.645 3.971z">
-                </path>
-              </svg>
+              Saludo
             </button>
-            {isAttachmentMenuOpen && (
-              <div className="absolute bottom-12 left-0 z-20 w-56 rounded-xl bg-slate-900 border border-slate-700 shadow-lg">
-                <button
-                  type="button"
-                  className="flex w-full items-center gap-2 px-3 py-2 text-sm text-slate-100 hover:bg-slate-800"
-                  onClick={() => {
-                    setIsAttachmentMenuOpen(false);
-                    fetchContentItems(id);
-                    if (id) fetchAccessGrants(id);
-                    setSelectedContentIds([]);
-                    setShowContentModal(true);
-                  }}
-                >
-                  <span>Adjuntar contenido</span>
-                </button>
-                {false && (
-                  <button
-                    type="button"
-                    disabled
-                    className="flex w-full items-center gap-2 px-3 py-2 text-sm text-slate-500 cursor-not-allowed"
-                  >
-                    Subir archivo (próximamente)
-                  </button>
-                )}
-              </div>
+            {showRenewAction && (
+              <button
+                type="button"
+                className="whitespace-nowrap rounded-full border border-slate-600 bg-slate-800/70 px-3 py-1 text-[11px] font-semibold text-slate-100 hover:border-emerald-400 hover:text-emerald-100 transition"
+                onClick={handleRenewAction}
+              >
+                Renovación
+              </button>
             )}
+            <button
+              type="button"
+              className="whitespace-nowrap rounded-full border border-slate-600 bg-slate-800/70 px-3 py-1 text-[11px] font-semibold text-slate-100 hover:border-emerald-400 hover:text-emerald-100 transition"
+              onClick={() => {
+                setShowExtraTemplates(true);
+                setShowPackSelector(false);
+                setShowNotes(false);
+                setShowHistory(false);
+              }}
+            >
+              Extra rápido
+            </button>
+            <button
+              type="button"
+              className="whitespace-nowrap rounded-full border border-slate-600 bg-slate-800/70 px-3 py-1 text-[11px] font-semibold text-slate-100 hover:border-emerald-400 hover:text-emerald-100 transition"
+              onClick={() => fillMessageFromPackType("special")}
+            >
+              Pack especial
+            </button>
+            <button
+              type="button"
+              className="whitespace-nowrap rounded-full border border-emerald-400 bg-emerald-500/15 px-3 py-1 text-[11px] font-semibold text-emerald-100 hover:bg-emerald-500/25 transition"
+              onClick={() => {
+                setShowExtraTemplates(true);
+                setShowPackSelector(false);
+                setShowNotes(false);
+                setShowHistory(false);
+              }}
+            >
+              Abrir extras
+            </button>
           </div>
         </div>
-        <div className="flex flex-1 h-12">
-          <input
-            type={"text"}
-            className="bg-[#2a3942] rounded-lg w-full px-3 py-3 text-white"
-            placeholder="Mensaje"
-            onKeyDown={(evt) => changeHandler(evt) }
-            onChange={ (evt) => setMessageSend(evt.target.value) }
-            value={messageSend}
-            disabled={accessState === "expired"}
-          />
-        </div>
-        <div className="flex justify-center items-center h-12">
-          <svg viewBox="0 0 24 24" width="24" height="24" className="cursor-pointer" onClick={handleSendMessage}>
-            <path fill="currentColor" d="M11.999 14.942c2.001 0 3.531-1.53 3.531-3.531V4.35c0-2.001-1.53-3.531-3.531-3.531S8.469 2.35 8.469 4.35v7.061c0 2.001 1.53 3.531 3.53 3.531zm6.238-3.53c0 3.531-2.942 6.002-6.237 6.002s-6.237-2.471-6.237-6.002H3.761c0 4.001 3.178 7.297 7.061 7.885v3.884h2.354v-3.884c3.884-.588 7.061-3.884 7.061-7.885h-2z">
-            </path>
-          </svg>
+
+        <div className="flex items-center gap-3">
+          <div className="flex items-center gap-3 py-1">
+            <svg viewBox="0 0 24 24" width="24" height="24" className="cursor-pointer">
+              <path fill="currentColor" d="M9.153 11.603c.795 0 1.439-.879 1.439-1.962s-.644-1.962-1.439-1.962-1.439.879-1.439 1.962.644 1.962 1.439 1.962zm-3.204 1.362c-.026-.307-.131 5.218 6.063 5.551 6.066-.25 6.066-5.551 6.066-5.551-6.078 1.416-12.129 0-12.129 0zm11.363 1.108s-.669 1.959-5.051 1.959c-3.505 0-5.388-1.164-5.607-1.959 0 0 5.912 1.055 10.658 0zM11.804 1.011C5.609 1.011.978 6.033.978 12.228s4.826 10.761 11.021 10.761S23.02 18.423 23.02 12.228c.001-6.195-5.021-11.217-11.216-11.217zM12 21.354c-5.273 0-9.381-3.886-9.381-9.159s3.942-9.548 9.215-9.548 9.548 4.275 9.548 9.548c-.001 5.272-4.109 9.159-9.382 9.159zm3.108-9.751c.795 0 1.439-.879 1.439-1.962s-.644-1.962-1.439-1.962-1.439.879-1.439 1.962.644 1.962 1.439 1.962z">
+              </path>
+            </svg>
+            <div className="relative">
+              <button
+                type="button"
+                onClick={() => setIsAttachmentMenuOpen((prev) => !prev)}
+                className="flex items-center justify-center"
+              >
+                <svg viewBox="0 0 24 24" width="24" height="24" className="cursor-pointer">
+                  <path fill="currentColor" d="M1.816 15.556v.002c0 1.502.584 2.912 1.646 3.972s2.472 1.647 3.974 1.647a5.58 5.58 0 0 0 3.972-1.645l9.547-9.548c.769-.768 1.147-1.767 1.058-2.817-.079-.968-.548-1.927-1.319-2.698-1.594-1.592-4.068-1.711-5.517-.262l-7.916 7.915c-.881.881-.792 2.25.214 3.261.959.958 2.423 1.053 3.263.215l5.511-5.512c.28-.28.267-.722.053-.936l-.244-.244c-.191-.191-.567-.349-.957.04l-5.506 5.506c-.18.18-.635.127-.976-.214-.098-.097-.576-.613-.213-.973l7.915-7.917c.818-.817 2.267-.699 3.23.262.5.501.802 1.1.849 1.685.051.573-.156 1.111-.589 1.543l-9.547 9.549a3.97 3.97 0 0 1-2.829 1.171 3.975 3.975 0 0 1-2.83-1.173 3.973 3.973 0 0 1-1.172-2.828c0-1.071.415-2.076 1.172-2.83l7.209-7.211c.157-.157.264-.579.028-.814L11.5 4.36a.572.572 0 0 0-.834.018l-7.205 7.207a5.577 5.577 0 0 0-1.645 3.971z">
+                  </path>
+                </svg>
+              </button>
+              {isAttachmentMenuOpen && (
+                <div className="absolute bottom-12 left-0 z-20 w-56 rounded-xl bg-slate-900 border border-slate-700 shadow-lg">
+                  <button
+                    type="button"
+                    className="flex w-full items-center gap-2 px-3 py-2 text-sm text-slate-100 hover:bg-slate-800"
+                    onClick={() => {
+                      setIsAttachmentMenuOpen(false);
+                      fetchContentItems(id);
+                      if (id) fetchAccessGrants(id);
+                      setSelectedContentIds([]);
+                      setShowContentModal(true);
+                    }}
+                  >
+                    <span>Adjuntar contenido</span>
+                  </button>
+                  {false && (
+                    <button
+                      type="button"
+                      disabled
+                      className="flex w-full items-center gap-2 px-3 py-2 text-sm text-slate-500 cursor-not-allowed"
+                    >
+                      Subir archivo (próximamente)
+                    </button>
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
+          <div className="flex flex-1 h-12">
+            <input
+              type={"text"}
+              className="bg-[#2a3942] rounded-lg w-full px-3 py-3 text-white"
+              placeholder="Mensaje"
+              onKeyDown={(evt) => changeHandler(evt) }
+              onChange={ (evt) => setMessageSend(evt.target.value) }
+              value={messageSend}
+              disabled={accessState === "expired"}
+            />
+          </div>
+          <div className="flex justify-center items-center h-12">
+            <svg viewBox="0 0 24 24" width="24" height="24" className="cursor-pointer" onClick={handleSendMessage}>
+              <path fill="currentColor" d="M11.999 14.942c2.001 0 3.531-1.53 3.531-3.531V4.35c0-2.001-1.53-3.531-3.531-3.531S8.469 2.35 8.469 4.35v7.061c0 2.001 1.53 3.531 3.53 3.531zm6.238-3.53c0 3.531-2.942 6.002-6.237 6.002s-6.237-2.471-6.237-6.002H3.761c0 4.001 3.178 7.297 7.061 7.885v3.884h2.354v-3.884c3.884-.588 7.061-3.884 7.061-7.885h-2z">
+              </path>
+            </svg>
+          </div>
         </div>
       </footer>
       {showContentModal && (
@@ -2061,6 +2263,84 @@ export default function ConversationDetails() {
                 {selectedContentIds.length <= 1
                   ? "Enviar 1 elemento"
                   : `Enviar ${selectedContentIds.length} elementos`}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {showQuickSheet && (
+        <div className="fixed inset-0 z-40 flex items-end justify-center bg-slate-950/60 backdrop-blur-sm lg:hidden">
+          <div className="w-full max-w-md rounded-t-3xl bg-slate-900 border border-slate-700 shadow-xl p-5 space-y-5">
+            <div className="flex items-center justify-between gap-3">
+              <h2 className="text-sm font-semibold text-slate-300">Ficha rápida</h2>
+              <button
+                type="button"
+                onClick={() => setShowQuickSheet(false)}
+                className="inline-flex items-center justify-center rounded-full p-1.5 hover:bg-slate-800 text-slate-200"
+              >
+                <span className="sr-only">Cerrar</span>
+                ✕
+              </button>
+            </div>
+
+            <div className="flex items-center gap-3">
+              <Avatar width="w-10" height="h-10" image={image} />
+              <div className="flex flex-col gap-1 min-w-0">
+                <div className="text-base font-semibold text-slate-50 truncate">{contactName}</div>
+                <div className="flex flex-wrap gap-2 text-[11px]">
+                  <span className="inline-flex items-center rounded-full bg-slate-800/80 text-amber-200 px-2 py-[1px]">
+                    {packLabel}
+                  </span>
+                  <span className="inline-flex items-center rounded-full bg-slate-800/80 text-slate-200 px-2 py-[1px]">
+                    {formatTier(conversation.customerTier)}
+                  </span>
+                  {conversation.isHighPriority && (
+                    <span className="inline-flex items-center rounded-full bg-amber-500/20 text-amber-200 px-2 py-[1px]">
+                      🔥 Alta prioridad
+                    </span>
+                  )}
+                  {extrasCountDisplay > 0 && (
+                    <span className="inline-flex items-center rounded-full bg-emerald-500/15 text-emerald-100 px-2 py-[1px]">
+                      Extras
+                    </span>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            <div className="space-y-3 text-sm">
+              <div className="flex items-center justify-between">
+                <span className="text-slate-400">Total gastado</span>
+                <span className="font-semibold text-slate-50">{Math.round(lifetimeAmount)} €</span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-slate-400">Extras</span>
+                <span className="font-medium text-slate-50">
+                  {extrasCountDisplay} extra{extrasCountDisplay === 1 ? "" : "s"} · {extrasSpentDisplay} €
+                </span>
+              </div>
+              <div className="flex flex-col gap-1 rounded-xl border border-slate-800 bg-slate-900/70 px-3 py-2">
+                <span className="text-slate-400 text-xs">Próxima acción</span>
+                <span className="text-slate-50 text-sm leading-snug">
+                  {conversation.nextAction ? conversation.nextAction : "Sin próxima acción definida"}
+                </span>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <button
+                type="button"
+                onClick={handleOpenNotesFromSheet}
+                className="rounded-full border border-slate-600 bg-slate-900 px-4 py-2 text-sm font-medium text-slate-50 hover:bg-slate-800"
+              >
+                Abrir notas
+              </button>
+              <button
+                type="button"
+                onClick={handleOpenHistoryFromSheet}
+                className="rounded-full bg-emerald-500 px-4 py-2 text-sm font-semibold text-slate-950 hover:bg-emerald-400"
+              >
+                Ver historial
               </button>
             </div>
           </div>

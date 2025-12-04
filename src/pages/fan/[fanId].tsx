@@ -1,7 +1,7 @@
 import Head from "next/head";
 import { GetServerSideProps } from "next";
 import { useRouter } from "next/router";
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { FormEvent, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import MessageBalloon from "../../components/MessageBalloon";
 import { useCreatorConfig } from "../../context/CreatorConfigContext";
 import {
@@ -57,6 +57,17 @@ export default function FanChatPage({ includedContent, initialAccessSummary }: F
   const [accessSummary, setAccessSummary] = useState<AccessSummary | null>(initialAccessSummary || null);
   const [accessLoading, setAccessLoading] = useState(false);
   const [included, setIncluded] = useState<IncludedContent[]>(includedContent || []);
+  const messagesContainerRef = useRef<HTMLDivElement | null>(null);
+  const [isAtBottom, setIsAtBottom] = useState(true);
+
+  const sortMessages = (list: ApiMessage[]) => {
+    return [...list].sort((a, b) => {
+      const at = a.id ? String(a.id) : "";
+      const bt = b.id ? String(b.id) : "";
+      if (at === bt) return 0;
+      return at > bt ? 1 : -1;
+    });
+  };
 
   useEffect(() => {
     if (!fanId) return;
@@ -79,7 +90,7 @@ export default function FanChatPage({ includedContent, initialAccessSummary }: F
       if (!res.ok) throw new Error("error");
       const data = await res.json();
       const apiMessages = Array.isArray(data.messages) ? (data.messages as ApiMessage[]) : [];
-      setMessages(apiMessages);
+      setMessages(sortMessages(apiMessages));
     } catch (_err) {
       setError("Error cargando mensajes");
       setMessages([]);
@@ -142,7 +153,7 @@ export default function FanChatPage({ includedContent, initialAccessSummary }: F
         ? [data.message as ApiMessage]
         : [];
       if (newMessages.length) {
-        setMessages((prev) => [...prev, ...newMessages]);
+        setMessages((prev) => sortMessages([...(prev || []), ...newMessages]));
       }
       setDraft("");
     } catch (_err) {
@@ -157,8 +168,39 @@ export default function FanChatPage({ includedContent, initialAccessSummary }: F
     [creatorName]
   );
 
+  const scrollToBottom = (behavior: ScrollBehavior = "smooth") => {
+    const el = messagesContainerRef.current;
+    if (!el) return;
+    el.scrollTo({
+      top: el.scrollHeight - el.clientHeight,
+      behavior,
+    });
+  };
+
+  useLayoutEffect(() => {
+    const el = messagesContainerRef.current;
+    if (!el) return;
+    const onScroll = () => {
+      const threshold = 80;
+      const distanceToBottom = el.scrollHeight - el.clientHeight - el.scrollTop;
+      setIsAtBottom(distanceToBottom < threshold);
+    };
+    onScroll();
+    el.addEventListener("scroll", onScroll);
+    return () => el.removeEventListener("scroll", onScroll);
+  }, []);
+
+  useLayoutEffect(() => {
+    scrollToBottom("auto");
+  }, [fanId]);
+
+  useLayoutEffect(() => {
+    if (!isAtBottom) return;
+    scrollToBottom("smooth");
+  }, [messages.length, isAtBottom]);
+
   return (
-    <div className="min-h-screen bg-[#0b141a] text-white flex flex-col">
+    <div className="flex flex-col h-[100dvh] max-h-[100dvh] overflow-hidden bg-[#0b141a] text-white">
       <Head>
         <title>{`Chat con ${creatorName} · NOVSY`}</title>
       </Head>
@@ -173,47 +215,49 @@ export default function FanChatPage({ includedContent, initialAccessSummary }: F
         </div>
       </header>
 
-      <div className="px-4 sm:px-6 mt-3">
-        {accessLoading && !accessSummary ? (
-          <div className="rounded-xl border border-slate-800 bg-[#0f1f26] px-4 py-3 text-sm text-slate-200">
-            Cargando acceso...
+      <main className="flex flex-col flex-1 min-h-0 overflow-hidden">
+        <div ref={messagesContainerRef} className="flex-1 min-h-0 overflow-y-auto">
+          <div className="px-4 sm:px-6 pt-3 space-y-3">
+            {accessLoading && !accessSummary ? (
+              <div className="rounded-xl border border-slate-800 bg-[#0f1f26] px-4 py-3 text-sm text-slate-200">
+                Cargando acceso...
+              </div>
+            ) : accessSummary ? (
+              <AccessBanner summary={accessSummary} />
+            ) : null}
+            {included?.length ? <IncludedContentSection items={included} /> : null}
           </div>
-        ) : accessSummary ? (
-          <AccessBanner summary={accessSummary} />
-        ) : null}
-        <div className="mt-3">
-          <IncludedContentSection items={included} />
+          <div
+            className="px-4 sm:px-6 py-4"
+            style={{ backgroundImage: "url('/assets/images/background.jpg')" }}
+          >
+            {loading && <div className="text-center text-[#aebac1] text-sm mt-2">Cargando mensajes...</div>}
+            {error && !loading && <div className="text-center text-red-400 text-sm mt-2">{error}</div>}
+            {!loading && !error && messages.length === 0 && (
+              <div className="text-center text-[#aebac1] text-sm mt-2">Aún no hay mensajes.</div>
+            )}
+            {messages.map((msg) => {
+              const isContent = msg.type === "CONTENT" && !!msg.contentItem;
+              if (isContent) {
+                return <ContentCard key={msg.id} message={msg} />;
+              }
+              return (
+                <MessageBalloon
+                  key={msg.id}
+                  me={msg.from === "fan"}
+                  message={msg.text || ""}
+                  seen={!!msg.isLastFromCreator}
+                  time={msg.time || undefined}
+                />
+              );
+            })}
+          </div>
         </div>
-      </div>
 
-      <main className="flex flex-col flex-1 overflow-hidden">
-        <div
-          className="flex-1 overflow-y-auto px-4 sm:px-6 py-4"
-          style={{ backgroundImage: "url('/assets/images/background.jpg')" }}
+        <form
+          onSubmit={handleSendMessage}
+          className="flex items-center bg-[#202c33] w-full h-auto py-3 px-4 text-[#8696a0] gap-3 shrink-0"
         >
-          {loading && <div className="text-center text-[#aebac1] text-sm mt-2">Cargando mensajes...</div>}
-          {error && !loading && <div className="text-center text-red-400 text-sm mt-2">{error}</div>}
-          {!loading && !error && messages.length === 0 && (
-            <div className="text-center text-[#aebac1] text-sm mt-2">Aún no hay mensajes.</div>
-          )}
-          {messages.map((msg) => {
-            const isContent = msg.type === "CONTENT" && !!msg.contentItem;
-            if (isContent) {
-              return <ContentCard key={msg.id} message={msg} />;
-            }
-            return (
-              <MessageBalloon
-                key={msg.id}
-                me={msg.from === "fan"}
-                message={msg.text || ""}
-                seen={!!msg.isLastFromCreator}
-                time={msg.time || undefined}
-              />
-            );
-          })}
-        </div>
-
-        <form onSubmit={handleSendMessage} className="flex items-center bg-[#202c33] w-full h-auto py-3 px-4 text-[#8696a0] gap-3">
           <div className="flex flex-1 h-12">
             <input
               type="text"
