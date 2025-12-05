@@ -24,6 +24,8 @@ import {
 } from "../../config/extrasPresets";
 import { HIGH_PRIORITY_LIMIT } from "../../config/customers";
 import { EXTRAS_UPDATED_EVENT } from "../../constants/events";
+import { AiTone, normalizeTone, ACTION_TYPE_FOR_USAGE } from "../../lib/aiQuickExtra";
+import { AiTemplateUsage } from "../../lib/aiTemplateTypes";
 
 type ConversationDetailsProps = {
   onBackToBoard?: () => void;
@@ -246,9 +248,10 @@ export default function ConversationDetails({ onBackToBoard }: ConversationDetai
       paidGrantsCount: fan.paidGrantsCount,
       extrasCount: fan.extrasCount ?? 0,
       extrasSpentTotal: fan.extrasSpentTotal ?? 0,
-      maxExtraTier: (fan as any).maxExtraTier ?? null,
-      novsyStatus: (fan as any).novsyStatus ?? null,
-      isHighPriority: (fan as any).isHighPriority ?? false,
+      maxExtraTier: fan.maxExtraTier ?? null,
+      novsyStatus: fan.novsyStatus ?? null,
+      isHighPriority: fan.isHighPriority ?? false,
+      extraLadderStatus: fan.extraLadderStatus ?? null,
     }));
   }
 
@@ -399,16 +402,8 @@ export default function ConversationDetails({ onBackToBoard }: ConversationDetai
     );
   }
 
-  function handleQuickGreeting() {
-    const first = getFirstName(contactName);
-    const greetingName = first ? `Hola ${first},` : "Hola,";
-    const quickGreeting =
-      `${greetingName} qué gusto verte por aquí.\n\n` +
-      "Soy Eusebiu. Este es tu espacio privado conmigo: puedes contarme qué te trae y qué te gustaría cambiar ahora mismo en tu relación o en tu vida sexual, sin filtros.\n\n" +
-      'Si quieres, dime en una frase: “Lo que más me pesa ahora es ______”.';
-    fillMessage(quickGreeting);
-    setShowPackSelector(false);
-    setShowExtraTemplates(false);
+  async function handleQuickGreeting() {
+    await handleQuickTemplateClick("welcome");
   }
 
   function handleWelcomePack() {
@@ -447,6 +442,49 @@ export default function ConversationDetails({ onBackToBoard }: ConversationDetai
     setShowExtraTemplates(false);
   }
 
+  const [iaBlocked, setIaBlocked] = useState(false);
+  const [iaMessage, setIaMessage] = useState<string | null>(null);
+  const [aiStatus, setAiStatus] = useState<{
+    creditsAvailable: number;
+    hardLimitPerDay: number | null;
+    usedToday: number;
+    remainingToday: number | null;
+    limitReached: boolean;
+  } | null>(null);
+  const [aiTone, setAiTone] = useState<AiTone>("cercano");
+
+  async function fetchAiStatus() {
+    try {
+      const res = await fetch("/api/creator/ai/status");
+      if (!res.ok) throw new Error("status failed");
+      const data = await res.json();
+      setAiStatus({
+        creditsAvailable: data.creditsAvailable ?? 0,
+        hardLimitPerDay: data.hardLimitPerDay ?? null,
+        usedToday: data.usedToday ?? 0,
+        remainingToday: data.remainingToday ?? null,
+        limitReached: Boolean(data.limitReached),
+      });
+      setIaBlocked(Boolean(data.limitReached));
+    } catch (err) {
+      console.error("Error obteniendo estado de IA", err);
+    }
+  }
+
+  async function fetchAiSettingsTone() {
+    try {
+      const res = await fetch("/api/creator/ai-settings");
+      if (!res.ok) throw new Error("settings failed");
+      const data = await res.json();
+      const tone = data?.settings?.tone;
+      if (typeof tone === "string" && tone.trim().length > 0) {
+        setAiTone(normalizeTone(tone));
+      }
+    } catch (err) {
+      console.error("Error obteniendo ajustes de IA", err);
+    }
+  }
+
   async function handleSendQuickExtra(kind: ExtraPresetKind) {
     const mode = timeOfDay === "NIGHT" ? "NIGHT" : "DAY";
     const key = getPresetKeyFor(kind, mode);
@@ -454,8 +492,112 @@ export default function ConversationDetails({ onBackToBoard }: ConversationDetai
     const price = EXTRA_PRICES[tier] ?? EXTRA_PRICES.T1;
     const text = buildExtraText(key, extraPresets, price);
 
+    const ok = await logTemplateUsage(text, "extra_quick");
+    if (!ok) return;
+
     await sendMessageText(text);
     setShowExtraTemplates(false);
+  }
+
+  async function logTemplateUsage(suggestedText: string, usage: AiTemplateUsage): Promise<boolean> {
+    const actionType = ACTION_TYPE_FOR_USAGE[usage] ?? ACTION_TYPE_FOR_USAGE.extra_quick;
+    try {
+      const res = await fetch("/api/creator/ai/log-usage", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          fanId: id,
+          actionType,
+          suggestedText,
+          outcome: "suggested",
+          creditsUsed: 1,
+        }),
+      });
+
+      if (!res.ok) {
+        const data = await res.json().catch(() => null);
+        if (res.status === 429 && data?.code === "AI_HARD_LIMIT_REACHED") {
+          setIaMessage("Has alcanzado el límite diario de IA por hoy.");
+          setIaBlocked(true);
+          fetchAiStatus();
+          return false;
+        }
+        if (res.status === 402 && data?.code === "AI_NO_CREDITS_LEFT") {
+          setIaMessage("No te quedan créditos de IA disponibles.");
+          setIaBlocked(true);
+          fetchAiStatus();
+          return false;
+        }
+        console.error("Error desconocido al registrar IA", data);
+        return false;
+      } else {
+        setIaMessage(null);
+        setIaBlocked(false);
+        fetchAiStatus();
+      }
+    } catch (err) {
+      console.error("Error al registrar uso de IA", err);
+      setIaMessage("No se pudo registrar el uso de IA.");
+      return false;
+    }
+
+    return true;
+  }
+
+  async function handleQuickExtraClick() {
+    await handleQuickTemplateClick("extra_quick");
+  }
+
+  async function requestSuggestedText(usage: AiTemplateUsage): Promise<string | null> {
+    try {
+      const res = await fetch("/api/creator/ai/quick-extra", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ tone: aiTone, fanId: id, usage }),
+      });
+
+      if (!res.ok) {
+        const data = await res.json().catch(() => null);
+        if (res.status === 404 && data?.error === "NO_TEMPLATES_FOR_USAGE") {
+          setIaMessage("No hay plantillas activas para este uso.");
+          return null;
+        }
+        console.error("Error obteniendo sugerencia IA", data);
+        setIaMessage("No se pudo generar la sugerencia de IA.");
+        return null;
+      }
+
+      const data = await res.json();
+      const suggestedText = typeof data?.suggestedText === "string" ? data.suggestedText : "";
+      if (!suggestedText) {
+        setIaMessage("No se pudo generar la sugerencia de IA.");
+        return null;
+      }
+      return suggestedText;
+    } catch (err) {
+      console.error("Error obteniendo sugerencia IA", err);
+      setIaMessage("No se pudo generar la sugerencia de IA.");
+      return null;
+    }
+  }
+
+  async function handleQuickTemplateClick(usage: AiTemplateUsage) {
+    setIaMessage(null);
+    const suggestedText = await requestSuggestedText(usage);
+    if (!suggestedText) return;
+    const enriched =
+      usage === "pack_offer" && conversation.extraLadderStatus?.suggestedTier
+        ? suggestedText.replace(/Pack especial/gi, `Pack especial ${conversation.extraLadderStatus.suggestedTier}`)
+        : suggestedText;
+    setMessageSend(enriched);
+    await logTemplateUsage(enriched, usage);
+  }
+
+  function handleOpenExtrasPanel() {
+    setShowExtraTemplates(true);
+    setShowPackSelector(false);
+    setShowNotes(false);
+    setShowHistory(false);
   }
 
   function fillMessageFromPackType(type: "trial" | "monthly" | "special") {
@@ -616,7 +758,12 @@ export default function ConversationDetails({ onBackToBoard }: ConversationDetai
             const res = await fetch("/api/fans");
             if (!res.ok) throw new Error("error");
             const data = await res.json();
-            return Array.isArray(data.fans) ? (data.fans as Fan[]) : [];
+            const payloadFans = Array.isArray(data.items)
+              ? (data.items as Fan[])
+              : Array.isArray(data.fans)
+              ? (data.fans as Fan[])
+              : [];
+            return payloadFans;
           })();
       const mapped = mapFansForRecommendation(fansData);
       const rec = getRecommendedFan(mapped);
@@ -631,7 +778,11 @@ export default function ConversationDetails({ onBackToBoard }: ConversationDetai
       const res = await fetch("/api/fans");
       if (!res.ok) throw new Error("error");
       const data = await res.json();
-      const rawFans = Array.isArray(data.fans) ? (data.fans as Fan[]) : [];
+      const rawFans = Array.isArray(data.items)
+        ? (data.items as Fan[])
+        : Array.isArray(data.fans)
+        ? (data.fans as Fan[])
+        : [];
       const targetFan = rawFans.find((fan) => fan.id === fanId);
 
       if (typeof window !== "undefined") {
@@ -659,6 +810,10 @@ export default function ConversationDetails({ onBackToBoard }: ConversationDetai
           maxExtraTier: (targetFan as any).maxExtraTier ?? conversation.maxExtraTier,
           novsyStatus: (targetFan as any).novsyStatus ?? conversation.novsyStatus ?? null,
           isHighPriority: (targetFan as any).isHighPriority ?? conversation.isHighPriority ?? false,
+          extraLadderStatus:
+            "extraLadderStatus" in targetFan
+              ? ((targetFan as any).extraLadderStatus ?? null)
+              : conversation.extraLadderStatus ?? null,
         });
         await fetchRecommendedFan(rawFans);
       }
@@ -773,15 +928,27 @@ export default function ConversationDetails({ onBackToBoard }: ConversationDetai
     fetchFanNotes(id);
   }, [id, showNotes]);
 
-  useEffect(() => {
-    if (!id || !showHistory) return;
-    fetchHistory(id);
-  }, [id, showHistory]);
+useEffect(() => {
+  if (!id || !showHistory) return;
+  fetchHistory(id);
+}, [id, showHistory]);
 
-  useEffect(() => {
-    if (!id || !showExtraTemplates) return;
-    fetchExtrasHistory(id);
-  }, [id, showExtraTemplates]);
+useEffect(() => {
+  if (!id || !showExtraTemplates) return;
+  fetchExtrasHistory(id);
+}, [id, showExtraTemplates]);
+
+useEffect(() => {
+  fetchAiStatus();
+  fetchAiSettingsTone();
+}, []);
+
+useEffect(() => {
+  setIaMessage(null);
+  setIaBlocked(false);
+  fetchAiStatus();
+  fetchAiSettingsTone();
+}, [conversation.id]);
 
 
   function handleSelectPack(packId: string) {
@@ -1088,18 +1255,8 @@ export default function ConversationDetails({ onBackToBoard }: ConversationDetai
     setShowExtraTemplates(false);
     if (id) fetchHistory(id);
   };
-  const handleRenewAction = () => {
-    let text: string;
-    if (followUpTag === "trial_soon") {
-      text = buildFollowUpTrialMessage(firstName);
-    } else if (followUpTag === "expired") {
-      text = buildFollowUpExpiredMessage(firstName);
-    } else {
-      text = buildFollowUpMonthlyMessage(firstName);
-    }
-    fillMessage(text);
-    setShowPackSelector(false);
-    setShowExtraTemplates(false);
+  const handleRenewAction = async () => {
+    await handleQuickTemplateClick("renewal");
   };
 
   const lifetimeValueDisplay = Math.round(conversation.lifetimeValue ?? 0);
@@ -1120,6 +1277,32 @@ export default function ConversationDetails({ onBackToBoard }: ConversationDetai
     statusTags.push(`Próxima acción: ${shortNext}`);
   }
   const statusLine = statusTags.join(" · ");
+  const tierLabels: Record<number, string> = {
+    0: "T0 – calentamiento",
+    1: "T1 – foto extra básica",
+    2: "T2 – pack medio",
+    3: "T3 – techo alto",
+    4: "T4 – ultra premium",
+  };
+
+  function formatLastPurchase(dateStr: string | null | undefined) {
+    if (!dateStr) return null;
+    const d = new Date(dateStr);
+    if (Number.isNaN(d.getTime())) return null;
+    const diffDays = Math.floor((Date.now() - d.getTime()) / (1000 * 60 * 60 * 24));
+    if (diffDays <= 0) return "hoy";
+    if (diffDays === 1) return "hace 1 día";
+    return `hace ${diffDays} días`;
+  }
+
+  function getNextExtraTierLabel(status: Fan["extraLadderStatus"]): string | null {
+    if (!status || !status.suggestedTier) return null;
+    const tier = status.suggestedTier;
+    if (tier === "T1") return "Propón un T1 (foto extra básica)";
+    if (tier === "T2") return "Propón un T2 (pack medio)";
+    if (tier === "T3" || tier === "T4") return "Propón el techo (pack caro)";
+    return null;
+  }
   const showRenewAction =
     followUpTag === "trial_soon" || followUpTag === "monthly_soon" || followUpTag === "expired" || followUpTag === "today";
 
@@ -1659,6 +1842,7 @@ export default function ConversationDetails({ onBackToBoard }: ConversationDetai
                         customerTier: updatedTier,
                         isHighPriority: updatedHighPriority,
                       });
+                      await refreshFanData(id);
                       await fetchExtrasHistory(id);
                       if (typeof window !== "undefined") {
                         window.dispatchEvent(
@@ -1939,6 +2123,11 @@ export default function ConversationDetails({ onBackToBoard }: ConversationDetai
           </div>
         </div>
       )}
+      {iaMessage && (
+        <div className="mx-4 mb-2 rounded-lg border border-amber-500/60 bg-amber-500/10 px-3 py-2 text-xs text-amber-100">
+          {iaMessage} {iaBlocked ? "Mañana se reiniciarán tus créditos diarios." : ""}
+        </div>
+      )}
       {(() => {
         const followUpTemplates = getFollowUpTemplates({
           followUpTag,
@@ -1994,6 +2183,25 @@ export default function ConversationDetails({ onBackToBoard }: ConversationDetai
       <footer className="flex flex-col bg-[#202c33] w-full h-auto py-3 px-4 text-[#8696a0] gap-3">
         <div className="flex flex-col gap-2 rounded-lg border border-slate-700 bg-slate-900/70 px-3 py-2">
           <div className="text-[11px] font-semibold text-slate-100 truncate">{statusLine}</div>
+          {conversation.extraLadderStatus && (conversation.extraLadderStatus.totalSpent ?? 0) > 0 && (
+            <div className="mt-1 flex flex-wrap items-center gap-2">
+              <div className="inline-flex items-center gap-2 rounded-full border border-amber-400/60 bg-amber-500/10 px-3 py-1 text-[11px] text-amber-100">
+                <span className="flex h-5 min-w-[42px] items-center justify-center rounded-full bg-amber-400/70 px-2 text-[10px] font-black uppercase tracking-wide text-slate-900">
+                  LAPEX
+                </span>
+                <span className="text-amber-100/90">
+                  {conversation.extraLadderStatus.phaseLabel} · Ha gastado{" "}
+                  {Math.round(conversation.extraLadderStatus.totalSpent ?? 0)} € en extras · Último pack{" "}
+                  {formatLastPurchase(conversation.extraLadderStatus.lastPurchaseAt) || "—"} · Siguiente sugerencia:{" "}
+                  {conversation.extraLadderStatus.suggestedTier ?? "—"}
+                </span>
+              </div>
+            </div>
+          )}
+          <div className="text-[11px] text-slate-300">
+            IA hoy: {aiStatus ? `${aiStatus.usedToday}/${aiStatus.hardLimitPerDay ?? "∞"}` : "–/–"} · Créditos:{" "}
+            {aiStatus ? aiStatus.creditsAvailable : "—"}
+          </div>
           <div className="flex flex-wrap items-center gap-2">
             <button
               type="button"
@@ -2014,31 +2222,22 @@ export default function ConversationDetails({ onBackToBoard }: ConversationDetai
             <button
               type="button"
               className="whitespace-nowrap rounded-full border border-slate-600 bg-slate-800/70 px-3 py-1 text-[11px] font-semibold text-slate-100 hover:border-emerald-400 hover:text-emerald-100 transition"
-              onClick={() => {
-                setShowExtraTemplates(true);
-                setShowPackSelector(false);
-                setShowNotes(false);
-                setShowHistory(false);
-              }}
+              onClick={handleQuickExtraClick}
+              disabled={iaBlocked || aiStatus?.limitReached}
             >
               Extra rápido
             </button>
             <button
               type="button"
               className="whitespace-nowrap rounded-full border border-slate-600 bg-slate-800/70 px-3 py-1 text-[11px] font-semibold text-slate-100 hover:border-emerald-400 hover:text-emerald-100 transition"
-              onClick={() => fillMessageFromPackType("special")}
+              onClick={() => handleQuickTemplateClick("pack_offer")}
             >
               Pack especial
             </button>
             <button
               type="button"
               className="whitespace-nowrap rounded-full border border-emerald-400 bg-emerald-500/15 px-3 py-1 text-[11px] font-semibold text-emerald-100 hover:bg-emerald-500/25 transition"
-              onClick={() => {
-                setShowExtraTemplates(true);
-                setShowPackSelector(false);
-                setShowNotes(false);
-                setShowHistory(false);
-              }}
+              onClick={handleOpenExtrasPanel}
             >
               Abrir extras
             </button>

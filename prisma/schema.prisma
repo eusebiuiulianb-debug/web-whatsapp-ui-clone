@@ -11,14 +11,17 @@ datasource db {
 }
 
 model Creator {
-  id          String @id @default("creator-1")
-  name        String
-  subtitle    String
-  description String
-  packs       Pack[]
-  fans        Fan[]
-  notes       FanNote[]
+  id           String              @id @default("creator-1")
+  name         String
+  subtitle     String
+  description  String
+  packs        Pack[]
+  fans         Fan[]
+  notes        FanNote[]
   contentItems ContentItem[]
+  aiSettings   CreatorAiSettings?
+  aiUsageLogs  AiUsageLog[]
+  aiTemplates  CreatorAiTemplate[]
 }
 
 model Pack {
@@ -31,59 +34,60 @@ model Pack {
 }
 
 model Fan {
-  id               String    @id
+  id               String          @id
   name             String
   avatar           String?
   preview          String?
   time             String?
-  unreadCount      Int       @default(0)
-  isNew            Boolean   @default(false)
+  unreadCount      Int             @default(0)
+  isNew            Boolean         @default(false)
   membershipStatus String?
   daysLeft         Int?
   lastSeen         String?
   nextAction       String?
   creatorId        String
-  creator          Creator   @relation(fields: [creatorId], references: [id])
+  creator          Creator         @relation(fields: [creatorId], references: [id])
   messages         Message[]
   accessGrants     AccessGrant[]
   notes            FanNote[]
   extraPurchases   ExtraPurchase[]
+  aiUsageLogs      AiUsageLog[]
 }
 
 model Message {
-  id                String  @id
+  id                String       @id
   fanId             String
   from              String
   text              String
   time              String?
-  isLastFromCreator Boolean @default(false)
-  fan               Fan     @relation(fields: [fanId], references: [id])
-  type              MessageType @default(TEXT)
+  isLastFromCreator Boolean      @default(false)
+  fan               Fan          @relation(fields: [fanId], references: [id])
+  type              MessageType  @default(TEXT)
   contentItemId     String?
   contentItem       ContentItem? @relation("MessageContentItems", fields: [contentItemId], references: [id])
 }
 
 model ContentItem {
-  id          String           @id @default(cuid())
-  creator     Creator          @relation(fields: [creatorId], references: [id])
-  creatorId   String
-  pack        ContentPack      @default(WELCOME)
-  slug        String?
-  type        ContentType
-  title       String
-  description String?
-  order       Int              @default(0)
-  mediaPath   String?
-  durationSec Int?
-  isPreview   Boolean          @default(false)
-  visibility  ContentVisibility @default(INCLUDED_MONTHLY)
-  isExtra     Boolean          @default(false)
-  extraTier   ExtraTier?
-  timeOfDay   TimeOfDay        @default(ANY)
-  externalUrl String?
-  createdAt   DateTime         @default(now())
-  updatedAt   DateTime         @updatedAt
-  messages    Message[]        @relation("MessageContentItems")
+  id             String            @id @default(cuid())
+  creator        Creator           @relation(fields: [creatorId], references: [id])
+  creatorId      String
+  pack           ContentPack       @default(WELCOME)
+  slug           String?
+  type           ContentType
+  title          String
+  description    String?
+  order          Int               @default(0)
+  mediaPath      String?
+  durationSec    Int?
+  isPreview      Boolean           @default(false)
+  visibility     ContentVisibility @default(INCLUDED_MONTHLY)
+  isExtra        Boolean           @default(false)
+  extraTier      ExtraTier?
+  timeOfDay      TimeOfDay         @default(ANY)
+  externalUrl    String?
+  createdAt      DateTime          @default(now())
+  updatedAt      DateTime          @updatedAt
+  messages       Message[]         @relation("MessageContentItems")
   extraPurchases ExtraPurchase[]
 
   @@unique([creatorId, slug])
@@ -114,6 +118,7 @@ enum ExtraTier {
   T1
   T2
   T3
+  T4
 }
 
 enum TimeOfDay {
@@ -128,12 +133,12 @@ enum MessageType {
 }
 
 model AccessGrant {
-  id         String   @id @default(cuid())
-  fanId      String
-  fan        Fan      @relation(fields: [fanId], references: [id])
-  type       String
-  createdAt  DateTime @default(now())
-  expiresAt  DateTime
+  id        String   @id @default(cuid())
+  fanId     String
+  fan       Fan      @relation(fields: [fanId], references: [id])
+  type      String
+  createdAt DateTime @default(now())
+  expiresAt DateTime
 }
 
 model FanNote {
@@ -156,4 +161,68 @@ model ExtraPurchase {
   amount        Int
   sessionTag    String?
   createdAt     DateTime    @default(now())
+}
+
+model CreatorAiSettings {
+  id        Int     @id @default(autoincrement())
+  creatorId String  @unique
+  creator   Creator @relation(fields: [creatorId], references: [id])
+
+  tone           String @default("cercano")
+  spicinessLevel Int    @default(1)
+  formalityLevel Int    @default(1)
+  emojiUsage     Int    @default(1)
+
+  priorityOrderJson Json?
+
+  forbiddenTopics   String?
+  forbiddenPromises String?
+  rulesManifest     String?
+
+  allowSuggestReplies  Boolean @default(true)
+  allowSuggestExtras   Boolean @default(true)
+  allowSuggestRenewals Boolean @default(true)
+  allowAutoLowPriority Boolean @default(false)
+
+  creditsAvailable Int  @default(0)
+  hardLimitPerDay  Int?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model AiUsageLog {
+  id        Int     @id @default(autoincrement())
+  creatorId String
+  creator   Creator @relation(fields: [creatorId], references: [id])
+
+  fanId String?
+  fan   Fan?    @relation(fields: [fanId], references: [id])
+
+  actionType     String
+  contextSummary String?
+  suggestedText  String
+  outcome        String
+  finalText      String?
+
+  creditsUsed Int      @default(1)
+  createdAt   DateTime @default(now())
+}
+
+model CreatorAiTemplate {
+  id        String  @id @default(cuid())
+  creatorId String
+  creator   Creator @relation(fields: [creatorId], references: [id])
+
+  name     String
+  category String
+  tone     String?
+  content  String
+
+  tier ExtraTier?
+
+  isActive Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }

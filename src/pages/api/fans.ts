@@ -4,6 +4,7 @@ import prisma from "../../lib/prisma";
 import { getFollowUpTag, shouldFollowUpToday } from "../../utils/followUp";
 import { sendBadRequest, sendServerError } from "../../lib/apiError";
 import { HIGH_PRIORITY_LIMIT } from "../../config/customers";
+import { getExtraLadderStatusForFan, type ExtraLadderStatus } from "../../lib/extraLadder";
 
 function parseMessageTimestamp(messageId: string): Date | null {
   const parts = messageId.split("-");
@@ -93,6 +94,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     const now = new Date();
 
     const fanIds = fans.map((fan) => fan.id);
+    const creatorId = fans[0]?.creatorId || "creator-1";
     type ExtraStats = { count: number; totalAmount: number; maxTier: string | null };
     const extrasByFan = new Map<string, ExtraStats>();
 
@@ -102,7 +104,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           where: { fanId: { in: fanIds } },
           select: { fanId: true, amount: true, tier: true },
         });
-        const tierPriority: Record<string, number> = { T0: 0, T1: 1, T2: 2, T3: 3 };
+        const tierPriority: Record<string, number> = { T0: 0, T1: 1, T2: 2, T3: 3, T4: 4 };
         for (const purchase of extras) {
           const current = extrasByFan.get(purchase.fanId) ?? { count: 0, totalAmount: 0, maxTier: null };
           const nextCount = current.count + 1;
@@ -115,6 +117,28 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       } catch (err) {
         console.error("Error calculating extra metrics", err);
       }
+    }
+
+    const extrasCatalog = await prisma.contentItem.findMany({
+      where: { creatorId, OR: [{ isExtra: true }, { visibility: "EXTRA" }] },
+      select: { id: true, title: true, extraTier: true },
+    });
+
+    type LadderStatusResponse = (Omit<ExtraLadderStatus, "lastPurchaseAt"> & { lastPurchaseAt: string | null }) | null;
+    const ladderByFan = new Map<string, LadderStatusResponse>();
+    try {
+      await Promise.all(
+        fanIds.map(async (fid) => {
+          const status = await getExtraLadderStatusForFan(prisma, creatorId, fid, extrasCatalog);
+          const serialized =
+            status && status.totalSpent > 0
+              ? { ...status, lastPurchaseAt: status.lastPurchaseAt ? status.lastPurchaseAt.toISOString() : null }
+              : null;
+          ladderByFan.set(fid, serialized);
+        })
+      );
+    } catch (err) {
+      console.error("Error computing ladder status", err);
     }
 
     let mappedFans = fans.map((fan) => {
@@ -234,6 +258,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         maxExtraTier: extrasInfo.maxTier,
         novsyStatus,
         isHighPriority,
+        extraLadderStatus: ladderByFan.get(fan.id) ?? null,
       };
     });
 
@@ -260,7 +285,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     const items = mappedFans.slice(0, limit);
     const nextCursor = hasMore ? items[items.length - 1]?.id ?? null : null;
 
-    return res.status(200).json({ ok: true, items, nextCursor, hasMore });
+    return res.status(200).json({ ok: true, items, fans: items, nextCursor, hasMore });
   } catch (error) {
     console.error("Error loading fans data", error);
     return sendServerError(res, "Error loading fans data");

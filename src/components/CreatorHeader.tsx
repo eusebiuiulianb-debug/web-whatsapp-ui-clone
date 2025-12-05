@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { useRouter } from "next/router";
 import { useState } from "react";
 
 interface CreatorHeaderProps {
@@ -11,6 +12,10 @@ interface CreatorHeaderProps {
 
 export default function CreatorHeader({ name, role, subtitle, initial, onOpenSettings }: CreatorHeaderProps) {
   const [ menuOpen, setMenuOpen ] = useState(false);
+  const router = useRouter();
+
+  const linkClass = (href: string, base: string) =>
+    `${base} ${router.pathname === href ? "underline" : ""}`;
 
   return (
     <div className="flex items-center justify-between w-full px-4 py-3 bg-[#111b21] border-y border-[rgba(134,150,160,0.15)] relative">
@@ -25,17 +30,27 @@ export default function CreatorHeader({ name, role, subtitle, initial, onOpenSet
       </div>
       <div className="flex items-center gap-3">
         <Link href="/creator" legacyBehavior>
-          <a className="text-xs text-[#53bdeb] hover:underline whitespace-nowrap">
+          <a className={linkClass("/creator", "text-xs text-[#53bdeb] hover:underline whitespace-nowrap")}>
             Ver perfil público
           </a>
         </Link>
         <Link href="/library" legacyBehavior>
-          <a className="text-xs text-sky-300 hover:underline whitespace-nowrap">
+          <a className={linkClass("/library", "text-xs text-sky-300 hover:underline whitespace-nowrap")}>
             Biblioteca
           </a>
         </Link>
+        <Link href="/creator/ai-settings" legacyBehavior>
+          <a className={linkClass("/creator/ai-settings", "text-xs text-emerald-200 hover:underline whitespace-nowrap")}>
+            Ajustes de IA
+          </a>
+        </Link>
+        <Link href="/creator/ai-templates" legacyBehavior>
+          <a className={linkClass("/creator/ai-templates", "text-xs text-emerald-200 hover:underline whitespace-nowrap")}>
+            Plantillas de IA
+          </a>
+        </Link>
         <Link href="/creator/edit" legacyBehavior>
-          <a className="text-xs text-amber-300 hover:underline whitespace-nowrap">
+          <a className={linkClass("/creator/edit", "text-xs text-amber-300 hover:underline whitespace-nowrap")}>
             Editar perfil
           </a>
         </Link>

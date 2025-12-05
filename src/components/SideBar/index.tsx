@@ -88,8 +88,8 @@ export default function SideBar() {
       extrasCount: fan.extrasCount ?? 0,
       extrasSpentTotal: fan.extrasSpentTotal ?? 0,
       maxExtraTier: (fan as any).maxExtraTier ?? null,
-      novsyStatus: (fan as any).novsyStatus ?? null,
-      isHighPriority: (fan as any).isHighPriority ?? false,
+      novsyStatus: fan.novsyStatus ?? null,
+      isHighPriority: fan.isHighPriority ?? false,
       customerTier: normalizeTier(fan.customerTier),
       nextAction: fan.nextAction ?? null,
       priorityScore: fan.priorityScore,
@@ -97,6 +97,7 @@ export default function SideBar() {
       nextActionSnippet: fan.nextActionSnippet ?? null,
       lastNoteSummary: fan.lastNoteSummary ?? fan.lastNoteSnippet ?? null,
       nextActionSummary: fan.nextActionSummary ?? fan.nextActionSnippet ?? null,
+      extraLadderStatus: fan.extraLadderStatus ?? null,
     }));
   }
 

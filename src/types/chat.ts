@@ -47,6 +47,13 @@ export interface Fan {
   maxExtraTier?: string | null;
   novsyStatus?: "NOVSY" | null;
   isHighPriority?: boolean;
+  extraLadderStatus?: {
+    totalSpent: number;
+    lastPurchaseAt: string | null;
+    maxTierBought: string | null;
+    suggestedTier: string | null;
+    phaseLabel: string;
+  } | null;
 }
 
 export interface Message {
