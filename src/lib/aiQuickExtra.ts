@@ -1,5 +1,5 @@
 import prisma from "./prisma";
-import { AiTemplateUsage } from "./aiTemplateTypes";
+import { AiTemplateUsage, type AiTurnMode } from "./aiTemplateTypes";
 import { DEFAULT_AI_TEMPLATES } from "./defaultAiTemplates";
 import type { ExtraTier } from "@prisma/client";
 
@@ -53,8 +53,9 @@ export async function getTemplateSuggestionForCreator(params: {
   fanId?: string | null;
   tier?: ExtraTier | null;
   limit?: number;
+  mode?: AiTurnMode | null;
 }): Promise<{ suggestedText: string; templateId?: string } | null> {
-  const { creatorId, usage, tone, fanId, tier, limit = 1 } = params;
+  const { creatorId, usage, tone, fanId, tier, limit = 1, mode = null } = params;
 
   const baseTemplates = await prisma.creatorAiTemplate.findMany({
     where: {
@@ -72,6 +73,7 @@ export async function getTemplateSuggestionForCreator(params: {
       tone: tpl.tone,
       tier: tpl.tier ?? null,
       id: `default-${tpl.name}`,
+      mode: tpl.mode ?? null,
     })) as any;
   }
 
@@ -81,9 +83,22 @@ export async function getTemplateSuggestionForCreator(params: {
 
   let candidates = workingTemplates;
 
+  if (mode) {
+    const templatesWithMode = workingTemplates.filter((tpl) => tpl.mode);
+    if (templatesWithMode.length > 0) {
+      const modeMatches = workingTemplates.filter((tpl) => tpl.mode === mode);
+      const neutralTemplates = workingTemplates.filter((tpl) => !tpl.mode);
+      if (modeMatches.length > 0) {
+        candidates = modeMatches;
+      } else if (neutralTemplates.length > 0) {
+        candidates = neutralTemplates;
+      }
+    }
+  }
+
   if (typeof tier !== "undefined") {
-    const tierMatch = workingTemplates.filter((tpl) => tpl.tier === tier);
-    const tierNeutral = workingTemplates.filter((tpl) => !tpl.tier);
+    const tierMatch = candidates.filter((tpl) => tpl.tier === tier);
+    const tierNeutral = candidates.filter((tpl) => !tpl.tier);
     if (tierMatch.length > 0) {
       candidates = tierMatch;
     } else if (tierNeutral.length > 0) {
@@ -139,9 +154,10 @@ export async function getQuickExtraSuggestionForCreator(
   creatorId: string,
   tone: AiTone,
   fanId?: string | null,
-  tier?: ExtraTier | null
+  tier?: ExtraTier | null,
+  mode?: AiTurnMode | null
 ): Promise<string> {
-  const result = await getTemplateSuggestionForCreator({ creatorId, usage: "extra_quick", tone, fanId, tier });
+  const result = await getTemplateSuggestionForCreator({ creatorId, usage: "extra_quick", tone, fanId, tier, mode });
   if (result?.suggestedText) return result.suggestedText;
   return getQuickExtraSuggestion(tone);
 }

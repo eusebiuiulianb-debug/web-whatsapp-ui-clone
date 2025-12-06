@@ -6,7 +6,7 @@ import MessageBalloon from "../MessageBalloon";
 import { useCreatorConfig } from "../../context/CreatorConfigContext";
 import { Message as ApiMessage, Fan } from "../../types/chat";
 import { Message as ConversationMessage, ConversationListData } from "../../types/Conversation";
-import { getAccessLabel, getAccessState } from "../../lib/access";
+import { getAccessLabel, getAccessState, getAccessSummary } from "../../lib/access";
 import { FollowUpTag, getFollowUpTag, getUrgencyLevel } from "../../utils/followUp";
 import { PACKS } from "../../config/packs";
 import { getRecommendedFan } from "../../utils/recommendedFan";
@@ -25,7 +25,10 @@ import {
 import { HIGH_PRIORITY_LIMIT } from "../../config/customers";
 import { EXTRAS_UPDATED_EVENT } from "../../constants/events";
 import { AiTone, normalizeTone, ACTION_TYPE_FOR_USAGE } from "../../lib/aiQuickExtra";
-import { AiTemplateUsage } from "../../lib/aiTemplateTypes";
+import { AiTemplateUsage, AiTurnMode } from "../../lib/aiTemplateTypes";
+import { getAccessSnapshot, getChatterProPlan } from "../../lib/chatPlaybook";
+import FanManagerPanel from "../chat/FanManagerPanel";
+import type { FanManagerSummary } from "../../server/manager/managerService";
 
 type ConversationDetailsProps = {
   onBackToBoard?: () => void;
@@ -91,6 +94,9 @@ export default function ConversationDetails({ onBackToBoard }: ConversationDetai
   const [ nextActionTime, setNextActionTime ] = useState("");
   const [ recommendedFan, setRecommendedFan ] = useState<ConversationListData | null>(null);
   const [ showContentModal, setShowContentModal ] = useState(false);
+  const [ contentModalMode, setContentModalMode ] = useState<"packs" | "extras">("packs");
+  const [ extraTierFilter, setExtraTierFilter ] = useState<"T0" | "T1" | "T2" | "T3" | "T4" | null>(null);
+  const [ contentModalPackFocus, setContentModalPackFocus ] = useState<"WELCOME" | "MONTHLY" | "SPECIAL" | null>(null);
   const [ isAttachmentMenuOpen, setIsAttachmentMenuOpen ] = useState(false);
   type TimeOfDayValue = "DAY" | "NIGHT" | "ANY";
   type ContentWithFlags = ContentItem & {
@@ -125,8 +131,15 @@ export default function ConversationDetails({ onBackToBoard }: ConversationDetai
   const [ extraError, setExtraError ] = useState<string | null>(null);
   const [ extraPresets, setExtraPresets ] = useState<ExtraPresetsConfig>(() => loadExtraPresets());
   const [ showEditExtra, setShowEditExtra ] = useState(false);
+  const [ managerSummary, setManagerSummary ] = useState<FanManagerSummary | null>(null);
   const fanHeaderRef = useRef<HTMLDivElement | null>(null);
   const { config } = useCreatorConfig();
+  const accessSummary = getAccessSummary({
+    membershipStatus,
+    daysLeft,
+    hasAccessHistory: conversation.hasAccessHistory,
+    activeGrantTypes: conversation.activeGrantTypes,
+  });
   const accessState = getAccessState({ membershipStatus, daysLeft });
   const accessLabel = getAccessLabel({ membershipStatus, daysLeft });
   const packLabel = selectedPackType ? PACKS[selectedPackType].name : accessLabel;
@@ -154,8 +167,10 @@ export default function ConversationDetails({ onBackToBoard }: ConversationDetai
   const hasWelcome = normalizedGrants.includes("welcome") || normalizedGrants.includes("trial");
   const hasMonthly = normalizedGrants.includes("monthly");
   const hasSpecial = normalizedGrants.includes("special");
+  const isAccessExpired = accessSummary.state === "EXPIRED";
   const canOfferMonthly = hasWelcome && !hasMonthly;
   const canOfferSpecial = hasMonthly && !hasSpecial;
+  const isRecommended = (id: string) => managerSummary?.recommendedButtons?.includes(id);
 
   type FanNote = {
     id: string;
@@ -248,6 +263,7 @@ export default function ConversationDetails({ onBackToBoard }: ConversationDetai
       paidGrantsCount: fan.paidGrantsCount,
       extrasCount: fan.extrasCount ?? 0,
       extrasSpentTotal: fan.extrasSpentTotal ?? 0,
+      lastGrantType: (fan as any).lastGrantType ?? null,
       maxExtraTier: fan.maxExtraTier ?? null,
       novsyStatus: fan.novsyStatus ?? null,
       isHighPriority: fan.isHighPriority ?? false,
@@ -326,6 +342,13 @@ export default function ConversationDetails({ onBackToBoard }: ConversationDetai
     return null;
   }
 
+  function mapLastGrantToPackType(type?: string | null): "trial" | "monthly" | "special" {
+    const lower = (type || "").toLowerCase();
+    if (lower === "special" || lower === "single") return "special";
+    if (lower === "trial" || lower === "welcome") return "trial";
+    return "monthly";
+  }
+
   function getCurrentTimeOfDay(): TimeOfDayValue {
     const h = new Date().getHours();
     return h >= 7 && h < 19 ? "DAY" : "NIGHT";
@@ -366,6 +389,10 @@ export default function ConversationDetails({ onBackToBoard }: ConversationDetai
 
   function fillMessage(template: string) {
     setMessageSend(template);
+  }
+  function handleManagerSuggestion(text: string) {
+    const filled = text.replace("{nombre}", getFirstName(contactName) || contactName || "");
+    setMessageSend(filled);
   }
 
   function getFirstName(name?: string | null) {
@@ -414,8 +441,11 @@ export default function ConversationDetails({ onBackToBoard }: ConversationDetai
     setShowExtraTemplates(false);
   }
 
-  function handleChoosePack() {
-    setShowPackSelector((prev) => !prev);
+  function handleChoosePack(defaultType?: "trial" | "monthly" | "special") {
+    if (defaultType) {
+      setSelectedPackType(defaultType);
+    }
+    setShowPackSelector((prev) => (defaultType ? true : !prev));
     setShowExtraTemplates(false);
   }
 
@@ -450,8 +480,10 @@ export default function ConversationDetails({ onBackToBoard }: ConversationDetai
     usedToday: number;
     remainingToday: number | null;
     limitReached: boolean;
+    turnMode?: AiTurnMode;
   } | null>(null);
   const [aiTone, setAiTone] = useState<AiTone>("cercano");
+  const [aiTurnMode, setAiTurnMode] = useState<AiTurnMode>("HEATUP");
 
   async function fetchAiStatus() {
     try {
@@ -464,11 +496,22 @@ export default function ConversationDetails({ onBackToBoard }: ConversationDetai
         usedToday: data.usedToday ?? 0,
         remainingToday: data.remainingToday ?? null,
         limitReached: Boolean(data.limitReached),
+        turnMode: data.turnMode as AiTurnMode | undefined,
       });
       setIaBlocked(Boolean(data.limitReached));
+      if (typeof data.turnMode === "string") {
+        setAiTurnMode(normalizeTurnMode(data.turnMode));
+      }
     } catch (err) {
       console.error("Error obteniendo estado de IA", err);
     }
+  }
+
+  function normalizeTurnMode(value: string | null | undefined): AiTurnMode {
+    const upper = (value || "").toUpperCase();
+    if (upper === "PACK_PUSH") return "PACK_PUSH";
+    if (upper === "VIP_CARE") return "VIP_CARE";
+    return "HEATUP";
   }
 
   async function fetchAiSettingsTone() {
@@ -479,6 +522,10 @@ export default function ConversationDetails({ onBackToBoard }: ConversationDetai
       const tone = data?.settings?.tone;
       if (typeof tone === "string" && tone.trim().length > 0) {
         setAiTone(normalizeTone(tone));
+      }
+      const mode = data?.settings?.turnMode;
+      if (typeof mode === "string") {
+        setAiTurnMode(normalizeTurnMode(mode));
       }
     } catch (err) {
       console.error("Error obteniendo ajustes de IA", err);
@@ -511,6 +558,7 @@ export default function ConversationDetails({ onBackToBoard }: ConversationDetai
           suggestedText,
           outcome: "suggested",
           creditsUsed: 1,
+          turnMode: aiTurnMode,
         }),
       });
 
@@ -548,12 +596,12 @@ export default function ConversationDetails({ onBackToBoard }: ConversationDetai
     await handleQuickTemplateClick("extra_quick");
   }
 
-  async function requestSuggestedText(usage: AiTemplateUsage): Promise<string | null> {
+  async function requestSuggestedText(usage: AiTemplateUsage, fallbackUsage?: AiTemplateUsage | null): Promise<string | null> {
     try {
       const res = await fetch("/api/creator/ai/quick-extra", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ tone: aiTone, fanId: id, usage }),
+        body: JSON.stringify({ tone: aiTone, fanId: id, usage, fallbackUsage, mode: aiTurnMode }),
       });
 
       if (!res.ok) {
@@ -583,7 +631,7 @@ export default function ConversationDetails({ onBackToBoard }: ConversationDetai
 
   async function handleQuickTemplateClick(usage: AiTemplateUsage) {
     setIaMessage(null);
-    const suggestedText = await requestSuggestedText(usage);
+    const suggestedText = await requestSuggestedText(usage, plan.suggestedUsage ?? undefined);
     if (!suggestedText) return;
     const enriched =
       usage === "pack_offer" && conversation.extraLadderStatus?.suggestedTier
@@ -591,13 +639,36 @@ export default function ConversationDetails({ onBackToBoard }: ConversationDetai
         : suggestedText;
     setMessageSend(enriched);
     await logTemplateUsage(enriched, usage);
+    if (usage === "extra_quick") {
+      const nextFilter = timeOfDay === "NIGHT" ? "night" : "day";
+      setTimeOfDayFilter(nextFilter as TimeOfDayFilter);
+      const suggestedTier = (conversation.extraLadderStatus?.suggestedTier as "T0" | "T1" | "T2" | "T3" | "T4" | null) ?? null;
+      openContentModal({ mode: "extras", tier: suggestedTier });
+    }
+    if (usage === "pack_offer") {
+      openContentModal({ mode: "packs", packFocus: "SPECIAL" });
+    }
   }
 
-  function handleOpenExtrasPanel() {
-    setShowExtraTemplates(true);
+  function openContentModal(options?: { mode?: "packs" | "extras"; tier?: "T0" | "T1" | "T2" | "T3" | "T4" | null; packFocus?: "WELCOME" | "MONTHLY" | "SPECIAL" | null }) {
+    const nextMode = options?.mode ?? "packs";
+    setContentModalMode(nextMode);
+    setExtraTierFilter(options?.tier ?? null);
+    setContentModalPackFocus(options?.packFocus ?? null);
+    setShowExtraTemplates(false);
     setShowPackSelector(false);
     setShowNotes(false);
     setShowHistory(false);
+    setSelectedContentIds([]);
+    fetchContentItems(id);
+    if (id) fetchAccessGrants(id);
+    setShowContentModal(true);
+  }
+
+  function handleOpenExtrasPanel() {
+    const nextFilter = timeOfDay === "NIGHT" ? "night" : "day";
+    setTimeOfDayFilter(nextFilter as TimeOfDayFilter);
+    openContentModal({ mode: "extras", tier: null });
   }
 
   function fillMessageFromPackType(type: "trial" | "monthly" | "special") {
@@ -775,7 +846,7 @@ export default function ConversationDetails({ onBackToBoard }: ConversationDetai
 
   async function refreshFanData(fanId: string) {
     try {
-      const res = await fetch("/api/fans");
+      const res = await fetch(`/api/fans?fanId=${encodeURIComponent(fanId)}`);
       if (!res.ok) throw new Error("error");
       const data = await res.json();
       const rawFans = Array.isArray(data.items)
@@ -790,32 +861,37 @@ export default function ConversationDetails({ onBackToBoard }: ConversationDetai
       }
 
       if (targetFan) {
-        setConversation({
-          ...conversation,
+        setConversation((prev) => ({
+          ...prev,
           id: targetFan.id,
-          contactName: targetFan.name || conversation.contactName,
+          contactName: targetFan.name || prev.contactName,
           membershipStatus: targetFan.membershipStatus,
           daysLeft: targetFan.daysLeft,
-          activeGrantTypes: targetFan.activeGrantTypes ?? conversation.activeGrantTypes,
-          hasAccessHistory: targetFan.hasAccessHistory ?? conversation.hasAccessHistory,
-          lastSeen: targetFan.lastSeen || conversation.lastSeen,
-          lastTime: targetFan.time || conversation.lastTime,
-          image: targetFan.avatar || conversation.image,
+          activeGrantTypes: targetFan.activeGrantTypes ?? prev.activeGrantTypes,
+          hasAccessHistory: targetFan.hasAccessHistory ?? prev.hasAccessHistory,
+          lastSeen: targetFan.lastSeen || prev.lastSeen,
+          lastTime: targetFan.time || prev.lastTime,
+          image: targetFan.avatar || prev.image,
           followUpTag: getFollowUpTag(targetFan.membershipStatus, targetFan.daysLeft, targetFan.activeGrantTypes),
-          lastCreatorMessageAt: targetFan.lastCreatorMessageAt ?? conversation.lastCreatorMessageAt,
-          notesCount: targetFan.notesCount ?? conversation.notesCount,
-          nextAction: targetFan.nextAction ?? conversation.nextAction,
-          extrasCount: targetFan.extrasCount ?? conversation.extrasCount,
-          extrasSpentTotal: targetFan.extrasSpentTotal ?? conversation.extrasSpentTotal,
-          maxExtraTier: (targetFan as any).maxExtraTier ?? conversation.maxExtraTier,
-          novsyStatus: (targetFan as any).novsyStatus ?? conversation.novsyStatus ?? null,
-          isHighPriority: (targetFan as any).isHighPriority ?? conversation.isHighPriority ?? false,
+          lastCreatorMessageAt: targetFan.lastCreatorMessageAt ?? prev.lastCreatorMessageAt,
+          notesCount: targetFan.notesCount ?? prev.notesCount,
+          nextAction: targetFan.nextAction ?? prev.nextAction,
+          lastGrantType: (targetFan as any).lastGrantType ?? prev.lastGrantType ?? null,
+          extrasCount: targetFan.extrasCount ?? prev.extrasCount,
+          extrasSpentTotal: targetFan.extrasSpentTotal ?? prev.extrasSpentTotal,
+          maxExtraTier: (targetFan as any).maxExtraTier ?? prev.maxExtraTier,
+          novsyStatus: (targetFan as any).novsyStatus ?? prev.novsyStatus ?? null,
+          isHighPriority: (targetFan as any).isHighPriority ?? prev.isHighPriority ?? false,
           extraLadderStatus:
             "extraLadderStatus" in targetFan
               ? ((targetFan as any).extraLadderStatus ?? null)
-              : conversation.extraLadderStatus ?? null,
-        });
-        await fetchRecommendedFan(rawFans);
+              : prev.extraLadderStatus ?? null,
+          extraSessionToday:
+            "extraSessionToday" in targetFan
+              ? ((targetFan as any).extraSessionToday ?? null)
+              : (prev as any).extraSessionToday ?? null,
+        }));
+        await fetchRecommendedFan();
       }
     } catch (_err) {
       // silent fail; UI remains with previous data
@@ -937,6 +1013,27 @@ useEffect(() => {
   if (!id || !showExtraTemplates) return;
   fetchExtrasHistory(id);
 }, [id, showExtraTemplates]);
+
+useEffect(() => {
+  if (!showContentModal) return;
+  if (contentModalMode !== "extras") return;
+  if (selectedContentIds.length > 0) return;
+  const firstMatch = contentItems.find((item) => {
+    const isExtraItem = item.isExtra === true || item.visibility === "EXTRA";
+    if (!isExtraItem) return false;
+    const matchesTier =
+      !extraTierFilter || item.extraTier === extraTierFilter || item.extraTier === null;
+    const matchesTime =
+      timeOfDayFilter === "all" ||
+      item.timeOfDay === "ANY" ||
+      (timeOfDayFilter === "day" && item.timeOfDay === "DAY") ||
+      (timeOfDayFilter === "night" && item.timeOfDay === "NIGHT");
+    return matchesTier && matchesTime;
+  });
+  if (firstMatch) {
+    setSelectedContentIds([firstMatch.id]);
+  }
+}, [showContentModal, contentModalMode, contentItems, extraTierFilter, timeOfDayFilter, selectedContentIds.length]);
 
 useEffect(() => {
   fetchAiStatus();
@@ -1225,6 +1322,37 @@ useEffect(() => {
   const extrasAmount = conversation.extrasSpentTotal ?? 0;
   const lifetimeAmount = conversation.lifetimeSpend ?? 0;
   const subsAmount = Math.max(0, lifetimeAmount - extrasAmount);
+  const sessionToday = conversation.extraSessionToday ?? {
+    todayCount: 0,
+    todaySpent: 0,
+    todayHighestTier: null,
+    todayLastPurchaseAt: null,
+  };
+  const plan = getChatterProPlan({
+    ladder: (conversation.extraLadderStatus as any) ?? null,
+    sessionToday: (sessionToday as any) ?? null,
+    turnMode: aiStatus?.turnMode ?? aiTurnMode ?? "HEATUP",
+    hasActivePaidAccess: hasMonthly || hasSpecial,
+    accessSnapshot: getAccessSnapshot({
+      activeGrantTypes: conversation.activeGrantTypes,
+      daysLeft,
+      membershipStatus,
+      hasAccessHistory: conversation.hasAccessHistory,
+      lastGrantType: conversation.lastGrantType,
+    }),
+    accessState: accessSummary.state,
+    lastGrantType: conversation.lastGrantType ?? null,
+  });
+  const lapexPhaseLabel =
+    isAccessExpired ? "Fase R – fan caducado" : conversation.extraLadderStatus?.phaseLabel ?? "Fase 0 – sin extras todavía";
+  const lapexExtraNote = isAccessExpired ? " · Sin pack activo (caducado)" : "";
+  const lapexSuggested = conversation.extraLadderStatus?.suggestedTier ?? "—";
+  const vipAmountToday = Math.round(
+    sessionToday.todaySpent ??
+      (conversation.extraLadderStatus as any)?.sessionToday?.todaySpent ??
+      (conversation.extraLadderStatus as any)?.sessionToday?.totalSpent ??
+      0
+  );
 
   function formatTier(tier?: "new" | "regular" | "priority" | "vip") {
     if (tier === "priority" || tier === "vip") return "Alta prioridad";
@@ -1267,11 +1395,14 @@ useEffect(() => {
   const hasNextInQueue = isInQueue && queueStatus.index < (queueStatus.size - 1);
   const statusTags: string[] = [];
   if (conversation.isHighPriority) {
-    statusTags.push("VIP");
+    if (vipAmountToday > 0) statusTags.push(`VIP · ${vipAmountToday} €`);
+    else statusTags.push("VIP");
   } else {
     statusTags.push(formatTier(conversation.customerTier));
   }
-  statusTags.push(`${Math.round(lifetimeAmount)} €`);
+  if (!conversation.isHighPriority) {
+    statusTags.push(`${Math.round(lifetimeAmount)} €`);
+  }
   if (conversation.nextAction) {
     const shortNext = conversation.nextAction.length > 60 ? `${conversation.nextAction.slice(0, 57)}…` : conversation.nextAction;
     statusTags.push(`Próxima acción: ${shortNext}`);
@@ -1295,6 +1426,24 @@ useEffect(() => {
     return `hace ${diffDays} días`;
   }
 
+  function formatLastPurchaseToday(dateStr: string | null | undefined) {
+    if (!dateStr) return null;
+    const d = new Date(dateStr);
+    if (Number.isNaN(d.getTime())) return null;
+    const now = new Date();
+    const diffMs = now.getTime() - d.getTime();
+    if (diffMs < 0) return "hace instantes";
+    const diffMinutes = Math.floor(diffMs / (1000 * 60));
+    if (diffMinutes < 1) return "hace 1 min";
+    if (diffMinutes < 60) return `hace ${diffMinutes} min`;
+    const diffHours = Math.floor(diffMinutes / 60);
+    if (diffHours < 6) return `hace ${diffHours} h`;
+    const hours = d.getHours().toString().padStart(2, "0");
+    const minutes = d.getMinutes().toString().padStart(2, "0");
+    if (d.toDateString() === now.toDateString()) return `hoy a las ${hours}:${minutes}`;
+    return `${hours}:${minutes}`;
+  }
+
   function getNextExtraTierLabel(status: Fan["extraLadderStatus"]): string | null {
     if (!status || !status.suggestedTier) return null;
     const tier = status.suggestedTier;
@@ -1304,7 +1453,27 @@ useEffect(() => {
     return null;
   }
   const showRenewAction =
-    followUpTag === "trial_soon" || followUpTag === "monthly_soon" || followUpTag === "expired" || followUpTag === "today";
+    isAccessExpired ||
+    followUpTag === "trial_soon" ||
+    followUpTag === "monthly_soon" ||
+    followUpTag === "expired" ||
+    followUpTag === "today";
+  const renewButtonLabel = isAccessExpired ? "Reenganche" : "Renovación";
+
+  function getTurnModeLabel(mode: AiTurnMode) {
+    if (mode === "PACK_PUSH") return "Empujar pack";
+    if (mode === "VIP_CARE") return "Cuidar VIP";
+    return "Calentar";
+  }
+
+  function getUsageLabelForPlan(usage: AiTemplateUsage | null): string | null {
+    if (!usage) return null;
+    if (usage === "welcome" || usage === "warmup") return "Saludo / calentar";
+    if (usage === "extra_quick") return "Extra rápido";
+    if (usage === "pack_offer") return "Pack especial";
+    if (usage === "renewal") return "Reenganche";
+    return usage;
+  }
 
   const filteredItems = contentItems.filter((item) => {
     const tag = getTimeOfDayTag(item.title ?? "");
@@ -1943,7 +2112,7 @@ useEffect(() => {
         )}
       </header>
       {/* Avisos de acceso caducado o a punto de caducar */}
-      {conversation.membershipStatus === "expired" && (
+      {isAccessExpired && (
         <div className="mx-4 mb-3 flex items-center justify-between rounded-xl border border-amber-500/50 bg-amber-500/10 px-4 py-3 text-xs text-amber-100">
           <div className="flex flex-col gap-1">
             <span className="font-semibold text-amber-200">Acceso caducado · sin pack activo</span>
@@ -1955,14 +2124,14 @@ useEffect(() => {
             <button
               type="button"
               className="rounded-full border border-amber-400 bg-amber-500/10 px-3 py-1 text-[11px] font-semibold text-amber-100 hover:bg-amber-500/20"
-              onClick={() => handleChoosePack()}
+              onClick={() => handleChoosePack(mapLastGrantToPackType(conversation.lastGrantType))}
             >
               Elegir pack
             </button>
             <button
               type="button"
               className="rounded-full border border-slate-600 bg-slate-800/80 px-3 py-1 text-[11px] font-semibold text-slate-100 hover:bg-slate-700"
-              onClick={() => setMessageSend(getReengageTemplate(contactName))}
+              onClick={handleRenewAction}
             >
               Mensaje de reenganche
             </button>
@@ -2190,22 +2359,55 @@ useEffect(() => {
                   LAPEX
                 </span>
                 <span className="text-amber-100/90">
-                  {conversation.extraLadderStatus.phaseLabel} · Ha gastado{" "}
-                  {Math.round(conversation.extraLadderStatus.totalSpent ?? 0)} € en extras · Último pack{" "}
-                  {formatLastPurchase(conversation.extraLadderStatus.lastPurchaseAt) || "—"} · Siguiente sugerencia:{" "}
-                  {conversation.extraLadderStatus.suggestedTier ?? "—"}
+                  {lapexPhaseLabel}
+                  {lapexExtraNote} · Ha gastado {Math.round(conversation.extraLadderStatus.totalSpent ?? 0)} € en extras ·
+                  Último pack {formatLastPurchase(conversation.extraLadderStatus.lastPurchaseAt) || "—"} · Siguiente
+                  sugerencia: {lapexSuggested}
                 </span>
               </div>
             </div>
           )}
+          <div className="text-[11px] text-slate-400">
+            {sessionToday.todayCount > 0 ? (
+              <>
+                Sesión hoy: {sessionToday.todayCount} extras — {Math.round(sessionToday.todaySpent ?? 0)} € · Último{" "}
+                {formatLastPurchaseToday(sessionToday.todayLastPurchaseAt) || "—"}
+              </>
+            ) : (
+              "Sesión hoy: sin extras todavía"
+            )}
+          </div>
           <div className="text-[11px] text-slate-300">
             IA hoy: {aiStatus ? `${aiStatus.usedToday}/${aiStatus.hardLimitPerDay ?? "∞"}` : "–/–"} · Créditos:{" "}
-            {aiStatus ? aiStatus.creditsAvailable : "—"}
+            {aiStatus ? aiStatus.creditsAvailable : "—"} · Modo IA: {getTurnModeLabel(aiTurnMode)}
+          </div>
+          <div className="text-[11px] text-slate-200">
+            <FanManagerPanel
+              fanId={conversation.id}
+              onSummary={(s) => setManagerSummary(s)}
+              onSuggestionClick={handleManagerSuggestion}
+            />
+          </div>
+          <div className="text-[11px] text-slate-300">
+            {plan.summaryLabel
+              ? plan.summaryLabel
+              : `Plan de hoy: ${plan.focusLabel || "—"}${plan.stepLabel ? ` — ${plan.stepLabel}` : ""}${
+                  plan.goalLabel ? ` — Objetivo: ${plan.goalLabel}` : ""
+                }${
+                  getUsageLabelForPlan(plan.suggestedUsage)
+                    ? ` — Siguiente jugada: ${getUsageLabelForPlan(plan.suggestedUsage)}`
+                    : ""
+                }`}
           </div>
           <div className="flex flex-wrap items-center gap-2">
             <button
               type="button"
-              className="whitespace-nowrap rounded-full border border-slate-600 bg-slate-800/70 px-3 py-1 text-[11px] font-semibold text-slate-100 hover:border-emerald-400 hover:text-emerald-100 transition"
+              className={clsx(
+                "whitespace-nowrap rounded-full border px-3 py-1 text-[11px] font-semibold transition",
+                isRecommended("saludo_rapido")
+                  ? "border-emerald-400 bg-emerald-500/20 text-emerald-100"
+                  : "border-slate-600 bg-slate-800/70 text-slate-100 hover:border-emerald-400 hover:text-emerald-100"
+              )}
               onClick={handleQuickGreeting}
             >
               Saludo
@@ -2213,15 +2415,25 @@ useEffect(() => {
             {showRenewAction && (
               <button
                 type="button"
-                className="whitespace-nowrap rounded-full border border-slate-600 bg-slate-800/70 px-3 py-1 text-[11px] font-semibold text-slate-100 hover:border-emerald-400 hover:text-emerald-100 transition"
+                className={clsx(
+                  "whitespace-nowrap rounded-full border px-3 py-1 text-[11px] font-semibold transition",
+                  isRecommended("renenganche")
+                    ? "border-emerald-400 bg-emerald-500/20 text-emerald-100"
+                    : "border-slate-600 bg-slate-800/70 text-slate-100 hover:border-emerald-400 hover:text-emerald-100"
+                )}
                 onClick={handleRenewAction}
               >
-                Renovación
+                {renewButtonLabel}
               </button>
             )}
             <button
               type="button"
-              className="whitespace-nowrap rounded-full border border-slate-600 bg-slate-800/70 px-3 py-1 text-[11px] font-semibold text-slate-100 hover:border-emerald-400 hover:text-emerald-100 transition"
+              className={clsx(
+                "whitespace-nowrap rounded-full border px-3 py-1 text-[11px] font-semibold transition",
+                isRecommended("extra_rapido")
+                  ? "border-emerald-400 bg-emerald-500/20 text-emerald-100"
+                  : "border-slate-600 bg-slate-800/70 text-slate-100 hover:border-emerald-400 hover:text-emerald-100"
+              )}
               onClick={handleQuickExtraClick}
               disabled={iaBlocked || aiStatus?.limitReached}
             >
@@ -2229,14 +2441,24 @@ useEffect(() => {
             </button>
             <button
               type="button"
-              className="whitespace-nowrap rounded-full border border-slate-600 bg-slate-800/70 px-3 py-1 text-[11px] font-semibold text-slate-100 hover:border-emerald-400 hover:text-emerald-100 transition"
+              className={clsx(
+                "whitespace-nowrap rounded-full border px-3 py-1 text-[11px] font-semibold transition",
+                isRecommended("elegir_pack")
+                  ? "border-emerald-400 bg-emerald-500/20 text-emerald-100"
+                  : "border-slate-600 bg-slate-800/70 text-slate-100 hover:border-emerald-400 hover:text-emerald-100"
+              )}
               onClick={() => handleQuickTemplateClick("pack_offer")}
             >
               Pack especial
             </button>
             <button
               type="button"
-              className="whitespace-nowrap rounded-full border border-emerald-400 bg-emerald-500/15 px-3 py-1 text-[11px] font-semibold text-emerald-100 hover:bg-emerald-500/25 transition"
+              className={clsx(
+                "whitespace-nowrap rounded-full border px-3 py-1 text-[11px] font-semibold transition",
+                isRecommended("abrir_extras")
+                  ? "border-emerald-400 bg-emerald-500/20 text-emerald-100"
+                  : "border-emerald-400 bg-emerald-500/15 text-emerald-100 hover:bg-emerald-500/25"
+              )}
               onClick={handleOpenExtrasPanel}
             >
               Abrir extras
@@ -2268,10 +2490,7 @@ useEffect(() => {
                     className="flex w-full items-center gap-2 px-3 py-2 text-sm text-slate-100 hover:bg-slate-800"
                     onClick={() => {
                       setIsAttachmentMenuOpen(false);
-                      fetchContentItems(id);
-                      if (id) fetchAccessGrants(id);
-                      setSelectedContentIds([]);
-                      setShowContentModal(true);
+                      openContentModal({ mode: "packs" });
                     }}
                   >
                     <span>Adjuntar contenido</span>
@@ -2316,20 +2535,97 @@ useEffect(() => {
                 <h3 className="text-lg font-semibold text-white">Adjuntar contenido</h3>
                 <p className="text-sm text-slate-300">Elige qué quieres enviar a este fan según sus packs.</p>
               </div>
-              <button
-                type="button"
-                onClick={() => setShowContentModal(false)}
+              <div className="flex items-center gap-2">
+                <div className="inline-flex rounded-full border border-slate-700 bg-slate-800/60 p-1">
+                  {(["packs", "extras"] as const).map((mode) => {
+                    const isActive = contentModalMode === mode;
+                    return (
+                      <button
+                        key={mode}
+                        type="button"
+                        className={clsx(
+                          "px-3 py-1 text-[11px] font-semibold rounded-full transition",
+                          isActive
+                            ? "bg-emerald-500/20 text-emerald-200 border border-emerald-400/70"
+                            : "text-slate-200"
+                        )}
+                        onClick={() => setContentModalMode(mode)}
+                      >
+                        {mode === "packs" ? "Packs" : "Extras PPV"}
+                      </button>
+                    );
+                  })}
+                </div>
+                <button
+                  type="button"
+                onClick={() => {
+                  setShowContentModal(false);
+                  setContentModalPackFocus(null);
+                }}
                 className="text-slate-400 hover:text-white"
               >
                 ✕
               </button>
+              </div>
             </div>
+            {contentModalMode === "extras" && (
+              <div className="flex flex-wrap items-center gap-3 mb-2 text-[11px] text-slate-300">
+                <div className="flex items-center gap-1">
+                  <span>Momento</span>
+                  <div className="inline-flex rounded-full border border-slate-600 bg-slate-900">
+                    {(["day", "night"] as TimeOfDayFilter[]).map((val) => (
+                      <button
+                        key={val}
+                        type="button"
+                        onClick={() => setTimeOfDayFilter(val)}
+                        className={clsx(
+                          "px-2 py-1 rounded-full",
+                          timeOfDayFilter === val
+                            ? "bg-emerald-500/20 text-emerald-200 border border-emerald-400/70"
+                            : "text-slate-200"
+                        )}
+                      >
+                        {val === "day" ? "Día" : "Noche"}
+                      </button>
+                    ))}
+                    <button
+                      type="button"
+                      onClick={() => setTimeOfDayFilter("all")}
+                      className={clsx(
+                        "px-2 py-1 rounded-full",
+                        timeOfDayFilter === "all"
+                          ? "bg-emerald-500/20 text-emerald-200 border border-emerald-400/70"
+                          : "text-slate-200"
+                      )}
+                    >
+                      Todos
+                    </button>
+                  </div>
+                </div>
+                <label className="flex items-center gap-1">
+                  <span>Tier</span>
+                  <select
+                    className="rounded-md bg-slate-800 border border-slate-700 px-2 py-1 text-xs text-white"
+                    value={extraTierFilter ?? ""}
+                    onChange={(e) =>
+                      setExtraTierFilter(e.target.value === "" ? null : (e.target.value as any))
+                    }
+                  >
+                    <option value="">Todos</option>
+                    <option value="T0">T0</option>
+                    <option value="T1">T1</option>
+                    <option value="T2">T2</option>
+                    <option value="T3">T3</option>
+                    <option value="T4">T4</option>
+                  </select>
+                </label>
+              </div>
+            )}
             <div className="mt-3 flex flex-col gap-3 max-h-[60vh] overflow-y-auto">
               {contentError && (
                 <div className="text-sm text-rose-300">No se ha podido cargar la información de packs.</div>
               )}
-              {!contentError &&
-                CONTENT_PACKS.map((packMeta) => {
+              {!contentError && contentModalMode === "packs" && CONTENT_PACKS.map((packMeta) => {
                   const isUnlocked =
                     packMeta.code === "WELCOME"
                       ? hasWelcome
@@ -2346,7 +2642,15 @@ useEffect(() => {
                     : "border-slate-600 text-slate-300";
                   const packItems = contentItems.filter((item) => item.pack === packMeta.code);
                   return (
-                    <div key={packMeta.code} className="rounded-xl border border-slate-800 bg-slate-900/70 p-3">
+                    <div
+                      key={packMeta.code}
+                      className="rounded-xl border border-slate-800 bg-slate-900/70 p-3"
+                      ref={contentModalPackFocus === packMeta.code ? (el) => {
+                        if (el && showContentModal && contentModalMode === "packs") {
+                          el.scrollIntoView({ behavior: "smooth", block: "start" });
+                        }
+                      } : undefined}
+                    >
                       <div className="flex flex-wrap items-center justify-between gap-2">
                         <div className="text-sm font-semibold text-white">{packMeta.label}</div>
                         <div className="flex items-center gap-2">
@@ -2425,6 +2729,75 @@ useEffect(() => {
                     </div>
                   );
                 })}
+              {!contentError && contentModalMode === "extras" && (
+                <div className="rounded-xl border border-slate-800 bg-slate-900/70 p-3 space-y-2">
+                  <div className="text-sm font-semibold text-white">Extras PPV</div>
+                  <div className="mt-2 flex flex-col gap-2">
+                    {contentItems
+                      .filter((item) => {
+                        const isExtraItem = item.isExtra === true || item.visibility === "EXTRA";
+                        if (!isExtraItem) return false;
+                        const matchesTier =
+                          !extraTierFilter || item.extraTier === extraTierFilter || item.extraTier === null;
+                        const matchesTime =
+                          timeOfDayFilter === "all" ||
+                          item.timeOfDay === "ANY" ||
+                          (timeOfDayFilter === "day" && item.timeOfDay === "DAY") ||
+                          (timeOfDayFilter === "night" && item.timeOfDay === "NIGHT");
+                        return matchesTier && matchesTime;
+                      })
+                      .map((item) => {
+                        const selected = selectedContentIds.includes(item.id);
+                        const typeEmoji =
+                          item.type === "IMAGE" ? "🖼️" : item.type === "VIDEO" ? "🎬" : item.type === "AUDIO" ? "🎧" : "📄";
+                        return (
+                          <label
+                            key={item.id}
+                            className={clsx(
+                              "flex items-center justify-between rounded-lg border px-3 py-2 text-sm",
+                              selected
+                                ? "border-amber-400 bg-amber-500/10 text-amber-100"
+                                : "border-slate-800 bg-slate-900/80 text-slate-100 hover:border-amber-400/60"
+                            )}
+                          >
+                            <div className="flex flex-col gap-1">
+                              <div className="flex items-center gap-2">
+                                <span className="text-base">{typeEmoji}</span>
+                                <span>{item.title}</span>
+                                {item.hasBeenSentToFan && (
+                                  <span className="text-[10px] text-emerald-300 border border-emerald-400/60 rounded-full px-2 py-[1px]">
+                                    Enviado
+                                  </span>
+                                )}
+                              </div>
+                              <div className="text-[11px] text-slate-400 flex items-center gap-2">
+                                <span>{item.extraTier ?? "T?"}</span>
+                                <span>·</span>
+                                <span>
+                                  {item.timeOfDay === "DAY" ? "Día" : item.timeOfDay === "NIGHT" ? "Noche" : "Cualquier momento"}
+                                </span>
+                              </div>
+                            </div>
+                            <input
+                              type="checkbox"
+                              checked={selected}
+                              onChange={() => {
+                                setSelectedContentIds((prev) =>
+                                  prev.includes(item.id) ? prev.filter((id) => id !== item.id) : [...prev, item.id]
+                                );
+                              }}
+                              className="h-4 w-4 accent-amber-400"
+                            />
+                          </label>
+                        );
+                      })}
+                    {!contentLoading &&
+                      contentItems.filter((item) => item.isExtra === true || item.visibility === "EXTRA").length === 0 && (
+                        <div className="text-xs text-slate-500">No hay extras PPV todavía.</div>
+                      )}
+                  </div>
+                </div>
+              )}
             </div>
             <div className="mt-3 flex items-center justify-end gap-2">
               <button
@@ -2433,6 +2806,7 @@ useEffect(() => {
                 onClick={() => {
                   setShowContentModal(false);
                   setSelectedContentIds([]);
+                  setContentModalPackFocus(null);
                 }}
               >
                 Cancelar
@@ -2457,6 +2831,7 @@ useEffect(() => {
                   }
                   setShowContentModal(false);
                   setSelectedContentIds([]);
+                  setContentModalPackFocus(null);
                 }}
               >
                 {selectedContentIds.length <= 1

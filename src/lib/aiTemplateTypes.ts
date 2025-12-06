@@ -12,6 +12,9 @@ export const AI_TEMPLATE_USAGES = [
 
 export type AiTemplateUsage = (typeof AI_TEMPLATE_USAGES)[number];
 
+export const AI_TURN_MODES = ["HEATUP", "PACK_PUSH", "VIP_CARE"] as const;
+export type AiTurnMode = (typeof AI_TURN_MODES)[number];
+
 export const USAGE_LABELS: Record<AiTemplateUsage, string> = {
   welcome: "Bienvenida (nuevo fan)",
   warmup: "Charla / calentamiento",

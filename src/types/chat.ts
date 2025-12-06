@@ -47,12 +47,27 @@ export interface Fan {
   maxExtraTier?: string | null;
   novsyStatus?: "NOVSY" | null;
   isHighPriority?: boolean;
+  segment?: string | null;
+  riskLevel?: "LOW" | "MEDIUM" | "HIGH" | string | null;
+  healthScore?: number | null;
   extraLadderStatus?: {
     totalSpent: number;
     lastPurchaseAt: string | null;
     maxTierBought: string | null;
     suggestedTier: string | null;
     phaseLabel: string;
+    sessionToday?: {
+      todayCount: number;
+      todaySpent: number;
+      todayHighestTier: string | null;
+      todayLastPurchaseAt: string | null;
+    } | null;
+  } | null;
+  extraSessionToday?: {
+    todayCount: number;
+    todaySpent: number;
+    todayHighestTier: string | null;
+    todayLastPurchaseAt: string | null;
   } | null;
 }
 

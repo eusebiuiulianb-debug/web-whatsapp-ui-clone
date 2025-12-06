@@ -89,7 +89,15 @@ export default function SideBar() {
       extrasSpentTotal: fan.extrasSpentTotal ?? 0,
       maxExtraTier: (fan as any).maxExtraTier ?? null,
       novsyStatus: fan.novsyStatus ?? null,
-      isHighPriority: fan.isHighPriority ?? false,
+      isHighPriority:
+        fan.isHighPriority ||
+        ((fan as any).segment ?? "").toUpperCase() === "EN_RIESGO" ||
+        (((fan as any).segment ?? "").toUpperCase() === "VIP" &&
+          ((fan as any).riskLevel ?? "LOW").toUpperCase() !== "LOW") ||
+        false,
+      segment: (fan as any).segment ?? null,
+      riskLevel: (fan as any).riskLevel ?? "LOW",
+      healthScore: (fan as any).healthScore ?? 0,
       customerTier: normalizeTier(fan.customerTier),
       nextAction: fan.nextAction ?? null,
       priorityScore: fan.priorityScore,
@@ -98,6 +106,7 @@ export default function SideBar() {
       lastNoteSummary: fan.lastNoteSummary ?? fan.lastNoteSnippet ?? null,
       nextActionSummary: fan.nextActionSummary ?? fan.nextActionSnippet ?? null,
       extraLadderStatus: fan.extraLadderStatus ?? null,
+      extraSessionToday: (fan as any).extraSessionToday ?? null,
     }));
   }
 
@@ -253,9 +262,13 @@ export default function SideBar() {
     const tag = fan.followUpTag ?? getFollowUpTag(fan.membershipStatus, fan.daysLeft, fan.activeGrantTypes);
     return tag && tag !== "none";
   }).length;
-  const priorityCount = fans.filter((fan) => (fan as any).isHighPriority === true).length;
-  const regularCount = fans.filter((fan) => normalizeTier(fan.customerTier) === "regular").length;
-  const newCount = fans.filter((fan) => normalizeTier(fan.customerTier) === "new").length;
+  const priorityCount = fans.filter((fan) => {
+    const segment = ((fan as any).segment || "").toUpperCase();
+    const risk = ((fan as any).riskLevel || "LOW").toUpperCase();
+    return segment === "EN_RIESGO" || (segment === "VIP" && risk !== "LOW") || (fan as any).isHighPriority === true;
+  }).length;
+  const regularCount = fans.filter((fan) => ((fan as any).segment || "").toUpperCase() === "LEAL_ESTABLE").length;
+  const newCount = fans.filter((fan) => ((fan as any).segment || "").toUpperCase() === "NUEVO").length;
   const withExtrasCount = fans.filter((fan) => (fan.extrasSpentTotal ?? 0) > 0).length;
 
   function applyFilter(
@@ -294,12 +307,15 @@ export default function SideBar() {
       }
       return true;
     })
-    .filter((fan) => {
-      if (tierFilter === "all") return true;
-      if (tierFilter === "vip") return fan.isHighPriority === true;
-      const tier = normalizeTier(fan.customerTier);
-      return tier === tierFilter;
-    })
+  .filter((fan) => {
+    if (tierFilter === "all") return true;
+    const segment = ((fan as any).segment || "").toUpperCase();
+    if (tierFilter === "vip") return segment === "VIP";
+    if (tierFilter === "regular") return segment === "LEAL_ESTABLE";
+    if (tierFilter === "new") return segment === "NUEVO";
+    const tier = normalizeTier(fan.customerTier);
+    return tier === tierFilter;
+  })
     .sort((a, b) => {
       if (followUpFilter === "today") {
         const pa = a.priorityScore ?? 0;
@@ -465,10 +481,43 @@ export default function SideBar() {
       void refreshExtrasSummary();
     };
     window.addEventListener(EXTRAS_UPDATED_EVENT, handleExtrasUpdated as EventListener);
+
+    const handleExternalFilter = (event: Event) => {
+      const detail = (event as CustomEvent)?.detail as
+        | {
+            followUpFilter?: "all" | "today" | "expired";
+            tierFilter?: "all" | "new" | "regular" | "vip";
+            onlyWithExtras?: boolean;
+          }
+        | undefined;
+      if (!detail) return;
+      applyFilter(detail.followUpFilter ?? "all", false, detail.tierFilter ?? "all", false);
+      if (typeof detail.onlyWithExtras === "boolean") {
+        setOnlyWithExtras(detail.onlyWithExtras);
+      }
+    };
+    window.addEventListener("applyChatFilter", handleExternalFilter as EventListener);
+
+    // Si venimos desde otra pantalla con un filtro pendiente, aplicarlo.
+    try {
+      const raw = sessionStorage.getItem("novsy:pendingChatFilter");
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        applyFilter(parsed.followUpFilter ?? "all", false, parsed.tierFilter ?? "all", false);
+        if (typeof parsed.onlyWithExtras === "boolean") {
+          setOnlyWithExtras(parsed.onlyWithExtras);
+        }
+        sessionStorage.removeItem("novsy:pendingChatFilter");
+      }
+    } catch (_err) {
+      // ignoramos parseos inválidos
+    }
+
     return () => {
       window.removeEventListener("fanDataUpdated", handleFanDataUpdated as EventListener);
       window.removeEventListener("unreadUpdated", handleUnreadUpdated);
       window.removeEventListener(EXTRAS_UPDATED_EVENT, handleExtrasUpdated as EventListener);
+      window.removeEventListener("applyChatFilter", handleExternalFilter as EventListener);
     };
   }, [apiFilter, refreshExtrasSummary, search]);
 

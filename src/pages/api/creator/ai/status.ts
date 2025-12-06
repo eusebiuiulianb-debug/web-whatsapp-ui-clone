@@ -33,6 +33,7 @@ export default async function handler(_req: NextApiRequest, res: NextApiResponse
       usedToday,
       remainingToday,
       limitReached,
+      turnMode: settings.turnMode,
     });
   } catch (err) {
     console.error("Error fetching AI status", err);

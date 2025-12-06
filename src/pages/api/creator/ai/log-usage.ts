@@ -1,5 +1,6 @@
 import type { NextApiRequest, NextApiResponse } from "next";
 import { logAiUsage } from "../../../../lib/aiUsage";
+import { AI_TURN_MODES, type AiTurnMode } from "../../../../lib/aiTemplateTypes";
 
 type LogUsageBody = {
   fanId?: string;
@@ -9,6 +10,7 @@ type LogUsageBody = {
   outcome?: string;
   finalText?: string;
   creditsUsed?: number;
+  turnMode?: AiTurnMode;
 };
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
@@ -39,6 +41,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
   const creditsUsed = typeof body.creditsUsed === "number" && body.creditsUsed >= 0 ? body.creditsUsed : 1;
   const normalizedOutcome = (outcome as "accepted" | "edited" | "rejected" | "suggested") ?? "suggested";
+  const turnMode =
+    typeof body.turnMode === "string" && (AI_TURN_MODES as readonly string[]).includes(body.turnMode)
+      ? (body.turnMode as AiTurnMode)
+      : undefined;
 
   try {
     await logAiUsage({
@@ -50,6 +56,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       outcome: normalizedOutcome,
       finalText: typeof finalText === "string" ? finalText : undefined,
       creditsUsed,
+      turnMode,
     });
 
     return res.status(200).json({ ok: true });

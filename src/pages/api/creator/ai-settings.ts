@@ -2,6 +2,7 @@ import type { NextApiRequest, NextApiResponse } from "next";
 import { Prisma } from "@prisma/client";
 import prisma from "../../../lib/prisma";
 import { sendBadRequest, sendServerError } from "../../../lib/apiError";
+import { AI_TURN_MODES, type AiTurnMode } from "../../../lib/aiTemplateTypes";
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method === "GET") {
@@ -62,6 +63,7 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
     allowAutoLowPriority,
     creditsAvailable,
     hardLimitPerDay,
+    turnMode,
   } = body as Record<string, unknown>;
 
   const updateData: Prisma.CreatorAiSettingsUncheckedUpdateInput = {};
@@ -140,6 +142,14 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
     }
     updateData.hardLimitPerDay = hardLimitPerDay as number | null;
     createData.hardLimitPerDay = hardLimitPerDay as number | null;
+  }
+  if (turnMode !== undefined) {
+    const validModes = AI_TURN_MODES as readonly string[];
+    if (turnMode !== null && !validModes.includes(String(turnMode))) {
+      return sendBadRequest(res, "turnMode must be a valid AI turn mode");
+    }
+    updateData.turnMode = (turnMode as AiTurnMode | null) ?? "HEATUP";
+    createData.turnMode = (turnMode as AiTurnMode | null) ?? "HEATUP";
   }
 
   try {

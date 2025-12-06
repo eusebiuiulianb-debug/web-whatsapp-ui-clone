@@ -63,6 +63,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         creditsUsed: true,
         suggestedText: true,
         outcome: true,
+        turnMode: true,
       },
     });
 

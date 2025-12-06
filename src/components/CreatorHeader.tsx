@@ -39,6 +39,11 @@ export default function CreatorHeader({ name, role, subtitle, initial, onOpenSet
             Biblioteca
           </a>
         </Link>
+        <Link href="/creator/manager" legacyBehavior>
+          <a className={linkClass("/creator/manager", "text-xs text-indigo-200 hover:underline whitespace-nowrap")}>
+            Panel
+          </a>
+        </Link>
         <Link href="/creator/ai-settings" legacyBehavior>
           <a className={linkClass("/creator/ai-settings", "text-xs text-emerald-200 hover:underline whitespace-nowrap")}>
             Ajustes de IA

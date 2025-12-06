@@ -4,7 +4,12 @@ import prisma from "../../lib/prisma";
 import { getFollowUpTag, shouldFollowUpToday } from "../../utils/followUp";
 import { sendBadRequest, sendServerError } from "../../lib/apiError";
 import { HIGH_PRIORITY_LIMIT } from "../../config/customers";
-import { getExtraLadderStatusForFan, type ExtraLadderStatus } from "../../lib/extraLadder";
+import {
+  getExtraLadderStatusForFan,
+  getExtraSessionTodayForFan,
+  type ExtraLadderStatus,
+  type ExtraSessionToday,
+} from "../../lib/extraLadder";
 
 function parseMessageTimestamp(messageId: string): Date | null {
   const parts = messageId.split("-");
@@ -34,7 +39,7 @@ function truncateSnippet(text: string | null | undefined, max = 80): string | nu
 const MAX_LIMIT = 100;
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
-  const { limit: limitParam, cursor, filter = "all", q } = req.query;
+  const { limit: limitParam, cursor, filter = "all", q, fanId } = req.query;
   const parsedLimit = Number(limitParam);
   const limit = Number.isFinite(parsedLimit) && parsedLimit > 0 ? Math.min(parsedLimit, MAX_LIMIT) : 30;
   if (parsedLimit !== undefined && (!Number.isFinite(parsedLimit) || parsedLimit <= 0)) {
@@ -43,6 +48,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
   const cursorId = typeof cursor === "string" ? cursor : undefined;
   const search = typeof q === "string" && q.trim().length > 0 ? q.trim() : null;
+  const fanIdFilter = typeof fanId === "string" && fanId.trim().length > 0 ? fanId.trim() : null;
 
   try {
     const where: Prisma.FanWhereInput = {};
@@ -64,6 +70,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         { nextAction: { contains: search } },
         { notes: { some: { content: { contains: search } } } },
       ];
+    }
+
+    if (fanIdFilter) {
+      where.id = fanIdFilter;
     }
 
     const fans = await prisma.fan.findMany({
@@ -124,17 +134,39 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       select: { id: true, title: true, extraTier: true },
     });
 
-    type LadderStatusResponse = (Omit<ExtraLadderStatus, "lastPurchaseAt"> & { lastPurchaseAt: string | null }) | null;
+    type ExtraSessionTodayResponse =
+      | (Omit<ExtraSessionToday, "todayLastPurchaseAt"> & { todayLastPurchaseAt: string | null })
+      | null;
+    type LadderStatusResponse =
+      | (Omit<ExtraLadderStatus, "lastPurchaseAt"> & {
+          lastPurchaseAt: string | null;
+          sessionToday?: ExtraSessionTodayResponse | null;
+        })
+      | null;
     const ladderByFan = new Map<string, LadderStatusResponse>();
+    const sessionTodayByFan = new Map<string, ExtraSessionTodayResponse>();
     try {
       await Promise.all(
         fanIds.map(async (fid) => {
-          const status = await getExtraLadderStatusForFan(prisma, creatorId, fid, extrasCatalog);
-          const serialized =
+          const [status, sessionToday] = await Promise.all([
+            getExtraLadderStatusForFan(prisma, creatorId, fid, extrasCatalog),
+            getExtraSessionTodayForFan(prisma, fid),
+          ]);
+
+          const serializedStatus =
             status && status.totalSpent > 0
               ? { ...status, lastPurchaseAt: status.lastPurchaseAt ? status.lastPurchaseAt.toISOString() : null }
               : null;
-          ladderByFan.set(fid, serialized);
+          const serializedSession: ExtraSessionTodayResponse = sessionToday
+            ? {
+                ...sessionToday,
+                todayLastPurchaseAt: sessionToday.todayLastPurchaseAt
+                  ? sessionToday.todayLastPurchaseAt.toISOString()
+                  : null,
+              }
+            : null;
+          sessionTodayByFan.set(fid, serializedSession);
+          ladderByFan.set(fid, serializedStatus ? { ...serializedStatus, sessionToday: serializedSession } : serializedStatus);
         })
       );
     } catch (err) {
@@ -143,9 +175,17 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
     let mappedFans = fans.map((fan) => {
       // Grants con acceso vigente
-      const activeGrants = fan.accessGrants.filter((grant) => grant.expiresAt > now);
-      const hasAccessHistory = fan.accessGrants.length > 0;
-      const activeGrantTypes = activeGrants.map((grant) => grant.type);
+    const activeGrants = fan.accessGrants.filter((grant) => grant.expiresAt > now);
+    const lastGrant =
+      fan.accessGrants.length > 0
+        ? fan.accessGrants.reduce<typeof fan.accessGrants[number] | null>((latest, grant) => {
+            if (!latest) return grant;
+            return grant.expiresAt > latest.expiresAt ? grant : latest;
+          }, null)
+        : null;
+    const lastGrantType = lastGrant?.type ?? null;
+    const hasAccessHistory = fan.accessGrants.length > 0;
+    const activeGrantTypes = activeGrants.map((grant) => grant.type);
 
       // Usamos la expiración más lejana entre los grants activos para el contador de días
       const latestExpiry = activeGrants.reduce<Date | null>((acc, grant) => {
@@ -247,6 +287,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         nextAction: fan.nextAction || null,
         activeGrantTypes,
         hasAccessHistory,
+        lastGrantType,
         followUpTag,
         priorityScore,
         lastNoteSnippet,
@@ -258,7 +299,16 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         maxExtraTier: extrasInfo.maxTier,
         novsyStatus,
         isHighPriority,
+        segment: fan.segment ?? "NUEVO",
+        riskLevel: (fan as any).riskLevel ?? "LOW",
+        healthScore: (fan as any).healthScore ?? 0,
         extraLadderStatus: ladderByFan.get(fan.id) ?? null,
+        extraSessionToday: sessionTodayByFan.get(fan.id) ?? {
+          todayCount: 0,
+          todaySpent: 0,
+          todayHighestTier: null,
+          todayLastPurchaseAt: null,
+        },
       };
     });
 

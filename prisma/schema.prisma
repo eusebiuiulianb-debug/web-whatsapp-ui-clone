@@ -52,6 +52,14 @@ model Fan {
   notes            FanNote[]
   extraPurchases   ExtraPurchase[]
   aiUsageLogs      AiUsageLog[]
+  segment          String          @default("NUEVO")
+  healthScore      Int             @default(0)
+  lastMessageAt    DateTime?
+  lastCreatorMessageAt DateTime?
+  lastPurchaseAt   DateTime?
+  lifetimeValue    Float           @default(0)
+  recent30dSpend   Float           @default(0)
+  riskLevel        String          @default("LOW")
 }
 
 model Message {
@@ -121,6 +129,12 @@ enum ExtraTier {
   T4
 }
 
+enum AiTurnMode {
+  HEATUP
+  PACK_PUSH
+  VIP_CARE
+}
+
 enum TimeOfDay {
   DAY
   NIGHT
@@ -186,6 +200,7 @@ model CreatorAiSettings {
 
   creditsAvailable Int  @default(0)
   hardLimitPerDay  Int?
+  turnMode         AiTurnMode @default(HEATUP)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -207,6 +222,7 @@ model AiUsageLog {
 
   creditsUsed Int      @default(1)
   createdAt   DateTime @default(now())
+  turnMode    AiTurnMode @default(HEATUP)
 }
 
 model CreatorAiTemplate {
@@ -222,6 +238,7 @@ model CreatorAiTemplate {
   tier ExtraTier?
 
   isActive Boolean @default(true)
+  mode     AiTurnMode?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

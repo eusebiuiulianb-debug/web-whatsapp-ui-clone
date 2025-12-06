@@ -1,4 +1,5 @@
 import prisma from "./prisma";
+import type { AiTurnMode } from "@prisma/client";
 
 export async function logAiUsage(params: {
   creatorId: string;
@@ -9,6 +10,7 @@ export async function logAiUsage(params: {
   outcome: "accepted" | "edited" | "rejected" | "suggested";
   finalText?: string;
   creditsUsed?: number;
+  turnMode?: AiTurnMode | null;
 }) {
   const {
     creatorId,
@@ -19,6 +21,7 @@ export async function logAiUsage(params: {
     outcome,
     finalText,
     creditsUsed = 1,
+    turnMode,
   } = params;
 
   const settings =
@@ -48,6 +51,8 @@ export async function logAiUsage(params: {
     throw new Error("AI_NO_CREDITS_LEFT");
   }
 
+  const modeToUse: AiTurnMode = (turnMode as AiTurnMode | null) ?? (settings.turnMode as AiTurnMode) ?? "HEATUP";
+
   await prisma.creatorAiSettings.update({
     where: { id: settings.id },
     data: { creditsAvailable: settings.creditsAvailable - creditsUsed },
@@ -63,6 +68,7 @@ export async function logAiUsage(params: {
       outcome,
       finalText,
       creditsUsed,
+      turnMode: modeToUse,
     },
   });
 }

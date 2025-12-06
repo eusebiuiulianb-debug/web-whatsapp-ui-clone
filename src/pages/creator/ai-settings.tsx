@@ -2,6 +2,7 @@ import Head from "next/head";
 import { FormEvent, useEffect, useState } from "react";
 import CreatorHeader from "../../components/CreatorHeader";
 import { useCreatorConfig } from "../../context/CreatorConfigContext";
+import { AiTurnMode, AI_TURN_MODES } from "../../lib/aiTemplateTypes";
 
 type CreatorAiSettings = {
   id: string;
@@ -12,10 +13,12 @@ type CreatorAiSettings = {
   hardLimitPerDay: number | null;
   createdAt: string;
   updatedAt: string;
+  turnMode: AiTurnMode;
 };
 
 type FormState = {
   tone: string;
+  turnMode: AiTurnMode;
   creditsAvailable: number | "";
   hardLimitPerDay: number | "" | null;
   allowAutoLowPriority: boolean;
@@ -48,6 +51,7 @@ type AiUsageSummary = {
     creditsUsed: number;
     suggestedText: string | null;
     outcome: string | null;
+    turnMode?: string | null;
   }[];
 };
 
@@ -65,6 +69,12 @@ export default function CreatorAiSettingsPage() {
   const [usageSummary, setUsageSummary] = useState<AiUsageSummary | null>(null);
   const [usageLoading, setUsageLoading] = useState(false);
   const [usageError, setUsageError] = useState("");
+
+  const turnModeOptions: { value: AiTurnMode; label: string }[] = [
+    { value: "HEATUP", label: "Calentar" },
+    { value: "PACK_PUSH", label: "Empujar pack" },
+    { value: "VIP_CARE", label: "Cuidar VIP" },
+  ];
 
   useEffect(() => {
     fetchSettings();
@@ -88,7 +98,14 @@ export default function CreatorAiSettingsPage() {
       })(),
       createdAt: raw.createdAt,
       updatedAt: raw.updatedAt,
+      turnMode: turnModeFromRaw(raw.turnMode),
     };
+  }
+
+  function turnModeFromRaw(value: unknown): AiTurnMode {
+    const parsed = typeof value === "string" ? value : "";
+    const valid = (AI_TURN_MODES as readonly string[]).includes(parsed) ? (parsed as AiTurnMode) : "HEATUP";
+    return valid;
   }
 
   async function fetchSettings() {
@@ -112,6 +129,7 @@ export default function CreatorAiSettingsPage() {
     setSettings(next);
     setForm({
       tone: next.tone || "",
+      turnMode: next.turnMode || "HEATUP",
       creditsAvailable: Number.isFinite(next.creditsAvailable) ? next.creditsAvailable : 0,
       hardLimitPerDay: next.hardLimitPerDay === null ? "" : next.hardLimitPerDay,
       allowAutoLowPriority: next.allowAutoLowPriority,
@@ -172,6 +190,7 @@ export default function CreatorAiSettingsPage() {
 
     const payload: Partial<CreatorAiSettings> = {
       tone: form.tone,
+      turnMode: form.turnMode,
       creditsAvailable: typeof form.creditsAvailable === "number" ? form.creditsAvailable : 0,
       hardLimitPerDay: form.hardLimitPerDay === "" ? null : form.hardLimitPerDay ?? null,
       allowAutoLowPriority: form.allowAutoLowPriority,
@@ -254,7 +273,7 @@ export default function CreatorAiSettingsPage() {
 
           {form && (
             <form onSubmit={handleSubmit} className="flex flex-col gap-4">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <div className="flex flex-col gap-2">
                   <label className="text-sm text-slate-200 font-medium">Tono de la IA</label>
                   <select
@@ -265,6 +284,22 @@ export default function CreatorAiSettingsPage() {
                     {["cercano", "profesional", "juguetón"].map((option) => (
                       <option key={option} value={option}>
                         {option.charAt(0).toUpperCase() + option.slice(1)}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div className="flex flex-col gap-2">
+                  <label className="text-sm text-slate-200 font-medium">Modo de turno</label>
+                  <select
+                    value={form.turnMode}
+                    onChange={(e) =>
+                      setForm((prev) => (prev ? { ...prev, turnMode: e.target.value as AiTurnMode } : prev))
+                    }
+                    className="w-full rounded-lg bg-slate-800/70 border border-slate-700 px-3 py-2 text-sm text-white focus:border-emerald-400"
+                  >
+                    {turnModeOptions.map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
                       </option>
                     ))}
                   </select>

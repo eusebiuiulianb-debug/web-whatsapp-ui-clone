@@ -34,6 +34,8 @@ export default function ConversationList(props: ConversationListProps) {
   const nameTint = accessState === "expired" ? "text-[#7d8a93]" : nameClasses;
   const followUpTag = getFollowUpTag(membershipStatus, daysLeft, data.activeGrantTypes);
   const notesCount = data.notesCount ?? 0;
+  const segment = (data.segment || "").toUpperCase();
+  const riskLevel = ((data as any).riskLevel || "LOW").toUpperCase();
   const customerTier = (data.customerTier ?? "new") as "new" | "regular" | "vip" | "priority";
   const lifetimeValue = data.lifetimeSpend ?? data.lifetimeValue ?? 0; // usar siempre el gasto total acumulado
   const hasNextAction = typeof data.nextAction === "string" && data.nextAction.trim().length > 0;
@@ -53,9 +55,22 @@ export default function ConversationList(props: ConversationListProps) {
     return "new";
   }
 
-  const normalizedTier = normalizeTier(customerTier);
-  const tierLabel = normalizedTier === "vip" ? "VIP" : normalizedTier === "regular" ? "Habitual" : "Nuevo";
-  const isHighPriority = (data as any).isHighPriority === true || normalizedTier === "vip";
+  const normalizedTierFromSegment =
+    segment === "VIP" ? "vip" : segment === "LEAL_ESTABLE" ? "regular" : segment === "NUEVO" ? "new" : null;
+  const normalizedTier = normalizedTierFromSegment ?? normalizeTier(customerTier);
+  const tierLabel =
+    segment === "EN_RIESGO"
+      ? "En riesgo"
+      : normalizedTier === "vip"
+      ? "VIP"
+      : normalizedTier === "regular"
+      ? "Habitual"
+      : "Nuevo";
+  const isHighPriority =
+    segment === "EN_RIESGO" ||
+    (segment === "VIP" && riskLevel !== "LOW") ||
+    (data as any).isHighPriority === true ||
+    normalizedTier === "vip";
   const totalSpent = Math.round(lifetimeValue ?? 0);
   const notesLabel = `${notesCount} nota${notesCount === 1 ? "" : "s"}`;
   const extrasCount = data.extrasCount ?? 0;
