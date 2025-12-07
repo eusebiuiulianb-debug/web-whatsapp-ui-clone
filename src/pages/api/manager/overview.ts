@@ -1,6 +1,7 @@
 import type { NextApiRequest, NextApiResponse } from "next";
 import prisma from "../../../lib/prisma";
 import { buildManagerQueueForCreator } from "../../../server/manager/managerService";
+import { addDaysFrom } from "../../../server/manager/dateUtils";
 
 const DEFAULT_CREATOR_ID = "creator-1";
 
@@ -21,12 +22,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
     // KPIs básicos reutilizando extraPurchase + accessGrant (sencillo, sin duplicar lógica)
     const now = new Date();
-    const start7 = new Date(now);
-    start7.setDate(start7.getDate() - 7);
-    const start30 = new Date(now);
-    start30.setDate(start30.getDate() - 30);
-    const expiryWindow = new Date(now);
-    expiryWindow.setDate(expiryWindow.getDate() + 7);
+    const start7 = addDaysFrom(now, -7) ?? now;
+    const start30 = addDaysFrom(now, -30) ?? now;
+    const expiryWindow = addDaysFrom(now, 7) ?? now;
 
     const [extras7, extras30, grants7, grants30, newFans7, expiringGrants] = await Promise.all([
       prisma.extraPurchase.aggregate({

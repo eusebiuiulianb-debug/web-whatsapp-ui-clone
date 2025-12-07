@@ -1,4 +1,5 @@
 import { PrismaClient } from "@prisma/client";
+import { addDaysFrom, daysBetween } from "./dateUtils";
 
 // Thresholds de segmentación/health
 export const VIP_LTV_THRESHOLD = 200;
@@ -163,12 +164,6 @@ export function calculateSegmentForFan(args: {
   return "LIGERO";
 }
 
-function daysBetween(a?: Date | null, b?: Date | null): number | null {
-  if (!a || !b) return null;
-  const diff = a.getTime() - b.getTime();
-  return Math.floor(diff / (1000 * 60 * 60 * 24));
-}
-
 function buildNextBestAction(input: {
   segment: Segment;
   riskLevel: "LOW" | "MEDIUM" | "HIGH";
@@ -317,7 +312,7 @@ export async function buildManagerQueueForCreator(creatorId: string, prisma: Pri
     const hasActiveMonthlyOrSpecial =
       fan.accessGrants.some((g) => g.expiresAt > now && (g.type === "monthly" || g.type === "special"));
     const expiry = activeGrant ? activeGrant.expiresAt : null;
-    const daysToExpiry = expiry ? Math.ceil((expiry.getTime() - now.getTime()) / (1000 * 60 * 60 * 24)) : null;
+    const daysToExpiry = daysBetween(expiry, now);
     const daysSinceLastMessage = daysBetween(now, lastMessageAt);
     const daysSinceLastPurchase = daysBetween(now, lastPurchaseAt);
     const daysSinceCreated = null;
@@ -393,22 +388,17 @@ export async function buildFanManagerSummary(creatorId: string, fanId: string, p
     .filter((d) => !Number.isNaN(d.getTime()))
     .sort((a, b) => b.getTime() - a.getTime())[0];
   const lastPurchase = fan.extraPurchases.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())[0];
-  const daysSinceLastMessage = lastMsg ? Math.floor((now.getTime() - lastMsg.getTime()) / (1000 * 60 * 60 * 24)) : null;
-  const daysSinceLastPurchase = lastPurchase
-    ? Math.floor((now.getTime() - lastPurchase.createdAt.getTime()) / (1000 * 60 * 60 * 24))
-    : null;
+  const daysSinceLastMessage = daysBetween(now, lastMsg);
+  const daysSinceLastPurchase = daysBetween(now, lastPurchase?.createdAt);
 
   const activeGrant = fan.accessGrants.find((g) => g.expiresAt > now) ?? null;
-  const daysToExpiry = activeGrant
-    ? Math.ceil((activeGrant.expiresAt.getTime() - now.getTime()) / (1000 * 60 * 60 * 24))
-    : null;
+  const daysToExpiry = daysBetween(activeGrant?.expiresAt, now);
   const hasActivePack = Boolean(activeGrant);
 
   const lifetimeValue = fan.lifetimeValue ?? 0;
   let recent30dSpend = fan.recent30dSpend ?? 0;
   if (!recent30dSpend) {
-    const start30 = new Date(now);
-    start30.setDate(start30.getDate() - 30);
+    const start30 = addDaysFrom(now, -30) ?? now;
     recent30dSpend = fan.extraPurchases
       .filter((p) => p.createdAt >= start30)
       .reduce((acc, p) => acc + (p.amount ?? 0), 0);
