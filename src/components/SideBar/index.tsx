@@ -208,7 +208,7 @@ export default function SideBar() {
   async function updateUnreadCounts(fanList: ConversationListData[], map: UnreadMap) {
     const entries = await Promise.all(
       fanList.map(async (fan) => {
-        const lastRead = getLastReadForFan(map, fan.id);
+        const lastRead = getLastReadForFan(map, fan.id as string);
         if (!lastRead) return { id: fan.id, count: 0 };
         try {
           const res = await fetch(`/api/messages?fanId=${fan.id}`);
@@ -230,14 +230,14 @@ export default function SideBar() {
     );
 
     const byId = entries.reduce<Record<string, number>>((acc, curr) => {
-      acc[curr.id] = curr.count;
+      if (curr.id) acc[curr.id] = curr.count;
       return acc;
     }, {});
 
     setFans((prev) =>
       prev.map((fan) => ({
         ...fan,
-        unreadCount: byId[fan.id] ?? fan.unreadCount,
+        unreadCount: fan.id ? byId[fan.id] ?? fan.unreadCount : fan.unreadCount,
       }))
     );
   }

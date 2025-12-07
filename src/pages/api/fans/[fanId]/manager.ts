@@ -1,6 +1,7 @@
 import type { NextApiRequest, NextApiResponse } from "next";
 import prisma from "../../../../lib/prisma";
 import { buildFanManagerSummary } from "../../../../server/manager/managerService";
+import { FanManagerSummarySchema, type FanManagerSummary } from "../../../../server/manager/managerSchemas";
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   const fanId = typeof req.query.fanId === "string" ? req.query.fanId : null;
@@ -11,7 +12,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   if (!fanId) return res.status(400).json({ error: "Missing fanId" });
 
   try {
-    const summary = await buildFanManagerSummary("creator-1", fanId, prisma);
+    const rawSummary = await buildFanManagerSummary("creator-1", fanId, prisma);
+    const summary: FanManagerSummary = FanManagerSummarySchema.parse(rawSummary);
     return res.status(200).json(summary);
   } catch (err) {
     if (err instanceof Error && err.message === "NOT_FOUND") {

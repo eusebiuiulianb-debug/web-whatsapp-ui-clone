@@ -1,5 +1,21 @@
 import { PrismaClient } from "@prisma/client";
 import { addDaysFrom, daysBetween } from "./dateUtils";
+import {
+  ACTION_OBJECTIVES,
+  SUMMARY_PROFILE_COPY,
+  SUMMARY_RECENT_COPY,
+  SUMMARY_OPPORTUNITY_COPY,
+  type SummaryProfileId,
+  type SummaryRecentId,
+} from "./managerCopyConfig";
+import { CreatorAiContextSchema } from "./managerSchemas";
+import type { CreatorAiContext } from "./managerSchemas";
+import {
+  decideNextBestAction,
+  DORMANT_DAYS as IA_DORMANT_DAYS,
+  type IaRuleContext,
+  type NextBestActionId,
+} from "./managerIaConfig";
 
 // Thresholds de segmentación/health
 export const VIP_LTV_THRESHOLD = 200;
@@ -26,6 +42,10 @@ export type Segment =
   | "DORMIDO"
   | "LIGERO";
 
+export type RelationshipStage = "NUEVO" | "CALENTANDO" | "FIEL" | "RIESGO";
+
+export type CommunicationStyle = "CERCANO" | "DIRECTO" | "JUGUETON" | "SERIO";
+
 export type FanManagerRow = {
   id: string;
   displayName: string;
@@ -35,6 +55,7 @@ export type FanManagerRow = {
   daysToExpiry: number | null;
   lifetimeValue: number;
   recent30dSpend: number;
+  relationshipStage: RelationshipStage;
 };
 
 export type ManagerMessageSuggestion = {
@@ -58,6 +79,39 @@ export type FanManagerSummary = {
   recommendedButtons: string[];
   objectiveToday: string;
   messageSuggestions: ManagerMessageSuggestion[];
+  relationshipStage: RelationshipStage;
+  communicationStyle: CommunicationStyle | null;
+  lastTopic: string | null;
+  personalizationHints: string | null;
+  summary: {
+    profile: string;
+    recent: string;
+    opportunity: string;
+  };
+  aiContext: FanManagerAiContext;
+};
+
+export type FanManagerAiContext = {
+  fanId: string;
+  displayName: string;
+  segment: Segment;
+  stageLabel: string;
+  riskLevel: "LOW" | "MEDIUM" | "HIGH";
+  healthScore: number | null;
+  lifetimeSpent: number;
+  spentLast30Days: number;
+  extrasCount: number;
+  daysSinceLastMessage: number | null;
+  daysToRenewal: number | null;
+  hasActiveMonthly: boolean;
+  hasActiveTrial: boolean;
+  hasActiveSpecialPack: boolean;
+  summary: {
+    profile: string;
+    recent: string;
+    opportunity: string;
+  };
+  mode?: string | null;
 };
 
 function clamp(value: number, min: number, max: number) {
@@ -164,125 +218,328 @@ export function calculateSegmentForFan(args: {
   return "LIGERO";
 }
 
-function buildNextBestAction(input: {
+type FanStats = {
   segment: Segment;
   riskLevel: "LOW" | "MEDIUM" | "HIGH";
+  healthScore: number;
+  lifetimeValue: number;
+  recent30dSpend: number;
   hasActivePack: boolean;
   daysToExpiry: number | null;
-  recent30dSpend: number;
+  daysSinceLastMessage: number | null;
+  daysSinceLastPurchase: number | null;
+  isNew: boolean;
+  lifetimeExtraSpend: number;
+};
+
+function inferRelationshipStage(stats: FanStats): RelationshipStage {
+  const expiryRisk = typeof stats.daysToExpiry === "number" && stats.daysToExpiry <= PACK_EXPIRY_WINDOW_DAYS;
+  if (stats.riskLevel === "HIGH" || stats.healthScore <= AT_RISK_HEALTH_MAX || expiryRisk) {
+    return "RIESGO";
+  }
+  if (stats.isNew || stats.segment === "NUEVO") return "NUEVO";
+  if (
+    stats.segment === "VIP" ||
+    stats.segment === "LEAL_ESTABLE" ||
+    stats.healthScore >= 75 ||
+    stats.lifetimeValue >= VIP_LTV_THRESHOLD ||
+    stats.recent30dSpend >= 50
+  ) {
+    return "FIEL";
+  }
+  return "CALENTANDO";
+}
+
+function inferCommunicationStyle(stats: FanStats, relationshipStage: RelationshipStage): CommunicationStyle {
+  if (relationshipStage === "RIESGO" || stats.segment === "EN_RIESGO") return "DIRECTO";
+  if (relationshipStage === "NUEVO") return "CERCANO";
+  if (stats.segment === "VIP" || stats.healthScore >= 70 || stats.lifetimeValue >= VIP_LTV_THRESHOLD) return "JUGUETON";
+  return "SERIO";
+}
+
+function inferLastTopic(notes?: { content?: string | null }[] | null): string | null {
+  const content = notes?.[0]?.content?.trim();
+  if (!content) return null;
+  if (content.length > 100) return `${content.slice(0, 100)}...`;
+  return content;
+}
+
+function buildPersonalizationHints(
+  stats: FanStats,
+  relationshipStage: RelationshipStage,
+  communicationStyle: CommunicationStyle
+): string | null {
+  if (relationshipStage === "RIESGO") {
+    return "Esta en riesgo; ofrece opciones claras y precios concretos.";
+  }
+  if (relationshipStage === "NUEVO") {
+    return "Es nuevo; haz preguntas abiertas y guíale al pack adecuado.";
+  }
+  if (communicationStyle === "JUGUETON") {
+    return "Le va un tono juguetón y cercano; añade complicidad en tu mensaje.";
+  }
+  if (communicationStyle === "DIRECTO") {
+    return "Prefiere que vayas directo con propuestas y precios claros.";
+  }
+  if (stats.recent30dSpend > 0) {
+    return "Ha gastado recientemente; ofrécele algo alineado con lo último que compró.";
+  }
+  return null;
+}
+
+function buildRelationshipSummary(input: {
+  segment: Segment;
+  riskLevel: "LOW" | "MEDIUM" | "HIGH";
+  daysToExpiry: number | null;
+  daysSinceLastMessage: number | null;
+  daysSinceLastPurchase: number | null;
   lifetimeValue: number;
-}): {
-  action: FanManagerSummary["nextBestAction"];
-  reason: string;
-  buttons: string[];
-  objective: string;
-  suggestions: ManagerMessageSuggestion[];
-} {
-  const { segment, riskLevel, hasActivePack, daysToExpiry, recent30dSpend, lifetimeValue } = input;
-
-  // Caso A: en riesgo con caducidad pronta
-  if (segment === "EN_RIESGO" && hasActivePack && typeof daysToExpiry === "number" && daysToExpiry <= 3) {
-    return {
-      action: "RENOVAR_PACK",
-      reason: "Pack a punto de caducar y ha gastado dinero contigo. Buen momento para ofrecer renovación.",
-      objective: "Confirmar si quiere seguir este mes y cerrar la renovación con un tono cercano, no agresivo.",
-      buttons: ["renenganche", "elegir_pack"],
-      suggestions: [
-        {
-          id: "renovar_check_suave",
-          label: "Check de renovación",
-          text:
-            "Hola {nombre}, vengo a hacer un check rápido contigo. Tu suscripción está a punto de renovarse y me gustaría saber qué te ha sido más útil este mes o si hay algo que quieras ajustar antes de seguir. Si quieres que sigamos, te dejo el enlace de renovación por aquí.",
-        },
-        {
-          id: "ofrecer_subida_pack",
-          label: "Subir a especial",
-          text:
-            "Estoy viendo todo lo que has aprovechado del pack mensual y creo que el pack especial te podría encajar muy bien: incluye lo mismo, pero con [fotos / vídeos / escenas] más intensas. Si te apetece subir de nivel, te explico cómo quedaría y el precio.",
-        },
-      ],
-    };
+  recent30dSpend: number;
+  lifetimeExtraSpend: number;
+  nextBestActionId: NextBestActionId;
+  isNewFan: boolean;
+}): { profile: string; recent: string; opportunity: string } {
+  let profileKey: SummaryProfileId = "DEFAULT";
+  if (input.segment === "VIP" || input.lifetimeValue >= VIP_LTV_THRESHOLD) {
+    profileKey = "VIP_CORE";
+  } else if (input.riskLevel === "HIGH") {
+    profileKey = "RISK";
+  } else if (input.segment === "NUEVO" || input.isNewFan) {
+    const engaged = input.lifetimeExtraSpend > 0 || input.recent30dSpend > 0;
+    profileKey = engaged ? "NEW_ENGAGED" : "NEW_TRIAL";
+  } else if (input.segment === "LEAL_ESTABLE") {
+    profileKey = "LOYAL";
   }
 
-  // Caso B: VIP estable
-  if (segment === "VIP" && riskLevel === "LOW") {
-    return {
-      action: "CUIDAR_VIP",
-      reason: "Fan de alto valor con buena salud. Prioridad: mantener vínculo.",
-      objective: "Hacerle sentir trato preferente y escuchar qué le apetece a continuación.",
-      buttons: ["saludo_rapido", "extra_rapido"],
-      suggestions: [
-        {
-          id: "cuidado_vip",
-          label: "Cuidado VIP",
-          text:
-            "Oye {nombre}, me he acordado de ti porque eres de las personas que más han apostado por mi contenido. ¿Cómo vienes estos días? Si hay algo que te apetezca probar o cambiar, lo vemos y lo montamos a tu medida.",
-        },
-      ],
-    };
+  let recentKey: SummaryRecentId = "DEFAULT";
+  if (typeof input.daysToExpiry === "number" && input.daysToExpiry <= PACK_EXPIRY_AT_RISK_DAYS) {
+    recentKey = "EXPIRY_SOON";
+  } else if (typeof input.daysSinceLastPurchase === "number" && input.daysSinceLastPurchase > 30) {
+    recentKey = "NO_PURCHASE_LONG";
+  } else if (typeof input.daysSinceLastMessage === "number" && input.daysSinceLastMessage <= 3) {
+    recentKey = "ACTIVE_CHAT";
+  } else if (input.riskLevel === "HIGH") {
+    recentKey = "RISK_ZONE";
   }
 
-  // Caso C: Nuevo
-  if (segment === "NUEVO") {
-    return {
-      action: "BIENVENIDA",
-      reason: "Fan nuevo sin mucha historia aún. Buen momento para presentarte y preguntarle qué busca.",
-      objective: "Romper el hielo, entender qué busca y guiarle al pack que más sentido tenga.",
-      buttons: ["saludo_rapido", "pack_bienvenida"],
-      suggestions: [
-        {
-          id: "bienvenida_guiada",
-          label: "Bienvenida guiada",
-          text:
-            "Hola {nombre}, gracias por suscribirte. Antes de proponerte nada me gustaría saber qué buscas exactamente: ¿más conexión, ideas concretas, algo muy específico que te gustaría recibir de mí? Así te guío al pack que mejor te encaje.",
-        },
-      ],
-    };
-  }
-
-  // Caso D: Dormido
-  if (segment === "DORMIDO") {
-    return {
-      action: "REACTIVAR_DORMIDO",
-      reason: "Fue cliente pero lleva mucho tiempo sin escribir ni comprar.",
-      objective: "Tocar la puerta con un mensaje ligero para ver si sigue ahí, sin presionar.",
-      buttons: ["saludo_rapido"],
-      suggestions: [
-        {
-          id: "reactivar_suave",
-          label: "Reactivar suave",
-          text:
-            "Hola {nombre}, hacía tiempo que no pasaba por aquí y me he acordado de ti. No sé si sigues interesad@ en este tipo de contenido, pero si te apetece retomarlo o probar algo nuevo, estoy aquí y lo ajustamos a tu ritmo.",
-        },
-      ],
-    };
-  }
-
-  // Caso E: Ligero/Habitual sin riesgo
-  if ((segment === "LIGERO" || segment === "LEAL_ESTABLE") && recent30dSpend < 10 && lifetimeValue > 50) {
-    return {
-      action: "OFRECER_EXTRA",
-      reason: "Ha sido buen cliente en el pasado pero ahora está más frío. Un extra bien colocado puede reactivar la relación.",
-      objective: "Ofrecerle una pieza extra concreta alineada con lo que ya te ha comprado.",
-      buttons: ["extra_rapido"],
-      suggestions: [
-        {
-          id: "extra_a_medida",
-          label: "Extra a medida",
-          text:
-            "Estaba revisando lo que te ha gustado hasta ahora y se me ha ocurrido una idea de extra que puede encajarte muy bien: [describe el extra]. Si te resuena, te explico cómo sería y te paso el precio.",
-        },
-      ],
-    };
-  }
+  const profile = SUMMARY_PROFILE_COPY[profileKey];
+  const recent = SUMMARY_RECENT_COPY[recentKey];
+  const opportunity = SUMMARY_OPPORTUNITY_COPY[input.nextBestActionId] ?? SUMMARY_OPPORTUNITY_COPY.NEUTRAL;
 
   return {
-    action: "NEUTRO",
-    reason: "No hay nada urgente. Puedes seguir el flujo normal de conversación.",
-    objective: "Seguir la conversación normal, escuchar y responder.",
-    buttons: [],
-    suggestions: [],
+    profile,
+    recent,
+    opportunity,
   };
+}
+
+function buildAiContext(input: {
+  fanId: string;
+  displayName: string;
+  segment: Segment;
+  relationshipStage: RelationshipStage;
+  riskLevel: "LOW" | "MEDIUM" | "HIGH";
+  healthScore: number;
+  lifetimeValue: number;
+  recent30dSpend: number;
+  extrasCount: number;
+  daysSinceLastMessage: number | null;
+  daysToExpiry: number | null;
+  hasActiveMonthly: boolean;
+  hasActiveTrial: boolean;
+  hasActiveSpecialPack: boolean;
+  summary: { profile: string; recent: string; opportunity: string };
+  nextBestAction: FanManagerSummary["nextBestAction"];
+  nextBestActionId: NextBestActionId;
+}): FanManagerAiContext {
+  return {
+    fanId: input.fanId,
+    displayName: input.displayName,
+    segment: input.segment,
+    stageLabel: input.relationshipStage,
+    riskLevel: input.riskLevel,
+    healthScore: input.healthScore,
+    lifetimeSpent: input.lifetimeValue,
+    spentLast30Days: input.recent30dSpend,
+    extrasCount: input.extrasCount,
+    daysSinceLastMessage: input.daysSinceLastMessage,
+    daysToRenewal: input.daysToExpiry,
+    hasActiveMonthly: input.hasActiveMonthly,
+    hasActiveTrial: input.hasActiveTrial,
+    hasActiveSpecialPack: input.hasActiveSpecialPack,
+    summary: input.summary,
+    mode: input.nextBestAction ?? input.nextBestActionId,
+  };
+}
+
+function getGrantAmount(type: string): number {
+  const lower = (type || "").toLowerCase();
+  if (lower === "monthly") return 25;
+  if (lower === "special" || lower === "single") return 49;
+  return 0;
+}
+
+export async function buildCreatorAiContext(creatorId: string, prisma: PrismaClient): Promise<CreatorAiContext> {
+  const now = new Date();
+  const start30 = addDaysFrom(now, -30) ?? new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+
+  const [fans, activeGrants, grantsLast30, extrasLast30, extrasAll] = await Promise.all([
+    prisma.fan.findMany({
+      where: { creatorId },
+      select: {
+        id: true,
+        lifetimeValue: true,
+        isNew: true,
+        accessGrants: { select: { type: true, createdAt: true, expiresAt: true } },
+        extraPurchases: { select: { amount: true, createdAt: true, tier: true } },
+      },
+    }),
+    prisma.accessGrant.findMany({
+      where: { fan: { creatorId }, expiresAt: { gt: now } },
+      select: { fanId: true, type: true, createdAt: true, expiresAt: true },
+    }),
+    prisma.accessGrant.findMany({
+      where: { fan: { creatorId }, createdAt: { gte: start30 } },
+      select: { fanId: true, type: true, createdAt: true, expiresAt: true },
+    }),
+    prisma.extraPurchase.findMany({
+      where: { fan: { creatorId }, createdAt: { gte: start30 } },
+      select: { amount: true, tier: true, createdAt: true },
+    }),
+    prisma.extraPurchase.findMany({
+      where: { fan: { creatorId } },
+      select: { amount: true, tier: true, createdAt: true },
+    }),
+  ]);
+
+  const totalFans = fans.length;
+
+  const activeFanIds = new Set(activeGrants.map((g) => g.fanId));
+  const activeFans = activeFanIds.size;
+
+  const trialOrFirstMonthFans = new Set(
+    grantsLast30
+      .filter((g) => g.type === "trial" || g.type === "welcome" || g.type === "monthly")
+      .map((g) => g.fanId)
+  ).size;
+
+  let churn30d = 0;
+  for (const fan of fans) {
+    const lastGrant = fan.accessGrants.sort((a, b) => b.expiresAt.getTime() - a.expiresAt.getTime())[0];
+    if (
+      lastGrant &&
+      lastGrant.expiresAt <= now &&
+      lastGrant.expiresAt >= start30 &&
+      !activeFanIds.has(fan.id)
+    ) {
+      churn30d += 1;
+    }
+  }
+
+  const vipFans = fans.filter((f) => (f.lifetimeValue ?? 0) >= VIP_LTV_THRESHOLD).length;
+
+  const monthlyExtraRevenue = extrasLast30.reduce((acc, p) => acc + (p.amount ?? 0), 0);
+  const monthlySubsRevenue = grantsLast30
+    .filter((g) => g.type === "monthly")
+    .reduce((acc, g) => acc + getGrantAmount(g.type), 0);
+
+  const tiersLast30 = extrasLast30.map((e) => e.tier).filter((t) => Boolean(t)) as string[];
+  const topPackType =
+    tiersLast30.length > 0
+      ? tiersLast30.reduce(
+          (best, current) => {
+            const countCurrent = tiersLast30.filter((t) => t === current).length;
+            const countBest = tiersLast30.filter((t) => t === best).length;
+            return countCurrent > countBest ? current : best;
+          },
+          tiersLast30[0]
+        )
+      : null;
+
+  const allTiers = extrasAll.map((e) => e.tier).filter((t) => Boolean(t)) as string[];
+  const recentTierSet = new Set(tiersLast30);
+  const lowStockPackTypes = Array.from(new Set(allTiers.filter((t) => !recentTierSet.has(t))));
+
+  const avgMessagesPerFan = null;
+
+  let lastContentRefreshDays: number | null = null;
+  const latestExtra = extrasAll.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())[0];
+  const latestSpecialGrant = fans
+    .flatMap((f) => f.accessGrants)
+    .filter((g) => g.type === "special")
+    .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())[0];
+  const latestDate = latestExtra?.createdAt || latestSpecialGrant?.createdAt;
+  if (latestDate) {
+    lastContentRefreshDays = daysBetween(now, latestDate);
+  }
+
+  return CreatorAiContextSchema.parse({
+    totalFans,
+    activeFans,
+    trialOrFirstMonthFans,
+    churn30d,
+    vipFans,
+    monthlyExtraRevenue,
+    monthlySubsRevenue,
+    topPackType,
+    lowStockPackTypes,
+    avgMessagesPerFan,
+    lastContentRefreshDays,
+  });
+}
+
+function mapDecisionToAction(id: NextBestActionId): FanManagerSummary["nextBestAction"] {
+  switch (id) {
+    case "RENEW_HARD":
+    case "RENEW_SOFT":
+      return "RENOVAR_PACK";
+    case "FIRST_WELCOME":
+      return "BIENVENIDA";
+    case "FIRST_EXTRA":
+    case "RECOVER_TOP_FAN":
+      return "OFRECER_EXTRA";
+    case "WAKE_DORMANT":
+      return "REACTIVAR_DORMIDO";
+    default:
+      return "NEUTRO";
+  }
+}
+
+function getActionMeta(action: FanManagerSummary["nextBestAction"]): { buttons: string[]; objective: string } {
+  const objective = ACTION_OBJECTIVES[action] ?? "Seguir la conversación normal, escuchar y responder.";
+
+  switch (action) {
+    case "RENOVAR_PACK":
+      return {
+        buttons: ["renenganche", "elegir_pack"],
+        objective,
+      };
+    case "CUIDAR_VIP":
+      return {
+        buttons: ["saludo_rapido", "extra_rapido"],
+        objective,
+      };
+    case "BIENVENIDA":
+      return {
+        buttons: ["saludo_rapido", "pack_bienvenida"],
+        objective,
+      };
+    case "REACTIVAR_DORMIDO":
+      return {
+        buttons: ["saludo_rapido"],
+        objective,
+      };
+    case "OFRECER_EXTRA":
+      return {
+        buttons: ["extra_rapido"],
+        objective,
+      };
+    default:
+      return {
+        buttons: [],
+        objective,
+      };
+  }
 }
 
 export async function buildManagerQueueForCreator(creatorId: string, prisma: PrismaClient): Promise<FanManagerRow[]> {
@@ -301,6 +558,7 @@ export async function buildManagerQueueForCreator(creatorId: string, prisma: Pri
   for (const fan of fans) {
     const lastMsg = fan.messages
       .map((m) => m.time)
+      .filter((t): t is string => Boolean(t))
       .map((t) => new Date(t))
       .filter((d) => !Number.isNaN(d.getTime()))
       .sort((a, b) => b.getTime() - a.getTime())[0];
@@ -317,6 +575,7 @@ export async function buildManagerQueueForCreator(creatorId: string, prisma: Pri
     const daysSinceLastPurchase = daysBetween(now, lastPurchaseAt);
     const daysSinceCreated = null;
     const lifetimeValue = fan.lifetimeValue ?? 0;
+    const lifetimeExtraSpend = fan.extraPurchases.reduce((acc, p) => acc + (p.amount ?? 0), 0);
 
     const healthScore = calculateHealthScoreForFan({
       daysSinceLastMessage,
@@ -336,6 +595,20 @@ export async function buildManagerQueueForCreator(creatorId: string, prisma: Pri
       previousSegment: (fan.segment as Segment) ?? null,
     });
     const riskLevel = calculateRiskLevel(healthScore, daysToExpiry);
+    const stats: FanStats = {
+      segment,
+      riskLevel,
+      healthScore,
+      lifetimeValue,
+      recent30dSpend: fan.recent30dSpend ?? 0,
+      hasActivePack: Boolean(activeGrant),
+      daysToExpiry,
+      daysSinceLastMessage,
+      daysSinceLastPurchase,
+      isNew: Boolean(fan.isNew),
+      lifetimeExtraSpend,
+    };
+    const relationshipStage = inferRelationshipStage(stats);
 
     await prisma.fan.update({
       where: { id: fan.id },
@@ -358,6 +631,7 @@ export async function buildManagerQueueForCreator(creatorId: string, prisma: Pri
       daysToExpiry,
       lifetimeValue,
       recent30dSpend: fan.recent30dSpend ?? 0,
+      relationshipStage,
     });
   }
 
@@ -377,25 +651,37 @@ export async function buildFanManagerSummary(creatorId: string, fanId: string, p
   const now = new Date();
   const fan = await prisma.fan.findUnique({
     where: { id: fanId },
-    include: { accessGrants: true, extraPurchases: true, messages: true },
+    include: {
+      accessGrants: true,
+      extraPurchases: true,
+      messages: true,
+      notes: { orderBy: { createdAt: "desc" }, take: 1 },
+    },
   });
   if (!fan || fan.creatorId !== creatorId) {
     throw new Error("NOT_FOUND");
   }
 
   const lastMsg = fan.messages
-    .map((m) => new Date(m.time))
+    .map((m) => m.time)
+    .filter((t): t is string => Boolean(t))
+    .map((t) => new Date(t))
     .filter((d) => !Number.isNaN(d.getTime()))
     .sort((a, b) => b.getTime() - a.getTime())[0];
   const lastPurchase = fan.extraPurchases.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())[0];
   const daysSinceLastMessage = daysBetween(now, lastMsg);
   const daysSinceLastPurchase = daysBetween(now, lastPurchase?.createdAt);
 
-  const activeGrant = fan.accessGrants.find((g) => g.expiresAt > now) ?? null;
+  const activeGrants = fan.accessGrants.filter((g) => g.expiresAt > now);
+  const activeGrant = activeGrants[0] ?? null;
   const daysToExpiry = daysBetween(activeGrant?.expiresAt, now);
-  const hasActivePack = Boolean(activeGrant);
+  const hasActivePack = activeGrants.length > 0;
+  const hasActiveMonthly = activeGrants.some((g) => g.type === "monthly");
+  const hasActiveTrial = activeGrants.some((g) => g.type === "trial" || g.type === "welcome");
+  const hasActiveSpecialPack = activeGrants.some((g) => g.type === "special");
 
   const lifetimeValue = fan.lifetimeValue ?? 0;
+  const lifetimeExtraSpend = fan.extraPurchases.reduce((acc, p) => acc + (p.amount ?? 0), 0);
   let recent30dSpend = fan.recent30dSpend ?? 0;
   if (!recent30dSpend) {
     const start30 = addDaysFrom(now, -30) ?? now;
@@ -403,6 +689,7 @@ export async function buildFanManagerSummary(creatorId: string, fanId: string, p
       .filter((p) => p.createdAt >= start30)
       .reduce((acc, p) => acc + (p.amount ?? 0), 0);
   }
+  const extrasCount = fan.extraPurchases.length;
 
   const healthScore = calculateHealthScoreForFan({
     daysSinceLastMessage,
@@ -421,6 +708,23 @@ export async function buildFanManagerSummary(creatorId: string, fanId: string, p
     previousSegment: (fan.segment as Segment) ?? null,
   });
   const riskLevel = calculateRiskLevel(healthScore, daysToExpiry);
+  const stats: FanStats = {
+    segment,
+    riskLevel,
+    healthScore,
+    lifetimeValue,
+    recent30dSpend,
+    hasActivePack,
+    daysToExpiry,
+    daysSinceLastMessage,
+    daysSinceLastPurchase,
+    isNew: Boolean(fan.isNew),
+    lifetimeExtraSpend,
+  };
+  const relationshipStage = inferRelationshipStage(stats);
+  const communicationStyle = inferCommunicationStyle(stats, relationshipStage);
+  const lastTopic = inferLastTopic(fan.notes);
+  const personalizationHints = buildPersonalizationHints(stats, relationshipStage, communicationStyle);
 
   let priorityRank: number | null = null;
   try {
@@ -431,13 +735,57 @@ export async function buildFanManagerSummary(creatorId: string, fanId: string, p
     priorityRank = null;
   }
 
-  const next = buildNextBestAction({
+  const decision: IaRuleContext = {
+    hasActiveSubscription: hasActivePack,
+    daysToExpiry,
+    isNewFan: Boolean(fan.isNew) || segment === "NUEVO" || relationshipStage === "NUEVO",
+    isDormant: typeof daysSinceLastMessage === "number" && daysSinceLastMessage > IA_DORMANT_DAYS,
+    lifetimeExtraSpend,
+    extraSpendLast30d: recent30dSpend,
+    lastPaidActionDaysAgo: daysSinceLastPurchase,
+    riskLevel,
+    healthScore,
+    relationshipStage,
+  };
+  const decisionResult = decideNextBestAction(decision);
+  const nextBestAction = mapDecisionToAction(decisionResult.id);
+  const actionMeta = getActionMeta(nextBestAction);
+  const suggestions: ManagerMessageSuggestion[] = decisionResult.suggestions.map((text, idx) => ({
+    id: `${decisionResult.id.toLowerCase()}_${idx + 1}`,
+    label: `${decisionResult.label} ${idx + 1}`,
+    text,
+  }));
+  const stageLabel = relationshipStage;
+  const summary = buildRelationshipSummary({
     segment,
     riskLevel,
-    hasActivePack,
     daysToExpiry,
-    recent30dSpend,
+    daysSinceLastMessage,
+    daysSinceLastPurchase,
     lifetimeValue,
+    recent30dSpend,
+    lifetimeExtraSpend,
+    nextBestActionId: decisionResult.id,
+    isNewFan: Boolean(fan.isNew) || segment === "NUEVO" || relationshipStage === "NUEVO",
+  });
+  const aiContext = buildAiContext({
+    fanId,
+    displayName: fan.name,
+    segment,
+    relationshipStage,
+    riskLevel,
+    healthScore,
+    lifetimeValue,
+    recent30dSpend,
+    extrasCount,
+    daysSinceLastMessage,
+    daysToExpiry,
+    hasActiveMonthly,
+    hasActiveTrial,
+    hasActiveSpecialPack,
+    summary,
+    nextBestAction,
+    nextBestActionId: decisionResult.id,
   });
 
   return {
@@ -450,10 +798,16 @@ export async function buildFanManagerSummary(creatorId: string, fanId: string, p
     recent30dSpend,
     lifetimeValue,
     priorityRank,
-    priorityReason: next.reason,
-    nextBestAction: next.action,
-    recommendedButtons: next.buttons,
-    objectiveToday: next.objective,
-    messageSuggestions: next.suggestions,
+    priorityReason: decisionResult.priorityReason,
+    nextBestAction,
+    recommendedButtons: actionMeta.buttons,
+    objectiveToday: actionMeta.objective,
+    messageSuggestions: suggestions,
+    relationshipStage,
+    communicationStyle,
+    lastTopic,
+    personalizationHints,
+    summary,
+    aiContext,
   };
 }

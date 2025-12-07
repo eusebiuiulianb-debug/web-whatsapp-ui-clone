@@ -1,10 +1,12 @@
 import { FormEvent, useEffect, useState } from "react";
 import { useRouter } from "next/router";
-import { Content, ContentPack, ContentType, ContentVisibility, ExtraTier, TimeOfDay } from "@prisma/client";
+import { ContentPack, ContentType, ContentVisibility, ExtraTier, TimeOfDay, Prisma } from "@prisma/client";
+
+type ContentItem = Prisma.ContentItemGetPayload<{}>;
 
 type NewContentModalProps = {
   mode: "create" | "edit";
-  initialContent?: Content;
+  initialContent?: ContentItem;
   createDefaults?: {
     visibility?: ContentVisibility;
     extraTier?: ExtraTier;
@@ -41,7 +43,7 @@ export function NewContentModal({ onClose, mode, initialContent, createDefaults 
       setVisibility(initialContent.visibility);
       setExtraTier(initialContent.extraTier ?? "T1");
       setTimeOfDay(initialContent.timeOfDay ?? "ANY");
-      setMediaPath(initialContent.mediaPath);
+      setMediaPath(initialContent.mediaPath ?? "");
     }
     if (mode === "create") {
       setTitle("");

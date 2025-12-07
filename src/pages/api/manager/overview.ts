@@ -2,6 +2,7 @@ import type { NextApiRequest, NextApiResponse } from "next";
 import prisma from "../../../lib/prisma";
 import { buildManagerQueueForCreator } from "../../../server/manager/managerService";
 import { addDaysFrom } from "../../../server/manager/dateUtils";
+import { FanQueueItemSchema, type FanQueueItem } from "../../../server/manager/managerSchemas";
 
 const DEFAULT_CREATOR_ID = "creator-1";
 
@@ -13,7 +14,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
   try {
     const creatorId = DEFAULT_CREATOR_ID;
-    const queue = await buildManagerQueueForCreator(creatorId, prisma);
+    const queueRaw = await buildManagerQueueForCreator(creatorId, prisma);
+    const queue: FanQueueItem[] = FanQueueItemSchema.array().parse(queueRaw);
     const vipCount = queue.filter((f) => f.segment === "VIP").length;
     const atRiskCount = queue.filter((f) => f.segment === "EN_RIESGO").length;
     const newCount = queue.filter((f) => f.segment === "NUEVO").length;
@@ -126,6 +128,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       suggestions: actionsToday,
       revenueAtRisk7d,
       atRiskFansCount,
+      queue,
     });
   } catch (err) {
     console.error("Error loading manager overview", err);

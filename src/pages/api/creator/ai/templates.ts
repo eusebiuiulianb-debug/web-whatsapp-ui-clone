@@ -2,7 +2,7 @@ import type { NextApiRequest, NextApiResponse } from "next";
 import prisma from "../../../../lib/prisma";
 import { DEFAULT_AI_TEMPLATES } from "../../../../lib/defaultAiTemplates";
 import { AI_TEMPLATE_USAGES, AI_TURN_MODES, AiTemplateUsage, type AiTurnMode } from "../../../../lib/aiTemplateTypes";
-import type { ExtraTier } from "@prisma/client";
+import type { ExtraTier, Prisma } from "@prisma/client";
 
 type SaveTemplateBody = {
   id?: string;
@@ -64,18 +64,18 @@ async function handleGet(_req: NextApiRequest, res: NextApiResponse) {
 
     const missingModes = templates.filter((tpl) => !tpl.mode);
     if (missingModes.length > 0) {
-      const updates = missingModes
-        .map((tpl) => {
-          const defaultTpl = DEFAULT_AI_TEMPLATES.find(
-            (def) => def.usage === tpl.category && def.name === tpl.name && def.mode
-          );
-          if (!defaultTpl?.mode) return null;
-          return prisma.creatorAiTemplate.update({
+      const updates: Prisma.PrismaPromise<any>[] = missingModes.flatMap((tpl) => {
+        const defaultTpl = DEFAULT_AI_TEMPLATES.find(
+          (def) => def.usage === tpl.category && def.name === tpl.name && def.mode
+        );
+        if (!defaultTpl?.mode) return [];
+        return [
+          prisma.creatorAiTemplate.update({
             where: { id: tpl.id },
             data: { mode: defaultTpl.mode },
-          });
-        })
-        .filter(Boolean) as Promise<unknown>[];
+          }),
+        ];
+      });
       if (updates.length > 0) {
         await prisma.$transaction(updates);
         templates = await prisma.creatorAiTemplate.findMany({

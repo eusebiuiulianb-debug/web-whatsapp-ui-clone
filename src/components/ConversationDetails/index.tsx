@@ -861,7 +861,8 @@ export default function ConversationDetails({ onBackToBoard }: ConversationDetai
       }
 
       if (targetFan) {
-        setConversation((prev) => ({
+        const prev = conversation;
+        setConversation({
           ...prev,
           id: targetFan.id,
           contactName: targetFan.name || prev.contactName,
@@ -890,7 +891,7 @@ export default function ConversationDetails({ onBackToBoard }: ConversationDetai
             "extraSessionToday" in targetFan
               ? ((targetFan as any).extraSessionToday ?? null)
               : (prev as any).extraSessionToday ?? null,
-        }));
+        });
         await fetchRecommendedFan();
       }
     } catch (_err) {
@@ -1107,7 +1108,7 @@ useEffect(() => {
         : [];
       const mapped = mapApiMessagesToState(apiMessages);
       if (mapped.length > 0) {
-        setMessage((prev) => [...(prev || []), ...mapped]);
+        setMessage([...(messages || []), ...mapped]);
       }
       setMessageSend("");
     } catch (err) {
@@ -1281,7 +1282,7 @@ useEffect(() => {
         : [];
       const mapped = mapApiMessagesToState(apiMessages);
       if (mapped.length > 0) {
-        setMessage((prev) => [...(prev || []), ...mapped]);
+        setMessage([...(messages || []), ...mapped]);
       }
       setMessagesError("");
       if (!keepOpen) {
@@ -1675,7 +1676,7 @@ useEffect(() => {
           <button
             type="button"
             className="text-xs font-medium rounded-full border border-slate-600 bg-slate-800/80 text-slate-100 px-3 py-1 transition hover:bg-emerald-600 hover:border-emerald-500 hover:text-slate-50"
-            onClick={handleChoosePack}
+            onClick={() => handleChoosePack()}
           >
             Elegir pack
           </button>
@@ -2261,7 +2262,7 @@ useEffect(() => {
           </div>
           {extrasCountDisplay > 0 && (
             <div className="text-[11px] text-slate-400">
-              Este fan ha comprado {extrasCountDisplay} extra{extrasCountDisplay !== 1 ? "s" : ""} por un total de {extrasSpentDisplay} € (detalle en la pestaña "Extra").
+              Este fan ha comprado {extrasCountDisplay} extra{extrasCountDisplay !== 1 ? "s" : ""} por un total de {extrasSpentDisplay} € (detalle en la pestaña &quot;Extra&quot;).
             </div>
           )}
           {historyError && <div className="text-[11px] text-rose-300">{historyError}</div>}

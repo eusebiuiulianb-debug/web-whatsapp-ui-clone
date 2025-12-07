@@ -209,34 +209,47 @@ export async function getCreatorManagerSummary(creatorId: string, deps: ManagerD
     },
   };
 
-  const suggestions: { label: string; action: "vip" | "renewals" | "extras" | "risk" | "general" }[] = [];
+  let suggestionCounter = 0;
+  const buildId = () => {
+    suggestionCounter += 1;
+    return `suggestion_${suggestionCounter}`;
+  };
+
+  const suggestions: { id: string; label: string; action: "vip" | "renewals" | "extras" | "risk" | "general" }[] = [];
   if (segments.vip > 0) {
-    suggestions.push({ label: `Tienes ${segments.vip} fans VIP activos, revisa sus chats hoy.`, action: "vip" });
+    suggestions.push({ id: buildId(), label: `Tienes ${segments.vip} fans VIP activos, revisa sus chats hoy.`, action: "vip" });
   } else {
-    suggestions.push({ label: "Aún sin fans VIP; sigue calentando con extras medianos.", action: "general" });
+    suggestions.push({ id: buildId(), label: "Aún sin fans VIP; sigue calentando con extras medianos.", action: "general" });
   }
   if (packs.monthly.renewalsIn7Days > 0) {
     suggestions.push({
+      id: buildId(),
       label: `Hay ${packs.monthly.renewalsIn7Days} renovaciones de mensual en los próximos 7 días.`,
       action: "renewals",
     });
   }
   if (kpis.last30.extras > 0) {
     suggestions.push({
+      id: buildId(),
       label: `Has vendido ${kpis.last30.extras} extras en los últimos 30 días; mantén el ritmo.`,
       action: "extras",
     });
   } else {
-    suggestions.push({ label: "Sin extras recientes; prueba un mensaje de 'Extra rápido' a tus habituales.", action: "extras" });
+    suggestions.push({
+      id: buildId(),
+      label: "Sin extras recientes; prueba un mensaje de 'Extra rápido' a tus habituales.",
+      action: "extras",
+    });
   }
   if (segments.atRisk > 0) {
     suggestions.push({
+      id: buildId(),
       label: `${segments.atRisk} fans en riesgo (inactivos o con mensual a punto de caducar).`,
       action: "risk",
     });
   }
   if (suggestions.length === 0) {
-    suggestions.push({ label: "Aún no hay suficiente actividad; sigue escribiendo a tus fans.", action: "general" });
+    suggestions.push({ id: buildId(), label: "Aún no hay suficiente actividad; sigue escribiendo a tus fans.", action: "general" });
   }
 
   return { kpis, packs, segments, suggestions };

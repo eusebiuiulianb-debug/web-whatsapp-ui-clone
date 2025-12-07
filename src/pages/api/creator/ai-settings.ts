@@ -93,8 +93,10 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
     if (priorityOrderJson !== null && typeof priorityOrderJson !== "object") {
       return sendBadRequest(res, "priorityOrderJson must be JSON");
     }
-    updateData.priorityOrderJson = priorityOrderJson as Prisma.InputJsonValue | null;
-    createData.priorityOrderJson = priorityOrderJson as Prisma.InputJsonValue | null;
+    const normalizedPriority =
+      priorityOrderJson === null ? Prisma.JsonNull : (priorityOrderJson as Prisma.InputJsonValue);
+    updateData.priorityOrderJson = normalizedPriority;
+    createData.priorityOrderJson = normalizedPriority;
   }
   if (forbiddenTopics !== undefined) {
     if (typeof forbiddenTopics !== "string") return sendBadRequest(res, "forbiddenTopics must be a string");

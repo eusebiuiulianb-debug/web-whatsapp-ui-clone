@@ -5,6 +5,8 @@ import CreatorHeader from "../../components/CreatorHeader";
 import { useCreatorConfig } from "../../context/CreatorConfigContext";
 import type { CreatorManagerSummary } from "../../lib/creatorManager";
 import type { FanManagerRow } from "../../server/manager/managerService";
+import { CreatorAdvisorPanel } from "../../components/creator/CreatorAdvisorPanel";
+import type { CreatorAiAdvisorInput } from "../../server/manager/managerSchemas";
 
 export default function CreatorManagerPage() {
   const { config } = useCreatorConfig();
@@ -15,10 +17,14 @@ export default function CreatorManagerPage() {
   const router = useRouter();
   const [queue, setQueue] = useState<FanManagerRow[]>([]);
   const [queueError, setQueueError] = useState("");
+  const [advisorInput, setAdvisorInput] = useState<CreatorAiAdvisorInput | null>(null);
+  const [advisorLoading, setAdvisorLoading] = useState(true);
+  const [advisorError, setAdvisorError] = useState(false);
 
   useEffect(() => {
     fetchSummary();
     fetchQueue();
+    fetchAdvisorInput();
   }, []);
 
   async function fetchSummary() {
@@ -33,6 +39,22 @@ export default function CreatorManagerPage() {
       setError("No se pudo cargar el panel del creador.");
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function fetchAdvisorInput() {
+    try {
+      setAdvisorLoading(true);
+      setAdvisorError(false);
+      const res = await fetch("/api/creator/ai-advisor-input");
+      if (!res.ok) throw new Error("Error fetching advisor input");
+      const data = (await res.json()) as CreatorAiAdvisorInput;
+      setAdvisorInput(data);
+    } catch (_err) {
+      setAdvisorError(true);
+      setAdvisorInput(null);
+    } finally {
+      setAdvisorLoading(false);
     }
   }
 
@@ -123,27 +145,33 @@ export default function CreatorManagerPage() {
               ))}
             </section>
 
-            <section className="rounded-lg border border-slate-800 bg-slate-900/70 p-4 space-y-3">
-              <h2 className="text-lg font-semibold">Packs</h2>
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                <div className="rounded-lg border border-slate-800 bg-slate-950/70 p-3">
-                  <div className="text-sm font-semibold">Bienvenida</div>
-                  <div className="text-xs text-slate-400">Fans activos: {summary.packs.welcome.activeFans}</div>
-                  <div className="text-xs text-slate-400 mt-1">Ingresos 30d: {formatCurrency(summary.packs.welcome.revenue30)}</div>
-                </div>
-                <div className="rounded-lg border border-slate-800 bg-slate-950/70 p-3 space-y-1">
-                  <div className="text-sm font-semibold">Mensual</div>
-                  <div className="text-xs text-slate-400">Fans activos: {summary.packs.monthly.activeFans}</div>
-                  <div className="text-xs text-slate-400">Renovaciones ≤7d: {summary.packs.monthly.renewalsIn7Days}</div>
-                  <div className="text-xs text-slate-400">Churn 30d: {summary.packs.monthly.churn30}</div>
-                  <div className="text-xs text-slate-400">Ingresos 30d: {formatCurrency(summary.packs.monthly.revenue30)}</div>
-                </div>
-                <div className="rounded-lg border border-slate-800 bg-slate-950/70 p-3">
-                  <div className="text-sm font-semibold">Especial</div>
-                  <div className="text-xs text-slate-400">Fans activos: {summary.packs.special.activeFans}</div>
-                  <div className="text-xs text-slate-400 mt-1">Ingresos 30d: {formatCurrency(summary.packs.special.revenue30)}</div>
-                </div>
+            <section className="grid grid-cols-1 lg:grid-cols-3 gap-3">
+              <div className="space-y-3">
+                <CreatorAdvisorPanel data={advisorInput ?? undefined} error={advisorError} isLoading={advisorLoading} />
               </div>
+
+              <section className="rounded-lg border border-slate-800 bg-slate-900/70 p-4 space-y-3 lg:col-span-2">
+                <h2 className="text-lg font-semibold">Packs</h2>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                  <div className="rounded-lg border border-slate-800 bg-slate-950/70 p-3">
+                    <div className="text-sm font-semibold">Bienvenida</div>
+                    <div className="text-xs text-slate-400">Fans activos: {summary.packs.welcome.activeFans}</div>
+                    <div className="text-xs text-slate-400 mt-1">Ingresos 30d: {formatCurrency(summary.packs.welcome.revenue30)}</div>
+                  </div>
+                  <div className="rounded-lg border border-slate-800 bg-slate-950/70 p-3 space-y-1">
+                    <div className="text-sm font-semibold">Mensual</div>
+                    <div className="text-xs text-slate-400">Fans activos: {summary.packs.monthly.activeFans}</div>
+                    <div className="text-xs text-slate-400">Renovaciones ≤7d: {summary.packs.monthly.renewalsIn7Days}</div>
+                    <div className="text-xs text-slate-400">Churn 30d: {summary.packs.monthly.churn30}</div>
+                    <div className="text-xs text-slate-400">Ingresos 30d: {formatCurrency(summary.packs.monthly.revenue30)}</div>
+                  </div>
+                  <div className="rounded-lg border border-slate-800 bg-slate-950/70 p-3">
+                    <div className="text-sm font-semibold">Especial</div>
+                    <div className="text-xs text-slate-400">Fans activos: {summary.packs.special.activeFans}</div>
+                    <div className="text-xs text-slate-400 mt-1">Ingresos 30d: {formatCurrency(summary.packs.special.revenue30)}</div>
+                  </div>
+                </div>
+              </section>
             </section>
 
             <section className="rounded-lg border border-slate-800 bg-slate-900/70 p-4 space-y-2">
@@ -264,6 +292,12 @@ export default function CreatorManagerPage() {
                         </th>
                         <th className="text-left py-1 pr-3">
                           <div className="flex items-center gap-1">
+                            Etapa{" "}
+                            <Info text={"Etapa de relación resumida para el Manager IA (Nuevo, Calentando, Fiel, Riesgo)."} />
+                          </div>
+                        </th>
+                        <th className="text-left py-1 pr-3">
+                          <div className="flex items-center gap-1">
                             Health{" "}
                             <Info
                               text={
@@ -304,6 +338,7 @@ export default function CreatorManagerPage() {
                               {row.segment}
                             </span>
                           </td>
+                          <td className="py-2 pr-3 uppercase text-[11px] text-slate-300">{row.relationshipStage}</td>
                           <td className="py-2 pr-3">
                             <span
                               className={

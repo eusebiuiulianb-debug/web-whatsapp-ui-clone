@@ -36,14 +36,19 @@ function truncateSnippet(text: string | null | undefined, max = 80): string | nu
   return `${trimmed.slice(0, max - 1)}…`;
 }
 
+const DEFAULT_LIMIT = 50;
 const MAX_LIMIT = 100;
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   const { limit: limitParam, cursor, filter = "all", q, fanId } = req.query;
-  const parsedLimit = Number(limitParam);
-  const limit = Number.isFinite(parsedLimit) && parsedLimit > 0 ? Math.min(parsedLimit, MAX_LIMIT) : 30;
-  if (parsedLimit !== undefined && (!Number.isFinite(parsedLimit) || parsedLimit <= 0)) {
-    return sendBadRequest(res, "limit must be a positive number");
+  const rawLimit = Array.isArray(limitParam) ? limitParam[0] : limitParam;
+  let limit = DEFAULT_LIMIT;
+  if (rawLimit !== undefined) {
+    const parsedLimit = Number(rawLimit);
+    if (!Number.isFinite(parsedLimit) || parsedLimit <= 0) {
+      return sendBadRequest(res, "limit must be a positive number");
+    }
+    limit = Math.min(parsedLimit, MAX_LIMIT);
   }
 
   const cursorId = typeof cursor === "string" ? cursor : undefined;
@@ -56,7 +61,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     if (filter === "notes") {
       where.notes = { some: {} };
     } else if (filter === "nextAction") {
-      where.nextAction = { not: null, not: "" };
+      where.nextAction = { not: null };
+      const existingNot = Array.isArray(where.NOT) ? where.NOT : where.NOT ? [where.NOT] : [];
+      where.NOT = [...existingNot, { nextAction: "" }];
     } else if (filter === "new") {
       where.isNew = true;
     } else if (filter === "expired") {
@@ -138,7 +145,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       | (Omit<ExtraSessionToday, "todayLastPurchaseAt"> & { todayLastPurchaseAt: string | null })
       | null;
     type LadderStatusResponse =
-      | (Omit<ExtraLadderStatus, "lastPurchaseAt"> & {
+      | (Omit<ExtraLadderStatus, "lastPurchaseAt" | "sessionToday"> & {
           lastPurchaseAt: string | null;
           sessionToday?: ExtraSessionTodayResponse | null;
         })
@@ -166,7 +173,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
               }
             : null;
           sessionTodayByFan.set(fid, serializedSession);
-          ladderByFan.set(fid, serializedStatus ? { ...serializedStatus, sessionToday: serializedSession } : serializedStatus);
+          const statusPayload: LadderStatusResponse = serializedStatus
+            ? { ...serializedStatus, sessionToday: serializedSession }
+            : serializedStatus;
+          ladderByFan.set(fid, statusPayload);
         })
       );
     } catch (err) {

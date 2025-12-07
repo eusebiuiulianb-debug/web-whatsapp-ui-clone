@@ -50,13 +50,31 @@ export default function FanManagerPanel({ fanId, onSummary, onSuggestionClick }:
         </span>
       </div>
       <div className="flex items-center justify-between text-slate-300">
+        <span>Etapa</span>
+        <span className="uppercase">{data.relationshipStage}</span>
+      </div>
+      {data.communicationStyle && (
+        <div className="flex items-center justify-between text-slate-300">
+          <span>Estilo</span>
+          <span className="uppercase">{data.communicationStyle}</span>
+        </div>
+      )}
+      <div className="flex items-center justify-between text-slate-300">
         <span>Caduca</span>
         <span>{data.hasActivePack ? data.daysToExpiry ?? "—" : "Sin pack activo"}</span>
       </div>
       <div className="text-slate-200">{data.priorityReason}</div>
-      <div className="text-slate-300">
-        Objetivo hoy: {data.objectiveToday || mapActionToGoal(data.nextBestAction)}
-      </div>
+      <div className="text-slate-300">Objetivo hoy: {data.objectiveToday}</div>
+      {data.lastTopic && <div className="text-slate-300">Último tema: {data.lastTopic}</div>}
+      {data.personalizationHints && <div className="text-slate-400">{data.personalizationHints}</div>}
+      {data.summary && (
+        <div className="pt-1 space-y-1">
+          <div className="text-[10px] uppercase tracking-wide text-slate-400">Resumen del vínculo</div>
+          {data.summary.profile && <div className="text-slate-300">• {data.summary.profile}</div>}
+          {data.summary.recent && <div className="text-slate-300">• {data.summary.recent}</div>}
+          {data.summary.opportunity && <div className="text-slate-300">• {data.summary.opportunity}</div>}
+        </div>
+      )}
       {data.messageSuggestions && data.messageSuggestions.length > 0 && (
         <div className="pt-1 space-y-1">
           <div className="text-[10px] uppercase tracking-wide text-slate-400">Sugerencias del Manager</div>
@@ -78,13 +96,4 @@ export default function FanManagerPanel({ fanId, onSummary, onSuggestionClick }:
       )}
     </div>
   );
-}
-
-function mapActionToGoal(action: FanManagerSummary["nextBestAction"]): string {
-  if (action === "RENOVAR_PACK") return "Renovar el pack sin sonar agresivo.";
-  if (action === "CUIDAR_VIP") return "Reforzar vínculo y hacerle sentir trato VIP.";
-  if (action === "BIENVENIDA") return "Darle la bienvenida y entender qué busca.";
-  if (action === "REACTIVAR_DORMIDO") return "Ver si sigue interesado sin presionar.";
-  if (action === "OFRECER_EXTRA") return "Ofrecer un extra alineado con lo que ya te compró.";
-  return "No hay nada urgente; sigue el flujo normal.";
 }

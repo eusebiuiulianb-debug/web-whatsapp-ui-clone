@@ -8,8 +8,6 @@ import {
   ContentItem as PrismaContentItem,
   ContentPack,
   ContentType as PrismaContentType,
-  ExtraTier,
-  TimeOfDay,
 } from "@prisma/client";
 import { NewContentModal } from "../components/content/NewContentModal";
 

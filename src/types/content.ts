@@ -1,4 +1,4 @@
-export type ContentType = "IMAGE" | "VIDEO" | "AUDIO";
+export type ContentType = "IMAGE" | "VIDEO" | "AUDIO" | "TEXT";
 export type ContentVisibility = "INCLUDED_MONTHLY" | "VIP" | "EXTRA";
 
 export interface ContentItem {
@@ -13,6 +13,7 @@ export interface ContentItem {
 export function getContentTypeLabel(type: ContentType): string {
   if (type === "IMAGE") return "Foto";
   if (type === "VIDEO") return "Vídeo";
+  if (type === "TEXT") return "Texto";
   return "Audio";
 }
 
