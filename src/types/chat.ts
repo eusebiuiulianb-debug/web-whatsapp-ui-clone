@@ -26,6 +26,7 @@ export interface Fan {
   membershipStatus: string;
   daysLeft?: number;
   lastSeen: string;
+  lastSeenAt?: string | null;
   lastCreatorMessageAt?: string | null;
   notesCount?: number;
   followUpTag?: FollowUpTag;

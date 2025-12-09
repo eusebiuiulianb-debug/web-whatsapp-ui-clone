@@ -1,0 +1,313 @@
+warning: in the working copy of 'README.md', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'prisma/schema.prisma', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'prisma/seed.ts', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'src/components/ConversationDetails/index.tsx', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'src/components/CreatorHeader.tsx', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'src/components/MessageBalloon/index.tsx', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'src/components/public-profile/PublicProfileView.tsx', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'src/lib/creatorManager.ts', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'src/lib/publicProfileCopy.ts', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'src/pages/api/fans/[fanId]/manager.ts', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'src/pages/creator.tsx', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'src/pages/creator/edit.tsx', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'src/pages/creator/manager.tsx', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'src/types/publicProfile.ts', LF will be replaced by CRLF the next time Git touches it
+[1mdiff --git a/README.md b/README.md[m
+[1mindex 84a6840..e7b4ca7 100644[m
+[1m--- a/README.md[m
+[1m+++ b/README.md[m
+[36m@@ -6,7 +6,7 @@[m [mChat tipo WhatsApp para creadores y fans (versión preliminar).[m
+ [m
+ ```bash[m
+ npm install[m
+[31m-npm run dev[m
+[32m+[m
+ ```[m
+ [m
+ La app se levanta en modo desarrollo en `http://localhost:3000`.[m
+[36m@@ -23,7 +23,7 @@[m [mLa app se levanta en modo desarrollo en `http://localhost:3000`.[m
+ [m
+ ## Página pública de creador[m
+ - Ruta `/creator` como landing pública con avatar, descripción y listado de packs.[m
+[31m-- Incluye botón “Entrar al chat privado” que navega a `/`.[m
+[32m+[m[32m- Incluye bnpm run devotón “Entrar al chat privado” que navega a `/`.[m
+ [m
+ ## Ajustes del creador[m
+ - La barra superior de la app ahora es la barra del creador (avatar, nombre, estado, enlace al perfil público y menú de ajustes).[m
+[1mdiff --git a/prisma/dev.db b/prisma/dev.db[m
+[1mindex 94ca7be..73193d9 100644[m
+Binary files a/prisma/dev.db and b/prisma/dev.db differ
+[1mdiff --git a/prisma/schema.prisma b/prisma/schema.prisma[m
+[1mindex 5002c5f..ae16f55 100644[m
+[1m--- a/prisma/schema.prisma[m
+[1m+++ b/prisma/schema.prisma[m
+[36m@@ -15,6 +15,13 @@[m [mmodel Creator {[m
+   name         String[m
+   subtitle     String[m
+   description  String[m
+[32m+[m[32m  bioLinkEnabled          Boolean @default(false)[m
+[32m+[m[32m  bioLinkTitle            String?[m
+[32m+[m[32m  bioLinkTagline          String?[m
+[32m+[m[32m  bioLinkAvatarUrl        String?[m
+[32m+[m[32m  bioLinkPrimaryCtaLabel  String?[m
+[32m+[m[32m  bioLinkPrimaryCtaUrl    String?[m
+[32m+[m[32m  bioLinkSecondaryLinks   Json?[m
+   packs        Pack[][m
+   fans         Fan[][m
+   notes        FanNote[][m
+[36m@@ -22,6 +29,8 @@[m [mmodel Creator {[m
+   aiSettings   CreatorAiSettings?[m
+   aiUsageLogs  AiUsageLog[][m
+   aiTemplates  CreatorAiTemplate[][m
+[32m+[m[32m  managerConversation ManagerConversation?[m
+[32m+[m[32m  contentManagerConversation ContentManagerConversation?[m
+ }[m
+ [m
+ model Pack {[m
+[36m@@ -146,6 +155,16 @@[m [menum MessageType {[m
+   CONTENT[m
+ }[m
+ [m
+[32m+[m[32menum ManagerSender {[m
+[32m+[m[32m  CREATOR[m
+[32m+[m[32m  MANAGER[m
+[32m+[m[32m}[m
+[32m+[m
+[32m+[m[32menum ContentManagerSender {[m
+[32m+[m[32m  CREATOR[m
+[32m+[m[32m  MANAGER[m
+[32m+[m[32m}[m
+[32m+[m
+ model AccessGrant {[m
+   id        String   @id @default(cuid())[m
+   fanId     String[m
+[36m@@ -243,3 +262,43 @@[m [mmodel CreatorAiTemplate {[m
+   createdAt DateTime @default(now())[m
+   updatedAt DateTime @updatedAt[m
+ }[m
+[32m+[m
+[32m+[m[32mmodel ManagerConversation {[m
+[32m+[m[32m  id        String           @id @default(cuid())[m
+[32m+[m[32m  creator   Creator          @relation(fields: [creatorId], references: [id])[m
+[32m+[m[32m  creatorId String           @unique[m
+[32m+[m[32m  messages  ManagerMessage[][m
+[32m+[m[32m  createdAt DateTime         @default(now())[m
+[32m+[m[32m  updatedAt DateTime         @updatedAt[m
+[32m+[m[32m}[m
+[32m+[m
+[32m+[m[32mmodel ManagerMessage {[m
+[32m+[m[32m  id             String              @id @default(cuid())[m
+[32m+[m[32m  conversation   ManagerConversation @relation(fields: [conversationId], references: [id])[m
+[32m+[m[32m  conversationId String[m
+[32m+[m[32m  sender         ManagerSender[m
+[32m+[m[32m  content        String[m
+[32m+[m[32m  createdAt      DateTime            @default(now())[m
+[32m+[m
+[32m+[m[32m  @@index([conversationId, createdAt])[m
+[32m+[m[32m}[m
+[32m+[m
+[32m+[m[32mmodel ContentManagerConversation {[m
+[32m+[m[32m  id        String                 @id @default(cuid())[m
+[32m+[m[32m  creator   Creator                @relation(fields: [creatorId], references: [id])[m
+[32m+[m[32m  creatorId String                 @unique[m
+[32m+[m[32m  messages  ContentManagerMessage[][m
+[32m+[m[32m  createdAt DateTime               @default(now())[m
+[32m+[m[32m  updatedAt DateTime               @updatedAt[m
+[32m+[m[32m}[m
+[32m+[m
+[32m+[m[32mmodel ContentManagerMessage {[m
+[32m+[m[32m  id             String                     @id @default(cuid())[m
+[32m+[m[32m  conversation   ContentManagerConversation @relation(fields: [conversationId], references: [id])[m
+[32m+[m[32m  conversationId String[m
+[32m+[m[32m  sender         ContentManagerSender[m
+[32m+[m[32m  content        String[m
+[32m+[m[32m  createdAt      DateTime                   @default(now())[m
+[32m+[m
+[32m+[m[32m  @@index([conversationId, createdAt])[m
+[32m+[m[32m}[m
+[1mdiff --git a/prisma/seed.ts b/prisma/seed.ts[m
+[1mindex c0ed3d6..b85cb08 100644[m
+[1m--- a/prisma/seed.ts[m
+[1m+++ b/prisma/seed.ts[m
+[36m@@ -10,6 +10,10 @@[m [mfunction addDays(base: Date, days: number) {[m
+ }[m
+ [m
+ async function main() {[m
+[32m+[m[32m  await prisma.contentManagerMessage.deleteMany();[m
+[32m+[m[32m  await prisma.contentManagerConversation.deleteMany();[m
+[32m+[m[32m  await prisma.managerMessage.deleteMany();[m
+[32m+[m[32m  await prisma.managerConversation.deleteMany();[m
+   await prisma.message.deleteMany();[m
+   await prisma.contentItem.deleteMany();[m
+   await prisma.fanNote.deleteMany();[m
+[1mdiff --git a/src/components/ConversationDetails/index.tsx b/src/components/ConversationDetails/index.tsx[m
+[1mindex befe418..de913c9 100644[m
+[1m--- a/src/components/ConversationDetails/index.tsx[m
+[1m+++ b/src/components/ConversationDetails/index.tsx[m
+[36m@@ -134,6 +134,7 @@[m [mexport default function ConversationDetails({ onBackToBoard }: ConversationDetai[m
+   const [ managerSummary, setManagerSummary ] = useState<FanManagerSummary | null>(null);[m
+   const fanHeaderRef = useRef<HTMLDivElement | null>(null);[m
+   const { config } = useCreatorConfig();[m
+[32m+[m[32m  const [ showMoreActions, setShowMoreActions ] = useState(false);[m
+   const accessSummary = getAccessSummary({[m
+     membershipStatus,[m
+     daysLeft,[m
+[36m@@ -1668,69 +1669,86 @@[m [museEffect(() => {[m
+           </button>[m
+           <button[m
+             type="button"[m
+[31m-          className="text-xs font-medium rounded-full border border-slate-600 bg-slate-800/80 text-slate-100 px-3 py-1 transition hover:bg-emerald-600 hover:border-emerald-500 hover:text-slate-50"[m
+[32m+[m[32m            className="text-xs font-medium rounded-full border border-slate-600 bg-slate-800/80 text-slate-100 px-3 py-1 transition hover:bg-emerald-600 hover:border-emerald-500 hover:text-slate-50"[m
+             onClick={handleSubscriptionLink}[m
+           >[m
+             Enlace suscripción[m
+           </button>[m
+[31m-          <button[m
+[31m-            type="button"[m
+[31m-            className="text-xs font-medium rounded-full border border-slate-600 bg-slate-800/80 text-slate-100 px-3 py-1 transition hover:bg-emerald-600 hover:border-emerald-500 hover:text-slate-50"[m
+[31m-            onClick={() => handleChoosePack()}[m
+[31m-          >[m
+[31m-            Elegir pack[m
+[31m-          </button>[m
+[31m-          <button[m
+[31m-            type="button"[m
+[31m-            className="text-xs font-medium rounded-full border border-slate-600 bg-slate-800/80 text-slate-100 px-3 py-1 transition hover:bg-slate-700"[m
+[31m-            onClick={() => {[m
+[31m-              setShowNotes((prev) => {[m
+[31m-                const next = !prev;[m
+[31m-                if (next && id) {[m
+[31m-                  fetchFanNotes(id);[m
+[31m-                }[m
+[31m-                return next;[m
+[31m-              });[m
+[31m-              setShowExtraTemplates(false);[m
+[31m-              setShowHistory(false);[m
+[31m-            }}[m
+[31m-          >[m
+[31m-            Notas[m
+[31m-          </button>[m
+[31m-          <button[m
+[31m-            type="button"[m
+[31m-            className={`text-xs font-medium rounded-full border px-3 py-1 transition ${[m
+[31m-              showHistory[m
+[31m-                ? "border-amber-400 bg-amber-500/10 text-amber-100"[m
+[31m-                : "border-slate-600 bg-slate-800/80 text-slate-100 hover:bg-slate-700"[m
+[31m-            }`}[m
+[31m-            onClick={() => {[m
+[31m-              setShowHistory((prev) => !prev);[m
+[31m-              setShowNotes(false);[m
+[31m-              setShowExtraTemplates(false);[m
+[31m-              if (!showHistory && id) {[m
+[31m-                fetchHistory(id);[m
+[31m-              }[m
+[31m-            }}[m
+[31m-          >[m
+[31m-            Historial[m
+[31m-          </button>[m
+[31m-          <button[m
+[31m-            type="button"[m
+[31m-            className={`text-xs font-medium rounded-full border px-3 py-1 transition ${[m
+[31m-              showExtraTemplates[m
+[31m-                ? "border-amber-400 bg-amber-500/10 text-amber-100"[m
+[31m-                : "border-slate-600 bg-slate-800/80 text-slate-100 hover:bg-slate-700"[m
+[31m-            }`}[m
+[31m-            onClick={() => {[m
+[31m-              setShowExtraTemplates((prev) => !prev);[m
+[31m-              setShowPackSelector(false);[m
+[31m-              setShowNotes(false);[m
+[31m-              setShowHistory(false);[m
+[31m-            }}[m
+[31m-          >[m
+[31m-            Extra[m
+[31m-          </button>[m
+[32m+[m[32m          <div className="relative">[m
+[32m+[m[32m            <button[m
+[32m+[m[32m              type="button"[m
+[32m+[m[32m              className="text-xs font-medium rounded-full border border-slate-600 bg-slate-800/80 text-slate-100 px-3 py-1 transition hover:bg-slate-700"[m
+[32m+[m[32m              onClick={() => setShowMoreActions((prev) => !prev)}[m
+[32m+[m[32m            >[m
+[32m+[m[32m              Más…[m
+[32m+[m[32m            </button>[m
+[32m+[m[32m            {showMoreActions && ([m
+[32m+[m[32m              <div className="absolute z-20 mt-2 w-48 rounded-xl border border-slate-700 bg-slate-900/90 p-2 shadow-lg">[m
+[32m+[m[32m                <button[m
+[32m+[m[32m                  type="button"[m
+[32m+[m[32m                  className="w-full text-left text-xs font-medium rounded-lg px-2 py-1 text-slate-100 hover:bg-slate-800"[m
+[32m+[m[32m                  onClick={() => {[m
+[32m+[m[32m                    setShowPackSelector((prev) => !prev);[m
+[32m+[m[32m                    setShowMoreActions(false);[m
+[32m+[m[32m                  }}[m
+[32m+[m[32m                >[m
+[32m+[m[32m                  Elegir pack[m
+[32m+[m[32m                </button>[m
+[32m+[m[32m                <button[m
+[32m+[m[32m                  type="button"[m
+[32m+[m[32m                  className="w-full text-left text-xs font-medium rounded-lg px-2 py-1 text-slate-100 hover:bg-slate-800"[m
+[32m+[m[32m                  onClick={() => {[m
+[32m+[m[32m                    setShowNotes((prev) => {[m
+[32m+[m[32m                      const next = !prev;[m
+[32m+[m[32m                      if (next && id) {[m
+[32m+[m[32m                        fetchFanNotes(id);[m
+[32m+[m[32m                      }[m
+[32m+[m[32m                      return next;[m
+[32m+[m[32m                    });[m
+[32m+[m[32m                    setShowExtraTemplates(false);[m
+[32m+[m[32m                    setShowHistory(false);[m
+[32m+[m[32m                    setShowMoreActions(false);[m
+[32m+[m[32m                  }}[m
+[32m+[m[32m                >[m
+[32m+[m[32m                  Notas[m
+[32m+[m[32m                </button>[m
+[32m+[m[32m                <button[m
+[32m+[m[32m                  type="button"[m
+[32m+[m[32m                  className={clsx([m
+[32m+[m[32m                    "w-full text-left text-xs font-medium rounded-lg px-2 py-1 hover:bg-slate-800",[m
+[32m+[m[32m                    showHistory ? "text-amber-100" : "text-slate-100"[m
+[32m+[m[32m                  )}[m
+[32m+[m[32m                  onClick={() => {[m
+[32m+[m[32m                    setShowHistory((prev) => !prev);[m
+[32m+[m[32m                    setShowNotes(false);[m
+[32m+[m[32m                    setShowExtraTemplates(false);[m
+[32m+[m[32m                    if (!showHistory && id) {[m
+[32m+[m[32m                      fetchHistory(id);[m
+[32m+[m[32m                    }[m
+[32m+[m[32m                    setShowMoreActions(false);[m
+[32m+[m[32m                  }}[m
+[32m+[m[32m                >[m
+[32m+[m[32m                  Historial[m
+[32m+[m[32m                </button>[m
+[32m+[m[32m                <button[m
+[32m+[m[32m                  type="button"[m
+[32m+[m[32m                  className={clsx([m
+[32m+[m[32m                    "w-full text-left text-xs font-medium rounded-lg px-2 py-1 hover:bg-slate-800",[m
+[32m+[m[32m                    showExtraTemplates ? "text-amber-100" : "text-slate-100"[m
+[32m+[m[32m                  )}[m
+[32m+[m[32m                  onClick={() => {[m
+[32m+[m[32m                    setShowExtraTemplates((prev) => !prev);[m
+[32m+[m[32m                    setShowPackSelector(false);[m
+[32m+[m[32m                    setShowNotes(false);[m
+[32m+[m[32m                    setShowHistory(false);[m
+[32m+[m[32m                    setShowMoreActions(false);[m
+[32m+[m[32m                  }}[m
+[32m+[m[32m                >[m
+[32m+[m[32m                  Extras[m
+[32m+[m[32m                </button>[m
+[32m+[m[32m              </div>[m
+[32m+[m[32m            )}[m
+[32m+[m[32m          </div>[m
+         </div>[m
+         {showPackSelector && ([m
+           <div className="flex flex-col gap-3 bg-slate-800/60 border border-slate-700 rounded-lg p-3 w-full">[m
+[1mdiff --git a/src/components/CreatorHeader.tsx b/src/components/CreatorHeader.tsx[m
+[1mindex 269ba72..ed93eb2 100644[m
+[1m--- a/src/components/CreatorHeader.tsx[m
+[1m+++ b/src/components/CreatorHeader.tsx[m
+[36m@@ -54,6 +54,11 @@[m [mexport default function CreatorHeader({ name, role, subtitle, initial, onOpenSet[m
+             Plantillas de IA[m
+           </a>[m
+         </Link>[m
+[32m+[m[32m        <Link href="/creator/bio-link" legacyBehavior>[m
+[32m+[m[32m          <a className={linkClass("/creator/bio-link", "text-xs text-emerald-200 hover:underline whitespace-nowrap")}>[m
+[32m+[m[32m            Bio-link[m
+[32m+[m[32m          </a>[m
+[32m+[

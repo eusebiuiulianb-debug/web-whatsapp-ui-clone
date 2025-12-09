@@ -147,6 +147,7 @@ export default function LibraryPage() {
           role="Creador"
           subtitle={config.creatorSubtitle}
           initial={creatorInitial}
+          avatarUrl={config.avatarUrl}
           onOpenSettings={() => {}}
         />
 

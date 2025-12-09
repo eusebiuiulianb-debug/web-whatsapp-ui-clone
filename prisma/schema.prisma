@@ -15,6 +15,13 @@ model Creator {
   name         String
   subtitle     String
   description  String
+  bioLinkEnabled          Boolean @default(false)
+  bioLinkTitle            String?
+  bioLinkTagline          String?
+  bioLinkAvatarUrl        String?
+  bioLinkPrimaryCtaLabel  String?
+  bioLinkPrimaryCtaUrl    String?
+  bioLinkSecondaryLinks   Json?
   packs        Pack[]
   fans         Fan[]
   notes        FanNote[]
@@ -22,6 +29,8 @@ model Creator {
   aiSettings   CreatorAiSettings?
   aiUsageLogs  AiUsageLog[]
   aiTemplates  CreatorAiTemplate[]
+  managerConversation ManagerConversation?
+  contentManagerConversation ContentManagerConversation?
 }
 
 model Pack {
@@ -146,6 +155,16 @@ enum MessageType {
   CONTENT
 }
 
+enum ManagerSender {
+  CREATOR
+  MANAGER
+}
+
+enum ContentManagerSender {
+  CREATOR
+  MANAGER
+}
+
 model AccessGrant {
   id        String   @id @default(cuid())
   fanId     String
@@ -242,4 +261,44 @@ model CreatorAiTemplate {
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+}
+
+model ManagerConversation {
+  id        String           @id @default(cuid())
+  creator   Creator          @relation(fields: [creatorId], references: [id])
+  creatorId String           @unique
+  messages  ManagerMessage[]
+  createdAt DateTime         @default(now())
+  updatedAt DateTime         @updatedAt
+}
+
+model ManagerMessage {
+  id             String              @id @default(cuid())
+  conversation   ManagerConversation @relation(fields: [conversationId], references: [id])
+  conversationId String
+  sender         ManagerSender
+  content        String
+  createdAt      DateTime            @default(now())
+
+  @@index([conversationId, createdAt])
+}
+
+model ContentManagerConversation {
+  id        String                 @id @default(cuid())
+  creator   Creator                @relation(fields: [creatorId], references: [id])
+  creatorId String                 @unique
+  messages  ContentManagerMessage[]
+  createdAt DateTime               @default(now())
+  updatedAt DateTime               @updatedAt
+}
+
+model ContentManagerMessage {
+  id             String                     @id @default(cuid())
+  conversation   ContentManagerConversation @relation(fields: [conversationId], references: [id])
+  conversationId String
+  sender         ContentManagerSender
+  content        String
+  createdAt      DateTime                   @default(now())
+
+  @@index([conversationId, createdAt])
 }

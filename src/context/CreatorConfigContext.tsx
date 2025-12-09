@@ -32,6 +32,7 @@ export function CreatorConfigProvider({ children }: { children: ReactNode }) {
           creatorName: data.creator?.name || DEFAULT_CREATOR_CONFIG.creatorName,
           creatorSubtitle: data.creator?.subtitle || DEFAULT_CREATOR_CONFIG.creatorSubtitle,
           creatorDescription: data.creator?.description || DEFAULT_CREATOR_CONFIG.creatorDescription,
+          avatarUrl: data.creator?.avatarUrl || DEFAULT_CREATOR_CONFIG.avatarUrl || "",
           quickReplies: DEFAULT_CREATOR_CONFIG.quickReplies,
           packs: data.packs || DEFAULT_CREATOR_CONFIG.packs,
         };

@@ -1,14 +1,18 @@
 import Head from "next/head";
 import { useEffect, useMemo, useState } from "react";
+import type { GetServerSideProps } from "next";
 import PublicProfileView from "../components/public-profile/PublicProfileView";
 import { useCreatorConfig } from "../context/CreatorConfigContext";
-import { PublicProfileCopy, PublicProfileMode } from "../types/publicProfile";
+import { PublicProfileCopy, PublicProfileMode, PublicProfileStats } from "../types/publicProfile";
 import { getPublicProfileOverrides } from "../lib/publicProfileStorage";
 import { PROFILE_COPY, mapToPublicProfileCopy } from "../lib/publicProfileCopy";
+import { getPublicProfileStats } from "../lib/publicProfileStats";
 
 const CREATOR_ID = "creator-1";
 
-export default function CreatorPublicPage() {
+type Props = { stats: PublicProfileStats };
+
+export default function CreatorPublicPage({ stats }: Props) {
   const profileMode: PublicProfileMode = "fanclub";
   const { config } = useCreatorConfig();
   const creatorInitial = config.creatorName?.trim().charAt(0) || "E";
@@ -36,8 +40,21 @@ export default function CreatorPublicPage() {
           creatorName={config.creatorName}
           creatorInitial={creatorInitial}
           subtitle={config.creatorSubtitle}
+          avatarUrl={config.avatarUrl}
+          stats={stats}
         />
       </div>
     </>
   );
 }
+
+export const getServerSideProps: GetServerSideProps<Props> = async () => {
+  const creatorId = CREATOR_ID;
+  let stats: PublicProfileStats = { activeMembers: 0, images: 0, videos: 0, audios: 0 };
+  try {
+    stats = await getPublicProfileStats(creatorId);
+  } catch (err) {
+    console.error("Error fetching public profile stats", err);
+  }
+  return { props: { stats } };
+};

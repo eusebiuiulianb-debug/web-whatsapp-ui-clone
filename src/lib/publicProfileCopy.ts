@@ -133,16 +133,30 @@ export function mapToPublicProfileCopy(
     hero: {
       tagline: copy.hero.subtitle,
       description: copy.hero.paragraph || "",
-      chips: copy.hero.chips || [],
+      chips: (copy.hero.chips || []).map((label) => ({ label, visible: true })),
+      coverImageUrl: null,
+      showWhatInside: true,
+      whatInsideTitle: "Qué hay dentro",
+      whatInsideBullets: (copy.packs.monthly.description || []).slice(0, 3),
+      primaryCtaLabel: "Entrar al chat privado",
+      secondaryCtaLabel: "Seguir gratis",
+      showStats: true,
     },
     recommendedPackId: "monthly",
-    packs: [getPackData("welcome"), getPackData("monthly"), getPackData("special")],
+    packs: [getPackData("welcome"), getPackData("monthly"), getPackData("special")].map((pack) => ({
+      ...pack,
+      visible: true,
+    })),
+    freebiesSectionVisible: true,
     freebies: copy.freebies.items.map((item, idx) => ({
       id: `freebie-${idx}`,
       title: item.title,
       description: item.description,
       ctaLabel: item.cta,
+      visible: true,
+      link: null,
     })),
+    faqSectionVisible: true,
     faq: copy.faq.items.map((item, idx) => ({ id: `faq-${idx}`, question: item.question, answer: item.answer })),
   };
 }

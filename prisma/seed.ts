@@ -10,6 +10,10 @@ function addDays(base: Date, days: number) {
 }
 
 async function main() {
+  await prisma.contentManagerMessage.deleteMany();
+  await prisma.contentManagerConversation.deleteMany();
+  await prisma.managerMessage.deleteMany();
+  await prisma.managerConversation.deleteMany();
   await prisma.message.deleteMany();
   await prisma.contentItem.deleteMany();
   await prisma.fanNote.deleteMany();

@@ -1,5 +1,7 @@
-import { KeyboardEvent, MouseEvent, useContext, useEffect, useRef, useState } from "react";
+import { KeyboardEvent, MouseEvent, useContext, useEffect, useLayoutEffect, useRef, useState } from "react";
 import clsx from "clsx";
+import { format, formatDistanceToNow } from "date-fns";
+import { es } from "date-fns/locale";
 import { ConversationContext } from "../../context/ConversationContext";
 import Avatar from "../Avatar";
 import MessageBalloon from "../MessageBalloon";
@@ -11,23 +13,14 @@ import { FollowUpTag, getFollowUpTag, getUrgencyLevel } from "../../utils/follow
 import { PACKS } from "../../config/packs";
 import { getRecommendedFan } from "../../utils/recommendedFan";
 import { ContentItem, getContentTypeLabel, getContentVisibilityLabel } from "../../types/content";
-import { EditExtraPresetsModal } from "../conversation/EditExtraPresetsModal";
 import { loadUnreadMap, saveUnreadMap, updateLastReadForFan } from "../../utils/unread";
 import { getTimeOfDayTag } from "../../utils/contentTags";
-import {
-  buildExtraText,
-  ExtraPresetKind,
-  ExtraPresetsConfig,
-  getPresetKeyFor,
-  loadExtraPresets,
-  saveExtraPresets,
-} from "../../config/extrasPresets";
 import { HIGH_PRIORITY_LIMIT } from "../../config/customers";
 import { EXTRAS_UPDATED_EVENT } from "../../constants/events";
 import { AiTone, normalizeTone, ACTION_TYPE_FOR_USAGE } from "../../lib/aiQuickExtra";
 import { AiTemplateUsage, AiTurnMode } from "../../lib/aiTemplateTypes";
 import { getAccessSnapshot, getChatterProPlan } from "../../lib/chatPlaybook";
-import FanManagerPanel from "../chat/FanManagerPanel";
+import FanManagerDrawer from "../fan/FanManagerDrawer";
 import type { FanManagerSummary } from "../../server/manager/managerService";
 
 type ConversationDetailsProps = {
@@ -67,6 +60,7 @@ export default function ConversationDetails({ onBackToBoard }: ConversationDetai
     membershipStatus,
     daysLeft,
     lastSeen,
+    lastSeenAt,
     id,
     followUpTag: conversationFollowUpTag,
     lastCreatorMessageAt,
@@ -81,14 +75,12 @@ export default function ConversationDetails({ onBackToBoard }: ConversationDetai
     { id: string; fanId: string; type: string; createdAt: string; expiresAt: string }[]
   >([]);
   const [ accessGrantsLoading, setAccessGrantsLoading ] = useState(false);
-  const [ showNotes, setShowNotes ] = useState(false);
+  const [ openPanel, setOpenPanel ] = useState<"none" | "notes" | "history" | "extras">("none");
   const [ notesLoading, setNotesLoading ] = useState(false);
   const [ notes, setNotes ] = useState<FanNote[]>([]);
   const [ noteDraft, setNoteDraft ] = useState("");
   const [ notesError, setNotesError ] = useState("");
-  const [ showHistory, setShowHistory ] = useState(false);
   const [ historyError, setHistoryError ] = useState("");
-  const [ showExtraTemplates, setShowExtraTemplates ] = useState(false);
   const [ nextActionDraft, setNextActionDraft ] = useState("");
   const [ nextActionDate, setNextActionDate ] = useState("");
   const [ nextActionTime, setNextActionTime ] = useState("");
@@ -98,6 +90,9 @@ export default function ConversationDetails({ onBackToBoard }: ConversationDetai
   const [ extraTierFilter, setExtraTierFilter ] = useState<"T0" | "T1" | "T2" | "T3" | "T4" | null>(null);
   const [ contentModalPackFocus, setContentModalPackFocus ] = useState<"WELCOME" | "MONTHLY" | "SPECIAL" | null>(null);
   const [ isAttachmentMenuOpen, setIsAttachmentMenuOpen ] = useState(false);
+  const [ registerExtrasChecked, setRegisterExtrasChecked ] = useState(false);
+  const [ registerExtrasSource, setRegisterExtrasSource ] = useState<string | null>(null);
+  const [ transactionPrices, setTransactionPrices ] = useState<Record<string, number>>({});
   type TimeOfDayValue = "DAY" | "NIGHT" | "ANY";
   type ContentWithFlags = ContentItem & {
     pack: "WELCOME" | "MONTHLY" | "SPECIAL";
@@ -129,9 +124,10 @@ export default function ConversationDetails({ onBackToBoard }: ConversationDetai
   const [ selectedExtraId, setSelectedExtraId ] = useState<string>("");
   const [ extraAmount, setExtraAmount ] = useState<number | "">("");
   const [ extraError, setExtraError ] = useState<string | null>(null);
-  const [ extraPresets, setExtraPresets ] = useState<ExtraPresetsConfig>(() => loadExtraPresets());
-  const [ showEditExtra, setShowEditExtra ] = useState(false);
+  const [ showManualExtraForm, setShowManualExtraForm ] = useState(false);
   const [ managerSummary, setManagerSummary ] = useState<FanManagerSummary | null>(null);
+  const messagesContainerRef = useRef<HTMLDivElement | null>(null);
+  const [isAtBottom, setIsAtBottom] = useState(true);
   const fanHeaderRef = useRef<HTMLDivElement | null>(null);
   const { config } = useCreatorConfig();
   const accessSummary = getAccessSummary({
@@ -146,22 +142,13 @@ export default function ConversationDetails({ onBackToBoard }: ConversationDetai
   const followUpTag: FollowUpTag =
     conversationFollowUpTag ?? getFollowUpTag(membershipStatus, daysLeft, conversation.activeGrantTypes);
   const normalizedGrants = (conversation.activeGrantTypes ?? []).map((t) => t.toLowerCase());
-  const EXTRA_PRICES: Record<"T0" | "T1" | "T2" | "T3", number> = {
-    T0: 0,
-    T1: 9,
-    T2: 25,
-    T3: 60,
-  }; // TODO: leer estos precios desde config
-  const EXTRA_CARD_LABELS: Record<ExtraPresetKind, { title: string; subtitle: string }> = {
-    PHOTO: { title: "Foto extra", subtitle: "1 foto nueva solo para ti" },
-    VIDEO: { title: "Vídeo extra", subtitle: "Vídeo corto grabado ahora" },
-    COMBO: { title: "Combo foto + vídeo", subtitle: "3 fotos + 1 vídeo más intenso" },
-  };
-  const EXTRA_KIND_TIER: Record<ExtraPresetKind, "T1" | "T2" | "T3"> = {
-    PHOTO: "T1",
-    VIDEO: "T2",
-    COMBO: "T3",
-  };
+const EXTRA_PRICES: Record<"T0" | "T1" | "T2" | "T3", number> = {
+  T0: 0,
+  T1: 9,
+  T2: 25,
+  T3: 60,
+}; // TODO: leer estos precios desde config
+const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
   const [ showQuickSheet, setShowQuickSheet ] = useState(false);
   const [ isDesktop, setIsDesktop ] = useState(false);
   const hasWelcome = normalizedGrants.includes("welcome") || normalizedGrants.includes("trial");
@@ -197,7 +184,17 @@ export default function ConversationDetails({ onBackToBoard }: ConversationDetai
     return null;
   }
 
+  const scrollToBottom = (behavior: ScrollBehavior = "smooth") => {
+    const el = messagesContainerRef.current;
+    if (!el) return;
+    el.scrollTo({
+      top: el.scrollHeight - el.clientHeight,
+      behavior,
+    });
+  };
+
   const firstName = (contactName || "").split(" ")[0] || contactName || "";
+  const messagesLength = messages?.length ?? 0;
 
   useEffect(() => {
     const parsed = parseNextActionValue(conversation.nextAction);
@@ -213,6 +210,30 @@ export default function ConversationDetails({ onBackToBoard }: ConversationDetai
     window.addEventListener("resize", updateViewport);
     return () => window.removeEventListener("resize", updateViewport);
   }, []);
+
+  useLayoutEffect(() => {
+    const el = messagesContainerRef.current;
+    if (!el) return;
+    const onScroll = () => {
+      const threshold = 80;
+      const distanceToBottom = el.scrollHeight - el.clientHeight - el.scrollTop;
+      setIsAtBottom(distanceToBottom < threshold);
+    };
+    onScroll();
+    el.addEventListener("scroll", onScroll);
+    return () => el.removeEventListener("scroll", onScroll);
+  }, []);
+
+  useLayoutEffect(() => {
+    setIsAtBottom(true);
+    scrollToBottom("auto");
+  }, [conversation.id]);
+
+  useLayoutEffect(() => {
+    if (!isAtBottom) return;
+    if (!messagesLength) return;
+    scrollToBottom("smooth");
+  }, [messagesLength, isAtBottom]);
 
   function getPackTypeFromName(name: string) {
     const lower = name.toLowerCase();
@@ -248,6 +269,7 @@ export default function ConversationDetails({ onBackToBoard }: ConversationDetai
       unreadCount: fan.unreadCount,
       isNew: fan.isNew,
       lastSeen: fan.lastSeen,
+      lastSeenAt: fan.lastSeenAt ?? null,
       lastCreatorMessageAt: fan.lastCreatorMessageAt,
       followUpTag: getFollowUpTag(fan.membershipStatus, fan.daysLeft, fan.activeGrantTypes),
       notesCount: fan.notesCount,
@@ -438,7 +460,7 @@ export default function ConversationDetails({ onBackToBoard }: ConversationDetai
       "Te propongo el Pack bienvenida (9 €): primer contacto + 3 audios base personalizados. Si te encaja, te envío el enlace de pago.";
     fillMessage(welcomePackMessage);
     setShowPackSelector(false);
-    setShowExtraTemplates(false);
+    setOpenPanel("none");
   }
 
   function handleChoosePack(defaultType?: "trial" | "monthly" | "special") {
@@ -446,7 +468,7 @@ export default function ConversationDetails({ onBackToBoard }: ConversationDetai
       setSelectedPackType(defaultType);
     }
     setShowPackSelector((prev) => (defaultType ? true : !prev));
-    setShowExtraTemplates(false);
+    setOpenPanel("none");
   }
 
   function handleNextInQueue() {
@@ -469,7 +491,7 @@ export default function ConversationDetails({ onBackToBoard }: ConversationDetai
       "Si tienes alguna duda antes de entrar, dímelo y lo aclaramos.";
     fillMessage(subscriptionLinkMessage);
     setShowPackSelector(false);
-    setShowExtraTemplates(false);
+    setOpenPanel("none");
   }
 
   const [iaBlocked, setIaBlocked] = useState(false);
@@ -532,18 +554,89 @@ export default function ConversationDetails({ onBackToBoard }: ConversationDetai
     }
   }
 
-  async function handleSendQuickExtra(kind: ExtraPresetKind) {
-    const mode = timeOfDay === "NIGHT" ? "NIGHT" : "DAY";
-    const key = getPresetKeyFor(kind, mode);
-    const tier = EXTRA_KIND_TIER[kind];
-    const price = EXTRA_PRICES[tier] ?? EXTRA_PRICES.T1;
-    const text = buildExtraText(key, extraPresets, price);
+  function getExtraTier(item?: ContentWithFlags | null): "T0" | "T1" | "T2" | "T3" {
+    return (item?.extraTier as "T0" | "T1" | "T2" | "T3") ?? DEFAULT_EXTRA_TIER;
+  }
 
-    const ok = await logTemplateUsage(text, "extra_quick");
-    if (!ok) return;
+  function getExtraPrice(item?: ContentWithFlags | null): number {
+    const tier = getExtraTier(item);
+    return EXTRA_PRICES[tier] ?? EXTRA_PRICES.T1;
+  }
 
-    await sendMessageText(text);
-    setShowExtraTemplates(false);
+  async function registerExtraSale({
+    fanId,
+    extraId,
+    amount,
+    tier,
+    sessionTag,
+    source,
+  }: {
+    fanId: string;
+    extraId: string;
+    amount: number;
+    tier: "T0" | "T1" | "T2" | "T3";
+    sessionTag?: string | null;
+    source?: string | null;
+  }): Promise<{ ok: boolean; error?: string }> {
+    if (!fanId || !extraId) return { ok: false, error: "Datos incompletos." };
+    try {
+      const payload = {
+        fanId,
+        contentItemId: extraId,
+        tier,
+        amount,
+        sessionTag,
+        source,
+      };
+      const res = await fetch("/api/extras", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      if (!res.ok) {
+        const errText = await res.text();
+        return { ok: false, error: errText || "No se pudo registrar el extra." };
+      }
+      const prevExtrasCount = conversation.extrasCount ?? 0;
+      const prevExtrasTotal = conversation.extrasSpentTotal ?? 0;
+      const prevLifetime = conversation.lifetimeSpend ?? 0;
+      const updatedExtrasCount = prevExtrasCount + 1;
+      const updatedExtrasTotal = prevExtrasTotal + amount;
+      const updatedLifetime = prevLifetime + amount;
+      const updatedTier = getCustomerTierFromSpend(updatedLifetime);
+      const updatedHighPriority = updatedLifetime >= HIGH_PRIORITY_LIMIT;
+      setConversation({
+        ...conversation,
+        extrasCount: updatedExtrasCount,
+        extrasSpentTotal: updatedExtrasTotal,
+        lifetimeSpend: updatedLifetime,
+        lifetimeValue: updatedLifetime,
+        customerTier: updatedTier,
+        isHighPriority: updatedHighPriority,
+      });
+      await refreshFanData(fanId);
+      await fetchExtrasHistory(fanId);
+      if (typeof window !== "undefined") {
+        window.dispatchEvent(
+          new CustomEvent(EXTRAS_UPDATED_EVENT, {
+            detail: {
+              fanId,
+              totals: {
+                extrasCount: updatedExtrasCount,
+                extrasSpentTotal: updatedExtrasTotal,
+                lifetimeSpend: updatedLifetime,
+                lifetimeValue: updatedLifetime,
+                customerTier: updatedTier,
+                isHighPriority: updatedHighPriority,
+              },
+            },
+          })
+        );
+      }
+      return { ok: true };
+    } catch (_err) {
+      return { ok: false, error: "No se pudo registrar el extra." };
+    }
   }
 
   async function logTemplateUsage(suggestedText: string, usage: AiTemplateUsage): Promise<boolean> {
@@ -643,22 +736,23 @@ export default function ConversationDetails({ onBackToBoard }: ConversationDetai
       const nextFilter = timeOfDay === "NIGHT" ? "night" : "day";
       setTimeOfDayFilter(nextFilter as TimeOfDayFilter);
       const suggestedTier = (conversation.extraLadderStatus?.suggestedTier as "T0" | "T1" | "T2" | "T3" | "T4" | null) ?? null;
-      openContentModal({ mode: "extras", tier: suggestedTier });
+      openContentModal({ mode: "extras", tier: suggestedTier, defaultRegisterExtras: true, registerSource: "offer_flow" });
     }
     if (usage === "pack_offer") {
       openContentModal({ mode: "packs", packFocus: "SPECIAL" });
     }
   }
 
-  function openContentModal(options?: { mode?: "packs" | "extras"; tier?: "T0" | "T1" | "T2" | "T3" | "T4" | null; packFocus?: "WELCOME" | "MONTHLY" | "SPECIAL" | null }) {
+  function openContentModal(options?: { mode?: "packs" | "extras"; tier?: "T0" | "T1" | "T2" | "T3" | "T4" | null; packFocus?: "WELCOME" | "MONTHLY" | "SPECIAL" | null; defaultRegisterExtras?: boolean; registerSource?: string | null }) {
     const nextMode = options?.mode ?? "packs";
     setContentModalMode(nextMode);
     setExtraTierFilter(options?.tier ?? null);
     setContentModalPackFocus(options?.packFocus ?? null);
-    setShowExtraTemplates(false);
+    setRegisterExtrasChecked(options?.defaultRegisterExtras ?? false);
+    setRegisterExtrasSource(options?.registerSource ?? null);
+    setTransactionPrices({});
+    setOpenPanel("none");
     setShowPackSelector(false);
-    setShowNotes(false);
-    setShowHistory(false);
     setSelectedContentIds([]);
     fetchContentItems(id);
     if (id) fetchAccessGrants(id);
@@ -668,7 +762,7 @@ export default function ConversationDetails({ onBackToBoard }: ConversationDetai
   function handleOpenExtrasPanel() {
     const nextFilter = timeOfDay === "NIGHT" ? "night" : "day";
     setTimeOfDayFilter(nextFilter as TimeOfDayFilter);
-    openContentModal({ mode: "extras", tier: null });
+    openContentModal({ mode: "extras", tier: null, defaultRegisterExtras: false, registerSource: null });
   }
 
   function fillMessageFromPackType(type: "trial" | "monthly" | "special") {
@@ -871,6 +965,7 @@ export default function ConversationDetails({ onBackToBoard }: ConversationDetai
           activeGrantTypes: targetFan.activeGrantTypes ?? prev.activeGrantTypes,
           hasAccessHistory: targetFan.hasAccessHistory ?? prev.hasAccessHistory,
           lastSeen: targetFan.lastSeen || prev.lastSeen,
+          lastSeenAt: (targetFan as any).lastSeenAt ?? prev.lastSeenAt ?? null,
           lastTime: targetFan.time || prev.lastTime,
           image: targetFan.avatar || prev.image,
           followUpTag: getFollowUpTag(targetFan.membershipStatus, targetFan.daysLeft, targetFan.activeGrantTypes),
@@ -955,8 +1050,7 @@ export default function ConversationDetails({ onBackToBoard }: ConversationDetai
   useEffect(() => {
     setMessageSend("");
     setShowPackSelector(false);
-    setShowNotes(false);
-    setShowHistory(false);
+    setOpenPanel("none");
     setNotes([]);
     setNoteDraft("");
     setNotesError("");
@@ -988,11 +1082,6 @@ export default function ConversationDetails({ onBackToBoard }: ConversationDetai
   }, [conversation?.id, queueMode, todayQueue, queueIndex, setQueueIndex]);
 
   useEffect(() => {
-    const loaded = loadExtraPresets();
-    setExtraPresets(loaded);
-  }, []);
-
-  useEffect(() => {
     if (!id) return;
     const map = loadUnreadMap();
     const updated = updateLastReadForFan(map, id, new Date());
@@ -1000,20 +1089,20 @@ export default function ConversationDetails({ onBackToBoard }: ConversationDetai
     window.dispatchEvent(new Event("unreadUpdated"));
   }, [id]);
 
-  useEffect(() => {
-    if (!id || !showNotes) return;
-    fetchFanNotes(id);
-  }, [id, showNotes]);
+useEffect(() => {
+  if (!id || openPanel !== "notes") return;
+  fetchFanNotes(id);
+}, [id, openPanel]);
 
 useEffect(() => {
-  if (!id || !showHistory) return;
+  if (!id || openPanel !== "history") return;
   fetchHistory(id);
-}, [id, showHistory]);
+}, [id, openPanel]);
 
 useEffect(() => {
-  if (!id || !showExtraTemplates) return;
+  if (!id || openPanel !== "extras") return;
   fetchExtrasHistory(id);
-}, [id, showExtraTemplates]);
+}, [id, openPanel]);
 
 useEffect(() => {
   if (!showContentModal) return;
@@ -1061,14 +1150,14 @@ useEffect(() => {
     setSelectedPackType(mappedType as "trial" | "monthly" | "special");
     fillMessage(buildPackProposalMessage(selectedPack));
     setShowPackSelector(true);
-    setShowExtraTemplates(false);
+    setOpenPanel("none");
   }
 
   function handleSelectPackChip(event: MouseEvent<HTMLButtonElement>, type: "trial" | "monthly" | "special") {
     event.stopPropagation();
     setSelectedPackType(type);
     setShowPackSelector(true);
-    setShowExtraTemplates(false);
+    setOpenPanel("none");
     fillMessageFromPackType(type);
   }
 
@@ -1297,17 +1386,26 @@ useEffect(() => {
     }
   }
 
-  function lastSeenLabel() {
-    if (!lastSeen) return null;
-    if (lastSeen.toLowerCase() === "en línea ahora") {
-      return (
-        <span className="inline-flex items-center gap-1 text-[11px] text-[#53bdeb]">
-          <span className="w-2 h-2 rounded-full bg-[#25d366]" />
-          <span>En línea ahora</span>
-        </span>
-      );
+  function getPresenceStatus(sourceLastSeenAt?: string | null, fallbackLabel?: string | null) {
+    if (sourceLastSeenAt) {
+      const last = new Date(sourceLastSeenAt);
+      if (!Number.isNaN(last.getTime())) {
+        const diffMinutes = (Date.now() - last.getTime()) / 60000;
+        if (diffMinutes <= 3) {
+          return { label: "En línea ahora", color: "online" as const };
+        }
+        if (diffMinutes <= 1440) {
+          const relative = formatDistanceToNow(last, { addSuffix: true, locale: es });
+          return { label: `Última conexión ${relative}`, color: "recent" as const };
+        }
+        const formatted = format(last, "d MMM, HH:mm", { locale: es });
+        return { label: `Última conexión el ${formatted}`, color: "offline" as const };
+      }
     }
-    return <span className="text-[11px] text-slate-400">Última conexión: {lastSeen}</span>;
+    if (fallbackLabel) {
+      return { label: `Última conexión: ${fallbackLabel}`, color: "offline" as const };
+    }
+    return { label: "Sin actividad reciente", color: "offline" as const };
   }
 
   const selectedPackStatus = getPackStatusForType(selectedPackType);
@@ -1318,6 +1416,13 @@ useEffect(() => {
     : membershipStatus
     ? `${membershipStatus}${effectiveDaysLeft ? ` – ${effectiveDaysLeft} días restantes` : ""}`
     : "";
+  const presenceStatus = getPresenceStatus(lastSeenAt, lastSeen);
+  const presenceDotClass =
+    presenceStatus.color === "online"
+      ? "bg-[#25d366]"
+      : presenceStatus.color === "recent"
+      ? "bg-[#f5c065]"
+      : "bg-[#7d8a93]";
   const extrasCountDisplay = conversation.extrasCount ?? 0;
   const extrasSpentDisplay = Math.round(conversation.extrasSpentTotal ?? 0);
   const extrasAmount = conversation.extrasSpentTotal ?? 0;
@@ -1362,26 +1467,18 @@ useEffect(() => {
   }
 
   const handleViewProfile = () => {
-    if (isDesktop) {
-      fanHeaderRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
-      return;
-    }
     setShowQuickSheet(true);
   };
 
   const handleOpenNotesFromSheet = () => {
     setShowQuickSheet(false);
-    setShowNotes(true);
-    setShowExtraTemplates(false);
-    setShowHistory(false);
+    setOpenPanel("notes");
     if (id) fetchFanNotes(id);
   };
 
   const handleOpenHistoryFromSheet = () => {
     setShowQuickSheet(false);
-    setShowHistory(true);
-    setShowNotes(false);
-    setShowExtraTemplates(false);
+    setOpenPanel("history");
     if (id) fetchHistory(id);
   };
   const handleRenewAction = async () => {
@@ -1476,6 +1573,58 @@ useEffect(() => {
     return usage;
   }
 
+  const lapexSummary =
+    conversation.extraLadderStatus && (conversation.extraLadderStatus.totalSpent ?? 0) > 0
+      ? `${lapexPhaseLabel}${lapexExtraNote} · Ha gastado ${Math.round(
+          conversation.extraLadderStatus.totalSpent ?? 0
+        )} € en extras · Último pack ${formatLastPurchase(conversation.extraLadderStatus.lastPurchaseAt) || "—"} · Siguiente sugerencia: ${
+          lapexSuggested || "—"
+        }`
+      : null;
+
+  const sessionSummary =
+    sessionToday.todayCount > 0
+      ? `Sesión hoy: ${sessionToday.todayCount} extras — ${Math.round(sessionToday.todaySpent ?? 0)} € · Último ${
+          formatLastPurchaseToday(sessionToday.todayLastPurchaseAt) || "—"
+        }`
+      : "Sesión hoy: sin extras todavía";
+
+  const iaSummary = `IA hoy: ${aiStatus ? `${aiStatus.usedToday}/${aiStatus.hardLimitPerDay ?? "∞"}` : "–/–"} · Créditos: ${
+    aiStatus ? aiStatus.creditsAvailable : "—"
+  } · Modo IA: ${getTurnModeLabel(aiTurnMode)}`;
+
+  const planSummary = plan.summaryLabel
+    ? plan.summaryLabel
+    : `Plan de hoy: ${plan.focusLabel || "—"}${plan.stepLabel ? ` — ${plan.stepLabel}` : ""}${
+        plan.goalLabel ? ` — Objetivo: ${plan.goalLabel}` : ""
+      }${
+        getUsageLabelForPlan(plan.suggestedUsage)
+          ? ` — Siguiente jugada: ${getUsageLabelForPlan(plan.suggestedUsage)}`
+          : ""
+      }`;
+
+  const managerShortSummary = managerSummary?.priorityReason || plan.summaryLabel || statusLine;
+  const quickExtraDisabled = iaBlocked || aiStatus?.limitReached;
+  const showNotes = openPanel === "notes";
+  const showHistory = openPanel === "history";
+  const showExtraTemplates = openPanel === "extras";
+  const getTransactionPriceFor = (item?: ContentWithFlags | null) => {
+    if (!item) return 0;
+    const custom = transactionPrices[item.id];
+    if (custom === undefined || custom === null || Number.isNaN(custom)) {
+      return getExtraPrice(item);
+    }
+    return Math.max(0, custom);
+  };
+  const selectedExtrasTotal = selectedContentIds.reduce((sum, selectedId) => {
+    const item = contentItems.find((c) => c.id === selectedId);
+    return sum + getTransactionPriceFor(item);
+  }, 0);
+  const handleMonthlyOfferFromManager = () => {
+    handleSubscriptionLink();
+    openContentModal({ mode: "packs", packFocus: "MONTHLY" });
+  };
+
   const filteredItems = contentItems.filter((item) => {
     const tag = getTimeOfDayTag(item.title ?? "");
 
@@ -1487,630 +1636,130 @@ useEffect(() => {
   });
 
   return (
-    <div className="flex flex-col w-full h-full min-h-[60vh]">
+    <div className="flex flex-col w-full h-[100dvh] max-h-[100dvh] md:h-full md:max-h-none min-h-[100dvh] md:min-h-[60vh] overflow-hidden">
       {onBackToBoard && (
-        <div className="md:hidden flex items-center justify-between gap-3 px-4 pt-3">
+        <header className="md:hidden sticky top-0 z-30 flex items-center justify-between gap-3 px-4 py-3 bg-slate-950/95 border-b border-slate-800 backdrop-blur">
           <button
             type="button"
             onClick={onBackToBoard}
-            className="rounded-full px-3 py-1 text-sm bg-slate-800 text-slate-100 hover:bg-slate-700"
+            className="inline-flex items-center gap-1 rounded-full bg-slate-900 px-3 py-1.5 text-xs font-medium text-slate-100 hover:bg-slate-800"
           >
             ← Volver
           </button>
-          <div className="flex-1 min-w-0 flex items-center gap-2 text-sm">
-            <span className="font-semibold truncate">{contactName}</span>
+          <div className="flex items-center gap-2 min-w-0 flex-1 justify-center">
+            <span className="truncate text-sm font-medium text-slate-50">{contactName}</span>
             {(conversation.isHighPriority || (conversation.extrasCount ?? 0) > 0) && (
-              <span className="inline-flex items-center rounded-full bg-slate-800/80 text-[11px] text-amber-200 px-2 py-[1px]">
+              <span className="inline-flex items-center rounded-full border border-amber-400/60 bg-amber-500/10 px-2 py-0.5 text-[11px] font-medium text-amber-300">
                 {conversation.isHighPriority ? "VIP" : "Extras"}
               </span>
             )}
           </div>
-          <button
-            type="button"
-            onClick={handleViewProfile}
-            className="rounded-full px-3 py-1 text-sm bg-slate-800 text-slate-100 hover:bg-slate-700"
-          >
-            Ver ficha
-          </button>
-        </div>
+        </header>
       )}
-      <header
-        ref={fanHeaderRef}
-        className="flex flex-col gap-3 border-b border-slate-800 bg-slate-900/80 px-4 py-3"
-      >
-        {/* Mini ficha solo móvil, bajo la barra superior */}
-        <div className="md:hidden mt-1 rounded-2xl bg-slate-900/80 px-3 py-2 shadow-lg shadow-black/40 flex flex-col gap-2 text-xs">
-          <div className="flex items-center gap-3">
-            <Avatar width="w-9" height="h-9" image={image} />
-            <div className="flex-1 min-w-0">
-              <div className="flex items-center gap-2">
-                <span className="text-sm font-semibold text-slate-50 truncate">{contactName}</span>
-                <span
-                  className={`w-2 h-2 rounded-full ${
-                    accessState === "active"
-                      ? "bg-[#25d366]"
-                      : accessState === "expiring"
-                      ? "bg-[#f5c065]"
-                      : "bg-[#7d8a93]"
-                  }`}
-                />
-              </div>
-              <div className="flex flex-wrap items-center gap-2 text-[11px] text-slate-300">
-                <span className="inline-flex items-center rounded-full bg-slate-800/80 text-amber-200 px-2 py-[1px]">
-                  {packLabel}
-                </span>
-                <span className="inline-flex items-center rounded-full bg-slate-800/80 text-slate-200 px-2 py-[1px]">
-                  {formatTier(conversation.customerTier)}
-                </span>
-                {conversation.isHighPriority && (
-                  <span className="inline-flex items-center rounded-full bg-amber-500/20 text-amber-200 px-2 py-[1px]">
-                    🔥 Alta prioridad
-                  </span>
-                )}
-                {extrasCountDisplay > 0 && (
-                  <span className="inline-flex items-center rounded-full bg-emerald-500/15 text-emerald-100 px-2 py-[1px]">
-                    Extras
-                  </span>
-                )}
+      <header ref={fanHeaderRef} className="sticky top-0 z-20 backdrop-blur">
+        <div className="max-w-4xl mx-auto w-full bg-slate-950/70 border-b border-slate-800 px-4 py-3 md:px-6 md:py-4 flex flex-col gap-3">
+          {/* Piso 1 */}
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex items-center gap-3 min-w-0">
+              <Avatar width="w-10" height="h-10" image={image} />
+              <div className="flex flex-col min-w-0">
+                <h1 className="text-base font-semibold text-slate-50 truncate">{contactName}</h1>
+                <p className="text-xs text-slate-400 truncate">
+                  {membershipDetails || packLabel || "Suscripción"}
+                </p>
               </div>
             </div>
+            <div className="hidden md:flex items-center gap-2">
+              <button
+                type="button"
+                onClick={handleViewProfile}
+                aria-label="Ver ficha del fan"
+                className="inline-flex items-center rounded-full border border-emerald-500/70 px-3 py-1.5 text-xs font-medium text-emerald-300 hover:bg-emerald-500/10"
+              >
+                Ver ficha
+              </button>
+              <button
+                type="button"
+                disabled
+                aria-disabled="true"
+                title="Más opciones del chat (próximamente)"
+                aria-label="Más opciones del chat (próximamente)"
+                className="inline-flex items-center justify-center rounded-full border border-slate-700 bg-slate-900/70 p-2 text-slate-300 opacity-60 cursor-not-allowed"
+              >
+                <svg viewBox="0 0 24 24" width="24" height="24" className="pointer-events-none">
+                  <path fill="currentColor" d="M12 7a2 2 0 1 0-.001-4.001A2 2 0 0 0 12 7zm0 2a2 2 0 1 0-.001 3.999A2 2 0 0 0 12 9zm0 6a2 2 0 1 0-.001 3.999A2 2 0 0 0 12 15z"></path>
+                </svg>
+              </button>
+            </div>
           </div>
-          <div className="flex flex-col gap-1 text-[11px] text-slate-300">
-            <div className="flex justify-between gap-2">
-              <span className="truncate">Total gastado: {Math.round(lifetimeAmount)} €</span>
-              <span className="truncate text-right">
-                Extras: {extrasCountDisplay} · {extrasSpentDisplay} €
+          <div className="md:hidden flex items-center justify-end gap-2">
+            <button
+              type="button"
+              onClick={handleViewProfile}
+              aria-label="Ver ficha del fan"
+              className="inline-flex items-center rounded-full border border-emerald-500/70 px-3 py-1.5 text-xs font-medium text-emerald-300 hover:bg-emerald-500/10"
+            >
+              Ver ficha
+            </button>
+            <button
+              type="button"
+              disabled
+              aria-disabled="true"
+              title="Más opciones del chat (próximamente)"
+              aria-label="Más opciones del chat (próximamente)"
+              className="inline-flex items-center justify-center rounded-full border border-slate-700 bg-slate-900/70 p-2 text-slate-300 opacity-60 cursor-not-allowed"
+            >
+              <svg viewBox="0 0 24 24" width="24" height="24" className="pointer-events-none">
+                <path fill="currentColor" d="M12 7a2 2 0 1 0-.001-4.001A2 2 0 0 0 12 7zm0 2a2 2 0 1 0-.001 3.999A2 2 0 0 0 12 9zm0 6a2 2 0 1 0-.001 3.999A2 2 0 0 0 12 15z"></path>
+              </svg>
+            </button>
+          </div>
+
+          {/* Piso 2 */}
+          <div className="flex flex-wrap items-center gap-2 text-xs min-w-0">
+            <span className="inline-flex items-center rounded-full border border-slate-700 bg-slate-900/70 px-3 py-1 text-[11px] font-semibold text-amber-200 whitespace-nowrap">
+              {packLabel}
+            </span>
+            <span className="inline-flex items-center rounded-full border border-slate-700 bg-slate-900/70 px-3 py-1 text-[11px] font-semibold text-slate-200 whitespace-nowrap">
+              {formatTier(conversation.customerTier)}
+            </span>
+            {conversation.isHighPriority && (
+              <span className="inline-flex items-center rounded-full border border-amber-400/70 bg-amber-500/15 px-3 py-1 text-[11px] font-semibold text-amber-100 whitespace-nowrap">
+                🔥 Alta prioridad
+              </span>
+            )}
+            {extrasCountDisplay > 0 && (
+              <span className="inline-flex items-center rounded-full border border-emerald-400/70 bg-emerald-500/15 px-3 py-1 text-[11px] font-semibold text-emerald-100 whitespace-nowrap">
+                Extras
+              </span>
+            )}
+            <span
+              className={`w-2 h-2 rounded-full ${presenceDotClass}`}
+              aria-label={presenceStatus.label}
+              title={presenceStatus.label}
+            />
+          </div>
+
+          {/* Piso 3 */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-y-1 md:gap-x-6 text-xs text-slate-300 min-w-0">
+            <div className="flex items-center gap-1 min-w-0">
+              <span className="text-slate-400">Última conexión:</span>
+              <span className="truncate">{presenceStatus.label || "Sin actividad reciente"}</span>
+            </div>
+            <div className="flex items-center gap-1 min-w-0">
+              <span className="text-slate-400">Extras:</span>
+              <span className="truncate">
+                {extrasCountDisplay} · {extrasSpentDisplay}
               </span>
             </div>
-            {conversation.nextAction && (
-              <p className="leading-snug text-slate-200">
-                Próxima acción: <span className="text-slate-100">{conversation.nextAction}</span>
-              </p>
-            )}
-          </div>
-        </div>
-
-        <div className="flex items-start justify-between gap-3">
-            <div className="flex items-start gap-3">
-              <Avatar width="w-10" height="h-10" image={image} />
-              <div className="flex flex-col gap-1 leading-tight">
-                <div className="flex flex-wrap items-center gap-2">
-                  <h1 className="text-sm font-semibold text-slate-50">{contactName}</h1>
-                  <span className="inline-flex items-center rounded-full bg-slate-800/80 text-[11px] text-amber-200 px-2 py-[1px]">
-                    {packLabel}
-                  </span>
-                  {novsyStatus === "NOVSY" && (
-                    <span className="inline-flex items-center rounded-full border border-emerald-400/80 bg-emerald-500/10 text-[11px] text-emerald-100 px-2 py-[1px]">
-                      Extras
-                    </span>
-                  )}
-                  <span
-                    className={`w-2 h-2 rounded-full ${
-                      accessState === "active"
-                        ? "bg-[#25d366]"
-                        : accessState === "expiring"
-                      ? "bg-[#f5c065]"
-                      : "bg-[#7d8a93]"
-                  }`}
-                />
-              </div>
-              <div className="flex flex-wrap items-center gap-2 text-[11px] text-slate-400">
-                {membershipDetails && <span>{membershipDetails}</span>}
-                {membershipDetails && lastSeen && <span className="w-1 h-1 rounded-full bg-slate-500" />}
-                {lastSeenLabel()}
-              </div>
-              {extrasCountDisplay > 0 && (
-                <div className="text-[11px] text-slate-400">
-                  Extras: {extrasCountDisplay} · {extrasSpentDisplay} €
-                </div>
-              )}
-              <div className="text-xs text-slate-400">
-                <span className={conversation.customerTier === "priority" || conversation.customerTier === "vip" ? "text-amber-300 font-semibold" : ""}>
-                  {formatTier(conversation.customerTier)}
-                </span>
-                {` · ${lifetimeValueDisplay} € gastados · ${notesCountDisplay} nota${notesCountDisplay === 1 ? "" : "s"}`}
-              </div>
-              <div className="text-[11px] text-slate-400">
-                Total gastado: {Math.round(lifetimeAmount)} € · Suscripciones: {Math.round(subsAmount)} € · Extras: {Math.round(extrasAmount)} €
-              </div>
-              {conversation.nextAction && (
-                <div className="text-[11px] text-slate-400">
-                  ⚡ Próxima acción: {conversation.nextAction}
-                </div>
-              )}
-              <div className="text-[11px] text-slate-400">
-                Último mensaje tuyo: {formatLastCreatorMessage(lastCreatorMessageAt)}
-              </div>
-            </div>
-        </div>
-          <div className="flex items-center text-[#8696a0] gap-2">
-            {queueMode && todayQueue.length > 1 && queueStatus.index >= 0 && (
-              <div className="flex items-center gap-2 text-[11px] text-emerald-200 mr-2">
-                <span>{`Ventas de hoy: ${queueStatus.index + 1} de ${queueStatus.size}`}</span>
-                <button
-                  type="button"
-                  disabled={!hasNextInQueue}
-                  onClick={handleNextInQueue}
-                  className={clsx(
-                    "rounded-full border px-2 py-1 text-xs font-semibold transition",
-                    hasNextInQueue
-                      ? "border-emerald-400 bg-emerald-500/10 text-emerald-100 hover:bg-emerald-500/20"
-                      : "border-slate-700 bg-slate-800/60 text-slate-400 cursor-not-allowed"
-                  )}
-                >
-                  {hasNextInQueue ? "▶ Siguiente venta" : "Última venta"}
-                </button>
-              </div>
-            )}
-            <svg viewBox="0 0 24 24" width="24" height="24" className="cursor-pointer">
-              <path fill="currentColor" d="M15.9 14.3H15l-.3-.3c1-1.1 1.6-2.7 1.6-4.3 0-3.7-3-6.7-6.7-6.7S3 6 3 9.7s3 6.7 6.7 6.7c1.6 0 3.2-.6 4.3-1.6l.3.3v.8l5.1 5.1 1.5-1.5-5-5.2zm-6.2 0c-2.6 0-4.6-2.1-4.6-4.6s2.1-4.6 4.6-4.6 4.6 2.1 4.6 4.6-2 4.6-4.6 4.6z">
-              </path>
-            </svg>
-            <svg viewBox="0 0 24 24" width="24" height="24" className="cursor-pointer">
-              <path fill="currentColor" d="M12 7a2 2 0 1 0-.001-4.001A2 2 0 0 0 12 7zm0 2a2 2 0 1 0-.001 3.999A2 2 0 0 0 12 9zm0 6a2 2 0 1 0-.001 3.999A2 2 0 0 0 12 15z"></path>
-            </svg>
-          </div>
-        </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <button
-            type="button"
-            className="text-xs font-medium rounded-full border border-slate-600 bg-slate-800/80 text-slate-100 px-3 py-1 transition hover:bg-emerald-600 hover:border-emerald-500 hover:text-slate-50"
-            onClick={handleQuickGreeting}
-          >
-            Saludo rápido
-          </button>
-          <button
-            type="button"
-            className="text-xs font-medium rounded-full border border-slate-600 bg-slate-800/80 text-slate-100 px-3 py-1 transition hover:bg-emerald-600 hover:border-emerald-500 hover:text-slate-50"
-            onClick={handleWelcomePack}
-          >
-            Pack bienvenida
-          </button>
-          <button
-            type="button"
-          className="text-xs font-medium rounded-full border border-slate-600 bg-slate-800/80 text-slate-100 px-3 py-1 transition hover:bg-emerald-600 hover:border-emerald-500 hover:text-slate-50"
-            onClick={handleSubscriptionLink}
-          >
-            Enlace suscripción
-          </button>
-          <button
-            type="button"
-            className="text-xs font-medium rounded-full border border-slate-600 bg-slate-800/80 text-slate-100 px-3 py-1 transition hover:bg-emerald-600 hover:border-emerald-500 hover:text-slate-50"
-            onClick={() => handleChoosePack()}
-          >
-            Elegir pack
-          </button>
-          <button
-            type="button"
-            className="text-xs font-medium rounded-full border border-slate-600 bg-slate-800/80 text-slate-100 px-3 py-1 transition hover:bg-slate-700"
-            onClick={() => {
-              setShowNotes((prev) => {
-                const next = !prev;
-                if (next && id) {
-                  fetchFanNotes(id);
-                }
-                return next;
-              });
-              setShowExtraTemplates(false);
-              setShowHistory(false);
-            }}
-          >
-            Notas
-          </button>
-          <button
-            type="button"
-            className={`text-xs font-medium rounded-full border px-3 py-1 transition ${
-              showHistory
-                ? "border-amber-400 bg-amber-500/10 text-amber-100"
-                : "border-slate-600 bg-slate-800/80 text-slate-100 hover:bg-slate-700"
-            }`}
-            onClick={() => {
-              setShowHistory((prev) => !prev);
-              setShowNotes(false);
-              setShowExtraTemplates(false);
-              if (!showHistory && id) {
-                fetchHistory(id);
-              }
-            }}
-          >
-            Historial
-          </button>
-          <button
-            type="button"
-            className={`text-xs font-medium rounded-full border px-3 py-1 transition ${
-              showExtraTemplates
-                ? "border-amber-400 bg-amber-500/10 text-amber-100"
-                : "border-slate-600 bg-slate-800/80 text-slate-100 hover:bg-slate-700"
-            }`}
-            onClick={() => {
-              setShowExtraTemplates((prev) => !prev);
-              setShowPackSelector(false);
-              setShowNotes(false);
-              setShowHistory(false);
-            }}
-          >
-            Extra
-          </button>
-        </div>
-        {showPackSelector && (
-          <div className="flex flex-col gap-3 bg-slate-800/60 border border-slate-700 rounded-lg p-3 w-full">
-            <div className="flex flex-wrap items-center gap-2">
-              <button
-                type="button"
-                className={clsx(
-                  "inline-flex items-center rounded-full border px-3 py-1 text-xs font-semibold tracking-tight transition shadow-sm",
-                  selectedPackType === "trial"
-                    ? "bg-amber-500 text-slate-900 border-amber-300"
-                    : "bg-slate-800/80 border-slate-600 text-slate-200 hover:border-amber-400/70 hover:text-amber-100"
-                )}
-                onClick={(e) => handleSelectPackChip(e, "trial")}
-              >
-                Prueba 7 días
-              </button>
-              <button
-                type="button"
-                className={clsx(
-                  "inline-flex items-center rounded-full border px-3 py-1 text-xs font-semibold tracking-tight transition shadow-sm",
-                  selectedPackType === "monthly"
-                    ? "bg-amber-500 text-slate-900 border-amber-300"
-                    : "bg-slate-800/80 border-slate-600 text-slate-200 hover:border-amber-400/70 hover:text-amber-100"
-                )}
-                onClick={(e) => handleSelectPackChip(e, "monthly")}
-              >
-                1 mes
-              </button>
-              <button
-                type="button"
-                className={clsx(
-                  "inline-flex items-center rounded-full border px-3 py-1 text-xs font-semibold tracking-tight transition shadow-sm",
-                  selectedPackType === "special"
-                    ? "bg-amber-500 text-slate-900 border-amber-300"
-                    : "bg-slate-800/80 border-slate-600 text-slate-200 hover:border-amber-400/70 hover:text-amber-100"
-                )}
-                onClick={(e) => handleSelectPackChip(e, "special")}
-              >
-                Especial
-              </button>
-            </div>
-            {config.packs.map((pack) => {
-              const packType = pack.name.toLowerCase().includes("bienvenida")
-                ? "trial"
-                : pack.name.toLowerCase().includes("mensual")
-                ? "monthly"
-                : "special";
-              const hasActiveMonthlyPack = getPackStatusForType("monthly").status === "active";
-              const isSelected = packType === selectedPackType;
-              const packStatus = getPackStatusForType(packType as "trial" | "monthly" | "special");
-              const isSpecialBlocked = packType === "special" && !hasActiveMonthlyPack;
-              const isIncludedByHigher =
-                packType === "trial"
-                  ? hasMonthly || hasSpecial
-                  : packType === "monthly"
-                  ? hasSpecial
-                  : false;
-              const isActive = packStatus.status === "active";
-              const showActiveBadge = isActive;
-              const showExpiredBadge = packStatus.status === "expired" && !isIncludedByHigher && !isActive;
-              const disableButton =
-                isIncludedByHigher || isActive || (packType === "special" && !hasMonthly) || grantLoadingType === packType;
-              const buttonLabel =
-                packType === "trial"
-                  ? isIncludedByHigher
-                    ? hasSpecial
-                      ? "Incluido en tu Pack especial"
-                      : "Incluido en tu suscripción mensual"
-                    : "Conceder acceso"
-                  : packType === "monthly"
-                  ? isIncludedByHigher
-                    ? "Incluido en tu Pack especial"
-                    : "Conceder acceso"
-                  : "Conceder acceso";
-              const helperText =
-                packType === "special" && !hasMonthly
-                  ? "Solo disponible para fans con suscripción mensual activa."
-                  : isIncludedByHigher && packType === "trial" && hasMonthly
-                  ? "Incluido en tu suscripción mensual."
-                  : isIncludedByHigher && packType === "trial" && hasSpecial
-                  ? "Incluido en tu Pack especial."
-                  : isIncludedByHigher && packType === "monthly" && hasSpecial
-                  ? "Incluido en tu Pack especial."
-                  : null;
-              return (
-                <button
-                  key={pack.id}
-                  type="button"
-                  className={clsx(
-                    "text-left bg-slate-900/60 hover:bg-slate-800 text-white px-3 py-2 rounded-lg border transition",
-                    isSelected ? "border-amber-400 shadow-sm" : "border-slate-700"
-                  )}
-                  onClick={() => handleSelectPack(pack.id)}
-                >
-                  <div className="flex justify-between text-sm font-medium">
-                    <span>{pack.name}</span>
-                    <span className="text-[#53bdeb]">{pack.price}</span>
-                  </div>
-                    <p className="text-[#a1b0b7] text-xs mt-1">{pack.description}</p>
-                  <div className="flex items-center gap-2 mt-2">
-                    {showActiveBadge && (
-                      <span className="inline-flex items-center rounded-full border border-amber-400/80 bg-amber-500/10 px-2.5 py-0.5 text-xs font-medium text-amber-300">
-                        Activo{packStatus.daysLeft ? ` · ${packStatus.daysLeft} días restantes` : ""}
-                      </span>
-                    )}
-                    {showExpiredBadge && (
-                      <span className="inline-flex items-center rounded-full border border-slate-500/70 bg-slate-800/50 px-2.5 py-0.5 text-xs font-medium text-slate-300">
-                        Expirado
-                      </span>
-                    )}
-                    {helperText && (
-                      <span className="text-[11px] text-slate-400">{helperText}</span>
-                    )}
-                    {!disableButton && (
-                      <button
-                        type="button"
-                        className="inline-flex items-center justify-center rounded-full border border-amber-400/90 px-3 py-1 text-xs font-semibold text-amber-200 hover:bg-amber-500/15 hover:border-amber-300 focus:outline-none focus:ring-1 focus:ring-amber-400/60 transition"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          if (isSpecialBlocked) return;
-                          handleGrant(packType as "trial" | "monthly" | "special");
-                        }}
-                        disabled={disableButton}
-                      >
-                        {grantLoadingType === packType ? "Concediendo..." : buttonLabel}
-                      </button>
-                    )}
-                    {(disableButton && !showActiveBadge && !showExpiredBadge && !helperText && isIncludedByHigher) && (
-                      <span className="text-[11px] text-slate-400">
-                        Incluido en tu pack actual.
-                      </span>
-                    )}
-                    {isSpecialBlocked && (
-                      <p className="text-[11px] text-slate-400">
-                        Solo disponible para fans con suscripción mensual activa.
-                      </p>
-                    )}
-                  </div>
-                </button>
-              );
-            })}
-          </div>
-        )}
-        {showExtraTemplates && (
-          <div className="flex flex-col gap-3 bg-slate-800/60 border border-slate-700 rounded-lg p-3 w-full">
-            <div className="mb-1 flex items-center justify-between">
-              <h3 className="text-sm font-semibold text-white">Extras · PPV</h3>
-              <div className="flex items-center gap-2">
-                <div className="flex items-center gap-1 text-[11px] text-slate-300">
-                  <span>Modo</span>
-                  <div className="inline-flex rounded-full border border-slate-600 bg-slate-900">
-                    {(["DAY", "NIGHT"] as TimeOfDayValue[]).map((val) => (
-                      <button
-                        key={val}
-                        type="button"
-                        onClick={() => setTimeOfDay(val)}
-                        className={clsx(
-                          "px-2 py-0.5 text-[11px] font-semibold rounded-full",
-                          timeOfDay === val
-                            ? "bg-amber-500/20 text-amber-100 border border-amber-400/70"
-                            : "text-slate-200"
-                        )}
-                      >
-                        {val === "DAY" ? "Día" : "Noche"}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-                <button
-                  type="button"
-                  className="text-xs text-slate-300 hover:text-white underline-offset-2 hover:underline"
-                  onClick={() => setShowEditExtra(true)}
-                >
-                  Editar textos
-                </button>
-              </div>
-            </div>
-
-            <div className="rounded-lg border border-slate-700 bg-slate-900/70 p-3 space-y-2">
-              <h4 className="text-sm font-semibold text-white">Registrar venta de extra</h4>
-              <div className="flex flex-col md:flex-row gap-2">
-                <select
-                  className="flex-1 rounded-lg bg-slate-900 border border-slate-700 px-3 py-2 text-xs text-slate-100"
-                  value={selectedExtraId}
-                  onChange={(e) => {
-                    const val = e.target.value;
-                    setSelectedExtraId(val);
-                    const item = contentItems.find((c) => c.id === val);
-                    const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
-                    const tier = (item?.extraTier as "T0" | "T1" | "T2" | "T3") ?? DEFAULT_EXTRA_TIER;
-                    if (tier && EXTRA_PRICES[tier] !== undefined) {
-                      setExtraAmount(EXTRA_PRICES[tier]);
-                    }
-                  }}
-                >
-                  <option value="">Selecciona un extra</option>
-                  {contentItems
-                    .filter((item) => {
-                      const isExtraItem = item.isExtra === true || item.visibility === "EXTRA";
-                      const matchesTimeOfDay =
-                        !item.timeOfDay || item.timeOfDay === "ANY" || item.timeOfDay === timeOfDay;
-                      return isExtraItem && matchesTimeOfDay;
-                    })
-                    .map((item) => {
-                      const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1"; // TODO: permitir editar extraTier en la biblioteca
-                      const tier = (item.extraTier as "T0" | "T1" | "T2" | "T3") ?? DEFAULT_EXTRA_TIER;
-                      const suggested = EXTRA_PRICES[tier] ?? 0;
-                      return (
-                        <option key={item.id} value={item.id}>
-                          {`${item.title} · ${tier} · ${suggested} €`}
-                        </option>
-                      );
-                    })}
-                </select>
-                <input
-                  type="number"
-                  className="w-32 rounded-lg bg-slate-900 border border-slate-700 px-3 py-2 text-xs text-slate-100"
-                  value={extraAmount}
-                  onChange={(e) => setExtraAmount(e.target.value === "" ? "" : Number(e.target.value))}
-                  placeholder="Importe"
-                />
-                <button
-                  type="button"
-                  className="rounded-lg border border-emerald-400 bg-emerald-500/10 px-3 py-2 text-xs font-semibold text-emerald-100 hover:bg-emerald-500/20"
-                  onClick={async () => {
-                    if (!id || !selectedExtraId) {
-                      setExtraError("Selecciona fan y extra.");
-                      return;
-                    }
-                    const item = contentItems.find((c) => c.id === selectedExtraId);
-                    const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
-                    const tier = (item?.extraTier as "T0" | "T1" | "T2" | "T3") ?? DEFAULT_EXTRA_TIER;
-                    if (!item || !tier) {
-                      setExtraError("El extra seleccionado no tiene tier asignado.");
-                      return;
-                    }
-                    if (extraAmount === "" || typeof extraAmount !== "number" || Number.isNaN(extraAmount)) {
-                      setExtraError("Introduce un importe válido.");
-                      return;
-                    }
-                    const sessionTag = `${timeOfDay}_${new Date().toISOString().slice(0, 10)}`;
-                    setExtraError("");
-                    try {
-                    const amountNumber = Number(extraAmount);
-                    const payload = {
-                      fanId: id,
-                      contentItemId: item.id,
-                      tier,
-                      amount: amountNumber,
-                      sessionTag,
-                    };
-                    const res = await fetch("/api/extras", {
-                      method: "POST",
-                      headers: { "Content-Type": "application/json" },
-                        body: JSON.stringify(payload),
-                      });
-                      if (!res.ok) {
-                        const errText = await res.text();
-                        console.error("Error registering extra", res.status, errText);
-                        setExtraError(errText || "No se pudo registrar el extra.");
-                        return;
-                      }
-                      setSelectedExtraId("");
-                      setExtraAmount("");
-                      const prevExtrasCount = conversation.extrasCount ?? 0;
-                      const prevExtrasTotal = conversation.extrasSpentTotal ?? 0;
-                      const prevLifetime = conversation.lifetimeSpend ?? 0;
-                      const updatedExtrasCount = prevExtrasCount + 1;
-                      const updatedExtrasTotal = prevExtrasTotal + amountNumber;
-                      const updatedLifetime = prevLifetime + amountNumber;
-                      const updatedTier = getCustomerTierFromSpend(updatedLifetime);
-                      const updatedHighPriority = updatedLifetime >= HIGH_PRIORITY_LIMIT;
-                      setConversation({
-                        ...conversation,
-                        extrasCount: updatedExtrasCount,
-                        extrasSpentTotal: updatedExtrasTotal,
-                        lifetimeSpend: updatedLifetime,
-                        lifetimeValue: updatedLifetime,
-                        customerTier: updatedTier,
-                        isHighPriority: updatedHighPriority,
-                      });
-                      await refreshFanData(id);
-                      await fetchExtrasHistory(id);
-                      if (typeof window !== "undefined") {
-                        window.dispatchEvent(
-                          new CustomEvent(EXTRAS_UPDATED_EVENT, {
-                            detail: {
-                              fanId: id,
-                              totals: {
-                                extrasCount: updatedExtrasCount,
-                                extrasSpentTotal: updatedExtrasTotal,
-                                lifetimeSpend: updatedLifetime,
-                                lifetimeValue: updatedLifetime,
-                                customerTier: updatedTier,
-                                isHighPriority: updatedHighPriority,
-                              },
-                            },
-                          })
-                        );
-                      }
-                    } catch (_err) {
-                      setExtraError("No se pudo registrar el extra.");
-                    }
-                  }}
-                >
-                  Registrar extra
-                </button>
-              </div>
-              {extraError && <div className="text-[11px] text-rose-300">{extraError}</div>}
-            </div>
-
-            <div className="rounded-lg border border-slate-700 bg-slate-900/70 p-3 space-y-2">
-              <div className="flex items-center justify-between">
-                <h4 className="text-sm font-semibold text-white">Historial de extras</h4>
-                {isLoadingExtraHistory && <span className="text-[11px] text-slate-400">Cargando...</span>}
-              </div>
-              <div className="text-[11px] text-slate-400">
-                {(conversation.extrasCount ?? 0) > 0 ? (
-                  <span>
-                    {`Este fan te ha comprado ${conversation.extrasCount} extra${(conversation.extrasCount ?? 0) !== 1 ? "s" : ""} por un total de ${Math.round(conversation.extrasSpentTotal ?? 0)} €.`}
-                  </span>
-                ) : (
-                  <span>Todavía no has vendido extras a este fan.</span>
-                )}
-              </div>
-              {extraHistoryError && <div className="text-xs text-rose-300">{extraHistoryError}</div>}
-              {!extraHistoryError && extraHistory.length === 0 && (
-                <div className="text-xs text-slate-400">Todavía no hay extras registrados para este fan.</div>
-              )}
-              {!extraHistoryError && extraHistory.length > 0 && (
-                <div className="flex flex-col gap-2 max-h-64 overflow-y-auto">
-                  {extraHistory.map((entry) => {
-                    const dateStr = new Date(entry.createdAt).toLocaleDateString("es-ES");
-                    const session =
-                      entry.sessionTag && entry.sessionTag.includes("_")
-                        ? entry.sessionTag.split("_")[0]
-                        : entry.contentItem?.timeOfDay ?? "ANY";
-                    const tier = entry.tier;
-                    return (
-                      <div
-                        key={entry.id}
-                        className="rounded-md border border-slate-700 bg-slate-900/80 px-2 py-2 text-xs text-slate-200"
-                      >
-                        <div className="flex items-center justify-between">
-                          <span className="font-semibold">{entry.contentItem?.title || "Extra"}</span>
-                          <span className="text-slate-400">{dateStr}</span>
-                        </div>
-                        <div className="flex items-center gap-2 text-[11px] text-slate-300">
-                          <span>{session === "DAY" ? "Día" : session === "NIGHT" ? "Noche" : "Cualquiera"}</span>
-                          <span>·</span>
-                          <span>{`Tier ${tier}`}</span>
-                          <span>·</span>
-                          <span>{`${entry.amount} €`}</span>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
-
-            <div className="grid gap-3 md:grid-cols-3">
-              {(["PHOTO", "VIDEO", "COMBO"] as ExtraPresetKind[]).map((key) => {
-                const preset = EXTRA_CARD_LABELS[key];
-                return (
-                  <button
-                    key={key}
-                    type="button"
-                    className="flex flex-col items-start rounded-xl bg-slate-900/60 p-4 text-left ring-1 ring-slate-800 hover:bg-slate-800"
-                    onClick={() => handleSendQuickExtra(key)}
-                  >
-                    <p className="text-sm font-semibold text-white">{preset.title}</p>
-                    <p className="mt-1 text-xs text-slate-300">{preset.subtitle}</p>
-                    <p className="mt-3 text-[11px] text-slate-400">Envía mensaje predefinido</p>
-                  </button>
-                );
-              })}
+            <div className="md:col-span-2 flex items-start gap-1 min-w-0">
+              <span className="text-slate-400">Próxima acción:</span>
+              <span className="min-w-0 line-clamp-1 md:line-clamp-2 text-slate-200">
+                {conversation.nextAction ? conversation.nextAction : "Sin próxima acción"}
+              </span>
             </div>
           </div>
-        )}
+        </div>
       </header>
       {/* Avisos de acceso caducado o a punto de caducar */}
       {isAccessExpired && (
@@ -2146,21 +1795,17 @@ useEffect(() => {
           </span>
         </div>
       )}
-      {showEditExtra && (
-        <EditExtraPresetsModal
-          presets={extraPresets}
-          onSave={(next) => {
-            setExtraPresets(next);
-            saveExtraPresets(next);
-            setShowEditExtra(false);
-          }}
-          onClose={() => setShowEditExtra(false)}
-        />
-      )}
       {showNotes && (
         <div className="mb-3 mx-4 rounded-xl border border-slate-700 bg-slate-900/80 px-3 py-3 text-xs text-slate-100 flex flex-col gap-3 max-h-64">
           <div className="flex items-center justify-between gap-2">
             <span className="font-semibold text-slate-100">Notas internas de {contactName}</span>
+            <button
+              type="button"
+              onClick={() => setOpenPanel("none")}
+              className="rounded-full border border-slate-600 bg-slate-800/80 px-2 py-1 text-[11px] font-semibold text-slate-100 hover:bg-slate-700"
+            >
+              Cerrar
+            </button>
           </div>
           <div className="flex flex-col gap-1">
             <span className="text-[11px] text-slate-400">Próxima acción</span>
@@ -2259,10 +1904,17 @@ useEffect(() => {
         <div className="mb-3 mx-4 rounded-xl border border-slate-700 bg-slate-900/80 px-3 py-3 text-xs text-slate-100 flex flex-col gap-3 max-h-64">
           <div className="flex items-center justify-between gap-2">
             <span className="font-semibold text-slate-100">Historial de compras</span>
+            <button
+              type="button"
+              onClick={() => setOpenPanel("none")}
+              className="rounded-full border border-slate-600 bg-slate-800/80 px-2 py-1 text-[11px] font-semibold text-slate-100 hover:bg-slate-700"
+            >
+              Cerrar
+            </button>
           </div>
           {extrasCountDisplay > 0 && (
             <div className="text-[11px] text-slate-400">
-              Este fan ha comprado {extrasCountDisplay} extra{extrasCountDisplay !== 1 ? "s" : ""} por un total de {extrasSpentDisplay} € (detalle en la pestaña &quot;Extra&quot;).
+              Este fan ha comprado {extrasCountDisplay} extra{extrasCountDisplay !== 1 ? "s" : ""} por un total de {extrasSpentDisplay} € (detalle en la pestaña &quot;Ventas extra&quot;).
             </div>
           )}
           {historyError && <div className="text-[11px] text-rose-300">{historyError}</div>}
@@ -2331,203 +1983,412 @@ useEffect(() => {
           </div>
         );
       })()}
-      <div className="flex flex-col w-full flex-1 px-4 md:px-24 py-6 overflow-y-auto" style={{ backgroundImage: "url('/assets/images/background.jpg')" }}>
-        {messages.map((messageConversation, index) => {
-          if (messageConversation.kind === "content") {
-            return (
-              <ContentAttachmentCard
-                key={`content-${messageConversation.contentItem?.id || index}`}
-                message={messageConversation}
-              />
-            );
-          }
+      <div className="flex flex-col flex-1 min-h-0">
+        <div
+          ref={messagesContainerRef}
+          className="flex flex-col w-full flex-1 overflow-y-auto"
+          style={{ backgroundImage: "url('/assets/images/background.jpg')" }}
+        >
+          <div className="max-w-4xl mx-auto w-full px-4 sm:px-6 lg:px-8 py-6">
+            {messages.map((messageConversation, index) => {
+              if (messageConversation.kind === "content") {
+                return (
+                  <ContentAttachmentCard
+                    key={`content-${messageConversation.contentItem?.id || index}`}
+                    message={messageConversation}
+                  />
+                );
+              }
 
-          const { me, message, seen, time } = messageConversation;
-          return (
-            <MessageBalloon key={index} me={me} message={message} seen={seen} time={time} />
-          );
-        })}
-        {isLoadingMessages && <div className="text-center text-[#aebac1] text-sm mt-2">Cargando mensajes...</div>}
-        {messagesError && !isLoadingMessages && <div className="text-center text-red-400 text-sm mt-2">{messagesError}</div>}
-      </div>
-      <footer className="flex flex-col bg-[#202c33] w-full h-auto py-3 px-4 text-[#8696a0] gap-3">
-        <div className="flex flex-col gap-2 rounded-lg border border-slate-700 bg-slate-900/70 px-3 py-2">
-          <div className="text-[11px] font-semibold text-slate-100 truncate">{statusLine}</div>
-          {conversation.extraLadderStatus && (conversation.extraLadderStatus.totalSpent ?? 0) > 0 && (
-            <div className="mt-1 flex flex-wrap items-center gap-2">
-              <div className="inline-flex items-center gap-2 rounded-full border border-amber-400/60 bg-amber-500/10 px-3 py-1 text-[11px] text-amber-100">
-                <span className="flex h-5 min-w-[42px] items-center justify-center rounded-full bg-amber-400/70 px-2 text-[10px] font-black uppercase tracking-wide text-slate-900">
-                  LAPEX
-                </span>
-                <span className="text-amber-100/90">
-                  {lapexPhaseLabel}
-                  {lapexExtraNote} · Ha gastado {Math.round(conversation.extraLadderStatus.totalSpent ?? 0)} € en extras ·
-                  Último pack {formatLastPurchase(conversation.extraLadderStatus.lastPurchaseAt) || "—"} · Siguiente
-                  sugerencia: {lapexSuggested}
-                </span>
-              </div>
-            </div>
-          )}
-          <div className="text-[11px] text-slate-400">
-            {sessionToday.todayCount > 0 ? (
-              <>
-                Sesión hoy: {sessionToday.todayCount} extras — {Math.round(sessionToday.todaySpent ?? 0)} € · Último{" "}
-                {formatLastPurchaseToday(sessionToday.todayLastPurchaseAt) || "—"}
-              </>
-            ) : (
-              "Sesión hoy: sin extras todavía"
+              const { me, message, seen, time } = messageConversation;
+              return (
+                <MessageBalloon key={index} me={me} message={message} seen={seen} time={time} />
+              );
+            })}
+            {isLoadingMessages && (
+              <div className="text-center text-[#aebac1] text-sm mt-2">Cargando mensajes...</div>
+            )}
+            {messagesError && !isLoadingMessages && (
+              <div className="text-center text-red-400 text-sm mt-2">{messagesError}</div>
             )}
           </div>
-          <div className="text-[11px] text-slate-300">
-            IA hoy: {aiStatus ? `${aiStatus.usedToday}/${aiStatus.hardLimitPerDay ?? "∞"}` : "–/–"} · Créditos:{" "}
-            {aiStatus ? aiStatus.creditsAvailable : "—"} · Modo IA: {getTurnModeLabel(aiTurnMode)}
-          </div>
-          <div className="text-[11px] text-slate-200">
-            <FanManagerPanel
-              fanId={conversation.id}
-              onSummary={(s) => setManagerSummary(s)}
-              onSuggestionClick={handleManagerSuggestion}
-            />
-          </div>
-          <div className="text-[11px] text-slate-300">
-            {plan.summaryLabel
-              ? plan.summaryLabel
-              : `Plan de hoy: ${plan.focusLabel || "—"}${plan.stepLabel ? ` — ${plan.stepLabel}` : ""}${
-                  plan.goalLabel ? ` — Objetivo: ${plan.goalLabel}` : ""
-                }${
-                  getUsageLabelForPlan(plan.suggestedUsage)
-                    ? ` — Siguiente jugada: ${getUsageLabelForPlan(plan.suggestedUsage)}`
-                    : ""
-                }`}
-          </div>
+        </div>
+        <div className="flex flex-col bg-[#202c33] w-full h-auto py-3 px-4 text-[#8696a0] gap-3">
           <div className="flex flex-wrap items-center gap-2">
             <button
               type="button"
-              className={clsx(
-                "whitespace-nowrap rounded-full border px-3 py-1 text-[11px] font-semibold transition",
-                isRecommended("saludo_rapido")
-                  ? "border-emerald-400 bg-emerald-500/20 text-emerald-100"
-                  : "border-slate-600 bg-slate-800/70 text-slate-100 hover:border-emerald-400 hover:text-emerald-100"
-              )}
-              onClick={handleQuickGreeting}
+              className="text-xs font-medium rounded-full border border-slate-600 bg-slate-800/80 text-slate-100 px-3 py-1 transition hover:bg-slate-700"
+              onClick={() => {
+                const next = showNotes ? "none" : "notes";
+                setOpenPanel(next);
+                if (next === "notes" && id) {
+                  fetchFanNotes(id);
+                }
+              }}
             >
-              Saludo
-            </button>
-            {showRenewAction && (
-              <button
-                type="button"
-                className={clsx(
-                  "whitespace-nowrap rounded-full border px-3 py-1 text-[11px] font-semibold transition",
-                  isRecommended("renenganche")
-                    ? "border-emerald-400 bg-emerald-500/20 text-emerald-100"
-                    : "border-slate-600 bg-slate-800/70 text-slate-100 hover:border-emerald-400 hover:text-emerald-100"
-                )}
-                onClick={handleRenewAction}
-              >
-                {renewButtonLabel}
-              </button>
-            )}
-            <button
-              type="button"
-              className={clsx(
-                "whitespace-nowrap rounded-full border px-3 py-1 text-[11px] font-semibold transition",
-                isRecommended("extra_rapido")
-                  ? "border-emerald-400 bg-emerald-500/20 text-emerald-100"
-                  : "border-slate-600 bg-slate-800/70 text-slate-100 hover:border-emerald-400 hover:text-emerald-100"
-              )}
-              onClick={handleQuickExtraClick}
-              disabled={iaBlocked || aiStatus?.limitReached}
-            >
-              Extra rápido
+              Notas
             </button>
             <button
               type="button"
-              className={clsx(
-                "whitespace-nowrap rounded-full border px-3 py-1 text-[11px] font-semibold transition",
-                isRecommended("elegir_pack")
-                  ? "border-emerald-400 bg-emerald-500/20 text-emerald-100"
-                  : "border-slate-600 bg-slate-800/70 text-slate-100 hover:border-emerald-400 hover:text-emerald-100"
-              )}
-              onClick={() => handleQuickTemplateClick("pack_offer")}
+              className={`text-xs font-medium rounded-full border px-3 py-1 transition ${
+                showHistory
+                  ? "border-amber-400 bg-amber-500/10 text-amber-100"
+                  : "border-slate-600 bg-slate-800/80 text-slate-100 hover:bg-slate-700"
+              }`}
+              onClick={() => {
+                const next = showHistory ? "none" : "history";
+                setOpenPanel(next);
+                if (next === "history" && id) {
+                  fetchHistory(id);
+                }
+              }}
             >
-              Pack especial
+              Historial
             </button>
             <button
               type="button"
-              className={clsx(
-                "whitespace-nowrap rounded-full border px-3 py-1 text-[11px] font-semibold transition",
-                isRecommended("abrir_extras")
-                  ? "border-emerald-400 bg-emerald-500/20 text-emerald-100"
-                  : "border-emerald-400 bg-emerald-500/15 text-emerald-100 hover:bg-emerald-500/25"
-              )}
-              onClick={handleOpenExtrasPanel}
+              className={`text-xs font-medium rounded-full border px-3 py-1 transition ${
+                showExtraTemplates
+                  ? "border-amber-400 bg-amber-500/10 text-amber-100"
+                  : "border-slate-600 bg-slate-800/80 text-slate-100 hover:bg-slate-700"
+              }`}
+              onClick={() => {
+                const next = showExtraTemplates ? "none" : "extras";
+                setOpenPanel(next);
+                setShowPackSelector(false);
+              }}
             >
-              Abrir extras
+              Ventas extra
             </button>
           </div>
-        </div>
+          {showExtraTemplates && (
+            <div className="flex flex-col gap-3 bg-slate-800/60 border border-slate-700 rounded-lg p-3 w-full">
+              <div className="mb-1 flex items-center justify-between">
+                <div className="flex items-center justify-between gap-2">
+                  <div className="flex flex-col">
+                    <h3 className="text-sm font-semibold text-white">Historial de ventas extra</h3>
+                    <p className="text-[11px] text-slate-400">Registra las ventas desde el modal de Extras PPV. Aquí solo ajustes manuales.</p>
+                  </div>
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="flex flex-col">
+                      <h3 className="text-sm font-semibold text-white">Historial de ventas extra</h3>
+                      <p className="text-[11px] text-slate-400">Registra las ventas desde el modal de Extras PPV. Aquí solo ajustes manuales.</p>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-1 text-[11px] text-slate-300">
+                        <span>Modo</span>
+                        <div className="inline-flex rounded-full border border-slate-600 bg-slate-900">
+                          {(["DAY", "NIGHT"] as TimeOfDayValue[]).map((val) => (
+                            <button
+                              key={val}
+                              type="button"
+                              onClick={() => setTimeOfDay(val)}
+                              className={clsx(
+                                "px-2 py-0.5 text-[11px] font-semibold rounded-full",
+                                timeOfDay === val
+                                  ? "bg-amber-500/20 text-amber-100 border border-amber-400/70"
+                                  : "text-slate-200"
+                              )}
+                            >
+                              {val === "DAY" ? "Día" : "Noche"}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        className="rounded-full border border-slate-600 bg-slate-800/80 px-2 py-1 text-[11px] font-semibold text-slate-100 hover:bg-slate-700"
+                        onClick={() => setOpenPanel("none")}
+                      >
+                        Cerrar
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </div>
 
-        <div className="flex items-center gap-3">
-          <div className="flex items-center gap-3 py-1">
-            <svg viewBox="0 0 24 24" width="24" height="24" className="cursor-pointer">
-              <path fill="currentColor" d="M9.153 11.603c.795 0 1.439-.879 1.439-1.962s-.644-1.962-1.439-1.962-1.439.879-1.439 1.962.644 1.962 1.439 1.962zm-3.204 1.362c-.026-.307-.131 5.218 6.063 5.551 6.066-.25 6.066-5.551 6.066-5.551-6.078 1.416-12.129 0-12.129 0zm11.363 1.108s-.669 1.959-5.051 1.959c-3.505 0-5.388-1.164-5.607-1.959 0 0 5.912 1.055 10.658 0zM11.804 1.011C5.609 1.011.978 6.033.978 12.228s4.826 10.761 11.021 10.761S23.02 18.423 23.02 12.228c.001-6.195-5.021-11.217-11.216-11.217zM12 21.354c-5.273 0-9.381-3.886-9.381-9.159s3.942-9.548 9.215-9.548 9.548 4.275 9.548 9.548c-.001 5.272-4.109 9.159-9.382 9.159zm3.108-9.751c.795 0 1.439-.879 1.439-1.962s-.644-1.962-1.439-1.962-1.439.879-1.439 1.962.644 1.962 1.439 1.962z">
-              </path>
-            </svg>
-            <div className="relative">
-              <button
-                type="button"
-                onClick={() => setIsAttachmentMenuOpen((prev) => !prev)}
-                className="flex items-center justify-center"
-              >
-                <svg viewBox="0 0 24 24" width="24" height="24" className="cursor-pointer">
-                  <path fill="currentColor" d="M1.816 15.556v.002c0 1.502.584 2.912 1.646 3.972s2.472 1.647 3.974 1.647a5.58 5.58 0 0 0 3.972-1.645l9.547-9.548c.769-.768 1.147-1.767 1.058-2.817-.079-.968-.548-1.927-1.319-2.698-1.594-1.592-4.068-1.711-5.517-.262l-7.916 7.915c-.881.881-.792 2.25.214 3.261.959.958 2.423 1.053 3.263.215l5.511-5.512c.28-.28.267-.722.053-.936l-.244-.244c-.191-.191-.567-.349-.957.04l-5.506 5.506c-.18.18-.635.127-.976-.214-.098-.097-.576-.613-.213-.973l7.915-7.917c.818-.817 2.267-.699 3.23.262.5.501.802 1.1.849 1.685.051.573-.156 1.111-.589 1.543l-9.547 9.549a3.97 3.97 0 0 1-2.829 1.171 3.975 3.975 0 0 1-2.83-1.173 3.973 3.973 0 0 1-1.172-2.828c0-1.071.415-2.076 1.172-2.83l7.209-7.211c.157-.157.264-.579.028-.814L11.5 4.36a.572.572 0 0 0-.834.018l-7.205 7.207a5.577 5.577 0 0 0-1.645 3.971z">
-                  </path>
-                </svg>
-              </button>
-              {isAttachmentMenuOpen && (
-                <div className="absolute bottom-12 left-0 z-20 w-56 rounded-xl bg-slate-900 border border-slate-700 shadow-lg">
-                  <button
-                    type="button"
-                    className="flex w-full items-center gap-2 px-3 py-2 text-sm text-slate-100 hover:bg-slate-800"
-                    onClick={() => {
-                      setIsAttachmentMenuOpen(false);
-                      openContentModal({ mode: "packs" });
-                    }}
-                  >
-                    <span>Adjuntar contenido</span>
-                  </button>
-                  {false && (
-                    <button
-                      type="button"
-                      disabled
-                      className="flex w-full items-center gap-2 px-3 py-2 text-sm text-slate-500 cursor-not-allowed"
-                    >
-                      Subir archivo (próximamente)
-                    </button>
+              <div className="rounded-lg border border-slate-700 bg-slate-900/70 p-3 space-y-2">
+                <div className="flex items-center justify-between">
+                  <h4 className="text-sm font-semibold text-white">Historial de extras</h4>
+                  {isLoadingExtraHistory && <span className="text-[11px] text-slate-400">Cargando...</span>}
+                </div>
+                <div className="text-[11px] text-slate-400">
+                  {(conversation.extrasCount ?? 0) > 0 ? (
+                    <span>
+                      {`Este fan te ha comprado ${conversation.extrasCount} extra${(conversation.extrasCount ?? 0) !== 1 ? "s" : ""} por un total de ${Math.round(conversation.extrasSpentTotal ?? 0)} €.`}
+                    </span>
+                  ) : (
+                    <span>Todavía no has vendido extras a este fan.</span>
                   )}
                 </div>
-              )}
+                {extraHistoryError && <div className="text-xs text-rose-300">{extraHistoryError}</div>}
+                {!extraHistoryError && extraHistory.length === 0 && (
+                  <div className="text-xs text-slate-400">Todavía no hay extras registrados para este fan.</div>
+                )}
+                {!extraHistoryError && extraHistory.length > 0 && (
+                  <div className="flex flex-col gap-2 max-h-64 overflow-y-auto">
+                    {extraHistory.map((entry) => {
+                      const dateStr = new Date(entry.createdAt).toLocaleDateString("es-ES");
+                      const session =
+                        entry.sessionTag && entry.sessionTag.includes("_")
+                          ? entry.sessionTag.split("_")[0]
+                          : entry.contentItem?.timeOfDay ?? "ANY";
+                          const tier = entry.tier;
+                      return (
+                        <div
+                          key={entry.id}
+                          className="rounded-md border border-slate-700 bg-slate-900/80 px-2 py-2 text-xs text-slate-200"
+                        >
+                          <div className="flex items-center justify-between">
+                            <span className="font-semibold">{entry.contentItem?.title || "Extra"}</span>
+                            <span className="text-slate-400">{dateStr}</span>
+                          </div>
+                          <div className="flex items-center gap-2 text-[11px] text-slate-300">
+                            <span>{session === "DAY" ? "Día" : session === "NIGHT" ? "Noche" : "Cualquiera"}</span>
+                            <span>·</span>
+                            <span>{`Tier ${tier}`}</span>
+                            <span>·</span>
+                            <span>{`${entry.amount} €`}</span>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+                <div className="pt-2 border-t border-slate-800 text-[11px] text-slate-400">
+                  <div className="flex items-center justify-between">
+                    <span>Ventas manuales</span>
+                    <button
+                      type="button"
+                      className="rounded-full border border-slate-600 bg-slate-800/80 px-3 py-1 text-[11px] font-semibold text-slate-100 hover:bg-slate-700"
+                      onClick={() => setShowManualExtraForm((prev) => !prev)}
+                    >
+                      {showManualExtraForm ? "Cerrar" : "Añadir venta manual"}
+                    </button>
+                  </div>
+                  <p className="mt-1 text-[11px] text-slate-400">
+                    Uso avanzado: registra ventas que no pasaron por el flujo de Manager IA.
+                  </p>
+                  {showManualExtraForm && (
+                    <div className="mt-2 space-y-2 rounded-lg border border-slate-700 bg-slate-900/70 p-3">
+                      <div className="flex flex-col md:flex-row gap-2">
+                        <select
+                          className="flex-1 rounded-lg bg-slate-900 border border-slate-700 px-3 py-2 text-xs text-slate-100"
+                          value={selectedExtraId}
+                          onChange={(e) => {
+                            const val = e.target.value;
+                            setSelectedExtraId(val);
+                            const item = contentItems.find((c) => c.id === val);
+                            const tier = getExtraTier(item);
+                            const suggested = EXTRA_PRICES[tier] ?? EXTRA_PRICES.T1;
+                            setExtraAmount(suggested);
+                          }}
+                        >
+                          <option value="">Selecciona un extra</option>
+                          {contentItems
+                            .filter((item) => {
+                              const isExtraItem = item.isExtra === true || item.visibility === "EXTRA";
+                              const matchesTimeOfDay =
+                                !item.timeOfDay || item.timeOfDay === "ANY" || item.timeOfDay === timeOfDay;
+                              return isExtraItem && matchesTimeOfDay;
+                            })
+                            .map((item) => {
+                              const tier = getExtraTier(item);
+                              const suggested = EXTRA_PRICES[tier] ?? 0;
+                              return (
+                                <option key={item.id} value={item.id}>
+                                  {`${item.title} · ${tier} · ${suggested} €`}
+                                </option>
+                              );
+                            })}
+                        </select>
+                        <input
+                          type="number"
+                          className="w-32 rounded-lg bg-slate-900 border border-slate-700 px-3 py-2 text-xs text-slate-100"
+                          value={extraAmount}
+                          onChange={(e) => setExtraAmount(e.target.value === "" ? "" : Number(e.target.value))}
+                          placeholder="Importe"
+                        />
+                        <button
+                          type="button"
+                          className="rounded-lg border border-emerald-400 bg-emerald-500/10 px-3 py-2 text-xs font-semibold text-emerald-100 hover:bg-emerald-500/20"
+                          onClick={async () => {
+                            if (!id || !selectedExtraId) {
+                              setExtraError("Selecciona fan y extra.");
+                              return;
+                            }
+                            const item = contentItems.find((c) => c.id === selectedExtraId);
+                            const tier = getExtraTier(item);
+                            if (!item || !tier) {
+                              setExtraError("El extra seleccionado no tiene tier asignado.");
+                              return;
+                            }
+                            if (extraAmount === "" || typeof extraAmount !== "number" || Number.isNaN(extraAmount)) {
+                              setExtraError("Introduce un importe válido.");
+                              return;
+                            }
+                            const sessionTag = `${timeOfDay}_${new Date().toISOString().slice(0, 10)}`;
+                            setExtraError("");
+                            const amountNumber = Number(extraAmount);
+                            const result = await registerExtraSale({
+                              fanId: id,
+                              extraId: item.id,
+                              amount: amountNumber,
+                              tier,
+                              sessionTag,
+                              source: "manual_panel",
+                            });
+                            if (!result.ok) {
+                              setExtraError(result.error || "No se pudo registrar el extra.");
+                              return;
+                            }
+                            setSelectedExtraId("");
+                            setExtraAmount("");
+                            setShowManualExtraForm(false);
+                          }}
+                        >
+                          Registrar extra
+                        </button>
+                      </div>
+                      {extraError && <div className="text-[11px] text-rose-300">{extraError}</div>}
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              <div className="rounded-lg border border-slate-700 bg-slate-900/70 p-3 space-y-2">
+                <div className="flex items-center justify-between">
+                  <h4 className="text-sm font-semibold text-white">Historial de extras</h4>
+                  {isLoadingExtraHistory && <span className="text-[11px] text-slate-400">Cargando...</span>}
+                </div>
+                <div className="text-[11px] text-slate-400">
+                  {(conversation.extrasCount ?? 0) > 0 ? (
+                    <span>
+                      {`Este fan te ha comprado ${conversation.extrasCount} extra${(conversation.extrasCount ?? 0) !== 1 ? "s" : ""} por un total de ${Math.round(conversation.extrasSpentTotal ?? 0)} €.`}
+                    </span>
+                  ) : (
+                    <span>Todavía no has vendido extras a este fan.</span>
+                  )}
+                </div>
+                {extraHistoryError && <div className="text-xs text-rose-300">{extraHistoryError}</div>}
+                {!extraHistoryError && extraHistory.length === 0 && (
+                  <div className="text-xs text-slate-400">Todavía no hay extras registrados para este fan.</div>
+                )}
+                {!extraHistoryError && extraHistory.length > 0 && (
+                  <div className="flex flex-col gap-2 max-h-64 overflow-y-auto">
+                    {extraHistory.map((entry) => {
+                      const dateStr = new Date(entry.createdAt).toLocaleDateString("es-ES");
+                      const session =
+                        entry.sessionTag && entry.sessionTag.includes("_")
+                          ? entry.sessionTag.split("_")[0]
+                          : entry.contentItem?.timeOfDay ?? "ANY";
+                      const tier = entry.tier;
+                      return (
+                        <div
+                          key={entry.id}
+                          className="rounded-md border border-slate-700 bg-slate-900/80 px-2 py-2 text-xs text-slate-200"
+                        >
+                          <div className="flex items-center justify-between">
+                            <span className="font-semibold">{entry.contentItem?.title || "Extra"}</span>
+                            <span className="text-slate-400">{dateStr}</span>
+                          </div>
+                          <div className="flex items-center gap-2 text-[11px] text-slate-300">
+                            <span>{session === "DAY" ? "Día" : session === "NIGHT" ? "Noche" : "Cualquiera"}</span>
+                            <span>·</span>
+                            <span>{`Tier ${tier}`}</span>
+                            <span>·</span>
+                            <span>{`${entry.amount} €`}</span>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+
+            </div>
+          )}
+          <div className="flex items-center gap-3">
+            <div className="flex items-center gap-3 py-1">
+              <div className="relative">
+                <button
+                  type="button"
+                  onClick={() => setIsAttachmentMenuOpen((prev) => !prev)}
+                  className="flex items-center justify-center rounded-full p-2 hover:bg-slate-700 text-slate-100"
+                  title="Adjuntar contenido (packs / extras)"
+                  aria-label="Adjuntar contenido (packs / extras)"
+                >
+                  <svg viewBox="0 0 24 24" width="24" height="24" className="cursor-pointer">
+                    <path fill="currentColor" d="M1.816 15.556v.002c0 1.502.584 2.912 1.646 3.972s2.472 1.647 3.974 1.647a5.58 5.58 0 0 0 3.972-1.645l9.547-9.548c.769-.768 1.147-1.767 1.058-2.817-.079-.968-.548-1.927-1.319-2.698-1.594-1.592-4.068-1.711-5.517-.262l-7.916 7.915c-.881.881-.792 2.25.214 3.261.959.958 2.423 1.053 3.263.215l5.511-5.512c.28-.28.267-.722.053-.936l-.244-.244c-.191-.191-.567-.349-.957.04l-5.506 5.506c-.18.18-.635.127-.976-.214-.098-.097-.576-.613-.213-.973l7.915-7.917c.818-.817 2.267-.699 3.23.262.5.501.802 1.1.849 1.685.051.573-.156 1.111-.589 1.543l-9.547 9.549a3.97 3.97 0 0 1-2.829 1.171 3.975 3.975 0 0 1-2.83-1.173 3.973 3.973 0 0 1-1.172-2.828c0-1.071.415-2.076 1.172-2.83l7.209-7.211c.157-.157.264-.579.028-.814L11.5 4.36a.572.572 0 0 0-.834.018l-7.205 7.207a5.577 5.577 0 0 0-1.645 3.971z">
+                    </path>
+                  </svg>
+                </button>
+                {isAttachmentMenuOpen && (
+                  <div className="absolute bottom-12 left-0 z-20 w-56 rounded-xl bg-slate-900 border border-slate-700 shadow-lg">
+                    <button
+                      type="button"
+                      className="flex w-full items-center gap-2 px-3 py-2 text-sm text-slate-100 hover:bg-slate-800"
+                      onClick={() => {
+                        setIsAttachmentMenuOpen(false);
+                        openContentModal({ mode: "packs" });
+                      }}
+                    >
+                      <span>Adjuntar contenido</span>
+                    </button>
+                    {false && (
+                      <button
+                        type="button"
+                        disabled
+                        className="flex w-full items-center gap-2 px-3 py-2 text-sm text-slate-500 cursor-not-allowed"
+                      >
+                        Subir archivo (próximamente)
+                      </button>
+                    )}
+                  </div>
+                )}
+              </div>
+            </div>
+            <div className="flex flex-1 h-12">
+              <input
+                type={"text"}
+                className="bg-[#2a3942] rounded-lg w-full px-3 py-3 text-white"
+                placeholder="Mensaje"
+                onKeyDown={(evt) => changeHandler(evt) }
+                onChange={ (evt) => setMessageSend(evt.target.value) }
+                value={messageSend}
+                disabled={accessState === "expired"}
+              />
+            </div>
+            <div className="flex justify-center items-center h-12">
+              <button
+                type="button"
+                onClick={handleSendMessage}
+                className="inline-flex items-center justify-center rounded-lg bg-emerald-500 px-3 py-2 text-sm font-semibold text-white hover:bg-emerald-400 transition"
+              >
+                Enviar
+              </button>
             </div>
           </div>
-          <div className="flex flex-1 h-12">
-            <input
-              type={"text"}
-              className="bg-[#2a3942] rounded-lg w-full px-3 py-3 text-white"
-              placeholder="Mensaje"
-              onKeyDown={(evt) => changeHandler(evt) }
-              onChange={ (evt) => setMessageSend(evt.target.value) }
-              value={messageSend}
-              disabled={accessState === "expired"}
-            />
-          </div>
-          <div className="flex justify-center items-center h-12">
-            <svg viewBox="0 0 24 24" width="24" height="24" className="cursor-pointer" onClick={handleSendMessage}>
-              <path fill="currentColor" d="M11.999 14.942c2.001 0 3.531-1.53 3.531-3.531V4.35c0-2.001-1.53-3.531-3.531-3.531S8.469 2.35 8.469 4.35v7.061c0 2.001 1.53 3.531 3.53 3.531zm6.238-3.53c0 3.531-2.942 6.002-6.237 6.002s-6.237-2.471-6.237-6.002H3.761c0 4.001 3.178 7.297 7.061 7.885v3.884h2.354v-3.884c3.884-.588 7.061-3.884 7.061-7.885h-2z">
-              </path>
-            </svg>
-          </div>
+          <FanManagerDrawer
+            statusLine={statusLine}
+            lapexSummary={lapexSummary}
+            sessionSummary={sessionSummary}
+            iaSummary={iaSummary}
+            planSummary={planSummary}
+            closedSummary={managerShortSummary}
+            fanId={conversation.id}
+            onManagerSummary={(s) => setManagerSummary(s)}
+            onSuggestionClick={handleManagerSuggestion}
+            onQuickGreeting={handleQuickGreeting}
+            onRenew={handleRenewAction}
+            onQuickExtra={handleQuickExtraClick}
+            onPackOffer={handleMonthlyOfferFromManager}
+            showRenewAction={showRenewAction}
+            quickExtraDisabled={quickExtraDisabled}
+            isRecommended={isRecommended}
+          />
         </div>
-      </footer>
+      </div>
       {showContentModal && (
         <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 px-4">
           <div className="w-full max-w-lg rounded-2xl bg-slate-900 p-6 border border-slate-800 shadow-xl">
@@ -2562,6 +2423,11 @@ useEffect(() => {
                 onClick={() => {
                   setShowContentModal(false);
                   setContentModalPackFocus(null);
+                  setRegisterExtrasChecked(false);
+                  setRegisterExtrasSource(null);
+                  setRegisterExtrasChecked(false);
+                  setRegisterExtrasSource(null);
+                  setTransactionPrices({});
                 }}
                 className="text-slate-400 hover:text-white"
               >
@@ -2779,16 +2645,47 @@ useEffect(() => {
                                 </span>
                               </div>
                             </div>
-                            <input
-                              type="checkbox"
-                              checked={selected}
-                              onChange={() => {
-                                setSelectedContentIds((prev) =>
-                                  prev.includes(item.id) ? prev.filter((id) => id !== item.id) : [...prev, item.id]
-                                );
-                              }}
-                              className="h-4 w-4 accent-amber-400"
-                            />
+                            <div className="flex flex-col items-end gap-1">
+                              <input
+                                type="checkbox"
+                                checked={selected}
+                                onChange={() => {
+                                  setSelectedContentIds((prev) =>
+                                    prev.includes(item.id) ? prev.filter((id) => id !== item.id) : [...prev, item.id]
+                                  );
+                                  if (!selected && transactionPrices[item.id] === undefined) {
+                                    const defaultPrice = getExtraPrice(item);
+                                    setTransactionPrices((prev) => ({ ...prev, [item.id]: defaultPrice }));
+                                  }
+                                }}
+                                className="h-4 w-4 accent-amber-400"
+                              />
+                              {selected && (
+                                <div className="mt-1 flex items-center gap-1 text-xs text-slate-200">
+                                  <span>Precio:</span>
+                                  <input
+                                    type="number"
+                                    min={0}
+                                    step={0.5}
+                                    value={transactionPrices[item.id] ?? getExtraPrice(item)}
+                                    onChange={(e) => {
+                                      const val = Number(e.target.value);
+                                      if (Number.isNaN(val) || val < 0) {
+                                        setTransactionPrices((prev) => {
+                                          const next = { ...prev };
+                                          delete next[item.id];
+                                          return next;
+                                        });
+                                      } else {
+                                        setTransactionPrices((prev) => ({ ...prev, [item.id]: val }));
+                                      }
+                                    }}
+                                    className="w-20 rounded bg-slate-800 border border-slate-700 px-2 py-1 text-right text-xs text-white"
+                                  />
+                                  <span>€</span>
+                                </div>
+                              )}
+                            </div>
                           </label>
                         );
                       })}
@@ -2800,6 +2697,20 @@ useEffect(() => {
                 </div>
               )}
             </div>
+            {contentModalMode === "extras" && selectedContentIds.length > 0 && (
+              <div className="mt-3 flex items-center justify-between gap-2 rounded-lg border border-slate-800 bg-slate-900/70 px-3 py-2">
+                <label className="flex items-center gap-2 text-xs text-slate-100">
+                  <input
+                    type="checkbox"
+                    className="h-4 w-4 accent-amber-400"
+                    checked={registerExtrasChecked}
+                    onChange={(e) => setRegisterExtrasChecked(e.target.checked)}
+                  />
+                  <span>Registrar esta venta en &quot;Ventas extra&quot;</span>
+                </label>
+                <span className="text-[11px] text-slate-400">Total: {Math.round(selectedExtrasTotal)} €</span>
+              </div>
+            )}
             <div className="mt-3 flex items-center justify-end gap-2">
               <button
                 type="button"
@@ -2808,6 +2719,9 @@ useEffect(() => {
                   setShowContentModal(false);
                   setSelectedContentIds([]);
                   setContentModalPackFocus(null);
+                  setRegisterExtrasChecked(false);
+                  setRegisterExtrasSource(null);
+                  setTransactionPrices({});
                 }}
               >
                 Cancelar
@@ -2826,13 +2740,41 @@ useEffect(() => {
                   const chosen = contentItems.filter((item) => selectedContentIds.includes(item.id));
                   if (chosen.length === 0) return;
                   // Enviamos cada contenido como mensaje CONTENT para mantener consistencia con /api/messages.
+                  const sentItems: ContentWithFlags[] = [];
                   for (const item of chosen) {
                     // eslint-disable-next-line no-await-in-loop
                     await handleAttachContent(item, { keepOpen: true });
+                    sentItems.push(item);
+                  }
+                  if (contentModalMode === "extras" && registerExtrasChecked && sentItems.length > 0 && id) {
+                    const sessionTag = `${timeOfDay}_${new Date().toISOString().slice(0, 10)}`;
+                    const failed: string[] = [];
+                    for (const item of sentItems) {
+                      const tier = getExtraTier(item);
+                      const amount = getTransactionPriceFor(item);
+                      // eslint-disable-next-line no-await-in-loop
+                      const result = await registerExtraSale({
+                        fanId: id,
+                        extraId: item.id,
+                        amount,
+                        tier,
+                        sessionTag,
+                        source: registerExtrasSource ?? "offer_flow",
+                      });
+                      if (!result.ok) {
+                        failed.push(item.title || "Extra");
+                      }
+                    }
+                    if (failed.length > 0) {
+                      alert('Contenido enviado, pero no se ha podido registrar la venta. Inténtalo desde "Ventas extra".');
+                    }
                   }
                   setShowContentModal(false);
                   setSelectedContentIds([]);
                   setContentModalPackFocus(null);
+                  setRegisterExtrasChecked(false);
+                  setRegisterExtrasSource(null);
+                  setTransactionPrices({});
                 }}
               >
                 {selectedContentIds.length <= 1
@@ -2844,7 +2786,7 @@ useEffect(() => {
         </div>
       )}
       {showQuickSheet && (
-        <div className="fixed inset-0 z-40 flex items-end justify-center bg-slate-950/60 backdrop-blur-sm lg:hidden">
+        <div className="fixed inset-0 z-40 flex items-end justify-center bg-slate-950/60 backdrop-blur-sm">
           <div className="w-full max-w-md rounded-t-3xl bg-slate-900 border border-slate-700 shadow-xl p-5 space-y-5">
             <div className="flex items-center justify-between gap-3">
               <h2 className="text-sm font-semibold text-slate-300">Ficha rápida</h2>

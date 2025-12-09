@@ -10,9 +10,6 @@ interface MessageBalloonProps {
 export default function MessageBalloon(props: MessageBalloonProps) {
   const [time, setTime] = useState("");
   const { me, message, seen } = props;
-  const flexAlignItems = me ? "items-end" : "items-start";
-  const backgroundColor = me ? "bg-[#005c4b]" : "bg-[#202c33]";
-  const borderRounded = me ? "rounded-tr-none" : "rounded-tl-none";
 
   useEffect(() => {
     if (props.time) {
@@ -24,20 +21,28 @@ export default function MessageBalloon(props: MessageBalloonProps) {
 
   function refreshTime() {
     const date = new Date();
-    const formattedString = date.getHours() + ":" + date.getMinutes();
+    const minutes = String(date.getMinutes()).padStart(2, "0");
+    const hours = String(date.getHours()).padStart(2, "0");
+    const formattedString = `${hours}:${minutes}`;
     return formattedString;
   }
 
   return (
-    <div className={`flex flex-col ${flexAlignItems} w-full h-max`}>
-      <div className={`flex flex-col min-w-[5%] max-w-[65%] h-max ${backgroundColor} p-2 text-white rounded-lg ${borderRounded} mb-3`}>
-        <div className="flex flex-col w-full break-words">
-          <span>{message}</span>
+    <div className={me ? "flex justify-end" : "flex justify-start"}>
+      <div className="max-w-[75%]">
+        <p
+          className={`mb-1 text-[10px] uppercase tracking-wide text-slate-400 ${me ? "text-right" : ""}`}
+        >
+          {me ? "Tú" : "Fan"} • {time}
+        </p>
+        <div
+          className={`rounded-2xl px-4 py-2 text-sm shadow whitespace-pre-wrap ${
+            me ? "bg-emerald-600 text-white" : "bg-slate-800 text-slate-50"
+          }`}
+        >
+          {message}
         </div>
-        <div className="flex justify-end items-center gap-2 text-[hsla(0,0%,100%,0.6)] text-xs mt-1">
-          <span>{time}</span>
-          {me && seen ? <span className="text-[#8edafc] text-[11px]">✔✔ Visto</span> : null}
-        </div>
+        {me && seen ? <div className="mt-1 text-[10px] text-[#8edafc] text-right">✔✔ Visto</div> : null}
       </div>
     </div>
   )

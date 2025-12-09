@@ -27,6 +27,7 @@ interface Conversation {
   unreadCount?: number;
   isNew?: boolean;
   lastSeen?: string;
+  lastSeenAt?: string | null;
   lastTime?: string;
   followUpTag?: FollowUpTag;
   lastCreatorMessageAt?: string | null;
@@ -86,6 +87,7 @@ interface ConversationListData {
   unreadCount?: number;
   isNew?: boolean;
   lastSeen?: string;
+  lastSeenAt?: string | null;
   followUpTag?: FollowUpTag;
   lastCreatorMessageAt?: string | null;
   notesCount?: number;

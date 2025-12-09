@@ -1,6 +1,7 @@
 import { PrismaClient } from "@prisma/client";
 import prisma from "./prisma";
 import { PACKS } from "../config/packs";
+import { buildManagerQueueForCreator, type Segment } from "../server/manager/managerService";
 
 export type CreatorManagerSummary = {
   kpis: {
@@ -21,6 +22,26 @@ export type CreatorManagerSummary = {
   suggestions: { id: string; label: string; description?: string; action?: string; filter?: Record<string, any> }[];
   revenueAtRisk7d?: number;
   atRiskFansCount?: number;
+};
+
+export type CreatorBusinessSnapshot = {
+  vipActiveCount: number;
+  renewalsNext7Days: number;
+  extrasLast30Days: number;
+  fansAtRisk: number;
+  ingresosUltimos30Dias: number;
+  ingresosUltimos7Dias: number;
+  newFansLast30Days: number;
+  revenueAtRisk7d: number;
+  monthlyChurn30d: number;
+  prioritizedFansToday: {
+    id: string;
+    name: string;
+    segment: "NUEVO" | "HABITUAL" | "VIP" | "RIESGO";
+    health: number;
+    daysToExpire: number;
+    spentLast30Days: number;
+  }[];
 };
 
 type ManagerDeps = {
@@ -253,4 +274,36 @@ export async function getCreatorManagerSummary(creatorId: string, deps: ManagerD
   }
 
   return { kpis, packs, segments, suggestions };
+}
+
+export async function getCreatorBusinessSnapshot(creatorId: string, deps: ManagerDeps = {}): Promise<CreatorBusinessSnapshot> {
+  const summary = await getCreatorManagerSummary(creatorId, deps);
+  const queue = await buildManagerQueueForCreator(creatorId, deps.prismaClient ?? prisma);
+
+  return {
+    vipActiveCount: summary.segments.vip,
+    renewalsNext7Days: summary.packs.monthly.renewalsIn7Days,
+    extrasLast30Days: summary.kpis.last30.extras,
+    fansAtRisk: summary.segments.atRisk,
+    ingresosUltimos30Dias: summary.kpis.last30.revenue,
+    ingresosUltimos7Dias: summary.kpis.last7.revenue,
+    newFansLast30Days: summary.kpis.last30.newFans,
+    revenueAtRisk7d: summary.revenueAtRisk7d ?? 0,
+    monthlyChurn30d: summary.packs.monthly.churn30,
+    prioritizedFansToday: queue.map((fan) => ({
+      id: fan.id,
+      name: fan.displayName,
+      segment: mapSegmentForSnapshot(fan.segment),
+      health: fan.healthScore,
+      daysToExpire: fan.daysToExpiry ?? 0,
+      spentLast30Days: fan.recent30dSpend ?? 0,
+    })),
+  };
+}
+
+function mapSegmentForSnapshot(segment: Segment): "NUEVO" | "HABITUAL" | "VIP" | "RIESGO" {
+  if (segment === "VIP") return "VIP";
+  if (segment === "NUEVO") return "NUEVO";
+  if (segment === "EN_RIESGO") return "RIESGO";
+  return "HABITUAL";
 }

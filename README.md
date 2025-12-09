@@ -6,7 +6,7 @@ Chat tipo WhatsApp para creadores y fans (versión preliminar).
 
 ```bash
 npm install
-npm run dev
+
 ```
 
 La app se levanta en modo desarrollo en `http://localhost:3000`.
@@ -23,7 +23,7 @@ La app se levanta en modo desarrollo en `http://localhost:3000`.
 
 ## Página pública de creador
 - Ruta `/creator` como landing pública con avatar, descripción y listado de packs.
-- Incluye botón “Entrar al chat privado” que navega a `/`.
+- Incluye bnpm run devotón “Entrar al chat privado” que navega a `/`.
 
 ## Ajustes del creador
 - La barra superior de la app ahora es la barra del creador (avatar, nombre, estado, enlace al perfil público y menú de ajustes).

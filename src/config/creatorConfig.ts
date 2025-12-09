@@ -4,6 +4,7 @@ export interface CreatorConfig {
   creatorName: string;
   creatorSubtitle: string;
   creatorDescription: string;
+  avatarUrl?: string;
   quickReplies: {
     saludoRapido: string;
     packBienvenida: string;
@@ -27,6 +28,7 @@ export const DEFAULT_CREATOR_CONFIG: CreatorConfig = {
       "Si quieres acceder a todo el contenido y al chat prioritario, aquí tienes el enlace de suscripción mensual: [pega aquí tu enlace de suscripción].",
   },
   packs: defaultPacks,
+  avatarUrl: "",
 };
 
 const isBrowser = () => typeof window !== "undefined";
@@ -46,6 +48,7 @@ export function loadCreatorConfig(baseConfig: CreatorConfig = DEFAULT_CREATOR_CO
         ...(parsed.quickReplies || {}),
       },
       packs: parsed.packs || baseConfig.packs,
+      avatarUrl: parsed.avatarUrl || baseConfig.avatarUrl,
     };
   } catch (_err) {
     return baseConfig;

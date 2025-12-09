@@ -77,12 +77,12 @@ export default function ConversationList(props: ConversationListProps) {
   const extrasSpent = Math.round(data.extrasSpentTotal ?? 0);
   const hasExtrasPaid = data.extrasSpentTotal !== null && data.extrasSpentTotal !== undefined && data.extrasSpentTotal > 0;
   const tierBadgeClass = clsx(
-    "inline-flex items-center rounded-full px-2 py-[2px] text-[11px] font-medium",
+    "inline-flex items-center rounded-full px-3 py-1 text-[12px] font-semibold",
     normalizedTier === "vip"
-      ? "border border-amber-400 text-amber-200 bg-amber-500/10"
+      ? "border border-amber-400 text-amber-900 bg-amber-300/80"
     : normalizedTier === "regular"
-      ? "border border-emerald-400 text-emerald-200 bg-emerald-500/10"
-      : "border border-[#53bdeb] text-[#53bdeb]"
+      ? "border border-emerald-400 text-emerald-100 bg-emerald-500/20"
+      : "border border-sky-400 text-sky-100 bg-sky-500/20"
   );
 
   function shorten(text: string, max = 70) {
@@ -111,24 +111,27 @@ export default function ConversationList(props: ConversationListProps) {
                 {tierLabel}
               </span>
               {novsyStatus === "NOVSY" && (
-                <span className="inline-flex items-center rounded-full border border-emerald-400/80 bg-emerald-500/10 px-2 py-[1px] text-[10px] text-emerald-100">
+                <span className="inline-flex items-center rounded-full border border-emerald-400/80 bg-emerald-500/15 px-2.5 py-1 text-[11px] font-semibold text-emerald-100">
                   Extras
                 </span>
               )}
               {/* Chip de alta prioridad solo para VIP */}
               {isHighPriority && (
-                <span className="inline-flex items-center gap-1 rounded-full bg-amber-400/90 px-2 py-0.5 text-[11px] font-medium leading-none text-neutral-950">
+                <span
+                  className="inline-flex items-center justify-center rounded-full bg-amber-300 px-2.5 py-1 text-[12px] font-semibold leading-none text-neutral-950 shadow-sm"
+                  aria-label="Alta prioridad"
+                  title="Alta prioridad"
+                >
                   <span aria-hidden>🔥</span>
-                  <span>Alta prioridad</span>
                 </span>
               )}
               {followUpTag !== "none" && (
                 <span
                   className={clsx(
-                    "ml-1 inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium",
-                    followUpTag === "trial_soon" && "border border-amber-400/70 bg-amber-500/10 text-amber-200",
-                    followUpTag === "monthly_soon" && "border border-sky-400/70 bg-sky-500/10 text-sky-200",
-                    followUpTag === "expired" && "border border-rose-400/70 bg-rose-500/10 text-rose-200"
+                    "ml-1 inline-flex items-center rounded-full px-2.5 py-1 text-[11px] font-semibold",
+                    followUpTag === "trial_soon" && "border border-amber-400/70 bg-amber-500/15 text-amber-100",
+                    followUpTag === "monthly_soon" && "border border-sky-400/70 bg-sky-500/15 text-sky-100",
+                    followUpTag === "expired" && "border border-rose-400/70 bg-rose-500/15 text-rose-100"
                   )}
                 >
                   {followUpTag === "trial_soon" && `Prueba · ${daysLeft ?? ""} d`}
@@ -172,7 +175,7 @@ export default function ConversationList(props: ConversationListProps) {
             </div>
             <div className="flex items-center gap-2 mt-1">
               {membershipStatus ? (
-                <span className="inline-flex items-center rounded-full bg-slate-800/80 text-[10px] text-amber-200 px-2 py-[1px] w-fit">
+                <span className="inline-flex items-center rounded-full bg-slate-800/80 text-[11px] text-amber-200 px-3 py-1 w-fit font-semibold">
                   {(() => {
                     const statusLower = membershipStatus.toLowerCase();
                     if (statusLower.includes("prueba")) return PACKS.trial.shortLabel;
@@ -186,10 +189,10 @@ export default function ConversationList(props: ConversationListProps) {
                 <span
                   className={
                     urgencyLevel === "high"
-                      ? "inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] border-red-500 text-red-300"
-                      : urgencyLevel === "medium"
-                      ? "inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] border-amber-400 text-amber-200"
-                      : "inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] border-slate-600 text-slate-300"
+                      ? "inline-flex items-center rounded-full border px-3 py-1 text-[11px] font-semibold border-red-500 text-red-200 bg-red-500/10"
+                    : urgencyLevel === "medium"
+                      ? "inline-flex items-center rounded-full border px-3 py-1 text-[11px] font-semibold border-amber-400 text-amber-200 bg-amber-500/10"
+                      : "inline-flex items-center rounded-full border px-3 py-1 text-[11px] font-semibold border-slate-600 text-slate-300 bg-slate-800/80"
                   }
                 >
                   {daysLabel}

@@ -1,0 +1,42 @@
+import Head from "next/head";
+import { useMemo, useState } from "react";
+import { BioLinkEditor } from "../../components/creator/BioLinkEditor";
+import { useCreatorConfig } from "../../context/CreatorConfigContext";
+import CreatorHeader from "../../components/CreatorHeader";
+import CreatorSettingsPanel from "../../components/CreatorSettingsPanel";
+
+export default function CreatorBioLinkPage() {
+  const { config } = useCreatorConfig();
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const handle = useMemo(
+    () => (config.creatorName || "creator").toLowerCase().replace(/[^a-z0-9]+/g, "-"),
+    [config.creatorName]
+  );
+  const creatorInitial = config.creatorName?.trim().charAt(0) || "E";
+
+  return (
+    <div className="min-h-screen bg-[#0b141a] text-white">
+      <Head>
+        <title>Bio-link del creador · NOVSY</title>
+      </Head>
+      <CreatorSettingsPanel isOpen={isSettingsOpen} onClose={() => setIsSettingsOpen(false)} />
+      <CreatorHeader
+        name={config.creatorName}
+        role="Bio-link"
+        subtitle={config.creatorSubtitle}
+        initial={creatorInitial}
+        avatarUrl={config.avatarUrl}
+        onOpenSettings={() => setIsSettingsOpen(true)}
+      />
+      <main className="max-w-6xl mx-auto px-4 sm:px-6 py-8 space-y-4">
+        <div className="flex items-center justify-between">
+          <div>
+            <h1 className="text-2xl font-semibold">Bio-link seguro</h1>
+            <p className="text-sm text-slate-300">Comparte este enlace en redes para llevar tráfico a tu espacio en NOVSY.</p>
+          </div>
+        </div>
+        <BioLinkEditor handle={handle} onOpenSettings={() => setIsSettingsOpen(true)} />
+      </main>
+    </div>
+  );
+}

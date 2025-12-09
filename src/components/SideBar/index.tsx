@@ -29,6 +29,7 @@ export default function SideBar() {
   const [ onlyWithFollowUp, setOnlyWithFollowUp ] = useState(false);
   const [ onlyWithExtras, setOnlyWithExtras ] = useState(false);
   const [ showLegend, setShowLegend ] = useState(false);
+  const [ showAllTodayMetrics, setShowAllTodayMetrics ] = useState(false);
   const [ focusMode, setFocusMode ] = useState(false);
   const [ showPacksPanel, setShowPacksPanel ] = useState(false);
   const [ nextCursor, setNextCursor ] = useState<string | null>(null);
@@ -74,6 +75,7 @@ export default function SideBar() {
       unreadCount: fan.unreadCount,
       isNew: fan.isNew,
       lastSeen: fan.lastSeen,
+      lastSeenAt: fan.lastSeenAt ?? null,
       lastCreatorMessageAt: fan.lastCreatorMessageAt,
       activeGrantTypes: fan.activeGrantTypes ?? [],
       hasAccessHistory: fan.hasAccessHistory ?? false,
@@ -576,6 +578,7 @@ export default function SideBar() {
         role="Creador"
         subtitle={config.creatorSubtitle}
         initial={creatorInitial}
+        avatarUrl={config.avatarUrl}
         onOpenSettings={() => setIsSettingsOpen(true)}
       />
       <div className="mb-2 px-3">
@@ -584,44 +587,50 @@ export default function SideBar() {
             <span className="font-semibold text-slate-100">Resumen de hoy</span>
             <span className="text-slate-400">Ventas y actividad</span>
           </div>
-          <div className="mt-2 grid grid-cols-2 gap-2 text-[11px]">
-            <div className="flex flex-col rounded-lg bg-slate-950/60 px-2 py-1.5">
-              <span className="text-slate-400">Chats atendidos</span>
-              <span className="text-slate-50 font-semibold">{attendedTodayCount}</span>
+          <div className="mt-3 grid grid-cols-2 gap-2 text-[11px]">
+            <div className="flex flex-col rounded-xl bg-slate-950/70 px-3 py-3 shadow-sm">
+              <span className="text-[12px] text-slate-400">Chats atendidos</span>
+              <span className={clsx("mt-1 text-2xl font-semibold", attendedTodayCount > 0 ? "text-emerald-300" : "text-slate-300")}>
+                {attendedTodayCount}
+              </span>
             </div>
-            <div className="flex flex-col rounded-lg bg-slate-950/60 px-2 py-1.5">
-              <span className="text-slate-400">Ventas hoy (cola)</span>
-              <span className="text-slate-50 font-semibold">{queueLength}</span>
+            <div className="flex flex-col rounded-xl bg-slate-950/70 px-3 py-3 shadow-sm">
+              <span className="text-[12px] text-slate-400">Ventas hoy (cola)</span>
+              <span className={clsx("mt-1 text-2xl font-semibold", queueLength > 0 ? "text-emerald-300" : "text-slate-300")}>
+                {queueLength}
+              </span>
             </div>
-            <div className="flex flex-col rounded-lg bg-slate-950/60 px-2 py-1.5">
-              <span className="text-slate-400">VIP en cola</span>
-              <span className="text-slate-50 font-semibold">{vipInQueue}</span>
+            <div className="flex flex-col rounded-xl bg-slate-950/70 px-3 py-3 shadow-sm">
+              <span className="text-[12px] text-slate-400">VIP en cola</span>
+              <span className={clsx("mt-1 text-2xl font-semibold", vipInQueue > 0 ? "text-emerald-300" : "text-slate-300")}>
+                {vipInQueue}
+              </span>
             </div>
-            <div className="flex flex-col rounded-lg bg-slate-950/60 px-2 py-1.5">
-              <span className="text-slate-400">Extras vendidos hoy</span>
-              <span className="text-slate-50 font-semibold">
+            <div className="flex flex-col rounded-xl bg-slate-950/70 px-3 py-3 shadow-sm">
+              <span className="text-[12px] text-slate-400">Extras vendidos hoy</span>
+              <span className={clsx("mt-1 text-lg font-semibold leading-tight", extrasTodayCount > 0 ? "text-emerald-300" : "text-slate-300")}>
                 {extrasTodayCount} venta{extrasTodayCount === 1 ? "" : "s"} · {formatCurrency(extrasTodayAmount)}
               </span>
             </div>
           </div>
         </div>
         {extrasSummary && (
-          <div className="mb-2 rounded-xl border border-slate-700 bg-slate-900/80 px-3 py-2 text-[11px] text-slate-300">
+          <div className="mb-2 rounded-xl border border-slate-700 bg-slate-900/80 px-3 py-3 text-[12px] text-slate-300">
             <div className="flex justify-between">
               <span>Extras hoy</span>
-              <span className="font-semibold">
+              <span className={clsx("font-semibold text-2xl leading-tight", extrasSummary.today.count > 0 ? "text-emerald-300" : "text-slate-300")}>
                 {extrasSummary.today.count} venta{extrasSummary.today.count === 1 ? "" : "s"} · {formatCurrency(extrasSummary.today.amount)}
               </span>
             </div>
-            <div className="flex justify-between text-slate-400">
+            <div className="mt-2 flex justify-between text-slate-400">
               <span>Últimos 7 días</span>
-              <span className="font-semibold text-slate-200">
+              <span className={clsx("font-semibold text-lg", extrasSummary.last7Days.count > 0 ? "text-emerald-200" : "text-slate-300")}>
                 {extrasSummary.last7Days.count} venta{extrasSummary.last7Days.count === 1 ? "" : "s"} · {formatCurrency(extrasSummary.last7Days.amount)}
               </span>
             </div>
           </div>
         )}
-        <div className="flex flex-col gap-1 rounded-xl border border-slate-700 bg-slate-900/80 px-3 py-2 text-[11px] text-slate-300">
+        <div className="flex flex-col gap-2 rounded-xl border border-slate-700 bg-slate-900/80 px-3 py-3 text-[12px] text-slate-300">
           <div className="flex items-center justify-between">
             <button
               type="button"
@@ -629,23 +638,37 @@ export default function SideBar() {
               className="flex flex-1 justify-between text-left pr-2"
             >
               <span className={clsx("text-slate-400", followUpFilter === "all" && !showOnlyWithNotes && "font-semibold text-amber-300")}>Hoy</span>
-              <span className={clsx("font-semibold text-slate-100", followUpFilter === "all" && !showOnlyWithNotes && "text-amber-300")}>
+              <span
+                className={clsx(
+                  "inline-flex items-center rounded-full px-3 py-1 text-[12px] font-semibold",
+                  totalCount > 0 ? "bg-slate-800 text-slate-50" : "bg-slate-800/70 text-slate-300"
+                )}
+              >
                 {totalCount} fan{totalCount === 1 ? "" : "s"}
               </span>
             </button>
-            <button
-              type="button"
-              aria-label="Qué significa cada etiqueta"
-              onClick={() => setShowLegend((prev) => !prev)}
-              className={clsx(
-                "ml-2 inline-flex h-6 w-6 items-center justify-center rounded-full border text-xs font-bold transition",
-                showLegend
-                  ? "border-emerald-400 bg-emerald-500/20 text-emerald-100"
-                  : "border-slate-600 bg-slate-800/60 text-slate-200 hover:border-emerald-400/70 hover:text-emerald-100"
-              )}
-            >
-              i
-            </button>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                aria-label="Qué significa cada etiqueta"
+                onClick={() => setShowLegend((prev) => !prev)}
+                className={clsx(
+                  "inline-flex h-6 w-6 items-center justify-center rounded-full border text-xs font-bold transition",
+                  showLegend
+                    ? "border-emerald-400 bg-emerald-500/20 text-emerald-100"
+                    : "border-slate-600 bg-slate-800/60 text-slate-200 hover:border-emerald-400/70 hover:text-emerald-100"
+                )}
+              >
+                i
+              </button>
+              <button
+                type="button"
+                className="text-[11px] text-emerald-200 hover:text-emerald-100"
+                onClick={() => setShowAllTodayMetrics((prev) => !prev)}
+              >
+                {showAllTodayMetrics ? "Ver menos" : "Ver más"}
+              </button>
+            </div>
           </div>
           {showLegend && (
             <div
@@ -694,24 +717,52 @@ export default function SideBar() {
                 i
               </span>
             </span>
-            <span className={clsx(followUpFilter === "today" && !showOnlyWithNotes && "font-semibold text-amber-300")}>{followUpTodayCount}</span>
+            <span
+              className={clsx(
+                "inline-flex items-center rounded-full px-2.5 py-1 text-xs font-semibold",
+                followUpTodayCount > 0 ? "bg-emerald-500/20 text-emerald-100" : "bg-slate-800 text-slate-300",
+                followUpFilter === "today" && !showOnlyWithNotes && "ring-1 ring-amber-300/60"
+              )}
+            >
+              {followUpTodayCount}
+            </span>
           </button>
-          <button
-            type="button"
-            onClick={() => applyFilter("expired", false)}
-            className="flex justify-between text-left"
-          >
-            <span className={clsx(followUpFilter === "expired" && !showOnlyWithNotes && "font-semibold text-amber-300")}>Caducados</span>
-            <span className={clsx(followUpFilter === "expired" && !showOnlyWithNotes && "font-semibold text-amber-300")}>{expiredCount}</span>
-          </button>
-          <button
-            type="button"
-            onClick={() => applyFilter("all", true)}
-            className="flex justify-between text-left"
-          >
-            <span className={clsx(showOnlyWithNotes && "font-semibold text-amber-300")}>Con notas</span>
-            <span className={clsx(showOnlyWithNotes && "font-semibold text-amber-300")}>{withNotesCount}</span>
-          </button>
+          {showAllTodayMetrics && (
+            <>
+              <button
+                type="button"
+                onClick={() => applyFilter("expired", false)}
+                className="flex justify-between text-left"
+              >
+                <span className={clsx(followUpFilter === "expired" && !showOnlyWithNotes && "font-semibold text-amber-300")}>Caducados</span>
+                <span
+                  className={clsx(
+                    "inline-flex items-center rounded-full px-2.5 py-1 text-xs font-semibold",
+                    expiredCount > 0 ? "bg-rose-500/20 text-rose-100" : "bg-slate-800 text-slate-300",
+                    followUpFilter === "expired" && !showOnlyWithNotes && "ring-1 ring-amber-300/60"
+                  )}
+                >
+                  {expiredCount}
+                </span>
+              </button>
+              <button
+                type="button"
+                onClick={() => applyFilter("all", true)}
+                className="flex justify-between text-left"
+              >
+                <span className={clsx(showOnlyWithNotes && "font-semibold text-amber-300")}>Con notas</span>
+                <span
+                  className={clsx(
+                    "inline-flex items-center rounded-full px-2.5 py-1 text-xs font-semibold",
+                    withNotesCount > 0 ? "bg-slate-800 text-slate-50" : "bg-slate-800/80 text-slate-300",
+                    showOnlyWithNotes && "ring-1 ring-amber-300/60"
+                  )}
+                >
+                  {withNotesCount}
+                </span>
+              </button>
+            </>
+          )}
           <button
             type="button"
             onClick={() => applyFilter(followUpFilter, showOnlyWithNotes, tierFilter, !onlyWithFollowUp)}
@@ -726,65 +777,109 @@ export default function SideBar() {
                 i
               </span>
             </span>
-            <span className={clsx(onlyWithFollowUp && "font-semibold text-amber-300")}>{withFollowUpCount}</span>
-          </button>
-          <button
-            type="button"
-            onClick={() => setOnlyWithExtras((prev) => !prev)}
-            className="flex justify-between text-left"
-          >
-            <span className={clsx(onlyWithExtras && "font-semibold text-amber-300")}>
-              <span aria-hidden className="mr-1">💰</span>
-              Con extras
-              <span
-                className="ml-1 inline-flex h-4 w-4 items-center justify-center rounded-full border border-slate-500 text-[9px] text-slate-300"
-                title="Este fan ya te ha comprado contenido extra (PPV)."
-              >
-                i
-              </span>
+            <span
+              className={clsx(
+                "inline-flex items-center rounded-full px-2.5 py-1 text-xs font-semibold",
+                withFollowUpCount > 0 ? "bg-amber-500/20 text-amber-100" : "bg-slate-800 text-slate-300",
+                onlyWithFollowUp && "ring-1 ring-amber-300/60"
+              )}
+            >
+              {withFollowUpCount}
             </span>
-            <span className={clsx(onlyWithExtras && "font-semibold text-amber-300")}>{withExtrasCount}</span>
           </button>
-          <button
-            type="button"
-            onClick={() => applyFilter(followUpFilter, showOnlyWithNotes, tierFilter === "vip" ? "all" : "vip")}
-            className="flex justify-between text-left"
-          >
-            <span className={clsx(tierFilter === "vip" && "font-semibold text-amber-300")}>
-              🔥 Alta prioridad
-              <span
-                className="ml-1 inline-flex h-4 w-4 items-center justify-center rounded-full border border-slate-500 text-[9px] text-slate-300"
-                title={`Fans que más han gastado contigo (VIP / límite ${HIGH_PRIORITY_LIMIT} €).`}
+          {showAllTodayMetrics && (
+            <>
+              <button
+                type="button"
+                onClick={() => setOnlyWithExtras((prev) => !prev)}
+                className="flex justify-between text-left"
               >
-                i
-              </span>
-            </span>
-            <span className={clsx(tierFilter === "vip" && "font-semibold text-amber-300")}>{priorityCount}</span>
-          </button>
-          <button
-            type="button"
-            onClick={() => applyFilter(followUpFilter, showOnlyWithNotes, tierFilter === "regular" ? "all" : "regular")}
-            className="flex justify-between text-left"
-          >
-            <span className={clsx(tierFilter === "regular" && "font-semibold text-amber-300")}>Habituales</span>
-            <span className={clsx(tierFilter === "regular" && "font-semibold text-amber-300")}>{regularCount}</span>
-          </button>
-          <button
-            type="button"
-            onClick={() => applyFilter(followUpFilter, showOnlyWithNotes, tierFilter === "new" ? "all" : "new")}
-            className="flex justify-between text-left"
-          >
-            <span className={clsx(tierFilter === "new" && "font-semibold text-amber-300")}>Nuevos</span>
-            <span className={clsx(tierFilter === "new" && "font-semibold text-amber-300")}>{newCount}</span>
-          </button>
-          <button
-            type="button"
-            onClick={() => setShowPacksPanel((prev) => !prev)}
-            className="flex justify-between text-left"
-          >
-            <span className={clsx(showPacksPanel && "font-semibold text-amber-300")}>Packs disponibles ({packsCount})</span>
-            <span className={clsx(showPacksPanel && "font-semibold text-amber-300")}>⋯</span>
-          </button>
+                <span className={clsx(onlyWithExtras && "font-semibold text-amber-300")}>
+                  <span aria-hidden className="mr-1">💰</span>
+                  Con extras
+                  <span
+                    className="ml-1 inline-flex h-4 w-4 items-center justify-center rounded-full border border-slate-500 text-[9px] text-slate-300"
+                    title="Este fan ya te ha comprado contenido extra (PPV)."
+                  >
+                    i
+                  </span>
+                </span>
+                <span
+                  className={clsx(
+                    "inline-flex items-center rounded-full px-2.5 py-1 text-xs font-semibold",
+                    withExtrasCount > 0 ? "bg-amber-500/20 text-amber-100" : "bg-slate-800 text-slate-300",
+                    onlyWithExtras && "ring-1 ring-amber-300/60"
+                  )}
+                >
+                  {withExtrasCount}
+                </span>
+              </button>
+              <button
+                type="button"
+                onClick={() => applyFilter(followUpFilter, showOnlyWithNotes, tierFilter === "vip" ? "all" : "vip")}
+                className="flex justify-between text-left"
+              >
+                <span className={clsx(tierFilter === "vip" && "font-semibold text-amber-300")}>
+                  🔥 Alta prioridad
+                  <span
+                    className="ml-1 inline-flex h-4 w-4 items-center justify-center rounded-full border border-slate-500 text-[9px] text-slate-300"
+                    title={`Fans que más han gastado contigo (VIP / límite ${HIGH_PRIORITY_LIMIT} €).`}
+                  >
+                    i
+                  </span>
+                </span>
+                <span
+                  className={clsx(
+                    "inline-flex items-center rounded-full px-2.5 py-1 text-xs font-semibold",
+                    priorityCount > 0 ? "bg-amber-500/20 text-amber-100" : "bg-slate-800 text-slate-300",
+                    tierFilter === "vip" && "ring-1 ring-amber-300/60"
+                  )}
+                >
+                  {priorityCount}
+                </span>
+              </button>
+              <button
+                type="button"
+                onClick={() => applyFilter(followUpFilter, showOnlyWithNotes, tierFilter === "regular" ? "all" : "regular")}
+                className="flex justify-between text-left"
+              >
+                <span className={clsx(tierFilter === "regular" && "font-semibold text-amber-300")}>Habituales</span>
+                <span
+                  className={clsx(
+                    "inline-flex items-center rounded-full px-2.5 py-1 text-xs font-semibold",
+                    regularCount > 0 ? "bg-slate-800 text-slate-50" : "bg-slate-800/80 text-slate-300",
+                    tierFilter === "regular" && "ring-1 ring-amber-300/60"
+                  )}
+                >
+                  {regularCount}
+                </span>
+              </button>
+              <button
+                type="button"
+                onClick={() => applyFilter(followUpFilter, showOnlyWithNotes, tierFilter === "new" ? "all" : "new")}
+                className="flex justify-between text-left"
+              >
+                <span className={clsx(tierFilter === "new" && "font-semibold text-amber-300")}>Nuevos</span>
+                <span
+                  className={clsx(
+                    "inline-flex items-center rounded-full px-2.5 py-1 text-xs font-semibold",
+                    newCount > 0 ? "bg-slate-800 text-slate-50" : "bg-slate-800/80 text-slate-300",
+                    tierFilter === "new" && "ring-1 ring-amber-300/60"
+                  )}
+                >
+                  {newCount}
+                </span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setShowPacksPanel((prev) => !prev)}
+                className="flex justify-between text-left"
+              >
+                <span className={clsx(showPacksPanel && "font-semibold text-amber-300")}>Packs disponibles ({packsCount})</span>
+                <span className={clsx(showPacksPanel && "font-semibold text-amber-300")}>⋯</span>
+              </button>
+            </>
+          )}
         </div>
       </div>
       {showPacksPanel && (
@@ -928,33 +1023,28 @@ export default function SideBar() {
           Ventas hoy
         </button>
       </div>
-      <div className="px-3 mb-3 flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
-        <div className="relative flex-1">
-          <div className="absolute text-[#AEBAC1] h-full w-9">
-            <svg viewBox="0 0 24 24" width="24" height="24" className="left-[50%] right-[50%] ml-auto mr-auto h-full">
-              <path fill="currentColor" d="M15.009 13.805h-.636l-.22-.219a5.184 5.184 0 0 0 1.256-3.386 5.207 5.207 0 1 0-5.207 5.208 5.183 5.183 0 0 0 3.385-1.255l.221.22v.635l4.004 3.999 1.194-1.195-3.997-4.007zm-4.808 0a3.605 3.605 0 1 1 0-7.21 3.605 3.605 0 0 1 0 7.21z">
-            </path>
+      <div className="px-3 mb-3 w-full">
+        <div className="flex items-center gap-3 w-full rounded-full bg-slate-900/80 border border-slate-800/70 px-3 py-2 shadow-sm flex-wrap">
+          <svg viewBox="0 0 24 24" width="20" height="20" className="text-slate-400/80">
+            <path fill="currentColor" d="M15.009 13.805h-.636l-.22-.219a5.184 5.184 0 0 0 1.256-3.386 5.207 5.207 0 1 0-5.207 5.208 5.183 5.183 0 0 0 3.385-1.255l.221.22v.635l4.004 3.999 1.194-1.195-3.997-4.007zm-4.808 0a3.605 3.605 0 1 1 0-7.21 3.605 3.605 0 0 1 0 7.21z" />
           </svg>
-          </div>
           <input
-            className="w-full h-9 rounded-lg bg-[#202c33] text-white text-sm px-10"
+            className="flex-1 min-w-[160px] bg-transparent border-none outline-none text-sm text-slate-100 placeholder:text-slate-400"
             placeholder="Buscar o iniciar un nuevo chat"
             value={search}
             onChange={e => setSearch(e.target.value)}
           />
-        </div>
-        <div className="flex items-center justify-end lg:justify-center">
           <button
             type="button"
             onClick={() => setFocusMode((prev) => !prev)}
             className={clsx(
-              "inline-flex h-8 w-8 items-center justify-center rounded-full border transition",
+              "inline-flex h-10 w-10 items-center justify-center rounded-full border transition",
               focusMode
-                ? "border-emerald-400 bg-emerald-500/20 text-emerald-200"
-                : "border-slate-700 bg-slate-800/60 text-slate-300 hover:bg-slate-700"
+                ? "border-emerald-400 bg-emerald-500/25 text-emerald-50 shadow-[0_0_0_1px_rgba(16,185,129,0.25)]"
+                : "border-slate-700 bg-slate-800/70 text-slate-300 hover:bg-slate-700"
             )}
             aria-pressed={focusMode}
-            title={focusMode ? "Salir de modo foco" : "Modo foco: ocultar lista de chats"}
+            title={focusMode ? "Salir de modo enfoque" : "Activar modo enfoque"}
           >
             <svg viewBox="0 0 24 24" width="20" height="20" preserveAspectRatio="xMidYMid meet">
               <path fill="currentColor" d="M10 18.1h4v-2h-4v2zm-7-12v2h18v-2H3zm3 7h12v-2H6v2z">

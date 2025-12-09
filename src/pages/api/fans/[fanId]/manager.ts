@@ -2,6 +2,10 @@ import type { NextApiRequest, NextApiResponse } from "next";
 import prisma from "../../../../lib/prisma";
 import { buildFanManagerSummary } from "../../../../server/manager/managerService";
 import { FanManagerSummarySchema, type FanManagerSummary } from "../../../../server/manager/managerSchemas";
+import { FAN_MANAGER_SYSTEM_PROMPT } from "../../../../lib/ai/prompts";
+
+// TODO: cuando se active la IA real para este manager, usar FAN_MANAGER_SYSTEM_PROMPT como prompt de sistema en la llamada al LLM.
+void FAN_MANAGER_SYSTEM_PROMPT;
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   const fanId = typeof req.query.fanId === "string" ? req.query.fanId : null;

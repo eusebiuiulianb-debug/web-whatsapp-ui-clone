@@ -1,14 +1,29 @@
 import Head from "next/head";
-import { useEffect, useState } from "react";
+import type { GetServerSideProps } from "next";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/router";
 import CreatorHeader from "../../components/CreatorHeader";
 import { useCreatorConfig } from "../../context/CreatorConfigContext";
-import type { CreatorManagerSummary } from "../../lib/creatorManager";
+import type { CreatorBusinessSnapshot, CreatorManagerSummary } from "../../lib/creatorManager";
+import { getCreatorBusinessSnapshot } from "../../lib/creatorManager";
+import type { CreatorContentSnapshot } from "../../lib/creatorContentManager";
+import { getCreatorContentSnapshot } from "../../lib/creatorContentManager";
 import type { FanManagerRow } from "../../server/manager/managerService";
 import { CreatorAdvisorPanel } from "../../components/creator/CreatorAdvisorPanel";
 import type { CreatorAiAdvisorInput } from "../../server/manager/managerSchemas";
+import { IaWorkspaceCard } from "../../components/creator/IaWorkspaceCard";
+import type { PublicProfileCopy, PublicProfileMode } from "../../types/publicProfile";
+import { PROFILE_COPY, mapToPublicProfileCopy } from "../../lib/publicProfileCopy";
+import { getPublicProfileOverrides } from "../../lib/publicProfileStorage";
 
-export default function CreatorManagerPage() {
+type Props = {
+  initialSnapshot: CreatorBusinessSnapshot | null;
+  initialContentSnapshot: CreatorContentSnapshot | null;
+};
+
+const CREATOR_ID = "creator-1";
+
+export default function CreatorManagerPage({ initialSnapshot, initialContentSnapshot }: Props) {
   const { config } = useCreatorConfig();
   const creatorInitial = config.creatorName?.trim().charAt(0) || "E";
   const [summary, setSummary] = useState<CreatorManagerSummary | null>(null);
@@ -20,12 +35,31 @@ export default function CreatorManagerPage() {
   const [advisorInput, setAdvisorInput] = useState<CreatorAiAdvisorInput | null>(null);
   const [advisorLoading, setAdvisorLoading] = useState(true);
   const [advisorError, setAdvisorError] = useState(false);
+  const [profileCopy, setProfileCopy] = useState<PublicProfileCopy | null>(null);
+  const [bioLinkEnabled, setBioLinkEnabled] = useState<boolean | null>(null);
+  const [aiConfigured, setAiConfigured] = useState<boolean | null>(null);
+
+  const profileMode: PublicProfileMode = "fanclub";
+  const baseProfileCopy = useMemo(
+    () => mapToPublicProfileCopy(PROFILE_COPY[profileMode], profileMode, config),
+    [profileMode, config]
+  );
 
   useEffect(() => {
     fetchSummary();
     fetchQueue();
     fetchAdvisorInput();
+    fetchBioLinkStatus();
+    fetchAiSettingsStatus();
   }, []);
+
+  useEffect(() => {
+    setProfileCopy(baseProfileCopy);
+    const overrides = getPublicProfileOverrides(CREATOR_ID);
+    if (overrides) {
+      setProfileCopy(overrides);
+    }
+  }, [baseProfileCopy]);
 
   async function fetchSummary() {
     try {
@@ -71,6 +105,37 @@ export default function CreatorManagerPage() {
     }
   }
 
+  async function fetchBioLinkStatus() {
+    try {
+      const res = await fetch("/api/creator/bio-link");
+      if (!res.ok) throw new Error("Error fetching bio-link");
+      const data = await res.json();
+      setBioLinkEnabled(Boolean(data?.config?.enabled));
+    } catch (_err) {
+      setBioLinkEnabled(false);
+    }
+  }
+
+  async function fetchAiSettingsStatus() {
+    try {
+      const res = await fetch("/api/creator/ai-settings");
+      if (!res.ok) throw new Error("Error fetching AI settings");
+      const data = await res.json();
+      const settings = data?.settings || {};
+      const hasConfiguredTone = typeof settings.tone === "string" && settings.tone.trim().length > 0;
+      const hasRules = typeof settings.rulesManifest === "string" && settings.rulesManifest.trim().length > 0;
+      const hasPriority =
+        settings.priorityOrderJson &&
+        typeof settings.priorityOrderJson === "object" &&
+        Object.keys(settings.priorityOrderJson as Record<string, unknown>).length > 0;
+      const hasCredits = typeof settings.creditsAvailable === "number" && settings.creditsAvailable > 0;
+      const hasMode = typeof settings.turnMode === "string" && settings.turnMode.trim().length > 0;
+      setAiConfigured(Boolean(hasConfiguredTone || hasRules || hasPriority || hasCredits || hasMode));
+    } catch (_err) {
+      setAiConfigured(false);
+    }
+  }
+
   function formatCurrency(amount: number) {
     return `${Math.round(amount)} €`;
   }
@@ -92,6 +157,28 @@ export default function CreatorManagerPage() {
     }
     void router.push("/");
   }
+
+  const visiblePacksCount = (profileCopy?.packs || []).filter((p) => p.visible !== false).length;
+  const profileTextsReady = Boolean(profileCopy?.hero?.tagline?.trim()) && Boolean(profileCopy?.hero?.description?.trim());
+
+  const checklistItems = [
+    { key: "packs", label: "Tienes al menos un pack activo", done: visiblePacksCount > 0 },
+    {
+      key: "bioLink",
+      label: "Bio-link activado para traer tráfico de redes",
+      done: bioLinkEnabled === true,
+    },
+    {
+      key: "profile",
+      label: "Perfil público configurado (texto y packs visibles)",
+      done: profileTextsReady && visiblePacksCount > 0,
+    },
+    {
+      key: "ai",
+      label: "Manager IA configurado para ayudarte con las ventas",
+      done: aiConfigured === true,
+    },
+  ];
 
   const kpiCards = summary
     ? [
@@ -126,13 +213,40 @@ export default function CreatorManagerPage() {
         role="Panel del creador"
         subtitle="Resumen de actividad y segmentos"
         initial={creatorInitial}
-        onOpenSettings={() => {}}
+        avatarUrl={config.avatarUrl}
+        onOpenSettings={() => router.push("/creator/edit")}
       />
       <main className="max-w-5xl mx-auto px-4 py-6 space-y-6">
         {loading && <div className="text-sm text-slate-300">Cargando panel...</div>}
         {error && !loading && <div className="text-sm text-rose-300">{error}</div>}
         {!loading && !error && summary && (
           <>
+            <section className="rounded-lg border border-slate-800 bg-slate-900/80 p-4 space-y-3">
+              <div className="flex items-center justify-between">
+                <h2 className="text-lg font-semibold">Puesta en marcha de tu espacio</h2>
+                <span className="text-[11px] uppercase tracking-wide text-slate-400">Checklist rápido</span>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                {checklistItems.map((item) => (
+                  <div
+                    key={item.key}
+                    className="flex items-center gap-3 rounded-lg border border-slate-800 bg-slate-950/60 px-3 py-2"
+                  >
+                    <span
+                      className={`mt-0.5 inline-flex h-3 w-3 rounded-full ${item.done ? "bg-emerald-400" : "bg-amber-400"}`}
+                      aria-hidden
+                    />
+                    <div className="flex flex-col">
+                      <span className={`text-xs font-semibold ${item.done ? "text-emerald-100" : "text-amber-100"}`}>
+                        {item.done ? "Hecho" : "Pendiente"}
+                      </span>
+                      <span className="text-sm text-slate-100">{item.label}</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </section>
+
             <section className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
               {kpiCards.map((card) => (
                 <div key={card.label} className="rounded-lg border border-slate-800 bg-slate-900/70 p-4">
@@ -145,239 +259,283 @@ export default function CreatorManagerPage() {
               ))}
             </section>
 
-            <section className="grid grid-cols-1 lg:grid-cols-3 gap-3">
-              <div className="space-y-3">
-                <CreatorAdvisorPanel data={advisorInput ?? undefined} error={advisorError} isLoading={advisorLoading} />
-              </div>
-
-              <section className="rounded-lg border border-slate-800 bg-slate-900/70 p-4 space-y-3 lg:col-span-2">
-                <h2 className="text-lg font-semibold">Packs</h2>
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                  <div className="rounded-lg border border-slate-800 bg-slate-950/70 p-3">
-                    <div className="text-sm font-semibold">Bienvenida</div>
-                    <div className="text-xs text-slate-400">Fans activos: {summary.packs.welcome.activeFans}</div>
-                    <div className="text-xs text-slate-400 mt-1">Ingresos 30d: {formatCurrency(summary.packs.welcome.revenue30)}</div>
-                  </div>
-                  <div className="rounded-lg border border-slate-800 bg-slate-950/70 p-3 space-y-1">
-                    <div className="text-sm font-semibold">Mensual</div>
-                    <div className="text-xs text-slate-400">Fans activos: {summary.packs.monthly.activeFans}</div>
-                    <div className="text-xs text-slate-400">Renovaciones ≤7d: {summary.packs.monthly.renewalsIn7Days}</div>
-                    <div className="text-xs text-slate-400">Churn 30d: {summary.packs.monthly.churn30}</div>
-                    <div className="text-xs text-slate-400">Ingresos 30d: {formatCurrency(summary.packs.monthly.revenue30)}</div>
-                  </div>
-                  <div className="rounded-lg border border-slate-800 bg-slate-950/70 p-3">
-                    <div className="text-sm font-semibold">Especial</div>
-                    <div className="text-xs text-slate-400">Fans activos: {summary.packs.special.activeFans}</div>
-                    <div className="text-xs text-slate-400 mt-1">Ingresos 30d: {formatCurrency(summary.packs.special.revenue30)}</div>
-                  </div>
+            <div className="mt-6 grid gap-6 lg:grid-cols-[minmax(0,2fr)_minmax(0,1.2fr)]">
+              <IaWorkspaceCard businessSnapshot={initialSnapshot} contentSnapshot={initialContentSnapshot} />
+              <div className="space-y-4">
+                <div className="rounded-lg border border-slate-800 bg-slate-900/70 p-4">
+                  <CreatorAdvisorPanel data={advisorInput ?? undefined} error={advisorError} isLoading={advisorLoading} />
                 </div>
-              </section>
-            </section>
 
-            <section className="rounded-lg border border-slate-800 bg-slate-900/70 p-4 space-y-2">
-              <div className="flex items-center gap-2">
-                <h2 className="text-lg font-semibold">Segmentos</h2>
-                <Info
-                  text={
-                    "Segmentos\nNOVSY clasifica a tus fans según su salud y su historial de compras.\nSirve para saber con quién hablar antes cuando tienes poco tiempo."
-                  }
-                />
-              </div>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-sm text-slate-200">
-                <button
-                  type="button"
-                  className="text-left hover:text-emerald-200"
-                  onClick={() => navigateToChats({ tierFilter: "new" })}
-                >
-                  Fans nuevos: {summary.segments.newFans}{" "}
-                  <Info
-                    text={
-                      "Se han unido en los últimos días y casi no tienen historial contigo.\nBuen momento para un mensaje de bienvenida y entender qué buscan."
-                    }
-                  />
-                </button>
-                <div className="flex items-center gap-1">
-                  <span>Habitual: {summary.segments.habitual}</span>
-                  <Info
-                    text={
-                      "Tiene un pack activo y suele responder.\nGenera ingresos estables; cuida la relación sin forzar ventas cada día."
-                    }
-                  />
-                </div>
-                <button
-                  type="button"
-                  className="text-left hover:text-emerald-200"
-                  onClick={() => navigateToChats({ tierFilter: "vip" })}
-                >
-                  VIP: {summary.segments.vip}{" "}
-                  <Info
-                    text={"Top fans por gasto total y buena respuesta.\nMerecen trato más personal, extras exclusivos y atención rápida."}
-                  />
-                </button>
-                <button
-                  type="button"
-                  className="text-left hover:text-emerald-200"
-                  onClick={() => navigateToChats({ followUpFilter: "expired" })}
-                >
-                  En riesgo: {summary.segments.atRisk}{" "}
-                  <Info
-                    text={
-                      "Ha gastado dinero contigo, pero su salud ha bajado: lleva tiempo sin escribir o su pack está a punto de caducar.\nSi no le escribes ahora, es fácil que se pierda."
-                    }
-                  />
-                </button>
-              </div>
-            </section>
+                <section className="rounded-lg border border-slate-800 bg-slate-900/70 p-4 space-y-3">
+                  <h2 className="text-lg font-semibold">Packs</h2>
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                    <div className="rounded-lg border border-slate-800 bg-slate-950/70 p-3">
+                      <div className="text-sm font-semibold">Bienvenida</div>
+                      <div className="text-xs text-slate-400">Fans activos: {summary.packs.welcome.activeFans}</div>
+                      <div className="text-xs text-slate-400 mt-1">Ingresos 30d: {formatCurrency(summary.packs.welcome.revenue30)}</div>
+                    </div>
+                    <div className="rounded-lg border border-slate-800 bg-slate-950/70 p-3 space-y-1">
+                      <div className="text-sm font-semibold">Mensual</div>
+                      <div className="text-xs text-slate-400">Fans activos: {summary.packs.monthly.activeFans}</div>
+                      <div className="text-xs text-slate-400">Renovaciones ≤7d: {summary.packs.monthly.renewalsIn7Days}</div>
+                      <div className="text-xs text-slate-400">Churn 30d: {summary.packs.monthly.churn30}</div>
+                      <div className="text-xs text-slate-400">Ingresos 30d: {formatCurrency(summary.packs.monthly.revenue30)}</div>
+                    </div>
+                    <div className="rounded-lg border border-slate-800 bg-slate-950/70 p-3">
+                      <div className="text-sm font-semibold">Especial</div>
+                      <div className="text-xs text-slate-400">Fans activos: {summary.packs.special.activeFans}</div>
+                      <div className="text-xs text-slate-400 mt-1">Ingresos 30d: {formatCurrency(summary.packs.special.revenue30)}</div>
+                    </div>
+                  </div>
+                </section>
 
-            <section className="rounded-lg border border-slate-800 bg-slate-900/70 p-4 space-y-2">
-              <div className="flex items-center gap-2">
-                <h2 className="text-lg font-semibold">Acciones sugeridas hoy</h2>
-                <Info
-                  text={
-                    "Acciones sugeridas hoy\nSon bloques de trabajo. Cada acción abre una lista de fans que encajan con ese patrón (en riesgo, VIP, nuevos…).\nSirve para trabajar por tandas cuando tienes poco tiempo."
-                  }
-                />
-              </div>
-              <ul className="list-disc pl-5 text-sm text-slate-200 space-y-1">
-                {summary.suggestions.map((s, idx) => (
-                  <li key={`${s.label}-${idx}`} className="space-y-0.5">
+                <section className="rounded-lg border border-slate-800 bg-slate-900/70 p-4 space-y-2">
+                  <div className="flex items-center gap-2">
+                    <h2 className="text-lg font-semibold">Segmentos</h2>
+                    <Info
+                      text={
+                        "Segmentos\nNOVSY clasifica a tus fans según su salud y su historial de compras.\nSirve para saber con quién hablar antes cuando tienes poco tiempo."
+                      }
+                    />
+                  </div>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-sm text-slate-200">
                     <button
                       type="button"
                       className="text-left hover:text-emerald-200"
-                      onClick={() => {
-                        if (s.filter?.segment === "VIP") navigateToChats({ tierFilter: "vip", segment: "VIP" });
-                        else if (s.filter?.segment === "EN_RIESGO") navigateToChats({ followUpFilter: "expired", segment: "EN_RIESGO" });
-                        else if (s.filter?.segment === "NUEVO") navigateToChats({ tierFilter: "new", segment: "NUEVO" });
-                        else navigateToChats({ followUpFilter: "all" });
-                      }}
+                      onClick={() => navigateToChats({ tierFilter: "new" })}
                     >
-                      {s.label}
+                      Fans nuevos: {summary.segments.newFans}{" "}
+                      <Info
+                        text={
+                          "Se han unido en los últimos días y casi no tienen historial contigo.\nBuen momento para un mensaje de bienvenida y entender qué buscan."
+                        }
+                      />
                     </button>
-                    {s.description && <p className="text-[11px] text-slate-400">{s.description}</p>}
-                  </li>
-                ))}
-              </ul>
-            </section>
+                    <div className="flex items-center gap-1">
+                      <span>Habitual: {summary.segments.habitual}</span>
+                      <Info
+                        text={
+                          "Tiene un pack activo y suele responder.\nGenera ingresos estables; cuida la relación sin forzar ventas cada día."
+                        }
+                      />
+                    </div>
+                    <button
+                      type="button"
+                      className="text-left hover:text-emerald-200"
+                      onClick={() => navigateToChats({ tierFilter: "vip" })}
+                    >
+                      VIP: {summary.segments.vip}{" "}
+                      <Info
+                        text={"Top fans por gasto total y buena respuesta.\nMerecen trato más personal, extras exclusivos y atención rápida."}
+                      />
+                    </button>
+                    <button
+                      type="button"
+                      className="text-left hover:text-emerald-200"
+                      onClick={() => navigateToChats({ followUpFilter: "expired" })}
+                    >
+                      En riesgo: {summary.segments.atRisk}{" "}
+                      <Info
+                        text={
+                          "Ha gastado dinero contigo, pero su salud ha bajado: lleva tiempo sin escribir o su pack está a punto de caducar.\nSi no le escribes ahora, es fácil que se pierda."
+                        }
+                      />
+                    </button>
+                  </div>
+                </section>
 
-            <section className="rounded-lg border border-slate-800 bg-slate-900/70 p-4 space-y-3">
-              <div className="flex items-center gap-2">
-                <h2 className="text-lg font-semibold">Cola de fans priorizados (hoy)</h2>
-                <Info
-                  text={
-                    "Cola de fans priorizados\nOrdenamos tus fans de más urgentes a menos.\nPrimero verás a los que están en riesgo o a punto de caducar,\nluego al resto según su salud y valor."
-                  }
-                />
+                <section className="rounded-lg border border-slate-800 bg-slate-900/70 p-4 space-y-2">
+                  <div className="flex items-center gap-2">
+                    <h2 className="text-lg font-semibold">Acciones sugeridas hoy</h2>
+                    <Info
+                      text={
+                        "Acciones sugeridas hoy\nSon bloques de trabajo. Cada acción abre una lista de fans que encajan con ese patrón (en riesgo, VIP, nuevos…).\nSirve para trabajar por tandas cuando tienes poco tiempo."
+                      }
+                    />
+                  </div>
+                  <ul className="list-disc pl-5 text-sm text-slate-200 space-y-1">
+                    {summary.suggestions.map((s, idx) => (
+                      <li key={`${s.label}-${idx}`} className="space-y-0.5">
+                        <button
+                          type="button"
+                          className="text-left hover:text-emerald-200"
+                          onClick={() => {
+                            if (s.filter?.segment === "VIP") navigateToChats({ tierFilter: "vip", segment: "VIP" });
+                            else if (s.filter?.segment === "EN_RIESGO")
+                              navigateToChats({ followUpFilter: "expired", segment: "EN_RIESGO" });
+                            else if (s.filter?.segment === "NUEVO") navigateToChats({ tierFilter: "new", segment: "NUEVO" });
+                            else navigateToChats({ followUpFilter: "all" });
+                          }}
+                        >
+                          {s.label}
+                        </button>
+                        {s.description && <p className="text-[11px] text-slate-400">{s.description}</p>}
+                      </li>
+                    ))}
+                  </ul>
+                </section>
+
+                <section className="rounded-lg border border-slate-800 bg-slate-900/70 p-4 space-y-3">
+                  <div className="flex items-center gap-2">
+                    <h2 className="text-lg font-semibold">Cola de fans priorizados (hoy)</h2>
+                    <Info
+                      text={
+                        "Cola de fans priorizados\nOrdenamos tus fans de más urgentes a menos.\nPrimero verás a los que están en riesgo o a punto de caducar,\nluego al resto según su salud y valor."
+                      }
+                    />
+                  </div>
+                  {queueError && <div className="text-sm text-amber-300">{queueError}</div>}
+                  {!queueError && queue.length === 0 && <div className="text-sm text-slate-300">Sin datos todavía.</div>}
+                  {!queueError && queue.length > 0 && (
+                    <div className="overflow-x-auto">
+                      <table className="min-w-full text-sm text-slate-200">
+                        <thead>
+                          <tr className="text-xs text-slate-400">
+                            <th className="text-left py-1 pr-3">
+                              <div className="flex items-center gap-1">
+                                Fan <Info text={"Nombre del fan. Haz clic en “Abrir chat” para ir directo a la conversación."} />
+                              </div>
+                            </th>
+                            <th className="text-left py-1 pr-3">
+                              <div className="flex items-center gap-1">
+                                Segmento{" "}
+                                <Info
+                                  text={
+                                    "Tipo de relación actual con este fan (Nuevo, Habitual, En riesgo, VIP, Ligero, Dormido).\nSe recalcula cada día según chat, compras y caducidad."
+                                  }
+                                />
+                              </div>
+                            </th>
+                            <th className="text-left py-1 pr-3">
+                              <div className="flex items-center gap-1">
+                                Etapa{" "}
+                                <Info text={"Etapa de relación resumida para el Manager IA (Nuevo, Calentando, Fiel, Riesgo)."} />
+                              </div>
+                            </th>
+                            <th className="text-left py-1 pr-3">
+                              <div className="flex items-center gap-1">
+                                Health{" "}
+                                <Info
+                                  text={
+                                    "Indicador 0–100 de la salud de la relación con este fan.\nCombina recencia de chat, compras y días para caducar.\n0–30: riesgo alto · 30–60: vigilar · 60–100: estable/bien."
+                                  }
+                                />
+                              </div>
+                            </th>
+                            <th className="text-left py-1 pr-3">
+                              <div className="flex items-center gap-1">
+                                Caduca{" "}
+                                <Info
+                                  text={
+                                    "Días que le quedan de acceso a su pack mensual/especial.\n“0” o “—” significa que ahora mismo no tiene pack activo."
+                                  }
+                                />
+                              </div>
+                            </th>
+                            <th className="text-left py-1 pr-3">
+                              <div className="flex items-center gap-1">
+                                Gasto 30d{" "}
+                                <Info
+                                  text={
+                                    "Lo que ha gastado en los últimos 30 días entre packs y extras.\nSirve para distinguir riesgo “barato” de riesgo “alto valor”."
+                                  }
+                                />
+                              </div>
+                            </th>
+                            <th className="text-left py-1 pr-3">
+                              <div className="flex items-center gap-1">
+                                Acción{" "}
+                                <Info
+                                  text={
+                                    "Abre el chat con este fan.\nEmpieza siempre por la parte alta de la cola: son las conversaciones que el Manager IA considera más urgentes hoy."
+                                  }
+                                />
+                              </div>
+                            </th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {queue.slice(0, 5).map((row) => (
+                            <tr key={row.id} className="border-t border-slate-800">
+                              <td className="py-2 pr-3">{row.displayName}</td>
+                              <td className="py-2 pr-3">
+                                <span className="inline-flex rounded-full border border-slate-700 px-2 py-[2px] text-[11px]">
+                                  {row.segment}
+                                </span>
+                              </td>
+                              <td className="py-2 pr-3 uppercase text-[11px] text-slate-300">{row.relationshipStage}</td>
+                              <td className="py-2 pr-3">
+                                <span
+                                  className={
+                                    row.riskLevel === "HIGH"
+                                      ? "text-rose-200"
+                                      : row.riskLevel === "MEDIUM"
+                                      ? "text-amber-200"
+                                      : "text-emerald-200"
+                                  }
+                                >
+                                  {row.healthScore}
+                                </span>
+                              </td>
+                              <td className="py-2 pr-3">{row.daysToExpiry ?? "—"}</td>
+                              <td className="py-2 pr-3">{Math.round(row.recent30dSpend ?? 0)} €</td>
+                              <td className="py-2 pr-3">
+                                <button
+                                  type="button"
+                                  className="text-xs text-emerald-200 hover:underline"
+                                  onClick={() => {
+                                    if (row.segment === "VIP") navigateToChats({ tierFilter: "vip", segment: "VIP" });
+                                    else if (row.segment === "EN_RIESGO")
+                                      navigateToChats({ followUpFilter: "expired", segment: "EN_RIESGO" });
+                                    else if (row.segment === "NUEVO") navigateToChats({ tierFilter: "new", segment: "NUEVO" });
+                                    else navigateToChats({ followUpFilter: "all" });
+                                  }}
+                                >
+                                  Abrir chat
+                                </button>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                      {queue.length > 5 && (
+                        <div className="mt-2 text-[11px] text-slate-400">Mostrando top 5. TODO: enlace a cola completa.</div>
+                      )}
+                    </div>
+                  )}
+                </section>
               </div>
-              {queueError && <div className="text-sm text-amber-300">{queueError}</div>}
-              {!queueError && queue.length === 0 && <div className="text-sm text-slate-300">Sin datos todavía.</div>}
-              {!queueError && queue.length > 0 && (
-                <div className="overflow-x-auto">
-                  <table className="min-w-full text-sm text-slate-200">
-                    <thead>
-                      <tr className="text-xs text-slate-400">
-                        <th className="text-left py-1 pr-3">
-                          <div className="flex items-center gap-1">
-                            Fan <Info text={"Nombre del fan. Haz clic en “Abrir chat” para ir directo a la conversación."} />
-                          </div>
-                        </th>
-                        <th className="text-left py-1 pr-3">
-                          <div className="flex items-center gap-1">
-                            Segmento{" "}
-                            <Info
-                              text={
-                                "Tipo de relación actual con este fan (Nuevo, Habitual, En riesgo, VIP, Ligero, Dormido).\nSe recalcula cada día según chat, compras y caducidad."
-                              }
-                            />
-                          </div>
-                        </th>
-                        <th className="text-left py-1 pr-3">
-                          <div className="flex items-center gap-1">
-                            Etapa{" "}
-                            <Info text={"Etapa de relación resumida para el Manager IA (Nuevo, Calentando, Fiel, Riesgo)."} />
-                          </div>
-                        </th>
-                        <th className="text-left py-1 pr-3">
-                          <div className="flex items-center gap-1">
-                            Health{" "}
-                            <Info
-                              text={
-                                "Indicador 0–100 de la salud de la relación con este fan.\nCombina recencia de chat, compras y días para caducar.\n0–30: riesgo alto · 30–60: vigilar · 60–100: estable/bien."
-                              }
-                            />
-                          </div>
-                        </th>
-                        <th className="text-left py-1 pr-3">
-                          <div className="flex items-center gap-1">
-                            Caduca <Info text={"Días que le quedan de acceso a su pack mensual/especial.\n“0” o “—” significa que ahora mismo no tiene pack activo."} />
-                          </div>
-                        </th>
-                        <th className="text-left py-1 pr-3">
-                          <div className="flex items-center gap-1">
-                            Gasto 30d{" "}
-                            <Info text={"Lo que ha gastado en los últimos 30 días entre packs y extras.\nSirve para distinguir riesgo “barato” de riesgo “alto valor”."} />
-                          </div>
-                        </th>
-                        <th className="text-left py-1 pr-3">
-                          <div className="flex items-center gap-1">
-                            Acción{" "}
-                            <Info
-                              text={
-                                "Abre el chat con este fan.\nEmpieza siempre por la parte alta de la cola: son las conversaciones que el Manager IA considera más urgentes hoy."
-                              }
-                            />
-                          </div>
-                        </th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {queue.map((row) => (
-                        <tr key={row.id} className="border-t border-slate-800">
-                          <td className="py-2 pr-3">{row.displayName}</td>
-                          <td className="py-2 pr-3">
-                            <span className="inline-flex rounded-full border border-slate-700 px-2 py-[2px] text-[11px]">
-                              {row.segment}
-                            </span>
-                          </td>
-                          <td className="py-2 pr-3 uppercase text-[11px] text-slate-300">{row.relationshipStage}</td>
-                          <td className="py-2 pr-3">
-                            <span
-                              className={
-                                row.riskLevel === "HIGH"
-                                  ? "text-rose-200"
-                                  : row.riskLevel === "MEDIUM"
-                                  ? "text-amber-200"
-                                  : "text-emerald-200"
-                              }
-                            >
-                              {row.healthScore}
-                            </span>
-                          </td>
-                          <td className="py-2 pr-3">{row.daysToExpiry ?? "—"}</td>
-                          <td className="py-2 pr-3">{Math.round(row.recent30dSpend ?? 0)} €</td>
-                          <td className="py-2 pr-3">
-                            <button
-                              type="button"
-                              className="text-xs text-emerald-200 hover:underline"
-                              onClick={() => {
-                                if (row.segment === "VIP") navigateToChats({ tierFilter: "vip", segment: "VIP" });
-                                else if (row.segment === "EN_RIESGO") navigateToChats({ followUpFilter: "expired", segment: "EN_RIESGO" });
-                                else if (row.segment === "NUEVO") navigateToChats({ tierFilter: "new", segment: "NUEVO" });
-                                else navigateToChats({ followUpFilter: "all" });
-                              }}
-                            >
-                              Abrir chat
-                            </button>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-            </section>
+            </div>
           </>
         )}
       </main>
     </div>
   );
 }
+
+export const getServerSideProps: GetServerSideProps<Props> = async () => {
+  const creatorId = process.env.CREATOR_ID ?? "creator-1";
+  let initialSnapshot: CreatorBusinessSnapshot | null = null;
+  let initialContentSnapshot: CreatorContentSnapshot | null = null;
+
+  try {
+    initialSnapshot = await getCreatorBusinessSnapshot(creatorId);
+  } catch (err) {
+    console.error("Error loading business snapshot for manager chat", err);
+    initialSnapshot = null;
+  }
+
+  try {
+    initialContentSnapshot = await getCreatorContentSnapshot(creatorId);
+  } catch (err) {
+    console.error("Error loading content snapshot for content manager chat", err);
+    initialContentSnapshot = null;
+  }
+
+  return {
+    props: {
+      initialSnapshot,
+      initialContentSnapshot,
+    },
+  };
+};

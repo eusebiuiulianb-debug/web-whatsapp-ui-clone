@@ -92,8 +92,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           select: { content: true },
         },
         messages: {
-          where: { from: "creator" },
-          select: { id: true, time: true },
+          select: { id: true, time: true, from: true },
         },
         _count: { select: { notes: true } },
       },
@@ -257,7 +256,14 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
       const priorityScore = computePriorityScore();
 
-      const lastCreatorMessage = fan.messages
+      const creatorMessages = fan.messages.filter((msg) => msg.from === "creator");
+      const fanMessages = fan.messages.filter((msg) => msg.from === "fan");
+
+      const lastCreatorMessage = creatorMessages
+        .map((msg) => parseMessageTimestamp(msg.id))
+        .filter((d): d is Date => !!d)
+        .sort((a, b) => b.getTime() - a.getTime())[0];
+      const lastFanActivity = fanMessages
         .map((msg) => parseMessageTimestamp(msg.id))
         .filter((d): d is Date => !!d)
         .sort((a, b) => b.getTime() - a.getTime())[0];
@@ -288,6 +294,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         membershipStatus,
         daysLeft,
         lastSeen: fan.lastSeen || "",
+        lastSeenAt: lastFanActivity ? lastFanActivity.toISOString() : null,
         notesCount: fan._count?.notes ?? 0,
         lastCreatorMessageAt: lastCreatorMessage ? lastCreatorMessage.toISOString() : null,
         paidGrantsCount,

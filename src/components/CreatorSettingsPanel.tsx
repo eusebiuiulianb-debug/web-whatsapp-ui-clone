@@ -13,18 +13,39 @@ interface CreatorSettingsPanelProps {
 export default function CreatorSettingsPanel({ isOpen, onClose }: CreatorSettingsPanelProps) {
   const { config, setConfig, resetConfig } = useCreatorConfig();
   const [formData, setFormData] = useState<CreatorConfig>(config);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
 
   useEffect(() => {
     if (isOpen) {
       setFormData(config);
+      setError("");
     }
   }, [config, isOpen]);
 
   if (!isOpen) return null;
 
-  function handleSave() {
-    setConfig(formData);
-    onClose();
+  async function handleSave() {
+    try {
+      setSaving(true);
+      setError("");
+      setConfig(formData);
+      await fetch("/api/creator", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: formData.creatorName,
+          subtitle: formData.creatorSubtitle,
+          description: formData.creatorDescription,
+          avatarUrl: formData.avatarUrl || "",
+        }),
+      });
+      onClose();
+    } catch (_err) {
+      setError("No se pudieron guardar en el servidor. Los cambios locales se han aplicado.");
+    } finally {
+      setSaving(false);
+    }
   }
 
   function handleReset() {
@@ -60,6 +81,7 @@ export default function CreatorSettingsPanel({ isOpen, onClose }: CreatorSetting
           </button>
         </div>
         <div className="flex flex-col gap-6 px-6 py-4">
+          {error && <div className="text-sm text-amber-300">{error}</div>}
           <section className="flex flex-col gap-3">
             <div>
               <label className="block text-sm text-[#aebac1] mb-1">Nombre del creador</label>
@@ -76,6 +98,16 @@ export default function CreatorSettingsPanel({ isOpen, onClose }: CreatorSetting
                 value={formData.creatorSubtitle}
                 onChange={e => setFormData(prev => ({ ...prev, creatorSubtitle: e.target.value }))}
               />
+            </div>
+            <div>
+              <label className="block text-sm text-[#aebac1] mb-1">Avatar (URL)</label>
+              <input
+                className="w-full bg-[#1f2c33] border border-[rgba(134,150,160,0.3)] rounded-md px-3 py-2 text-white"
+                value={formData.avatarUrl || ""}
+                placeholder="https://..."
+                onChange={e => setFormData(prev => ({ ...prev, avatarUrl: e.target.value }))}
+              />
+              <p className="text-[12px] text-slate-400 mt-1">Se usa en el header, bio-link y perfil público.</p>
             </div>
             <div>
               <label className="block text-sm text-[#aebac1] mb-1">Descripción larga (página pública)</label>
@@ -162,8 +194,9 @@ export default function CreatorSettingsPanel({ isOpen, onClose }: CreatorSetting
             type="button"
             className="px-3 py-2 rounded-md bg-[#2a3942] text-white hover:bg-[#3b4a54]"
             onClick={handleSave}
+            disabled={saving}
           >
-            Guardar cambios
+            {saving ? "Guardando..." : "Guardar cambios"}
           </button>
           <button
             type="button"

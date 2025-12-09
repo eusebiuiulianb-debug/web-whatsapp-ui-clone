@@ -157,6 +157,7 @@ export default function CreatorAiTemplatesPage() {
           role="Creador"
           subtitle={config.creatorSubtitle}
           initial={creatorInitial}
+          avatarUrl={config.avatarUrl}
           onOpenSettings={() => {}}
         />
 

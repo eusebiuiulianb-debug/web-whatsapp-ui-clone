@@ -5,7 +5,14 @@ export type PublicProfileCopy = {
   hero: {
     tagline: string;
     description: string;
-    chips: string[];
+    chips: { label: string; visible: boolean }[];
+    coverImageUrl?: string | null;
+    showWhatInside: boolean;
+    whatInsideTitle: string;
+    whatInsideBullets: string[];
+    primaryCtaLabel: string;
+    secondaryCtaLabel: string;
+    showStats: boolean;
   };
   recommendedPackId: "welcome" | "monthly" | "special";
   packs: Array<{
@@ -15,7 +22,17 @@ export type PublicProfileCopy = {
     price: string;
     bullets: string[];
     ctaLabel: string;
+    visible: boolean;
   }>;
-  freebies: Array<{ id: string; title: string; description: string; ctaLabel: string }>;
+  freebiesSectionVisible: boolean;
+  freebies: Array<{ id: string; title: string; description: string; ctaLabel: string; visible: boolean; link?: string | null }>;
+  faqSectionVisible: boolean;
   faq: Array<{ id: string; question: string; answer: string }>;
+};
+
+export type PublicProfileStats = {
+  activeMembers: number;
+  images: number;
+  videos: number;
+  audios: number;
 };
