@@ -22,6 +22,7 @@ import { getAccessSnapshot, getChatterProPlan } from "../../lib/chatPlaybook";
 import FanManagerDrawer from "../fan/FanManagerDrawer";
 import type { FanManagerSummary } from "../../server/manager/managerService";
 import { deriveFanManagerState, getDefaultFanTone } from "../../lib/fanManagerState";
+import { getManagerPromptTemplate } from "../../lib/managerPrompts";
 import type { FanManagerStateAnalysis } from "../../lib/fanManagerState";
 import type { FanTone, ManagerObjective } from "../../types/manager";
 import clsx from "clsx";
@@ -148,6 +149,7 @@ export default function ConversationDetails({ onBackToBoard }: ConversationDetai
   const [ managerChatInput, setManagerChatInput ] = useState("");
   const [ isInternalChatOpen, setIsInternalChatOpen ] = useState(false);
   const managerChatListRef = useRef<HTMLDivElement | null>(null);
+  const managerChatInputRef = useRef<HTMLTextAreaElement | null>(null);
   const [ managerSuggestions, setManagerSuggestions ] = useState<ManagerSuggestion[]>([]);
   const [ currentObjective, setCurrentObjective ] = useState<ManagerObjective | null>(null);
   const [ managerSummary, setManagerSummary ] = useState<FanManagerSummary | null>(null);
@@ -515,6 +517,15 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
     if (tone === "intimo") return "Íntimo";
     return null;
   }
+
+  const managerPromptTemplate = (() => {
+    const objective = currentObjective ?? fanManagerAnalysis.defaultObjective;
+    if (!objective || !fanTone) return null;
+    return getManagerPromptTemplate({
+      tone: fanTone,
+      objective,
+    });
+  })();
 
   function getFirstName(name?: string | null) {
     if (!name) return "";
@@ -3026,10 +3037,32 @@ useEffect(() => {
                   </button>
                 </div>
                 {isInternalChatOpen && (
-                  <>
+                  <div className="flex flex-col gap-3 max-h-80">
+                    {managerPromptTemplate && (
+                      <div className="rounded-lg border border-slate-800 bg-slate-900/70 p-3 space-y-2 text-[11px] text-slate-200">
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="font-semibold text-slate-100">
+                            Plantilla sugerida para este fan
+                          </span>
+                        </div>
+                        <p className="text-[12px] leading-relaxed text-slate-200">{managerPromptTemplate}</p>
+                        <div>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setManagerChatInput(managerPromptTemplate);
+                              requestAnimationFrame(() => managerChatInputRef.current?.focus());
+                            }}
+                            className="inline-flex items-center rounded-full border border-emerald-500/60 bg-emerald-500/10 px-4 py-1.5 text-[12px] font-medium text-emerald-100 hover:bg-emerald-500/20 transition"
+                          >
+                            Usar plantilla
+                          </button>
+                        </div>
+                      </div>
+                    )}
                     <div
                       ref={managerChatListRef}
-                      className="flex flex-col gap-2 max-h-48 overflow-y-auto pr-1 border-t border-slate-700 pt-3"
+                      className="flex-1 flex flex-col gap-2 overflow-y-auto pr-1 border-t border-slate-700 pt-3"
                     >
                       {managerChatMessages.length === 0 && (
                         <div className="text-[11px] text-slate-500">
@@ -3074,6 +3107,7 @@ useEffect(() => {
                         rows={1}
                         className="flex-1 rounded-2xl bg-slate-800/80 px-3 py-2 text-sm leading-relaxed text-slate-100 placeholder:text-slate-400 resize-none overflow-y-auto max-h-32 focus:outline-none focus:ring-2 focus:ring-emerald-500/70"
                         placeholder="Preguntarle algo al Manager IA sobre este fan…"
+                        ref={managerChatInputRef}
                         value={managerChatInput}
                         onChange={(e) => setManagerChatInput(e.target.value)}
                         onKeyDown={handleManagerChatKeyDown}
@@ -3087,7 +3121,7 @@ useEffect(() => {
                         Enviar
                       </button>
                     </div>
-                  </>
+                  </div>
                 )}
               </div>
             </div>
