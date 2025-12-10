@@ -1764,7 +1764,7 @@ useEffect(() => {
       : presenceStatus.color === "recent"
       ? "bg-[#f5c065]"
       : "bg-[#7d8a93]";
-  const sendDisabled = isChatBlocked || accessState === "expired" || !(messageSend.trim().length > 0);
+  const sendDisabled = isChatBlocked || !(messageSend.trim().length > 0);
   const extrasCountDisplay = conversation.extrasCount ?? 0;
   const extrasSpentDisplay = Math.round(conversation.extrasSpentTotal ?? 0);
   const extrasAmount = conversation.extrasSpentTotal ?? 0;
@@ -1891,8 +1891,14 @@ useEffect(() => {
     }
   };
 
-  const handleRenewAction = async () => {
-    await handleQuickTemplateClick("renewal");
+  const handleRenewAction = () => {
+    const first = getFirstName(contactName) || contactName;
+    const text = buildFollowUpExpiredMessage(first);
+    fillMessage(text);
+    adjustMessageInputHeight();
+    requestAnimationFrame(() => {
+      messageInputRef.current?.focus();
+    });
   };
 
   const lifetimeValueDisplay = Math.round(conversation.lifetimeValue ?? 0);
@@ -2218,24 +2224,17 @@ useEffect(() => {
       )}
       {/* Avisos de acceso caducado o a punto de caducar */}
       {isAccessExpired && (
-        <div className="mx-4 mb-3 flex items-center justify-between rounded-xl border border-amber-500/50 bg-amber-500/10 px-4 py-3 text-xs text-amber-100">
+        <div className="mx-4 mb-3 flex flex-col md:flex-row md:items-center md:justify-between gap-3 rounded-xl border border-amber-500/50 bg-amber-500/10 px-4 py-3 text-xs text-amber-100">
           <div className="flex flex-col gap-1">
             <span className="font-semibold text-amber-200">Acceso caducado · sin pack activo</span>
             <span className="text-[11px] text-amber-100/90">
-              Puedes enviarle un mensaje de cierre o reenganche y concederle un nuevo pack cuando quieras.
+              Puedes enviarle un mensaje de reenganche y decidir después si le das acceso a nuevos contenidos.
             </span>
           </div>
           <div className="flex items-center gap-2">
             <button
               type="button"
-              className="rounded-full border border-amber-400 bg-amber-500/10 px-3 py-1 text-[11px] font-semibold text-amber-100 hover:bg-amber-500/20"
-              onClick={() => handleChoosePack(mapLastGrantToPackType(conversation.lastGrantType))}
-            >
-              Elegir pack
-            </button>
-            <button
-              type="button"
-              className="rounded-full border border-slate-600 bg-slate-800/80 px-3 py-1 text-[11px] font-semibold text-slate-100 hover:bg-slate-700"
+              className="rounded-full border border-amber-400 bg-amber-500/10 px-3 py-1.5 text-[11px] font-semibold text-amber-100 hover:bg-amber-500/20"
               onClick={handleRenewAction}
             >
               Mensaje de reenganche
@@ -2405,39 +2404,43 @@ useEffect(() => {
           {iaMessage} {iaBlocked ? "Mañana se reiniciarán tus créditos diarios." : ""}
         </div>
       )}
-      {(() => {
-        const followUpTemplates = getFollowUpTemplates({
-          followUpTag,
-          daysLeft,
-          fanName: firstName,
-        });
-        if (!followUpTemplates.length) return null;
-        // Nota: followUpTag es el mismo dato que alimenta el filtro "Seguimiento hoy" (via getFollowUpTag + shouldFollowUpToday en el sidebar); aquí solo cambiamos el texto visible.
-        return (
-          <div className="mb-3 mx-4 rounded-xl border border-slate-700 bg-slate-900/70 px-3 py-2 text-xs text-slate-200 flex flex-col gap-2">
-            <div className="flex items-center justify-between gap-2">
-              <span className="font-semibold">
-                {followUpTag === "trial_soon" && `Próxima acción · Prueba · ${effectiveDaysLeft ?? daysLeft ?? ""} días`}
-                {followUpTag === "monthly_soon" && `Próxima acción · Suscripción · ${effectiveDaysLeft ?? daysLeft ?? ""} días`}
-                {followUpTag === "expired" && "Próxima acción · Acceso caducado"}
-              </span>
-              {accessGrantsLoading && <span className="text-[10px] text-slate-400">Actualizando...</span>}
+      {false && (
+        // Desactivado: el nuevo Manager IA cubre las sugerencias de próxima acción.
+        (() => {
+          const followUpTemplates = getFollowUpTemplates({
+            followUpTag,
+            daysLeft,
+            fanName: firstName,
+          });
+          if (!followUpTemplates.length) return null;
+          return (
+            <div className="mb-3 mx-4 rounded-xl border border-slate-700 bg-slate-900/70 px-3 py-2 text-xs text-slate-200 flex flex-col gap-2">
+              <div className="flex items-center justify-between gap-2">
+                <span className="font-semibold">
+                  {followUpTag === "trial_soon" &&
+                    `Próxima acción · Prueba · ${effectiveDaysLeft ?? daysLeft ?? ""} días`}
+                  {followUpTag === "monthly_soon" &&
+                    `Próxima acción · Suscripción · ${effectiveDaysLeft ?? daysLeft ?? ""} días`}
+                  {followUpTag === "expired" && "Próxima acción · Acceso caducado"}
+                </span>
+                {accessGrantsLoading && <span className="text-[10px] text-slate-400">Actualizando...</span>}
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {followUpTemplates.map((tpl) => (
+                  <button
+                    key={tpl.id}
+                    type="button"
+                    onClick={() => fillMessage(tpl.text)}
+                    className="inline-flex items-center rounded-full border border-amber-400/80 bg-amber-500/10 px-3 py-1 text-[11px] font-medium text-amber-100 hover:bg-amber-500/20 transition"
+                  >
+                    {tpl.label}
+                  </button>
+                ))}
+              </div>
             </div>
-            <div className="flex flex-wrap gap-2">
-              {followUpTemplates.map((tpl) => (
-                <button
-                  key={tpl.id}
-                  type="button"
-                  onClick={() => fillMessage(tpl.text)}
-                  className="inline-flex items-center rounded-full border border-amber-400/80 bg-amber-500/10 px-3 py-1 text-[11px] font-medium text-amber-100 hover:bg-amber-500/20 transition"
-                >
-                  {tpl.label}
-                </button>
-              ))}
-            </div>
-          </div>
-        );
-      })()}
+          );
+        })()
+      )}
       <div className="flex flex-col flex-1 min-h-0">
         <div
           ref={messagesContainerRef}
@@ -2781,13 +2784,13 @@ useEffect(() => {
                   setMessageSend(evt.target.value);
                 }}
                 value={messageSend}
-                disabled={accessState === "expired" || isChatBlocked}
+                disabled={isChatBlocked}
                 style={{ maxHeight: `${MAX_MESSAGE_HEIGHT}px` }}
               />
               <button
                 type="button"
                 onClick={handleSendMessage}
-                disabled={sendDisabled || isChatBlocked}
+                disabled={sendDisabled}
                 className={clsx(
                   "ml-1 h-9 px-4 rounded-2xl text-sm font-medium",
                   "bg-emerald-600 text-white hover:bg-emerald-500",
@@ -3373,11 +3376,6 @@ useEffect(() => {
               </button>
             </div>
           </div>
-        </div>
-      )}
-      {accessState === "expired" && (
-        <div className="px-4 md:px-6 py-2 text-xs text-[#f5c065] bg-[#2a1f16]">
-          El acceso de {contactName} ha caducado. Renueva su pack para seguir respondiendo.
         </div>
       )}
     </div>
