@@ -65,6 +65,17 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
   });
 
   try {
+    const fan = await prisma.fan.findUnique({
+      where: { id: fanId },
+      select: { isBlocked: true },
+    });
+    if (!fan) {
+      return sendBadRequest(res, "Fan not found");
+    }
+    if (normalizedFrom === "creator" && fan.isBlocked) {
+      return res.status(403).json({ error: "CHAT_BLOCKED" });
+    }
+
     await prisma.message.updateMany({
       where: { fanId },
       data: { isLastFromCreator: false },
@@ -83,6 +94,17 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
       },
       include: { contentItem: true },
     });
+
+    if (normalizedFrom === "fan") {
+      try {
+        await prisma.fan.update({
+          where: { id: fanId },
+          data: { isArchived: false },
+        });
+      } catch (updateErr) {
+        console.error("Error auto-unarchiving fan after incoming message", updateErr);
+      }
+    }
 
     return res.status(200).json({ message: created });
   } catch (err) {

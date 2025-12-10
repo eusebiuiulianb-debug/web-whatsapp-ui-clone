@@ -57,17 +57,33 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
   try {
     const where: Prisma.FanWhereInput = {};
+    const isArchivedFilter = filter === "archived";
+    const isBlockedFilter = filter === "blocked";
 
-    if (filter === "notes") {
-      where.notes = { some: {} };
-    } else if (filter === "nextAction") {
-      where.nextAction = { not: null };
-      const existingNot = Array.isArray(where.NOT) ? where.NOT : where.NOT ? [where.NOT] : [];
-      where.NOT = [...existingNot, { nextAction: "" }];
-    } else if (filter === "new") {
-      where.isNew = true;
-    } else if (filter === "expired") {
-      where.accessGrants = { some: { expiresAt: { lte: new Date() } } };
+    if (isArchivedFilter) {
+      where.isArchived = true;
+    } else if (!fanIdFilter) {
+      where.isArchived = false;
+    }
+
+    if (isBlockedFilter) {
+      where.isBlocked = true;
+    } else if (!fanIdFilter) {
+      where.isBlocked = false;
+    }
+
+    if (!isArchivedFilter) {
+      if (filter === "notes") {
+        where.notes = { some: {} };
+      } else if (filter === "nextAction") {
+        where.nextAction = { not: null };
+        const existingNot = Array.isArray(where.NOT) ? where.NOT : where.NOT ? [where.NOT] : [];
+        where.NOT = [...existingNot, { nextAction: "" }];
+      } else if (filter === "new") {
+        where.isNew = true;
+      } else if (filter === "expired") {
+        where.accessGrants = { some: { expiresAt: { lte: new Date() } } };
+      }
     }
 
     if (search) {
@@ -326,11 +342,13 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           todayHighestTier: null,
           todayLastPurchaseAt: null,
         },
+        isBlocked: fan.isBlocked ?? false,
+        isArchived: fan.isArchived ?? false,
       };
     });
 
     // Filtros adicionales que requieren cálculo (se aplican tras mapear)
-    if (filter === "today") {
+    if (!isArchivedFilter && filter === "today") {
       mappedFans = mappedFans.filter((fan) =>
         shouldFollowUpToday({
           membershipStatus: fan.membershipStatus,
@@ -340,11 +358,11 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       );
     }
 
-    if (filter === "followup") {
+    if (!isArchivedFilter && filter === "followup") {
       mappedFans = mappedFans.filter((fan) => fan.followUpTag && fan.followUpTag !== "none");
     }
 
-    if (filter === "highPriority" && mappedFans.length) {
+    if (!isArchivedFilter && filter === "highPriority" && mappedFans.length) {
       mappedFans = mappedFans.filter((fan) => fan.isHighPriority === true);
     }
 

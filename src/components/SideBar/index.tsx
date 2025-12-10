@@ -51,6 +51,7 @@ export default function SideBar() {
   } = useContext(ConversationContext);
   const [ extrasSummary, setExtrasSummary ] = useState<ExtrasSummary | null>(null);
   const [ extrasSummaryError, setExtrasSummaryError ] = useState<string | null>(null);
+  const [ statusFilter, setStatusFilter ] = useState<"active" | "archived" | "blocked">("active");
 
   type FanData = ConversationListData & { priorityScore?: number };
 
@@ -109,6 +110,8 @@ export default function SideBar() {
       nextActionSummary: fan.nextActionSummary ?? fan.nextActionSnippet ?? null,
       extraLadderStatus: fan.extraLadderStatus ?? null,
       extraSessionToday: (fan as any).extraSessionToday ?? null,
+      isBlocked: (fan as any).isBlocked ?? false,
+      isArchived: (fan as any).isArchived ?? false,
     }));
   }
 
@@ -264,6 +267,8 @@ export default function SideBar() {
     const tag = fan.followUpTag ?? getFollowUpTag(fan.membershipStatus, fan.daysLeft, fan.activeGrantTypes);
     return tag && tag !== "none";
   }).length;
+  const archivedCount = fans.filter((fan) => fan.isArchived === true).length;
+  const blockedCount = fans.filter((fan) => fan.isBlocked === true).length;
   const priorityCount = fans.filter((fan) => {
     const segment = ((fan as any).segment || "").toUpperCase();
     const risk = ((fan as any).riskLevel || "LOW").toUpperCase();
@@ -279,13 +284,31 @@ export default function SideBar() {
     tier: "all" | "new" | "regular" | "vip" = "all",
     onlyFollowUp = false
   ) {
+    setStatusFilter("active");
     setFollowUpFilter(filter);
     setShowOnlyWithNotes(onlyNotes);
     setTierFilter(tier);
     setOnlyWithFollowUp(onlyFollowUp);
   }
 
+  function selectStatusFilter(next: "active" | "archived" | "blocked") {
+    setStatusFilter(next);
+    if (next !== "active") {
+      setFollowUpFilter("all");
+      setShowOnlyWithNotes(false);
+      setTierFilter("all");
+      setOnlyWithFollowUp(false);
+      setOnlyWithExtras(false);
+      setShowPriorityOnly(false);
+    }
+  }
+
   const filteredConversationsList = (search.length > 0 ? fansWithScore.filter(fan => fan.contactName.toLowerCase().includes(search.toLowerCase())) : fansWithScore)
+    .filter((fan) => {
+      if (statusFilter === "archived") return fan.isArchived === true;
+      if (statusFilter === "blocked") return fan.isBlocked === true;
+      return fan.isArchived !== true && fan.isBlocked !== true;
+    })
     .filter(fan => (showPriorityOnly ? (fan.priorityScore ?? 0) > 0 : true))
     .filter((fan) => (!showOnlyWithNotes ? true : (fan.notesCount ?? 0) > 0))
     .filter((fan) => (!onlyWithExtras ? true : (fan.extrasSpentTotal ?? 0) > 0))
@@ -366,6 +389,8 @@ export default function SideBar() {
 
   const recommendedFan = getRecommendedFan(fansWithScore);
   const apiFilter = (() => {
+    if (statusFilter === "archived") return "archived";
+    if (statusFilter === "blocked") return "blocked";
     if (showOnlyWithNotes) return "notes";
     if (onlyWithFollowUp) return "followup";
     if (tierFilter === "new") return "new";
@@ -761,6 +786,44 @@ export default function SideBar() {
                   {withNotesCount}
                 </span>
               </button>
+              <button
+                type="button"
+                onClick={() => {
+                  selectStatusFilter("archived");
+                  setShowAllTodayMetrics(false);
+                }}
+                className="flex justify-between text-left"
+              >
+                <span className={clsx(statusFilter === "archived" && "font-semibold text-amber-300")}>Archivados</span>
+                <span
+                  className={clsx(
+                    "inline-flex items-center rounded-full px-2.5 py-1 text-xs font-semibold",
+                    archivedCount > 0 ? "bg-slate-800 text-slate-50" : "bg-slate-800/80 text-slate-300",
+                    statusFilter === "archived" && "ring-1 ring-amber-300/60"
+                  )}
+                >
+                  {archivedCount}
+                </span>
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  selectStatusFilter("blocked");
+                  setShowAllTodayMetrics(false);
+                }}
+                className="flex justify-between text-left"
+              >
+                <span className={clsx(statusFilter === "blocked" && "font-semibold text-amber-300")}>Bloqueados</span>
+                <span
+                  className={clsx(
+                    "inline-flex items-center rounded-full px-2.5 py-1 text-xs font-semibold",
+                    blockedCount > 0 ? "bg-rose-500/20 text-rose-100" : "bg-slate-800 text-slate-300",
+                    statusFilter === "blocked" && "ring-1 ring-amber-300/60"
+                  )}
+                >
+                  {blockedCount}
+                </span>
+              </button>
             </>
           )}
           <button
@@ -976,6 +1039,36 @@ export default function SideBar() {
           )}
         >
           Caducados{expiredCount > 0 ? ` (${expiredCount})` : ""}
+        </button>
+        <button
+          type="button"
+          onClick={() => {
+            selectStatusFilter(statusFilter === "archived" ? "active" : "archived");
+            setShowAllTodayMetrics(false);
+          }}
+          className={clsx(
+            "rounded-full border px-3 py-1",
+            statusFilter === "archived"
+              ? "border-slate-400 bg-slate-700/60 text-slate-50"
+              : "border-slate-700 bg-slate-800/60 text-slate-300"
+          )}
+        >
+          Archivados
+        </button>
+        <button
+          type="button"
+          onClick={() => {
+            selectStatusFilter(statusFilter === "blocked" ? "active" : "blocked");
+            setShowAllTodayMetrics(false);
+          }}
+          className={clsx(
+            "rounded-full border px-3 py-1",
+            statusFilter === "blocked"
+              ? "border-rose-400 bg-rose-500/10 text-rose-100"
+              : "border-rose-800 bg-slate-800/60 text-rose-200/80"
+          )}
+        >
+          Bloqueados
         </button>
         <button
           type="button"

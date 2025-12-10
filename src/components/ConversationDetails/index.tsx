@@ -125,6 +125,11 @@ export default function ConversationDetails({ onBackToBoard }: ConversationDetai
   const [ extraAmount, setExtraAmount ] = useState<number | "">("");
   const [ extraError, setExtraError ] = useState<string | null>(null);
   const [ showManualExtraForm, setShowManualExtraForm ] = useState(false);
+  const [ isActionsMenuOpen, setIsActionsMenuOpen ] = useState(false);
+  const [ isChatBlocked, setIsChatBlocked ] = useState(conversation.isBlocked ?? false);
+  const [ isChatArchived, setIsChatArchived ] = useState(conversation.isArchived ?? false);
+  const [ isChatActionLoading, setIsChatActionLoading ] = useState(false);
+  const actionsMenuRef = useRef<HTMLDivElement | null>(null);
   const [ managerSummary, setManagerSummary ] = useState<FanManagerSummary | null>(null);
   const messagesContainerRef = useRef<HTMLDivElement | null>(null);
   const [isAtBottom, setIsAtBottom] = useState(true);
@@ -209,6 +214,22 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
     updateViewport();
     window.addEventListener("resize", updateViewport);
     return () => window.removeEventListener("resize", updateViewport);
+  }, []);
+
+  useEffect(() => {
+    setIsChatBlocked(conversation.isBlocked ?? false);
+    setIsChatArchived(conversation.isArchived ?? false);
+  }, [conversation.id, conversation.isBlocked, conversation.isArchived]);
+
+  useEffect(() => {
+    function handleClickOutside(event: MouseEvent) {
+      const target = event.target as Node | null;
+      if (actionsMenuRef.current && target && !actionsMenuRef.current.contains(target)) {
+        setIsActionsMenuOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
   useLayoutEffect(() => {
@@ -762,6 +783,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
   function handleOpenExtrasPanel() {
     const nextFilter = timeOfDay === "NIGHT" ? "night" : "day";
     setTimeOfDayFilter(nextFilter as TimeOfDayFilter);
+    setIsActionsMenuOpen(false);
     openContentModal({ mode: "extras", tier: null, defaultRegisterExtras: false, registerSource: null });
   }
 
@@ -1172,6 +1194,10 @@ useEffect(() => {
 
   async function sendMessageText(text: string) {
     if (!id) return;
+    if (isChatBlocked) {
+      setMessagesError("Chat bloqueado. Desbloquéalo para escribir.");
+      return;
+    }
     const trimmedMessage = text.trim();
     if (!trimmedMessage) return;
 
@@ -1423,6 +1449,7 @@ useEffect(() => {
       : presenceStatus.color === "recent"
       ? "bg-[#f5c065]"
       : "bg-[#7d8a93]";
+  const sendDisabled = isChatBlocked || accessState === "expired" || !(messageSend.trim().length > 0);
   const extrasCountDisplay = conversation.extrasCount ?? 0;
   const extrasSpentDisplay = Math.round(conversation.extrasSpentTotal ?? 0);
   const extrasAmount = conversation.extrasSpentTotal ?? 0;
@@ -1481,6 +1508,74 @@ useEffect(() => {
     setOpenPanel("history");
     if (id) fetchHistory(id);
   };
+  const handleOpenNotesPanel = () => {
+    setOpenPanel("notes");
+    setIsActionsMenuOpen(false);
+    if (id) fetchFanNotes(id);
+  };
+
+  const handleOpenHistoryPanel = () => {
+    setOpenPanel("history");
+    setIsActionsMenuOpen(false);
+    if (id) fetchHistory(id);
+  };
+
+  const updateConversationState = (patch: Partial<Conversation>) => {
+    setConversation((prev) => {
+      if (!prev) return prev;
+      if (prev.id !== id) return prev;
+      return { ...prev, ...patch };
+    });
+  };
+
+  const handleBlockChat = async () => {
+    if (!id) return;
+    setIsChatActionLoading(true);
+    try {
+      await fetch(`/api/conversations/${id}/block`, { method: "POST" });
+      setIsChatBlocked(true);
+      updateConversationState({ isBlocked: true });
+      window.dispatchEvent(new Event("fanDataUpdated"));
+    } catch (err) {
+      console.error("Error blocking chat", err);
+    } finally {
+      setIsActionsMenuOpen(false);
+      setIsChatActionLoading(false);
+    }
+  };
+
+  const handleUnblockChat = async () => {
+    if (!id) return;
+    setIsChatActionLoading(true);
+    try {
+      await fetch(`/api/conversations/${id}/unblock`, { method: "POST" });
+      setIsChatBlocked(false);
+      updateConversationState({ isBlocked: false });
+      window.dispatchEvent(new Event("fanDataUpdated"));
+    } catch (err) {
+      console.error("Error unblocking chat", err);
+    } finally {
+      setIsActionsMenuOpen(false);
+      setIsChatActionLoading(false);
+    }
+  };
+
+  const handleArchiveChat = async () => {
+    if (!id) return;
+    setIsChatActionLoading(true);
+    try {
+      await fetch(`/api/conversations/${id}/archive`, { method: "POST" });
+      setIsChatArchived(true);
+      updateConversationState({ isArchived: true });
+      window.dispatchEvent(new Event("fanDataUpdated"));
+    } catch (err) {
+      console.error("Error archiving chat", err);
+    } finally {
+      setIsActionsMenuOpen(false);
+      setIsChatActionLoading(false);
+    }
+  };
+
   const handleRenewAction = async () => {
     await handleQuickTemplateClick("renewal");
   };
@@ -1659,17 +1754,29 @@ useEffect(() => {
       <header ref={fanHeaderRef} className="sticky top-0 z-20 backdrop-blur">
         <div className="max-w-4xl mx-auto w-full bg-slate-950/70 border-b border-slate-800 px-4 py-3 md:px-6 md:py-4 flex flex-col gap-3">
           {/* Piso 1 */}
-          <div className="flex items-center justify-between gap-3">
+          <div className="flex items-center justify-between gap-3" ref={actionsMenuRef}>
             <div className="flex items-center gap-3 min-w-0">
               <Avatar width="w-10" height="h-10" image={image} />
               <div className="flex flex-col min-w-0">
-                <h1 className="text-base font-semibold text-slate-50 truncate">{contactName}</h1>
+                <div className="flex items-center gap-2 min-w-0">
+                  <h1 className="text-base font-semibold text-slate-50 truncate">{contactName}</h1>
+                  {conversation.isHighPriority && (
+                    <span className="inline-flex items-center rounded-full border border-amber-400/70 bg-amber-500/15 px-2 py-0.5 text-[11px] font-semibold text-amber-100 whitespace-nowrap">
+                      VIP
+                    </span>
+                  )}
+                  <span
+                    className={`inline-block h-2 w-2 rounded-full ${presenceDotClass}`}
+                    aria-label={presenceStatus.label}
+                    title={presenceStatus.label}
+                  />
+                </div>
                 <p className="text-xs text-slate-400 truncate">
                   {membershipDetails || packLabel || "Suscripción"}
                 </p>
               </div>
             </div>
-            <div className="hidden md:flex items-center gap-2">
+            <div className="flex items-center gap-2">
               <button
                 type="button"
                 onClick={handleViewProfile}
@@ -1678,41 +1785,73 @@ useEffect(() => {
               >
                 Ver ficha
               </button>
-              <button
-                type="button"
-                disabled
-                aria-disabled="true"
-                title="Más opciones del chat (próximamente)"
-                aria-label="Más opciones del chat (próximamente)"
-                className="inline-flex items-center justify-center rounded-full border border-slate-700 bg-slate-900/70 p-2 text-slate-300 opacity-60 cursor-not-allowed"
-              >
-                <svg viewBox="0 0 24 24" width="24" height="24" className="pointer-events-none">
-                  <path fill="currentColor" d="M12 7a2 2 0 1 0-.001-4.001A2 2 0 0 0 12 7zm0 2a2 2 0 1 0-.001 3.999A2 2 0 0 0 12 9zm0 6a2 2 0 1 0-.001 3.999A2 2 0 0 0 12 15z"></path>
-                </svg>
-              </button>
+              <div className="relative">
+                <button
+                  type="button"
+                  onClick={() => setIsActionsMenuOpen((prev) => !prev)}
+                  aria-label="Más opciones del chat"
+                  className="inline-flex items-center justify-center rounded-full border border-slate-700 bg-slate-900/70 p-2 text-slate-300 hover:border-amber-300 hover:text-amber-100"
+                >
+                  <svg viewBox="0 0 24 24" width="24" height="24" className="pointer-events-none">
+                    <path fill="currentColor" d="M12 7a2 2 0 1 0-.001-4.001A2 2 0 0 0 12 7zm0 2a2 2 0 1 0-.001 3.999A2 2 0 0 0 12 9zm0 6a2 2 0 1 0-.001 3.999A2 2 0 0 0 12 15z"></path>
+                  </svg>
+                </button>
+                {isActionsMenuOpen && (
+                  <div className="absolute right-0 mt-2 w-48 rounded-xl border border-slate-700 bg-slate-900/95 shadow-xl z-30">
+                    <button
+                      type="button"
+                      className="flex w-full items-center px-3 py-2 text-sm text-slate-100 hover:bg-slate-800 transition"
+                      onClick={handleOpenNotesPanel}
+                    >
+                      Notas
+                    </button>
+                    <button
+                      type="button"
+                      className="flex w-full items-center px-3 py-2 text-sm text-slate-100 hover:bg-slate-800 transition"
+                      onClick={handleOpenHistoryPanel}
+                    >
+                      Historial
+                    </button>
+                    <button
+                      type="button"
+                      className="flex w-full items-center px-3 py-2 text-sm text-slate-100 hover:bg-slate-800 transition"
+                      onClick={handleOpenExtrasPanel}
+                    >
+                      Ventas extra
+                    </button>
+                    <div className="my-1 h-px bg-slate-800" />
+                    {!isChatBlocked && (
+                      <button
+                        type="button"
+                        className="flex w-full items-center px-3 py-2 text-sm text-rose-100 hover:bg-rose-500/10 transition disabled:opacity-60"
+                        onClick={handleBlockChat}
+                        disabled={isChatActionLoading}
+                      >
+                        Bloquear chat
+                      </button>
+                    )}
+                    {isChatBlocked && (
+                      <button
+                        type="button"
+                        className="flex w-full items-center px-3 py-2 text-sm text-emerald-100 hover:bg-emerald-500/10 transition disabled:opacity-60"
+                        onClick={handleUnblockChat}
+                        disabled={isChatActionLoading}
+                      >
+                        Desbloquear chat
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      className="flex w-full items-center px-3 py-2 text-sm text-slate-100 hover:bg-slate-800 transition disabled:opacity-60"
+                      onClick={handleArchiveChat}
+                      disabled={isChatActionLoading}
+                    >
+                      Archivar chat
+                    </button>
+                  </div>
+                )}
+              </div>
             </div>
-          </div>
-          <div className="md:hidden flex items-center justify-end gap-2">
-            <button
-              type="button"
-              onClick={handleViewProfile}
-              aria-label="Ver ficha del fan"
-              className="inline-flex items-center rounded-full border border-emerald-500/70 px-3 py-1.5 text-xs font-medium text-emerald-300 hover:bg-emerald-500/10"
-            >
-              Ver ficha
-            </button>
-            <button
-              type="button"
-              disabled
-              aria-disabled="true"
-              title="Más opciones del chat (próximamente)"
-              aria-label="Más opciones del chat (próximamente)"
-              className="inline-flex items-center justify-center rounded-full border border-slate-700 bg-slate-900/70 p-2 text-slate-300 opacity-60 cursor-not-allowed"
-            >
-              <svg viewBox="0 0 24 24" width="24" height="24" className="pointer-events-none">
-                <path fill="currentColor" d="M12 7a2 2 0 1 0-.001-4.001A2 2 0 0 0 12 7zm0 2a2 2 0 1 0-.001 3.999A2 2 0 0 0 12 9zm0 6a2 2 0 1 0-.001 3.999A2 2 0 0 0 12 15z"></path>
-              </svg>
-            </button>
           </div>
 
           {/* Piso 2 */}
@@ -1733,11 +1872,6 @@ useEffect(() => {
                 Extras
               </span>
             )}
-            <span
-              className={`w-2 h-2 rounded-full ${presenceDotClass}`}
-              aria-label={presenceStatus.label}
-              title={presenceStatus.label}
-            />
           </div>
 
           {/* Piso 3 */}
@@ -1761,6 +1895,12 @@ useEffect(() => {
           </div>
         </div>
       </header>
+      {isChatBlocked && (
+        <div className="mx-4 mt-2 rounded-xl border border-red-500/40 bg-red-500/10 px-3 py-2 text-xs md:text-sm text-red-200 flex items-center gap-2">
+          <span className="inline-block h-2 w-2 rounded-full bg-red-400" />
+          <span>Chat bloqueado. No puedes enviar mensajes nuevos a este fan.</span>
+        </div>
+      )}
       {/* Avisos de acceso caducado o a punto de caducar */}
       {isAccessExpired && (
         <div className="mx-4 mb-3 flex items-center justify-between rounded-xl border border-amber-500/50 bg-amber-500/10 px-4 py-3 text-xs text-amber-100">
@@ -2014,53 +2154,6 @@ useEffect(() => {
           </div>
         </div>
         <div className="flex flex-col bg-[#202c33] w-full h-auto py-3 px-4 text-[#8696a0] gap-3">
-          <div className="flex flex-wrap items-center gap-2">
-            <button
-              type="button"
-              className="text-xs font-medium rounded-full border border-slate-600 bg-slate-800/80 text-slate-100 px-3 py-1 transition hover:bg-slate-700"
-              onClick={() => {
-                const next = showNotes ? "none" : "notes";
-                setOpenPanel(next);
-                if (next === "notes" && id) {
-                  fetchFanNotes(id);
-                }
-              }}
-            >
-              Notas
-            </button>
-            <button
-              type="button"
-              className={`text-xs font-medium rounded-full border px-3 py-1 transition ${
-                showHistory
-                  ? "border-amber-400 bg-amber-500/10 text-amber-100"
-                  : "border-slate-600 bg-slate-800/80 text-slate-100 hover:bg-slate-700"
-              }`}
-              onClick={() => {
-                const next = showHistory ? "none" : "history";
-                setOpenPanel(next);
-                if (next === "history" && id) {
-                  fetchHistory(id);
-                }
-              }}
-            >
-              Historial
-            </button>
-            <button
-              type="button"
-              className={`text-xs font-medium rounded-full border px-3 py-1 transition ${
-                showExtraTemplates
-                  ? "border-amber-400 bg-amber-500/10 text-amber-100"
-                  : "border-slate-600 bg-slate-800/80 text-slate-100 hover:bg-slate-700"
-              }`}
-              onClick={() => {
-                const next = showExtraTemplates ? "none" : "extras";
-                setOpenPanel(next);
-                setShowPackSelector(false);
-              }}
-            >
-              Ventas extra
-            </button>
-          </div>
           {showExtraTemplates && (
             <div className="flex flex-col gap-3 bg-slate-800/60 border border-slate-700 rounded-lg p-3 w-full">
               <div className="mb-1 flex items-center justify-between">
@@ -2351,19 +2444,20 @@ useEffect(() => {
             <div className="flex flex-1 h-12">
               <input
                 type={"text"}
-                className="bg-[#2a3942] rounded-lg w-full px-3 py-3 text-white"
-                placeholder="Mensaje"
+                className="bg-[#2a3942] rounded-lg w-full px-3 py-3 text-white placeholder:text-slate-400"
+                placeholder={isChatBlocked ? "Has bloqueado este chat. Desbloquéalo para volver a escribir." : "Mensaje"}
                 onKeyDown={(evt) => changeHandler(evt) }
                 onChange={ (evt) => setMessageSend(evt.target.value) }
                 value={messageSend}
-                disabled={accessState === "expired"}
+                disabled={accessState === "expired" || isChatBlocked}
               />
             </div>
             <div className="flex justify-center items-center h-12">
               <button
                 type="button"
                 onClick={handleSendMessage}
-                className="inline-flex items-center justify-center rounded-lg bg-emerald-500 px-3 py-2 text-sm font-semibold text-white hover:bg-emerald-400 transition"
+                disabled={sendDisabled}
+                className="inline-flex items-center justify-center rounded-lg bg-emerald-500 px-3 py-2 text-sm font-semibold text-white hover:bg-emerald-400 transition disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 Enviar
               </button>
@@ -2386,6 +2480,7 @@ useEffect(() => {
             showRenewAction={showRenewAction}
             quickExtraDisabled={quickExtraDisabled}
             isRecommended={isRecommended}
+            isBlocked={isChatBlocked}
           />
         </div>
       </div>
