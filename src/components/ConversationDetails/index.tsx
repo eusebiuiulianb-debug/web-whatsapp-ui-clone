@@ -1,4 +1,4 @@
-import { KeyboardEvent, MouseEvent, useCallback, useContext, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { KeyboardEvent, MouseEvent, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { format, formatDistanceToNow } from "date-fns";
 import { es } from "date-fns/locale";
 import { ConversationContext } from "../../context/ConversationContext";
@@ -21,15 +21,11 @@ import { AiTemplateUsage, AiTurnMode } from "../../lib/aiTemplateTypes";
 import { getAccessSnapshot, getChatterProPlan } from "../../lib/chatPlaybook";
 import FanManagerDrawer from "../fan/FanManagerDrawer";
 import type { FanManagerSummary } from "../../server/manager/managerService";
+import { deriveFanManagerState } from "../../lib/fanManagerState";
+import type { FanManagerStateAnalysis } from "../../lib/fanManagerState";
+import type { ManagerObjective } from "../../types/manager";
 import clsx from "clsx";
 
-export type ManagerObjective =
-  | "bienvenida"
-  | "romper_hielo"
-  | "reactivar_fan_frio"
-  | "ofrecer_extra"
-  | "llevar_a_mensual"
-  | "renovacion";
 type ManagerQuickIntent = ManagerObjective;
 
 type ConversationDetailsProps = {
@@ -155,6 +151,7 @@ export default function ConversationDetails({ onBackToBoard }: ConversationDetai
   const [ managerSuggestions, setManagerSuggestions ] = useState<ManagerSuggestion[]>([]);
   const [ currentObjective, setCurrentObjective ] = useState<ManagerObjective | null>(null);
   const [ managerSummary, setManagerSummary ] = useState<FanManagerSummary | null>(null);
+  const [ hasManualManagerObjective, setHasManualManagerObjective ] = useState(false);
   const messagesContainerRef = useRef<HTMLDivElement | null>(null);
   const [isAtBottom, setIsAtBottom] = useState(true);
   const fanHeaderRef = useRef<HTMLDivElement | null>(null);
@@ -187,6 +184,10 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
   const canOfferMonthly = hasWelcome && !hasMonthly;
   const canOfferSpecial = hasMonthly && !hasSpecial;
   const isRecommended = (id: string) => managerSummary?.recommendedButtons?.includes(id);
+  const fanManagerAnalysis: FanManagerStateAnalysis = useMemo(
+    () => deriveFanManagerState({ fan: conversation, messages }),
+    [conversation, messages]
+  );
 
   type FanNote = {
     id: string;
@@ -1202,6 +1203,12 @@ useEffect(() => {
   }, [conversation.id]);
 
   useEffect(() => {
+    setHasManualManagerObjective(false);
+    setCurrentObjective(null);
+    setManagerSuggestions([]);
+  }, [conversation.id]);
+
+  useEffect(() => {
     if (!managerChatListRef.current) return;
     managerChatListRef.current.scrollTop = managerChatListRef.current.scrollHeight;
   }, [managerChatMessages.length]);
@@ -1242,49 +1249,131 @@ useEffect(() => {
   };
 
   const buildSuggestionsForObjective = useCallback(
-    (objective: ManagerObjective, fanName?: string): ManagerSuggestion[] => {
+    (objective: ManagerObjective, fanName?: string, analysis?: FanManagerStateAnalysis): ManagerSuggestion[] => {
       const nombre = fanName || "este fan";
+      const state = analysis?.state;
+      const daysLeft = analysis?.context.daysLeft ?? null;
+      const inactivityDays = analysis?.context.inactivityDays ?? null;
+      const extrasCount = analysis?.context.extrasCount ?? 0;
+      const isVip = analysis?.context.isVip ?? false;
+      const inactivityText =
+        typeof inactivityDays === "number"
+          ? inactivityDays === 0
+            ? "hoy"
+            : `${inactivityDays} días`
+          : "tiempo";
+      const renewalText =
+        typeof daysLeft === "number"
+          ? daysLeft <= 0
+            ? "hoy"
+            : `en ${daysLeft} día${daysLeft === 1 ? "" : "s"}`
+          : "en pocos días";
+
       switch (objective) {
         case "bienvenida":
         case "romper_hielo":
+          if (state === "nuevo_timido") {
+            return [
+              {
+                id: "bienvenida-timido-1",
+                label: "Romper el hielo suave",
+                message: `Hola ${nombre}, veo que acabas de entrar y no quiero saturarte. ¿Te mando una idea sencilla para empezar o prefieres contarme qué buscas?`,
+                intent: "romper_hielo",
+              },
+              {
+                id: "bienvenida-timido-2",
+                label: "Pregunta sencilla",
+                message: `${nombre}, cuéntame con una frase qué te gustaría recibir aquí (audio, guía corta, algo puntual) y preparo lo más fácil para que te estrenes.`,
+                intent: "romper_hielo",
+              },
+            ];
+          }
           return [
             {
-              id: "bienvenida-1",
-              label: "Bienvenida guiada 1",
-              message: `Hola ${nombre}, gracias por suscribirte 🖤 Antes de proponerte nada, me gustaría saber qué buscas exactamente aquí: más conexión, ideas concretas, algo muy específico... Así te guío al pack que mejor te encaje.`,
+              id: "bienvenida-curioso-1",
+              label: "Bienvenida guiada",
+              message: `Hola ${nombre}, gracias por suscribirte 🖤 Dime en una frase qué esperas de este chat (ideas, acompañamiento o algo muy concreto) y preparo algo a tu medida.`,
               intent: "romper_hielo",
             },
             {
-              id: "bienvenida-2",
-              label: "Bienvenida guiada 2",
-              message: `${nombre}, me hace ilusión tenerte por aquí. Para no llenar esto de mensajes vacíos, dime en una frase qué te gustaría recibir de mí y ajusto todo a eso.`,
+              id: "bienvenida-curioso-2",
+              label: "Explorar intereses",
+              message: `${nombre}, para guiarte bien necesito saber qué te mueve más: ¿mejorar algo concreto, probar algo nuevo o simplemente inspiración? Así te mando el primer contenido que encaje contigo.`,
               intent: "romper_hielo",
             },
           ];
         case "reactivar_fan_frio":
           return [
             {
-              id: "reactivar-1",
+              id: "reactivar-frio-1",
               label: "Reactivar fan frío",
-              message: `${nombre}, hace tiempo que no hablamos y me he quedado con ganas de saber cómo estás. Si te apetece seguimos donde lo dejamos; si prefieres parar aquí, también está bien, pero quería preguntártelo directamente.`,
+              message: `Hola ${nombre}, hace ${inactivityText} que no hablamos y me pregunto cómo estás. Si te apetece retomamos con algo ligero y útil para ti, sin compromisos.`,
+              intent: "reactivar_fan_frio",
+            },
+            {
+              id: "reactivar-frio-2",
+              label: "Motivo para volver",
+              message: `${nombre}, sé que has estado desconectad@ y quiero darte un motivo sencillo para volver: te preparo un audio corto con una idea práctica para esta semana. ¿Te lo mando?`,
               intent: "reactivar_fan_frio",
             },
           ];
         case "ofrecer_extra":
+          if (state === "vip_comprador" || isVip || extrasCount > 0) {
+            return [
+              {
+                id: "extra-vip-1",
+                label: "Extra a su estilo",
+                message: `${nombre}, tengo un extra en la línea de lo que sueles pedirme: más personalizado y con el mismo nivel de detalle. Te cuento la idea y, si te encaja, te paso el enlace.`,
+                intent: "ofrecer_extra",
+              },
+              {
+                id: "extra-vip-2",
+                label: "Propuesta premium",
+                message: `${nombre}, te propongo un extra más cuidado que los últimos: un audio + mini guía ajustada a lo que te funciona. Si te apetece, lo preparo hoy y lo cerramos.`,
+                intent: "ofrecer_extra",
+              },
+            ];
+          }
           return [
             {
-              id: "extra-1",
-              label: "Propuesta de extra",
-              message: `${nombre}, se me ha ocurrido un extra muy a tu estilo para esta semana: algo más íntimo y personalizado que lo que suelo subir. Si te interesa, te cuento en detalle y lo adaptamos a lo que te apetezca ahora mismo.`,
+              id: "extra-general-1",
+              label: "Extra puntual",
+              message: `${nombre}, se me ocurre un extra muy a tu medida para esta semana: un audio detallado + una idea práctica para probar hoy. Si te interesa, te paso el enlace y lo adapto a ti.`,
               intent: "ofrecer_extra",
             },
           ];
         case "llevar_a_mensual":
+          if (state === "vip_comprador" || isVip || extrasCount >= 2) {
+            return [
+              {
+                id: "mensual-vip-1",
+                label: "Pasar a mensual",
+                message: `${nombre}, en vez de ir extra a extra podemos pasar a mensual y tener algo preparado cada semana solo para ti. Así no pierdes ritmo y puedo currarme más el contenido. ¿Te encaja probarlo?`,
+                intent: "llevar_a_mensual",
+              },
+              {
+                id: "mensual-vip-2",
+                label: "Mensual sin fricción",
+                message: `${nombre}, como siempre respondes a lo que te propongo, te ofrezco el plan mensual: recibes contenido fijo + seguimiento sin tener que pedir cada vez. ¿Quieres que te pase el enlace?`,
+                intent: "llevar_a_mensual",
+              },
+            ];
+          }
+          if (state === "a_punto_de_caducar") {
+            return [
+              {
+                id: "mensual-caduca-1",
+                label: "No perder ritmo",
+                message: `${nombre}, tu acceso caduca ${renewalText}. Si te interesa seguir, podemos pasar ya al mensual y aseguramos contenido semanal sin cortes. ¿Te lo dejo listo?`,
+                intent: "llevar_a_mensual",
+              },
+            ];
+          }
           return [
             {
-              id: "mensual-1",
+              id: "mensual-general-1",
               label: "Invitar a mensual",
-              message: `${nombre}, te propongo algo: en vez de ir extra a extra, podemos pasar a un formato mensual donde cada semana tengas algo preparado solo para ti. Así tú no tienes que estar pendiente y yo mantengo el ritmo contigo. ¿Te encajaría?`,
+              message: `${nombre}, te propongo pasar a mensual: cada semana tendrás algo preparado y no tendrás que estar pendiente de pedirme extras sueltos. ¿Lo probamos?`,
               intent: "llevar_a_mensual",
             },
           ];
@@ -1292,14 +1381,14 @@ useEffect(() => {
           return [
             {
               id: "renovacion-urgente-1",
-              label: "Renovación urgente 1",
-              message: `Oye ${nombre}, tu suscripción está a punto de terminar 🕒. Si quieres, este mes seguimos con el mismo ritmo y preparo algo especial solo para ti. ¿Te apetece que lo dejemos renovado ya?`,
+              label: "Renovación clara",
+              message: `Oye ${nombre}, tu suscripción termina ${renewalText}. Si quieres seguir, te paso ahora el enlace para que mantengas el acceso al chat y esta semana preparo algo especial para ti.`,
               intent: "renovacion",
             },
             {
               id: "renovacion-urgente-2",
-              label: "Renovación urgente 2",
-              message: `${nombre}, antes de que se cierre tu acceso quería preguntarte directo: ¿prefieres seguir un mes más conmigo o parar aquí? Si te quedas, esta vez me quiero centrar en lo que más te ha servido hasta ahora.`,
+              label: "Conservar valor",
+              message: `${nombre}, queda muy poco para que se cierre tu acceso (${renewalText}). Te propongo renovarlo ya para no perder lo que tienes y ajustar el contenido a lo que más te ha servido. ¿Te lo activo?`,
               intent: "renovacion",
             },
           ];
@@ -1310,25 +1399,13 @@ useEffect(() => {
     []
   );
 
-  const getDefaultObjectiveForFan = useCallback(
-    (fan: typeof conversation): ManagerObjective => {
-      const days = typeof fan?.daysLeft === "number" ? fan.daysLeft : null;
-      if (fan?.isNew) return "bienvenida";
-      if (days !== null && days <= 3) return "renovacion";
-      if (followUpTag === "trial_soon" || followUpTag === "monthly_soon") return "renovacion";
-      if (fan?.novsyStatus === "cold") return "reactivar_fan_frio";
-      return "ofrecer_extra";
-    },
-    [followUpTag]
-  );
-
   useEffect(() => {
-    // TODO: sustituir por sugerencias generadas por IA según el fan y su contexto.
-    const objective = getDefaultObjectiveForFan(conversation);
+    if (hasManualManagerObjective) return;
+    const objective = fanManagerAnalysis.defaultObjective;
     setCurrentObjective(objective);
-    const suggestions = buildSuggestionsForObjective(objective, contactName);
+    const suggestions = buildSuggestionsForObjective(objective, contactName, fanManagerAnalysis);
     setManagerSuggestions(suggestions.slice(0, 3));
-  }, [conversation, contactName, buildSuggestionsForObjective, getDefaultObjectiveForFan]);
+  }, [contactName, fanManagerAnalysis, buildSuggestionsForObjective, hasManualManagerObjective]);
 
   const askInternalManager = (question: string, intent?: ManagerQuickIntent) => {
     if (!id) return;
@@ -1374,8 +1451,9 @@ useEffect(() => {
   };
 
   const handleManagerQuickAction = (intent: ManagerQuickIntent) => {
+    setHasManualManagerObjective(true);
     setCurrentObjective(intent);
-    const newSuggestions = buildSuggestionsForObjective(intent, contactName);
+    const newSuggestions = buildSuggestionsForObjective(intent, contactName, fanManagerAnalysis);
     setManagerSuggestions(newSuggestions.slice(0, 3));
     const question = buildQuickIntentQuestion(intent, contactName);
     askInternalManager(question, intent);
@@ -1935,7 +2013,7 @@ useEffect(() => {
           : ""
       }`;
 
-  const managerShortSummary = managerSummary?.priorityReason || plan.summaryLabel || statusLine;
+  const managerShortSummary = managerSummary?.priorityReason || fanManagerAnalysis.headline || plan.summaryLabel || statusLine;
   const quickExtraDisabled = iaBlocked || aiStatus?.limitReached;
   const showNotes = openPanel === "notes";
   const showHistory = openPanel === "history";
@@ -2727,6 +2805,10 @@ useEffect(() => {
                 managerSuggestions={managerSuggestions}
                 onApplySuggestion={handleApplyManagerSuggestion}
                 currentObjective={currentObjective}
+                suggestedObjective={fanManagerAnalysis.defaultObjective}
+                fanManagerState={fanManagerAnalysis.state}
+                fanManagerHeadline={fanManagerAnalysis.headline}
+                fanManagerChips={fanManagerAnalysis.chips}
                 statusLine={statusLine}
                 lapexSummary={lapexSummary}
                 sessionSummary={sessionSummary}

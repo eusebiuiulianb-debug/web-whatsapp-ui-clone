@@ -2,12 +2,35 @@ import { useState } from "react";
 import clsx from "clsx";
 import FanManagerPanel from "../chat/FanManagerPanel";
 import type { FanManagerSummary } from "../../server/manager/managerService";
-import type { ManagerObjective } from "../ConversationDetails";
+import type { FanManagerChip, FanManagerState, ManagerObjective } from "../../types/manager";
+
+function formatObjectiveLabel(objective?: ManagerObjective | null) {
+  switch (objective) {
+    case "bienvenida":
+      return "Bienvenida";
+    case "romper_hielo":
+      return "Romper el hielo";
+    case "reactivar_fan_frio":
+      return "Reactivar fan frío";
+    case "ofrecer_extra":
+      return "Ofrecer un extra";
+    case "llevar_a_mensual":
+      return "Llevar a mensual";
+    case "renovacion":
+      return "Renovación";
+    default:
+      return null;
+  }
+}
 
 type Props = {
   managerSuggestions?: { id: string; label: string; message: string }[];
   onApplySuggestion?: (text: string) => void;
   currentObjective?: ManagerObjective | null;
+  suggestedObjective?: ManagerObjective | null;
+  fanManagerState?: FanManagerState | null;
+  fanManagerHeadline?: string | null;
+  fanManagerChips?: FanManagerChip[];
   statusLine: string;
   lapexSummary?: string | null;
   sessionSummary?: string | null;
@@ -40,6 +63,10 @@ export default function FanManagerDrawer({
   managerSuggestions,
   onApplySuggestion,
   currentObjective,
+  suggestedObjective,
+  fanManagerState,
+  fanManagerHeadline,
+  fanManagerChips,
   onQuickGreeting,
   onRenew,
   onQuickExtra,
@@ -53,6 +80,23 @@ export default function FanManagerDrawer({
   const summaryLine = closedSummary || planSummary || statusLine;
   const planSummaryText = planSummary ? planSummary.replace(/^Plan de hoy:\s*/i, "").trim() : null;
   const managerDisabled = isBlocked;
+  const managerHeadlineText =
+    fanManagerHeadline || "Te ayuda a escribir mensajes claros, cercanos y profesionales.";
+  const stateChips = fanManagerChips ?? [];
+  const chipClass = (tone?: FanManagerChip["tone"]) =>
+    clsx(
+      "inline-flex items-center rounded-full border px-3 py-0.5 text-xs md:text-sm font-medium",
+      tone === "danger"
+        ? "border-rose-400/70 bg-rose-500/10 text-rose-100"
+        : tone === "warning"
+        ? "border-amber-400/70 bg-amber-500/10 text-amber-100"
+        : tone === "success"
+        ? "border-emerald-400/70 bg-emerald-500/10 text-emerald-100"
+        : tone === "info"
+        ? "border-sky-400/70 bg-sky-500/10 text-sky-100"
+        : "border-slate-700 bg-slate-900/60 text-slate-100"
+    );
+  const suggestedObjectiveLabel = formatObjectiveLabel(suggestedObjective ?? null);
   const isObjectiveActive = (objective: ManagerObjective) => currentObjective === objective;
   const managerPanel = (
     <div className={clsx("text-[11px] text-slate-200", isOpen ? "block" : "hidden")}>
@@ -61,6 +105,10 @@ export default function FanManagerDrawer({
         onSummary={onManagerSummary}
         onSuggestionClick={onSuggestionClick}
         hideSuggestions
+        headline={fanManagerHeadline ?? undefined}
+        chips={fanManagerChips}
+        fanManagerState={fanManagerState ?? undefined}
+        suggestedObjective={suggestedObjective ?? currentObjective ?? null}
       />
     </div>
   );
@@ -69,11 +117,24 @@ export default function FanManagerDrawer({
     <div className="rounded-2xl border border-slate-800 bg-slate-950/80 px-4 py-3 md:px-6 md:py-4 text-[11px] text-slate-100 space-y-2">
       <div className="flex flex-col gap-2">
         <div className="flex items-start justify-between gap-3">
-          <div className="flex-1 min-w-0 space-y-1">
+          <div className="flex-1 min-w-0 space-y-1.5">
             <div className="text-sm md:text-base font-semibold text-slate-100">Manager IA</div>
-            <div className="text-xs md:text-sm leading-relaxed text-slate-300">
-              Te ayuda a escribir mensajes claros, cercanos y profesionales. Tú decides qué se envía.
-            </div>
+            {stateChips.length > 0 && (
+              <div className="flex flex-wrap items-center gap-2">
+                {stateChips.map((chip, idx) => (
+                  <span key={`${chip.label}-${idx}`} className={chipClass(chip.tone)}>
+                    {chip.label}
+                  </span>
+                ))}
+              </div>
+            )}
+            <div className="text-xs md:text-sm leading-relaxed text-slate-300">{managerHeadlineText}</div>
+            <div className="text-[11px] md:text-xs text-slate-400">Tú decides qué se envía.</div>
+            {suggestedObjectiveLabel && (
+              <div className="text-[11px] md:text-xs text-emerald-200">
+                Objetivo sugerido: {suggestedObjectiveLabel}
+              </div>
+            )}
             {summaryLine && <div className="text-[11px] md:text-xs text-slate-300 truncate">{summaryLine}</div>}
           </div>
           <button
