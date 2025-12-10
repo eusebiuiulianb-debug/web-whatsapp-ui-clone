@@ -1,6 +1,6 @@
 import type { Conversation, Message as ConversationMessage } from "../types/Conversation";
 import type { Message as ApiMessage } from "../types/chat";
-import type { FanManagerChip, FanManagerState, ManagerObjective } from "../types/manager";
+import type { FanManagerChip, FanManagerState, FanTone, ManagerObjective } from "../types/manager";
 
 type MessageLike = Partial<ApiMessage> | Partial<ConversationMessage>;
 
@@ -206,4 +206,19 @@ export function deriveFanManagerState({
     chips: buildChips(state, context),
     context,
   };
+}
+
+export function getDefaultFanTone(state: FanManagerState): FanTone {
+  switch (state) {
+    case "nuevo_timido":
+      return "suave";
+    case "nuevo_curioso":
+    case "fan_frio":
+    case "a_punto_de_caducar":
+      return "intimo";
+    case "vip_comprador":
+      return "picante";
+    default:
+      return "intimo";
+  }
 }

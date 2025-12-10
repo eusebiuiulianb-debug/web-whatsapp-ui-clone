@@ -13,6 +13,8 @@ export type FanManagerState =
   | "fan_frio"
   | "vip_comprador";
 
+export type FanTone = "suave" | "intimo" | "picante";
+
 export type FanManagerChipTone = "neutral" | "info" | "success" | "warning" | "danger";
 
 export type FanManagerChip = {

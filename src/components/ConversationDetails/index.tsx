@@ -21,9 +21,9 @@ import { AiTemplateUsage, AiTurnMode } from "../../lib/aiTemplateTypes";
 import { getAccessSnapshot, getChatterProPlan } from "../../lib/chatPlaybook";
 import FanManagerDrawer from "../fan/FanManagerDrawer";
 import type { FanManagerSummary } from "../../server/manager/managerService";
-import { deriveFanManagerState } from "../../lib/fanManagerState";
+import { deriveFanManagerState, getDefaultFanTone } from "../../lib/fanManagerState";
 import type { FanManagerStateAnalysis } from "../../lib/fanManagerState";
-import type { ManagerObjective } from "../../types/manager";
+import type { FanTone, ManagerObjective } from "../../types/manager";
 import clsx from "clsx";
 
 type ManagerQuickIntent = ManagerObjective;
@@ -152,6 +152,12 @@ export default function ConversationDetails({ onBackToBoard }: ConversationDetai
   const [ currentObjective, setCurrentObjective ] = useState<ManagerObjective | null>(null);
   const [ managerSummary, setManagerSummary ] = useState<FanManagerSummary | null>(null);
   const [ hasManualManagerObjective, setHasManualManagerObjective ] = useState(false);
+  const fanManagerAnalysis: FanManagerStateAnalysis = useMemo(
+    () => deriveFanManagerState({ fan: conversation, messages }),
+    [conversation, messages]
+  );
+  const [ fanTone, setFanTone ] = useState<FanTone>(() => getDefaultFanTone(fanManagerAnalysis.state));
+  const [ hasManualTone, setHasManualTone ] = useState(false);
   const messagesContainerRef = useRef<HTMLDivElement | null>(null);
   const [isAtBottom, setIsAtBottom] = useState(true);
   const fanHeaderRef = useRef<HTMLDivElement | null>(null);
@@ -184,10 +190,6 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
   const canOfferMonthly = hasWelcome && !hasMonthly;
   const canOfferSpecial = hasMonthly && !hasSpecial;
   const isRecommended = (id: string) => managerSummary?.recommendedButtons?.includes(id);
-  const fanManagerAnalysis: FanManagerStateAnalysis = useMemo(
-    () => deriveFanManagerState({ fan: conversation, messages }),
-    [conversation, messages]
-  );
 
   type FanNote = {
     id: string;
@@ -473,6 +475,45 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
   };
   function handleManagerSuggestion(text: string) {
     handleApplyManagerSuggestion(text);
+  }
+
+  function handleUseManagerReplyAsMainMessage(text: string) {
+    setMessageSend(text);
+    adjustMessageInputHeight();
+    requestAnimationFrame(() => {
+      messageInputRef.current?.focus();
+    });
+  }
+
+  const handleChangeFanTone = useCallback((tone: FanTone) => {
+    setFanTone(tone);
+    setHasManualTone(true);
+  }, []);
+
+  function formatObjectiveLabel(objective?: ManagerObjective | null) {
+    switch (objective) {
+      case "bienvenida":
+        return "Bienvenida";
+      case "romper_hielo":
+        return "Romper el hielo";
+      case "reactivar_fan_frio":
+        return "Reactivar fan frío";
+      case "ofrecer_extra":
+        return "Ofrecer un extra";
+      case "llevar_a_mensual":
+        return "Llevar a mensual";
+      case "renovacion":
+        return "Renovación";
+      default:
+        return null;
+    }
+  }
+
+  function formatToneLabel(tone?: FanTone | null) {
+    if (tone === "suave") return "Suave";
+    if (tone === "picante") return "Picante";
+    if (tone === "intimo") return "Íntimo";
+    return null;
   }
 
   function getFirstName(name?: string | null) {
@@ -1206,12 +1247,20 @@ useEffect(() => {
     setHasManualManagerObjective(false);
     setCurrentObjective(null);
     setManagerSuggestions([]);
-  }, [conversation.id]);
+    setHasManualTone(false);
+    setFanTone(getDefaultFanTone(fanManagerAnalysis.state));
+  }, [conversation.id, fanManagerAnalysis.state]);
 
   useEffect(() => {
     if (!managerChatListRef.current) return;
     managerChatListRef.current.scrollTop = managerChatListRef.current.scrollHeight;
   }, [managerChatMessages.length]);
+
+  useEffect(() => {
+    if (!hasManualTone) {
+      setFanTone(getDefaultFanTone(fanManagerAnalysis.state));
+    }
+  }, [fanManagerAnalysis.state, hasManualTone]);
 
   const buildQuickIntentQuestion = (intent: ManagerQuickIntent, fanName?: string) => {
     const nombre = fanName || "este fan";
@@ -1249,9 +1298,20 @@ useEffect(() => {
   };
 
   const buildSuggestionsForObjective = useCallback(
-    (objective: ManagerObjective, fanName?: string, analysis?: FanManagerStateAnalysis): ManagerSuggestion[] => {
+    ({
+      objective,
+      fanName,
+      tone,
+      state,
+      analysis,
+    }: {
+      objective: ManagerObjective;
+      fanName?: string;
+      tone: FanTone;
+      state: FanManagerStateAnalysis["state"];
+      analysis?: FanManagerStateAnalysis;
+    }): ManagerSuggestion[] => {
       const nombre = fanName || "este fan";
-      const state = analysis?.state;
       const daysLeft = analysis?.context.daysLeft ?? null;
       const inactivityDays = analysis?.context.inactivityDays ?? null;
       const extrasCount = analysis?.context.extrasCount ?? 0;
@@ -1269,26 +1329,17 @@ useEffect(() => {
             : `en ${daysLeft} día${daysLeft === 1 ? "" : "s"}`
           : "en pocos días";
 
-      switch (objective) {
-        case "bienvenida":
-        case "romper_hielo":
-          if (state === "nuevo_timido") {
-            return [
-              {
-                id: "bienvenida-timido-1",
-                label: "Romper el hielo suave",
-                message: `Hola ${nombre}, veo que acabas de entrar y no quiero saturarte. ¿Te mando una idea sencilla para empezar o prefieres contarme qué buscas?`,
-                intent: "romper_hielo",
-              },
-              {
-                id: "bienvenida-timido-2",
-                label: "Pregunta sencilla",
-                message: `${nombre}, cuéntame con una frase qué te gustaría recibir aquí (audio, guía corta, algo puntual) y preparo lo más fácil para que te estrenes.`,
-                intent: "romper_hielo",
-              },
-            ];
-          }
-          return [
+      const suggestions: Record<ManagerObjective, Record<FanTone, ManagerSuggestion[]>> = {
+        bienvenida: {
+          suave: [
+            {
+              id: "bienvenida-suave-1",
+              label: "Bienvenida clara",
+              message: `Hola ${nombre}, gracias por entrar. Cuéntame en una frase qué necesitas y preparo algo útil sin rodeos.`,
+              intent: "romper_hielo",
+            },
+          ],
+          intimo: [
             {
               id: "bienvenida-curioso-1",
               label: "Bienvenida guiada",
@@ -1301,9 +1352,58 @@ useEffect(() => {
               message: `${nombre}, para guiarte bien necesito saber qué te mueve más: ¿mejorar algo concreto, probar algo nuevo o simplemente inspiración? Así te mando el primer contenido que encaje contigo.`,
               intent: "romper_hielo",
             },
-          ];
-        case "reactivar_fan_frio":
-          return [
+          ],
+          picante: [
+            {
+              id: "bienvenida-picante-1",
+              label: "Bienvenida con chispa",
+              message: `Hola ${nombre}, qué gusto tenerte aquí. Dime qué te apetece explorar primero y preparo algo que te pique la curiosidad desde ya.`,
+              intent: "romper_hielo",
+            },
+          ],
+        },
+        romper_hielo: {
+          suave: [
+            {
+              id: "romper-suave-1",
+              label: "Primer paso",
+              message: `Hola ${nombre}, veo que acabas de entrar. ¿Prefieres que te envíe una idea sencilla para empezar o contarme qué buscas y lo preparo?`,
+              intent: "romper_hielo",
+            },
+          ],
+          intimo: [
+            {
+              id: "romper-intimo-1",
+              label: "Romper el hielo suave",
+              message: `Hola ${nombre}, veo que acabas de entrar y no quiero saturarte. ¿Te mando una idea sencilla para empezar o prefieres contarme qué buscas?`,
+              intent: "romper_hielo",
+            },
+            {
+              id: "romper-intimo-2",
+              label: "Pregunta sencilla",
+              message: `${nombre}, cuéntame con una frase qué te gustaría recibir aquí (audio, guía corta, algo puntual) y preparo lo más fácil para que te estrenes.`,
+              intent: "romper_hielo",
+            },
+          ],
+          picante: [
+            {
+              id: "romper-picante-1",
+              label: "Romper con guiño",
+              message: `${nombre}, acabo de abrirte este espacio y quiero empezar con algo que te motive de verdad. Dime qué te apetece probar primero y lo preparo calentito.`,
+              intent: "romper_hielo",
+            },
+          ],
+        },
+        reactivar_fan_frio: {
+          suave: [
+            {
+              id: "reactivar-suave-1",
+              label: "Retomar contacto",
+              message: `Hola ${nombre}, hace ${inactivityText} que no hablamos. Si te apetece, retomamos con algo ligero y útil para ti.`,
+              intent: "reactivar_fan_frio",
+            },
+          ],
+          intimo: [
             {
               id: "reactivar-frio-1",
               label: "Reactivar fan frío",
@@ -1316,69 +1416,104 @@ useEffect(() => {
               message: `${nombre}, sé que has estado desconectad@ y quiero darte un motivo sencillo para volver: te preparo un audio corto con una idea práctica para esta semana. ¿Te lo mando?`,
               intent: "reactivar_fan_frio",
             },
-          ];
-        case "ofrecer_extra":
-          if (state === "vip_comprador" || isVip || extrasCount > 0) {
-            return [
-              {
-                id: "extra-vip-1",
-                label: "Extra a su estilo",
-                message: `${nombre}, tengo un extra en la línea de lo que sueles pedirme: más personalizado y con el mismo nivel de detalle. Te cuento la idea y, si te encaja, te paso el enlace.`,
-                intent: "ofrecer_extra",
-              },
-              {
-                id: "extra-vip-2",
-                label: "Propuesta premium",
-                message: `${nombre}, te propongo un extra más cuidado que los últimos: un audio + mini guía ajustada a lo que te funciona. Si te apetece, lo preparo hoy y lo cerramos.`,
-                intent: "ofrecer_extra",
-              },
-            ];
-          }
-          return [
+          ],
+          picante: [
             {
-              id: "extra-general-1",
+              id: "reactivar-picante-1",
+              label: "Recuperar chispa",
+              message: `${nombre}, hace ${inactivityText} que no hablamos y me gustaría devolverte las ganas. Te preparo un detalle con un toque más atrevido para que vuelvas con ganas. ¿Te lo envío?`,
+              intent: "reactivar_fan_frio",
+            },
+          ],
+        },
+        ofrecer_extra: {
+          suave: [
+            {
+              id: "extra-suave-1",
               label: "Extra puntual",
-              message: `${nombre}, se me ocurre un extra muy a tu medida para esta semana: un audio detallado + una idea práctica para probar hoy. Si te interesa, te paso el enlace y lo adapto a ti.`,
+              message: `${nombre}, puedo prepararte un extra concreto esta semana: un audio detallado + una idea práctica. Si te interesa, te paso el enlace y lo ajusto a ti.`,
               intent: "ofrecer_extra",
             },
-          ];
-        case "llevar_a_mensual":
-          if (state === "vip_comprador" || isVip || extrasCount >= 2) {
-            return [
-              {
-                id: "mensual-vip-1",
-                label: "Pasar a mensual",
-                message: `${nombre}, en vez de ir extra a extra podemos pasar a mensual y tener algo preparado cada semana solo para ti. Así no pierdes ritmo y puedo currarme más el contenido. ¿Te encaja probarlo?`,
-                intent: "llevar_a_mensual",
-              },
-              {
-                id: "mensual-vip-2",
-                label: "Mensual sin fricción",
-                message: `${nombre}, como siempre respondes a lo que te propongo, te ofrezco el plan mensual: recibes contenido fijo + seguimiento sin tener que pedir cada vez. ¿Quieres que te pase el enlace?`,
-                intent: "llevar_a_mensual",
-              },
-            ];
-          }
-          if (state === "a_punto_de_caducar") {
-            return [
-              {
-                id: "mensual-caduca-1",
-                label: "No perder ritmo",
-                message: `${nombre}, tu acceso caduca ${renewalText}. Si te interesa seguir, podemos pasar ya al mensual y aseguramos contenido semanal sin cortes. ¿Te lo dejo listo?`,
-                intent: "llevar_a_mensual",
-              },
-            ];
-          }
-          return [
+          ],
+          intimo: [
             {
-              id: "mensual-general-1",
+              id: "extra-intimo-1",
+              label: "Propuesta de extra",
+              message: `${nombre}, se me ha ocurrido un extra muy a tu estilo para esta semana: algo más íntimo y personalizado que lo que suelo subir. Si te interesa, te cuento en detalle y lo adaptamos a lo que te apetezca ahora mismo.`,
+              intent: "ofrecer_extra",
+            },
+          ],
+          picante: [
+            {
+              id: "extra-picante-1",
+              label: "Extra con picante",
+              message: `${nombre}, tengo un extra más atrevido pensado para ti: algo personalizado y con ese toque que sé que te gusta. Si te apetece, te cuento y te paso el enlace.`,
+              intent: "ofrecer_extra",
+            },
+          ],
+        },
+        llevar_a_mensual: {
+          suave: [
+            {
+              id: "mensual-suave-1",
               label: "Invitar a mensual",
-              message: `${nombre}, te propongo pasar a mensual: cada semana tendrás algo preparado y no tendrás que estar pendiente de pedirme extras sueltos. ¿Lo probamos?`,
+              message: `${nombre}, podemos pasar a mensual para que tengas contenido fijo cada semana sin pedirlo cada vez. ¿Te encaja que te pase el enlace?`,
               intent: "llevar_a_mensual",
             },
-          ];
-        case "renovacion":
-          return [
+          ],
+          intimo: [
+            ...(state === "vip_comprador" || isVip || extrasCount >= 2
+              ? [
+                  {
+                    id: "mensual-vip-1",
+                    label: "Pasar a mensual",
+                    message: `${nombre}, en vez de ir extra a extra podemos pasar a mensual y tener algo preparado cada semana solo para ti. Así no pierdes ritmo y puedo currarme más el contenido. ¿Te encaja probarlo?`,
+                    intent: "llevar_a_mensual",
+                  },
+                  {
+                    id: "mensual-vip-2",
+                    label: "Mensual sin fricción",
+                    message: `${nombre}, como siempre respondes a lo que te propongo, te ofrezco el plan mensual: recibes contenido fijo + seguimiento sin tener que pedir cada vez. ¿Quieres que te pase el enlace?`,
+                    intent: "llevar_a_mensual",
+                  },
+                ]
+              : state === "a_punto_de_caducar"
+              ? [
+                  {
+                    id: "mensual-caduca-1",
+                    label: "No perder ritmo",
+                    message: `${nombre}, tu acceso caduca ${renewalText}. Si te interesa seguir, podemos pasar ya al mensual y aseguramos contenido semanal sin cortes. ¿Te lo dejo listo?`,
+                    intent: "llevar_a_mensual",
+                  },
+                ]
+              : [
+                  {
+                    id: "mensual-general-1",
+                    label: "Invitar a mensual",
+                    message: `${nombre}, te propongo pasar a mensual: cada semana tendrás algo preparado y no tendrás que estar pendiente de pedirme extras sueltos. ¿Lo probamos?`,
+                    intent: "llevar_a_mensual",
+                  },
+                ]),
+          ],
+          picante: [
+            {
+              id: "mensual-picante-1",
+              label: "Mensual con chispa",
+              message: `${nombre}, si pasamos a mensual puedo prepararte algo especial cada semana, con un toque más intenso que lo que pides suelto. ¿Quieres que te pase el enlace?`,
+              intent: "llevar_a_mensual",
+            },
+          ],
+        },
+        renovacion: {
+          suave: [
+            {
+              id: "renovacion-suave-1",
+              label: "Renovación clara",
+              message: `Hola ${nombre}, tu suscripción termina ${renewalText}. Si quieres seguir, te paso el enlace para mantener el acceso y preparo algo útil esta semana.`,
+              intent: "renovacion",
+            },
+          ],
+          intimo: [
             {
               id: "renovacion-urgente-1",
               label: "Renovación clara",
@@ -1391,10 +1526,24 @@ useEffect(() => {
               message: `${nombre}, queda muy poco para que se cierre tu acceso (${renewalText}). Te propongo renovarlo ya para no perder lo que tienes y ajustar el contenido a lo que más te ha servido. ¿Te lo activo?`,
               intent: "renovacion",
             },
-          ];
-        default:
-          return [];
-      }
+          ],
+          picante: [
+            {
+              id: "renovacion-picante-1",
+              label: "Renovar con gancho",
+              message: `${nombre}, tu acceso acaba ${renewalText}. Si seguimos, preparo algo especial y más atrevido para este inicio. ¿Te paso el enlace para dejarlo cerrado ya?`,
+              intent: "renovacion",
+            },
+          ],
+        },
+      };
+
+      const objectiveSuggestions = suggestions[objective] ?? suggestions.renovacion;
+      const toneSuggestions = objectiveSuggestions?.[tone] || objectiveSuggestions?.intimo || [];
+      return toneSuggestions.map((sug) => ({
+        ...sug,
+        message: sug.message.replace("{nombre}", nombre),
+      }));
     },
     []
   );
@@ -1403,9 +1552,27 @@ useEffect(() => {
     if (hasManualManagerObjective) return;
     const objective = fanManagerAnalysis.defaultObjective;
     setCurrentObjective(objective);
-    const suggestions = buildSuggestionsForObjective(objective, contactName, fanManagerAnalysis);
+    const suggestions = buildSuggestionsForObjective({
+      objective,
+      fanName: contactName,
+      tone: fanTone,
+      state: fanManagerAnalysis.state,
+      analysis: fanManagerAnalysis,
+    });
     setManagerSuggestions(suggestions.slice(0, 3));
-  }, [contactName, fanManagerAnalysis, buildSuggestionsForObjective, hasManualManagerObjective]);
+  }, [contactName, fanManagerAnalysis, buildSuggestionsForObjective, fanTone, hasManualManagerObjective]);
+
+  useEffect(() => {
+    if (!currentObjective) return;
+    const suggestions = buildSuggestionsForObjective({
+      objective: currentObjective,
+      fanName: contactName,
+      tone: fanTone,
+      state: fanManagerAnalysis.state,
+      analysis: fanManagerAnalysis,
+    });
+    setManagerSuggestions(suggestions.slice(0, 3));
+  }, [fanTone, currentObjective, contactName, fanManagerAnalysis, buildSuggestionsForObjective]);
 
   const askInternalManager = (question: string, intent?: ManagerQuickIntent) => {
     if (!id) return;
@@ -1453,7 +1620,13 @@ useEffect(() => {
   const handleManagerQuickAction = (intent: ManagerQuickIntent) => {
     setHasManualManagerObjective(true);
     setCurrentObjective(intent);
-    const newSuggestions = buildSuggestionsForObjective(intent, contactName, fanManagerAnalysis);
+    const newSuggestions = buildSuggestionsForObjective({
+      objective: intent,
+      fanName: contactName,
+      tone: fanTone,
+      state: fanManagerAnalysis.state,
+      analysis: fanManagerAnalysis,
+    });
     setManagerSuggestions(newSuggestions.slice(0, 3));
     const question = buildQuickIntentQuestion(intent, contactName);
     askInternalManager(question, intent);
@@ -2812,6 +2985,8 @@ useEffect(() => {
                 fanManagerState={fanManagerAnalysis.state}
                 fanManagerHeadline={fanManagerAnalysis.headline}
                 fanManagerChips={fanManagerAnalysis.chips}
+                tone={fanTone}
+                onChangeTone={handleChangeFanTone}
                 statusLine={statusLine}
                 lapexSummary={lapexSummary}
                 sessionSummary={sessionSummary}
@@ -2830,11 +3005,21 @@ useEffect(() => {
                 isRecommended={isRecommended}
                 isBlocked={isChatBlocked}
               />
+              <div className="mt-2 text-[11px] text-slate-400">
+                Modo IA: <span className="text-slate-200">{formatToneLabel(fanTone) || "—"}</span> · Objetivo:{" "}
+                <span className="text-slate-200">
+                  {formatObjectiveLabel(currentObjective ?? fanManagerAnalysis.defaultObjective) || "—"}
+                </span>
+              </div>
               <div className="mt-3 rounded-xl border border-slate-800/80 bg-slate-900/70 p-3 flex flex-col gap-3">
                 <div className="flex items-center justify-between px-1">
                   <div className="space-y-0.5">
                     <div className="text-sm font-semibold text-slate-100">Chat interno con Manager IA</div>
                     <p className="text-[11px] text-slate-400">Solo tú ves este hilo. No se envía al fan.</p>
+                    <p className="text-[11px] text-slate-400">
+                      Modo IA: {formatToneLabel(fanTone) || "—"} · Objetivo:{" "}
+                      {formatObjectiveLabel(currentObjective ?? fanManagerAnalysis.defaultObjective) || "—"}
+                    </p>
                   </div>
                   <button
                     type="button"
@@ -2856,29 +3041,38 @@ useEffect(() => {
                         </div>
                       )}
                       {managerChatMessages.map((msg) => (
+                      <div
+                        key={msg.id}
+                        className={clsx(
+                          "flex flex-col max-w-[80%]",
+                          msg.role === "creator" ? "self-end items-end" : "self-start items-start"
+                        )}
+                      >
+                        <span className="text-[10px] uppercase tracking-wide text-slate-500">
+                          {msg.role === "creator" ? "Tú" : "Manager IA"}
+                        </span>
                         <div
-                          key={msg.id}
                           className={clsx(
-                            "flex flex-col max-w-[80%]",
-                            msg.role === "creator" ? "self-end items-end" : "self-start items-start"
+                            "rounded-2xl px-3 py-2 text-sm leading-relaxed",
+                            msg.role === "creator"
+                              ? "bg-emerald-600/80 text-white"
+                              : "bg-slate-800/80 text-slate-100"
                           )}
                         >
-                          <span className="text-[10px] uppercase tracking-wide text-slate-500">
-                            {msg.role === "creator" ? "Tú" : "Manager IA"}
-                          </span>
-                          <div
-                            className={clsx(
-                              "rounded-2xl px-3 py-2 text-sm leading-relaxed",
-                              msg.role === "creator"
-                                ? "bg-emerald-600/80 text-white"
-                                : "bg-slate-800/80 text-slate-100"
-                            )}
-                          >
-                            {msg.text}
-                          </div>
+                          {msg.text}
                         </div>
-                      ))}
-                    </div>
+                        {msg.role === "manager" && (
+                          <button
+                            type="button"
+                            onClick={() => handleUseManagerReplyAsMainMessage(msg.text)}
+                            className="mt-1 inline-flex items-center rounded-full border border-emerald-500/60 bg-emerald-500/10 px-3 py-1 text-[11px] font-medium text-emerald-100 hover:bg-emerald-500/20 transition"
+                          >
+                            Usar en mensaje
+                          </button>
+                        )}
+                      </div>
+                    ))}
+                  </div>
                     <div className="flex items-end gap-2 border-t border-slate-700 pt-3">
                       <textarea
                         rows={1}

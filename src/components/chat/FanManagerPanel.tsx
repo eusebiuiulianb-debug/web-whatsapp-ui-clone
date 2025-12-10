@@ -1,7 +1,8 @@
 import useSWR from "swr";
 import { useEffect } from "react";
+import clsx from "clsx";
 import type { FanManagerSummary } from "../../server/manager/managerService";
-import type { FanManagerChip, FanManagerState, ManagerObjective } from "../../types/manager";
+import type { FanManagerChip, FanManagerState, FanTone, ManagerObjective } from "../../types/manager";
 
 function formatObjectiveLabel(objective?: ManagerObjective | null) {
   switch (objective) {
@@ -31,6 +32,8 @@ type Props = {
   chips?: FanManagerChip[];
   fanManagerState?: FanManagerState | null;
   suggestedObjective?: ManagerObjective | null;
+  tone?: FanTone;
+  onChangeTone?: (tone: FanTone) => void;
 };
 
 const fetcher = (url: string) => fetch(url).then((res) => res.json());
@@ -44,6 +47,8 @@ export default function FanManagerPanel({
   chips,
   fanManagerState,
   suggestedObjective,
+  tone,
+  onChangeTone,
 }: Props) {
   const { data, error } = useSWR<FanManagerSummary>(fanId ? `/api/fans/${fanId}/manager` : null, fetcher, {
     revalidateOnFocus: false,
@@ -151,6 +156,47 @@ export default function FanManagerPanel({
         )}
         {fanManagerState && !headline && (
           <div className="text-xs md:text-sm text-slate-400">Estado: {fanManagerState.replace(/_/g, " ")}</div>
+        )}
+        {tone && onChangeTone && (
+          <div className="mt-1.5 flex flex-wrap items-center gap-2">
+            <span className="text-xs text-slate-400">Tono</span>
+            <button
+              type="button"
+              onClick={() => onChangeTone("suave")}
+              className={clsx(
+                "rounded-full px-3 py-1 text-xs border transition",
+                tone === "suave"
+                  ? "bg-emerald-600 text-white border-emerald-500"
+                  : "bg-slate-800 text-slate-200 border-slate-600 hover:border-emerald-400"
+              )}
+            >
+              Suave
+            </button>
+            <button
+              type="button"
+              onClick={() => onChangeTone("intimo")}
+              className={clsx(
+                "rounded-full px-3 py-1 text-xs border transition",
+                tone === "intimo"
+                  ? "bg-emerald-600 text-white border-emerald-500"
+                  : "bg-slate-800 text-slate-200 border-slate-600 hover:border-emerald-400"
+              )}
+            >
+              Íntimo
+            </button>
+            <button
+              type="button"
+              onClick={() => onChangeTone("picante")}
+              className={clsx(
+                "rounded-full px-3 py-1 text-xs border transition",
+                tone === "picante"
+                  ? "bg-emerald-600 text-white border-emerald-500"
+                  : "bg-slate-800 text-slate-200 border-slate-600 hover:border-emerald-400"
+              )}
+            >
+              Picante
+            </button>
+          </div>
         )}
         {error && !data && (
           <div className="rounded-md border border-amber-400/40 bg-amber-500/10 px-3 py-2 text-[11px] text-amber-100">

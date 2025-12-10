@@ -2,7 +2,7 @@ import { useState } from "react";
 import clsx from "clsx";
 import FanManagerPanel from "../chat/FanManagerPanel";
 import type { FanManagerSummary } from "../../server/manager/managerService";
-import type { FanManagerChip, FanManagerState, ManagerObjective } from "../../types/manager";
+import type { FanManagerChip, FanManagerState, FanTone, ManagerObjective } from "../../types/manager";
 
 function formatObjectiveLabel(objective?: ManagerObjective | null) {
   switch (objective) {
@@ -23,6 +23,13 @@ function formatObjectiveLabel(objective?: ManagerObjective | null) {
   }
 }
 
+function formatToneLabel(tone?: FanTone | null) {
+  if (tone === "suave") return "Suave";
+  if (tone === "picante") return "Picante";
+  if (tone === "intimo") return "Íntimo";
+  return null;
+}
+
 type Props = {
   managerSuggestions?: { id: string; label: string; message: string }[];
   onApplySuggestion?: (text: string) => void;
@@ -31,6 +38,8 @@ type Props = {
   fanManagerState?: FanManagerState | null;
   fanManagerHeadline?: string | null;
   fanManagerChips?: FanManagerChip[];
+  tone?: FanTone;
+  onChangeTone?: (tone: FanTone) => void;
   statusLine: string;
   lapexSummary?: string | null;
   sessionSummary?: string | null;
@@ -67,6 +76,8 @@ export default function FanManagerDrawer({
   fanManagerState,
   fanManagerHeadline,
   fanManagerChips,
+  tone,
+  onChangeTone,
   onQuickGreeting,
   onRenew,
   onQuickExtra,
@@ -97,21 +108,8 @@ export default function FanManagerDrawer({
         : "border-slate-700 bg-slate-900/60 text-slate-100"
     );
   const suggestedObjectiveLabel = formatObjectiveLabel(suggestedObjective ?? null);
+  const toneLabel = formatToneLabel(tone);
   const isObjectiveActive = (objective: ManagerObjective) => currentObjective === objective;
-  const managerPanel = (
-    <div className={clsx("text-[11px] text-slate-200", isOpen ? "block" : "hidden")}>
-      <FanManagerPanel
-        fanId={fanId}
-        onSummary={onManagerSummary}
-        onSuggestionClick={onSuggestionClick}
-        hideSuggestions
-        headline={fanManagerHeadline ?? undefined}
-        chips={fanManagerChips}
-        fanManagerState={fanManagerState ?? undefined}
-        suggestedObjective={suggestedObjective ?? currentObjective ?? null}
-      />
-    </div>
-  );
 
   return (
     <div className="rounded-2xl border border-slate-800 bg-slate-950/80 px-4 py-3 md:px-6 md:py-4 text-[11px] text-slate-100 space-y-2">
@@ -126,6 +124,47 @@ export default function FanManagerDrawer({
                     {chip.label}
                   </span>
                 ))}
+              </div>
+            )}
+            {tone && onChangeTone && (
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="text-[11px] text-slate-400">Tono</span>
+                <button
+                  type="button"
+                  onClick={() => onChangeTone("suave")}
+                  className={clsx(
+                    "rounded-full px-3 py-1 text-[11px] border transition",
+                    tone === "suave"
+                      ? "bg-emerald-600 text-white border-emerald-500"
+                      : "bg-slate-800/90 text-slate-200 border-slate-600 hover:border-emerald-400"
+                  )}
+                >
+                  Suave
+                </button>
+                <button
+                  type="button"
+                  onClick={() => onChangeTone("intimo")}
+                  className={clsx(
+                    "rounded-full px-3 py-1 text-[11px] border transition",
+                    tone === "intimo"
+                      ? "bg-emerald-600 text-white border-emerald-500"
+                      : "bg-slate-800/90 text-slate-200 border-slate-600 hover:border-emerald-400"
+                  )}
+                >
+                  Íntimo
+                </button>
+                <button
+                  type="button"
+                  onClick={() => onChangeTone("picante")}
+                  className={clsx(
+                    "rounded-full px-3 py-1 text-[11px] border transition",
+                    tone === "picante"
+                      ? "bg-emerald-600 text-white border-emerald-500"
+                      : "bg-slate-800/90 text-slate-200 border-slate-600 hover:border-emerald-400"
+                  )}
+                >
+                  Picante
+                </button>
               </div>
             )}
             <div className="text-xs md:text-sm leading-relaxed text-slate-300">{managerHeadlineText}</div>
@@ -255,7 +294,16 @@ export default function FanManagerDrawer({
               {iaSummary && <div className="text-slate-200">{iaSummary}</div>}
             </div>
           )}
-          {managerPanel}
+          {suggestedObjectiveLabel && (
+            <div className="text-xs md:text-sm text-slate-300">
+              Objetivo actual del Manager: <span className="text-slate-100">{suggestedObjectiveLabel}</span>
+            </div>
+          )}
+          {toneLabel && (
+            <div className="text-xs md:text-sm text-slate-300">
+              Tono IA actual: <span className="text-slate-100">{toneLabel}</span>
+            </div>
+          )}
           {planSummaryText && (
             <div className="mt-5 border-t border-slate-800 pt-4">
               <p className="text-xs md:text-sm font-semibold text-slate-400 uppercase tracking-wide mb-1.5">
@@ -268,7 +316,20 @@ export default function FanManagerDrawer({
           )}
         </div>
       )}
-      {!isOpen && managerPanel}
+      <div className="hidden">
+        <FanManagerPanel
+          fanId={fanId}
+          onSummary={onManagerSummary}
+          onSuggestionClick={onSuggestionClick}
+          hideSuggestions
+          headline={fanManagerHeadline ?? undefined}
+          chips={fanManagerChips}
+          fanManagerState={fanManagerState ?? undefined}
+          suggestedObjective={suggestedObjective ?? currentObjective ?? null}
+          tone={tone}
+          onChangeTone={onChangeTone}
+        />
+      </div>
     </div>
   );
 }
