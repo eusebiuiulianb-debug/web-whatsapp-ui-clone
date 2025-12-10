@@ -130,6 +130,8 @@ export default function ConversationDetails({ onBackToBoard }: ConversationDetai
   const [ isChatArchived, setIsChatArchived ] = useState(conversation.isArchived ?? false);
   const [ isChatActionLoading, setIsChatActionLoading ] = useState(false);
   const actionsMenuRef = useRef<HTMLDivElement | null>(null);
+  const MAX_MESSAGE_HEIGHT = 180;
+  const messageInputRef = useRef<HTMLTextAreaElement | null>(null);
   const [ managerSummary, setManagerSummary ] = useState<FanManagerSummary | null>(null);
   const messagesContainerRef = useRef<HTMLDivElement | null>(null);
   const [isAtBottom, setIsAtBottom] = useState(true);
@@ -219,6 +221,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
   useEffect(() => {
     setIsChatBlocked(conversation.isBlocked ?? false);
     setIsChatArchived(conversation.isArchived ?? false);
+    resetMessageInputHeight();
   }, [conversation.id, conversation.isBlocked, conversation.isArchived]);
 
   useEffect(() => {
@@ -231,6 +234,10 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
     document.addEventListener("mousedown", handleClickOutside);
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
+
+  useEffect(() => {
+    adjustMessageInputHeight();
+  }, [messageSend]);
 
   useLayoutEffect(() => {
     const el = messagesContainerRef.current;
@@ -1183,14 +1190,28 @@ useEffect(() => {
     fillMessageFromPackType(type);
   }
 
-  function changeHandler(evt: KeyboardEvent<HTMLInputElement>) {
+  function changeHandler(evt: KeyboardEvent<HTMLTextAreaElement>) {
     const { key } = evt;
 
     if (key === "Enter" && !evt.shiftKey) {
       evt.preventDefault();
-      handleSendMessage();
+      if (messageSend.trim()) handleSendMessage();
     }
   }
+
+  const resetMessageInputHeight = () => {
+    if (messageInputRef.current) {
+      messageInputRef.current.style.height = "auto";
+    }
+  };
+
+  const adjustMessageInputHeight = () => {
+    const el = messageInputRef.current;
+    if (!el) return;
+    el.style.height = "auto";
+    const next = Math.min(el.scrollHeight, MAX_MESSAGE_HEIGHT);
+    el.style.height = `${next}px`;
+  };
 
   async function sendMessageText(text: string) {
     if (!id) return;
@@ -1226,6 +1247,7 @@ useEffect(() => {
         setMessage([...(messages || []), ...mapped]);
       }
       setMessageSend("");
+      resetMessageInputHeight();
     } catch (err) {
       console.error("Error enviando mensaje", err);
       setMessagesError("Error enviando mensaje");
@@ -1731,7 +1753,7 @@ useEffect(() => {
   });
 
   return (
-    <div className="flex flex-col w-full h-[100dvh] max-h-[100dvh] md:h-full md:max-h-none min-h-[100dvh] md:min-h-[60vh] overflow-hidden">
+    <div className="flex flex-col w-full h-[100dvh] max-h-[100dvh]">
       {onBackToBoard && (
         <header className="md:hidden sticky top-0 z-30 flex items-center justify-between gap-3 px-4 py-3 bg-slate-950/95 border-b border-slate-800 backdrop-blur">
           <button
@@ -2153,7 +2175,7 @@ useEffect(() => {
             )}
           </div>
         </div>
-        <div className="flex flex-col bg-[#202c33] w-full h-auto py-3 px-4 text-[#8696a0] gap-3">
+        <div className="flex flex-col bg-[#202c33] w-full h-auto py-3 px-4 text-[#8696a0] gap-3 flex-shrink-0 overflow-visible">
           {showExtraTemplates && (
             <div className="flex flex-col gap-3 bg-slate-800/60 border border-slate-700 rounded-lg p-3 w-full">
               <div className="mb-1 flex items-center justify-between">
@@ -2401,22 +2423,33 @@ useEffect(() => {
 
             </div>
           )}
-          <div className="flex items-center gap-3">
-            <div className="flex items-center gap-3 py-1">
+          <div className="border-t border-slate-950 bg-slate-950 px-4 py-3">
+            <div
+              className={clsx(
+                "flex items-center gap-2 rounded-3xl border px-3 py-2.5",
+                "bg-slate-900/90 border-slate-700/80 shadow-sm",
+                "focus-within:border-emerald-500/80 focus-within:ring-1 focus-within:ring-emerald-500/40",
+                isChatBlocked && "opacity-70"
+              )}
+            >
               <div className="relative">
                 <button
                   type="button"
                   onClick={() => setIsAttachmentMenuOpen((prev) => !prev)}
-                  className="flex items-center justify-center rounded-full p-2 hover:bg-slate-700 text-slate-100"
+                  className={clsx(
+                    "flex h-9 w-9 items-center justify-center rounded-full hover:bg-slate-800/80 transition text-slate-200",
+                    isChatBlocked && "opacity-50 cursor-not-allowed"
+                  )}
                   title="Adjuntar contenido (packs / extras)"
                   aria-label="Adjuntar contenido (packs / extras)"
+                  disabled={isChatBlocked}
                 >
                   <svg viewBox="0 0 24 24" width="24" height="24" className="cursor-pointer">
                     <path fill="currentColor" d="M1.816 15.556v.002c0 1.502.584 2.912 1.646 3.972s2.472 1.647 3.974 1.647a5.58 5.58 0 0 0 3.972-1.645l9.547-9.548c.769-.768 1.147-1.767 1.058-2.817-.079-.968-.548-1.927-1.319-2.698-1.594-1.592-4.068-1.711-5.517-.262l-7.916 7.915c-.881.881-.792 2.25.214 3.261.959.958 2.423 1.053 3.263.215l5.511-5.512c.28-.28.267-.722.053-.936l-.244-.244c-.191-.191-.567-.349-.957.04l-5.506 5.506c-.18.18-.635.127-.976-.214-.098-.097-.576-.613-.213-.973l7.915-7.917c.818-.817 2.267-.699 3.23.262.5.501.802 1.1.849 1.685.051.573-.156 1.111-.589 1.543l-9.547 9.549a3.97 3.97 0 0 1-2.829 1.171 3.975 3.975 0 0 1-2.83-1.173 3.973 3.973 0 0 1-1.172-2.828c0-1.071.415-2.076 1.172-2.83l7.209-7.211c.157-.157.264-.579.028-.814L11.5 4.36a.572.572 0 0 0-.834.018l-7.205 7.207a5.577 5.577 0 0 0-1.645 3.971z">
                     </path>
                   </svg>
                 </button>
-                {isAttachmentMenuOpen && (
+                {isAttachmentMenuOpen && !isChatBlocked && (
                   <div className="absolute bottom-12 left-0 z-20 w-56 rounded-xl bg-slate-900 border border-slate-700 shadow-lg">
                     <button
                       type="button"
@@ -2440,48 +2473,62 @@ useEffect(() => {
                   </div>
                 )}
               </div>
-            </div>
-            <div className="flex flex-1 h-12">
-              <input
-                type={"text"}
-                className="bg-[#2a3942] rounded-lg w-full px-3 py-3 text-white placeholder:text-slate-400"
+              <textarea
+                ref={messageInputRef}
+                rows={1}
+                className={clsx(
+                  "flex-1 bg-transparent resize-none overflow-y-auto max-h-44",
+                  "px-2 text-base leading-relaxed text-slate-50 caret-emerald-400",
+                  "placeholder:text-slate-300 focus:outline-none",
+                  isChatBlocked && "cursor-not-allowed"
+                )}
                 placeholder={isChatBlocked ? "Has bloqueado este chat. Desbloquéalo para volver a escribir." : "Mensaje"}
-                onKeyDown={(evt) => changeHandler(evt) }
-                onChange={ (evt) => setMessageSend(evt.target.value) }
+                onKeyDown={(evt) => changeHandler(evt)}
+                onChange={(evt) => {
+                  setMessageSend(evt.target.value);
+                }}
                 value={messageSend}
                 disabled={accessState === "expired" || isChatBlocked}
+                style={{ maxHeight: `${MAX_MESSAGE_HEIGHT}px` }}
               />
-            </div>
-            <div className="flex justify-center items-center h-12">
               <button
                 type="button"
                 onClick={handleSendMessage}
-                disabled={sendDisabled}
-                className="inline-flex items-center justify-center rounded-lg bg-emerald-500 px-3 py-2 text-sm font-semibold text-white hover:bg-emerald-400 transition disabled:opacity-50 disabled:cursor-not-allowed"
+                disabled={sendDisabled || isChatBlocked}
+                className={clsx(
+                  "ml-1 h-9 px-4 rounded-2xl text-sm font-medium",
+                  "bg-emerald-600 text-white hover:bg-emerald-500",
+                  "disabled:opacity-50 disabled:cursor-not-allowed",
+                  "transition-colors"
+                )}
               >
                 Enviar
               </button>
             </div>
           </div>
-          <FanManagerDrawer
-            statusLine={statusLine}
-            lapexSummary={lapexSummary}
-            sessionSummary={sessionSummary}
-            iaSummary={iaSummary}
-            planSummary={planSummary}
-            closedSummary={managerShortSummary}
-            fanId={conversation.id}
-            onManagerSummary={(s) => setManagerSummary(s)}
-            onSuggestionClick={handleManagerSuggestion}
-            onQuickGreeting={handleQuickGreeting}
-            onRenew={handleRenewAction}
-            onQuickExtra={handleQuickExtraClick}
-            onPackOffer={handleMonthlyOfferFromManager}
-            showRenewAction={showRenewAction}
-            quickExtraDisabled={quickExtraDisabled}
-            isRecommended={isRecommended}
-            isBlocked={isChatBlocked}
-          />
+          <div className="rounded-2xl border border-slate-800 bg-slate-950/80">
+            <div className="max-h-[60vh] overflow-y-auto lg:max-h-[60vh] lg:overflow-y-auto pr-1 pb-4">
+              <FanManagerDrawer
+                statusLine={statusLine}
+                lapexSummary={lapexSummary}
+                sessionSummary={sessionSummary}
+                iaSummary={iaSummary}
+                planSummary={planSummary}
+                closedSummary={managerShortSummary}
+                fanId={conversation.id}
+                onManagerSummary={(s) => setManagerSummary(s)}
+                onSuggestionClick={handleManagerSuggestion}
+                onQuickGreeting={handleQuickGreeting}
+                onRenew={handleRenewAction}
+                onQuickExtra={handleQuickExtraClick}
+                onPackOffer={handleMonthlyOfferFromManager}
+                showRenewAction={showRenewAction}
+                quickExtraDisabled={quickExtraDisabled}
+                isRecommended={isRecommended}
+                isBlocked={isChatBlocked}
+              />
+            </div>
+          </div>
         </div>
       </div>
       {showContentModal && (

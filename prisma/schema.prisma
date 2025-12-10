@@ -69,6 +69,8 @@ model Fan {
   lifetimeValue    Float           @default(0)
   recent30dSpend   Float           @default(0)
   riskLevel        String          @default("LOW")
+  isBlocked        Boolean         @default(false)
+  isArchived       Boolean         @default(false)
 }
 
 model Message {

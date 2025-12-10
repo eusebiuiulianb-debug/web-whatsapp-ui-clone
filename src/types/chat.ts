@@ -70,6 +70,8 @@ export interface Fan {
     todayHighestTier: string | null;
     todayLastPurchaseAt: string | null;
   } | null;
+  isBlocked?: boolean;
+  isArchived?: boolean;
 }
 
 export interface Message {

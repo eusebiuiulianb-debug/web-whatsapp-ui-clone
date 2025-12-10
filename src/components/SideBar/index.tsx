@@ -1043,36 +1043,6 @@ export default function SideBar() {
         <button
           type="button"
           onClick={() => {
-            selectStatusFilter(statusFilter === "archived" ? "active" : "archived");
-            setShowAllTodayMetrics(false);
-          }}
-          className={clsx(
-            "rounded-full border px-3 py-1",
-            statusFilter === "archived"
-              ? "border-slate-400 bg-slate-700/60 text-slate-50"
-              : "border-slate-700 bg-slate-800/60 text-slate-300"
-          )}
-        >
-          Archivados
-        </button>
-        <button
-          type="button"
-          onClick={() => {
-            selectStatusFilter(statusFilter === "blocked" ? "active" : "blocked");
-            setShowAllTodayMetrics(false);
-          }}
-          className={clsx(
-            "rounded-full border px-3 py-1",
-            statusFilter === "blocked"
-              ? "border-rose-400 bg-rose-500/10 text-rose-100"
-              : "border-rose-800 bg-slate-800/60 text-rose-200/80"
-          )}
-        >
-          Bloqueados
-        </button>
-        <button
-          type="button"
-          onClick={() => {
             setFollowUpFilter("all");
             setShowOnlyWithNotes(false);
             setOnlyWithFollowUp(false);

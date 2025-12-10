@@ -20,11 +20,12 @@ type Props = {
   showRenewAction: boolean;
   quickExtraDisabled?: boolean;
   isRecommended: (id: string) => boolean;
+  isBlocked?: boolean;
 };
 
 export default function FanManagerDrawer({
   statusLine,
-  lapexSummary,
+  lapexSummary: _lapexSummary,
   sessionSummary,
   iaSummary,
   planSummary,
@@ -39,9 +40,12 @@ export default function FanManagerDrawer({
   showRenewAction,
   quickExtraDisabled,
   isRecommended,
+  isBlocked = false,
 }: Props) {
   const [isOpen, setIsOpen] = useState(false);
   const summaryLine = closedSummary || planSummary || statusLine;
+  const planSummaryText = planSummary ? planSummary.replace(/^Plan de hoy:\s*/i, "").trim() : null;
+  const managerDisabled = isBlocked;
   const managerPanel = (
     <div className={clsx("text-[11px] text-slate-200", isOpen ? "block" : "hidden")}>
       <FanManagerPanel
@@ -53,35 +57,45 @@ export default function FanManagerDrawer({
   );
 
   return (
-    <div className="rounded-xl border border-slate-800 bg-slate-900/80 px-3 py-2 text-[11px] text-slate-100">
+    <div className="rounded-2xl border border-slate-800 bg-slate-950/80 px-4 py-3 md:px-6 md:py-4 text-[11px] text-slate-100 space-y-2">
       <div className="flex flex-col gap-2">
-        <div className="flex items-start justify-between gap-2">
-          <div className="flex-1 min-w-0">
-            <div className="text-xs font-semibold text-slate-100">Manager IA</div>
-            <div className="text-[11px] text-slate-400">
+        <div className="flex items-start justify-between gap-3">
+          <div className="flex-1 min-w-0 space-y-1">
+            <div className="text-sm md:text-base font-semibold text-slate-100">Manager IA</div>
+            <div className="text-xs md:text-sm leading-relaxed text-slate-300">
               Te ayuda a escribir mensajes claros, cercanos y profesionales. Tú decides qué se envía.
             </div>
-            {summaryLine && <div className="text-[11px] text-slate-300 truncate">{summaryLine}</div>}
+            {summaryLine && <div className="text-[11px] md:text-xs text-slate-300 truncate">{summaryLine}</div>}
           </div>
           <button
             type="button"
             onClick={() => setIsOpen((prev) => !prev)}
-            className="text-[11px] font-semibold rounded-full border border-slate-700 bg-slate-800/80 px-3 py-1 text-slate-100 hover:bg-slate-700"
+            className="self-start rounded-full border border-slate-700 bg-slate-800/80 px-3 py-1.5 text-[11px] font-semibold text-slate-100 hover:bg-slate-700"
           >
             {isOpen ? "Ocultar ▴" : "Ver más ▾"}
           </button>
         </div>
-        <div className="flex flex-wrap items-center gap-2">
+        {managerDisabled && (
+          <div className="rounded-lg border border-amber-400/50 bg-amber-500/10 px-3 py-2 text-[11px] text-amber-100">
+            Manager IA está desactivado en este chat bloqueado.
+          </div>
+        )}
+        <div className="mt-3 flex flex-wrap items-center gap-3">
           <button
             type="button"
             className={clsx(
-              "whitespace-nowrap rounded-full border px-3 py-1 text-[11px] font-semibold transition",
+              "inline-flex items-center justify-center whitespace-nowrap rounded-full border px-6 py-2 text-sm font-medium transition",
               isRecommended("saludo_rapido")
                 ? "border-emerald-400 bg-emerald-500/20 text-emerald-100"
-                : "border-slate-600 bg-slate-800/70 text-slate-100 hover:border-emerald-400 hover:text-emerald-100"
+                : "border-slate-600 bg-slate-800/70 text-slate-100 hover:border-emerald-400 hover:text-emerald-100",
+              managerDisabled && "opacity-60 cursor-not-allowed"
             )}
-            onClick={onQuickGreeting}
+            onClick={() => {
+              if (managerDisabled) return;
+              onQuickGreeting();
+            }}
             title="Mensaje breve para iniciar conversación o retomar contacto de forma natural."
+            disabled={managerDisabled}
           >
             Romper el hielo
           </button>
@@ -89,13 +103,18 @@ export default function FanManagerDrawer({
             <button
               type="button"
               className={clsx(
-                "whitespace-nowrap rounded-full border px-3 py-1 text-[11px] font-semibold transition",
+                "inline-flex items-center justify-center whitespace-nowrap rounded-full border px-6 py-2 text-sm font-medium transition",
                 isRecommended("renenganche")
                   ? "border-emerald-400 bg-emerald-500/20 text-emerald-100"
-                  : "border-slate-600 bg-slate-800/70 text-slate-100 hover:border-emerald-400 hover:text-emerald-100"
+                  : "border-slate-600 bg-slate-800/70 text-slate-100 hover:border-emerald-400 hover:text-emerald-100",
+                managerDisabled && "opacity-60 cursor-not-allowed"
               )}
-              onClick={onRenew}
+              onClick={() => {
+                if (managerDisabled) return;
+                onRenew();
+              }}
               title="Pide feedback de lo que más le ha ayudado hasta ahora y adelanta que en unos días llegará el enlace de renovación."
+              disabled={managerDisabled}
             >
               Reactivar fan frío
             </button>
@@ -103,14 +122,17 @@ export default function FanManagerDrawer({
           <button
             type="button"
             className={clsx(
-              "whitespace-nowrap rounded-full border px-3 py-1 text-[11px] font-semibold transition",
+              "inline-flex items-center justify-center whitespace-nowrap rounded-full border px-6 py-2 text-sm font-medium transition",
               isRecommended("extra_rapido")
                 ? "border-emerald-400 bg-emerald-500/20 text-emerald-100"
                 : "border-slate-600 bg-slate-800/70 text-slate-100 hover:border-emerald-400 hover:text-emerald-100",
-              quickExtraDisabled ? "opacity-60 cursor-not-allowed" : ""
+              quickExtraDisabled || managerDisabled ? "opacity-60 cursor-not-allowed" : ""
             )}
-            onClick={onQuickExtra}
-            disabled={quickExtraDisabled}
+            onClick={() => {
+              if (managerDisabled || quickExtraDisabled) return;
+              onQuickExtra();
+            }}
+            disabled={quickExtraDisabled || managerDisabled}
             title="Propuesta suave para ofrecer un contenido extra o actividad puntual."
           >
             Ofrecer un extra
@@ -118,33 +140,43 @@ export default function FanManagerDrawer({
           <button
             type="button"
             className={clsx(
-              "whitespace-nowrap rounded-full border px-3 py-1 text-[11px] font-semibold transition",
+              "inline-flex items-center justify-center whitespace-nowrap rounded-full border px-6 py-2 text-sm font-medium transition",
               isRecommended("elegir_pack")
                 ? "border-emerald-400 bg-emerald-500/20 text-emerald-100"
-                : "border-slate-600 bg-slate-800/70 text-slate-100 hover:border-emerald-400 hover:text-emerald-100"
+                : "border-slate-600 bg-slate-800/70 text-slate-100 hover:border-emerald-400 hover:text-emerald-100",
+              managerDisabled && "opacity-60 cursor-not-allowed"
               )}
-            onClick={onPackOffer}
+            onClick={() => {
+              if (managerDisabled) return;
+              onPackOffer();
+            }}
             title="Invitación clara para pasar al pack mensual sin presión."
+            disabled={managerDisabled}
           >
             Llevar a mensual
           </button>
         </div>
       </div>
       {isOpen && (
-        <div className="mt-3 space-y-2 border-t border-slate-800 pt-3 text-[11px] text-slate-200">
-          {statusLine && <div className="font-semibold text-slate-100">{statusLine}</div>}
-          {lapexSummary && (
-            <div className="inline-flex flex-wrap items-center gap-2 rounded-full border border-amber-400/60 bg-amber-500/10 px-3 py-1 text-[11px] text-amber-100">
-              <span className="flex h-5 min-w-[42px] items-center justify-center rounded-full bg-amber-400/70 px-2 text-[10px] font-black uppercase tracking-wide text-slate-900">
-                LAPEX
-              </span>
-              <span className="text-amber-100/90">{lapexSummary}</span>
+        <div className="mt-3 space-y-3 border-t border-slate-800 pt-3 text-[11px] text-slate-200">
+          {(statusLine || sessionSummary || iaSummary) && (
+            <div className="flex flex-col gap-1 text-sm md:text-base text-slate-200">
+              {statusLine && <div className="font-semibold text-slate-100">{statusLine}</div>}
+              {sessionSummary && <div className="text-slate-200">{sessionSummary}</div>}
+              {iaSummary && <div className="text-slate-200">{iaSummary}</div>}
             </div>
           )}
-          {sessionSummary && <div className="text-slate-300">{sessionSummary}</div>}
-          {iaSummary && <div className="text-slate-300">{iaSummary}</div>}
           {managerPanel}
-          {planSummary && <div className="text-slate-300">{planSummary}</div>}
+          {planSummaryText && (
+            <div className="mt-5 border-t border-slate-800 pt-4">
+              <p className="text-xs md:text-sm font-semibold text-slate-400 uppercase tracking-wide mb-1.5">
+                Plan de hoy
+              </p>
+              <p className="text-sm md:text-base text-slate-100 leading-relaxed max-w-3xl">
+                {planSummaryText}
+              </p>
+            </div>
+          )}
         </div>
       )}
       {!isOpen && managerPanel}

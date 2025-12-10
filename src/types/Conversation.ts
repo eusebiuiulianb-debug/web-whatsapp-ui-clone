@@ -73,6 +73,8 @@ interface Conversation {
     todayHighestTier: string | null;
     todayLastPurchaseAt: string | null;
   } | null;
+  isBlocked?: boolean;
+  isArchived?: boolean;
 }
 
 interface ConversationListData {
@@ -132,6 +134,8 @@ interface ConversationListData {
     todayHighestTier: string | null;
     todayLastPurchaseAt: string | null;
   } | null;
+  isBlocked?: boolean;
+  isArchived?: boolean;
 }
 
 export type { Message, Conversation, ConversationListData }

@@ -40,50 +40,88 @@ export default function FanManagerPanel({ fanId, onSummary, onSuggestionClick }:
   const riskColor =
     data.riskLevel === "HIGH" ? "text-rose-200" : data.riskLevel === "MEDIUM" ? "text-amber-200" : "text-emerald-200";
 
+  const scoreLabel = data.healthScore ? `${data.segment} · ${data.healthScore}` : data.segment;
+  const stageLabel = data.relationshipStage;
+  const riskLabel =
+    data.riskLevel === "HIGH" ? "Riesgo alto" : data.riskLevel === "MEDIUM" ? "Riesgo medio" : "Riesgo bajo";
+  const styleLabel = data.communicationStyle ? `Estilo ${data.communicationStyle}` : null;
+  const daysLeftLabel = data.hasActivePack
+    ? `${typeof data.daysToExpiry === "number" ? `${data.daysToExpiry} días restantes` : "Con pack activo"}`
+    : "Sin pack activo";
+  const riskChipClass =
+    data.riskLevel === "HIGH"
+      ? "border-rose-400/70 bg-rose-500/10 text-rose-100"
+      : data.riskLevel === "MEDIUM"
+      ? "border-amber-400/70 bg-amber-500/10 text-amber-100"
+      : "border-emerald-400/70 bg-emerald-500/10 text-emerald-100";
+
   return (
-    <div className="rounded-lg border border-slate-700 bg-slate-900/70 p-3 text-[11px] text-slate-200 space-y-1">
-      <div className="flex items-center justify-between">
-        <span className="font-semibold">Manager IA</span>
-        <span className="inline-flex items-center gap-1 rounded-full border border-slate-700 px-2 py-[2px] text-[10px] uppercase tracking-wide">
-          {data.segment}
-          <span className={riskColor}>{data.healthScore}</span>
-        </span>
-      </div>
-      <div className="flex items-center justify-between text-slate-300">
-        <span>Etapa</span>
-        <span className="uppercase">{data.relationshipStage}</span>
-      </div>
-      {data.communicationStyle && (
-        <div className="flex items-center justify-between text-slate-300">
-          <span>Estilo</span>
-          <span className="uppercase">{data.communicationStyle}</span>
+    <div className="rounded-2xl bg-slate-950/60 border border-slate-800 px-4 py-3 md:px-5 md:py-4 flex flex-col gap-4">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex flex-wrap items-center gap-2 md:gap-3">
+          <span className="text-sm md:text-base font-semibold text-slate-50">Manager IA</span>
+          {scoreLabel && (
+            <span className="inline-flex items-center rounded-full border border-emerald-500/60 bg-emerald-500/5 px-3 py-0.5 text-xs md:text-sm font-medium text-emerald-300">
+              {scoreLabel}
+            </span>
+          )}
+          {stageLabel && (
+            <span className="inline-flex items-center rounded-full border border-slate-700 bg-slate-900/60 px-3 py-0.5 text-xs md:text-sm text-slate-100">
+              {stageLabel}
+            </span>
+          )}
+          {riskLabel && (
+            <span className={`inline-flex items-center rounded-full px-3 py-0.5 text-xs md:text-sm font-medium ${riskChipClass}`}>
+              {riskLabel}
+            </span>
+          )}
+          {styleLabel && (
+            <span className="inline-flex items-center rounded-full border border-sky-500/60 bg-sky-500/5 px-3 py-0.5 text-xs md:text-sm text-sky-200">
+              {styleLabel}
+            </span>
+          )}
+          {daysLeftLabel && (
+            <span className="inline-flex items-center rounded-full border border-slate-700 bg-slate-900/60 px-3 py-0.5 text-xs md:text-sm text-slate-200">
+              {daysLeftLabel}
+            </span>
+          )}
         </div>
-      )}
-      <div className="flex items-center justify-between text-slate-300">
-        <span>Caduca</span>
-        <span>{data.hasActivePack ? data.daysToExpiry ?? "—" : "Sin pack activo"}</span>
       </div>
-      <div className="text-slate-200">{data.priorityReason}</div>
-      <div className="text-slate-300">Objetivo hoy: {data.objectiveToday}</div>
-      {data.lastTopic && <div className="text-slate-300">Último tema: {data.lastTopic}</div>}
-      {data.personalizationHints && <div className="text-slate-400">{data.personalizationHints}</div>}
+
+      <div className="space-y-2 text-sm md:text-base text-slate-200">
+        {data.priorityReason && <div className="text-slate-200/90">{data.priorityReason}</div>}
+        {data.objectiveToday && (
+          <div className="font-medium text-slate-100">
+            <span className="text-slate-300">Objetivo hoy: </span>
+            {data.objectiveToday}
+          </div>
+        )}
+        {data.lastTopic && <div className="text-slate-300">Último tema: {data.lastTopic}</div>}
+        {data.personalizationHints && (
+          <div className="text-xs md:text-sm text-amber-200">{data.personalizationHints}</div>
+        )}
+      </div>
+
       {data.summary && (
-        <div className="pt-1 space-y-1">
-          <div className="text-[10px] uppercase tracking-wide text-slate-400">Resumen del vínculo</div>
-          {data.summary.profile && <div className="text-slate-300">• {data.summary.profile}</div>}
-          {data.summary.recent && <div className="text-slate-300">• {data.summary.recent}</div>}
-          {data.summary.opportunity && <div className="text-slate-300">• {data.summary.opportunity}</div>}
+        <div className="mt-1 space-y-1.5 text-sm md:text-base text-slate-200">
+          <div className="font-semibold text-slate-100">Resumen del vínculo</div>
+          {data.summary.profile && <div>• {data.summary.profile}</div>}
+          {data.summary.recent && <div>• {data.summary.recent}</div>}
+          {data.summary.opportunity && <div>• {data.summary.opportunity}</div>}
         </div>
       )}
+
       {data.messageSuggestions && data.messageSuggestions.length > 0 && (
-        <div className="pt-1 space-y-1">
-          <div className="text-[10px] uppercase tracking-wide text-slate-400">Sugerencias del Manager</div>
-          <div className="flex flex-wrap gap-1">
+        <div className="space-y-2">
+          <div className="text-xs md:text-sm font-semibold text-slate-200 uppercase tracking-wide">
+            Sugerencias del Manager
+          </div>
+          <div className="mt-1 flex flex-wrap gap-3">
             {data.messageSuggestions.map((s) => (
               <button
                 key={s.id}
                 type="button"
-                className="rounded-full border border-emerald-500/50 bg-emerald-500/10 px-2 py-[2px] text-[10px] text-emerald-100 hover:bg-emerald-500/20 transition"
+                className="w-full md:w-auto inline-flex items-center justify-center rounded-full border border-emerald-500/70 bg-transparent px-5 md:px-6 py-2.5 text-sm md:text-base font-medium text-emerald-300 hover:bg-emerald-500/10 transition"
                 onClick={() => {
                   if (onSuggestionClick) onSuggestionClick(s.text);
                 }}
