@@ -3016,10 +3016,6 @@ useEffect(() => {
                   <div className="space-y-0.5">
                     <div className="text-sm font-semibold text-slate-100">Chat interno con Manager IA</div>
                     <p className="text-[11px] text-slate-400">Solo tú ves este hilo. No se envía al fan.</p>
-                    <p className="text-[11px] text-slate-400">
-                      Modo IA: {formatToneLabel(fanTone) || "—"} · Objetivo:{" "}
-                      {formatObjectiveLabel(currentObjective ?? fanManagerAnalysis.defaultObjective) || "—"}
-                    </p>
                   </div>
                   <button
                     type="button"
