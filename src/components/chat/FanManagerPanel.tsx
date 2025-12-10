@@ -6,11 +6,12 @@ type Props = {
   fanId: string | null | undefined;
   onSummary?: (summary: FanManagerSummary | null) => void;
   onSuggestionClick?: (text: string) => void;
+  hideSuggestions?: boolean;
 };
 
 const fetcher = (url: string) => fetch(url).then((res) => res.json());
 
-export default function FanManagerPanel({ fanId, onSummary, onSuggestionClick }: Props) {
+export default function FanManagerPanel({ fanId, onSummary, onSuggestionClick, hideSuggestions = false }: Props) {
   const { data, error } = useSWR<FanManagerSummary>(fanId ? `/api/fans/${fanId}/manager` : null, fetcher, {
     revalidateOnFocus: false,
   });
@@ -111,7 +112,7 @@ export default function FanManagerPanel({ fanId, onSummary, onSuggestionClick }:
         </div>
       )}
 
-      {data.messageSuggestions && data.messageSuggestions.length > 0 && (
+      {!hideSuggestions && data.messageSuggestions && data.messageSuggestions.length > 0 && (
         <div className="space-y-2">
           <div className="text-xs md:text-sm font-semibold text-slate-200 uppercase tracking-wide">
             Sugerencias del Manager

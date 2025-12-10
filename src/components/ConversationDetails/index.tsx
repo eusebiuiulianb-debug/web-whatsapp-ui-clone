@@ -1,5 +1,4 @@
-import { KeyboardEvent, MouseEvent, useContext, useEffect, useLayoutEffect, useRef, useState } from "react";
-import clsx from "clsx";
+import { KeyboardEvent, MouseEvent, useCallback, useContext, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { format, formatDistanceToNow } from "date-fns";
 import { es } from "date-fns/locale";
 import { ConversationContext } from "../../context/ConversationContext";
@@ -22,6 +21,16 @@ import { AiTemplateUsage, AiTurnMode } from "../../lib/aiTemplateTypes";
 import { getAccessSnapshot, getChatterProPlan } from "../../lib/chatPlaybook";
 import FanManagerDrawer from "../fan/FanManagerDrawer";
 import type { FanManagerSummary } from "../../server/manager/managerService";
+import clsx from "clsx";
+
+export type ManagerObjective =
+  | "bienvenida"
+  | "romper_hielo"
+  | "reactivar_fan_frio"
+  | "ofrecer_extra"
+  | "llevar_a_mensual"
+  | "renovacion";
+type ManagerQuickIntent = ManagerObjective;
 
 type ConversationDetailsProps = {
   onBackToBoard?: () => void;
@@ -132,6 +141,19 @@ export default function ConversationDetails({ onBackToBoard }: ConversationDetai
   const actionsMenuRef = useRef<HTMLDivElement | null>(null);
   const MAX_MESSAGE_HEIGHT = 180;
   const messageInputRef = useRef<HTMLTextAreaElement | null>(null);
+  type ManagerChatMessage = { id: string; role: "creator" | "manager"; text: string; createdAt: string };
+  type ManagerSuggestion = {
+    id: string;
+    label: string;
+    message: string;
+    intent?: ManagerQuickIntent;
+  };
+  const [ managerChatByFan, setManagerChatByFan ] = useState<Record<string, ManagerChatMessage[]>>({});
+  const [ managerChatInput, setManagerChatInput ] = useState("");
+  const [ isInternalChatOpen, setIsInternalChatOpen ] = useState(false);
+  const managerChatListRef = useRef<HTMLDivElement | null>(null);
+  const [ managerSuggestions, setManagerSuggestions ] = useState<ManagerSuggestion[]>([]);
+  const [ currentObjective, setCurrentObjective ] = useState<ManagerObjective | null>(null);
   const [ managerSummary, setManagerSummary ] = useState<FanManagerSummary | null>(null);
   const messagesContainerRef = useRef<HTMLDivElement | null>(null);
   const [isAtBottom, setIsAtBottom] = useState(true);
@@ -440,9 +462,16 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
   function fillMessage(template: string) {
     setMessageSend(template);
   }
-  function handleManagerSuggestion(text: string) {
+  const handleApplyManagerSuggestion = (text: string) => {
     const filled = text.replace("{nombre}", getFirstName(contactName) || contactName || "");
     setMessageSend(filled);
+    requestAnimationFrame(() => {
+      adjustMessageInputHeight();
+      messageInputRef.current?.focus();
+    });
+  };
+  function handleManagerSuggestion(text: string) {
+    handleApplyManagerSuggestion(text);
   }
 
   function getFirstName(name?: string | null) {
@@ -1159,12 +1188,198 @@ useEffect(() => {
   fetchAiSettingsTone();
 }, []);
 
-useEffect(() => {
-  setIaMessage(null);
-  setIaBlocked(false);
-  fetchAiStatus();
-  fetchAiSettingsTone();
-}, [conversation.id]);
+  useEffect(() => {
+    setIaMessage(null);
+    setIaBlocked(false);
+    fetchAiStatus();
+    fetchAiSettingsTone();
+  }, [conversation.id]);
+
+  const managerChatMessages = managerChatByFan[id ?? ""] ?? [];
+
+  useEffect(() => {
+    setManagerChatInput("");
+  }, [conversation.id]);
+
+  useEffect(() => {
+    if (!managerChatListRef.current) return;
+    managerChatListRef.current.scrollTop = managerChatListRef.current.scrollHeight;
+  }, [managerChatMessages.length]);
+
+  const buildQuickIntentQuestion = (intent: ManagerQuickIntent, fanName?: string) => {
+    const nombre = fanName || "este fan";
+    switch (intent) {
+      case "romper_hielo":
+        return `Dame 2 opciones de mensaje breve y cálido para romper el hielo con ${nombre} sin vender nada todavía. Que suenen naturales.`;
+      case "reactivar_fan_frio":
+        return `Dame 2 opciones de mensaje para reactivar a ${nombre}, que antes era activo y ahora casi no escribe. Mezcla cercanía y curiosidad por su vida, sin sonar necesitado.`;
+      case "ofrecer_extra":
+        return `Dame un mensaje para ofrecerle un extra a ${nombre} basándote en lo que le suele gustar. Una sola propuesta clara, con sensación de detalle personalizado.`;
+      case "llevar_a_mensual":
+        return `Dame un mensaje para invitar a ${nombre} a pasar a suscripción mensual, reforzando 2 o 3 beneficios que una persona como ella suele valorar. Nada agresivo.`;
+      case "renovacion":
+        return `Redáctame un mensaje conciso para renovar cuanto antes a ${nombre}, insistiendo en que caduca en breve y ofreciendo cerrar ya la renovación.`;
+      default:
+        return "";
+    }
+  };
+
+  const getMockManagerResponse = (question: string, intent?: ManagerQuickIntent) => {
+    // TODO: Reemplazar por llamada real al endpoint de IA (ej: /api/ai/manager) cuando esté disponible.
+    const prefix =
+      intent === "romper_hielo"
+        ? "Sugerencias simuladas para romper el hielo:"
+        : intent === "reactivar_fan_frio"
+        ? "Ideas simuladas para reactivar fan frío:"
+        : intent === "ofrecer_extra"
+        ? "Propuesta simulada para ofrecer un extra:"
+        : intent === "llevar_a_mensual"
+        ? "Guion simulado para llevar a mensual:"
+        : intent === "renovacion"
+        ? "Recordatorio de renovación:"
+        : "Respuesta simulada del Manager IA:";
+    return `${prefix} ${question}`;
+  };
+
+  const buildSuggestionsForObjective = useCallback(
+    (objective: ManagerObjective, fanName?: string): ManagerSuggestion[] => {
+      const nombre = fanName || "este fan";
+      switch (objective) {
+        case "bienvenida":
+        case "romper_hielo":
+          return [
+            {
+              id: "bienvenida-1",
+              label: "Bienvenida guiada 1",
+              message: `Hola ${nombre}, gracias por suscribirte 🖤 Antes de proponerte nada, me gustaría saber qué buscas exactamente aquí: más conexión, ideas concretas, algo muy específico... Así te guío al pack que mejor te encaje.`,
+              intent: "romper_hielo",
+            },
+            {
+              id: "bienvenida-2",
+              label: "Bienvenida guiada 2",
+              message: `${nombre}, me hace ilusión tenerte por aquí. Para no llenar esto de mensajes vacíos, dime en una frase qué te gustaría recibir de mí y ajusto todo a eso.`,
+              intent: "romper_hielo",
+            },
+          ];
+        case "reactivar_fan_frio":
+          return [
+            {
+              id: "reactivar-1",
+              label: "Reactivar fan frío",
+              message: `${nombre}, hace tiempo que no hablamos y me he quedado con ganas de saber cómo estás. Si te apetece seguimos donde lo dejamos; si prefieres parar aquí, también está bien, pero quería preguntártelo directamente.`,
+              intent: "reactivar_fan_frio",
+            },
+          ];
+        case "ofrecer_extra":
+          return [
+            {
+              id: "extra-1",
+              label: "Propuesta de extra",
+              message: `${nombre}, se me ha ocurrido un extra muy a tu estilo para esta semana: algo más íntimo y personalizado que lo que suelo subir. Si te interesa, te cuento en detalle y lo adaptamos a lo que te apetezca ahora mismo.`,
+              intent: "ofrecer_extra",
+            },
+          ];
+        case "llevar_a_mensual":
+          return [
+            {
+              id: "mensual-1",
+              label: "Invitar a mensual",
+              message: `${nombre}, te propongo algo: en vez de ir extra a extra, podemos pasar a un formato mensual donde cada semana tengas algo preparado solo para ti. Así tú no tienes que estar pendiente y yo mantengo el ritmo contigo. ¿Te encajaría?`,
+              intent: "llevar_a_mensual",
+            },
+          ];
+        case "renovacion":
+          return [
+            {
+              id: "renovacion-urgente-1",
+              label: "Renovación urgente 1",
+              message: `Oye ${nombre}, tu suscripción está a punto de terminar 🕒. Si quieres, este mes seguimos con el mismo ritmo y preparo algo especial solo para ti. ¿Te apetece que lo dejemos renovado ya?`,
+              intent: "renovacion",
+            },
+            {
+              id: "renovacion-urgente-2",
+              label: "Renovación urgente 2",
+              message: `${nombre}, antes de que se cierre tu acceso quería preguntarte directo: ¿prefieres seguir un mes más conmigo o parar aquí? Si te quedas, esta vez me quiero centrar en lo que más te ha servido hasta ahora.`,
+              intent: "renovacion",
+            },
+          ];
+        default:
+          return [];
+      }
+    },
+    []
+  );
+
+  const getDefaultObjectiveForFan = useCallback(
+    (fan: typeof conversation): ManagerObjective => {
+      const days = typeof fan?.daysLeft === "number" ? fan.daysLeft : null;
+      if (fan?.isNew) return "bienvenida";
+      if (days !== null && days <= 3) return "renovacion";
+      if (followUpTag === "trial_soon" || followUpTag === "monthly_soon") return "renovacion";
+      if (fan?.novsyStatus === "cold") return "reactivar_fan_frio";
+      return "ofrecer_extra";
+    },
+    [followUpTag]
+  );
+
+  useEffect(() => {
+    // TODO: sustituir por sugerencias generadas por IA según el fan y su contexto.
+    const objective = getDefaultObjectiveForFan(conversation);
+    setCurrentObjective(objective);
+    const suggestions = buildSuggestionsForObjective(objective, contactName);
+    setManagerSuggestions(suggestions.slice(0, 3));
+  }, [conversation, contactName, buildSuggestionsForObjective, getDefaultObjectiveForFan]);
+
+  const askInternalManager = (question: string, intent?: ManagerQuickIntent) => {
+    if (!id) return;
+    const trimmed = question.trim();
+    if (!trimmed) return;
+    const fanKey = id;
+    const creatorMessage: ManagerChatMessage = {
+      id: `${fanKey}-${Date.now()}-creator`,
+      role: "creator",
+      text: trimmed,
+      createdAt: new Date().toISOString(),
+    };
+    setManagerChatByFan((prev) => {
+      const prevMsgs = prev[fanKey] ?? [];
+      return { ...prev, [fanKey]: [...prevMsgs, creatorMessage] };
+    });
+    setManagerChatInput("");
+    setIsInternalChatOpen(true);
+
+    setTimeout(() => {
+      const managerMessage: ManagerChatMessage = {
+        id: `${fanKey}-${Date.now()}-manager`,
+        role: "manager",
+        text: getMockManagerResponse(trimmed, intent),
+        createdAt: new Date().toISOString(),
+      };
+      setManagerChatByFan((prev) => {
+        const prevMsgs = prev[fanKey] ?? [];
+        return { ...prev, [fanKey]: [...prevMsgs, managerMessage] };
+      });
+    }, 700);
+  };
+
+  const handleSendManagerChat = () => {
+    askInternalManager(managerChatInput);
+  };
+
+  const handleManagerChatKeyDown = (evt: KeyboardEvent<HTMLTextAreaElement>) => {
+    if (evt.key === "Enter" && !evt.shiftKey) {
+      evt.preventDefault();
+      handleSendManagerChat();
+    }
+  };
+
+  const handleManagerQuickAction = (intent: ManagerQuickIntent) => {
+    setCurrentObjective(intent);
+    const newSuggestions = buildSuggestionsForObjective(intent, contactName);
+    setManagerSuggestions(newSuggestions.slice(0, 3));
+    const question = buildQuickIntentQuestion(intent, contactName);
+    askInternalManager(question, intent);
+  };
 
 
   function handleSelectPack(packId: string) {
@@ -2509,6 +2724,9 @@ useEffect(() => {
           <div className="rounded-2xl border border-slate-800 bg-slate-950/80">
             <div className="max-h-[60vh] overflow-y-auto lg:max-h-[60vh] lg:overflow-y-auto pr-1 pb-4">
               <FanManagerDrawer
+                managerSuggestions={managerSuggestions}
+                onApplySuggestion={handleApplyManagerSuggestion}
+                currentObjective={currentObjective}
                 statusLine={statusLine}
                 lapexSummary={lapexSummary}
                 sessionSummary={sessionSummary}
@@ -2518,15 +2736,85 @@ useEffect(() => {
                 fanId={conversation.id}
                 onManagerSummary={(s) => setManagerSummary(s)}
                 onSuggestionClick={handleManagerSuggestion}
-                onQuickGreeting={handleQuickGreeting}
-                onRenew={handleRenewAction}
-                onQuickExtra={handleQuickExtraClick}
-                onPackOffer={handleMonthlyOfferFromManager}
+                onQuickGreeting={() => handleManagerQuickAction("romper_hielo")}
+                onRenew={() => handleManagerQuickAction("reactivar_fan_frio")}
+                onQuickExtra={() => handleManagerQuickAction("ofrecer_extra")}
+                onPackOffer={() => handleManagerQuickAction("llevar_a_mensual")}
                 showRenewAction={showRenewAction}
                 quickExtraDisabled={quickExtraDisabled}
                 isRecommended={isRecommended}
                 isBlocked={isChatBlocked}
               />
+              <div className="mt-3 rounded-xl border border-slate-800/80 bg-slate-900/70 p-3 flex flex-col gap-3">
+                <div className="flex items-center justify-between px-1">
+                  <div className="space-y-0.5">
+                    <div className="text-sm font-semibold text-slate-100">Chat interno con Manager IA</div>
+                    <p className="text-[11px] text-slate-400">Solo tú ves este hilo. No se envía al fan.</p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setIsInternalChatOpen((prev) => !prev)}
+                    className="text-xs px-3 py-1 rounded-full border border-slate-600 hover:bg-slate-800 transition"
+                  >
+                    {isInternalChatOpen ? "Cerrar" : "Abrir"}
+                  </button>
+                </div>
+                {isInternalChatOpen && (
+                  <>
+                    <div
+                      ref={managerChatListRef}
+                      className="flex flex-col gap-2 max-h-48 overflow-y-auto pr-1 border-t border-slate-700 pt-3"
+                    >
+                      {managerChatMessages.length === 0 && (
+                        <div className="text-[11px] text-slate-500">
+                          Aún no hay mensajes. Pregúntale algo al Manager IA sobre este fan.
+                        </div>
+                      )}
+                      {managerChatMessages.map((msg) => (
+                        <div
+                          key={msg.id}
+                          className={clsx(
+                            "flex flex-col max-w-[80%]",
+                            msg.role === "creator" ? "self-end items-end" : "self-start items-start"
+                          )}
+                        >
+                          <span className="text-[10px] uppercase tracking-wide text-slate-500">
+                            {msg.role === "creator" ? "Tú" : "Manager IA"}
+                          </span>
+                          <div
+                            className={clsx(
+                              "rounded-2xl px-3 py-2 text-sm leading-relaxed",
+                              msg.role === "creator"
+                                ? "bg-emerald-600/80 text-white"
+                                : "bg-slate-800/80 text-slate-100"
+                            )}
+                          >
+                            {msg.text}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                    <div className="flex items-end gap-2 border-t border-slate-700 pt-3">
+                      <textarea
+                        rows={1}
+                        className="flex-1 rounded-2xl bg-slate-800/80 px-3 py-2 text-sm leading-relaxed text-slate-100 placeholder:text-slate-400 resize-none overflow-y-auto max-h-32 focus:outline-none focus:ring-2 focus:ring-emerald-500/70"
+                        placeholder="Preguntarle algo al Manager IA sobre este fan…"
+                        value={managerChatInput}
+                        onChange={(e) => setManagerChatInput(e.target.value)}
+                        onKeyDown={handleManagerChatKeyDown}
+                      />
+                      <button
+                        type="button"
+                        onClick={handleSendManagerChat}
+                        className="h-9 px-4 rounded-2xl bg-emerald-600 text-sm font-semibold text-white hover:bg-emerald-500 transition disabled:opacity-50 disabled:cursor-not-allowed"
+                        disabled={!managerChatInput.trim()}
+                      >
+                        Enviar
+                      </button>
+                    </div>
+                  </>
+                )}
+              </div>
             </div>
           </div>
         </div>

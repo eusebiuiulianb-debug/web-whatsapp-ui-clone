@@ -2,8 +2,12 @@ import { useState } from "react";
 import clsx from "clsx";
 import FanManagerPanel from "../chat/FanManagerPanel";
 import type { FanManagerSummary } from "../../server/manager/managerService";
+import type { ManagerObjective } from "../ConversationDetails";
 
 type Props = {
+  managerSuggestions?: { id: string; label: string; message: string }[];
+  onApplySuggestion?: (text: string) => void;
+  currentObjective?: ManagerObjective | null;
   statusLine: string;
   lapexSummary?: string | null;
   sessionSummary?: string | null;
@@ -33,6 +37,9 @@ export default function FanManagerDrawer({
   fanId,
   onManagerSummary,
   onSuggestionClick,
+  managerSuggestions,
+  onApplySuggestion,
+  currentObjective,
   onQuickGreeting,
   onRenew,
   onQuickExtra,
@@ -46,12 +53,14 @@ export default function FanManagerDrawer({
   const summaryLine = closedSummary || planSummary || statusLine;
   const planSummaryText = planSummary ? planSummary.replace(/^Plan de hoy:\s*/i, "").trim() : null;
   const managerDisabled = isBlocked;
+  const isObjectiveActive = (objective: ManagerObjective) => currentObjective === objective;
   const managerPanel = (
     <div className={clsx("text-[11px] text-slate-200", isOpen ? "block" : "hidden")}>
       <FanManagerPanel
         fanId={fanId}
         onSummary={onManagerSummary}
         onSuggestionClick={onSuggestionClick}
+        hideSuggestions
       />
     </div>
   );
@@ -85,7 +94,7 @@ export default function FanManagerDrawer({
             type="button"
             className={clsx(
               "inline-flex items-center justify-center whitespace-nowrap rounded-full border px-6 py-2 text-sm font-medium transition",
-              isRecommended("saludo_rapido")
+              isObjectiveActive("bienvenida") || isObjectiveActive("romper_hielo") || isRecommended("saludo_rapido")
                 ? "border-emerald-400 bg-emerald-500/20 text-emerald-100"
                 : "border-slate-600 bg-slate-800/70 text-slate-100 hover:border-emerald-400 hover:text-emerald-100",
               managerDisabled && "opacity-60 cursor-not-allowed"
@@ -104,7 +113,7 @@ export default function FanManagerDrawer({
               type="button"
               className={clsx(
                 "inline-flex items-center justify-center whitespace-nowrap rounded-full border px-6 py-2 text-sm font-medium transition",
-                isRecommended("renenganche")
+                isObjectiveActive("reactivar_fan_frio") || isRecommended("renenganche")
                   ? "border-emerald-400 bg-emerald-500/20 text-emerald-100"
                   : "border-slate-600 bg-slate-800/70 text-slate-100 hover:border-emerald-400 hover:text-emerald-100",
                 managerDisabled && "opacity-60 cursor-not-allowed"
@@ -123,7 +132,7 @@ export default function FanManagerDrawer({
             type="button"
             className={clsx(
               "inline-flex items-center justify-center whitespace-nowrap rounded-full border px-6 py-2 text-sm font-medium transition",
-              isRecommended("extra_rapido")
+              isObjectiveActive("ofrecer_extra") || isRecommended("extra_rapido")
                 ? "border-emerald-400 bg-emerald-500/20 text-emerald-100"
                 : "border-slate-600 bg-slate-800/70 text-slate-100 hover:border-emerald-400 hover:text-emerald-100",
               quickExtraDisabled || managerDisabled ? "opacity-60 cursor-not-allowed" : ""
@@ -141,7 +150,7 @@ export default function FanManagerDrawer({
             type="button"
             className={clsx(
               "inline-flex items-center justify-center whitespace-nowrap rounded-full border px-6 py-2 text-sm font-medium transition",
-              isRecommended("elegir_pack")
+              isObjectiveActive("llevar_a_mensual") || isObjectiveActive("renovacion") || isRecommended("elegir_pack")
                 ? "border-emerald-400 bg-emerald-500/20 text-emerald-100"
                 : "border-slate-600 bg-slate-800/70 text-slate-100 hover:border-emerald-400 hover:text-emerald-100",
               managerDisabled && "opacity-60 cursor-not-allowed"
@@ -157,6 +166,25 @@ export default function FanManagerDrawer({
           </button>
         </div>
       </div>
+      {managerSuggestions && managerSuggestions.length > 0 && (
+        <div className="mt-3 rounded-xl border border-emerald-500/30 bg-emerald-500/5 p-3 flex flex-col gap-2">
+          <div className="text-[11px] font-semibold uppercase tracking-wide text-emerald-200">
+            Sugerencias del Manager
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {managerSuggestions.slice(0, 3).map((suggestion) => (
+              <button
+                key={suggestion.id}
+                type="button"
+                onClick={() => onApplySuggestion?.(suggestion.message)}
+                className="inline-flex items-center rounded-full border border-emerald-500/60 bg-emerald-500/10 px-4 py-2 text-[13px] font-medium text-emerald-100 hover:bg-emerald-500/20 transition"
+              >
+                {suggestion.label}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
       {isOpen && (
         <div className="mt-3 space-y-3 border-t border-slate-800 pt-3 text-[11px] text-slate-200">
           {(statusLine || sessionSummary || iaSummary) && (
