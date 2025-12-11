@@ -67,9 +67,9 @@ function deriveStep(tier: Tier | null, extrasToday: number): ChatterProStep {
 
 function deriveFocus(turnMode: AiTurnMode): ChatterProFocus {
   // Map the mental mode to a concrete focus for the chatter.
-  if (turnMode === "HEATUP") return "warmup";
-  if (turnMode === "PACK_PUSH") return "pack_offer";
-  if (turnMode === "VIP_CARE") return "vip_care";
+  if (turnMode === "push_pack") return "pack_offer";
+  if (turnMode === "vip_focus") return "vip_care";
+  if (turnMode === "care_new") return "warmup";
   return "warmup";
 }
 
@@ -173,13 +173,15 @@ export function getChatterProPlan(params: {
     focus = "vip_care";
   } else if (isRenewalWindow) {
     focus = "vip_care";
-  } else if (turnMode === "PACK_PUSH") {
+  } else if (turnMode === "push_pack") {
     focus = canPushPackBySpend ? "pack_offer" : "extra_ladder";
-  } else if (turnMode === "VIP_CARE") {
+  } else if (turnMode === "vip_focus") {
     focus = "vip_care";
+  } else if (turnMode === "care_new") {
+    focus = "warmup";
   } else if (access.hasMonthly || tierNum >= 3) {
     focus = "vip_care";
-  } else if (turnMode === "HEATUP" && !hasAnyPaid) {
+  } else if (turnMode === "auto" && !hasAnyPaid) {
     focus = "warmup";
   } else if (!hasAnyPaid) {
     focus = "extra_ladder";
@@ -241,7 +243,7 @@ export function getChatterProPlan(params: {
   else if (focus === "vip_care") {
     focusLabel = access.hasMonthly ? "Cuidar suscripción mensual" : "Cuidar VIP";
     goalLabel = "Cuidar y reforzar vínculo (sin renovación hoy)";
-    suggestedUsage = turnMode === "PACK_PUSH" && canPushPackBySpend && !isSessionLate ? "pack_offer" : "extra_quick";
+    suggestedUsage = turnMode === "push_pack" && canPushPackBySpend && !isSessionLate ? "pack_offer" : "extra_quick";
   } else {
     goalLabel = "Mantener conversación y detectar interés";
     suggestedUsage = "extra_quick";

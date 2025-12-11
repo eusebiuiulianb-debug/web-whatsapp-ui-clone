@@ -3,9 +3,10 @@ import { useEffect, useState } from "react";
 import CreatorHeader from "../../components/CreatorHeader";
 import { useCreatorConfig } from "../../context/CreatorConfigContext";
 import { AiTemplateUsage, AiTurnMode, AI_TEMPLATE_USAGES, AI_TURN_MODES, USAGE_LABELS } from "../../lib/aiTemplateTypes";
+import { normalizeAiTurnMode } from "../../lib/aiSettings";
 
 type TemplateTone = "auto" | "cercano" | "profesional" | "jugueton";
-type TemplateMode = AiTurnMode | "auto";
+type TemplateMode = AiTurnMode;
 
 type Template = {
   id?: string;
@@ -30,9 +31,10 @@ type ServerTemplate = {
 };
 
 const TURN_MODE_LABELS: Record<AiTurnMode, string> = {
-  HEATUP: "Calentar",
-  PACK_PUSH: "Empujar pack",
-  VIP_CARE: "Cuidar VIP",
+  auto: "Automático (equilibrado)",
+  push_pack: "Empujar pack",
+  care_new: "Cuidar nuevos",
+  vip_focus: "Mimar VIP",
 };
 
 export default function CreatorAiTemplatesPage() {
@@ -77,7 +79,9 @@ export default function CreatorAiTemplatesPage() {
       isActive: tpl.isActive,
       tier: tpl.tier && ["T0", "T1", "T2", "T3", "T4"].includes(tpl.tier) ? (tpl.tier as any) : null,
       mode:
-        tpl.mode && (AI_TURN_MODES as readonly string[]).includes(tpl.mode) ? (tpl.mode as AiTurnMode) : "auto",
+        tpl.mode && (AI_TURN_MODES as readonly string[]).includes(normalizeAiTurnMode(tpl.mode) as AiTurnMode)
+          ? normalizeAiTurnMode(tpl.mode)
+          : "auto",
     };
   }
 
@@ -116,7 +120,7 @@ export default function CreatorAiTemplatesPage() {
       content: tpl.content,
       isActive: tpl.isActive,
       tier: tpl.tier,
-      mode: tpl.mode === "auto" ? null : tpl.mode,
+        mode: tpl.mode === "auto" ? null : tpl.mode,
     };
 
     try {
@@ -233,13 +237,12 @@ export default function CreatorAiTemplatesPage() {
                       onChange={(e) =>
                         updateTemplate(idx, (t) => ({ ...t, mode: e.target.value as TemplateMode }))
                       }
-                    >
-                      <option value="auto">Automático</option>
-                      {AI_TURN_MODES.map((mode) => (
-                        <option key={mode} value={mode}>
-                          {TURN_MODE_LABELS[mode]}
-                        </option>
-                      ))}
+                  >
+                    {AI_TURN_MODES.map((mode) => (
+                      <option key={mode} value={mode}>
+                        {TURN_MODE_LABELS[mode]}
+                      </option>
+                    ))}
                     </select>
                   </div>
                   <div className="flex flex-col gap-1">

@@ -18,11 +18,14 @@ import { HIGH_PRIORITY_LIMIT } from "../../config/customers";
 import { EXTRAS_UPDATED_EVENT } from "../../constants/events";
 import { AiTone, normalizeTone, ACTION_TYPE_FOR_USAGE } from "../../lib/aiQuickExtra";
 import { AiTemplateUsage, AiTurnMode } from "../../lib/aiTemplateTypes";
+import { normalizeAiTurnMode } from "../../lib/aiSettings";
 import { getAccessSnapshot, getChatterProPlan } from "../../lib/chatPlaybook";
 import FanManagerDrawer from "../fan/FanManagerDrawer";
 import type { FanManagerSummary } from "../../server/manager/managerService";
 import { deriveFanManagerState, getDefaultFanTone } from "../../lib/fanManagerState";
 import { getManagerPromptTemplate } from "../../lib/managerPrompts";
+import { getAutopilotDraft } from "../../lib/managerAutopilot";
+import type { ManagerObjective as AutopilotObjective } from "../../lib/managerAutopilot";
 import type { FanManagerStateAnalysis } from "../../lib/fanManagerState";
 import type { FanTone, ManagerObjective } from "../../types/manager";
 import clsx from "clsx";
@@ -154,6 +157,10 @@ export default function ConversationDetails({ onBackToBoard }: ConversationDetai
   const [ currentObjective, setCurrentObjective ] = useState<ManagerObjective | null>(null);
   const [ managerSummary, setManagerSummary ] = useState<FanManagerSummary | null>(null);
   const [ hasManualManagerObjective, setHasManualManagerObjective ] = useState(false);
+  const [ autoPilotEnabled, setAutoPilotEnabled ] = useState(false);
+  const [ isAutoPilotLoading, setIsAutoPilotLoading ] = useState(false);
+  const [ lastAutopilotObjective, setLastAutopilotObjective ] = useState<AutopilotObjective | null>(null);
+  const [ lastAutopilotTone, setLastAutopilotTone ] = useState<FanTone | null>(null);
   const fanManagerAnalysis: FanManagerStateAnalysis = useMemo(
     () => deriveFanManagerState({ fan: conversation, messages }),
     [conversation, messages]
@@ -467,24 +474,29 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
   function fillMessage(template: string) {
     setMessageSend(template);
   }
-  const handleApplyManagerSuggestion = (text: string) => {
-    const filled = text.replace("{nombre}", getFirstName(contactName) || contactName || "");
-    setMessageSend(filled);
+  const focusMainMessageInput = (text: string) => {
+    setMessageSend(text);
     requestAnimationFrame(() => {
       adjustMessageInputHeight();
-      messageInputRef.current?.focus();
+      const input = messageInputRef.current;
+      if (input) {
+        input.focus();
+        const len = text.length;
+        input.setSelectionRange(len, len);
+        input.scrollIntoView({ block: "nearest" });
+      }
     });
+  };
+  const handleApplyManagerSuggestion = (text: string) => {
+    const filled = text.replace("{nombre}", getFirstName(contactName) || contactName || "");
+    focusMainMessageInput(filled);
   };
   function handleManagerSuggestion(text: string) {
     handleApplyManagerSuggestion(text);
   }
 
   function handleUseManagerReplyAsMainMessage(text: string) {
-    setMessageSend(text);
-    adjustMessageInputHeight();
-    requestAnimationFrame(() => {
-      messageInputRef.current?.focus();
-    });
+    focusMainMessageInput(text);
   }
 
   const handleChangeFanTone = useCallback((tone: FanTone) => {
@@ -524,8 +536,13 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
     return getManagerPromptTemplate({
       tone: fanTone,
       objective,
+      fan: conversation,
     });
   })();
+
+  const handleToggleAutoPilot = useCallback(() => {
+    setAutoPilotEnabled((prev) => !prev);
+  }, []);
 
   function getFirstName(name?: string | null) {
     if (!name) return "";
@@ -615,7 +632,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
     turnMode?: AiTurnMode;
   } | null>(null);
   const [aiTone, setAiTone] = useState<AiTone>("cercano");
-  const [aiTurnMode, setAiTurnMode] = useState<AiTurnMode>("HEATUP");
+  const [aiTurnMode, setAiTurnMode] = useState<AiTurnMode>("auto");
 
   async function fetchAiStatus() {
     try {
@@ -632,18 +649,11 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
       });
       setIaBlocked(Boolean(data.limitReached));
       if (typeof data.turnMode === "string") {
-        setAiTurnMode(normalizeTurnMode(data.turnMode));
+        setAiTurnMode(normalizeAiTurnMode(data.turnMode));
       }
     } catch (err) {
       console.error("Error obteniendo estado de IA", err);
     }
-  }
-
-  function normalizeTurnMode(value: string | null | undefined): AiTurnMode {
-    const upper = (value || "").toUpperCase();
-    if (upper === "PACK_PUSH") return "PACK_PUSH";
-    if (upper === "VIP_CARE") return "VIP_CARE";
-    return "HEATUP";
   }
 
   async function fetchAiSettingsTone() {
@@ -657,7 +667,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
       }
       const mode = data?.settings?.turnMode;
       if (typeof mode === "string") {
-        setAiTurnMode(normalizeTurnMode(mode));
+        setAiTurnMode(normalizeAiTurnMode(mode));
       }
     } catch (err) {
       console.error("Error obteniendo ajustes de IA", err);
@@ -1260,6 +1270,9 @@ useEffect(() => {
     setManagerSuggestions([]);
     setHasManualTone(false);
     setFanTone(getDefaultFanTone(fanManagerAnalysis.state));
+    setLastAutopilotObjective(null);
+    setLastAutopilotTone(null);
+    setIsAutoPilotLoading(false);
   }, [conversation.id, fanManagerAnalysis.state]);
 
   useEffect(() => {
@@ -1628,19 +1641,137 @@ useEffect(() => {
     }
   };
 
-  const handleManagerQuickAction = (intent: ManagerQuickIntent) => {
+  const AUTOPILOT_OBJECTIVES: AutopilotObjective[] = ["reactivar_fan_frio", "ofrecer_extra", "llevar_a_mensual"];
+  const isAutopilotObjective = (objective: ManagerQuickIntent): objective is AutopilotObjective =>
+    AUTOPILOT_OBJECTIVES.includes(objective as AutopilotObjective);
+  const hasAutopilotContext = !!(lastAutopilotObjective && lastAutopilotTone);
+
+  const logManagerUsage = async ({
+    actionType,
+    text,
+  }: {
+    actionType: string;
+    text: string;
+  }) => {
+    try {
+      await fetch("/api/creator/ai/log-usage", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          fanId: conversation.id,
+          actionType,
+          suggestedText: text,
+          outcome: "suggested",
+          creditsUsed: 1,
+        }),
+      });
+    } catch (err) {
+      console.error("Error registrando uso de IA del Manager", err);
+    }
+  };
+
+  const mapObjectiveToActionType = (objective: ManagerObjective | null): string => {
+    switch (objective) {
+      case "reactivar_fan_frio":
+        return "reactivation_suggestion";
+      case "ofrecer_extra":
+        return "quick_extra_suggestion";
+      case "llevar_a_mensual":
+        return "pack_offer_suggestion";
+      case "renovacion":
+        return "renewal_suggestion";
+      case "romper_hielo":
+      case "bienvenida":
+        return "warmup_suggestion";
+      default:
+        return "warmup_suggestion";
+    }
+  };
+
+  const fanSummaryForAutopilot = useMemo(
+    () => ({
+      name: (contactName || "").trim() || "este fan",
+      isVip: !!(conversation.isHighPriority || conversation.customerTier === "vip"),
+      extrasCount: typeof conversation.extrasCount === "number" ? conversation.extrasCount : 0,
+      daysLeft: typeof conversation.daysLeft === "number" ? conversation.daysLeft : null,
+      totalSpent: typeof conversation.extrasSpentTotal === "number" ? conversation.extrasSpentTotal : 0,
+    }),
+    [
+      contactName,
+      conversation.customerTier,
+      conversation.daysLeft,
+      conversation.extrasCount,
+      conversation.extrasSpentTotal,
+      conversation.isHighPriority,
+    ]
+  );
+
+  async function triggerAutopilotDraft(objective: AutopilotObjective, toneForDraft: FanTone) {
+    setIsAutoPilotLoading(true);
+    try {
+      const draft = await getAutopilotDraft({
+        tone: toneForDraft,
+        objective,
+        fan: fanSummaryForAutopilot,
+      });
+      setLastAutopilotObjective(objective);
+      setLastAutopilotTone(toneForDraft);
+      focusMainMessageInput(draft);
+      await logManagerUsage({
+        actionType: mapObjectiveToActionType(objective),
+        text: draft,
+      });
+    } catch (err) {
+      console.error("Error generando borrador de autopiloto", err);
+    } finally {
+      setIsAutoPilotLoading(false);
+    }
+  }
+
+  const handleManagerQuickAction = async (
+    intent: ManagerQuickIntent,
+    options?: { toneOverride?: FanTone; skipInternalChat?: boolean }
+  ) => {
+    if (isAutoPilotLoading) return;
     setHasManualManagerObjective(true);
     setCurrentObjective(intent);
+    const toneToUse = options?.toneOverride ?? fanTone;
+    if (options?.toneOverride) {
+      setFanTone(options.toneOverride);
+      setHasManualTone(true);
+    }
     const newSuggestions = buildSuggestionsForObjective({
       objective: intent,
       fanName: contactName,
-      tone: fanTone,
+      tone: toneToUse,
       state: fanManagerAnalysis.state,
       analysis: fanManagerAnalysis,
     });
     setManagerSuggestions(newSuggestions.slice(0, 3));
     const question = buildQuickIntentQuestion(intent, contactName);
-    askInternalManager(question, intent);
+    if (!options?.skipInternalChat) {
+      askInternalManager(question, intent);
+    }
+
+    if (autoPilotEnabled && isAutopilotObjective(intent)) {
+      await triggerAutopilotDraft(intent, toneToUse);
+    }
+  };
+
+  const handleAutopilotSoften = () => {
+    if (!autoPilotEnabled || isAutoPilotLoading || !lastAutopilotObjective) return;
+    const toneOverride: FanTone = "suave";
+    setFanTone(toneOverride);
+    setHasManualTone(true);
+    handleManagerQuickAction(lastAutopilotObjective, { toneOverride, skipInternalChat: true });
+  };
+
+  const handleAutopilotMakeBolder = () => {
+    if (!autoPilotEnabled || isAutoPilotLoading || !lastAutopilotObjective) return;
+    const toneOverride: FanTone = "picante";
+    setFanTone(toneOverride);
+    setHasManualTone(true);
+    handleManagerQuickAction(lastAutopilotObjective, { toneOverride, skipInternalChat: true });
   };
 
 
@@ -1963,7 +2094,7 @@ useEffect(() => {
   const plan = getChatterProPlan({
     ladder: (conversation.extraLadderStatus as any) ?? null,
     sessionToday: (sessionToday as any) ?? null,
-    turnMode: aiStatus?.turnMode ?? aiTurnMode ?? "HEATUP",
+    turnMode: aiStatus?.turnMode ?? aiTurnMode ?? "auto",
     hasActivePaidAccess: hasMonthly || hasSpecial,
     accessSnapshot: getAccessSnapshot({
       activeGrantTypes: conversation.activeGrantTypes,
@@ -2159,9 +2290,10 @@ useEffect(() => {
   const renewButtonLabel = isAccessExpired ? "Reenganche" : "Renovación";
 
   function getTurnModeLabel(mode: AiTurnMode) {
-    if (mode === "PACK_PUSH") return "Empujar pack";
-    if (mode === "VIP_CARE") return "Cuidar VIP";
-    return "Calentar";
+    if (mode === "push_pack") return "Empujar pack";
+    if (mode === "care_new") return "Cuidar nuevos";
+    if (mode === "vip_focus") return "Mimar VIP";
+    return "Automático (equilibrado)";
   }
 
   function getUsageLabelForPlan(usage: AiTemplateUsage | null): string | null {
@@ -3015,6 +3147,12 @@ useEffect(() => {
                 quickExtraDisabled={quickExtraDisabled}
                 isRecommended={isRecommended}
                 isBlocked={isChatBlocked}
+                autoPilotEnabled={autoPilotEnabled}
+                onToggleAutoPilot={handleToggleAutoPilot}
+                isAutoPilotLoading={isAutoPilotLoading}
+                hasAutopilotContext={hasAutopilotContext}
+                onAutopilotSoften={handleAutopilotSoften}
+                onAutopilotMakeBolder={handleAutopilotMakeBolder}
               />
               <div className="mt-2 text-[11px] text-slate-400">
                 Modo IA: <span className="text-slate-200">{formatToneLabel(fanTone) || "—"}</span> · Objetivo:{" "}
@@ -3051,7 +3189,16 @@ useEffect(() => {
                             type="button"
                             onClick={() => {
                               setManagerChatInput(managerPromptTemplate);
-                              requestAnimationFrame(() => managerChatInputRef.current?.focus());
+                              requestAnimationFrame(() => {
+                                if (managerChatInputRef.current) {
+                                  managerChatInputRef.current.focus();
+                                  managerChatInputRef.current.setSelectionRange(
+                                    managerPromptTemplate.length,
+                                    managerPromptTemplate.length
+                                  );
+                                  managerChatInputRef.current.scrollIntoView({ block: "nearest" });
+                                }
+                              });
                             }}
                             className="inline-flex items-center rounded-full border border-emerald-500/60 bg-emerald-500/10 px-4 py-1.5 text-[12px] font-medium text-emerald-100 hover:bg-emerald-500/20 transition"
                           >

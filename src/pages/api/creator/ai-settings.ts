@@ -3,6 +3,7 @@ import { Prisma } from "@prisma/client";
 import prisma from "../../../lib/prisma";
 import { sendBadRequest, sendServerError } from "../../../lib/apiError";
 import { AI_TURN_MODES, type AiTurnMode } from "../../../lib/aiTemplateTypes";
+import { normalizeAiBaseTone, normalizeAiTurnMode } from "../../../lib/aiSettings";
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method === "GET") {
@@ -71,8 +72,9 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
 
   if (tone !== undefined) {
     if (typeof tone !== "string") return sendBadRequest(res, "tone must be a string");
-    updateData.tone = tone;
-    createData.tone = tone;
+    const normalizedTone = normalizeAiBaseTone(tone);
+    updateData.tone = normalizedTone as any;
+    createData.tone = normalizedTone as any;
   }
   if (spicinessLevel !== undefined) {
     if (!Number.isInteger(spicinessLevel)) return sendBadRequest(res, "spicinessLevel must be a number");
@@ -147,11 +149,12 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
   }
   if (turnMode !== undefined) {
     const validModes = AI_TURN_MODES as readonly string[];
-    if (turnMode !== null && !validModes.includes(String(turnMode))) {
+    const normalizedMode = normalizeAiTurnMode(typeof turnMode === "string" ? turnMode : null);
+    if (turnMode !== null && !validModes.includes(normalizedMode)) {
       return sendBadRequest(res, "turnMode must be a valid AI turn mode");
     }
-    updateData.turnMode = (turnMode as AiTurnMode | null) ?? "HEATUP";
-    createData.turnMode = (turnMode as AiTurnMode | null) ?? "HEATUP";
+    updateData.turnMode = (normalizedMode as any) ?? "auto";
+    createData.turnMode = (normalizedMode as any) ?? "auto";
   }
 
   try {

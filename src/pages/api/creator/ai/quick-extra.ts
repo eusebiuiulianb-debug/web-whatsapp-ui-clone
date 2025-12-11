@@ -9,6 +9,7 @@ import {
 import { getExtraLadderStatusForFan } from "../../../../lib/extraLadder";
 import type { ExtraTier } from "@prisma/client";
 import prisma from "../../../../lib/prisma";
+import { normalizeAiTurnMode } from "../../../../lib/aiSettings";
 
 const DEFAULT_CREATOR_ID = "creator-1";
 
@@ -29,7 +30,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   const finalUsage: AiTemplateUsage = usage ?? fallbackUsage ?? "extra_quick";
   const modeRaw = typeof req.body?.mode === "string" ? (req.body.mode as AiTurnMode) : null;
   const mode: AiTurnMode =
-    modeRaw && (AI_TURN_MODES as readonly string[]).includes(modeRaw) ? modeRaw : (await getDefaultTurnMode());
+    modeRaw && (AI_TURN_MODES as readonly string[]).includes(modeRaw) ? modeRaw : normalizeAiTurnMode(await getDefaultTurnMode());
   let suggestedTier: ExtraTier | null = null;
 
   try {
@@ -75,9 +76,10 @@ async function getDefaultTurnMode(): Promise<AiTurnMode> {
         select: { turnMode: true },
       }));
 
-    return (settings?.turnMode as AiTurnMode) ?? "HEATUP";
+    const stored = normalizeAiTurnMode(settings?.turnMode as string | null | undefined);
+    return stored ?? "auto";
   } catch (err) {
     console.error("Error loading default turn mode", err);
-    return "HEATUP";
+    return "auto";
   }
 }

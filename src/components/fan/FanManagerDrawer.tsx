@@ -57,6 +57,12 @@ type Props = {
   quickExtraDisabled?: boolean;
   isRecommended: (id: string) => boolean;
   isBlocked?: boolean;
+  autoPilotEnabled?: boolean;
+  onToggleAutoPilot?: () => void;
+  isAutoPilotLoading?: boolean;
+  hasAutopilotContext?: boolean;
+  onAutopilotSoften?: () => void;
+  onAutopilotMakeBolder?: () => void;
 };
 
 export default function FanManagerDrawer({
@@ -86,6 +92,12 @@ export default function FanManagerDrawer({
   quickExtraDisabled,
   isRecommended,
   isBlocked = false,
+  autoPilotEnabled = false,
+  onToggleAutoPilot,
+  isAutoPilotLoading = false,
+  hasAutopilotContext = false,
+  onAutopilotSoften,
+  onAutopilotMakeBolder,
 }: Props) {
   const [isOpen, setIsOpen] = useState(false);
   const summaryLine = closedSummary || planSummary || statusLine;
@@ -110,6 +122,7 @@ export default function FanManagerDrawer({
   const suggestedObjectiveLabel = formatObjectiveLabel(suggestedObjective ?? null);
   const toneLabel = formatToneLabel(tone);
   const isObjectiveActive = (objective: ManagerObjective) => currentObjective === objective;
+  const objectivesLocked = managerDisabled || isAutoPilotLoading;
 
   return (
     <div className="rounded-2xl border border-slate-800 bg-slate-950/80 px-4 py-3 md:px-6 md:py-4 text-[11px] text-slate-100 space-y-2">
@@ -176,18 +189,71 @@ export default function FanManagerDrawer({
             )}
             {summaryLine && <div className="text-[11px] md:text-xs text-slate-300 truncate">{summaryLine}</div>}
           </div>
-          <button
-            type="button"
-            onClick={() => setIsOpen((prev) => !prev)}
-            className="self-start rounded-full border border-slate-700 bg-slate-800/80 px-3 py-1.5 text-[11px] font-semibold text-slate-100 hover:bg-slate-700"
-          >
-            {isOpen ? "Ocultar ▴" : "Ver más ▾"}
-          </button>
+          <div className="flex flex-col items-end gap-2">
+            {onToggleAutoPilot && (
+              <button
+                type="button"
+                onClick={onToggleAutoPilot}
+                disabled={managerDisabled}
+                className={clsx(
+                  "inline-flex items-center gap-1 rounded-full border px-3 py-1.5 text-[11px] font-semibold transition",
+                  autoPilotEnabled
+                    ? "border-emerald-400 bg-emerald-500/20 text-emerald-100"
+                    : "border-slate-600 bg-slate-800/80 text-slate-100 hover:border-emerald-400 hover:text-emerald-100",
+                  managerDisabled && "opacity-60 cursor-not-allowed"
+                )}
+                title="Genera un borrador automático al elegir objetivo."
+              >
+                ⚡ Autopiloto IA {autoPilotEnabled ? "ON" : "OFF"}
+              </button>
+            )}
+            {autoPilotEnabled && hasAutopilotContext && (
+              <div className="flex flex-col items-end gap-1 text-[11px] text-slate-300">
+                <span className="text-right">Ajustar mensaje rápido:</span>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    disabled={isAutoPilotLoading || managerDisabled}
+                    onClick={onAutopilotSoften}
+                    className={clsx(
+                      "rounded-full border px-3 py-1 transition",
+                      "border-slate-600 bg-slate-800/80 text-slate-100 hover:border-emerald-400 hover:text-emerald-100",
+                      (isAutoPilotLoading || managerDisabled) && "opacity-60 cursor-not-allowed"
+                    )}
+                  >
+                    Suavizar
+                  </button>
+                  <button
+                    type="button"
+                    disabled={isAutoPilotLoading || managerDisabled}
+                    onClick={onAutopilotMakeBolder}
+                    className={clsx(
+                      "rounded-full border px-3 py-1 transition",
+                      "border-slate-600 bg-slate-800/80 text-slate-100 hover:border-emerald-400 hover:text-emerald-100",
+                      (isAutoPilotLoading || managerDisabled) && "opacity-60 cursor-not-allowed"
+                    )}
+                  >
+                    Más directo
+                  </button>
+                </div>
+              </div>
+            )}
+            <button
+              type="button"
+              onClick={() => setIsOpen((prev) => !prev)}
+              className="self-start rounded-full border border-slate-700 bg-slate-800/80 px-3 py-1.5 text-[11px] font-semibold text-slate-100 hover:bg-slate-700"
+            >
+              {isOpen ? "Ocultar ▴" : "Ver más ▾"}
+            </button>
+          </div>
         </div>
         {managerDisabled && (
           <div className="rounded-lg border border-amber-400/50 bg-amber-500/10 px-3 py-2 text-[11px] text-amber-100">
             Manager IA está desactivado en este chat bloqueado.
           </div>
+        )}
+        {isAutoPilotLoading && (
+          <div className="text-[11px] text-emerald-200">⚡ Generando borrador…</div>
         )}
         <div className="mt-3 flex flex-wrap items-center gap-3">
           <button
@@ -197,14 +263,14 @@ export default function FanManagerDrawer({
               isObjectiveActive("bienvenida") || isObjectiveActive("romper_hielo") || isRecommended("saludo_rapido")
                 ? "border-emerald-400 bg-emerald-500/20 text-emerald-100"
                 : "border-slate-600 bg-slate-800/70 text-slate-100 hover:border-emerald-400 hover:text-emerald-100",
-              managerDisabled && "opacity-60 cursor-not-allowed"
+              objectivesLocked && "opacity-60 cursor-not-allowed"
             )}
             onClick={() => {
-              if (managerDisabled) return;
+              if (objectivesLocked) return;
               onQuickGreeting();
             }}
             title="Mensaje breve para iniciar conversación o retomar contacto de forma natural."
-            disabled={managerDisabled}
+            disabled={objectivesLocked}
           >
             Romper el hielo
           </button>
@@ -216,14 +282,14 @@ export default function FanManagerDrawer({
                 isObjectiveActive("reactivar_fan_frio") || isRecommended("renenganche")
                   ? "border-emerald-400 bg-emerald-500/20 text-emerald-100"
                   : "border-slate-600 bg-slate-800/70 text-slate-100 hover:border-emerald-400 hover:text-emerald-100",
-                managerDisabled && "opacity-60 cursor-not-allowed"
+                objectivesLocked && "opacity-60 cursor-not-allowed"
               )}
               onClick={() => {
-                if (managerDisabled) return;
+                if (objectivesLocked) return;
                 onRenew();
               }}
               title="Pide feedback de lo que más le ha ayudado hasta ahora y adelanta que en unos días llegará el enlace de renovación."
-              disabled={managerDisabled}
+              disabled={objectivesLocked}
             >
               Reactivar fan frío
             </button>
@@ -231,17 +297,17 @@ export default function FanManagerDrawer({
           <button
             type="button"
             className={clsx(
-              "inline-flex items-center justify-center whitespace-nowrap rounded-full border px-6 py-2 text-sm font-medium transition",
-              isObjectiveActive("ofrecer_extra") || isRecommended("extra_rapido")
-                ? "border-emerald-400 bg-emerald-500/20 text-emerald-100"
-                : "border-slate-600 bg-slate-800/70 text-slate-100 hover:border-emerald-400 hover:text-emerald-100",
-              quickExtraDisabled || managerDisabled ? "opacity-60 cursor-not-allowed" : ""
+                "inline-flex items-center justify-center whitespace-nowrap rounded-full border px-6 py-2 text-sm font-medium transition",
+                isObjectiveActive("ofrecer_extra") || isRecommended("extra_rapido")
+                  ? "border-emerald-400 bg-emerald-500/20 text-emerald-100"
+                  : "border-slate-600 bg-slate-800/70 text-slate-100 hover:border-emerald-400 hover:text-emerald-100",
+              quickExtraDisabled || objectivesLocked ? "opacity-60 cursor-not-allowed" : ""
             )}
             onClick={() => {
-              if (managerDisabled || quickExtraDisabled) return;
+              if (objectivesLocked || quickExtraDisabled) return;
               onQuickExtra();
             }}
-            disabled={quickExtraDisabled || managerDisabled}
+            disabled={quickExtraDisabled || objectivesLocked}
             title="Propuesta suave para ofrecer un contenido extra o actividad puntual."
           >
             Ofrecer un extra
@@ -249,18 +315,18 @@ export default function FanManagerDrawer({
           <button
             type="button"
             className={clsx(
-              "inline-flex items-center justify-center whitespace-nowrap rounded-full border px-6 py-2 text-sm font-medium transition",
-              isObjectiveActive("llevar_a_mensual") || isObjectiveActive("renovacion") || isRecommended("elegir_pack")
-                ? "border-emerald-400 bg-emerald-500/20 text-emerald-100"
-                : "border-slate-600 bg-slate-800/70 text-slate-100 hover:border-emerald-400 hover:text-emerald-100",
-              managerDisabled && "opacity-60 cursor-not-allowed"
+                "inline-flex items-center justify-center whitespace-nowrap rounded-full border px-6 py-2 text-sm font-medium transition",
+                isObjectiveActive("llevar_a_mensual") || isObjectiveActive("renovacion") || isRecommended("elegir_pack")
+                  ? "border-emerald-400 bg-emerald-500/20 text-emerald-100"
+                  : "border-slate-600 bg-slate-800/70 text-slate-100 hover:border-emerald-400 hover:text-emerald-100",
+              objectivesLocked && "opacity-60 cursor-not-allowed"
               )}
             onClick={() => {
-              if (managerDisabled) return;
+              if (objectivesLocked) return;
               onPackOffer();
             }}
             title="Invitación clara para pasar al pack mensual sin presión."
-            disabled={managerDisabled}
+            disabled={objectivesLocked}
           >
             Llevar a mensual
           </button>

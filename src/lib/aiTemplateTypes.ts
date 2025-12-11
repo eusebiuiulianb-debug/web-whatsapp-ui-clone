@@ -1,3 +1,6 @@
+import type { AiTurnMode } from "./aiSettings";
+import { AI_TURN_MODES as AI_TURN_MODE_VALUES } from "./aiSettings";
+
 export const AI_TEMPLATE_USAGES = [
   "welcome",
   "warmup",
@@ -12,7 +15,7 @@ export const AI_TEMPLATE_USAGES = [
 
 export type AiTemplateUsage = (typeof AI_TEMPLATE_USAGES)[number];
 
-export const AI_TURN_MODES = ["HEATUP", "PACK_PUSH", "VIP_CARE"] as const;
+export const AI_TURN_MODES = AI_TURN_MODE_VALUES;
 export type AiTurnMode = (typeof AI_TURN_MODES)[number];
 
 export const USAGE_LABELS: Record<AiTemplateUsage, string> = {

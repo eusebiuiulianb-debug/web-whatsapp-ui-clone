@@ -3,6 +3,7 @@ import prisma from "../../../../lib/prisma";
 import { DEFAULT_AI_TEMPLATES } from "../../../../lib/defaultAiTemplates";
 import { AI_TEMPLATE_USAGES, AI_TURN_MODES, AiTemplateUsage, type AiTurnMode } from "../../../../lib/aiTemplateTypes";
 import type { ExtraTier, Prisma } from "@prisma/client";
+import { normalizeAiTurnMode } from "../../../../lib/aiSettings";
 
 type SaveTemplateBody = {
   id?: string;
@@ -107,8 +108,14 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
   const VALID_TIERS: ExtraTier[] = ["T0", "T1", "T2", "T3", "T4"];
   const tier = tierRaw && VALID_TIERS.includes(tierRaw) ? tierRaw : tierRaw === null ? null : undefined;
   const modeRaw = body.mode === null ? null : typeof body.mode === "string" ? (body.mode as AiTurnMode) : undefined;
+  const normalizedMode =
+    modeRaw === null ? null : typeof modeRaw === "string" ? normalizeAiTurnMode(modeRaw) : undefined;
   const mode =
-    modeRaw && (AI_TURN_MODES as readonly string[]).includes(modeRaw) ? modeRaw : modeRaw === null ? null : undefined;
+    normalizedMode && (AI_TURN_MODES as readonly string[]).includes(normalizedMode)
+      ? normalizedMode
+      : normalizedMode === null
+      ? null
+      : undefined;
 
   if (!name) return res.status(400).json({ error: "name is required" });
   if (!content) return res.status(400).json({ error: "content is required" });

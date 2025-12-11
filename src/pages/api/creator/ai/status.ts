@@ -1,5 +1,6 @@
 import type { NextApiRequest, NextApiResponse } from "next";
 import prisma from "../../../../lib/prisma";
+import { normalizeAiTurnMode } from "../../../../lib/aiSettings";
 
 export default async function handler(_req: NextApiRequest, res: NextApiResponse) {
   try {
@@ -33,7 +34,7 @@ export default async function handler(_req: NextApiRequest, res: NextApiResponse
       usedToday,
       remainingToday,
       limitReached,
-      turnMode: settings.turnMode,
+      turnMode: normalizeAiTurnMode(settings.turnMode as string | null | undefined),
     });
   } catch (err) {
     console.error("Error fetching AI status", err);

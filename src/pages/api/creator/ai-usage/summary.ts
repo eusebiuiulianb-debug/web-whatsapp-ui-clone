@@ -1,5 +1,6 @@
 import type { NextApiRequest, NextApiResponse } from "next";
 import prisma from "../../../../lib/prisma";
+import { buildDailyUsageFromLogs } from "../../../../lib/aiUsage";
 
 const DEFAULT_CREATOR_ID = "creator-1";
 const MS_PER_DAY = 1000 * 60 * 60 * 24;
@@ -17,6 +18,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     const startToday = new Date();
     startToday.setHours(0, 0, 0, 0);
     const startLast7 = new Date(Date.now() - 7 * MS_PER_DAY);
+    const startLast30 = new Date(Date.now() - 30 * MS_PER_DAY);
 
     const [totalToday, totalLast7Days] = await Promise.all([
       prisma.aiUsageLog.count({ where: { creatorId: DEFAULT_CREATOR_ID, createdAt: { gte: startToday } } }),
@@ -52,9 +54,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     const byActionTypeLast7Days = aggregateByAction(logsLast7);
 
     const recentLogs = await prisma.aiUsageLog.findMany({
-      where: { creatorId: DEFAULT_CREATOR_ID },
+      where: { creatorId: DEFAULT_CREATOR_ID, createdAt: { gte: startLast30 } },
       orderBy: { createdAt: "desc" },
-      take: 20,
+      take: 2000,
       select: {
         id: true,
         createdAt: true,
@@ -66,6 +68,12 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         turnMode: true,
       },
     });
+
+    const dailyUsage = buildDailyUsageFromLogs(recentLogs, 30).map((d) => ({
+      date: d.date,
+      count: d.suggestionsCount,
+    }));
+    console.log("DAILY_USAGE_DEBUG", dailyUsage.slice(-5));
 
     const settings = await prisma.creatorAiSettings.findUnique({
       where: { creatorId: DEFAULT_CREATOR_ID },
@@ -86,6 +94,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       },
       settings: settings ?? null,
       recentLogs,
+      dailyUsage,
     });
   } catch (err) {
     console.error("Error building AI usage summary", err);
@@ -100,6 +109,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       },
       settings: null,
       recentLogs: [],
+      dailyUsage: [] as { date: string; count: number }[],
     });
   }
 }

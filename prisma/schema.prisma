@@ -141,9 +141,10 @@ enum ExtraTier {
 }
 
 enum AiTurnMode {
-  HEATUP
-  PACK_PUSH
-  VIP_CARE
+  auto       @map("HEATUP")
+  push_pack  @map("PACK_PUSH")
+  care_new   @map("CARE_NEW")
+  vip_focus  @map("VIP_CARE")
 }
 
 enum TimeOfDay {
@@ -221,7 +222,7 @@ model CreatorAiSettings {
 
   creditsAvailable Int  @default(0)
   hardLimitPerDay  Int?
-  turnMode         AiTurnMode @default(HEATUP)
+  turnMode         AiTurnMode @default(auto)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -243,7 +244,7 @@ model AiUsageLog {
 
   creditsUsed Int      @default(1)
   createdAt   DateTime @default(now())
-  turnMode    AiTurnMode @default(HEATUP)
+  turnMode    AiTurnMode @default(auto)
 }
 
 model CreatorAiTemplate {
