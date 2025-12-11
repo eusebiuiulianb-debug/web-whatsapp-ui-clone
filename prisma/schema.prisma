@@ -31,6 +31,7 @@ model Creator {
   aiTemplates  CreatorAiTemplate[]
   managerConversation ManagerConversation?
   contentManagerConversation ContentManagerConversation?
+  managerAiMessages ManagerAiMessage[]
 }
 
 model Pack {
@@ -140,6 +141,27 @@ enum ExtraTier {
   T4
 }
 
+enum ManagerAiTab {
+  STRATEGY
+  CONTENT
+}
+
+enum ManagerAiRole {
+  CREATOR
+  ASSISTANT
+}
+
+enum AiUsageOrigin {
+  FAN_ASSISTANT
+  MANAGER_STRATEGY
+  MANAGER_CONTENT
+}
+
+enum AiUsageType {
+  FAN_ASSISTANT
+  MANAGER
+}
+
 enum AiTurnMode {
   auto       @map("HEATUP")
   push_pack  @map("PACK_PUSH")
@@ -229,22 +251,26 @@ model CreatorAiSettings {
 }
 
 model AiUsageLog {
-  id        Int     @id @default(autoincrement())
+  id        String        @id @default(cuid())
   creatorId String
-  creator   Creator @relation(fields: [creatorId], references: [id])
+  creator   Creator       @relation(fields: [creatorId], references: [id])
 
   fanId String?
   fan   Fan?    @relation(fields: [fanId], references: [id])
 
-  actionType     String
-  contextSummary String?
-  suggestedText  String
-  outcome        String
-  finalText      String?
+  type        AiUsageType   @default(FAN_ASSISTANT)
+  origin      AiUsageOrigin @default(FAN_ASSISTANT)
+  creditsUsed Int           @default(1)
+  context     Json?
+  createdAt   DateTime      @default(now())
+  turnMode    AiTurnMode    @default(auto)
 
-  creditsUsed Int      @default(1)
-  createdAt   DateTime @default(now())
-  turnMode    AiTurnMode @default(auto)
+  // Campos heredados para compatibilidad con usos anteriores
+  actionType     String?
+  contextSummary String?
+  suggestedText  String?
+  outcome        String?
+  finalText      String?
 }
 
 model CreatorAiTemplate {
@@ -304,4 +330,19 @@ model ContentManagerMessage {
   createdAt      DateTime                   @default(now())
 
   @@index([conversationId, createdAt])
+}
+
+model ManagerAiMessage {
+  id          String         @id @default(cuid())
+  creatorId   String
+  tab         ManagerAiTab
+  role        ManagerAiRole
+  content     String
+  creditsUsed Int            @default(0)
+  meta        Json?
+  createdAt   DateTime       @default(now())
+
+  creator Creator @relation(fields: [creatorId], references: [id])
+
+  @@index([creatorId, tab, createdAt])
 }

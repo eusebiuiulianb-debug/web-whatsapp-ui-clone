@@ -4,19 +4,19 @@ import type { CreatorBusinessSnapshot } from "../../lib/creatorManager";
 
 type ManagerChatMessage = {
   id: string;
-  sender: "CREATOR" | "MANAGER";
+  role: "CREATOR" | "ASSISTANT";
   content: string;
   createdAt: string;
 };
 
 type ManagerChatGetResponse = {
-  conversationId: string;
   messages: ManagerChatMessage[];
 };
 
 type ManagerChatPostResponse = {
-  conversationId: string;
-  messages: ManagerChatMessage[];
+  reply: { text: string };
+  creditsUsed: number;
+  creditsRemaining: number;
   usedFallback?: boolean;
 };
 
@@ -58,22 +58,28 @@ export function ManagerChatCard({ businessSnapshot, hideTitle = false, embedded 
     }
   }, [businessSnapshot]);
 
-  async function loadMessages() {
+  async function loadMessages(opts?: { silent?: boolean }) {
     try {
-      setLoading(true);
+      if (!opts?.silent) {
+        setLoading(true);
+      }
       setError(null);
-      const res = await fetch("/api/creator/manager-chat");
+      const res = await fetch("/api/creator/ai-manager/messages?tab=STRATEGY");
       if (!res.ok) {
         throw new Error("No se pudo cargar el historial");
       }
       const data = (await res.json()) as ManagerChatGetResponse;
       setMessages((data?.messages ?? []).slice(-50));
-      setUsedFallback(false);
+      if (!opts?.silent) {
+        setUsedFallback(false);
+      }
     } catch (err) {
       console.error(err);
       setError("No se pudo cargar el chat del Manager IA.");
     } finally {
-      setLoading(false);
+      if (!opts?.silent) {
+        setLoading(false);
+      }
     }
   }
 
@@ -82,10 +88,17 @@ export function ManagerChatCard({ businessSnapshot, hideTitle = false, embedded 
     try {
       setSending(true);
       setError(null);
-      const res = await fetch("/api/creator/manager-chat", {
+      const now = new Date().toISOString();
+      const optimisticId = `local-${Date.now()}`;
+      setMessages((prev) => [
+        ...prev,
+        { id: optimisticId, role: "CREATOR", content: input.trim(), createdAt: now },
+      ]);
+
+      const res = await fetch("/api/creator/ai-manager/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message: input.trim() }),
+        body: JSON.stringify({ tab: "STRATEGY", message: input.trim() }),
       });
 
       if (!res.ok) {
@@ -94,11 +107,21 @@ export function ManagerChatCard({ businessSnapshot, hideTitle = false, embedded 
       }
 
       const data = (await res.json()) as ManagerChatPostResponse;
-      setMessages((prev) => [...prev, ...(data?.messages ?? [])].slice(-50));
+      const assistantMessage: ManagerChatMessage = {
+        id: `assistant-${Date.now()}`,
+        role: "ASSISTANT",
+        content: data?.reply?.text ?? "Sin respuesta",
+        createdAt: new Date().toISOString(),
+      };
+      setMessages((prev) =>
+        [...prev.filter((m) => m.id !== optimisticId), assistantMessage].slice(-50)
+      );
       setUsedFallback(Boolean(data?.usedFallback));
+      void loadMessages({ silent: true });
       setInput("");
     } catch (err) {
       console.error(err);
+      setMessages((prev) => prev.filter((m) => !m.id.startsWith("local-")));
       setError("No se pudo enviar el mensaje al Manager IA.");
     } finally {
       setSending(false);
@@ -200,7 +223,7 @@ export function ManagerChatCard({ businessSnapshot, hideTitle = false, embedded 
           {!loading && messages.length === 0 && <div className="text-[12px] text-slate-400">Aún no hay mensajes.</div>}
           {!loading &&
             messages.map((msg) => {
-              const isCreator = msg.sender === "CREATOR";
+              const isCreator = msg.role === "CREATOR";
               const time = new Date(msg.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
               if (isCreator) {
                 return (

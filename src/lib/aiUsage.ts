@@ -1,5 +1,5 @@
 import prisma from "./prisma";
-import type { AiTurnMode as PrismaAiTurnMode } from "@prisma/client";
+import { AiUsageOrigin, AiUsageType, type AiTurnMode as PrismaAiTurnMode } from "@prisma/client";
 import type { AiTurnMode } from "./aiSettings";
 import { normalizeAiTurnMode } from "./aiSettings";
 
@@ -70,6 +70,8 @@ export async function logAiUsage(params: {
     data: {
       creatorId,
       fanId,
+      type: AiUsageType.FAN_ASSISTANT,
+      origin: AiUsageOrigin.FAN_ASSISTANT,
       actionType,
       contextSummary,
       suggestedText,
