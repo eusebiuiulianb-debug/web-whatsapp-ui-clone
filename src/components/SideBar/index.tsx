@@ -1,5 +1,6 @@
 import ConversationList from "../ConversationList";
 import { useCallback, useContext, useEffect, useRef, useState } from "react";
+import { useRouter } from "next/router";
 import CreatorHeader from "../CreatorHeader";
 import { useCreatorConfig } from "../../context/CreatorConfigContext";
 import CreatorSettingsPanel from "../CreatorSettingsPanel";
@@ -17,6 +18,7 @@ import { EXTRAS_UPDATED_EVENT } from "../../constants/events";
 import { HIGH_PRIORITY_LIMIT } from "../../config/customers";
 
 export default function SideBar() {
+  const router = useRouter();
   const [ search, setSearch ] = useState("");
   const [ isSettingsOpen, setIsSettingsOpen ] = useState(false);
   const [ fans, setFans ] = useState<ConversationListData[]>([]);
@@ -552,6 +554,16 @@ export default function SideBar() {
     if (fans.length === 0) return;
     updateUnreadCounts(fans, unreadMap);
   }, [fans, unreadMap]);
+
+  useEffect(() => {
+    const fanIdFromQuery = typeof router.query.fanId === "string" ? router.query.fanId : null;
+    if (!fanIdFromQuery) return;
+    if (fans.length === 0) return;
+    const target = fans.find((fan) => fan.id === fanIdFromQuery);
+    if (target) {
+      setConversation(target as any);
+    }
+  }, [fans, router.query.fanId, setConversation]);
 
   useEffect(() => {
     // refetch on filter/search changes

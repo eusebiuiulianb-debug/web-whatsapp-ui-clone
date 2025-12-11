@@ -7,6 +7,8 @@ import { ConversationContext } from "../context/ConversationContext";
 
 export default function Home() {
   const { conversation } = useContext(ConversationContext);
+  const hasConversation = Boolean(conversation?.id);
+  const hasContactName = Boolean(conversation?.contactName);
   const [ mobileView, setMobileView ] = useState<"board" | "chat">("board");
   const conversationSectionRef = useRef<HTMLDivElement | null>(null);
   const IconHome = () => (
@@ -49,17 +51,17 @@ export default function Home() {
   )
 
   useEffect(() => {
-    if (!conversation.id) return;
+    if (!hasConversation) return;
     if (typeof window === "undefined") return;
     if (window.innerWidth >= 1024) return;
     setMobileView("chat");
     conversationSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
-  }, [conversation.id]);
+  }, [hasConversation]);
 
   useEffect(() => {
-    if (conversation.id) return;
+    if (hasConversation) return;
     setMobileView("board");
-  }, [conversation.id]);
+  }, [hasConversation]);
 
   return (
     <div className="flex justify-center">
@@ -84,7 +86,7 @@ export default function Home() {
             )}
           >
             {
-              conversation.contactName
+              hasContactName
                 ? <ConversationDetails onBackToBoard={() => setMobileView("board")} />
                 : <IconHome />
             }

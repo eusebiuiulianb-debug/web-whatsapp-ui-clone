@@ -1,4 +1,3 @@
-import type { AiTurnMode } from "./aiSettings";
 import { AI_TURN_MODES as AI_TURN_MODE_VALUES } from "./aiSettings";
 
 export const AI_TEMPLATE_USAGES = [

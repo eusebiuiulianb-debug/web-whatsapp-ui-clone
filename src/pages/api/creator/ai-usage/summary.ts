@@ -69,7 +69,12 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       },
     });
 
-    const dailyUsage = buildDailyUsageFromLogs(recentLogs, 30).map((d) => ({
+    const recentLogsNormalized = recentLogs.map((log) => ({
+      ...log,
+      createdAt: log.createdAt instanceof Date ? log.createdAt.toISOString() : (log.createdAt as any),
+    }));
+
+    const dailyUsage = buildDailyUsageFromLogs(recentLogsNormalized, 30).map((d) => ({
       date: d.date,
       count: d.suggestionsCount,
     }));
@@ -114,9 +119,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   }
 }
 
-function aggregateByAction(logs: { actionType: string }[]): ActionCount[] {
+function aggregateByAction(logs: { actionType: string | null }[]): ActionCount[] {
   const counts = new Map<string, number>();
   for (const log of logs) {
+    if (!log.actionType) continue;
     const current = counts.get(log.actionType) ?? 0;
     counts.set(log.actionType, current + 1);
   }

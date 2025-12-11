@@ -146,7 +146,7 @@ export default function ConversationDetails({ onBackToBoard }: ConversationDetai
     id: string;
     label: string;
     message: string;
-    intent?: ManagerQuickIntent;
+    intent?: ManagerQuickIntent | string;
   };
   const [ managerChatByFan, setManagerChatByFan ] = useState<Record<string, ManagerChatMessage[]>>({});
   const [ managerChatInput, setManagerChatInput ] = useState("");
@@ -198,7 +198,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
   const isAccessExpired = accessSummary.state === "EXPIRED";
   const canOfferMonthly = hasWelcome && !hasMonthly;
   const canOfferSpecial = hasMonthly && !hasSpecial;
-  const isRecommended = (id: string) => managerSummary?.recommendedButtons?.includes(id);
+  const isRecommended = (id: string) => Boolean(managerSummary?.recommendedButtons?.includes(id));
 
   type FanNote = {
     id: string;
@@ -259,7 +259,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
   }, [conversation.id, conversation.isBlocked, conversation.isArchived]);
 
   useEffect(() => {
-    function handleClickOutside(event: MouseEvent) {
+    function handleClickOutside(event: globalThis.MouseEvent) {
       const target = event.target as Node | null;
       if (actionsMenuRef.current && target && !actionsMenuRef.current.contains(target)) {
         setIsActionsMenuOpen(false);
@@ -2150,12 +2150,9 @@ useEffect(() => {
     if (id) fetchHistory(id);
   };
 
-  const updateConversationState = (patch: Partial<Conversation>) => {
-    setConversation((prev) => {
-      if (!prev) return prev;
-      if (prev.id !== id) return prev;
-      return { ...prev, ...patch };
-    });
+  const updateConversationState = (patch: Partial<typeof conversation>) => {
+    if (!conversation || conversation.id !== id) return;
+    setConversation({ ...conversation, ...patch } as any);
   };
 
   const handleBlockChat = async () => {

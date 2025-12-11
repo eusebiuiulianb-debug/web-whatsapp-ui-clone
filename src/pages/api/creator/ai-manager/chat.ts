@@ -76,7 +76,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
 
     const systemPrompt = buildManagerSystemPrompt(tabToString(tab), context.settings);
     const userPrompt = buildManagerUserPrompt(context, incomingMessage);
-    const historyMessages = history.slice(-HISTORY_LIMIT).map((msg) => ({
+    const historyMessages: Array<{ role: "user" | "assistant"; content: string }> = history.slice(-HISTORY_LIMIT).map((msg) => ({
       role: msg.role === ManagerAiRole.CREATOR ? "user" : "assistant",
       content: msg.content,
     }));

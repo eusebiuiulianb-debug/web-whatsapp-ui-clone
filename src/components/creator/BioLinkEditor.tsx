@@ -23,19 +23,6 @@ export function BioLinkEditor({ handle, onOpenSettings }: { handle: string; onOp
   const [saving, setSaving] = useState(false);
   const previewConfig = useMemo(() => config, [config]);
 
-  useEffect(() => {
-    void loadConfig();
-  }, [loadConfig]);
-
-  useEffect(() => {
-    setConfig((prev) => ({
-      ...prev,
-      title: creatorConfig.creatorName || prev.title,
-      tagline: creatorConfig.creatorSubtitle || prev.tagline,
-      avatarUrl: creatorConfig.avatarUrl || prev.avatarUrl,
-    }));
-  }, [creatorConfig.avatarUrl, creatorConfig.creatorName, creatorConfig.creatorSubtitle]);
-
   const loadConfig = useCallback(async () => {
     try {
       setLoading(true);
@@ -57,6 +44,19 @@ export function BioLinkEditor({ handle, onOpenSettings }: { handle: string; onOp
       setLoading(false);
     }
   }, [creatorConfig.avatarUrl, creatorConfig.creatorName, creatorConfig.creatorSubtitle, handle]);
+
+  useEffect(() => {
+    void loadConfig();
+  }, [loadConfig]);
+
+  useEffect(() => {
+    setConfig((prev) => ({
+      ...prev,
+      title: creatorConfig.creatorName || prev.title,
+      tagline: creatorConfig.creatorSubtitle || prev.tagline,
+      avatarUrl: creatorConfig.avatarUrl || prev.avatarUrl,
+    }));
+  }, [creatorConfig.avatarUrl, creatorConfig.creatorName, creatorConfig.creatorSubtitle]);
 
   async function handleSave() {
     try {
