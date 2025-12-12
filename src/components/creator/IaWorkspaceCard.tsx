@@ -49,8 +49,6 @@ type DailyPlanStep = {
   fanId?: string;
 };
 
-type ManagerActionIntent = Parameters<ManagerChatCardHandle["sendQuickPrompt"]>[1];
-
 export function IaWorkspaceCard({
   businessSnapshot,
   contentSnapshot,
@@ -358,16 +356,11 @@ export function IaWorkspaceCard({
                   density === "compact" ? "p-3 gap-3" : "p-4 lg:p-5 gap-4"
                 )}
               >
-                <div className="flex items-center justify-between gap-3">
+              <div className="flex items-center gap-3">
                 <div>
                   <p className="text-[11px] uppercase tracking-wide text-slate-400">Chat interno</p>
                   <h3 className={clsx("font-semibold text-white", density === "compact" ? "text-base" : "text-lg")}>Manager IA</h3>
                 </div>
-                <ManagerActionDock
-                  onAction={(text, action) => chatRef.current?.sendQuickPrompt(text, action)}
-                  onDraft={(text) => chatRef.current?.setDraft(text)}
-                  onOpenInsights={() => setInsightsOpen(true)}
-                />
               </div>
                 <div className="flex-1 overflow-hidden rounded-xl border border-slate-800 bg-slate-950/60 min-h-[360px]">
                   {activeTab === "business" ? (
@@ -704,68 +697,6 @@ function ManagerKpiCards({ tiles, density }: { tiles: { id: string; title: strin
           {tile.helper && <div className={clsx("text-slate-400", density === "compact" ? "text-[11px]" : "text-sm")}>{tile.helper}</div>}
         </button>
       ))}
-    </div>
-  );
-}
-
-function ManagerActionDock({
-  onAction,
-  onDraft,
-  onOpenInsights,
-}: {
-  onAction?: (text: string, action?: ManagerActionIntent) => void;
-  onDraft?: (text: string) => void;
-  onOpenInsights?: () => void;
-}) {
-  const actions: Array<{ label: string; text: string; action: ManagerActionIntent }> = [
-    { label: "Romper el hielo", text: "Dame ideas para romper el hielo con fans nuevos o fríos.", action: "ROMPER_EL_HIELO" },
-    { label: "Reactivar fan frío", text: "Prioriza fans fríos/en riesgo y dame enfoques para reactivarlos.", action: "REACTIVAR_FAN_FRIO" },
-    { label: "Ofrecer un extra", text: "Sugiere a quién ofrecer un extra rápido y qué tipo de extra encaja.", action: "OFRECER_UN_EXTRA" },
-    { label: "Llevar a mensual", text: "Dime a quién proponer el plan mensual y por qué le compensa.", action: "LLEVAR_A_MENSUAL" },
-  ];
-  const suggestions: Array<{ label: string; text: string; action?: ManagerActionIntent }> = [
-    { label: "Resumen rápido de mi pulso hoy", text: "Resumen rápido de mi pulso hoy", action: "RESUMEN_PULSO_HOY" },
-    { label: "Prioriza a quién escribir", text: "Prioriza a quién escribir", action: "ROMPER_EL_HIELO" },
-    { label: "CTA para fans VIP", text: "CTA para fans VIP", action: "OFRECER_UN_EXTRA" },
-  ];
-  const fire = (text: string, action?: ManagerActionIntent) => {
-    if (onAction) {
-      onAction(text, action);
-    } else if (onDraft) {
-      onDraft(text);
-    }
-  };
-  return (
-    <div className="flex flex-wrap items-center gap-2">
-      {actions.map((act) => (
-        <button
-          key={act.label}
-          type="button"
-          className="rounded-full border border-emerald-500/60 bg-emerald-600/15 px-3 py-1 text-[12px] font-semibold text-emerald-100 hover:bg-emerald-600/25"
-          onClick={() => fire(act.text, act.action)}
-        >
-          {act.label}
-        </button>
-      ))}
-      {suggestions.map((sugg) => (
-        <button
-          key={sugg.label}
-          type="button"
-          className="rounded-full border border-slate-700 bg-slate-800/70 px-2.5 py-1 text-[11px] text-slate-100 hover:border-emerald-500/60"
-          onClick={() => fire(sugg.text, sugg.action)}
-        >
-          {sugg.label}
-        </button>
-      ))}
-      {onOpenInsights && (
-        <button
-          type="button"
-          className="rounded-full border border-slate-700 bg-slate-800/70 px-3 py-1 text-[11px] text-slate-100 hover:border-emerald-500/60"
-          onClick={onOpenInsights}
-        >
-          Abrir Insights
-        </button>
-      )}
     </div>
   );
 }
