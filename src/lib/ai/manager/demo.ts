@@ -13,9 +13,15 @@ export type ManagerContentReply = {
   meta?: any;
 };
 
-export type ManagerDemoReply = ManagerStrategyReply | ManagerContentReply;
+export type ManagerGrowthReply = {
+  mode: "GROWTH";
+  text: string;
+  meta?: any;
+};
 
-export function buildDemoManagerReply(tab: "STRATEGY" | "CONTENT", context: any): ManagerDemoReply {
+export type ManagerDemoReply = ManagerStrategyReply | ManagerContentReply | ManagerGrowthReply;
+
+export function buildDemoManagerReply(tab: "STRATEGY" | "CONTENT" | "GROWTH", context: any): ManagerDemoReply {
   if (tab === "STRATEGY") {
     const snapshot = context?.businessSnapshot ?? {};
     const prioritized = (snapshot.prioritizedFansToday ?? context?.fansSummary?.prioritizedToday ?? []) as any[];
@@ -39,6 +45,24 @@ export function buildDemoManagerReply(tab: "STRATEGY" | "CONTENT", context: any)
       mode: "STRATEGY",
       text: [summary, action1, action2, action3].join("\n"),
       suggestedFans,
+      meta: { demo: true },
+    };
+  }
+
+  if (tab === "GROWTH") {
+    const growthSnapshot = context?.growthSnapshot ?? {};
+    const followers = growthSnapshot.followers ?? 12000;
+    const visits = growthSnapshot.visits ?? 15000;
+    const cpm = growthSnapshot.cpm ?? 8;
+    const headline = `Modo demo crecimiento: ${followers} seguidores, ${visits} visitas/semana, CPM ${cpm}€.`;
+    const actions = [
+      "1) Publica 2 shorts/TikToks con CTA al pack mensual y mide retención 1h.",
+      "2) Escribe a tus VIP con el extra que mejor rindió esta semana (cupón 24h).",
+      "3) Haz un story anclado con tu pack fuerte y añade prueba social.",
+    ];
+    return {
+      mode: "GROWTH",
+      text: [headline, ...actions].join("\n"),
       meta: { demo: true },
     };
   }

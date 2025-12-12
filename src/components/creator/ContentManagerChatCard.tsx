@@ -20,19 +20,22 @@ type ContentChatPostResponse = {
   usedFallback?: boolean;
 };
 
-const suggestions = [
+const contentSuggestions = [
   "¿Qué pack debería promocionar este fin de semana?",
   "¿Qué huecos tengo ahora mismo en el catálogo?",
   "Qué pack nuevo te parece que falta.",
 ];
 
+const growthSuggestions = ["Leer métricas", "3 movimientos para crecer", "Ideas de contenido", "Riesgos esta semana"];
+
 type Props = {
   initialSnapshot?: CreatorContentSnapshot | null;
   hideTitle?: boolean;
   embedded?: boolean;
+  mode?: "CONTENT" | "GROWTH";
 };
 
-export function ContentManagerChatCard({ initialSnapshot, hideTitle = false, embedded = false }: Props) {
+export function ContentManagerChatCard({ initialSnapshot, hideTitle = false, embedded = false, mode = "CONTENT" }: Props) {
   const [messages, setMessages] = useState<ContentManagerChatMessage[]>([]);
   const [snapshot, setSnapshot] = useState<CreatorContentSnapshot | null>(initialSnapshot ?? null);
   const [loading, setLoading] = useState(true);
@@ -45,7 +48,7 @@ export function ContentManagerChatCard({ initialSnapshot, hideTitle = false, emb
 
   useEffect(() => {
     void loadMessages();
-  }, []);
+  }, [mode]);
 
   useEffect(() => {
     if (!listRef.current) return;
@@ -64,7 +67,7 @@ export function ContentManagerChatCard({ initialSnapshot, hideTitle = false, emb
         setLoading(true);
       }
       setError(null);
-      const res = await fetch("/api/creator/ai-manager/messages?tab=CONTENT");
+      const res = await fetch(`/api/creator/ai-manager/messages?tab=${mode}`);
       if (!res.ok) throw new Error("No se pudo cargar el historial");
       const data = (await res.json()) as ContentChatGetResponse;
       setMessages((data?.messages ?? []).slice(-50));
@@ -81,8 +84,9 @@ export function ContentManagerChatCard({ initialSnapshot, hideTitle = false, emb
     }
   }
 
-  async function handleSend() {
-    if (!input.trim() || sending) return;
+  async function handleSend(externalText?: string, action?: string | null) {
+    const text = (typeof externalText === "string" ? externalText : input).trim();
+    if (!text || sending) return;
     try {
       setSending(true);
       setError(null);
@@ -90,13 +94,13 @@ export function ContentManagerChatCard({ initialSnapshot, hideTitle = false, emb
       const optimisticId = `local-${Date.now()}`;
       setMessages((prev) => [
         ...prev,
-        { id: optimisticId, role: "CREATOR", content: input.trim(), createdAt: now },
+        { id: optimisticId, role: "CREATOR", content: text, createdAt: now },
       ]);
 
       const res = await fetch("/api/creator/ai-manager/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ tab: "CONTENT", message: input.trim() }),
+        body: JSON.stringify({ tab: mode, message: text, action }),
       });
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
@@ -114,7 +118,7 @@ export function ContentManagerChatCard({ initialSnapshot, hideTitle = false, emb
       );
       setUsedFallback(Boolean(data?.usedFallback));
       void loadMessages({ silent: true });
-      setInput("");
+      if (!externalText) setInput("");
     } catch (err) {
       console.error(err);
       setMessages((prev) => prev.filter((m) => !m.id.startsWith("local-")));
@@ -124,9 +128,12 @@ export function ContentManagerChatCard({ initialSnapshot, hideTitle = false, emb
     }
   }
 
-  const summaryText = snapshot
-    ? `${snapshot.totalPacks} packs activos · Pack fuerte: ${snapshot.bestPack30d?.name ?? "ninguno"} · Ingresos 30d: ${formatCurrency(snapshot.ingresosTotales30d)}`
-    : "Cargando snapshot de packs...";
+  const summaryText =
+    mode === "CONTENT"
+      ? snapshot
+        ? `${snapshot.totalPacks} packs activos · Pack fuerte: ${snapshot.bestPack30d?.name ?? "ninguno"} · Ingresos 30d: ${formatCurrency(snapshot.ingresosTotales30d)}`
+        : "Cargando snapshot de packs..."
+      : "Crecimiento semanal: pega métricas de YouTube/TikTok/Instagram y te doy diagnóstico + 3 movimientos.";
 
   const containerClass = clsx(
     "rounded-2xl border border-slate-800 bg-slate-900/80",
@@ -138,8 +145,12 @@ export function ContentManagerChatCard({ initialSnapshot, hideTitle = false, emb
     <section className={containerClass}>
       {!hideTitle && (
         <div className="space-y-1">
-          <h2 className="text-lg font-semibold">Manager IA de contenido</h2>
-          <p className="text-xs text-slate-400">Diagnóstico rápido de tus packs y qué contenido crear o empujar a continuación.</p>
+          <h2 className="text-lg font-semibold">{mode === "CONTENT" ? "Manager IA de contenido" : "Manager IA de crecimiento"}</h2>
+          <p className="text-xs text-slate-400">
+            {mode === "CONTENT"
+              ? "Diagnóstico rápido de tus packs y qué contenido crear o empujar a continuación."
+              : "Pega tus métricas semanales y recibe 3 movimientos para crecer tus canales."}
+          </p>
         </div>
       )}
 
@@ -147,7 +158,7 @@ export function ContentManagerChatCard({ initialSnapshot, hideTitle = false, emb
         <div className="text-[12px] text-slate-100">{summaryText}</div>
         {usedFallback && (
           <div className="text-[11px] text-amber-200">
-            Estás en modo demo: aún no hay IA real conectada para contenido. Conecta tu OPENAI_API_KEY para respuestas con tus datos reales.
+            Modo demo: conecta tu OPENAI_API_KEY para respuestas con tus datos reales.
           </div>
         )}
       </div>
@@ -190,7 +201,7 @@ export function ContentManagerChatCard({ initialSnapshot, hideTitle = false, emb
       <div className="text-[11px] text-slate-500">Solo tú ves este chat.</div>
 
       <div className="flex flex-nowrap items-center gap-2 overflow-x-auto pb-1">
-        {suggestions.map((sugg) => (
+        {(mode === "CONTENT" ? contentSuggestions : growthSuggestions).map((sugg) => (
           <button
             key={sugg}
             type="button"
@@ -198,6 +209,17 @@ export function ContentManagerChatCard({ initialSnapshot, hideTitle = false, emb
             onClick={() => {
               setInput(sugg);
               inputRef.current?.focus();
+              const action =
+                mode === "GROWTH"
+                  ? sugg.toLowerCase().includes("riesgo")
+                    ? "growth_risks"
+                    : sugg.toLowerCase().includes("ideas")
+                    ? "growth_content_ideas"
+                    : sugg.toLowerCase().includes("movimientos")
+                    ? "growth_3_moves"
+                    : "growth_read_metrics"
+                  : undefined;
+              void handleSend(sugg, action);
             }}
             disabled={sending}
           >
@@ -218,7 +240,11 @@ export function ContentManagerChatCard({ initialSnapshot, hideTitle = false, emb
           value={input}
           onChange={(e) => setInput(e.target.value)}
           disabled={sending}
-          placeholder="Pregúntale al Manager IA de contenido."
+          placeholder={
+            mode === "CONTENT"
+              ? "Pregúntale al Manager IA de catálogo."
+              : "Pega aquí tus métricas de la semana (seguidores, visitas, ingresos, etc.) o cuéntame qué ha pasado…"
+          }
           className="flex-1 resize-none rounded-xl border border-slate-700 bg-slate-950/70 px-3 py-2 text-sm text-slate-100 focus:outline-none focus:ring-2 focus:ring-emerald-500/70 disabled:cursor-not-allowed disabled:opacity-70"
           rows={2}
         />

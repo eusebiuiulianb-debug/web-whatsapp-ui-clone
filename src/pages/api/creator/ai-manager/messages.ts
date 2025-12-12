@@ -49,6 +49,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
 function normalizeTab(tab: string): ManagerAiTab | null {
   const upper = (tab || "").toUpperCase();
   if (upper === "CONTENT") return ManagerAiTab.CONTENT;
+  if (upper === "GROWTH") return ManagerAiTab.GROWTH;
   if (upper === "STRATEGY" || !upper) return ManagerAiTab.STRATEGY;
   return null;
 }

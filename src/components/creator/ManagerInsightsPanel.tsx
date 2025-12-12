@@ -16,6 +16,8 @@ export function ManagerInsightsPanel({ open, onClose, summary, preview }: Props)
   const [tab, setTab] = useState<TabId>("sales");
   const [growthInput, setGrowthInput] = useState("");
   const [growthActions, setGrowthActions] = useState<string[] | null>(null);
+  const [growthLoading, setGrowthLoading] = useState(false);
+  const [growthError, setGrowthError] = useState<string | null>(null);
 
   const metrics = useMemo(() => {
     const safeRevenue30 = Number.isFinite(summary?.kpis?.last30?.revenue) ? summary?.kpis?.last30?.revenue ?? 0 : 0;
@@ -145,16 +147,41 @@ export function ManagerInsightsPanel({ open, onClose, summary, preview }: Props)
             <button
               type="button"
               className="rounded-lg border border-emerald-500/60 bg-emerald-600/20 px-3 py-2 text-sm font-semibold text-emerald-100 hover:bg-emerald-600/30"
-              onClick={() =>
-                setGrowthActions([
-                  "Haz un vídeo corto con CTA a tu pack mensual y publícalo hoy.",
-                  "Envía un mensaje a tus fans VIP con el extra que mejor haya funcionado esta semana.",
-                  "Crea un post en stories con el top 1 extra y cupón limitado 24h.",
-                ])
-              }
+              disabled={growthLoading}
+              onClick={async () => {
+                try {
+                  setGrowthLoading(true);
+                  setGrowthError(null);
+                  setGrowthActions(null);
+                  const res = await fetch("/api/creator/ai-manager/chat", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                      tab: "GROWTH",
+                      message: growthInput.trim() || "Dame un diagnóstico rápido y 3 movimientos para crecer esta semana.",
+                      action: "growth_3_moves",
+                    }),
+                  });
+                  if (!res.ok) {
+                    const body = await res.json().catch(() => ({}));
+                    throw new Error(body?.error ?? "No se pudo generar acciones");
+                  }
+                  const data = await res.json();
+                  const text: string = data?.reply?.text ?? "";
+                  const bullets = text.split("\n").filter((line: string) => line.trim().length > 0);
+                  setGrowthActions(bullets);
+                  // Podríamos enviar este output al chat de crecimiento para historial compartido.
+                } catch (err) {
+                  console.error(err);
+                  setGrowthError("No se pudieron generar acciones de crecimiento.");
+                } finally {
+                  setGrowthLoading(false);
+                }
+              }}
             >
-              Generar acciones
+              {growthLoading ? "Generando..." : "Generar acciones"}
             </button>
+            {growthError && <p className="text-xs text-rose-300">{growthError}</p>}
             {growthActions && (
               <ul className="space-y-2 text-sm text-slate-200">
                 {growthActions.map((act, idx) => (

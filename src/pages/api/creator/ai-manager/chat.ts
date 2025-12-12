@@ -3,11 +3,16 @@ import { AiUsageOrigin, AiUsageType, ManagerAiRole, ManagerAiTab } from "@prisma
 import prisma from "../../../../lib/prisma";
 import { sendBadRequest, sendServerError } from "../../../../lib/apiError";
 import { buildManagerContext } from "../../../../lib/ai/manager/context";
-import { buildManagerSystemPrompt, buildManagerUserPrompt, normalizeManagerAction } from "../../../../lib/ai/manager/prompts";
+import {
+  buildGrowthPrompts,
+  buildManagerSystemPrompt,
+  buildManagerUserPrompt,
+  normalizeManagerAction,
+} from "../../../../lib/ai/manager/prompts";
 import { buildDemoManagerReply, type ManagerDemoReply } from "../../../../lib/ai/manager/demo";
 import { registerAiUsage } from "../../../../lib/ai/registerAiUsage";
 
-type ManagerReply = ManagerDemoReply & { mode: "STRATEGY" | "CONTENT"; text: string };
+type ManagerReply = ManagerDemoReply & { mode: "STRATEGY" | "CONTENT" | "GROWTH"; text: string };
 
 type ChatResponseBody = {
   reply: ManagerReply;
@@ -26,11 +31,13 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
 
   const rawTab = typeof req.body?.tab === "string" ? req.body.tab : "";
   const incomingMessage = typeof req.body?.message === "string" ? req.body.message.trim() : "";
-  const action = normalizeManagerAction(typeof req.body?.action === "string" ? req.body.action : null);
+  const rawAction = typeof req.body?.action === "string" ? req.body.action : null;
+  const action = normalizeManagerAction(rawAction);
+  const growthAction = rawAction && rawAction.startsWith("growth_") ? rawAction : null;
   const tab = normalizeTab(rawTab);
 
   if (!tab) {
-    return sendBadRequest(res, "tab must be STRATEGY or CONTENT");
+    return sendBadRequest(res, "tab must be STRATEGY, CONTENT or GROWTH");
   }
   if (!incomingMessage) {
     return sendBadRequest(res, "message is required");
@@ -76,8 +83,16 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
       take: HISTORY_LIMIT + 1,
     });
 
-    const systemPrompt = buildManagerSystemPrompt(tabToString(tab), context.settings, action);
-    const userPrompt = buildManagerUserPrompt(context, incomingMessage, action);
+    const isGrowth = tab === ManagerAiTab.GROWTH;
+    const { systemPrompt, userPrompt } = isGrowth
+      ? ((): { systemPrompt: string; userPrompt: string } => {
+          const prompts = buildGrowthPrompts({ context, metrics: incomingMessage, action: growthAction as any });
+          return { systemPrompt: prompts.system, userPrompt: prompts.user };
+        })()
+      : {
+          systemPrompt: buildManagerSystemPrompt(tabToString(tab), context.settings, action),
+          userPrompt: buildManagerUserPrompt(context, incomingMessage, action),
+        };
     const historyMessages: Array<{ role: "user" | "assistant"; content: string }> = history.slice(-HISTORY_LIMIT).map((msg) => ({
       role: msg.role === ManagerAiRole.CREATOR ? "user" : "assistant",
       content: msg.content,
@@ -107,7 +122,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
         tab,
         role: ManagerAiRole.ASSISTANT,
         content: reply.text,
-        meta: reply ? { ...reply, action } : { action },
+        meta: reply ? { ...reply, action: rawAction ?? action ?? growthAction ?? undefined } : { action: rawAction ?? action ?? growthAction ?? undefined },
         creditsUsed,
       },
     });
@@ -117,7 +132,12 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
         creatorId,
         fanId: null,
         type: AiUsageType.MANAGER,
-        origin: tab === ManagerAiTab.STRATEGY ? AiUsageOrigin.MANAGER_STRATEGY : AiUsageOrigin.MANAGER_CONTENT,
+        origin:
+          tab === ManagerAiTab.STRATEGY
+            ? AiUsageOrigin.MANAGER_STRATEGY
+            : tab === ManagerAiTab.CONTENT
+            ? AiUsageOrigin.MANAGER_CONTENT
+            : AiUsageOrigin.MANAGER_GROWTH,
         creditsUsed,
         context: { tab: tabToString(tab), reply },
       });
@@ -139,11 +159,14 @@ function normalizeTab(tab: string): ManagerAiTab | null {
   const upper = (tab || "").toUpperCase();
   if (upper === "STRATEGY") return ManagerAiTab.STRATEGY;
   if (upper === "CONTENT") return ManagerAiTab.CONTENT;
+  if (upper === "GROWTH") return ManagerAiTab.GROWTH;
   return null;
 }
 
-function tabToString(tab: ManagerAiTab): "STRATEGY" | "CONTENT" {
-  return tab === ManagerAiTab.CONTENT ? "CONTENT" : "STRATEGY";
+function tabToString(tab: ManagerAiTab): "STRATEGY" | "CONTENT" | "GROWTH" {
+  if (tab === ManagerAiTab.CONTENT) return "CONTENT";
+  if (tab === ManagerAiTab.GROWTH) return "GROWTH";
+  return "STRATEGY";
 }
 
 async function resolveCreatorId(): Promise<string> {
@@ -163,6 +186,9 @@ async function resolveCreatorId(): Promise<string> {
 }
 
 function parseManagerReply(raw: string, tab: ManagerAiTab): ManagerReply {
+  if (tab === ManagerAiTab.GROWTH) {
+    return { mode: "GROWTH", text: raw, meta: {} } as ManagerReply;
+  }
   try {
     const parsed = JSON.parse(raw) as Partial<ManagerReply>;
     const text = typeof parsed.text === "string" && parsed.text.trim().length > 0 ? parsed.text : raw;

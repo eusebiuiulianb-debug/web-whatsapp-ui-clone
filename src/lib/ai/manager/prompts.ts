@@ -1,6 +1,8 @@
 import type { CreatorAiSettings } from "@prisma/client";
 
-type ManagerTab = "STRATEGY" | "CONTENT";
+type ManagerTab = "STRATEGY" | "CONTENT" | "GROWTH";
+
+export type ManagerGrowthAction = "growth_read_metrics" | "growth_3_moves" | "growth_content_ideas" | "growth_risks";
 
 export type ManagerStrategyAction =
   | "ROMPER_EL_HIELO"
@@ -93,6 +95,17 @@ export function buildManagerSystemPrompt(tab: ManagerTab, settings: CreatorAiSet
     ].join("\n");
   }
 
+  if (tab === "GROWTH") {
+    return [
+      "Eres el Manager IA de NOVSY especializado en CRECIMIENTO para redes (YouTube, TikTok, Instagram).",
+      "Hablas solo con el creador, nunca con fans. Responde en texto plano, estructurado y accionable.",
+      `Tono base del creador: ${tone}.`,
+      "Tu trabajo: leer métricas pegadas o peticiones de crecimiento y devolver diagnóstico + acciones claras para 7 días.",
+      "Siempre termina con 3 movimientos concretos. Si faltan datos, pídelo en 1 línea y propone un plan basado en supuestos.",
+      "No inventes métricas. Usa lo que recibas (seguidores, visitas, CPM, leads, ingresos, posts publicados, etc.).",
+    ].join("\n");
+  }
+
   const base = [
     "Eres el Manager IA de NOVSY para un creador. Solo hablas con el creador (nunca con fans).",
     "Habla en español, directo y accionable. Respeta el tono configurado por el creador.",
@@ -139,4 +152,46 @@ export function buildManagerUserPrompt(context: any, message: string, action?: M
   ]
     .filter(Boolean)
     .join("\n\n");
+}
+
+export function buildGrowthPrompts(args: {
+  context: any;
+  metrics: string;
+  action?: ManagerGrowthAction | null;
+}) {
+  const { context, metrics, action } = args;
+  const actionLabel =
+    action === "growth_3_moves"
+      ? "Tres movimientos para crecer en 7 días."
+      : action === "growth_content_ideas"
+      ? "Ideas de contenido alineadas con tus métricas y canal fuerte."
+      : action === "growth_risks"
+      ? "Riesgos o bloqueos esta semana y cómo evitarlos."
+      : "Lee las métricas y dame diagnóstico + siguientes pasos.";
+
+  const fansHint =
+    context?.businessSnapshot && typeof context.businessSnapshot.vipActiveCount === "number"
+      ? `Tienes ${context.businessSnapshot.vipActiveCount} VIP y ${context.businessSnapshot.fansAtRisk ?? 0} en riesgo.`
+      : "";
+
+  const user = [
+    `Acción: ${actionLabel}`,
+    fansHint,
+    metrics?.trim() ? `Métricas pegadas:\n${metrics.trim()}` : "Sin métricas pegadas. Usa supuestos ligeros si faltan datos.",
+    "Devuélvelo en texto plano con diagnóstico breve + 3 acciones (bullet).",
+  ]
+    .filter(Boolean)
+    .join("\n\n");
+
+  const system = [
+    "Eres el Manager IA de NOVSY especializado en CRECIMIENTO.",
+    "Analiza métricas de redes (YouTube, TikTok, Instagram) y propone acciones concretas para 7 días.",
+    "Hablas con el creador, tono directo y accionable. No inventes datos; si faltan, acláralo y usa supuestos prudentes.",
+    "Estructura siempre:",
+    "1) Resumen: 1 frase con diagnóstico.",
+    "2) Acciones (3 bullets cortos y claros).",
+    "3) Riesgos / foco (1 bullet opcional).",
+  ].join("\n");
+
+  return { system, user };
 }

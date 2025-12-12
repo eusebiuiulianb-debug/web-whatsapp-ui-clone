@@ -144,6 +144,7 @@ enum ExtraTier {
 enum ManagerAiTab {
   STRATEGY
   CONTENT
+  GROWTH
 }
 
 enum ManagerAiRole {
@@ -155,6 +156,7 @@ enum AiUsageOrigin {
   FAN_ASSISTANT
   MANAGER_STRATEGY
   MANAGER_CONTENT
+  MANAGER_GROWTH
 }
 
 enum AiUsageType {

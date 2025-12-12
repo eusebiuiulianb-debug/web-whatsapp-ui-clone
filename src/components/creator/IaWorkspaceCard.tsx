@@ -62,7 +62,7 @@ export function IaWorkspaceCard({
 }: Props) {
   const { isDesktop, ready: viewportReady } = useIsDesktop();
   const showMobileUi = viewportReady && !isDesktop;
-  const [activeTab, setActiveTab] = useState<"business" | "content">("business");
+  const [activeTab, setActiveTab] = useState<"strategy" | "content" | "growth">("strategy");
   const [panelTab, setPanelTab] = useState<"today" | "queue" | "pulse" | "catalog">("today");
   const [density, setDensity] = useState<"comfortable" | "compact">("compact");
   const [focus, setFocus] = useState<"normal" | "solo_chat">("normal");
@@ -143,8 +143,10 @@ export function IaWorkspaceCard({
       setFocus("solo_chat");
     }
     const storedTab = window.localStorage.getItem("novsy_manager_tab");
-    if (storedTab === "business" || storedTab === "content") {
-      setActiveTab(storedTab);
+    if (storedTab === "strategy" || storedTab === "content" || storedTab === "growth") {
+      setActiveTab(storedTab as typeof activeTab);
+    } else if (storedTab === "business") {
+      setActiveTab("strategy");
     }
   }, []);
 
@@ -324,11 +326,11 @@ export function IaWorkspaceCard({
               type="button"
               className={clsx(
                 "rounded-full border px-4 py-2 text-xs font-semibold transition",
-                activeTab === "business"
+                activeTab === "strategy"
                   ? "border-emerald-500/60 bg-emerald-600/20 text-emerald-100"
                   : "border-slate-700 bg-slate-800/70 text-slate-300 hover:border-emerald-400/70 hover:text-emerald-100"
               )}
-              onClick={() => setActiveTab("business")}
+              onClick={() => setActiveTab("strategy")}
             >
               Estrategia y números
             </button>
@@ -343,6 +345,18 @@ export function IaWorkspaceCard({
               onClick={() => setActiveTab("content")}
             >
               Contenido y catálogo
+            </button>
+            <button
+              type="button"
+              className={clsx(
+                "rounded-full border px-4 py-2 text-xs font-semibold transition",
+                activeTab === "growth"
+                  ? "border-emerald-500/60 bg-emerald-600/20 text-emerald-100"
+                  : "border-slate-700 bg-slate-800/70 text-slate-300 hover:border-emerald-400/70 hover:text-emerald-100"
+              )}
+              onClick={() => setActiveTab("growth")}
+            >
+              Crecimiento
             </button>
           </div>
         )}
@@ -363,7 +377,7 @@ export function IaWorkspaceCard({
                 </div>
               </div>
                 <div className="flex-1 overflow-hidden rounded-xl border border-slate-800 bg-slate-950/60 min-h-[360px]">
-                  {activeTab === "business" ? (
+                  {activeTab === "strategy" ? (
                     <ManagerChatCard
                       ref={chatRef}
                       businessSnapshot={businessSnapshot}
@@ -372,8 +386,10 @@ export function IaWorkspaceCard({
                       suggestions={quickPromptsByTab[panelTab]}
                       density={density}
                     />
+                  ) : activeTab === "content" ? (
+                    <ContentManagerChatCard initialSnapshot={contentSnapshot ?? undefined} hideTitle embedded mode="CONTENT" />
                   ) : (
-                    <ContentManagerChatCard initialSnapshot={contentSnapshot ?? undefined} hideTitle embedded />
+                    <ContentManagerChatCard hideTitle embedded mode="GROWTH" />
                   )}
                 </div>
               </div>
