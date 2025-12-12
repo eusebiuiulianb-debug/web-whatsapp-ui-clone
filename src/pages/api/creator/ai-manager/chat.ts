@@ -47,27 +47,23 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
     const creatorId = await resolveCreatorId();
     const context = await buildManagerContext(creatorId);
 
-    await prisma.managerAiMessage.create({
-      data: {
-        creatorId,
-        tab,
-        role: ManagerAiRole.CREATOR,
-        content: incomingMessage,
-        meta: action ? { action } : undefined,
-      },
+    await logMessage({
+      creatorId,
+      tab,
+      role: ManagerAiRole.CREATOR,
+      content: incomingMessage,
+      meta: action ? { action: rawAction ?? action ?? growthAction ?? undefined } : rawAction ? { action: rawAction } : undefined,
     });
 
     if (!process.env.OPENAI_API_KEY) {
       const demoReply = buildDemoManagerReply(tabToString(tab), context) as ManagerReply;
-      await prisma.managerAiMessage.create({
-        data: {
-          creatorId,
-          tab,
-          role: ManagerAiRole.ASSISTANT,
-          content: demoReply.text,
-          meta: demoReply,
-          creditsUsed: 0,
-        },
+      await logMessage({
+        creatorId,
+        tab,
+        role: ManagerAiRole.ASSISTANT,
+        content: demoReply.text,
+        meta: { ...demoReply, action: rawAction ?? action ?? growthAction ?? undefined },
+        creditsUsed: 0,
       });
       return res.status(200).json({
         reply: demoReply,
@@ -116,15 +112,13 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
       creditsUsed = 0;
     }
 
-    await prisma.managerAiMessage.create({
-      data: {
-        creatorId,
-        tab,
-        role: ManagerAiRole.ASSISTANT,
-        content: reply.text,
-        meta: reply ? { ...reply, action: rawAction ?? action ?? growthAction ?? undefined } : { action: rawAction ?? action ?? growthAction ?? undefined },
-        creditsUsed,
-      },
+    await logMessage({
+      creatorId,
+      tab,
+      role: ManagerAiRole.ASSISTANT,
+      content: reply.text,
+      meta: reply ? { ...reply, action: rawAction ?? action ?? growthAction ?? undefined } : { action: rawAction ?? action ?? growthAction ?? undefined },
+      creditsUsed,
     });
 
     if (!usedFallback && creditsUsed > 0) {
@@ -152,6 +146,30 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
   } catch (err) {
     console.error("Error processing manager chat", err);
     return sendServerError(res, "No se pudo procesar el chat del Manager IA");
+  }
+}
+
+async function logMessage(data: {
+  creatorId: string;
+  tab: ManagerAiTab;
+  role: ManagerAiRole;
+  content: string;
+  meta?: Record<string, any> | null;
+  creditsUsed?: number;
+}) {
+  try {
+    await prisma.managerAiMessage.create({
+      data: {
+        creatorId: data.creatorId,
+        tab: data.tab,
+        role: data.role,
+        content: data.content,
+        meta: data.meta ?? undefined,
+        creditsUsed: data.creditsUsed ?? 0,
+      },
+    });
+  } catch (err) {
+    console.error("Error saving manager AI message", err);
   }
 }
 

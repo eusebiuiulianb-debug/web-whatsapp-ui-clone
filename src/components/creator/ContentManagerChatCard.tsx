@@ -122,7 +122,16 @@ export function ContentManagerChatCard({ initialSnapshot, hideTitle = false, emb
     } catch (err) {
       console.error(err);
       setMessages((prev) => prev.filter((m) => !m.id.startsWith("local-")));
-      setError("No se pudo enviar el mensaje al Manager IA de contenido.");
+      const fallback =
+        mode === "GROWTH"
+          ? "Modo demo crecimiento: aquí verías un resumen de métricas y 3 movimientos para crecer. Conecta tu OPENAI_API_KEY para recomendaciones reales."
+          : "Modo demo: conecta tu OPENAI_API_KEY para respuestas con tus datos de catálogo.";
+      setMessages((prev) => [
+        ...prev,
+        { id: `assistant-${Date.now()}`, role: "ASSISTANT", content: fallback, createdAt: new Date().toISOString() },
+      ]);
+      setError(null);
+      setUsedFallback(true);
     } finally {
       setSending(false);
     }
