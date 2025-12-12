@@ -69,7 +69,7 @@ export function IaWorkspaceCard({
   const [showSettings, setShowSettings] = useState(false);
   const [demoDismissed, setDemoDismissed] = useState(false);
   const [insightsOpen, setInsightsOpen] = useState(false);
-  const [mobilePanel, setMobilePanel] = useState<"summary" | "priority" | null>(null);
+  const [mobilePanel, setMobilePanel] = useState<"priority" | null>(null);
   const isDemo = !process.env.NEXT_PUBLIC_OPENAI_API_KEY;
   const chatRef = useRef<ManagerChatCardHandle | null>(null);
 
@@ -457,57 +457,19 @@ export function IaWorkspaceCard({
       <ManagerInsightsPanel open={insightsOpen && focus === "normal"} onClose={() => setInsightsOpen(false)} summary={summary} preview={preview} />
       {focus === "normal" && showMobileUi && (
         <div className="fixed bottom-3 left-0 right-0 z-30 px-4 lg:hidden">
-          <div className="mx-auto flex max-w-3xl items-center gap-2 rounded-full border border-slate-800 bg-slate-950/90 p-2 shadow-lg">
-            <button
-              type="button"
-              className="flex-1 rounded-full border border-slate-700 bg-slate-900/80 px-3 py-2 text-xs font-semibold text-slate-100 hover:border-emerald-500/60"
-              onClick={() => setMobilePanel("summary")}
-            >
-              Resumen
-            </button>
-            <button
-              type="button"
-              className="flex-1 rounded-full border border-slate-700 bg-slate-900/80 px-3 py-2 text-xs font-semibold text-slate-100 hover:border-emerald-500/60"
-              onClick={() => setMobilePanel("priority")}
-            >
-              Prioridad ({queue.length})
-            </button>
-          </div>
+          <button
+            type="button"
+            className="mx-auto flex max-w-3xl flex-1 items-center justify-center rounded-full border border-slate-800 bg-slate-950/90 px-4 py-2 text-xs font-semibold text-slate-100 shadow-lg hover:border-emerald-500/60"
+            onClick={() => setMobilePanel("priority")}
+          >
+            Prioridad ({queue.length})
+          </button>
         </div>
       )}
       {showMobileUi && (
         <ManagerMobilePanels
           panel={mobilePanel}
           onClose={() => setMobilePanel(null)}
-          summaryContent={
-            <div className="space-y-3">
-              {isDemo && !demoDismissed && (
-                <div className="rounded-lg border border-amber-500/40 bg-amber-900/30 px-3 py-2 text-amber-100 space-y-1">
-                  <p className="text-sm font-semibold">Modo demo</p>
-                  <p className="text-[12px] text-amber-100/90">Conecta tu OPENAI_API_KEY para respuestas reales con tus datos.</p>
-                  <div className="flex items-center gap-2 pt-1">
-                    <Link
-                      href="/creator/ai-settings"
-                      className="rounded-full bg-amber-500/20 px-3 py-1 text-[12px] font-semibold text-amber-50 hover:bg-amber-500/30 border border-amber-400/50"
-                    >
-                      Conectar
-                    </Link>
-                    <button
-                      type="button"
-                      className="text-[12px] text-amber-100 hover:text-amber-50"
-                      onClick={() => {
-                        setDemoDismissed(true);
-                        if (typeof window !== "undefined") window.localStorage.setItem("novsy_manager_demo_banner_dismissed", "1");
-                      }}
-                    >
-                      ✕
-                    </button>
-                  </div>
-                </div>
-              )}
-              <ManagerKpiCards tiles={statTiles} density={density} />
-            </div>
-          }
           priorityContent={<TodayPriorityList queue={queue} queueError={queueError} onOpenFanChat={onOpenFanChat} onSendTemplate={handleQuickQuestion} />}
         />
       )}

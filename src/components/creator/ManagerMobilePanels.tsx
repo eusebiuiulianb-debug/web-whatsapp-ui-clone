@@ -1,16 +1,15 @@
 import clsx from "clsx";
 import { useEffect, useState, type ReactNode } from "react";
 
-type PanelType = "summary" | "priority" | null;
+type PanelType = "priority" | null;
 
 type Props = {
   panel: PanelType;
   onClose: () => void;
-  summaryContent: ReactNode;
   priorityContent: ReactNode;
 };
 
-export function ManagerMobilePanels({ panel, onClose, summaryContent, priorityContent }: Props) {
+export function ManagerMobilePanels({ panel, onClose, priorityContent }: Props) {
   const [isDesktop, setIsDesktop] = useState<boolean>(() => (typeof window === "undefined" ? false : window.matchMedia("(min-width: 1024px)").matches));
 
   useEffect(() => {
@@ -36,7 +35,7 @@ export function ManagerMobilePanels({ panel, onClose, summaryContent, priorityCo
       <div className={clsx("relative w-full max-w-3xl")}>
         <div className="absolute bottom-0 left-0 right-0 rounded-t-2xl border border-slate-800 bg-slate-950 shadow-2xl max-h-[85dvh] overflow-hidden">
           <div className="flex items-center justify-between border-b border-slate-800 px-4 py-3">
-            <div className="text-sm font-semibold text-white">{panel === "summary" ? "Resumen" : "Prioridad de hoy"}</div>
+            <div className="text-sm font-semibold text-white">Prioridad de hoy</div>
             <button
               type="button"
               className="text-xs text-slate-300 hover:text-white rounded-full border border-slate-700 px-3 py-1"
@@ -45,7 +44,7 @@ export function ManagerMobilePanels({ panel, onClose, summaryContent, priorityCo
               Cerrar
             </button>
           </div>
-          <div className="p-4 space-y-3 overflow-y-auto">{panel === "summary" ? summaryContent : priorityContent}</div>
+          <div className="p-4 space-y-3 overflow-y-auto">{priorityContent}</div>
         </div>
       </div>
     </div>
