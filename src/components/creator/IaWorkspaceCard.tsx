@@ -14,15 +14,19 @@ import { ManagerMobilePanels } from "./ManagerMobilePanels";
 
 function useIsDesktop() {
   const [isDesktop, setIsDesktop] = useState(false);
+  const [ready, setReady] = useState(false);
   useEffect(() => {
     if (typeof window === "undefined") return;
     const mq = window.matchMedia("(min-width: 1024px)");
-    const update = () => setIsDesktop(mq.matches);
+    const update = () => {
+      setIsDesktop(mq.matches);
+      setReady(true);
+    };
     update();
     mq.addEventListener("change", update);
     return () => mq.removeEventListener("change", update);
   }, []);
-  return isDesktop;
+  return { isDesktop, ready };
 }
 
 type Props = {
@@ -56,7 +60,8 @@ export function IaWorkspaceCard({
   advisorLoading: _advisorLoading,
   onOpenFanChat,
 }: Props) {
-  const isDesktop = useIsDesktop();
+  const { isDesktop, ready: viewportReady } = useIsDesktop();
+  const showMobileUi = viewportReady && !isDesktop;
   const [activeTab, setActiveTab] = useState<"business" | "content">("business");
   const [panelTab, setPanelTab] = useState<"today" | "queue" | "pulse" | "catalog">("today");
   const [density, setDensity] = useState<"comfortable" | "compact">("compact");
@@ -344,52 +349,44 @@ export function IaWorkspaceCard({
 
         <div className="flex-1 min-h-0">
           <div className={clsx("grid min-h-0 w-full grid-cols-1 gap-4 h-full", focus === "normal" && "lg:grid-cols-[minmax(0,1fr)_320px]")}>
-          <div className="flex min-h-0 min-w-0 flex-col gap-3">
-            <div
-              className={clsx(
-                "rounded-2xl border border-slate-800 bg-slate-950/85 shadow-inner flex flex-col flex-1 min-h-0 min-w-0",
-                density === "compact" ? "p-3 gap-3" : "p-4 lg:p-5 gap-4"
-              )}
-            >
-              <div className="flex items-center justify-between gap-3">
-                <div>
-                  <p className="text-[11px] uppercase tracking-wide text-slate-400">Chat interno</p>
-                  <h3 className={clsx("font-semibold text-white", density === "compact" ? "text-base" : "text-lg")}>Manager IA</h3>
-                </div>
-                <ManagerActionDock onDraft={(text) => chatRef.current?.setDraft(text)} onOpenInsights={() => setInsightsOpen(true)} />
-              </div>
-              <div className="flex-1 overflow-hidden rounded-xl border border-slate-800 bg-slate-950/60 min-h-[360px]">
-                {activeTab === "business" ? (
-                  <ManagerChatCard
-                    ref={chatRef}
-                    businessSnapshot={businessSnapshot}
-                    hideTitle
-                    embedded
-                    suggestions={quickPromptsByTab[panelTab]}
-                    density={density}
-                  />
-                ) : (
-                  <ContentManagerChatCard initialSnapshot={contentSnapshot ?? undefined} hideTitle embedded />
+            <div className="flex min-h-0 min-w-0 flex-col gap-3">
+              <div
+                className={clsx(
+                  "rounded-2xl border border-slate-800 bg-slate-950/85 shadow-inner flex flex-col flex-1 min-h-0 min-w-0",
+                  density === "compact" ? "p-3 gap-3" : "p-4 lg:p-5 gap-4"
                 )}
+              >
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <p className="text-[11px] uppercase tracking-wide text-slate-400">Chat interno</p>
+                    <h3 className={clsx("font-semibold text-white", density === "compact" ? "text-base" : "text-lg")}>Manager IA</h3>
+                  </div>
+                  <ManagerActionDock onDraft={(text) => chatRef.current?.setDraft(text)} onOpenInsights={() => setInsightsOpen(true)} />
+                </div>
+                <div className="flex-1 overflow-hidden rounded-xl border border-slate-800 bg-slate-950/60 min-h-[360px]">
+                  {activeTab === "business" ? (
+                    <ManagerChatCard
+                      ref={chatRef}
+                      businessSnapshot={businessSnapshot}
+                      hideTitle
+                      embedded
+                      suggestions={quickPromptsByTab[panelTab]}
+                      density={density}
+                    />
+                  ) : (
+                    <ContentManagerChatCard initialSnapshot={contentSnapshot ?? undefined} hideTitle embedded />
+                  )}
+                </div>
               </div>
             </div>
-          </div>
 
-          {focus === "normal" && (
-            <div className="hidden lg:flex lg:flex-col lg:gap-3 min-w-[280px] lg:sticky lg:top-4">
-              <TodayPriorityList queue={queue} queueError={queueError} onOpenFanChat={onOpenFanChat} onSendTemplate={handleQuickQuestion} />
-            </div>
-          )}
-        </div>
-        </div>
-
-        {focus === "normal" && (
-          <div className="space-y-3">
-            <div className="hidden lg:block space-y-3">
-              <TodayPriorityList queue={queue} queueError={queueError} onOpenFanChat={onOpenFanChat} onSendTemplate={handleQuickQuestion} />
-            </div>
+            {focus === "normal" && (
+              <div className="hidden lg:flex lg:flex-col lg:gap-3 min-w-[280px] lg:sticky lg:top-4">
+                <TodayPriorityList queue={queue} queueError={queueError} onOpenFanChat={onOpenFanChat} onSendTemplate={handleQuickQuestion} />
+              </div>
+            )}
           </div>
-        )}
+        </div>
       </div>
 
       {showSettings && (
@@ -458,7 +455,7 @@ export function IaWorkspaceCard({
       )}
 
       <ManagerInsightsPanel open={insightsOpen && focus === "normal"} onClose={() => setInsightsOpen(false)} summary={summary} preview={preview} />
-      {focus === "normal" && !isDesktop && (
+      {focus === "normal" && showMobileUi && (
         <div className="fixed bottom-3 left-0 right-0 z-30 px-4 lg:hidden">
           <div className="mx-auto flex max-w-3xl items-center gap-2 rounded-full border border-slate-800 bg-slate-950/90 p-2 shadow-lg">
             <button
@@ -478,7 +475,7 @@ export function IaWorkspaceCard({
           </div>
         </div>
       )}
-      {!isDesktop && (
+      {showMobileUi && (
         <ManagerMobilePanels
           panel={mobilePanel}
           onClose={() => setMobilePanel(null)}

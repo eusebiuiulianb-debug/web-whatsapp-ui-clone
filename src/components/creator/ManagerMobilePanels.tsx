@@ -1,5 +1,5 @@
 import clsx from "clsx";
-import type { ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 
 type PanelType = "summary" | "priority" | null;
 
@@ -11,7 +11,24 @@ type Props = {
 };
 
 export function ManagerMobilePanels({ panel, onClose, summaryContent, priorityContent }: Props) {
-  if (!panel) return null;
+  const [isDesktop, setIsDesktop] = useState<boolean>(() => (typeof window === "undefined" ? false : window.matchMedia("(min-width: 1024px)").matches));
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const mq = window.matchMedia("(min-width: 1024px)");
+    const update = () => setIsDesktop(mq.matches);
+    update();
+    mq.addEventListener("change", update);
+    return () => mq.removeEventListener("change", update);
+  }, []);
+
+  useEffect(() => {
+    if (isDesktop && panel) {
+      onClose();
+    }
+  }, [isDesktop, onClose, panel]);
+
+  if (isDesktop || !panel) return null;
 
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center lg:hidden">
