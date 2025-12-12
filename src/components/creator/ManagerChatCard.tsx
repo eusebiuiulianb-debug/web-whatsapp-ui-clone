@@ -20,6 +20,8 @@ type ManagerChatPostResponse = {
   usedFallback?: boolean;
 };
 
+type ManagerActionIntent = "ROMPER_EL_HIELO" | "REACTIVAR_FAN_FRIO" | "OFRECER_UN_EXTRA" | "LLEVAR_A_MENSUAL" | "RESUMEN_PULSO_HOY";
+
 const defaultSuggestions = [
   "¿A qué fans debería escribir hoy?",
   "Resúmeme mis números clave de esta semana.",
@@ -35,7 +37,7 @@ type Props = {
 };
 
 export type ManagerChatCardHandle = {
-  sendQuickPrompt: (message: string) => void;
+  sendQuickPrompt: (message: string, action?: ManagerActionIntent) => void;
   setDraft: (message: string) => void;
 };
 
@@ -108,9 +110,20 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
     return "Modo demo activo: conecta tu OPENAI_API_KEY para respuestas con tus datos reales.";
   }
 
-  async function handleSend(externalMessage?: string) {
+  function inferAction(message: string): ManagerActionIntent | null {
+    const normalized = message.toLowerCase();
+    if (normalized.includes("hielo") || normalized.includes("primer") || normalized.includes("rompe")) return "ROMPER_EL_HIELO";
+    if (normalized.includes("frío") || normalized.includes("frio") || normalized.includes("reactivar") || normalized.includes("riesgo")) return "REACTIVAR_FAN_FRIO";
+    if (normalized.includes("extra") || normalized.includes("upsell")) return "OFRECER_UN_EXTRA";
+    if (normalized.includes("mensual")) return "LLEVAR_A_MENSUAL";
+    if (normalized.includes("pulso") || normalized.includes("resumen") || normalized.includes("prioridad")) return "RESUMEN_PULSO_HOY";
+    return null;
+  }
+
+  async function handleSend(externalMessage?: string, forcedAction?: ManagerActionIntent | null) {
     const text = typeof externalMessage === "string" ? externalMessage.trim() : input.trim();
     if (!text || sending) return;
+    const action = forcedAction ?? inferAction(text);
     try {
       setSending(true);
       setError(null);
@@ -141,7 +154,7 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
       const res = await fetch("/api/creator/ai-manager/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ tab: "STRATEGY", message: text }),
+        body: JSON.stringify({ tab: "STRATEGY", message: text, action }),
       });
 
       if (!res.ok) {
@@ -172,9 +185,9 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
   }
 
   useImperativeHandle(ref, () => ({
-    sendQuickPrompt: (message: string) => {
+    sendQuickPrompt: (message: string, action?: ManagerActionIntent) => {
       setInput(message);
-      void handleSend(message);
+      void handleSend(message, action);
     },
     setDraft: (message: string) => {
       setInput(message);

@@ -3,7 +3,7 @@ import { AiUsageOrigin, AiUsageType, ManagerAiRole, ManagerAiTab } from "@prisma
 import prisma from "../../../../lib/prisma";
 import { sendBadRequest, sendServerError } from "../../../../lib/apiError";
 import { buildManagerContext } from "../../../../lib/ai/manager/context";
-import { buildManagerSystemPrompt, buildManagerUserPrompt } from "../../../../lib/ai/manager/prompts";
+import { buildManagerSystemPrompt, buildManagerUserPrompt, normalizeManagerAction } from "../../../../lib/ai/manager/prompts";
 import { buildDemoManagerReply, type ManagerDemoReply } from "../../../../lib/ai/manager/demo";
 import { registerAiUsage } from "../../../../lib/ai/registerAiUsage";
 
@@ -26,6 +26,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
 
   const rawTab = typeof req.body?.tab === "string" ? req.body.tab : "";
   const incomingMessage = typeof req.body?.message === "string" ? req.body.message.trim() : "";
+  const action = normalizeManagerAction(typeof req.body?.action === "string" ? req.body.action : null);
   const tab = normalizeTab(rawTab);
 
   if (!tab) {
@@ -45,6 +46,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
         tab,
         role: ManagerAiRole.CREATOR,
         content: incomingMessage,
+        meta: action ? { action } : undefined,
       },
     });
 
@@ -74,8 +76,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
       take: HISTORY_LIMIT + 1,
     });
 
-    const systemPrompt = buildManagerSystemPrompt(tabToString(tab), context.settings);
-    const userPrompt = buildManagerUserPrompt(context, incomingMessage);
+    const systemPrompt = buildManagerSystemPrompt(tabToString(tab), context.settings, action);
+    const userPrompt = buildManagerUserPrompt(context, incomingMessage, action);
     const historyMessages: Array<{ role: "user" | "assistant"; content: string }> = history.slice(-HISTORY_LIMIT).map((msg) => ({
       role: msg.role === ManagerAiRole.CREATOR ? "user" : "assistant",
       content: msg.content,
@@ -105,7 +107,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
         tab,
         role: ManagerAiRole.ASSISTANT,
         content: reply.text,
-        meta: reply,
+        meta: reply ? { ...reply, action } : { action },
         creditsUsed,
       },
     });
