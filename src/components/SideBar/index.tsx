@@ -1,5 +1,5 @@
 import ConversationList from "../ConversationList";
-import { useCallback, useContext, useEffect, useRef, useState } from "react";
+import React, { Component, useCallback, useContext, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/router";
 import CreatorHeader from "../CreatorHeader";
 import { useCreatorConfig } from "../../context/CreatorConfigContext";
@@ -17,7 +17,48 @@ import { ConversationContext } from "../../context/ConversationContext";
 import { EXTRAS_UPDATED_EVENT } from "../../constants/events";
 import { HIGH_PRIORITY_LIMIT } from "../../config/customers";
 
+class SideBarBoundary extends Component<{ children: React.ReactNode }, { hasError: boolean }> {
+  constructor(props: { children: React.ReactNode }) {
+    super(props);
+    this.state = { hasError: false };
+  }
+  static getDerivedStateFromError() {
+    return { hasError: true };
+  }
+  componentDidCatch(error: unknown) {
+    console.error("SideBar crash", error);
+  }
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="p-4 text-sm text-red-100 bg-red-900/40 border border-red-700 rounded-lg space-y-2">
+          <div className="font-semibold">Algo falló al cargar la barra lateral.</div>
+          <button
+            type="button"
+            className="rounded-md bg-red-700/50 px-3 py-1 text-xs font-semibold text-red-50 hover:bg-red-700"
+            onClick={() => {
+              this.setState({ hasError: false });
+              if (typeof window !== "undefined") window.location.reload();
+            }}
+          >
+            Recargar
+          </button>
+        </div>
+      );
+    }
+    return this.props.children as JSX.Element;
+  }
+}
+
 export default function SideBar() {
+  return (
+    <SideBarBoundary>
+      <SideBarInner />
+    </SideBarBoundary>
+  );
+}
+
+function SideBarInner() {
   const router = useRouter();
   const [ search, setSearch ] = useState("");
   const [ isSettingsOpen, setIsSettingsOpen ] = useState(false);
@@ -139,7 +180,9 @@ export default function SideBar() {
     return urgencyScore * 10 + tierScore;
   }
 
-  const fansWithScore: FanData[] = fans.map((fan) => ({
+  const safeFans: ConversationListData[] = Array.isArray(fans) ? fans : [];
+
+  const fansWithScore: FanData[] = safeFans.map((fan) => ({
     ...fan,
     priorityScore: typeof fan.priorityScore === "number" ? fan.priorityScore : computePriorityScore(fan),
   }));
@@ -249,36 +292,36 @@ export default function SideBar() {
     );
   }
 
-  const totalCount = fans.length;
-  const followUpTodayCount = fans.filter((fan) =>
+  const totalCount = safeFans.length;
+  const followUpTodayCount = safeFans.filter((fan) =>
     shouldFollowUpToday({
       membershipStatus: fan.membershipStatus,
       daysLeft: fan.daysLeft,
       followUpTag: fan.followUpTag ?? getFollowUpTag(fan.membershipStatus, fan.daysLeft, fan.activeGrantTypes),
     })
   ).length;
-  const expiredCount = fans.filter((fan) =>
+  const expiredCount = safeFans.filter((fan) =>
     isExpiredAccess({
       membershipStatus: fan.membershipStatus,
       daysLeft: fan.daysLeft,
       followUpTag: fan.followUpTag ?? getFollowUpTag(fan.membershipStatus, fan.daysLeft, fan.activeGrantTypes),
     })
   ).length;
-  const withNotesCount = fans.filter((fan) => (fan.notesCount ?? 0) > 0).length;
-  const withFollowUpCount = fans.filter((fan) => {
+  const withNotesCount = safeFans.filter((fan) => (fan.notesCount ?? 0) > 0).length;
+  const withFollowUpCount = safeFans.filter((fan) => {
     const tag = fan.followUpTag ?? getFollowUpTag(fan.membershipStatus, fan.daysLeft, fan.activeGrantTypes);
     return tag && tag !== "none";
   }).length;
-  const archivedCount = fans.filter((fan) => fan.isArchived === true).length;
-  const blockedCount = fans.filter((fan) => fan.isBlocked === true).length;
-  const priorityCount = fans.filter((fan) => {
+  const archivedCount = safeFans.filter((fan) => fan.isArchived === true).length;
+  const blockedCount = safeFans.filter((fan) => fan.isBlocked === true).length;
+  const priorityCount = safeFans.filter((fan) => {
     const segment = ((fan as any).segment || "").toUpperCase();
     const risk = ((fan as any).riskLevel || "LOW").toUpperCase();
     return segment === "EN_RIESGO" || (segment === "VIP" && risk !== "LOW") || (fan as any).isHighPriority === true;
   }).length;
-  const regularCount = fans.filter((fan) => ((fan as any).segment || "").toUpperCase() === "LEAL_ESTABLE").length;
-  const newCount = fans.filter((fan) => ((fan as any).segment || "").toUpperCase() === "NUEVO").length;
-  const withExtrasCount = fans.filter((fan) => (fan.extrasSpentTotal ?? 0) > 0).length;
+  const regularCount = safeFans.filter((fan) => ((fan as any).segment || "").toUpperCase() === "LEAL_ESTABLE").length;
+  const newCount = safeFans.filter((fan) => ((fan as any).segment || "").toUpperCase() === "NUEVO").length;
+  const withExtrasCount = safeFans.filter((fan) => (fan.extrasSpentTotal ?? 0) > 0).length;
 
   function applyFilter(
     filter: "all" | "today" | "expired",
@@ -305,45 +348,46 @@ export default function SideBar() {
     }
   }
 
-  const filteredConversationsList = (search.length > 0 ? fansWithScore.filter(fan => fan.contactName.toLowerCase().includes(search.toLowerCase())) : fansWithScore)
-    .filter((fan) => {
-      if (statusFilter === "archived") return fan.isArchived === true;
-      if (statusFilter === "blocked") return fan.isBlocked === true;
-      return fan.isArchived !== true && fan.isBlocked !== true;
-    })
-    .filter(fan => (showPriorityOnly ? (fan.priorityScore ?? 0) > 0 : true))
-    .filter((fan) => (!showOnlyWithNotes ? true : (fan.notesCount ?? 0) > 0))
-    .filter((fan) => (!onlyWithExtras ? true : (fan.extrasSpentTotal ?? 0) > 0))
-    .filter((fan) => {
-      if (!onlyWithFollowUp) return true;
-      const tag = fan.followUpTag ?? getFollowUpTag(fan.membershipStatus, fan.daysLeft, fan.activeGrantTypes);
-      return tag && tag !== "none";
-    })
-    .filter((fan) => {
-      const tag = fan.followUpTag ?? getFollowUpTag(fan.membershipStatus, fan.daysLeft, fan.activeGrantTypes);
-      if (followUpFilter === "all") return true;
-      if (followUpFilter === "expired") {
-        return isExpiredAccess({ membershipStatus: fan.membershipStatus, daysLeft: fan.daysLeft, followUpTag: tag });
-      }
-      if (followUpFilter === "today") {
-        return shouldFollowUpToday({
-          membershipStatus: fan.membershipStatus,
-          daysLeft: fan.daysLeft,
-          followUpTag: tag,
-        });
-      }
-      return true;
-    })
-  .filter((fan) => {
-    if (tierFilter === "all") return true;
-    const segment = ((fan as any).segment || "").toUpperCase();
-    if (tierFilter === "vip") return segment === "VIP";
-    if (tierFilter === "regular") return segment === "LEAL_ESTABLE";
-    if (tierFilter === "new") return segment === "NUEVO";
-    const tier = normalizeTier(fan.customerTier);
-    return tier === tierFilter;
-  })
-    .sort((a, b) => {
+  const filteredConversationsList =
+    (search.length > 0 ? fansWithScore.filter((fan) => fan.contactName.toLowerCase().includes(search.toLowerCase())) : fansWithScore)
+      .filter((fan) => {
+        if (statusFilter === "archived") return fan.isArchived === true;
+        if (statusFilter === "blocked") return fan.isBlocked === true;
+        return fan.isArchived !== true && fan.isBlocked !== true;
+      })
+      .filter((fan) => (showPriorityOnly ? (fan.priorityScore ?? 0) > 0 : true))
+      .filter((fan) => (!showOnlyWithNotes ? true : (fan.notesCount ?? 0) > 0))
+      .filter((fan) => (!onlyWithExtras ? true : (fan.extrasSpentTotal ?? 0) > 0))
+      .filter((fan) => {
+        if (!onlyWithFollowUp) return true;
+        const tag = fan.followUpTag ?? getFollowUpTag(fan.membershipStatus, fan.daysLeft, fan.activeGrantTypes);
+        return tag && tag !== "none";
+      })
+      .filter((fan) => {
+        const tag = fan.followUpTag ?? getFollowUpTag(fan.membershipStatus, fan.daysLeft, fan.activeGrantTypes);
+        if (followUpFilter === "all") return true;
+        if (followUpFilter === "expired") {
+          return isExpiredAccess({ membershipStatus: fan.membershipStatus, daysLeft: fan.daysLeft, followUpTag: tag });
+        }
+        if (followUpFilter === "today") {
+          return shouldFollowUpToday({
+            membershipStatus: fan.membershipStatus,
+            daysLeft: fan.daysLeft,
+            followUpTag: tag,
+          });
+        }
+        return true;
+      })
+      .filter((fan) => {
+        if (tierFilter === "all") return true;
+        const segment = ((fan as any).segment || "").toUpperCase();
+        if (tierFilter === "vip") return segment === "VIP";
+        if (tierFilter === "regular") return segment === "LEAL_ESTABLE";
+        if (tierFilter === "new") return segment === "NUEVO";
+        const tier = normalizeTier(fan.customerTier);
+        return tier === tierFilter;
+      })
+      .sort((a, b) => {
       if (followUpFilter === "today") {
         const pa = a.priorityScore ?? 0;
         const pb = b.priorityScore ?? 0;
@@ -371,7 +415,10 @@ export default function SideBar() {
       return 0;
     });
 
-  const visibleList: FanData[] = queueMode ? buildTodayQueue(filteredConversationsList as FanData[]) : (filteredConversationsList as FanData[]);
+  const safeFilteredConversationsList: FanData[] = Array.isArray(filteredConversationsList)
+    ? (filteredConversationsList as FanData[])
+    : [];
+  const visibleList: FanData[] = queueMode ? buildTodayQueue(safeFilteredConversationsList) : safeFilteredConversationsList;
   const attendedTodayCount = fans.filter((fan) => {
     if (!fan.lastCreatorMessageAt) return false;
     const d = new Date(fan.lastCreatorMessageAt);
@@ -383,10 +430,11 @@ export default function SideBar() {
       d.getDate() === now.getDate()
     );
   }).length;
-  const queueLength = todayQueue.length;
-  const vipInQueue = todayQueue.filter((fan) => fan.isHighPriority).length;
-  const extrasTodayCount = extrasSummary?.today.count ?? 0;
-  const extrasTodayAmount = extrasSummary?.today.amount ?? 0;
+  const safeTodayQueue = Array.isArray(todayQueue) ? todayQueue : [];
+  const queueLength = safeTodayQueue.length;
+  const vipInQueue = safeTodayQueue.filter((fan) => fan?.isHighPriority).length;
+  const extrasTodayCount = Number.isFinite(extrasSummary?.today?.count) ? (extrasSummary?.today?.count as number) : 0;
+  const extrasTodayAmount = Number.isFinite(extrasSummary?.today?.amount) ? (extrasSummary?.today?.amount as number) : 0;
   const legendRef = useRef<HTMLDivElement | null>(null);
 
   const recommendedFan = getRecommendedFan(fansWithScore);
@@ -585,7 +633,7 @@ export default function SideBar() {
 
   useEffect(() => {
     if (!queueMode) return;
-    const queue = buildTodayQueue(filteredConversationsList as FanData[]);
+    const queue = buildTodayQueue(safeFilteredConversationsList);
     setTodayQueue(queue);
     if (conversation?.id) {
       const idx = queue.findIndex((f) => f.id === conversation.id);
@@ -598,7 +646,8 @@ export default function SideBar() {
   useEffect(() => {
     if (!queueMode) return;
     if (!conversation?.id) return;
-    const idx = todayQueue.findIndex((f) => f.id === conversation.id);
+    const safeQueue = Array.isArray(todayQueue) ? todayQueue : [];
+    const idx = safeQueue.findIndex((f) => f.id === conversation.id);
     if (idx >= 0 && idx !== queueIndex) setQueueIndex(idx);
   }, [conversation?.id, queueMode, queueIndex, setQueueIndex, todayQueue]);
 
@@ -607,6 +656,8 @@ export default function SideBar() {
     return `${rounded % 1 === 0 ? rounded.toFixed(0) : rounded.toFixed(2)} €`;
   }
 
+  const isLoading = loadingFans;
+  const isError = Boolean(fansError);
   return (
     <div className="flex flex-col w-full md:w-[480px] bg-[#202c33] min-h-[320px] md:h-full" style={{borderRight: "1px solid rgba(134,150,160,0.15)"}}>
       <CreatorSettingsPanel isOpen={isSettingsOpen} onClose={() => setIsSettingsOpen(false)} />
@@ -619,53 +670,85 @@ export default function SideBar() {
         onOpenSettings={() => setIsSettingsOpen(true)}
       />
       <div className="mb-2 px-3">
-        <div className="mb-2 rounded-xl border border-slate-700 bg-slate-900/80 px-3 py-2 text-[11px] text-slate-300">
-          <div className="flex justify-between">
-            <span className="font-semibold text-slate-100">Resumen de hoy</span>
-            <span className="text-slate-400">Ventas y actividad</span>
-          </div>
-          <div className="mt-3 grid grid-cols-2 gap-2 text-[11px]">
-            <div className="flex flex-col rounded-xl bg-slate-950/70 px-3 py-3 shadow-sm">
-              <span className="text-[12px] text-slate-400">Chats atendidos</span>
-              <span className={clsx("mt-1 text-2xl font-semibold", attendedTodayCount > 0 ? "text-emerald-300" : "text-slate-300")}>
-                {attendedTodayCount}
-              </span>
-            </div>
-            <div className="flex flex-col rounded-xl bg-slate-950/70 px-3 py-3 shadow-sm">
-              <span className="text-[12px] text-slate-400">Ventas hoy (cola)</span>
-              <span className={clsx("mt-1 text-2xl font-semibold", queueLength > 0 ? "text-emerald-300" : "text-slate-300")}>
-                {queueLength}
-              </span>
-            </div>
-            <div className="flex flex-col rounded-xl bg-slate-950/70 px-3 py-3 shadow-sm">
-              <span className="text-[12px] text-slate-400">VIP en cola</span>
-              <span className={clsx("mt-1 text-2xl font-semibold", vipInQueue > 0 ? "text-emerald-300" : "text-slate-300")}>
-                {vipInQueue}
-              </span>
-            </div>
-            <div className="flex flex-col rounded-xl bg-slate-950/70 px-3 py-3 shadow-sm">
-              <span className="text-[12px] text-slate-400">Extras vendidos hoy</span>
-              <span className={clsx("mt-1 text-lg font-semibold leading-tight", extrasTodayCount > 0 ? "text-emerald-300" : "text-slate-300")}>
-                {extrasTodayCount} venta{extrasTodayCount === 1 ? "" : "s"} · {formatCurrency(extrasTodayAmount)}
-              </span>
+        {isError && (
+          <div className="mb-2 rounded-xl border border-rose-500/50 bg-rose-900/40 px-3 py-2 text-[12px] text-rose-50">
+            <div className="flex items-center justify-between">
+              <span>{fansError || "No se pudo cargar la lista de fans."}</span>
+              <button
+                type="button"
+                className="rounded-md border border-rose-300/50 bg-rose-700/50 px-2 py-1 text-[11px] font-semibold hover:bg-rose-700"
+                onClick={() => fetchFansPage()}
+              >
+                Reintentar
+              </button>
             </div>
           </div>
-        </div>
-        {extrasSummary && (
-          <div className="mb-2 rounded-xl border border-slate-700 bg-slate-900/80 px-3 py-3 text-[12px] text-slate-300">
-            <div className="flex justify-between">
-              <span>Extras hoy</span>
-              <span className={clsx("font-semibold text-2xl leading-tight", extrasSummary.today.count > 0 ? "text-emerald-300" : "text-slate-300")}>
-                {extrasSummary.today.count} venta{extrasSummary.today.count === 1 ? "" : "s"} · {formatCurrency(extrasSummary.today.amount)}
-              </span>
-            </div>
-            <div className="mt-2 flex justify-between text-slate-400">
-              <span>Últimos 7 días</span>
-              <span className={clsx("font-semibold text-lg", extrasSummary.last7Days.count > 0 ? "text-emerald-200" : "text-slate-300")}>
-                {extrasSummary.last7Days.count} venta{extrasSummary.last7Days.count === 1 ? "" : "s"} · {formatCurrency(extrasSummary.last7Days.amount)}
-              </span>
+        )}
+        {isLoading ? (
+          <div className="mb-2 rounded-xl border border-slate-700 bg-slate-900/80 px-3 py-2">
+            <div className="animate-pulse space-y-3">
+              <div className="flex justify-between">
+                <div className="h-3 w-28 rounded bg-slate-700" />
+                <div className="h-3 w-20 rounded bg-slate-800" />
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                {[1, 2, 3, 4].map((n) => (
+                  <div key={`skeleton-${n}`} className="h-16 rounded-xl bg-slate-800" />
+                ))}
+              </div>
             </div>
           </div>
+        ) : (
+          <>
+            <div className="mb-2 rounded-xl border border-slate-700 bg-slate-900/80 px-3 py-2 text-[11px] text-slate-300">
+              <div className="flex justify-between">
+                <span className="font-semibold text-slate-100">Resumen de hoy</span>
+                <span className="text-slate-400">Ventas y actividad</span>
+              </div>
+              <div className="mt-3 grid grid-cols-2 gap-2 text-[11px]">
+                <div className="flex flex-col rounded-xl bg-slate-950/70 px-3 py-3 shadow-sm">
+                  <span className="text-[12px] text-slate-400">Chats atendidos</span>
+                  <span className={clsx("mt-1 text-2xl font-semibold", attendedTodayCount > 0 ? "text-emerald-300" : "text-slate-300")}>
+                    {attendedTodayCount}
+                  </span>
+                </div>
+                <div className="flex flex-col rounded-xl bg-slate-950/70 px-3 py-3 shadow-sm">
+                  <span className="text-[12px] text-slate-400">Ventas hoy (cola)</span>
+                  <span className={clsx("mt-1 text-2xl font-semibold", queueLength > 0 ? "text-emerald-300" : "text-slate-300")}>
+                    {queueLength}
+                  </span>
+                </div>
+                <div className="flex flex-col rounded-xl bg-slate-950/70 px-3 py-3 shadow-sm">
+                  <span className="text-[12px] text-slate-400">VIP en cola</span>
+                  <span className={clsx("mt-1 text-2xl font-semibold", vipInQueue > 0 ? "text-emerald-300" : "text-slate-300")}>
+                    {vipInQueue}
+                  </span>
+                </div>
+                <div className="flex flex-col rounded-xl bg-slate-950/70 px-3 py-3 shadow-sm">
+                  <span className="text-[12px] text-slate-400">Extras vendidos hoy</span>
+                  <span className={clsx("mt-1 text-lg font-semibold leading-tight", extrasTodayCount > 0 ? "text-emerald-300" : "text-slate-300")}>
+                    {extrasTodayCount} venta{extrasTodayCount === 1 ? "" : "s"} · {formatCurrency(extrasTodayAmount)}
+                  </span>
+                </div>
+              </div>
+            </div>
+            {extrasSummary && (
+              <div className="mb-2 rounded-xl border border-slate-700 bg-slate-900/80 px-3 py-3 text-[12px] text-slate-300">
+                <div className="flex justify-between">
+                  <span>Extras hoy</span>
+                  <span className={clsx("font-semibold text-2xl leading-tight", extrasSummary.today.count > 0 ? "text-emerald-300" : "text-slate-300")}>
+                    {extrasSummary.today.count} venta{extrasSummary.today.count === 1 ? "" : "s"} · {formatCurrency(extrasSummary.today.amount)}
+                  </span>
+                </div>
+                <div className="mt-2 flex justify-between text-slate-400">
+                  <span>Últimos 7 días</span>
+                  <span className={clsx("font-semibold text-lg", extrasSummary.last7Days.count > 0 ? "text-emerald-200" : "text-slate-300")}>
+                    {extrasSummary.last7Days.count} venta{extrasSummary.last7Days.count === 1 ? "" : "s"} · {formatCurrency(extrasSummary.last7Days.amount)}
+                  </span>
+                </div>
+              </div>
+            )}
+          </>
         )}
         <div className="flex flex-col gap-2 rounded-xl border border-slate-700 bg-slate-900/80 px-3 py-3 text-[12px] text-slate-300">
           <div className="flex items-center justify-between">
@@ -1078,7 +1161,7 @@ export default function SideBar() {
               setTodayQueue([]);
               setQueueIndex(0);
             } else {
-              const queue = buildTodayQueue(filteredConversationsList as FanData[]);
+              const queue = buildTodayQueue(safeFilteredConversationsList);
               setTodayQueue(queue);
               if (conversation?.id) {
                 const idx = queue.findIndex((f) => f.id === conversation.id);

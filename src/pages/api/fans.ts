@@ -40,7 +40,12 @@ const DEFAULT_LIMIT = 50;
 const MAX_LIMIT = 100;
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
-  const { limit: limitParam, cursor, filter = "all", q, fanId } = req.query;
+  const { limit: limitParam, cursor, filter = "all", q, fanId, source } = req.query;
+  const normalizedSource = typeof source === "string" && source.trim() ? source.trim().toLowerCase() : (process.env.FANS_SOURCE ?? "db").toLowerCase();
+  const allowedSources = new Set(["db", "demo"]);
+  if (!allowedSources.has(normalizedSource)) {
+    console.warn("api/fans invalid source, defaulting to demo", normalizedSource);
+  }
   const rawLimit = Array.isArray(limitParam) ? limitParam[0] : limitParam;
   let limit = DEFAULT_LIMIT;
   if (rawLimit !== undefined) {

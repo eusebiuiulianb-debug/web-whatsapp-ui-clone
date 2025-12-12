@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from "react";
 import clsx from "clsx";
 import type { CreatorBusinessSnapshot } from "../../lib/creatorManager";
 
@@ -20,7 +20,7 @@ type ManagerChatPostResponse = {
   usedFallback?: boolean;
 };
 
-const suggestions = [
+const defaultSuggestions = [
   "¿A qué fans debería escribir hoy?",
   "Resúmeme mis números clave de esta semana.",
   "Dame una acción concreta para aumentar ingresos hoy.",
@@ -30,9 +30,19 @@ type Props = {
   businessSnapshot?: CreatorBusinessSnapshot | null;
   hideTitle?: boolean;
   embedded?: boolean;
+  suggestions?: string[];
+  density?: "comfortable" | "compact";
 };
 
-export function ManagerChatCard({ businessSnapshot, hideTitle = false, embedded = false }: Props) {
+export type ManagerChatCardHandle = {
+  sendQuickPrompt: (message: string) => void;
+  setDraft: (message: string) => void;
+};
+
+export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function ManagerChatCard(
+  { businessSnapshot, hideTitle = false, embedded = false, suggestions, density = "comfortable" }: Props,
+  ref
+) {
   const [messages, setMessages] = useState<ManagerChatMessage[]>([]);
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
@@ -42,6 +52,7 @@ export function ManagerChatCard({ businessSnapshot, hideTitle = false, embedded 
   const listRef = useRef<HTMLDivElement | null>(null);
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
   const [snapshot, setSnapshot] = useState<CreatorBusinessSnapshot | null>(businessSnapshot ?? null);
+  const isDemo = !process.env.NEXT_PUBLIC_OPENAI_API_KEY;
 
   useEffect(() => {
     void loadMessages();
@@ -83,8 +94,23 @@ export function ManagerChatCard({ businessSnapshot, hideTitle = false, embedded 
     }
   }
 
-  async function handleSend() {
-    if (!input.trim() || sending) return;
+  function buildDemoReply(text: string) {
+    const lower = text.toLowerCase();
+    if (lower.includes("fans") && lower.includes("escribir")) {
+      return "Hoy prioriza:\n• Marta (VIP, caduca en 2d): haz un check-in rápido.\n• Luis (nuevo): da la bienvenida y ofrece pack mensual.\n• Ana (en riesgo): pregúntale qué contenido quiere ver.";
+    }
+    if (lower.includes("números") || lower.includes("resúmeme mis números")) {
+      return "Tus números demo:\n• Ingresos 7d: 652 €\n• Ingresos 30d: 1.930 €\n• Extras 30d: 48 ventas\n• Fans nuevos 30d: 12\n• Riesgo 7d: 25 €";
+    }
+    if (lower.includes("acción concreta") || lower.includes("ingresos")) {
+      return "Acción demo:\n1) Envía un upsell a tus 3 VIP sobre el pack mensual.\n2) Comparte un extra de 15 € con fans en riesgo.\n3) Cierra con un CTA claro a compra hoy.";
+    }
+    return "Modo demo activo: conecta tu OPENAI_API_KEY para respuestas con tus datos reales.";
+  }
+
+  async function handleSend(externalMessage?: string) {
+    const text = typeof externalMessage === "string" ? externalMessage.trim() : input.trim();
+    if (!text || sending) return;
     try {
       setSending(true);
       setError(null);
@@ -92,13 +118,30 @@ export function ManagerChatCard({ businessSnapshot, hideTitle = false, embedded 
       const optimisticId = `local-${Date.now()}`;
       setMessages((prev) => [
         ...prev,
-        { id: optimisticId, role: "CREATOR", content: input.trim(), createdAt: now },
+        { id: optimisticId, role: "CREATOR", content: text, createdAt: now },
       ]);
+
+      if (isDemo) {
+        const demoReply = buildDemoReply(text);
+        setMessages((prev) => [
+          ...prev.filter((m) => m.id !== optimisticId),
+          {
+            id: `assistant-${Date.now()}`,
+            role: "ASSISTANT",
+            content: demoReply,
+            createdAt: new Date().toISOString(),
+          },
+        ]);
+        setUsedFallback(true);
+        setInput("");
+        setSending(false);
+        return;
+      }
 
       const res = await fetch("/api/creator/ai-manager/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ tab: "STRATEGY", message: input.trim() }),
+        body: JSON.stringify({ tab: "STRATEGY", message: text }),
       });
 
       if (!res.ok) {
@@ -128,97 +171,79 @@ export function ManagerChatCard({ businessSnapshot, hideTitle = false, embedded 
     }
   }
 
+  useImperativeHandle(ref, () => ({
+    sendQuickPrompt: (message: string) => {
+      setInput(message);
+      void handleSend(message);
+    },
+    setDraft: (message: string) => {
+      setInput(message);
+      inputRef.current?.focus();
+    },
+  }));
+
+  const quickSuggestions = suggestions && suggestions.length > 0 ? suggestions : defaultSuggestions;
+
   const containerClass = clsx(
-    "rounded-2xl border border-slate-800 bg-slate-900/80 p-4",
-    "flex flex-col h-full",
-    embedded ? "space-y-4 min-h-[520px]" : "space-y-4"
+    "rounded-2xl border border-slate-800 bg-slate-900/80",
+    density === "compact" ? "p-3" : "p-4",
+    "flex flex-col h-full min-h-0",
+    density === "compact" ? "space-y-2.5" : "space-y-3"
+  );
+  const chipClass = clsx(
+    "rounded-full border border-slate-700 bg-slate-900/60 text-slate-100 hover:bg-slate-800 transition",
+    density === "compact" ? "px-2.5 py-1 text-[11px]" : "px-3 py-1.5 text-xs"
   );
 
   return (
     <section className={containerClass}>
-      <div className="space-y-3">
-        {!hideTitle && (
-          <div className="flex items-center justify-between">
-            <div>
-              <h2 className="text-lg font-semibold">Manager IA – Estrategia y números</h2>
-              <p className="text-xs text-slate-400">
-                Dime qué quieres conseguir hoy y te digo con quién hablar y qué hacer para no perder dinero.
-              </p>
-              <p className="text-[11px] text-slate-500">Chat interno entre tú y tu manager IA (no visible para fans).</p>
-            </div>
-          </div>
-        )}
-        <div className="rounded-xl border border-slate-800 bg-slate-900/70 px-4 py-3 text-xs text-slate-100 space-y-2">
-          <div>
-            {snapshot ? (
-              <p className="space-x-1">
-                <strong className="text-emerald-100">{snapshot.newFansLast30Days}</strong> fans nuevos ·{" "}
-                <strong className="text-emerald-100">{snapshot.fansAtRisk}</strong> en riesgo ·{" "}
-                <strong className="text-emerald-100">{snapshot.vipActiveCount}</strong> VIP activos ·{" "}
-                <strong className="text-emerald-100">{formatCurrency(snapshot.ingresosUltimos30Dias)}</strong> en 30 días
-              </p>
-            ) : (
-              <span className="text-slate-500">Preparando resumen del negocio...</span>
-            )}
-          </div>
-          <div className="space-y-1">
-            <div className="text-[11px] uppercase tracking-wide text-slate-400">Top 3 fans de hoy</div>
-            <div className="text-[11px] text-slate-500">Ordenados por prioridad según salud, caducidad y gasto.</div>
-            <div className="space-y-2">
-              {snapshot && snapshot.prioritizedFansToday && snapshot.prioritizedFansToday.length > 0 ? (
-                snapshot.prioritizedFansToday.slice(0, 3).map((fan) => (
-                  <div
-                    key={fan.id}
-                    className="flex items-center justify-between gap-3 rounded-lg border border-slate-800 bg-slate-900/60 px-3 py-2"
-                  >
-                    <div className="flex flex-col leading-tight">
-                      <span className="text-sm font-semibold text-slate-100">{fan.name}</span>
-                      <span className="text-[11px] text-slate-400">{formatExpire(fan.daysToExpire)}</span>
-                    </div>
-                    <div className="flex items-center gap-2 text-[11px] text-slate-200">
-                      <span className="rounded-full border border-slate-700 px-2 py-[2px] uppercase tracking-wide">
-                        {fan.segment}
-                      </span>
-                      <span className="rounded-full border border-emerald-500/60 bg-emerald-500/10 px-2 py-[2px] text-emerald-100">
-                        Salud {fan.health}
-                      </span>
-                    </div>
-                  </div>
-                ))
-              ) : (
-                <div className="text-[12px] text-slate-400">
-                  Hoy no hay fans priorizados en la cola. Revisa la lista de fans para ver quién está más cerca de caducar.
-                </div>
-              )}
-            </div>
-          </div>
-          {usedFallback && (
-            <div className="text-[11px] text-amber-200">
-              Estás en modo demo: aún no hay IA real conectada. Cuando añadas tu OPENAI_API_KEY, el manager responderá usando tus datos en
-              tiempo real.
+        <div className={clsx(density === "compact" ? "space-y-2.5" : "space-y-3")}>
+          {!hideTitle && (
+            <div className="flex items-center justify-between">
+              <div>
+                <h2 className="text-lg font-semibold">Manager IA – Estrategia y números</h2>
+                <p className="text-xs text-slate-400">
+                  Dime qué quieres conseguir hoy y te digo con quién hablar y qué hacer para no perder dinero.
+                </p>
+                <p className="text-[11px] text-slate-500">Chat interno entre tú y tu manager IA (no visible para fans).</p>
+              </div>
             </div>
           )}
+          <div className="rounded-xl border border-slate-800 bg-slate-900/70 px-4 py-3 text-xs text-slate-100 space-y-2">
+            <div>
+              {snapshot ? (
+                <p className="space-x-1">
+                  <strong className="text-emerald-100">{snapshot.newFansLast30Days}</strong> fans nuevos ·{" "}
+                  <strong className="text-emerald-100">{snapshot.fansAtRisk}</strong> en riesgo ·{" "}
+                  <strong className="text-emerald-100">{snapshot.vipActiveCount}</strong> VIP activos ·{" "}
+                  <strong className="text-emerald-100">{formatCurrency(snapshot.ingresosUltimos30Dias)}</strong> en 30 días
+                </p>
+              ) : (
+                <span className="text-slate-500">Preparando resumen del negocio...</span>
+              )}
+            </div>
+            {usedFallback && (
+              <div className="text-[11px] text-amber-200">
+                Estás en modo demo: la IA usará respuestas genéricas hasta que conectes tu OPENAI_API_KEY.
+              </div>
+            )}
+          </div>
         </div>
-        <div className="mt-1 flex flex-wrap gap-2">
-          {suggestions.map((sugg) => (
-            <button
-              key={sugg}
-              type="button"
-              className="rounded-full border border-slate-700 bg-slate-900/60 px-3 py-1 text-xs text-slate-100 hover:bg-slate-800"
-              onClick={() => {
-                setInput(sugg);
-                inputRef.current?.focus();
-              }}
-              disabled={sending}
-            >
-              {sugg}
-            </button>
-          ))}
-        </div>
-      </div>
 
-      <div className="mt-3 flex-1 rounded-xl border border-slate-900 bg-slate-950/50 px-4 py-3 flex flex-col">
-        <div className="flex-1 space-y-3 overflow-y-auto pr-1">
+      <div
+        className={clsx(
+          "mt-3 flex flex-col rounded-xl border border-slate-900 bg-slate-950/50 flex-1 min-h-0",
+          density === "compact" ? "gap-2.5 px-3 py-2.5" : "gap-3 px-4 py-3"
+        )}
+      >
+        <div
+          className={clsx(
+            "flex-1 min-h-0 overflow-y-auto pr-1 pb-24 md:pb-4",
+            density === "compact" ? "space-y-2" : "space-y-3",
+            "min-h-[220px]"
+          )}
+          ref={listRef}
+        >
           {loading && <div className="text-[12px] text-slate-400">Cargando chat…</div>}
           {!loading && messages.length === 0 && <div className="text-[12px] text-slate-400">Aún no hay mensajes.</div>}
           {!loading &&
@@ -245,37 +270,58 @@ export function ManagerChatCard({ businessSnapshot, hideTitle = false, embedded 
               );
             })}
         </div>
-      </div>
-
-      {error && <div className="text-[11px] text-rose-300 mt-2">{error}</div>}
-
-      <form
-        onSubmit={(e) => {
-          e.preventDefault();
-          void handleSend();
-        }}
-        className="mt-3 flex gap-2"
-      >
-        <textarea
-          ref={inputRef}
-          value={input}
-          onChange={(e) => setInput(e.target.value)}
-          disabled={sending}
-          placeholder="Cuéntale al Manager IA en qué necesitas ayuda."
-          className="flex-1 resize-none rounded-xl border border-slate-700 bg-slate-950/70 px-3 py-2 text-sm text-slate-100 focus:outline-none focus:ring-2 focus:ring-emerald-500/70 disabled:cursor-not-allowed disabled:opacity-70"
-          rows={2}
-        />
-        <button
-          type="submit"
-          disabled={sending || !input.trim()}
-          className="self-end rounded-xl bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-500 disabled:opacity-50"
+        {error && <div className="text-[11px] text-rose-300 mt-2">{error}</div>}
+        <div className="flex flex-nowrap items-center gap-2 overflow-x-auto pb-1">
+          {quickSuggestions.map((sugg) => (
+            <button
+              key={sugg}
+              type="button"
+              className={chipClass}
+              onClick={() => {
+                setInput(sugg);
+                inputRef.current?.focus();
+                void handleSend(sugg);
+              }}
+              disabled={sending}
+            >
+              {sugg}
+            </button>
+          ))}
+        </div>
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            void handleSend();
+          }}
+          className="flex gap-2 pt-2 border-t border-slate-800"
         >
-          {sending ? "Enviando..." : "Enviar"}
-        </button>
-      </form>
+          <textarea
+            ref={inputRef}
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            disabled={sending}
+            placeholder="Cuéntale al Manager IA en qué necesitas ayuda."
+            className={clsx(
+              "flex-1 resize-none rounded-xl border border-slate-700 bg-slate-950/70 text-sm text-slate-100 focus:outline-none focus:ring-2 focus:ring-emerald-500/70 disabled:cursor-not-allowed disabled:opacity-70",
+              density === "compact" ? "px-2.5 py-2 text-sm" : "px-3 py-2.5"
+            )}
+            rows={density === "compact" ? 2 : 3}
+          />
+          <button
+            type="submit"
+            disabled={sending || !input.trim()}
+            className={clsx(
+              "self-end rounded-xl bg-emerald-600 text-sm font-semibold text-white hover:bg-emerald-500 disabled:opacity-50",
+              density === "compact" ? "px-3 py-2" : "px-4 py-2.5"
+            )}
+          >
+            {sending ? "Enviando..." : "Enviar"}
+          </button>
+        </form>
+      </div>
     </section>
   );
-}
+});
 
 function formatCurrency(amount: number) {
   return `${Math.round(amount)} €`;

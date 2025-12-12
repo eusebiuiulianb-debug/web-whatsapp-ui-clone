@@ -134,8 +134,7 @@ export function ContentManagerChatCard({ initialSnapshot, hideTitle = false, emb
 
   const containerClass = clsx(
     "rounded-2xl border border-slate-800 bg-slate-900/80 p-4",
-    "flex h-full flex-col gap-3",
-    embedded && "min-h-[520px]"
+    "flex flex-col gap-3 h-full"
   );
 
   return (
@@ -238,7 +237,7 @@ export function ContentManagerChatCard({ initialSnapshot, hideTitle = false, emb
       </div>
 
       <div className="flex min-h-[260px] flex-1 flex-col rounded-xl border border-slate-900 bg-slate-950/50 px-3 py-3">
-        <div ref={listRef} className="flex-1 space-y-3 overflow-y-auto pr-1">
+        <div ref={listRef} className="flex-1 space-y-3 overflow-y-auto pr-1 min-h-[200px]">
           {loading && <div className="text-[12px] text-slate-400">Cargando chat…</div>}
           {!loading && messages.length === 0 && <div className="text-[12px] text-slate-400">Aún no hay mensajes.</div>}
           {!loading &&

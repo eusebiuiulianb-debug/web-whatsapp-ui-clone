@@ -43,3 +43,7 @@ La app se levanta en modo desarrollo en `http://localhost:3000`.
   - `/api/fans` devuelve la lista de fans con estados de demo.
   - `/api/messages?fanId=...` devuelve los mensajes mock de cada fan.
 - La UI consume estos endpoints vía `fetch`, combinando los datos del creador con la configuración local (localStorage) cuando exista.
+
+## Notas de desarrollo (Windows)
+- Si aparece `webpack.cache.PackFileCacheStrategy` con `EPERM` al renombrar `.next/cache`, elimina la carpeta `.next/cache` y reinicia con `npm run dev:clean`. Excluir `.next/cache` del antivirus/Defender ayuda a evitar el bloqueo de archivos.
+- También puedes usar `npm run clean` para limpiar `.next` y su cache de forma cross‑platform antes de volver a arrancar el servidor.
