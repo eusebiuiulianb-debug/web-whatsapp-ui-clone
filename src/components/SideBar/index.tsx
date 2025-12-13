@@ -187,6 +187,23 @@ function SideBarInner() {
     priorityScore: typeof fan.priorityScore === "number" ? fan.priorityScore : computePriorityScore(fan),
   }));
 
+  const handleSelectConversation = useCallback(
+    (item: ConversationListData) => {
+      if (item?.id) {
+        void router.push(
+          {
+            pathname: router.pathname || "/",
+            query: { fanId: item.id },
+          },
+          undefined,
+          { shallow: true }
+        );
+      }
+      setConversation(item as any);
+    },
+    [router, setConversation]
+  );
+
   function getLastActivityTimestamp(fan: FanData): number {
     if (fan.lastCreatorMessageAt) {
       const d = new Date(fan.lastCreatorMessageAt);
@@ -1241,7 +1258,12 @@ function SideBarInner() {
         )}
         {!loadingFans && !fansError && !focusMode && visibleList.map((conversation, index) => {
           return (
-            <ConversationList key={conversation.id || index} isFirstConversation={index == 0} data={conversation} />
+            <ConversationList
+              key={conversation.id || index}
+              isFirstConversation={index == 0}
+              data={conversation}
+              onSelect={handleSelectConversation}
+            />
           )
         })}
         {!loadingFans && !fansError && !focusMode && hasMore && (

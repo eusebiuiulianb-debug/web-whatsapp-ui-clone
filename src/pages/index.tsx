@@ -4,11 +4,13 @@ import clsx from "clsx";
 import ConversationDetails from "../components/ConversationDetails";
 import SideBar from "../components/SideBar";
 import { ConversationContext } from "../context/ConversationContext";
+import { useRouter } from "next/router";
 
 export default function Home() {
   const { conversation } = useContext(ConversationContext);
   const hasConversation = Boolean(conversation?.id);
   const hasContactName = Boolean(conversation?.contactName);
+  const router = useRouter();
   const [ mobileView, setMobileView ] = useState<"board" | "chat">("board");
   const conversationSectionRef = useRef<HTMLDivElement | null>(null);
   const IconHome = () => (
@@ -57,6 +59,16 @@ export default function Home() {
     setMobileView("chat");
     conversationSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
   }, [hasConversation]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const fanIdFromQuery = typeof router.query.fanId === "string" ? router.query.fanId : null;
+    if (!fanIdFromQuery) return;
+    if (window.innerWidth < 1024) {
+      setMobileView("chat");
+      conversationSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+  }, [router.query.fanId]);
 
   useEffect(() => {
     if (hasConversation) return;

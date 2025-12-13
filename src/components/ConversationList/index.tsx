@@ -9,11 +9,12 @@ import { PACKS } from "../../config/packs";
 
 interface ConversationListProps {
   isFirstConversation?: boolean;
-  data: ConversationListData
+  data: ConversationListData;
+  onSelect?: (conversation: ConversationListData) => void;
 }
 
 export default function ConversationList(props: ConversationListProps) {
-  const { isFirstConversation, data } = props;
+  const { isFirstConversation, data, onSelect } = props;
   const { setConversation } = useContext(ConversationContext);
   const { contactName, lastMessage, lastTime, image, unreadCount, isNew, membershipStatus, daysLeft, urgencyLevel } = data;
   const borderClass = isFirstConversation ? "border-transparent" : "border-[rgba(134,150,160,0.15)]";
@@ -98,7 +99,13 @@ export default function ConversationList(props: ConversationListProps) {
       className={`flex items-center w-full bg-[#111B21] px-3 py-3.5 hover:bg-[#2A3942] cursor-pointer border-t ${borderClass}`}
       onMouseMove={ () => seHover(true) }
       onMouseLeave={ () => seHover(false) }
-      onClick={ () => setConversation(data) }
+      onClick={() => {
+        if (onSelect) {
+          onSelect(data);
+        } else {
+          setConversation(data);
+        }
+      }}
     >
       <div className="flex items-center gap-3 w-full">
         <Avatar width="w-12" height="h-12" image={image} />
