@@ -1108,7 +1108,7 @@ function SideBarInner() {
             <button
               type="button"
               className="rounded-lg bg-amber-500/90 px-2 py-1 text-xs font-semibold text-slate-900 hover:bg-amber-500"
-              onClick={() => setConversation(recommendedFan)}
+              onClick={() => recommendedFan && handleSelectConversation(recommendedFan)}
             >
               Abrir chat
             </button>

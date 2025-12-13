@@ -29,6 +29,7 @@ import type { ManagerObjective as AutopilotObjective } from "../../lib/managerAu
 import type { FanManagerStateAnalysis } from "../../lib/fanManagerState";
 import type { FanTone, ManagerObjective } from "../../types/manager";
 import clsx from "clsx";
+import { useRouter } from "next/router";
 
 type ManagerQuickIntent = ManagerObjective;
 
@@ -138,6 +139,7 @@ export default function ConversationDetails({ onBackToBoard }: ConversationDetai
   const [ isChatBlocked, setIsChatBlocked ] = useState(conversation.isBlocked ?? false);
   const [ isChatArchived, setIsChatArchived ] = useState(conversation.isArchived ?? false);
   const [ isChatActionLoading, setIsChatActionLoading ] = useState(false);
+  const router = useRouter();
   const actionsMenuRef = useRef<HTMLDivElement | null>(null);
   const MAX_MESSAGE_HEIGHT = 180;
   const messageInputRef = useRef<HTMLTextAreaElement | null>(null);
@@ -491,6 +493,21 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
     const filled = text.replace("{nombre}", getFirstName(contactName) || contactName || "");
     focusMainMessageInput(filled);
   };
+  const handleSelectFanFromBanner = useCallback(
+    (fan: ConversationListData | null) => {
+      if (!fan?.id) return;
+      void router.push(
+        {
+          pathname: router.pathname || "/",
+          query: { fanId: fan.id },
+        },
+        undefined,
+        { shallow: true }
+      );
+      setConversation(fan as any);
+    },
+    [router, setConversation]
+  );
   function handleManagerSuggestion(text: string) {
     handleApplyManagerSuggestion(text);
   }
@@ -2661,7 +2678,7 @@ useEffect(() => {
           <button
             type="button"
             className="ml-3 rounded-full border border-amber-400 bg-amber-500/10 px-3 py-1 text-[11px] font-semibold text-amber-300 hover:bg-amber-400/20"
-            onClick={() => setConversation(recommendedFan)}
+            onClick={() => handleSelectFanFromBanner(recommendedFan)}
           >
             Abrir chat
           </button>
