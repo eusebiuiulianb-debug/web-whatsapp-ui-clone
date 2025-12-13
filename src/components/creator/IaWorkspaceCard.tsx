@@ -75,6 +75,7 @@ export function IaWorkspaceCard({
 
   const planSteps = useMemo(() => buildDailyPlan({ summary, queue }), [summary, queue]);
   const preview = advisorInput?.preview;
+  const topFansRef = useRef<HTMLDivElement | null>(null);
   const contextTabs = useMemo(
     () => [
       { id: "today", label: "Hoy", summary: `${planSteps.length} pasos` },
@@ -396,7 +397,7 @@ export function IaWorkspaceCard({
             </div>
 
             {focus === "normal" && (
-              <div className="hidden lg:flex lg:flex-col lg:gap-3 min-w-[280px] lg:sticky lg:top-4">
+              <div className="hidden lg:flex lg:flex-col lg:gap-3 min-w-[320px] lg:sticky lg:top-4" ref={topFansRef}>
                 <TodayPriorityList queue={queue} queueError={queueError} onOpenFanChat={onOpenFanChat} onSendTemplate={handleQuickQuestion} />
               </div>
             )}
@@ -470,13 +471,20 @@ export function IaWorkspaceCard({
       )}
 
       <ManagerInsightsPanel open={insightsOpen && focus === "normal"} onClose={() => setInsightsOpen(false)} summary={summary} preview={preview} />
-      {focus === "normal" && showMobileUi && (
+      {focus === "normal" && (showMobileUi || isDesktop) && (
         <div className="fixed bottom-3 left-0 right-0 z-30 px-4 lg:hidden">
           <button
             type="button"
-            className="mx-auto flex max-w-3xl flex-1 items-center justify-center rounded-full border border-slate-800 bg-slate-950/90 px-4 py-2 text-xs font-semibold text-slate-100 shadow-lg hover:border-emerald-500/60"
-            onClick={() => setMobilePanel("priority")}
+            className="mx-auto flex max-w-3xl flex-1 items-center justify-center gap-2 rounded-full border border-slate-800 bg-slate-950/95 px-4 py-2 text-xs font-semibold text-slate-100 shadow-lg hover:border-emerald-500/60"
+            onClick={() => {
+              if (isDesktop && topFansRef.current) {
+                topFansRef.current.scrollIntoView({ behavior: "smooth" });
+              } else {
+                setMobilePanel("priority");
+              }
+            }}
           >
+            <span className="text-emerald-300">⚡</span>
             Prioridad ({queue.length})
           </button>
         </div>
@@ -729,6 +737,23 @@ function TodayPriorityList({
   onSendTemplate: (text: string) => void;
 }) {
   const top = queue.slice(0, 3);
+  const [next, ...rest] = top;
+  const renderChip = (label: string, tone: "muted" | "info" | "warning" | "success" = "muted") => {
+    const toneClass =
+      tone === "info"
+        ? "border-emerald-500/60 bg-emerald-500/10 text-emerald-100"
+        : tone === "warning"
+        ? "border-amber-500/60 bg-amber-500/10 text-amber-100"
+        : tone === "success"
+        ? "border-emerald-400/60 bg-emerald-400/10 text-emerald-50"
+        : "border-slate-700 bg-slate-800/70 text-slate-200";
+    return (
+      <span className={clsx("rounded-full px-2 py-[2px] text-[11px] uppercase tracking-wide border", toneClass)}>
+        {label}
+      </span>
+    );
+  };
+
   return (
     <div className="rounded-2xl border border-slate-800 bg-slate-900/85 p-4 space-y-3">
       <div className="flex items-center justify-between">
@@ -739,31 +764,61 @@ function TodayPriorityList({
         <span className="text-[11px] text-slate-400">{queue.length} en cola</span>
       </div>
       {queueError && <div className="text-xs text-amber-200">{queueError}</div>}
-      {!queueError && top.length === 0 && <div className="text-sm text-slate-400">Sin fans priorizados por ahora.</div>}
-      {!queueError &&
-        top.map((fan) => (
-          <div key={fan.id} className="flex items-center justify-between gap-3 rounded-xl border border-slate-800 bg-slate-950/70 px-3 py-2">
-            <div className="flex flex-col">
-              <span className="text-sm font-semibold text-white">{fan.displayName}</span>
-              <span className="text-[11px] text-slate-400">Caduca: {formatExpireShort(fan.daysToExpiry)}</span>
-              <div className="flex items-center gap-1">
-                <span className="rounded-full border border-slate-700 px-2 py-[2px] text-[11px] uppercase tracking-wide">{fan.segment}</span>
-                <span className="rounded-full border border-emerald-500/60 bg-emerald-500/10 px-2 py-[2px] text-[11px] text-emerald-100">
-                  Salud {fan.healthScore}
-                </span>
+      {!queueError && !next && <div className="text-sm text-slate-400">Sin fans priorizados por ahora.</div>}
+
+      {!queueError && next && (
+        <div className="rounded-xl border border-slate-700 bg-slate-900/95 px-3 py-3 space-y-2 shadow-inner">
+          <div className="flex items-center justify-between gap-2">
+            <div>
+              <p className="text-xs uppercase tracking-wide text-emerald-200/80">Siguiente recomendado</p>
+              <div className="flex items-center gap-2">
+                <span className="text-base font-semibold text-white">{next.displayName}</span>
               </div>
             </div>
-            <div className="flex flex-col gap-2">
+            <button
+              type="button"
+              className="rounded-full bg-emerald-600 px-3 py-1.5 text-[12px] font-semibold text-white shadow hover:bg-emerald-500"
+              onClick={() => onOpenFanChat?.(next.id)}
+            >
+              Abrir chat
+            </button>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            {renderChip(next.segment, next.segment === "VIP" ? "info" : next.segment === "EN_RIESGO" ? "warning" : "muted")}
+            {renderChip(`Salud ${next.healthScore}`, next.healthScore <= 40 ? "warning" : "info")}
+            {renderChip(`Caduca ${formatExpireShort(next.daysToExpiry)}`, next.daysToExpiry !== null && next.daysToExpiry <= 2 ? "warning" : "muted")}
+          </div>
+          <p className="text-[12px] text-slate-300">
+            Prioridad alta · {next.segment} · {formatExpireShort(next.daysToExpiry)}
+          </p>
+        </div>
+      )}
+
+      {!queueError &&
+        rest.map((fan) => (
+          <div
+            key={fan.id}
+            className="flex items-center justify-between gap-3 rounded-xl border border-slate-800 bg-slate-950/70 px-3 py-2"
+          >
+            <div className="flex flex-col gap-1">
+              <span className="text-sm font-semibold text-white">{fan.displayName}</span>
+              <div className="flex flex-wrap items-center gap-1.5">
+                {renderChip(fan.segment, fan.segment === "VIP" ? "info" : fan.segment === "EN_RIESGO" ? "warning" : "muted")}
+                {renderChip(`Salud ${fan.healthScore}`, fan.healthScore <= 40 ? "warning" : "muted")}
+                {renderChip(formatExpireShort(fan.daysToExpiry), typeof fan.daysToExpiry === "number" && fan.daysToExpiry <= 2 ? "warning" : "muted")}
+              </div>
+            </div>
+            <div className="flex flex-col gap-1.5">
               <button
                 type="button"
-                className="rounded-full border border-slate-700 px-3 py-1 text-[11px] text-slate-100 hover:border-emerald-500/60"
+                className="rounded-full border border-emerald-500/60 bg-emerald-600/10 px-3 py-1 text-[11px] text-emerald-100 hover:border-emerald-400/60"
                 onClick={() => onOpenFanChat?.(fan.id)}
               >
                 Abrir
               </button>
               <button
                 type="button"
-                className="rounded-full bg-emerald-600 px-3 py-1 text-[11px] font-semibold text-white hover:bg-emerald-500"
+                className="rounded-full border border-slate-700 bg-slate-800/70 px-3 py-1 text-[11px] text-slate-100 hover:border-emerald-500/60"
                 onClick={() => onSendTemplate(`Dame una plantilla breve para ${fan.displayName}`)}
               >
                 Plantilla
