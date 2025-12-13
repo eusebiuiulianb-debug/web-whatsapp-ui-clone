@@ -193,7 +193,7 @@ export function IaWorkspaceCard({
       title: "Pulso",
       value: formatCurrency(summary?.kpis?.last7?.revenue ?? 0),
       helper: `${formatCurrency(summary?.revenueAtRisk7d ?? 0)} riesgo`,
-      description: "Ingresos últimos 7 días / riesgo 7d.",
+      description: "Ingresos últimos 7 días / riesgo 7d",
       action: () => {
         setPanelTab("pulse");
       },
@@ -203,7 +203,7 @@ export function IaWorkspaceCard({
       title: "Ingresos 30d",
       value: formatCurrency(summary?.kpis?.last30?.revenue ?? 0),
       helper: "Últimos 30 días",
-      description: "Total facturado en los últimos 30 días.",
+      description: "Total facturado en los últimos 30 días",
       action: () => {
         setPanelTab("catalog");
       },
@@ -213,7 +213,7 @@ export function IaWorkspaceCard({
       title: "VIP activos",
       value: String(summary?.segments?.vip ?? 0),
       helper: "Cuida a tus mejores fans",
-      description: "Fans VIP activos para mimar hoy.",
+      description: "Fans VIP activos para mimar hoy",
       action: () => handleQuickQuestion("Dame 3 acciones para mis fans VIP."),
     },
     {
@@ -221,7 +221,7 @@ export function IaWorkspaceCard({
       title: "En riesgo",
       value: String(summary?.atRiskFansCount ?? 0),
       helper: "Rescata ingresos",
-      description: "Fans en riesgo que caducan pronto.",
+      description: "Fans en riesgo que caducan pronto",
       action: () => handleQuickQuestion("¿Qué fans están en riesgo esta semana y qué les digo?"),
     },
   ];
@@ -328,7 +328,7 @@ export function IaWorkspaceCard({
 
       <div className="flex flex-col gap-3 min-h-0 flex-1">
         {focus === "normal" && (
-          <div className="hidden lg:block">
+          <div>
             <ManagerKpiCards tiles={statTiles} density={density} />
           </div>
         )}
@@ -720,7 +720,7 @@ function ManagerKpiCards({
   density: "comfortable" | "compact";
 }) {
   return (
-    <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
       {tiles.map((tile) => (
         <button
           key={tile.id}
@@ -741,14 +741,14 @@ function ManagerKpiCards({
               : undefined
           }
           onClick={() => tile.action?.()}
-        >
-          <div className="flex items-center justify-between">
-            <div className="text-[11px] uppercase tracking-wide text-slate-400">{tile.title}</div>
-            <span className="text-slate-500">●</span>
-          </div>
-          <div className={clsx("font-semibold text-white", density === "compact" ? "text-base" : "text-lg")}>{tile.value}</div>
-          {tile.helper && <div className={clsx("text-slate-400", density === "compact" ? "text-[11px]" : "text-sm")}>{tile.helper}</div>}
-          {tile.description && <div className="text-[11px] text-slate-500 mt-1">{tile.description}</div>}
+          >
+            <div className="flex items-center justify-between">
+              <div className="text-[11px] uppercase tracking-wide text-slate-400">{tile.title}</div>
+              <span className="text-slate-500">●</span>
+            </div>
+            <div className={clsx("font-semibold text-white", density === "compact" ? "text-base" : "text-lg")}>{tile.value}</div>
+            {tile.helper && <div className={clsx("text-slate-400", density === "compact" ? "text-[11px]" : "text-sm")}>{tile.helper}</div>}
+            {tile.description && <div className="mt-1 text-xs text-slate-400">{tile.description}</div>}
         </button>
       ))}
     </div>
