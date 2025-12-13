@@ -306,7 +306,7 @@ export function IaWorkspaceCard({
       </div>
 
       {focus === "normal" && (
-        <div className="hidden w-full flex-nowrap items-center gap-2 overflow-x-auto pb-1 lg:flex">
+        <div className="flex w-full flex-nowrap items-center gap-2 overflow-x-auto pb-1">
           {contextTabs.map((tab) => (
             <button
               key={tab.id}
@@ -328,7 +328,7 @@ export function IaWorkspaceCard({
 
       <div className="flex flex-col gap-3 min-h-0 flex-1">
         {focus === "normal" && (
-          <div>
+          <div className="hidden lg:block">
             <ManagerKpiCards tiles={statTiles} density={density} />
           </div>
         )}
