@@ -6,6 +6,7 @@ import type { CreatorContentSnapshot } from "../../lib/creatorContentManager";
 import { ManagerChatCard } from "./ManagerChatCard";
 import type { ManagerChatCardHandle } from "./ManagerChatCard";
 import { ContentManagerChatCard } from "./ContentManagerChatCard";
+import type { ContentManagerChatCardHandle } from "./ContentManagerChatCard";
 import type { CreatorManagerSummary } from "../../lib/creatorManager";
 import type { FanManagerRow } from "../../server/manager/managerService";
 import type { CreatorAiAdvisorInput } from "../../server/manager/managerSchemas";
@@ -79,8 +80,10 @@ export function IaWorkspaceCard({
   const [demoDismissed, setDemoDismissed] = useState(false);
   const [insightsOpen, setInsightsOpen] = useState(false);
   const [mobilePanel, setMobilePanel] = useState<"priority" | null>(null);
+  const [pendingPrompt, setPendingPrompt] = useState<{ tab: SecondaryTab; text: string } | null>(null);
   const isDemo = !process.env.NEXT_PUBLIC_OPENAI_API_KEY;
   const chatRef = useRef<ManagerChatCardHandle | null>(null);
+  const contentChatRef = useRef<ContentManagerChatCardHandle | null>(null);
 
   const planSteps = useMemo(() => buildDailyPlan({ summary, queue }), [summary, queue]);
   const preview = advisorInput?.preview;
@@ -132,6 +135,27 @@ export function IaWorkspaceCard({
     catalog: ["Qué pack empujo", "Huecos de catálogo", "Qué extra falta"],
   };
 
+  const shortcutTemplatesByMode: Record<SecondaryTab, Record<PrimaryTab, string>> = {
+    strategy: {
+      today: "Resúmeme mis 3 pasos de hoy y dime a quién escribir primero.",
+      queue: "¿Quién tengo en cola hoy y qué siguiente paso me recomiendas para cada uno?",
+      pulse: "Resúmeme ingresos y riesgo de los últimos 7 días.",
+      catalog: "Resumen rápido de catálogo: packs, segmentos y qué se vende mejor.",
+    },
+    content: {
+      today: "¿Qué pack debería promocionar este fin de semana?",
+      queue: "¿Qué huecos tengo ahora mismo en el catálogo?",
+      pulse: "¿Qué pack nuevo te parece que falta?",
+      catalog: "Resumen rápido del catálogo: packs, segmentos y qué se vende mejor.",
+    },
+    growth: {
+      today: "Leer métricas: te paso números y me das diagnóstico.",
+      queue: "Dame 3 movimientos concretos para crecer esta semana.",
+      pulse: "Dame 10 ideas de contenido alineadas a lo que vendo.",
+      catalog: "Riesgos esta semana: qué cortar y qué reforzar.",
+    },
+  };
+
   const CHIP_CONFIG: Record<ChipKey, ManagerChip[]> = {
     "today:strategy": [
       { id: "today", label: "Ingresos hoy" },
@@ -165,7 +189,7 @@ export function IaWorkspaceCard({
     ],
     "queue:growth": [
       { id: "today", label: "Reactivar" },
-      { id: "queue", label: "Upsell sugerido" },
+      { id: "queue", label: "Upsell" },
       { id: "pulse", label: "Oportunidades" },
       { id: "catalog", label: "Abandonos" },
     ],
@@ -265,23 +289,39 @@ export function IaWorkspaceCard({
     }
   }, [isDesktop, mobilePanel]);
 
-  function handleQuickQuestion(message: string) {
-    if (!message) return;
-    chatRef.current?.sendQuickPrompt(message);
+  useEffect(() => {
+    if (!pendingPrompt) return;
+    if (pendingPrompt.tab !== activeTab) return;
+    if (pendingPrompt.tab === "strategy") {
+      chatRef.current?.setDraft(pendingPrompt.text);
+    } else {
+      contentChatRef.current?.setDraft(pendingPrompt.text);
+    }
+    setPendingPrompt(null);
+  }, [activeTab, pendingPrompt]);
+
+  function routeToPrompt(tab: SecondaryTab, text: string) {
+    setActiveTab(tab);
+    setPendingPrompt({ tab, text });
   }
 
-  const shortcutTemplates: Record<typeof panelTab, string> = {
-    today: "Resúmeme mis 3 pasos de hoy y dime a quién escribir primero.",
-    queue: "¿Quién tengo en cola hoy y qué siguiente paso me recomiendas para cada uno?",
-    pulse: "Resúmeme mis ingresos y el riesgo de los últimos 7 días.",
-    catalog: "Hazme un resumen rápido de mi catálogo: packs, segmentos y qué se está vendiendo mejor.",
-  };
+  function handleQuickQuestion(message: string) {
+    if (!message) return;
+    if (activeTab === "strategy") {
+      chatRef.current?.sendQuickPrompt(message);
+    } else {
+      contentChatRef.current?.sendQuickPrompt(message);
+    }
+  }
 
   function handleContextShortcut(tabId: typeof panelTab) {
     setPanelTab(tabId);
-    const template = shortcutTemplates[tabId];
-    if (template) {
+    const template = shortcutTemplatesByMode[activeTab]?.[tabId];
+    if (!template) return;
+    if (activeTab === "strategy") {
       chatRef.current?.setDraft(template);
+    } else {
+      contentChatRef.current?.setDraft(template);
     }
   }
 
@@ -294,10 +334,14 @@ export function IaWorkspaceCard({
   }
 
   const currentTab = contextTabs.find((tab) => tab.id === panelTab);
-  const summaryByTab = contextTabs.reduce<Record<PrimaryTab, string>>((acc, tab) => {
-    acc[tab.id] = tab.summary ?? "";
-    return acc;
-  }, { today: "", queue: "", pulse: "", catalog: "" });
+  const summaryByTab = contextTabs.reduce<Record<PrimaryTab, string>>(
+    (acc, tab) => {
+      const key = tab.id as PrimaryTab;
+      acc[key] = tab.summary ?? "";
+      return acc;
+    },
+    { today: "", queue: "", pulse: "", catalog: "" }
+  );
   const managerChips = getManagerChips(panelTab as PrimaryTab, activeTab as SecondaryTab, summaryByTab);
 
   const statTiles = [
@@ -529,9 +573,15 @@ export function IaWorkspaceCard({
                       density={density}
                     />
                   ) : activeTab === "content" ? (
-                    <ContentManagerChatCard initialSnapshot={contentSnapshot ?? undefined} hideTitle embedded mode="CONTENT" />
+                    <ContentManagerChatCard
+                      ref={contentChatRef}
+                      initialSnapshot={contentSnapshot ?? undefined}
+                      hideTitle
+                      embedded
+                      mode="CONTENT"
+                    />
                   ) : (
-                    <ContentManagerChatCard hideTitle embedded mode="GROWTH" />
+                    <ContentManagerChatCard ref={contentChatRef} hideTitle embedded mode="GROWTH" />
                   )}
                 </div>
               </div>
@@ -611,7 +661,13 @@ export function IaWorkspaceCard({
         </div>
       )}
 
-      <ManagerInsightsPanel open={insightsOpen && focus === "normal"} onClose={() => setInsightsOpen(false)} summary={summary} preview={preview} />
+      <ManagerInsightsPanel
+        open={insightsOpen && focus === "normal"}
+        onClose={() => setInsightsOpen(false)}
+        summary={summary}
+        preview={preview}
+        onPrompt={(tab, text) => routeToPrompt(tab, text)}
+      />
       {focus === "normal" && (showMobileUi || isDesktop) && (
         <div className="fixed bottom-3 left-0 right-0 z-30 px-4 lg:hidden">
           <button

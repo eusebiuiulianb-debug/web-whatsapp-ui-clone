@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from "react";
 import clsx from "clsx";
 import type { CreatorContentSnapshot } from "../../lib/creatorContentManager";
 
@@ -35,7 +35,15 @@ type Props = {
   mode?: "CONTENT" | "GROWTH";
 };
 
-export function ContentManagerChatCard({ initialSnapshot, hideTitle = false, embedded = false, mode = "CONTENT" }: Props) {
+export type ContentManagerChatCardHandle = {
+  setDraft: (text: string) => void;
+  sendQuickPrompt: (text: string) => void;
+};
+
+export const ContentManagerChatCard = forwardRef<ContentManagerChatCardHandle, Props>(function ContentManagerChatCard(
+  { initialSnapshot, hideTitle = false, embedded = false, mode = "CONTENT" }: Props,
+  ref
+) {
   const [messages, setMessages] = useState<ContentManagerChatMessage[]>([]);
   const [snapshot, setSnapshot] = useState<CreatorContentSnapshot | null>(initialSnapshot ?? null);
   const [loading, setLoading] = useState(true);
@@ -136,6 +144,21 @@ export function ContentManagerChatCard({ initialSnapshot, hideTitle = false, emb
       setSending(false);
     }
   }
+
+  useImperativeHandle(
+    ref,
+    () => ({
+      setDraft: (text: string) => {
+        setInput(text);
+        inputRef.current?.focus();
+      },
+      sendQuickPrompt: (text: string) => {
+        setInput(text);
+        inputRef.current?.focus();
+        void handleSend(text);
+      },
+    })
+  );
 
   const summaryText =
     mode === "CONTENT"
@@ -261,13 +284,15 @@ export function ContentManagerChatCard({ initialSnapshot, hideTitle = false, emb
           type="submit"
           disabled={sending || !input.trim()}
           className="self-end rounded-xl bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-500 disabled:opacity-50"
-          >
-            {sending ? "Enviando..." : "Enviar"}
-          </button>
-        </form>
+        >
+          {sending ? "Enviando..." : "Enviar"}
+        </button>
+      </form>
     </section>
   );
-}
+});
+
+ContentManagerChatCard.displayName = "ContentManagerChatCard";
 
 function formatCurrency(amount: number) {
   return `${Math.round(amount)} €`;

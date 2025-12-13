@@ -8,11 +8,12 @@ type Props = {
   onClose: () => void;
   summary: CreatorManagerSummary | null;
   preview?: CreatorAiAdvisorInput["preview"];
+  onPrompt?: (tab: "strategy" | "content" | "growth", text: string) => void;
 };
 
 type TabId = "sales" | "catalog" | "growth";
 
-export function ManagerInsightsPanel({ open, onClose, summary, preview }: Props) {
+export function ManagerInsightsPanel({ open, onClose, summary, preview, onPrompt }: Props) {
   const [tab, setTab] = useState<TabId>("sales");
   const [growthInput, setGrowthInput] = useState("");
   const [growthActions, setGrowthActions] = useState<string[] | null>(null);
@@ -29,6 +30,11 @@ export function ManagerInsightsPanel({ open, onClose, summary, preview }: Props)
   }, [summary]);
 
   if (!open) return null;
+
+  const handlePrompt = (targetTab: "strategy" | "content" | "growth", text: string) => {
+    onPrompt?.(targetTab, text);
+    onClose?.();
+  };
 
   const panel = (
     <div
@@ -112,9 +118,50 @@ export function ManagerInsightsPanel({ open, onClose, summary, preview }: Props)
           <div className="space-y-2">
             <div className="text-sm font-semibold text-white">Huecos sugeridos</div>
             <ul className="space-y-2 text-sm text-slate-200">
-              <li className="rounded-lg border border-slate-800 bg-slate-900/70 px-3 py-2">Upsell VIP mensual con bonus limitado.</li>
-              <li className="rounded-lg border border-slate-800 bg-slate-900/70 px-3 py-2">Extra “check-in” para fans en riesgo (7€).</li>
-              <li className="rounded-lg border border-slate-800 bg-slate-900/70 px-3 py-2">Pack bienvenida con CTA a mensual.</li>
+              <li
+                className="rounded-lg border border-slate-800 bg-slate-900/70 px-3 py-2"
+                onClick={() =>
+                  handlePrompt(
+                    "content",
+                    "Diseña un upsell a VIP mensual con bonus limitado: nombre del upsell, qué incluye, por qué vale la pena, objeciones típicas y 2 plantillas de mensaje (suave y directa) para ofrecerlo."
+                  )
+                }
+              >
+                Upsell VIP mensual con bonus limitado.
+              </li>
+              <li
+                className="rounded-lg border border-slate-800 bg-slate-900/70 px-3 py-2"
+                onClick={() =>
+                  handlePrompt(
+                    "content",
+                    "Diseña un upsell a VIP mensual con bonus limitado: nombre del upsell, qué incluye, por qué vale la pena, objeciones típicas y 2 plantillas de mensaje (suave y directa) para ofrecerlo."
+                  )
+                }
+              >
+                Upsell VIP mensual con bonus limitado.
+              </li>
+              <li
+                className="rounded-lg border border-slate-800 bg-slate-900/70 px-3 py-2"
+                onClick={() =>
+                  handlePrompt(
+                    "content",
+                    "Crea el extra 'check-in' (7€) para fans en riesgo: título, descripción, 3 bullets, CTA y 2 plantillas de mensaje (prevención y última llamada elegante)."
+                  )
+                }
+              >
+                Extra “check-in” para fans en riesgo (7€).
+              </li>
+              <li
+                className="rounded-lg border border-slate-800 bg-slate-900/70 px-3 py-2"
+                onClick={() =>
+                  handlePrompt(
+                    "content",
+                    "Propón un pack de bienvenida con CTA a mensual: estructura del pack, contenido incluido, precio sugerido, y mensaje de transición a mensual (beneficios claros + llamada a acción simple)."
+                  )
+                }
+              >
+                Pack bienvenida con CTA a mensual.
+              </li>
             </ul>
           </div>
           <div className="space-y-2">
@@ -122,6 +169,12 @@ export function ManagerInsightsPanel({ open, onClose, summary, preview }: Props)
             <button
               type="button"
               className="rounded-lg border border-emerald-500/60 bg-emerald-600/15 px-3 py-2 text-sm font-semibold text-emerald-100 hover:bg-emerald-600/25"
+              onClick={() =>
+                handlePrompt(
+                  "content",
+                  "Crea un extra 'check-in' para fans en riesgo (7€): título, descripción, 3 bullets, CTA y plantilla de mensaje para enviar al fan. Tono directo, humano, cero humo."
+                )
+              }
             >
               Crear nuevo extra
             </button>
@@ -136,6 +189,47 @@ export function ManagerInsightsPanel({ open, onClose, summary, preview }: Props)
             <p className="text-xs text-slate-400">Conecta YouTube / TikTok / Instagram para ver métricas aquí.</p>
           </div>
           <div className="space-y-2">
+            <div className="text-sm font-semibold text-white">Acciones demo</div>
+            <div className="space-y-2 text-sm text-slate-200">
+              <button
+                type="button"
+                className="w-full text-left rounded-lg border border-slate-800 bg-slate-900/70 px-3 py-2"
+                onClick={() =>
+                  handlePrompt(
+                    "growth",
+                    "Necesito 2 ideas de short/TikTok para empujar al pack mensual.\nDame para cada una:\n- Hook de 1 frase (0–2s)\n- Guion en 6–8 líneas (15–25s)\n- CTA final (2 variantes)\n- Texto para caption (2 variantes)\n- Qué métrica miro (retención 3s/10s, clicks a bio, etc.) y umbral simple.\nTono: directo, humano, cero humo."
+                  )
+                }
+              >
+                Publica 2 shorts/TikToks…
+              </button>
+              <button
+                type="button"
+                className="w-full text-left rounded-lg border border-slate-800 bg-slate-900/70 px-3 py-2"
+                onClick={() =>
+                  handlePrompt(
+                    "growth",
+                    "Escríbeme 3 mensajes cortos para VIP para ofrecer el extra que mejor rindió esta semana con cupón 24h.\nQuiero:\n- 1 versión suave, 1 directa, 1 “amigo cercano”\n- 1 follow-up si no responde en 12h\n- 1 cierre si dice “lo miro luego”\nTono: humano, sin presión."
+                  )
+                }
+              >
+                Escribe a tus VIP…
+              </button>
+              <button
+                type="button"
+                className="w-full text-left rounded-lg border border-slate-800 bg-slate-900/70 px-3 py-2"
+                onClick={() =>
+                  handlePrompt(
+                    "growth",
+                    "Diseña un story anclado (3 pantallas) para mi pack fuerte y añade prueba social.\nPara cada pantalla:\n- Texto grande (máx 2 líneas)\n- Texto pequeño (1 línea)\n- CTA\nAdemás: 3 ideas de prueba social (captura, testimonio, antes/después “suave”) sin prometer milagros."
+                  )
+                }
+              >
+                Haz un story anclado…
+              </button>
+            </div>
+          </div>
+          <div className="space-y-2">
             <div className="text-sm font-semibold text-white">Pega métricas de la semana</div>
             <textarea
               value={growthInput}
@@ -148,35 +242,10 @@ export function ManagerInsightsPanel({ open, onClose, summary, preview }: Props)
               type="button"
               className="rounded-lg border border-emerald-500/60 bg-emerald-600/20 px-3 py-2 text-sm font-semibold text-emerald-100 hover:bg-emerald-600/30"
               disabled={growthLoading}
-              onClick={async () => {
-                try {
-                  setGrowthLoading(true);
-                  setGrowthError(null);
-                  setGrowthActions(null);
-                  const res = await fetch("/api/creator/ai-manager/chat", {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({
-                      tab: "GROWTH",
-                      message: growthInput.trim() || "Dame un diagnóstico rápido y 3 movimientos para crecer esta semana.",
-                      action: "growth_3_moves",
-                    }),
-                  });
-                  if (!res.ok) {
-                    const body = await res.json().catch(() => ({}));
-                    throw new Error(body?.error ?? "No se pudo generar acciones");
-                  }
-                  const data = await res.json();
-                  const text: string = data?.reply?.text ?? "";
-                  const bullets = text.split("\n").filter((line: string) => line.trim().length > 0);
-                  setGrowthActions(bullets);
-                  // Podríamos enviar este output al chat de crecimiento para historial compartido.
-                } catch (err) {
-                  console.error(err);
-                  setGrowthError("No se pudieron generar acciones de crecimiento.");
-                } finally {
-                  setGrowthLoading(false);
-                }
+              onClick={() => {
+                const metricsText = growthInput.trim() || "Sin métricas pegadas. Genera un plan genérico basado en buenas prácticas.";
+                const prompt = `Analiza estas métricas semanales (YouTube/TikTok/Instagram) y dame un plan accionable para 7 días.\n\nMétricas:\n${metricsText}\n\nQuiero:\n1) Diagnóstico en 3 bullets (qué va bien / qué falla / qué atacar ya).\n2) 3 acciones concretas para crecer (contenido, CTA, distribución), cada una con:\n   - Qué hago hoy (pasos)\n   - Qué mido (métrica)\n   - Qué espero (umbral simple)\n3) 2 tests A/B de copy (titular + CTA) para empujar a pack mensual o extra.\n4) Un mensaje plantilla corto para llevar tráfico a mi bio-link / perfil NOVSY.\n\nTono: humano, directo, cero humo.`;
+                handlePrompt("growth", prompt);
               }}
             >
               {growthLoading ? "Generando..." : "Generar acciones"}
