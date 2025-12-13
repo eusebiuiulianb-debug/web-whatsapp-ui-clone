@@ -10,6 +10,9 @@ function addDays(base: Date, days: number) {
 }
 
 async function main() {
+  await prisma.managerAiMessage.deleteMany();
+  await prisma.aiUsageLog.deleteMany();
+  await prisma.extraPurchase.deleteMany();
   await prisma.contentManagerMessage.deleteMany();
   await prisma.contentManagerConversation.deleteMany();
   await prisma.managerMessage.deleteMany();
@@ -18,6 +21,8 @@ async function main() {
   await prisma.contentItem.deleteMany();
   await prisma.fanNote.deleteMany();
   await prisma.accessGrant.deleteMany();
+  await prisma.creatorAiTemplate.deleteMany();
+  await prisma.creatorAiSettings.deleteMany();
   await prisma.fan.deleteMany();
   await prisma.pack.deleteMany();
   await prisma.creator.deleteMany();
