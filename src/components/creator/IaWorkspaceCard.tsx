@@ -193,6 +193,7 @@ export function IaWorkspaceCard({
       title: "Pulso",
       value: formatCurrency(summary?.kpis?.last7?.revenue ?? 0),
       helper: `${formatCurrency(summary?.revenueAtRisk7d ?? 0)} riesgo`,
+      description: "Ingresos últimos 7 días / riesgo 7d.",
       action: () => {
         setPanelTab("pulse");
       },
@@ -202,6 +203,7 @@ export function IaWorkspaceCard({
       title: "Ingresos 30d",
       value: formatCurrency(summary?.kpis?.last30?.revenue ?? 0),
       helper: "Últimos 30 días",
+      description: "Total facturado en los últimos 30 días.",
       action: () => {
         setPanelTab("catalog");
       },
@@ -211,6 +213,7 @@ export function IaWorkspaceCard({
       title: "VIP activos",
       value: String(summary?.segments?.vip ?? 0),
       helper: "Cuida a tus mejores fans",
+      description: "Fans VIP activos para mimar hoy.",
       action: () => handleQuickQuestion("Dame 3 acciones para mis fans VIP."),
     },
     {
@@ -218,6 +221,7 @@ export function IaWorkspaceCard({
       title: "En riesgo",
       value: String(summary?.atRiskFansCount ?? 0),
       helper: "Rescata ingresos",
+      description: "Fans en riesgo que caducan pronto.",
       action: () => handleQuickQuestion("¿Qué fans están en riesgo esta semana y qué les digo?"),
     },
   ];
@@ -237,6 +241,11 @@ export function IaWorkspaceCard({
               Chat con tu Manager IA
             </h2>
             <p className={clsx("text-slate-300", density === "compact" ? "text-xs" : "text-sm")}>Resumen de hoy y acciones rápidas.</p>
+            <p className={clsx("text-[12px] text-slate-400", density === "compact" ? "leading-tight" : "")}>
+              {activeTab === "strategy" && "Pregúntale al Manager IA sobre tus fans y tus ingresos."}
+              {activeTab === "content" && "Habla con el Manager IA sobre tus packs, extras y huecos de catálogo."}
+              {activeTab === "growth" && "Pega métricas de YouTube/TikTok/Instagram y el Manager IA te propone 3 movimientos."}
+            </p>
           </div>
           <div className="flex items-center gap-2">
             <button
@@ -245,6 +254,7 @@ export function IaWorkspaceCard({
                 "rounded-full border px-3 py-1 text-xs font-semibold transition",
                 focus === "solo_chat" ? "border-emerald-500/60 bg-emerald-600/20 text-emerald-100" : "border-slate-700 bg-slate-800/70 text-slate-100"
               )}
+              title="Oculta panel lateral y usa solo el chat del Manager IA."
               onClick={() => setFocus((prev) => (prev === "solo_chat" ? "normal" : "solo_chat"))}
             >
               {focus === "solo_chat" ? "Salir de solo chat" : "Solo chat"}
@@ -252,6 +262,7 @@ export function IaWorkspaceCard({
             <button
               type="button"
               className="rounded-full border border-emerald-500/60 bg-emerald-600/15 px-3 py-1 text-xs font-semibold text-emerald-100 hover:bg-emerald-600/25"
+              title="Abre el panel lateral con ventas, catálogo y crecimiento."
               onClick={() => setInsightsOpen(true)}
             >
               Insights
@@ -259,6 +270,7 @@ export function IaWorkspaceCard({
             <button
               type="button"
               className="rounded-full border border-slate-700 bg-slate-800/70 px-3 py-1 text-xs font-semibold text-slate-100 hover:border-emerald-500/60"
+              title="Configura cómo trabaja tu Manager IA."
               onClick={() => setShowSettings((prev) => !prev)}
             >
               ⚙ Ajustes
@@ -268,8 +280,8 @@ export function IaWorkspaceCard({
         {isDemo && !demoDismissed && (
           <div className="rounded-lg border border-amber-500/40 bg-amber-900/30 px-3 py-2 text-amber-100 flex items-start justify-between gap-2">
             <div>
-              <p className="text-sm font-semibold">Modo demo</p>
-              <p className="text-[12px] text-amber-100/90">Conecta tu OPENAI_API_KEY para respuestas reales con tus datos.</p>
+              <p className="text-sm font-semibold">Modo demo activo</p>
+              <p className="text-[12px] text-amber-100/90">Conecta tu OPENAI_API_KEY para respuestas con tus datos reales.</p>
             </div>
             <div className="flex items-center gap-2">
               <Link
@@ -700,7 +712,13 @@ function CatalogPanel({ summary }: { summary: CreatorManagerSummary | null }) {
   );
 }
 
-function ManagerKpiCards({ tiles, density }: { tiles: { id: string; title: string; value: string; helper?: string; action?: () => void }[]; density: "comfortable" | "compact" }) {
+function ManagerKpiCards({
+  tiles,
+  density,
+}: {
+  tiles: { id: string; title: string; value: string; helper?: string; action?: () => void; description?: string }[];
+  density: "comfortable" | "compact";
+}) {
   return (
     <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
       {tiles.map((tile) => (
@@ -711,6 +729,17 @@ function ManagerKpiCards({ tiles, density }: { tiles: { id: string; title: strin
             "rounded-xl border border-slate-800 bg-slate-900/70 text-left shadow-sm transition hover:border-emerald-500/50 hover:bg-slate-900",
             density === "compact" ? "p-3" : "p-4"
           )}
+          title={
+            tile.id === "pulse"
+              ? "Pulso: ingresos recientes y riesgo en 7 días."
+              : tile.id === "revenue30"
+              ? "Ingresos de los últimos 30 días según tu panel."
+              : tile.id === "vip"
+              ? "VIP activos a cuidar hoy."
+              : tile.id === "risk"
+              ? "Fans en riesgo para priorizar."
+              : undefined
+          }
           onClick={() => tile.action?.()}
         >
           <div className="flex items-center justify-between">
@@ -719,6 +748,7 @@ function ManagerKpiCards({ tiles, density }: { tiles: { id: string; title: strin
           </div>
           <div className={clsx("font-semibold text-white", density === "compact" ? "text-base" : "text-lg")}>{tile.value}</div>
           {tile.helper && <div className={clsx("text-slate-400", density === "compact" ? "text-[11px]" : "text-sm")}>{tile.helper}</div>}
+          {tile.description && <div className="text-[11px] text-slate-500 mt-1">{tile.description}</div>}
         </button>
       ))}
     </div>
