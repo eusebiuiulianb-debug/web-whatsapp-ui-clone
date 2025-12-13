@@ -135,9 +135,9 @@ export function IaWorkspaceCard({
   const CHIP_CONFIG: Record<ChipKey, ManagerChip[]> = {
     "today:strategy": [
       { id: "today", label: "Ingresos hoy" },
-      { id: "queue", label: "Renuevan (7d)" },
-      { id: "pulse", label: "Fans en riesgo" },
-      { id: "catalog", label: "Pendientes" },
+      { id: "queue", label: "Caducan pronto" },
+      { id: "pulse", label: "En riesgo" },
+      { id: "catalog", label: "VIP activos" },
     ],
     "today:content": [
       { id: "today", label: "Packs" },
@@ -146,16 +146,16 @@ export function IaWorkspaceCard({
       { id: "catalog", label: "Assets" },
     ],
     "today:growth": [
-      { id: "today", label: "Nuevos fans" },
-      { id: "queue", label: "Conversiones" },
-      { id: "pulse", label: "CTR bio-link" },
-      { id: "catalog", label: "Mejor pieza" },
+      { id: "today", label: "Ideas rápidas" },
+      { id: "queue", label: "CTA del día" },
+      { id: "pulse", label: "Colaboraciones" },
+      { id: "catalog", label: "Story anclado" },
     ],
     "queue:strategy": [
-      { id: "today", label: "Alta prioridad" },
-      { id: "queue", label: "Seguimiento hoy" },
-      { id: "pulse", label: "Caducados" },
-      { id: "catalog", label: "Sin respuesta (24h)" },
+      { id: "today", label: "Seguimientos" },
+      { id: "queue", label: "Caducados" },
+      { id: "pulse", label: "En riesgo" },
+      { id: "catalog", label: "Prioridad alta" },
     ],
     "queue:content": [
       { id: "today", label: "Extras en cola" },
@@ -201,15 +201,15 @@ export function IaWorkspaceCard({
     ],
     "catalog:growth": [
       { id: "today", label: "Productos a crear" },
-      { id: "queue", label: "A/B copy" },
-      { id: "pulse", label: "Campañas" },
-      { id: "catalog", label: "Referidos" },
+      { id: "queue", label: "Promos" },
+      { id: "pulse", label: "A/B copy" },
+      { id: "catalog", label: "Campañas" },
     ],
   };
 
   function getManagerChips(primary: PrimaryTab, secondary: SecondaryTab, summaries: Record<PrimaryTab, string>): ManagerChip[] {
     const key = `${primary}:${secondary}` as ChipKey;
-    const chips = CHIP_CONFIG[key] ?? CHIP_CONFIG["today:strategy"];
+    const chips = CHIP_CONFIG[key] ?? CHIP_CONFIG["today:content"];
     return chips.map((chip) => ({
       ...chip,
       summary: chip.summary ?? summaries[chip.id] ?? "",
