@@ -1178,7 +1178,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
     setNextActionDraft(conversation.nextAction || "");
     const derivedPack = derivePackFromLabel(membershipStatus || accessLabel) || "monthly";
     setSelectedPackType(derivedPack);
-  }, [conversation, membershipStatus, accessLabel]);
+  }, [conversation.id]);
 
   useEffect(() => {
     if (!id) return;
