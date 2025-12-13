@@ -135,21 +135,21 @@ export function IaWorkspaceCard({
   const CHIP_CONFIG: Record<ChipKey, ManagerChip[]> = {
     "today:strategy": [
       { id: "today", label: "Ingresos hoy" },
-      { id: "queue", label: "Renovaciones (7d)" },
+      { id: "queue", label: "Renuevan (7d)" },
       { id: "pulse", label: "Fans en riesgo" },
-      { id: "catalog", label: "Pendientes hoy" },
+      { id: "catalog", label: "Pendientes" },
     ],
     "today:content": [
-      { id: "today", label: "Piezas por publicar" },
-      { id: "queue", label: "Ideas rápidas" },
-      { id: "pulse", label: "Borradores" },
-      { id: "catalog", label: "Reutilizables" },
+      { id: "today", label: "Packs" },
+      { id: "queue", label: "Extras" },
+      { id: "pulse", label: "Plantillas" },
+      { id: "catalog", label: "Assets" },
     ],
     "today:growth": [
       { id: "today", label: "Nuevos fans" },
       { id: "queue", label: "Conversiones" },
       { id: "pulse", label: "CTR bio-link" },
-      { id: "catalog", label: "Mejor pieza (7d)" },
+      { id: "catalog", label: "Mejor pieza" },
     ],
     "queue:strategy": [
       { id: "today", label: "Alta prioridad" },
@@ -158,16 +158,16 @@ export function IaWorkspaceCard({
       { id: "catalog", label: "Sin respuesta (24h)" },
     ],
     "queue:content": [
-      { id: "today", label: "Pedidos de contenido" },
-      { id: "queue", label: "Extras por entregar" },
-      { id: "pulse", label: "Plantillas rápidas" },
-      { id: "catalog", label: "Pendientes de revisión" },
+      { id: "today", label: "Extras en cola" },
+      { id: "queue", label: "Pedidos" },
+      { id: "pulse", label: "Plantillas" },
+      { id: "catalog", label: "Pendientes" },
     ],
     "queue:growth": [
-      { id: "today", label: "Upsells sugeridos" },
-      { id: "queue", label: "Reactivar" },
-      { id: "pulse", label: "Abandonos" },
-      { id: "catalog", label: "Oportunidades" },
+      { id: "today", label: "Reactivar" },
+      { id: "queue", label: "Upsell sugerido" },
+      { id: "pulse", label: "Oportunidades" },
+      { id: "catalog", label: "Abandonos" },
     ],
     "pulse:strategy": [
       { id: "today", label: "MRR" },
@@ -188,10 +188,10 @@ export function IaWorkspaceCard({
       { id: "catalog", label: "Embudo" },
     ],
     "catalog:strategy": [
-      { id: "today", label: "Packs activos" },
-      { id: "queue", label: "Precio medio" },
-      { id: "pulse", label: "Bundles" },
-      { id: "catalog", label: "Descuentos" },
+      { id: "today", label: "Precio medio" },
+      { id: "queue", label: "Bundles" },
+      { id: "pulse", label: "Promos" },
+      { id: "catalog", label: "Huecos" },
     ],
     "catalog:content": [
       { id: "today", label: "Packs" },
@@ -201,9 +201,9 @@ export function IaWorkspaceCard({
     ],
     "catalog:growth": [
       { id: "today", label: "Productos a crear" },
-      { id: "queue", label: "Promos" },
-      { id: "pulse", label: "A/B copy" },
-      { id: "catalog", label: "Campañas" },
+      { id: "queue", label: "A/B copy" },
+      { id: "pulse", label: "Campañas" },
+      { id: "catalog", label: "Referidos" },
     ],
   };
 
