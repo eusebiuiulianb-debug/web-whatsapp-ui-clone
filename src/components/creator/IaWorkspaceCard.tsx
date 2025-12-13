@@ -41,6 +41,15 @@ type Props = {
   onOpenFanChat?: (fanId: string) => void;
 };
 
+type PrimaryTab = "today" | "queue" | "pulse" | "catalog";
+type SecondaryTab = "strategy" | "content" | "growth";
+type ChipKey = `${PrimaryTab}:${SecondaryTab}`;
+type ManagerChip = {
+  id: PrimaryTab;
+  label: string;
+  summary?: string;
+};
+
 type DailyPlanStep = {
   id: string;
   label: string;
@@ -123,6 +132,90 @@ export function IaWorkspaceCard({
     catalog: ["Qué pack empujo", "Huecos de catálogo", "Qué extra falta"],
   };
 
+  const CHIP_CONFIG: Record<ChipKey, ManagerChip[]> = {
+    "today:strategy": [
+      { id: "today", label: "Ingresos hoy" },
+      { id: "queue", label: "Renovaciones (7d)" },
+      { id: "pulse", label: "Fans en riesgo" },
+      { id: "catalog", label: "Pendientes hoy" },
+    ],
+    "today:content": [
+      { id: "today", label: "Piezas por publicar" },
+      { id: "queue", label: "Ideas rápidas" },
+      { id: "pulse", label: "Borradores" },
+      { id: "catalog", label: "Reutilizables" },
+    ],
+    "today:growth": [
+      { id: "today", label: "Nuevos fans" },
+      { id: "queue", label: "Conversiones" },
+      { id: "pulse", label: "CTR bio-link" },
+      { id: "catalog", label: "Mejor pieza (7d)" },
+    ],
+    "queue:strategy": [
+      { id: "today", label: "Alta prioridad" },
+      { id: "queue", label: "Seguimiento hoy" },
+      { id: "pulse", label: "Caducados" },
+      { id: "catalog", label: "Sin respuesta (24h)" },
+    ],
+    "queue:content": [
+      { id: "today", label: "Pedidos de contenido" },
+      { id: "queue", label: "Extras por entregar" },
+      { id: "pulse", label: "Plantillas rápidas" },
+      { id: "catalog", label: "Pendientes de revisión" },
+    ],
+    "queue:growth": [
+      { id: "today", label: "Upsells sugeridos" },
+      { id: "queue", label: "Reactivar" },
+      { id: "pulse", label: "Abandonos" },
+      { id: "catalog", label: "Oportunidades" },
+    ],
+    "pulse:strategy": [
+      { id: "today", label: "MRR" },
+      { id: "queue", label: "Churn (30d)" },
+      { id: "pulse", label: "ARPPU" },
+      { id: "catalog", label: "LTV est." },
+    ],
+    "pulse:content": [
+      { id: "today", label: "Pack top" },
+      { id: "queue", label: "Extra top" },
+      { id: "pulse", label: "Tiempo resp. medio" },
+      { id: "catalog", label: "Satisfacción 👍" },
+    ],
+    "pulse:growth": [
+      { id: "today", label: "Retención (7d)" },
+      { id: "queue", label: "Tasa compra (30d)" },
+      { id: "pulse", label: "Referidos" },
+      { id: "catalog", label: "Embudo" },
+    ],
+    "catalog:strategy": [
+      { id: "today", label: "Packs activos" },
+      { id: "queue", label: "Precio medio" },
+      { id: "pulse", label: "Bundles" },
+      { id: "catalog", label: "Descuentos" },
+    ],
+    "catalog:content": [
+      { id: "today", label: "Packs" },
+      { id: "queue", label: "Extras" },
+      { id: "pulse", label: "Plantillas" },
+      { id: "catalog", label: "Assets" },
+    ],
+    "catalog:growth": [
+      { id: "today", label: "Productos a crear" },
+      { id: "queue", label: "Promos" },
+      { id: "pulse", label: "A/B copy" },
+      { id: "catalog", label: "Campañas" },
+    ],
+  };
+
+  function getManagerChips(primary: PrimaryTab, secondary: SecondaryTab, summaries: Record<PrimaryTab, string>): ManagerChip[] {
+    const key = `${primary}:${secondary}` as ChipKey;
+    const chips = CHIP_CONFIG[key] ?? CHIP_CONFIG["today:strategy"];
+    return chips.map((chip) => ({
+      ...chip,
+      summary: chip.summary ?? summaries[chip.id] ?? "",
+    }));
+  }
+
   useEffect(() => {
     if (typeof window === "undefined") return;
     const storedDensity = window.localStorage.getItem("novsy_density");
@@ -177,6 +270,21 @@ export function IaWorkspaceCard({
     chatRef.current?.sendQuickPrompt(message);
   }
 
+  const shortcutTemplates: Record<typeof panelTab, string> = {
+    today: "Resúmeme mis 3 pasos de hoy y dime a quién escribir primero.",
+    queue: "¿Quién tengo en cola hoy y qué siguiente paso me recomiendas para cada uno?",
+    pulse: "Resúmeme mis ingresos y el riesgo de los últimos 7 días.",
+    catalog: "Hazme un resumen rápido de mi catálogo: packs, segmentos y qué se está vendiendo mejor.",
+  };
+
+  function handleContextShortcut(tabId: typeof panelTab) {
+    setPanelTab(tabId);
+    const template = shortcutTemplates[tabId];
+    if (template) {
+      chatRef.current?.setDraft(template);
+    }
+  }
+
   function handlePlanStep(step: DailyPlanStep) {
     if (step.kind === "FANS" && step.fanId) {
       onOpenFanChat?.(step.fanId);
@@ -186,6 +294,11 @@ export function IaWorkspaceCard({
   }
 
   const currentTab = contextTabs.find((tab) => tab.id === panelTab);
+  const summaryByTab = contextTabs.reduce<Record<PrimaryTab, string>>((acc, tab) => {
+    acc[tab.id] = tab.summary ?? "";
+    return acc;
+  }, { today: "", queue: "", pulse: "", catalog: "" });
+  const managerChips = getManagerChips(panelTab as PrimaryTab, activeTab as SecondaryTab, summaryByTab);
 
   const statTiles = [
     {
@@ -307,7 +420,7 @@ export function IaWorkspaceCard({
 
       {focus === "normal" && (
         <div className="flex w-full flex-nowrap items-center gap-2 overflow-x-auto pb-1">
-          {contextTabs.map((tab) => (
+          {managerChips.map((tab) => (
             <button
               key={tab.id}
               type="button"
@@ -317,7 +430,7 @@ export function IaWorkspaceCard({
                   ? "border-emerald-500/60 bg-emerald-600/20 text-emerald-100"
                   : "border-slate-700 bg-slate-800/70 text-slate-300 hover:border-emerald-400/70 hover:text-emerald-100"
               )}
-              onClick={() => setPanelTab(tab.id as typeof panelTab)}
+              onClick={() => handleContextShortcut(tab.id as typeof panelTab)}
             >
               <span className="block">{tab.label}</span>
               <span className="text-[11px] text-slate-400 font-normal">{tab.summary}</span>
@@ -327,10 +440,13 @@ export function IaWorkspaceCard({
       )}
       {focus === "solo_chat" && (
         <div className="flex w-full flex-nowrap items-stretch gap-2 overflow-x-auto pb-1">
-          {contextTabs.map((tab) => (
+          {managerChips.map((tab) => (
             <div
               key={tab.id}
               className="min-w-[160px] flex-1 rounded-xl border border-slate-800 bg-slate-900/70 px-3 py-2 shadow-sm"
+              onClick={() => handleContextShortcut(tab.id as typeof panelTab)}
+              role="button"
+              tabIndex={0}
             >
               <div className="text-[11px] uppercase tracking-wide text-slate-400">{tab.label}</div>
               <div className="text-sm font-semibold text-white">{tab.summary}</div>
