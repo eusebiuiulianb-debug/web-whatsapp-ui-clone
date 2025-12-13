@@ -325,6 +325,19 @@ export function IaWorkspaceCard({
           ))}
         </div>
       )}
+      {focus === "solo_chat" && (
+        <div className="flex w-full flex-nowrap items-stretch gap-2 overflow-x-auto pb-1">
+          {contextTabs.map((tab) => (
+            <div
+              key={tab.id}
+              className="min-w-[160px] flex-1 rounded-xl border border-slate-800 bg-slate-900/70 px-3 py-2 shadow-sm"
+            >
+              <div className="text-[11px] uppercase tracking-wide text-slate-400">{tab.label}</div>
+              <div className="text-sm font-semibold text-white">{tab.summary}</div>
+            </div>
+          ))}
+        </div>
+      )}
 
       <div className="flex flex-col gap-3 min-h-0 flex-1">
         {focus === "normal" && (
