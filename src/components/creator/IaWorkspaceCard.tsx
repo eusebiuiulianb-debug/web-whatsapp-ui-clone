@@ -306,7 +306,7 @@ export function IaWorkspaceCard({
       </div>
 
       {focus === "normal" && (
-        <div className="flex w-full flex-nowrap items-center gap-2 overflow-x-auto pb-1 lg:hidden">
+        <div className="hidden w-full flex-nowrap items-center gap-2 overflow-x-auto pb-1 lg:flex">
           {contextTabs.map((tab) => (
             <button
               key={tab.id}
