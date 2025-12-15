@@ -189,10 +189,15 @@ function SideBarInner() {
 
   const handleSelectConversation = useCallback(
     (item: ConversationListData) => {
+      if (item?.isManager) {
+        void router.push("/creator/manager");
+        return;
+      }
       if (item?.id) {
+        const targetPath = router.pathname.startsWith("/creator/manager") ? "/" : router.pathname || "/";
         void router.push(
           {
-            pathname: router.pathname || "/",
+            pathname: targetPath,
             query: { fanId: item.id },
           },
           undefined,
@@ -672,6 +677,16 @@ function SideBarInner() {
     const rounded = Math.round((value ?? 0) * 100) / 100;
     return `${rounded % 1 === 0 ? rounded.toFixed(0) : rounded.toFixed(2)} €`;
   }
+
+  const managerChatEntry: ConversationListData = {
+    id: "manager-ia",
+    contactName: "Manager IA",
+    lastMessage: "Panel e insights en tiempo real",
+    lastTime: "Hoy",
+    image: "avatar3.png",
+    messageHistory: [],
+    isManager: true,
+  };
 
   const isLoading = loadingFans;
   const isError = Boolean(fansError);
@@ -1255,6 +1270,13 @@ function SideBarInner() {
               return "No hay fans que cumplan este filtro por ahora.";
             })()}
           </div>
+        )}
+        {!loadingFans && !fansError && !focusMode && (
+          <ConversationList
+            key={managerChatEntry.id}
+            data={managerChatEntry}
+            onSelect={handleSelectConversation}
+          />
         )}
         {!loadingFans && !fansError && !focusMode && visibleList.map((conversation, index) => {
           return (

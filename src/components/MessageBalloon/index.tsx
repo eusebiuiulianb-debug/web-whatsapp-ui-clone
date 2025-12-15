@@ -5,11 +5,13 @@ interface MessageBalloonProps {
   message: string;
   seen?: boolean;
   time?: string;
+  fromLabel?: string;
+  meLabel?: string;
 }
 
 export default function MessageBalloon(props: MessageBalloonProps) {
   const [time, setTime] = useState("");
-  const { me, message, seen } = props;
+  const { me, message, seen, fromLabel, meLabel } = props;
 
   useEffect(() => {
     if (props.time) {
@@ -33,7 +35,7 @@ export default function MessageBalloon(props: MessageBalloonProps) {
         <p
           className={`mb-1 text-[10px] uppercase tracking-wide text-slate-400 ${me ? "text-right" : ""}`}
         >
-          {me ? "Tú" : "Fan"} • {time}
+          {me ? meLabel || "Tú" : fromLabel || "Fan"} • {time}
         </p>
         <div
           className={`rounded-2xl px-4 py-2 text-sm shadow whitespace-pre-wrap ${

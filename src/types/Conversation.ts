@@ -75,6 +75,7 @@ interface Conversation {
   } | null;
   isBlocked?: boolean;
   isArchived?: boolean;
+  isManager?: boolean;
 }
 
 interface ConversationListData {
@@ -130,12 +131,13 @@ interface ConversationListData {
   } | null;
   extraSessionToday?: {
     todayCount: number;
-    todaySpent: number;
-    todayHighestTier: string | null;
-    todayLastPurchaseAt: string | null;
-  } | null;
+  todaySpent: number;
+  todayHighestTier: string | null;
+  todayLastPurchaseAt: string | null;
+} | null;
   isBlocked?: boolean;
   isArchived?: boolean;
+  isManager?: boolean;
 }
 
 export type { Message, Conversation, ConversationListData }

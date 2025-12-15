@@ -1,10 +1,10 @@
 import Head from "next/head";
 import { useContext, useEffect, useRef, useState } from "react";
-import clsx from "clsx";
 import ConversationDetails from "../components/ConversationDetails";
 import SideBar from "../components/SideBar";
 import { ConversationContext } from "../context/ConversationContext";
 import { useRouter } from "next/router";
+import { CreatorShell } from "../components/creator/CreatorShell";
 
 export default function Home() {
   const { conversation } = useContext(ConversationContext);
@@ -12,7 +12,7 @@ export default function Home() {
   const hasContactName = Boolean(conversation?.contactName);
   const router = useRouter();
   const [ mobileView, setMobileView ] = useState<"board" | "chat">("board");
-  const conversationSectionRef = useRef<HTMLDivElement | null>(null);
+  const conversationSectionRef = useRef<HTMLDivElement>(null!);
   const IconHome = () => (
     <div className="flex flex-col w-full h-full items-center justify-center px-6">
       <svg width="360" viewBox="0 0 303 172" fill="none" preserveAspectRatio="xMidYMid meet" className="">
@@ -76,36 +76,21 @@ export default function Home() {
   }, [hasConversation]);
 
   return (
-    <div className="flex justify-center">
+    <>
       <Head>
         <title>NOVSY – Chat privado</title>
       </Head>
-      <div className="flex flex-col w-full xl:container min-h-screen overflow-y-auto lg:overflow-hidden">
-        <div className="flex flex-col md:flex-row w-full flex-1 min-h-0 lg:h-[100dvh] lg:max-h-[100dvh] xl:py-4">
-          <div
-            className={clsx(
-              "flex",
-              mobileView === "chat" ? "hidden lg:flex" : "flex"
-            )}
-          >
-            <SideBar />
-          </div>
-          <div
-            ref={conversationSectionRef}
-            className={clsx(
-              "flex flex-col w-full md:w-[70%] bg-[#222E35] flex-1 min-h-0 overflow-hidden",
-              mobileView === "board" ? "hidden lg:flex" : "flex"
-            )}
-          >
-            {
-              hasContactName
-                ? <ConversationDetails onBackToBoard={() => setMobileView("board")} />
-                : <IconHome />
-            }
-          </div>
-        </div>
-      </div>
-    </div>
-    
-  )
+      <CreatorShell
+        mobileView={mobileView}
+        onBackToBoard={() => setMobileView("board")}
+        sidebar={<SideBar />}
+        showChat={hasContactName}
+        renderChat={({ onBackToBoard }) => (
+          <ConversationDetails onBackToBoard={onBackToBoard} />
+        )}
+        fallback={<IconHome />}
+        conversationSectionRef={conversationSectionRef}
+      />
+    </>
+  );
 }

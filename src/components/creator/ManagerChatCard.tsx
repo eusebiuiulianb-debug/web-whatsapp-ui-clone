@@ -1,6 +1,7 @@
-import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from "react";
+import { forwardRef, ReactNode, useEffect, useImperativeHandle, useRef, useState } from "react";
 import clsx from "clsx";
 import type { CreatorBusinessSnapshot } from "../../lib/creatorManager";
+import MessageBalloon from "../MessageBalloon";
 
 type ManagerChatMessage = {
   id: string;
@@ -34,6 +35,15 @@ type Props = {
   embedded?: boolean;
   suggestions?: string[];
   density?: "comfortable" | "compact";
+  variant?: "card" | "chat";
+  onBackToBoard?: () => void;
+  onShowSummary?: () => void;
+  title?: string;
+  avatarUrl?: string;
+  statusText?: string;
+  onOpenInsights?: () => void;
+  onOpenSettings?: () => void;
+  contextContent?: ReactNode;
 };
 
 export type ManagerChatCardHandle = {
@@ -42,7 +52,22 @@ export type ManagerChatCardHandle = {
 };
 
 export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function ManagerChatCard(
-  { businessSnapshot, hideTitle = false, embedded = false, suggestions, density = "comfortable" }: Props,
+  {
+    businessSnapshot,
+    hideTitle = false,
+    embedded = false,
+    suggestions,
+    density = "comfortable",
+    variant = "card",
+    onBackToBoard,
+    onShowSummary,
+    title,
+    avatarUrl,
+    statusText,
+    onOpenInsights,
+    onOpenSettings,
+    contextContent,
+  }: Props,
   ref
 ) {
   const [messages, setMessages] = useState<ManagerChatMessage[]>([]);
@@ -196,6 +221,184 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
   }));
 
   const quickSuggestions = suggestions && suggestions.length > 0 ? suggestions : defaultSuggestions;
+
+  if (variant === "chat") {
+    const headerLabel = title || "Manager IA";
+    return (
+      <div className="flex flex-col w-full h-full min-h-0">
+        {onBackToBoard && (
+          <header className="md:hidden sticky top-0 z-10 flex items-center justify-between gap-2 px-4 py-3 bg-slate-950/90 border-b border-slate-800 backdrop-blur">
+            <button
+              type="button"
+              onClick={onBackToBoard}
+              className="inline-flex items-center gap-1 rounded-full bg-slate-900 px-3 py-1.5 text-xs font-medium text-slate-100 hover:bg-slate-800"
+            >
+              ← Volver
+            </button>
+            <div className="flex items-center gap-2 min-w-0 flex-1 justify-center">
+              <span className="truncate text-sm font-semibold text-slate-50">{headerLabel}</span>
+              <span className="inline-flex items-center rounded-full border border-emerald-400/70 bg-emerald-500/20 px-2 py-0.5 text-[11px] font-semibold text-emerald-100">
+                IA
+              </span>
+            </div>
+            <div className="flex items-center gap-2">
+              {onOpenInsights && (
+                <button
+                  type="button"
+                  onClick={onOpenInsights}
+                  className="inline-flex items-center rounded-full border border-emerald-500/60 bg-emerald-600/15 px-3 py-1 text-[11px] font-semibold text-emerald-100 hover:bg-emerald-600/25"
+                >
+                  Insights
+                </button>
+              )}
+              {onOpenSettings && (
+                <button
+                  type="button"
+                  onClick={onOpenSettings}
+                  className="inline-flex items-center rounded-full border border-slate-700 bg-slate-800/70 px-3 py-1 text-[11px] font-semibold text-slate-100 hover:border-emerald-500/60"
+                >
+                  Ajustes
+                </button>
+              )}
+            </div>
+          </header>
+        )}
+        <div className="hidden md:flex items-center justify-between gap-3 bg-slate-950/70 border-b border-slate-800 px-6 py-4">
+          <div className="flex items-center gap-3 min-w-0">
+            {avatarUrl ? (
+              <div className="w-12 h-12 rounded-full overflow-hidden border border-[rgba(134,150,160,0.2)] bg-[#2a3942] shadow-md">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={avatarUrl} alt={headerLabel} className="w-full h-full object-cover" />
+              </div>
+            ) : (
+              <div className="flex items-center justify-center w-12 h-12 rounded-full bg-[#2a3942] text-white font-semibold shadow-md">
+                {headerLabel.trim().charAt(0)}
+              </div>
+            )}
+            <div className="flex flex-col">
+              <h1 className="text-base font-semibold text-slate-50">{headerLabel}</h1>
+              <p className="text-sm text-slate-300">{statusText || "Chat interno. No se envía nada a tus fans."}</p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            {onOpenInsights && (
+              <button
+                type="button"
+                onClick={onOpenInsights}
+                className="rounded-full border border-emerald-500/60 bg-emerald-600/15 px-3 py-1 text-xs font-semibold text-emerald-100 hover:bg-emerald-600/25"
+              >
+                Insights
+              </button>
+            )}
+            {onOpenSettings && (
+              <button
+                type="button"
+                onClick={onOpenSettings}
+                className="rounded-full border border-slate-700 bg-slate-800/70 px-3 py-1 text-xs font-semibold text-slate-100 hover:border-emerald-500/60"
+              >
+                Ajustes
+              </button>
+            )}
+            {onShowSummary && (
+              <button
+                type="button"
+                onClick={onShowSummary}
+                className="rounded-full border border-slate-700 bg-slate-800/70 px-3 py-1 text-xs font-semibold text-slate-100 hover:border-emerald-500/60"
+              >
+                Ver ficha
+              </button>
+            )}
+          </div>
+        </div>
+        <div className="flex flex-col flex-1 min-h-0 overflow-hidden">
+          {contextContent ? (
+            <div className="bg-[#0f1f26] border-b border-slate-800 px-4 py-3">{contextContent}</div>
+          ) : null}
+          <div
+            ref={listRef}
+            className="flex-1 min-h-0 overflow-y-auto"
+            style={{ backgroundImage: "url('/assets/images/background.jpg')" }}
+          >
+            <div className="max-w-4xl mx-auto w-full px-4 sm:px-6 lg:px-8 py-6 space-y-3">
+              {loading && <div className="text-center text-[#aebac1] text-sm mt-2">Cargando mensajes...</div>}
+              {error && !loading && <div className="text-center text-red-400 text-sm mt-2">{error}</div>}
+              {!loading && !error && messages.length === 0 && (
+                <div className="text-center text-[#aebac1] text-sm mt-2">Aún no hay mensajes.</div>
+              )}
+              {messages.map((msg) => {
+                const isCreator = msg.role === "CREATOR";
+                const time = new Date(msg.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+                return (
+                  <MessageBalloon
+                    key={msg.id}
+                    me={isCreator}
+                    message={msg.content}
+                    time={time}
+                    fromLabel="Manager IA"
+                    meLabel="Tú"
+                  />
+                );
+              })}
+            </div>
+          </div>
+          {usedFallback && (
+            <div className="px-4 pt-2 text-[12px] text-amber-200 bg-amber-500/10 border-t border-amber-500/30">
+              Modo demo activo: conecta tu OPENAI_API_KEY para respuestas con tus datos reales.
+            </div>
+          )}
+          <div className="flex flex-col bg-[#202c33] w-full h-auto py-3 px-4 text-[#8696a0] gap-3 flex-shrink-0 overflow-visible">
+            <div className="flex flex-nowrap items-center gap-2 overflow-x-auto pb-1">
+              {quickSuggestions.map((sugg) => (
+                <button
+                  key={sugg}
+                  type="button"
+                  className="rounded-full border border-slate-700 bg-slate-900/60 text-slate-100 hover:bg-slate-800 transition px-3 py-1.5 text-xs"
+                  onClick={() => {
+                    setInput(sugg);
+                    inputRef.current?.focus();
+                    void handleSend(sugg);
+                  }}
+                  disabled={sending}
+                >
+                  {sugg}
+                </button>
+              ))}
+            </div>
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                void handleSend();
+              }}
+              className="flex items-center gap-3"
+            >
+              <textarea
+                ref={inputRef}
+                value={input}
+                onChange={(e) => setInput(e.target.value)}
+                disabled={sending}
+                placeholder="Cuéntale al Manager IA en qué necesitas ayuda."
+                className="flex-1 bg-[#2a3942] rounded-lg w-full px-3 py-3 text-white resize-none focus:outline-none focus:ring-2 focus:ring-emerald-500/70 disabled:cursor-not-allowed disabled:opacity-70"
+                rows={2}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && !e.shiftKey) {
+                    e.preventDefault();
+                    void handleSend();
+                  }
+                }}
+              />
+              <button
+                type="submit"
+                disabled={sending || !input.trim()}
+                className="flex justify-center items-center h-12 px-4 rounded-lg bg-emerald-600 text-white text-sm font-semibold hover:bg-emerald-500 disabled:opacity-60"
+              >
+                {sending ? "Enviando..." : "Enviar"}
+              </button>
+            </form>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   const containerClass = clsx(
     "rounded-2xl border border-slate-800 bg-slate-900/80",

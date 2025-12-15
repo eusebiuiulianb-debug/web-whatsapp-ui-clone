@@ -40,6 +40,8 @@ type Props = {
   advisorError?: boolean;
   advisorLoading?: boolean;
   onOpenFanChat?: (fanId: string) => void;
+  hideChat?: boolean;
+  className?: string;
 };
 
 type PrimaryTab = "today" | "queue" | "pulse" | "catalog";
@@ -69,6 +71,8 @@ export function IaWorkspaceCard({
   advisorError: _advisorError,
   advisorLoading: _advisorLoading,
   onOpenFanChat,
+  hideChat = false,
+  className = "",
 }: Props) {
   const { isDesktop, ready: viewportReady } = useIsDesktop();
   const showMobileUi = viewportReady && !isDesktop;
@@ -387,7 +391,8 @@ export function IaWorkspaceCard({
     <section
       className={clsx(
         "rounded-2xl border border-slate-800 bg-slate-950/90 shadow-sm flex flex-col gap-4 h-full min-h-0 w-full flex-1",
-        density === "compact" ? "p-4 pb-16 md:pb-4" : "p-5 lg:p-6 pb-16 lg:pb-6"
+        density === "compact" ? "p-4 pb-16 md:pb-4" : "p-5 lg:p-6 pb-16 lg:pb-6",
+        className
       )}
     >
       <div className="space-y-2 lg:sticky lg:top-0 lg:z-10 lg:bg-slate-950/95 lg:backdrop-blur">
@@ -507,7 +512,7 @@ export function IaWorkspaceCard({
         )}
 
         {focus === "normal" && (
-          <div className="flex flex-wrap items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
             <button
               type="button"
               className={clsx(
@@ -547,53 +552,55 @@ export function IaWorkspaceCard({
           </div>
         )}
 
-        <div className="flex-1 min-h-0">
-          <div className={clsx("grid min-h-0 w-full grid-cols-1 gap-4 h-full", focus === "normal" && "lg:grid-cols-[minmax(0,1fr)_320px]")}>
-            <div className="flex min-h-0 min-w-0 flex-col gap-3">
-              <div
-                className={clsx(
-                  "rounded-2xl border border-slate-800 bg-slate-950/85 shadow-inner flex flex-col flex-1 min-h-0 min-w-0",
-                  density === "compact" ? "p-3 gap-3" : "p-4 lg:p-5 gap-4"
-                )}
-              >
-              <div className="flex items-center gap-3">
-                <div>
-                  <p className="text-[11px] uppercase tracking-wide text-slate-400">Chat interno</p>
-                  <h3 className={clsx("font-semibold text-white", density === "compact" ? "text-base" : "text-lg")}>Manager IA</h3>
-                </div>
-              </div>
-                <div className="flex-1 overflow-hidden rounded-xl border border-slate-800 bg-slate-950/60 min-h-[360px]">
-                  {activeTab === "strategy" ? (
-                    <ManagerChatCard
-                      ref={chatRef}
-                      businessSnapshot={businessSnapshot}
-                      hideTitle
-                      embedded
-                      suggestions={quickPromptsByTab[panelTab]}
-                      density={density}
-                    />
-                  ) : activeTab === "content" ? (
-                    <ContentManagerChatCard
-                      ref={contentChatRef}
-                      initialSnapshot={contentSnapshot ?? undefined}
-                      hideTitle
-                      embedded
-                      mode="CONTENT"
-                    />
-                  ) : (
-                    <ContentManagerChatCard ref={contentChatRef} hideTitle embedded mode="GROWTH" />
+        {!hideChat && (
+          <div className="flex-1 min-h-0">
+            <div className={clsx("grid min-h-0 w-full grid-cols-1 gap-4 h-full", focus === "normal" && "lg:grid-cols-[minmax(0,1fr)_320px]")}>
+              <div className="flex min-h-0 min-w-0 flex-col gap-3">
+                <div
+                  className={clsx(
+                    "rounded-2xl border border-slate-800 bg-slate-950/85 shadow-inner flex flex-col flex-1 min-h-0 min-w-0",
+                    density === "compact" ? "p-3 gap-3" : "p-4 lg:p-5 gap-4"
                   )}
+                >
+                <div className="flex items-center gap-3">
+                  <div>
+                    <p className="text-[11px] uppercase tracking-wide text-slate-400">Chat interno</p>
+                    <h3 className={clsx("font-semibold text-white", density === "compact" ? "text-base" : "text-lg")}>Manager IA</h3>
+                  </div>
+                </div>
+                  <div className="flex-1 overflow-hidden rounded-xl border border-slate-800 bg-slate-950/60 min-h-[360px]">
+                    {activeTab === "strategy" ? (
+                      <ManagerChatCard
+                        ref={chatRef}
+                        businessSnapshot={businessSnapshot}
+                        hideTitle
+                        embedded
+                        suggestions={quickPromptsByTab[panelTab]}
+                        density={density}
+                      />
+                    ) : activeTab === "content" ? (
+                      <ContentManagerChatCard
+                        ref={contentChatRef}
+                        initialSnapshot={contentSnapshot ?? undefined}
+                        hideTitle
+                        embedded
+                        mode="CONTENT"
+                      />
+                    ) : (
+                      <ContentManagerChatCard ref={contentChatRef} hideTitle embedded mode="GROWTH" />
+                    )}
+                  </div>
                 </div>
               </div>
-            </div>
 
-            {focus === "normal" && (
-              <div className="hidden lg:flex lg:flex-col lg:gap-3 min-w-[320px] lg:sticky lg:top-4" ref={topFansRef}>
-                <TodayPriorityList queue={queue} queueError={queueError} onOpenFanChat={onOpenFanChat} onSendTemplate={handleQuickQuestion} />
-              </div>
-            )}
+              {focus === "normal" && (
+                <div className="hidden lg:flex lg:flex-col lg:gap-3 min-w-[320px] lg:sticky lg:top-4" ref={topFansRef}>
+                  <TodayPriorityList queue={queue} queueError={queueError} onOpenFanChat={onOpenFanChat} onSendTemplate={handleQuickQuestion} />
+                </div>
+              )}
+            </div>
           </div>
-        </div>
+        )}
       </div>
 
       {showSettings && (

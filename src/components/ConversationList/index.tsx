@@ -19,9 +19,48 @@ export default function ConversationList(props: ConversationListProps) {
   const { contactName, lastMessage, lastTime, image, unreadCount, isNew, membershipStatus, daysLeft, urgencyLevel } = data;
   const borderClass = isFirstConversation ? "border-transparent" : "border-[rgba(134,150,160,0.15)]";
   const [ isHover, seHover ] = useState(false);
-  const hasUnread = !!unreadCount && unreadCount > 0;
+  const isManagerChat = data.isManager === true;
+  const hasUnread = !isManagerChat && !!unreadCount && unreadCount > 0;
   const nameClasses = hasUnread ? "text-slate-50 text-sm font-semibold" : "text-slate-50 text-sm font-medium";
   const previewClasses = hasUnread ? "text-slate-50 text-xs font-medium" : "text-slate-400 text-xs";
+  if (isManagerChat) {
+    return (
+      <div 
+        className={`flex items-center w-full bg-[#111B21] px-3 py-3.5 hover:bg-[#2A3942] cursor-pointer border-t ${borderClass}`}
+        onMouseMove={ () => seHover(true) }
+        onMouseLeave={ () => seHover(false) }
+        onClick={() => {
+          if (onSelect) {
+            onSelect(data);
+          } else {
+            setConversation(data);
+          }
+        }}
+      >
+        <div className="flex items-center gap-3 w-full">
+          <Avatar width="w-12" height="h-12" image={image} />
+          <div className="flex flex-col gap-[2px] min-w-0 w-full">
+            <div className="flex items-center gap-2 min-w-0">
+              <span className={`truncate ${nameClasses}`}>{contactName}</span>
+              <span className="inline-flex items-center rounded-full border border-emerald-400/70 bg-emerald-500/15 px-2.5 py-1 text-[11px] font-semibold text-emerald-100">
+                IA
+              </span>
+            </div>
+            <span className={`truncate ${previewClasses}`}>{lastMessage}</span>
+            <div className="flex items-center gap-2 text-[11px] text-slate-500">
+              <span>Chat interno del Manager IA</span>
+              {lastTime ? (
+                <>
+                  <span className="w-1 h-1 rounded-full bg-slate-600" />
+                  <span>{lastTime}</span>
+                </>
+              ) : null}
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
   const accessState = getAccessState({ membershipStatus, daysLeft });
 
   const badgeStyles = {
