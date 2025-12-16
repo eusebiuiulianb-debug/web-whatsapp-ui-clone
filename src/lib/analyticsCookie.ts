@@ -13,7 +13,7 @@ export type AnalyticsCookiePayload = {
   referrer?: string;
 };
 
-const COOKIE_MAX_AGE = 60 * 60 * 24 * 30; // 30 days
+const COOKIE_MAX_AGE = 60 * 60 * 24 * 7; // 7 days
 
 function parseCookieHeader(cookieHeader: string | undefined): Record<string, string> {
   if (!cookieHeader) return {};

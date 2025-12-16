@@ -50,12 +50,6 @@ export function BioLinkPublicView({ config }: Props) {
           <div className="w-full space-y-3">
             <a
               href={ctaHref}
-              onClick={() =>
-                track(ANALYTICS_EVENTS.CTA_CLICK_ENTER_CHAT, {
-                  creatorId: config.creatorId || "creator-1",
-                  meta: { handle: config.handle, ctaUrl: ctaHref || config.primaryCtaUrl },
-                })
-              }
               className="inline-flex w-full items-center justify-center rounded-lg border border-amber-400/70 text-amber-200 bg-transparent hover:bg-amber-400/10 px-4 py-3 text-sm font-semibold transition"
             >
               {config.primaryCtaLabel}

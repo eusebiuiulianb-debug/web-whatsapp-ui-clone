@@ -35,6 +35,7 @@ export const getServerSideProps: GetServerSideProps<Props> = async (ctx) => {
   const handleParam = typeof ctx.params?.handle === "string" ? ctx.params.handle : "";
   const creators = await prisma.creator.findMany();
   const match = creators.find((c) => slugify(c.name) === handleParam) || creators[0];
+  const handle = slugify(match?.name || handleParam || "creator");
 
   if (!match || match.bioLinkEnabled === false) {
     return { props: { config: null } };
@@ -71,9 +72,9 @@ export const getServerSideProps: GetServerSideProps<Props> = async (ctx) => {
     tagline: match.subtitle || match.bioLinkTagline || "",
     avatarUrl: match.bioLinkAvatarUrl || "",
     primaryCtaLabel: match.bioLinkPrimaryCtaLabel || "Entrar a mi chat privado",
-    primaryCtaUrl: match.bioLinkPrimaryCtaUrl || `/creator`,
+    primaryCtaUrl: match.bioLinkPrimaryCtaUrl || `/c/${handle}`,
     secondaryLinks: parseSecondaryLinks(match.bioLinkSecondaryLinks),
-    handle: slugify(match.name || "creator"),
+    handle,
     creatorId: match.id,
   };
 

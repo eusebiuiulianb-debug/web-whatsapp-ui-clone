@@ -1,11 +1,7 @@
 import type { NextApiRequest, NextApiResponse } from "next";
 import { AiTemplateUsage, AI_TEMPLATE_USAGES, AI_TURN_MODES, type AiTurnMode } from "../../../../lib/aiTemplateTypes";
-import {
-  getTemplateSuggestionForCreator,
-  normalizeTone,
-  AiTone,
-  ACTION_TYPE_FOR_USAGE,
-} from "../../../../lib/aiQuickExtra";
+import { normalizeTone, AiTone, ACTION_TYPE_FOR_USAGE } from "../../../../lib/aiQuickExtra";
+import { getTemplateSuggestionForCreator } from "../../../../lib/aiQuickExtra.server";
 import { getExtraLadderStatusForFan } from "../../../../lib/extraLadder";
 import type { ExtraTier } from "@prisma/client";
 import prisma from "../../../../lib/prisma.server";

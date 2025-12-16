@@ -36,11 +36,13 @@ type AnalyticsSummaryResponse = {
   latestLinks: Array<{
     id: string;
     platform: string;
+    handle: string | null;
     utmSource: string;
     utmMedium: string;
     utmCampaign: string;
     utmContent: string;
     utmTerm: string | null;
+    slug: string | null;
     createdAt: string;
   }>;
 };
@@ -70,6 +72,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           utmCampaign: true,
           utmContent: true,
           utmTerm: true,
+          handle: true,
+          slug: true,
           createdAt: true,
         },
       }),
@@ -203,6 +207,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       latestLinks: latestLinks.map((link) => ({
         ...link,
         utmTerm: link.utmTerm ?? null,
+        slug: link.slug ?? null,
+        handle: link.handle ?? null,
         createdAt: link.createdAt.toISOString(),
       })),
     };

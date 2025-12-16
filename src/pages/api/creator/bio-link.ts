@@ -30,6 +30,8 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
   try {
     const payload = req.body as Partial<BioLinkConfig> | undefined;
     if (!payload) return sendBadRequest(res, "payload required");
+    const creator = await prisma.creator.findUnique({ where: { id: CREATOR_ID } });
+    if (!creator) return sendBadRequest(res, "Creator not found");
 
     const links = Array.isArray(payload.secondaryLinks) ? payload.secondaryLinks.slice(0, MAX_LINKS) : [];
     const sanitizedLinks = links
@@ -40,9 +42,16 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
       }))
       .filter((l) => l.label && l.url);
 
-    const primaryCtaUrl = typeof payload.primaryCtaUrl === "string" && payload.primaryCtaUrl.trim().length > 0
-      ? payload.primaryCtaUrl.trim()
-      : `/creator`;
+    const handle = slugify(creator.name || "creator");
+    const defaultCta = `/c/${handle}`;
+    const primaryCtaUrlRaw =
+      typeof payload.primaryCtaUrl === "string" && payload.primaryCtaUrl.trim().length > 0
+        ? payload.primaryCtaUrl.trim()
+        : "";
+    if (primaryCtaUrlRaw && isForbiddenCtaDestination(primaryCtaUrlRaw, handle)) {
+      return sendBadRequest(res, "CTA_DESTINATION_INVALID");
+    }
+    const primaryCtaUrl = primaryCtaUrlRaw || defaultCta;
 
     const updated = await prisma.creator.update({
       where: { id: CREATOR_ID },
@@ -73,7 +82,7 @@ function mapCreatorToConfig(creator: any): BioLinkConfig {
       secondaryLinks = [];
     }
   }
-  const handle = (creator.name || "creator").toString().toLowerCase().replace(/[^a-z0-9]+/g, "-");
+  const handle = slugify(creator.name || "creator");
 
   return {
     enabled: Boolean(creator.bioLinkEnabled),
@@ -81,9 +90,30 @@ function mapCreatorToConfig(creator: any): BioLinkConfig {
     tagline: creator.subtitle || creator.bioLinkTagline || "",
     avatarUrl: creator.bioLinkAvatarUrl || "",
     primaryCtaLabel: creator.bioLinkPrimaryCtaLabel || "Entrar a mi chat privado",
-    primaryCtaUrl: creator.bioLinkPrimaryCtaUrl || `/creator`,
+    primaryCtaUrl: creator.bioLinkPrimaryCtaUrl || `/c/${handle}`,
     secondaryLinks,
     handle,
     creatorId: creator.id,
   };
+}
+
+function slugify(value?: string | null) {
+  return (value || "creator").toLowerCase().replace(/[^a-z0-9]+/g, "-");
+}
+
+function isForbiddenCtaDestination(url: string, handle: string) {
+  const trimmed = (url || "").trim().toLowerCase();
+  const loopPath = `/link/${handle}`;
+  if (!trimmed) return false;
+  if (trimmed === "/" || trimmed.startsWith("/creator") || trimmed.startsWith("/fan")) return true;
+  if (trimmed === loopPath || trimmed.startsWith(`${loopPath}?`)) return true;
+  try {
+    const parsed = new URL(url, "http://localhost");
+    const path = parsed.pathname.toLowerCase();
+    if (path === "/" || path.startsWith("/creator") || path.startsWith("/fan")) return true;
+    if (path === loopPath || path.startsWith(`${loopPath}/`)) return true;
+  } catch (_err) {
+    // ignore
+  }
+  return false;
 }

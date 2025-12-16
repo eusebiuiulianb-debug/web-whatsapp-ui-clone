@@ -374,14 +374,14 @@ model AnalyticsEvent {
 model CampaignLink {
   id          String   @id @default(uuid())
   creatorId   String
-  handle      String
+  handle      String?
   platform    String
   utmSource   String
   utmMedium   String
   utmCampaign String
   utmContent  String
   utmTerm     String?
-  slug        String   @unique
+  slug        String?  @unique
   createdAt   DateTime @default(now())
 
   @@index([creatorId, createdAt])

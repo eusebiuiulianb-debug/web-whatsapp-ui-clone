@@ -11,7 +11,7 @@ const DEFAULT_CONFIG: BioLinkConfig = {
   tagline: "Charlas privadas y contenido exclusivo en NOVSY.",
   avatarUrl: "",
   primaryCtaLabel: "Entrar a mi chat privado",
-  primaryCtaUrl: "/creator",
+  primaryCtaUrl: "/c/creator",
   secondaryLinks: [],
   handle: "creator",
 };
@@ -22,6 +22,8 @@ export function BioLinkEditor({ handle, onOpenSettings }: { handle: string; onOp
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [ctaError, setCtaError] = useState<string | null>(null);
+  const defaultCtaUrl = `/c/${handle}`;
+  const [ctaMode, setCtaMode] = useState<"chat" | "custom">("chat");
   const previewConfig = useMemo(() => config, [config]);
 
   const loadConfig = useCallback(async () => {
@@ -36,6 +38,7 @@ export function BioLinkEditor({ handle, onOpenSettings }: { handle: string; onOp
           title: creatorConfig.creatorName || (data.config as BioLinkConfig).title,
           tagline: creatorConfig.creatorSubtitle || (data.config as BioLinkConfig).tagline,
           avatarUrl: creatorConfig.avatarUrl || (data.config as BioLinkConfig).avatarUrl,
+          primaryCtaUrl: (data.config as BioLinkConfig).primaryCtaUrl || defaultCtaUrl,
           handle,
         }));
       }
@@ -59,10 +62,24 @@ export function BioLinkEditor({ handle, onOpenSettings }: { handle: string; onOp
     }));
   }, [creatorConfig.avatarUrl, creatorConfig.creatorName, creatorConfig.creatorSubtitle]);
 
+  useEffect(() => {
+    setCtaMode(deriveCtaMode(config.primaryCtaUrl, defaultCtaUrl));
+  }, [config.primaryCtaUrl, defaultCtaUrl]);
+
   async function handleSave() {
-    const isLoop = config.primaryCtaUrl === `/link/${handle}` || config.primaryCtaUrl === `https://novsy.com/link/${handle}`;
-    if (isLoop) {
-      setCtaError("El destino del botón no puede ser el mismo bio-link");
+    const targetCta =
+      ctaMode === "chat"
+        ? defaultCtaUrl
+        : typeof config.primaryCtaUrl === "string" && config.primaryCtaUrl.trim().length > 0
+        ? config.primaryCtaUrl.trim()
+        : "";
+    const invalidCta = ctaMode === "custom" && isForbiddenCtaDestination(targetCta, handle);
+    if (invalidCta) {
+      setCtaError("El destino del botón no puede ser el mismo bio-link ni rutas internas (/ , /creator , /fan ).");
+      return;
+    }
+    if (ctaMode === "custom" && !targetCta) {
+      setCtaError("Introduce una URL válida para el botón.");
       return;
     }
     setCtaError(null);
@@ -71,7 +88,7 @@ export function BioLinkEditor({ handle, onOpenSettings }: { handle: string; onOp
       const payload: Partial<BioLinkConfig> = {
         enabled: config.enabled,
         primaryCtaLabel: config.primaryCtaLabel,
-        primaryCtaUrl: config.primaryCtaUrl,
+        primaryCtaUrl: targetCta || defaultCtaUrl,
         secondaryLinks: config.secondaryLinks,
       };
       const res = await fetch("/api/creator/bio-link", {
@@ -155,16 +172,46 @@ export function BioLinkEditor({ handle, onOpenSettings }: { handle: string; onOp
         </div>
         <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-3 space-y-2">
           <p className="text-sm font-semibold">Botón principal</p>
+          <div className="flex flex-col sm:flex-row gap-3">
+            <label className="inline-flex items-center gap-2 text-sm text-slate-200">
+              <input
+                type="radio"
+                checked={ctaMode === "chat"}
+                onChange={() => {
+                  setCtaMode("chat");
+                  setConfig((prev) => ({ ...prev, primaryCtaUrl: defaultCtaUrl }));
+                  setCtaError(null);
+                }}
+              />
+              Abrir chat (recomendado)
+            </label>
+            <label className="inline-flex items-center gap-2 text-sm text-slate-200">
+              <input
+                type="radio"
+                checked={ctaMode === "custom"}
+                onChange={() => {
+                  setCtaMode("custom");
+                  setCtaError(null);
+                }}
+              />
+              URL personalizada
+            </label>
+          </div>
           <LabeledInput
             label="Label"
             value={config.primaryCtaLabel}
             onChange={(val) => setConfig((prev) => ({ ...prev, primaryCtaLabel: val }))}
           />
-          <LabeledInput
-            label="URL"
-            value={config.primaryCtaUrl}
-            onChange={(val) => setConfig((prev) => ({ ...prev, primaryCtaUrl: val }))}
-          />
+          {ctaMode === "custom" ? (
+            <LabeledInput
+              label="URL"
+              value={config.primaryCtaUrl}
+              onChange={(val) => setConfig((prev) => ({ ...prev, primaryCtaUrl: val }))}
+              helper="No puede apuntar a /, /creator, /fan o a tu propio /link."
+            />
+          ) : (
+            <p className="text-xs text-slate-400">Abrirá tu chat privado en NOVSY ({defaultCtaUrl}).</p>
+          )}
           {ctaError && <p className="text-xs text-rose-300">{ctaError}</p>}
         </div>
 
@@ -291,4 +338,28 @@ function LabeledInput({
       {helper && <span className="text-[11px] text-slate-500">{helper}</span>}
     </label>
   );
+}
+
+function isForbiddenCtaDestination(url: string, handle: string) {
+  const trimmed = (url || "").trim().toLowerCase();
+  if (!trimmed) return true;
+  const loopPath = `/link/${handle}`;
+  if (trimmed === "/" || trimmed.startsWith("/creator") || trimmed.startsWith("/fan")) return true;
+  if (trimmed === loopPath || trimmed.startsWith(`${loopPath}?`)) return true;
+  try {
+    const urlObj = new URL(url, "http://localhost");
+    const path = urlObj.pathname.toLowerCase();
+    if (path === "/" || path.startsWith("/creator") || path.startsWith("/fan")) return true;
+    if (path === loopPath || path.startsWith(`${loopPath}/`)) return true;
+  } catch (_err) {
+    // ignore parse errors
+  }
+  return false;
+}
+
+function deriveCtaMode(primaryCtaUrl: string, defaultCtaUrl: string): "chat" | "custom" {
+  const normalized = (primaryCtaUrl || "").trim();
+  const defaultNormalized = (defaultCtaUrl || "").trim();
+  if (!normalized || normalized === defaultNormalized) return "chat";
+  return "custom";
 }

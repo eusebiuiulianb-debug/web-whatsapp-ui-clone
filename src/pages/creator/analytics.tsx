@@ -20,12 +20,14 @@ type TableRow = {
 
 type CampaignLink = {
   id: string;
+  handle: string | null;
   platform: string;
   utmSource: string;
   utmMedium: string;
   utmCampaign: string;
   utmContent: string;
   utmTerm: string | null;
+  slug: string | null;
   createdAt: string;
 };
 
@@ -147,16 +149,17 @@ export default function CreatorAnalyticsPage() {
     if (!builderValid) return;
     try {
       setSavingLink(true);
-      const res = await fetch("/api/creator/campaign-links", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          platform: builder.platform,
-          utmSource,
-          utmMedium,
-          utmCampaign,
-          utmContent,
-          utmTerm: utmTerm || undefined,
+    const res = await fetch("/api/creator/campaign-links", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        platform: builder.platform,
+        handle,
+        utmSource,
+        utmMedium,
+        utmCampaign,
+        utmContent,
+        utmTerm: utmTerm || undefined,
         }),
       });
       if (!res.ok) throw new Error("Error saving link");
@@ -601,6 +604,9 @@ function ClipboardCopyIconInline() {
 function buildLinkFromRow(row: CampaignLink, handle: string) {
   const base =
     (typeof window !== "undefined" && window.location?.origin) || process.env.NEXT_PUBLIC_BASE_URL || "http://localhost:3005";
+  if (row.slug) {
+    return `${base}/u/${row.slug}`;
+  }
   const params = new URLSearchParams({
     utm_source: row.utmSource,
     utm_medium: row.utmMedium,
@@ -608,5 +614,5 @@ function buildLinkFromRow(row: CampaignLink, handle: string) {
     utm_content: row.utmContent,
   });
   if (row.utmTerm) params.append("utm_term", row.utmTerm);
-  return `${base}/link/${handle}?${params.toString()}`;
+  return `${base}/link/${row.handle || handle}?${params.toString()}`;
 }

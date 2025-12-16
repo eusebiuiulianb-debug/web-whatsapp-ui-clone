@@ -14,6 +14,7 @@ export const getServerSideProps: GetServerSideProps = async (ctx) => {
 
   const creators = await prisma.creator.findMany();
   const match = creators.find((c) => slugify(c.name) === handleParam) || creators[0];
+  const resolvedHandle = slugify(match?.name || handleParam || "creator");
   const referrer = (ctx.req?.headers?.referer as string | undefined) || (ctx.req?.headers?.referrer as string | undefined);
 
   const cookieData = readAnalyticsCookie(ctx.req as any);
@@ -26,10 +27,12 @@ export const getServerSideProps: GetServerSideProps = async (ctx) => {
     utmTerm: utmTerm ?? cookieData?.utmTerm,
   });
 
-  let destination = match?.bioLinkPrimaryCtaUrl || "/creator";
-  const loopPath = `/link/${handleParam}`;
-  if (destination === loopPath) {
-    destination = "/";
+  const defaultDestination = `/c/${resolvedHandle}`;
+  let destination = (match?.bioLinkPrimaryCtaUrl || "").trim() || defaultDestination;
+  const loopPath = `/link/${resolvedHandle}`;
+  const goPath = `/go/${resolvedHandle}`;
+  if (shouldFallbackDestination(destination, loopPath, goPath, resolvedHandle, ctx.req?.headers?.host)) {
+    destination = defaultDestination;
   }
 
   const host = ctx.req?.headers?.host;
@@ -49,14 +52,14 @@ export const getServerSideProps: GetServerSideProps = async (ctx) => {
         fanId: null,
         sessionId: merged.sessionId,
         eventName: ANALYTICS_EVENTS.CTA_CLICK_ENTER_CHAT,
-        path: `/go/${handleParam}`,
+        path: `/go/${resolvedHandle}`,
         referrer: merged.referrer || referrer || null,
         utmSource: merged.utmSource || null,
         utmMedium: merged.utmMedium || null,
         utmCampaign: merged.utmCampaign || null,
         utmContent: merged.utmContent || null,
         utmTerm: merged.utmTerm || null,
-        meta: { handle: handleParam },
+        meta: { handle: resolvedHandle, destination },
       },
     });
   } catch (err) {
@@ -83,6 +86,29 @@ function buildUtmParams(params: { utmSource?: string | null; utmMedium?: string 
   if (params.utmContent) searchParams.set("utm_content", params.utmContent);
   if (params.utmTerm) searchParams.set("utm_term", params.utmTerm);
   return searchParams;
+}
+
+function shouldFallbackDestination(
+  destination: string,
+  loopPath: string,
+  goPath: string,
+  handle: string,
+  host?: string | string[]
+) {
+  const trimmed = (destination || "").trim();
+  if (!trimmed) return true;
+  const normalizedHost = Array.isArray(host) ? host[0] : host;
+  try {
+    const url = trimmed.startsWith("http") ? new URL(trimmed) : normalizedHost ? new URL(trimmed, `http://${normalizedHost}`) : null;
+    if (!url) return trimmed === loopPath || trimmed === goPath || trimmed === "/" || trimmed.startsWith("/creator") || trimmed.startsWith("/fan");
+    const pathname = url.pathname;
+    if (pathname === loopPath || pathname === goPath) return true;
+    if (pathname === "/" || pathname.startsWith("/creator") || pathname.startsWith("/fan")) return true;
+    if (pathname === `/link/${handle}`) return true;
+  } catch (_err) {
+    return true;
+  }
+  return false;
 }
 
 function appendUtmsIfNeeded(destination: string, host?: string | string[], utmParams?: URLSearchParams) {

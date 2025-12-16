@@ -1,5 +1,5 @@
 import type { NextApiRequest, NextApiResponse } from "next";
-import { logAiUsage } from "../../../../lib/aiUsage";
+import { logAiUsage } from "../../../../lib/aiUsage.server";
 import { AI_TURN_MODES, type AiTurnMode } from "../../../../lib/aiTemplateTypes";
 import { normalizeAiTurnMode } from "../../../../lib/aiSettings";
 
