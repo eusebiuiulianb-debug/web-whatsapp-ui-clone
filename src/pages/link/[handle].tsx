@@ -1,9 +1,10 @@
 import type { GetServerSideProps } from "next";
 import Head from "next/head";
 import { BioLinkPublicView } from "../../components/public-profile/BioLinkPublicView";
-import prisma from "../../lib/prisma";
 import type { BioLinkConfig } from "../../types/bioLink";
 import type { BioLinkSecondaryLink } from "../../types/bioLink";
+import { ensureAnalyticsCookie } from "../../lib/analyticsCookie";
+import { randomUUID } from "crypto";
 
 type Props = { config: BioLinkConfig | null };
 
@@ -30,12 +31,38 @@ export default function PublicBioLinkPage({ config }: Props) {
 }
 
 export const getServerSideProps: GetServerSideProps<Props> = async (ctx) => {
+  const prisma = (await import("../../lib/prisma.server")).default;
   const handleParam = typeof ctx.params?.handle === "string" ? ctx.params.handle : "";
   const creators = await prisma.creator.findMany();
   const match = creators.find((c) => slugify(c.name) === handleParam) || creators[0];
 
   if (!match || match.bioLinkEnabled === false) {
     return { props: { config: null } };
+  }
+
+  const utmSource = typeof ctx.query.utm_source === "string" ? ctx.query.utm_source : undefined;
+  const utmMedium = typeof ctx.query.utm_medium === "string" ? ctx.query.utm_medium : undefined;
+  const utmCampaign = typeof ctx.query.utm_campaign === "string" ? ctx.query.utm_campaign : undefined;
+  const utmContent = typeof ctx.query.utm_content === "string" ? ctx.query.utm_content : undefined;
+  const utmTerm = typeof ctx.query.utm_term === "string" ? ctx.query.utm_term : undefined;
+  const referrer = (ctx.req?.headers?.referer as string | undefined) || (ctx.req?.headers?.referrer as string | undefined);
+
+  try {
+    ensureAnalyticsCookie(
+      ctx.req as any,
+      ctx.res as any,
+      {
+        sessionId: randomUUID(),
+        utmSource,
+        utmMedium,
+        utmCampaign,
+        utmContent,
+        utmTerm,
+        referrer,
+      }
+    );
+  } catch (_err) {
+    // ignore cookie errors
   }
 
   const config: BioLinkConfig = {
@@ -47,6 +74,7 @@ export const getServerSideProps: GetServerSideProps<Props> = async (ctx) => {
     primaryCtaUrl: match.bioLinkPrimaryCtaUrl || `/creator`,
     secondaryLinks: parseSecondaryLinks(match.bioLinkSecondaryLinks),
     handle: slugify(match.name || "creator"),
+    creatorId: match.id,
   };
 
   return { props: { config } };

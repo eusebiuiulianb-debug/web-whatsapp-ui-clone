@@ -1,5 +1,5 @@
 import type { NextApiRequest, NextApiResponse } from "next";
-import prisma from "../../lib/prisma";
+import prisma from "../../lib/prisma.server";
 import { sendServerError } from "../../lib/apiError";
 
 export default async function handler(_req: NextApiRequest, res: NextApiResponse) {

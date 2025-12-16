@@ -1,5 +1,8 @@
 import type { BioLinkConfig, BioLinkSecondaryLink } from "../../types/bioLink";
 import clsx from "clsx";
+import { useEffect, useState } from "react";
+import { track } from "../../lib/analyticsClient";
+import { ANALYTICS_EVENTS } from "../../lib/analyticsEvents";
 
 type Props = {
   config: BioLinkConfig;
@@ -8,6 +11,17 @@ type Props = {
 export function BioLinkPublicView({ config }: Props) {
   const chips = (config.chips || []).filter(Boolean).slice(0, 3);
   const secondaryLinks = (config.secondaryLinks || []).filter((l) => l.label && l.url);
+  const [ctaHref, setCtaHref] = useState(`/go/${config.handle}`);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const search = window.location.search || "";
+    setCtaHref(`/go/${config.handle}${search}`);
+  }, [config.handle]);
+
+  useEffect(() => {
+    track(ANALYTICS_EVENTS.BIO_LINK_VIEW, { creatorId: config.creatorId || "creator-1", meta: { handle: config.handle } });
+  }, [config.creatorId, config.handle]);
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 text-white flex flex-col items-center px-4 pt-16 pb-24 md:pt-20">
@@ -35,7 +49,13 @@ export function BioLinkPublicView({ config }: Props) {
 
           <div className="w-full space-y-3">
             <a
-              href={config.primaryCtaUrl}
+              href={ctaHref}
+              onClick={() =>
+                track(ANALYTICS_EVENTS.CTA_CLICK_ENTER_CHAT, {
+                  creatorId: config.creatorId || "creator-1",
+                  meta: { handle: config.handle, ctaUrl: ctaHref || config.primaryCtaUrl },
+                })
+              }
               className="inline-flex w-full items-center justify-center rounded-lg border border-amber-400/70 text-amber-200 bg-transparent hover:bg-amber-400/10 px-4 py-3 text-sm font-semibold transition"
             >
               {config.primaryCtaLabel}

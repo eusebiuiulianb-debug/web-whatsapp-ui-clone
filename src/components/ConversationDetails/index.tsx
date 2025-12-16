@@ -28,6 +28,8 @@ import { getAutopilotDraft } from "../../lib/managerAutopilot";
 import type { ManagerObjective as AutopilotObjective } from "../../lib/managerAutopilot";
 import type { FanManagerStateAnalysis } from "../../lib/fanManagerState";
 import type { FanTone, ManagerObjective } from "../../types/manager";
+import { track } from "../../lib/analyticsClient";
+import { ANALYTICS_EVENTS } from "../../lib/analyticsEvents";
 import clsx from "clsx";
 import { useRouter } from "next/router";
 
@@ -1871,6 +1873,7 @@ useEffect(() => {
       if (mapped.length > 0) {
         setMessage([...(messages || []), ...mapped]);
       }
+      void track(ANALYTICS_EVENTS.SEND_MESSAGE, { fanId: id });
       setMessageSend("");
       resetMessageInputHeight();
     } catch (err) {
@@ -1887,6 +1890,7 @@ useEffect(() => {
     if (!id) return;
     if (loadingPaymentId) return;
     setLoadingPaymentId(item.id);
+      void track(ANALYTICS_EVENTS.PURCHASE_START, { fanId: id, meta: { contentId: item.id, title: item.title } });
     try {
       const res = await fetch("/api/payments/demo-link", {
         method: "POST",

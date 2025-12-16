@@ -21,6 +21,7 @@ export function BioLinkEditor({ handle, onOpenSettings }: { handle: string; onOp
   const [config, setConfig] = useState<BioLinkConfig>(DEFAULT_CONFIG);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [ctaError, setCtaError] = useState<string | null>(null);
   const previewConfig = useMemo(() => config, [config]);
 
   const loadConfig = useCallback(async () => {
@@ -59,6 +60,12 @@ export function BioLinkEditor({ handle, onOpenSettings }: { handle: string; onOp
   }, [creatorConfig.avatarUrl, creatorConfig.creatorName, creatorConfig.creatorSubtitle]);
 
   async function handleSave() {
+    const isLoop = config.primaryCtaUrl === `/link/${handle}` || config.primaryCtaUrl === `https://novsy.com/link/${handle}`;
+    if (isLoop) {
+      setCtaError("El destino del botón no puede ser el mismo bio-link");
+      return;
+    }
+    setCtaError(null);
     try {
       setSaving(true);
       const payload: Partial<BioLinkConfig> = {
@@ -100,7 +107,7 @@ export function BioLinkEditor({ handle, onOpenSettings }: { handle: string; onOp
           <BioLinkPublicView config={previewConfig} />
         </div>
       </div>
-      <div className="rounded-2xl border border-slate-800 bg-slate-900/70 p-4 flex flex-col gap-4">
+        <div className="rounded-2xl border border-slate-800 bg-slate-900/70 p-4 flex flex-col gap-4">
         <div className="flex items-center justify-between">
           <h2 className="text-lg font-semibold">Configurar bio-link</h2>
           <label className="flex items-center gap-2 text-sm text-slate-200">
@@ -158,6 +165,7 @@ export function BioLinkEditor({ handle, onOpenSettings }: { handle: string; onOp
             value={config.primaryCtaUrl}
             onChange={(val) => setConfig((prev) => ({ ...prev, primaryCtaUrl: val }))}
           />
+          {ctaError && <p className="text-xs text-rose-300">{ctaError}</p>}
         </div>
 
         <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-3 space-y-2">

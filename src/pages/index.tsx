@@ -5,6 +5,8 @@ import SideBar from "../components/SideBar";
 import { ConversationContext } from "../context/ConversationContext";
 import { useRouter } from "next/router";
 import { CreatorShell } from "../components/creator/CreatorShell";
+import { track } from "../lib/analyticsClient";
+import { ANALYTICS_EVENTS } from "../lib/analyticsEvents";
 
 export default function Home() {
   const { conversation } = useContext(ConversationContext);
@@ -13,6 +15,7 @@ export default function Home() {
   const router = useRouter();
   const [ mobileView, setMobileView ] = useState<"board" | "chat">("board");
   const conversationSectionRef = useRef<HTMLDivElement>(null!);
+  const lastTrackedFanRef = useRef<string | null>(null);
   const IconHome = () => (
     <div className="flex flex-col w-full h-full items-center justify-center px-6">
       <svg width="360" viewBox="0 0 303 172" fill="none" preserveAspectRatio="xMidYMid meet" className="">
@@ -59,6 +62,13 @@ export default function Home() {
     setMobileView("chat");
     conversationSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
   }, [hasConversation]);
+
+  useEffect(() => {
+    if (!hasConversation || !conversation?.id) return;
+    if (lastTrackedFanRef.current === conversation.id) return;
+    lastTrackedFanRef.current = conversation.id;
+    track(ANALYTICS_EVENTS.OPEN_CHAT, { fanId: conversation.id });
+  }, [hasConversation, conversation?.id]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;

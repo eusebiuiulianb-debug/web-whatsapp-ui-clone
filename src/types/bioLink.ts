@@ -14,4 +14,5 @@ export type BioLinkConfig = {
   secondaryLinks: BioLinkSecondaryLink[];
   handle: string;
   chips?: string[];
+  creatorId?: string;
 };

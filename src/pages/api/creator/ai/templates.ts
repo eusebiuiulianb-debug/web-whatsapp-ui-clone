@@ -1,5 +1,5 @@
 import type { NextApiRequest, NextApiResponse } from "next";
-import prisma from "../../../../lib/prisma";
+import prisma from "../../../../lib/prisma.server";
 import { DEFAULT_AI_TEMPLATES } from "../../../../lib/defaultAiTemplates";
 import { AI_TEMPLATE_USAGES, AI_TURN_MODES, AiTemplateUsage, type AiTurnMode } from "../../../../lib/aiTemplateTypes";
 import type { ExtraTier, Prisma } from "@prisma/client";

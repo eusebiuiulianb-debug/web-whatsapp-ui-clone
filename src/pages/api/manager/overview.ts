@@ -1,5 +1,5 @@
 import type { NextApiRequest, NextApiResponse } from "next";
-import prisma from "../../../lib/prisma";
+import prisma from "../../../lib/prisma.server";
 import { buildManagerQueueForCreator } from "../../../server/manager/managerService";
 import { addDaysFrom } from "../../../server/manager/dateUtils";
 import { FanQueueItemSchema, type FanQueueItem } from "../../../server/manager/managerSchemas";

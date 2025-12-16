@@ -1,6 +1,6 @@
 import type { NextApiRequest, NextApiResponse } from "next";
 import { ExtraTier } from "@prisma/client";
-import prisma from "../../lib/prisma";
+import prisma from "../../lib/prisma.server";
 import { sendBadRequest, sendServerError } from "../../lib/apiError";
 
 const EXTRA_TIERS = ["T0", "T1", "T2", "T3"] as const;

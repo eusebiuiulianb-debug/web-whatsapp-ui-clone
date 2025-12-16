@@ -1,5 +1,5 @@
 import type { NextApiRequest, NextApiResponse } from "next";
-import prisma from "../../../lib/prisma";
+import prisma from "../../../lib/prisma.server";
 import { buildCreatorAiContext } from "../../../server/manager/managerService";
 import { CREATOR_ADVISOR_PROMPT } from "../../../server/manager/creatorPrompts";
 import { CreatorAiAdvisorInputSchema } from "../../../server/manager/managerSchemas";

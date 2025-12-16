@@ -1,5 +1,5 @@
 import type { NextApiRequest, NextApiResponse } from "next";
-import prisma from "../../../../lib/prisma";
+import prisma from "../../../../lib/prisma.server";
 import { buildDailyUsageFromLogs } from "../../../../lib/aiUsage";
 
 const DEFAULT_CREATOR_ID = "creator-1";

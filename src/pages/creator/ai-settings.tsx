@@ -4,6 +4,15 @@ import CreatorHeader from "../../components/CreatorHeader";
 import { useCreatorConfig } from "../../context/CreatorConfigContext";
 import { AiBaseTone, AiTurnMode, AI_TURN_MODE_OPTIONS, AI_TURN_MODES, normalizeAiBaseTone, normalizeAiTurnMode } from "../../lib/aiSettings";
 import { buildDailyUsageFromLogs } from "../../lib/aiUsage";
+import {
+  CREATOR_PLATFORM_KEYS,
+  CreatorPlatformConfig,
+  CreatorPlatformKey,
+  CreatorPlatforms,
+  createDefaultCreatorPlatforms,
+  formatPlatformLabel,
+  normalizeCreatorPlatforms,
+} from "../../lib/creatorPlatforms";
 
 type CreatorAiSettings = {
   id: string;
@@ -15,6 +24,7 @@ type CreatorAiSettings = {
   createdAt: string;
   updatedAt: string;
   turnMode: AiTurnMode;
+  platforms: CreatorPlatforms;
 };
 
 type FormState = {
@@ -23,6 +33,7 @@ type FormState = {
   creditsAvailable: number | "";
   hardLimitPerDay: number | "" | null;
   allowAutoLowPriority: boolean;
+  platforms: CreatorPlatforms;
 };
 
 type AiStatus = {
@@ -75,6 +86,25 @@ export default function CreatorAiSettingsPage() {
   const pageSize = 10;
 
   const turnModeOptions = AI_TURN_MODE_OPTIONS;
+  const platformKeys: CreatorPlatformKey[] = [...CREATOR_PLATFORM_KEYS];
+
+  function updatePlatform(key: CreatorPlatformKey, patch: Partial<CreatorPlatformConfig>) {
+    setForm((prev) => {
+      if (!prev) return prev;
+      const current = prev.platforms?.[key] ?? { enabled: false, handle: "" };
+      const nextHandle = patch.handle !== undefined ? patch.handle : current.handle;
+      return {
+        ...prev,
+        platforms: {
+          ...prev.platforms,
+          [key]: {
+            enabled: patch.enabled ?? current.enabled,
+            handle: typeof nextHandle === "string" ? nextHandle : current.handle,
+          },
+        },
+      };
+    });
+  }
 
   useEffect(() => {
     fetchSettings();
@@ -103,6 +133,7 @@ export default function CreatorAiSettingsPage() {
       createdAt: raw.createdAt,
       updatedAt: raw.updatedAt,
       turnMode: turnModeFromRaw(raw.turnMode),
+      platforms: normalizeCreatorPlatforms(raw.platforms),
     };
   }
 
@@ -139,6 +170,7 @@ export default function CreatorAiSettingsPage() {
       creditsAvailable: Number.isFinite(next.creditsAvailable) ? next.creditsAvailable : 0,
       hardLimitPerDay: next.hardLimitPerDay === null ? "" : next.hardLimitPerDay,
       allowAutoLowPriority: next.allowAutoLowPriority,
+      platforms: normalizeCreatorPlatforms(next.platforms),
     });
   }
 
@@ -200,6 +232,7 @@ export default function CreatorAiSettingsPage() {
       creditsAvailable: typeof form.creditsAvailable === "number" ? form.creditsAvailable : 0,
       hardLimitPerDay: form.hardLimitPerDay === "" ? null : form.hardLimitPerDay ?? null,
       allowAutoLowPriority: form.allowAutoLowPriority,
+      platforms: form.platforms ?? createDefaultCreatorPlatforms(),
     };
 
     try {

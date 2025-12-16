@@ -1,6 +1,7 @@
 import type { NextApiRequest, NextApiResponse } from "next";
-import prisma from "../../../../lib/prisma";
+import prisma from "../../../../lib/prisma.server";
 import { normalizeAiTurnMode } from "../../../../lib/aiSettings";
+import { createDefaultCreatorPlatforms } from "../../../../lib/creatorPlatforms";
 
 export default async function handler(_req: NextApiRequest, res: NextApiResponse) {
   try {
@@ -8,7 +9,7 @@ export default async function handler(_req: NextApiRequest, res: NextApiResponse
 
     const settings =
       (await prisma.creatorAiSettings.findUnique({ where: { creatorId } })) ||
-      (await prisma.creatorAiSettings.create({ data: { creatorId } }));
+      (await prisma.creatorAiSettings.create({ data: { creatorId, platforms: createDefaultCreatorPlatforms() } }));
 
     const startOfToday = new Date();
     startOfToday.setHours(0, 0, 0, 0);

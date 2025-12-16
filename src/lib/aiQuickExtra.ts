@@ -1,7 +1,7 @@
-import prisma from "./prisma";
+import prisma from "./prisma.server";
 import { AiTemplateUsage, type AiTurnMode } from "./aiTemplateTypes";
 import { DEFAULT_AI_TEMPLATES } from "./defaultAiTemplates";
-import type { ExtraTier } from "@prisma/client";
+import type { ExtraTier, CreatorAiTemplate } from "@prisma/client";
 
 export type AiTone = "cercano" | "profesional" | "jugueton";
 
@@ -46,6 +46,14 @@ export function getQuickExtraSuggestion(rawTone: string | null | undefined): str
   return options[index];
 }
 
+type Template = {
+  content: string;
+  tone: AiTone;
+  tier: ExtraTier | null;
+  id: string;
+  mode: AiTurnMode | null;
+};
+
 export async function getTemplateSuggestionForCreator(params: {
   creatorId: string;
   usage: AiTemplateUsage;
@@ -65,16 +73,24 @@ export async function getTemplateSuggestionForCreator(params: {
     },
   });
 
-  let workingTemplates = baseTemplates;
+  const mapToTemplate = (tpl: CreatorAiTemplate): Template => ({
+    content: tpl.content,
+    tone: (tpl.tone as AiTone) ?? "cercano",
+    tier: (tpl.tier as ExtraTier | null) ?? null,
+    id: tpl.id,
+    mode: (tpl.mode as AiTurnMode | null) ?? null,
+  });
+
+  let workingTemplates: Template[] = baseTemplates.map(mapToTemplate);
 
   if (workingTemplates.length === 0) {
     workingTemplates = DEFAULT_AI_TEMPLATES.filter((tpl) => tpl.usage === usage).map((tpl) => ({
       content: tpl.content,
-      tone: tpl.tone,
-      tier: tpl.tier ?? null,
+      tone: (tpl.tone as AiTone) ?? "cercano",
+      tier: (tpl.tier as ExtraTier | null) ?? null,
       id: `default-${tpl.name}`,
-      mode: tpl.mode ?? null,
-    })) as any;
+      mode: (tpl.mode as AiTurnMode | null) ?? null,
+    }));
   }
 
   if (workingTemplates.length === 0) {
@@ -84,7 +100,7 @@ export async function getTemplateSuggestionForCreator(params: {
   let candidates = workingTemplates;
 
   if (mode) {
-    const templatesWithMode = workingTemplates.filter((tpl) => tpl.mode);
+    const templatesWithMode = workingTemplates.filter((tpl) => Boolean(tpl.mode));
     if (templatesWithMode.length > 0) {
       const modeMatches = workingTemplates.filter((tpl) => tpl.mode === mode);
       const neutralTemplates = workingTemplates.filter((tpl) => !tpl.mode);
@@ -139,7 +155,7 @@ export async function getTemplateSuggestionForCreator(params: {
     return null;
   }
 
-  const picks = [];
+  const picks: Template[] = [];
   const maxItems = Math.min(limit, pool.length);
   for (let i = 0; i < maxItems; i++) {
     const index = Math.floor(Math.random() * pool.length);

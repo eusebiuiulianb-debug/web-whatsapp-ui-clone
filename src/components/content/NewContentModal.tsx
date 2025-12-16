@@ -1,8 +1,8 @@
 import { FormEvent, useEffect, useState } from "react";
 import { useRouter } from "next/router";
-import { ContentPack, ContentType, ContentVisibility, ExtraTier, TimeOfDay, Prisma } from "@prisma/client";
+import type { ContentPack, ContentType, ContentVisibility, ExtraTier, TimeOfDay, ContentItem as PrismaContentItem } from "@prisma/client";
 
-type ContentItem = Prisma.ContentItemGetPayload<{}>;
+type ContentItem = PrismaContentItem;
 
 type NewContentModalProps = {
   mode: "create" | "edit";
@@ -15,9 +15,9 @@ type NewContentModalProps = {
   onClose: () => void;
 };
 
-const typeOptions = Object.values(ContentType);
-const packOptions = Object.values(ContentPack);
-const visibilityOptions = Object.values(ContentVisibility);
+const typeOptions: ContentType[] = ["IMAGE", "VIDEO", "AUDIO", "TEXT"];
+const packOptions: ContentPack[] = ["WELCOME", "MONTHLY", "SPECIAL"];
+const visibilityOptions: ContentVisibility[] = ["INCLUDED_MONTHLY", "VIP", "EXTRA"];
 const extraTierOptions: ExtraTier[] = ["T0", "T1", "T2", "T3"];
 const timeOfDayOptions: TimeOfDay[] = ["ANY", "DAY", "NIGHT"];
 

@@ -1,6 +1,6 @@
 import { PACKS } from "../config/packs";
 import { getCreatorManagerSummary } from "./creatorManager";
-import prisma from "./prisma";
+import prisma from "./prisma.server";
 
 export type ContentPackStats = {
   id: string;
@@ -129,12 +129,14 @@ export async function getCreatorContentSnapshot(creatorId: string): Promise<Crea
 
   const topExtras30d = Array.from(topExtrasMap.values()).sort((a, b) => b.ingresos30d - a.ingresos30d).slice(0, 3);
 
-  const soldExtraIds = new Set(extrasPurchases.map((p) => p.contentItemId).filter(Boolean) as string[]);
+  const soldExtraIds = new Set<string>(
+    extrasPurchases.map((p) => p.contentItemId).filter((id): id is string => Boolean(id))
+  );
   const extrasSinVentas = extrasCatalog.filter((item) => !soldExtraIds.has(item.id)).length;
 
   const extrasSummary30d: ExtrasSummary30d = {
     totalVentas: extrasPurchases.length,
-    totalIngresos: extrasPurchases.reduce((acc, p) => acc + (p.amount ?? 0), 0),
+    totalIngresos: extrasPurchases.reduce((acc: number, p) => acc + (p.amount ?? 0), 0),
     extrasSinVentas,
     porNivel: tierBuckets,
     topExtras30d,

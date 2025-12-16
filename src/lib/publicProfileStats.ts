@@ -1,4 +1,4 @@
-import prisma from "./prisma";
+import prisma from "./prisma.server";
 
 export async function getPublicProfileStats(creatorId: string) {
   const now = new Date();
@@ -18,15 +18,12 @@ export async function getPublicProfileStats(creatorId: string) {
     select: { type: true },
   });
 
-  const stats = contentItems.reduce(
-    (acc, item) => {
-      if (item.type === "IMAGE") acc.images += 1;
-      if (item.type === "VIDEO") acc.videos += 1;
-      if (item.type === "AUDIO") acc.audios += 1;
-      return acc;
-    },
-    { images: 0, videos: 0, audios: 0 }
-  );
+  const stats = contentItems.reduce<{ images: number; videos: number; audios: number }>((acc, item) => {
+    if (item.type === "IMAGE") acc.images += 1;
+    if (item.type === "VIDEO") acc.videos += 1;
+    if (item.type === "AUDIO") acc.audios += 1;
+    return acc;
+  }, { images: 0, videos: 0, audios: 0 });
 
   return { activeMembers, ...stats };
 }

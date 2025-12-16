@@ -1,7 +1,15 @@
-import { forwardRef, ReactNode, useEffect, useImperativeHandle, useRef, useState } from "react";
+import { forwardRef, ReactNode, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
 import clsx from "clsx";
 import type { CreatorBusinessSnapshot } from "../../lib/creatorManager";
 import MessageBalloon from "../MessageBalloon";
+import { PillButton } from "../ui/PillButton";
+import {
+  CreatorPlatformKey,
+  CreatorPlatforms,
+  formatPlatformLabel,
+  getEnabledPlatforms,
+  normalizeCreatorPlatforms,
+} from "../../lib/creatorPlatforms";
 
 type ManagerChatMessage = {
   id: string;
@@ -29,6 +37,8 @@ const defaultSuggestions = [
   "Dame una acción concreta para aumentar ingresos hoy.",
 ];
 
+type GlobalMode = "HOY" | "VENTAS" | "CATALOGO" | "CRECIMIENTO";
+
 type Props = {
   businessSnapshot?: CreatorBusinessSnapshot | null;
   hideTitle?: boolean;
@@ -44,6 +54,8 @@ type Props = {
   onOpenInsights?: () => void;
   onOpenSettings?: () => void;
   contextContent?: ReactNode;
+  scope?: "global" | "fan";
+  platforms?: CreatorPlatforms | null;
 };
 
 export type ManagerChatCardHandle = {
@@ -67,6 +79,8 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
     onOpenInsights,
     onOpenSettings,
     contextContent,
+    platforms,
+    scope = "fan",
   }: Props,
   ref
 ) {
@@ -76,6 +90,10 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
   const [error, setError] = useState<string | null>(null);
   const [input, setInput] = useState("");
   const [usedFallback, setUsedFallback] = useState(false);
+  const [mobileActionsOpen, setMobileActionsOpen] = useState(false);
+  const [actionsOpen, setActionsOpen] = useState(false);
+  const [globalMode, setGlobalMode] = useState<GlobalMode>("HOY");
+  const [growthPlatform, setGrowthPlatform] = useState<CreatorPlatformKey>("tiktok");
   const listRef = useRef<HTMLDivElement | null>(null);
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
   const [snapshot, setSnapshot] = useState<CreatorBusinessSnapshot | null>(businessSnapshot ?? null);
@@ -220,7 +238,140 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
     },
   }));
 
-  const quickSuggestions = suggestions && suggestions.length > 0 ? suggestions : defaultSuggestions;
+  const normalizedPlatforms = useMemo(() => normalizeCreatorPlatforms(platforms), [platforms]);
+  const enabledPlatforms = useMemo(() => getEnabledPlatforms(normalizedPlatforms), [normalizedPlatforms]);
+
+  useEffect(() => {
+    if (enabledPlatforms.length > 0 && !enabledPlatforms.includes(growthPlatform)) {
+      setGrowthPlatform(enabledPlatforms[0]);
+    }
+  }, [enabledPlatforms, growthPlatform]);
+
+  const activeGrowthPlatform: CreatorPlatformKey =
+    globalMode === "CRECIMIENTO" && enabledPlatforms.length > 0
+      ? enabledPlatforms.includes(growthPlatform)
+        ? growthPlatform
+        : enabledPlatforms[0]
+      : growthPlatform;
+
+  const globalModePrompts: Record<GlobalMode, Record<string, string>> = {
+    HOY: {
+      "¿Qué priorizo hoy?":
+        "Con mis datos de hoy (cola, en riesgo, caducan pronto, VIP activos, ventas 7/30d), dime: 1) top 3 prioridades, 2) por qué, 3) próxima acción concreta para cada una.",
+      "Diagnóstico 3 bullets":
+        "Haz un diagnóstico en 3 bullets: qué va bien, qué bloquea ingresos, y el cambio mínimo que haría hoy.",
+      "3 acciones rápidas":
+        "Dame 3 acciones rápidas (15 min c/u) para generar ingresos hoy, sin ser agresivo con los fans.",
+      "Plan 7 días":
+        "Plan de 7 días: objetivo diario + acción + mensaje sugerido + KPI a mirar.",
+      "Rescatar caducan pronto":
+        "Redacta mensajes cortos para fans que caducan pronto: 1 suave, 1 directo, 1 juguetón. Sin presión.",
+    },
+    VENTAS: {
+      "Empuje a mensual (hoy)": "Dame un plan rápido para empujar suscripciones mensuales hoy: a quién escribir, 2 plantillas de mensaje (suave/directo) y un CTA claro.",
+      "Oferta del día": "Propón una oferta del día convincente: qué producto, precio/bonus, mensaje breve y urgencia sin sonar agresivo.",
+      "3 CTAs listos": "Redacta 3 CTAs listos para enviar hoy, cada uno con tono distinto (cálido, directo, juguetón).",
+      "Optimizar precios": "Analiza mis precios actuales y sugiere ajustes simples (subir/bajar/crear escalón) con racional y riesgo.",
+      "Qué vender a VIP": "Dime qué debería ofrecer a mis VIP hoy: producto, precio, argumento y CTA específico.",
+    },
+    CATALOGO: {
+      "Qué falta grabar": "Dame 5 ideas concretas de contenido que faltan en mi catálogo y por qué ayudarían a vender más.",
+      "5 extras nuevos": "Propón 5 extras nuevos con título, precio sugerido y a quién ofrecerlos.",
+      "Mejorar packs": "Sugiere mejoras a mis packs actuales: qué añadir/quitar, precio y copy principal.",
+      Bundles: "Diseña 2 bundles atractivos con precio, qué incluyen y el mensaje de venta.",
+      "Copy de catálogo": "Reescribe el copy del catálogo para subir conversión: 3 versiones cortas con enfoques distintos.",
+    },
+    CRECIMIENTO: {},
+  };
+  const globalModes: GlobalMode[] = ["HOY", "VENTAS", "CATALOGO", "CRECIMIENTO"];
+  const growthActiveList = enabledPlatforms.length
+    ? enabledPlatforms
+        .map((key) => {
+          const handle = normalizedPlatforms[key]?.handle?.trim();
+          const cleanHandle = handle ? handle.replace(/^@+/, "") : "";
+          const suffix = cleanHandle ? ` (@${cleanHandle})` : "";
+          return `${formatPlatformLabel(key)}${suffix}`;
+        })
+        .join(", ")
+    : "TikTok, Instagram, YouTube o X";
+
+  const baseGlobalModeContent: Record<GlobalMode, { actions: readonly string[]; suggestions: readonly string[] }> = {
+    HOY: {
+      actions: ["¿Qué priorizo hoy?", "Diagnóstico 3 bullets", "3 acciones rápidas"],
+      suggestions: ["Plan 7 días", "Rescatar caducan pronto"],
+    },
+    VENTAS: {
+      actions: ["Empuje a mensual (hoy)", "Oferta del día", "3 CTAs listos"],
+      suggestions: ["Optimizar precios", "Qué vender a VIP"],
+    },
+    CATALOGO: {
+      actions: ["Qué falta grabar", "5 extras nuevos", "Mejorar packs"],
+      suggestions: ["Bundles", "Copy de catálogo"],
+    },
+    CRECIMIENTO: { actions: [], suggestions: [] },
+  };
+
+  const growthContent = useMemo(() => {
+    const primaryLabel = `3 ideas para ${formatPlatformLabel(activeGrowthPlatform)}`;
+    const actions = [primaryLabel, "Calendario 7 días", "Qué publicar hoy"] as const;
+    const suggestions = ["Hooks + guiones", "Plan crecimiento 14d"] as const;
+    return { actions, suggestions };
+  }, [activeGrowthPlatform]);
+
+  const globalModeContent = globalMode === "CRECIMIENTO" ? growthContent : baseGlobalModeContent[globalMode];
+
+  const getGlobalPrompt = (label: string) => {
+    if (globalMode === "CRECIMIENTO") {
+      const platformLabel = formatPlatformLabel(activeGrowthPlatform);
+      const handle = normalizedPlatforms[activeGrowthPlatform]?.handle?.trim();
+      const cleanHandle = handle ? handle.replace(/^@+/, "") : "";
+      const focusLabel = cleanHandle ? `${platformLabel} (@${cleanHandle})` : platformLabel;
+      const objective = "Objetivo: traer tráfico al bio-link y vender packs/extras.";
+      if (label.toLowerCase().startsWith("3 ideas")) {
+        return `Dame 3 ideas para ${focusLabel}: hook, guion (6-8 líneas) y CTA al bio-link. Plataformas activas: ${growthActiveList}. ${objective}`;
+      }
+      if (label.toLowerCase().startsWith("calendario")) {
+        return `Arma un calendario de 7 días priorizando ${focusLabel} pero usando lo mejor de (${growthActiveList}). Incluye objetivo diario, formato y CTA claro a packs/bio-link. ${objective}`;
+      }
+      if (label.toLowerCase().startsWith("qué publicar hoy")) {
+        return `Dime qué publicar hoy en ${focusLabel}: tema, ángulo y CTA corto. Ten en cuenta mis plataformas activas (${growthActiveList}) y prioriza mover bio-link o packs.`;
+      }
+      if (label.toLowerCase().startsWith("hooks")) {
+        return `Genera 5 hooks + mini guiones (15-25s) listos para grabar en ${focusLabel}. Usa mis plataformas activas (${growthActiveList}) y orienta a tráfico y conversión.`;
+      }
+      if (label.toLowerCase().startsWith("plan crecimiento 14d") || label.toLowerCase().startsWith("plan de crecimiento")) {
+        return `Crea un plan de crecimiento de 14 días combinando ${growthActiveList}. Resume foco semanal, tipo de contenido y meta (tráfico al bio-link / ventas de packs).`;
+      }
+      return label;
+    }
+    return globalModePrompts[globalMode]?.[label] ?? label;
+  };
+
+  const quickSuggestions =
+    scope === "global"
+      ? [ ...(globalModeContent?.actions ?? []), ...(globalModeContent?.suggestions ?? []) ]
+      : suggestions && suggestions.length > 0
+      ? suggestions
+      : defaultSuggestions;
+
+  const chipRowClass = clsx(
+    "flex items-center gap-2 pb-1",
+    scope === "fan"
+      ? "flex-nowrap overflow-x-auto overscroll-x-contain px-3 py-2 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+      : "flex-wrap"
+  );
+  const modeRowClass =
+    "flex flex-nowrap items-center gap-2 overflow-x-auto overscroll-x-contain px-3 py-2 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden";
+  const applyPrompt = (prompt: string, autoSend: boolean) => {
+    setInput((prev) => {
+      if (!prev || !prev.trim()) return prompt;
+      return `${prev.trim()}\n\n${prompt}`;
+    });
+    inputRef.current?.focus();
+    if (autoSend) {
+      void handleSend(prompt);
+    }
+  };
 
   if (variant === "chat") {
     const headerLabel = title || "Manager IA";
@@ -241,29 +392,59 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
                 IA
               </span>
             </div>
-            <div className="flex items-center gap-2">
-              {onOpenInsights && (
-                <button
-                  type="button"
-                  onClick={onOpenInsights}
-                  className="inline-flex items-center rounded-full border border-emerald-500/60 bg-emerald-600/15 px-3 py-1 text-[11px] font-semibold text-emerald-100 hover:bg-emerald-600/25"
-                >
-                  Insights
-                </button>
-              )}
-              {onOpenSettings && (
-                <button
-                  type="button"
-                  onClick={onOpenSettings}
-                  className="inline-flex items-center rounded-full border border-slate-700 bg-slate-800/70 px-3 py-1 text-[11px] font-semibold text-slate-100 hover:border-emerald-500/60"
-                >
-                  Ajustes
-                </button>
+            <div className="relative">
+              <button
+                type="button"
+                onClick={() => setMobileActionsOpen((prev) => !prev)}
+                className="inline-flex items-center justify-center rounded-full border border-slate-700 bg-slate-800/70 px-2.5 py-2 text-[11px] font-semibold text-slate-100 hover:border-emerald-500/60"
+                aria-label="Opciones"
+              >
+                ⋮
+              </button>
+              {mobileActionsOpen && (
+                <div className="absolute right-0 mt-2 w-40 rounded-lg border border-slate-700 bg-slate-900 shadow-lg z-20">
+                  {scope === "fan" && onShowSummary && (
+                    <button
+                      type="button"
+                      className="w-full text-left px-3 py-2 text-xs text-slate-100 hover:bg-slate-800"
+                      onClick={() => {
+                        setMobileActionsOpen(false);
+                        onShowSummary();
+                      }}
+                    >
+                      Ver ficha
+                    </button>
+                  )}
+                  {onOpenInsights && (
+                    <button
+                      type="button"
+                      className="w-full text-left px-3 py-2 text-xs text-slate-100 hover:bg-slate-800"
+                      onClick={() => {
+                        setMobileActionsOpen(false);
+                        onOpenInsights();
+                      }}
+                    >
+                      Insights
+                    </button>
+                  )}
+                  {onOpenSettings && (
+                    <button
+                      type="button"
+                      className="w-full text-left px-3 py-2 text-xs text-slate-100 hover:bg-slate-800"
+                      onClick={() => {
+                        setMobileActionsOpen(false);
+                        onOpenSettings();
+                      }}
+                    >
+                      Ajustes
+                    </button>
+                  )}
+                </div>
               )}
             </div>
           </header>
         )}
-        <div className="hidden md:flex items-center justify-between gap-3 bg-slate-950/70 border-b border-slate-800 px-6 py-4">
+        <div className="hidden md:flex items-center justify-between gap-3 bg-slate-950/70 border-b border-slate-800 px-4 py-3 md:px-6 md:py-4">
           <div className="flex items-center gap-3 min-w-0">
             {avatarUrl ? (
               <div className="w-12 h-12 rounded-full overflow-hidden border border-[rgba(134,150,160,0.2)] bg-[#2a3942] shadow-md">
@@ -280,33 +461,54 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
               <p className="text-sm text-slate-300">{statusText || "Chat interno. No se envía nada a tus fans."}</p>
             </div>
           </div>
-          <div className="flex items-center gap-2">
-            {onOpenInsights && (
-              <button
-                type="button"
-                onClick={onOpenInsights}
-                className="rounded-full border border-emerald-500/60 bg-emerald-600/15 px-3 py-1 text-xs font-semibold text-emerald-100 hover:bg-emerald-600/25"
-              >
-                Insights
-              </button>
-            )}
-            {onOpenSettings && (
-              <button
-                type="button"
-                onClick={onOpenSettings}
-                className="rounded-full border border-slate-700 bg-slate-800/70 px-3 py-1 text-xs font-semibold text-slate-100 hover:border-emerald-500/60"
-              >
-                Ajustes
-              </button>
-            )}
-            {onShowSummary && (
-              <button
-                type="button"
-                onClick={onShowSummary}
-                className="rounded-full border border-slate-700 bg-slate-800/70 px-3 py-1 text-xs font-semibold text-slate-100 hover:border-emerald-500/60"
-              >
-                Ver ficha
-              </button>
+          <div className="relative">
+            <button
+              type="button"
+              onClick={() => setActionsOpen((prev) => !prev)}
+              className="inline-flex items-center justify-center rounded-full border border-slate-700 bg-slate-800/70 px-3 py-2 text-xs font-semibold text-slate-100 hover:border-emerald-500/60"
+              aria-label="Opciones"
+            >
+              ⋮
+            </button>
+            {actionsOpen && (
+              <div className="absolute right-0 mt-2 w-44 rounded-lg border border-slate-700 bg-slate-900 shadow-lg z-20">
+                {scope === "fan" && onShowSummary && (
+                  <button
+                    type="button"
+                    className="w-full text-left px-3 py-2 text-xs text-slate-100 hover:bg-slate-800"
+                    onClick={() => {
+                      setActionsOpen(false);
+                      onShowSummary();
+                    }}
+                  >
+                    Ver ficha
+                  </button>
+                )}
+                {onOpenInsights && (
+                  <button
+                    type="button"
+                    className="w-full text-left px-3 py-2 text-xs text-slate-100 hover:bg-slate-800"
+                    onClick={() => {
+                      setActionsOpen(false);
+                      onOpenInsights();
+                    }}
+                  >
+                    Insights
+                  </button>
+                )}
+                {onOpenSettings && (
+                  <button
+                    type="button"
+                    className="w-full text-left px-3 py-2 text-xs text-slate-100 hover:bg-slate-800"
+                    onClick={() => {
+                      setActionsOpen(false);
+                      onOpenSettings();
+                    }}
+                  >
+                    Ajustes
+                  </button>
+                )}
+              </div>
             )}
           </div>
         </div>
@@ -323,7 +525,13 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
               {loading && <div className="text-center text-[#aebac1] text-sm mt-2">Cargando mensajes...</div>}
               {error && !loading && <div className="text-center text-red-400 text-sm mt-2">{error}</div>}
               {!loading && !error && messages.length === 0 && (
-                <div className="text-center text-[#aebac1] text-sm mt-2">Aún no hay mensajes.</div>
+                <MessageBalloon
+                  me={false}
+                  message="Hola, soy tu Manager IA. Pregúntame qué priorizar, pídeme diagnóstico o un plan de 7 días y te ayudo."
+                  time={new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                  fromLabel="Manager IA"
+                  meLabel="Tú"
+                />
               )}
               {messages.map((msg) => {
                 const isCreator = msg.role === "CREATOR";
@@ -346,54 +554,146 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
               Modo demo activo: conecta tu OPENAI_API_KEY para respuestas con tus datos reales.
             </div>
           )}
-          <div className="flex flex-col bg-[#202c33] w-full h-auto py-3 px-4 text-[#8696a0] gap-3 flex-shrink-0 overflow-visible">
-            <div className="flex flex-nowrap items-center gap-2 overflow-x-auto pb-1">
+          <div className="px-4 sm:px-6 lg:px-8 py-4 space-y-3">
+          {scope === "global" ? (
+            <>
+              <div className={modeRowClass}>
+                {globalModes.map((mode) => {
+                  const isActive = globalMode === mode;
+                  return (
+                    <PillButton
+                      key={mode}
+                      intent={isActive ? "primary" : "ghost"}
+                      size="sm"
+                      className="shrink-0"
+                      onClick={() => setGlobalMode(mode)}
+                    >
+                      {mode === "HOY"
+                        ? "Hoy"
+                        : mode === "VENTAS"
+                        ? "Ventas"
+                        : mode === "CATALOGO"
+                        ? "Catálogo"
+                        : "Crecimiento"}
+                  </PillButton>
+                );
+              })}
+              </div>
+              {globalMode === "CRECIMIENTO" && (
+                <div className="flex flex-wrap items-center gap-2 px-1">
+                  <span className="text-[11px] uppercase tracking-wide text-slate-400">Plataforma foco</span>
+                  {(enabledPlatforms.length > 1 ? enabledPlatforms : enabledPlatforms.length === 1 ? enabledPlatforms : [activeGrowthPlatform]).map((platform) => (
+                    <PillButton
+                      key={platform}
+                      intent={platform === activeGrowthPlatform ? "primary" : "ghost"}
+                      size="sm"
+                      onClick={() => setGrowthPlatform(platform)}
+                    >
+                      {formatPlatformLabel(platform)}
+                    </PillButton>
+                  ))}
+                  <span className="text-xs text-slate-400">Activas: {growthActiveList}</span>
+                </div>
+              )}
+              <div className="space-y-2">
+                <div className="flex flex-wrap items-center gap-2">
+                  {(globalModeContent?.actions ?? []).map((action, idx) => (
+                    <PillButton
+                      key={action}
+                      intent={idx === 0 ? "primary" : "secondary"}
+                      size="md"
+                      onClick={() => applyPrompt(getGlobalPrompt(action), false)}
+                    >
+                      {action}
+                    </PillButton>
+                  ))}
+                </div>
+                <div className="flex flex-wrap items-center gap-2">
+                  {(globalModeContent?.suggestions ?? []).map((sugg) => (
+                    <PillButton
+                      key={sugg}
+                      intent="secondary"
+                      size="sm"
+                      onClick={() => applyPrompt(getGlobalPrompt(sugg), false)}
+                    >
+                      {sugg}
+                    </PillButton>
+                  ))}
+                </div>
+              </div>
+            </>
+          ) : (
+            <div className={chipRowClass}>
               {quickSuggestions.map((sugg) => (
-                <button
+                <PillButton
                   key={sugg}
-                  type="button"
-                  className="rounded-full border border-slate-700 bg-slate-900/60 text-slate-100 hover:bg-slate-800 transition px-3 py-1.5 text-xs"
+                  intent="secondary"
+                  size="sm"
                   onClick={() => {
-                    setInput(sugg);
-                    inputRef.current?.focus();
-                    void handleSend(sugg);
+                    applyPrompt(sugg, true);
                   }}
                   disabled={sending}
                 >
                   {sugg}
-                </button>
+                </PillButton>
               ))}
             </div>
-            <form
-              onSubmit={(e) => {
-                e.preventDefault();
-                void handleSend();
-              }}
-              className="flex items-center gap-3"
-            >
-              <textarea
-                ref={inputRef}
-                value={input}
-                onChange={(e) => setInput(e.target.value)}
-                disabled={sending}
-                placeholder="Cuéntale al Manager IA en qué necesitas ayuda."
-                className="flex-1 bg-[#2a3942] rounded-lg w-full px-3 py-3 text-white resize-none focus:outline-none focus:ring-2 focus:ring-emerald-500/70 disabled:cursor-not-allowed disabled:opacity-70"
-                rows={2}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter" && !e.shiftKey) {
+          )}
+            <div className="border-t border-slate-950 bg-slate-950 px-4 py-3 rounded-2xl border border-slate-800/60 shadow-sm">
+              <div
+                className={clsx(
+                  "flex items-center gap-2 rounded-3xl border px-3 py-2.5",
+                  "bg-slate-900/90 border-slate-700/80 shadow-sm",
+                  "focus-within:border-emerald-500/80 focus-within:ring-1 focus-within:ring-emerald-500/40"
+                )}
+              >
+                <div className="relative">
+                  <button
+                    type="button"
+                    className="flex h-9 w-9 items-center justify-center rounded-full hover:bg-slate-800/80 transition text-slate-400 cursor-not-allowed"
+                    title="Adjuntar contenido"
+                    aria-label="Adjuntar contenido"
+                    disabled
+                  >
+                    <svg viewBox="0 0 24 24" width="24" height="24" className="cursor-not-allowed">
+                      <path fill="currentColor" d="M1.816 15.556v.002c0 1.502.584 2.912 1.646 3.972s2.472 1.647 3.974 1.647a5.58 5.58 0 0 0 3.972-1.645l9.547-9.548c.769-.768 1.147-1.767 1.058-2.817-.079-.968-.548-1.927-1.319-2.698-1.594-1.592-4.068-1.711-5.517-.262l-7.916 7.915c-.881.881-.792 2.25.214 3.261.959.958 2.423 1.053 3.263.215l5.511-5.512c.28-.28.267-.722.053-.936l-.244-.244c-.191-.191-.567-.349-.957.04l-5.506 5.506c-.18.18-.635.127-.976-.214-.098-.097-.576-.613-.213-.973l7.915-7.917c.818-.817 2.267-.699 3.23.262.5.501.802 1.1.849 1.685.051.573-.156 1.111-.589 1.543l-9.547 9.549a3.97 3.97 0 0 1-2.829 1.171 3.975 3.975 0 0 1-2.83-1.173 3.973 3.973 0 0 1-1.172-2.828c0-1.071.415-2.076 1.172-2.83l7.209-7.211c.157-.157.264-.579.028-.814L11.5 4.36a.572.572 0 0 0-.834.018l-7.205 7.207a5.577 5.577 0 0 0-1.645 3.971z">
+                      </path>
+                    </svg>
+                  </button>
+                </div>
+                <form
+                  onSubmit={(e) => {
                     e.preventDefault();
                     void handleSend();
-                  }
-                }}
-              />
-              <button
-                type="submit"
-                disabled={sending || !input.trim()}
-                className="flex justify-center items-center h-12 px-4 rounded-lg bg-emerald-600 text-white text-sm font-semibold hover:bg-emerald-500 disabled:opacity-60"
-              >
-                {sending ? "Enviando..." : "Enviar"}
-              </button>
-            </form>
+                  }}
+                  className="flex items-center gap-2 flex-1"
+                >
+                  <textarea
+                    ref={inputRef}
+                    value={input}
+                    onChange={(e) => setInput(e.target.value)}
+                    disabled={sending}
+                    placeholder="Cuéntale al Manager IA en qué necesitas ayuda."
+                    className="flex-1 bg-transparent resize-none overflow-y-auto max-h-44 px-2 text-base leading-relaxed text-slate-50 caret-emerald-400 placeholder:text-slate-300 focus:outline-none"
+                    rows={1}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" && !e.shiftKey) {
+                        e.preventDefault();
+                        void handleSend();
+                      }
+                    }}
+                  />
+                  <button
+                    type="submit"
+                    disabled={sending || !input.trim()}
+                    className="ml-1 h-9 px-4 rounded-2xl text-sm font-medium bg-emerald-600 text-white hover:bg-emerald-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                  >
+                    {sending ? "Enviando..." : "Enviar"}
+                  </button>
+                </form>
+              </div>
+              {error && <div className="text-sm text-rose-300 mt-2">{error}</div>}
+            </div>
           </div>
         </div>
       </div>
@@ -406,11 +706,6 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
     "flex flex-col h-full min-h-0",
     density === "compact" ? "space-y-2.5" : "space-y-3"
   );
-  const chipClass = clsx(
-    "rounded-full border border-slate-700 bg-slate-900/60 text-slate-100 hover:bg-slate-800 transition",
-    density === "compact" ? "px-2.5 py-1 text-[11px]" : "px-3 py-1.5 text-xs"
-  );
-
   return (
     <section className={containerClass}>
         <div className={clsx(density === "compact" ? "space-y-2.5" : "space-y-3")}>
@@ -487,21 +782,46 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
             })}
         </div>
         {error && <div className="text-[11px] text-rose-300 mt-2">{error}</div>}
-        <div className="flex flex-nowrap items-center gap-2 overflow-x-auto pb-1">
+        {scope === "global" && (
+          <div className={modeRowClass}>
+            {globalModes.map((mode) => {
+              const isActive = globalMode === mode;
+              return (
+                <PillButton
+                  key={mode}
+                  intent={isActive ? "primary" : "ghost"}
+                  size="sm"
+                  className="shrink-0"
+                  onClick={() => setGlobalMode(mode)}
+                >
+                  {mode === "HOY" ? "Hoy" : mode === "VENTAS" ? "Ventas" : mode === "CATALOGO" ? "Catálogo" : "Crecimiento"}
+                </PillButton>
+              );
+            })}
+          </div>
+        )}
+        <div className={chipRowClass}>
           {quickSuggestions.map((sugg) => (
-            <button
+            <PillButton
               key={sugg}
-              type="button"
-              className={chipClass}
+              intent="secondary"
+              size="sm"
+              className={clsx(scope === "global" && "shrink-0")}
               onClick={() => {
-                setInput(sugg);
+                const prompt = scope === "global" ? getGlobalPrompt(sugg) : sugg;
+                setInput((prev) => {
+                  if (!prev || !prev.trim()) return prompt;
+                  return `${prev.trim()}\n\n${prompt}`;
+                });
                 inputRef.current?.focus();
-                void handleSend(sugg);
+                if (scope === "fan") {
+                  void handleSend(prompt);
+                }
               }}
               disabled={sending}
             >
               {sugg}
-            </button>
+            </PillButton>
           ))}
         </div>
         <form

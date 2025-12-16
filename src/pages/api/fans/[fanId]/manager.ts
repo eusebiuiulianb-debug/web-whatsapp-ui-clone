@@ -1,5 +1,5 @@
 import type { NextApiRequest, NextApiResponse } from "next";
-import prisma from "../../../../lib/prisma";
+import prisma from "../../../../lib/prisma.server";
 import { buildFanManagerSummary } from "../../../../server/manager/managerService";
 import { FanManagerSummarySchema, type FanManagerSummary } from "../../../../server/manager/managerSchemas";
 import { FAN_MANAGER_SYSTEM_PROMPT } from "../../../../lib/ai/prompts";

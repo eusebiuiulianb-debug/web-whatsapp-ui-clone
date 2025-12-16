@@ -11,8 +11,7 @@ import {
   getContentVisibilityLabel,
 } from "../../types/content";
 import { AccessSummary, getAccessSummary } from "../../lib/access";
-import { getFanContents, IncludedContent } from "../../lib/fanContent";
-import prisma from "../../lib/prisma";
+import type { IncludedContent } from "../../lib/fanContent";
 
 type ApiContentItem = {
   id: string;
@@ -434,6 +433,8 @@ function AccessBanner({ summary }: { summary: AccessSummary }) {
 }
 
 export const getServerSideProps: GetServerSideProps<FanChatPageProps> = async (context) => {
+  const prisma = (await import("../../lib/prisma.server")).default;
+  const { getFanContents } = await import("../../lib/fanContent");
   const creatorId = "creator-1";
   const fanId = typeof context.params?.fanId === "string" ? context.params.fanId : "";
   const now = new Date();

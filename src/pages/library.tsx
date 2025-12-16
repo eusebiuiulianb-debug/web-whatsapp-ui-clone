@@ -4,11 +4,7 @@ import { useRouter } from "next/router";
 import { useCreatorConfig } from "../context/CreatorConfigContext";
 import CreatorHeader from "../components/CreatorHeader";
 import { ContentType } from "../types/content";
-import {
-  ContentItem as PrismaContentItem,
-  ContentPack,
-  ContentType as PrismaContentType,
-} from "@prisma/client";
+import type { ContentItem as PrismaContentItem, ContentType as PrismaContentType, ContentPack } from "@prisma/client";
 import { NewContentModal } from "../components/content/NewContentModal";
 
 type PackKey = "WELCOME" | "MONTHLY" | "SPECIAL";

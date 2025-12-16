@@ -247,6 +247,7 @@ model CreatorAiSettings {
   creditsAvailable Int  @default(0)
   hardLimitPerDay  Int?
   turnMode         AiTurnMode @default(auto)
+  platforms        Json?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -347,4 +348,41 @@ model ManagerAiMessage {
   creator Creator @relation(fields: [creatorId], references: [id])
 
   @@index([creatorId, tab, createdAt])
+}
+
+model AnalyticsEvent {
+  id          String   @id @default(uuid())
+  creatorId   String
+  fanId       String?
+  sessionId   String
+  eventName   String
+  path        String
+  referrer    String?
+  utmSource   String?
+  utmMedium   String?
+  utmCampaign String?
+  utmContent  String?
+  utmTerm     String?
+  meta        Json?
+  createdAt   DateTime @default(now())
+
+  @@index([creatorId, createdAt])
+  @@index([eventName, createdAt])
+  @@index([utmCampaign, utmContent])
+}
+
+model CampaignLink {
+  id          String   @id @default(uuid())
+  creatorId   String
+  handle      String
+  platform    String
+  utmSource   String
+  utmMedium   String
+  utmCampaign String
+  utmContent  String
+  utmTerm     String?
+  slug        String   @unique
+  createdAt   DateTime @default(now())
+
+  @@index([creatorId, createdAt])
 }

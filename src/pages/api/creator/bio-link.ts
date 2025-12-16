@@ -1,5 +1,5 @@
 import type { NextApiRequest, NextApiResponse } from "next";
-import prisma from "../../../lib/prisma";
+import prisma from "../../../lib/prisma.server";
 import { sendBadRequest, sendServerError } from "../../../lib/apiError";
 import type { BioLinkConfig, BioLinkSecondaryLink } from "../../../types/bioLink";
 
@@ -84,5 +84,6 @@ function mapCreatorToConfig(creator: any): BioLinkConfig {
     primaryCtaUrl: creator.bioLinkPrimaryCtaUrl || `/creator`,
     secondaryLinks,
     handle,
+    creatorId: creator.id,
   };
 }

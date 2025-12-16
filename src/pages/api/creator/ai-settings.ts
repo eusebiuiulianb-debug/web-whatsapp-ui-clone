@@ -1,9 +1,14 @@
 import type { NextApiRequest, NextApiResponse } from "next";
 import { Prisma } from "@prisma/client";
-import prisma from "../../../lib/prisma";
+import prisma from "../../../lib/prisma.server";
 import { sendBadRequest, sendServerError } from "../../../lib/apiError";
 import { AI_TURN_MODES, type AiTurnMode } from "../../../lib/aiTemplateTypes";
 import { normalizeAiBaseTone, normalizeAiTurnMode } from "../../../lib/aiSettings";
+import {
+  createDefaultCreatorPlatforms,
+  creatorPlatformsToJsonValue,
+  normalizeCreatorPlatforms,
+} from "../../../lib/creatorPlatforms";
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method === "GET") {
@@ -28,11 +33,13 @@ async function handleGet(_req: NextApiRequest, res: NextApiResponse) {
 
     if (!settings) {
       settings = await prisma.creatorAiSettings.create({
-        data: { creatorId },
+        data: { creatorId, platforms: createDefaultCreatorPlatforms() },
       });
     }
 
-    return res.status(200).json({ settings });
+    const platforms = normalizeCreatorPlatforms((settings as any).platforms);
+
+    return res.status(200).json({ settings: { ...settings, platforms } });
   } catch (err) {
     console.error("Error loading creator AI settings", err);
     if (err instanceof Error && err.message === "Creator not found") {
@@ -65,6 +72,7 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
     creditsAvailable,
     hardLimitPerDay,
     turnMode,
+    platforms,
   } = body as Record<string, unknown>;
 
   const updateData: Prisma.CreatorAiSettingsUncheckedUpdateInput = {};
@@ -156,6 +164,11 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
     updateData.turnMode = (normalizedMode as any) ?? "auto";
     createData.turnMode = (normalizedMode as any) ?? "auto";
   }
+  if (platforms !== undefined) {
+    const normalizedPlatforms = normalizeCreatorPlatforms(platforms);
+    updateData.platforms = creatorPlatformsToJsonValue(normalizedPlatforms) as Prisma.InputJsonValue;
+    createData.platforms = creatorPlatformsToJsonValue(normalizedPlatforms) as Prisma.InputJsonValue;
+  }
 
   try {
     const creatorId = await resolveCreatorId();
@@ -163,10 +176,12 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
     const settings = await prisma.creatorAiSettings.upsert({
       where: { creatorId },
       update: updateData,
-      create: { creatorId, ...createData },
+      create: { creatorId, platforms: createDefaultCreatorPlatforms(), ...createData },
     });
 
-    return res.status(200).json({ settings });
+    const platformsPayload = normalizeCreatorPlatforms((settings as any).platforms);
+
+    return res.status(200).json({ settings: { ...settings, platforms: platformsPayload } });
   } catch (err) {
     console.error("Error saving creator AI settings", err);
     if (err instanceof Error && err.message === "Creator not found") {

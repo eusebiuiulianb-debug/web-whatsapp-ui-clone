@@ -8,6 +8,8 @@ import type { CreatorContentSnapshot } from "../../lib/creatorContentManager";
 import { getCreatorContentSnapshot } from "../../lib/creatorContentManager";
 import type { FanManagerRow } from "../../server/manager/managerService";
 import type { CreatorAiAdvisorInput } from "../../server/manager/managerSchemas";
+import type { CreatorPlatforms } from "../../lib/creatorPlatforms";
+import { normalizeCreatorPlatforms } from "../../lib/creatorPlatforms";
 import { openCreatorChat } from "../../lib/navigation/openCreatorChat";
 import SideBar from "../../components/SideBar";
 import { CreatorShell } from "../../components/creator/CreatorShell";
@@ -40,11 +42,13 @@ export default function CreatorManagerPage({ initialSnapshot, initialContentSnap
   const chatRef = useRef<ManagerChatCardHandle>(null!);
   const [insightsOpen, setInsightsOpen] = useState(false);
   const [contextOpen, setContextOpen] = useState(false);
+  const [platforms, setPlatforms] = useState<CreatorPlatforms | null>(null);
 
   useEffect(() => {
     fetchSummary();
     fetchQueue();
     fetchAdvisorInput();
+    fetchPlatforms();
   }, []);
 
   useEffect(() => {
@@ -83,6 +87,18 @@ export default function CreatorManagerPage({ initialSnapshot, initialContentSnap
       setAdvisorInput(null);
     } finally {
       setAdvisorLoading(false);
+    }
+  }
+
+  async function fetchPlatforms() {
+    try {
+      const res = await fetch("/api/creator/ai-settings");
+      if (!res.ok) throw new Error("Error fetching platforms");
+      const data = await res.json();
+      const normalized = normalizeCreatorPlatforms(data?.settings?.platforms);
+      setPlatforms(normalized);
+    } catch (_err) {
+      setPlatforms(null);
     }
   }
 
@@ -136,6 +152,7 @@ export default function CreatorManagerPage({ initialSnapshot, initialContentSnap
             creatorName={config.creatorName || "Creador"}
             creatorSubtitle={config.creatorSubtitle || "Panel e insights en tiempo real"}
             avatarUrl={config.avatarUrl}
+            platforms={platforms}
           />
         )}
         fallback={<div />}
@@ -166,6 +183,7 @@ type ManagerChatLayoutProps = {
   creatorName: string;
   creatorSubtitle: string;
   avatarUrl?: string | null;
+  platforms: CreatorPlatforms | null;
 };
 
 function ManagerChatLayout({
@@ -189,6 +207,7 @@ function ManagerChatLayout({
   creatorName,
   creatorSubtitle,
   avatarUrl,
+  platforms,
 }: ManagerChatLayoutProps) {
   const summaryRef = useRef<HTMLDivElement | null>(null);
   const quickActions = ["Romper el hielo", "Ofrecer un extra", "Llevar a mensual"];
@@ -228,40 +247,6 @@ function ManagerChatLayout({
 
   return (
     <div className="flex flex-col flex-1 min-h-0 text-white">
-      <div className="flex items-center justify-between gap-3 px-4 py-4 md:px-6 md:py-5 border-b border-[rgba(134,150,160,0.15)] bg-[#0d1720]/90">
-        <div className="flex items-center gap-3 min-w-0">
-          {avatarUrl ? (
-            <div className="w-11 h-11 rounded-full overflow-hidden border border-[rgba(134,150,160,0.2)] bg-[#2a3942] shadow-md">
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src={avatarUrl} alt={creatorName} className="w-full h-full object-cover" />
-            </div>
-          ) : (
-            <div className="flex items-center justify-center w-11 h-11 rounded-full bg-[#2a3942] text-white font-semibold shadow-md">
-              {creatorName.trim().charAt(0) || "M"}
-            </div>
-          )}
-          <div className="flex flex-col leading-tight min-w-0">
-            <span className="text-base font-semibold text-white truncate">Manager IA</span>
-            <span className="text-sm text-slate-300 truncate">{creatorSubtitle || "Panel e insights en tiempo real"}</span>
-          </div>
-        </div>
-        <div className="hidden md:flex items-center gap-2">
-          <button
-            type="button"
-            onClick={onOpenInsights}
-            className="rounded-full border border-emerald-500/60 bg-emerald-600/15 px-3 py-1 text-xs font-semibold text-emerald-100 hover:bg-emerald-600/25"
-          >
-            Insights
-          </button>
-          <button
-            type="button"
-            onClick={() => window.location.assign("/creator/edit")}
-            className="rounded-full border border-slate-700 bg-slate-800/70 px-3 py-1 text-xs font-semibold text-slate-100 hover:border-emerald-500/60"
-          >
-            Ajustes
-          </button>
-        </div>
-      </div>
       <div className="flex-1 min-h-0 px-0 md:px-4 md:pb-4">
         <div className="max-w-6xl xl:max-w-7xl mx-auto h-full w-full">
           <ManagerChatCard
@@ -307,6 +292,8 @@ function ManagerChatLayout({
                 )}
               </div>
             }
+            scope="global"
+            platforms={platforms}
           />
         </div>
       </div>

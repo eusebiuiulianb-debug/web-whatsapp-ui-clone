@@ -1,7 +1,8 @@
-import prisma from "../../prisma";
+import prisma from "../../prisma.server";
 import { getCreatorBusinessSnapshot } from "../../creatorManager";
 import { getCreatorContentSnapshot } from "../../creatorContentManager";
 import { buildCreatorAiContext } from "../../../server/manager/managerService";
+import { createDefaultCreatorPlatforms } from "../../creatorPlatforms";
 
 function startOfToday(): Date {
   const d = new Date();
@@ -14,7 +15,7 @@ export async function buildManagerContext(creatorId: string) {
     prisma.creatorAiSettings.upsert({
       where: { creatorId },
       update: {},
-      create: { creatorId },
+      create: { creatorId, platforms: createDefaultCreatorPlatforms() },
     }),
     prisma.aiUsageLog.aggregate({
       _sum: { creditsUsed: true },

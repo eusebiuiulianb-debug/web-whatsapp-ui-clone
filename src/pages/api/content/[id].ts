@@ -1,6 +1,6 @@
 import type { NextApiRequest, NextApiResponse } from "next";
 import { ContentPack, ContentType, ContentVisibility, ExtraTier, TimeOfDay } from "@prisma/client";
-import prisma from "../../../lib/prisma";
+import prisma from "../../../lib/prisma.server";
 import { sendBadRequest, sendServerError } from "../../../lib/apiError";
 
 function isValidEnum<T>(value: unknown, allowed: readonly T[]): value is T {

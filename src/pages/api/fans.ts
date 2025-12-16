@@ -1,6 +1,6 @@
 import type { NextApiRequest, NextApiResponse } from "next";
 import { Prisma } from "@prisma/client";
-import prisma from "../../lib/prisma";
+import prisma from "../../lib/prisma.server";
 import { getFollowUpTag, shouldFollowUpToday } from "../../utils/followUp";
 import { sendBadRequest, sendServerError } from "../../lib/apiError";
 import { HIGH_PRIORITY_LIMIT } from "../../config/customers";

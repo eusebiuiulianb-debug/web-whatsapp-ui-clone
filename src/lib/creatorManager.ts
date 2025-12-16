@@ -1,5 +1,5 @@
-import { PrismaClient } from "@prisma/client";
-import prisma from "./prisma";
+import type { PrismaClient } from "@prisma/client";
+import prisma from "./prisma.server";
 import { PACKS } from "../config/packs";
 import { buildManagerQueueForCreator, type Segment } from "../server/manager/managerService";
 

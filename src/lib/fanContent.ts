@@ -1,5 +1,5 @@
 import { AccessSummary } from "./access";
-import prisma from "./prisma";
+import prisma from "./prisma.server";
 
 export type IncludedContent = {
   id: string;

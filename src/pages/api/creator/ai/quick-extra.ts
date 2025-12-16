@@ -8,8 +8,9 @@ import {
 } from "../../../../lib/aiQuickExtra";
 import { getExtraLadderStatusForFan } from "../../../../lib/extraLadder";
 import type { ExtraTier } from "@prisma/client";
-import prisma from "../../../../lib/prisma";
+import prisma from "../../../../lib/prisma.server";
 import { normalizeAiTurnMode } from "../../../../lib/aiSettings";
+import { createDefaultCreatorPlatforms } from "../../../../lib/creatorPlatforms";
 
 const DEFAULT_CREATOR_ID = "creator-1";
 
@@ -72,7 +73,7 @@ async function getDefaultTurnMode(): Promise<AiTurnMode> {
         select: { turnMode: true },
       })) ||
       (await prisma.creatorAiSettings.create({
-        data: { creatorId: DEFAULT_CREATOR_ID },
+        data: { creatorId: DEFAULT_CREATOR_ID, platforms: createDefaultCreatorPlatforms() },
         select: { turnMode: true },
       }));
 

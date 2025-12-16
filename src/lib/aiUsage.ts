@@ -1,7 +1,8 @@
-import prisma from "./prisma";
 import { AiUsageOrigin, AiUsageType, type AiTurnMode as PrismaAiTurnMode } from "@prisma/client";
+import prisma from "./prisma.server";
 import type { AiTurnMode } from "./aiSettings";
 import { normalizeAiTurnMode } from "./aiSettings";
+import { createDefaultCreatorPlatforms } from "./creatorPlatforms";
 
 type AiUsageLogLite = {
   createdAt: string;
@@ -35,7 +36,7 @@ export async function logAiUsage(params: {
       where: { creatorId },
     })) ||
     (await prisma.creatorAiSettings.create({
-      data: { creatorId },
+      data: { creatorId, platforms: createDefaultCreatorPlatforms() },
     }));
 
   const startOfToday = new Date();

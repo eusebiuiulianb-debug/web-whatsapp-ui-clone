@@ -1,5 +1,6 @@
 import type { AiUsageOrigin, AiUsageType } from "@prisma/client";
-import prisma from "../prisma";
+import prisma from "../prisma.server";
+import { createDefaultCreatorPlatforms } from "../creatorPlatforms";
 
 type RegisterAiUsageParams = {
   creatorId: string;
@@ -20,7 +21,7 @@ export async function registerAiUsage(params: RegisterAiUsageParams) {
 
   const settings =
     (await prisma.creatorAiSettings.findUnique({ where: { creatorId } })) ??
-    (await prisma.creatorAiSettings.create({ data: { creatorId } }));
+    (await prisma.creatorAiSettings.create({ data: { creatorId, platforms: createDefaultCreatorPlatforms() } }));
 
   await prisma.aiUsageLog.create({
     data: {

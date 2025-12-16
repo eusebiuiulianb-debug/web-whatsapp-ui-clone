@@ -1,6 +1,6 @@
 import type { NextApiRequest, NextApiResponse } from "next";
 import { ContentManagerSender, type ContentManagerMessage as PrismaContentManagerMessage } from "@prisma/client";
-import prisma from "../../../lib/prisma";
+import prisma from "../../../lib/prisma.server";
 import { sendBadRequest, sendServerError } from "../../../lib/apiError";
 import { getCreatorContentSnapshot, type CreatorContentSnapshot } from "../../../lib/creatorContentManager";
 import { CONTENT_MANAGER_SYSTEM_PROMPT } from "../../../lib/ai/prompts";
