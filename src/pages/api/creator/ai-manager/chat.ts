@@ -11,6 +11,8 @@ import {
 } from "../../../../lib/ai/manager/prompts";
 import { buildDemoManagerReply, type ManagerDemoReply } from "../../../../lib/ai/manager/demo";
 import { registerAiUsage } from "../../../../lib/ai/registerAiUsage";
+import { maybeDecrypt } from "../../../../server/crypto/maybeDecrypt";
+import { sanitizeForOpenAi, sanitizeOpenAiMessages } from "../../../../server/ai/sanitizeForOpenAi";
 
 type ManagerReply = ManagerDemoReply & { mode: "STRATEGY" | "CONTENT" | "GROWTH"; text: string };
 
@@ -19,6 +21,7 @@ type ChatResponseBody = {
   creditsUsed: number;
   creditsRemaining: number;
   usedFallback?: boolean;
+  settingsStatus?: "ok" | "settings_missing";
 };
 
 const HISTORY_LIMIT = 20;
@@ -46,6 +49,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
   try {
     const creatorId = await resolveCreatorId();
     const context = await buildManagerContext(creatorId);
+    const safeContext = sanitizeForOpenAi(context, { creatorId }) as any;
 
     await logMessage({
       creatorId,
@@ -55,7 +59,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
       meta: action ? { action: rawAction ?? action ?? growthAction ?? undefined } : rawAction ? { action: rawAction } : undefined,
     });
 
-    if (!process.env.OPENAI_API_KEY) {
+    const apiKey = maybeDecrypt(process.env.OPENAI_API_KEY, { creatorId, label: "OPENAI_API_KEY" });
+    const settingsStatus: ChatResponseBody["settingsStatus"] = apiKey ? "ok" : "settings_missing";
+
+    if (!apiKey) {
       const demoReply = buildDemoManagerReply(tabToString(tab), context) as ManagerReply;
       await logMessage({
         creatorId,
@@ -70,6 +77,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
         creditsUsed: 0,
         creditsRemaining: context.settings.creditsAvailable,
         usedFallback: true,
+        settingsStatus,
       });
     }
 
@@ -82,12 +90,12 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
     const isGrowth = tab === ManagerAiTab.GROWTH;
     const { systemPrompt, userPrompt } = isGrowth
       ? ((): { systemPrompt: string; userPrompt: string } => {
-          const prompts = buildGrowthPrompts({ context, metrics: incomingMessage, action: growthAction as any });
+          const prompts = buildGrowthPrompts({ context: safeContext, metrics: incomingMessage, action: growthAction as any });
           return { systemPrompt: prompts.system, userPrompt: prompts.user };
         })()
       : {
-          systemPrompt: buildManagerSystemPrompt(tabToString(tab), context.settings, action),
-          userPrompt: buildManagerUserPrompt(context, incomingMessage, action),
+          systemPrompt: buildManagerSystemPrompt(tabToString(tab), safeContext.settings, action),
+          userPrompt: buildManagerUserPrompt(safeContext, incomingMessage, action),
         };
     const historyMessages: Array<{ role: "user" | "assistant"; content: string }> = history.slice(-HISTORY_LIMIT).map((msg) => ({
       role: msg.role === ManagerAiRole.CREATOR ? "user" : "assistant",
@@ -98,11 +106,14 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
     let reply: ManagerReply;
     let creditsUsed = 0;
     try {
-      const { completionText, totalTokens } = await callOpenAiChat([
-        { role: "system", content: systemPrompt },
-        ...historyMessages,
-        { role: "user", content: userPrompt },
-      ]);
+      const openAiMessages = sanitizeOpenAiMessages(
+        [{ role: "system", content: systemPrompt }, ...historyMessages, { role: "user", content: userPrompt }],
+        { creatorId }
+      );
+      if (openAiMessages.length === 0) {
+        throw new Error("invalid_encrypted_content");
+      }
+      const { completionText, totalTokens } = await callOpenAiChat(apiKey, openAiMessages);
       reply = parseManagerReply(completionText, tab);
       creditsUsed = calculateCredits(totalTokens);
     } catch (err) {
@@ -142,6 +153,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
       creditsUsed,
       creditsRemaining: context.settings.creditsAvailable - creditsUsed,
       usedFallback,
+      settingsStatus,
     });
   } catch (err) {
     console.error("Error processing manager chat", err);
@@ -227,7 +239,10 @@ function parseManagerReply(raw: string, tab: ManagerAiTab): ManagerReply {
   }
 }
 
-async function callOpenAiChat(messages: Array<{ role: "system" | "user" | "assistant"; content: string }>) {
+async function callOpenAiChat(
+  apiKey: string,
+  messages: Array<{ role: "system" | "user" | "assistant"; content: string }>
+) {
   const payload = {
     model: process.env.OPENAI_MODEL || "gpt-4o-mini",
     temperature: 0.4,
@@ -238,7 +253,7 @@ async function callOpenAiChat(messages: Array<{ role: "system" | "user" | "assis
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
+      Authorization: `Bearer ${apiKey}`,
     },
     body: JSON.stringify(payload),
   });

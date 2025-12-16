@@ -23,6 +23,9 @@ interface Conversation {
   messageHistory: Message[];
   image: string;
   membershipStatus?: string;
+  accessState?: "ACTIVE" | "EXPIRED" | "NONE";
+  accessType?: string | null;
+  accessLabel?: string | null;
   daysLeft?: number;
   unreadCount?: number;
   isNew?: boolean;
@@ -76,6 +79,11 @@ interface Conversation {
   isBlocked?: boolean;
   isArchived?: boolean;
   isManager?: boolean;
+  firstUtmSource?: string | null;
+  firstUtmMedium?: string | null;
+  firstUtmCampaign?: string | null;
+  firstUtmContent?: string | null;
+  firstUtmTerm?: string | null;
 }
 
 interface ConversationListData {
@@ -86,6 +94,9 @@ interface ConversationListData {
   image: string;
   messageHistory: Message[];
   membershipStatus?: string;
+  accessState?: "ACTIVE" | "EXPIRED" | "NONE";
+  accessType?: string | null;
+  accessLabel?: string | null;
   daysLeft?: number;
   unreadCount?: number;
   isNew?: boolean;
@@ -131,13 +142,18 @@ interface ConversationListData {
   } | null;
   extraSessionToday?: {
     todayCount: number;
-  todaySpent: number;
-  todayHighestTier: string | null;
-  todayLastPurchaseAt: string | null;
-} | null;
+    todaySpent: number;
+    todayHighestTier: string | null;
+    todayLastPurchaseAt: string | null;
+  } | null;
   isBlocked?: boolean;
   isArchived?: boolean;
   isManager?: boolean;
+  firstUtmSource?: string | null;
+  firstUtmMedium?: string | null;
+  firstUtmCampaign?: string | null;
+  firstUtmContent?: string | null;
+  firstUtmTerm?: string | null;
 }
 
 export type { Message, Conversation, ConversationListData }

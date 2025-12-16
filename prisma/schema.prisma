@@ -72,6 +72,11 @@ model Fan {
   riskLevel        String          @default("LOW")
   isBlocked        Boolean         @default(false)
   isArchived       Boolean         @default(false)
+  firstUtmSource   String?
+  firstUtmMedium   String?
+  firstUtmCampaign String?
+  firstUtmContent  String?
+  firstUtmTerm     String?
 }
 
 model Message {

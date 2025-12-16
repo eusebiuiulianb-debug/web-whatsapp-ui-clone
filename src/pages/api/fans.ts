@@ -206,6 +206,13 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     let mappedFans = fans.map((fan) => {
       // Grants con acceso vigente
     const activeGrants = fan.accessGrants.filter((grant) => grant.expiresAt > now);
+    const activeGrant =
+      activeGrants.length > 0
+        ? activeGrants.reduce<typeof fan.accessGrants[number] | null>((latest, grant) => {
+            if (!latest) return grant;
+            return grant.expiresAt > latest.expiresAt ? grant : latest;
+          }, null)
+        : null;
     const lastGrant =
       fan.accessGrants.length > 0
         ? fan.accessGrants.reduce<typeof fan.accessGrants[number] | null>((latest, grant) => {
@@ -216,6 +223,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     const lastGrantType = lastGrant?.type ?? null;
     const hasAccessHistory = fan.accessGrants.length > 0;
     const activeGrantTypes = activeGrants.map((grant) => grant.type);
+    const accessState: "ACTIVE" | "EXPIRED" | "NONE" = activeGrant ? "ACTIVE" : hasAccessHistory ? "EXPIRED" : "NONE";
+    const accessType = activeGrant?.type ?? lastGrantType ?? null;
 
       // Usamos la expiración más lejana entre los grants activos para el contador de días
       const latestExpiry = activeGrants.reduce<Date | null>((acc, grant) => {
@@ -226,14 +235,29 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       const msPerDay = 1000 * 60 * 60 * 24;
       const daysLeft = latestExpiry
         ? Math.max(0, Math.ceil((latestExpiry.getTime() - now.getTime()) / msPerDay))
-        : 0; // si no hay grants activos, devolvemos 0 para que el frontend pueda filtrar caducados
+        : hasAccessHistory
+        ? 0
+        : null;
 
-      let membershipStatus: "active" | "expired" | "none" = "none";
-      if (activeGrants.length > 0) {
-        membershipStatus = "active";
-      } else if (hasAccessHistory) {
+      let membershipStatus: string | null = null;
+      if (accessState === "ACTIVE") {
+        membershipStatus = (accessType || "active").toLowerCase();
+      } else if (accessState === "EXPIRED") {
         membershipStatus = "expired";
+      } else {
+        membershipStatus = "none";
       }
+
+      function mapAccessLabel(type?: string | null, state: "ACTIVE" | "EXPIRED" | "NONE" = "NONE") {
+        if (state === "EXPIRED") return "Caducado";
+        if (state === "NONE") return fan.isNew ? "Nuevo" : "Sin acceso";
+        const lower = (type || "").toLowerCase();
+        if (lower === "trial" || lower === "welcome") return "Prueba 7 días";
+        if (lower === "special" || lower === "single") return "Pack especial";
+        if (lower === "monthly") return "Suscripción mensual";
+        return type || "Acceso activo";
+      }
+      const accessLabel = mapAccessLabel(accessType, accessState);
 
       const paidGrants = fan.accessGrants.filter((grant) => grant.type === "monthly" || grant.type === "special" || grant.type === "single");
       const paidGrantsCount = paidGrants.length;
@@ -312,6 +336,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         time: fan.time || "",
         unreadCount: fan.unreadCount ?? 0,
         isNew: fan.isNew ?? false,
+        accessState,
+        accessType,
+        accessLabel,
         membershipStatus,
         daysLeft,
         lastSeen: fan.lastSeen || "",
@@ -349,6 +376,11 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         },
         isBlocked: fan.isBlocked ?? false,
         isArchived: fan.isArchived ?? false,
+        firstUtmSource: fan.firstUtmSource ?? null,
+        firstUtmMedium: fan.firstUtmMedium ?? null,
+        firstUtmCampaign: fan.firstUtmCampaign ?? null,
+        firstUtmContent: fan.firstUtmContent ?? null,
+        firstUtmTerm: fan.firstUtmTerm ?? null,
       };
     });
 

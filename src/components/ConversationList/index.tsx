@@ -16,13 +16,29 @@ interface ConversationListProps {
 export default function ConversationList(props: ConversationListProps) {
   const { isFirstConversation, data, onSelect } = props;
   const { setConversation } = useContext(ConversationContext);
-  const { contactName, lastMessage, lastTime, image, unreadCount, isNew, membershipStatus, daysLeft, urgencyLevel } = data;
+  const {
+    contactName,
+    lastMessage,
+    lastTime,
+    image,
+    unreadCount,
+    isNew,
+    membershipStatus,
+    accessState,
+    accessType,
+    accessLabel,
+    daysLeft,
+    urgencyLevel,
+  } = data;
   const borderClass = isFirstConversation ? "border-transparent" : "border-[rgba(134,150,160,0.15)]";
   const [ isHover, seHover ] = useState(false);
   const isManagerChat = data.isManager === true;
   const hasUnread = !isManagerChat && !!unreadCount && unreadCount > 0;
   const nameClasses = hasUnread ? "text-slate-50 text-sm font-semibold" : "text-slate-50 text-sm font-medium";
   const previewClasses = hasUnread ? "text-slate-50 text-xs font-medium" : "text-slate-400 text-xs";
+  const sourceLabel = formatSourceLabel(data.firstUtmSource);
+  const campaignLabel = data.firstUtmCampaign?.trim();
+  const contentLabel = data.firstUtmContent?.trim();
   if (isManagerChat) {
     return (
       <div 
@@ -61,17 +77,10 @@ export default function ConversationList(props: ConversationListProps) {
       </div>
     );
   }
-  const accessState = getAccessState({ membershipStatus, daysLeft });
+  const derivedAccessState = accessState || (accessState === "NONE" ? "NONE" : getAccessState({ membershipStatus, daysLeft }));
 
-  const badgeStyles = {
-    active: "bg-[#1f3d33] text-[#8de0c3] border border-[rgba(77,208,173,0.4)]",
-    expiring: "bg-[#3d321f] text-[#f5c065] border border-[rgba(245,192,101,0.4)]",
-    expired: "bg-[#2a2f32] text-[#9aa1a7] border border-[rgba(154,161,167,0.3)]",
-  } as const;
-
-  const chosenBadge = badgeStyles[accessState];
   const daysLabel = daysLeft !== undefined && daysLeft !== null ? `${daysLeft} d` : "";
-  const nameTint = accessState === "expired" ? "text-[#7d8a93]" : nameClasses;
+  const nameTint = derivedAccessState === "EXPIRED" ? "text-[#7d8a93]" : nameClasses;
   const followUpTag = getFollowUpTag(membershipStatus, daysLeft, data.activeGrantTypes);
   const notesCount = data.notesCount ?? 0;
   const segment = (data.segment || "").toUpperCase();
@@ -132,6 +141,19 @@ export default function ConversationList(props: ConversationListProps) {
     return trimmed.slice(0, max - 1) + "…";
   }
 
+  function getAccessChipLabel() {
+    if (accessLabel) return accessLabel;
+    const statusLower = (membershipStatus || "").toLowerCase();
+    if (statusLower.includes("trial") || statusLower.includes("prueba")) return PACKS.trial.shortLabel;
+    if (statusLower.includes("monthly") || statusLower.includes("mensual") || statusLower.includes("suscripción")) return PACKS.monthly.shortLabel;
+    if (statusLower.includes("special") || statusLower.includes("individual") || statusLower.includes("especial")) return PACKS.special.shortLabel;
+    if ((derivedAccessState || "").toUpperCase() === "NONE") return isNew ? "Nuevo" : "Sin acceso";
+    if ((derivedAccessState || "").toUpperCase() === "EXPIRED") return "Caducado";
+    return membershipStatus || "";
+  }
+
+  const accessChipLabel = getAccessChipLabel();
+  const shouldShowAccessChip = Boolean(accessChipLabel);
 
   return (
     <div 
@@ -220,15 +242,9 @@ export default function ConversationList(props: ConversationListProps) {
               )}
             </div>
             <div className="flex items-center gap-2 mt-1">
-              {membershipStatus ? (
+              {shouldShowAccessChip ? (
                 <span className="inline-flex items-center rounded-full bg-slate-800/80 text-[11px] text-amber-200 px-3 py-1 w-fit font-semibold">
-                  {(() => {
-                    const statusLower = membershipStatus.toLowerCase();
-                    if (statusLower.includes("prueba")) return PACKS.trial.shortLabel;
-                    if (statusLower.includes("suscripción")) return PACKS.monthly.shortLabel;
-                    if (statusLower.includes("especial")) return PACKS.special.shortLabel;
-                    return membershipStatus;
-                  })()}
+                  {accessChipLabel}
                 </span>
               ) : null}
               {daysLabel ? (
@@ -249,6 +265,25 @@ export default function ConversationList(props: ConversationListProps) {
                   <span className="text-xs">📝</span>
                   <span>{notesCount}</span>
                 </span>
+              )}
+              {(sourceLabel || campaignLabel || contentLabel) && (
+                <div className="flex flex-wrap items-center gap-1">
+                  {sourceLabel && (
+                    <span className="inline-flex items-center rounded-full border border-slate-700 bg-slate-900/70 px-2.5 py-0.5 text-[11px] font-semibold text-slate-200">
+                      {sourceLabel}
+                    </span>
+                  )}
+                  {campaignLabel && (
+                    <span className="inline-flex items-center rounded-full border border-slate-700 bg-slate-900/70 px-2.5 py-0.5 text-[11px] font-semibold text-slate-300">
+                      {campaignLabel}
+                    </span>
+                  )}
+                  {contentLabel && (
+                    <span className="inline-flex items-center rounded-full border border-slate-700 bg-slate-900/70 px-2.5 py-0.5 text-[11px] font-semibold text-slate-300">
+                      {contentLabel}
+                    </span>
+                  )}
+                </div>
               )}
             </div>
           </div>
@@ -271,4 +306,13 @@ export default function ConversationList(props: ConversationListProps) {
       </div>
     </div>
   )
+}
+
+function formatSourceLabel(raw?: string | null) {
+  const value = (raw || "").trim().toLowerCase();
+  if (!value) return "Direct";
+  if (value.includes("tiktok")) return "TikTok";
+  if (value.includes("instagram") || value === "ig") return "IG";
+  if (value.includes("discover") || value.includes("discovery")) return "Discovery";
+  return value.charAt(0).toUpperCase() + value.slice(1);
 }

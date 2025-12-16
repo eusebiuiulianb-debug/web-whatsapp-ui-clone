@@ -2,6 +2,7 @@ export const ANALYTICS_EVENTS = {
   BIO_LINK_VIEW: "bio_link_view",
   CTA_CLICK_ENTER_CHAT: "cta_click_enter_chat",
   OPEN_CHAT: "open_chat",
+  NEW_FAN: "new_fan",
   SEND_MESSAGE: "send_message",
   PURCHASE_START: "purchase_start",
   PURCHASE_SUCCESS: "purchase_success",

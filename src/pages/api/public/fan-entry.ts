@@ -54,19 +54,59 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   const time = now.toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit", hour12: false });
 
   let fanId = "";
+  let isNewFan = false;
   try {
     const existing = await prisma.fan.findFirst({
       where: { creatorId: match.id, name },
-      select: { id: true, isBlocked: true },
+      select: {
+        id: true,
+        isBlocked: true,
+        firstUtmSource: true,
+        firstUtmMedium: true,
+        firstUtmCampaign: true,
+        firstUtmContent: true,
+        firstUtmTerm: true,
+      },
     });
 
     if (existing?.isBlocked) {
       return res.status(403).json({ error: "CHAT_BLOCKED" });
     }
 
+    const attribution = {
+      firstUtmSource: merged.utmSource || null,
+      firstUtmMedium: merged.utmMedium || null,
+      firstUtmCampaign: merged.utmCampaign || null,
+      firstUtmContent: merged.utmContent || null,
+      firstUtmTerm: merged.utmTerm || null,
+    };
+
     if (existing) {
       fanId = existing.id;
-      await prisma.fan.update({ where: { id: fanId }, data: { isArchived: false, preview: message.slice(0, 120), lastMessageAt: now } });
+      const needsAttribution =
+        !existing.firstUtmSource ||
+        !existing.firstUtmMedium ||
+        !existing.firstUtmCampaign ||
+        !existing.firstUtmContent ||
+        !existing.firstUtmTerm;
+
+      await prisma.fan.update({
+        where: { id: fanId },
+        data: {
+          isArchived: false,
+          preview: message.slice(0, 120),
+          lastMessageAt: now,
+          ...(needsAttribution
+            ? {
+                firstUtmSource: existing.firstUtmSource || attribution.firstUtmSource,
+                firstUtmMedium: existing.firstUtmMedium || attribution.firstUtmMedium,
+                firstUtmCampaign: existing.firstUtmCampaign || attribution.firstUtmCampaign,
+                firstUtmContent: existing.firstUtmContent || attribution.firstUtmContent,
+                firstUtmTerm: existing.firstUtmTerm || attribution.firstUtmTerm,
+              }
+            : {}),
+        },
+      });
     } else {
       fanId = `fan-${Date.now()}`;
       await prisma.fan.create({
@@ -77,8 +117,11 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           preview: message.slice(0, 120),
           time,
           lastMessageAt: now,
+          isNew: true,
+          ...attribution,
         },
       });
+      isNewFan = true;
     }
 
     await prisma.message.create({
@@ -94,22 +137,48 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     });
 
     try {
-      await prisma.analyticsEvent.create({
-        data: {
-          creatorId: match.id,
-          fanId,
-          sessionId: merged.sessionId,
-          eventName: ANALYTICS_EVENTS.SEND_MESSAGE,
-          path: `/c/${handleParam || slugify(match.name || "creator")}`,
-          referrer: merged.referrer || referrerHeader || null,
-          utmSource: merged.utmSource || null,
-          utmMedium: merged.utmMedium || null,
-          utmCampaign: merged.utmCampaign || null,
-          utmContent: merged.utmContent || null,
-          utmTerm: merged.utmTerm || null,
-          meta: { handle: handleParam || slugify(match.name || "creator") },
+      const commonAnalyticsData = {
+        creatorId: match.id,
+        fanId,
+        sessionId: merged.sessionId,
+        path: `/c/${handleParam || slugify(match.name || "creator")}`,
+        referrer: merged.referrer || referrerHeader || null,
+        utmSource: merged.utmSource || null,
+        utmMedium: merged.utmMedium || null,
+        utmCampaign: merged.utmCampaign || null,
+        utmContent: merged.utmContent || null,
+        utmTerm: merged.utmTerm || null,
+        meta: { handle: handleParam || slugify(match.name || "creator") },
+      } as const;
+
+      const eventsToCreate = [
+        {
+          eventName: ANALYTICS_EVENTS.OPEN_CHAT,
+          data: commonAnalyticsData,
         },
-      });
+        {
+          eventName: ANALYTICS_EVENTS.SEND_MESSAGE,
+          data: commonAnalyticsData,
+        },
+      ];
+
+      if (isNewFan) {
+        eventsToCreate.unshift({
+          eventName: ANALYTICS_EVENTS.NEW_FAN,
+          data: commonAnalyticsData,
+        });
+      }
+
+      await Promise.all(
+        eventsToCreate.map((evt) =>
+          prisma.analyticsEvent.create({
+            data: {
+              ...evt.data,
+              eventName: evt.eventName,
+            },
+          })
+        )
+      );
     } catch (err) {
       console.error("Error tracking send_message for public entry", err);
     }

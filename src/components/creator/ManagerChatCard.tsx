@@ -27,6 +27,7 @@ type ManagerChatPostResponse = {
   creditsUsed: number;
   creditsRemaining: number;
   usedFallback?: boolean;
+  settingsStatus?: "ok" | "settings_missing";
 };
 
 type ManagerActionIntent = "ROMPER_EL_HIELO" | "REACTIVAR_FAN_FRIO" | "OFRECER_UN_EXTRA" | "LLEVAR_A_MENSUAL" | "RESUMEN_PULSO_HOY";
@@ -90,6 +91,7 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
   const [error, setError] = useState<string | null>(null);
   const [input, setInput] = useState("");
   const [usedFallback, setUsedFallback] = useState(false);
+  const [settingsStatus, setSettingsStatus] = useState<"ok" | "settings_missing" | null>(null);
   const [mobileActionsOpen, setMobileActionsOpen] = useState(false);
   const [actionsOpen, setActionsOpen] = useState(false);
   const [globalMode, setGlobalMode] = useState<GlobalMode>("HOY");
@@ -216,6 +218,7 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
         [...prev.filter((m) => m.id !== optimisticId), assistantMessage].slice(-50)
       );
       setUsedFallback(Boolean(data?.usedFallback));
+      setSettingsStatus(data?.settingsStatus ?? null);
       void loadMessages({ silent: true });
       setInput("");
     } catch (err) {
@@ -283,6 +286,17 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
     },
     CRECIMIENTO: {},
   };
+
+  const fallbackBanner = settingsStatus === "settings_missing"
+    ? (
+        <span>
+          Revisar ajustes: falta `OPENAI_API_KEY` o no se pudo descifrar.{" "}
+          <a href="/creator/ai-settings" className="underline hover:text-amber-100">
+            Abrir ajustes
+          </a>
+        </span>
+      )
+    : "Modo demo activo: conecta tu OPENAI_API_KEY para respuestas con tus datos reales.";
   const globalModes: GlobalMode[] = ["HOY", "VENTAS", "CATALOGO", "CRECIMIENTO"];
   const growthActiveList = enabledPlatforms.length
     ? enabledPlatforms
@@ -551,7 +565,7 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
           </div>
           {usedFallback && (
             <div className="px-4 pt-2 text-[12px] text-amber-200 bg-amber-500/10 border-t border-amber-500/30">
-              Modo demo activo: conecta tu OPENAI_API_KEY para respuestas con tus datos reales.
+              {fallbackBanner}
             </div>
           )}
           <div className="px-4 sm:px-6 lg:px-8 py-4 space-y-3">
@@ -735,7 +749,7 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
             </div>
             {usedFallback && (
               <div className="text-[11px] text-amber-200">
-                Estás en modo demo: la IA usará respuestas genéricas hasta que conectes tu OPENAI_API_KEY.
+                {fallbackBanner}
               </div>
             )}
           </div>

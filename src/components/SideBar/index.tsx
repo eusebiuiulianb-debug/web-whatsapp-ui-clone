@@ -115,6 +115,9 @@ function SideBarInner() {
       image: fan.avatar || "avatar.jpg",
       messageHistory: [],
       membershipStatus: fan.membershipStatus,
+      accessState: (fan as any).accessState,
+      accessType: (fan as any).accessType,
+      accessLabel: (fan as any).accessLabel ?? null,
       daysLeft: fan.daysLeft,
       unreadCount: fan.unreadCount,
       isNew: fan.isNew,
@@ -155,6 +158,11 @@ function SideBarInner() {
       extraSessionToday: (fan as any).extraSessionToday ?? null,
       isBlocked: (fan as any).isBlocked ?? false,
       isArchived: (fan as any).isArchived ?? false,
+      firstUtmSource: (fan as any).firstUtmSource ?? null,
+      firstUtmMedium: (fan as any).firstUtmMedium ?? null,
+      firstUtmCampaign: (fan as any).firstUtmCampaign ?? null,
+      firstUtmContent: (fan as any).firstUtmContent ?? null,
+      firstUtmTerm: (fan as any).firstUtmTerm ?? null,
     }));
   }
 

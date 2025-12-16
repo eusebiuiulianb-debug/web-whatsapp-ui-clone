@@ -4,6 +4,8 @@ import prisma from "../../../lib/prisma.server";
 import { sendBadRequest, sendServerError } from "../../../lib/apiError";
 import { getCreatorBusinessSnapshot, type CreatorBusinessSnapshot } from "../../../lib/creatorManager";
 import { BUSINESS_MANAGER_SYSTEM_PROMPT } from "../../../lib/ai/prompts";
+import { maybeDecrypt } from "../../../server/crypto/maybeDecrypt";
+import { sanitizeForOpenAi, sanitizeOpenAiMessages } from "../../../server/ai/sanitizeForOpenAi";
 
 type SerializedMessage = {
   id: string;
@@ -73,12 +75,14 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
 
     const snapshot = await getCreatorBusinessSnapshot(creatorId, { prismaClient: prisma });
     const systemPrompt = BUSINESS_MANAGER_SYSTEM_PROMPT;
-    const contextBlock = `Snapshot del negocio del creador:\n${JSON.stringify(snapshot, null, 2)}`;
+    const safeSnapshot = sanitizeForOpenAi(snapshot, { creatorId });
+    const contextBlock = `Snapshot del negocio del creador:\n${JSON.stringify(safeSnapshot, null, 2)}`;
 
     let managerReply = "";
     let usedFallback = false;
 
-    if (!process.env.OPENAI_API_KEY) {
+    const apiKey = maybeDecrypt(process.env.OPENAI_API_KEY, { creatorId, label: "OPENAI_API_KEY" });
+    if (!apiKey) {
       usedFallback = true;
       managerReply = getManagerFallbackReply(incomingMessage, snapshot);
     } else {
@@ -88,7 +92,8 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
           context: contextBlock,
           history,
           userMessage: incomingMessage,
-          apiKey: process.env.OPENAI_API_KEY,
+          apiKey,
+          creatorId,
         });
       } catch (err) {
         console.error("Error calling Manager IA", err);
@@ -168,8 +173,9 @@ async function askManagerAi(params: {
   history: PrismaManagerMessage[];
   userMessage: string;
   apiKey: string;
+  creatorId?: string;
 }): Promise<string> {
-  const { systemPrompt, context, history, userMessage, apiKey } = params;
+  const { systemPrompt, context, history, userMessage, apiKey, creatorId } = params;
 
   const historyMessages = history.slice(-HISTORY_LIMIT).map((msg) => ({
     role: msg.sender === ManagerSender.CREATOR ? "user" : "assistant",
@@ -179,12 +185,15 @@ async function askManagerAi(params: {
   const payload = {
     model: process.env.OPENAI_MODEL || "gpt-4o-mini",
     temperature: 0.4,
-    messages: [
-      { role: "system", content: systemPrompt },
-      { role: "system", content: context },
-      ...historyMessages,
-      { role: "user", content: userMessage },
-    ],
+    messages: sanitizeOpenAiMessages(
+      [
+        { role: "system", content: systemPrompt },
+        { role: "system", content: context },
+        ...historyMessages,
+        { role: "user", content: userMessage },
+      ],
+      { creatorId }
+    ),
   };
 
   const response = await fetch("https://api.openai.com/v1/chat/completions", {

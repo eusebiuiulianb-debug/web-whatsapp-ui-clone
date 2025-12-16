@@ -181,9 +181,9 @@ export default function ConversationDetails({ onBackToBoard }: ConversationDetai
     hasAccessHistory: conversation.hasAccessHistory,
     activeGrantTypes: conversation.activeGrantTypes,
   });
-  const accessState = getAccessState({ membershipStatus, daysLeft });
-  const accessLabel = getAccessLabel({ membershipStatus, daysLeft });
-  const packLabel = selectedPackType ? PACKS[selectedPackType].name : accessLabel;
+  const accessState = conversation.accessState || getAccessState({ membershipStatus, daysLeft });
+  const accessLabel = conversation.accessLabel || getAccessLabel({ membershipStatus, daysLeft });
+  const packLabel = accessLabel || (selectedPackType ? PACKS[selectedPackType].name : null) || getAccessLabel({ membershipStatus, daysLeft });
   const followUpTag: FollowUpTag =
     conversationFollowUpTag ?? getFollowUpTag(membershipStatus, daysLeft, conversation.activeGrantTypes);
   const normalizedGrants = (conversation.activeGrantTypes ?? []).map((t) => t.toLowerCase());
@@ -329,6 +329,9 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
       image: fan.avatar || "avatar.jpg",
       messageHistory: [],
       membershipStatus: fan.membershipStatus,
+      accessState: (fan as any).accessState,
+      accessType: (fan as any).accessType,
+      accessLabel: (fan as any).accessLabel,
       daysLeft: fan.daysLeft,
       activeGrantTypes: fan.activeGrantTypes ?? [],
       hasAccessHistory: fan.hasAccessHistory ?? false,
@@ -356,6 +359,11 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
       novsyStatus: fan.novsyStatus ?? null,
       isHighPriority: fan.isHighPriority ?? false,
       extraLadderStatus: fan.extraLadderStatus ?? null,
+      firstUtmSource: (fan as any).firstUtmSource ?? null,
+      firstUtmMedium: (fan as any).firstUtmMedium ?? null,
+      firstUtmCampaign: (fan as any).firstUtmCampaign ?? null,
+      firstUtmContent: (fan as any).firstUtmContent ?? null,
+      firstUtmTerm: (fan as any).firstUtmTerm ?? null,
     }));
   }
 

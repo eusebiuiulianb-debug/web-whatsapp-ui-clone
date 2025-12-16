@@ -16,6 +16,7 @@ type TableRow = {
   openChatSessions: number;
   sendMessageSessions: number;
   purchaseSessions: number;
+  fansNew: number;
 };
 
 type CampaignLink = {
@@ -41,6 +42,11 @@ type Summary = {
     purchase: FunnelStep;
   };
   metrics: { sessions: number; ctr: number };
+  funnelFans: {
+    newFans: number;
+    openChatFans: number;
+    sendMessageFans: number;
+  };
   topCampaigns: TableRow[];
   topCreatives: (TableRow & { utmContent: string })[];
   latestLinks: CampaignLink[];
@@ -211,6 +217,14 @@ export default function CreatorAnalyticsPage() {
         { label: "Compras", sessions: data.funnel.purchase.sessions, events: data.funnel.purchase.events },
       ]
     : [];
+  const fanFunnelRows =
+    data && data.funnelFans
+      ? [
+          { label: "Fans nuevos", value: data.funnelFans.newFans },
+          { label: "Fans abren chat", value: data.funnelFans.openChatFans },
+          { label: "Fans envían mensaje", value: data.funnelFans.sendMessageFans },
+        ]
+      : [];
 
   return (
     <div className="min-h-screen bg-[#0b141a] text-white">
@@ -322,11 +336,12 @@ export default function CreatorAnalyticsPage() {
               </div>
             ) : (
               <>
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
                   <MetricCard label="Sesiones" value={data.metrics.sessions} helper="bio_link_view (unique)" />
                   <MetricCard label="CTR CTA" value={`${data.metrics.ctr}%`} helper="cta_click_enter_chat / bio_link_view" />
                   <MetricCard label="Chats abiertos" value={data.funnel.openChat.sessions} helper="unique sessions" />
                   <MetricCard label="Mensajes" value={data.funnel.sendMessage.sessions} helper="unique sessions" />
+                  <MetricCard label="Fans nuevos" value={data.funnelFans.newFans} helper="distinct fanId" />
                 </div>
 
                 <div className="rounded-2xl border border-slate-800 bg-slate-900/70 p-4 sm:p-6">
@@ -342,6 +357,23 @@ export default function CreatorAnalyticsPage() {
                         <div className="text-xs text-slate-400">{row.label}</div>
                         <div className="text-xl font-semibold text-white">{row.sessions}</div>
                         <div className="text-[11px] text-slate-500">{row.events} eventos</div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="rounded-2xl border border-slate-800 bg-slate-900/70 p-4 sm:p-6">
+                  <div className="flex items-center justify-between mb-3">
+                    <div>
+                      <h2 className="text-lg font-semibold text-white">Embudo (fans reales)</h2>
+                      <p className="text-sm text-slate-300">Fans únicos por paso (fanId)</p>
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                    {fanFunnelRows.map((row) => (
+                      <div key={row.label} className="rounded-xl border border-slate-800 bg-slate-950/60 p-3">
+                        <div className="text-xs text-slate-400">{row.label}</div>
+                        <div className="text-xl font-semibold text-white">{row.value}</div>
                       </div>
                     ))}
                   </div>
@@ -540,6 +572,7 @@ function AggregatedTable({ title, subtitle, rows }: { title: string; subtitle: s
                 <th className="py-2 pr-4">CTA</th>
                 <th className="py-2 pr-4">Chats</th>
                 <th className="py-2 pr-4">Mensajes</th>
+                <th className="py-2 pr-4">Fans nuevos</th>
                 <th className="py-2 pr-4">Compras</th>
                 <th className="py-2 pr-4">Conv. a mensaje</th>
                 <th className="py-2 pr-4">Conv. a compra</th>
@@ -560,6 +593,7 @@ function AggregatedTable({ title, subtitle, rows }: { title: string; subtitle: s
                   <td className="py-2 pr-4 text-slate-200">{row.ctaSessions}</td>
                   <td className="py-2 pr-4 text-slate-200">{row.openChatSessions}</td>
                   <td className="py-2 pr-4 text-slate-200">{row.sendMessageSessions}</td>
+                  <td className="py-2 pr-4 text-slate-200">{row.fansNew}</td>
                   <td className="py-2 pr-4 text-slate-200">{row.purchaseSessions}</td>
                   <td className="py-2 pr-4 text-slate-200">
                     {row.openChatSessions ? `${((row.sendMessageSessions / row.openChatSessions) * 100).toFixed(1)}%` : "—"}

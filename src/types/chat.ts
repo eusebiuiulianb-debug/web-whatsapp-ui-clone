@@ -24,6 +24,9 @@ export interface Fan {
   unreadCount: number;
   isNew: boolean;
   membershipStatus: string;
+  accessState?: "ACTIVE" | "EXPIRED" | "NONE";
+  accessType?: string | null;
+  accessLabel?: string | null;
   daysLeft?: number;
   lastSeen: string;
   lastSeenAt?: string | null;
@@ -72,6 +75,11 @@ export interface Fan {
   } | null;
   isBlocked?: boolean;
   isArchived?: boolean;
+  firstUtmSource?: string | null;
+  firstUtmMedium?: string | null;
+  firstUtmCampaign?: string | null;
+  firstUtmContent?: string | null;
+  firstUtmTerm?: string | null;
 }
 
 export interface Message {
