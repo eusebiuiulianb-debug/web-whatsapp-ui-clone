@@ -1,4 +1,4 @@
-export const ENCRYPTED_BLOB_REMOVED = "[ENCRYPTED_BLOB_REMOVED]";
+export const ENCRYPTED_BLOB_REMOVED = "[REDACTED_BLOB]";
 
 const MIN_TOKEN_CHARS = 20;
 const TOKEN_BODY_RE = `[0-9A-Za-z_-]{${MIN_TOKEN_CHARS},}`;
@@ -27,7 +27,6 @@ export function redactEncryptedBlobs(value: string): string {
       ? value
           .replace(PREFIXED_TOKEN_RE, "enc:v1:gAAAA…REDACTED…")
           .replace(LEGACY_TOKEN_RE, "gAAAA…REDACTED…")
-      : value,
-    "[BASE64_BLOB_REDACTED]"
+      : value
   );
 }

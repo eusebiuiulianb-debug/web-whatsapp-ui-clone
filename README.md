@@ -11,6 +11,17 @@ npm run dev
 
 La app se levanta en modo desarrollo en `http://localhost:3000`.
 
+### Windows – Watchpack
+Si ves errores tipo `Watchpack Error (initial scan) EINVAL lstat C:\DumpStack.log.tmp` (o hiberfil.sys/pagefile.sys/swapfile.sys) al hacer `npm run dev`, crea un `.env.local` con:
+```
+WATCHPACK_POLLING=true
+```
+Reinicia el dev-server. Esto activa polling y evita que el watcher intente leer esos ficheros de sistema.
+
+### Base de datos (SQLite)
+- Usa una única base en `prisma/dev.db` con `DATABASE_URL="file:./prisma/dev.db"` (CLI y runtime comparten la misma ruta).
+- Si cambias la ruta, apunta siempre a un único fichero y vuelve a ejecutar `npx prisma migrate deploy && npx prisma generate`.
+
 ## Incluye ahora
 - Header de creador con avatar inicial, nombre y tiempo de respuesta.
 - Conversaciones de ejemplo con fans (Ana, Javier, Lucía, Diego) y estado de suscripción estático (tipo y días restantes).

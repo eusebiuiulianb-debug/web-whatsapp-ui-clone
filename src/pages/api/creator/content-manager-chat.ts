@@ -2,11 +2,12 @@ import type { NextApiRequest, NextApiResponse } from "next";
 import { ContentManagerSender, type ContentManagerMessage as PrismaContentManagerMessage } from "@prisma/client";
 import prisma from "../../../lib/prisma.server";
 import { sendBadRequest, sendServerError } from "../../../lib/apiError";
-import { getCreatorContentSnapshot, type CreatorContentSnapshot } from "../../../lib/creatorContentManager";
+import { getCreatorContentSnapshot } from "../../../lib/creatorContentManager";
 import { CONTENT_MANAGER_SYSTEM_PROMPT } from "../../../lib/ai/prompts";
 import { maybeDecrypt } from "../../../server/crypto/maybeDecrypt";
-import { isInvalidEncryptedContentError, parseOpenAiError, toSafeErrorMessage } from "../../../server/ai/openAiError";
+import { toSafeErrorMessage } from "../../../server/ai/openAiError";
 import { sanitizeForOpenAi } from "../../../server/ai/sanitizeForOpenAi";
+import { OPENAI_FALLBACK_MESSAGE, safeOpenAiChatCompletion, type SafeOpenAiChatResult } from "../../../server/ai/openAiClient";
 
 type SerializedMessage = {
   id: string;
@@ -76,39 +77,18 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
 
     const snapshot = await getCreatorContentSnapshot(creatorId);
 
-    let managerReply = "";
-    let usedFallback = false;
-
     const apiKey = maybeDecrypt(process.env.OPENAI_API_KEY, { creatorId, label: "OPENAI_API_KEY" });
-    if (!apiKey) {
-      usedFallback = true;
-      managerReply = getContentManagerFallbackReply(incomingMessage, snapshot);
-    } else {
-      try {
-        const safeSnapshot = sanitizeForOpenAi(snapshot, { creatorId });
-        managerReply = await askContentManagerAi({
-          systemPrompt: CONTENT_MANAGER_SYSTEM_PROMPT,
-          context: `Snapshot de contenido del creador:\n${JSON.stringify(safeSnapshot, null, 2)}`,
-          history,
-          userMessage: incomingMessage,
-          apiKey,
-          creatorId,
-        });
-      } catch (err) {
-        usedFallback = true;
-        if (isInvalidEncryptedContentError(err)) {
-          console.warn("content_manager_ai_invalid_encrypted_content", {
-            creatorId,
-            status: (err as any)?.status ?? null,
-            code: (err as any)?.code ?? "invalid_encrypted_content",
-            message: "[redacted]",
-          });
-        } else {
-          console.error("Error calling Content Manager IA", toSafeErrorMessage(err, { creatorId }));
-        }
-        managerReply = getContentManagerFallbackReply(incomingMessage, snapshot);
-      }
-    }
+    const aiResult = await askContentManagerAi({
+      systemPrompt: CONTENT_MANAGER_SYSTEM_PROMPT,
+      context: `Snapshot de contenido del creador:\n${JSON.stringify(sanitizeForOpenAi(snapshot, { creatorId }), null, 2)}`,
+      history,
+      userMessage: incomingMessage,
+      apiKey,
+      creatorId,
+    });
+    const managerReply = aiResult.text;
+    const usedFallback = aiResult.usedFallback || aiResult.mode === "demo";
+    const aiMode = aiResult.mode;
 
     const managerMessage = await prisma.contentManagerMessage.create({
       data: {
@@ -127,6 +107,7 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
       conversationId: conversation.id,
       messages: [serializeMessage(creatorMessage), serializeMessage(managerMessage)],
       usedFallback,
+      aiMode,
     });
   } catch (err) {
     console.error("Error processing content manager chat", toSafeErrorMessage(err));
@@ -179,100 +160,27 @@ async function askContentManagerAi(params: {
   context: string;
   history: PrismaContentManagerMessage[];
   userMessage: string;
-  apiKey: string;
+  apiKey: string | null;
   creatorId?: string;
-}): Promise<string> {
+}): Promise<SafeOpenAiChatResult> {
   const { systemPrompt, context, history, userMessage, apiKey, creatorId } = params;
 
   const historyMessages = history.slice(-HISTORY_LIMIT).map((msg) => ({
-    role: msg.sender === ContentManagerSender.CREATOR ? "user" : "assistant",
+    role: msg.sender === ContentManagerSender.CREATOR ? ("user" as const) : ("assistant" as const),
     content: msg.content,
   }));
 
-  const payload = {
-    model: process.env.OPENAI_MODEL || "gpt-4o-mini",
-    temperature: 0.4,
+  return safeOpenAiChatCompletion({
     messages: [
       { role: "system", content: systemPrompt },
       { role: "system", content: context },
       ...historyMessages,
       { role: "user", content: userMessage },
     ],
-  };
-
-  const safePayload = sanitizeForOpenAi(payload, { creatorId });
-
-  const response = await fetch("https://api.openai.com/v1/chat/completions", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${apiKey}`,
-    },
-    body: JSON.stringify(safePayload),
+    apiKey,
+    creatorId,
+    aiMode: process.env.AI_MODE,
+    route: "/api/creator/content-manager-chat",
+    fallbackMessage: OPENAI_FALLBACK_MESSAGE,
   });
-
-  if (!response.ok) {
-    const errorInfo = await parseOpenAiError(response, { creatorId });
-    const error = new Error(`OpenAI error ${errorInfo.status}: ${errorInfo.message}`);
-    (error as any).code = errorInfo.code;
-    (error as any).status = errorInfo.status;
-    (error as any).safeMessage = errorInfo.message;
-    throw error;
-  }
-
-  const data = (await response.json()) as any;
-  const reply = data?.choices?.[0]?.message?.content;
-  if (typeof reply !== "string" || !reply.trim()) {
-    throw new Error("Empty response from Content Manager IA");
-  }
-
-  return reply.trim();
-}
-
-function getContentManagerFallbackReply(input: string, snapshot: CreatorContentSnapshot): string {
-  const lower = input.toLowerCase();
-  const bestPackName = snapshot.bestPack30d?.name ?? "ninguno";
-  const packsToReviewNames = snapshot.packsToReview.map((p) => p.name).join(", ");
-  const summary = `Resumen 30d (modo demo): ${snapshot.totalPacks} packs activos, pack fuerte: ${bestPackName}, packs a revisar: ${snapshot.packsToReview.length}, ingresos: ${Math.round(snapshot.ingresosTotales30d)} €.`;
-
-  const isPromo = lower.includes("promocionar") || lower.includes("promocionar") || lower.includes("promover") || lower.includes("empujar");
-  const isGap = lower.includes("huecos") || lower.includes("falta") || lower.includes("vacío") || lower.includes("vacío");
-  const isNewPack = lower.includes("nuevo") || lower.includes("crear") || lower.includes("pack nuevo");
-
-  const bestLine =
-    snapshot.bestPack30d && (snapshot.bestPack30d.ingresos30d ?? 0) > 0
-      ? `1) Empuja ${snapshot.bestPack30d.name} este finde: tiene ${snapshot.bestPack30d.activeFans} fans activos y ${snapshot.bestPack30d.ingresos30d} € en 30d.`
-      : "1) No hay pack fuerte aún: ofrece primero el mensual con una promo simple.";
-
-  const reviewLine =
-    snapshot.packsToReview.length > 0
-      ? `2) Revisa ${packsToReviewNames || "tus packs sin ventas"}: actualiza copy/precio o retíralos temporalmente.`
-      : "2) No hay packs con 0 ventas/fans; mantén el catálogo y refresca el contenido del mensual.";
-
-  const newLine =
-    snapshot.totalPacks <= 2
-      ? "3) Considera crear un pack especial nuevo para probar ticket alto este mes."
-      : "3) Añade una variación rápida (pack especial o extra) para no depender solo del mensual.";
-
-  if (isPromo) {
-    return [summary, bestLine, reviewLine, newLine].join("\n");
-  }
-  if (isGap) {
-    return [
-      summary,
-      "1) Detecta huecos: ¿tienes algo para bienvenida, algo mensual y algo premium? Si falta uno, créalo.",
-      reviewLine,
-      newLine,
-    ].join("\n");
-  }
-  if (isNewPack) {
-    return [
-      summary,
-      "1) Lanza un pack especial con ticket medio-alto y cupos limitados (3-5 plazas).",
-      reviewLine,
-      bestLine,
-    ].join("\n");
-  }
-
-  return [summary, bestLine, reviewLine, newLine].join("\n");
 }

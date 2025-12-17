@@ -11,9 +11,10 @@ import {
 } from "../../../../lib/ai/manager/prompts";
 import { buildDemoManagerReply, type ManagerDemoReply } from "../../../../lib/ai/manager/demo";
 import { registerAiUsage } from "../../../../lib/ai/registerAiUsage";
-import { isInvalidEncryptedContentError, parseOpenAiError, toSafeErrorMessage } from "../../../../server/ai/openAiError";
+import { toSafeErrorMessage } from "../../../../server/ai/openAiError";
 import { maybeDecrypt } from "../../../../server/crypto/maybeDecrypt";
 import { sanitizeForOpenAi } from "../../../../server/ai/sanitizeForOpenAi";
+import { OPENAI_FALLBACK_MESSAGE, safeOpenAiChatCompletion } from "../../../../server/ai/openAiClient";
 
 type ManagerReply = ManagerDemoReply & { mode: "STRATEGY" | "CONTENT" | "GROWTH"; text: string };
 
@@ -23,6 +24,7 @@ type ChatResponseBody = {
   creditsRemaining: number;
   usedFallback?: boolean;
   settingsStatus?: "ok" | "settings_missing";
+  aiMode?: "demo" | "live";
 };
 
 const HISTORY_LIMIT = 20;
@@ -103,33 +105,27 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
       content: msg.content,
     }));
 
-    let usedFallback = false;
-    let reply: ManagerReply;
-    let creditsUsed = 0;
-    try {
-      const rawOpenAiMessages: Array<{ role: "system" | "user" | "assistant"; content: string }> = [
-        { role: "system", content: systemPrompt },
-        ...historyMessages,
-        { role: "user", content: userPrompt },
-      ];
-      const { completionText, totalTokens } = await callOpenAiChat(apiKey, rawOpenAiMessages, creatorId);
-      reply = parseManagerReply(completionText, tab);
-      creditsUsed = calculateCredits(totalTokens);
-    } catch (err) {
-      usedFallback = true;
-      if (isInvalidEncryptedContentError(err)) {
-        console.warn("manager_ai_invalid_encrypted_content", {
+    const forceDemo = (process.env.AI_MODE || "").toLowerCase() === "demo" || !apiKey;
+    const rawOpenAiMessages: Array<{ role: "system" | "user" | "assistant"; content: string }> = [
+      { role: "system", content: systemPrompt },
+      ...historyMessages,
+      { role: "user", content: userPrompt },
+    ];
+    const aiResult = forceDemo
+      ? null
+      : await safeOpenAiChatCompletion({
+          messages: rawOpenAiMessages,
+          apiKey,
+          aiMode: process.env.AI_MODE,
           creatorId,
-          status: (err as any)?.status ?? null,
-          code: (err as any)?.code ?? "invalid_encrypted_content",
-          message: "[redacted]",
+          route: "/api/creator/ai-manager/chat",
+          fallbackMessage: OPENAI_FALLBACK_MESSAGE,
         });
-      } else {
-        console.error("Error calling Manager IA", toSafeErrorMessage(err, { creatorId }));
-      }
-      reply = buildDemoManagerReply(tabToString(tab), context) as ManagerReply;
-      creditsUsed = 0;
-    }
+    const usedFallback = forceDemo || !!aiResult?.usedFallback || aiResult?.mode === "demo";
+    const aiMode = forceDemo ? "demo" : aiResult?.mode ?? "live";
+    const fallbackReply: ManagerReply = buildManagerFallback(tab, context);
+    const reply: ManagerReply = usedFallback ? fallbackReply : parseManagerReply(aiResult?.text ?? "", tab);
+    const creditsUsed = usedFallback ? 0 : calculateCredits(aiResult?.totalTokens ?? 0);
 
     await logMessage({
       creatorId,
@@ -162,6 +158,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
       creditsRemaining: context.settings.creditsAvailable - creditsUsed,
       usedFallback,
       settingsStatus,
+      aiMode,
     });
   } catch (err) {
     console.error("Error processing manager chat", toSafeErrorMessage(err));
@@ -207,6 +204,17 @@ function tabToString(tab: ManagerAiTab): "STRATEGY" | "CONTENT" | "GROWTH" {
   return "STRATEGY";
 }
 
+function buildManagerFallback(tab: ManagerAiTab, context: any): ManagerReply {
+  const tabString = tabToString(tab);
+  if (tabString === "STRATEGY") {
+    return { mode: "STRATEGY", text: OPENAI_FALLBACK_MESSAGE, suggestedFans: [], meta: { demo: true, context } } as ManagerReply;
+  }
+  if (tabString === "CONTENT") {
+    return { mode: "CONTENT", text: OPENAI_FALLBACK_MESSAGE, dailyScripts: [], packIdeas: [], meta: { demo: true, context } } as ManagerReply;
+  }
+  return { mode: "GROWTH", text: OPENAI_FALLBACK_MESSAGE, meta: { demo: true, context } } as ManagerReply;
+}
+
 async function resolveCreatorId(): Promise<string> {
   if (process.env.CREATOR_ID) {
     return process.env.CREATOR_ID;
@@ -245,49 +253,6 @@ function parseManagerReply(raw: string, tab: ManagerAiTab): ManagerReply {
       meta: { parseError: true },
     } as ManagerReply;
   }
-}
-
-async function callOpenAiChat(
-  apiKey: string,
-  messages: Array<{ role: "system" | "user" | "assistant"; content: string }>,
-  creatorId?: string
-) {
-  const payload = sanitizeForOpenAi(
-    {
-      model: process.env.OPENAI_MODEL || "gpt-4o-mini",
-      temperature: 0.4,
-      messages,
-    },
-    { creatorId }
-  );
-
-  const response = await fetch("https://api.openai.com/v1/chat/completions", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${apiKey}`,
-    },
-    body: JSON.stringify(payload),
-  });
-
-  if (!response.ok) {
-    const errorInfo = await parseOpenAiError(response, { creatorId });
-    const error = new Error(`OpenAI error ${errorInfo.status}: ${errorInfo.message}`);
-    (error as any).code = errorInfo.code;
-    (error as any).status = errorInfo.status;
-    (error as any).safeMessage = errorInfo.message;
-    throw error;
-  }
-
-  const data = (await response.json()) as any;
-  const completionText = data?.choices?.[0]?.message?.content;
-  const totalTokens = data?.usage?.total_tokens;
-
-  if (typeof completionText !== "string" || !completionText.trim()) {
-    throw new Error("Empty response from Manager IA");
-  }
-
-  return { completionText: completionText.trim(), totalTokens: typeof totalTokens === "number" ? totalTokens : null };
 }
 
 function calculateCredits(totalTokens: number | null): number {
