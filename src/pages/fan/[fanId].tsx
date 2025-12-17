@@ -1,7 +1,7 @@
 import Head from "next/head";
 import { GetServerSideProps } from "next";
 import { useRouter } from "next/router";
-import { FormEvent, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { FormEvent, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import MessageBalloon from "../../components/MessageBalloon";
 import { useCreatorConfig } from "../../context/CreatorConfigContext";
 import {
@@ -59,44 +59,48 @@ export default function FanChatPage({ includedContent, initialAccessSummary }: F
   const messagesContainerRef = useRef<HTMLDivElement | null>(null);
   const [isAtBottom, setIsAtBottom] = useState(true);
 
-  const sortMessages = (list: ApiMessage[]) => {
+  const sortMessages = useCallback((list: ApiMessage[]) => {
     return [...list].sort((a, b) => {
       const at = a.id ? String(a.id) : "";
       const bt = b.id ? String(b.id) : "";
       if (at === bt) return 0;
       return at > bt ? 1 : -1;
     });
-  };
+  }, []);
+
+  const fetchMessages = useCallback(
+    async (targetFanId: string, options?: { showLoading?: boolean }) => {
+      const showLoading = options?.showLoading ?? false;
+      try {
+        if (showLoading) setLoading(true);
+        setError("");
+        const res = await fetch(`/api/messages?fanId=${targetFanId}`);
+        if (!res.ok) throw new Error("error");
+        const data = await res.json();
+        const apiMessages = Array.isArray(data.messages) ? (data.messages as ApiMessage[]) : [];
+        setMessages(sortMessages(apiMessages));
+      } catch (_err) {
+        setError("Error cargando mensajes");
+        setMessages([]);
+      } finally {
+        if (showLoading) setLoading(false);
+      }
+    },
+    [sortMessages]
+  );
 
   useEffect(() => {
     if (!fanId) return;
     fetchMessages(fanId, { showLoading: true });
     const timer = setInterval(() => fetchMessages(fanId), 4000);
     return () => clearInterval(timer);
-  }, [fanId]);
+  }, [fanId, fetchMessages]);
 
   useEffect(() => {
     if (!fanId) return;
     fetchAccessInfo(fanId);
   }, [fanId]);
 
-  async function fetchMessages(targetFanId: string, options?: { showLoading?: boolean }) {
-    const showLoading = options?.showLoading ?? false;
-    try {
-      if (showLoading) setLoading(true);
-      setError("");
-      const res = await fetch(`/api/messages?fanId=${targetFanId}`);
-      if (!res.ok) throw new Error("error");
-      const data = await res.json();
-      const apiMessages = Array.isArray(data.messages) ? (data.messages as ApiMessage[]) : [];
-      setMessages(sortMessages(apiMessages));
-    } catch (_err) {
-      setError("Error cargando mensajes");
-      setMessages([]);
-    } finally {
-      if (showLoading) setLoading(false);
-    }
-  }
 
   async function fetchAccessInfo(targetFanId: string) {
     try {

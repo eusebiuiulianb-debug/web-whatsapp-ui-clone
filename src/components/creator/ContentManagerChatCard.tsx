@@ -1,4 +1,4 @@
-import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from "react";
+import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState } from "react";
 import clsx from "clsx";
 import Link from "next/link";
 import type { CreatorContentSnapshot } from "../../lib/creatorContentManager";
@@ -57,9 +57,35 @@ export const ContentManagerChatCard = forwardRef<ContentManagerChatCardHandle, P
   const listRef = useRef<HTMLDivElement | null>(null);
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
 
+  const loadMessages = useCallback(
+    async (opts?: { silent?: boolean }) => {
+      try {
+        if (!opts?.silent) {
+          setLoading(true);
+        }
+        setError(null);
+        const res = await fetch(`/api/creator/ai-manager/messages?tab=${mode}`);
+        if (!res.ok) throw new Error("No se pudo cargar el historial");
+        const data = (await res.json()) as ContentChatGetResponse;
+        setMessages((data?.messages ?? []).slice(-50));
+        if (!opts?.silent) {
+          setUsedFallback(false);
+        }
+      } catch (err) {
+        console.error(err);
+        setError("No se pudo cargar el chat del Manager IA de contenido.");
+      } finally {
+        if (!opts?.silent) {
+          setLoading(false);
+        }
+      }
+    },
+    [mode]
+  );
+
   useEffect(() => {
     void loadMessages();
-  }, [mode]);
+  }, [loadMessages]);
 
   useEffect(() => {
     if (!listRef.current) return;
@@ -71,29 +97,6 @@ export const ContentManagerChatCard = forwardRef<ContentManagerChatCardHandle, P
       setSnapshot(initialSnapshot);
     }
   }, [initialSnapshot]);
-
-  async function loadMessages(opts?: { silent?: boolean }) {
-    try {
-      if (!opts?.silent) {
-        setLoading(true);
-      }
-      setError(null);
-      const res = await fetch(`/api/creator/ai-manager/messages?tab=${mode}`);
-      if (!res.ok) throw new Error("No se pudo cargar el historial");
-      const data = (await res.json()) as ContentChatGetResponse;
-      setMessages((data?.messages ?? []).slice(-50));
-      if (!opts?.silent) {
-        setUsedFallback(false);
-      }
-    } catch (err) {
-      console.error(err);
-      setError("No se pudo cargar el chat del Manager IA de contenido.");
-    } finally {
-      if (!opts?.silent) {
-        setLoading(false);
-      }
-    }
-  }
 
   async function handleSend(externalText?: string, action?: string | null) {
     const text = (typeof externalText === "string" ? externalText : input).trim();

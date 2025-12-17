@@ -1,5 +1,5 @@
 import Head from "next/head";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import CreatorHeader from "../../components/CreatorHeader";
 import { useCreatorConfig } from "../../context/CreatorConfigContext";
 import { AiTemplateUsage, AiTurnMode, AI_TEMPLATE_USAGES, AI_TURN_MODES, USAGE_LABELS } from "../../lib/aiTemplateTypes";
@@ -45,11 +45,7 @@ export default function CreatorAiTemplatesPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
-  useEffect(() => {
-    fetchTemplates();
-  }, []);
-
-  async function fetchTemplates() {
+  const fetchTemplates = useCallback(async () => {
     try {
       setLoading(true);
       setError("");
@@ -67,7 +63,11 @@ export default function CreatorAiTemplatesPage() {
     } finally {
       setLoading(false);
     }
-  }
+  }, []);
+
+  useEffect(() => {
+    fetchTemplates();
+  }, [fetchTemplates]);
 
   function mapServerTemplate(tpl: ServerTemplate): Template {
     return {

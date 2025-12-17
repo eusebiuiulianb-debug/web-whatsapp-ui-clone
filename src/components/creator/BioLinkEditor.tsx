@@ -47,7 +47,7 @@ export function BioLinkEditor({ handle, onOpenSettings }: { handle: string; onOp
     } finally {
       setLoading(false);
     }
-  }, [creatorConfig.avatarUrl, creatorConfig.creatorName, creatorConfig.creatorSubtitle, handle]);
+  }, [creatorConfig.avatarUrl, creatorConfig.creatorName, creatorConfig.creatorSubtitle, handle, defaultCtaUrl]);
 
   useEffect(() => {
     void loadConfig();

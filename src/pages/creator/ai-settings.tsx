@@ -1,5 +1,5 @@
 import Head from "next/head";
-import { FormEvent, useEffect, useState } from "react";
+import { FormEvent, useCallback, useEffect, useState } from "react";
 import CreatorHeader from "../../components/CreatorHeader";
 import { useCreatorConfig } from "../../context/CreatorConfigContext";
 import { AiBaseTone, AiTurnMode, AI_TURN_MODE_OPTIONS, AI_TURN_MODES, normalizeAiBaseTone, normalizeAiTurnMode } from "../../lib/aiSettings";
@@ -106,17 +106,7 @@ export default function CreatorAiSettingsPage() {
     });
   }
 
-  useEffect(() => {
-    fetchSettings();
-    fetchStatus();
-    fetchUsageSummary();
-  }, []);
-
-  useEffect(() => {
-    setCurrentPage(1);
-  }, [usageSummary?.recentLogs?.length]);
-
-  function normalizeSettings(raw: any): CreatorAiSettings {
+  const normalizeSettings = useCallback((raw: any): CreatorAiSettings => {
     return {
       id: String(raw.id),
       creatorId: raw.creatorId,
@@ -135,7 +125,7 @@ export default function CreatorAiSettingsPage() {
       turnMode: turnModeFromRaw(raw.turnMode),
       platforms: normalizeCreatorPlatforms(raw.platforms),
     };
-  }
+  }, []);
 
   function turnModeFromRaw(value: unknown): AiTurnMode {
     const parsed = typeof value === "string" ? value : "";
@@ -145,7 +135,7 @@ export default function CreatorAiSettingsPage() {
     return valid || "auto";
   }
 
-  async function fetchSettings() {
+  const fetchSettings = useCallback(async () => {
     try {
       setLoading(true);
       setError("");
@@ -160,7 +150,7 @@ export default function CreatorAiSettingsPage() {
     } finally {
       setLoading(false);
     }
-  }
+  }, [normalizeSettings]);
 
   function applyFormFromSettings(next: CreatorAiSettings) {
     setSettings(next);
@@ -174,7 +164,7 @@ export default function CreatorAiSettingsPage() {
     });
   }
 
-  async function fetchStatus() {
+  const fetchStatus = useCallback(async () => {
     try {
       const res = await fetch("/api/creator/ai/status");
       if (!res.ok) throw new Error("Error fetching status");
@@ -189,9 +179,9 @@ export default function CreatorAiSettingsPage() {
     } catch (err) {
       console.error("Error loading AI status", err);
     }
-  }
+  }, []);
 
-  async function fetchUsageSummary() {
+  const fetchUsageSummary = useCallback(async () => {
     try {
       setUsageLoading(true);
       setUsageError("");
@@ -205,7 +195,17 @@ export default function CreatorAiSettingsPage() {
     } finally {
       setUsageLoading(false);
     }
-  }
+  }, []);
+
+  useEffect(() => {
+    fetchSettings();
+    fetchStatus();
+    fetchUsageSummary();
+  }, [fetchSettings, fetchStatus, fetchUsageSummary]);
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [usageSummary?.recentLogs?.length]);
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();

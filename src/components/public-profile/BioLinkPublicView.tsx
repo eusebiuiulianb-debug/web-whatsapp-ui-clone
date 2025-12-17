@@ -1,3 +1,4 @@
+import Image from "next/image";
 import type { BioLinkConfig, BioLinkSecondaryLink } from "../../types/bioLink";
 import clsx from "clsx";
 import { useEffect, useState } from "react";
@@ -79,9 +80,11 @@ export function BioLinkPublicView({ config }: Props) {
 
 function AvatarCircle({ title, avatarUrl }: { title: string; avatarUrl?: string | null }) {
   if (avatarUrl) {
-    return <div className="h-20 w-20 rounded-full border border-slate-700 overflow-hidden shadow-lg shadow-black/40">
-      <img src={avatarUrl} alt={title} className="h-full w-full object-cover" />
-    </div>;
+    return (
+      <div className="h-20 w-20 rounded-full border border-slate-700 overflow-hidden shadow-lg shadow-black/40">
+        <Image src={avatarUrl} alt={title} width={80} height={80} className="h-full w-full object-cover" />
+      </div>
+    );
   }
   const initial = (title || "C")[0]?.toUpperCase() || "C";
   return (

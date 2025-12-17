@@ -1,5 +1,5 @@
 import ConversationList from "../ConversationList";
-import React, { Component, useCallback, useContext, useEffect, useRef, useState } from "react";
+import React, { Component, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/router";
 import CreatorHeader from "../CreatorHeader";
 import { useCreatorConfig } from "../../context/CreatorConfigContext";
@@ -106,7 +106,7 @@ function SideBarInner() {
     return "new";
   }
 
-  function mapFans(rawFans: Fan[]): ConversationListData[] {
+  const mapFans = useCallback((rawFans: Fan[]): ConversationListData[] => {
     return rawFans.map((fan) => ({
       id: fan.id,
       contactName: fan.name,
@@ -164,7 +164,7 @@ function SideBarInner() {
       firstUtmContent: (fan as any).firstUtmContent ?? null,
       firstUtmTerm: (fan as any).firstUtmTerm ?? null,
     }));
-  }
+  }, []);
 
   function computePriorityScore(fan: FanData): number {
     const tag = fan.followUpTag ?? getFollowUpTag(fan.membershipStatus, fan.daysLeft, fan.activeGrantTypes);
@@ -217,7 +217,7 @@ function SideBarInner() {
     [router, setConversation]
   );
 
-  function getLastActivityTimestamp(fan: FanData): number {
+  const getLastActivityTimestamp = useCallback((fan: FanData): number => {
     if (fan.lastCreatorMessageAt) {
       const d = new Date(fan.lastCreatorMessageAt);
       if (!Number.isNaN(d.getTime())) return d.getTime();
@@ -225,9 +225,9 @@ function SideBarInner() {
     // fallback: try parsing lastTime if it resembles a timestamp
     const maybe = Date.parse(fan.lastTime || "");
     return Number.isNaN(maybe) ? 0 : maybe;
-  }
+  }, []);
 
-  function buildTodayQueue(list: FanData[]): FanData[] {
+  const buildTodayQueue = useCallback((list: FanData[]): FanData[] => {
     const groupHighPriority: FanData[] = [];
     const groupFollowUp: FanData[] = [];
     const groupUnread: FanData[] = [];
@@ -275,7 +275,7 @@ function SideBarInner() {
       ...groupExtras.sort(byExtrasSpent),
       ...groupRest.sort(byRecent),
     ];
-  }
+  }, [getLastActivityTimestamp]);
 
   function parseMessageTimestamp(msg: Message): number | null {
     const idParts = (msg.id || "").split("-");
@@ -285,7 +285,7 @@ function SideBarInner() {
     return null;
   }
 
-  async function updateUnreadCounts(fanList: ConversationListData[], map: UnreadMap) {
+  const updateUnreadCounts = useCallback(async (fanList: ConversationListData[], map: UnreadMap) => {
     const entries = await Promise.all(
       fanList.map(async (fan) => {
         const lastRead = getLastReadForFan(map, fan.id as string);
@@ -320,7 +320,7 @@ function SideBarInner() {
         unreadCount: fan.id ? byId[fan.id] ?? fan.unreadCount : fan.unreadCount,
       }))
     );
-  }
+  }, []);
 
   const totalCount = safeFans.length;
   const followUpTodayCount = safeFans.filter((fan) =>
@@ -353,18 +353,21 @@ function SideBarInner() {
   const newCount = safeFans.filter((fan) => ((fan as any).segment || "").toUpperCase() === "NUEVO").length;
   const withExtrasCount = safeFans.filter((fan) => (fan.extrasSpentTotal ?? 0) > 0).length;
 
-  function applyFilter(
-    filter: "all" | "today" | "expired",
-    onlyNotes = false,
-    tier: "all" | "new" | "regular" | "vip" = "all",
-    onlyFollowUp = false
-  ) {
-    setStatusFilter("active");
-    setFollowUpFilter(filter);
-    setShowOnlyWithNotes(onlyNotes);
-    setTierFilter(tier);
-    setOnlyWithFollowUp(onlyFollowUp);
-  }
+  const applyFilter = useCallback(
+    (
+      filter: "all" | "today" | "expired",
+      onlyNotes = false,
+      tier: "all" | "new" | "regular" | "vip" = "all",
+      onlyFollowUp = false
+    ) => {
+      setStatusFilter("active");
+      setFollowUpFilter(filter);
+      setShowOnlyWithNotes(onlyNotes);
+      setTierFilter(tier);
+      setOnlyWithFollowUp(onlyFollowUp);
+    },
+    []
+  );
 
   function selectStatusFilter(next: "active" | "archived" | "blocked") {
     setStatusFilter(next);
@@ -445,9 +448,10 @@ function SideBarInner() {
       return 0;
     });
 
-  const safeFilteredConversationsList: FanData[] = Array.isArray(filteredConversationsList)
-    ? (filteredConversationsList as FanData[])
-    : [];
+  const safeFilteredConversationsList: FanData[] = useMemo(
+    () => (Array.isArray(filteredConversationsList) ? (filteredConversationsList as FanData[]) : []),
+    [filteredConversationsList]
+  );
   const visibleList: FanData[] = queueMode ? buildTodayQueue(safeFilteredConversationsList) : safeFilteredConversationsList;
   const attendedTodayCount = fans.filter((fan) => {
     if (!fan.lastCreatorMessageAt) return false;
@@ -492,39 +496,42 @@ function SideBarInner() {
     }
   }, []);
 
+  const fetchFansPage = useCallback(
+    async (cursor?: string | null, append = false) => {
+      try {
+        if (append) setIsLoadingMore(true);
+        else setLoadingFans(true);
+        const params = new URLSearchParams();
+        params.set("limit", "30");
+        params.set("filter", apiFilter);
+        if (search.trim()) params.set("q", search.trim());
+        if (cursor) params.set("cursor", cursor);
+        const res = await fetch(`/api/fans?${params.toString()}`);
+        if (!res.ok) throw new Error("Error fetching fans");
+        const data = await res.json();
+        const rawItems = Array.isArray(data.items) ? (data.items as Fan[]) : [];
+        const mapped: ConversationListData[] = mapFans(rawItems);
+        setFans((prev) => (append ? [...prev, ...mapped] : mapped));
+        setFansError("");
+        setNextCursor(typeof data.nextCursor === "string" ? data.nextCursor : null);
+        setHasMore(Boolean(data.hasMore));
+        updateUnreadCounts(mapped, loadUnreadMap());
+      } catch (_err) {
+        setFansError("Error cargando fans");
+        if (!append) setFans([]);
+      } finally {
+        setLoadingFans(false);
+        setIsLoadingMore(false);
+      }
+    },
+    [apiFilter, mapFans, search, updateUnreadCounts]
+  );
+
   useEffect(() => {
     setUnreadMap(loadUnreadMap());
     fetchFansPage();
     void refreshExtrasSummary();
-  }, [refreshExtrasSummary]);
-
-  async function fetchFansPage(cursor?: string | null, append = false) {
-    try {
-      if (append) setIsLoadingMore(true);
-      else setLoadingFans(true);
-      const params = new URLSearchParams();
-      params.set("limit", "30");
-      params.set("filter", apiFilter);
-      if (search.trim()) params.set("q", search.trim());
-      if (cursor) params.set("cursor", cursor);
-      const res = await fetch(`/api/fans?${params.toString()}`);
-      if (!res.ok) throw new Error("Error fetching fans");
-      const data = await res.json();
-      const rawItems = Array.isArray(data.items) ? (data.items as Fan[]) : [];
-      const mapped: ConversationListData[] = mapFans(rawItems);
-      setFans((prev) => (append ? [...prev, ...mapped] : mapped));
-      setFansError("");
-      setNextCursor(typeof data.nextCursor === "string" ? data.nextCursor : null);
-      setHasMore(Boolean(data.hasMore));
-      updateUnreadCounts(mapped, loadUnreadMap());
-    } catch (_err) {
-      setFansError("Error cargando fans");
-      if (!append) setFans([]);
-    } finally {
-      setLoadingFans(false);
-      setIsLoadingMore(false);
-    }
-  }
+  }, [fetchFansPage, refreshExtrasSummary]);
 
   useEffect(() => {
     function handleFanDataUpdated(event: Event) {
@@ -626,12 +633,12 @@ function SideBarInner() {
       window.removeEventListener(EXTRAS_UPDATED_EVENT, handleExtrasUpdated as EventListener);
       window.removeEventListener("applyChatFilter", handleExternalFilter as EventListener);
     };
-  }, [apiFilter, refreshExtrasSummary, search]);
+  }, [applyFilter, fetchFansPage, mapFans, refreshExtrasSummary]);
 
   useEffect(() => {
     if (fans.length === 0) return;
     updateUnreadCounts(fans, unreadMap);
-  }, [fans, unreadMap]);
+  }, [fans, unreadMap, updateUnreadCounts]);
 
   useEffect(() => {
     const fanIdFromQuery = typeof router.query.fanId === "string" ? router.query.fanId : null;
@@ -646,8 +653,17 @@ function SideBarInner() {
   useEffect(() => {
     // refetch on filter/search changes
     fetchFansPage();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [apiFilter, search, showPriorityOnly, followUpFilter, showOnlyWithNotes, tierFilter, onlyWithFollowUp, onlyWithExtras]);
+  }, [
+    apiFilter,
+    fetchFansPage,
+    followUpFilter,
+    onlyWithExtras,
+    onlyWithFollowUp,
+    search,
+    showOnlyWithNotes,
+    showPriorityOnly,
+    tierFilter,
+  ]);
 
   useEffect(() => {
     if (!showLegend) return;
@@ -671,7 +687,15 @@ function SideBarInner() {
     } else if (queue.length > 0 && queueIndex >= queue.length) {
       setQueueIndex(0);
     }
-  }, [queueMode, filteredConversationsList, conversation?.id, queueIndex, setQueueIndex, setTodayQueue]);
+  }, [
+    buildTodayQueue,
+    conversation?.id,
+    queueIndex,
+    queueMode,
+    safeFilteredConversationsList,
+    setQueueIndex,
+    setTodayQueue,
+  ]);
 
   useEffect(() => {
     if (!queueMode) return;

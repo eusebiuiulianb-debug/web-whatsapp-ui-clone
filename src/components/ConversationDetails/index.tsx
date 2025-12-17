@@ -970,7 +970,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
     return [];
   }
 
-  async function fetchAccessGrants(fanId: string) {
+  const fetchAccessGrants = useCallback(async (fanId: string) => {
     try {
       setAccessGrantsLoading(true);
       const res = await fetch(`/api/access/grant?fanId=${fanId}`);
@@ -987,7 +987,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
     } finally {
       setAccessGrantsLoading(false);
     }
-  }
+  }, []);
 
   async function fetchFanNotes(fanId: string) {
     try {
@@ -1023,7 +1023,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
     }
   }
 
-  async function fetchContentItems(targetFanId?: string) {
+  const fetchContentItems = useCallback(async (targetFanId?: string) => {
     try {
       setContentLoading(true);
       setContentError("");
@@ -1039,7 +1039,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
     } finally {
       setContentLoading(false);
     }
-  }
+  }, []);
 
   async function fetchExtrasHistory(fanId: string) {
     try {
@@ -1063,7 +1063,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
     }
   }
 
-  async function fetchRecommendedFan(rawFans?: Fan[]) {
+  const fetchRecommendedFan = useCallback(async (rawFans?: Fan[]) => {
     try {
       const fansData = rawFans
         ? rawFans
@@ -1084,7 +1084,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
     } catch (_err) {
       setRecommendedFan(null);
     }
-  }
+  }, []);
 
   async function refreshFanData(fanId: string) {
     try {
@@ -1142,7 +1142,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
     }
   }
 
-  function mapApiMessagesToState(apiMessages: ApiMessage[]): ConversationMessage[] {
+  const mapApiMessagesToState = useCallback((apiMessages: ApiMessage[]): ConversationMessage[] => {
     return apiMessages.map((msg) => {
       const isContent = msg.type === "CONTENT";
       return {
@@ -1163,29 +1163,32 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
           : null,
       };
     });
-  }
+  }, []);
 
-  async function fetchMessages(shouldShowLoading = false) {
-    if (!id) return;
-    try {
-      if (shouldShowLoading) {
-        setIsLoadingMessages(true);
-        setMessage([]);
+  const fetchMessages = useCallback(
+    async (shouldShowLoading = false) => {
+      if (!id) return;
+      try {
+        if (shouldShowLoading) {
+          setIsLoadingMessages(true);
+          setMessage([]);
+        }
+        setMessagesError("");
+        const res = await fetch(`/api/messages?fanId=${id}`);
+        if (!res.ok) throw new Error("error");
+        const data = await res.json();
+        const mapped = mapApiMessagesToState(data.messages as ApiMessage[]);
+        setMessage(mapped);
+      } catch (_err) {
+        setMessagesError("Error cargando mensajes");
+      } finally {
+        if (shouldShowLoading) {
+          setIsLoadingMessages(false);
+        }
       }
-      setMessagesError("");
-      const res = await fetch(`/api/messages?fanId=${id}`);
-      if (!res.ok) throw new Error("error");
-      const data = await res.json();
-      const mapped = mapApiMessagesToState(data.messages as ApiMessage[]);
-      setMessage(mapped);
-    } catch (_err) {
-      setMessagesError("Error cargando mensajes");
-    } finally {
-      if (shouldShowLoading) {
-        setIsLoadingMessages(false);
-      }
-    }
-  }
+    },
+    [id, mapApiMessagesToState, setMessage]
+  );
 
   useEffect(() => {
     if (!id) return;
@@ -1194,7 +1197,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
       fetchMessages(false);
     }, 4000);
     return () => clearInterval(timer);
-  }, [id]);
+  }, [fetchMessages, id]);
   useEffect(() => {
     setMessageSend("");
     setShowPackSelector(false);
@@ -1205,19 +1208,19 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
     setNextActionDraft(conversation.nextAction || "");
     const derivedPack = derivePackFromLabel(membershipStatus || accessLabel) || "monthly";
     setSelectedPackType(derivedPack);
-  }, [conversation.id]);
+  }, [accessLabel, conversation.id, conversation.nextAction, membershipStatus]);
 
   useEffect(() => {
     if (!id) return;
     fetchAccessGrants(id);
     fetchRecommendedFan();
-  }, [id]);
+  }, [fetchAccessGrants, fetchRecommendedFan, id]);
 
   useEffect(() => {
     if (id) {
       fetchContentItems(id);
     }
-  }, [id]);
+  }, [fetchContentItems, id]);
 
   useEffect(() => {
     if (!queueMode) return;
