@@ -6,21 +6,35 @@ Chat tipo WhatsApp para creadores y fans (versión preliminar).
 
 ```bash
 npm install
+npx prisma generate
+npx prisma migrate dev
 npm run dev
 ```
 
-La app se levanta en modo desarrollo en `http://localhost:3000`.
+La app se levanta en modo desarrollo en `http://localhost:3005`. Para pasos completos y troubleshooting en Windows, revisa el runbook de abajo.
 
-### Windows – Watchpack
-Si ves errores tipo `Watchpack Error (initial scan) EINVAL lstat C:\DumpStack.log.tmp` (o hiberfil.sys/pagefile.sys/swapfile.sys) al hacer `npm run dev`, crea un `.env.local` con:
-```
-WATCHPACK_POLLING=true
-```
-Reinicia el dev-server. Esto activa polling y evita que el watcher intente leer esos ficheros de sistema.
+## Runbook de desarrollo (Windows)
+
+### Quickstart
+1. Copia `.env.example` a `.env` y ajusta `DATABASE_URL` si necesitas otra ruta local.
+2. `npm install`
+3. `npx prisma generate`
+4. `npx prisma migrate dev`
+5. `npm run dev` (http://localhost:3005)
+6. `npm run build` para validar que el build pasa.
 
 ### Base de datos (SQLite)
-- Usa una única base en `prisma/dev.db` con `DATABASE_URL="file:./prisma/dev.db"` (CLI y runtime comparten la misma ruta).
-- Si cambias la ruta, apunta siempre a un único fichero y vuelve a ejecutar `npx prisma migrate deploy && npx prisma generate`.
+- La base local vive en `./prisma/dev.db` y no se commitea.
+- Para regenerarla desde cero: borra `prisma/dev.db` (solo local), ejecuta `npx prisma migrate dev` y, si hay seed disponible, `npx prisma db seed`.
+
+### Watchpack EINVAL en Windows
+- Síntoma: al arrancar `npm run dev`, error `Watchpack Error (initial scan) EINVAL lstat C:\\hiberfil.sys` (o `pagefile.sys`/`swapfile.sys`).
+- Solución: crea `.env.local` con:
+  ```
+  WATCHPACK_POLLING=true
+  WATCHPACK_POLL_INTERVAL=1000
+  ```
+- Reinicia el dev-server. `.env.local` no se commitea.
 
 ## Incluye ahora
 - Header de creador con avatar inicial, nombre y tiempo de respuesta.
