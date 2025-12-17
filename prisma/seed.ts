@@ -34,8 +34,42 @@ async function main() {
       subtitle: "Responde en menos de 24h",
       description:
         "Bienvenido a mi espacio en NOVSY. Aquí comparto avances, envío audios personalizados y respondo tus ideas para crear contenido hecho a tu medida. Únete para acceder a sesiones 1:1, material exclusivo y priorizar tus pedidos.",
+      bioLinkAvatarUrl: "avatar.jpg",
     },
   });
+
+  const extraCreators = await Promise.all(
+    [
+      {
+        id: "creator-2",
+        name: "Clara Ríos",
+        subtitle: "Cálida y cercana, responde en el día",
+        description:
+          "Sesiones 1:1 para fans que buscan conversación auténtica, audio-notas y retos suaves. Sin prisas, pero con presencia.",
+        bioLinkAvatarUrl: "avatar2.jpg",
+      },
+      {
+        id: "creator-3",
+        name: "Mateo Torres",
+        subtitle: "Directo y claro, con ideas accionables",
+        description:
+          "Te doy feedback honesto y guiones concretos. Ideal si quieres planes, retos y cero rodeos.",
+        bioLinkAvatarUrl: "avatar3.png",
+      },
+      {
+        id: "creator-4",
+        name: "Vega Noir",
+        subtitle: "Elegante, responde con detalle",
+        description:
+          "Experiencias premium: guías largas, sesiones planeadas y propuestas cuidadas para fans exigentes.",
+        bioLinkAvatarUrl: "avatar.jpg",
+      },
+    ].map((data) =>
+      prisma.creator.create({
+        data,
+      })
+    )
+  );
 
   await prisma.pack.createMany({
     data: [
@@ -389,6 +423,71 @@ async function main() {
       },
     ],
   });
+
+  const discoveryProfiles = [
+    {
+      creatorId: creator.id,
+      isDiscoverable: true,
+      niches: "compania,conversacion,contenido",
+      communicationStyle: "calido",
+      limits: "Sin contenido explícito, foco en conversación y audio-notas.",
+      priceMin: 20,
+      priceMax: 60,
+      responseHours: 24,
+      allowLocationMatching: true,
+      showCountry: true,
+      showCityApprox: false,
+      country: "España",
+      cityApprox: "Madrid",
+    },
+    {
+      creatorId: extraCreators[0].id,
+      isDiscoverable: true,
+      niches: "conversacion,compania,coaching,support",
+      communicationStyle: "calido",
+      limits: "Sin fotos explícitas; audio y texto cercano.",
+      priceMin: 10,
+      priceMax: 35,
+      responseHours: 12,
+      allowLocationMatching: true,
+      showCountry: true,
+      showCityApprox: true,
+      country: "España",
+      cityApprox: "Barcelona",
+    },
+    {
+      creatorId: extraCreators[1].id,
+      isDiscoverable: true,
+      niches: "contenido,ideas,guiones,juego",
+      communicationStyle: "directo",
+      limits: "Mensajes concretos, sin roleplay explícito.",
+      priceMin: 25,
+      priceMax: 70,
+      responseHours: 18,
+      allowLocationMatching: false,
+      showCountry: false,
+      showCityApprox: false,
+      country: "España",
+      cityApprox: "Valencia",
+    },
+    {
+      creatorId: extraCreators[2].id,
+      isDiscoverable: true,
+      niches: "premium,elegante,asesoria,juego",
+      communicationStyle: "elegante",
+      limits: "Solo propuestas premium y guías largas, sin spam.",
+      priceMin: 60,
+      priceMax: 140,
+      responseHours: 6,
+      allowLocationMatching: true,
+      showCountry: true,
+      showCityApprox: true,
+      country: "México",
+      cityApprox: "CDMX",
+    },
+  ];
+
+  await prisma.creatorDiscoveryProfile.createMany({ data: discoveryProfiles });
 }
 
 main()

@@ -32,6 +32,8 @@ model Creator {
   managerConversation ManagerConversation?
   contentManagerConversation ContentManagerConversation?
   managerAiMessages ManagerAiMessage[]
+  discoveryProfile   CreatorDiscoveryProfile?
+  discoveryFeedbacks DiscoveryFeedback[]
 }
 
 model Pack {
@@ -390,4 +392,36 @@ model CampaignLink {
   createdAt   DateTime @default(now())
 
   @@index([creatorId, createdAt])
+}
+
+model CreatorDiscoveryProfile {
+  id                    String   @id @default(cuid())
+  creatorId             String   @unique
+  creator               Creator  @relation(fields: [creatorId], references: [id])
+  isDiscoverable        Boolean  @default(false)
+  niches                String   @default("")
+  communicationStyle    String
+  limits                String?
+  priceMin              Int?
+  priceMax              Int?
+  responseHours         Int?
+  allowLocationMatching Boolean  @default(false)
+  showCountry           Boolean  @default(false)
+  showCityApprox        Boolean  @default(false)
+  country               String?
+  cityApprox            String?
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+}
+
+model DiscoveryFeedback {
+  id        String   @id @default(cuid())
+  sessionId String
+  creatorId String
+  creator   Creator  @relation(fields: [creatorId], references: [id])
+  vote      String
+  createdAt DateTime @default(now())
+
+  @@index([creatorId])
+  @@index([sessionId])
 }
