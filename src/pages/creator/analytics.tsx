@@ -337,10 +337,10 @@ export default function CreatorAnalyticsPage() {
             ) : (
               <>
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
-                  <MetricCard label="Sesiones" value={data.metrics.sessions} helper="bio_link_view (unique)" />
+                  <MetricCard label="Sesiones" value={data.metrics.sessions} helper="Visitas = sesiones únicas (session_id)" />
                   <MetricCard label="CTR CTA" value={`${data.metrics.ctr}%`} helper="cta_click_enter_chat / bio_link_view" />
-                  <MetricCard label="Chats abiertos" value={data.funnel.openChat.sessions} helper="unique sessions" />
-                  <MetricCard label="Mensajes" value={data.funnel.sendMessage.sessions} helper="unique sessions" />
+                  <MetricCard label="Chats abiertos" value={data.funnel.openChat.sessions} helper="Fans únicos que abren chat" />
+                  <MetricCard label="Mensajes" value={data.funnel.sendMessage.events} helper="Eventos send_message (conteo total)" />
                   <MetricCard label="Fans nuevos" value={data.funnelFans.newFans} helper="distinct fanId" />
                 </div>
 
@@ -348,7 +348,7 @@ export default function CreatorAnalyticsPage() {
                   <div className="flex items-center justify-between mb-3">
                     <div>
                       <h2 className="text-lg font-semibold text-white">Embudo</h2>
-                      <p className="text-sm text-slate-300">Sesiones únicas y eventos por paso</p>
+                      <p className="text-sm text-slate-300">Sesiones únicas (o fans únicos) y eventos por paso</p>
                     </div>
                   </div>
                   <div className="grid grid-cols-1 sm:grid-cols-5 gap-3">

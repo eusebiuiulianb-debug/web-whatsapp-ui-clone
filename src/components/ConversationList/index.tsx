@@ -2,7 +2,6 @@ import { useContext, useState } from "react";
 import { ConversationContext } from "../../context/ConversationContext";
 import Avatar from "../Avatar";
 import { ConversationListData } from "../../types/Conversation"
-import { getAccessState } from "../../lib/access";
 import { getFollowUpTag } from "../../utils/followUp";
 import clsx from "clsx";
 import { PACKS } from "../../config/packs";
@@ -36,7 +35,8 @@ export default function ConversationList(props: ConversationListProps) {
   const hasUnread = !isManagerChat && !!unreadCount && unreadCount > 0;
   const nameClasses = hasUnread ? "text-slate-50 text-sm font-semibold" : "text-slate-50 text-sm font-medium";
   const previewClasses = hasUnread ? "text-slate-50 text-xs font-medium" : "text-slate-400 text-xs";
-  const sourceLabel = formatSourceLabel(data.firstUtmSource);
+  const sourceLabelRaw = typeof data.firstUtmSource === "string" ? data.firstUtmSource : null;
+  const sourceLabel = sourceLabelRaw && sourceLabelRaw.trim().length > 0 ? formatSourceLabel(sourceLabelRaw) : "";
   const campaignLabel = data.firstUtmCampaign?.trim();
   const contentLabel = data.firstUtmContent?.trim();
   if (isManagerChat) {
@@ -77,10 +77,17 @@ export default function ConversationList(props: ConversationListProps) {
       </div>
     );
   }
-  const derivedAccessState = accessState || (accessState === "NONE" ? "NONE" : getAccessState({ membershipStatus, daysLeft }));
+  const normalizedAccessState = (() => {
+    const provided = (accessState || "").toString().toUpperCase();
+    if (provided === "ACTIVE" || provided === "EXPIRED" || provided === "NONE") return provided as "ACTIVE" | "EXPIRED" | "NONE";
+    const hasActiveGrant = Array.isArray(data.activeGrantTypes) && data.activeGrantTypes.length > 0 && (daysLeft ?? 0) > 0;
+    if (hasActiveGrant) return "ACTIVE";
+    if (data.hasAccessHistory) return "EXPIRED";
+    return "NONE";
+  })();
 
   const daysLabel = daysLeft !== undefined && daysLeft !== null ? `${daysLeft} d` : "";
-  const nameTint = derivedAccessState === "EXPIRED" ? "text-[#7d8a93]" : nameClasses;
+  const nameTint = normalizedAccessState === "EXPIRED" ? "text-[#7d8a93]" : nameClasses;
   const followUpTag = getFollowUpTag(membershipStatus, daysLeft, data.activeGrantTypes);
   const notesCount = data.notesCount ?? 0;
   const segment = (data.segment || "").toUpperCase();
@@ -142,13 +149,16 @@ export default function ConversationList(props: ConversationListProps) {
   }
 
   function getAccessChipLabel() {
+    if (normalizedAccessState === "NONE") {
+      if (sourceLabel) return `Origen: ${sourceLabel}`;
+      return isNew ? "Nuevo" : "Sin acceso";
+    }
+    if (normalizedAccessState === "EXPIRED") return "Caducado";
     if (accessLabel) return accessLabel;
     const statusLower = (membershipStatus || "").toLowerCase();
     if (statusLower.includes("trial") || statusLower.includes("prueba")) return PACKS.trial.shortLabel;
     if (statusLower.includes("monthly") || statusLower.includes("mensual") || statusLower.includes("suscripción")) return PACKS.monthly.shortLabel;
     if (statusLower.includes("special") || statusLower.includes("individual") || statusLower.includes("especial")) return PACKS.special.shortLabel;
-    if ((derivedAccessState || "").toUpperCase() === "NONE") return isNew ? "Nuevo" : "Sin acceso";
-    if ((derivedAccessState || "").toUpperCase() === "EXPIRED") return "Caducado";
     return membershipStatus || "";
   }
 

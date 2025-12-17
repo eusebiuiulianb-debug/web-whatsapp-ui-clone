@@ -89,18 +89,26 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
     const viewSessions = new Set<string>();
     const ctaSessions = new Set<string>();
-    const openChatSessions = new Set<string>();
-    const sendMessageSessions = new Set<string>();
+    const openChatActors = new Set<string>();
+    const sendMessageActors = new Set<string>();
     const purchaseSessions = new Set<string>();
     const newFans = new Set<string>();
     const openChatFans = new Set<string>();
     const sendMessageFans = new Set<string>();
+    let viewEvents = 0;
+    let ctaEvents = 0;
+    let openChatEvents = 0;
+    let sendMessageEvents = 0;
+    let purchaseEvents = 0;
 
     const aggregatedCampaigns = new Map<
       string,
-      { utmCampaign: string; utmSource: string; events: Record<string, Set<string>>; newFans: Set<string> }
+      { utmCampaign: string; utmSource: string; events: Record<string, Set<string>>; sendMessageEvents: number; newFans: Set<string> }
     >();
-    const aggregatedCreatives = new Map<string, { utmContent: string; events: Record<string, Set<string>>; newFans: Set<string> }>();
+    const aggregatedCreatives = new Map<
+      string,
+      { utmContent: string; events: Record<string, Set<string>>; sendMessageEvents: number; newFans: Set<string> }
+    >();
 
     const ensureCampaign = (campaign: string, source: string) => {
       const key = `${campaign}||${source}`;
@@ -115,6 +123,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
             [ANALYTICS_EVENTS.SEND_MESSAGE]: new Set<string>(),
             [ANALYTICS_EVENTS.PURCHASE_SUCCESS]: new Set<string>(),
           },
+          sendMessageEvents: 0,
           newFans: new Set<string>(),
         });
       }
@@ -133,6 +142,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
             [ANALYTICS_EVENTS.SEND_MESSAGE]: new Set<string>(),
             [ANALYTICS_EVENTS.PURCHASE_SUCCESS]: new Set<string>(),
           },
+          sendMessageEvents: 0,
           newFans: new Set<string>(),
         });
       }
@@ -143,11 +153,27 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       const session = evt.sessionId;
       const name = evt.eventName;
       const fanId = evt.fanId || null;
-      if (name === ANALYTICS_EVENTS.BIO_LINK_VIEW) viewSessions.add(session);
-      if (name === ANALYTICS_EVENTS.CTA_CLICK_ENTER_CHAT) ctaSessions.add(session);
-      if (name === ANALYTICS_EVENTS.OPEN_CHAT) openChatSessions.add(session);
-      if (name === ANALYTICS_EVENTS.SEND_MESSAGE) sendMessageSessions.add(session);
-      if (name === ANALYTICS_EVENTS.PURCHASE_SUCCESS) purchaseSessions.add(session);
+      const fanKey = fanId || (session ? `session:${session}` : null);
+      if (name === ANALYTICS_EVENTS.BIO_LINK_VIEW) {
+        viewSessions.add(session);
+        viewEvents += 1;
+      }
+      if (name === ANALYTICS_EVENTS.CTA_CLICK_ENTER_CHAT) {
+        ctaSessions.add(session);
+        ctaEvents += 1;
+      }
+      if (name === ANALYTICS_EVENTS.OPEN_CHAT) {
+        if (fanKey) openChatActors.add(fanKey);
+        openChatEvents += 1;
+      }
+      if (name === ANALYTICS_EVENTS.SEND_MESSAGE) {
+        sendMessageEvents += 1;
+        if (fanKey) sendMessageActors.add(fanKey);
+      }
+      if (name === ANALYTICS_EVENTS.PURCHASE_SUCCESS) {
+        purchaseSessions.add(session);
+        purchaseEvents += 1;
+      }
       if (name === ANALYTICS_EVENTS.NEW_FAN && fanId) newFans.add(fanId);
       if (name === ANALYTICS_EVENTS.OPEN_CHAT && fanId) openChatFans.add(fanId);
       if (name === ANALYTICS_EVENTS.SEND_MESSAGE && fanId) sendMessageFans.add(fanId);
@@ -158,14 +184,27 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
       const campaignRow = ensureCampaign(campaign, source);
       if (campaignRow.events[name]) {
-        campaignRow.events[name].add(session);
+        const keyForEvent = name === ANALYTICS_EVENTS.OPEN_CHAT ? fanKey : session;
+        if (keyForEvent) {
+          campaignRow.events[name].add(keyForEvent);
+        }
+      }
+      if (name === ANALYTICS_EVENTS.SEND_MESSAGE) {
+        campaignRow.sendMessageEvents += 1;
       }
       if (name === ANALYTICS_EVENTS.NEW_FAN && fanId) {
         campaignRow.newFans.add(fanId);
       }
+
       const creativeRow = ensureCreative(creative);
       if (creativeRow.events[name]) {
-        creativeRow.events[name].add(session);
+        const keyForEvent = name === ANALYTICS_EVENTS.OPEN_CHAT ? fanKey : session;
+        if (keyForEvent) {
+          creativeRow.events[name].add(keyForEvent);
+        }
+      }
+      if (name === ANALYTICS_EVENTS.SEND_MESSAGE) {
+        creativeRow.sendMessageEvents += 1;
       }
       if (name === ANALYTICS_EVENTS.NEW_FAN && fanId) {
         creativeRow.newFans.add(fanId);
@@ -180,7 +219,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         viewSessions: row.events[ANALYTICS_EVENTS.BIO_LINK_VIEW].size,
         ctaSessions: row.events[ANALYTICS_EVENTS.CTA_CLICK_ENTER_CHAT].size,
         openChatSessions: row.events[ANALYTICS_EVENTS.OPEN_CHAT].size,
-        sendMessageSessions: row.events[ANALYTICS_EVENTS.SEND_MESSAGE].size,
+        sendMessageSessions: row.sendMessageEvents,
         purchaseSessions: row.events[ANALYTICS_EVENTS.PURCHASE_SUCCESS].size,
         fansNew: row.newFans.size,
       }))
@@ -194,7 +233,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         viewSessions: row.events[ANALYTICS_EVENTS.BIO_LINK_VIEW].size,
         ctaSessions: row.events[ANALYTICS_EVENTS.CTA_CLICK_ENTER_CHAT].size,
         openChatSessions: row.events[ANALYTICS_EVENTS.OPEN_CHAT].size,
-        sendMessageSessions: row.events[ANALYTICS_EVENTS.SEND_MESSAGE].size,
+        sendMessageSessions: row.sendMessageEvents,
         purchaseSessions: row.events[ANALYTICS_EVENTS.PURCHASE_SUCCESS].size,
         fansNew: row.newFans.size,
       }))
@@ -202,22 +241,22 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       .slice(0, 20);
 
     const funnel = {
-      view: { sessions: viewSessions.size, events: events.filter((e) => e.eventName === ANALYTICS_EVENTS.BIO_LINK_VIEW).length },
+      view: { sessions: viewSessions.size, events: viewEvents },
       cta: {
         sessions: ctaSessions.size,
-        events: events.filter((e) => e.eventName === ANALYTICS_EVENTS.CTA_CLICK_ENTER_CHAT).length,
+        events: ctaEvents,
       },
       openChat: {
-        sessions: openChatSessions.size,
-        events: events.filter((e) => e.eventName === ANALYTICS_EVENTS.OPEN_CHAT).length,
+        sessions: openChatActors.size,
+        events: openChatEvents,
       },
       sendMessage: {
-        sessions: sendMessageSessions.size,
-        events: events.filter((e) => e.eventName === ANALYTICS_EVENTS.SEND_MESSAGE).length,
+        sessions: sendMessageActors.size,
+        events: sendMessageEvents,
       },
       purchase: {
         sessions: purchaseSessions.size,
-        events: events.filter((e) => e.eventName === ANALYTICS_EVENTS.PURCHASE_SUCCESS).length,
+        events: purchaseEvents,
       },
     };
 
