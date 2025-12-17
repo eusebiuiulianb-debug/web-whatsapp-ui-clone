@@ -1,5 +1,5 @@
 import type { NextApiRequest, NextApiResponse } from "next";
-import { ANALYTICS_EVENTS } from "../../../lib/analyticsEvents";
+import { ANALYTICS_EVENTS, type AnalyticsEventName } from "../../../lib/analyticsEvents";
 import { ensureAnalyticsCookie, readAnalyticsCookie } from "../../../lib/analyticsCookie";
 
 type Body = {
@@ -151,7 +151,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         meta: { handle: handleParam || slugify(match.name || "creator") },
       } as const;
 
-      const eventsToCreate = [
+      const eventsToCreate: Array<{ eventName: AnalyticsEventName; data: typeof commonAnalyticsData }> = [
         {
           eventName: ANALYTICS_EVENTS.OPEN_CHAT,
           data: commonAnalyticsData,

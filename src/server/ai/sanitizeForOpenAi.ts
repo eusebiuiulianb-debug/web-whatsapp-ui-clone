@@ -1,4 +1,4 @@
-import { maybeDecrypt } from "../crypto/maybeDecrypt";
+import { ENCRYPTED_BLOB_REMOVED, stripEncryptedBlobs, stripLargeBase64LikeBlobs } from "../../lib/encryptedBlobs";
 
 type SanitizeOptions = {
   creatorId?: string;
@@ -18,25 +18,11 @@ export function sanitizeForOpenAi<T>(value: T, opts?: SanitizeOptions): T {
   return sanitizeValue(value as unknown, { creatorId: opts?.creatorId, path: [] }) as T;
 }
 
-export function sanitizeOpenAiMessages(
-  messages: Array<{ role: "system" | "user" | "assistant"; content: string }>,
-  opts?: SanitizeOptions
-): Array<{ role: "system" | "user" | "assistant"; content: string }> {
-  const creatorId = opts?.creatorId;
-  return messages
-    .map((msg, idx) => {
-      const content = sanitizeString(msg.content, { creatorId, label: `openai.messages.${idx}.content` });
-      return content ? { ...msg, content } : null;
-    })
-    .filter((msg): msg is { role: "system" | "user" | "assistant"; content: string } => Boolean(msg));
-}
-
 function sanitizeValue(value: unknown, ctx: { creatorId?: string; path: string[] }): unknown {
   if (value === null || value === undefined) return value;
 
   if (typeof value === "string") {
-    const label = ctx.path.length > 0 ? ctx.path.join(".") : "value";
-    return sanitizeString(value, { creatorId: ctx.creatorId, label });
+    return sanitizeString(value);
   }
 
   if (typeof value === "number" || typeof value === "boolean") return value;
@@ -63,9 +49,8 @@ function sanitizeValue(value: unknown, ctx: { creatorId?: string; path: string[]
       }
 
       if (key.toLowerCase() === "encrypted_content") {
-        const decrypted = typeof raw === "string" ? maybeDecrypt(raw, { creatorId: ctx.creatorId, label: nextPath.join(".") }) : null;
-        if (decrypted && decrypted.trim()) {
-          out.content = decrypted;
+        if (typeof out.content !== "string") {
+          out.content = ENCRYPTED_BLOB_REMOVED;
         }
         continue;
       }
@@ -81,35 +66,11 @@ function sanitizeValue(value: unknown, ctx: { creatorId?: string; path: string[]
   return null;
 }
 
-function sanitizeString(value: string, ctx: { creatorId?: string; label: string }): string | null {
-  const decryptedOrSame = maybeDecrypt(value, { creatorId: ctx.creatorId, label: ctx.label });
-  if (decryptedOrSame === null) return null;
-  if (typeof decryptedOrSame !== "string") return null;
-  return redactEmbeddedFernetTokens(decryptedOrSame, { creatorId: ctx.creatorId, label: ctx.label });
+function sanitizeString(value: string): string {
+  const withoutEncrypted = stripEncryptedBlobs(value, ENCRYPTED_BLOB_REMOVED);
+  return stripLargeBase64LikeBlobs(withoutEncrypted, ENCRYPTED_BLOB_REMOVED);
 }
 
 function isSensitiveKey(key: string): boolean {
   return SENSITIVE_KEY_PATTERNS.some((pattern) => pattern.test(key));
-}
-
-function redactEmbeddedFernetTokens(value: string, ctx: { creatorId?: string; label: string }): string {
-  if (!value.includes("gAAAA")) return value;
-
-  return value.replace(/gAAAA[0-9A-Za-z_-]{20,}/g, (match) => {
-    const decrypted = maybeDecrypt(match, { creatorId: ctx.creatorId, label: `${ctx.label}._embedded` });
-    if (!decrypted) return "[encrypted]";
-    if (looksSensitiveValue(decrypted)) return "[redacted]";
-    return decrypted;
-  });
-}
-
-function looksSensitiveValue(value: string): boolean {
-  const trimmed = value.trim();
-  if (!trimmed) return false;
-  if (/^sk-[A-Za-z0-9]{8,}/.test(trimmed)) return true;
-  if (/^Bearer\\s+/i.test(trimmed)) return true;
-  if (/^eyJ[A-Za-z0-9_-]+\\.[A-Za-z0-9_-]+\\.[A-Za-z0-9_-]+$/.test(trimmed)) return true; // JWT-ish
-  // Likely a token/secret if it's a long single "word" with no spaces.
-  if (trimmed.length >= 64 && !/\\s/.test(trimmed)) return true;
-  return false;
 }

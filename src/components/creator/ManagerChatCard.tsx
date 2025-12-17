@@ -1,5 +1,6 @@
 import { forwardRef, ReactNode, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
 import clsx from "clsx";
+import Link from "next/link";
 import type { CreatorBusinessSnapshot } from "../../lib/creatorManager";
 import MessageBalloon from "../MessageBalloon";
 import { PillButton } from "../ui/PillButton";
@@ -291,9 +292,9 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
     ? (
         <span>
           Revisar ajustes: falta `OPENAI_API_KEY` o no se pudo descifrar.{" "}
-          <a href="/creator/ai-settings" className="underline hover:text-amber-100">
-            Abrir ajustes
-          </a>
+          <Link href="/creator/ai-settings">
+            <a className="underline hover:text-amber-100">Abrir ajustes</a>
+          </Link>
         </span>
       )
     : "Modo demo activo: conecta tu OPENAI_API_KEY para respuestas con tus datos reales.";

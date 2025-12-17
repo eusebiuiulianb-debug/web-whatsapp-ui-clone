@@ -105,7 +105,24 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     }
 
     const fans = await prisma.fan.findMany({
-      include: {
+      select: {
+        id: true,
+        name: true,
+        avatar: true,
+        preview: true,
+        time: true,
+        unreadCount: true,
+        isNew: true,
+        membershipStatus: true,
+        daysLeft: true,
+        lastSeen: true,
+        nextAction: true,
+        creatorId: true,
+        segment: true,
+        riskLevel: true,
+        healthScore: true,
+        isBlocked: true,
+        isArchived: true,
         accessGrants: true,
         notes: {
           orderBy: { createdAt: "desc" },
@@ -376,11 +393,11 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         },
         isBlocked: fan.isBlocked ?? false,
         isArchived: fan.isArchived ?? false,
-        firstUtmSource: fan.firstUtmSource ?? null,
-        firstUtmMedium: fan.firstUtmMedium ?? null,
-        firstUtmCampaign: fan.firstUtmCampaign ?? null,
-        firstUtmContent: fan.firstUtmContent ?? null,
-        firstUtmTerm: fan.firstUtmTerm ?? null,
+        firstUtmSource: (fan as any).firstUtmSource ?? null,
+        firstUtmMedium: (fan as any).firstUtmMedium ?? null,
+        firstUtmCampaign: (fan as any).firstUtmCampaign ?? null,
+        firstUtmContent: (fan as any).firstUtmContent ?? null,
+        firstUtmTerm: (fan as any).firstUtmTerm ?? null,
       };
     });
 

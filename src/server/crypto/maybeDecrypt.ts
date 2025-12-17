@@ -6,6 +6,7 @@ type MaybeDecryptContext = {
 };
 
 const ENCRYPTED_PREFIX = "gAAAA";
+const ENCRYPTED_STORAGE_PREFIX = "enc:v1:";
 
 const FERNET_ENV_KEYS = [
   "FERNET_KEY",
@@ -17,7 +18,7 @@ const FERNET_ENV_KEYS = [
 ] as const;
 
 export function looksLikeEncryptedToken(value: string): boolean {
-  return value.startsWith(ENCRYPTED_PREFIX);
+  return value.startsWith(ENCRYPTED_PREFIX) || value.startsWith(ENCRYPTED_STORAGE_PREFIX);
 }
 
 export function maybeDecrypt(token: string | null | undefined, ctx?: MaybeDecryptContext): string | null {
@@ -28,6 +29,10 @@ export function maybeDecrypt(token: string | null | undefined, ctx?: MaybeDecryp
   if (!candidate) return token;
   if (!looksLikeEncryptedToken(candidate)) return token;
 
+  const normalizedToken = candidate.startsWith(ENCRYPTED_STORAGE_PREFIX)
+    ? candidate.slice(ENCRYPTED_STORAGE_PREFIX.length).trim()
+    : candidate;
+
   const keyInfo = resolveFernetKeyFromEnv();
   if (!keyInfo) {
     console.warn("decrypt_failed", { creatorId: ctx?.creatorId ?? null, label: ctx?.label ?? null, reason: "missing_env_key" });
@@ -35,7 +40,7 @@ export function maybeDecrypt(token: string | null | undefined, ctx?: MaybeDecryp
   }
 
   try {
-    return decryptFernetToken(candidate, keyInfo.key);
+    return decryptFernetToken(normalizedToken, keyInfo.key);
   } catch (err) {
     const reason = err instanceof Error ? err.message : "unknown_error";
     console.warn("decrypt_failed", {
@@ -120,4 +125,3 @@ function toBase64(base64Url: string): string {
   }
   return base64;
 }
-

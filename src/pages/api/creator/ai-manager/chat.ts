@@ -11,8 +11,9 @@ import {
 } from "../../../../lib/ai/manager/prompts";
 import { buildDemoManagerReply, type ManagerDemoReply } from "../../../../lib/ai/manager/demo";
 import { registerAiUsage } from "../../../../lib/ai/registerAiUsage";
+import { isInvalidEncryptedContentError, parseOpenAiError, toSafeErrorMessage } from "../../../../server/ai/openAiError";
 import { maybeDecrypt } from "../../../../server/crypto/maybeDecrypt";
-import { sanitizeForOpenAi, sanitizeOpenAiMessages } from "../../../../server/ai/sanitizeForOpenAi";
+import { sanitizeForOpenAi } from "../../../../server/ai/sanitizeForOpenAi";
 
 type ManagerReply = ManagerDemoReply & { mode: "STRATEGY" | "CONTENT" | "GROWTH"; text: string };
 
@@ -106,19 +107,26 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
     let reply: ManagerReply;
     let creditsUsed = 0;
     try {
-      const openAiMessages = sanitizeOpenAiMessages(
-        [{ role: "system", content: systemPrompt }, ...historyMessages, { role: "user", content: userPrompt }],
-        { creatorId }
-      );
-      if (openAiMessages.length === 0) {
-        throw new Error("invalid_encrypted_content");
-      }
-      const { completionText, totalTokens } = await callOpenAiChat(apiKey, openAiMessages);
+      const rawOpenAiMessages: Array<{ role: "system" | "user" | "assistant"; content: string }> = [
+        { role: "system", content: systemPrompt },
+        ...historyMessages,
+        { role: "user", content: userPrompt },
+      ];
+      const { completionText, totalTokens } = await callOpenAiChat(apiKey, rawOpenAiMessages, creatorId);
       reply = parseManagerReply(completionText, tab);
       creditsUsed = calculateCredits(totalTokens);
     } catch (err) {
-      console.error("Error calling Manager IA", err);
       usedFallback = true;
+      if (isInvalidEncryptedContentError(err)) {
+        console.warn("manager_ai_invalid_encrypted_content", {
+          creatorId,
+          status: (err as any)?.status ?? null,
+          code: (err as any)?.code ?? "invalid_encrypted_content",
+          message: "[redacted]",
+        });
+      } else {
+        console.error("Error calling Manager IA", toSafeErrorMessage(err, { creatorId }));
+      }
       reply = buildDemoManagerReply(tabToString(tab), context) as ManagerReply;
       creditsUsed = 0;
     }
@@ -156,7 +164,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
       settingsStatus,
     });
   } catch (err) {
-    console.error("Error processing manager chat", err);
+    console.error("Error processing manager chat", toSafeErrorMessage(err));
     return sendServerError(res, "No se pudo procesar el chat del Manager IA");
   }
 }
@@ -241,13 +249,17 @@ function parseManagerReply(raw: string, tab: ManagerAiTab): ManagerReply {
 
 async function callOpenAiChat(
   apiKey: string,
-  messages: Array<{ role: "system" | "user" | "assistant"; content: string }>
+  messages: Array<{ role: "system" | "user" | "assistant"; content: string }>,
+  creatorId?: string
 ) {
-  const payload = {
-    model: process.env.OPENAI_MODEL || "gpt-4o-mini",
-    temperature: 0.4,
-    messages,
-  };
+  const payload = sanitizeForOpenAi(
+    {
+      model: process.env.OPENAI_MODEL || "gpt-4o-mini",
+      temperature: 0.4,
+      messages,
+    },
+    { creatorId }
+  );
 
   const response = await fetch("https://api.openai.com/v1/chat/completions", {
     method: "POST",
@@ -259,8 +271,12 @@ async function callOpenAiChat(
   });
 
   if (!response.ok) {
-    const errorBody = await response.text();
-    throw new Error(`OpenAI error ${response.status}: ${errorBody}`);
+    const errorInfo = await parseOpenAiError(response, { creatorId });
+    const error = new Error(`OpenAI error ${errorInfo.status}: ${errorInfo.message}`);
+    (error as any).code = errorInfo.code;
+    (error as any).status = errorInfo.status;
+    (error as any).safeMessage = errorInfo.message;
+    throw error;
   }
 
   const data = (await response.json()) as any;

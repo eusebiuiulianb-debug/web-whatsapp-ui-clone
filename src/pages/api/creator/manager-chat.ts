@@ -5,7 +5,8 @@ import { sendBadRequest, sendServerError } from "../../../lib/apiError";
 import { getCreatorBusinessSnapshot, type CreatorBusinessSnapshot } from "../../../lib/creatorManager";
 import { BUSINESS_MANAGER_SYSTEM_PROMPT } from "../../../lib/ai/prompts";
 import { maybeDecrypt } from "../../../server/crypto/maybeDecrypt";
-import { sanitizeForOpenAi, sanitizeOpenAiMessages } from "../../../server/ai/sanitizeForOpenAi";
+import { isInvalidEncryptedContentError, parseOpenAiError, toSafeErrorMessage } from "../../../server/ai/openAiError";
+import { sanitizeForOpenAi } from "../../../server/ai/sanitizeForOpenAi";
 
 type SerializedMessage = {
   id: string;
@@ -96,8 +97,17 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
           creatorId,
         });
       } catch (err) {
-        console.error("Error calling Manager IA", err);
         usedFallback = true;
+        if (isInvalidEncryptedContentError(err)) {
+          console.warn("manager_ai_invalid_encrypted_content", {
+            creatorId,
+            status: (err as any)?.status ?? null,
+            code: (err as any)?.code ?? "invalid_encrypted_content",
+            message: "[redacted]",
+          });
+        } else {
+          console.error("Error calling Manager IA", toSafeErrorMessage(err, { creatorId }));
+        }
         managerReply = getManagerFallbackReply(incomingMessage, snapshot);
       }
     }
@@ -122,7 +132,7 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
       usedFallback,
     });
   } catch (err) {
-    console.error("Error processing manager chat", err);
+    console.error("Error processing manager chat", toSafeErrorMessage(err));
     return sendServerError(res, "No se pudo enviar el mensaje al Manager IA");
   }
 }
@@ -185,16 +195,15 @@ async function askManagerAi(params: {
   const payload = {
     model: process.env.OPENAI_MODEL || "gpt-4o-mini",
     temperature: 0.4,
-    messages: sanitizeOpenAiMessages(
-      [
-        { role: "system", content: systemPrompt },
-        { role: "system", content: context },
-        ...historyMessages,
-        { role: "user", content: userMessage },
-      ],
-      { creatorId }
-    ),
+    messages: [
+      { role: "system", content: systemPrompt },
+      { role: "system", content: context },
+      ...historyMessages,
+      { role: "user", content: userMessage },
+    ],
   };
+
+  const safePayload = sanitizeForOpenAi(payload, { creatorId });
 
   const response = await fetch("https://api.openai.com/v1/chat/completions", {
     method: "POST",
@@ -202,12 +211,16 @@ async function askManagerAi(params: {
       "Content-Type": "application/json",
       Authorization: `Bearer ${apiKey}`,
     },
-    body: JSON.stringify(payload),
+    body: JSON.stringify(safePayload),
   });
 
   if (!response.ok) {
-    const errorBody = await response.text();
-    throw new Error(`OpenAI error ${response.status}: ${errorBody}`);
+    const errorInfo = await parseOpenAiError(response, { creatorId });
+    const error = new Error(`OpenAI error ${errorInfo.status}: ${errorInfo.message}`);
+    (error as any).code = errorInfo.code;
+    (error as any).status = errorInfo.status;
+    (error as any).safeMessage = errorInfo.message;
+    throw error;
   }
 
   const data = (await response.json()) as any;

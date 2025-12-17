@@ -1,5 +1,6 @@
 import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from "react";
 import clsx from "clsx";
+import Link from "next/link";
 import type { CreatorContentSnapshot } from "../../lib/creatorContentManager";
 
 type ContentManagerChatMessage = {
@@ -18,6 +19,7 @@ type ContentChatPostResponse = {
   creditsUsed: number;
   creditsRemaining: number;
   usedFallback?: boolean;
+  settingsStatus?: "ok" | "settings_missing";
 };
 
 const contentSuggestions = [
@@ -50,6 +52,7 @@ export const ContentManagerChatCard = forwardRef<ContentManagerChatCardHandle, P
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [usedFallback, setUsedFallback] = useState(false);
+  const [settingsStatus, setSettingsStatus] = useState<"ok" | "settings_missing" | null>(null);
   const [input, setInput] = useState("");
   const listRef = useRef<HTMLDivElement | null>(null);
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
@@ -125,6 +128,7 @@ export const ContentManagerChatCard = forwardRef<ContentManagerChatCardHandle, P
         [...prev.filter((m) => m.id !== optimisticId), assistantMessage].slice(-50)
       );
       setUsedFallback(Boolean(data?.usedFallback));
+      setSettingsStatus(data?.settingsStatus ?? null);
       void loadMessages({ silent: true });
       if (!externalText) setInput("");
     } catch (err) {
@@ -173,6 +177,18 @@ export const ContentManagerChatCard = forwardRef<ContentManagerChatCardHandle, P
     embedded ? "p-3 lg:p-4 gap-3" : "p-4 gap-3"
   );
 
+  const fallbackBanner =
+    settingsStatus === "settings_missing" ? (
+      <span>
+        Revisar ajustes: falta `OPENAI_API_KEY` o no se pudo descifrar.{" "}
+        <Link href="/creator/ai-settings">
+          <a className="underline hover:text-amber-100">Abrir ajustes</a>
+        </Link>
+      </span>
+    ) : (
+      "Modo demo: conecta tu OPENAI_API_KEY para respuestas con tus datos reales."
+    );
+
   return (
     <section className={containerClass}>
       {!hideTitle && (
@@ -190,7 +206,7 @@ export const ContentManagerChatCard = forwardRef<ContentManagerChatCardHandle, P
         <div className="text-[12px] text-slate-100">{summaryText}</div>
         {usedFallback && (
           <div className="text-[11px] text-amber-200">
-            Modo demo: conecta tu OPENAI_API_KEY para respuestas con tus datos reales.
+            {fallbackBanner}
           </div>
         )}
       </div>
