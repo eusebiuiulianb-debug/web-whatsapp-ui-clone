@@ -216,6 +216,24 @@ function SideBarInner() {
     return false;
   }, []);
 
+  const mergeFansById = useCallback(
+    (prev: ConversationListData[], incoming: ConversationListData[]): ConversationListData[] => {
+      if (prev.length === 0) return incoming;
+      const incomingIds = new Set<string>();
+      const merged = incoming.map((fan) => {
+        if (fan.id) incomingIds.add(fan.id);
+        return fan;
+      });
+      for (const fan of prev) {
+        if (fan.id && !incomingIds.has(fan.id)) {
+          merged.push(fan);
+        }
+      }
+      return merged;
+    },
+    []
+  );
+
   const safeFans: ConversationListData[] = Array.isArray(fans) ? fans : [];
   useEffect(() => {
     fansRef.current = safeFans;
@@ -317,12 +335,15 @@ function SideBarInner() {
   }
 
   const updateUnreadCounts = useCallback(async (fanList: ConversationListData[], map: UnreadMap) => {
+    type UnreadEntry = { id?: string; count: number; empty?: boolean };
     const entries = await Promise.all(
       fanList.map(async (fan) => {
-        const lastRead = getLastReadForFan(map, fan.id as string);
-        if (!lastRead) return { id: fan.id, count: 0 };
+        const fanId = fan.id as string | undefined;
+        if (!fanId) return { id: fanId, count: 0 } as UnreadEntry;
+        const lastRead = getLastReadForFan(map, fanId);
+        if (!lastRead) return { id: fanId, count: 0 };
         try {
-          const res = await fetch(`/api/messages?fanId=${fan.id}`);
+          const res = await fetch(`/api/messages?fanId=${encodeURIComponent(fanId)}`);
           if (!res.ok) throw new Error("error");
           const data = await res.json();
           const msgs = Array.isArray(data.items)
@@ -330,29 +351,46 @@ function SideBarInner() {
             : Array.isArray(data.messages)
             ? (data.messages as Message[])
             : [];
+          const filtered = msgs.filter((msg) => msg.fanId === fanId);
+          if (filtered.length === 0) {
+            return { id: fanId, count: 0, empty: true };
+          }
           const lrTs = lastRead.getTime();
-          const unread = msgs.filter((msg) => {
+          const unread = filtered.filter((msg) => {
             if (msg.from !== "fan") return false;
             const ts = parseMessageTimestamp(msg);
             if (ts === null) return false;
             return ts > lrTs;
           }).length;
-          return { id: fan.id, count: unread };
+          return { id: fanId, count: unread };
         } catch (_err) {
-          return { id: fan.id, count: 0 };
+          return { id: fanId, count: 0 };
         }
       })
     );
 
-    const byId = entries.reduce<Record<string, number>>((acc, curr) => {
-      if (curr.id) acc[curr.id] = curr.count;
+    const byId = entries.reduce<Record<string, UnreadEntry>>((acc, curr) => {
+      if (curr.id) acc[curr.id] = curr;
       return acc;
     }, {});
 
     setFans((prev) => {
       let changed = false;
       const next = prev.map((fan) => {
-        const nextUnread = fan.id ? byId[fan.id] ?? fan.unreadCount : fan.unreadCount;
+        const fanId = fan.id as string | undefined;
+        if (!fanId) return fan;
+        const entry = byId[fanId];
+        if (!entry) return fan;
+        if (entry.empty) {
+          const shouldClear =
+            (fan.lastMessage ?? "") !== "" || (fan.lastTime ?? "") !== "" || (fan.unreadCount ?? 0) !== 0;
+          if (shouldClear) {
+            changed = true;
+            return { ...fan, lastMessage: "", lastTime: "", unreadCount: 0 };
+          }
+          return fan;
+        }
+        const nextUnread = entry.count ?? fan.unreadCount;
         if (nextUnread !== fan.unreadCount) {
           changed = true;
           return { ...fan, unreadCount: nextUnread };
@@ -585,17 +623,18 @@ function SideBarInner() {
       const data = await res.json();
       const rawItems = Array.isArray(data.items) ? (data.items as Fan[]) : [];
       const mapped: ConversationListData[] = mapFans(rawItems);
-      if (hasFanListChanged(fansRef.current, mapped)) {
-        setFans(mapped);
+      const merged = mergeFansById(fansRef.current, mapped);
+      if (hasFanListChanged(fansRef.current, merged)) {
+        setFans(merged);
         setFansError("");
         setNextCursor(typeof data.nextCursor === "string" ? data.nextCursor : null);
         setHasMore(Boolean(data.hasMore));
-        updateUnreadCounts(mapped, loadUnreadMap());
+        updateUnreadCounts(merged, loadUnreadMap());
       }
     } catch (_err) {
       // silent poll failure
     }
-  }, [apiFilter, hasFanListChanged, mapFans, search, setFansError, updateUnreadCounts]);
+  }, [apiFilter, hasFanListChanged, mapFans, mergeFansById, search, setFansError, updateUnreadCounts]);
 
   useEffect(() => {
     setUnreadMap(loadUnreadMap());

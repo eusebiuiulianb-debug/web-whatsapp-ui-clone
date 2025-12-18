@@ -26,16 +26,28 @@ async function handleGet(req: NextApiRequest, res: NextApiResponse<MessageRespon
     return res.status(400).json({ ok: false, error: "fanId is required" });
   }
 
+  const normalizedFanId = fanId.trim();
+
   try {
     const messages = await prisma.message.findMany({
-      where: { fanId },
+      where: {
+        OR: [
+          { fanId: normalizedFanId },
+          { id: { startsWith: `${normalizedFanId}-` } },
+        ],
+      },
       orderBy: { id: "asc" },
       include: { contentItem: true },
     });
 
-    return res.status(200).json({ ok: true, items: messages, messages });
+    const normalizedMessages = messages.map((message) => ({
+      ...message,
+      fanId: normalizedFanId,
+    }));
+
+    return res.status(200).json({ ok: true, items: normalizedMessages, messages: normalizedMessages });
   } catch (err) {
-    console.error("api/messages get error", { fanId, error: (err as Error)?.message });
+    console.error("api/messages get error", { fanId: normalizedFanId, error: (err as Error)?.message });
     return res.status(500).json({ ok: false, error: "Error fetching messages" });
   }
 }

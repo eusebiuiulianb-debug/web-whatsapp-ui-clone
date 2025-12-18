@@ -56,7 +56,7 @@ function reconcileMessages(
   targetFanId?: string
 ): ConversationMessage[] {
   const filteredIncoming = targetFanId
-    ? incoming.filter((msg) => !msg.fanId || msg.fanId === targetFanId)
+    ? incoming.filter((msg) => msg.fanId === targetFanId)
     : incoming;
   const existingKeys = existing.map((msg, idx) => msg.id || `__idx-${idx}`);
   const map = new Map<string, ConversationMessage>();
@@ -1174,6 +1174,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
       const isContent = msg.type === "CONTENT";
       return {
         id: msg.id,
+        fanId: msg.fanId,
         me: msg.from === "creator",
         message: msg.text,
         seen: !!msg.isLastFromCreator,
@@ -1921,6 +1922,7 @@ useEffect(() => {
     const tempId = `temp-${Date.now()}`;
     const tempMessage: ConversationMessage = {
       id: tempId,
+      fanId: id,
       me: true,
       message: trimmedMessage,
       time: new Date().toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit", hour12: false }),
@@ -2139,7 +2141,7 @@ useEffect(() => {
         : [];
       const mapped = mapApiMessagesToState(apiMessages);
       if (mapped.length > 0) {
-        setMessage([...(messages || []), ...mapped]);
+        setMessage((prev) => reconcileMessages(prev || [], mapped, id));
       }
       setMessagesError("");
       if (!keepOpen) {

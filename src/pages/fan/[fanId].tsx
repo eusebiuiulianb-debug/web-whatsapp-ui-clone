@@ -485,7 +485,7 @@ function reconcileMessages(
   targetFanId?: string
 ): ApiMessage[] {
   const filteredIncoming = targetFanId
-    ? incoming.filter((msg) => !msg.fanId || msg.fanId === targetFanId)
+    ? incoming.filter((msg) => msg.fanId === targetFanId)
     : incoming;
   if (!filteredIncoming.length) return sorter(existing);
   const map = new Map<string, ApiMessage>();
