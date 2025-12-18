@@ -2,6 +2,7 @@ import type { NextApiRequest, NextApiResponse } from "next";
 import prisma from "../../../lib/prisma.server";
 import { sendBadRequest, sendServerError } from "../../../lib/apiError";
 import type { BioLinkConfig, BioLinkSecondaryLink } from "../../../types/bioLink";
+import { normalizeImageSrc } from "../../../utils/normalizeImageSrc";
 
 const CREATOR_ID = "creator-1";
 const MAX_LINKS = 4;
@@ -34,13 +35,18 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
     if (!creator) return sendBadRequest(res, "Creator not found");
 
     const links = Array.isArray(payload.secondaryLinks) ? payload.secondaryLinks.slice(0, MAX_LINKS) : [];
-    const sanitizedLinks = links
-      .map((l) => ({
-        label: typeof l.label === "string" ? l.label.trim() : "",
-        url: typeof l.url === "string" ? l.url.trim() : "",
-        iconKey: l.iconKey && ["tiktok", "instagram", "twitter", "custom"].includes(l.iconKey) ? l.iconKey : "custom",
-      }))
-      .filter((l) => l.label && l.url);
+    const sanitizedLinks = links.map((l) => ({
+      label: typeof l.label === "string" ? l.label.trim() : "",
+      url: typeof l.url === "string" ? l.url.trim() : "",
+      iconKey: l.iconKey && ["tiktok", "instagram", "twitter", "custom"].includes(l.iconKey) ? l.iconKey : "custom",
+    }));
+
+    const invalidLink = sanitizedLinks.find((l) => l.label && l.url && !isHttpUrl(l.url));
+    if (invalidLink) {
+      return sendBadRequest(res, "SECONDARY_LINK_INVALID");
+    }
+
+    const filteredLinks = sanitizedLinks.filter((l) => l.label && l.url);
 
     const handle = slugify(creator.name || "creator");
     const defaultCta = `/c/${handle}`;
@@ -53,13 +59,17 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
     }
     const primaryCtaUrl = primaryCtaUrlRaw || defaultCta;
 
+    const normalizedAvatarUrl =
+      typeof payload.avatarUrl === "string" ? normalizeImageSrc(payload.avatarUrl) : normalizeImageSrc(creator.bioLinkAvatarUrl || "");
+
     const updated = await prisma.creator.update({
       where: { id: CREATOR_ID },
       data: {
         bioLinkEnabled: payload.enabled ?? false,
         bioLinkPrimaryCtaLabel: payload.primaryCtaLabel || "Entrar a mi chat privado",
         bioLinkPrimaryCtaUrl: primaryCtaUrl,
-        bioLinkSecondaryLinks: sanitizedLinks as unknown as object,
+        bioLinkSecondaryLinks: filteredLinks as unknown as object,
+        bioLinkAvatarUrl: normalizedAvatarUrl,
       },
     });
 
@@ -88,7 +98,7 @@ function mapCreatorToConfig(creator: any): BioLinkConfig {
     enabled: Boolean(creator.bioLinkEnabled),
     title: creator.name || creator.bioLinkTitle || "Creador",
     tagline: creator.subtitle || creator.bioLinkTagline || "",
-    avatarUrl: creator.bioLinkAvatarUrl || "",
+    avatarUrl: normalizeImageSrc(creator.bioLinkAvatarUrl || ""),
     primaryCtaLabel: creator.bioLinkPrimaryCtaLabel || "Entrar a mi chat privado",
     primaryCtaUrl: creator.bioLinkPrimaryCtaUrl || `/c/${handle}`,
     secondaryLinks,
@@ -105,15 +115,29 @@ function isForbiddenCtaDestination(url: string, handle: string) {
   const trimmed = (url || "").trim().toLowerCase();
   const loopPath = `/link/${handle}`;
   if (!trimmed) return false;
-  if (trimmed === "/" || trimmed.startsWith("/creator") || trimmed.startsWith("/fan")) return true;
+  if (trimmed.startsWith("/")) {
+    if (trimmed === "/") return true;
+    if (trimmed.startsWith("/creator") || trimmed.startsWith("/fan") || trimmed.startsWith("/api") || trimmed.startsWith("/link")) return true;
+    if (trimmed.startsWith("/c/")) return false;
+    return true;
+  }
   if (trimmed === loopPath || trimmed.startsWith(`${loopPath}?`)) return true;
   try {
     const parsed = new URL(url, "http://localhost");
     const path = parsed.pathname.toLowerCase();
-    if (path === "/" || path.startsWith("/creator") || path.startsWith("/fan")) return true;
+    if (path.startsWith("/")) {
+      if (path === "/") return true;
+      if (path.startsWith("/creator") || path.startsWith("/fan") || path.startsWith("/api") || path.startsWith("/link")) return true;
+      if (path.startsWith("/c/")) return false;
+      return true;
+    }
     if (path === loopPath || path.startsWith(`${loopPath}/`)) return true;
   } catch (_err) {
     // ignore
   }
   return false;
+}
+
+function isHttpUrl(url: string) {
+  return /^https?:\/\//i.test(url.trim());
 }

@@ -1,9 +1,9 @@
-const fs = require("fs");
-const path = require("path");
-const { spawn } = require("child_process");
-const { createRequire } = require("module");
+import fs from "node:fs";
+import path from "node:path";
+import { spawn } from "node:child_process";
+import { createRequire } from "node:module";
 
-const require = createRequire(__filename);
+const require = createRequire(import.meta.url);
 const nextBin = require.resolve("next/dist/bin/next");
 
 function cleanNext() {

@@ -7,11 +7,12 @@ interface MessageBalloonProps {
   time?: string;
   fromLabel?: string;
   meLabel?: string;
+  status?: "sending" | "failed" | "sent";
 }
 
 export default function MessageBalloon(props: MessageBalloonProps) {
   const [time, setTime] = useState("");
-  const { me, message, seen, fromLabel, meLabel } = props;
+  const { me, message, seen, fromLabel, meLabel, status } = props;
 
   useEffect(() => {
     if (props.time) {
@@ -38,12 +39,14 @@ export default function MessageBalloon(props: MessageBalloonProps) {
           {me ? meLabel || "Tú" : fromLabel || "Fan"} • {time}
         </p>
         <div
-          className={`rounded-2xl px-4 py-2 text-sm shadow whitespace-pre-wrap ${
-            me ? "bg-emerald-600 text-white" : "bg-slate-800 text-slate-50"
-          }`}
-        >
-          {message}
-        </div>
+        className={`rounded-2xl px-4 py-2 text-sm shadow whitespace-pre-wrap ${
+          me ? "bg-emerald-600 text-white" : "bg-slate-800 text-slate-50"
+        }`}
+      >
+        {message}
+      </div>
+        {status === "sending" && <div className="mt-1 text-[10px] text-slate-400 text-right">Enviando...</div>}
+        {status === "failed" && <div className="mt-1 text-[10px] text-rose-300 text-right">Fallo al enviar</div>}
         {me && seen ? <div className="mt-1 text-[10px] text-[#8edafc] text-right">✔✔ Visto</div> : null}
       </div>
     </div>

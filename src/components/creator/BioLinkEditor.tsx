@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { BioLinkPublicView } from "../public-profile/BioLinkPublicView";
 import type { BioLinkConfig, BioLinkSecondaryLink } from "../../types/bioLink";
 import { useCreatorConfig } from "../../context/CreatorConfigContext";
+import { normalizeImageSrc } from "../../utils/normalizeImageSrc";
 
 const MAX_LINKS = 4;
 
@@ -22,9 +23,11 @@ export function BioLinkEditor({ handle, onOpenSettings }: { handle: string; onOp
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [ctaError, setCtaError] = useState<string | null>(null);
+  const [linkErrors, setLinkErrors] = useState<Record<string, string>>({});
+  const [copyState, setCopyState] = useState<"idle" | "copied" | "error">("idle");
   const defaultCtaUrl = `/c/${handle}`;
   const [ctaMode, setCtaMode] = useState<"chat" | "custom">("chat");
-  const previewConfig = useMemo(() => config, [config]);
+  const previewConfig = useMemo(() => ({ ...config, avatarUrl: normalizeImageSrc(config.avatarUrl || "") }), [config]);
 
   const loadConfig = useCallback(async () => {
     try {
@@ -37,7 +40,7 @@ export function BioLinkEditor({ handle, onOpenSettings }: { handle: string; onOp
           ...(data.config as BioLinkConfig),
           title: creatorConfig.creatorName || (data.config as BioLinkConfig).title,
           tagline: creatorConfig.creatorSubtitle || (data.config as BioLinkConfig).tagline,
-          avatarUrl: creatorConfig.avatarUrl || (data.config as BioLinkConfig).avatarUrl,
+          avatarUrl: normalizeImageSrc(creatorConfig.avatarUrl || (data.config as BioLinkConfig).avatarUrl),
           primaryCtaUrl: (data.config as BioLinkConfig).primaryCtaUrl || defaultCtaUrl,
           handle,
         }));
@@ -75,38 +78,46 @@ export function BioLinkEditor({ handle, onOpenSettings }: { handle: string; onOp
         : "";
     const invalidCta = ctaMode === "custom" && isForbiddenCtaDestination(targetCta, handle);
     if (invalidCta) {
-      setCtaError("El destino del botón no puede ser el mismo bio-link ni rutas internas (/ , /creator , /fan ).");
+      setCtaError("Solo se permite https:// o rutas públicas /c/tu-handle.");
       return;
     }
     if (ctaMode === "custom" && !targetCta) {
       setCtaError("Introduce una URL válida para el botón.");
       return;
     }
+    if (!validateSecondaryLinks()) return;
     setCtaError(null);
     try {
       setSaving(true);
+      const normalizedAvatar = normalizeImageSrc(config.avatarUrl || "");
       const payload: Partial<BioLinkConfig> = {
         enabled: config.enabled,
         primaryCtaLabel: config.primaryCtaLabel,
         primaryCtaUrl: targetCta || defaultCtaUrl,
         secondaryLinks: config.secondaryLinks,
+        avatarUrl: normalizedAvatar,
       };
       const res = await fetch("/api/creator/bio-link", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
       });
-      if (res.ok) {
-        const data = await res.json();
-        if (data?.config) {
-          setConfig((prev) => ({
-            ...prev,
-            ...(data.config as BioLinkConfig),
-            title: creatorConfig.creatorName || (data.config as BioLinkConfig).title,
-            tagline: creatorConfig.creatorSubtitle || (data.config as BioLinkConfig).tagline,
-            avatarUrl: creatorConfig.avatarUrl || (data.config as BioLinkConfig).avatarUrl,
-          }));
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        if (data?.error === "SECONDARY_LINK_INVALID") {
+          setLinkErrors((prev) => ({ ...prev, general: "Revisa los enlaces secundarios (deben ser http(s))." }));
         }
+        return;
+      }
+      const data = await res.json();
+      if (data?.config) {
+        setConfig((prev) => ({
+          ...prev,
+          ...(data.config as BioLinkConfig),
+          title: creatorConfig.creatorName || (data.config as BioLinkConfig).title,
+          tagline: creatorConfig.creatorSubtitle || (data.config as BioLinkConfig).tagline,
+          avatarUrl: normalizeImageSrc(creatorConfig.avatarUrl || (data.config as BioLinkConfig).avatarUrl),
+        }));
       }
     } catch (err) {
       console.error(err);
@@ -153,9 +164,8 @@ export function BioLinkEditor({ handle, onOpenSettings }: { handle: string; onOp
           <LabeledInput
             label="Avatar (URL)"
             value={config.avatarUrl || ""}
-            onChange={() => {}}
-            readOnly
-            helper="Nombre, tagline y foto se editan en Ajustes del creador."
+            onChange={(val) => setConfig((prev) => ({ ...prev, avatarUrl: val }))}
+            helper="Si no empieza por http(s) o /, añadiremos / al guardar."
           />
           <div className="text-[12px] text-slate-400">
             Usa el modal de ajustes para cambiar tu identidad.
@@ -207,7 +217,7 @@ export function BioLinkEditor({ handle, onOpenSettings }: { handle: string; onOp
               label="URL"
               value={config.primaryCtaUrl}
               onChange={(val) => setConfig((prev) => ({ ...prev, primaryCtaUrl: val }))}
-              helper="No puede apuntar a /, /creator, /fan o a tu propio /link."
+              helper="Solo https:// o rutas públicas /c/tu-handle."
             />
           ) : (
             <p className="text-xs text-slate-400">Abrirá tu chat privado en NOVSY ({defaultCtaUrl}).</p>
@@ -241,12 +251,22 @@ export function BioLinkEditor({ handle, onOpenSettings }: { handle: string; onOp
                   <button
                     type="button"
                     className="text-rose-300 hover:text-rose-200"
-                    onClick={() =>
+                    onClick={() => {
                       setConfig((prev) => ({
                         ...prev,
                         secondaryLinks: prev.secondaryLinks.filter((_, i) => i !== idx),
-                      }))
-                    }
+                      }));
+                      setLinkErrors((prev) => {
+                        const next: Record<number, string> = {};
+                        Object.entries(prev).forEach(([key, val]) => {
+                          const num = Number(key);
+                          if (Number.isNaN(num)) return;
+                          if (num < idx) next[num] = val;
+                          if (num > idx) next[num - 1] = val;
+                        });
+                        return next;
+                      });
+                    }}
                   >
                     Borrar
                   </button>
@@ -260,6 +280,8 @@ export function BioLinkEditor({ handle, onOpenSettings }: { handle: string; onOp
                   label="URL"
                   value={link.url}
                   onChange={(val) => updateLink(idx, { url: val })}
+                  error={linkErrors[idx]}
+                  helper="Debe empezar por http:// o https://"
                 />
                 <label className="flex flex-col gap-1 text-sm text-slate-300">
                   <span>Icono</span>
@@ -279,14 +301,26 @@ export function BioLinkEditor({ handle, onOpenSettings }: { handle: string; onOp
           </div>
         </div>
 
-        <div className="space-y-2">
-          <p className="text-sm text-slate-300">URL del bio-link</p>
+      <div className="space-y-2">
+        <p className="text-sm text-slate-300">URL del bio-link</p>
+        <div className="flex gap-2">
           <input
             readOnly
             value={linkUrl}
             className="w-full rounded-lg bg-slate-800/70 border border-slate-700 px-3 py-2 text-sm text-white"
           />
+          <button
+            type="button"
+            className="rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-sm text-white hover:border-emerald-400"
+            onClick={copyLink}
+          >
+            Copiar
+          </button>
         </div>
+        {copyState === "copied" && <p className="text-xs text-emerald-200">Copiado</p>}
+        {copyState === "error" && <p className="text-xs text-rose-300">No se pudo copiar</p>}
+        {linkErrors.general && <p className="text-xs text-rose-300">{linkErrors.general}</p>}
+      </div>
 
         <div className="flex items-center gap-2">
           <button
@@ -309,6 +343,37 @@ export function BioLinkEditor({ handle, onOpenSettings }: { handle: string; onOp
       links[index] = { ...links[index], ...data };
       return { ...prev, secondaryLinks: links };
     });
+    setLinkErrors((prev) => {
+      const next = { ...prev };
+      const url = (data.url ?? config.secondaryLinks[index]?.url ?? "").trim();
+      if (url && isHttpUrl(url)) {
+        delete next[index];
+      }
+      return next;
+    });
+  }
+
+  function validateSecondaryLinks() {
+    const errors: Record<number, string> = {};
+    config.secondaryLinks.forEach((link, idx) => {
+      const url = (link.url || "").trim();
+      if (url && !isHttpUrl(url)) {
+        errors[idx] = "Usa una URL http(s)://";
+      }
+    });
+    setLinkErrors(errors);
+    return Object.keys(errors).length === 0;
+  }
+
+  async function copyLink() {
+    try {
+      await navigator.clipboard.writeText(linkUrl);
+      setCopyState("copied");
+    } catch (_err) {
+      setCopyState("error");
+    } finally {
+      setTimeout(() => setCopyState("idle"), 1500);
+    }
   }
 }
 
@@ -318,12 +383,14 @@ function LabeledInput({
   onChange,
   helper,
   readOnly,
+  error,
 }: {
   label: string;
   value: string;
   onChange: (v: string) => void;
   helper?: string;
   readOnly?: boolean;
+  error?: string;
 }) {
   return (
     <label className="flex flex-col gap-1 text-sm text-slate-300">
@@ -336,6 +403,7 @@ function LabeledInput({
         disabled={readOnly}
       />
       {helper && <span className="text-[11px] text-slate-500">{helper}</span>}
+      {error && <span className="text-[11px] text-rose-300">{error}</span>}
     </label>
   );
 }
@@ -344,12 +412,22 @@ function isForbiddenCtaDestination(url: string, handle: string) {
   const trimmed = (url || "").trim().toLowerCase();
   if (!trimmed) return true;
   const loopPath = `/link/${handle}`;
-  if (trimmed === "/" || trimmed.startsWith("/creator") || trimmed.startsWith("/fan")) return true;
+  if (trimmed.startsWith("/")) {
+    if (trimmed === "/") return true;
+    if (trimmed.startsWith("/creator") || trimmed.startsWith("/fan") || trimmed.startsWith("/api") || trimmed.startsWith("/link")) return true;
+    if (trimmed.startsWith("/c/")) return false;
+    return true;
+  }
   if (trimmed === loopPath || trimmed.startsWith(`${loopPath}?`)) return true;
   try {
     const urlObj = new URL(url, "http://localhost");
     const path = urlObj.pathname.toLowerCase();
-    if (path === "/" || path.startsWith("/creator") || path.startsWith("/fan")) return true;
+    if (path.startsWith("/")) {
+      if (path === "/") return true;
+      if (path.startsWith("/creator") || path.startsWith("/fan") || path.startsWith("/api") || path.startsWith("/link")) return true;
+      if (path.startsWith("/c/")) return false;
+      return true;
+    }
     if (path === loopPath || path.startsWith(`${loopPath}/`)) return true;
   } catch (_err) {
     // ignore parse errors
@@ -362,4 +440,8 @@ function deriveCtaMode(primaryCtaUrl: string, defaultCtaUrl: string): "chat" | "
   const defaultNormalized = (defaultCtaUrl || "").trim();
   if (!normalized || normalized === defaultNormalized) return "chat";
   return "custom";
+}
+
+function isHttpUrl(url: string) {
+  return /^https?:\/\//i.test((url || "").trim());
 }

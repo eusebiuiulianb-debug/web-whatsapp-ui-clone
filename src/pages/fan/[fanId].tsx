@@ -33,6 +33,7 @@ type ApiMessage = {
   isLastFromCreator?: boolean | null;
   type?: "TEXT" | "CONTENT";
   contentItem?: ApiContentItem | null;
+  status?: "sending" | "failed" | "sent";
 };
 
 type FanChatPageProps = {
@@ -61,6 +62,8 @@ export default function FanChatPage({ includedContent, initialAccessSummary }: F
   const [included, setIncluded] = useState<IncludedContent[]>(includedContent || []);
   const messagesContainerRef = useRef<HTMLDivElement | null>(null);
   const [isAtBottom, setIsAtBottom] = useState(true);
+  const pollAbortRef = useRef<AbortController | null>(null);
+  const pollIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
   const sortMessages = useCallback((list: ApiMessage[]) => {
     return [...list].sort((a, b) => {
@@ -78,7 +81,12 @@ export default function FanChatPage({ includedContent, initialAccessSummary }: F
       try {
         if (showLoading) setLoading(true);
         setError("");
-        const res = await fetch(`/api/messages?fanId=${encodeURIComponent(targetFanId)}`);
+        if (pollAbortRef.current) {
+          pollAbortRef.current.abort();
+        }
+        const controller = new AbortController();
+        pollAbortRef.current = controller;
+        const res = await fetch(`/api/messages?fanId=${encodeURIComponent(targetFanId)}`, { signal: controller.signal });
         const data = await res.json().catch(() => ({}));
         if (!res.ok || !data?.ok) {
           throw new Error(data?.error || "No se pudieron cargar mensajes");
@@ -88,7 +96,7 @@ export default function FanChatPage({ includedContent, initialAccessSummary }: F
           : Array.isArray(data.messages)
           ? (data.messages as ApiMessage[])
           : [];
-        setMessages(sortMessages(apiMessages));
+        setMessages((prev) => reconcileMessages(prev, apiMessages, sortMessages, targetFanId));
       } catch (_err) {
         setError("No se pudieron cargar mensajes");
       } finally {
@@ -102,8 +110,18 @@ export default function FanChatPage({ includedContent, initialAccessSummary }: F
     if (!fanId) return;
     setMessages([]);
     fetchMessages(fanId, { showLoading: true });
-    // No polling para evitar loops y recargas constantes; se puede añadir un botón de refresco si hace falta.
-    return undefined;
+    if (pollIntervalRef.current) {
+      clearInterval(pollIntervalRef.current as any);
+      pollIntervalRef.current = null;
+    }
+    pollIntervalRef.current = setInterval(() => {
+      if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
+      void fetchMessages(fanId, { showLoading: false });
+    }, 1800) as any;
+    return () => {
+      if (pollIntervalRef.current) clearInterval(pollIntervalRef.current as any);
+      if (pollAbortRef.current) pollAbortRef.current.abort();
+    };
   }, [fanId, fetchMessages]);
 
   useEffect(() => {
@@ -153,6 +171,16 @@ export default function FanChatPage({ includedContent, initialAccessSummary }: F
     try {
       setSending(true);
       setSendError("");
+      const tempId = `temp-${Date.now()}`;
+      const temp: ApiMessage = {
+        id: tempId,
+        fanId,
+        from: "fan",
+        text: trimmed,
+        time: new Date().toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit", hour12: false }),
+        status: "sending",
+      };
+      setMessages((prev) => reconcileMessages(prev, [temp], sortMessages, fanId));
       const res = await fetch("/api/messages", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -166,11 +194,17 @@ export default function FanChatPage({ includedContent, initialAccessSummary }: F
         ? [data.message as ApiMessage]
         : [];
       if (newMessages.length) {
-        setMessages((prev) => sortMessages([...(prev || []), ...newMessages]));
+        setMessages((prev) => {
+          const withoutTemp = (prev || []).filter((m) => m.id !== tempId);
+          return reconcileMessages(withoutTemp, newMessages, sortMessages, fanId);
+        });
       }
       setDraft("");
     } catch (_err) {
       setSendError("Error enviando mensaje");
+      setMessages((prev) =>
+        (prev || []).map((m) => (m.status === "sending" ? { ...m, status: "failed" as const } : m))
+      );
     } finally {
       setSending(false);
     }
@@ -211,6 +245,17 @@ export default function FanChatPage({ includedContent, initialAccessSummary }: F
     if (!isAtBottom) return;
     scrollToBottom("smooth");
   }, [messages.length, isAtBottom]);
+
+  useEffect(() => {
+    if (typeof document === "undefined") return;
+    const onVisibility = () => {
+      if (document.visibilityState === "visible" && fanId) {
+        void fetchMessages(fanId, { showLoading: false });
+      }
+    };
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => document.removeEventListener("visibilitychange", onVisibility);
+  }, [fanId, fetchMessages]);
 
   return (
     <div className="flex flex-col h-[100dvh] max-h-[100dvh] overflow-hidden bg-[#0b141a] text-white">
@@ -274,6 +319,7 @@ export default function FanChatPage({ includedContent, initialAccessSummary }: F
                   message={msg.text || ""}
                   seen={!!msg.isLastFromCreator}
                   time={msg.time || undefined}
+                  status={msg.status}
                 />
               );
             })}
@@ -430,6 +476,32 @@ function openContentLink(mediaUrl?: string) {
   } else {
     alert("Contenido no disponible todavía");
   }
+}
+
+function reconcileMessages(
+  existing: ApiMessage[],
+  incoming: ApiMessage[],
+  sorter: (list: ApiMessage[]) => ApiMessage[],
+  targetFanId?: string
+): ApiMessage[] {
+  const filteredIncoming = targetFanId
+    ? incoming.filter((msg) => !msg.fanId || msg.fanId === targetFanId)
+    : incoming;
+  if (!filteredIncoming.length) return sorter(existing);
+  const map = new Map<string, ApiMessage>();
+  const orderedKeys: string[] = [];
+  const push = (msg: ApiMessage, fallbackIdx: number) => {
+    const key = msg.id || msg.time || `incoming-${fallbackIdx}`;
+    if (!map.has(key)) {
+      orderedKeys.push(key);
+    }
+    const prev = map.get(key);
+    map.set(key, { ...(prev || {}), ...msg, status: msg.status || prev?.status || "sent" });
+  };
+  existing.forEach((msg, idx) => push(msg, idx));
+  filteredIncoming.forEach((msg, idx) => push(msg, idx + existing.length));
+  const merged = orderedKeys.map((k) => map.get(k)).filter(Boolean) as ApiMessage[];
+  return sorter(merged);
 }
 
 function AccessBanner({ summary }: { summary: AccessSummary }) {

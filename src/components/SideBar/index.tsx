@@ -79,6 +79,9 @@ function SideBarInner() {
   const [ hasMore, setHasMore ] = useState(false);
   const [ isLoadingMore, setIsLoadingMore ] = useState(false);
   const [ unreadMap, setUnreadMap ] = useState<UnreadMap>({});
+  const pollAbortRef = useRef<AbortController | null>(null);
+  const pollIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const fansRef = useRef<ConversationListData[]>([]);
   const packsCount = Object.keys(PACKS).length;
   const { config } = useCreatorConfig();
   const creatorInitial = config.creatorName?.trim().charAt(0) || "E";
@@ -188,7 +191,35 @@ function SideBarInner() {
     return urgencyScore * 10 + tierScore;
   }
 
+  const hasFanListChanged = useCallback((prev: ConversationListData[], next: ConversationListData[]): boolean => {
+    if (prev.length !== next.length) return true;
+    const prevMap = new Map<string, ConversationListData>();
+    prev.forEach((f) => {
+      if (f.id) prevMap.set(f.id, f);
+    });
+    for (const fan of next) {
+      if (!fan.id) return true;
+      const prevFan = prevMap.get(fan.id);
+      if (!prevFan) return true;
+      const fields: Array<keyof ConversationListData> = [
+        "lastTime",
+        "lastCreatorMessageAt",
+        "unreadCount",
+        "lastMessage",
+        "extrasCount",
+        "extrasSpentTotal",
+        "notesCount",
+      ];
+      const changed = fields.some((field) => (prevFan as any)?.[field] !== (fan as any)?.[field]);
+      if (changed) return true;
+    }
+    return false;
+  }, []);
+
   const safeFans: ConversationListData[] = Array.isArray(fans) ? fans : [];
+  useEffect(() => {
+    fansRef.current = safeFans;
+  }, [safeFans]);
 
   const fansWithScore: FanData[] = safeFans.map((fan) => ({
     ...fan,
@@ -537,11 +568,52 @@ function SideBarInner() {
     [apiFilter, mapFans, search, updateUnreadCounts]
   );
 
+  const pollFans = useCallback(async () => {
+    if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
+    try {
+      if (pollAbortRef.current) {
+        pollAbortRef.current.abort();
+      }
+      const controller = new AbortController();
+      pollAbortRef.current = controller;
+      const params = new URLSearchParams();
+      params.set("limit", "30");
+      params.set("filter", apiFilter);
+      if (search.trim()) params.set("q", search.trim());
+      const res = await fetch(`/api/fans?${params.toString()}`, { signal: controller.signal });
+      if (!res.ok) throw new Error("poll-fans-failed");
+      const data = await res.json();
+      const rawItems = Array.isArray(data.items) ? (data.items as Fan[]) : [];
+      const mapped: ConversationListData[] = mapFans(rawItems);
+      if (hasFanListChanged(fansRef.current, mapped)) {
+        setFans(mapped);
+        setFansError("");
+        setNextCursor(typeof data.nextCursor === "string" ? data.nextCursor : null);
+        setHasMore(Boolean(data.hasMore));
+        updateUnreadCounts(mapped, loadUnreadMap());
+      }
+    } catch (_err) {
+      // silent poll failure
+    }
+  }, [apiFilter, hasFanListChanged, mapFans, search, setFansError, updateUnreadCounts]);
+
   useEffect(() => {
     setUnreadMap(loadUnreadMap());
     fetchFansPage();
     void refreshExtrasSummary();
   }, [fetchFansPage, refreshExtrasSummary]);
+
+  useEffect(() => {
+    void pollFans();
+    const interval = setInterval(() => {
+      void pollFans();
+    }, 2500);
+    pollIntervalRef.current = interval as any;
+    return () => {
+      if (pollIntervalRef.current) clearInterval(pollIntervalRef.current as any);
+      if (pollAbortRef.current) pollAbortRef.current.abort();
+    };
+  }, [pollFans]);
 
   useEffect(() => {
     function handleFanDataUpdated(event: Event) {
@@ -645,8 +717,13 @@ function SideBarInner() {
     };
   }, [applyFilter, fetchFansPage, mapFans, refreshExtrasSummary]);
 
+  const lastUnreadSyncRef = useRef<number>(0);
+
   useEffect(() => {
     if (safeFans.length === 0) return;
+    const now = Date.now();
+    if (now - lastUnreadSyncRef.current < 15000) return;
+    lastUnreadSyncRef.current = now;
     updateUnreadCounts(safeFans, unreadMap);
   }, [safeFans, unreadMap, updateUnreadCounts]);
 

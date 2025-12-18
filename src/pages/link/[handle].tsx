@@ -5,6 +5,7 @@ import type { BioLinkConfig } from "../../types/bioLink";
 import type { BioLinkSecondaryLink } from "../../types/bioLink";
 import { ensureAnalyticsCookie } from "../../lib/analyticsCookie";
 import { randomUUID } from "crypto";
+import { normalizeImageSrc } from "../../utils/normalizeImageSrc";
 
 type Props = { config: BioLinkConfig | null };
 
@@ -23,7 +24,7 @@ export default function PublicBioLinkPage({ config }: Props) {
   return (
     <>
       <Head>
-        <title>{config.title}</title>
+        <title>{String(config.title || "Bio-link")}</title>
       </Head>
       <BioLinkPublicView config={config} />
     </>
@@ -70,7 +71,7 @@ export const getServerSideProps: GetServerSideProps<Props> = async (ctx) => {
     enabled: true,
     title: match.name || match.bioLinkTitle || "Creador",
     tagline: match.subtitle || match.bioLinkTagline || "",
-    avatarUrl: match.bioLinkAvatarUrl || "",
+    avatarUrl: normalizeImageSrc(match.bioLinkAvatarUrl || ""),
     primaryCtaLabel: match.bioLinkPrimaryCtaLabel || "Entrar a mi chat privado",
     primaryCtaUrl: match.bioLinkPrimaryCtaUrl || `/c/${handle}`,
     secondaryLinks: parseSecondaryLinks(match.bioLinkSecondaryLinks),

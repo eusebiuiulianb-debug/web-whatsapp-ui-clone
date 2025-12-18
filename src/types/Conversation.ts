@@ -2,10 +2,14 @@ import type { FollowUpTag, UrgencyLevel } from "../utils/followUp";
 import type { ContentType, ContentVisibility } from "./content";
 
 interface Message {
+  fanId?: string;
+  id?: string;
   me: boolean;
   message: string;
   seen?: boolean;
   time?: string;
+  createdAt?: string;
+  status?: "sending" | "failed" | "sent";
   kind?: "text" | "content";
   type?: "TEXT" | "CONTENT";
   contentItem?: {

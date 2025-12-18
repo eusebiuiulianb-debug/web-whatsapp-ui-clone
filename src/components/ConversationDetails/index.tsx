@@ -50,6 +50,33 @@ const CONTENT_PACKS = [
   { code: "SPECIAL" as const, label: "Pack especial pareja" },
 ] as const;
 
+function reconcileMessages(
+  existing: ConversationMessage[],
+  incoming: ConversationMessage[],
+  targetFanId?: string
+): ConversationMessage[] {
+  const filteredIncoming = targetFanId
+    ? incoming.filter((msg) => !msg.fanId || msg.fanId === targetFanId)
+    : incoming;
+  const existingKeys = existing.map((msg, idx) => msg.id || `__idx-${idx}`);
+  const map = new Map<string, ConversationMessage>();
+  existing.forEach((msg, idx) => {
+    const key = msg.id || `__idx-${idx}`;
+    map.set(key, msg);
+  });
+  filteredIncoming.forEach((msg, idx) => {
+    const key = msg.id || msg.time || `incoming-${idx}`;
+    if (map.has(key)) {
+      const prev = map.get(key)!;
+      map.set(key, { ...prev, ...msg, status: msg.status || "sent" });
+    } else {
+      existingKeys.push(key);
+      map.set(key, { ...msg, status: msg.status || "sent" });
+    }
+  });
+  return existingKeys.map((key) => map.get(key)).filter(Boolean) as ConversationMessage[];
+}
+
 function getReengageTemplate(name: string) {
   const cleanName = name?.trim() || "";
   return `Hola ${cleanName || "allí"}, soy Eusebiu. Hoy termina tu acceso a este espacio privado. Si quieres que sigamos trabajando juntos en tu relación y tu vida sexual, puedo ofrecerte renovar la suscripción o prepararte un pack especial solo para ti. Si te interesa, dime “QUIERO SEGUIR” y lo vemos juntos.`;
@@ -1146,10 +1173,13 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
     return apiMessages.map((msg) => {
       const isContent = msg.type === "CONTENT";
       return {
+        id: msg.id,
         me: msg.from === "creator",
         message: msg.text,
         seen: !!msg.isLastFromCreator,
         time: msg.time || "",
+        createdAt: (msg as any)?.createdAt ?? undefined,
+        status: "sent",
         kind: isContent ? "content" : "text",
         type: msg.type,
         contentItem: msg.contentItem
@@ -1166,6 +1196,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
   }, []);
 
   const messagesAbortRef = useRef<AbortController | null>(null);
+  const messagesPollRef = useRef<NodeJS.Timeout | null>(null);
 
   const fetchMessages = useCallback(
     async (shouldShowLoading = false) => {
@@ -1189,7 +1220,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
           ? (data.messages as ApiMessage[])
           : [];
         const mapped = mapApiMessagesToState(source);
-        setMessage(mapped);
+        setMessage((prev) => reconcileMessages(prev || [], mapped, id));
       } catch (err) {
         if ((err as any)?.name === "AbortError") return;
         setMessagesError("Error cargando mensajes");
@@ -1204,11 +1235,25 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
 
   useEffect(() => {
     if (!id) return;
+    setMessage([]);
     fetchMessages(true);
     return () => {
       if (messagesAbortRef.current) {
         messagesAbortRef.current.abort();
       }
+    };
+  }, [fetchMessages, id]);
+
+  useEffect(() => {
+    if (!id) return undefined;
+    const interval = setInterval(() => {
+      if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
+      fetchMessages(false);
+    }, 1800);
+    messagesPollRef.current = interval as any;
+    return () => {
+      if (messagesPollRef.current) clearInterval(messagesPollRef.current as any);
+      if (messagesAbortRef.current) messagesAbortRef.current.abort();
     };
   }, [fetchMessages, id]);
   useEffect(() => {
@@ -1873,6 +1918,22 @@ useEffect(() => {
     const trimmedMessage = text.trim();
     if (!trimmedMessage) return;
 
+    const tempId = `temp-${Date.now()}`;
+    const tempMessage: ConversationMessage = {
+      id: tempId,
+      me: true,
+      message: trimmedMessage,
+      time: new Date().toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit", hour12: false }),
+      status: "sending",
+      kind: "text",
+      type: "TEXT",
+    };
+    setMessage((prev) => {
+      if (!id) return prev || [];
+      return [...(prev || []), tempMessage];
+    });
+    scrollToBottom("auto");
+
     try {
       setMessagesError("");
       const res = await fetch("/api/messages", {
@@ -1895,7 +1956,10 @@ useEffect(() => {
         : [];
       const mapped = mapApiMessagesToState(apiMessages);
       if (mapped.length > 0) {
-        setMessage([...(messages || []), ...mapped]);
+        setMessage((prev) => {
+          const withoutTemp = (prev || []).filter((m) => m.id !== tempId);
+          return reconcileMessages(withoutTemp, mapped, id);
+        });
       }
       void track(ANALYTICS_EVENTS.SEND_MESSAGE, { fanId: id });
       setMessageSend("");
@@ -1903,6 +1967,9 @@ useEffect(() => {
     } catch (err) {
       console.error("Error enviando mensaje", err);
       setMessagesError("Error enviando mensaje");
+        setMessage((prev) =>
+          (prev || []).map((m) => (m.id === tempId ? { ...m, status: "failed" as const } : m))
+        );
     }
   }
 
@@ -2818,7 +2885,20 @@ useEffect(() => {
 
               const { me, message, seen, time } = messageConversation;
               return (
-                <MessageBalloon key={index} me={me} message={message} seen={seen} time={time} />
+                <div key={messageConversation.id || index} className="space-y-1">
+                  <MessageBalloon me={me} message={message} seen={seen} time={time} status={messageConversation.status} />
+                  {messageConversation.status === "failed" && (
+                    <div className="flex justify-end">
+                      <button
+                        type="button"
+                        className="text-[11px] text-rose-300 hover:text-rose-200 underline"
+                        onClick={() => sendMessageText(messageConversation.message)}
+                      >
+                        Reintentar
+                      </button>
+                    </div>
+                  )}
+                </div>
               );
             })}
             {isLoadingMessages && (
