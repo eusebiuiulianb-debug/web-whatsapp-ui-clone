@@ -326,7 +326,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
       contactName: fan.name,
       lastMessage: fan.preview,
       lastTime: fan.time,
-      image: fan.avatar || "avatar.jpg",
+      image: fan.avatar || "/avatar.jpg",
       messageHistory: [],
       membershipStatus: fan.membershipStatus,
       accessState: (fan as any).accessState,

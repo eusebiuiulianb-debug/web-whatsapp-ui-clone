@@ -13,7 +13,7 @@ npm run dev
 
 La app se levanta en modo desarrollo en `http://localhost:3005`. Para pasos completos y troubleshooting en Windows, revisa el runbook de abajo.
 
-En Windows, si ves errores raros de `.next`, usa: `npm run dev:reset`.
+En Windows, si ves errores raros de `.next` (p. ej. `__webpack_require__.a is not a function`), usa: `npm run dev:reset`.
 
 ## Runbook de desarrollo (Windows)
 

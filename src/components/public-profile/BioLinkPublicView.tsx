@@ -4,6 +4,7 @@ import clsx from "clsx";
 import { useEffect, useState } from "react";
 import { track } from "../../lib/analyticsClient";
 import { ANALYTICS_EVENTS } from "../../lib/analyticsEvents";
+import { normalizeImageSrc } from "../../utils/normalizeImageSrc";
 
 type Props = {
   config: BioLinkConfig;
@@ -80,9 +81,10 @@ export function BioLinkPublicView({ config }: Props) {
 
 function AvatarCircle({ title, avatarUrl }: { title: string; avatarUrl?: string | null }) {
   if (avatarUrl) {
+    const normalizedSrc = normalizeImageSrc(avatarUrl);
     return (
       <div className="h-20 w-20 rounded-full border border-slate-700 overflow-hidden shadow-lg shadow-black/40">
-        <Image src={avatarUrl} alt={title} width={80} height={80} className="h-full w-full object-cover" />
+        <Image src={normalizedSrc} alt={title} width={80} height={80} className="h-full w-full object-cover" />
       </div>
     );
   }

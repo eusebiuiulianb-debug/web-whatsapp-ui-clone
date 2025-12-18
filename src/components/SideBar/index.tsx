@@ -112,7 +112,7 @@ function SideBarInner() {
       contactName: fan.name,
       lastMessage: fan.preview,
       lastTime: fan.time,
-      image: fan.avatar || "avatar.jpg",
+      image: fan.avatar || "/avatar.jpg",
       messageHistory: [],
       membershipStatus: fan.membershipStatus,
       accessState: (fan as any).accessState,

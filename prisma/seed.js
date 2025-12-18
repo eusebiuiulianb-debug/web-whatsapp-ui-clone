@@ -63,7 +63,7 @@ async function main() {
       data: {
         id: "ana",
         name: "Ana",
-        avatar: "avatar.jpg",
+        avatar: "/avatar.jpg",
         preview: "¡Bienvenida a la comunidad!",
         time: "19:15",
         unreadCount: 2,
@@ -108,7 +108,7 @@ async function main() {
       data: {
         id: "diego",
         name: "Diego",
-        avatar: "avatar.jpg",
+        avatar: "/avatar.jpg",
         preview: "Live premium este jueves a las 20h",
         time: "09:30",
         unreadCount: 0,

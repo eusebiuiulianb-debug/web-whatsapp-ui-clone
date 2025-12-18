@@ -1,6 +1,10 @@
 const fs = require("fs");
 const path = require("path");
 const { spawn } = require("child_process");
+const { createRequire } = require("module");
+
+const require = createRequire(__filename);
+const nextBin = require.resolve("next/dist/bin/next");
 
 function cleanNext() {
   const target = path.join(process.cwd(), ".next");
@@ -12,9 +16,9 @@ function cleanNext() {
 }
 
 function startDev() {
-  const child = spawn("npx", ["next", "dev", "-p", "3005"], {
+  const child = spawn(process.execPath, [nextBin, "dev", "-p", "3005"], {
     stdio: "inherit",
-    shell: true,
+    shell: false,
   });
   child.on("exit", (code) => process.exit(code ?? 0));
 }

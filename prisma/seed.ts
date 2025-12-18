@@ -34,7 +34,7 @@ async function main() {
       subtitle: "Responde en menos de 24h",
       description:
         "Bienvenido a mi espacio en NOVSY. Aquí comparto avances, envío audios personalizados y respondo tus ideas para crear contenido hecho a tu medida. Únete para acceder a sesiones 1:1, material exclusivo y priorizar tus pedidos.",
-      bioLinkAvatarUrl: "avatar.jpg",
+      bioLinkAvatarUrl: "/avatar.jpg",
     },
   });
 
@@ -46,7 +46,7 @@ async function main() {
         subtitle: "Cálida y cercana, responde en el día",
         description:
           "Sesiones 1:1 para fans que buscan conversación auténtica, audio-notas y retos suaves. Sin prisas, pero con presencia.",
-        bioLinkAvatarUrl: "avatar2.jpg",
+        bioLinkAvatarUrl: "/avatar2.jpg",
       },
       {
         id: "creator-3",
@@ -54,7 +54,7 @@ async function main() {
         subtitle: "Directo y claro, con ideas accionables",
         description:
           "Te doy feedback honesto y guiones concretos. Ideal si quieres planes, retos y cero rodeos.",
-        bioLinkAvatarUrl: "avatar3.png",
+        bioLinkAvatarUrl: "/avatar3.png",
       },
       {
         id: "creator-4",
@@ -62,7 +62,7 @@ async function main() {
         subtitle: "Elegante, responde con detalle",
         description:
           "Experiencias premium: guías largas, sesiones planeadas y propuestas cuidadas para fans exigentes.",
-        bioLinkAvatarUrl: "avatar.jpg",
+        bioLinkAvatarUrl: "/avatar.jpg",
       },
     ].map((data) =>
       prisma.creator.create({
@@ -304,7 +304,7 @@ async function main() {
       data: {
         id: "ana",
         name: "Ana",
-        avatar: "avatar.jpg",
+        avatar: "/avatar.jpg",
         preview: "¡Bienvenida a la comunidad!",
         time: "19:15",
         unreadCount: 2,
@@ -319,7 +319,7 @@ async function main() {
       data: {
         id: "javier",
         name: "Javier",
-        avatar: "avatar3.png",
+        avatar: "/avatar3.png",
         preview: "Necesito un poco más de contexto para grabarlo",
         time: "18:10",
         unreadCount: 1,
@@ -334,7 +334,7 @@ async function main() {
       data: {
         id: "lucia",
         name: "Lucía",
-        avatar: "avatar2.jpg",
+        avatar: "/avatar2.jpg",
         preview: "Te comparto un adelanto en exclusiva hoy",
         time: "12:48",
         unreadCount: 0,
@@ -349,7 +349,7 @@ async function main() {
       data: {
         id: "diego",
         name: "Diego",
-        avatar: "avatar.jpg",
+        avatar: "/avatar.jpg",
         preview: "Live premium este jueves a las 20h",
         time: "09:30",
         unreadCount: 0,
