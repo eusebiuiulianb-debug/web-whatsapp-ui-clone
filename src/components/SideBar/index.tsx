@@ -11,8 +11,6 @@ import clsx from "clsx";
 import { getFollowUpTag, getUrgencyLevel, shouldFollowUpToday, isExpiredAccess } from "../../utils/followUp";
 import { getRecommendedFan } from "../../utils/recommendedFan";
 import { PACKS } from "../../config/packs";
-import { getLastReadForFan, loadUnreadMap, UnreadMap } from "../../utils/unread";
-import type { Message } from "../../types/chat";
 import { ConversationContext } from "../../context/ConversationContext";
 import { EXTRAS_UPDATED_EVENT } from "../../constants/events";
 import { HIGH_PRIORITY_LIMIT } from "../../config/customers";
@@ -78,7 +76,6 @@ function SideBarInner() {
   const [ nextCursor, setNextCursor ] = useState<string | null>(null);
   const [ hasMore, setHasMore ] = useState(false);
   const [ isLoadingMore, setIsLoadingMore ] = useState(false);
-  const [ unreadMap, setUnreadMap ] = useState<UnreadMap>({});
   const pollAbortRef = useRef<AbortController | null>(null);
   const pollIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const fansRef = useRef<ConversationListData[]>([]);
@@ -326,81 +323,6 @@ function SideBarInner() {
     ];
   }, [getLastActivityTimestamp]);
 
-  function parseMessageTimestamp(msg: Message): number | null {
-    const idParts = (msg.id || "").split("-");
-    const last = idParts[idParts.length - 1];
-    const num = Number(last);
-    if (Number.isFinite(num) && last.length >= 10) return num;
-    return null;
-  }
-
-  const updateUnreadCounts = useCallback(async (fanList: ConversationListData[], map: UnreadMap) => {
-    type UnreadEntry = { id?: string; count: number; empty?: boolean };
-    const entries = await Promise.all(
-      fanList.map(async (fan) => {
-        const fanId = fan.id as string | undefined;
-        if (!fanId) return { id: fanId, count: 0 } as UnreadEntry;
-        const lastRead = getLastReadForFan(map, fanId);
-        if (!lastRead) return { id: fanId, count: 0 };
-        try {
-          const res = await fetch(`/api/messages?fanId=${encodeURIComponent(fanId)}`);
-          if (!res.ok) throw new Error("error");
-          const data = await res.json();
-          const msgs = Array.isArray(data.items)
-            ? (data.items as Message[])
-            : Array.isArray(data.messages)
-            ? (data.messages as Message[])
-            : [];
-          const filtered = msgs.filter((msg) => msg.fanId === fanId);
-          if (filtered.length === 0) {
-            return { id: fanId, count: 0, empty: true };
-          }
-          const lrTs = lastRead.getTime();
-          const unread = filtered.filter((msg) => {
-            if (msg.from !== "fan") return false;
-            const ts = parseMessageTimestamp(msg);
-            if (ts === null) return false;
-            return ts > lrTs;
-          }).length;
-          return { id: fanId, count: unread };
-        } catch (_err) {
-          return { id: fanId, count: 0 };
-        }
-      })
-    );
-
-    const byId = entries.reduce<Record<string, UnreadEntry>>((acc, curr) => {
-      if (curr.id) acc[curr.id] = curr;
-      return acc;
-    }, {});
-
-    setFans((prev) => {
-      let changed = false;
-      const next = prev.map((fan) => {
-        const fanId = fan.id as string | undefined;
-        if (!fanId) return fan;
-        const entry = byId[fanId];
-        if (!entry) return fan;
-        if (entry.empty) {
-          const shouldClear =
-            (fan.lastMessage ?? "") !== "" || (fan.lastTime ?? "") !== "" || (fan.unreadCount ?? 0) !== 0;
-          if (shouldClear) {
-            changed = true;
-            return { ...fan, lastMessage: "", lastTime: "", unreadCount: 0 };
-          }
-          return fan;
-        }
-        const nextUnread = entry.count ?? fan.unreadCount;
-        if (nextUnread !== fan.unreadCount) {
-          changed = true;
-          return { ...fan, unreadCount: nextUnread };
-        }
-        return fan;
-      });
-      return changed ? next : prev;
-    });
-  }, []);
-
   const totalCount = safeFans.length;
   const followUpTodayCount = safeFans.filter((fan) =>
     shouldFollowUpToday({
@@ -594,7 +516,6 @@ function SideBarInner() {
         setFansError("");
         setNextCursor(typeof data.nextCursor === "string" ? data.nextCursor : null);
         setHasMore(Boolean(data.hasMore));
-        updateUnreadCounts(mapped, loadUnreadMap());
       } catch (_err) {
         setFansError("Error cargando fans");
         if (!append) setFans([]);
@@ -603,7 +524,7 @@ function SideBarInner() {
         setIsLoadingMore(false);
       }
     },
-    [apiFilter, mapFans, search, updateUnreadCounts]
+    [apiFilter, mapFans, search]
   );
 
   const pollFans = useCallback(async () => {
@@ -629,15 +550,13 @@ function SideBarInner() {
         setFansError("");
         setNextCursor(typeof data.nextCursor === "string" ? data.nextCursor : null);
         setHasMore(Boolean(data.hasMore));
-        updateUnreadCounts(merged, loadUnreadMap());
       }
     } catch (_err) {
       // silent poll failure
     }
-  }, [apiFilter, hasFanListChanged, mapFans, mergeFansById, search, setFansError, updateUnreadCounts]);
+  }, [apiFilter, hasFanListChanged, mapFans, mergeFansById, search, setFansError]);
 
   useEffect(() => {
-    setUnreadMap(loadUnreadMap());
     fetchFansPage();
     void refreshExtrasSummary();
   }, [fetchFansPage, refreshExtrasSummary]);
@@ -670,8 +589,6 @@ function SideBarInner() {
     }
 
     window.addEventListener("fanDataUpdated", handleFanDataUpdated as EventListener);
-    const handleUnreadUpdated = () => setUnreadMap(loadUnreadMap());
-    window.addEventListener("unreadUpdated", handleUnreadUpdated);
     const handleExtrasUpdated = (event: Event) => {
       const custom = event as CustomEvent;
       const detail = custom.detail as
@@ -750,21 +667,10 @@ function SideBarInner() {
 
     return () => {
       window.removeEventListener("fanDataUpdated", handleFanDataUpdated as EventListener);
-      window.removeEventListener("unreadUpdated", handleUnreadUpdated);
       window.removeEventListener(EXTRAS_UPDATED_EVENT, handleExtrasUpdated as EventListener);
       window.removeEventListener("applyChatFilter", handleExternalFilter as EventListener);
     };
   }, [applyFilter, fetchFansPage, mapFans, refreshExtrasSummary]);
-
-  const lastUnreadSyncRef = useRef<number>(0);
-
-  useEffect(() => {
-    if (safeFans.length === 0) return;
-    const now = Date.now();
-    if (now - lastUnreadSyncRef.current < 15000) return;
-    lastUnreadSyncRef.current = now;
-    updateUnreadCounts(safeFans, unreadMap);
-  }, [safeFans, unreadMap, updateUnreadCounts]);
 
   useEffect(() => {
     const fanIdFromQuery = typeof router.query.fanId === "string" ? router.query.fanId : null;

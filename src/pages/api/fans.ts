@@ -319,6 +319,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
       const creatorMessages = fan.messages.filter((msg) => msg.from === "creator");
       const fanMessages = fan.messages.filter((msg) => msg.from === "fan");
+      const hasMessages = fan.messages.length > 0;
 
       const lastCreatorMessage = creatorMessages
         .map((msg) => parseMessageTimestamp(msg.id))
@@ -348,9 +349,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         id: fan.id,
         name: fan.name,
         avatar: fan.avatar || "",
-        preview: fan.preview || "",
-        time: fan.time || "",
-        unreadCount: fan.unreadCount ?? 0,
+        preview: hasMessages ? fan.preview || "" : "",
+        time: hasMessages ? fan.time || "" : "",
+        unreadCount: hasMessages ? fan.unreadCount ?? 0 : 0,
         isNew: fan.isNew ?? false,
         accessState,
         accessType,

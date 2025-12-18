@@ -12,7 +12,6 @@ import { FollowUpTag, getFollowUpTag, getUrgencyLevel } from "../../utils/follow
 import { PACKS } from "../../config/packs";
 import { getRecommendedFan } from "../../utils/recommendedFan";
 import { ContentItem, getContentTypeLabel, getContentVisibilityLabel } from "../../types/content";
-import { loadUnreadMap, saveUnreadMap, updateLastReadForFan } from "../../utils/unread";
 import { getTimeOfDayTag } from "../../utils/contentTags";
 import { HIGH_PRIORITY_LIMIT } from "../../config/customers";
 import { EXTRAS_UPDATED_EVENT } from "../../constants/events";
@@ -1212,7 +1211,8 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
           setIsLoadingMessages(true);
         }
         setMessagesError("");
-        const res = await fetch(`/api/messages?fanId=${encodeURIComponent(id)}`, { signal: controller.signal });
+        const params = new URLSearchParams({ fanId: id, markRead: "1" });
+        const res = await fetch(`/api/messages?${params.toString()}`, { signal: controller.signal });
         const data = await res.json().catch(() => ({}));
         if (!res.ok || !data?.ok) throw new Error(data?.error || "error");
         const source = Array.isArray(data.items)
@@ -1290,14 +1290,6 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
       setQueueIndex(idx);
     }
   }, [conversation?.id, queueMode, todayQueue, queueIndex, setQueueIndex]);
-
-  useEffect(() => {
-    if (!id) return;
-    const map = loadUnreadMap();
-    const updated = updateLastReadForFan(map, id, new Date());
-    saveUnreadMap(updated);
-    window.dispatchEvent(new Event("unreadUpdated"));
-  }, [id]);
 
 useEffect(() => {
   if (!id || openPanel !== "notes") return;

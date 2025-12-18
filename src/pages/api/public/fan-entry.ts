@@ -95,7 +95,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         data: {
           isArchived: false,
           preview: message.slice(0, 120),
+          time,
           lastMessageAt: now,
+          unreadCount: { increment: 1 },
           ...(needsAttribution
             ? {
                 firstUtmSource: existing.firstUtmSource || attribution.firstUtmSource,
@@ -118,6 +120,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           time,
           lastMessageAt: now,
           isNew: true,
+          unreadCount: 1,
           ...attribution,
         },
       });

@@ -20,13 +20,15 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
 }
 
 async function handleGet(req: NextApiRequest, res: NextApiResponse<MessageResponse>) {
-  const { fanId } = req.query;
+  const { fanId, markRead } = req.query;
 
   if (!fanId || typeof fanId !== "string") {
     return res.status(400).json({ ok: false, error: "fanId is required" });
   }
 
   const normalizedFanId = fanId.trim();
+  const shouldMarkRead =
+    typeof markRead === "string" ? markRead === "1" || markRead.toLowerCase() === "true" : false;
 
   try {
     const messages = await prisma.message.findMany({
@@ -44,6 +46,17 @@ async function handleGet(req: NextApiRequest, res: NextApiResponse<MessageRespon
       ...message,
       fanId: normalizedFanId,
     }));
+
+    if (shouldMarkRead) {
+      try {
+        await prisma.fan.updateMany({
+          where: { id: normalizedFanId, unreadCount: { gt: 0 } },
+          data: { unreadCount: 0 },
+        });
+      } catch (updateErr) {
+        console.error("api/messages markRead error", { fanId: normalizedFanId, error: (updateErr as Error)?.message });
+      }
+    }
 
     return res.status(200).json({ ok: true, items: normalizedMessages, messages: normalizedMessages });
   } catch (err) {
@@ -111,15 +124,32 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse<MessageRespo
       include: { contentItem: true },
     });
 
+    const previewSource =
+      normalizedType === "CONTENT"
+        ? created.contentItem?.title || "Contenido compartido"
+        : typeof text === "string"
+        ? text
+        : "";
+    const preview = previewSource.trim().slice(0, 120);
+    const fanUpdate: Record<string, unknown> = {
+      preview,
+      time,
+      lastMessageAt: new Date(),
+    };
     if (normalizedFrom === "fan") {
-      try {
-        await prisma.fan.update({
-          where: { id: fanId },
-          data: { isArchived: false },
-        });
-      } catch (updateErr) {
-        console.error("api/messages auto-unarchive error", { fanId, error: (updateErr as Error)?.message });
-      }
+      fanUpdate.isArchived = false;
+      fanUpdate.unreadCount = { increment: 1 };
+    } else {
+      fanUpdate.lastCreatorMessageAt = new Date();
+      fanUpdate.unreadCount = 0;
+    }
+    try {
+      await prisma.fan.update({
+        where: { id: fanId },
+        data: fanUpdate,
+      });
+    } catch (updateErr) {
+      console.error("api/messages fan-update error", { fanId, error: (updateErr as Error)?.message });
     }
 
     return res.status(200).json({ ok: true, message: created, items: [created], messages: [created] });
