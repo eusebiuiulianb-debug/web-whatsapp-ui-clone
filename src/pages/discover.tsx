@@ -1,21 +1,12 @@
 import Head from "next/head";
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import OrbitalExplorer from "../components/discovery/OrbitalExplorer";
+import StoryViewerModal from "../components/discovery/StoryViewerModal";
+import type { DiscoveryRecommendation } from "../types/discovery";
 
 type StepId = "intention" | "style" | "budget" | "responseSpeed" | "useLocation";
 type StepOption = { id: string; label: string; description?: string };
-
-type Recommendation = {
-  creatorId: string;
-  displayName: string;
-  avatarUrl?: string | null;
-  priceRange?: string;
-  responseHours?: number | null;
-  reasons: string[];
-  handle: string;
-  country?: string | null;
-  cityApprox?: string | null;
-};
 
 type Answers = {
   intention?: string;
@@ -90,15 +81,27 @@ function ensureSessionId(): string | null {
 export default function DiscoverPage() {
   const [currentStep, setCurrentStep] = useState(0);
   const [answers, setAnswers] = useState<Answers>({});
-  const [recommendations, setRecommendations] = useState<Recommendation[]>([]);
+  const [recommendations, setRecommendations] = useState<DiscoveryRecommendation[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [feedbackState, setFeedbackState] = useState<Record<string, "up" | "down">>({});
+  const [viewMode, setViewMode] = useState<"list" | "orbital">("list");
+  const [activeStory, setActiveStory] = useState<DiscoveryRecommendation | null>(null);
+  const [reducedMotion, setReducedMotion] = useState(false);
 
   useEffect(() => {
     const id = ensureSessionId();
     if (id) setSessionId(id);
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const mql = window.matchMedia("(prefers-reduced-motion: reduce)");
+    const update = () => setReducedMotion(mql.matches);
+    update();
+    mql.addEventListener("change", update);
+    return () => mql.removeEventListener("change", update);
   }, []);
 
   const isComplete = useMemo(
@@ -164,7 +167,10 @@ export default function DiscoverPage() {
         const data = await res.json().catch(() => ({}));
         throw new Error(data?.error || "No se pudieron generar recomendaciones");
       }
-      const data = (await res.json()) as { recommendations: Recommendation[] };
+      const data = (await res.json()) as { ok: boolean; recommendations?: DiscoveryRecommendation[]; error?: string };
+      if (!data.ok || !Array.isArray(data.recommendations)) {
+        throw new Error(data?.error || "No se pudieron generar recomendaciones");
+      }
       setRecommendations(data.recommendations || []);
     } catch (err) {
       console.error(err);
@@ -278,78 +284,114 @@ export default function DiscoverPage() {
               </div>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {recommendations.map((rec) => (
-                <article
-                  key={rec.creatorId}
-                  className="rounded-2xl border border-slate-800 bg-slate-900/70 p-4 flex flex-col gap-3 shadow-lg shadow-black/20"
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-slate-500">Vista</span>
+              {(["list", "orbital"] as const).map((mode) => (
+                <button
+                  key={mode}
+                  type="button"
+                  className={`rounded-full px-3 py-1 text-xs font-semibold transition ${
+                    viewMode === mode
+                      ? "bg-emerald-600/20 text-emerald-100 border border-emerald-500/60"
+                      : "bg-slate-800/70 text-slate-200 border border-slate-700 hover:border-emerald-500/50"
+                  }`}
+                  onClick={() => setViewMode(mode)}
                 >
-                  <div className="flex items-center gap-3">
-                    <div className="h-12 w-12 rounded-full overflow-hidden bg-emerald-600/30 border border-emerald-500/30 flex items-center justify-center text-lg font-semibold">
-                      {rec.avatarUrl ? (
-                        // eslint-disable-next-line @next/next/no-img-element
-                        <img src={rec.avatarUrl} alt={rec.displayName} className="h-full w-full object-cover" />
-                      ) : (
-                        (rec.displayName || "C")[0]?.toUpperCase()
-                      )}
-                    </div>
-                    <div className="flex flex-col">
-                      <div className="text-lg font-semibold leading-tight">{rec.displayName}</div>
-                      <div className="text-xs text-slate-400">
-                        {rec.priceRange ? rec.priceRange : "Rango privado"} ·{" "}
-                        {rec.responseHours ? `Resp. ~${rec.responseHours}h` : "Resp. estándar"}
-                      </div>
-                      {rec.country && (
-                        <div className="text-xs text-slate-500">
-                          {rec.country}
-                          {rec.cityApprox ? ` · ${rec.cityApprox}` : ""}
-                        </div>
-                      )}
-                    </div>
-                  </div>
-
-                  <ul className="space-y-1">
-                    {rec.reasons.slice(0, 3).map((reason, idx) => (
-                      <li key={`${rec.creatorId}-reason-${idx}`} className="text-sm text-slate-200 flex gap-2">
-                        <span className="text-emerald-300">•</span>
-                        <span>{reason}</span>
-                      </li>
-                    ))}
-                  </ul>
-
-                  <div className="flex flex-wrap items-center gap-2">
-                    <Link href={`/link/${rec.handle}`} passHref>
-                      <a className="rounded-full border border-slate-700 bg-slate-800/80 px-3 py-1.5 text-sm font-semibold text-slate-100 hover:border-emerald-500/60">
-                        Ver perfil
-                      </a>
-                    </Link>
-                    <Link href={`/c/${rec.handle}`} passHref>
-                      <a className="rounded-full border border-emerald-500/70 bg-emerald-600/20 px-3 py-1.5 text-sm font-semibold text-emerald-100 hover:bg-emerald-600/30">
-                        Abrir chat
-                      </a>
-                    </Link>
-                    <div className="ml-auto flex items-center gap-1 text-slate-400 text-xs">
-                      <button
-                        type="button"
-                        aria-label="Me gusta"
-                        className={`rounded-full border px-2 py-1 ${feedbackState[rec.creatorId] === "up" ? "border-emerald-500/70 text-emerald-100" : "border-slate-800 hover:border-emerald-400/60"}`}
-                        onClick={() => handleFeedback(rec.creatorId, "up")}
-                      >
-                        👍
-                      </button>
-                      <button
-                        type="button"
-                        aria-label="No me encaja"
-                        className={`rounded-full border px-2 py-1 ${feedbackState[rec.creatorId] === "down" ? "border-rose-500/70 text-rose-100" : "border-slate-800 hover:border-rose-400/60"}`}
-                        onClick={() => handleFeedback(rec.creatorId, "down")}
-                      >
-                        👎
-                      </button>
-                    </div>
-                  </div>
-                </article>
+                  {mode === "list" ? "Lista" : "Orbital"}
+                </button>
               ))}
             </div>
+
+            {viewMode === "list" && (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {recommendations.map((rec) => (
+                  <article
+                    key={rec.creatorId}
+                    className="rounded-2xl border border-slate-800 bg-slate-900/70 p-4 flex flex-col gap-3 shadow-lg shadow-black/20"
+                  >
+                    <div className="flex items-center gap-3">
+                      <div className="h-12 w-12 rounded-full overflow-hidden bg-emerald-600/30 border border-emerald-500/30 flex items-center justify-center text-lg font-semibold">
+                        {rec.avatarUrl ? (
+                          // eslint-disable-next-line @next/next/no-img-element
+                          <img src={rec.avatarUrl} alt={rec.displayName} className="h-full w-full object-cover" />
+                        ) : (
+                          (rec.displayName || "C")[0]?.toUpperCase()
+                        )}
+                      </div>
+                      <div className="flex flex-col">
+                        <div className="text-lg font-semibold leading-tight">{rec.displayName}</div>
+                        <div className="text-xs text-slate-400">
+                          {rec.priceRange ? rec.priceRange : "Rango privado"} ·{" "}
+                          {rec.responseHours ? `Resp. ~${rec.responseHours}h` : "Resp. estándar"}
+                        </div>
+                        {rec.country && (
+                          <div className="text-xs text-slate-500">
+                            {rec.country}
+                            {rec.cityApprox ? ` · ${rec.cityApprox}` : ""}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+
+                    <ul className="space-y-1">
+                      {rec.reasons.slice(0, 3).map((reason, idx) => (
+                        <li key={`${rec.creatorId}-reason-${idx}`} className="text-sm text-slate-200 flex gap-2">
+                          <span className="text-emerald-300">•</span>
+                          <span>{reason}</span>
+                        </li>
+                      ))}
+                    </ul>
+
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Link href={`/link/${rec.handle}`} passHref>
+                        <a className="rounded-full border border-slate-700 bg-slate-800/80 px-3 py-1.5 text-sm font-semibold text-slate-100 hover:border-emerald-500/60">
+                          Ver perfil
+                        </a>
+                      </Link>
+                      <Link href={`/c/${rec.handle}`} passHref>
+                        <a className="rounded-full border border-emerald-500/70 bg-emerald-600/20 px-3 py-1.5 text-sm font-semibold text-emerald-100 hover:bg-emerald-600/30">
+                          Abrir chat
+                        </a>
+                      </Link>
+                      <div className="ml-auto flex items-center gap-1 text-slate-400 text-xs">
+                        <button
+                          type="button"
+                          aria-label="Me gusta"
+                          className={`rounded-full border px-2 py-1 ${
+                            feedbackState[rec.creatorId] === "up"
+                              ? "border-emerald-500/70 text-emerald-100"
+                              : "border-slate-800 hover:border-emerald-400/60"
+                          }`}
+                          onClick={() => handleFeedback(rec.creatorId, "up")}
+                        >
+                          👍
+                        </button>
+                        <button
+                          type="button"
+                          aria-label="No me encaja"
+                          className={`rounded-full border px-2 py-1 ${
+                            feedbackState[rec.creatorId] === "down"
+                              ? "border-rose-500/70 text-rose-100"
+                              : "border-slate-800 hover:border-rose-400/60"
+                          }`}
+                          onClick={() => handleFeedback(rec.creatorId, "down")}
+                        >
+                          👎
+                        </button>
+                      </div>
+                    </div>
+                  </article>
+                ))}
+              </div>
+            )}
+
+            {viewMode === "orbital" && (
+              <OrbitalExplorer
+                recommendations={recommendations}
+                onOpen={(rec) => setActiveStory(rec)}
+                reducedMotion={reducedMotion}
+              />
+            )}
 
             {!loading && recommendations.length === 0 && (
               <div className="rounded-xl border border-slate-800 bg-slate-900/70 p-4 text-sm text-slate-300">
@@ -359,6 +401,7 @@ export default function DiscoverPage() {
           </section>
         )}
       </div>
+      <StoryViewerModal open={Boolean(activeStory)} recommendation={activeStory} onClose={() => setActiveStory(null)} />
     </div>
   );
 }

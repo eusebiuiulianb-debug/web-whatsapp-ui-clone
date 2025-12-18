@@ -14,7 +14,8 @@ import { registerAiUsage } from "../../../../lib/ai/registerAiUsage";
 import { toSafeErrorMessage } from "../../../../server/ai/openAiError";
 import { maybeDecrypt } from "../../../../server/crypto/maybeDecrypt";
 import { sanitizeForOpenAi } from "../../../../server/ai/sanitizeForOpenAi";
-import { OPENAI_FALLBACK_MESSAGE, safeOpenAiChatCompletion } from "../../../../server/ai/openAiClient";
+import { OPENAI_FALLBACK_MESSAGE } from "../../../../server/ai/openAiClient";
+import { runAiCompletion, type AiAdapterResult } from "../../../../server/ai/aiAdapter";
 
 type ManagerReply = ManagerDemoReply & { mode: "STRATEGY" | "CONTENT" | "GROWTH"; text: string };
 
@@ -29,7 +30,7 @@ type ChatResponseBody = {
 
 const HISTORY_LIMIT = 20;
 
-export default async function handler(req: NextApiRequest, res: NextApiResponse<ChatResponseBody | { error: string }>) {
+export default async function handler(req: NextApiRequest, res: NextApiResponse<ChatResponseBody | { error: string; hint?: string }>) {
   if (req.method !== "POST") {
     res.setHeader("Allow", "POST");
     return res.status(405).json({ error: "Method not allowed" });
@@ -64,6 +65,11 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
 
     const apiKey = maybeDecrypt(process.env.OPENAI_API_KEY, { creatorId, label: "OPENAI_API_KEY" });
     const settingsStatus: ChatResponseBody["settingsStatus"] = apiKey ? "ok" : "settings_missing";
+    const wantsOpenAi = ["openai", "live"].includes((process.env.AI_MODE || "mock").toLowerCase());
+
+    if (wantsOpenAi && (!apiKey || !process.env.OPENAI_MODEL)) {
+      return res.status(500).json({ error: "AI not configured", hint: "Set AI_MODE=mock or configure OPENAI_*" });
+    }
 
     if (!apiKey) {
       const demoReply = buildDemoManagerReply(tabToString(tab), context) as ManagerReply;
@@ -105,24 +111,23 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
       content: msg.content,
     }));
 
-    const forceDemo = (process.env.AI_MODE || "").toLowerCase() === "demo" || !apiKey;
     const rawOpenAiMessages: Array<{ role: "system" | "user" | "assistant"; content: string }> = [
       { role: "system", content: systemPrompt },
       ...historyMessages,
       { role: "user", content: userPrompt },
     ];
-    const aiResult = forceDemo
-      ? null
-      : await safeOpenAiChatCompletion({
-          messages: rawOpenAiMessages,
-          apiKey,
-          aiMode: process.env.AI_MODE,
-          creatorId,
-          route: "/api/creator/ai-manager/chat",
-          fallbackMessage: OPENAI_FALLBACK_MESSAGE,
-        });
-    const usedFallback = forceDemo || !!aiResult?.usedFallback || aiResult?.mode === "demo";
-    const aiMode = forceDemo ? "demo" : aiResult?.mode ?? "live";
+    const aiResult = await askManagerAiAdapter({
+      messages: rawOpenAiMessages,
+      apiKey,
+      creatorId,
+      fanId: null,
+      fallbackMessage: OPENAI_FALLBACK_MESSAGE,
+    });
+    if (aiResult.needsConfig) {
+      return res.status(500).json({ error: "AI not configured", hint: "Set AI_MODE=mock or configure OPENAI_*" });
+    }
+    const usedFallback = !!aiResult?.usedFallback || aiResult?.mode === "demo";
+    const aiMode = aiResult?.mode ?? "live";
     const fallbackReply: ManagerReply = buildManagerFallback(tab, context);
     const reply: ManagerReply = usedFallback ? fallbackReply : parseManagerReply(aiResult?.text ?? "", tab);
     const creditsUsed = usedFallback ? 0 : calculateCredits(aiResult?.totalTokens ?? 0);
@@ -258,4 +263,23 @@ function parseManagerReply(raw: string, tab: ManagerAiTab): ManagerReply {
 function calculateCredits(totalTokens: number | null): number {
   if (!totalTokens || totalTokens <= 0) return 1;
   return Math.max(1, Math.ceil(totalTokens / 1000));
+}
+
+async function askManagerAiAdapter(params: {
+  messages: Array<{ role: "system" | "user" | "assistant"; content: string }>;
+  apiKey: string | null;
+  creatorId: string;
+  fanId: string | null;
+  fallbackMessage?: string;
+}): Promise<AiAdapterResult> {
+  return runAiCompletion({
+    messages: params.messages,
+    apiKey: params.apiKey,
+    creatorId: params.creatorId,
+    fanId: params.fanId,
+    aiMode: process.env.AI_MODE,
+    model: process.env.OPENAI_MODEL,
+    route: "/api/creator/ai-manager/chat",
+    fallbackMessage: params.fallbackMessage ?? OPENAI_FALLBACK_MESSAGE,
+  });
 }

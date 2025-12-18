@@ -3,9 +3,16 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
+    "predev": "node scripts/guard-next.js",
     "dev": "next dev -p 3005",
-    "dev:clean": "npm run clean && next dev -p 3005",
-    "clean": "node -e \"const fs=require('fs');['.next'].forEach(p=>{try{fs.rmSync(p,{recursive:true,force:true});}catch(e){}});\"",
+    "dev:reset": "node scripts/dev-reset.js",
+    "lint": "next lint",
+    "typecheck": "tsc --noEmit",
+    "smoke": "node scripts/smoke-api.mjs",
+    "diagnose": "npm run lint && npm run typecheck && npm run build && npm run smoke",
+    "dev:clean": "node scripts/clean-next.js && next dev -p 3005",
+    "clean": "node scripts/clean-next.js",
+    "clean:next": "node scripts/clean-next.js",
     "build": "next build",
     "start": "next start",
     "lint": "next lint"

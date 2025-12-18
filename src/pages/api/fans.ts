@@ -2,7 +2,6 @@ import type { NextApiRequest, NextApiResponse } from "next";
 import { Prisma } from "@prisma/client";
 import prisma from "../../lib/prisma.server";
 import { getFollowUpTag, shouldFollowUpToday } from "../../utils/followUp";
-import { sendBadRequest, sendServerError } from "../../lib/apiError";
 import { HIGH_PRIORITY_LIMIT } from "../../config/customers";
 import {
   getExtraLadderStatusForFan,
@@ -51,7 +50,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   if (rawLimit !== undefined) {
     const parsedLimit = Number(rawLimit);
     if (!Number.isFinite(parsedLimit) || parsedLimit <= 0) {
-      return sendBadRequest(res, "limit must be a positive number");
+      return res.status(400).json({ ok: false, error: "limit must be a positive number" });
     }
     limit = Math.min(parsedLimit, MAX_LIMIT);
   }
@@ -427,6 +426,6 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     return res.status(200).json({ ok: true, items, fans: items, nextCursor, hasMore });
   } catch (error) {
     console.error("Error loading fans data", error);
-    return sendServerError(res, "Error loading fans data");
+    return res.status(500).json({ ok: false, error: "Error loading fans data" });
   }
 }

@@ -7,7 +7,8 @@ import { BUSINESS_MANAGER_SYSTEM_PROMPT } from "../../../lib/ai/prompts";
 import { maybeDecrypt } from "../../../server/crypto/maybeDecrypt";
 import { toSafeErrorMessage } from "../../../server/ai/openAiError";
 import { sanitizeForOpenAi } from "../../../server/ai/sanitizeForOpenAi";
-import { OPENAI_FALLBACK_MESSAGE, safeOpenAiChatCompletion, type SafeOpenAiChatResult } from "../../../server/ai/openAiClient";
+import { OPENAI_FALLBACK_MESSAGE } from "../../../server/ai/openAiClient";
+import { runAiCompletion, type AiAdapterResult } from "../../../server/ai/aiAdapter";
 
 type SerializedMessage = {
   id: string;
@@ -81,6 +82,10 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
     const contextBlock = `Snapshot del negocio del creador:\n${JSON.stringify(safeSnapshot, null, 2)}`;
 
     const apiKey = maybeDecrypt(process.env.OPENAI_API_KEY, { creatorId, label: "OPENAI_API_KEY" });
+    const wantsOpenAi = ["openai", "live"].includes((process.env.AI_MODE || "mock").toLowerCase());
+    if (wantsOpenAi && (!apiKey || !process.env.OPENAI_MODEL)) {
+      return res.status(500).json({ error: "AI not configured", hint: "Set AI_MODE=mock or configure OPENAI_*" });
+    }
     const aiResult = await askManagerAi({
       systemPrompt,
       context: contextBlock,
@@ -89,6 +94,9 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
       apiKey,
       creatorId,
     });
+    if (aiResult.needsConfig) {
+      return res.status(500).json({ error: "AI not configured", hint: "Set AI_MODE=mock or configure OPENAI_*" });
+    }
     const managerReply = aiResult.text;
     const usedFallback = aiResult.usedFallback || aiResult.mode === "demo";
     const aiMode = aiResult.mode;
@@ -166,7 +174,7 @@ async function askManagerAi(params: {
   userMessage: string;
   apiKey: string | null;
   creatorId?: string;
-}): Promise<SafeOpenAiChatResult> {
+}): Promise<AiAdapterResult> {
   const { systemPrompt, context, history, userMessage, apiKey, creatorId } = params;
 
   const historyMessages = history.slice(-HISTORY_LIMIT).map((msg) => ({
@@ -174,7 +182,7 @@ async function askManagerAi(params: {
     content: msg.content,
   }));
 
-  return safeOpenAiChatCompletion({
+  return runAiCompletion({
     messages: [
       { role: "system", content: systemPrompt },
       { role: "system", content: context },
@@ -184,6 +192,7 @@ async function askManagerAi(params: {
     apiKey,
     creatorId,
     aiMode: process.env.AI_MODE,
+    model: process.env.OPENAI_MODEL,
     route: "/api/creator/manager-chat",
     fallbackMessage: OPENAI_FALLBACK_MESSAGE,
   });

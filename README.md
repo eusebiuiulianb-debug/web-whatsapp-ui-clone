@@ -13,7 +13,14 @@ npm run dev
 
 La app se levanta en modo desarrollo en `http://localhost:3005`. Para pasos completos y troubleshooting en Windows, revisa el runbook de abajo.
 
+En Windows, si ves errores raros de `.next`, usa: `npm run dev:reset`.
+
 ## Runbook de desarrollo (Windows)
+
+### Limpiar .next corrupto (ENOENT en dev)
+- Síntoma: `ENOENT ...\\.next\\server\\pages\\*.js` o HMR roto al arrancar.
+- Solución rápida: `npm run dev:clean` (borra `.next` y arranca dev).
+- El predev ya borra `.next` si detecta `BUILD_ID` o `pages-manifest.json` ausentes.
 
 ### Quickstart
 1. Copia `.env.example` a `.env` y ajusta `DATABASE_URL` si necesitas otra ruta local.
@@ -22,6 +29,12 @@ La app se levanta en modo desarrollo en `http://localhost:3005`. Para pasos comp
 4. `npx prisma migrate dev`
 5. `npm run dev` (http://localhost:3005)
 6. `npm run build` para validar que el build pasa.
+
+### Contrato de APIs
+- Todas las listas devuelven `{ ok, items }` (ej: `/api/fans`, `/api/messages` devuelve `items` y `messages` para compatibilidad temporal).
+
+### Diagnóstico rápido
+- Antes de marcar “arreglado”: `npm run diagnose` (lint + typecheck + build + smoke API).
 
 ### Base de datos (SQLite)
 - La base local vive en `./prisma/dev.db` y no se commitea.

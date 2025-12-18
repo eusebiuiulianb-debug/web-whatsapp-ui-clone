@@ -294,7 +294,11 @@ function SideBarInner() {
           const res = await fetch(`/api/messages?fanId=${fan.id}`);
           if (!res.ok) throw new Error("error");
           const data = await res.json();
-          const msgs = Array.isArray(data.messages) ? (data.messages as Message[]) : [];
+          const msgs = Array.isArray(data.items)
+            ? (data.items as Message[])
+            : Array.isArray(data.messages)
+            ? (data.messages as Message[])
+            : [];
           const lrTs = lastRead.getTime();
           const unread = msgs.filter((msg) => {
             if (msg.from !== "fan") return false;
@@ -314,12 +318,18 @@ function SideBarInner() {
       return acc;
     }, {});
 
-    setFans((prev) =>
-      prev.map((fan) => ({
-        ...fan,
-        unreadCount: fan.id ? byId[fan.id] ?? fan.unreadCount : fan.unreadCount,
-      }))
-    );
+    setFans((prev) => {
+      let changed = false;
+      const next = prev.map((fan) => {
+        const nextUnread = fan.id ? byId[fan.id] ?? fan.unreadCount : fan.unreadCount;
+        if (nextUnread !== fan.unreadCount) {
+          changed = true;
+          return { ...fan, unreadCount: nextUnread };
+        }
+        return fan;
+      });
+      return changed ? next : prev;
+    });
   }, []);
 
   const totalCount = safeFans.length;
@@ -636,9 +646,9 @@ function SideBarInner() {
   }, [applyFilter, fetchFansPage, mapFans, refreshExtrasSummary]);
 
   useEffect(() => {
-    if (fans.length === 0) return;
-    updateUnreadCounts(fans, unreadMap);
-  }, [fans, unreadMap, updateUnreadCounts]);
+    if (safeFans.length === 0) return;
+    updateUnreadCounts(safeFans, unreadMap);
+  }, [safeFans, unreadMap, updateUnreadCounts]);
 
   useEffect(() => {
     const fanIdFromQuery = typeof router.query.fanId === "string" ? router.query.fanId : null;

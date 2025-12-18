@@ -47,3 +47,13 @@ next-env.d.ts
 # local-only artifacts
 prisma/dev.db*
 manager_chunk.js
+
+# Local env
+.env
+.env.local
+.env.*.local
+# Local DB
+prisma/dev.db
+dev.db
+*.db
+

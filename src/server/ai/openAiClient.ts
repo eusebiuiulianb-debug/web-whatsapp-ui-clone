@@ -33,7 +33,7 @@ async function resolveFallbackMessage(fallback?: SafeOpenAiChatParams["fallbackM
 }
 
 export async function safeOpenAiChatCompletion(params: SafeOpenAiChatParams): Promise<SafeOpenAiChatResult> {
-  const aiMode = (params.aiMode || process.env.AI_MODE || "live").toLowerCase();
+  const aiMode = (params.aiMode || process.env.AI_MODE || "mock").toLowerCase();
   const shouldForceDemo = aiMode === "demo";
   const resolvedApiKey = shouldForceDemo ? null : params.apiKey ?? process.env.OPENAI_API_KEY ?? null;
 

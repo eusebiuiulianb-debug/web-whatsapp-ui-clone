@@ -1165,21 +1165,33 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
     });
   }, []);
 
+  const messagesAbortRef = useRef<AbortController | null>(null);
+
   const fetchMessages = useCallback(
     async (shouldShowLoading = false) => {
       if (!id) return;
+      if (messagesAbortRef.current) {
+        messagesAbortRef.current.abort();
+      }
+      const controller = new AbortController();
+      messagesAbortRef.current = controller;
       try {
         if (shouldShowLoading) {
           setIsLoadingMessages(true);
-          setMessage([]);
         }
         setMessagesError("");
-        const res = await fetch(`/api/messages?fanId=${id}`);
-        if (!res.ok) throw new Error("error");
-        const data = await res.json();
-        const mapped = mapApiMessagesToState(data.messages as ApiMessage[]);
+        const res = await fetch(`/api/messages?fanId=${encodeURIComponent(id)}`, { signal: controller.signal });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok || !data?.ok) throw new Error(data?.error || "error");
+        const source = Array.isArray(data.items)
+          ? (data.items as ApiMessage[])
+          : Array.isArray(data.messages)
+          ? (data.messages as ApiMessage[])
+          : [];
+        const mapped = mapApiMessagesToState(source);
         setMessage(mapped);
-      } catch (_err) {
+      } catch (err) {
+        if ((err as any)?.name === "AbortError") return;
         setMessagesError("Error cargando mensajes");
       } finally {
         if (shouldShowLoading) {
@@ -1193,10 +1205,11 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
   useEffect(() => {
     if (!id) return;
     fetchMessages(true);
-    const timer = setInterval(() => {
-      fetchMessages(false);
-    }, 4000);
-    return () => clearInterval(timer);
+    return () => {
+      if (messagesAbortRef.current) {
+        messagesAbortRef.current.abort();
+      }
+    };
   }, [fetchMessages, id]);
   useEffect(() => {
     setMessageSend("");
@@ -2816,6 +2829,11 @@ useEffect(() => {
             )}
           </div>
         </div>
+        {process.env.NEXT_PUBLIC_DEBUG_CHAT === "1" && (
+          <div className="fixed bottom-2 right-2 text-[11px] text-slate-200 bg-slate-900/80 border border-slate-700 px-2 py-1 rounded">
+            fanId={id || "none"} | loading={String(isLoadingMessages)} | msgs={messages.length} | error={messagesError || "none"}
+          </div>
+        )}
         <div className="flex flex-col bg-[#202c33] w-full h-auto py-3 px-4 text-[#8696a0] gap-3 flex-shrink-0 overflow-visible">
           {showExtraTemplates && (
             <div className="flex flex-col gap-3 bg-slate-800/60 border border-slate-700 rounded-lg p-3 w-full">

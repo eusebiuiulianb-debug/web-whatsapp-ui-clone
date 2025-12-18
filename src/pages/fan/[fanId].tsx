@@ -42,7 +42,10 @@ type FanChatPageProps = {
 
 export default function FanChatPage({ includedContent, initialAccessSummary }: FanChatPageProps) {
   const router = useRouter();
-  const fanId = typeof router.query.fanId === "string" ? router.query.fanId : undefined;
+  const fanId = useMemo(
+    () => (typeof router.query.fanId === "string" ? router.query.fanId : undefined),
+    [router.query.fanId]
+  );
   const { config } = useCreatorConfig();
   const creatorName = config.creatorName || "Tu creador";
   const creatorInitial = creatorName.trim().charAt(0).toUpperCase() || "C";
@@ -70,18 +73,24 @@ export default function FanChatPage({ includedContent, initialAccessSummary }: F
 
   const fetchMessages = useCallback(
     async (targetFanId: string, options?: { showLoading?: boolean }) => {
+      if (!targetFanId) return;
       const showLoading = options?.showLoading ?? false;
       try {
         if (showLoading) setLoading(true);
         setError("");
-        const res = await fetch(`/api/messages?fanId=${targetFanId}`);
-        if (!res.ok) throw new Error("error");
-        const data = await res.json();
-        const apiMessages = Array.isArray(data.messages) ? (data.messages as ApiMessage[]) : [];
+        const res = await fetch(`/api/messages?fanId=${encodeURIComponent(targetFanId)}`);
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok || !data?.ok) {
+          throw new Error(data?.error || "No se pudieron cargar mensajes");
+        }
+        const apiMessages = Array.isArray(data.items)
+          ? (data.items as ApiMessage[])
+          : Array.isArray(data.messages)
+          ? (data.messages as ApiMessage[])
+          : [];
         setMessages(sortMessages(apiMessages));
       } catch (_err) {
-        setError("Error cargando mensajes");
-        setMessages([]);
+        setError("No se pudieron cargar mensajes");
       } finally {
         if (showLoading) setLoading(false);
       }
@@ -91,9 +100,10 @@ export default function FanChatPage({ includedContent, initialAccessSummary }: F
 
   useEffect(() => {
     if (!fanId) return;
+    setMessages([]);
     fetchMessages(fanId, { showLoading: true });
-    const timer = setInterval(() => fetchMessages(fanId), 4000);
-    return () => clearInterval(timer);
+    // No polling para evitar loops y recargas constantes; se puede añadir un botón de refresco si hace falta.
+    return undefined;
   }, [fanId, fetchMessages]);
 
   useEffect(() => {
@@ -217,6 +227,19 @@ export default function FanChatPage({ includedContent, initialAccessSummary }: F
           <span className="text-[#8696a0] text-sm">{headerSubtitle}</span>
         </div>
       </header>
+
+      {error && (
+        <div className="px-4 py-2 text-sm text-rose-200 bg-rose-900/30 border-b border-rose-700/50 flex items-center justify-between">
+          <span>{error}</span>
+          <button
+            type="button"
+            className="rounded-full border border-rose-300/70 px-3 py-1 text-xs font-semibold hover:bg-rose-800/30"
+            onClick={() => fanId && fetchMessages(fanId, { showLoading: true })}
+          >
+            Reintentar
+          </button>
+        </div>
+      )}
 
       <main className="flex flex-col flex-1 min-h-0 overflow-hidden">
         <div ref={messagesContainerRef} className="flex-1 min-h-0 overflow-y-auto">

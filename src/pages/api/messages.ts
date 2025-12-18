@@ -1,8 +1,12 @@
 import type { NextApiRequest, NextApiResponse } from "next";
 import prisma from "../../lib/prisma.server";
-import { sendBadRequest, sendServerError } from "../../lib/apiError";
 
-export default async function handler(req: NextApiRequest, res: NextApiResponse) {
+type MessageResponse =
+  | { ok: true; items: any[]; messages?: any[] }
+  | { ok: true; message: any; items?: any[]; messages?: any[] }
+  | { ok: false; error: string };
+
+export default async function handler(req: NextApiRequest, res: NextApiResponse<MessageResponse>) {
   if (req.method === "GET") {
     return handleGet(req, res);
   }
@@ -12,14 +16,14 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   }
 
   res.setHeader("Allow", "GET, POST");
-  return res.status(405).json({ error: "Method not allowed" });
+  return res.status(405).json({ ok: false, error: "Method not allowed" });
 }
 
-async function handleGet(req: NextApiRequest, res: NextApiResponse) {
+async function handleGet(req: NextApiRequest, res: NextApiResponse<MessageResponse>) {
   const { fanId } = req.query;
 
   if (!fanId || typeof fanId !== "string") {
-    return sendBadRequest(res, "fanId is required");
+    return res.status(400).json({ ok: false, error: "fanId is required" });
   }
 
   try {
@@ -29,31 +33,31 @@ async function handleGet(req: NextApiRequest, res: NextApiResponse) {
       include: { contentItem: true },
     });
 
-    return res.status(200).json({ messages });
+    return res.status(200).json({ ok: true, items: messages, messages });
   } catch (err) {
-    console.error("Error fetching messages", err);
-    return sendServerError(res);
+    console.error("api/messages get error", { fanId, error: (err as Error)?.message });
+    return res.status(500).json({ ok: false, error: "Error fetching messages" });
   }
 }
 
-async function handlePost(req: NextApiRequest, res: NextApiResponse) {
+async function handlePost(req: NextApiRequest, res: NextApiResponse<MessageResponse>) {
   const { fanId, text, from, type, contentItemId } = req.body || {};
 
   if (!fanId || typeof fanId !== "string") {
-    return sendBadRequest(res, "fanId is required");
+    return res.status(400).json({ ok: false, error: "fanId is required" });
   }
 
   const normalizedType = type === "CONTENT" ? "CONTENT" : "TEXT";
 
   if (normalizedType === "TEXT") {
     if (!text || typeof text !== "string" || text.trim().length === 0) {
-      return sendBadRequest(res, "text is required");
+      return res.status(400).json({ ok: false, error: "text is required" });
     }
   }
 
   if (normalizedType === "CONTENT") {
     if (!contentItemId || typeof contentItemId !== "string") {
-      return sendBadRequest(res, "contentItemId is required for content messages");
+      return res.status(400).json({ ok: false, error: "contentItemId is required for content messages" });
     }
   }
 
@@ -70,10 +74,10 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
       select: { isBlocked: true },
     });
     if (!fan) {
-      return sendBadRequest(res, "Fan not found");
+      return res.status(404).json({ ok: false, error: "Fan not found" });
     }
     if (normalizedFrom === "creator" && fan.isBlocked) {
-      return res.status(403).json({ error: "CHAT_BLOCKED" });
+      return res.status(403).json({ ok: false, error: "CHAT_BLOCKED" });
     }
 
     await prisma.message.updateMany({
@@ -102,13 +106,13 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
           data: { isArchived: false },
         });
       } catch (updateErr) {
-        console.error("Error auto-unarchiving fan after incoming message", updateErr);
+        console.error("api/messages auto-unarchive error", { fanId, error: (updateErr as Error)?.message });
       }
     }
 
-    return res.status(200).json({ message: created });
+    return res.status(200).json({ ok: true, message: created, items: [created], messages: [created] });
   } catch (err) {
-    console.error("Error creating message", err);
-    return sendServerError(res);
+    console.error("api/messages post error", { fanId, error: (err as Error)?.message });
+    return res.status(500).json({ ok: false, error: "Error creating message" });
   }
 }
