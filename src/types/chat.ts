@@ -53,6 +53,7 @@ export interface Fan {
   maxExtraTier?: string | null;
   novsyStatus?: "NOVSY" | null;
   isHighPriority?: boolean;
+  inviteUsedAt?: string | Date | null;
   highPriorityAt?: string | null;
   segment?: string | null;
   riskLevel?: "LOW" | "MEDIUM" | "HIGH" | string | null;

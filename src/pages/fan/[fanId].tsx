@@ -49,6 +49,10 @@ export default function FanChatPage({ includedContent, initialAccessSummary }: F
     () => (typeof router.query.fanId === "string" ? router.query.fanId : undefined),
     [router.query.fanId]
   );
+  const inviteFlag = useMemo(
+    () => router.query.invite === "1",
+    [router.query.invite]
+  );
   const { config } = useCreatorConfig();
   const creatorName = config.creatorName || "Tu creador";
   const creatorInitial = creatorName.trim().charAt(0).toUpperCase() || "C";
@@ -251,12 +255,15 @@ export default function FanChatPage({ includedContent, initialAccessSummary }: F
     if (ok) setDraft("");
   }
 
+  const shouldPromptForName = inviteFlag
+    ? !fanProfile.displayName
+    : getFanDisplayName(fanProfile) === "Invitado";
   const isOnboardingVisible =
     fanProfileLoaded &&
     !onboardingDismissed &&
     !loading &&
     messages.length === 0 &&
-    getFanDisplayName(fanProfile) === "Invitado";
+    shouldPromptForName;
   const isComposerDisabled = sending || isOnboardingVisible || onboardingSaving;
 
   const handleOnboardingSkip = () => {
@@ -271,17 +278,30 @@ export default function FanChatPage({ includedContent, initialAccessSummary }: F
     try {
       const name = onboardingName.trim();
       const firstMessage = onboardingMessage.trim();
+      const updates: Record<string, unknown> = {};
       if (name) {
+        updates.displayName = name;
+      }
+      if (inviteFlag) {
+        updates.inviteUsedAt = true;
+      }
+      if (Object.keys(updates).length > 0) {
         const res = await fetch(`/api/fans/${fanId}`, {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ displayName: name }),
+          body: JSON.stringify(updates),
         });
         const data = await res.json().catch(() => ({}));
-        if (res.ok && data?.fan) {
+        if (!res.ok) {
+          if (process.env.NODE_ENV !== "production") {
+            console.warn("[invite] patch failed", data?.error || res.statusText);
+          }
+          throw new Error(data?.error || "patch_failed");
+        }
+        if (data?.fan) {
           setFanProfile({
             name: data.fan.name ?? fanProfile.name ?? "Invitado",
-            displayName: data.fan.displayName ?? name,
+            displayName: data.fan.displayName ?? (name || fanProfile.displayName ?? null),
             creatorLabel: data.fan.creatorLabel ?? null,
           });
         }

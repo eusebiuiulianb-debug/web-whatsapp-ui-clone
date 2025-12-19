@@ -128,6 +128,9 @@ export default function ConversationDetails({ onBackToBoard }: ConversationDetai
   const [ editNameValue, setEditNameValue ] = useState("");
   const [ editNameError, setEditNameError ] = useState<string | null>(null);
   const [ editNameSaving, setEditNameSaving ] = useState(false);
+  const [ inviteCopyState, setInviteCopyState ] = useState<"idle" | "loading" | "copied" | "error">("idle");
+  const [ inviteCopyError, setInviteCopyError ] = useState<string | null>(null);
+  const [ inviteCopyUrl, setInviteCopyUrl ] = useState<string | null>(null);
   const [ showContentModal, setShowContentModal ] = useState(false);
   const [ contentModalMode, setContentModalMode ] = useState<"packs" | "extras">("packs");
   const [ extraTierFilter, setExtraTierFilter ] = useState<"T0" | "T1" | "T2" | "T3" | "T4" | null>(null);
@@ -1312,10 +1315,16 @@ useEffect(() => {
   fetchHistory(id);
 }, [id, openPanel]);
 
-useEffect(() => {
-  if (!id || openPanel !== "extras") return;
-  fetchExtrasHistory(id);
-}, [id, openPanel]);
+  useEffect(() => {
+    if (!id || openPanel !== "extras") return;
+    fetchExtrasHistory(id);
+  }, [id, openPanel]);
+
+  useEffect(() => {
+    setInviteCopyState("idle");
+    setInviteCopyError(null);
+    setInviteCopyUrl(null);
+  }, [id, showQuickSheet]);
 
 useEffect(() => {
   if (!showContentModal) return;
@@ -2403,6 +2412,33 @@ useEffect(() => {
     }
   };
 
+  const handleCopyInviteLink = async () => {
+    if (!id) return;
+    try {
+      setInviteCopyState("loading");
+      setInviteCopyError(null);
+      const res = await fetch(`/api/fans/${id}/invite`, { method: "POST" });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data?.inviteUrl) {
+        if (process.env.NODE_ENV !== "production") {
+          console.warn("[invite] generate failed", data?.error || res.statusText);
+        }
+        setInviteCopyState("error");
+        setInviteCopyError("No se pudo generar el enlace.");
+        return;
+      }
+      const inviteUrl = data.inviteUrl as string;
+      setInviteCopyUrl(inviteUrl);
+      await navigator.clipboard.writeText(inviteUrl);
+      setInviteCopyState("copied");
+      setTimeout(() => setInviteCopyState("idle"), 1500);
+    } catch (error) {
+      console.error("Error copying invite link", error);
+      setInviteCopyState("error");
+      setInviteCopyError("No se pudo copiar el enlace.");
+    }
+  };
+
   const handleRenewAction = () => {
     const first = getFirstName(contactName) || contactName;
     const text = buildFollowUpExpiredMessage(first);
@@ -2421,8 +2457,8 @@ useEffect(() => {
   const hasNextInQueue = isInQueue && queueStatus.index < (queueStatus.size - 1);
   const statusTags: string[] = [];
   if (conversation.isHighPriority) {
-    if (vipAmountToday > 0) statusTags.push(`VIP · ${vipAmountToday} €`);
-    else statusTags.push("VIP");
+    if (vipAmountToday > 0) statusTags.push(`Alta prioridad · ${vipAmountToday} €`);
+    else statusTags.push("Alta prioridad");
   } else {
     statusTags.push(formatTier(conversation.customerTier));
   }
@@ -2579,7 +2615,7 @@ useEffect(() => {
             <span className="truncate text-sm font-medium text-slate-50">{contactName}</span>
             {(conversation.isHighPriority || (conversation.extrasCount ?? 0) > 0) && (
               <span className="inline-flex items-center rounded-full border border-amber-400/60 bg-amber-500/10 px-2 py-0.5 text-[11px] font-medium text-amber-300">
-                {conversation.isHighPriority ? "VIP" : "Extras"}
+                {conversation.isHighPriority ? "Alta prioridad" : "Extras"}
               </span>
             )}
           </div>
@@ -2596,7 +2632,7 @@ useEffect(() => {
                   <h1 className="text-base font-semibold text-slate-50 truncate">{contactName}</h1>
                   {conversation.isHighPriority && (
                     <span className="inline-flex items-center rounded-full border border-amber-400/70 bg-amber-500/15 px-2 py-0.5 text-[11px] font-semibold text-amber-100 whitespace-nowrap">
-                      VIP
+                      Alta prioridad
                     </span>
                   )}
                   <span
@@ -2611,6 +2647,22 @@ useEffect(() => {
               </div>
             </div>
             <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={handleToggleHighPriority}
+                disabled={isChatActionLoading}
+                className={clsx(
+                  "inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-medium transition",
+                  conversation.isHighPriority
+                    ? "border-amber-300 bg-amber-500/10 text-amber-100 hover:bg-amber-500/20"
+                    : "border-slate-700 bg-slate-900/70 text-slate-200 hover:border-amber-300 hover:text-amber-100",
+                  isChatActionLoading && "opacity-60"
+                )}
+                aria-label={conversation.isHighPriority ? "Quitar alta prioridad" : "Marcar alta prioridad"}
+              >
+                <span aria-hidden>📌</span>
+                {conversation.isHighPriority ? "Quitar alta prioridad" : "Marcar alta prioridad"}
+              </button>
               <button
                 type="button"
                 onClick={handleViewProfile}
@@ -3984,6 +4036,31 @@ useEffect(() => {
               >
                 Ver historial
               </button>
+            </div>
+            <div className="flex flex-col gap-2">
+              <button
+                type="button"
+                onClick={handleCopyInviteLink}
+                disabled={inviteCopyState === "loading"}
+                className={clsx(
+                  "rounded-full border px-4 py-2 text-sm font-semibold transition",
+                  inviteCopyState === "loading"
+                    ? "border-slate-700 bg-slate-800/60 text-slate-400 cursor-not-allowed"
+                    : "border-slate-600 bg-slate-900 text-slate-100 hover:bg-slate-800"
+                )}
+              >
+                {inviteCopyState === "copied"
+                  ? "Enlace copiado"
+                  : inviteCopyState === "loading"
+                  ? "Generando enlace..."
+                  : "Copiar enlace de invitación"}
+              </button>
+              {inviteCopyUrl && (
+                <div className="rounded-lg border border-slate-800 bg-slate-950/60 px-3 py-2 text-[11px] text-slate-300 break-all">
+                  {inviteCopyUrl}
+                </div>
+              )}
+              {inviteCopyError && <p className="text-xs text-rose-300">{inviteCopyError}</p>}
             </div>
           </div>
         </div>

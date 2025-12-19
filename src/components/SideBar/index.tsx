@@ -101,6 +101,10 @@ function SideBarInner() {
   const [ newFanNote, setNewFanNote ] = useState("");
   const [ newFanError, setNewFanError ] = useState<string | null>(null);
   const [ newFanSaving, setNewFanSaving ] = useState(false);
+  const [ newFanId, setNewFanId ] = useState<string | null>(null);
+  const [ newFanInviteUrl, setNewFanInviteUrl ] = useState<string | null>(null);
+  const [ newFanInviteState, setNewFanInviteState ] = useState<"idle" | "loading" | "copied" | "error">("idle");
+  const [ newFanInviteError, setNewFanInviteError ] = useState<string | null>(null);
 
   type FanData = ConversationListData & { priorityScore?: number };
 
@@ -424,6 +428,10 @@ function SideBarInner() {
         setNewFanError("Respuesta inválida al crear el fan.");
         return;
       }
+      setNewFanId(fanId);
+      setNewFanInviteUrl(null);
+      setNewFanInviteState("idle");
+      setNewFanInviteError(null);
       const newConversation: ConversationListData = {
         id: fanId,
         contactName: label || "Invitado",
@@ -435,6 +443,8 @@ function SideBarInner() {
         messageHistory: [],
         unreadCount: 0,
         isNew: false,
+        isHighPriority: false,
+        highPriorityAt: null,
       };
       setFans((prev) => {
         if (prev.some((fan) => fan.id === fanId)) return prev;
@@ -450,7 +460,6 @@ function SideBarInner() {
         undefined,
         { shallow: true }
       );
-      closeNewFanModal();
       if (typeof window !== "undefined") {
         window.dispatchEvent(new Event("fanDataUpdated"));
       }
@@ -462,11 +471,42 @@ function SideBarInner() {
     }
   }
 
+  async function handleCopyInviteForNewFan() {
+    if (!newFanId) return;
+    try {
+      setNewFanInviteState("loading");
+      setNewFanInviteError(null);
+      const res = await fetch(`/api/fans/${newFanId}/invite`, { method: "POST" });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data?.inviteUrl) {
+        if (process.env.NODE_ENV !== "production") {
+          console.warn("[invite] generate failed", data?.error || res.statusText);
+        }
+        setNewFanInviteState("error");
+        setNewFanInviteError("No se pudo generar el enlace.");
+        return;
+      }
+      const inviteUrl = data.inviteUrl as string;
+      setNewFanInviteUrl(inviteUrl);
+      await navigator.clipboard.writeText(inviteUrl);
+      setNewFanInviteState("copied");
+      setTimeout(() => setNewFanInviteState("idle"), 1500);
+    } catch (err) {
+      console.error("Error copying invite link", err);
+      setNewFanInviteState("error");
+      setNewFanInviteError("No se pudo copiar el enlace.");
+    }
+  }
+
   function closeNewFanModal() {
     setIsNewFanOpen(false);
     setNewFanName("");
     setNewFanNote("");
     setNewFanError(null);
+    setNewFanId(null);
+    setNewFanInviteUrl(null);
+    setNewFanInviteState("idle");
+    setNewFanInviteError(null);
   }
 
   const filteredConversationsList =
@@ -541,6 +581,9 @@ function SideBarInner() {
           return da - db;
         }
 
+        const la = getLastActivityTimestamp(a);
+        const lb = getLastActivityTimestamp(b);
+        if (la !== lb) return lb - la;
         return 0;
       });
 
@@ -620,6 +663,51 @@ function SideBarInner() {
       }
     },
     [apiFilter, mapFans, search]
+  );
+
+  const handleToggleHighPriority = useCallback(
+    async (item: ConversationListData) => {
+      if (!item?.id || item.isManager) return;
+      const nextValue = !(item.isHighPriority ?? false);
+      const nextTimestamp = nextValue ? new Date().toISOString() : null;
+
+      setFans((prev) =>
+        prev.map((fan) =>
+          fan.id === item.id
+            ? { ...fan, isHighPriority: nextValue, highPriorityAt: nextTimestamp }
+            : fan
+        )
+      );
+
+      if (conversation?.id === item.id) {
+        setConversation({
+          ...conversation,
+          isHighPriority: nextValue,
+          highPriorityAt: nextTimestamp,
+        } as any);
+      }
+
+      try {
+        const res = await fetch(`/api/fans/${item.id}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ isHighPriority: nextValue }),
+        });
+        if (!res.ok) {
+          const data = await res.json().catch(() => ({}));
+          if (process.env.NODE_ENV !== "production") {
+            console.warn("[high-priority] patch failed", data?.error || res.statusText);
+          }
+          await fetchFansPage();
+          return;
+        }
+        await fetchFansPage();
+      } catch (err) {
+        console.error("Error updating high priority", err);
+        await fetchFansPage();
+      }
+    },
+    [conversation, fetchFansPage, setConversation]
   );
 
   const pollFans = useCallback(async () => {
@@ -998,7 +1086,7 @@ function SideBarInner() {
               </div>
               <ul className="space-y-1 text-slate-300">
                 <li><span className="font-semibold">VIP</span> → Ha gastado más de {HIGH_PRIORITY_LIMIT} € en total contigo.</li>
-                <li><span className="font-semibold">🔥 Alta prioridad</span> → Clientes que más han gastado (se atienden primero).</li>
+                <li><span className="font-semibold">🔥 Alta prioridad</span> → Marcados por ti para atender primero.</li>
                 <li><span className="font-semibold">Extras</span> → Ya te han comprado contenido extra (PPV).</li>
                 <li><span className="font-semibold">⚡ Próxima acción</span> → Le debes un mensaje o seguimiento hoy.</li>
                 <li><span className="font-semibold">Seguimiento hoy</span> → Suscripción a punto de renovarse o tarea marcada para hoy.</li>
@@ -1408,6 +1496,10 @@ function SideBarInner() {
             onClick={() => {
               setIsNewFanOpen(true);
               setNewFanError(null);
+              setNewFanId(null);
+              setNewFanInviteUrl(null);
+              setNewFanInviteState("idle");
+              setNewFanInviteError(null);
             }}
           >
             + Nuevo fan
@@ -1447,6 +1539,7 @@ function SideBarInner() {
             key={managerChatEntry.id}
             data={managerChatEntry}
             onSelect={handleSelectConversation}
+            onToggleHighPriority={handleToggleHighPriority}
           />
         )}
         {!loadingFans && !fansError && !focusMode && visibleList.map((conversation, index) => {
@@ -1456,6 +1549,7 @@ function SideBarInner() {
               isFirstConversation={index == 0}
               data={conversation}
               onSelect={handleSelectConversation}
+              onToggleHighPriority={handleToggleHighPriority}
             />
           )
         })}
@@ -1498,6 +1592,7 @@ function SideBarInner() {
                 value={newFanName}
                 onChange={(e) => setNewFanName(e.target.value)}
                 placeholder="Ej: Ana"
+                disabled={newFanSaving || !!newFanId}
               />
             </label>
             <label className="flex flex-col gap-1 text-sm text-slate-300">
@@ -1507,30 +1602,73 @@ function SideBarInner() {
                 value={newFanNote}
                 onChange={(e) => setNewFanNote(e.target.value)}
                 placeholder="Contexto rápido para este fan..."
+                disabled={newFanSaving || !!newFanId}
               />
             </label>
             {newFanError && <p className="text-xs text-rose-300">{newFanError}</p>}
+            {newFanId && (
+              <div className="rounded-lg border border-slate-800 bg-slate-950/60 px-3 py-2 text-xs text-slate-200">
+                Fan creado. Puedes compartirle un enlace directo.
+              </div>
+            )}
+            {newFanInviteUrl && (
+              <div className="rounded-lg border border-slate-800 bg-slate-950/60 px-3 py-2 text-xs text-slate-300 break-all">
+                {newFanInviteUrl}
+              </div>
+            )}
+            {newFanInviteError && <p className="text-xs text-rose-300">{newFanInviteError}</p>}
             <div className="flex items-center justify-end gap-2">
-              <button
-                type="button"
-                className="rounded-full border border-slate-700 bg-slate-800 px-4 py-2 text-sm font-semibold text-slate-100 hover:bg-slate-700"
-                onClick={closeNewFanModal}
-              >
-                Cancelar
-              </button>
-              <button
-                type="button"
-                disabled={newFanSaving}
-                className={clsx(
-                  "rounded-full border px-4 py-2 text-sm font-semibold transition",
-                  newFanSaving
-                    ? "border-slate-700 bg-slate-800/60 text-slate-400 cursor-not-allowed"
-                    : "border-emerald-400 bg-emerald-500/15 text-emerald-100 hover:bg-emerald-500/25"
-                )}
-                onClick={() => void handleCreateNewFan()}
-              >
-                {newFanSaving ? "Creando..." : "Crear fan"}
-              </button>
+              {newFanId ? (
+                <>
+                  <button
+                    type="button"
+                    className="rounded-full border border-slate-700 bg-slate-800 px-4 py-2 text-sm font-semibold text-slate-100 hover:bg-slate-700"
+                    onClick={closeNewFanModal}
+                  >
+                    Cerrar
+                  </button>
+                  <button
+                    type="button"
+                    disabled={newFanInviteState === "loading"}
+                    className={clsx(
+                      "rounded-full border px-4 py-2 text-sm font-semibold transition",
+                      newFanInviteState === "loading"
+                        ? "border-slate-700 bg-slate-800/60 text-slate-400 cursor-not-allowed"
+                        : "border-emerald-400 bg-emerald-500/15 text-emerald-100 hover:bg-emerald-500/25"
+                    )}
+                    onClick={() => void handleCopyInviteForNewFan()}
+                  >
+                    {newFanInviteState === "copied"
+                      ? "Enlace copiado"
+                      : newFanInviteState === "loading"
+                      ? "Generando..."
+                      : "Copiar enlace"}
+                  </button>
+                </>
+              ) : (
+                <>
+                  <button
+                    type="button"
+                    className="rounded-full border border-slate-700 bg-slate-800 px-4 py-2 text-sm font-semibold text-slate-100 hover:bg-slate-700"
+                    onClick={closeNewFanModal}
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    type="button"
+                    disabled={newFanSaving}
+                    className={clsx(
+                      "rounded-full border px-4 py-2 text-sm font-semibold transition",
+                      newFanSaving
+                        ? "border-slate-700 bg-slate-800/60 text-slate-400 cursor-not-allowed"
+                        : "border-emerald-400 bg-emerald-500/15 text-emerald-100 hover:bg-emerald-500/25"
+                    )}
+                    onClick={() => void handleCreateNewFan()}
+                  >
+                    {newFanSaving ? "Creando..." : "Crear fan"}
+                  </button>
+                </>
+              )}
             </div>
           </div>
         </div>

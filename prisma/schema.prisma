@@ -91,6 +91,9 @@ model Fan {
   isArchived       Boolean         @default(false)
   isHighPriority   Boolean         @default(false)
   highPriorityAt   DateTime?
+  inviteToken      String?         @unique
+  inviteCreatedAt  DateTime?
+  inviteUsedAt     DateTime?
   source           String?
   handle           String?
   firstUtmSource   String?

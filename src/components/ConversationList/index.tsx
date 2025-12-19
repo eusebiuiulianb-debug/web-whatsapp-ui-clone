@@ -10,10 +10,11 @@ interface ConversationListProps {
   isFirstConversation?: boolean;
   data: ConversationListData;
   onSelect?: (conversation: ConversationListData) => void;
+  onToggleHighPriority?: (conversation: ConversationListData) => void;
 }
 
 export default function ConversationList(props: ConversationListProps) {
-  const { isFirstConversation, data, onSelect } = props;
+  const { isFirstConversation, data, onSelect, onToggleHighPriority } = props;
   const { setConversation } = useContext(ConversationContext);
   const {
     contactName,
@@ -91,7 +92,6 @@ export default function ConversationList(props: ConversationListProps) {
   const followUpTag = getFollowUpTag(membershipStatus, daysLeft, data.activeGrantTypes);
   const notesCount = data.notesCount ?? 0;
   const segment = (data.segment || "").toUpperCase();
-  const riskLevel = ((data as any).riskLevel || "LOW").toUpperCase();
   const customerTier = (data.customerTier ?? "new") as "new" | "regular" | "vip" | "priority";
   const lifetimeValue = data.lifetimeSpend ?? data.lifetimeValue ?? 0; // usar siempre el gasto total acumulado
   const hasNextAction = typeof data.nextAction === "string" && data.nextAction.trim().length > 0;
@@ -122,11 +122,7 @@ export default function ConversationList(props: ConversationListProps) {
       : normalizedTier === "regular"
       ? "Habitual"
       : "Nuevo";
-  const isHighPriority =
-    segment === "EN_RIESGO" ||
-    (segment === "VIP" && riskLevel !== "LOW") ||
-    (data as any).isHighPriority === true ||
-    normalizedTier === "vip";
+  const isHighPriority = (data as any).isHighPriority === true;
   const totalSpent = Math.round(lifetimeValue ?? 0);
   const notesLabel = `${notesCount} nota${notesCount === 1 ? "" : "s"}`;
   const extrasCount = data.extrasCount ?? 0;
@@ -165,6 +161,8 @@ export default function ConversationList(props: ConversationListProps) {
   const accessChipLabel = getAccessChipLabel();
   const shouldShowAccessChip = Boolean(accessChipLabel);
 
+  const canToggleHighPriority = !isManagerChat && typeof onToggleHighPriority === "function";
+
   return (
     <div 
       className={`flex items-center w-full bg-[#111B21] px-3 py-3.5 hover:bg-[#2A3942] cursor-pointer border-t ${borderClass}`}
@@ -193,7 +191,7 @@ export default function ConversationList(props: ConversationListProps) {
                   Extras
                 </span>
               )}
-              {/* Chip de alta prioridad solo para VIP */}
+              {/* Chip de alta prioridad */}
               {isHighPriority && (
                 <span
                   className="inline-flex items-center justify-center rounded-full bg-amber-300 px-2.5 py-1 text-[12px] font-semibold leading-none text-neutral-950 shadow-sm"
@@ -298,7 +296,29 @@ export default function ConversationList(props: ConversationListProps) {
             </div>
           </div>
           <div className="flex flex-col items-end gap-1 w-auto text-[#aebac1]">
-            <h1 className="text-[10px] text-slate-500">{lastTime}</h1>
+            <div className="flex items-center gap-2">
+              {canToggleHighPriority && (
+                <button
+                  type="button"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    onToggleHighPriority?.(data);
+                  }}
+                  className={clsx(
+                    "inline-flex h-7 w-7 items-center justify-center rounded-full border text-xs transition",
+                    isHighPriority
+                      ? "border-amber-300 bg-amber-500/15 text-amber-100 hover:bg-amber-500/25"
+                      : "border-slate-700 bg-slate-900/70 text-slate-300 hover:border-amber-300 hover:text-amber-100"
+                  )}
+                  aria-pressed={isHighPriority}
+                  aria-label={isHighPriority ? "Quitar alta prioridad" : "Marcar alta prioridad"}
+                  title={isHighPriority ? "Quitar alta prioridad" : "Marcar alta prioridad"}
+                >
+                  📌
+                </button>
+              )}
+              <h1 className="text-[10px] text-slate-500">{lastTime}</h1>
+            </div>
             {hasUnread && (
               <span className="self-end min-w-[20px] h-5 px-2 rounded-full bg-[#53bdeb] text-[#0b141a] text-xs font-semibold flex items-center justify-center">
                 {unreadCount}

@@ -16,18 +16,23 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   const displayName = normalizeName(req.body?.displayName);
   const hasPriorityFlag = typeof req.body?.isHighPriority === "boolean";
   const isHighPriority = hasPriorityFlag ? req.body.isHighPriority : undefined;
+  const shouldMarkInviteUsed = req.body?.inviteUsedAt === true;
 
   const updates: {
     creatorLabel?: string | null;
     displayName?: string | null;
     isHighPriority?: boolean;
     highPriorityAt?: Date | null;
+    inviteUsedAt?: Date | null;
   } = {};
   if (req.body?.creatorLabel !== undefined) updates.creatorLabel = creatorLabel;
   if (req.body?.displayName !== undefined) updates.displayName = displayName;
   if (hasPriorityFlag) {
     updates.isHighPriority = isHighPriority as boolean;
     updates.highPriorityAt = isHighPriority ? new Date() : null;
+  }
+  if (shouldMarkInviteUsed) {
+    updates.inviteUsedAt = new Date();
   }
 
   if (Object.keys(updates).length === 0) {
@@ -38,7 +43,15 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     const fan = await prisma.fan.update({
       where: { id: fanId },
       data: updates,
-      select: { id: true, name: true, displayName: true, creatorLabel: true, isHighPriority: true, highPriorityAt: true },
+      select: {
+        id: true,
+        name: true,
+        displayName: true,
+        creatorLabel: true,
+        isHighPriority: true,
+        highPriorityAt: true,
+        inviteUsedAt: true,
+      },
     });
     return res.status(200).json({ ok: true, fan });
   } catch (error) {
