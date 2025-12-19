@@ -2,7 +2,6 @@ import type { NextApiRequest, NextApiResponse } from "next";
 import { Prisma } from "@prisma/client";
 import prisma from "../../lib/prisma.server";
 import { getFollowUpTag, shouldFollowUpToday } from "../../utils/followUp";
-import { HIGH_PRIORITY_LIMIT } from "../../config/customers";
 import {
   getExtraLadderStatusForFan,
   getExtraSessionTodayForFan,
@@ -124,6 +123,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         time: true,
         unreadCount: true,
         isNew: true,
+        isHighPriority: true,
+        highPriorityAt: true,
         membershipStatus: true,
         daysLeft: true,
         lastSeen: true,
@@ -351,7 +352,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       const NOVSY_EXTRA_THRESHOLD = 30;
       const isNovsy = hasMonthly || hasSpecial || (extrasTotal ?? 0) >= NOVSY_EXTRA_THRESHOLD;
       const novsyStatus: "NOVSY" | null = isNovsy ? "NOVSY" : null;
-      const isHighPriority = totalSpend >= HIGH_PRIORITY_LIMIT;
+      const isHighPriority = fan.isHighPriority ?? false;
 
       // Campos clave que consume el CRM:
       // - membershipStatus: "active" | "expired" | "none"
@@ -395,6 +396,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         maxExtraTier: extrasInfo.maxTier,
         novsyStatus,
         isHighPriority,
+        highPriorityAt: fan.highPriorityAt ?? null,
         segment: fan.segment ?? "NUEVO",
         riskLevel: (fan as any).riskLevel ?? "LOW",
         healthScore: (fan as any).healthScore ?? 0,

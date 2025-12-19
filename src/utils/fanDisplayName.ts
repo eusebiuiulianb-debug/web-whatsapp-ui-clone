@@ -13,3 +13,13 @@ export function getFanDisplayName(fan: FanNameSource): string {
   if (rawName) return rawName;
   return "Invitado";
 }
+
+export function getFanDisplayNameForCreator(fan: FanNameSource): string {
+  const creatorLabel = typeof fan.creatorLabel === "string" ? fan.creatorLabel.trim() : "";
+  if (creatorLabel) return creatorLabel;
+  const displayName = typeof fan.displayName === "string" ? fan.displayName.trim() : "";
+  if (displayName) return displayName;
+  const rawName = typeof fan.name === "string" ? fan.name.trim() : "";
+  if (rawName) return rawName;
+  return "Invitado";
+}

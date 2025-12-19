@@ -11,10 +11,9 @@ import { getAccessLabel, getAccessState, getAccessSummary } from "../../lib/acce
 import { FollowUpTag, getFollowUpTag, getUrgencyLevel } from "../../utils/followUp";
 import { PACKS } from "../../config/packs";
 import { getRecommendedFan } from "../../utils/recommendedFan";
-import { getFanDisplayName } from "../../utils/fanDisplayName";
+import { getFanDisplayNameForCreator } from "../../utils/fanDisplayName";
 import { ContentItem, getContentTypeLabel, getContentVisibilityLabel } from "../../types/content";
 import { getTimeOfDayTag } from "../../utils/contentTags";
-import { HIGH_PRIORITY_LIMIT } from "../../config/customers";
 import { EXTRAS_UPDATED_EVENT } from "../../constants/events";
 import { AiTone, normalizeTone, ACTION_TYPE_FOR_USAGE } from "../../lib/aiQuickExtra";
 import { AiTemplateUsage, AiTurnMode } from "../../lib/aiTemplateTypes";
@@ -355,7 +354,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
   function mapFansForRecommendation(rawFans: Fan[]): ConversationListData[] {
     return rawFans.map((fan) => ({
       id: fan.id,
-      contactName: getFanDisplayName(fan),
+      contactName: getFanDisplayNameForCreator(fan),
       displayName: fan.displayName ?? null,
       creatorLabel: fan.creatorLabel ?? null,
       lastMessage: fan.preview,
@@ -392,6 +391,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
       maxExtraTier: fan.maxExtraTier ?? null,
       novsyStatus: fan.novsyStatus ?? null,
       isHighPriority: fan.isHighPriority ?? false,
+      highPriorityAt: fan.highPriorityAt ?? null,
       extraLadderStatus: fan.extraLadderStatus ?? null,
       firstUtmSource: (fan as any).firstUtmSource ?? null,
       firstUtmMedium: (fan as any).firstUtmMedium ?? null,
@@ -785,7 +785,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
       const updatedExtrasTotal = prevExtrasTotal + amount;
       const updatedLifetime = prevLifetime + amount;
       const updatedTier = getCustomerTierFromSpend(updatedLifetime);
-      const updatedHighPriority = updatedLifetime >= HIGH_PRIORITY_LIMIT;
+      const updatedHighPriority = conversation.isHighPriority ?? false;
       setConversation({
         ...conversation,
         extrasCount: updatedExtrasCount,
@@ -1141,7 +1141,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
         setConversation({
           ...prev,
           id: targetFan.id,
-          contactName: getFanDisplayName(targetFan),
+          contactName: getFanDisplayNameForCreator(targetFan),
           displayName: targetFan.displayName ?? prev.displayName ?? null,
           creatorLabel: targetFan.creatorLabel ?? prev.creatorLabel ?? null,
           membershipStatus: targetFan.membershipStatus,
@@ -1162,6 +1162,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
           maxExtraTier: (targetFan as any).maxExtraTier ?? prev.maxExtraTier,
           novsyStatus: (targetFan as any).novsyStatus ?? prev.novsyStatus ?? null,
           isHighPriority: (targetFan as any).isHighPriority ?? prev.isHighPriority ?? false,
+          highPriorityAt: (targetFan as any).highPriorityAt ?? prev.highPriorityAt ?? null,
           extraLadderStatus:
             "extraLadderStatus" in targetFan
               ? ((targetFan as any).extraLadderStatus ?? null)
@@ -2252,33 +2253,42 @@ useEffect(() => {
   };
 
   const handleSaveEditName = async () => {
-    if (!id) return;
+    const fanId =
+      typeof id === "string" && id.trim()
+        ? id
+        : typeof router.query.fanId === "string"
+        ? router.query.fanId
+        : "";
+    if (!fanId) {
+      console.error("Edit name failed: fanId is missing");
+      setEditNameError("No se pudo identificar el fan.");
+      return;
+    }
     try {
       setEditNameSaving(true);
       setEditNameError(null);
-      const res = await fetch(`/api/fans/${id}`, {
+      const patchUrl = `/api/fans/${fanId}`;
+      if (process.env.NODE_ENV !== "production") {
+        console.log(`[EditName] PATCH ${patchUrl} fanId=${fanId}`);
+      }
+      const res = await fetch(patchUrl, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ creatorLabel: editNameValue.trim() }),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
+        console.error("Error updating fan name", res.status, data?.error);
         setEditNameError(data?.error || "No se pudo guardar el nombre.");
         return;
       }
       const updatedFan = data?.fan;
       if (!updatedFan?.id) {
+        console.error("Invalid fan response when updating name", data);
         setEditNameError("Respuesta inválida al guardar el nombre.");
         return;
       }
-      updateConversationState({
-        contactName: getFanDisplayName(updatedFan),
-        displayName: updatedFan.displayName ?? null,
-        creatorLabel: updatedFan.creatorLabel ?? null,
-      });
-      if (typeof window !== "undefined") {
-        window.dispatchEvent(new Event("fanDataUpdated"));
-      }
+      await refreshFanData(fanId);
       closeEditNameModal();
     } catch (err) {
       console.error("Error updating fan name", err);
@@ -2363,6 +2373,30 @@ useEffect(() => {
       window.dispatchEvent(new Event("fanDataUpdated"));
     } catch (err) {
       console.error("Error archiving chat", err);
+    } finally {
+      setIsActionsMenuOpen(false);
+      setIsChatActionLoading(false);
+    }
+  };
+
+  const handleToggleHighPriority = async () => {
+    if (!id) return;
+    const nextValue = !conversation.isHighPriority;
+    setIsChatActionLoading(true);
+    try {
+      const res = await fetch(`/api/fans/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ isHighPriority: nextValue }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        console.error("Error updating high priority", data?.error || res.statusText);
+        return;
+      }
+      await refreshFanData(id);
+    } catch (err) {
+      console.error("Error updating high priority", err);
     } finally {
       setIsActionsMenuOpen(false);
       setIsChatActionLoading(false);
@@ -2604,6 +2638,14 @@ useEffect(() => {
                       onClick={handleOpenEditName}
                     >
                       Editar nombre
+                    </button>
+                    <button
+                      type="button"
+                      className="flex w-full items-center px-3 py-2 text-sm text-slate-100 hover:bg-slate-800 transition disabled:opacity-60"
+                      onClick={handleToggleHighPriority}
+                      disabled={isChatActionLoading}
+                    >
+                      {conversation.isHighPriority ? "Quitar alta prioridad" : "Marcar alta prioridad"}
                     </button>
                     <button
                       type="button"

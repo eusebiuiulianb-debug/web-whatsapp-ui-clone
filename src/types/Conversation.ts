@@ -59,6 +59,7 @@ interface Conversation {
   maxExtraTier?: string | null;
   novsyStatus?: "NOVSY" | null;
   isHighPriority?: boolean;
+  highPriorityAt?: string | null;
   segment?: string | null;
   riskLevel?: "LOW" | "MEDIUM" | "HIGH" | string | null;
   healthScore?: number | null;
@@ -131,6 +132,7 @@ interface ConversationListData {
   maxExtraTier?: string | null;
   novsyStatus?: "NOVSY" | null;
   isHighPriority?: boolean;
+  highPriorityAt?: string | null;
   segment?: string | null;
   riskLevel?: "LOW" | "MEDIUM" | "HIGH" | string | null;
   healthScore?: number | null;

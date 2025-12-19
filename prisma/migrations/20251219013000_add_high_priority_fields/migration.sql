@@ -1,0 +1,3 @@
+-- AlterTable
+ALTER TABLE "Fan" ADD COLUMN "isHighPriority" BOOLEAN NOT NULL DEFAULT false;
+ALTER TABLE "Fan" ADD COLUMN "highPriorityAt" DATETIME;

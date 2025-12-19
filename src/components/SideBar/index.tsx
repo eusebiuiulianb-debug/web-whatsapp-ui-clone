@@ -10,7 +10,7 @@ import { ExtrasSummary } from "../../types/extras";
 import clsx from "clsx";
 import { getFollowUpTag, getUrgencyLevel, shouldFollowUpToday, isExpiredAccess } from "../../utils/followUp";
 import { getRecommendedFan } from "../../utils/recommendedFan";
-import { getFanDisplayName } from "../../utils/fanDisplayName";
+import { getFanDisplayNameForCreator } from "../../utils/fanDisplayName";
 import { PACKS } from "../../config/packs";
 import { ConversationContext } from "../../context/ConversationContext";
 import { EXTRAS_UPDATED_EVENT } from "../../constants/events";
@@ -115,7 +115,7 @@ function SideBarInner() {
   const mapFans = useCallback((rawFans: Fan[]): ConversationListData[] => {
     return rawFans.map((fan) => ({
       id: fan.id,
-      contactName: getFanDisplayName(fan),
+      contactName: getFanDisplayNameForCreator(fan),
       displayName: fan.displayName ?? null,
       creatorLabel: fan.creatorLabel ?? null,
       lastMessage: fan.preview,
@@ -146,12 +146,8 @@ function SideBarInner() {
       extrasSpentTotal: fan.extrasSpentTotal ?? 0,
       maxExtraTier: (fan as any).maxExtraTier ?? null,
       novsyStatus: fan.novsyStatus ?? null,
-      isHighPriority:
-        fan.isHighPriority ||
-        ((fan as any).segment ?? "").toUpperCase() === "EN_RIESGO" ||
-        (((fan as any).segment ?? "").toUpperCase() === "VIP" &&
-          ((fan as any).riskLevel ?? "LOW").toUpperCase() !== "LOW") ||
-        false,
+      isHighPriority: fan.isHighPriority ?? false,
+      highPriorityAt: fan.highPriorityAt ?? null,
       segment: (fan as any).segment ?? null,
       riskLevel: (fan as any).riskLevel ?? "LOW",
       healthScore: (fan as any).healthScore ?? 0,
@@ -212,6 +208,8 @@ function SideBarInner() {
         "lastCreatorMessageAt",
         "unreadCount",
         "lastMessage",
+        "isHighPriority",
+        "highPriorityAt",
         "extrasCount",
         "extrasSpentTotal",
         "notesCount",
@@ -281,6 +279,17 @@ function SideBarInner() {
     const maybe = Date.parse(fan.lastTime || "");
     return Number.isNaN(maybe) ? 0 : maybe;
   }, []);
+
+  const getHighPriorityTimestamp = useCallback(
+    (fan: FanData): number => {
+      if (fan.highPriorityAt) {
+        const d = new Date(fan.highPriorityAt);
+        if (!Number.isNaN(d.getTime())) return d.getTime();
+      }
+      return getLastActivityTimestamp(fan);
+    },
+    [getLastActivityTimestamp]
+  );
 
   const buildTodayQueue = useCallback((list: FanData[]): FanData[] => {
     const groupHighPriority: FanData[] = [];
@@ -354,11 +363,7 @@ function SideBarInner() {
   }).length;
   const archivedCount = safeFans.filter((fan) => fan.isArchived === true).length;
   const blockedCount = safeFans.filter((fan) => fan.isBlocked === true).length;
-  const priorityCount = safeFans.filter((fan) => {
-    const segment = ((fan as any).segment || "").toUpperCase();
-    const risk = ((fan as any).riskLevel || "LOW").toUpperCase();
-    return segment === "EN_RIESGO" || (segment === "VIP" && risk !== "LOW") || (fan as any).isHighPriority === true;
-  }).length;
+  const priorityCount = safeFans.filter((fan) => (fan as any).isHighPriority === true).length;
   const regularCount = safeFans.filter((fan) => ((fan as any).segment || "").toUpperCase() === "LEAL_ESTABLE").length;
   const newCount = safeFans.filter((fan) => ((fan as any).segment || "").toUpperCase() === "NUEVO").length;
   const withExtrasCount = safeFans.filter((fan) => (fan.extrasSpentTotal ?? 0) > 0).length;
@@ -471,7 +476,7 @@ function SideBarInner() {
         if (statusFilter === "blocked") return fan.isBlocked === true;
         return fan.isArchived !== true && fan.isBlocked !== true;
       })
-      .filter((fan) => (showPriorityOnly ? (fan.priorityScore ?? 0) > 0 : true))
+      .filter((fan) => (showPriorityOnly ? (fan.isHighPriority ?? false) : true))
       .filter((fan) => (!showOnlyWithNotes ? true : (fan.notesCount ?? 0) > 0))
       .filter((fan) => (!onlyWithExtras ? true : (fan.extrasSpentTotal ?? 0) > 0))
       .filter((fan) => {
@@ -504,32 +509,40 @@ function SideBarInner() {
         return tier === tierFilter;
       })
       .sort((a, b) => {
-      if (followUpFilter === "today") {
-        const pa = a.priorityScore ?? 0;
-        const pb = b.priorityScore ?? 0;
-        if (pa !== pb) return pb - pa;
-        const da = typeof a.daysLeft === "number" ? a.daysLeft : Number.POSITIVE_INFINITY;
-        const db = typeof b.daysLeft === "number" ? b.daysLeft : Number.POSITIVE_INFINITY;
-        if (da !== db) return da - db;
-        const la = a.lastCreatorMessageAt ? new Date(a.lastCreatorMessageAt).getTime() : 0;
-        const lb = b.lastCreatorMessageAt ? new Date(b.lastCreatorMessageAt).getTime() : 0;
-        return lb - la;
-      }
+        const highPriorityDelta = Number(!!b.isHighPriority) - Number(!!a.isHighPriority);
+        if (highPriorityDelta !== 0) return highPriorityDelta;
+        if (a.isHighPriority && b.isHighPriority) {
+          const ha = getHighPriorityTimestamp(a);
+          const hb = getHighPriorityTimestamp(b);
+          if (ha !== hb) return hb - ha;
+          const la = getLastActivityTimestamp(a);
+          const lb = getLastActivityTimestamp(b);
+          if (la !== lb) return lb - la;
+          return 0;
+        }
+        if (followUpFilter === "today") {
+          const pa = a.priorityScore ?? 0;
+          const pb = b.priorityScore ?? 0;
+          if (pa !== pb) return pb - pa;
+          const da = typeof a.daysLeft === "number" ? a.daysLeft : Number.POSITIVE_INFINITY;
+          const db = typeof b.daysLeft === "number" ? b.daysLeft : Number.POSITIVE_INFINITY;
+          if (da !== db) return da - db;
+          const la = a.lastCreatorMessageAt ? new Date(a.lastCreatorMessageAt).getTime() : 0;
+          const lb = b.lastCreatorMessageAt ? new Date(b.lastCreatorMessageAt).getTime() : 0;
+          return lb - la;
+        }
 
-      if (tierFilter === "vip") {
-        const pa = a.priorityScore ?? 0;
-        const pb = b.priorityScore ?? 0;
-        if (pa !== pb) return pb - pa;
-        const da = typeof a.daysLeft === "number" ? a.daysLeft : Number.POSITIVE_INFINITY;
-        const db = typeof b.daysLeft === "number" ? b.daysLeft : Number.POSITIVE_INFINITY;
-        return da - db;
-      }
+        if (tierFilter === "vip") {
+          const pa = a.priorityScore ?? 0;
+          const pb = b.priorityScore ?? 0;
+          if (pa !== pb) return pb - pa;
+          const da = typeof a.daysLeft === "number" ? a.daysLeft : Number.POSITIVE_INFINITY;
+          const db = typeof b.daysLeft === "number" ? b.daysLeft : Number.POSITIVE_INFINITY;
+          return da - db;
+        }
 
-      if (showPriorityOnly && (b.priorityScore ?? 0) !== (a.priorityScore ?? 0)) {
-        return (b.priorityScore ?? 0) - (a.priorityScore ?? 0);
-      }
-      return 0;
-    });
+        return 0;
+      });
 
   const safeFilteredConversationsList: FanData[] = useMemo(
     () => (Array.isArray(filteredConversationsList) ? (filteredConversationsList as FanData[]) : []),

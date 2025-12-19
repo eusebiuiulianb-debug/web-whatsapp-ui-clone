@@ -53,6 +53,7 @@ export interface Fan {
   maxExtraTier?: string | null;
   novsyStatus?: "NOVSY" | null;
   isHighPriority?: boolean;
+  highPriorityAt?: string | null;
   segment?: string | null;
   riskLevel?: "LOW" | "MEDIUM" | "HIGH" | string | null;
   healthScore?: number | null;
