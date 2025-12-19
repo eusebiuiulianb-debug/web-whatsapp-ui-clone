@@ -11,10 +11,11 @@ interface ConversationListProps {
   data: ConversationListData;
   onSelect?: (conversation: ConversationListData) => void;
   onToggleHighPriority?: (conversation: ConversationListData) => void;
+  onCopyInvite?: (conversation: ConversationListData) => Promise<boolean>;
 }
 
 export default function ConversationList(props: ConversationListProps) {
-  const { isFirstConversation, data, onSelect, onToggleHighPriority } = props;
+  const { isFirstConversation, data, onSelect, onToggleHighPriority, onCopyInvite } = props;
   const { setConversation } = useContext(ConversationContext);
   const {
     contactName,
@@ -129,7 +130,7 @@ export default function ConversationList(props: ConversationListProps) {
   const extrasSpent = Math.round(data.extrasSpentTotal ?? 0);
   const hasExtrasPaid = data.extrasSpentTotal !== null && data.extrasSpentTotal !== undefined && data.extrasSpentTotal > 0;
   const tierBadgeClass = clsx(
-    "inline-flex items-center rounded-full px-3 py-1 text-[12px] font-semibold",
+    "inline-flex items-center rounded-full px-3 py-1 text-[12px] font-semibold whitespace-nowrap shrink-0",
     normalizedTier === "vip"
       ? "border border-amber-400 text-amber-900 bg-amber-300/80"
     : normalizedTier === "regular"
@@ -162,6 +163,16 @@ export default function ConversationList(props: ConversationListProps) {
   const shouldShowAccessChip = Boolean(accessChipLabel);
 
   const canToggleHighPriority = !isManagerChat && typeof onToggleHighPriority === "function";
+  const isInvitePending = !isManagerChat && !data.inviteUsedAt;
+  const canCopyInvite = isInvitePending && typeof onCopyInvite === "function";
+  const [ inviteCopyState, setInviteCopyState ] = useState<"idle" | "copying" | "copied" | "error">("idle");
+
+  const inviteCopyLabel =
+    inviteCopyState === "copied"
+      ? "Copiado"
+      : inviteCopyState === "copying"
+      ? "Copiando..."
+      : "Copiar enlace";
 
   return (
     <div 
@@ -187,14 +198,14 @@ export default function ConversationList(props: ConversationListProps) {
                 {tierLabel}
               </span>
               {novsyStatus === "NOVSY" && (
-                <span className="inline-flex items-center rounded-full border border-emerald-400/80 bg-emerald-500/15 px-2.5 py-1 text-[11px] font-semibold text-emerald-100">
+                <span className="inline-flex items-center rounded-full border border-emerald-400/80 bg-emerald-500/15 px-2.5 py-1 text-[11px] font-semibold text-emerald-100 whitespace-nowrap shrink-0">
                   Extras
                 </span>
               )}
               {/* Chip de alta prioridad */}
               {isHighPriority && (
                 <span
-                  className="inline-flex items-center justify-center rounded-full bg-amber-300 px-2.5 py-1 text-[12px] font-semibold leading-none text-neutral-950 shadow-sm"
+                  className="inline-flex items-center justify-center rounded-full bg-amber-300 px-2.5 py-1 text-[12px] font-semibold leading-none text-neutral-950 shadow-sm whitespace-nowrap shrink-0"
                   aria-label="Alta prioridad"
                   title="Alta prioridad"
                 >
@@ -204,7 +215,7 @@ export default function ConversationList(props: ConversationListProps) {
               {followUpTag !== "none" && (
                 <span
                   className={clsx(
-                    "ml-1 inline-flex items-center rounded-full px-2.5 py-1 text-[11px] font-semibold",
+                    "ml-1 inline-flex items-center rounded-full px-2.5 py-1 text-[11px] font-semibold whitespace-nowrap shrink-0",
                     followUpTag === "trial_soon" && "border border-amber-400/70 bg-amber-500/15 text-amber-100",
                     followUpTag === "monthly_soon" && "border border-sky-400/70 bg-sky-500/15 text-sky-100",
                     followUpTag === "expired" && "border border-rose-400/70 bg-rose-500/15 text-rose-100"
@@ -249,27 +260,57 @@ export default function ConversationList(props: ConversationListProps) {
                 </span>
               )}
             </div>
-            <div className="flex items-center gap-2 mt-1">
+            <div className="flex flex-wrap items-center gap-2 mt-1">
               {shouldShowAccessChip ? (
-                <span className="inline-flex items-center rounded-full bg-slate-800/80 text-[11px] text-amber-200 px-3 py-1 w-fit font-semibold">
+                <span className="inline-flex items-center rounded-full bg-slate-800/80 text-[11px] text-amber-200 px-3 py-1 font-semibold whitespace-nowrap shrink-0 w-auto">
                   {accessChipLabel}
                 </span>
               ) : null}
+              {isInvitePending && (
+                <span
+                  className="inline-flex items-center rounded-full border border-amber-400/70 bg-amber-500/10 px-2.5 py-1 text-[11px] font-semibold text-amber-100 whitespace-nowrap shrink-0"
+                  title="Invitación privada /i/token pendiente de entrar"
+                >
+                  Pendiente
+                </span>
+              )}
+              {canCopyInvite && (
+                <button
+                  type="button"
+                  className="inline-flex items-center rounded-full border border-slate-700 bg-slate-900/70 px-2.5 py-1 text-[11px] font-semibold text-slate-200 hover:border-emerald-400 hover:text-emerald-100 whitespace-nowrap shrink-0 w-auto"
+                  onClick={async (event) => {
+                    event.stopPropagation();
+                    if (!onCopyInvite) return;
+                    try {
+                      setInviteCopyState("copying");
+                      const ok = await onCopyInvite(data);
+                      setInviteCopyState(ok ? "copied" : "error");
+                      setTimeout(() => setInviteCopyState("idle"), 1500);
+                    } catch (_err) {
+                      setInviteCopyState("error");
+                      setTimeout(() => setInviteCopyState("idle"), 1500);
+                    }
+                  }}
+                  aria-live="polite"
+                >
+                  {inviteCopyState === "error" ? "Error" : inviteCopyLabel}
+                </button>
+              )}
               {daysLabel ? (
                 <span
                   className={
                     urgencyLevel === "high"
-                      ? "inline-flex items-center rounded-full border px-3 py-1 text-[11px] font-semibold border-red-500 text-red-200 bg-red-500/10"
+                      ? "inline-flex items-center rounded-full border px-3 py-1 text-[11px] font-semibold border-red-500 text-red-200 bg-red-500/10 whitespace-nowrap shrink-0"
                     : urgencyLevel === "medium"
-                      ? "inline-flex items-center rounded-full border px-3 py-1 text-[11px] font-semibold border-amber-400 text-amber-200 bg-amber-500/10"
-                      : "inline-flex items-center rounded-full border px-3 py-1 text-[11px] font-semibold border-slate-600 text-slate-300 bg-slate-800/80"
+                      ? "inline-flex items-center rounded-full border px-3 py-1 text-[11px] font-semibold border-amber-400 text-amber-200 bg-amber-500/10 whitespace-nowrap shrink-0"
+                      : "inline-flex items-center rounded-full border px-3 py-1 text-[11px] font-semibold border-slate-600 text-slate-300 bg-slate-800/80 whitespace-nowrap shrink-0"
                   }
                 >
                   {daysLabel}
                 </span>
               ) : null}
               {notesCount > 0 && (
-                <span className="inline-flex items-center gap-1 text-[11px] text-slate-400">
+                <span className="inline-flex items-center gap-1 text-[11px] text-slate-400 whitespace-nowrap shrink-0">
                   <span className="text-xs">📝</span>
                   <span>{notesCount}</span>
                 </span>
@@ -277,17 +318,17 @@ export default function ConversationList(props: ConversationListProps) {
               {(sourceLabel || campaignLabel || contentLabel) && (
                 <div className="flex flex-wrap items-center gap-1">
                   {sourceLabel && (
-                    <span className="inline-flex items-center rounded-full border border-slate-700 bg-slate-900/70 px-2.5 py-0.5 text-[11px] font-semibold text-slate-200">
+                    <span className="inline-flex items-center rounded-full border border-slate-700 bg-slate-900/70 px-2.5 py-0.5 text-[11px] font-semibold text-slate-200 whitespace-nowrap shrink-0">
                       {sourceLabel}
                     </span>
                   )}
                   {campaignLabel && (
-                    <span className="inline-flex items-center rounded-full border border-slate-700 bg-slate-900/70 px-2.5 py-0.5 text-[11px] font-semibold text-slate-300">
+                    <span className="inline-flex items-center rounded-full border border-slate-700 bg-slate-900/70 px-2.5 py-0.5 text-[11px] font-semibold text-slate-300 whitespace-nowrap shrink-0">
                       {campaignLabel}
                     </span>
                   )}
                   {contentLabel && (
-                    <span className="inline-flex items-center rounded-full border border-slate-700 bg-slate-900/70 px-2.5 py-0.5 text-[11px] font-semibold text-slate-300">
+                    <span className="inline-flex items-center rounded-full border border-slate-700 bg-slate-900/70 px-2.5 py-0.5 text-[11px] font-semibold text-slate-300 whitespace-nowrap shrink-0">
                       {contentLabel}
                     </span>
                   )}

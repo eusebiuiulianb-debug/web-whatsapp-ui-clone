@@ -8,6 +8,7 @@ import {
   type ExtraLadderStatus,
   type ExtraSessionToday,
 } from "../../lib/extraLadder";
+import { createInviteTokenForFan } from "../../utils/createInviteToken";
 
 function parseMessageTimestamp(messageId: string): Date | null {
   const parts = messageId.split("-");
@@ -144,6 +145,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         messages: {
           select: { id: true, time: true, from: true },
         },
+        inviteUsedAt: true,
         _count: { select: { notes: true } },
       },
       orderBy: { id: "asc" },
@@ -397,6 +399,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         novsyStatus,
         isHighPriority,
         highPriorityAt: fan.highPriorityAt ?? null,
+        inviteUsedAt: fan.inviteUsedAt ? fan.inviteUsedAt.toISOString() : null,
         segment: fan.segment ?? "NUEVO",
         riskLevel: (fan as any).riskLevel ?? "LOW",
         healthScore: (fan as any).healthScore ?? 0,
@@ -448,14 +451,19 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 }
 
 async function handlePost(req: NextApiRequest, res: NextApiResponse) {
-  const creatorLabel = normalizeInput(req.body?.creatorLabel, 80);
-  const note = normalizeInput(req.body?.note, 500);
+  const creatorLabel = normalizeInput(req.body?.nameOrAlias ?? req.body?.creatorLabel, 80);
+  const note = normalizeInput(req.body?.initialNote ?? req.body?.note, 500);
 
-  if (!creatorLabel && !note) {
-    return res.status(400).json({ ok: false, error: "creatorLabel or note required" });
+  if (!creatorLabel) {
+    return res.status(400).json({ ok: false, error: "nameOrAlias required" });
   }
 
   try {
+    const baseUrl = getBaseUrl(req);
+    if (!baseUrl) {
+      return res.status(400).json({ ok: false, error: "missing_host" });
+    }
+
     const creator = await resolveCreator();
     if (!creator) {
       return res.status(400).json({ ok: false, error: "creator_not_found" });
@@ -486,7 +494,10 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
       });
     }
 
-    return res.status(200).json({ fanId });
+    const inviteToken = await createInviteTokenForFan(fanId);
+    const inviteUrl = `${baseUrl}/i/${inviteToken}`;
+
+    return res.status(200).json({ fanId, inviteToken, inviteUrl });
   } catch (error) {
     console.error("Error creating manual fan", error);
     return res.status(500).json({ ok: false, error: "Error creating fan" });
@@ -512,4 +523,13 @@ function normalizeInput(value: unknown, maxLen: number) {
   const trimmed = value.trim();
   if (!trimmed) return "";
   return trimmed.slice(0, maxLen);
+}
+
+function getBaseUrl(req: NextApiRequest): string | null {
+  const host = req.headers.host;
+  if (!host) return null;
+  const protoHeader = req.headers["x-forwarded-proto"];
+  const proto = Array.isArray(protoHeader) ? protoHeader[0] : protoHeader;
+  const scheme = proto || "http";
+  return `${scheme}://${host}`;
 }

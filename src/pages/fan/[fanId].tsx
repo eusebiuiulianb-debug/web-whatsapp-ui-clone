@@ -301,7 +301,7 @@ export default function FanChatPage({ includedContent, initialAccessSummary }: F
         if (data?.fan) {
           setFanProfile({
             name: data.fan.name ?? fanProfile.name ?? "Invitado",
-            displayName: data.fan.displayName ?? (name || fanProfile.displayName ?? null),
+            displayName: data.fan.displayName ?? (name ? name : fanProfile.displayName ?? null),
             creatorLabel: data.fan.creatorLabel ?? null,
           });
         }

@@ -311,6 +311,27 @@ function ManagerChatLayout({
     },
   ];
 
+  const formatPriorityReason = (fan: FanManagerRow) => {
+    if (fan.segment === "EN_RIESGO") return "En riesgo";
+    if (fan.segment === "VIP") {
+      return fan.daysToExpiry !== null ? `VIP · renueva en ${fan.daysToExpiry}d` : "VIP activo";
+    }
+    if (fan.segment === "DORMIDO") return "Dormido";
+    if (fan.daysToExpiry !== null) return `Renueva en ${fan.daysToExpiry}d`;
+    return "Seguimiento";
+  };
+
+  const topPriorityFans = queue.slice(0, 3);
+  const summaryBullets = [
+    `Prioridades hoy: ${formatNumber(prioritizedToday)} fans`,
+    `Ingresos 7d: ${formatCurrency(safeRevenue7)} · En riesgo 7d: ${formatCurrency(safeRiskRevenue)}`,
+    `Extras 30d: ${formatNumber(safeExtras30)} · Fans nuevos 30d: ${formatNumber(safeNewFans30)}`,
+  ];
+  const nextActionTarget = topPriorityFans[0] || null;
+  const nextActionCopy = nextActionTarget
+    ? `Escribe a ${nextActionTarget.displayName}. Motivo: ${formatPriorityReason(nextActionTarget)}.`
+    : "Revisa la cola de prioridades para decidir a quién contactar hoy.";
+
   const tabHighlights =
     activeTab === "strategy"
       ? [
@@ -325,8 +346,6 @@ function ManagerChatLayout({
           { title: "Packs activos", value: "3", helper: "Bienvenida · Mensual · Especial" },
           { title: "Ideas de extras", value: "En curso", helper: "Activa con el chat" },
         ];
-
-  const contextItems = statTiles.slice(0, 4);
 
   const handlePrompt = (_tab: "strategy" | "content" | "growth", text: string) => {
     chatRef.current?.setDraft(text);
@@ -727,21 +746,54 @@ function ManagerChatLayout({
                       <span className="text-[11px] text-slate-400">{contextOpen ? "Ocultar" : "Ver más"}</span>
                     </button>
                     {contextOpen && (
-                      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
-                        {contextItems.map((item) => (
-                          <div
-                            key={item.id}
-                            className="rounded-xl border border-slate-800 bg-slate-900/70 px-3 py-3 shadow-sm"
-                          >
-                            <div className="text-[11px] uppercase tracking-wide text-slate-400">{item.title}</div>
-                            <div className="text-lg font-semibold text-white">{item.value}</div>
-                            <div className="text-xs text-slate-400">{item.helper}</div>
+                      <div className="rounded-xl border border-slate-800 bg-slate-900/70 px-4 py-4 shadow-sm space-y-4">
+                        <div>
+                          <div className="text-[11px] uppercase tracking-wide text-slate-400">Resumen hoy</div>
+                          <ul className="mt-2 space-y-1 text-sm text-slate-200">
+                            {summaryBullets.map((bullet, index) => (
+                              <li key={`${index}-${bullet}`} className="flex items-start gap-2">
+                                <span className="text-slate-400">•</span>
+                                <span>{bullet}</span>
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                        <div>
+                          <div className="text-[11px] uppercase tracking-wide text-slate-400">Top 3 prioridades</div>
+                          {topPriorityFans.length === 0 ? (
+                            <div className="mt-2 text-sm text-slate-400">No hay prioridades en cola ahora mismo.</div>
+                          ) : (
+                            <div className="mt-2 space-y-2">
+                              {topPriorityFans.map((fan) => (
+                                <div
+                                  key={fan.id}
+                                  className="flex items-center justify-between rounded-lg border border-slate-800 bg-slate-950/70 px-3 py-2 text-sm text-slate-200"
+                                >
+                                  <span className="font-semibold text-white">{fan.displayName}</span>
+                                  <span className="text-xs text-slate-400">{formatPriorityReason(fan)}</span>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                        <div>
+                          <div className="text-[11px] uppercase tracking-wide text-slate-400">Siguiente acción</div>
+                          <div className="mt-2 rounded-lg border border-slate-800 bg-slate-950/70 px-3 py-3 space-y-2">
+                            <p className="text-sm text-slate-200">{nextActionCopy}</p>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                if (nextActionTarget) {
+                                  onOpenFanChat(nextActionTarget.id);
+                                } else {
+                                  onOpenInsights();
+                                }
+                              }}
+                              className="inline-flex items-center rounded-full border border-emerald-400/70 bg-emerald-500/15 px-3 py-1.5 text-xs font-semibold text-emerald-100 hover:bg-emerald-500/25"
+                            >
+                              {nextActionTarget ? "Abrir chat" : "Abrir insights"}
+                            </button>
                           </div>
-                        ))}
-                        <div className="rounded-xl border border-slate-800 bg-slate-900/70 px-3 py-3 shadow-sm">
-                          <div className="text-[11px] uppercase tracking-wide text-slate-400">Cola</div>
-                          <div className="text-lg font-semibold text-white">{queue.length} fans</div>
-                          <div className="text-xs text-slate-400">{queueError || "Hoy"}</div>
                         </div>
                       </div>
                     )}

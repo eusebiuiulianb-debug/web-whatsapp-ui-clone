@@ -25,7 +25,11 @@ const hasLoggedPrismaUrl = globalThis as unknown as { __prismaUrlLogged?: boolea
 
 function hasLatestModels(client: PrismaClient) {
   const anyClient = client as any;
-  return Boolean(anyClient?.analyticsEvent?.create) && Boolean(anyClient?.campaignLink?.create);
+  return (
+    Boolean(anyClient?.analyticsEvent?.create) &&
+    Boolean(anyClient?.campaignLink?.create) &&
+    Boolean(anyClient?.campaignMeta?.create)
+  );
 }
 
 const prismaClient =

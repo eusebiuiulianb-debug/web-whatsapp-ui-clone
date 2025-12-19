@@ -25,6 +25,42 @@ type AggregatedRow = {
   fansNew: number;
 };
 
+type CampaignRollup = {
+  utmCampaign: string;
+  viewSessions: number;
+  ctaSessions: number;
+  openChatSessions: number;
+  sendMessageSessions: number;
+  purchaseSessions: number;
+  fansNew: number;
+};
+
+type CampaignMetaRow = {
+  id: string;
+  creatorId: string;
+  utmCampaign: string;
+  title: string;
+  objective: string;
+  platform: string;
+  status: string;
+  notes: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+type CampaignLinkRow = {
+  id: string;
+  platform: string;
+  handle: string | null;
+  utmSource: string;
+  utmMedium: string;
+  utmCampaign: string;
+  utmContent: string;
+  utmTerm: string | null;
+  slug: string | null;
+  createdAt: string;
+};
+
 type AnalyticsSummaryResponse = {
   rangeDays: number;
   funnel: {
@@ -39,6 +75,9 @@ type AnalyticsSummaryResponse = {
     sessions: number;
     ctr: number;
   };
+  campaigns: CampaignMetaRow[];
+  campaignRollups: CampaignRollup[];
+  campaignLastLinks: CampaignLinkRow[];
   topCampaigns: AggregatedRow[];
   topCreatives: Omit<AggregatedRow, "utmCampaign" | "utmSource"> & { utmContent: string };
   latestLinks: Array<{
@@ -63,7 +102,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     const since = new Date();
     since.setDate(since.getDate() - rangeDays + 1);
 
-    const [events, latestLinks] = await Promise.all([
+    const [events, latestLinks, campaigns] = await Promise.all([
       prisma.analyticsEvent.findMany({
         where: { creatorId, createdAt: { gte: since } },
         select: { sessionId: true, eventName: true, fanId: true, utmCampaign: true, utmSource: true, utmContent: true },
@@ -85,6 +124,22 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           createdAt: true,
         },
       }),
+      prisma.campaignMeta.findMany({
+        where: { creatorId },
+        orderBy: { updatedAt: "desc" },
+        select: {
+          id: true,
+          creatorId: true,
+          utmCampaign: true,
+          title: true,
+          objective: true,
+          platform: true,
+          status: true,
+          notes: true,
+          createdAt: true,
+          updatedAt: true,
+        },
+      }),
     ]);
 
     const viewSessions = new Set<string>();
@@ -104,6 +159,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     const aggregatedCampaigns = new Map<
       string,
       { utmCampaign: string; utmSource: string; events: Record<string, Set<string>>; sendMessageEvents: number; newFans: Set<string> }
+    >();
+    const aggregatedCampaignTotals = new Map<
+      string,
+      { utmCampaign: string; events: Record<string, Set<string>>; sendMessageEvents: number; newFans: Set<string> }
     >();
     const aggregatedCreatives = new Map<
       string,
@@ -149,6 +208,25 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       return aggregatedCreatives.get(key)!;
     };
 
+    const ensureCampaignTotal = (campaign: string) => {
+      const key = campaign;
+      if (!aggregatedCampaignTotals.has(key)) {
+        aggregatedCampaignTotals.set(key, {
+          utmCampaign: campaign,
+          events: {
+            [ANALYTICS_EVENTS.BIO_LINK_VIEW]: new Set<string>(),
+            [ANALYTICS_EVENTS.CTA_CLICK_ENTER_CHAT]: new Set<string>(),
+            [ANALYTICS_EVENTS.OPEN_CHAT]: new Set<string>(),
+            [ANALYTICS_EVENTS.SEND_MESSAGE]: new Set<string>(),
+            [ANALYTICS_EVENTS.PURCHASE_SUCCESS]: new Set<string>(),
+          },
+          sendMessageEvents: 0,
+          newFans: new Set<string>(),
+        });
+      }
+      return aggregatedCampaignTotals.get(key)!;
+    };
+
     for (const evt of events) {
       const session = evt.sessionId;
       const name = evt.eventName;
@@ -183,17 +261,26 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       const creative = (evt.utmContent || "sin_creativo").trim() || "sin_creativo";
 
       const campaignRow = ensureCampaign(campaign, source);
+      const campaignTotal = ensureCampaignTotal(campaign);
       if (campaignRow.events[name]) {
         const keyForEvent = name === ANALYTICS_EVENTS.OPEN_CHAT ? fanKey : session;
         if (keyForEvent) {
           campaignRow.events[name].add(keyForEvent);
         }
       }
+      if (campaignTotal.events[name]) {
+        const keyForEvent = name === ANALYTICS_EVENTS.OPEN_CHAT ? fanKey : session;
+        if (keyForEvent) {
+          campaignTotal.events[name].add(keyForEvent);
+        }
+      }
       if (name === ANALYTICS_EVENTS.SEND_MESSAGE) {
         campaignRow.sendMessageEvents += 1;
+        campaignTotal.sendMessageEvents += 1;
       }
       if (name === ANALYTICS_EVENTS.NEW_FAN && fanId) {
         campaignRow.newFans.add(fanId);
+        campaignTotal.newFans.add(fanId);
       }
 
       const creativeRow = ensureCreative(creative);
@@ -240,6 +327,18 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       .sort((a, b) => b.viewSessions - a.viewSessions)
       .slice(0, 20);
 
+    const campaignRollups = Array.from(aggregatedCampaignTotals.values())
+      .map((row) => ({
+        utmCampaign: row.utmCampaign,
+        viewSessions: row.events[ANALYTICS_EVENTS.BIO_LINK_VIEW].size,
+        ctaSessions: row.events[ANALYTICS_EVENTS.CTA_CLICK_ENTER_CHAT].size,
+        openChatSessions: row.events[ANALYTICS_EVENTS.OPEN_CHAT].size,
+        sendMessageSessions: row.sendMessageEvents,
+        purchaseSessions: row.events[ANALYTICS_EVENTS.PURCHASE_SUCCESS].size,
+        fansNew: row.newFans.size,
+      }))
+      .sort((a, b) => b.viewSessions - a.viewSessions);
+
     const funnel = {
       view: { sessions: viewSessions.size, events: viewEvents },
       cta: {
@@ -271,11 +370,61 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       ctr: viewSessions.size ? Number(((ctaSessions.size / viewSessions.size) * 100).toFixed(1)) : 0,
     };
 
+    const campaignMeta = (campaigns ?? []).map((campaign) => ({
+      id: campaign.id,
+      creatorId: campaign.creatorId,
+      utmCampaign: campaign.utmCampaign,
+      title: campaign.title,
+      objective: campaign.objective,
+      platform: campaign.platform,
+      status: campaign.status,
+      notes: campaign.notes ?? null,
+      createdAt: campaign.createdAt.toISOString(),
+      updatedAt: campaign.updatedAt.toISOString(),
+    }));
+
+    let campaignLastLinks: CampaignLinkRow[] = [];
+    if (campaignMeta.length > 0) {
+      const utmCampaigns = campaignMeta.map((c) => c.utmCampaign);
+      const candidateLinks = await prisma.campaignLink.findMany({
+        where: { creatorId, utmCampaign: { in: utmCampaigns } },
+        orderBy: { createdAt: "desc" },
+        select: {
+          id: true,
+          platform: true,
+          utmSource: true,
+          utmMedium: true,
+          utmCampaign: true,
+          utmContent: true,
+          utmTerm: true,
+          handle: true,
+          slug: true,
+          createdAt: true,
+        },
+      });
+      const lastByCampaign = new Map<string, typeof candidateLinks[number]>();
+      for (const link of candidateLinks) {
+        if (!lastByCampaign.has(link.utmCampaign)) {
+          lastByCampaign.set(link.utmCampaign, link);
+        }
+      }
+      campaignLastLinks = Array.from(lastByCampaign.values()).map((link) => ({
+        ...link,
+        utmTerm: link.utmTerm ?? null,
+        slug: link.slug ?? null,
+        handle: link.handle ?? null,
+        createdAt: link.createdAt.toISOString(),
+      }));
+    }
+
     const payload: AnalyticsSummaryResponse = {
       rangeDays,
       funnel,
       funnelFans,
       metrics,
+      campaigns: campaignMeta,
+      campaignRollups,
+      campaignLastLinks,
       topCampaigns,
       topCreatives: topCreatives as any,
       latestLinks: latestLinks.map((link) => ({

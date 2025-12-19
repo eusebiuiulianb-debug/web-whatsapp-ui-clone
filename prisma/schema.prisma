@@ -38,6 +38,7 @@ model Creator {
   discoveryFeedbacks DiscoveryFeedback[]
   profile      CreatorProfile?
   generatedAssets GeneratedAsset[]
+  campaigns   CampaignMeta[]
 }
 
 model CreatorProfile {
@@ -430,6 +431,23 @@ model CampaignLink {
   slug        String?  @unique
   createdAt   DateTime @default(now())
 
+  @@index([creatorId, createdAt])
+}
+
+model CampaignMeta {
+  id          String   @id @default(cuid())
+  creatorId   String
+  creator     Creator  @relation(fields: [creatorId], references: [id])
+  utmCampaign String
+  title       String
+  objective   String
+  platform    String
+  status      String
+  notes       String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([creatorId, utmCampaign])
   @@index([creatorId, createdAt])
 }
 

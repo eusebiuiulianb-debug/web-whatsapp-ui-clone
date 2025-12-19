@@ -1,5 +1,5 @@
 import clsx from "clsx";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { CreatorManagerSummary } from "../../lib/creatorManager";
 import type { CreatorAiAdvisorInput } from "../../server/manager/managerSchemas";
 
@@ -13,12 +13,36 @@ type Props = {
 
 type TabId = "sales" | "catalog" | "growth";
 
+type CampaignRollup = {
+  utmCampaign: string;
+  openChatSessions: number;
+  sendMessageSessions: number;
+};
+
+type CampaignMeta = {
+  id: string;
+  utmCampaign: string;
+  title: string;
+  platform: string;
+  status: string;
+};
+
+type CampaignLink = {
+  utmCampaign: string;
+  createdAt: string;
+};
+
 export function ManagerInsightsPanel({ open, onClose, summary, preview, onPrompt }: Props) {
   const [tab, setTab] = useState<TabId>("sales");
   const [growthInput, setGrowthInput] = useState("");
   const [growthActions, setGrowthActions] = useState<string[] | null>(null);
   const [growthLoading, setGrowthLoading] = useState(false);
   const [growthError, setGrowthError] = useState<string | null>(null);
+  const [campaignsLoading, setCampaignsLoading] = useState(false);
+  const [campaignsError, setCampaignsError] = useState<string | null>(null);
+  const [campaignsMeta, setCampaignsMeta] = useState<CampaignMeta[]>([]);
+  const [campaignsRollups, setCampaignsRollups] = useState<CampaignRollup[]>([]);
+  const [campaignsLastLinks, setCampaignsLastLinks] = useState<CampaignLink[]>([]);
 
   const metrics = useMemo(() => {
     const safeRevenue30 = Number.isFinite(summary?.kpis?.last30?.revenue) ? summary?.kpis?.last30?.revenue ?? 0 : 0;
@@ -28,6 +52,72 @@ export function ManagerInsightsPanel({ open, onClose, summary, preview, onPrompt
     const safeRisk = Number.isFinite(summary?.revenueAtRisk7d) ? summary?.revenueAtRisk7d ?? 0 : 0;
     return { safeRevenue30, safeRevenue7, safeExtras30, safeExtras7, safeRisk };
   }, [summary]);
+
+  useEffect(() => {
+    if (!open) return;
+    let alive = true;
+    const loadCampaigns = async () => {
+      try {
+        setCampaignsLoading(true);
+        setCampaignsError(null);
+        const res = await fetch("/api/analytics/summary?range=7");
+        if (!res.ok) throw new Error("Error loading campaigns");
+        const data = await res.json();
+        if (!alive) return;
+        setCampaignsMeta(Array.isArray(data?.campaigns) ? data.campaigns : []);
+        setCampaignsRollups(Array.isArray(data?.campaignRollups) ? data.campaignRollups : []);
+        setCampaignsLastLinks(Array.isArray(data?.campaignLastLinks) ? data.campaignLastLinks : []);
+      } catch (err) {
+        if (!alive) return;
+        console.error(err);
+        setCampaignsError("No se pudieron cargar campañas.");
+        setCampaignsMeta([]);
+        setCampaignsRollups([]);
+        setCampaignsLastLinks([]);
+      } finally {
+        if (alive) setCampaignsLoading(false);
+      }
+    };
+    void loadCampaigns();
+    return () => {
+      alive = false;
+    };
+  }, [open]);
+
+  const campaignInsights = useMemo(() => {
+    const rollupsMap = new Map<string, CampaignRollup>();
+    campaignsRollups.forEach((row) => {
+      rollupsMap.set((row.utmCampaign || "").toLowerCase(), row);
+    });
+    const lastLinksMap = new Map<string, CampaignLink>();
+    campaignsLastLinks.forEach((link) => {
+      lastLinksMap.set((link.utmCampaign || "").toLowerCase(), link);
+    });
+    const rows = campaignsMeta.map((campaign) => {
+      const key = (campaign.utmCampaign || "").toLowerCase();
+      const metrics = rollupsMap.get(key) || {
+        utmCampaign: campaign.utmCampaign,
+        openChatSessions: 0,
+        sendMessageSessions: 0,
+      };
+      return {
+        ...campaign,
+        openChatSessions: metrics.openChatSessions,
+        sendMessageSessions: metrics.sendMessageSessions,
+        hasLink: lastLinksMap.has(key),
+      };
+    });
+    const topByChats = rows
+      .slice()
+      .sort((a, b) => {
+        if (b.openChatSessions !== a.openChatSessions) return b.openChatSessions - a.openChatSessions;
+        return b.sendMessageSessions - a.sendMessageSessions;
+      })
+      .slice(0, 3);
+    const activeCampaigns = rows.filter((c) => (c.status || "").toLowerCase() === "active");
+    const campaignsMissingLink = rows.filter((c) => !c.hasLink);
+    return { rows, topByChats, activeCampaigns, campaignsMissingLink };
+  }, [campaignsMeta, campaignsRollups, campaignsLastLinks]);
 
   if (!open) return null;
 
@@ -184,6 +274,56 @@ export function ManagerInsightsPanel({ open, onClose, summary, preview, onPrompt
 
       {tab === "growth" && (
         <div className="space-y-4">
+          <div className="rounded-lg border border-slate-800 bg-slate-900/70 px-3 py-3 space-y-3">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm font-semibold text-white">Campañas (UTM)</p>
+                <p className="text-xs text-slate-400">Top campañas por chats y mensajes.</p>
+              </div>
+              <button
+                type="button"
+                className="rounded-full border border-slate-700 bg-slate-900/70 px-3 py-1 text-xs text-slate-200 hover:border-emerald-500/60"
+                onClick={() => (window.location.href = "/creator/analytics")}
+              >
+                Ver campañas
+              </button>
+            </div>
+            {campaignsLoading && <p className="text-xs text-slate-400">Cargando campañas...</p>}
+            {campaignsError && <p className="text-xs text-rose-300">{campaignsError}</p>}
+            {!campaignsLoading && !campaignsError && campaignInsights.topByChats.length === 0 && (
+              <p className="text-xs text-slate-400">Aún no hay campañas con datos.</p>
+            )}
+            {!campaignsLoading && !campaignsError && campaignInsights.topByChats.length > 0 && (
+              <div className="space-y-2 text-sm text-slate-200">
+                {campaignInsights.topByChats.map((campaign) => (
+                  <div key={campaign.id} className="flex items-center justify-between rounded-lg border border-slate-800 bg-slate-950/70 px-3 py-2">
+                    <div className="flex flex-col">
+                      <span className="font-semibold text-white">{campaign.title}</span>
+                      <span className="text-[11px] text-slate-400">{campaign.utmCampaign}</span>
+                    </div>
+                    <div className="text-xs text-slate-300">
+                      Chats {campaign.openChatSessions} · Mensajes {campaign.sendMessageSessions}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+            {!campaignsLoading && !campaignsError && campaignInsights.activeCampaigns.length === 0 && (
+              <div className="rounded-lg border border-slate-800 bg-slate-950/70 px-3 py-2 text-xs text-slate-200">
+                No hay campañas activas. Crea una campaña en Analítica → Campañas.
+              </div>
+            )}
+            {!campaignsLoading && !campaignsError && campaignInsights.campaignsMissingLink.length > 0 && (
+              <div className="rounded-lg border border-slate-800 bg-slate-950/70 px-3 py-2 text-xs text-slate-200">
+                Genera un link para:{" "}
+                {campaignInsights.campaignsMissingLink
+                  .slice(0, 3)
+                  .map((c) => c.title)
+                  .join(", ")}
+                .
+              </div>
+            )}
+          </div>
           <div className="rounded-lg border border-slate-800 bg-slate-900/70 px-3 py-3">
             <p className="text-sm font-semibold text-white">Crecimiento</p>
             <p className="text-xs text-slate-400">Conecta YouTube / TikTok / Instagram para ver métricas aquí.</p>

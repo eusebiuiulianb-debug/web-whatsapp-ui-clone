@@ -152,6 +152,7 @@ function SideBarInner() {
       novsyStatus: fan.novsyStatus ?? null,
       isHighPriority: fan.isHighPriority ?? false,
       highPriorityAt: fan.highPriorityAt ?? null,
+      inviteUsedAt: fan.inviteUsedAt ?? null,
       segment: (fan as any).segment ?? null,
       riskLevel: (fan as any).riskLevel ?? "LOW",
       healthScore: (fan as any).healthScore ?? 0,
@@ -214,6 +215,7 @@ function SideBarInner() {
         "lastMessage",
         "isHighPriority",
         "highPriorityAt",
+        "inviteUsedAt",
         "extrasCount",
         "extrasSpentTotal",
         "notesCount",
@@ -404,18 +406,21 @@ function SideBarInner() {
     const label = newFanName.trim();
     const note = newFanNote.trim();
     if (!label) {
-      setNewFanError("Introduce un nombre para el fan.");
+      setNewFanError("Introduce un nombre para la invitación.");
       return;
     }
     try {
       setNewFanSaving(true);
       setNewFanError(null);
+      setNewFanInviteUrl(null);
+      setNewFanInviteState("idle");
+      setNewFanInviteError(null);
       const res = await fetch("/api/fans", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          creatorLabel: label,
-          note: note || undefined,
+          nameOrAlias: label,
+          initialNote: note || undefined,
         }),
       });
       const data = await res.json().catch(() => ({}));
@@ -429,9 +434,14 @@ function SideBarInner() {
         return;
       }
       setNewFanId(fanId);
-      setNewFanInviteUrl(null);
+      const inviteUrl = typeof data?.inviteUrl === "string" ? data.inviteUrl : null;
+      setNewFanInviteUrl(inviteUrl);
       setNewFanInviteState("idle");
-      setNewFanInviteError(null);
+      if (!inviteUrl) {
+        setNewFanInviteError("No se pudo generar el enlace.");
+      } else {
+        setNewFanInviteError(null);
+      }
       const newConversation: ConversationListData = {
         id: fanId,
         contactName: label || "Invitado",
@@ -445,6 +455,7 @@ function SideBarInner() {
         isNew: false,
         isHighPriority: false,
         highPriorityAt: null,
+        inviteUsedAt: null,
       };
       setFans((prev) => {
         if (prev.some((fan) => fan.id === fanId)) return prev;
@@ -476,18 +487,21 @@ function SideBarInner() {
     try {
       setNewFanInviteState("loading");
       setNewFanInviteError(null);
-      const res = await fetch(`/api/fans/${newFanId}/invite`, { method: "POST" });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok || !data?.inviteUrl) {
-        if (process.env.NODE_ENV !== "production") {
-          console.warn("[invite] generate failed", data?.error || res.statusText);
+      let inviteUrl = newFanInviteUrl;
+      if (!inviteUrl) {
+        const res = await fetch(`/api/fans/${newFanId}/invite`, { method: "POST" });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok || !data?.inviteUrl) {
+          if (process.env.NODE_ENV !== "production") {
+            console.warn("[invite] generate failed", data?.error || res.statusText);
+          }
+          setNewFanInviteState("error");
+          setNewFanInviteError("No se pudo generar el enlace.");
+          return;
         }
-        setNewFanInviteState("error");
-        setNewFanInviteError("No se pudo generar el enlace.");
-        return;
+        inviteUrl = data.inviteUrl as string;
+        setNewFanInviteUrl(inviteUrl);
       }
-      const inviteUrl = data.inviteUrl as string;
-      setNewFanInviteUrl(inviteUrl);
       await navigator.clipboard.writeText(inviteUrl);
       setNewFanInviteState("copied");
       setTimeout(() => setNewFanInviteState("idle"), 1500);
@@ -497,6 +511,26 @@ function SideBarInner() {
       setNewFanInviteError("No se pudo copiar el enlace.");
     }
   }
+
+  const handleCopyInviteForFan = useCallback(async (target: ConversationListData): Promise<boolean> => {
+    const fanId = target?.id;
+    if (!fanId) return false;
+    try {
+      const res = await fetch(`/api/fans/${fanId}/invite`, { method: "POST" });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data?.inviteUrl) {
+        if (process.env.NODE_ENV !== "production") {
+          console.warn("[invite] generate failed", data?.error || res.statusText);
+        }
+        return false;
+      }
+      await navigator.clipboard.writeText(data.inviteUrl as string);
+      return true;
+    } catch (err) {
+      console.error("Error copying invite link", err);
+      return false;
+    }
+  }, []);
 
   function closeNewFanModal() {
     setIsNewFanOpen(false);
@@ -938,7 +972,7 @@ function SideBarInner() {
   const isLoading = loadingFans;
   const isError = Boolean(fansError);
   return (
-    <div className="flex flex-col w-full md:w-[480px] bg-[#202c33] min-h-[320px] md:h-full" style={{borderRight: "1px solid rgba(134,150,160,0.15)"}}>
+    <div className="flex flex-col w-full md:w-[480px] lg:min-w-[420px] shrink-0 bg-[#202c33] min-h-[320px] md:h-full" style={{borderRight: "1px solid rgba(134,150,160,0.15)"}}>
       <CreatorSettingsPanel isOpen={isSettingsOpen} onClose={() => setIsSettingsOpen(false)} />
       <CreatorHeader
         name={config.creatorName}
@@ -1502,7 +1536,7 @@ function SideBarInner() {
               setNewFanInviteError(null);
             }}
           >
-            + Nuevo fan
+            + Crear invitación
           </button>
         </div>
       </div>
@@ -1540,6 +1574,7 @@ function SideBarInner() {
             data={managerChatEntry}
             onSelect={handleSelectConversation}
             onToggleHighPriority={handleToggleHighPriority}
+            onCopyInvite={handleCopyInviteForFan}
           />
         )}
         {!loadingFans && !fansError && !focusMode && visibleList.map((conversation, index) => {
@@ -1550,6 +1585,7 @@ function SideBarInner() {
               data={conversation}
               onSelect={handleSelectConversation}
               onToggleHighPriority={handleToggleHighPriority}
+              onCopyInvite={handleCopyInviteForFan}
             />
           )
         })}
@@ -1575,7 +1611,7 @@ function SideBarInner() {
         <div className="fixed inset-0 z-40 flex items-end justify-center bg-slate-950/60 backdrop-blur-sm">
           <div className="w-full max-w-md rounded-t-3xl bg-slate-900 border border-slate-700 shadow-xl p-5 space-y-4">
             <div className="flex items-center justify-between gap-3">
-              <h2 className="text-sm font-semibold text-slate-200">Nuevo fan (manual)</h2>
+              <h2 className="text-sm font-semibold text-slate-200">Crear invitación</h2>
               <button
                 type="button"
                 onClick={closeNewFanModal}
@@ -1585,6 +1621,9 @@ function SideBarInner() {
                 ✕
               </button>
             </div>
+            <p className="text-xs text-slate-400">
+              Crea un link privado /i/token y un fan queda en Pendiente hasta que entra.
+            </p>
             <label className="flex flex-col gap-1 text-sm text-slate-300">
               <span>Nombre o alias</span>
               <input
@@ -1608,7 +1647,7 @@ function SideBarInner() {
             {newFanError && <p className="text-xs text-rose-300">{newFanError}</p>}
             {newFanId && (
               <div className="rounded-lg border border-slate-800 bg-slate-950/60 px-3 py-2 text-xs text-slate-200">
-                Fan creado. Puedes compartirle un enlace directo.
+                Invitación creada.{newFanInviteUrl ? " Enlace listo para compartir." : " Genera el enlace para invitar."}
               </div>
             )}
             {newFanInviteUrl && (
@@ -1627,6 +1666,19 @@ function SideBarInner() {
                   >
                     Cerrar
                   </button>
+                  {newFanInviteUrl && process.env.NODE_ENV !== "production" && (
+                    <button
+                      type="button"
+                      className="rounded-full border border-slate-700 bg-slate-800 px-4 py-2 text-sm font-semibold text-slate-100 hover:bg-slate-700"
+                      onClick={() => {
+                        if (newFanInviteUrl) {
+                          window.open(newFanInviteUrl, "_blank", "noopener,noreferrer");
+                        }
+                      }}
+                    >
+                      Abrir en incógnito
+                    </button>
+                  )}
                   <button
                     type="button"
                     disabled={newFanInviteState === "loading"}
@@ -1665,7 +1717,7 @@ function SideBarInner() {
                     )}
                     onClick={() => void handleCreateNewFan()}
                   >
-                    {newFanSaving ? "Creando..." : "Crear fan"}
+                    {newFanSaving ? "Creando..." : "Crear invitación"}
                   </button>
                 </>
               )}

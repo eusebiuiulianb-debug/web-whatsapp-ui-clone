@@ -1,5 +1,5 @@
 import Head from "next/head";
-import { useEffect, useState } from "react";
+import { Fragment, useEffect, useMemo, useState } from "react";
 import CreatorHeader from "../../components/CreatorHeader";
 import { useCreatorConfig } from "../../context/CreatorConfigContext";
 import clsx from "clsx";
@@ -17,6 +17,28 @@ type TableRow = {
   sendMessageSessions: number;
   purchaseSessions: number;
   fansNew: number;
+};
+
+type CampaignRollup = {
+  utmCampaign: string;
+  viewSessions: number;
+  ctaSessions: number;
+  openChatSessions: number;
+  sendMessageSessions: number;
+  purchaseSessions: number;
+  fansNew: number;
+};
+
+type CampaignMeta = {
+  id: string;
+  utmCampaign: string;
+  title: string;
+  objective: string;
+  platform: string;
+  status: string;
+  notes?: string | null;
+  createdAt: string;
+  updatedAt: string;
 };
 
 type CampaignLink = {
@@ -47,6 +69,9 @@ type Summary = {
     openChatFans: number;
     sendMessageFans: number;
   };
+  campaigns: CampaignMeta[];
+  campaignRollups: CampaignRollup[];
+  campaignLastLinks: CampaignLink[];
   topCampaigns: TableRow[];
   topCreatives: (TableRow & { utmContent: string })[];
   latestLinks: CampaignLink[];
@@ -67,11 +92,27 @@ export default function CreatorAnalyticsPage() {
   const [data, setData] = useState<Summary | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
-  const [builderOpen, setBuilderOpen] = useState(false);
   const [handle, setHandle] = useState("creator");
   const [savingLink, setSavingLink] = useState(false);
   const [platforms, setPlatforms] = useState<CreatorPlatforms | null>(null);
   const [savingPlatforms, setSavingPlatforms] = useState(false);
+  const [campaigns, setCampaigns] = useState<CampaignMeta[]>([]);
+  const [campaignsLoading, setCampaignsLoading] = useState(false);
+  const [campaignsError, setCampaignsError] = useState("");
+  const [campaignModalOpen, setCampaignModalOpen] = useState(false);
+  const [campaignSaving, setCampaignSaving] = useState(false);
+  const [campaignDeleting, setCampaignDeleting] = useState(false);
+  const [campaignFormError, setCampaignFormError] = useState("");
+  const [editingCampaignId, setEditingCampaignId] = useState<string | null>(null);
+  const [campaignTouched, setCampaignTouched] = useState(false);
+  const [campaignForm, setCampaignForm] = useState({
+    title: "",
+    utmCampaign: "",
+    platform: "tiktok",
+    status: "draft",
+    objective: "",
+    notes: "",
+  });
   const [builder, setBuilder] = useState<BuilderState>({
     platform: "tiktok",
     utmMedium: "social",
@@ -79,6 +120,7 @@ export default function CreatorAnalyticsPage() {
     utmContent: "",
     utmTerm: "",
   });
+  const [activeLinkCampaignId, setActiveLinkCampaignId] = useState<string | null>(null);
 
   useEffect(() => {
     void loadData(range);
@@ -87,6 +129,7 @@ export default function CreatorAnalyticsPage() {
   useEffect(() => {
     void loadHandle();
     void loadPlatforms();
+    void loadCampaigns();
   }, []);
 
   async function loadData(nextRange: number) {
@@ -125,6 +168,23 @@ export default function CreatorAnalyticsPage() {
     }
   }
 
+  async function loadCampaigns() {
+    try {
+      setCampaignsLoading(true);
+      setCampaignsError("");
+      const res = await fetch("/api/campaigns");
+      if (!res.ok) throw new Error("Error fetching campaigns");
+      const payload = await res.json();
+      setCampaigns(Array.isArray(payload?.campaigns) ? payload.campaigns : []);
+    } catch (err) {
+      console.error(err);
+      setCampaignsError("No se pudieron cargar las campañas.");
+      setCampaigns([]);
+    } finally {
+      setCampaignsLoading(false);
+    }
+  }
+
   const origin =
     typeof window !== "undefined" && window.location?.origin
       ? window.location.origin
@@ -132,8 +192,10 @@ export default function CreatorAnalyticsPage() {
 
   const utmSource = builder.platform.trim().toLowerCase();
   const utmMedium = builder.utmMedium.trim().toLowerCase() || "social";
-  const utmCampaign = builder.utmCampaign.trim() || "sin_campaña";
-  const utmContent = builder.utmContent.trim() || "sin_creativo";
+  const utmCampaignInput = builder.utmCampaign.trim();
+  const utmContentInput = builder.utmContent.trim();
+  const utmCampaign = utmCampaignInput || "sin_campaña";
+  const utmContent = utmContentInput || "sin_creativo";
   const utmTerm = builder.utmTerm.trim();
   const linkPreview = `${origin}/link/${handle}?utm_source=${encodeURIComponent(utmSource)}&utm_medium=${encodeURIComponent(
     utmMedium
@@ -141,7 +203,7 @@ export default function CreatorAnalyticsPage() {
     utmTerm ? `&utm_term=${encodeURIComponent(utmTerm)}` : ""
   }`;
 
-  const builderValid = Boolean(utmSource && utmMedium && builder.utmCampaign.trim() && builder.utmContent.trim());
+  const builderValid = Boolean(utmSource && utmMedium && utmCampaignInput && utmContentInput);
 
   async function handleCopy(value: string) {
     try {
@@ -163,19 +225,177 @@ export default function CreatorAnalyticsPage() {
         handle,
         utmSource,
         utmMedium,
-        utmCampaign,
-        utmContent,
+        utmCampaign: utmCampaignInput,
+        utmContent: utmContentInput,
         utmTerm: utmTerm || undefined,
         }),
       });
       if (!res.ok) throw new Error("Error saving link");
-      setBuilder((prev) => ({ ...prev, utmCampaign: "", utmContent: "", utmTerm: "" }));
-      setBuilderOpen(false);
+      setBuilder((prev) => ({ ...prev, utmContent: "", utmTerm: "" }));
+      setActiveLinkCampaignId(null);
       void loadData(range);
     } catch (err) {
       console.error(err);
     } finally {
       setSavingLink(false);
+    }
+  }
+
+  const campaignMetricsByKey = useMemo(() => {
+    const map = new Map<string, CampaignRollup>();
+    (data?.campaignRollups ?? []).forEach((row) => {
+      map.set(normalizeCampaignKey(row.utmCampaign), row);
+    });
+    return map;
+  }, [data?.campaignRollups]);
+
+  const campaignLastLinksByKey = useMemo(() => {
+    const map = new Map<string, CampaignLink>();
+    (data?.campaignLastLinks ?? []).forEach((link) => {
+      map.set(normalizeCampaignKey(link.utmCampaign), link);
+    });
+    return map;
+  }, [data?.campaignLastLinks]);
+
+  function openCampaignModal() {
+    setEditingCampaignId(null);
+    setCampaignTouched(false);
+    setCampaignFormError("");
+    setCampaignForm({
+      title: "",
+      utmCampaign: "",
+      platform: "tiktok",
+      status: "draft",
+      objective: "",
+      notes: "",
+    });
+    setCampaignModalOpen(true);
+  }
+
+  function openCampaignEditor(campaign: CampaignMeta) {
+    setEditingCampaignId(campaign.id);
+    setCampaignTouched(true);
+    setCampaignFormError("");
+    setCampaignForm({
+      title: campaign.title || "",
+      utmCampaign: campaign.utmCampaign || "",
+      platform: normalizePlatformKey(campaign.platform),
+      status: normalizeStatusKey(campaign.status),
+      objective: campaign.objective || "",
+      notes: campaign.notes || "",
+    });
+    setCampaignModalOpen(true);
+  }
+
+  async function handleSaveCampaign() {
+    const title = campaignForm.title.trim();
+    const objective = campaignForm.objective.trim();
+    const utmCampaignValue = slugifyCampaign(campaignForm.utmCampaign);
+    if (!title || !objective || !utmCampaignValue) {
+      setCampaignFormError("Completa título, objetivo y utm_campaign.");
+      return;
+    }
+    try {
+      setCampaignSaving(true);
+      setCampaignFormError("");
+      const payload = {
+        title,
+        objective,
+        utmCampaign: utmCampaignValue,
+        platform: campaignForm.platform,
+        status: campaignForm.status,
+        notes: campaignForm.notes?.trim() || null,
+      };
+      const res = await fetch(editingCampaignId ? `/api/campaigns/${editingCampaignId}` : "/api/campaigns", {
+        method: editingCampaignId ? "PATCH" : "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setCampaignFormError(json?.error || "No se pudo guardar la campaña.");
+        return;
+      }
+      setCampaignModalOpen(false);
+      void loadCampaigns();
+      void loadData(range);
+    } catch (err) {
+      console.error(err);
+      setCampaignFormError("No se pudo guardar la campaña.");
+    } finally {
+      setCampaignSaving(false);
+    }
+  }
+
+  async function handleDeleteCampaign() {
+    if (!editingCampaignId) return;
+    try {
+      setCampaignDeleting(true);
+      setCampaignFormError("");
+      const res = await fetch(`/api/campaigns/${editingCampaignId}`, { method: "DELETE" });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setCampaignFormError(json?.error || "No se pudo eliminar la campaña.");
+        return;
+      }
+      setCampaignModalOpen(false);
+      void loadCampaigns();
+      void loadData(range);
+    } catch (err) {
+      console.error(err);
+      setCampaignFormError("No se pudo eliminar la campaña.");
+    } finally {
+      setCampaignDeleting(false);
+    }
+  }
+
+  function handleCampaignTitleChange(value: string) {
+    setCampaignForm((prev) => {
+      const nextTitle = value;
+      if (campaignTouched) {
+        return { ...prev, title: nextTitle };
+      }
+      return {
+        ...prev,
+        title: nextTitle,
+        utmCampaign: slugifyCampaign(nextTitle),
+      };
+    });
+  }
+
+  function handleCampaignUtmChange(value: string) {
+    setCampaignTouched(true);
+    setCampaignForm((prev) => ({ ...prev, utmCampaign: value }));
+  }
+
+  function openBuilderForCampaign(campaign: CampaignMeta) {
+    setBuilder((prev) => ({
+      ...prev,
+      platform: normalizePlatformKey(campaign.platform),
+      utmMedium: prev.utmMedium?.trim() ? prev.utmMedium : "social",
+      utmCampaign: campaign.utmCampaign,
+      utmContent: "",
+      utmTerm: "",
+    }));
+    setActiveLinkCampaignId(campaign.id);
+  }
+
+  async function handleDeleteCampaignRow(campaign: CampaignMeta) {
+    const confirmDelete = window.confirm(`¿Eliminar la campaña "${campaign.title}"?`);
+    if (!confirmDelete) return;
+    try {
+      setCampaignsError("");
+      const res = await fetch(`/api/campaigns/${campaign.id}`, { method: "DELETE" });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setCampaignsError(json?.error || "No se pudo eliminar la campaña.");
+        return;
+      }
+      void loadCampaigns();
+      void loadData(range);
+    } catch (err) {
+      console.error(err);
+      setCampaignsError("No se pudo eliminar la campaña.");
     }
   }
 
@@ -247,14 +467,6 @@ export default function CreatorAnalyticsPage() {
             <p className="text-sm text-slate-300">Atribución de bio-link y embudo al chat.</p>
           </div>
           <div className="flex items-center gap-3">
-            <button
-              type="button"
-              onClick={() => setBuilderOpen(true)}
-              className="inline-flex items-center gap-2 rounded-full bg-emerald-600 px-3 py-2 text-sm font-semibold text-white hover:bg-emerald-500"
-            >
-              <PlusIconInline />
-              Crear link UTM
-            </button>
             <div className="inline-flex rounded-full border border-slate-700 bg-slate-900/70 p-1">
               {[7, 30, 90].map((value) => (
                 <button
@@ -282,7 +494,7 @@ export default function CreatorAnalyticsPage() {
               <div className="flex items-center justify-between">
                 <div>
                   <h2 className="text-lg font-semibold text-white">Redes (manual)</h2>
-                  <p className="text-sm text-slate-300">Activa tus plataformas para personalizar las ideas de crecimiento.</p>
+                  <p className="text-sm text-slate-300">Configuración de perfiles para ideas de crecimiento. No genera links UTM.</p>
                 </div>
                 <button
                   type="button"
@@ -378,7 +590,236 @@ export default function CreatorAnalyticsPage() {
                     ))}
                   </div>
                 </div>
+              </>
+            )}
 
+            <div className="rounded-2xl border border-slate-800 bg-slate-900/70 p-4 sm:p-6 space-y-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h2 className="text-lg font-semibold text-white">Campañas (UTM)</h2>
+                  <p className="text-sm text-slate-300">Esto mide tráfico hacia BioLink/Chat.</p>
+                </div>
+                <button
+                  type="button"
+                  onClick={openCampaignModal}
+                  className="inline-flex items-center gap-2 rounded-full border border-emerald-400/70 bg-emerald-500/15 px-3 py-2 text-sm font-semibold text-emerald-100 hover:bg-emerald-500/25"
+                >
+                  <PlusIconInline />
+                  Nueva campaña
+                </button>
+              </div>
+              {campaignsError && <div className="text-sm text-rose-300">{campaignsError}</div>}
+              {campaignsLoading && <div className="text-sm text-slate-300">Cargando campañas...</div>}
+              {!campaignsLoading && campaigns.length === 0 && (
+                <div className="text-sm text-slate-400">Crea tu primera campaña para ver métricas aquí.</div>
+              )}
+              {!campaignsLoading && campaigns.length > 0 && (
+                <div className="overflow-x-auto">
+                  <table className="min-w-full text-sm">
+                    <thead>
+                      <tr className="text-left text-slate-400 border-b border-slate-800">
+                        <th className="py-2 pr-4">Título</th>
+                        <th className="py-2 pr-4">utm_campaign</th>
+                        <th className="py-2 pr-4">Plataforma</th>
+                        <th className="py-2 pr-4">Estado</th>
+                        <th className="py-2 pr-4">Objetivo</th>
+                        <th className="py-2 pr-4">Visitas</th>
+                        <th className="py-2 pr-4">CTA</th>
+                        <th className="py-2 pr-4">Chats</th>
+                        <th className="py-2 pr-4">Mensajes</th>
+                        <th className="py-2 pr-4">Fans nuevos</th>
+                        <th className="py-2 pr-4">Compras</th>
+                        <th className="py-2 pr-4">Último link</th>
+                        <th className="py-2 pr-4">Acciones</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {campaigns.map((campaign) => {
+                        const metrics =
+                          campaignMetricsByKey.get(normalizeCampaignKey(campaign.utmCampaign)) ||
+                          {
+                            viewSessions: 0,
+                            ctaSessions: 0,
+                            openChatSessions: 0,
+                            sendMessageSessions: 0,
+                            purchaseSessions: 0,
+                            fansNew: 0,
+                            utmCampaign: campaign.utmCampaign,
+                          };
+                        const lastLink = campaignLastLinksByKey.get(normalizeCampaignKey(campaign.utmCampaign));
+                        const lastLinkUrl = lastLink ? buildLinkFromRow(lastLink, handle) : "";
+                        const isActiveLinkBuilder = activeLinkCampaignId === campaign.id;
+                        return (
+                          <Fragment key={campaign.id}>
+                            <tr className="border-b border-slate-800/60 align-top">
+                              <td className="py-2 pr-4 text-white font-semibold">{campaign.title}</td>
+                              <td className="py-2 pr-4 text-slate-200">{campaign.utmCampaign}</td>
+                              <td className="py-2 pr-4">
+                                <span className="inline-flex items-center rounded-full border border-slate-700 bg-slate-900/70 px-2.5 py-1 text-[11px] font-semibold text-slate-200">
+                                  {formatCampaignPlatform(campaign.platform)}
+                                </span>
+                              </td>
+                              <td className="py-2 pr-4">
+                                <span className={clsx("inline-flex items-center rounded-full px-2.5 py-1 text-[11px] font-semibold", statusBadgeClass(campaign.status))}>
+                                  {formatStatusLabel(campaign.status)}
+                                </span>
+                              </td>
+                              <td className="py-2 pr-4 text-slate-200 min-w-[200px]">
+                                <div>{campaign.objective}</div>
+                                {campaign.notes && <div className="text-xs text-slate-400">{campaign.notes}</div>}
+                              </td>
+                              <td className="py-2 pr-4 text-emerald-200 font-semibold">{metrics.viewSessions}</td>
+                              <td className="py-2 pr-4 text-slate-200">{metrics.ctaSessions}</td>
+                              <td className="py-2 pr-4 text-slate-200">{metrics.openChatSessions}</td>
+                              <td className="py-2 pr-4 text-slate-200">{metrics.sendMessageSessions}</td>
+                              <td className="py-2 pr-4 text-slate-200">{metrics.fansNew}</td>
+                            <td className="py-2 pr-4 text-slate-200">{metrics.purchaseSessions}</td>
+                            <td className="py-2 pr-4 text-slate-200 min-w-[180px]">
+                              {lastLink ? (
+                                <div className="flex flex-col gap-2">
+                                  <span className="text-xs text-slate-300">{truncateLink(lastLinkUrl, 38)}</span>
+                                  <button
+                                    type="button"
+                                    onClick={() => handleCopy(lastLinkUrl)}
+                                    className="inline-flex items-center gap-1 rounded-full border border-slate-700 px-3 py-1 text-xs font-semibold text-slate-100 hover:border-emerald-500 w-fit"
+                                  >
+                                    <ClipboardCopyIconInline />
+                                    Copiar link
+                                  </button>
+                                </div>
+                              ) : (
+                                <span className="text-xs text-slate-500">Sin link</span>
+                              )}
+                            </td>
+                            <td className="py-2 pr-4">
+                              <div className="flex flex-wrap items-center gap-2">
+                                <button
+                                  type="button"
+                                  onClick={() => openBuilderForCampaign(campaign)}
+                                    className="inline-flex items-center gap-1 rounded-full border border-slate-700 px-3 py-1.5 text-xs font-semibold text-slate-100 hover:border-emerald-500"
+                                >
+                                  <LinkIconInline />
+                                  Generar link
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => openCampaignEditor(campaign)}
+                                  className="inline-flex items-center gap-1 rounded-full border border-slate-700 px-3 py-1.5 text-xs font-semibold text-slate-100 hover:border-emerald-500"
+                                  >
+                                    Editar
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => handleDeleteCampaignRow(campaign)}
+                                    className="inline-flex items-center gap-1 rounded-full border border-rose-500/70 px-3 py-1.5 text-xs font-semibold text-rose-100 hover:bg-rose-500/20"
+                                  >
+                                    Borrar
+                                  </button>
+                                </div>
+                              </td>
+                            </tr>
+                            {isActiveLinkBuilder && (
+                              <tr className="border-b border-slate-800/60">
+                                <td colSpan={13} className="py-3 pr-4">
+                                  <div className="rounded-xl border border-slate-800 bg-slate-950/70 p-4 space-y-3">
+                                    <div className="flex items-center justify-between gap-3">
+                                      <div>
+                                        <div className="text-sm font-semibold text-white">Link UTM (campaña)</div>
+                                        <div className="text-xs text-slate-400">Esto mide tráfico hacia BioLink/Chat.</div>
+                                      </div>
+                                      <button
+                                        type="button"
+                                        className="text-xs text-slate-400 hover:text-slate-200"
+                                        onClick={() => setActiveLinkCampaignId(null)}
+                                      >
+                                        Cerrar
+                                      </button>
+                                    </div>
+                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                      <div className="flex flex-col gap-1">
+                                        <label className="text-[11px] text-slate-400">utm_source</label>
+                                        <input
+                                          value={utmSource}
+                                          readOnly
+                                          className="rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-xs text-slate-200"
+                                        />
+                                      </div>
+                                      <div className="flex flex-col gap-1">
+                                        <label className="text-[11px] text-slate-400">utm_medium</label>
+                                        <input
+                                          value={builder.utmMedium}
+                                          onChange={(e) => setBuilder((prev) => ({ ...prev, utmMedium: e.target.value }))}
+                                          className="rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-xs text-white"
+                                          placeholder="social"
+                                        />
+                                      </div>
+                                      <div className="flex flex-col gap-1">
+                                        <label className="text-[11px] text-slate-400">utm_campaign</label>
+                                        <input
+                                          value={builder.utmCampaign}
+                                          readOnly
+                                          className="rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-xs text-slate-200"
+                                        />
+                                      </div>
+                                      <div className="flex flex-col gap-1">
+                                        <label className="text-[11px] text-slate-400">utm_content *</label>
+                                        <input
+                                          value={builder.utmContent}
+                                          onChange={(e) => setBuilder((prev) => ({ ...prev, utmContent: e.target.value }))}
+                                          className="rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-xs text-white"
+                                          placeholder="video_023"
+                                        />
+                                      </div>
+                                      <div className="flex flex-col gap-1">
+                                        <label className="text-[11px] text-slate-400">utm_term (opcional)</label>
+                                        <input
+                                          value={builder.utmTerm}
+                                          onChange={(e) => setBuilder((prev) => ({ ...prev, utmTerm: e.target.value }))}
+                                          className="rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-xs text-white"
+                                          placeholder="vip"
+                                        />
+                                      </div>
+                                    </div>
+                                    <div className="rounded-lg border border-slate-800 bg-slate-900/70 px-3 py-2 text-xs text-slate-200 break-all flex items-center gap-2">
+                                      <LinkIconInline />
+                                      <span>{linkPreview}</span>
+                                    </div>
+                                    <div className="flex items-center justify-between">
+                                      <button
+                                        type="button"
+                                        onClick={() => handleCopy(linkPreview)}
+                                        className="inline-flex items-center gap-2 rounded-full border border-slate-700 px-3 py-1.5 text-xs text-slate-100 hover:border-emerald-500"
+                                      >
+                                        <ClipboardCopyIconInline />
+                                        Copiar link
+                                      </button>
+                                      <button
+                                        type="button"
+                                        disabled={!builderValid || savingLink}
+                                        onClick={handleSaveLink}
+                                        className={clsx(
+                                          "inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-xs font-semibold",
+                                          builderValid ? "bg-emerald-600 text-white hover:bg-emerald-500" : "bg-slate-700 text-slate-300"
+                                        )}
+                                      >
+                                        {savingLink ? "Guardando..." : "Guardar link"}
+                                      </button>
+                                    </div>
+                                  </div>
+                                </td>
+                              </tr>
+                            )}
+                          </Fragment>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+
+            {!funnelRows.every((row) => row.events === 0) && (
+              <>
                 <AggregatedTable title="Top campañas" subtitle="utm_campaign + utm_source" rows={data.topCampaigns} />
                 <AggregatedTable title="Top creativos" subtitle="utm_content" rows={data.topCreatives} />
               </>
@@ -435,97 +876,129 @@ export default function CreatorAnalyticsPage() {
         )}
       </div>
 
-      {builderOpen && (
+      {campaignModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-4">
           <div className="w-full max-w-lg rounded-2xl border border-slate-800 bg-slate-900/90 p-5 shadow-xl space-y-4">
             <div className="flex items-center justify-between">
               <div>
-                <h2 className="text-lg font-semibold text-white">Crear link UTM</h2>
-                <p className="text-sm text-slate-400">Define campaña y creativo para tu bio-link.</p>
+                <h2 className="text-lg font-semibold text-white">
+                  {editingCampaignId ? "Editar campaña" : "Nueva campaña"}
+                </h2>
+                <p className="text-sm text-slate-400">Guarda el utm_campaign para comparar resultados.</p>
               </div>
-              <button className="text-sm text-slate-300 hover:text-white" onClick={() => setBuilderOpen(false)}>
+              <button className="text-sm text-slate-300 hover:text-white" onClick={() => setCampaignModalOpen(false)}>
                 Cerrar
               </button>
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div className="flex flex-col gap-1 sm:col-span-2">
+                <label className="text-xs text-slate-400">Título *</label>
+                <input
+                  value={campaignForm.title}
+                  onChange={(e) => handleCampaignTitleChange(e.target.value)}
+                  className="rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-white"
+                  placeholder="Lanzamiento septiembre"
+                />
+              </div>
+              <div className="flex flex-col gap-1 sm:col-span-2">
+                <label className="text-xs text-slate-400">utm_campaign *</label>
+                <input
+                  value={campaignForm.utmCampaign}
+                  onChange={(e) => handleCampaignUtmChange(e.target.value)}
+                  className="rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-white"
+                  placeholder="lanzamiento_sep"
+                />
+              </div>
               <div className="flex flex-col gap-1">
-                <label className="text-xs text-slate-400">Plataforma</label>
+                <label className="text-xs text-slate-400">Plataforma *</label>
                 <select
-                  value={builder.platform}
-                  onChange={(e) => setBuilder((prev) => ({ ...prev, platform: e.target.value }))}
+                  value={campaignForm.platform}
+                  onChange={(e) => setCampaignForm((prev) => ({ ...prev, platform: e.target.value }))}
                   className="rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-white"
                 >
                   {["tiktok", "instagram", "youtube", "x", "other"].map((p) => (
                     <option key={p} value={p}>
-                      {p === "x" ? "X" : p.charAt(0).toUpperCase() + p.slice(1)}
+                      {formatCampaignPlatform(p)}
                     </option>
                   ))}
                 </select>
               </div>
               <div className="flex flex-col gap-1">
-                <label className="text-xs text-slate-400">Medium</label>
-                <input
-                  value={builder.utmMedium}
-                  onChange={(e) => setBuilder((prev) => ({ ...prev, utmMedium: e.target.value }))}
+                <label className="text-xs text-slate-400">Estado *</label>
+                <select
+                  value={campaignForm.status}
+                  onChange={(e) => setCampaignForm((prev) => ({ ...prev, status: e.target.value }))}
                   className="rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-white"
-                  placeholder="social"
+                >
+                  {["draft", "active", "paused", "ended"].map((s) => (
+                    <option key={s} value={s}>
+                      {formatStatusLabel(s)}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="flex flex-col gap-1 sm:col-span-2">
+                <label className="text-xs text-slate-400">Objetivo *</label>
+                <input
+                  value={campaignForm.objective}
+                  onChange={(e) => setCampaignForm((prev) => ({ ...prev, objective: e.target.value }))}
+                  className="rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-white"
+                  placeholder="Llevar tráfico al CTA de chat"
                 />
               </div>
-              <div className="flex flex-col gap-1">
-                <label className="text-xs text-slate-400">Campaña *</label>
-                <input
-                  value={builder.utmCampaign}
-                  onChange={(e) => setBuilder((prev) => ({ ...prev, utmCampaign: e.target.value }))}
+              <div className="flex flex-col gap-1 sm:col-span-2">
+                <label className="text-xs text-slate-400">Notas (opcional)</label>
+                <textarea
+                  value={campaignForm.notes}
+                  onChange={(e) => setCampaignForm((prev) => ({ ...prev, notes: e.target.value }))}
                   className="rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-white"
-                  placeholder="launch_week1"
-                />
-              </div>
-              <div className="flex flex-col gap-1">
-                <label className="text-xs text-slate-400">Contenido / Creative ID *</label>
-                <input
-                  value={builder.utmContent}
-                  onChange={(e) => setBuilder((prev) => ({ ...prev, utmContent: e.target.value }))}
-                  className="rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-white"
-                  placeholder="video_023"
-                />
-              </div>
-              <div className="flex flex-col gap-1">
-                <label className="text-xs text-slate-400">Term (opcional)</label>
-                <input
-                  value={builder.utmTerm}
-                  onChange={(e) => setBuilder((prev) => ({ ...prev, utmTerm: e.target.value }))}
-                  className="rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-white"
-                  placeholder="vip"
+                  placeholder="Notas internas para esta campaña"
+                  rows={3}
                 />
               </div>
             </div>
 
-            <div className="rounded-xl border border-slate-800 bg-slate-950/70 p-3 text-sm text-slate-200 break-all flex items-center gap-2">
-              <LinkIconInline />
-              <span>{linkPreview}</span>
-            </div>
+            {campaignFormError && <div className="text-sm text-rose-300">{campaignFormError}</div>}
 
-            <div className="flex items-center justify-between">
-              <button
-                type="button"
-                onClick={() => handleCopy(linkPreview)}
-                className="inline-flex items-center gap-2 rounded-full border border-slate-700 px-3 py-2 text-sm text-slate-100 hover:border-emerald-500"
-              >
-                <ClipboardCopyIconInline />
-                Copiar link
-              </button>
-              <button
-                type="button"
-                disabled={!builderValid || savingLink}
-                onClick={handleSaveLink}
-                className={clsx(
-                  "inline-flex items-center gap-2 rounded-full px-3 py-2 text-sm font-semibold",
-                  builderValid ? "bg-emerald-600 text-white hover:bg-emerald-500" : "bg-slate-700 text-slate-300"
-                )}
-              >
-                {savingLink ? "Guardando..." : "Guardar campaña"}
-              </button>
+            <div className="flex items-center justify-between gap-3">
+              {editingCampaignId ? (
+                <button
+                  type="button"
+                  disabled={campaignDeleting}
+                  onClick={handleDeleteCampaign}
+                  className={clsx(
+                    "rounded-full border px-3 py-2 text-sm font-semibold",
+                    campaignDeleting
+                      ? "border-slate-700 bg-slate-800/60 text-slate-400 cursor-not-allowed"
+                      : "border-rose-500/70 bg-rose-500/15 text-rose-100 hover:bg-rose-500/25"
+                  )}
+                >
+                  {campaignDeleting ? "Eliminando..." : "Eliminar"}
+                </button>
+              ) : (
+                <span />
+              )}
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setCampaignModalOpen(false)}
+                  className="rounded-full border border-slate-700 px-3 py-2 text-sm font-semibold text-slate-100 hover:border-emerald-500"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="button"
+                  disabled={campaignSaving}
+                  onClick={handleSaveCampaign}
+                  className={clsx(
+                    "rounded-full px-3 py-2 text-sm font-semibold",
+                    campaignSaving ? "bg-slate-700 text-slate-300" : "bg-emerald-600 text-white hover:bg-emerald-500"
+                  )}
+                >
+                  {campaignSaving ? "Guardando..." : "Guardar"}
+                </button>
+              </div>
             </div>
           </div>
         </div>
@@ -611,6 +1084,15 @@ function AggregatedTable({ title, subtitle, rows }: { title: string; subtitle: s
   );
 }
 
+function CampaignMetric({ label, value }: { label: string; value: number }) {
+  return (
+    <div className="rounded-lg border border-slate-800 bg-slate-900/80 px-2.5 py-2">
+      <div className="text-[11px] text-slate-400">{label}</div>
+      <div className="text-sm font-semibold text-white">{value}</div>
+    </div>
+  );
+}
+
 function PlusIconInline() {
   return (
     <svg className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
@@ -649,4 +1131,63 @@ function buildLinkFromRow(row: CampaignLink, handle: string) {
   });
   if (row.utmTerm) params.append("utm_term", row.utmTerm);
   return `${base}/link/${row.handle || handle}?${params.toString()}`;
+}
+
+function truncateLink(value: string, max = 40) {
+  if (!value) return "";
+  if (value.length <= max) return value;
+  return `${value.slice(0, max - 1)}…`;
+}
+
+function slugifyCampaign(value: string): string {
+  return value
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "")
+    .slice(0, 80);
+}
+
+function normalizeCampaignKey(value: string): string {
+  return (value || "").trim().toLowerCase();
+}
+
+function normalizePlatformKey(value: string): string {
+  const key = (value || "").trim().toLowerCase();
+  if (key === "ig" || key === "instagram") return "instagram";
+  if (key === "yt" || key === "youtube") return "youtube";
+  if (key === "tiktok") return "tiktok";
+  if (key === "x") return "x";
+  return "other";
+}
+
+function normalizeStatusKey(value: string): string {
+  const key = (value || "").trim().toLowerCase();
+  if (key === "active" || key === "paused" || key === "ended") return key;
+  return "draft";
+}
+
+function formatCampaignPlatform(value: string): string {
+  const key = normalizePlatformKey(value);
+  if (key === "tiktok") return "TikTok";
+  if (key === "instagram") return "Instagram";
+  if (key === "youtube") return "YouTube";
+  if (key === "x") return "X";
+  return "Otro";
+}
+
+function formatStatusLabel(value: string): string {
+  const key = normalizeStatusKey(value);
+  if (key === "active") return "Activa";
+  if (key === "paused") return "Pausada";
+  if (key === "ended") return "Finalizada";
+  return "Borrador";
+}
+
+function statusBadgeClass(value: string): string {
+  const key = normalizeStatusKey(value);
+  if (key === "active") return "border border-emerald-400/70 bg-emerald-500/15 text-emerald-100";
+  if (key === "paused") return "border border-amber-400/70 bg-amber-500/15 text-amber-100";
+  if (key === "ended") return "border border-slate-700 bg-slate-800/70 text-slate-300";
+  return "border border-slate-700 bg-slate-900/70 text-slate-200";
 }
