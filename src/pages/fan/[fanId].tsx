@@ -13,6 +13,7 @@ import {
 import { AccessSummary, getAccessSummary } from "../../lib/access";
 import type { IncludedContent } from "../../lib/fanContent";
 import { useIsomorphicLayoutEffect } from "../../hooks/useIsomorphicLayoutEffect";
+import { getFanDisplayName } from "../../utils/fanDisplayName";
 
 type ApiContentItem = {
   id: string;
@@ -61,6 +62,13 @@ export default function FanChatPage({ includedContent, initialAccessSummary }: F
   const [accessSummary, setAccessSummary] = useState<AccessSummary | null>(initialAccessSummary || null);
   const [accessLoading, setAccessLoading] = useState(false);
   const [included, setIncluded] = useState<IncludedContent[]>(includedContent || []);
+  const [fanProfile, setFanProfile] = useState<{ name?: string | null; displayName?: string | null; creatorLabel?: string | null }>({});
+  const [fanProfileLoaded, setFanProfileLoaded] = useState(false);
+  const [onboardingDismissed, setOnboardingDismissed] = useState(false);
+  const [onboardingName, setOnboardingName] = useState("");
+  const [onboardingMessage, setOnboardingMessage] = useState("");
+  const [onboardingError, setOnboardingError] = useState("");
+  const [onboardingSaving, setOnboardingSaving] = useState(false);
   const messagesContainerRef = useRef<HTMLDivElement | null>(null);
   const [isAtBottom, setIsAtBottom] = useState(true);
   const pollAbortRef = useRef<AbortController | null>(null);
@@ -130,15 +138,35 @@ export default function FanChatPage({ includedContent, initialAccessSummary }: F
     fetchAccessInfo(fanId);
   }, [fanId]);
 
+  useEffect(() => {
+    setFanProfile({});
+    setFanProfileLoaded(false);
+    setOnboardingDismissed(false);
+    setOnboardingName("");
+    setOnboardingMessage("");
+    setOnboardingError("");
+    setOnboardingSaving(false);
+  }, [fanId]);
+
 
   async function fetchAccessInfo(targetFanId: string) {
     try {
       setAccessLoading(true);
-      const res = await fetch("/api/fans");
+      const res = await fetch(`/api/fans?fanId=${encodeURIComponent(targetFanId)}`);
       if (!res.ok) throw new Error("error");
       const data = await res.json();
-      const fans = Array.isArray(data.fans) ? data.fans : [];
+      const fans = Array.isArray(data.items)
+        ? data.items
+        : Array.isArray(data.fans)
+        ? data.fans
+        : [];
       const target = fans.find((fan: any) => fan.id === targetFanId);
+      setFanProfile({
+        name: target?.name ?? "Invitado",
+        displayName: target?.displayName ?? null,
+        creatorLabel: target?.creatorLabel ?? null,
+      });
+      setFanProfileLoaded(true);
       const hasHistory =
         typeof target?.hasAccessHistory === "boolean"
           ? target.hasAccessHistory
@@ -151,6 +179,8 @@ export default function FanChatPage({ includedContent, initialAccessSummary }: F
       });
       setAccessSummary(summary);
     } catch (_err) {
+      setFanProfile({ name: "Invitado", displayName: null, creatorLabel: null });
+      setFanProfileLoaded(true);
       setAccessSummary(
         getAccessSummary({
           membershipStatus: null,
@@ -163,53 +193,112 @@ export default function FanChatPage({ includedContent, initialAccessSummary }: F
     }
   }
 
+  const sendFanMessage = useCallback(
+    async (text: string) => {
+      if (!fanId) return false;
+      const trimmed = text.trim();
+      if (!trimmed) return false;
+
+      try {
+        setSending(true);
+        setSendError("");
+        const tempId = `temp-${Date.now()}`;
+        const temp: ApiMessage = {
+          id: tempId,
+          fanId,
+          from: "fan",
+          text: trimmed,
+          time: new Date().toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit", hour12: false }),
+          status: "sending",
+        };
+        setMessages((prev) => reconcileMessages(prev, [temp], sortMessages, fanId));
+        const res = await fetch("/api/messages", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ fanId, from: "fan", type: "TEXT", text: trimmed }),
+        });
+        if (!res.ok) throw new Error("error");
+        const data = await res.json();
+        const newMessages: ApiMessage[] = Array.isArray(data.messages)
+          ? (data.messages as ApiMessage[])
+          : data.message
+          ? [data.message as ApiMessage]
+          : [];
+        if (newMessages.length) {
+          setMessages((prev) => {
+            const withoutTemp = (prev || []).filter((m) => m.id !== tempId);
+            return reconcileMessages(withoutTemp, newMessages, sortMessages, fanId);
+          });
+        }
+        return true;
+      } catch (_err) {
+        setSendError("Error enviando mensaje");
+        setMessages((prev) =>
+          (prev || []).map((m) => (m.status === "sending" ? { ...m, status: "failed" as const } : m))
+        );
+        return false;
+      } finally {
+        setSending(false);
+      }
+    },
+    [fanId, sortMessages]
+  );
+
   async function handleSendMessage(evt: FormEvent<HTMLFormElement>) {
     evt.preventDefault();
-    if (!fanId) return;
-    const trimmed = draft.trim();
-    if (!trimmed) return;
-
-    try {
-      setSending(true);
-      setSendError("");
-      const tempId = `temp-${Date.now()}`;
-      const temp: ApiMessage = {
-        id: tempId,
-        fanId,
-        from: "fan",
-        text: trimmed,
-        time: new Date().toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit", hour12: false }),
-        status: "sending",
-      };
-      setMessages((prev) => reconcileMessages(prev, [temp], sortMessages, fanId));
-      const res = await fetch("/api/messages", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ fanId, from: "fan", type: "TEXT", text: trimmed }),
-      });
-      if (!res.ok) throw new Error("error");
-      const data = await res.json();
-      const newMessages: ApiMessage[] = Array.isArray(data.messages)
-        ? (data.messages as ApiMessage[])
-        : data.message
-        ? [data.message as ApiMessage]
-        : [];
-      if (newMessages.length) {
-        setMessages((prev) => {
-          const withoutTemp = (prev || []).filter((m) => m.id !== tempId);
-          return reconcileMessages(withoutTemp, newMessages, sortMessages, fanId);
-        });
-      }
-      setDraft("");
-    } catch (_err) {
-      setSendError("Error enviando mensaje");
-      setMessages((prev) =>
-        (prev || []).map((m) => (m.status === "sending" ? { ...m, status: "failed" as const } : m))
-      );
-    } finally {
-      setSending(false);
-    }
+    if (isOnboardingVisible) return;
+    const ok = await sendFanMessage(draft);
+    if (ok) setDraft("");
   }
+
+  const isOnboardingVisible =
+    fanProfileLoaded &&
+    !onboardingDismissed &&
+    !loading &&
+    messages.length === 0 &&
+    getFanDisplayName(fanProfile) === "Invitado";
+  const isComposerDisabled = sending || isOnboardingVisible || onboardingSaving;
+
+  const handleOnboardingSkip = () => {
+    setOnboardingDismissed(true);
+    setOnboardingError("");
+  };
+
+  const handleOnboardingEnter = async () => {
+    if (!fanId) return;
+    setOnboardingSaving(true);
+    setOnboardingError("");
+    try {
+      const name = onboardingName.trim();
+      const firstMessage = onboardingMessage.trim();
+      if (name) {
+        const res = await fetch(`/api/fans/${fanId}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ displayName: name }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (res.ok && data?.fan) {
+          setFanProfile({
+            name: data.fan.name ?? fanProfile.name ?? "Invitado",
+            displayName: data.fan.displayName ?? name,
+            creatorLabel: data.fan.creatorLabel ?? null,
+          });
+        }
+      }
+      if (firstMessage) {
+        await sendFanMessage(firstMessage);
+      }
+      setOnboardingDismissed(true);
+      setOnboardingName("");
+      setOnboardingMessage("");
+    } catch (_err) {
+      setOnboardingError("No se pudo completar el registro.");
+      setOnboardingDismissed(true);
+    } finally {
+      setOnboardingSaving(false);
+    }
+  };
 
   const headerSubtitle = useMemo(
     () => `Chat privado con ${creatorName}`,
@@ -327,32 +416,85 @@ export default function FanChatPage({ includedContent, initialAccessSummary }: F
           </div>
         </div>
 
-        <form
-          onSubmit={handleSendMessage}
-          className="flex items-center bg-[#202c33] w-full h-auto py-3 px-4 text-[#8696a0] gap-3 shrink-0"
-        >
-          <div className="flex flex-1 h-12">
-            <input
-              type="text"
-              className="bg-[#2a3942] rounded-lg w-full px-3 py-3 text-white"
-              placeholder="Escribe un mensaje..."
-              onChange={(evt) => setDraft(evt.target.value)}
-              value={draft}
-              disabled={sending}
-            />
+        {isOnboardingVisible && (
+          <div className="px-4 pb-3">
+            <div className="rounded-xl border border-slate-700 bg-[#162028] px-4 py-3 space-y-3">
+              <div>
+                <p className="text-sm font-semibold text-slate-100">Una cosa rápida</p>
+                <p className="text-xs text-slate-300">Así el creador puede dirigirse a ti por tu nombre.</p>
+              </div>
+              <label className="flex flex-col gap-1 text-sm text-slate-200">
+                <span>¿Cómo te llamas?</span>
+                <input
+                  className="w-full rounded-lg bg-slate-900/70 border border-slate-700 px-3 py-2 text-sm text-white focus:border-emerald-400"
+                  value={onboardingName}
+                  onChange={(evt) => setOnboardingName(evt.target.value)}
+                  placeholder="Tu nombre"
+                  disabled={onboardingSaving}
+                />
+              </label>
+              <label className="flex flex-col gap-1 text-sm text-slate-200">
+                <span>Tu primer mensaje</span>
+                <textarea
+                  className="w-full rounded-lg bg-slate-900/70 border border-slate-700 px-3 py-2 text-sm text-white focus:border-emerald-400 h-20"
+                  value={onboardingMessage}
+                  onChange={(evt) => setOnboardingMessage(evt.target.value)}
+                  placeholder="Ej: Hola, quería preguntarte..."
+                  disabled={onboardingSaving}
+                />
+              </label>
+              {onboardingError && <p className="text-xs text-rose-300">{onboardingError}</p>}
+              <div className="flex items-center justify-end gap-2">
+                <button
+                  type="button"
+                  className="rounded-lg border border-slate-600 bg-slate-800/80 px-3 py-2 text-xs font-semibold text-slate-100 hover:bg-slate-700 disabled:opacity-60"
+                  onClick={handleOnboardingSkip}
+                  disabled={onboardingSaving}
+                >
+                  Omitir
+                </button>
+                <button
+                  type="button"
+                  className="rounded-lg border border-emerald-400/70 bg-emerald-500/15 px-3 py-2 text-xs font-semibold text-emerald-100 hover:bg-emerald-500/25 disabled:opacity-60"
+                  onClick={() => void handleOnboardingEnter()}
+                  disabled={onboardingSaving}
+                >
+                  {onboardingSaving ? "Entrando..." : "Entrar"}
+                </button>
+              </div>
+            </div>
           </div>
-          <button
-            type="submit"
-            disabled={sending}
-            className="flex justify-center items-center h-12 px-3 rounded-lg bg-emerald-600 text-white text-sm font-semibold hover:bg-emerald-500 disabled:opacity-60"
-          >
-            Enviar
-          </button>
-        </form>
-        {sendError && (
-          <div className="px-4 pb-3 text-sm text-rose-300">
-            {sendError}
-          </div>
+        )}
+        {!isOnboardingVisible && (
+          <>
+            <form
+              onSubmit={handleSendMessage}
+              className="flex items-center bg-[#202c33] w-full h-auto py-3 px-4 text-[#8696a0] gap-3 shrink-0"
+            >
+              <div className="flex flex-1 h-12">
+                <input
+                  type="text"
+                  className="bg-[#2a3942] rounded-lg w-full px-3 py-3 text-white"
+                  placeholder="Escribe un mensaje..."
+                  onChange={(evt) => setDraft(evt.target.value)}
+                  value={draft}
+                  disabled={isComposerDisabled}
+                />
+              </div>
+              <button
+                type="submit"
+                disabled={isComposerDisabled}
+                className="flex justify-center items-center h-12 px-3 rounded-lg bg-emerald-600 text-white text-sm font-semibold hover:bg-emerald-500 disabled:opacity-60"
+              >
+                Enviar
+              </button>
+            </form>
+            {sendError && (
+              <div className="px-4 pb-3 text-sm text-rose-300">
+                {sendError}
+              </div>
+            )}
+          </>
         )}
       </main>
     </div>

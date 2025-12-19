@@ -2244,6 +2244,7 @@ useEffect(() => {
   };
 
   const handleOpenEditName = () => {
+    setIsActionsMenuOpen(false);
     setShowQuickSheet(false);
     setEditNameValue(conversation.creatorLabel ?? conversation.displayName ?? "");
     setEditNameError(null);
@@ -2597,6 +2598,13 @@ useEffect(() => {
                 </button>
                 {isActionsMenuOpen && (
                   <div className="absolute right-0 mt-2 w-48 rounded-xl border border-slate-700 bg-slate-900/95 shadow-xl z-30">
+                    <button
+                      type="button"
+                      className="flex w-full items-center px-3 py-2 text-sm text-slate-100 hover:bg-slate-800 transition"
+                      onClick={handleOpenEditName}
+                    >
+                      Editar nombre
+                    </button>
                     <button
                       type="button"
                       className="flex w-full items-center px-3 py-2 text-sm text-slate-100 hover:bg-slate-800 transition"
