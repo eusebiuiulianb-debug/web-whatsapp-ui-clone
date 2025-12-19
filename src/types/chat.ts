@@ -18,6 +18,8 @@ export interface Pack {
 export interface Fan {
   id: string;
   name: string;
+  displayName?: string | null;
+  creatorLabel?: string | null;
   avatar?: string;
   preview: string;
   time: string;

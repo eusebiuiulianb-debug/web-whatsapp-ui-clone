@@ -5,29 +5,54 @@ import { useCreatorConfig } from "../../context/CreatorConfigContext";
 import { normalizeImageSrc } from "../../utils/normalizeImageSrc";
 
 const MAX_LINKS = 4;
+const FAQ_SIZE = 3;
+
+type CopyTarget = "TAGLINE" | "CTA" | "DESCRIPTION" | "FAQ";
+
+const COPY_TARGET_OPTIONS: Array<{ value: CopyTarget; label: string }> = [
+  { value: "TAGLINE", label: "Tagline" },
+  { value: "CTA", label: "CTA botón" },
+  { value: "DESCRIPTION", label: "Descripción" },
+  { value: "FAQ", label: "FAQ x3" },
+];
 
 const DEFAULT_CONFIG: BioLinkConfig = {
   enabled: false,
   title: "Mi bio-link",
   tagline: "Charlas privadas y contenido exclusivo en NOVSY.",
+  description: "",
   avatarUrl: "",
   primaryCtaLabel: "Entrar a mi chat privado",
-  primaryCtaUrl: "/c/creator",
+  primaryCtaUrl: "/go/creator",
   secondaryLinks: [],
+  faq: [],
   handle: "creator",
 };
 
 export function BioLinkEditor({ handle, onOpenSettings }: { handle: string; onOpenSettings?: () => void }) {
-  const { config: creatorConfig } = useCreatorConfig();
+  const { config: creatorConfig, setConfig: setCreatorConfig } = useCreatorConfig();
   const [config, setConfig] = useState<BioLinkConfig>(DEFAULT_CONFIG);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [ctaError, setCtaError] = useState<string | null>(null);
   const [linkErrors, setLinkErrors] = useState<Record<string, string>>({});
-  const [copyState, setCopyState] = useState<"idle" | "copied" | "error">("idle");
-  const defaultCtaUrl = `/c/${handle}`;
+  const [copyState, setCopyState] = useState<{ link: "idle" | "copied" | "error"; direct: "idle" | "copied" | "error" }>({
+    link: "idle",
+    direct: "idle",
+  });
+  const [assistantTarget, setAssistantTarget] = useState<CopyTarget>("TAGLINE");
+  const [assistantTone, setAssistantTone] = useState("");
+  const [assistantOptions, setAssistantOptions] = useState<string[]>([]);
+  const [assistantLoading, setAssistantLoading] = useState(false);
+  const [assistantError, setAssistantError] = useState<string | null>(null);
+  const defaultCtaUrl = `/go/${handle}`;
+  const legacyChatUrl = `/c/${handle}`;
   const [ctaMode, setCtaMode] = useState<"chat" | "custom">("chat");
   const previewConfig = useMemo(() => ({ ...config, avatarUrl: normalizeImageSrc(config.avatarUrl || "") }), [config]);
+  const faqEntries = useMemo(() => {
+    const entries = Array.isArray(config.faq) ? config.faq : [];
+    return Array.from({ length: FAQ_SIZE }, (_, idx) => entries[idx] || "");
+  }, [config.faq]);
 
   const loadConfig = useCallback(async () => {
     try {
@@ -35,13 +60,22 @@ export function BioLinkEditor({ handle, onOpenSettings }: { handle: string; onOp
       const res = await fetch("/api/creator/bio-link");
       const data = await res.json();
       if (data?.config) {
+        const nextConfig = data.config as BioLinkConfig;
         setConfig((prev) => ({
           ...prev,
-          ...(data.config as BioLinkConfig),
-          title: creatorConfig.creatorName || (data.config as BioLinkConfig).title,
-          tagline: creatorConfig.creatorSubtitle || (data.config as BioLinkConfig).tagline,
-          avatarUrl: normalizeImageSrc(creatorConfig.avatarUrl || (data.config as BioLinkConfig).avatarUrl),
-          primaryCtaUrl: (data.config as BioLinkConfig).primaryCtaUrl || defaultCtaUrl,
+          ...nextConfig,
+          title: creatorConfig.creatorName || nextConfig.title,
+          tagline:
+            typeof nextConfig.tagline === "string"
+              ? nextConfig.tagline
+              : creatorConfig.creatorSubtitle || prev.tagline,
+          avatarUrl: normalizeImageSrc(creatorConfig.avatarUrl || nextConfig.avatarUrl),
+          primaryCtaUrl: nextConfig.primaryCtaUrl || defaultCtaUrl,
+          description:
+            typeof nextConfig.description === "string"
+              ? nextConfig.description
+              : prev.description,
+          faq: Array.isArray(nextConfig.faq) ? nextConfig.faq : prev.faq,
           handle,
         }));
       }
@@ -60,41 +94,51 @@ export function BioLinkEditor({ handle, onOpenSettings }: { handle: string; onOp
     setConfig((prev) => ({
       ...prev,
       title: creatorConfig.creatorName || prev.title,
-      tagline: creatorConfig.creatorSubtitle || prev.tagline,
       avatarUrl: creatorConfig.avatarUrl || prev.avatarUrl,
     }));
-  }, [creatorConfig.avatarUrl, creatorConfig.creatorName, creatorConfig.creatorSubtitle]);
+  }, [creatorConfig.avatarUrl, creatorConfig.creatorName]);
 
   useEffect(() => {
-    setCtaMode(deriveCtaMode(config.primaryCtaUrl, defaultCtaUrl));
-  }, [config.primaryCtaUrl, defaultCtaUrl]);
+    setCtaMode(deriveCtaMode(config.primaryCtaUrl, defaultCtaUrl, legacyChatUrl));
+  }, [config.primaryCtaUrl, defaultCtaUrl, legacyChatUrl]);
 
-  async function handleSave() {
+  useEffect(() => {
+    setAssistantOptions([]);
+    setAssistantError(null);
+  }, [assistantTarget]);
+
+  async function persistBioLink(nextConfig: BioLinkConfig) {
     const targetCta =
       ctaMode === "chat"
         ? defaultCtaUrl
-        : typeof config.primaryCtaUrl === "string" && config.primaryCtaUrl.trim().length > 0
-        ? config.primaryCtaUrl.trim()
+        : typeof nextConfig.primaryCtaUrl === "string" && nextConfig.primaryCtaUrl.trim().length > 0
+        ? nextConfig.primaryCtaUrl.trim()
         : "";
     const invalidCta = ctaMode === "custom" && isForbiddenCtaDestination(targetCta, handle);
     if (invalidCta) {
       setCtaError("Solo se permite https:// o rutas públicas /c/tu-handle.");
-      return;
+      return false;
     }
     if (ctaMode === "custom" && !targetCta) {
       setCtaError("Introduce una URL válida para el botón.");
-      return;
+      return false;
     }
-    if (!validateSecondaryLinks()) return;
+    if (!validateSecondaryLinks(nextConfig.secondaryLinks)) return false;
     setCtaError(null);
     try {
       setSaving(true);
-      const normalizedAvatar = normalizeImageSrc(config.avatarUrl || "");
+      const normalizedAvatar = normalizeImageSrc(nextConfig.avatarUrl || "");
+      const sanitizedFaq = Array.isArray(nextConfig.faq)
+        ? nextConfig.faq.map((item) => item.trim()).filter((item) => item.length > 0)
+        : [];
       const payload: Partial<BioLinkConfig> = {
-        enabled: config.enabled,
-        primaryCtaLabel: config.primaryCtaLabel,
+        enabled: nextConfig.enabled,
+        tagline: nextConfig.tagline.trim(),
+        description: typeof nextConfig.description === "string" ? nextConfig.description.trim() : "",
+        faq: sanitizedFaq,
+        primaryCtaLabel: nextConfig.primaryCtaLabel,
         primaryCtaUrl: targetCta || defaultCtaUrl,
-        secondaryLinks: config.secondaryLinks,
+        secondaryLinks: nextConfig.secondaryLinks,
         avatarUrl: normalizedAvatar,
       };
       const res = await fetch("/api/creator/bio-link", {
@@ -107,26 +151,101 @@ export function BioLinkEditor({ handle, onOpenSettings }: { handle: string; onOp
         if (data?.error === "SECONDARY_LINK_INVALID") {
           setLinkErrors((prev) => ({ ...prev, general: "Revisa los enlaces secundarios (deben ser http(s))." }));
         }
-        return;
+        return false;
       }
       const data = await res.json();
       if (data?.config) {
+        const nextConfig = data.config as BioLinkConfig;
         setConfig((prev) => ({
           ...prev,
-          ...(data.config as BioLinkConfig),
-          title: creatorConfig.creatorName || (data.config as BioLinkConfig).title,
-          tagline: creatorConfig.creatorSubtitle || (data.config as BioLinkConfig).tagline,
-          avatarUrl: normalizeImageSrc(creatorConfig.avatarUrl || (data.config as BioLinkConfig).avatarUrl),
+          ...nextConfig,
+          title: creatorConfig.creatorName || nextConfig.title,
+          tagline:
+            typeof nextConfig.tagline === "string"
+              ? nextConfig.tagline
+              : creatorConfig.creatorSubtitle || prev.tagline,
+          avatarUrl: normalizeImageSrc(creatorConfig.avatarUrl || nextConfig.avatarUrl),
+          description:
+            typeof nextConfig.description === "string"
+              ? nextConfig.description
+              : prev.description,
+          faq: Array.isArray(nextConfig.faq) ? nextConfig.faq : prev.faq,
         }));
       }
+      setCreatorConfig({ ...creatorConfig, avatarUrl: normalizedAvatar });
+      return true;
     } catch (err) {
       console.error(err);
+      return false;
     } finally {
       setSaving(false);
     }
   }
 
+  async function handleSave() {
+    await persistBioLink(config);
+  }
+
+  async function handleSuggestCopy() {
+    try {
+      setAssistantLoading(true);
+      setAssistantError(null);
+      setAssistantOptions([]);
+      const res = await fetch("/api/creator/bio-link-copy", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          target: assistantTarget,
+          tone: assistantTone.trim() || undefined,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        if (res.status === 429) {
+          setAssistantError("Espera unos segundos antes de pedir nuevas sugerencias.");
+          return;
+        }
+        setAssistantError(data?.error || "No se pudo generar sugerencias.");
+        return;
+      }
+      const options = Array.isArray(data?.options)
+        ? data.options.filter((option: unknown) => typeof option === "string" && option.trim().length > 0)
+        : [];
+      if (options.length === 0) {
+        setAssistantError("Respuesta inválida del asistente.");
+        return;
+      }
+      setAssistantOptions(options.slice(0, 3));
+    } catch (err) {
+      console.error(err);
+      setAssistantError("No se pudo generar sugerencias.");
+    } finally {
+      setAssistantLoading(false);
+    }
+  }
+
+  function applyCopyOption(option: string) {
+    const trimmed = option.trim();
+    if (!trimmed) return;
+    if (assistantTarget === "TAGLINE") {
+      setConfig((prev) => ({ ...prev, tagline: trimmed }));
+      return;
+    }
+    if (assistantTarget === "CTA") {
+      setConfig((prev) => ({ ...prev, primaryCtaLabel: trimmed }));
+      return;
+    }
+    if (assistantTarget === "DESCRIPTION") {
+      setConfig((prev) => ({ ...prev, description: trimmed }));
+      return;
+    }
+    if (assistantTarget === "FAQ") {
+      setConfig((prev) => ({ ...prev, faq: parseFaqOption(trimmed) }));
+    }
+  }
+
   const linkUrl = typeof window !== "undefined" ? `${window.location.origin}/link/${handle}` : `/link/${handle}`;
+  const directChatUrl = typeof window !== "undefined" ? `${window.location.origin}/go/${handle}` : `/go/${handle}`;
 
   return (
     <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
@@ -158,8 +277,14 @@ export function BioLinkEditor({ handle, onOpenSettings }: { handle: string; onOp
           <LabeledInput
             label="Tagline"
             value={config.tagline}
-            onChange={() => {}}
-            readOnly
+            onChange={(val) => setConfig((prev) => ({ ...prev, tagline: val }))}
+            helper="Texto breve que aparece bajo tu nombre."
+          />
+          <LabeledTextArea
+            label="Descripción corta"
+            value={config.description || ""}
+            onChange={(val) => setConfig((prev) => ({ ...prev, description: val }))}
+            helper="Opcional. Resume en una o dos frases."
           />
           <LabeledInput
             label="Avatar (URL)"
@@ -168,7 +293,7 @@ export function BioLinkEditor({ handle, onOpenSettings }: { handle: string; onOp
             helper="Si no empieza por http(s) o /, añadiremos / al guardar."
           />
           <div className="text-[12px] text-slate-400">
-            Usa el modal de ajustes para cambiar tu identidad.
+            El título se gestiona en ajustes. Tagline y descripción se pueden editar aquí.
             {onOpenSettings && (
               <button
                 type="button"
@@ -179,6 +304,78 @@ export function BioLinkEditor({ handle, onOpenSettings }: { handle: string; onOp
               </button>
             )}
           </div>
+        </div>
+        <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-3 space-y-3">
+          <div className="flex items-center justify-between">
+            <p className="text-sm font-semibold">Asistente de copy</p>
+            <span className="text-[11px] text-slate-400">Texto breve</span>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+            <label className="flex flex-col gap-1 text-xs text-slate-300">
+              <span>Qué generar</span>
+              <select
+                className="rounded-lg bg-slate-800/70 border border-slate-700 px-3 py-2 text-sm text-white focus:border-emerald-400"
+                value={assistantTarget}
+                onChange={(e) => setAssistantTarget(e.target.value as CopyTarget)}
+              >
+                {COPY_TARGET_OPTIONS.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="flex flex-col gap-1 text-xs text-slate-300">
+              <span>Estilo/tono (opcional)</span>
+              <input
+                className="rounded-lg bg-slate-800/70 border border-slate-700 px-3 py-2 text-sm text-white focus:border-emerald-400"
+                value={assistantTone}
+                onChange={(e) => setAssistantTone(e.target.value)}
+                placeholder="Directo, cálido, premium..."
+              />
+            </label>
+            <div className="flex items-end">
+              <button
+                type="button"
+                className="w-full rounded-lg bg-slate-800 px-3 py-2 text-sm font-semibold text-white hover:bg-slate-700 disabled:opacity-60"
+                onClick={() => void handleSuggestCopy()}
+                disabled={assistantLoading}
+              >
+                {assistantLoading ? "Sugiriendo..." : "Sugerir"}
+              </button>
+            </div>
+          </div>
+          {assistantError && <p className="text-xs text-rose-300">{assistantError}</p>}
+          {assistantOptions.length > 0 && (
+            <div className="space-y-2">
+              {assistantOptions.map((option, index) => {
+                const faqItems = parseFaqOption(option);
+                return (
+                  <div key={`${assistantTarget}-${index}`} className="rounded-lg border border-slate-800 bg-slate-900 p-3 space-y-2">
+                    {assistantTarget === "FAQ" && faqItems.length > 0 ? (
+                      <ul className="space-y-1 text-xs text-slate-200">
+                        {faqItems.map((item, idx) => (
+                          <li key={`${index}-${idx}`} className="flex gap-2">
+                            <span className="text-amber-200">-</span>
+                            <span>{item}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    ) : (
+                      <p className="text-sm text-slate-100">{option}</p>
+                    )}
+                    <button
+                      type="button"
+                      className="inline-flex items-center justify-center rounded-lg border border-emerald-400/70 bg-emerald-500/10 px-3 py-1.5 text-xs font-semibold text-emerald-100 hover:bg-emerald-500/20"
+                      onClick={() => applyCopyOption(option)}
+                    >
+                      Usar
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </div>
         <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-3 space-y-2">
           <p className="text-sm font-semibold">Botón principal</p>
@@ -223,6 +420,20 @@ export function BioLinkEditor({ handle, onOpenSettings }: { handle: string; onOp
             <p className="text-xs text-slate-400">Abrirá tu chat privado en NOVSY ({defaultCtaUrl}).</p>
           )}
           {ctaError && <p className="text-xs text-rose-300">{ctaError}</p>}
+        </div>
+
+        <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-3 space-y-2">
+          <p className="text-sm font-semibold">FAQ (3 respuestas)</p>
+          <div className="space-y-2">
+            {faqEntries.map((entry, index) => (
+              <LabeledInput
+                key={`faq-${index}`}
+                label={`Respuesta ${index + 1}`}
+                value={entry}
+                onChange={(val) => updateFaq(index, val)}
+              />
+            ))}
+          </div>
         </div>
 
         <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-3 space-y-2">
@@ -301,24 +512,45 @@ export function BioLinkEditor({ handle, onOpenSettings }: { handle: string; onOp
           </div>
         </div>
 
-      <div className="space-y-2">
-        <p className="text-sm text-slate-300">URL del bio-link</p>
-        <div className="flex gap-2">
-          <input
-            readOnly
-            value={linkUrl}
-            className="w-full rounded-lg bg-slate-800/70 border border-slate-700 px-3 py-2 text-sm text-white"
-          />
-          <button
-            type="button"
-            className="rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-sm text-white hover:border-emerald-400"
-            onClick={copyLink}
-          >
-            Copiar
-          </button>
+      <div className="space-y-4">
+        <div className="space-y-2">
+          <p className="text-sm text-slate-300">URL del bio-link</p>
+          <div className="flex gap-2">
+            <input
+              readOnly
+              value={linkUrl}
+              className="w-full rounded-lg bg-slate-800/70 border border-slate-700 px-3 py-2 text-sm text-white"
+            />
+            <button
+              type="button"
+              className="rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-sm text-white hover:border-emerald-400"
+              onClick={() => void copyToClipboard(linkUrl, "link")}
+            >
+              Copiar
+            </button>
+          </div>
+          {copyState.link === "copied" && <p className="text-xs text-emerald-200">Copiado</p>}
+          {copyState.link === "error" && <p className="text-xs text-rose-300">No se pudo copiar</p>}
         </div>
-        {copyState === "copied" && <p className="text-xs text-emerald-200">Copiado</p>}
-        {copyState === "error" && <p className="text-xs text-rose-300">No se pudo copiar</p>}
+        <div className="space-y-2">
+          <p className="text-sm text-slate-300">URL chat directo</p>
+          <div className="flex gap-2">
+            <input
+              readOnly
+              value={directChatUrl}
+              className="w-full rounded-lg bg-slate-800/70 border border-slate-700 px-3 py-2 text-sm text-white"
+            />
+            <button
+              type="button"
+              className="rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-sm text-white hover:border-emerald-400"
+              onClick={() => void copyToClipboard(directChatUrl, "direct")}
+            >
+              Copiar
+            </button>
+          </div>
+          {copyState.direct === "copied" && <p className="text-xs text-emerald-200">Copiado</p>}
+          {copyState.direct === "error" && <p className="text-xs text-rose-300">No se pudo copiar</p>}
+        </div>
         {linkErrors.general && <p className="text-xs text-rose-300">{linkErrors.general}</p>}
       </div>
 
@@ -353,9 +585,18 @@ export function BioLinkEditor({ handle, onOpenSettings }: { handle: string; onOp
     });
   }
 
-  function validateSecondaryLinks() {
+  function updateFaq(index: number, value: string) {
+    setConfig((prev) => {
+      const existing = Array.isArray(prev.faq) ? prev.faq : [];
+      const next = Array.from({ length: FAQ_SIZE }, (_, idx) => existing[idx] || "");
+      next[index] = value;
+      return { ...prev, faq: next };
+    });
+  }
+
+  function validateSecondaryLinks(linksToValidate = config.secondaryLinks) {
     const errors: Record<number, string> = {};
-    config.secondaryLinks.forEach((link, idx) => {
+    linksToValidate.forEach((link, idx) => {
       const url = (link.url || "").trim();
       if (url && !isHttpUrl(url)) {
         errors[idx] = "Usa una URL http(s)://";
@@ -365,14 +606,14 @@ export function BioLinkEditor({ handle, onOpenSettings }: { handle: string; onOp
     return Object.keys(errors).length === 0;
   }
 
-  async function copyLink() {
+  async function copyToClipboard(value: string, key: "link" | "direct") {
     try {
-      await navigator.clipboard.writeText(linkUrl);
-      setCopyState("copied");
+      await navigator.clipboard.writeText(value);
+      setCopyState((prev) => ({ ...prev, [key]: "copied" }));
     } catch (_err) {
-      setCopyState("error");
+      setCopyState((prev) => ({ ...prev, [key]: "error" }));
     } finally {
-      setTimeout(() => setCopyState("idle"), 1500);
+      setTimeout(() => setCopyState((prev) => ({ ...prev, [key]: "idle" })), 1500);
     }
   }
 }
@@ -408,6 +649,30 @@ function LabeledInput({
   );
 }
 
+function LabeledTextArea({
+  label,
+  value,
+  onChange,
+  helper,
+}: {
+  label: string;
+  value: string;
+  onChange: (v: string) => void;
+  helper?: string;
+}) {
+  return (
+    <label className="flex flex-col gap-1 text-sm text-slate-300">
+      <span>{label}</span>
+      <textarea
+        className="w-full rounded-lg bg-slate-800/70 border border-slate-700 px-3 py-2 text-sm text-white focus:border-emerald-400 h-20"
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+      />
+      {helper && <span className="text-[11px] text-slate-500">{helper}</span>}
+    </label>
+  );
+}
+
 function isForbiddenCtaDestination(url: string, handle: string) {
   const trimmed = (url || "").trim().toLowerCase();
   if (!trimmed) return true;
@@ -435,13 +700,39 @@ function isForbiddenCtaDestination(url: string, handle: string) {
   return false;
 }
 
-function deriveCtaMode(primaryCtaUrl: string, defaultCtaUrl: string): "chat" | "custom" {
+function deriveCtaMode(primaryCtaUrl: string, defaultCtaUrl: string, legacyCtaUrl?: string): "chat" | "custom" {
   const normalized = (primaryCtaUrl || "").trim();
   const defaultNormalized = (defaultCtaUrl || "").trim();
-  if (!normalized || normalized === defaultNormalized) return "chat";
+  const legacyNormalized = (legacyCtaUrl || "").trim();
+  if (!normalized || normalized === defaultNormalized || (legacyNormalized && normalized === legacyNormalized)) return "chat";
   return "custom";
 }
 
 function isHttpUrl(url: string) {
   return /^https?:\/\//i.test((url || "").trim());
+}
+
+function parseFaqOption(value: string): string[] {
+  const trimmed = value.trim();
+  if (!trimmed) return [];
+
+  let parts: string[] = [];
+  if (trimmed.includes("|")) {
+    parts = trimmed.split("|");
+  } else if (trimmed.includes("\n")) {
+    parts = trimmed.split(/\r?\n/);
+  } else if (trimmed.includes(";")) {
+    parts = trimmed.split(";");
+  } else {
+    const numbered = trimmed.split(/\s*\d+[.)]\s*/).map((item) => item.trim()).filter(Boolean);
+    parts = numbered.length >= 3 ? numbered : [trimmed];
+  }
+
+  const cleaned = parts
+    .map((item) => item.replace(/^\s*[-*]\s*/, "").trim())
+    .filter(Boolean);
+
+  if (cleaned.length >= FAQ_SIZE) return cleaned.slice(0, FAQ_SIZE);
+  if (cleaned.length === 0) return [];
+  return [...cleaned, ...Array(FAQ_SIZE - cleaned.length).fill("")];
 }

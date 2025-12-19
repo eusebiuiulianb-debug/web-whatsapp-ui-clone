@@ -70,11 +70,13 @@ export const getServerSideProps: GetServerSideProps<Props> = async (ctx) => {
   const config: BioLinkConfig = {
     enabled: true,
     title: match.name || match.bioLinkTitle || "Creador",
-    tagline: match.subtitle || match.bioLinkTagline || "",
+    tagline: match.bioLinkTagline ?? match.subtitle ?? "",
+    description: match.bioLinkDescription ?? "",
     avatarUrl: normalizeImageSrc(match.bioLinkAvatarUrl || ""),
     primaryCtaLabel: match.bioLinkPrimaryCtaLabel || "Entrar a mi chat privado",
-    primaryCtaUrl: match.bioLinkPrimaryCtaUrl || `/c/${handle}`,
+    primaryCtaUrl: match.bioLinkPrimaryCtaUrl || `/go/${handle}`,
     secondaryLinks: parseSecondaryLinks(match.bioLinkSecondaryLinks),
+    faq: parseStringArray(match.bioLinkFaq),
     handle,
     creatorId: match.id,
   };
@@ -88,6 +90,23 @@ function parseSecondaryLinks(raw: any): BioLinkSecondaryLink[] {
     try {
       const parsed = JSON.parse(raw);
       if (Array.isArray(parsed)) return parsed as BioLinkSecondaryLink[];
+    } catch (_err) {
+      return [];
+    }
+  }
+  return [];
+}
+
+function parseStringArray(raw: any): string[] {
+  if (Array.isArray(raw)) {
+    return raw.filter((item) => typeof item === "string").map((item) => item.trim()).filter(Boolean);
+  }
+  if (typeof raw === "string") {
+    try {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) {
+        return parsed.filter((item) => typeof item === "string").map((item) => item.trim()).filter(Boolean);
+      }
     } catch (_err) {
       return [];
     }

@@ -8,11 +8,13 @@ export type BioLinkConfig = {
   enabled: boolean;
   title: string;
   tagline: string;
+  description?: string;
   avatarUrl?: string | null;
   primaryCtaLabel: string;
   primaryCtaUrl: string;
   secondaryLinks: BioLinkSecondaryLink[];
   handle: string;
   chips?: string[];
+  faq?: string[];
   creatorId?: string;
 };

@@ -64,7 +64,17 @@ export const getServerSideProps: GetServerSideProps<Props> = async (ctx) => {
     { id: "special", name: "Pack especial", price: "49 €" },
   ];
 
-  const copy = mapToPublicProfileCopy(PROFILE_COPY["fanclub"], "fanclub", { packs });
+  const baseCopy = mapToPublicProfileCopy(PROFILE_COPY["fanclub"], "fanclub", { packs });
+  const profile = await prisma.creatorProfile.findUnique({ where: { creatorId: match.id } });
+  const coverUrl =
+    profile?.coverUrl && profile.coverUrl.trim().length > 0 ? normalizeImageSrc(profile.coverUrl) : null;
+  const copy: PublicProfileCopy = {
+    ...baseCopy,
+    hero: {
+      ...baseCopy.hero,
+      coverImageUrl: coverUrl || baseCopy.hero.coverImageUrl || null,
+    },
+  };
   const avatarUrl = normalizeImageSrc(match.avatarUrl || match.bioLinkAvatarUrl || "");
 
   return {

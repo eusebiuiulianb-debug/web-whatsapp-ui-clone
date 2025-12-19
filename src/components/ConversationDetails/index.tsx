@@ -1,4 +1,4 @@
-import { KeyboardEvent, MouseEvent, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { KeyboardEvent, MouseEvent, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { format, formatDistanceToNow } from "date-fns";
 import { es } from "date-fns/locale";
 import { ConversationContext } from "../../context/ConversationContext";
@@ -11,6 +11,7 @@ import { getAccessLabel, getAccessState, getAccessSummary } from "../../lib/acce
 import { FollowUpTag, getFollowUpTag, getUrgencyLevel } from "../../utils/followUp";
 import { PACKS } from "../../config/packs";
 import { getRecommendedFan } from "../../utils/recommendedFan";
+import { getFanDisplayName } from "../../utils/fanDisplayName";
 import { ContentItem, getContentTypeLabel, getContentVisibilityLabel } from "../../types/content";
 import { getTimeOfDayTag } from "../../utils/contentTags";
 import { HIGH_PRIORITY_LIMIT } from "../../config/customers";
@@ -31,6 +32,7 @@ import { track } from "../../lib/analyticsClient";
 import { ANALYTICS_EVENTS } from "../../lib/analyticsEvents";
 import clsx from "clsx";
 import { useRouter } from "next/router";
+import { useIsomorphicLayoutEffect } from "../../hooks/useIsomorphicLayoutEffect";
 
 type ManagerQuickIntent = ManagerObjective;
 
@@ -123,6 +125,10 @@ export default function ConversationDetails({ onBackToBoard }: ConversationDetai
   const [ nextActionDate, setNextActionDate ] = useState("");
   const [ nextActionTime, setNextActionTime ] = useState("");
   const [ recommendedFan, setRecommendedFan ] = useState<ConversationListData | null>(null);
+  const [ isEditNameOpen, setIsEditNameOpen ] = useState(false);
+  const [ editNameValue, setEditNameValue ] = useState("");
+  const [ editNameError, setEditNameError ] = useState<string | null>(null);
+  const [ editNameSaving, setEditNameSaving ] = useState(false);
   const [ showContentModal, setShowContentModal ] = useState(false);
   const [ contentModalMode, setContentModalMode ] = useState<"packs" | "extras">("packs");
   const [ extraTierFilter, setExtraTierFilter ] = useState<"T0" | "T1" | "T2" | "T3" | "T4" | null>(null);
@@ -303,7 +309,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
     adjustMessageInputHeight();
   }, [messageSend]);
 
-  useLayoutEffect(() => {
+  useIsomorphicLayoutEffect(() => {
     const el = messagesContainerRef.current;
     if (!el) return;
     const onScroll = () => {
@@ -316,12 +322,12 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
     return () => el.removeEventListener("scroll", onScroll);
   }, []);
 
-  useLayoutEffect(() => {
+  useIsomorphicLayoutEffect(() => {
     setIsAtBottom(true);
     scrollToBottom("auto");
   }, [conversation.id]);
 
-  useLayoutEffect(() => {
+  useIsomorphicLayoutEffect(() => {
     if (!isAtBottom) return;
     if (!messagesLength) return;
     scrollToBottom("smooth");
@@ -349,7 +355,9 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
   function mapFansForRecommendation(rawFans: Fan[]): ConversationListData[] {
     return rawFans.map((fan) => ({
       id: fan.id,
-      contactName: fan.name,
+      contactName: getFanDisplayName(fan),
+      displayName: fan.displayName ?? null,
+      creatorLabel: fan.creatorLabel ?? null,
       lastMessage: fan.preview,
       lastTime: fan.time,
       image: fan.avatar || "/avatar.jpg",
@@ -1133,7 +1141,9 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
         setConversation({
           ...prev,
           id: targetFan.id,
-          contactName: targetFan.name || prev.contactName,
+          contactName: getFanDisplayName(targetFan),
+          displayName: targetFan.displayName ?? prev.displayName ?? null,
+          creatorLabel: targetFan.creatorLabel ?? prev.creatorLabel ?? null,
           membershipStatus: targetFan.membershipStatus,
           daysLeft: targetFan.daysLeft,
           activeGrantTypes: targetFan.activeGrantTypes ?? prev.activeGrantTypes,
@@ -2231,6 +2241,55 @@ useEffect(() => {
 
   const handleViewProfile = () => {
     setShowQuickSheet(true);
+  };
+
+  const handleOpenEditName = () => {
+    setShowQuickSheet(false);
+    setEditNameValue(conversation.creatorLabel ?? conversation.displayName ?? "");
+    setEditNameError(null);
+    setIsEditNameOpen(true);
+  };
+
+  const handleSaveEditName = async () => {
+    if (!id) return;
+    try {
+      setEditNameSaving(true);
+      setEditNameError(null);
+      const res = await fetch(`/api/fans/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ creatorLabel: editNameValue.trim() }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setEditNameError(data?.error || "No se pudo guardar el nombre.");
+        return;
+      }
+      const updatedFan = data?.fan;
+      if (!updatedFan?.id) {
+        setEditNameError("Respuesta inválida al guardar el nombre.");
+        return;
+      }
+      updateConversationState({
+        contactName: getFanDisplayName(updatedFan),
+        displayName: updatedFan.displayName ?? null,
+        creatorLabel: updatedFan.creatorLabel ?? null,
+      });
+      if (typeof window !== "undefined") {
+        window.dispatchEvent(new Event("fanDataUpdated"));
+      }
+      closeEditNameModal();
+    } catch (err) {
+      console.error("Error updating fan name", err);
+      setEditNameError("No se pudo guardar el nombre.");
+    } finally {
+      setEditNameSaving(false);
+    }
+  };
+
+  const closeEditNameModal = () => {
+    setIsEditNameOpen(false);
+    setEditNameError(null);
   };
 
   const handleOpenNotesFromSheet = () => {
@@ -3810,7 +3869,16 @@ useEffect(() => {
             <div className="flex items-center gap-3">
               <Avatar width="w-10" height="h-10" image={image} />
               <div className="flex flex-col gap-1 min-w-0">
-                <div className="text-base font-semibold text-slate-50 truncate">{contactName}</div>
+                <div className="flex items-center gap-2 min-w-0">
+                  <div className="text-base font-semibold text-slate-50 truncate">{contactName}</div>
+                  <button
+                    type="button"
+                    onClick={handleOpenEditName}
+                    className="inline-flex items-center rounded-full border border-slate-700 bg-slate-800/70 px-2 py-0.5 text-[11px] text-slate-200 hover:border-emerald-400 hover:text-emerald-100"
+                  >
+                    ✎ Editar
+                  </button>
+                </div>
                 <div className="flex flex-wrap gap-2 text-[11px]">
                   <span className="inline-flex items-center rounded-full bg-slate-800/80 text-amber-200 px-2 py-[1px]">
                     {packLabel}
@@ -3865,6 +3933,55 @@ useEffect(() => {
                 className="rounded-full bg-emerald-500 px-4 py-2 text-sm font-semibold text-slate-950 hover:bg-emerald-400"
               >
                 Ver historial
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {isEditNameOpen && (
+        <div className="fixed inset-0 z-40 flex items-end justify-center bg-slate-950/60 backdrop-blur-sm">
+          <div className="w-full max-w-md rounded-t-3xl bg-slate-900 border border-slate-700 shadow-xl p-5 space-y-4">
+            <div className="flex items-center justify-between gap-3">
+              <h2 className="text-sm font-semibold text-slate-200">Editar nombre del fan</h2>
+              <button
+                type="button"
+                onClick={closeEditNameModal}
+                className="inline-flex items-center justify-center rounded-full p-1.5 hover:bg-slate-800 text-slate-200"
+              >
+                <span className="sr-only">Cerrar</span>
+                ✕
+              </button>
+            </div>
+            <label className="flex flex-col gap-1 text-sm text-slate-300">
+              <span>Nombre o alias</span>
+              <input
+                className="w-full rounded-lg bg-slate-800/70 border border-slate-700 px-3 py-2 text-sm text-white focus:border-emerald-400"
+                value={editNameValue}
+                onChange={(e) => setEditNameValue(e.target.value)}
+                placeholder="Ej: Ana"
+              />
+            </label>
+            {editNameError && <p className="text-xs text-rose-300">{editNameError}</p>}
+            <div className="flex items-center justify-end gap-2">
+              <button
+                type="button"
+                className="rounded-full border border-slate-700 bg-slate-800 px-4 py-2 text-sm font-semibold text-slate-100 hover:bg-slate-700"
+                onClick={closeEditNameModal}
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                disabled={editNameSaving}
+                className={clsx(
+                  "rounded-full border px-4 py-2 text-sm font-semibold transition",
+                  editNameSaving
+                    ? "border-slate-700 bg-slate-800/60 text-slate-400 cursor-not-allowed"
+                    : "border-emerald-400 bg-emerald-500/15 text-emerald-100 hover:bg-emerald-500/25"
+                )}
+                onClick={() => void handleSaveEditName()}
+              >
+                {editNameSaving ? "Guardando..." : "Guardar"}
               </button>
             </div>
           </div>

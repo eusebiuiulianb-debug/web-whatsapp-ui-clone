@@ -22,6 +22,8 @@ model Creator {
   bioLinkPrimaryCtaLabel  String?
   bioLinkPrimaryCtaUrl    String?
   bioLinkSecondaryLinks   Json?
+  bioLinkDescription      String?
+  bioLinkFaq              Json?
   packs        Pack[]
   fans         Fan[]
   notes        FanNote[]
@@ -34,6 +36,17 @@ model Creator {
   managerAiMessages ManagerAiMessage[]
   discoveryProfile   CreatorDiscoveryProfile?
   discoveryFeedbacks DiscoveryFeedback[]
+  profile      CreatorProfile?
+  generatedAssets GeneratedAsset[]
+}
+
+model CreatorProfile {
+  id        String   @id @default(cuid())
+  creatorId String   @unique
+  creator   Creator  @relation(fields: [creatorId], references: [id])
+  coverUrl  String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }
 
 model Pack {
@@ -48,6 +61,8 @@ model Pack {
 model Fan {
   id               String          @id
   name             String
+  displayName      String?
+  creatorLabel     String?
   avatar           String?
   preview          String?
   time             String?
@@ -74,6 +89,8 @@ model Fan {
   riskLevel        String          @default("LOW")
   isBlocked        Boolean         @default(false)
   isArchived       Boolean         @default(false)
+  source           String?
+  handle           String?
   firstUtmSource   String?
   firstUtmMedium   String?
   firstUtmCampaign String?
@@ -189,6 +206,11 @@ enum MessageType {
   CONTENT
 }
 
+enum GeneratedAssetPurpose {
+  AVATAR
+  COVER
+}
+
 enum ManagerSender {
   CREATOR
   MANAGER
@@ -228,6 +250,18 @@ model ExtraPurchase {
   amount        Int
   sessionTag    String?
   createdAt     DateTime    @default(now())
+}
+
+model GeneratedAsset {
+  id        String                @id
+  creatorId String
+  creator   Creator               @relation(fields: [creatorId], references: [id])
+  purpose   GeneratedAssetPurpose
+  prompt    String
+  url       String
+  createdAt DateTime              @default(now())
+
+  @@index([creatorId, createdAt])
 }
 
 model CreatorAiSettings {

@@ -24,6 +24,8 @@ interface Message {
 interface Conversation {
   id?: string;
   contactName: string;
+  displayName?: string | null;
+  creatorLabel?: string | null;
   messageHistory: Message[];
   image: string;
   membershipStatus?: string;
@@ -93,6 +95,8 @@ interface Conversation {
 interface ConversationListData {
   id?: string;
   contactName: string;
+  displayName?: string | null;
+  creatorLabel?: string | null;
   lastMessage: string;
   lastTime: string;
   image: string;

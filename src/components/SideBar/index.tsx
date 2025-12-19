@@ -10,6 +10,7 @@ import { ExtrasSummary } from "../../types/extras";
 import clsx from "clsx";
 import { getFollowUpTag, getUrgencyLevel, shouldFollowUpToday, isExpiredAccess } from "../../utils/followUp";
 import { getRecommendedFan } from "../../utils/recommendedFan";
+import { getFanDisplayName } from "../../utils/fanDisplayName";
 import { PACKS } from "../../config/packs";
 import { ConversationContext } from "../../context/ConversationContext";
 import { EXTRAS_UPDATED_EVENT } from "../../constants/events";
@@ -95,6 +96,11 @@ function SideBarInner() {
   const [ extrasSummary, setExtrasSummary ] = useState<ExtrasSummary | null>(null);
   const [ extrasSummaryError, setExtrasSummaryError ] = useState<string | null>(null);
   const [ statusFilter, setStatusFilter ] = useState<"active" | "archived" | "blocked">("active");
+  const [ isNewFanOpen, setIsNewFanOpen ] = useState(false);
+  const [ newFanName, setNewFanName ] = useState("");
+  const [ newFanNote, setNewFanNote ] = useState("");
+  const [ newFanError, setNewFanError ] = useState<string | null>(null);
+  const [ newFanSaving, setNewFanSaving ] = useState(false);
 
   type FanData = ConversationListData & { priorityScore?: number };
 
@@ -109,7 +115,9 @@ function SideBarInner() {
   const mapFans = useCallback((rawFans: Fan[]): ConversationListData[] => {
     return rawFans.map((fan) => ({
       id: fan.id,
-      contactName: fan.name,
+      contactName: getFanDisplayName(fan),
+      displayName: fan.displayName ?? null,
+      creatorLabel: fan.creatorLabel ?? null,
       lastMessage: fan.preview,
       lastTime: fan.time,
       image: fan.avatar || "/avatar.jpg",
@@ -199,6 +207,7 @@ function SideBarInner() {
       const prevFan = prevMap.get(fan.id);
       if (!prevFan) return true;
       const fields: Array<keyof ConversationListData> = [
+        "contactName",
         "lastTime",
         "lastCreatorMessageAt",
         "unreadCount",
@@ -380,6 +389,79 @@ function SideBarInner() {
       setOnlyWithExtras(false);
       setShowPriorityOnly(false);
     }
+  }
+
+  async function handleCreateNewFan() {
+    const label = newFanName.trim();
+    const note = newFanNote.trim();
+    if (!label) {
+      setNewFanError("Introduce un nombre para el fan.");
+      return;
+    }
+    try {
+      setNewFanSaving(true);
+      setNewFanError(null);
+      const res = await fetch("/api/fans", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          creatorLabel: label,
+          note: note || undefined,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setNewFanError(data?.error || "No se pudo crear el fan.");
+        return;
+      }
+      const fanId = typeof data?.fanId === "string" ? data.fanId : "";
+      if (!fanId) {
+        setNewFanError("Respuesta inválida al crear el fan.");
+        return;
+      }
+      const newConversation: ConversationListData = {
+        id: fanId,
+        contactName: label || "Invitado",
+        displayName: null,
+        creatorLabel: label,
+        lastMessage: "",
+        lastTime: "",
+        image: "/avatar.jpg",
+        messageHistory: [],
+        unreadCount: 0,
+        isNew: false,
+      };
+      setFans((prev) => {
+        if (prev.some((fan) => fan.id === fanId)) return prev;
+        return [newConversation, ...prev];
+      });
+      setConversation(newConversation as any);
+      const targetPath = router.pathname.startsWith("/creator/manager") ? "/" : router.pathname || "/";
+      void router.push(
+        {
+          pathname: targetPath,
+          query: { fanId },
+        },
+        undefined,
+        { shallow: true }
+      );
+      closeNewFanModal();
+      if (typeof window !== "undefined") {
+        window.dispatchEvent(new Event("fanDataUpdated"));
+      }
+    } catch (err) {
+      console.error("Error creating fan", err);
+      setNewFanError("No se pudo crear el fan.");
+    } finally {
+      setNewFanSaving(false);
+    }
+  }
+
+  function closeNewFanModal() {
+    setIsNewFanOpen(false);
+    setNewFanName("");
+    setNewFanNote("");
+    setNewFanError(null);
   }
 
   const filteredConversationsList =
@@ -1306,6 +1388,18 @@ function SideBarInner() {
             </svg>
           </button>
         </div>
+        <div className="mt-2 flex justify-end">
+          <button
+            type="button"
+            className="rounded-full border border-emerald-500/70 bg-emerald-500/10 px-4 py-1.5 text-xs font-semibold text-emerald-100 hover:bg-emerald-500/20"
+            onClick={() => {
+              setIsNewFanOpen(true);
+              setNewFanError(null);
+            }}
+          >
+            + Nuevo fan
+          </button>
+        </div>
       </div>
       <div className="flex flex-col w-full flex-1 overflow-y-auto" id="conversation">
         {loadingFans && (
@@ -1370,6 +1464,64 @@ function SideBarInner() {
           </div>
         )}
       </div>
+      {isNewFanOpen && (
+        <div className="fixed inset-0 z-40 flex items-end justify-center bg-slate-950/60 backdrop-blur-sm">
+          <div className="w-full max-w-md rounded-t-3xl bg-slate-900 border border-slate-700 shadow-xl p-5 space-y-4">
+            <div className="flex items-center justify-between gap-3">
+              <h2 className="text-sm font-semibold text-slate-200">Nuevo fan (manual)</h2>
+              <button
+                type="button"
+                onClick={closeNewFanModal}
+                className="inline-flex items-center justify-center rounded-full p-1.5 hover:bg-slate-800 text-slate-200"
+              >
+                <span className="sr-only">Cerrar</span>
+                ✕
+              </button>
+            </div>
+            <label className="flex flex-col gap-1 text-sm text-slate-300">
+              <span>Nombre o alias</span>
+              <input
+                className="w-full rounded-lg bg-slate-800/70 border border-slate-700 px-3 py-2 text-sm text-white focus:border-emerald-400"
+                value={newFanName}
+                onChange={(e) => setNewFanName(e.target.value)}
+                placeholder="Ej: Ana"
+              />
+            </label>
+            <label className="flex flex-col gap-1 text-sm text-slate-300">
+              <span>Nota inicial (opcional)</span>
+              <textarea
+                className="w-full rounded-lg bg-slate-800/70 border border-slate-700 px-3 py-2 text-sm text-white focus:border-emerald-400 h-20"
+                value={newFanNote}
+                onChange={(e) => setNewFanNote(e.target.value)}
+                placeholder="Contexto rápido para este fan..."
+              />
+            </label>
+            {newFanError && <p className="text-xs text-rose-300">{newFanError}</p>}
+            <div className="flex items-center justify-end gap-2">
+              <button
+                type="button"
+                className="rounded-full border border-slate-700 bg-slate-800 px-4 py-2 text-sm font-semibold text-slate-100 hover:bg-slate-700"
+                onClick={closeNewFanModal}
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                disabled={newFanSaving}
+                className={clsx(
+                  "rounded-full border px-4 py-2 text-sm font-semibold transition",
+                  newFanSaving
+                    ? "border-slate-700 bg-slate-800/60 text-slate-400 cursor-not-allowed"
+                    : "border-emerald-400 bg-emerald-500/15 text-emerald-100 hover:bg-emerald-500/25"
+                )}
+                onClick={() => void handleCreateNewFan()}
+              >
+                {newFanSaving ? "Creando..." : "Crear fan"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

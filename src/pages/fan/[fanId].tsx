@@ -1,7 +1,7 @@
 import Head from "next/head";
 import { GetServerSideProps } from "next";
 import { useRouter } from "next/router";
-import { FormEvent, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import MessageBalloon from "../../components/MessageBalloon";
 import { useCreatorConfig } from "../../context/CreatorConfigContext";
 import {
@@ -12,6 +12,7 @@ import {
 } from "../../types/content";
 import { AccessSummary, getAccessSummary } from "../../lib/access";
 import type { IncludedContent } from "../../lib/fanContent";
+import { useIsomorphicLayoutEffect } from "../../hooks/useIsomorphicLayoutEffect";
 
 type ApiContentItem = {
   id: string;
@@ -224,7 +225,7 @@ export default function FanChatPage({ includedContent, initialAccessSummary }: F
     });
   };
 
-  useLayoutEffect(() => {
+  useIsomorphicLayoutEffect(() => {
     const el = messagesContainerRef.current;
     if (!el) return;
     const onScroll = () => {
@@ -237,11 +238,11 @@ export default function FanChatPage({ includedContent, initialAccessSummary }: F
     return () => el.removeEventListener("scroll", onScroll);
   }, []);
 
-  useLayoutEffect(() => {
+  useIsomorphicLayoutEffect(() => {
     scrollToBottom("auto");
   }, [fanId]);
 
-  useLayoutEffect(() => {
+  useIsomorphicLayoutEffect(() => {
     if (!isAtBottom) return;
     scrollToBottom("smooth");
   }, [messages.length, isAtBottom]);

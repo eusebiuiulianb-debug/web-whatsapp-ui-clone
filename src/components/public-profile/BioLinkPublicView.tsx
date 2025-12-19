@@ -13,13 +13,18 @@ type Props = {
 export function BioLinkPublicView({ config }: Props) {
   const chips = (config.chips || []).filter(Boolean).slice(0, 3);
   const secondaryLinks = (config.secondaryLinks || []).filter((l) => l.label && l.url);
-  const [ctaHref, setCtaHref] = useState(`/go/${config.handle}`);
+  const description = typeof config.description === "string" ? config.description.trim() : "";
+  const faqEntries = Array.isArray(config.faq) ? config.faq.filter(Boolean).slice(0, 3) : [];
+  const defaultChatUrl = `/go/${config.handle}`;
+  const legacyChatUrl = `/c/${config.handle}`;
+  const baseCtaUrl = resolveCtaUrl(config.primaryCtaUrl, defaultChatUrl, legacyChatUrl);
+  const [ctaHref, setCtaHref] = useState(baseCtaUrl);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
     const search = window.location.search || "";
-    setCtaHref(`/go/${config.handle}${search}`);
-  }, [config.handle]);
+    setCtaHref(appendSearchIfRelative(baseCtaUrl, search));
+  }, [baseCtaUrl]);
 
   useEffect(() => {
     track(ANALYTICS_EVENTS.BIO_LINK_VIEW, { creatorId: config.creatorId || "creator-1", meta: { handle: config.handle } });
@@ -34,6 +39,8 @@ export function BioLinkPublicView({ config }: Props) {
             <div className="text-center space-y-1">
               <h1 className="text-lg md:text-xl font-semibold text-slate-50">{config.title}</h1>
               {config.tagline && <p className="text-sm text-slate-400">{config.tagline}</p>}
+              {description && <p className="text-xs text-slate-300">{description}</p>}
+              <p className="text-[11px] text-emerald-200">Chat 1:1 con creador real</p>
             </div>
             {chips.length > 0 && (
               <div className="flex flex-wrap justify-center gap-2 pt-1">
@@ -70,6 +77,19 @@ export function BioLinkPublicView({ config }: Props) {
                     <span className="truncate">{link.label}</span>
                   </a>
                 ))}
+              </div>
+            )}
+            {faqEntries.length > 0 && (
+              <div className="w-full rounded-xl border border-slate-800 bg-slate-900/70 p-3 space-y-2">
+                <p className="text-[11px] uppercase tracking-wide text-slate-400">FAQ</p>
+                <ul className="space-y-1 text-xs text-slate-200">
+                  {faqEntries.map((entry, idx) => (
+                    <li key={`${entry}-${idx}`} className="flex gap-2">
+                      <span className="text-amber-200">-</span>
+                      <span>{entry}</span>
+                    </li>
+                  ))}
+                </ul>
               </div>
             )}
           </div>
@@ -113,4 +133,18 @@ function IconChip({ iconKey }: { iconKey?: BioLinkSecondaryLink["iconKey"] }) {
       {label}
     </span>
   );
+}
+
+function resolveCtaUrl(primaryCtaUrl: string | undefined, defaultChatUrl: string, legacyChatUrl: string) {
+  const trimmed = (primaryCtaUrl || "").trim();
+  if (!trimmed) return defaultChatUrl;
+  if (trimmed === defaultChatUrl || trimmed === legacyChatUrl) return defaultChatUrl;
+  return trimmed;
+}
+
+function appendSearchIfRelative(url: string, search: string) {
+  if (!search) return url;
+  if (!url.startsWith("/")) return url;
+  if (url.includes("?")) return `${url}&${search.replace(/^\?/, "")}`;
+  return `${url}${search}`;
 }

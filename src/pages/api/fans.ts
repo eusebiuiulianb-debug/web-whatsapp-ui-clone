@@ -39,6 +39,14 @@ const DEFAULT_LIMIT = 50;
 const MAX_LIMIT = 100;
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
+  if (req.method === "POST") {
+    return handlePost(req, res);
+  }
+  if (req.method !== "GET") {
+    res.setHeader("Allow", "GET, POST");
+    return res.status(405).json({ ok: false, error: "Method not allowed" });
+  }
+
   const { limit: limitParam, cursor, filter = "all", q, fanId, source } = req.query;
   const normalizedSource = typeof source === "string" && source.trim() ? source.trim().toLowerCase() : (process.env.FANS_SOURCE ?? "db").toLowerCase();
   const allowedSources = new Set(["db", "demo"]);
@@ -94,6 +102,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       where.OR = [
         ...(where.OR ?? []),
         { name: { contains: search } },
+        { displayName: { contains: search } },
+        { creatorLabel: { contains: search } },
         { nextAction: { contains: search } },
         { notes: { some: { content: { contains: search } } } },
       ];
@@ -107,6 +117,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       select: {
         id: true,
         name: true,
+        displayName: true,
+        creatorLabel: true,
         avatar: true,
         preview: true,
         time: true,
@@ -348,6 +360,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       return {
         id: fan.id,
         name: fan.name,
+        displayName: fan.displayName ?? null,
+        creatorLabel: fan.creatorLabel ?? null,
         avatar: fan.avatar || "",
         preview: hasMessages ? fan.preview || "" : "",
         time: hasMessages ? fan.time || "" : "",
@@ -429,4 +443,71 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     console.error("Error loading fans data", error);
     return res.status(500).json({ ok: false, error: "Error loading fans data" });
   }
+}
+
+async function handlePost(req: NextApiRequest, res: NextApiResponse) {
+  const creatorLabel = normalizeInput(req.body?.creatorLabel, 80);
+  const note = normalizeInput(req.body?.note, 500);
+
+  if (!creatorLabel && !note) {
+    return res.status(400).json({ ok: false, error: "creatorLabel or note required" });
+  }
+
+  try {
+    const creator = await resolveCreator();
+    if (!creator) {
+      return res.status(400).json({ ok: false, error: "creator_not_found" });
+    }
+
+    const fanId = `fan-${Date.now()}`;
+    const handle = slugify(creator.name || "creator");
+
+    await prisma.fan.create({
+      data: {
+        id: fanId,
+        name: "Invitado",
+        creatorId: creator.id,
+        creatorLabel: creatorLabel || null,
+        source: "manual",
+        handle,
+        isNew: false,
+      },
+    });
+
+    if (note) {
+      await prisma.fanNote.create({
+        data: {
+          fanId,
+          creatorId: creator.id,
+          content: note,
+        },
+      });
+    }
+
+    return res.status(200).json({ fanId });
+  } catch (error) {
+    console.error("Error creating manual fan", error);
+    return res.status(500).json({ ok: false, error: "Error creating fan" });
+  }
+}
+
+async function resolveCreator() {
+  const preferredId = process.env.CREATOR_ID || "creator-1";
+  const byId = await prisma.creator.findUnique({
+    where: { id: preferredId },
+    select: { id: true, name: true },
+  });
+  if (byId) return byId;
+  return prisma.creator.findFirst({ select: { id: true, name: true }, orderBy: { id: "asc" } });
+}
+
+function slugify(value?: string | null) {
+  return (value || "creator").toLowerCase().replace(/[^a-z0-9]+/g, "-");
+}
+
+function normalizeInput(value: unknown, maxLen: number) {
+  if (typeof value !== "string") return "";
+  const trimmed = value.trim();
+  if (!trimmed) return "";
+  return trimmed.slice(0, maxLen);
 }

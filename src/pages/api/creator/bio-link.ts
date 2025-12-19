@@ -49,7 +49,7 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
     const filteredLinks = sanitizedLinks.filter((l) => l.label && l.url);
 
     const handle = slugify(creator.name || "creator");
-    const defaultCta = `/c/${handle}`;
+    const defaultCta = `/go/${handle}`;
     const primaryCtaUrlRaw =
       typeof payload.primaryCtaUrl === "string" && payload.primaryCtaUrl.trim().length > 0
         ? payload.primaryCtaUrl.trim()
@@ -62,6 +62,11 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
     const normalizedAvatarUrl =
       typeof payload.avatarUrl === "string" ? normalizeImageSrc(payload.avatarUrl) : normalizeImageSrc(creator.bioLinkAvatarUrl || "");
 
+    const tagline = typeof payload.tagline === "string" ? payload.tagline.trim() : undefined;
+    const description = typeof payload.description === "string" ? payload.description.trim() : undefined;
+    const faqProvided = Array.isArray(payload.faq);
+    const sanitizedFaq = faqProvided ? sanitizeStringArray(payload.faq) : undefined;
+
     const updated = await prisma.creator.update({
       where: { id: CREATOR_ID },
       data: {
@@ -70,6 +75,9 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
         bioLinkPrimaryCtaUrl: primaryCtaUrl,
         bioLinkSecondaryLinks: filteredLinks as unknown as object,
         bioLinkAvatarUrl: normalizedAvatarUrl,
+        ...(tagline !== undefined ? { bioLinkTagline: tagline } : {}),
+        ...(description !== undefined ? { bioLinkDescription: description } : {}),
+        ...(faqProvided ? { bioLinkFaq: sanitizedFaq } : {}),
       },
     });
 
@@ -97,11 +105,13 @@ function mapCreatorToConfig(creator: any): BioLinkConfig {
   return {
     enabled: Boolean(creator.bioLinkEnabled),
     title: creator.name || creator.bioLinkTitle || "Creador",
-    tagline: creator.subtitle || creator.bioLinkTagline || "",
+    tagline: creator.bioLinkTagline ?? creator.subtitle ?? "",
+    description: creator.bioLinkDescription ?? "",
     avatarUrl: normalizeImageSrc(creator.bioLinkAvatarUrl || ""),
     primaryCtaLabel: creator.bioLinkPrimaryCtaLabel || "Entrar a mi chat privado",
-    primaryCtaUrl: creator.bioLinkPrimaryCtaUrl || `/c/${handle}`,
+    primaryCtaUrl: creator.bioLinkPrimaryCtaUrl || `/go/${handle}`,
     secondaryLinks,
+    faq: parseStringArray(creator.bioLinkFaq),
     handle,
     creatorId: creator.id,
   };
@@ -140,4 +150,26 @@ function isForbiddenCtaDestination(url: string, handle: string) {
 
 function isHttpUrl(url: string) {
   return /^https?:\/\//i.test(url.trim());
+}
+
+function sanitizeStringArray(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((item) => (typeof item === "string" ? item.trim() : ""))
+    .filter((item) => item.length > 0);
+}
+
+function parseStringArray(raw: any): string[] {
+  if (Array.isArray(raw)) {
+    return sanitizeStringArray(raw);
+  }
+  if (typeof raw === "string") {
+    try {
+      const parsed = JSON.parse(raw);
+      return sanitizeStringArray(parsed);
+    } catch (_err) {
+      return [];
+    }
+  }
+  return [];
 }
