@@ -16,6 +16,39 @@ type MessageResponse =
   | { ok: true; message: any; items?: any[]; messages?: any[] }
   | { ok: false; error: string; errorCode?: string; message?: string; fix?: string[] };
 
+type MessageTimestampCandidate = {
+  id?: string | null;
+  createdAt?: Date | string | null;
+};
+
+function parseSinceMs(value?: string | null): number | null {
+  if (!value) return null;
+  const parsed = Date.parse(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function extractMessageIdTimestamp(messageId?: string | null): number | null {
+  if (!messageId) return null;
+  const lastDash = messageId.lastIndexOf("-");
+  if (lastDash < 0 || lastDash === messageId.length - 1) return null;
+  const raw = messageId.slice(lastDash + 1);
+  const value = Number(raw);
+  return Number.isFinite(value) ? value : null;
+}
+
+function getMessageTimestamp(message: MessageTimestampCandidate): number | null {
+  const createdAt = message.createdAt;
+  if (createdAt instanceof Date) {
+    const ms = createdAt.getTime();
+    if (Number.isFinite(ms)) return ms;
+  }
+  if (typeof createdAt === "string") {
+    const parsed = Date.parse(createdAt);
+    if (Number.isFinite(parsed)) return parsed;
+  }
+  return extractMessageIdTimestamp(message.id);
+}
+
 export default async function handler(req: NextApiRequest, res: NextApiResponse<MessageResponse>) {
   if (req.method === "GET") {
     return handleGet(req, res);
@@ -30,7 +63,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
 }
 
 async function handleGet(req: NextApiRequest, res: NextApiResponse<MessageResponse>) {
-  const { fanId, markRead, audiences } = req.query;
+  const { fanId, markRead, audiences, afterId, since } = req.query;
 
   if (!fanId || typeof fanId !== "string") {
     return res.status(400).json({ ok: false, error: "fanId is required" });
@@ -40,15 +73,34 @@ async function handleGet(req: NextApiRequest, res: NextApiResponse<MessageRespon
   const shouldMarkRead =
     typeof markRead === "string" ? markRead === "1" || markRead.toLowerCase() === "true" : false;
   const audienceFilter = parseAudienceFilter(audiences);
+  const afterIdParam = typeof afterId === "string" ? afterId.trim() : "";
+  const sinceParam = typeof since === "string" ? since.trim() : "";
+  const sinceMs = parseSinceMs(sinceParam);
+  const afterIdMatchesFan = afterIdParam ? afterIdParam.startsWith(`${normalizedFanId}-`) : false;
+  const afterIdCutoff = afterIdMatchesFan ? afterIdParam : "";
+  const afterIdTimestamp = afterIdCutoff ? extractMessageIdTimestamp(afterIdCutoff) : null;
+  const cutoffMs =
+    sinceMs !== null && afterIdTimestamp !== null
+      ? Math.max(sinceMs, afterIdTimestamp)
+      : sinceMs ?? afterIdTimestamp ?? null;
 
   try {
+    const baseWhere = {
+      OR: [
+        { fanId: normalizedFanId },
+        { id: { startsWith: `${normalizedFanId}-` } },
+      ],
+    };
+    const where = afterIdCutoff
+      ? {
+          AND: [
+            baseWhere,
+            { id: { gt: afterIdCutoff } },
+          ],
+        }
+      : baseWhere;
     const messages = await prisma.message.findMany({
-      where: {
-        OR: [
-          { fanId: normalizedFanId },
-          { id: { startsWith: `${normalizedFanId}-` } },
-        ],
-      },
+      where,
       orderBy: { id: "asc" },
       include: { contentItem: true },
     });
@@ -61,6 +113,19 @@ async function handleGet(req: NextApiRequest, res: NextApiResponse<MessageRespon
       }))
       .filter((message) => audienceFilter.includes(message.audience as MessageAudience));
 
+    const filteredMessages = normalizedMessages.filter((message) => {
+      if (cutoffMs === null && !afterIdCutoff) return true;
+      if (cutoffMs !== null) {
+        const timestamp = getMessageTimestamp(message);
+        if (timestamp === null) return false;
+        return timestamp > cutoffMs;
+      }
+      if (afterIdCutoff) {
+        return typeof message.id === "string" ? message.id > afterIdCutoff : false;
+      }
+      return true;
+    });
+
     if (shouldMarkRead) {
       try {
         await prisma.fan.updateMany({
@@ -72,7 +137,7 @@ async function handleGet(req: NextApiRequest, res: NextApiResponse<MessageRespon
       }
     }
 
-    return res.status(200).json({ ok: true, items: normalizedMessages, messages: normalizedMessages });
+    return res.status(200).json({ ok: true, items: filteredMessages, messages: filteredMessages });
   } catch (err) {
     if (isDbSchemaOutOfSyncError(err)) {
       const payload = getDbSchemaOutOfSyncPayload();

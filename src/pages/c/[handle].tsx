@@ -75,7 +75,7 @@ export const getServerSideProps: GetServerSideProps<Props> = async (ctx) => {
       coverImageUrl: coverUrl || baseCopy.hero.coverImageUrl || null,
     },
   };
-  const avatarUrl = normalizeImageSrc(match.avatarUrl || match.bioLinkAvatarUrl || "");
+  const avatarUrl = normalizeImageSrc(match.bioLinkAvatarUrl || "");
 
   return {
     props: {

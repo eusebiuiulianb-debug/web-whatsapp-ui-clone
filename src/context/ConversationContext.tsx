@@ -1,4 +1,4 @@
-import { createContext, ReactNode, useCallback, useMemo, useState } from "react";
+import { createContext, ReactNode, useCallback, useMemo, useState, type Dispatch, type SetStateAction } from "react";
 import { Message, Conversation, ConversationListData } from "../types/Conversation";
 
 interface ConversationProviderProps {
@@ -9,7 +9,7 @@ interface ConversationContextType {
   conversation: Conversation;
   message: Message[];
   setConversation: ( conversation: Conversation ) => void;
-  setMessage: ( message: Message[] ) => void;
+  setMessage: Dispatch<SetStateAction<Message[]>>;
   queueMode: boolean;
   setQueueMode: (value: boolean) => void;
   todayQueue: ConversationListData[];
@@ -31,7 +31,7 @@ export const ConversationProvider = ({ children }: ConversationProviderProps) =>
     setConversationData(conversation);
   }, []);
 
-  const setMessage = useCallback((message: Message[]) => {
+  const setMessage = useCallback((message: SetStateAction<Message[]>) => {
     setMessageData(message);
   }, []);
 

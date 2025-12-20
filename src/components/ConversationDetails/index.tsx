@@ -1587,6 +1587,15 @@ useEffect(() => {
     );
   }, [id, translationPreviewOpen]);
 
+  const managerChatMessages = managerChatByFan[id ?? ""] ?? [];
+  const internalNotes = internalMessages.filter((message) => deriveAudience(message) === "INTERNAL");
+  const hasInternalThreadMessages = internalNotes.length > 0 || managerChatMessages.length > 0;
+  const effectiveLanguage = (preferredLanguage ?? "en") as SupportedLanguage;
+  const isTranslationPreviewAvailable =
+    !!id && !conversation.isManager && composerAudience === "CREATOR" && effectiveLanguage !== "es";
+  const translationPreviewLabel = effectiveLanguage.toUpperCase();
+  const translationPreviewButtonLabel = translationPreviewOpen ? "Ocultar" : "Ver";
+
   useEffect(() => {
     setTranslationPreviewStatus("idle");
     setTranslationPreviewText(null);
@@ -1600,15 +1609,6 @@ useEffect(() => {
     fetchAiStatus();
     fetchAiSettingsTone();
   }, [conversation.id]);
-
-  const managerChatMessages = managerChatByFan[id ?? ""] ?? [];
-  const internalNotes = internalMessages.filter((message) => deriveAudience(message) === "INTERNAL");
-  const hasInternalThreadMessages = internalNotes.length > 0 || managerChatMessages.length > 0;
-  const effectiveLanguage = (preferredLanguage ?? "en") as SupportedLanguage;
-  const isTranslationPreviewAvailable =
-    !!id && !conversation.isManager && composerAudience === "CREATOR" && effectiveLanguage !== "es";
-  const translationPreviewLabel = effectiveLanguage.toUpperCase();
-  const translationPreviewButtonLabel = translationPreviewOpen ? "Ocultar" : "Ver";
 
   useEffect(() => {
     setManagerChatInput("");
@@ -3322,7 +3322,7 @@ useEffect(() => {
             </button>
           </div>
           <div className="text-[11px] text-slate-400">
-            Estas son notas CRM (próxima acción). Para mensajes internos del chat usa "Mensaje interno".
+            Estas son notas CRM (próxima acción). Para mensajes internos del chat usa &quot;Mensaje interno&quot;.
           </div>
           <div className="flex flex-col gap-1">
             <span className="text-[11px] text-slate-400">Próxima acción</span>
@@ -3546,7 +3546,7 @@ useEffect(() => {
               }
 
               const { me, message, seen, time } = messageConversation;
-              const translatedText = !me ? messageConversation.translatedText : undefined;
+              const translatedText = !me ? messageConversation.translatedText ?? undefined : undefined;
               return (
                 <div key={messageConversation.id || index} className="space-y-1">
                   <MessageBalloon

@@ -85,6 +85,7 @@ export default function FanChatPage({ includedContent, initialAccessSummary }: F
   const [onboardingSaving, setOnboardingSaving] = useState(false);
   const [onboardingLanguage, setOnboardingLanguage] = useState<SupportedLanguage>("en");
   const messagesContainerRef = useRef<HTMLDivElement | null>(null);
+  const lastSeenIdRef = useRef<string | null>(null);
   const [isAtBottom, setIsAtBottom] = useState(true);
   const pollAbortRef = useRef<AbortController | null>(null);
   const pollIntervalRef = useRef<NodeJS.Timeout | null>(null);
@@ -103,19 +104,35 @@ export default function FanChatPage({ includedContent, initialAccessSummary }: F
     return messages.filter((message) => isVisibleToFan(message));
   }, [messages]);
 
+  useEffect(() => {
+    if (!fanId) return;
+    const lastSeenId = getLastServerMessageId(visibleMessages, fanId);
+    if (lastSeenId) {
+      lastSeenIdRef.current = lastSeenId;
+    }
+  }, [fanId, visibleMessages]);
+
   const fetchMessages = useCallback(
-    async (targetFanId: string, options?: { showLoading?: boolean }) => {
+    async (
+      targetFanId: string,
+      options?: { showLoading?: boolean; silent?: boolean; afterId?: string | null }
+    ) => {
       if (!targetFanId) return;
       const showLoading = options?.showLoading ?? false;
+      const silent = options?.silent ?? false;
       try {
         if (showLoading) setLoading(true);
-        setError("");
+        if (!silent) setError("");
         if (pollAbortRef.current) {
           pollAbortRef.current.abort();
         }
         const controller = new AbortController();
         pollAbortRef.current = controller;
         const params = new URLSearchParams({ fanId: targetFanId, audiences: "FAN,CREATOR" });
+        const afterId = options?.afterId;
+        if (afterId && afterId.startsWith(`${targetFanId}-`)) {
+          params.set("afterId", afterId);
+        }
         const res = await fetch(`/api/messages?${params.toString()}`, { signal: controller.signal });
         const data = await res.json().catch(() => ({}));
         if (!res.ok || !data?.ok) {
@@ -127,8 +144,10 @@ export default function FanChatPage({ includedContent, initialAccessSummary }: F
           ? (data.messages as ApiMessage[])
           : [];
         setMessages((prev) => reconcileMessages(prev, apiMessages, sortMessages, targetFanId));
+        setError("");
       } catch (_err) {
-        setError("No se pudieron cargar mensajes");
+        if ((_err as any)?.name === "AbortError") return;
+        if (!silent) setError("No se pudieron cargar mensajes");
       } finally {
         if (showLoading) setLoading(false);
       }
@@ -138,6 +157,7 @@ export default function FanChatPage({ includedContent, initialAccessSummary }: F
 
   useEffect(() => {
     if (!fanId) return;
+    lastSeenIdRef.current = null;
     setMessages([]);
     fetchMessages(fanId, { showLoading: true });
     if (pollIntervalRef.current) {
@@ -145,9 +165,13 @@ export default function FanChatPage({ includedContent, initialAccessSummary }: F
       pollIntervalRef.current = null;
     }
     pollIntervalRef.current = setInterval(() => {
-      if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
-      void fetchMessages(fanId, { showLoading: false });
-    }, 1800) as any;
+      if (typeof document !== "undefined" && document.hidden) return;
+      void fetchMessages(fanId, {
+        showLoading: false,
+        silent: true,
+        afterId: lastSeenIdRef.current,
+      });
+    }, 2500) as any;
     return () => {
       if (pollIntervalRef.current) clearInterval(pollIntervalRef.current as any);
       if (pollAbortRef.current) pollAbortRef.current.abort();
@@ -394,7 +418,11 @@ export default function FanChatPage({ includedContent, initialAccessSummary }: F
     if (typeof document === "undefined") return;
     const onVisibility = () => {
       if (document.visibilityState === "visible" && fanId) {
-        void fetchMessages(fanId, { showLoading: false });
+        void fetchMessages(fanId, {
+          showLoading: false,
+          silent: true,
+          afterId: lastSeenIdRef.current,
+        });
       }
     };
     document.addEventListener("visibilitychange", onVisibility);
@@ -719,6 +747,17 @@ function reconcileMessages(
   filteredIncoming.forEach((msg, idx) => push(msg, idx + existing.length));
   const merged = orderedKeys.map((k) => map.get(k)).filter(Boolean) as ApiMessage[];
   return sorter(merged);
+}
+
+function getLastServerMessageId(messages: ApiMessage[], fanId: string): string | null {
+  const prefix = `${fanId}-`;
+  for (let idx = messages.length - 1; idx >= 0; idx -= 1) {
+    const id = messages[idx]?.id;
+    if (typeof id === "string" && id.startsWith(prefix)) {
+      return id;
+    }
+  }
+  return null;
 }
 
 function AccessBanner({ summary }: { summary: AccessSummary }) {

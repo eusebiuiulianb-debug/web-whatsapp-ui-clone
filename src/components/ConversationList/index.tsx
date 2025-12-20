@@ -34,6 +34,7 @@ export default function ConversationList(props: ConversationListProps) {
   } = data;
   const borderClass = isFirstConversation ? "border-transparent" : "border-[rgba(134,150,160,0.15)]";
   const [ isHover, seHover ] = useState(false);
+  const [ inviteCopyState, setInviteCopyState ] = useState<"idle" | "copying" | "copied" | "error">("idle");
   const isManagerChat = data.isManager === true;
   const hasUnread = !isManagerChat && !!unreadCount && unreadCount > 0;
   const nameClasses = hasUnread ? "text-slate-50 text-sm font-semibold" : "text-slate-50 text-sm font-medium";
@@ -168,8 +169,6 @@ export default function ConversationList(props: ConversationListProps) {
   const canToggleHighPriority = !isManagerChat && typeof onToggleHighPriority === "function";
   const isInvitePending = !isManagerChat && !data.inviteUsedAt;
   const canCopyInvite = isInvitePending && typeof onCopyInvite === "function";
-  const [ inviteCopyState, setInviteCopyState ] = useState<"idle" | "copying" | "copied" | "error">("idle");
-
   const inviteCopyLabel =
     inviteCopyState === "copied"
       ? "Copiado"
