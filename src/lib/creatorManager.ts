@@ -79,6 +79,21 @@ const AT_RISK_INACTIVITY_DAYS = 30; // fans sin compras en los últimos 30 días
 const RENEWAL_WINDOW_DAYS = 7;
 const PRIORITY_EXPIRY_WINDOW_HOURS = 72;
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
+// Priority engine v2: weights by impact, dedupe per fan, and limit invites in Top 3 unless only invites exist.
+const PRIORITY_WEIGHTS: Record<PriorityItemKind, number> = {
+  EXPIRING_ACCESS: 100,
+  AT_RISK: 80,
+  NO_ACCESS_BUT_MESSAGE: 60,
+  INVITE_PENDING: 20,
+};
+const PRIORITY_KIND_ORDER: PriorityItemKind[] = ["EXPIRING_ACCESS", "AT_RISK", "NO_ACCESS_BUT_MESSAGE", "INVITE_PENDING"];
+const PRIORITY_KIND_RANK = PRIORITY_KIND_ORDER.reduce(
+  (acc, kind, index) => {
+    acc[kind] = index;
+    return acc;
+  },
+  {} as Record<PriorityItemKind, number>
+);
 
 function startOfToday(): Date {
   const d = new Date();
@@ -137,6 +152,13 @@ function buildInvitePath(token: string): string {
   return `/i/${token}`;
 }
 
+function comparePriorityItems(a: PriorityItem, b: PriorityItem): number {
+  if (a.score !== b.score) return b.score - a.score;
+  const kindDiff = PRIORITY_KIND_RANK[a.kind] - PRIORITY_KIND_RANK[b.kind];
+  if (kindDiff !== 0) return kindDiff;
+  return a.title.localeCompare(b.title);
+}
+
 export async function getCreatorManagerSummary(creatorId: string, deps: ManagerDeps = {}): Promise<CreatorManagerSummary> {
   const client = deps.prismaClient ?? prisma;
   const now = new Date();
@@ -145,7 +167,14 @@ export async function getCreatorManagerSummary(creatorId: string, deps: ManagerD
   const expiryWindowEnd = daysFromNow(RENEWAL_WINDOW_DAYS);
   const priorityExpiryWindowEnd = new Date(now.getTime() + PRIORITY_EXPIRY_WINDOW_HOURS * 60 * 60 * 1000);
   const inactivityWindow = daysAgo(AT_RISK_INACTIVITY_DAYS);
-  const priorityItems: PriorityItem[] = [];
+  const priorityByFan = new Map<string, PriorityItem>();
+  const addPriorityItem = (item: PriorityItem) => {
+    if (!item.fanId) return;
+    const existing = priorityByFan.get(item.fanId);
+    if (!existing || comparePriorityItems(item, existing) < 0) {
+      priorityByFan.set(item.fanId, item);
+    }
+  };
 
   const [extrasLast7, extrasLast30, grantsLast7, grantsLast30, activeGrants, monthlyExpiringSoon, monthlyExpired30, fans] =
     await Promise.all([
@@ -250,14 +279,14 @@ export async function getCreatorManagerSummary(creatorId: string, deps: ManagerD
 
     if (fan.inviteToken && !fan.inviteUsedAt) {
       const invitePath = buildInvitePath(fan.inviteToken);
-      priorityItems.push({
+      addPriorityItem({
         id: `priority_invite_pending_${fan.id}`,
         kind: "INVITE_PENDING",
         title: "Invite pendiente",
         subtitle: `${displayName} aún no ha entrado`,
         fanId: fan.id,
         inviteUrl: invitePath,
-        score: 90,
+        score: PRIORITY_WEIGHTS.INVITE_PENDING,
         primaryAction: {
           type: "copy",
           label: "Copiar invitación",
@@ -278,14 +307,14 @@ export async function getCreatorManagerSummary(creatorId: string, deps: ManagerD
       const daysToExpiry = Math.max(1, Math.ceil((expiringAccessAt.getTime() - now.getTime()) / MS_PER_DAY));
       const dayLabel = daysToExpiry === 1 ? "día" : "días";
       const chatHref = buildCreatorChatHref(fan.id);
-      priorityItems.push({
+      addPriorityItem({
         id: `priority_expiring_access_${fan.id}`,
         kind: "EXPIRING_ACCESS",
         title: "Acceso caduca pronto",
         subtitle: `${displayName} caduca en ${daysToExpiry} ${dayLabel}`,
         fanId: fan.id,
         href: chatHref,
-        score: 80,
+        score: PRIORITY_WEIGHTS.EXPIRING_ACCESS,
         primaryAction: buildOpenChatAction(fan.id),
       });
     }
@@ -294,14 +323,14 @@ export async function getCreatorManagerSummary(creatorId: string, deps: ManagerD
     const hasMessages = (fan.messages?.length ?? 0) > 0;
     if (!hasActiveAccess && hasMessages) {
       const chatHref = buildCreatorChatHref(fan.id);
-      priorityItems.push({
+      addPriorityItem({
         id: `priority_no_access_message_${fan.id}`,
         kind: "NO_ACCESS_BUT_MESSAGE",
         title: "Escribió sin acceso",
         subtitle: `${displayName} escribió pero no tiene acceso`,
         fanId: fan.id,
         href: chatHref,
-        score: 70,
+        score: PRIORITY_WEIGHTS.NO_ACCESS_BUT_MESSAGE,
         primaryAction: buildOpenChatAction(fan.id),
       });
     }
@@ -325,14 +354,14 @@ export async function getCreatorManagerSummary(creatorId: string, deps: ManagerD
     if (isAtRisk) {
       segments.atRisk += 1;
       const chatHref = buildCreatorChatHref(fan.id);
-      priorityItems.push({
+      addPriorityItem({
         id: `priority_at_risk_${fan.id}`,
         kind: "AT_RISK",
         title: "Fan en riesgo",
         subtitle: `${displayName} requiere seguimiento`,
         fanId: fan.id,
         href: chatHref,
-        score: 60,
+        score: PRIORITY_WEIGHTS.AT_RISK,
         primaryAction: buildOpenChatAction(fan.id),
       });
     }
@@ -399,13 +428,13 @@ export async function getCreatorManagerSummary(creatorId: string, deps: ManagerD
     suggestions.push({ id: buildId(), label: "Aún no hay suficiente actividad; sigue escribiendo a tus fans.", action: "general" });
   }
 
-  const topPriorities = priorityItems
-    .slice()
-    .sort((a, b) => {
-      if (b.score !== a.score) return b.score - a.score;
-      return a.title.localeCompare(b.title);
-    })
-    .slice(0, 3);
+  const priorityItems = Array.from(priorityByFan.values()).sort(comparePriorityItems);
+  const nonInviteItems = priorityItems.filter((item) => item.kind !== "INVITE_PENDING");
+  const inviteItems = priorityItems.filter((item) => item.kind === "INVITE_PENDING");
+  const topPriorities =
+    nonInviteItems.length === 0
+      ? inviteItems.slice(0, 3)
+      : [...nonInviteItems.slice(0, 3), ...inviteItems.slice(0, 1)].slice(0, 3);
 
   return { kpis, packs, segments, suggestions, priorityItems, topPriorities };
 }
