@@ -1,5 +1,6 @@
 import clsx from "clsx";
-import { useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/router";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { CreatorManagerSummary } from "../../lib/creatorManager";
 import type { CreatorAiAdvisorInput } from "../../server/manager/managerSchemas";
 
@@ -33,16 +34,110 @@ type CampaignLink = {
 };
 
 export function ManagerInsightsPanel({ open, onClose, summary, preview, onPrompt }: Props) {
+  const router = useRouter();
   const [tab, setTab] = useState<TabId>("sales");
   const [growthInput, setGrowthInput] = useState("");
   const [growthActions, setGrowthActions] = useState<string[] | null>(null);
   const [growthLoading, setGrowthLoading] = useState(false);
   const [growthError, setGrowthError] = useState<string | null>(null);
+  const [priorityToast, setPriorityToast] = useState("");
+  const priorityToastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [campaignsLoading, setCampaignsLoading] = useState(false);
   const [campaignsError, setCampaignsError] = useState<string | null>(null);
   const [campaignsMeta, setCampaignsMeta] = useState<CampaignMeta[]>([]);
   const [campaignsRollups, setCampaignsRollups] = useState<CampaignRollup[]>([]);
   const [campaignsLastLinks, setCampaignsLastLinks] = useState<CampaignLink[]>([]);
+
+  const topPriorities = useMemo(() => {
+    if (!summary) return [];
+    const items = summary.topPriorities?.length ? summary.topPriorities : summary.priorityItems ?? [];
+    return items.slice(0, 3);
+  }, [summary]);
+
+  const safeDecode = (value: string) => {
+    try {
+      return decodeURIComponent(value);
+    } catch (_err) {
+      return value;
+    }
+  };
+
+  const extractFanIdFromHref = (href?: string) => {
+    if (!href) return "";
+    const queryMatch = href.match(/[?&]fanId=([^&#]+)/i);
+    if (queryMatch?.[1]) {
+      return safeDecode(queryMatch[1]);
+    }
+    const pathMatch = href.match(/\/fan\/([^/?#]+)/i);
+    if (pathMatch?.[1]) {
+      return safeDecode(pathMatch[1]);
+    }
+    return "";
+  };
+
+  const buildCreatorChatHref = (fanKey: string) => `/?fanId=${encodeURIComponent(fanKey)}`;
+
+  const resolveChatHref = (item: (typeof topPriorities)[number]) => {
+    const fanKey = item.fanId || extractFanIdFromHref(item.href) || extractFanIdFromHref(item.primaryAction?.href);
+    if (!fanKey) return "";
+    return buildCreatorChatHref(fanKey);
+  };
+
+  const handlePriorityOpen = (item: (typeof topPriorities)[number]) => {
+    if (item.kind === "INVITE_PENDING") return;
+    const href = resolveChatHref(item);
+    if (!href) return;
+    onClose?.();
+    void router.push(href);
+  };
+
+  const resolveInviteUrl = (value?: string) => {
+    if (!value) return "";
+    if (/^https?:\/\//i.test(value)) return value;
+    const base =
+      (typeof window !== "undefined" && window.location?.origin) ||
+      process.env.NEXT_PUBLIC_BASE_URL ||
+      "http://localhost:3005";
+    if (value.startsWith("/")) return `${base}${value}`;
+    return `${base}/${value}`;
+  };
+
+  const handlePriorityCopy = async (item: (typeof topPriorities)[number]) => {
+    if (item.kind !== "INVITE_PENDING") return;
+    const text = resolveInviteUrl(item.inviteUrl || item.primaryAction?.copyText);
+    if (!text) return;
+    try {
+      await navigator.clipboard.writeText(text);
+      setPriorityToast("Invitación copiada");
+      if (priorityToastTimer.current) {
+        clearTimeout(priorityToastTimer.current);
+      }
+      priorityToastTimer.current = setTimeout(() => setPriorityToast(""), 2000);
+    } catch (error) {
+      console.error("Error copying invite link", error);
+    }
+  };
+
+  const handlePrioritySecondary = (item: (typeof topPriorities)[number]) => {
+    if (item.kind === "INVITE_PENDING") return;
+    const action = item.secondaryAction;
+    if (!action) return;
+    if (action.type === "copy") {
+      const text = resolveInviteUrl(action.copyText);
+      if (text) {
+        void navigator.clipboard.writeText(text);
+      }
+      return;
+    }
+    if (action.type === "open" && action.href) {
+      if (action.target === "_blank") {
+        window.open(action.href, "_blank", "noopener,noreferrer");
+      } else {
+        onClose?.();
+        void router.push(action.href);
+      }
+    }
+  };
 
   const metrics = useMemo(() => {
     const safeRevenue30 = Number.isFinite(summary?.kpis?.last30?.revenue) ? summary?.kpis?.last30?.revenue ?? 0 : 0;
@@ -83,6 +178,14 @@ export function ManagerInsightsPanel({ open, onClose, summary, preview, onPrompt
       alive = false;
     };
   }, [open]);
+
+  useEffect(() => {
+    return () => {
+      if (priorityToastTimer.current) {
+        clearTimeout(priorityToastTimer.current);
+      }
+    };
+  }, []);
 
   const campaignInsights = useMemo(() => {
     const rollupsMap = new Map<string, CampaignRollup>();
@@ -274,6 +377,56 @@ export function ManagerInsightsPanel({ open, onClose, summary, preview, onPrompt
 
       {tab === "growth" && (
         <div className="space-y-4">
+          <div className="rounded-lg border border-slate-800 bg-slate-900/70 px-3 py-3 space-y-3">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm font-semibold text-white">Top 3 prioridades (hoy)</p>
+                <p className="text-xs text-slate-400">Acciones rápidas para ir al chat.</p>
+              </div>
+            </div>
+            {priorityToast && <p className="text-xs text-emerald-200">{priorityToast}</p>}
+            {topPriorities.length === 0 && <p className="text-xs text-slate-400">Sin prioridades por ahora.</p>}
+            {topPriorities.length > 0 && (
+              <div className="space-y-2 text-sm text-slate-200">
+                {topPriorities.map((item) => (
+                  <div key={item.id} className="flex items-center justify-between gap-3 rounded-lg border border-slate-800 bg-slate-950/70 px-3 py-2">
+                    <div className="min-w-0">
+                      <div className="text-sm font-semibold text-white truncate">{item.title}</div>
+                      {item.subtitle && <div className="text-[11px] text-slate-400 line-clamp-2">{item.subtitle}</div>}
+                    </div>
+                    <div className="flex items-center gap-2 shrink-0">
+                      {item.kind === "INVITE_PENDING" ? (
+                        <button
+                          type="button"
+                          className="rounded-md border border-slate-700 bg-slate-900/70 px-2 py-1 text-[11px] text-slate-200 hover:border-emerald-500/60 whitespace-nowrap"
+                          onClick={() => handlePriorityCopy(item)}
+                        >
+                          Copiar invitación
+                        </button>
+                      ) : (
+                        <button
+                          type="button"
+                          className="rounded-md border border-slate-700 bg-slate-900/70 px-2 py-1 text-[11px] text-slate-200 hover:border-emerald-500/60 whitespace-nowrap"
+                          onClick={() => handlePriorityOpen(item)}
+                        >
+                          Abrir chat
+                        </button>
+                      )}
+                      {item.kind !== "INVITE_PENDING" && item.secondaryAction && (
+                        <button
+                          type="button"
+                          className="rounded-md border border-slate-800 bg-slate-900/70 px-2 py-1 text-[11px] text-slate-300 hover:border-slate-600 whitespace-nowrap"
+                          onClick={() => handlePrioritySecondary(item)}
+                        >
+                          {item.secondaryAction.label}
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
           <div className="rounded-lg border border-slate-800 bg-slate-900/70 px-3 py-3 space-y-3">
             <div className="flex items-center justify-between">
               <div>

@@ -1,5 +1,6 @@
 import type { NextApiRequest, NextApiResponse } from "next";
 import prisma from "../../../lib/prisma.server";
+import { getCreatorManagerSummary } from "../../../lib/creatorManager";
 import { buildManagerQueueForCreator } from "../../../server/manager/managerService";
 import { addDaysFrom } from "../../../server/manager/dateUtils";
 import { FanQueueItemSchema, type FanQueueItem } from "../../../server/manager/managerSchemas";
@@ -58,6 +59,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         select: { fanId: true, type: true },
       }),
     ]);
+
+    const prioritySummary = await getCreatorManagerSummary(creatorId, { prismaClient: prisma });
 
     const actionsToday: {
       id: string;
@@ -128,6 +131,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       suggestions: actionsToday,
       revenueAtRisk7d,
       atRiskFansCount,
+      priorityItems: prioritySummary.priorityItems,
+      topPriorities: prioritySummary.topPriorities,
       queue,
     });
   } catch (err) {

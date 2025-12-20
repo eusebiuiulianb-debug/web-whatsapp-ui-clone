@@ -3,6 +3,29 @@ import prisma from "./prisma.server";
 import { PACKS } from "../config/packs";
 import { buildManagerQueueForCreator, type Segment } from "../server/manager/managerService";
 
+export type PriorityItemKind = "INVITE_PENDING" | "EXPIRING_ACCESS" | "NO_ACCESS_BUT_MESSAGE" | "AT_RISK";
+
+export type PriorityItemAction = {
+  type: "open" | "copy";
+  label: string;
+  href?: string;
+  copyText?: string;
+  target?: "_blank" | "_self";
+};
+
+export type PriorityItem = {
+  id: string;
+  kind: PriorityItemKind;
+  title: string;
+  subtitle?: string;
+  fanId?: string;
+  href?: string;
+  inviteUrl?: string;
+  score: number;
+  primaryAction: PriorityItemAction;
+  secondaryAction?: PriorityItemAction;
+};
+
 export type CreatorManagerSummary = {
   kpis: {
     last7: { revenue: number; extras: number; newFans: number };
@@ -20,6 +43,8 @@ export type CreatorManagerSummary = {
     atRisk: number;
   };
   suggestions: { id: string; label: string; description?: string; action?: string; filter?: Record<string, any> }[];
+  priorityItems: PriorityItem[];
+  topPriorities: PriorityItem[];
   revenueAtRisk7d?: number;
   atRiskFansCount?: number;
 };
@@ -52,6 +77,8 @@ const VIP_SPEND_THRESHOLD = 200; // mismo umbral usado en el HUD para etiquetar 
 const HABITUAL_WINDOW_DAYS = 60;
 const AT_RISK_INACTIVITY_DAYS = 30; // fans sin compras en los últimos 30 días se marcan en riesgo
 const RENEWAL_WINDOW_DAYS = 7;
+const PRIORITY_EXPIRY_WINDOW_HOURS = 72;
+const MS_PER_DAY = 24 * 60 * 60 * 1000;
 
 function startOfToday(): Date {
   const d = new Date();
@@ -89,12 +116,36 @@ function getUniqueFanCount(grants: { fanId: string }[]): number {
   return new Set(grants.map((g) => g.fanId)).size;
 }
 
+function buildCreatorChatHref(fanId: string): string {
+  return `/?fanId=${encodeURIComponent(fanId)}`;
+}
+
+function buildOpenChatAction(fanId: string): PriorityItemAction {
+  return {
+    type: "open",
+    label: "Abrir chat",
+    href: buildCreatorChatHref(fanId),
+  };
+}
+
+function buildInvitePath(token: string): string {
+  const base = process.env.NEXT_PUBLIC_BASE_URL;
+  if (base) {
+    const normalized = base.endsWith("/") ? base.slice(0, -1) : base;
+    return `${normalized}/i/${token}`;
+  }
+  return `/i/${token}`;
+}
+
 export async function getCreatorManagerSummary(creatorId: string, deps: ManagerDeps = {}): Promise<CreatorManagerSummary> {
   const client = deps.prismaClient ?? prisma;
   const now = new Date();
   const start7 = daysAgo(7);
   const start30 = daysAgo(30);
   const expiryWindowEnd = daysFromNow(RENEWAL_WINDOW_DAYS);
+  const priorityExpiryWindowEnd = new Date(now.getTime() + PRIORITY_EXPIRY_WINDOW_HOURS * 60 * 60 * 1000);
+  const inactivityWindow = daysAgo(AT_RISK_INACTIVITY_DAYS);
+  const priorityItems: PriorityItem[] = [];
 
   const [extrasLast7, extrasLast30, grantsLast7, grantsLast30, activeGrants, monthlyExpiringSoon, monthlyExpired30, fans] =
     await Promise.all([
@@ -132,9 +183,14 @@ export async function getCreatorManagerSummary(creatorId: string, deps: ManagerD
         where: { creatorId },
         select: {
           id: true,
+          name: true,
+          displayName: true,
+          inviteToken: true,
+          inviteUsedAt: true,
           isNew: true,
           accessGrants: { select: { type: true, createdAt: true, expiresAt: true } },
           extraPurchases: { select: { amount: true, createdAt: true } },
+          messages: { where: { from: "fan" }, select: { id: true }, take: 1 },
         },
       }),
     ]);
@@ -165,6 +221,7 @@ export async function getCreatorManagerSummary(creatorId: string, deps: ManagerD
 
   // Recorremos fans para segmentación y nuevos en ventanas
   for (const fan of fans) {
+    const displayName = (fan.displayName || fan.name || "").trim() || "Fan";
     const grants = fan.accessGrants ?? [];
     const extras = fan.extraPurchases ?? [];
     const firstActivityDate =
@@ -191,6 +248,64 @@ export async function getCreatorManagerSummary(creatorId: string, deps: ManagerD
       kpis.last7.newFans += 1;
     }
 
+    if (fan.inviteToken && !fan.inviteUsedAt) {
+      const invitePath = buildInvitePath(fan.inviteToken);
+      priorityItems.push({
+        id: `priority_invite_pending_${fan.id}`,
+        kind: "INVITE_PENDING",
+        title: "Invite pendiente",
+        subtitle: `${displayName} aún no ha entrado`,
+        fanId: fan.id,
+        inviteUrl: invitePath,
+        score: 90,
+        primaryAction: {
+          type: "copy",
+          label: "Copiar invitación",
+          copyText: invitePath,
+        },
+      });
+    }
+
+    let expiringAccessAt: Date | null = null;
+    for (const grant of grants) {
+      if (grant.expiresAt > now && grant.expiresAt <= priorityExpiryWindowEnd) {
+        if (!expiringAccessAt || grant.expiresAt.getTime() < expiringAccessAt.getTime()) {
+          expiringAccessAt = grant.expiresAt;
+        }
+      }
+    }
+    if (expiringAccessAt) {
+      const daysToExpiry = Math.max(1, Math.ceil((expiringAccessAt.getTime() - now.getTime()) / MS_PER_DAY));
+      const dayLabel = daysToExpiry === 1 ? "día" : "días";
+      const chatHref = buildCreatorChatHref(fan.id);
+      priorityItems.push({
+        id: `priority_expiring_access_${fan.id}`,
+        kind: "EXPIRING_ACCESS",
+        title: "Acceso caduca pronto",
+        subtitle: `${displayName} caduca en ${daysToExpiry} ${dayLabel}`,
+        fanId: fan.id,
+        href: chatHref,
+        score: 80,
+        primaryAction: buildOpenChatAction(fan.id),
+      });
+    }
+
+    const hasActiveAccess = grants.some((g) => g.expiresAt > now);
+    const hasMessages = (fan.messages?.length ?? 0) > 0;
+    if (!hasActiveAccess && hasMessages) {
+      const chatHref = buildCreatorChatHref(fan.id);
+      priorityItems.push({
+        id: `priority_no_access_message_${fan.id}`,
+        kind: "NO_ACCESS_BUT_MESSAGE",
+        title: "Escribió sin acceso",
+        subtitle: `${displayName} escribió pero no tiene acceso`,
+        fanId: fan.id,
+        href: chatHref,
+        score: 70,
+        primaryAction: buildOpenChatAction(fan.id),
+      });
+    }
+
     const hasActiveMonthly = grants.some((g) => g.type === "monthly" && g.expiresAt > now);
     const hasActiveSpecial = grants.some((g) => g.type === "special" && g.expiresAt > now);
 
@@ -203,12 +318,23 @@ export async function getCreatorManagerSummary(creatorId: string, deps: ManagerD
       }
     }
 
-    const inactivityWindow = daysAgo(AT_RISK_INACTIVITY_DAYS);
     const monthlyExpirySoon = grants.some(
       (g) => g.type === "monthly" && g.expiresAt > now && g.expiresAt <= expiryWindowEnd
     );
-    if (monthlyExpirySoon || !lastActivityDate || lastActivityDate <= inactivityWindow) {
+    const isAtRisk = monthlyExpirySoon || !lastActivityDate || lastActivityDate <= inactivityWindow;
+    if (isAtRisk) {
       segments.atRisk += 1;
+      const chatHref = buildCreatorChatHref(fan.id);
+      priorityItems.push({
+        id: `priority_at_risk_${fan.id}`,
+        kind: "AT_RISK",
+        title: "Fan en riesgo",
+        subtitle: `${displayName} requiere seguimiento`,
+        fanId: fan.id,
+        href: chatHref,
+        score: 60,
+        primaryAction: buildOpenChatAction(fan.id),
+      });
     }
     // VIP fans ya se contaron en vip; no los restamos de atRisk para mantener una métrica conservadora.
   }
@@ -273,7 +399,15 @@ export async function getCreatorManagerSummary(creatorId: string, deps: ManagerD
     suggestions.push({ id: buildId(), label: "Aún no hay suficiente actividad; sigue escribiendo a tus fans.", action: "general" });
   }
 
-  return { kpis, packs, segments, suggestions };
+  const topPriorities = priorityItems
+    .slice()
+    .sort((a, b) => {
+      if (b.score !== a.score) return b.score - a.score;
+      return a.title.localeCompare(b.title);
+    })
+    .slice(0, 3);
+
+  return { kpis, packs, segments, suggestions, priorityItems, topPriorities };
 }
 
 export async function getCreatorBusinessSnapshot(creatorId: string, deps: ManagerDeps = {}): Promise<CreatorBusinessSnapshot> {
