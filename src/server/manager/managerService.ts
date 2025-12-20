@@ -16,6 +16,7 @@ import {
   type IaRuleContext,
   type NextBestActionId,
 } from "./managerIaConfig";
+import { isVisibleToFan } from "../../lib/messageAudience";
 
 // Thresholds de segmentación/health
 export const VIP_LTV_THRESHOLD = 200;
@@ -556,7 +557,8 @@ export async function buildManagerQueueForCreator(creatorId: string, prisma: Pri
   const queue: FanManagerRow[] = [];
 
   for (const fan of fans) {
-    const lastMsg = fan.messages
+    const visibleMessages = (fan.messages ?? []).filter((message) => isVisibleToFan(message));
+    const lastMsg = visibleMessages
       .map((m) => m.time)
       .filter((t): t is string => Boolean(t))
       .map((t) => new Date(t))
@@ -662,7 +664,8 @@ export async function buildFanManagerSummary(creatorId: string, fanId: string, p
     throw new Error("NOT_FOUND");
   }
 
-  const lastMsg = fan.messages
+  const visibleMessages = (fan.messages ?? []).filter((message) => isVisibleToFan(message));
+  const lastMsg = visibleMessages
     .map((m) => m.time)
     .filter((t): t is string => Boolean(t))
     .map((t) => new Date(t))

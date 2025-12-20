@@ -2,6 +2,7 @@ import type { NextApiRequest, NextApiResponse } from "next";
 import type { ContentPack, ContentType, ContentVisibility, ExtraTier, Prisma, TimeOfDay } from "@prisma/client";
 import prisma from "../../../lib/prisma.server";
 import { sendBadRequest, sendServerError } from "../../../lib/apiError";
+import { isVisibleToFan } from "../../../lib/messageAudience";
 
 function isValidEnum<T>(value: unknown, allowed: readonly T[]): value is T {
   return allowed.includes(value as T);
@@ -48,12 +49,14 @@ async function handleGet(req: NextApiRequest, res: NextApiResponse) {
         type: "CONTENT",
         contentItemId: { not: null },
       },
-      select: { contentItemId: true },
+      select: { contentItemId: true, from: true, audience: true },
     });
 
     const sentSet = new Set<string>();
     for (const msg of sentMessages) {
-      if (msg.contentItemId) sentSet.add(msg.contentItemId);
+      if (!msg.contentItemId) continue;
+      if (!isVisibleToFan(msg)) continue;
+      sentSet.add(msg.contentItemId);
     }
 
     const itemsWithFlag = items.map((item) => ({

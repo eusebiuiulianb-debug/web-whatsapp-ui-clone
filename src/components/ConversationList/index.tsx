@@ -5,6 +5,7 @@ import { ConversationListData } from "../../types/Conversation"
 import { getFollowUpTag } from "../../utils/followUp";
 import clsx from "clsx";
 import { PACKS } from "../../config/packs";
+import { normalizePreferredLanguage } from "../../lib/language";
 
 interface ConversationListProps {
   isFirstConversation?: boolean;
@@ -104,6 +105,8 @@ export default function ConversationList(props: ConversationListProps) {
     ? shorten(data.nextAction, 100)
     : "";
   const novsyStatus = (data as any).novsyStatus ?? null;
+  const preferredLanguage = normalizePreferredLanguage(data.preferredLanguage);
+  const languageBadgeLabel = !isManagerChat && preferredLanguage ? preferredLanguage.toUpperCase() : null;
 
   function normalizeTier(tier: string | undefined) {
     const lower = (tier || "").toLowerCase();
@@ -197,6 +200,11 @@ export default function ConversationList(props: ConversationListProps) {
               <span className={tierBadgeClass}>
                 {tierLabel}
               </span>
+              {languageBadgeLabel && (
+                <span className="inline-flex items-center rounded-full border border-slate-600 bg-slate-900/70 px-2 py-1 text-[10px] font-semibold text-slate-200 whitespace-nowrap shrink-0">
+                  {languageBadgeLabel}
+                </span>
+              )}
               {novsyStatus === "NOVSY" && (
                 <span className="inline-flex items-center rounded-full border border-emerald-400/80 bg-emerald-500/15 px-2.5 py-1 text-[11px] font-semibold text-emerald-100 whitespace-nowrap shrink-0">
                   Extras

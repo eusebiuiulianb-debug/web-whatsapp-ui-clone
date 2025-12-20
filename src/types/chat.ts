@@ -79,6 +79,7 @@ export interface Fan {
   } | null;
   isBlocked?: boolean;
   isArchived?: boolean;
+  preferredLanguage?: "es" | "en" | "ro" | null;
   firstUtmSource?: string | null;
   firstUtmMedium?: string | null;
   firstUtmCampaign?: string | null;
@@ -90,7 +91,10 @@ export interface Message {
   id: string;
   fanId: string;
   from: "creator" | "fan";
+  audience?: "FAN" | "CREATOR" | "INTERNAL";
   text: string;
+  deliveredText?: string | null;
+  creatorTranslatedText?: string | null;
   time: string;
   isLastFromCreator?: boolean;
   type?: "TEXT" | "CONTENT";

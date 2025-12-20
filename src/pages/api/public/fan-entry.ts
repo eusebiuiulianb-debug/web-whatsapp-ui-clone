@@ -1,6 +1,9 @@
 import type { NextApiRequest, NextApiResponse } from "next";
 import { ANALYTICS_EVENTS, type AnalyticsEventName } from "../../../lib/analyticsEvents";
 import { ensureAnalyticsCookie, readAnalyticsCookie } from "../../../lib/analyticsCookie";
+import { inferPreferredLanguage, normalizePreferredLanguage } from "../../../lib/language";
+import { getDbSchemaOutOfSyncPayload, isDbSchemaOutOfSyncError } from "../../../lib/dbSchemaGuard";
+import { translateText } from "../../../server/ai/translateText";
 
 type Body = {
   handle?: string;
@@ -61,6 +64,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       select: {
         id: true,
         isBlocked: true,
+        preferredLanguage: true,
         firstUtmSource: true,
         firstUtmMedium: true,
         firstUtmCampaign: true,
@@ -81,6 +85,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       firstUtmTerm: merged.utmTerm || null,
     };
 
+    const inferredLanguage = inferPreferredLanguage(req.headers["accept-language"]);
+    const storedLanguage = normalizePreferredLanguage(existing?.preferredLanguage);
+    const preferredLanguage = storedLanguage ?? inferredLanguage;
+
     if (existing) {
       fanId = existing.id;
       const needsAttribution =
@@ -89,6 +97,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         !existing.firstUtmCampaign ||
         !existing.firstUtmContent ||
         !existing.firstUtmTerm;
+      const shouldUpdateLanguage = !storedLanguage;
 
       await prisma.fan.update({
         where: { id: fanId },
@@ -98,6 +107,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           time,
           lastMessageAt: now,
           unreadCount: { increment: 1 },
+          ...(shouldUpdateLanguage ? { preferredLanguage } : {}),
           ...(needsAttribution
             ? {
                 firstUtmSource: existing.firstUtmSource || attribution.firstUtmSource,
@@ -121,18 +131,26 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           lastMessageAt: now,
           isNew: true,
           unreadCount: 1,
+          preferredLanguage,
           ...attribution,
         },
       });
       isNewFan = true;
     }
 
+    const creatorTranslatedText =
+      preferredLanguage !== "es"
+        ? await translateText({ text: message, targetLanguage: "es", creatorId: match.id, fanId })
+        : null;
+
     await prisma.message.create({
       data: {
         id: `${fanId}-${Date.now()}`,
         fanId,
         from: "fan",
+        audience: "FAN",
         text: message,
+        creatorTranslatedText,
         time,
         isLastFromCreator: false,
         type: "TEXT",
@@ -186,6 +204,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       console.error("Error tracking send_message for public entry", err);
     }
   } catch (err) {
+    if (isDbSchemaOutOfSyncError(err)) {
+      const payload = getDbSchemaOutOfSyncPayload();
+      return res.status(500).json({ error: payload.errorCode, ...payload });
+    }
     console.error("Error creating public fan entry", err);
     return res.status(500).json({ error: "INTERNAL_ERROR" });
   }

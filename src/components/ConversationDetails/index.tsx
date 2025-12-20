@@ -29,11 +29,20 @@ import type { FanManagerStateAnalysis } from "../../lib/fanManagerState";
 import type { FanTone, ManagerObjective } from "../../types/manager";
 import { track } from "../../lib/analyticsClient";
 import { ANALYTICS_EVENTS } from "../../lib/analyticsEvents";
+import { deriveAudience, isVisibleToFan, normalizeFrom } from "../../lib/messageAudience";
+import {
+  DB_SCHEMA_OUT_OF_SYNC_FIX,
+  DB_SCHEMA_OUT_OF_SYNC_MESSAGE,
+  isDbSchemaOutOfSyncPayload,
+  type DbSchemaOutOfSyncPayload,
+} from "../../lib/dbSchemaGuard";
+import { LANGUAGE_LABELS, SUPPORTED_LANGUAGES, normalizePreferredLanguage, type SupportedLanguage } from "../../lib/language";
 import clsx from "clsx";
 import { useRouter } from "next/router";
 import { useIsomorphicLayoutEffect } from "../../hooks/useIsomorphicLayoutEffect";
 
 type ManagerQuickIntent = ManagerObjective;
+type ComposerAudienceMode = "CREATOR" | "INTERNAL";
 
 type ConversationDetailsProps = {
   onBackToBoard?: () => void;
@@ -49,6 +58,13 @@ const CONTENT_PACKS = [
   { code: "MONTHLY" as const, label: "Suscripción mensual" },
   { code: "SPECIAL" as const, label: "Pack especial pareja" },
 ] as const;
+const TRANSLATION_QUICK_CHIPS = [
+  { id: "greeting", label: "Saludo corto", text: "Hola, ¿qué tal estás?" },
+  { id: "question", label: "Pregunta simple", text: "¿Cómo ha ido tu día?" },
+  { id: "closing", label: "Cierre suave", text: "Cuando quieras seguimos, estoy aquí." },
+] as const;
+const AUDIENCE_STORAGE_KEY = "novsy.creatorMessageAudience";
+const TRANSLATION_PREVIEW_KEY_PREFIX = "novsy.creatorTranslationPreview";
 
 function reconcileMessages(
   existing: ConversationMessage[],
@@ -75,6 +91,24 @@ function reconcileMessages(
     }
   });
   return existingKeys.map((key) => map.get(key)).filter(Boolean) as ConversationMessage[];
+}
+
+function reconcileApiMessages(existing: ApiMessage[], incoming: ApiMessage[], targetFanId?: string): ApiMessage[] {
+  const filteredIncoming = targetFanId
+    ? incoming.filter((msg) => msg.fanId === targetFanId)
+    : incoming;
+  const map = new Map<string, ApiMessage>();
+  existing.forEach((msg) => map.set(msg.id, msg));
+  filteredIncoming.forEach((msg) => {
+    const prev = map.get(msg.id);
+    map.set(msg.id, prev ? { ...prev, ...msg } : msg);
+  });
+  return Array.from(map.values()).sort((a, b) => {
+    const at = a.id ? String(a.id) : "";
+    const bt = b.id ? String(b.id) : "";
+    if (at === bt) return 0;
+    return at > bt ? 1 : -1;
+  });
 }
 
 function getReengageTemplate(name: string) {
@@ -105,9 +139,12 @@ export default function ConversationDetails({ onBackToBoard }: ConversationDetai
     lastCreatorMessageAt,
   } = conversation;
   const [ messageSend, setMessageSend ] = useState("");
+  const [ composerAudience, setComposerAudience ] = useState<ComposerAudienceMode>("CREATOR");
   const [ showPackSelector, setShowPackSelector ] = useState(false);
   const [ isLoadingMessages, setIsLoadingMessages ] = useState(false);
   const [ messagesError, setMessagesError ] = useState("");
+  const [ schemaError, setSchemaError ] = useState<DbSchemaOutOfSyncPayload | null>(null);
+  const [ schemaCopyState, setSchemaCopyState ] = useState<"idle" | "copied" | "error">("idle");
   const [ grantLoadingType, setGrantLoadingType ] = useState<"trial" | "monthly" | "special" | null>(null);
   const [ selectedPackType, setSelectedPackType ] = useState<"trial" | "monthly" | "special">("monthly");
   const [ accessGrants, setAccessGrants ] = useState<
@@ -128,9 +165,29 @@ export default function ConversationDetails({ onBackToBoard }: ConversationDetai
   const [ editNameValue, setEditNameValue ] = useState("");
   const [ editNameError, setEditNameError ] = useState<string | null>(null);
   const [ editNameSaving, setEditNameSaving ] = useState(false);
+  const [ preferredLanguage, setPreferredLanguage ] = useState<SupportedLanguage | null>(null);
+  const [ preferredLanguageSaving, setPreferredLanguageSaving ] = useState(false);
+  const [ preferredLanguageError, setPreferredLanguageError ] = useState<string | null>(null);
+  const [ internalToast, setInternalToast ] = useState<string | null>(null);
+  const [ translationPreviewOpen, setTranslationPreviewOpen ] = useState(false);
+  const [ translationPreviewStatus, setTranslationPreviewStatus ] = useState<
+    "idle" | "loading" | "ready" | "unavailable" | "error"
+  >("idle");
+  const [ translationPreviewText, setTranslationPreviewText ] = useState<string | null>(null);
+  const [ translationPreviewNotice, setTranslationPreviewNotice ] = useState<string | null>(null);
+  const [ translationCopyState, setTranslationCopyState ] = useState<"idle" | "copied" | "error">("idle");
   const [ inviteCopyState, setInviteCopyState ] = useState<"idle" | "loading" | "copied" | "error">("idle");
   const [ inviteCopyError, setInviteCopyError ] = useState<string | null>(null);
   const [ inviteCopyUrl, setInviteCopyUrl ] = useState<string | null>(null);
+  const [ inviteCopyToast, setInviteCopyToast ] = useState("");
+  const inviteCopyToastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const schemaCopyTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const internalToastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const translationPreviewTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const translationPreviewAbortRef = useRef<AbortController | null>(null);
+  const translationPreviewRequestId = useRef(0);
+  const translationPreviewKeyRef = useRef<string | null>(null);
+  const translationCopyTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [ showContentModal, setShowContentModal ] = useState(false);
   const [ contentModalMode, setContentModalMode ] = useState<"packs" | "extras">("packs");
   const [ extraTierFilter, setExtraTierFilter ] = useState<"T0" | "T1" | "T2" | "T3" | "T4" | null>(null);
@@ -191,6 +248,10 @@ export default function ConversationDetails({ onBackToBoard }: ConversationDetai
   const [ isInternalChatOpen, setIsInternalChatOpen ] = useState(false);
   const managerChatListRef = useRef<HTMLDivElement | null>(null);
   const managerChatInputRef = useRef<HTMLTextAreaElement | null>(null);
+  const [ internalMessages, setInternalMessages ] = useState<ApiMessage[]>([]);
+  const [ internalMessagesError, setInternalMessagesError ] = useState("");
+  const [ isLoadingInternalMessages, setIsLoadingInternalMessages ] = useState(false);
+  const internalMessagesAbortRef = useRef<AbortController | null>(null);
   const [ managerSuggestions, setManagerSuggestions ] = useState<ManagerSuggestion[]>([]);
   const [ currentObjective, setCurrentObjective ] = useState<ManagerObjective | null>(null);
   const [ managerSummary, setManagerSummary ] = useState<FanManagerSummary | null>(null);
@@ -311,6 +372,14 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
     adjustMessageInputHeight();
   }, [messageSend]);
 
+  useEffect(() => {
+    return () => {
+      if (inviteCopyToastTimer.current) {
+        clearTimeout(inviteCopyToastTimer.current);
+      }
+    };
+  }, []);
+
   useIsomorphicLayoutEffect(() => {
     const el = messagesContainerRef.current;
     if (!el) return;
@@ -360,6 +429,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
       contactName: getFanDisplayNameForCreator(fan),
       displayName: fan.displayName ?? null,
       creatorLabel: fan.creatorLabel ?? null,
+      preferredLanguage: normalizePreferredLanguage(fan.preferredLanguage) ?? null,
       lastMessage: fan.preview,
       lastTime: fan.time,
       image: fan.avatar || "/avatar.jpg",
@@ -1126,8 +1196,9 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
   async function refreshFanData(fanId: string) {
     try {
       const res = await fetch(`/api/fans?fanId=${encodeURIComponent(fanId)}`);
-      if (!res.ok) throw new Error("error");
-      const data = await res.json();
+      const data = await res.json().catch(() => ({}));
+      if (handleSchemaOutOfSync(data)) return;
+      if (!res.ok || !data?.ok) throw new Error("error");
       const rawFans = Array.isArray(data.items)
         ? (data.items as Fan[])
         : Array.isArray(data.fans)
@@ -1147,6 +1218,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
           contactName: getFanDisplayNameForCreator(targetFan),
           displayName: targetFan.displayName ?? prev.displayName ?? null,
           creatorLabel: targetFan.creatorLabel ?? prev.creatorLabel ?? null,
+          preferredLanguage: normalizePreferredLanguage(targetFan.preferredLanguage) ?? null,
           membershipStatus: targetFan.membershipStatus,
           daysLeft: targetFan.daysLeft,
           activeGrantTypes: targetFan.activeGrantTypes ?? prev.activeGrantTypes,
@@ -1177,6 +1249,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
         });
         await fetchRecommendedFan();
       }
+      setSchemaError(null);
     } catch (_err) {
       // silent fail; UI remains with previous data
     }
@@ -1190,6 +1263,8 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
         fanId: msg.fanId,
         me: msg.from === "creator",
         message: msg.text,
+        translatedText: msg.creatorTranslatedText ?? undefined,
+        audience: deriveAudience(msg),
         seen: !!msg.isLastFromCreator,
         time: msg.time || "",
         createdAt: (msg as any)?.createdAt ?? undefined,
@@ -1212,6 +1287,65 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
   const messagesAbortRef = useRef<AbortController | null>(null);
   const messagesPollRef = useRef<NodeJS.Timeout | null>(null);
 
+  const handleSchemaOutOfSync = useCallback((payload: any) => {
+    if (!isDbSchemaOutOfSyncPayload(payload)) return false;
+    const fix = Array.isArray(payload.fix) && payload.fix.length > 0 ? payload.fix : [...DB_SCHEMA_OUT_OF_SYNC_FIX];
+    const message =
+      typeof payload.message === "string" && payload.message.trim().length > 0
+        ? payload.message
+        : DB_SCHEMA_OUT_OF_SYNC_MESSAGE;
+    setSchemaError({ errorCode: payload.errorCode, message, fix });
+    setSchemaCopyState("idle");
+    return true;
+  }, []);
+
+  const handleCopySchemaFix = useCallback(async () => {
+    if (!schemaError) return;
+    const commands = schemaError.fix?.length ? schemaError.fix : DB_SCHEMA_OUT_OF_SYNC_FIX;
+    try {
+      await navigator.clipboard.writeText(commands.join("\n"));
+      setSchemaCopyState("copied");
+    } catch (_err) {
+      setSchemaCopyState("error");
+    }
+    if (schemaCopyTimer.current) {
+      clearTimeout(schemaCopyTimer.current);
+    }
+    schemaCopyTimer.current = setTimeout(() => {
+      setSchemaCopyState("idle");
+    }, 1600);
+  }, [schemaError]);
+
+  const handleCopyTranslationPreview = useCallback(async () => {
+    if (!translationPreviewText) return;
+    try {
+      await navigator.clipboard.writeText(translationPreviewText);
+      setTranslationCopyState("copied");
+    } catch (_err) {
+      setTranslationCopyState("error");
+    }
+    if (translationCopyTimer.current) {
+      clearTimeout(translationCopyTimer.current);
+    }
+    translationCopyTimer.current = setTimeout(() => {
+      setTranslationCopyState("idle");
+    }, 1600);
+  }, [translationPreviewText]);
+
+  useEffect(() => {
+    setTranslationCopyState("idle");
+  }, [translationPreviewText]);
+
+  const openInternalThread = useCallback(() => {
+    setIsInternalChatOpen(true);
+    requestAnimationFrame(() => {
+      if (managerChatListRef.current) {
+        managerChatListRef.current.scrollTop = managerChatListRef.current.scrollHeight;
+        managerChatListRef.current.scrollIntoView({ block: "nearest" });
+      }
+    });
+  }, []);
+
   const fetchMessages = useCallback(
     async (shouldShowLoading = false) => {
       if (!id) return;
@@ -1225,17 +1359,20 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
           setIsLoadingMessages(true);
         }
         setMessagesError("");
-        const params = new URLSearchParams({ fanId: id, markRead: "1" });
+        const params = new URLSearchParams({ fanId: id, markRead: "1", audiences: "FAN,CREATOR" });
         const res = await fetch(`/api/messages?${params.toString()}`, { signal: controller.signal });
         const data = await res.json().catch(() => ({}));
+        if (handleSchemaOutOfSync(data)) return;
         if (!res.ok || !data?.ok) throw new Error(data?.error || "error");
         const source = Array.isArray(data.items)
           ? (data.items as ApiMessage[])
           : Array.isArray(data.messages)
           ? (data.messages as ApiMessage[])
           : [];
-        const mapped = mapApiMessagesToState(source);
+        const visible = source.filter((msg) => isVisibleToFan(msg));
+        const mapped = mapApiMessagesToState(visible);
         setMessage((prev) => reconcileMessages(prev || [], mapped, id));
+        setSchemaError(null);
       } catch (err) {
         if ((err as any)?.name === "AbortError") return;
         setMessagesError("Error cargando mensajes");
@@ -1245,7 +1382,45 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
         }
       }
     },
-    [id, mapApiMessagesToState, setMessage]
+    [handleSchemaOutOfSync, id, mapApiMessagesToState, setMessage]
+  );
+
+  const fetchInternalMessages = useCallback(
+    async (shouldShowLoading = false) => {
+      if (!id) return;
+      if (internalMessagesAbortRef.current) {
+        internalMessagesAbortRef.current.abort();
+      }
+      const controller = new AbortController();
+      internalMessagesAbortRef.current = controller;
+      try {
+        if (shouldShowLoading) {
+          setIsLoadingInternalMessages(true);
+        }
+        setInternalMessagesError("");
+        const params = new URLSearchParams({ fanId: id, audiences: "INTERNAL" });
+        const res = await fetch(`/api/messages?${params.toString()}`, { signal: controller.signal });
+        const data = await res.json().catch(() => ({}));
+        if (handleSchemaOutOfSync(data)) return;
+        if (!res.ok || !data?.ok) throw new Error(data?.error || "error");
+        const source = Array.isArray(data.items)
+          ? (data.items as ApiMessage[])
+          : Array.isArray(data.messages)
+          ? (data.messages as ApiMessage[])
+          : [];
+        const internalOnly = source.filter((msg) => deriveAudience(msg) === "INTERNAL");
+        setInternalMessages((prev) => reconcileApiMessages(prev, internalOnly, id));
+        setSchemaError(null);
+      } catch (err) {
+        if ((err as any)?.name === "AbortError") return;
+        setInternalMessagesError("Error cargando mensajes internos");
+      } finally {
+        if (shouldShowLoading) {
+          setIsLoadingInternalMessages(false);
+        }
+      }
+    },
+    [handleSchemaOutOfSync, id]
   );
 
   useEffect(() => {
@@ -1258,6 +1433,33 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
       }
     };
   }, [fetchMessages, id]);
+
+  useEffect(() => {
+    setSchemaError(null);
+    setSchemaCopyState("idle");
+    setInternalToast(null);
+    if (internalToastTimer.current) {
+      clearTimeout(internalToastTimer.current);
+    }
+  }, [id]);
+
+  useEffect(() => {
+    setInternalMessages([]);
+    setInternalMessagesError("");
+    if (internalMessagesAbortRef.current) {
+      internalMessagesAbortRef.current.abort();
+    }
+  }, [id]);
+
+  useEffect(() => {
+    if (!id || !isInternalChatOpen) return;
+    fetchInternalMessages(true);
+    return () => {
+      if (internalMessagesAbortRef.current) {
+        internalMessagesAbortRef.current.abort();
+      }
+    };
+  }, [fetchInternalMessages, id, isInternalChatOpen]);
 
   useEffect(() => {
     if (!id) return undefined;
@@ -1282,6 +1484,12 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
     const derivedPack = derivePackFromLabel(membershipStatus || accessLabel) || "monthly";
     setSelectedPackType(derivedPack);
   }, [accessLabel, conversation.id, conversation.nextAction, membershipStatus]);
+
+  useEffect(() => {
+    const normalized = normalizePreferredLanguage(conversation.preferredLanguage) ?? null;
+    setPreferredLanguage(normalized);
+    setPreferredLanguageError(null);
+  }, [conversation.preferredLanguage, showQuickSheet]);
 
   useEffect(() => {
     if (!id) return;
@@ -1353,6 +1561,40 @@ useEffect(() => {
 }, []);
 
   useEffect(() => {
+    if (typeof window === "undefined") return;
+    const stored = window.localStorage.getItem(AUDIENCE_STORAGE_KEY);
+    if (stored === "CREATOR" || stored === "INTERNAL") {
+      setComposerAudience(stored);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    window.localStorage.setItem(AUDIENCE_STORAGE_KEY, composerAudience);
+  }, [composerAudience]);
+
+  useEffect(() => {
+    if (!id || typeof window === "undefined") return;
+    const stored = window.localStorage.getItem(`${TRANSLATION_PREVIEW_KEY_PREFIX}:${id}`);
+    setTranslationPreviewOpen(stored === "1");
+  }, [id]);
+
+  useEffect(() => {
+    if (!id || typeof window === "undefined") return;
+    window.localStorage.setItem(
+      `${TRANSLATION_PREVIEW_KEY_PREFIX}:${id}`,
+      translationPreviewOpen ? "1" : "0"
+    );
+  }, [id, translationPreviewOpen]);
+
+  useEffect(() => {
+    setTranslationPreviewStatus("idle");
+    setTranslationPreviewText(null);
+    setTranslationPreviewNotice(null);
+    translationPreviewKeyRef.current = null;
+  }, [id, effectiveLanguage]);
+
+  useEffect(() => {
     setIaMessage(null);
     setIaBlocked(false);
     fetchAiStatus();
@@ -1360,6 +1602,13 @@ useEffect(() => {
   }, [conversation.id]);
 
   const managerChatMessages = managerChatByFan[id ?? ""] ?? [];
+  const internalNotes = internalMessages.filter((message) => deriveAudience(message) === "INTERNAL");
+  const hasInternalThreadMessages = internalNotes.length > 0 || managerChatMessages.length > 0;
+  const effectiveLanguage = (preferredLanguage ?? "en") as SupportedLanguage;
+  const isTranslationPreviewAvailable =
+    !!id && !conversation.isManager && composerAudience === "CREATOR" && effectiveLanguage !== "es";
+  const translationPreviewLabel = effectiveLanguage.toUpperCase();
+  const translationPreviewButtonLabel = translationPreviewOpen ? "Ocultar" : "Ver";
 
   useEffect(() => {
     setManagerChatInput("");
@@ -1379,7 +1628,115 @@ useEffect(() => {
   useEffect(() => {
     if (!managerChatListRef.current) return;
     managerChatListRef.current.scrollTop = managerChatListRef.current.scrollHeight;
-  }, [managerChatMessages.length]);
+  }, [managerChatMessages.length, internalMessages.length]);
+
+  useEffect(() => {
+    if (!isTranslationPreviewAvailable || !translationPreviewOpen) {
+      if (translationPreviewTimer.current) {
+        clearTimeout(translationPreviewTimer.current);
+      }
+      if (translationPreviewAbortRef.current) {
+        translationPreviewAbortRef.current.abort();
+      }
+      translationPreviewKeyRef.current = null;
+      setTranslationPreviewStatus("idle");
+      setTranslationPreviewText(null);
+      setTranslationPreviewNotice(null);
+      return;
+    }
+
+    const trimmed = messageSend.trim();
+    if (!trimmed) {
+      if (translationPreviewTimer.current) {
+        clearTimeout(translationPreviewTimer.current);
+      }
+      if (translationPreviewAbortRef.current) {
+        translationPreviewAbortRef.current.abort();
+      }
+      translationPreviewKeyRef.current = null;
+      setTranslationPreviewStatus("idle");
+      setTranslationPreviewText(null);
+      setTranslationPreviewNotice(null);
+      return;
+    }
+
+    const previewKey = `${id || "none"}::${effectiveLanguage}::${trimmed}`;
+    if (translationPreviewKeyRef.current === previewKey) return;
+
+    if (translationPreviewTimer.current) {
+      clearTimeout(translationPreviewTimer.current);
+    }
+
+    translationPreviewTimer.current = setTimeout(async () => {
+      translationPreviewRequestId.current += 1;
+      const requestId = translationPreviewRequestId.current;
+      setTranslationPreviewStatus("loading");
+      setTranslationPreviewText(null);
+      setTranslationPreviewNotice(null);
+
+      if (translationPreviewAbortRef.current) {
+        translationPreviewAbortRef.current.abort();
+      }
+      const controller = new AbortController();
+      translationPreviewAbortRef.current = controller;
+
+      try {
+        const res = await fetch("/api/messages/translate", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            fanId: id,
+            text: trimmed,
+            targetLanguage: effectiveLanguage,
+          }),
+          signal: controller.signal,
+        });
+        const data = await res.json().catch(() => ({}));
+        if (requestId !== translationPreviewRequestId.current) return;
+
+        if (!res.ok || !data?.ok) {
+          setTranslationPreviewStatus("error");
+          setTranslationPreviewNotice("No se pudo generar la traducción. Se enviará en español.");
+          return;
+        }
+
+        if (typeof data.translatedText === "string" && data.translatedText.trim()) {
+          setTranslationPreviewStatus("ready");
+          setTranslationPreviewText(data.translatedText);
+          setTranslationPreviewNotice(null);
+          translationPreviewKeyRef.current = previewKey;
+          return;
+        }
+
+        const reason = typeof data.reason === "string" ? data.reason : "";
+        if (reason === "ai_not_configured") {
+          setTranslationPreviewNotice("Sin traducción (IA no configurada). Se enviará en español.");
+        } else if (reason === "empty") {
+          setTranslationPreviewNotice(null);
+        } else {
+          setTranslationPreviewNotice("No se pudo generar la traducción. Se enviará en español.");
+        }
+        setTranslationPreviewStatus("unavailable");
+        translationPreviewKeyRef.current = previewKey;
+      } catch (err) {
+        if ((err as any)?.name === "AbortError") return;
+        setTranslationPreviewStatus("error");
+        setTranslationPreviewNotice("No se pudo generar la traducción. Se enviará en español.");
+      }
+    }, 650);
+
+    return () => {
+      if (translationPreviewTimer.current) {
+        clearTimeout(translationPreviewTimer.current);
+      }
+    };
+  }, [
+    effectiveLanguage,
+    id,
+    isTranslationPreviewAvailable,
+    messageSend,
+    translationPreviewOpen,
+  ]);
 
   useEffect(() => {
     if (!hasManualTone) {
@@ -1922,9 +2279,10 @@ useEffect(() => {
     el.style.height = `${next}px`;
   };
 
-  async function sendMessageText(text: string) {
+  async function sendMessageText(text: string, audienceMode: ComposerAudienceMode = "CREATOR") {
     if (!id) return;
-    if (isChatBlocked) {
+    const isInternal = audienceMode === "INTERNAL";
+    if (isChatBlocked && !isInternal) {
       setMessagesError("Chat bloqueado. Desbloquéalo para escribir.");
       return;
     }
@@ -1932,63 +2290,99 @@ useEffect(() => {
     if (!trimmedMessage) return;
 
     const tempId = `temp-${Date.now()}`;
-    const tempMessage: ConversationMessage = {
-      id: tempId,
-      fanId: id,
-      me: true,
-      message: trimmedMessage,
-      time: new Date().toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit", hour12: false }),
-      status: "sending",
-      kind: "text",
-      type: "TEXT",
-    };
-    setMessage((prev) => {
-      if (!id) return prev || [];
-      return [...(prev || []), tempMessage];
-    });
-    scrollToBottom("auto");
+    if (!isInternal) {
+      const tempMessage: ConversationMessage = {
+        id: tempId,
+        fanId: id,
+        me: true,
+        message: trimmedMessage,
+        time: new Date().toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit", hour12: false }),
+        status: "sending",
+        kind: "text",
+        type: "TEXT",
+      };
+      setMessage((prev) => {
+        if (!id) return prev || [];
+        return [...(prev || []), tempMessage];
+      });
+      scrollToBottom("auto");
+    }
 
     try {
       setMessagesError("");
+      const payload: Record<string, unknown> = {
+        fanId: id,
+        text: trimmedMessage,
+        from: "creator",
+        type: "TEXT",
+      };
+      if (isInternal) {
+        payload.audience = "INTERNAL";
+      }
       const res = await fetch("/api/messages", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ fanId: id, text: trimmedMessage, from: "creator", type: "TEXT" }),
+        body: JSON.stringify(payload),
       });
 
-      if (!res.ok) {
-        console.error("Error enviando mensaje");
-        setMessagesError("Error enviando mensaje");
+      const data = await res.json().catch(() => ({}));
+      if (handleSchemaOutOfSync(data)) {
+        if (!isInternal) {
+          setMessage((prev) =>
+            (prev || []).map((m) => (m.id === tempId ? { ...m, status: "failed" as const } : m))
+          );
+        }
         return;
       }
-
-      const data = await res.json();
+      if (!res.ok || !data?.ok) {
+        console.error("Error enviando mensaje");
+        setMessagesError(isInternal ? "Error guardando mensaje interno" : "Error enviando mensaje");
+        return;
+      }
       const apiMessages: ApiMessage[] = Array.isArray(data.messages)
         ? (data.messages as ApiMessage[])
         : data.message
         ? [data.message as ApiMessage]
         : [];
-      const mapped = mapApiMessagesToState(apiMessages);
-      if (mapped.length > 0) {
-        setMessage((prev) => {
-          const withoutTemp = (prev || []).filter((m) => m.id !== tempId);
-          return reconcileMessages(withoutTemp, mapped, id);
-        });
+      if (isInternal) {
+        const internalOnly = apiMessages.filter((msg) => deriveAudience(msg) === "INTERNAL");
+        if (internalOnly.length > 0) {
+          setInternalMessages((prev) => reconcileApiMessages(prev, internalOnly, id));
+        }
+        setInternalToast("Guardado como interno");
+        openInternalThread();
+        if (internalToastTimer.current) {
+          clearTimeout(internalToastTimer.current);
+        }
+        internalToastTimer.current = setTimeout(() => {
+          setInternalToast(null);
+        }, 1800);
+      } else {
+        const mapped = mapApiMessagesToState(apiMessages);
+        if (mapped.length > 0) {
+          setMessage((prev) => {
+            const withoutTemp = (prev || []).filter((m) => m.id !== tempId);
+            return reconcileMessages(withoutTemp, mapped, id);
+          });
+        }
+        void track(ANALYTICS_EVENTS.SEND_MESSAGE, { fanId: id });
       }
-      void track(ANALYTICS_EVENTS.SEND_MESSAGE, { fanId: id });
+      setSchemaError(null);
       setMessageSend("");
       resetMessageInputHeight();
     } catch (err) {
       console.error("Error enviando mensaje", err);
-      setMessagesError("Error enviando mensaje");
+      setMessagesError(isInternal ? "Error guardando mensaje interno" : "Error enviando mensaje");
+      if (!isInternal) {
         setMessage((prev) =>
           (prev || []).map((m) => (m.id === tempId ? { ...m, status: "failed" as const } : m))
         );
+      }
     }
   }
 
   async function handleSendMessage() {
-    await sendMessageText(messageSend);
+    await sendMessageText(messageSend, composerAudience);
   }
 
   async function handleCreatePaymentLink(item: ContentWithFlags) {
@@ -2144,8 +2538,9 @@ useEffect(() => {
         }),
       });
 
-      if (!res.ok) throw new Error("error");
-      const data = await res.json();
+      const data = await res.json().catch(() => ({}));
+      if (handleSchemaOutOfSync(data)) return;
+      if (!res.ok || !data?.ok) throw new Error("error");
       const apiMessages: ApiMessage[] = Array.isArray(data.messages)
         ? (data.messages as ApiMessage[])
         : data.message
@@ -2156,6 +2551,7 @@ useEffect(() => {
         setMessage((prev) => reconcileMessages(prev || [], mapped, id));
       }
       setMessagesError("");
+      setSchemaError(null);
       if (!keepOpen) {
         setShowContentModal(false);
       }
@@ -2205,7 +2601,17 @@ useEffect(() => {
       : presenceStatus.color === "recent"
       ? "bg-[#f5c065]"
       : "bg-[#7d8a93]";
-  const sendDisabled = isChatBlocked || !(messageSend.trim().length > 0);
+  const languageBadgeLabel =
+    !conversation.isManager && preferredLanguage ? preferredLanguage.toUpperCase() : null;
+  const languageSelectValue = preferredLanguage ?? "auto";
+  const isInternalMode = composerAudience === "INTERNAL";
+  const sendDisabled = !(messageSend.trim().length > 0) || (isChatBlocked && !isInternalMode);
+  const composerPlaceholder = isChatBlocked && !isInternalMode
+    ? "Has bloqueado este chat. Desbloquéalo para volver a escribir."
+    : isInternalMode
+    ? "Escribe un mensaje interno (el fan no lo verá)…"
+    : "Mensaje al fan";
+  const composerActionLabel = isInternalMode ? "Guardar interno" : "Enviar";
   const extrasCountDisplay = conversation.extrasCount ?? 0;
   const extrasSpentDisplay = Math.round(conversation.extrasSpentTotal ?? 0);
   const extrasAmount = conversation.extrasSpentTotal ?? 0;
@@ -2242,6 +2648,9 @@ useEffect(() => {
       (conversation.extraLadderStatus as any)?.sessionToday?.totalSpent ??
       0
   );
+  const schemaFixCommands = schemaError?.fix?.length ? schemaError.fix : DB_SCHEMA_OUT_OF_SYNC_FIX;
+  const schemaCopyLabel =
+    schemaCopyState === "copied" ? "Copiado" : schemaCopyState === "error" ? "Error" : "Copiar comandos";
 
   function formatTier(tier?: "new" | "regular" | "priority" | "vip") {
     if (tier === "priority" || tier === "vip") return "Alta prioridad";
@@ -2286,6 +2695,7 @@ useEffect(() => {
         body: JSON.stringify({ creatorLabel: editNameValue.trim() }),
       });
       const data = await res.json().catch(() => ({}));
+      if (handleSchemaOutOfSync(data)) return;
       if (!res.ok) {
         console.error("Error updating fan name", res.status, data?.error);
         setEditNameError(data?.error || "No se pudo guardar el nombre.");
@@ -2298,12 +2708,57 @@ useEffect(() => {
         return;
       }
       await refreshFanData(fanId);
+      setSchemaError(null);
       closeEditNameModal();
     } catch (err) {
       console.error("Error updating fan name", err);
       setEditNameError("No se pudo guardar el nombre.");
     } finally {
       setEditNameSaving(false);
+    }
+  };
+
+  const handlePreferredLanguageChange = async (nextLanguage: SupportedLanguage) => {
+    const fanId =
+      typeof id === "string" && id.trim()
+        ? id
+        : typeof router.query.fanId === "string"
+        ? router.query.fanId
+        : "";
+    if (!fanId) {
+      setPreferredLanguageError("No se pudo identificar el fan.");
+      return;
+    }
+    if (nextLanguage === preferredLanguage) {
+      return;
+    }
+    const previousLanguage = preferredLanguage;
+    try {
+      setPreferredLanguage(nextLanguage);
+      setPreferredLanguageSaving(true);
+      setPreferredLanguageError(null);
+      const res = await fetch(`/api/fans/${fanId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ preferredLanguage: nextLanguage }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (handleSchemaOutOfSync(data)) {
+        setPreferredLanguage(previousLanguage ?? null);
+        return;
+      }
+      if (!res.ok) {
+        setPreferredLanguageError(data?.error || "No se pudo guardar el idioma.");
+        setPreferredLanguage(previousLanguage ?? null);
+        return;
+      }
+      await refreshFanData(fanId);
+      setSchemaError(null);
+    } catch (_err) {
+      setPreferredLanguageError("No se pudo guardar el idioma.");
+      setPreferredLanguage(previousLanguage ?? null);
+    } finally {
+      setPreferredLanguageSaving(false);
     }
   };
 
@@ -2431,6 +2886,11 @@ useEffect(() => {
       setInviteCopyUrl(inviteUrl);
       await navigator.clipboard.writeText(inviteUrl);
       setInviteCopyState("copied");
+      setInviteCopyToast("Invitación copiada");
+      if (inviteCopyToastTimer.current) {
+        clearTimeout(inviteCopyToastTimer.current);
+      }
+      inviteCopyToastTimer.current = setTimeout(() => setInviteCopyToast(""), 2000);
       setTimeout(() => setInviteCopyState("idle"), 1500);
     } catch (error) {
       console.error("Error copying invite link", error);
@@ -2613,9 +3073,14 @@ useEffect(() => {
           </button>
           <div className="flex items-center gap-2 min-w-0 flex-1 justify-center">
             <span className="truncate text-sm font-medium text-slate-50">{contactName}</span>
+            {languageBadgeLabel && (
+              <span className="inline-flex items-center rounded-full border border-slate-600 bg-slate-900/70 px-2 py-0.5 text-[10px] font-semibold text-slate-200">
+                {languageBadgeLabel}
+              </span>
+            )}
             {(conversation.isHighPriority || (conversation.extrasCount ?? 0) > 0) && (
               <span className="inline-flex items-center rounded-full border border-amber-400/60 bg-amber-500/10 px-2 py-0.5 text-[11px] font-medium text-amber-300">
-                {conversation.isHighPriority ? "Alta prioridad" : "Extras"}
+                {conversation.isHighPriority ? "📌 Alta" : "Extras"}
               </span>
             )}
           </div>
@@ -2624,15 +3089,20 @@ useEffect(() => {
       <header ref={fanHeaderRef} className="sticky top-0 z-20 backdrop-blur">
         <div className="max-w-4xl mx-auto w-full bg-slate-950/70 border-b border-slate-800 px-4 py-3 md:px-6 md:py-4 flex flex-col gap-3">
           {/* Piso 1 */}
-          <div className="flex items-center justify-between gap-3" ref={actionsMenuRef}>
-            <div className="flex items-center gap-3 min-w-0">
+          <div className="flex flex-wrap items-center gap-3 sm:flex-nowrap" ref={actionsMenuRef}>
+            <div className="flex items-center gap-3 min-w-0 flex-1 order-1">
               <Avatar width="w-10" height="h-10" image={image} />
               <div className="flex flex-col min-w-0">
                 <div className="flex items-center gap-2 min-w-0">
                   <h1 className="text-base font-semibold text-slate-50 truncate">{contactName}</h1>
+                  {languageBadgeLabel && (
+                    <span className="inline-flex items-center rounded-full border border-slate-600 bg-slate-900/70 px-2 py-0.5 text-[10px] font-semibold text-slate-200">
+                      {languageBadgeLabel}
+                    </span>
+                  )}
                   {conversation.isHighPriority && (
                     <span className="inline-flex items-center rounded-full border border-amber-400/70 bg-amber-500/15 px-2 py-0.5 text-[11px] font-semibold text-amber-100 whitespace-nowrap">
-                      Alta prioridad
+                      📌 Alta
                     </span>
                   )}
                   <span
@@ -2646,31 +3116,7 @@ useEffect(() => {
                 </p>
               </div>
             </div>
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                onClick={handleToggleHighPriority}
-                disabled={isChatActionLoading}
-                className={clsx(
-                  "inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-medium transition",
-                  conversation.isHighPriority
-                    ? "border-amber-300 bg-amber-500/10 text-amber-100 hover:bg-amber-500/20"
-                    : "border-slate-700 bg-slate-900/70 text-slate-200 hover:border-amber-300 hover:text-amber-100",
-                  isChatActionLoading && "opacity-60"
-                )}
-                aria-label={conversation.isHighPriority ? "Quitar alta prioridad" : "Marcar alta prioridad"}
-              >
-                <span aria-hidden>📌</span>
-                {conversation.isHighPriority ? "Quitar alta prioridad" : "Marcar alta prioridad"}
-              </button>
-              <button
-                type="button"
-                onClick={handleViewProfile}
-                aria-label="Ver ficha del fan"
-                className="inline-flex items-center rounded-full border border-emerald-500/70 px-3 py-1.5 text-xs font-medium text-emerald-300 hover:bg-emerald-500/10"
-              >
-                Ver ficha
-              </button>
+            <div className="order-2 ml-auto sm:order-3 sm:ml-0">
               <div className="relative">
                 <button
                   type="button"
@@ -2752,6 +3198,40 @@ useEffect(() => {
                   </div>
                 )}
               </div>
+            </div>
+            <div className="flex flex-wrap items-center gap-2 order-3 w-full sm:order-2 sm:w-auto sm:ml-auto sm:justify-end">
+              {!conversation.isManager && (
+                <div className="inline-flex items-center gap-2 rounded-full border border-slate-700 bg-slate-900/70 px-3 py-1.5 text-xs font-medium text-slate-200">
+                  <span className="text-slate-400">Idioma:</span>
+                  <select
+                    value={languageSelectValue}
+                    onChange={(event) => {
+                      const value = event.target.value;
+                      if (value === "auto") return;
+                      handlePreferredLanguageChange(value as SupportedLanguage);
+                    }}
+                    disabled={preferredLanguageSaving}
+                    className="bg-transparent text-xs font-semibold text-slate-100 focus:outline-none"
+                  >
+                    <option value="auto" disabled>
+                      Auto (EN por defecto)
+                    </option>
+                    {SUPPORTED_LANGUAGES.map((lang) => (
+                      <option key={lang} value={lang}>
+                        {lang.toUpperCase()}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+              <button
+                type="button"
+                onClick={handleViewProfile}
+                aria-label="Ver ficha del fan"
+                className="inline-flex items-center rounded-full border border-emerald-500/70 px-3 py-1.5 text-xs font-medium text-emerald-300 hover:bg-emerald-500/10"
+              >
+                Ver ficha
+              </button>
             </div>
           </div>
 
@@ -2840,6 +3320,9 @@ useEffect(() => {
             >
               Cerrar
             </button>
+          </div>
+          <div className="text-[11px] text-slate-400">
+            Estas son notas CRM (próxima acción). Para mensajes internos del chat usa "Mensaje interno".
           </div>
           <div className="flex flex-col gap-1">
             <span className="text-[11px] text-slate-400">Próxima acción</span>
@@ -3028,6 +3511,30 @@ useEffect(() => {
           style={{ backgroundImage: "url('/assets/images/background.jpg')" }}
         >
           <div className="max-w-4xl mx-auto w-full px-4 sm:px-6 lg:px-8 py-6">
+            {schemaError && (
+              <div className="mb-4 rounded-xl border border-rose-500/60 bg-rose-500/10 px-4 py-3 text-rose-100">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <div className="text-sm font-semibold">DB fuera de sync</div>
+                    <p className="text-xs text-rose-100/80">{schemaError.message}</p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={handleCopySchemaFix}
+                    className="rounded-full border border-rose-400/70 bg-rose-500/15 px-3 py-1 text-[11px] font-semibold text-rose-100 hover:bg-rose-500/30 transition"
+                  >
+                    {schemaCopyLabel}
+                  </button>
+                </div>
+                <div className="mt-2 grid gap-1 text-[11px] text-rose-100/90">
+                  {schemaFixCommands.map((cmd) => (
+                    <code key={cmd} className="rounded-md bg-rose-950/50 px-2 py-1 font-mono">
+                      {cmd}
+                    </code>
+                  ))}
+                </div>
+              </div>
+            )}
             {messages.map((messageConversation, index) => {
               if (messageConversation.kind === "content") {
                 return (
@@ -3039,9 +3546,17 @@ useEffect(() => {
               }
 
               const { me, message, seen, time } = messageConversation;
+              const translatedText = !me ? messageConversation.translatedText : undefined;
               return (
                 <div key={messageConversation.id || index} className="space-y-1">
-                  <MessageBalloon me={me} message={message} seen={seen} time={time} status={messageConversation.status} />
+                  <MessageBalloon
+                    me={me}
+                    message={message}
+                    seen={seen}
+                    time={time}
+                    status={messageConversation.status}
+                    translatedText={translatedText}
+                  />
                   {messageConversation.status === "failed" && (
                     <div className="flex justify-end">
                       <button
@@ -3318,86 +3833,186 @@ useEffect(() => {
             </div>
           )}
           <div className="border-t border-slate-950 bg-slate-950 px-4 py-3">
-            <div
-              className={clsx(
-                "flex items-center gap-2 rounded-3xl border px-3 py-2.5",
-                "bg-slate-900/90 border-slate-700/80 shadow-sm",
-                "focus-within:border-emerald-500/80 focus-within:ring-1 focus-within:ring-emerald-500/40",
-                isChatBlocked && "opacity-70"
-              )}
-            >
-              <div className="relative">
+            <div className="flex flex-col gap-2">
+              <div className="flex items-center gap-2">
                 <button
                   type="button"
-                  onClick={() => setIsAttachmentMenuOpen((prev) => !prev)}
+                  onClick={() => setComposerAudience("CREATOR")}
                   className={clsx(
-                    "flex h-9 w-9 items-center justify-center rounded-full hover:bg-slate-800/80 transition text-slate-200",
-                    isChatBlocked && "opacity-50 cursor-not-allowed"
+                    "rounded-full border px-3 py-1 text-[11px] font-semibold transition",
+                    composerAudience === "CREATOR"
+                      ? "border-emerald-400/70 bg-emerald-500/15 text-emerald-100"
+                      : "border-slate-600 text-slate-300 hover:bg-slate-800/70"
                   )}
-                  title="Adjuntar contenido (packs / extras)"
-                  aria-label="Adjuntar contenido (packs / extras)"
-                  disabled={isChatBlocked}
                 >
-                  <svg viewBox="0 0 24 24" width="24" height="24" className="cursor-pointer">
-                    <path fill="currentColor" d="M1.816 15.556v.002c0 1.502.584 2.912 1.646 3.972s2.472 1.647 3.974 1.647a5.58 5.58 0 0 0 3.972-1.645l9.547-9.548c.769-.768 1.147-1.767 1.058-2.817-.079-.968-.548-1.927-1.319-2.698-1.594-1.592-4.068-1.711-5.517-.262l-7.916 7.915c-.881.881-.792 2.25.214 3.261.959.958 2.423 1.053 3.263.215l5.511-5.512c.28-.28.267-.722.053-.936l-.244-.244c-.191-.191-.567-.349-.957.04l-5.506 5.506c-.18.18-.635.127-.976-.214-.098-.097-.576-.613-.213-.973l7.915-7.917c.818-.817 2.267-.699 3.23.262.5.501.802 1.1.849 1.685.051.573-.156 1.111-.589 1.543l-9.547 9.549a3.97 3.97 0 0 1-2.829 1.171 3.975 3.975 0 0 1-2.83-1.173 3.973 3.973 0 0 1-1.172-2.828c0-1.071.415-2.076 1.172-2.83l7.209-7.211c.157-.157.264-.579.028-.814L11.5 4.36a.572.572 0 0 0-.834.018l-7.205 7.207a5.577 5.577 0 0 0-1.645 3.971z">
-                    </path>
-                  </svg>
+                  Para fan
                 </button>
-                {isAttachmentMenuOpen && !isChatBlocked && (
-                  <div className="absolute bottom-12 left-0 z-20 w-56 rounded-xl bg-slate-900 border border-slate-700 shadow-lg">
+                <button
+                  type="button"
+                  onClick={() => setComposerAudience("INTERNAL")}
+                  className={clsx(
+                    "rounded-full border px-3 py-1 text-[11px] font-semibold transition",
+                    composerAudience === "INTERNAL"
+                      ? "border-amber-400/70 bg-amber-500/15 text-amber-100"
+                      : "border-slate-600 text-slate-300 hover:bg-slate-800/70"
+                  )}
+                  title="No se envía al fan. Se guarda en el chat interno con Manager IA."
+                >
+                  Mensaje interno
+                </button>
+                <button
+                  type="button"
+                  onClick={openInternalThread}
+                  className="text-[11px] text-slate-400 hover:text-slate-200 underline"
+                >
+                  Ver internos
+                </button>
+              </div>
+              {internalToast && <div className="text-[11px] text-emerald-300">{internalToast}</div>}
+              {isTranslationPreviewAvailable && (
+                <div className="flex flex-wrap gap-2 text-[11px] text-slate-200">
+                  {TRANSLATION_QUICK_CHIPS.map((chip) => (
+                    <button
+                      key={chip.id}
+                      type="button"
+                      onClick={() => focusMainMessageInput(chip.text)}
+                      className="rounded-full border border-slate-600 bg-slate-900/70 px-3 py-1 font-semibold text-slate-200 hover:border-emerald-400 hover:text-emerald-100"
+                    >
+                      {chip.label}
+                    </button>
+                  ))}
+                </div>
+              )}
+              {isTranslationPreviewAvailable && (
+                <div className="rounded-lg border border-slate-700 bg-slate-900/70 px-3 py-2 text-xs text-slate-200">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="font-semibold">
+                      Traducción a {translationPreviewLabel} (preview)
+                    </span>
                     <button
                       type="button"
-                      className="flex w-full items-center gap-2 px-3 py-2 text-sm text-slate-100 hover:bg-slate-800"
-                      onClick={() => {
-                        setIsAttachmentMenuOpen(false);
-                        openContentModal({ mode: "packs" });
-                      }}
+                      onClick={() => setTranslationPreviewOpen((prev) => !prev)}
+                      className="text-[11px] text-slate-300 hover:text-slate-100 underline"
                     >
-                      <span>Adjuntar contenido</span>
+                      {translationPreviewButtonLabel}
                     </button>
-                    {false && (
-                      <button
-                        type="button"
-                        disabled
-                        className="flex w-full items-center gap-2 px-3 py-2 text-sm text-slate-500 cursor-not-allowed"
-                      >
-                        Subir archivo (próximamente)
-                      </button>
-                    )}
                   </div>
-                )}
-              </div>
-              <textarea
-                ref={messageInputRef}
-                rows={1}
+                  {translationPreviewOpen && (
+                    <div className="mt-2 space-y-2">
+                      {!messageSend.trim() && (
+                        <div className="text-[11px] text-slate-400">
+                          Escribe un mensaje para previsualizar.
+                        </div>
+                      )}
+                      {messageSend.trim() && translationPreviewStatus === "loading" && (
+                        <div className="text-[11px] text-slate-400">Generando…</div>
+                      )}
+                      {translationPreviewText && (
+                        <div className="rounded-md border border-slate-700 bg-slate-950/60 px-2 py-1 text-[12px] text-slate-100 whitespace-pre-wrap">
+                          {translationPreviewText}
+                        </div>
+                      )}
+                      {translationPreviewNotice && (
+                        <div className="text-[11px] text-slate-400">{translationPreviewNotice}</div>
+                      )}
+                      {translationPreviewText && (
+                        <button
+                          type="button"
+                          onClick={handleCopyTranslationPreview}
+                          className="inline-flex items-center rounded-full border border-slate-600 bg-slate-900/70 px-3 py-1 text-[11px] font-semibold text-slate-200 hover:border-emerald-400 hover:text-emerald-100"
+                        >
+                          {translationCopyState === "copied"
+                            ? "Copiado"
+                            : translationCopyState === "error"
+                            ? "Error"
+                            : "Copiar traducción"}
+                        </button>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
+              <div
                 className={clsx(
-                  "flex-1 bg-transparent resize-none overflow-y-auto max-h-44",
-                  "px-2 text-base leading-relaxed text-slate-50 caret-emerald-400",
-                  "placeholder:text-slate-300 focus:outline-none",
-                  isChatBlocked && "cursor-not-allowed"
-                )}
-                placeholder={isChatBlocked ? "Has bloqueado este chat. Desbloquéalo para volver a escribir." : "Mensaje"}
-                onKeyDown={(evt) => changeHandler(evt)}
-                onChange={(evt) => {
-                  setMessageSend(evt.target.value);
-                }}
-                value={messageSend}
-                disabled={isChatBlocked}
-                style={{ maxHeight: `${MAX_MESSAGE_HEIGHT}px` }}
-              />
-              <button
-                type="button"
-                onClick={handleSendMessage}
-                disabled={sendDisabled}
-                className={clsx(
-                  "ml-1 h-9 px-4 rounded-2xl text-sm font-medium",
-                  "bg-emerald-600 text-white hover:bg-emerald-500",
-                  "disabled:opacity-50 disabled:cursor-not-allowed",
-                  "transition-colors"
+                  "flex items-center gap-2 rounded-3xl border px-3 py-2.5",
+                  "bg-slate-900/90 border-slate-700/80 shadow-sm",
+                  "focus-within:border-emerald-500/80 focus-within:ring-1 focus-within:ring-emerald-500/40",
+                  isChatBlocked && !isInternalMode && "opacity-70"
                 )}
               >
-                Enviar
-              </button>
+                <div className="relative">
+                  <button
+                    type="button"
+                    onClick={() => setIsAttachmentMenuOpen((prev) => !prev)}
+                    className={clsx(
+                      "flex h-9 w-9 items-center justify-center rounded-full hover:bg-slate-800/80 transition text-slate-200",
+                      isChatBlocked && "opacity-50 cursor-not-allowed"
+                    )}
+                    title="Adjuntar contenido (packs / extras)"
+                    aria-label="Adjuntar contenido (packs / extras)"
+                    disabled={isChatBlocked}
+                  >
+                    <svg viewBox="0 0 24 24" width="24" height="24" className="cursor-pointer">
+                      <path fill="currentColor" d="M1.816 15.556v.002c0 1.502.584 2.912 1.646 3.972s2.472 1.647 3.974 1.647a5.58 5.58 0 0 0 3.972-1.645l9.547-9.548c.769-.768 1.147-1.767 1.058-2.817-.079-.968-.548-1.927-1.319-2.698-1.594-1.592-4.068-1.711-5.517-.262l-7.916 7.915c-.881.881-.792 2.25.214 3.261.959.958 2.423 1.053 3.263.215l5.511-5.512c.28-.28.267-.722.053-.936l-.244-.244c-.191-.191-.567-.349-.957.04l-5.506 5.506c-.18.18-.635.127-.976-.214-.098-.097-.576-.613-.213-.973l7.915-7.917c.818-.817 2.267-.699 3.23.262.5.501.802 1.1.849 1.685.051.573-.156 1.111-.589 1.543l-9.547 9.549a3.97 3.97 0 0 1-2.829 1.171 3.975 3.975 0 0 1-2.83-1.173 3.973 3.973 0 0 1-1.172-2.828c0-1.071.415-2.076 1.172-2.83l7.209-7.211c.157-.157.264-.579.028-.814L11.5 4.36a.572.572 0 0 0-.834.018l-7.205 7.207a5.577 5.577 0 0 0-1.645 3.971z">
+                      </path>
+                    </svg>
+                  </button>
+                  {isAttachmentMenuOpen && !isChatBlocked && (
+                    <div className="absolute bottom-12 left-0 z-20 w-56 rounded-xl bg-slate-900 border border-slate-700 shadow-lg">
+                      <button
+                        type="button"
+                        className="flex w-full items-center gap-2 px-3 py-2 text-sm text-slate-100 hover:bg-slate-800"
+                        onClick={() => {
+                          setIsAttachmentMenuOpen(false);
+                          openContentModal({ mode: "packs" });
+                        }}
+                      >
+                        <span>Adjuntar contenido</span>
+                      </button>
+                      {false && (
+                        <button
+                          type="button"
+                          disabled
+                          className="flex w-full items-center gap-2 px-3 py-2 text-sm text-slate-500 cursor-not-allowed"
+                        >
+                          Subir archivo (próximamente)
+                        </button>
+                      )}
+                    </div>
+                  )}
+                </div>
+                <textarea
+                  ref={messageInputRef}
+                  rows={1}
+                  className={clsx(
+                    "flex-1 bg-transparent resize-none overflow-y-auto max-h-44",
+                    "px-2 text-base leading-relaxed text-slate-50 caret-emerald-400",
+                    "placeholder:text-slate-300 focus:outline-none",
+                    isChatBlocked && !isInternalMode && "cursor-not-allowed"
+                  )}
+                  placeholder={composerPlaceholder}
+                  onKeyDown={(evt) => changeHandler(evt)}
+                  onChange={(evt) => {
+                    setMessageSend(evt.target.value);
+                  }}
+                  value={messageSend}
+                  disabled={isChatBlocked && !isInternalMode}
+                  style={{ maxHeight: `${MAX_MESSAGE_HEIGHT}px` }}
+                />
+                <button
+                  type="button"
+                  onClick={handleSendMessage}
+                  disabled={sendDisabled}
+                  className={clsx(
+                    "ml-1 h-9 px-4 rounded-2xl text-sm font-medium",
+                    isInternalMode ? "bg-amber-500 text-slate-950 hover:bg-amber-400" : "bg-emerald-600 text-white hover:bg-emerald-500",
+                    "disabled:opacity-50 disabled:cursor-not-allowed",
+                    "transition-colors"
+                  )}
+                >
+                  {composerActionLabel}
+                </button>
+              </div>
             </div>
           </div>
           <div className="rounded-2xl border border-slate-800 bg-slate-950/80">
@@ -3450,7 +4065,13 @@ useEffect(() => {
                   </div>
                   <button
                     type="button"
-                    onClick={() => setIsInternalChatOpen((prev) => !prev)}
+                    onClick={() => {
+                      if (isInternalChatOpen) {
+                        setIsInternalChatOpen(false);
+                      } else {
+                        openInternalThread();
+                      }
+                    }}
                     className="text-xs px-3 py-1 rounded-full border border-slate-600 hover:bg-slate-800 transition"
                   >
                     {isInternalChatOpen ? "Cerrar" : "Abrir"}
@@ -3493,43 +4114,94 @@ useEffect(() => {
                       ref={managerChatListRef}
                       className="flex-1 flex flex-col gap-2 overflow-y-auto pr-1 border-t border-slate-700 pt-3"
                     >
-                      {managerChatMessages.length === 0 && (
+                      {isLoadingInternalMessages && (
+                        <div className="text-[11px] text-slate-500">Cargando mensajes internos...</div>
+                      )}
+                      {internalMessagesError && !isLoadingInternalMessages && (
+                        <div className="text-[11px] text-rose-300">{internalMessagesError}</div>
+                      )}
+                      {!hasInternalThreadMessages && !isLoadingInternalMessages && !internalMessagesError && (
                         <div className="text-[11px] text-slate-500">
-                          Aún no hay mensajes. Pregúntale algo al Manager IA sobre este fan.
+                          Aún no hay mensajes internos ni mensajes del Manager IA.
                         </div>
                       )}
-                      {managerChatMessages.map((msg) => (
-                      <div
-                        key={msg.id}
-                        className={clsx(
-                          "flex flex-col max-w-[80%]",
-                          msg.role === "creator" ? "self-end items-end" : "self-start items-start"
-                        )}
-                      >
-                        <span className="text-[10px] uppercase tracking-wide text-slate-500">
-                          {msg.role === "creator" ? "Tú" : "Manager IA"}
-                        </span>
-                        <div
-                          className={clsx(
-                            "rounded-2xl px-3 py-2 text-sm leading-relaxed",
-                            msg.role === "creator"
-                              ? "bg-emerald-600/80 text-white"
-                              : "bg-slate-800/80 text-slate-100"
-                          )}
-                        >
-                          {msg.text}
+                      {internalNotes.length > 0 && (
+                        <div className="space-y-2">
+                          <div className="text-[10px] uppercase tracking-wide text-slate-500">Mensajes internos</div>
+                          {internalNotes.map((msg) => {
+                            const origin = normalizeFrom(msg.from);
+                            const isCreatorNote = origin === "creator";
+                            const label = isCreatorNote ? "Tú" : "Manager IA";
+                            const noteText =
+                              msg.type === "CONTENT"
+                                ? msg.contentItem?.title || "Contenido interno"
+                                : msg.text || "";
+                            return (
+                              <div
+                                key={msg.id}
+                                className={clsx(
+                                  "flex flex-col max-w-[80%]",
+                                  isCreatorNote ? "self-end items-end" : "self-start items-start"
+                                )}
+                              >
+                                <span className="text-[10px] uppercase tracking-wide text-slate-500">{label}</span>
+                                <div
+                                  className={clsx(
+                                    "rounded-2xl px-3 py-2 text-sm leading-relaxed",
+                                    isCreatorNote
+                                      ? "bg-amber-500/20 text-amber-50"
+                                      : "bg-slate-800/80 text-slate-100"
+                                  )}
+                                >
+                                  {isCreatorNote && (
+                                    <span className="mb-1 inline-flex items-center rounded-full border border-amber-400/70 px-2 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-amber-200">
+                                      INTERNO
+                                    </span>
+                                  )}
+                                  <div>{noteText}</div>
+                                </div>
+                              </div>
+                            );
+                          })}
                         </div>
-                        {msg.role === "manager" && (
-                          <button
-                            type="button"
-                            onClick={() => handleUseManagerReplyAsMainMessage(msg.text)}
-                            className="mt-1 inline-flex items-center rounded-full border border-emerald-500/60 bg-emerald-500/10 px-3 py-1 text-[11px] font-medium text-emerald-100 hover:bg-emerald-500/20 transition"
-                          >
-                            Usar en mensaje
-                          </button>
-                        )}
-                      </div>
-                    ))}
+                      )}
+                      {managerChatMessages.length > 0 && (
+                        <div className="space-y-2">
+                          <div className="text-[10px] uppercase tracking-wide text-slate-500">Manager IA</div>
+                          {managerChatMessages.map((msg) => (
+                            <div
+                              key={msg.id}
+                              className={clsx(
+                                "flex flex-col max-w-[80%]",
+                                msg.role === "creator" ? "self-end items-end" : "self-start items-start"
+                              )}
+                            >
+                              <span className="text-[10px] uppercase tracking-wide text-slate-500">
+                                {msg.role === "creator" ? "Tú" : "Manager IA"}
+                              </span>
+                              <div
+                                className={clsx(
+                                  "rounded-2xl px-3 py-2 text-sm leading-relaxed",
+                                  msg.role === "creator"
+                                    ? "bg-emerald-600/80 text-white"
+                                    : "bg-slate-800/80 text-slate-100"
+                                )}
+                              >
+                                {msg.text}
+                              </div>
+                              {msg.role === "manager" && (
+                                <button
+                                  type="button"
+                                  onClick={() => handleUseManagerReplyAsMainMessage(msg.text)}
+                                  className="mt-1 inline-flex items-center rounded-full border border-emerald-500/60 bg-emerald-500/10 px-3 py-1 text-[11px] font-medium text-emerald-100 hover:bg-emerald-500/20 transition"
+                                >
+                                  Usar en mensaje
+                                </button>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      )}
                   </div>
                     <div className="flex items-end gap-2 border-t border-slate-700 pt-3">
                       <textarea
@@ -4013,6 +4685,29 @@ useEffect(() => {
                   {extrasCountDisplay} extra{extrasCountDisplay === 1 ? "" : "s"} · {extrasSpentDisplay} €
                 </span>
               </div>
+              <div className="flex items-center justify-between gap-3">
+                <span className="text-slate-400">Idioma</span>
+                <select
+                  value={languageSelectValue}
+                  onChange={(event) => {
+                    const value = event.target.value;
+                    if (value === "auto") return;
+                    handlePreferredLanguageChange(value as SupportedLanguage);
+                  }}
+                  disabled={preferredLanguageSaving}
+                  className="rounded-full border border-slate-700 bg-slate-800/70 px-3 py-1 text-[11px] font-semibold text-slate-100 focus:border-emerald-400"
+                >
+                  <option value="auto" disabled>
+                    Auto (EN por defecto)
+                  </option>
+                  {SUPPORTED_LANGUAGES.map((lang) => (
+                    <option key={lang} value={lang}>
+                      {lang.toUpperCase()} · {LANGUAGE_LABELS[lang]}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              {preferredLanguageError && <p className="text-xs text-rose-300">{preferredLanguageError}</p>}
               <div className="flex flex-col gap-1 rounded-xl border border-slate-800 bg-slate-900/70 px-3 py-2">
                 <span className="text-slate-400 text-xs">Próxima acción</span>
                 <span className="text-slate-50 text-sm leading-snug">
@@ -4060,6 +4755,7 @@ useEffect(() => {
                   {inviteCopyUrl}
                 </div>
               )}
+              {inviteCopyToast && <p className="text-xs text-emerald-300">{inviteCopyToast}</p>}
               {inviteCopyError && <p className="text-xs text-rose-300">{inviteCopyError}</p>}
             </div>
           </div>

@@ -1,5 +1,5 @@
 import Head from "next/head";
-import { Fragment, useEffect, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import CreatorHeader from "../../components/CreatorHeader";
 import { useCreatorConfig } from "../../context/CreatorConfigContext";
 import clsx from "clsx";
@@ -99,6 +99,8 @@ export default function CreatorAnalyticsPage() {
   const [campaigns, setCampaigns] = useState<CampaignMeta[]>([]);
   const [campaignsLoading, setCampaignsLoading] = useState(false);
   const [campaignsError, setCampaignsError] = useState("");
+  const [toast, setToast] = useState("");
+  const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [campaignModalOpen, setCampaignModalOpen] = useState(false);
   const [campaignSaving, setCampaignSaving] = useState(false);
   const [campaignDeleting, setCampaignDeleting] = useState(false);
@@ -130,6 +132,14 @@ export default function CreatorAnalyticsPage() {
     void loadHandle();
     void loadPlatforms();
     void loadCampaigns();
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (toastTimerRef.current) {
+        clearTimeout(toastTimerRef.current);
+      }
+    };
   }, []);
 
   async function loadData(nextRange: number) {
@@ -205,9 +215,18 @@ export default function CreatorAnalyticsPage() {
 
   const builderValid = Boolean(utmSource && utmMedium && utmCampaignInput && utmContentInput);
 
+  function showToast(message: string) {
+    setToast(message);
+    if (toastTimerRef.current) {
+      clearTimeout(toastTimerRef.current);
+    }
+    toastTimerRef.current = setTimeout(() => setToast(""), 2000);
+  }
+
   async function handleCopy(value: string) {
     try {
       await navigator.clipboard.writeText(value);
+      showToast("Link copiado");
     } catch (_err) {
       // ignore
     }
@@ -233,6 +252,7 @@ export default function CreatorAnalyticsPage() {
       if (!res.ok) throw new Error("Error saving link");
       setBuilder((prev) => ({ ...prev, utmContent: "", utmTerm: "" }));
       setActiveLinkCampaignId(null);
+      showToast("Link UTM guardado");
       void loadData(range);
     } catch (err) {
       console.error(err);
@@ -317,6 +337,7 @@ export default function CreatorAnalyticsPage() {
         return;
       }
       setCampaignModalOpen(false);
+      showToast("Campaña guardada");
       void loadCampaigns();
       void loadData(range);
     } catch (err) {
@@ -485,6 +506,7 @@ export default function CreatorAnalyticsPage() {
           </div>
         </div>
 
+        {toast && <div className="text-sm text-emerald-300">{toast}</div>}
         {error && <div className="text-sm text-rose-300">{error}</div>}
         {loading && <div className="text-sm text-slate-300">Cargando...</div>}
 

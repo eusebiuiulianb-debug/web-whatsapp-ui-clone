@@ -6,6 +6,8 @@ interface Message {
   id?: string;
   me: boolean;
   message: string;
+  translatedText?: string | null;
+  audience?: "FAN" | "CREATOR" | "INTERNAL";
   seen?: boolean;
   time?: string;
   createdAt?: string;
@@ -26,6 +28,7 @@ interface Conversation {
   contactName: string;
   displayName?: string | null;
   creatorLabel?: string | null;
+  preferredLanguage?: "es" | "en" | "ro" | null;
   messageHistory: Message[];
   image: string;
   membershipStatus?: string;
@@ -99,6 +102,7 @@ interface ConversationListData {
   contactName: string;
   displayName?: string | null;
   creatorLabel?: string | null;
+  preferredLanguage?: "es" | "en" | "ro" | null;
   lastMessage: string;
   lastTime: string;
   image: string;

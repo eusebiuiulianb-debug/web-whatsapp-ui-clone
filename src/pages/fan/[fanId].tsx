@@ -14,6 +14,8 @@ import { AccessSummary, getAccessSummary } from "../../lib/access";
 import type { IncludedContent } from "../../lib/fanContent";
 import { useIsomorphicLayoutEffect } from "../../hooks/useIsomorphicLayoutEffect";
 import { getFanDisplayName } from "../../utils/fanDisplayName";
+import { isVisibleToFan } from "../../lib/messageAudience";
+import { inferPreferredLanguage, LANGUAGE_LABELS, normalizePreferredLanguage, type SupportedLanguage } from "../../lib/language";
 
 type ApiContentItem = {
   id: string;
@@ -30,7 +32,10 @@ type ApiMessage = {
   id: string;
   fanId: string;
   from: "creator" | "fan";
+  audience?: "FAN" | "CREATOR" | "INTERNAL" | null;
   text: string | null;
+  deliveredText?: string | null;
+  creatorTranslatedText?: string | null;
   time?: string | null;
   isLastFromCreator?: boolean | null;
   type?: "TEXT" | "CONTENT";
@@ -66,13 +71,19 @@ export default function FanChatPage({ includedContent, initialAccessSummary }: F
   const [accessSummary, setAccessSummary] = useState<AccessSummary | null>(initialAccessSummary || null);
   const [accessLoading, setAccessLoading] = useState(false);
   const [included, setIncluded] = useState<IncludedContent[]>(includedContent || []);
-  const [fanProfile, setFanProfile] = useState<{ name?: string | null; displayName?: string | null; creatorLabel?: string | null }>({});
+  const [fanProfile, setFanProfile] = useState<{
+    name?: string | null;
+    displayName?: string | null;
+    creatorLabel?: string | null;
+    preferredLanguage?: SupportedLanguage | null;
+  }>({});
   const [fanProfileLoaded, setFanProfileLoaded] = useState(false);
   const [onboardingDismissed, setOnboardingDismissed] = useState(false);
   const [onboardingName, setOnboardingName] = useState("");
   const [onboardingMessage, setOnboardingMessage] = useState("");
   const [onboardingError, setOnboardingError] = useState("");
   const [onboardingSaving, setOnboardingSaving] = useState(false);
+  const [onboardingLanguage, setOnboardingLanguage] = useState<SupportedLanguage>("en");
   const messagesContainerRef = useRef<HTMLDivElement | null>(null);
   const [isAtBottom, setIsAtBottom] = useState(true);
   const pollAbortRef = useRef<AbortController | null>(null);
@@ -88,11 +99,8 @@ export default function FanChatPage({ includedContent, initialAccessSummary }: F
   }, []);
 
   const visibleMessages = useMemo(() => {
-    // TODO: Add audience/visibility filtering once message metadata supports it.
-    return messages.filter((message) => {
-      const author = (message.from || "").toLowerCase();
-      return author === "fan" || author === "creator";
-    });
+    // TODO: Expand visibility rules beyond Message.audience (tiers/segments).
+    return messages.filter((message) => isVisibleToFan(message));
   }, [messages]);
 
   const fetchMessages = useCallback(
@@ -107,7 +115,8 @@ export default function FanChatPage({ includedContent, initialAccessSummary }: F
         }
         const controller = new AbortController();
         pollAbortRef.current = controller;
-        const res = await fetch(`/api/messages?fanId=${encodeURIComponent(targetFanId)}`, { signal: controller.signal });
+        const params = new URLSearchParams({ fanId: targetFanId, audiences: "FAN,CREATOR" });
+        const res = await fetch(`/api/messages?${params.toString()}`, { signal: controller.signal });
         const data = await res.json().catch(() => ({}));
         if (!res.ok || !data?.ok) {
           throw new Error(data?.error || "No se pudieron cargar mensajes");
@@ -145,10 +154,15 @@ export default function FanChatPage({ includedContent, initialAccessSummary }: F
     };
   }, [fanId, fetchMessages]);
 
+  const getFallbackLanguage = useCallback((): SupportedLanguage => {
+    if (typeof navigator === "undefined") return "en";
+    return inferPreferredLanguage(navigator.language);
+  }, []);
+
   useEffect(() => {
     if (!fanId) return;
     fetchAccessInfo(fanId);
-  }, [fanId]);
+  }, [fanId, getFallbackLanguage]);
 
   useEffect(() => {
     setFanProfile({});
@@ -158,7 +172,8 @@ export default function FanChatPage({ includedContent, initialAccessSummary }: F
     setOnboardingMessage("");
     setOnboardingError("");
     setOnboardingSaving(false);
-  }, [fanId]);
+    setOnboardingLanguage(getFallbackLanguage());
+  }, [fanId, getFallbackLanguage]);
 
 
   async function fetchAccessInfo(targetFanId: string) {
@@ -173,11 +188,14 @@ export default function FanChatPage({ includedContent, initialAccessSummary }: F
         ? data.fans
         : [];
       const target = fans.find((fan: any) => fan.id === targetFanId);
+      const normalizedLanguage = normalizePreferredLanguage(target?.preferredLanguage) ?? getFallbackLanguage();
       setFanProfile({
         name: target?.name ?? "Invitado",
         displayName: target?.displayName ?? null,
         creatorLabel: target?.creatorLabel ?? null,
+        preferredLanguage: normalizedLanguage,
       });
+      setOnboardingLanguage(normalizedLanguage);
       setFanProfileLoaded(true);
       const hasHistory =
         typeof target?.hasAccessHistory === "boolean"
@@ -191,7 +209,12 @@ export default function FanChatPage({ includedContent, initialAccessSummary }: F
       });
       setAccessSummary(summary);
     } catch (_err) {
-      setFanProfile({ name: "Invitado", displayName: null, creatorLabel: null });
+      setFanProfile({
+        name: "Invitado",
+        displayName: null,
+        creatorLabel: null,
+        preferredLanguage: getFallbackLanguage(),
+      });
       setFanProfileLoaded(true);
       setAccessSummary(
         getAccessSummary({
@@ -289,6 +312,9 @@ export default function FanChatPage({ includedContent, initialAccessSummary }: F
       const updates: Record<string, unknown> = {};
       if (name) {
         updates.displayName = name;
+      }
+      if (onboardingLanguage) {
+        updates.preferredLanguage = onboardingLanguage;
       }
       if (inviteFlag) {
         updates.inviteUsedAt = true;
@@ -430,11 +456,13 @@ export default function FanChatPage({ includedContent, initialAccessSummary }: F
               if (isContent) {
                 return <ContentCard key={msg.id} message={msg} />;
               }
+              const displayText =
+                msg.from === "creator" ? (msg.deliveredText ?? msg.text ?? "") : msg.text ?? "";
               return (
                 <MessageBalloon
                   key={msg.id}
                   me={msg.from === "fan"}
-                  message={msg.text || ""}
+                  message={displayText}
                   seen={!!msg.isLastFromCreator}
                   time={msg.time || undefined}
                   status={msg.status}
@@ -460,6 +488,24 @@ export default function FanChatPage({ includedContent, initialAccessSummary }: F
                   placeholder="Tu nombre"
                   disabled={onboardingSaving}
                 />
+              </label>
+              <label className="flex flex-col gap-1 text-sm text-slate-200">
+                <span>Idioma</span>
+                <select
+                  className="w-full rounded-lg bg-slate-900/70 border border-slate-700 px-3 py-2 text-sm text-white focus:border-emerald-400"
+                  value={onboardingLanguage}
+                  onChange={(evt) => {
+                    const next = normalizePreferredLanguage(evt.target.value) ?? "en";
+                    setOnboardingLanguage(next);
+                  }}
+                  disabled={onboardingSaving}
+                >
+                  {(["es", "en", "ro"] as const).map((lang) => (
+                    <option key={lang} value={lang}>
+                      {LANGUAGE_LABELS[lang]}
+                    </option>
+                  ))}
+                </select>
               </label>
               <label className="flex flex-col gap-1 text-sm text-slate-200">
                 <span>Tu primer mensaje</span>

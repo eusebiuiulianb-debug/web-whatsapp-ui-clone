@@ -1,5 +1,7 @@
 import type { NextApiRequest, NextApiResponse } from "next";
 import prisma from "../../../lib/prisma.server";
+import { normalizePreferredLanguage } from "../../../lib/language";
+import { getDbSchemaOutOfSyncPayload, isDbSchemaOutOfSyncError } from "../../../lib/dbSchemaGuard";
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== "PATCH") {
@@ -17,10 +19,16 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   const hasPriorityFlag = typeof req.body?.isHighPriority === "boolean";
   const isHighPriority = hasPriorityFlag ? req.body.isHighPriority : undefined;
   const shouldMarkInviteUsed = req.body?.inviteUsedAt === true;
+  const preferredLanguage =
+    req.body?.preferredLanguage !== undefined ? normalizePreferredLanguage(req.body.preferredLanguage) : null;
+  if (req.body?.preferredLanguage !== undefined && !preferredLanguage) {
+    return res.status(400).json({ ok: false, error: "invalid preferredLanguage" });
+  }
 
   const updates: {
     creatorLabel?: string | null;
     displayName?: string | null;
+    preferredLanguage?: string;
     isHighPriority?: boolean;
     highPriorityAt?: Date | null;
     inviteUsedAt?: Date | null;
@@ -33,6 +41,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   }
   if (shouldMarkInviteUsed) {
     updates.inviteUsedAt = new Date();
+  }
+  if (preferredLanguage) {
+    updates.preferredLanguage = preferredLanguage;
   }
 
   if (Object.keys(updates).length === 0) {
@@ -48,6 +59,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         name: true,
         displayName: true,
         creatorLabel: true,
+        preferredLanguage: true,
         isHighPriority: true,
         highPriorityAt: true,
         inviteUsedAt: true,
@@ -55,6 +67,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     });
     return res.status(200).json({ ok: true, fan });
   } catch (error) {
+    if (isDbSchemaOutOfSyncError(error)) {
+      const payload = getDbSchemaOutOfSyncPayload();
+      return res.status(500).json({ ok: false, error: payload.errorCode, ...payload });
+    }
     console.error("Error updating fan", error);
     return res.status(500).json({ ok: false, error: "Error updating fan" });
   }

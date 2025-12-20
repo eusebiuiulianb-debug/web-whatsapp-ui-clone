@@ -9,6 +9,9 @@ import {
   type ExtraSessionToday,
 } from "../../lib/extraLadder";
 import { createInviteTokenForFan } from "../../utils/createInviteToken";
+import { isVisibleToFan, normalizeFrom } from "../../lib/messageAudience";
+import { normalizePreferredLanguage } from "../../lib/language";
+import { getDbSchemaOutOfSyncPayload, isDbSchemaOutOfSyncError } from "../../lib/dbSchemaGuard";
 
 function parseMessageTimestamp(messageId: string): Date | null {
   const parts = messageId.split("-");
@@ -136,6 +139,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         healthScore: true,
         isBlocked: true,
         isArchived: true,
+        preferredLanguage: true,
         accessGrants: true,
         notes: {
           orderBy: { createdAt: "desc" },
@@ -143,7 +147,15 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           select: { content: true },
         },
         messages: {
-          select: { id: true, time: true, from: true },
+          select: {
+            id: true,
+            time: true,
+            from: true,
+            text: true,
+            type: true,
+            audience: true,
+            contentItem: { select: { title: true } },
+          },
         },
         inviteUsedAt: true,
         _count: { select: { notes: true } },
@@ -332,9 +344,26 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
       const priorityScore = computePriorityScore();
 
-      const creatorMessages = fan.messages.filter((msg) => msg.from === "creator");
-      const fanMessages = fan.messages.filter((msg) => msg.from === "fan");
-      const hasMessages = fan.messages.length > 0;
+      const visibleMessages = (fan.messages ?? []).filter((msg) => isVisibleToFan(msg));
+      const creatorMessages = visibleMessages.filter((msg) => normalizeFrom(msg.from) === "creator");
+      const fanMessages = visibleMessages.filter((msg) => normalizeFrom(msg.from) === "fan");
+      const hasMessages = visibleMessages.length > 0;
+
+      const lastVisibleMessage = visibleMessages
+        .map((msg) => ({
+          msg,
+          ts: parseMessageTimestamp(msg.id)?.getTime() ?? 0,
+        }))
+        .sort((a, b) => b.ts - a.ts)[0]?.msg;
+      const previewSource = lastVisibleMessage
+        ? lastVisibleMessage.type === "CONTENT"
+          ? lastVisibleMessage.contentItem?.title || "Contenido compartido"
+          : typeof lastVisibleMessage.text === "string"
+          ? lastVisibleMessage.text
+          : ""
+        : "";
+      const preview = previewSource.trim().slice(0, 120);
+      const lastVisibleTime = lastVisibleMessage?.time || "";
 
       const lastCreatorMessage = creatorMessages
         .map((msg) => parseMessageTimestamp(msg.id))
@@ -365,9 +394,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         name: fan.name,
         displayName: fan.displayName ?? null,
         creatorLabel: fan.creatorLabel ?? null,
+        preferredLanguage: normalizePreferredLanguage(fan.preferredLanguage) ?? null,
         avatar: fan.avatar || "",
-        preview: hasMessages ? fan.preview || "" : "",
-        time: hasMessages ? fan.time || "" : "",
+        preview: hasMessages ? preview : "",
+        time: hasMessages ? lastVisibleTime : "",
         unreadCount: hasMessages ? fan.unreadCount ?? 0 : 0,
         isNew: fan.isNew ?? false,
         accessState,
@@ -445,6 +475,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
     return res.status(200).json({ ok: true, items, fans: items, nextCursor, hasMore });
   } catch (error) {
+    if (isDbSchemaOutOfSyncError(error)) {
+      const payload = getDbSchemaOutOfSyncPayload();
+      return res.status(500).json({ ok: false, error: payload.errorCode, ...payload });
+    }
     console.error("Error loading fans data", error);
     return res.status(500).json({ ok: false, error: "Error loading fans data" });
   }
@@ -499,6 +533,10 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
 
     return res.status(200).json({ fanId, inviteToken, inviteUrl });
   } catch (error) {
+    if (isDbSchemaOutOfSyncError(error)) {
+      const payload = getDbSchemaOutOfSyncPayload();
+      return res.status(500).json({ ok: false, error: payload.errorCode, ...payload });
+    }
     console.error("Error creating manual fan", error);
     return res.status(500).json({ ok: false, error: "Error creating fan" });
   }

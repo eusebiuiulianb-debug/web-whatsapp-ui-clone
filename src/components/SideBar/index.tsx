@@ -15,6 +15,7 @@ import { PACKS } from "../../config/packs";
 import { ConversationContext } from "../../context/ConversationContext";
 import { EXTRAS_UPDATED_EVENT } from "../../constants/events";
 import { HIGH_PRIORITY_LIMIT } from "../../config/customers";
+import { normalizePreferredLanguage } from "../../lib/language";
 
 class SideBarBoundary extends Component<{ children: React.ReactNode }, { hasError: boolean }> {
   constructor(props: { children: React.ReactNode }) {
@@ -122,6 +123,7 @@ function SideBarInner() {
       contactName: getFanDisplayNameForCreator(fan),
       displayName: fan.displayName ?? null,
       creatorLabel: fan.creatorLabel ?? null,
+      preferredLanguage: normalizePreferredLanguage(fan.preferredLanguage) ?? null,
       lastMessage: fan.preview,
       lastTime: fan.time,
       image: fan.avatar || "/avatar.jpg",
