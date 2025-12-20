@@ -4,7 +4,6 @@ import {
   deriveAudience,
   normalizeAudience,
   normalizeFrom,
-  parseAudienceFilter,
   type MessageAudience,
 } from "../../lib/messageAudience";
 import { normalizePreferredLanguage } from "../../lib/language";
@@ -49,6 +48,12 @@ function getMessageTimestamp(message: MessageTimestampCandidate): number | null 
   return extractMessageIdTimestamp(message.id);
 }
 
+function normalizeList(value: string | string[] | undefined): string[] {
+  if (!value) return [];
+  const arr = Array.isArray(value) ? value : [value];
+  return arr.flatMap((entry) => entry.split(",")).map((entry) => entry.trim()).filter(Boolean);
+}
+
 export default async function handler(req: NextApiRequest, res: NextApiResponse<MessageResponse>) {
   if (req.method === "GET") {
     return handleGet(req, res);
@@ -72,7 +77,15 @@ async function handleGet(req: NextApiRequest, res: NextApiResponse<MessageRespon
   const normalizedFanId = fanId.trim();
   const shouldMarkRead =
     typeof markRead === "string" ? markRead === "1" || markRead.toLowerCase() === "true" : false;
-  const audienceFilter = parseAudienceFilter(audiences);
+  const normalizedAudiences = normalizeList(Array.isArray(audiences) || typeof audiences === "string" ? audiences : undefined);
+  const parsedAudiences = normalizedAudiences
+    .map((audience) => normalizeAudience(audience))
+    .filter((audience): audience is MessageAudience => Boolean(audience));
+  const fallbackAudiences: MessageAudience[] = ["FAN", "CREATOR"];
+  const hasPublicAudience = parsedAudiences.includes("FAN") || parsedAudiences.includes("CREATOR");
+  const audienceFilter = (parsedAudiences.length ? parsedAudiences : fallbackAudiences).filter((audience) =>
+    hasPublicAudience ? audience !== "INTERNAL" : true
+  );
   const afterIdParam = typeof afterId === "string" ? afterId.trim() : "";
   const sinceParam = typeof since === "string" ? since.trim() : "";
   const sinceMs = parseSinceMs(sinceParam);
@@ -83,6 +96,8 @@ async function handleGet(req: NextApiRequest, res: NextApiResponse<MessageRespon
     sinceMs !== null && afterIdTimestamp !== null
       ? Math.max(sinceMs, afterIdTimestamp)
       : sinceMs ?? afterIdTimestamp ?? null;
+  res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0");
+  res.setHeader("Pragma", "no-cache");
 
   try {
     const baseWhere = {

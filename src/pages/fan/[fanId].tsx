@@ -133,7 +133,10 @@ export default function FanChatPage({ includedContent, initialAccessSummary }: F
         if (afterId && afterId.startsWith(`${targetFanId}-`)) {
           params.set("afterId", afterId);
         }
-        const res = await fetch(`/api/messages?${params.toString()}`, { signal: controller.signal });
+        const res = await fetch(`/api/messages?${params.toString()}`, {
+          signal: controller.signal,
+          cache: "no-store",
+        });
         const data = await res.json().catch(() => ({}));
         if (!res.ok || !data?.ok) {
           throw new Error(data?.error || "No se pudieron cargar mensajes");
