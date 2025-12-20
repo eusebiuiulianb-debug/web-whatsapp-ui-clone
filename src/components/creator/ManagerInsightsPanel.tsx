@@ -118,27 +118,6 @@ export function ManagerInsightsPanel({ open, onClose, summary, preview, onPrompt
     }
   };
 
-  const handlePrioritySecondary = (item: (typeof topPriorities)[number]) => {
-    if (item.kind === "INVITE_PENDING") return;
-    const action = item.secondaryAction;
-    if (!action) return;
-    if (action.type === "copy") {
-      const text = resolveInviteUrl(action.copyText);
-      if (text) {
-        void navigator.clipboard.writeText(text);
-      }
-      return;
-    }
-    if (action.type === "open" && action.href) {
-      if (action.target === "_blank") {
-        window.open(action.href, "_blank", "noopener,noreferrer");
-      } else {
-        onClose?.();
-        void router.push(action.href);
-      }
-    }
-  };
-
   const metrics = useMemo(() => {
     const safeRevenue30 = Number.isFinite(summary?.kpis?.last30?.revenue) ? summary?.kpis?.last30?.revenue ?? 0 : 0;
     const safeRevenue7 = Number.isFinite(summary?.kpis?.last7?.revenue) ? summary?.kpis?.last7?.revenue ?? 0 : 0;
@@ -412,15 +391,6 @@ export function ManagerInsightsPanel({ open, onClose, summary, preview, onPrompt
                           Abrir chat
                         </button>
                       )}
-                      {item.kind !== "INVITE_PENDING" && item.secondaryAction && (
-                        <button
-                          type="button"
-                          className="rounded-md border border-slate-800 bg-slate-900/70 px-2 py-1 text-[11px] text-slate-300 hover:border-slate-600 whitespace-nowrap"
-                          onClick={() => handlePrioritySecondary(item)}
-                        >
-                          {item.secondaryAction.label}
-                        </button>
-                      )}
                     </div>
                   </div>
                 ))}
@@ -436,7 +406,10 @@ export function ManagerInsightsPanel({ open, onClose, summary, preview, onPrompt
               <button
                 type="button"
                 className="rounded-full border border-slate-700 bg-slate-900/70 px-3 py-1 text-xs text-slate-200 hover:border-emerald-500/60"
-                onClick={() => (window.location.href = "/creator/analytics")}
+                onClick={() => {
+                  onClose?.();
+                  void router.push("/creator/analytics");
+                }}
               >
                 Ver campañas
               </button>

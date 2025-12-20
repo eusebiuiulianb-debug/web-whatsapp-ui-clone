@@ -87,6 +87,14 @@ export default function FanChatPage({ includedContent, initialAccessSummary }: F
     });
   }, []);
 
+  const visibleMessages = useMemo(() => {
+    // TODO: Add audience/visibility filtering once message metadata supports it.
+    return messages.filter((message) => {
+      const author = (message.from || "").toLowerCase();
+      return author === "fan" || author === "creator";
+    });
+  }, [messages]);
+
   const fetchMessages = useCallback(
     async (targetFanId: string, options?: { showLoading?: boolean }) => {
       if (!targetFanId) return;
@@ -262,7 +270,7 @@ export default function FanChatPage({ includedContent, initialAccessSummary }: F
     fanProfileLoaded &&
     !onboardingDismissed &&
     !loading &&
-    messages.length === 0 &&
+    visibleMessages.length === 0 &&
     shouldPromptForName;
   const isComposerDisabled = sending || isOnboardingVisible || onboardingSaving;
 
@@ -354,7 +362,7 @@ export default function FanChatPage({ includedContent, initialAccessSummary }: F
   useIsomorphicLayoutEffect(() => {
     if (!isAtBottom) return;
     scrollToBottom("smooth");
-  }, [messages.length, isAtBottom]);
+  }, [visibleMessages.length, isAtBottom]);
 
   useEffect(() => {
     if (typeof document === "undefined") return;
@@ -414,10 +422,10 @@ export default function FanChatPage({ includedContent, initialAccessSummary }: F
           >
             {loading && <div className="text-center text-[#aebac1] text-sm mt-2">Cargando mensajes...</div>}
             {error && !loading && <div className="text-center text-red-400 text-sm mt-2">{error}</div>}
-            {!loading && !error && messages.length === 0 && (
+            {!loading && !error && visibleMessages.length === 0 && (
               <div className="text-center text-[#aebac1] text-sm mt-2">Aún no hay mensajes.</div>
             )}
-            {messages.map((msg) => {
+            {visibleMessages.map((msg) => {
               const isContent = msg.type === "CONTENT" && !!msg.contentItem;
               if (isContent) {
                 return <ContentCard key={msg.id} message={msg} />;
