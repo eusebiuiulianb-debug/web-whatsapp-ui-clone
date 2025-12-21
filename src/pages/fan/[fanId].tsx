@@ -85,7 +85,6 @@ export default function FanChatPage({ includedContent, initialAccessSummary }: F
   const [onboardingSaving, setOnboardingSaving] = useState(false);
   const [onboardingLanguage, setOnboardingLanguage] = useState<SupportedLanguage>("en");
   const messagesContainerRef = useRef<HTMLDivElement | null>(null);
-  const lastSeenIdRef = useRef<string | null>(null);
   const [isAtBottom, setIsAtBottom] = useState(true);
   const pollAbortRef = useRef<AbortController | null>(null);
   const pollIntervalRef = useRef<NodeJS.Timeout | null>(null);
@@ -104,19 +103,8 @@ export default function FanChatPage({ includedContent, initialAccessSummary }: F
     return messages.filter((message) => isVisibleToFan(message));
   }, [messages]);
 
-  useEffect(() => {
-    if (!fanId) return;
-    const lastSeenId = getLastServerMessageId(visibleMessages, fanId);
-    if (lastSeenId) {
-      lastSeenIdRef.current = lastSeenId;
-    }
-  }, [fanId, visibleMessages]);
-
   const fetchMessages = useCallback(
-    async (
-      targetFanId: string,
-      options?: { showLoading?: boolean; silent?: boolean; afterId?: string | null }
-    ) => {
+    async (targetFanId: string, options?: { showLoading?: boolean; silent?: boolean }) => {
       if (!targetFanId) return;
       const showLoading = options?.showLoading ?? false;
       const silent = options?.silent ?? false;
@@ -129,10 +117,6 @@ export default function FanChatPage({ includedContent, initialAccessSummary }: F
         const controller = new AbortController();
         pollAbortRef.current = controller;
         const params = new URLSearchParams({ fanId: targetFanId, audiences: "FAN,CREATOR" });
-        const afterId = options?.afterId;
-        if (afterId && afterId.startsWith(`${targetFanId}-`)) {
-          params.set("afterId", afterId);
-        }
         const res = await fetch(`/api/messages?${params.toString()}`, {
           signal: controller.signal,
           cache: "no-store",
@@ -160,7 +144,6 @@ export default function FanChatPage({ includedContent, initialAccessSummary }: F
 
   useEffect(() => {
     if (!fanId) return;
-    lastSeenIdRef.current = null;
     setMessages([]);
     fetchMessages(fanId, { showLoading: true });
     if (pollIntervalRef.current) {
@@ -172,7 +155,6 @@ export default function FanChatPage({ includedContent, initialAccessSummary }: F
       void fetchMessages(fanId, {
         showLoading: false,
         silent: true,
-        afterId: lastSeenIdRef.current,
       });
     }, 2500) as any;
     return () => {
@@ -186,10 +168,65 @@ export default function FanChatPage({ includedContent, initialAccessSummary }: F
     return inferPreferredLanguage(navigator.language);
   }, []);
 
+  const fetchAccessInfo = useCallback(
+    async (targetFanId: string) => {
+      try {
+        setAccessLoading(true);
+        const res = await fetch(`/api/fans?fanId=${encodeURIComponent(targetFanId)}`);
+        if (!res.ok) throw new Error("error");
+        const data = await res.json();
+        const fans = Array.isArray(data.items)
+          ? data.items
+          : Array.isArray(data.fans)
+          ? data.fans
+          : [];
+        const target = fans.find((fan: any) => fan.id === targetFanId);
+        const normalizedLanguage = normalizePreferredLanguage(target?.preferredLanguage) ?? getFallbackLanguage();
+        setFanProfile({
+          name: target?.name ?? "Invitado",
+          displayName: target?.displayName ?? null,
+          creatorLabel: target?.creatorLabel ?? null,
+          preferredLanguage: normalizedLanguage,
+        });
+        setOnboardingLanguage(normalizedLanguage);
+        setFanProfileLoaded(true);
+        const hasHistory =
+          typeof target?.hasAccessHistory === "boolean"
+            ? target.hasAccessHistory
+            : (target?.paidGrantsCount ?? 0) > 0;
+        const summary = getAccessSummary({
+          membershipStatus: target?.membershipStatus,
+          daysLeft: target?.daysLeft,
+          hasAccessHistory: hasHistory,
+          activeGrantTypes: Array.isArray(target?.activeGrantTypes) ? target.activeGrantTypes : undefined,
+        });
+        setAccessSummary(summary);
+      } catch (_err) {
+        setFanProfile({
+          name: "Invitado",
+          displayName: null,
+          creatorLabel: null,
+          preferredLanguage: getFallbackLanguage(),
+        });
+        setFanProfileLoaded(true);
+        setAccessSummary(
+          getAccessSummary({
+            membershipStatus: null,
+            daysLeft: 0,
+            hasAccessHistory: false,
+          })
+        );
+      } finally {
+        setAccessLoading(false);
+      }
+    },
+    [getFallbackLanguage]
+  );
+
   useEffect(() => {
     if (!fanId) return;
     fetchAccessInfo(fanId);
-  }, [fanId, getFallbackLanguage]);
+  }, [fanId, fetchAccessInfo]);
 
   useEffect(() => {
     setFanProfile({});
@@ -201,59 +238,6 @@ export default function FanChatPage({ includedContent, initialAccessSummary }: F
     setOnboardingSaving(false);
     setOnboardingLanguage(getFallbackLanguage());
   }, [fanId, getFallbackLanguage]);
-
-
-  async function fetchAccessInfo(targetFanId: string) {
-    try {
-      setAccessLoading(true);
-      const res = await fetch(`/api/fans?fanId=${encodeURIComponent(targetFanId)}`);
-      if (!res.ok) throw new Error("error");
-      const data = await res.json();
-      const fans = Array.isArray(data.items)
-        ? data.items
-        : Array.isArray(data.fans)
-        ? data.fans
-        : [];
-      const target = fans.find((fan: any) => fan.id === targetFanId);
-      const normalizedLanguage = normalizePreferredLanguage(target?.preferredLanguage) ?? getFallbackLanguage();
-      setFanProfile({
-        name: target?.name ?? "Invitado",
-        displayName: target?.displayName ?? null,
-        creatorLabel: target?.creatorLabel ?? null,
-        preferredLanguage: normalizedLanguage,
-      });
-      setOnboardingLanguage(normalizedLanguage);
-      setFanProfileLoaded(true);
-      const hasHistory =
-        typeof target?.hasAccessHistory === "boolean"
-          ? target.hasAccessHistory
-          : (target?.paidGrantsCount ?? 0) > 0;
-      const summary = getAccessSummary({
-        membershipStatus: target?.membershipStatus,
-        daysLeft: target?.daysLeft,
-        hasAccessHistory: hasHistory,
-        activeGrantTypes: Array.isArray(target?.activeGrantTypes) ? target.activeGrantTypes : undefined,
-      });
-      setAccessSummary(summary);
-    } catch (_err) {
-      setFanProfile({
-        name: "Invitado",
-        displayName: null,
-        creatorLabel: null,
-        preferredLanguage: getFallbackLanguage(),
-      });
-      setFanProfileLoaded(true);
-      setAccessSummary(
-        getAccessSummary({
-          membershipStatus: null,
-          daysLeft: 0,
-          hasAccessHistory: false,
-        })
-      );
-    } finally {
-      setAccessLoading(false);
-    }
-  }
 
   const sendFanMessage = useCallback(
     async (text: string) => {
@@ -424,7 +408,6 @@ export default function FanChatPage({ includedContent, initialAccessSummary }: F
         void fetchMessages(fanId, {
           showLoading: false,
           silent: true,
-          afterId: lastSeenIdRef.current,
         });
       }
     };
@@ -750,17 +733,6 @@ function reconcileMessages(
   filteredIncoming.forEach((msg, idx) => push(msg, idx + existing.length));
   const merged = orderedKeys.map((k) => map.get(k)).filter(Boolean) as ApiMessage[];
   return sorter(merged);
-}
-
-function getLastServerMessageId(messages: ApiMessage[], fanId: string): string | null {
-  const prefix = `${fanId}-`;
-  for (let idx = messages.length - 1; idx >= 0; idx -= 1) {
-    const id = messages[idx]?.id;
-    if (typeof id === "string" && id.startsWith(prefix)) {
-      return id;
-    }
-  }
-  return null;
 }
 
 function AccessBanner({ summary }: { summary: AccessSummary }) {

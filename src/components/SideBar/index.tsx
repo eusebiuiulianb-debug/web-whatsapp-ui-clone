@@ -81,6 +81,8 @@ function SideBarInner() {
   const pollAbortRef = useRef<AbortController | null>(null);
   const pollIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const fansRef = useRef<ConversationListData[]>([]);
+  const didInitialFetchRef = useRef(false);
+  const didMountFetchRef = useRef(false);
   const packsCount = Object.keys(PACKS).length;
   const { config } = useCreatorConfig();
   const creatorInitial = config.creatorName?.trim().charAt(0) || "E";
@@ -246,20 +248,22 @@ function SideBarInner() {
     []
   );
 
-  const safeFans: ConversationListData[] = Array.isArray(fans) ? fans : [];
   useEffect(() => {
-    fansRef.current = safeFans;
-  }, [safeFans]);
+    fansRef.current = fans;
+  }, [fans]);
 
-  const fansWithScore: FanData[] = safeFans.map((fan) => ({
+  const fansWithScore: FanData[] = fans.map((fan) => ({
     ...fan,
     priorityScore: typeof fan.priorityScore === "number" ? fan.priorityScore : computePriorityScore(fan),
   }));
 
   const handleSelectConversation = useCallback(
     (item: ConversationListData) => {
+      if (typeof window !== "undefined") {
+        window.dispatchEvent(new CustomEvent("novsy:conversation:changing"));
+      }
       if (item?.isManager) {
-        void router.push("/creator/manager");
+        void router.push("/creator/manager", undefined, { scroll: false });
         return;
       }
       if (item?.id) {
@@ -270,7 +274,7 @@ function SideBarInner() {
             query: { fanId: item.id },
           },
           undefined,
-          { shallow: true }
+          { shallow: true, scroll: false }
         );
       }
       setConversation(item as any);
@@ -349,32 +353,32 @@ function SideBarInner() {
     ];
   }, [getLastActivityTimestamp]);
 
-  const totalCount = safeFans.length;
-  const followUpTodayCount = safeFans.filter((fan) =>
+  const totalCount = fans.length;
+  const followUpTodayCount = fans.filter((fan) =>
     shouldFollowUpToday({
       membershipStatus: fan.membershipStatus,
       daysLeft: fan.daysLeft,
       followUpTag: fan.followUpTag ?? getFollowUpTag(fan.membershipStatus, fan.daysLeft, fan.activeGrantTypes),
     })
   ).length;
-  const expiredCount = safeFans.filter((fan) =>
+  const expiredCount = fans.filter((fan) =>
     isExpiredAccess({
       membershipStatus: fan.membershipStatus,
       daysLeft: fan.daysLeft,
       followUpTag: fan.followUpTag ?? getFollowUpTag(fan.membershipStatus, fan.daysLeft, fan.activeGrantTypes),
     })
   ).length;
-  const withNotesCount = safeFans.filter((fan) => (fan.notesCount ?? 0) > 0).length;
-  const withFollowUpCount = safeFans.filter((fan) => {
+  const withNotesCount = fans.filter((fan) => (fan.notesCount ?? 0) > 0).length;
+  const withFollowUpCount = fans.filter((fan) => {
     const tag = fan.followUpTag ?? getFollowUpTag(fan.membershipStatus, fan.daysLeft, fan.activeGrantTypes);
     return tag && tag !== "none";
   }).length;
-  const archivedCount = safeFans.filter((fan) => fan.isArchived === true).length;
-  const blockedCount = safeFans.filter((fan) => fan.isBlocked === true).length;
-  const priorityCount = safeFans.filter((fan) => (fan as any).isHighPriority === true).length;
-  const regularCount = safeFans.filter((fan) => ((fan as any).segment || "").toUpperCase() === "LEAL_ESTABLE").length;
-  const newCount = safeFans.filter((fan) => ((fan as any).segment || "").toUpperCase() === "NUEVO").length;
-  const withExtrasCount = safeFans.filter((fan) => (fan.extrasSpentTotal ?? 0) > 0).length;
+  const archivedCount = fans.filter((fan) => fan.isArchived === true).length;
+  const blockedCount = fans.filter((fan) => fan.isBlocked === true).length;
+  const priorityCount = fans.filter((fan) => (fan as any).isHighPriority === true).length;
+  const regularCount = fans.filter((fan) => ((fan as any).segment || "").toUpperCase() === "LEAL_ESTABLE").length;
+  const newCount = fans.filter((fan) => ((fan as any).segment || "").toUpperCase() === "NUEVO").length;
+  const withExtrasCount = fans.filter((fan) => (fan.extrasSpentTotal ?? 0) > 0).length;
 
   const applyFilter = useCallback(
     (
@@ -776,9 +780,19 @@ function SideBarInner() {
   }, [apiFilter, hasFanListChanged, mapFans, mergeFansById, search, setFansError]);
 
   useEffect(() => {
+    if (didMountFetchRef.current) return;
+    didMountFetchRef.current = true;
     fetchFansPage();
     void refreshExtrasSummary();
   }, [fetchFansPage, refreshExtrasSummary]);
+
+  useEffect(() => {
+    if (!didInitialFetchRef.current) {
+      didInitialFetchRef.current = true;
+      return;
+    }
+    fetchFansPage();
+  }, [apiFilter, fetchFansPage, search]);
 
   useEffect(() => {
     void pollFans();
@@ -901,20 +915,6 @@ function SideBarInner() {
     }
   }, [fans, router.query.fanId, setConversation]);
 
-  useEffect(() => {
-    // refetch on filter/search changes
-    fetchFansPage();
-  }, [
-    apiFilter,
-    fetchFansPage,
-    followUpFilter,
-    onlyWithExtras,
-    onlyWithFollowUp,
-    search,
-    showOnlyWithNotes,
-    showPriorityOnly,
-    tierFilter,
-  ]);
 
   useEffect(() => {
     if (!showLegend) return;

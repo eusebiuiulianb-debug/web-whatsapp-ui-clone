@@ -1,4 +1,4 @@
-import { KeyboardEvent, MouseEvent, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
+import { KeyboardEvent, MouseEvent, ReactNode, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { format, formatDistanceToNow } from "date-fns";
 import { es } from "date-fns/locale";
 import { ConversationContext } from "../../context/ConversationContext";
@@ -43,6 +43,9 @@ import { useIsomorphicLayoutEffect } from "../../hooks/useIsomorphicLayoutEffect
 
 type ManagerQuickIntent = ManagerObjective;
 type ComposerAudienceMode = "CREATOR" | "INTERNAL";
+type FanInlineTab = "manager" | "templates" | "tools";
+type InternalInlineTab = "manager" | "internal";
+type InlineTab = FanInlineTab | InternalInlineTab;
 
 type ConversationDetailsProps = {
   onBackToBoard?: () => void;
@@ -65,6 +68,11 @@ const TRANSLATION_QUICK_CHIPS = [
 ] as const;
 const AUDIENCE_STORAGE_KEY = "novsy.creatorMessageAudience";
 const TRANSLATION_PREVIEW_KEY_PREFIX = "novsy.creatorTranslationPreview";
+
+const INLINE_TABS_BY_MODE = {
+  CREATOR: ["manager", "templates", "tools"],
+  INTERNAL: ["manager", "internal"],
+} as const;
 
 function reconcileMessages(
   existing: ConversationMessage[],
@@ -139,6 +147,7 @@ export default function ConversationDetails({ onBackToBoard }: ConversationDetai
     lastCreatorMessageAt,
   } = conversation;
   const [ messageSend, setMessageSend ] = useState("");
+  const [ isSending, setIsSending ] = useState(false);
   const [ composerAudience, setComposerAudience ] = useState<ComposerAudienceMode>("CREATOR");
   const [ showPackSelector, setShowPackSelector ] = useState(false);
   const [ isLoadingMessages, setIsLoadingMessages ] = useState(false);
@@ -170,29 +179,36 @@ export default function ConversationDetails({ onBackToBoard }: ConversationDetai
   const [ preferredLanguageError, setPreferredLanguageError ] = useState<string | null>(null);
   const [ internalToast, setInternalToast ] = useState<string | null>(null);
   const [ translationPreviewOpen, setTranslationPreviewOpen ] = useState(false);
+  const [ inlinePanel, setInlinePanel ] = useState<InlineTab | null>(null);
+  const [ lastTabByMode, setLastTabByMode ] = useState<{
+    CREATOR: FanInlineTab | null;
+    INTERNAL: InternalInlineTab | null;
+  }>({ CREATOR: null, INTERNAL: null });
+  const [ toolsTranslateOpen, setToolsTranslateOpen ] = useState(false);
+  const [ hideManagerChip, setHideManagerChip ] = useState(false);
+  const [ hideTemplatesChip, setHideTemplatesChip ] = useState(false);
   const [ translationPreviewStatus, setTranslationPreviewStatus ] = useState<
     "idle" | "loading" | "ready" | "unavailable" | "error"
   >("idle");
   const [ translationPreviewText, setTranslationPreviewText ] = useState<string | null>(null);
   const [ translationPreviewNotice, setTranslationPreviewNotice ] = useState<string | null>(null);
-  const [ translationCopyState, setTranslationCopyState ] = useState<"idle" | "copied" | "error">("idle");
   const [ inviteCopyState, setInviteCopyState ] = useState<"idle" | "loading" | "copied" | "error">("idle");
   const [ inviteCopyError, setInviteCopyError ] = useState<string | null>(null);
   const [ inviteCopyUrl, setInviteCopyUrl ] = useState<string | null>(null);
   const [ inviteCopyToast, setInviteCopyToast ] = useState("");
   const inviteCopyToastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const schemaCopyTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const isSendingRef = useRef(false);
   const internalToastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const translationPreviewTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const translationPreviewAbortRef = useRef<AbortController | null>(null);
   const translationPreviewRequestId = useRef(0);
   const translationPreviewKeyRef = useRef<string | null>(null);
-  const translationCopyTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const inlinePanelRef = useRef<InlineTab | null>(null);
   const [ showContentModal, setShowContentModal ] = useState(false);
   const [ contentModalMode, setContentModalMode ] = useState<"packs" | "extras">("packs");
   const [ extraTierFilter, setExtraTierFilter ] = useState<"T0" | "T1" | "T2" | "T3" | "T4" | null>(null);
   const [ contentModalPackFocus, setContentModalPackFocus ] = useState<"WELCOME" | "MONTHLY" | "SPECIAL" | null>(null);
-  const [ isAttachmentMenuOpen, setIsAttachmentMenuOpen ] = useState(false);
   const [ registerExtrasChecked, setRegisterExtrasChecked ] = useState(false);
   const [ registerExtrasSource, setRegisterExtrasSource ] = useState<string | null>(null);
   const [ transactionPrices, setTransactionPrices ] = useState<Record<string, number>>({});
@@ -234,7 +250,7 @@ export default function ConversationDetails({ onBackToBoard }: ConversationDetai
   const [ isChatActionLoading, setIsChatActionLoading ] = useState(false);
   const router = useRouter();
   const actionsMenuRef = useRef<HTMLDivElement | null>(null);
-  const MAX_MESSAGE_HEIGHT = 180;
+  const MAX_MESSAGE_HEIGHT = 96;
   const messageInputRef = useRef<HTMLTextAreaElement | null>(null);
   type ManagerChatMessage = { id: string; role: "creator" | "manager"; text: string; createdAt: string };
   type ManagerSuggestion = {
@@ -630,6 +646,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
   }
 
   function handleUseManagerReplyAsMainMessage(text: string) {
+    setComposerAudience("CREATOR");
     focusMainMessageInput(text);
   }
 
@@ -1316,26 +1333,6 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
     }, 1600);
   }, [schemaError]);
 
-  const handleCopyTranslationPreview = useCallback(async () => {
-    if (!translationPreviewText) return;
-    try {
-      await navigator.clipboard.writeText(translationPreviewText);
-      setTranslationCopyState("copied");
-    } catch (_err) {
-      setTranslationCopyState("error");
-    }
-    if (translationCopyTimer.current) {
-      clearTimeout(translationCopyTimer.current);
-    }
-    translationCopyTimer.current = setTimeout(() => {
-      setTranslationCopyState("idle");
-    }, 1600);
-  }, [translationPreviewText]);
-
-  useEffect(() => {
-    setTranslationCopyState("idle");
-  }, [translationPreviewText]);
-
   const openInternalThread = useCallback(() => {
     setIsInternalChatOpen(true);
     requestAnimationFrame(() => {
@@ -1432,7 +1429,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
         messagesAbortRef.current.abort();
       }
     };
-  }, [fetchMessages, id]);
+  }, [fetchMessages, id, setMessage]);
 
   useEffect(() => {
     setSchemaError(null);
@@ -1587,14 +1584,712 @@ useEffect(() => {
     );
   }, [id, translationPreviewOpen]);
 
+  useEffect(() => {
+    inlinePanelRef.current = inlinePanel;
+  }, [inlinePanel]);
+
+  useEffect(() => {
+    const allowedTabs = INLINE_TABS_BY_MODE[composerAudience];
+    const currentTab = inlinePanelRef.current;
+    if (currentTab && allowedTabs.includes(currentTab as any)) return;
+    const lastTab = lastTabByMode[composerAudience];
+    if (lastTab && allowedTabs.includes(lastTab as any)) {
+      setInlinePanel(lastTab as InlineTab);
+    } else {
+      setInlinePanel(null);
+    }
+  }, [composerAudience, lastTabByMode]);
+
+  useEffect(() => {
+    if (!inlinePanel) return;
+    const handleKeyDown = (event: globalThis.KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setInlinePanel(null);
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [inlinePanel]);
+
+  useEffect(() => {
+    setInlinePanel(null);
+    setHideManagerChip(false);
+    setHideTemplatesChip(false);
+    setToolsTranslateOpen(false);
+  }, [conversation.id]);
+
+  useEffect(() => {
+    if (inlinePanel !== "tools" && toolsTranslateOpen) {
+      setToolsTranslateOpen(false);
+    }
+  }, [inlinePanel, toolsTranslateOpen]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const handleConversationChanging = () => {
+      setInlinePanel(null);
+      setToolsTranslateOpen(false);
+      setIsInternalChatOpen(false);
+    };
+    window.addEventListener("novsy:conversation:changing", handleConversationChanging as EventListener);
+    return () => {
+      window.removeEventListener("novsy:conversation:changing", handleConversationChanging as EventListener);
+    };
+  }, []);
+
   const managerChatMessages = managerChatByFan[id ?? ""] ?? [];
   const internalNotes = internalMessages.filter((message) => deriveAudience(message) === "INTERNAL");
   const hasInternalThreadMessages = internalNotes.length > 0 || managerChatMessages.length > 0;
   const effectiveLanguage = (preferredLanguage ?? "en") as SupportedLanguage;
   const isTranslationPreviewAvailable =
     !!id && !conversation.isManager && composerAudience === "CREATOR" && effectiveLanguage !== "es";
-  const translationPreviewLabel = effectiveLanguage.toUpperCase();
-  const translationPreviewButtonLabel = translationPreviewOpen ? "Ocultar" : "Ver";
+  const hasComposerText = messageSend.trim().length > 0;
+  const translateEnabled = translationPreviewOpen && composerAudience === "CREATOR" && !conversation.isManager;
+  const isFanMode = composerAudience === "CREATOR";
+  const disableTranslationPreview = () => {
+    if (translationPreviewTimer.current) {
+      clearTimeout(translationPreviewTimer.current);
+    }
+    if (translationPreviewAbortRef.current) {
+      translationPreviewAbortRef.current.abort();
+    }
+    translationPreviewKeyRef.current = null;
+    setTranslationPreviewStatus("idle");
+    setTranslationPreviewText(null);
+    setTranslationPreviewNotice(null);
+    setTranslationPreviewOpen(false);
+  };
+
+  const toggleInlineTab = useCallback(
+    (tab: InlineTab) => {
+      const allowedTabs = INLINE_TABS_BY_MODE[composerAudience];
+      if (!allowedTabs.includes(tab as any)) return;
+      setInlinePanel((prev) => {
+        const next = prev === tab ? null : tab;
+        if (next) {
+          setLastTabByMode((prevTabs) => ({
+            ...prevTabs,
+            [composerAudience]: tab as any,
+          }));
+        }
+        return next;
+      });
+    },
+    [composerAudience]
+  );
+
+  const handleInternalTabClick = useCallback(() => {
+    const allowedTabs = INLINE_TABS_BY_MODE[composerAudience] as readonly InlineTab[];
+    if (!allowedTabs.includes("internal")) return;
+    const willOpen = inlinePanel !== "internal";
+    toggleInlineTab("internal");
+    if (willOpen) {
+      openInternalThread();
+    } else {
+      setIsInternalChatOpen(false);
+    }
+  }, [composerAudience, inlinePanel, openInternalThread, toggleInlineTab]);
+
+  const handleAttachContentClick = () => {
+    if (isChatBlocked && !isInternalMode) return;
+    openContentModal({ mode: "packs" });
+    setInlinePanel(null);
+  };
+
+  const ActiveChips = () => {
+    const managerAlert = fanManagerAnalysis.chips.some(
+      (chip) => chip.tone === "danger" || chip.tone === "warning"
+    );
+    const templatesCount: number = TRANSLATION_QUICK_CHIPS.length;
+    const allowedTabs = INLINE_TABS_BY_MODE[composerAudience] as readonly InlineTab[];
+    const showManagerChip = allowedTabs.includes("manager") && (isFanMode ? !hideManagerChip : true);
+    const showTemplatesChip = allowedTabs.includes("templates") && isFanMode && !hideTemplatesChip;
+    const showToolsChip = allowedTabs.includes("tools") && isFanMode;
+    const showInternalChip = allowedTabs.includes("internal") && !isFanMode;
+    const managerChipStatus = managerAlert ? "Riesgo" : "OK";
+    const managerChipCount = managerSuggestions.length;
+    const managerChipLabel = isFanMode ? (
+      <span className="flex items-center gap-1.5">
+        <span>Manager</span>
+        <span
+          className={clsx(
+            "rounded-full border px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide",
+            managerAlert
+              ? "border-rose-400/60 bg-rose-500/10 text-rose-200"
+              : "border-slate-600 bg-slate-900/70 text-slate-300"
+          )}
+        >
+          {managerChipStatus}
+        </span>
+        {managerChipCount > 0 && <span className="text-[10px] text-slate-400">· {managerChipCount}</span>}
+      </span>
+    ) : (
+      "Manager IA"
+    );
+
+    if (!showManagerChip && !showTemplatesChip && !showToolsChip && !showInternalChip) {
+      return null;
+    }
+
+    const chipBase =
+      "inline-flex h-8 items-center gap-2 rounded-full border px-3.5 text-[11px] font-semibold whitespace-nowrap transition-all duration-150 shadow-sm";
+
+    const InlinePanelShell = ({ title, children }: { title: string; children: ReactNode }) => (
+      <div className="w-full rounded-2xl border border-slate-700/60 bg-slate-900/80 backdrop-blur-md shadow-[0_10px_35px_rgba(0,0,0,0.35)] ring-1 ring-white/5">
+        <div className="flex items-center justify-between border-b border-slate-800/70 px-4 py-2.5">
+          <span className="text-[10px] uppercase tracking-[0.2em] text-slate-400">{title}</span>
+          <button
+            type="button"
+            onClick={() => setInlinePanel(null)}
+            className="inline-flex h-6 w-6 items-center justify-center rounded-full text-slate-300 transition hover:bg-slate-800/80 hover:text-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/60"
+            aria-label="Cerrar panel"
+          >
+            ✕
+          </button>
+        </div>
+        <div className="max-h-[360px] overflow-y-auto px-4 py-3 text-[12px] text-slate-200 space-y-3">
+          {children}
+        </div>
+      </div>
+    );
+
+    const InlineEmptyState = ({
+      icon,
+      title,
+      subtitle,
+    }: {
+      icon: string;
+      title: string;
+      subtitle?: string;
+    }) => (
+      <div className="flex items-center gap-3 rounded-xl border border-slate-800/70 bg-slate-950/40 px-3 py-3 text-xs text-slate-400">
+        <span className="text-base">{icon}</span>
+        <div>
+          <div className="text-[11px] font-semibold text-slate-200">{title}</div>
+          {subtitle && <div className="text-[10px] text-slate-500">{subtitle}</div>}
+        </div>
+      </div>
+    );
+
+    const inlineActionButtonClass =
+      "inline-flex items-center justify-center rounded-full border border-emerald-500/60 bg-emerald-500/10 px-3 py-1 text-[11px] font-semibold text-emerald-100 transition hover:bg-emerald-500/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/60";
+
+    const InlineToolsPanel = () => (
+      <InlinePanelShell title="Herramientas">
+        {composerAudience === "CREATOR" && !conversation.isManager ? (
+          <div className="space-y-3">
+            <div className="text-[10px] uppercase tracking-[0.2em] text-slate-500">Acciones</div>
+            <button
+              type="button"
+              onClick={handleAttachContentClick}
+              disabled={isChatBlocked}
+              className={clsx(
+                "flex w-full items-center justify-between rounded-xl border px-3 py-2 text-[12px] font-semibold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/60",
+                isChatBlocked
+                  ? "cursor-not-allowed border-slate-800 bg-slate-900/50 text-slate-500"
+                  : "border-slate-700 bg-slate-950/40 text-slate-200 hover:border-slate-500 hover:bg-slate-900/60"
+              )}
+            >
+              <span className="flex items-center gap-2">
+                <span className="text-base leading-none">📎</span>
+                <span>Adjuntar contenido</span>
+              </span>
+            </button>
+            <div className="text-[10px] uppercase tracking-[0.2em] text-slate-500">Traducción</div>
+            <button
+              type="button"
+              onClick={() => setToolsTranslateOpen((prev) => !prev)}
+              className={clsx(
+                "flex w-full items-center justify-between rounded-xl border px-3 py-2 text-[12px] font-semibold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/60",
+                toolsTranslateOpen
+                  ? "border-emerald-400/60 bg-emerald-500/10 text-emerald-100"
+                  : "border-slate-700 bg-slate-950/40 text-slate-200 hover:border-slate-500 hover:bg-slate-900/60"
+              )}
+              aria-expanded={toolsTranslateOpen}
+            >
+              <span className="flex items-center gap-2">
+                <span className="text-base leading-none">🌐</span>
+                <span>Traducir</span>
+              </span>
+              <span
+                className={clsx(
+                  "inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-semibold transition",
+                  translationPreviewOpen
+                    ? "border-emerald-400/70 bg-emerald-500/15 text-emerald-100"
+                    : "border-slate-600 text-slate-400"
+                )}
+              >
+                {translationPreviewOpen ? "ON" : "OFF"}
+              </span>
+            </button>
+            {toolsTranslateOpen && (
+              <div className="space-y-2 rounded-xl border border-slate-800 bg-slate-950/60 px-3 py-2">
+                <div className="flex items-center justify-between">
+                  <div className="text-[10px] uppercase tracking-wide text-slate-400">Traducción automática</div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (translateEnabled) {
+                        disableTranslationPreview();
+                      } else {
+                        setTranslationPreviewOpen(true);
+                        setToolsTranslateOpen(true);
+                      }
+                    }}
+                    className={clsx(
+                      "relative inline-flex h-5 w-10 items-center rounded-full border transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/60",
+                      translationPreviewOpen
+                        ? "border-emerald-400/70 bg-emerald-500/20"
+                        : "border-slate-600 bg-slate-900/70"
+                    )}
+                    aria-pressed={translationPreviewOpen}
+                  >
+                    <span
+                      className={clsx(
+                        "inline-block h-4 w-4 rounded-full transition",
+                        translationPreviewOpen ? "translate-x-5 bg-emerald-200" : "translate-x-1 bg-slate-400"
+                      )}
+                    />
+                  </button>
+                </div>
+                {translationPreviewOpen ? (
+                  <div className="space-y-2 border-l border-slate-800/80 pl-3">
+                    <div className="flex items-center gap-2 text-[11px] text-slate-200">
+                      <span className="text-slate-400">Idioma</span>
+                      <select
+                        value={languageSelectValue}
+                        onChange={(event) => {
+                          const value = event.target.value;
+                          if (value === "auto") return;
+                          handlePreferredLanguageChange(value as SupportedLanguage);
+                        }}
+                        disabled={preferredLanguageSaving}
+                        className="flex-1 rounded-lg border border-slate-700 bg-slate-900 px-2 py-1 text-[11px] font-semibold text-slate-100 focus:border-emerald-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/60"
+                      >
+                        <option value="auto" disabled>
+                          Auto (EN por defecto)
+                        </option>
+                        {SUPPORTED_LANGUAGES.map((lang) => (
+                          <option key={lang} value={lang}>
+                            {lang.toUpperCase()}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    {!isTranslationPreviewAvailable && (
+                      <div className="text-[10px] text-slate-500">
+                        Selecciona un idioma distinto de ES para activar preview.
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <div className="text-[10px] text-slate-500">
+                    Activa la traducción para elegir idioma.
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        ) : (
+          <InlineEmptyState
+            icon="🛠️"
+            title="Sin herramientas disponibles"
+            subtitle="Solo disponibles en chats con fans."
+          />
+        )}
+      </InlinePanelShell>
+    );
+
+    const InlineInternalPanel = () => {
+      const notePreview = internalNotes.slice(-3);
+      const managerPreview = managerChatMessages.slice(-3);
+      return (
+        <InlinePanelShell title="Chat interno con Manager IA">
+          <div className="rounded-xl border border-slate-800/70 bg-slate-900/70 p-3 space-y-3">
+            <div className="flex items-center justify-between">
+              <span className="text-[10px] uppercase tracking-[0.2em] text-slate-400">Hilo interno</span>
+              <button
+                type="button"
+                onClick={openInternalThread}
+                className="text-[11px] font-semibold text-slate-200 transition hover:text-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/60"
+              >
+                Abrir en ventana
+              </button>
+            </div>
+            <div className="space-y-2 max-h-32 overflow-y-auto pr-1">
+              {isLoadingInternalMessages && (
+                <div className="text-[11px] text-slate-400">Cargando mensajes internos…</div>
+              )}
+              {internalMessagesError && !isLoadingInternalMessages && (
+                <div className="text-[11px] text-rose-300">{internalMessagesError}</div>
+              )}
+              {!hasInternalThreadMessages && !isLoadingInternalMessages && !internalMessagesError && (
+                <InlineEmptyState icon="💬" title="Sin mensajes internos" subtitle="Pregúntale algo al Manager IA." />
+              )}
+              {notePreview.length > 0 && (
+                <div className="space-y-1">
+                  <div className="text-[10px] uppercase tracking-wide text-slate-500">Internos</div>
+                  {notePreview.map((msg) => {
+                    const origin = normalizeFrom(msg.from);
+                    const label = origin === "creator" ? "Tú" : "Manager IA";
+                    const noteText =
+                      msg.type === "CONTENT"
+                        ? msg.contentItem?.title || "Contenido interno"
+                        : msg.text || "";
+                    return (
+                      <div key={msg.id} className="text-[11px] text-slate-300 line-clamp-1">
+                        <span className="text-slate-400">{label} · </span>
+                        <span className="text-slate-100">{noteText}</span>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+              {managerPreview.length > 0 && (
+                <div className="space-y-1">
+                  <div className="text-[10px] uppercase tracking-wide text-slate-500">Manager IA</div>
+                  {managerPreview.map((msg) => (
+                    <div key={msg.id} className="text-[11px] text-slate-300">
+                      <span className="text-slate-400">{msg.role === "creator" ? "Tú" : "Manager IA"} · </span>
+                      <span className="text-slate-100 line-clamp-1">{msg.text}</span>
+                      {msg.role === "manager" && (
+                        <button
+                          type="button"
+                          onClick={() => handleUseManagerReplyAsMainMessage(msg.text)}
+                          className={`${inlineActionButtonClass} ml-2 px-2 py-0.5 text-[10px]`}
+                        >
+                          Usar en mensaje
+                        </button>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+            <div className="mt-2 flex items-end gap-2">
+              <textarea
+                rows={1}
+                className="flex-1 rounded-2xl bg-slate-800/80 px-3 py-2 text-xs leading-relaxed text-slate-100 placeholder:text-slate-400 resize-none overflow-y-auto max-h-24 focus:outline-none focus:ring-2 focus:ring-emerald-500/70"
+                placeholder="Preguntarle algo al Manager IA..."
+                ref={managerChatInputRef}
+                value={managerChatInput}
+                onChange={(e) => setManagerChatInput(e.target.value)}
+                onKeyDown={handleManagerChatKeyDown}
+              />
+              <button
+                type="button"
+                onClick={handleSendManagerChat}
+                className="h-8 px-3 rounded-2xl bg-emerald-600 text-[11px] font-semibold text-white transition hover:bg-emerald-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/60 disabled:opacity-50 disabled:cursor-not-allowed"
+                disabled={!managerChatInput.trim()}
+              >
+                Enviar
+              </button>
+            </div>
+          </div>
+        </InlinePanelShell>
+      );
+    };
+
+    const renderInlinePanel = (tab: InlineTab | null) => {
+      if (!tab) return null;
+
+      if (tab === "manager") {
+        if (!isFanMode) {
+          return (
+            <InlinePanelShell title="Manager IA">
+              <div className="space-y-3">
+                <div className="text-[10px] uppercase tracking-[0.2em] text-slate-500">Insights y control</div>
+                <div className="rounded-xl border border-slate-800/70 bg-slate-900/70 p-3">
+                  <div className="max-h-48 overflow-y-auto pr-1">
+                    <FanManagerDrawer
+                      managerSuggestions={managerSuggestions}
+                      onApplySuggestion={handleApplyManagerSuggestion}
+                      currentObjective={currentObjective}
+                      suggestedObjective={fanManagerAnalysis.defaultObjective}
+                      fanManagerState={fanManagerAnalysis.state}
+                      fanManagerHeadline={fanManagerAnalysis.headline}
+                      fanManagerChips={fanManagerAnalysis.chips}
+                      tone={fanTone}
+                      onChangeTone={handleChangeFanTone}
+                      statusLine={statusLine}
+                      lapexSummary={lapexSummary}
+                      sessionSummary={sessionSummary}
+                      iaSummary={iaSummary}
+                      planSummary={planSummary}
+                      closedSummary={managerShortSummary}
+                      fanId={conversation.id}
+                      onManagerSummary={(s) => setManagerSummary(s)}
+                      onSuggestionClick={handleManagerSuggestion}
+                      onQuickGreeting={() => handleManagerQuickAction("romper_hielo")}
+                      onRenew={() => handleManagerQuickAction("reactivar_fan_frio")}
+                      onQuickExtra={() => handleManagerQuickAction("ofrecer_extra")}
+                      onPackOffer={() => handleManagerQuickAction("llevar_a_mensual")}
+                      showRenewAction={showRenewAction}
+                      quickExtraDisabled={quickExtraDisabled}
+                      isRecommended={isRecommended}
+                      isBlocked={isChatBlocked}
+                      autoPilotEnabled={autoPilotEnabled}
+                      onToggleAutoPilot={handleToggleAutoPilot}
+                      isAutoPilotLoading={isAutoPilotLoading}
+                      hasAutopilotContext={hasAutopilotContext}
+                      onAutopilotSoften={handleAutopilotSoften}
+                      onAutopilotMakeBolder={handleAutopilotMakeBolder}
+                    />
+                  </div>
+                </div>
+              </div>
+            </InlinePanelShell>
+          );
+        }
+
+        const suggestions = managerSuggestions.slice(0, 3);
+        const managerContext = managerStatusLabel;
+        return (
+          <InlinePanelShell title="Manager IA">
+            <div className="space-y-3">
+              <div>
+                <div className="text-[10px] uppercase tracking-[0.2em] text-slate-500">Contexto</div>
+                <div className="mt-1 text-[11px] text-slate-200">{managerContext}</div>
+              </div>
+              <div className="space-y-2">
+                {suggestions.length > 0 ? (
+                  suggestions.map((suggestion) => (
+                    <div
+                      key={suggestion.id}
+                      className="rounded-xl border border-slate-800/70 bg-slate-900/70 p-3 space-y-2"
+                    >
+                      <div className="text-[11px] font-semibold text-slate-100">{suggestion.label}</div>
+                      <div className="text-[11px] text-slate-300 line-clamp-2">{suggestion.message}</div>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          handleApplyManagerSuggestion(suggestion.message);
+                          setInlinePanel(null);
+                        }}
+                        className={inlineActionButtonClass}
+                      >
+                        Insertar
+                      </button>
+                    </div>
+                  ))
+                ) : (
+                  <InlineEmptyState icon="✨" title="Sin sugerencias nuevas" subtitle="Vuelve en unos minutos." />
+                )}
+              </div>
+            </div>
+          </InlinePanelShell>
+        );
+      }
+
+      if (tab === "templates") {
+        const hasQuickTemplates = TRANSLATION_QUICK_CHIPS.length > 0;
+        return (
+          <InlinePanelShell title="Plantillas">
+            <div className="space-y-3">
+              {managerPromptTemplate && (
+                <div className="rounded-xl border border-slate-800/70 bg-slate-900/70 p-3 space-y-2">
+                  <div className="text-[10px] uppercase tracking-[0.2em] text-slate-400">
+                    Plantilla sugerida
+                  </div>
+                  <p className="text-[11px] text-slate-200 line-clamp-3">{managerPromptTemplate}</p>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      focusMainMessageInput(managerPromptTemplate);
+                      setInlinePanel(null);
+                    }}
+                    className={inlineActionButtonClass}
+                  >
+                    Insertar
+                  </button>
+                </div>
+              )}
+              {hasQuickTemplates ? (
+                <div className="flex flex-wrap gap-2">
+                  {TRANSLATION_QUICK_CHIPS.slice(0, 3).map((chip) => (
+                    <div
+                      key={chip.id}
+                      className="flex min-w-[180px] flex-1 flex-col gap-2 rounded-xl border border-slate-800/70 bg-slate-900/70 px-3 py-2"
+                    >
+                      <div className="text-[11px] font-semibold text-slate-100">{chip.label}</div>
+                      <p className="text-[10px] text-slate-400 line-clamp-2">{chip.text}</p>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          focusMainMessageInput(chip.text);
+                          setInlinePanel(null);
+                        }}
+                        className={inlineActionButtonClass}
+                      >
+                        Insertar
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <InlineEmptyState icon="🗂️" title="Sin plantillas disponibles" />
+              )}
+            </div>
+          </InlinePanelShell>
+        );
+      }
+
+      if (tab === "internal") {
+        return <InlineInternalPanel />;
+      }
+
+      if (tab === "tools") {
+        return <InlineToolsPanel />;
+      }
+
+      return null;
+    };
+
+    const lastTab = lastTabByMode[composerAudience];
+    const panelTab =
+      inlinePanel ??
+      (lastTab && allowedTabs.includes(lastTab as InlineTab) ? (lastTab as InlineTab) : null);
+    const isPanelOpen = inlinePanel !== null;
+    const panelContent = renderInlinePanel(panelTab);
+
+    return (
+      <div className="w-full">
+        <div
+          className={clsx(
+            "mt-2 flex w-full items-center gap-1.5 overflow-x-auto pb-2 sm:flex-wrap sm:overflow-visible",
+            isPanelOpen ? "border-b border-slate-800/60" : "border-b border-transparent",
+            "[-ms-overflow-style:'none'] [scrollbar-width:'none'] [&::-webkit-scrollbar]:hidden"
+          )}
+        >
+          {showManagerChip && (
+            <div
+              className={clsx(
+                chipBase,
+                inlinePanel === "manager"
+                  ? "border-sky-400/70 bg-sky-500/15 text-sky-100 ring-1 ring-sky-400/30"
+                  : managerAlert
+                  ? "border-rose-400/70 bg-rose-500/10 text-rose-100"
+                  : "border-slate-700 bg-slate-900/70 text-slate-200 hover:border-slate-500/80"
+              )}
+            >
+              <button
+                type="button"
+                onClick={() => toggleInlineTab("manager")}
+                className="inline-flex items-center gap-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400/40"
+                aria-expanded={inlinePanel === "manager"}
+              >
+                <span>{managerChipLabel}</span>
+              </button>
+              {isFanMode && (
+                <button
+                  type="button"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    setHideManagerChip(true);
+                    setInlinePanel((prev) => (prev === "manager" ? null : prev));
+                  }}
+                  className="inline-flex h-3.5 w-3.5 items-center justify-center rounded-full border border-slate-700 text-[9px] text-slate-400 transition hover:border-slate-500 hover:bg-slate-800/60 hover:text-slate-200"
+                  aria-label="Ocultar sugerencias Manager"
+                >
+                  ✕
+                </button>
+              )}
+            </div>
+          )}
+          {showInternalChip && (
+            <div
+              className={clsx(
+                chipBase,
+                inlinePanel === "internal"
+                  ? "border-amber-400/70 bg-amber-500/15 text-amber-100 ring-1 ring-amber-400/30"
+                  : "border-slate-700 bg-slate-900/70 text-slate-200 hover:border-slate-500/80"
+              )}
+            >
+              <button
+                type="button"
+                onClick={handleInternalTabClick}
+                className="inline-flex items-center gap-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/40"
+                aria-expanded={inlinePanel === "internal"}
+              >
+                <span>Chat interno con Manager IA</span>
+              </button>
+            </div>
+          )}
+          {showTemplatesChip && (
+            <div
+              className={clsx(
+                chipBase,
+                inlinePanel === "templates"
+                  ? "border-cyan-400/70 bg-cyan-500/15 text-cyan-100 ring-1 ring-cyan-400/30"
+                  : "border-slate-700 bg-slate-900/70 text-slate-200 hover:border-slate-500/80"
+              )}
+            >
+              <button
+                type="button"
+                onClick={() => toggleInlineTab("templates")}
+                className="inline-flex items-center gap-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400/40"
+                aria-expanded={inlinePanel === "templates"}
+              >
+                <span className="flex items-center gap-1.5">
+                  <span>Plantillas</span>
+                  {templatesCount > 0 && (
+                    <span className="rounded-full border border-slate-600/80 bg-slate-900/60 px-1.5 py-0.5 text-[9px] text-slate-300">
+                      {templatesCount}
+                    </span>
+                  )}
+                </span>
+              </button>
+              <button
+                type="button"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  setHideTemplatesChip(true);
+                  setInlinePanel((prev) => (prev === "templates" ? null : prev));
+                }}
+                className="inline-flex h-3.5 w-3.5 items-center justify-center rounded-full border border-slate-700 text-[9px] text-slate-400 transition hover:border-slate-500 hover:bg-slate-800/60 hover:text-slate-200"
+                aria-label="Ocultar plantillas"
+              >
+                ✕
+              </button>
+            </div>
+          )}
+          {showToolsChip && (
+            <div
+              className={clsx(
+                chipBase,
+                inlinePanel === "tools"
+                  ? "border-emerald-400/70 bg-emerald-500/15 text-emerald-100 ring-1 ring-emerald-400/30"
+                  : "border-slate-700 bg-slate-900/70 text-slate-200 hover:border-slate-500/80"
+              )}
+            >
+              <button
+                type="button"
+                onClick={() => {
+                  toggleInlineTab("tools");
+                }}
+                className="inline-flex items-center gap-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/40"
+                aria-expanded={inlinePanel === "tools"}
+              >
+                <span>Herramientas</span>
+              </button>
+            </div>
+          )}
+        </div>
+        <div
+          className={clsx(
+            "transition-all duration-200 ease-out overflow-hidden",
+            isPanelOpen
+              ? "mt-3 max-h-[520px] opacity-100 translate-y-0 visible"
+              : "mt-0 max-h-0 opacity-0 -translate-y-1 invisible pointer-events-none"
+          )}
+          style={{ willChange: "opacity, transform, max-height" }}
+          aria-hidden={!isPanelOpen}
+        >
+          {panelContent}
+        </div>
+      </div>
+    );
+  };
 
   useEffect(() => {
     setTranslationPreviewStatus("idle");
@@ -2261,6 +2956,7 @@ useEffect(() => {
 
     if (key === "Enter" && !evt.shiftKey) {
       evt.preventDefault();
+      if (isSendingRef.current) return;
       if (messageSend.trim()) handleSendMessage();
     }
   }
@@ -2382,7 +3078,15 @@ useEffect(() => {
   }
 
   async function handleSendMessage() {
-    await sendMessageText(messageSend, composerAudience);
+    if (isSendingRef.current) return;
+    isSendingRef.current = true;
+    setIsSending(true);
+    try {
+      await sendMessageText(messageSend, composerAudience);
+    } finally {
+      isSendingRef.current = false;
+      setIsSending(false);
+    }
   }
 
   async function handleCreatePaymentLink(item: ContentWithFlags) {
@@ -2605,13 +3309,16 @@ useEffect(() => {
     !conversation.isManager && preferredLanguage ? preferredLanguage.toUpperCase() : null;
   const languageSelectValue = preferredLanguage ?? "auto";
   const isInternalMode = composerAudience === "INTERNAL";
-  const sendDisabled = !(messageSend.trim().length > 0) || (isChatBlocked && !isInternalMode);
+  const sendDisabled = isSending || !(messageSend.trim().length > 0) || (isChatBlocked && !isInternalMode);
   const composerPlaceholder = isChatBlocked && !isInternalMode
     ? "Has bloqueado este chat. Desbloquéalo para volver a escribir."
     : isInternalMode
-    ? "Escribe un mensaje interno (el fan no lo verá)…"
+    ? "Nota interna…"
     : "Mensaje al fan";
-  const composerActionLabel = isInternalMode ? "Guardar interno" : "Enviar";
+  const composerActionLabel = isInternalMode ? "Guardar nota" : "Enviar";
+  const managerStatusLabel =
+    fanManagerAnalysis.chips.find((chip) => chip.tone === "danger")?.label ||
+    (autoPilotEnabled ? "AUTO" : fanManagerAnalysis.chips[0]?.label || "Manual");
   const extrasCountDisplay = conversation.extrasCount ?? 0;
   const extrasSpentDisplay = Math.round(conversation.extrasSpentTotal ?? 0);
   const extrasAmount = conversation.extrasSpentTotal ?? 0;
@@ -3086,8 +3793,10 @@ useEffect(() => {
           </div>
         </header>
       )}
-      <header ref={fanHeaderRef} className="sticky top-0 z-20 backdrop-blur">
-        <div className="max-w-4xl mx-auto w-full bg-slate-950/70 border-b border-slate-800 px-4 py-3 md:px-6 md:py-4 flex flex-col gap-3">
+      <div className="flex flex-1 min-h-0 min-w-0">
+        <div className="flex flex-col flex-1 min-h-0 min-w-0">
+          <header ref={fanHeaderRef} className="sticky top-0 z-20 backdrop-blur">
+            <div className="max-w-4xl mx-auto w-full bg-slate-950/70 border-b border-slate-800 px-4 py-3 md:px-6 md:py-4 flex flex-col gap-3">
           {/* Piso 1 */}
           <div className="flex flex-wrap items-center gap-3 sm:flex-nowrap" ref={actionsMenuRef}>
             <div className="flex items-center gap-3 min-w-0 flex-1 order-1">
@@ -3200,30 +3909,6 @@ useEffect(() => {
               </div>
             </div>
             <div className="flex flex-wrap items-center gap-2 order-3 w-full sm:order-2 sm:w-auto sm:ml-auto sm:justify-end">
-              {!conversation.isManager && (
-                <div className="inline-flex items-center gap-2 rounded-full border border-slate-700 bg-slate-900/70 px-3 py-1.5 text-xs font-medium text-slate-200">
-                  <span className="text-slate-400">Idioma:</span>
-                  <select
-                    value={languageSelectValue}
-                    onChange={(event) => {
-                      const value = event.target.value;
-                      if (value === "auto") return;
-                      handlePreferredLanguageChange(value as SupportedLanguage);
-                    }}
-                    disabled={preferredLanguageSaving}
-                    className="bg-transparent text-xs font-semibold text-slate-100 focus:outline-none"
-                  >
-                    <option value="auto" disabled>
-                      Auto (EN por defecto)
-                    </option>
-                    {SUPPORTED_LANGUAGES.map((lang) => (
-                      <option key={lang} value={lang}>
-                        {lang.toUpperCase()}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              )}
               <button
                 type="button"
                 onClick={handleViewProfile}
@@ -3510,7 +4195,7 @@ useEffect(() => {
           className="flex flex-col w-full flex-1 overflow-y-auto"
           style={{ backgroundImage: "url('/assets/images/background.jpg')" }}
         >
-          <div className="max-w-4xl mx-auto w-full px-4 sm:px-6 lg:px-8 py-6">
+          <div className="max-w-4xl mx-auto w-full px-4 sm:px-6 lg:px-8 py-6 pb-32">
             {schemaError && (
               <div className="mb-4 rounded-xl border border-rose-500/60 bg-rose-500/10 px-4 py-3 text-rose-100">
                 <div className="flex items-start justify-between gap-3">
@@ -3832,179 +4517,103 @@ useEffect(() => {
 
             </div>
           )}
-          <div className="border-t border-slate-950 bg-slate-950 px-4 py-3">
-            <div className="flex flex-col gap-2">
-              <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={() => setComposerAudience("CREATOR")}
-                  className={clsx(
-                    "rounded-full border px-3 py-1 text-[11px] font-semibold transition",
-                    composerAudience === "CREATOR"
-                      ? "border-emerald-400/70 bg-emerald-500/15 text-emerald-100"
-                      : "border-slate-600 text-slate-300 hover:bg-slate-800/70"
-                  )}
-                >
-                  Para fan
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setComposerAudience("INTERNAL")}
-                  className={clsx(
-                    "rounded-full border px-3 py-1 text-[11px] font-semibold transition",
-                    composerAudience === "INTERNAL"
-                      ? "border-amber-400/70 bg-amber-500/15 text-amber-100"
-                      : "border-slate-600 text-slate-300 hover:bg-slate-800/70"
-                  )}
-                  title="No se envía al fan. Se guarda en el chat interno con Manager IA."
-                >
-                  Mensaje interno
-                </button>
-                <button
-                  type="button"
-                  onClick={openInternalThread}
-                  className="text-[11px] text-slate-400 hover:text-slate-200 underline"
-                >
-                  Ver internos
-                </button>
-              </div>
-              {internalToast && <div className="text-[11px] text-emerald-300">{internalToast}</div>}
-              {isTranslationPreviewAvailable && (
-                <div className="flex flex-wrap gap-2 text-[11px] text-slate-200">
-                  {TRANSLATION_QUICK_CHIPS.map((chip) => (
-                    <button
-                      key={chip.id}
-                      type="button"
-                      onClick={() => focusMainMessageInput(chip.text)}
-                      className="rounded-full border border-slate-600 bg-slate-900/70 px-3 py-1 font-semibold text-slate-200 hover:border-emerald-400 hover:text-emerald-100"
-                    >
-                      {chip.label}
-                    </button>
-                  ))}
-                </div>
-              )}
-              {isTranslationPreviewAvailable && (
-                <div className="rounded-lg border border-slate-700 bg-slate-900/70 px-3 py-2 text-xs text-slate-200">
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="font-semibold">
-                      Traducción a {translationPreviewLabel} (preview)
-                    </span>
-                    <button
-                      type="button"
-                      onClick={() => setTranslationPreviewOpen((prev) => !prev)}
-                      className="text-[11px] text-slate-300 hover:text-slate-100 underline"
-                    >
-                      {translationPreviewButtonLabel}
-                    </button>
-                  </div>
-                  {translationPreviewOpen && (
-                    <div className="mt-2 space-y-2">
-                      {!messageSend.trim() && (
-                        <div className="text-[11px] text-slate-400">
-                          Escribe un mensaje para previsualizar.
-                        </div>
-                      )}
-                      {messageSend.trim() && translationPreviewStatus === "loading" && (
-                        <div className="text-[11px] text-slate-400">Generando…</div>
-                      )}
-                      {translationPreviewText && (
-                        <div className="rounded-md border border-slate-700 bg-slate-950/60 px-2 py-1 text-[12px] text-slate-100 whitespace-pre-wrap">
-                          {translationPreviewText}
-                        </div>
-                      )}
-                      {translationPreviewNotice && (
-                        <div className="text-[11px] text-slate-400">{translationPreviewNotice}</div>
-                      )}
-                      {translationPreviewText && (
-                        <button
-                          type="button"
-                          onClick={handleCopyTranslationPreview}
-                          className="inline-flex items-center rounded-full border border-slate-600 bg-slate-900/70 px-3 py-1 text-[11px] font-semibold text-slate-200 hover:border-emerald-400 hover:text-emerald-100"
-                        >
-                          {translationCopyState === "copied"
-                            ? "Copiado"
-                            : translationCopyState === "error"
-                            ? "Error"
-                            : "Copiar traducción"}
-                        </button>
-                      )}
-                    </div>
-                  )}
-                </div>
-              )}
+          <div className="sticky bottom-0 z-30 border-t border-slate-800 bg-slate-950/95 backdrop-blur">
+            <div className="max-w-4xl mx-auto w-full px-4 sm:px-6 lg:px-8 py-3">
+              {internalToast && <div className="mb-2 text-[11px] text-emerald-300">{internalToast}</div>}
               <div
                 className={clsx(
-                  "flex items-center gap-2 rounded-3xl border px-3 py-2.5",
-                  "bg-slate-900/90 border-slate-700/80 shadow-sm",
-                  "focus-within:border-emerald-500/80 focus-within:ring-1 focus-within:ring-emerald-500/40",
+                  "flex items-center gap-2 rounded-2xl border px-3 py-2",
+                  isInternalMode
+                    ? "bg-amber-500/5 border-amber-400/60 shadow-[0_0_0_1px_rgba(251,191,36,0.15)]"
+                    : "bg-slate-900/90 border-slate-700/80 shadow-sm",
+                  isInternalMode
+                    ? "focus-within:border-amber-400/80 focus-within:ring-1 focus-within:ring-amber-400/30"
+                    : "focus-within:border-emerald-500/80 focus-within:ring-1 focus-within:ring-emerald-500/40",
                   isChatBlocked && !isInternalMode && "opacity-70"
                 )}
               >
-                <div className="relative">
-                  <button
-                    type="button"
-                    onClick={() => setIsAttachmentMenuOpen((prev) => !prev)}
+                {!isInternalMode && (
+                  <div className="relative shrink-0">
+                    <button
+                      type="button"
+                      onClick={handleAttachContentClick}
+                      className="flex h-9 w-9 items-center justify-center rounded-full transition text-slate-200 hover:bg-slate-800/80"
+                      title="Adjuntar contenido"
+                      aria-label="Adjuntar contenido"
+                    >
+                      <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2">
+                        <path d="M12 5v14" />
+                        <path d="M5 12h14" />
+                      </svg>
+                    </button>
+                  </div>
+                )}
+                <div className="flex min-w-0 flex-1 items-center gap-2">
+                  <div
                     className={clsx(
-                      "flex h-9 w-9 items-center justify-center rounded-full hover:bg-slate-800/80 transition text-slate-200",
-                      isChatBlocked && "opacity-50 cursor-not-allowed"
+                      "inline-flex items-center rounded-full border p-0.5 shrink-0",
+                      isInternalMode
+                        ? "border-amber-400/70 bg-amber-500/10"
+                        : "border-slate-700 bg-slate-900/70"
                     )}
-                    title="Adjuntar contenido (packs / extras)"
-                    aria-label="Adjuntar contenido (packs / extras)"
-                    disabled={isChatBlocked}
                   >
-                    <svg viewBox="0 0 24 24" width="24" height="24" className="cursor-pointer">
-                      <path fill="currentColor" d="M1.816 15.556v.002c0 1.502.584 2.912 1.646 3.972s2.472 1.647 3.974 1.647a5.58 5.58 0 0 0 3.972-1.645l9.547-9.548c.769-.768 1.147-1.767 1.058-2.817-.079-.968-.548-1.927-1.319-2.698-1.594-1.592-4.068-1.711-5.517-.262l-7.916 7.915c-.881.881-.792 2.25.214 3.261.959.958 2.423 1.053 3.263.215l5.511-5.512c.28-.28.267-.722.053-.936l-.244-.244c-.191-.191-.567-.349-.957.04l-5.506 5.506c-.18.18-.635.127-.976-.214-.098-.097-.576-.613-.213-.973l7.915-7.917c.818-.817 2.267-.699 3.23.262.5.501.802 1.1.849 1.685.051.573-.156 1.111-.589 1.543l-9.547 9.549a3.97 3.97 0 0 1-2.829 1.171 3.975 3.975 0 0 1-2.83-1.173 3.973 3.973 0 0 1-1.172-2.828c0-1.071.415-2.076 1.172-2.83l7.209-7.211c.157-.157.264-.579.028-.814L11.5 4.36a.572.572 0 0 0-.834.018l-7.205 7.207a5.577 5.577 0 0 0-1.645 3.971z">
-                      </path>
-                    </svg>
-                  </button>
-                  {isAttachmentMenuOpen && !isChatBlocked && (
-                    <div className="absolute bottom-12 left-0 z-20 w-56 rounded-xl bg-slate-900 border border-slate-700 shadow-lg">
-                      <button
-                        type="button"
-                        className="flex w-full items-center gap-2 px-3 py-2 text-sm text-slate-100 hover:bg-slate-800"
-                        onClick={() => {
-                          setIsAttachmentMenuOpen(false);
-                          openContentModal({ mode: "packs" });
-                        }}
-                      >
-                        <span>Adjuntar contenido</span>
-                      </button>
-                      {false && (
-                        <button
-                          type="button"
-                          disabled
-                          className="flex w-full items-center gap-2 px-3 py-2 text-sm text-slate-500 cursor-not-allowed"
-                        >
-                          Subir archivo (próximamente)
-                        </button>
+                    <button
+                      type="button"
+                      onClick={() => setComposerAudience("CREATOR")}
+                      className={clsx(
+                        "rounded-full px-2.5 py-0.5 text-[10px] font-semibold transition",
+                        composerAudience === "CREATOR"
+                          ? "bg-emerald-500/20 text-emerald-100"
+                          : "text-slate-300 hover:text-slate-100"
                       )}
-                    </div>
+                    >
+                      Fan
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setComposerAudience("INTERNAL")}
+                      className={clsx(
+                        "rounded-full px-2.5 py-0.5 text-[10px] font-semibold transition",
+                        composerAudience === "INTERNAL"
+                          ? "bg-amber-500/20 text-amber-100"
+                          : "text-slate-300 hover:text-slate-100"
+                      )}
+                      title="No se envía al fan. Se guarda en el chat interno con Manager IA."
+                    >
+                      {isInternalMode ? "🔒 Interno" : "Interno"}
+                    </button>
+                  </div>
+                  {isInternalMode && (
+                    <span className="shrink-0 text-[9px] uppercase tracking-[0.2em] text-amber-200/80">
+                      INTERNAL
+                    </span>
                   )}
+                  <textarea
+                    ref={messageInputRef}
+                    rows={1}
+                    className={clsx(
+                      "flex-1 min-w-0 bg-transparent resize-none overflow-y-auto max-h-36",
+                      "px-1 text-base leading-relaxed text-slate-50",
+                      "placeholder:text-slate-300 focus:outline-none",
+                      isInternalMode ? "caret-amber-300" : "caret-emerald-400",
+                      isChatBlocked && !isInternalMode && "cursor-not-allowed"
+                    )}
+                    placeholder={composerPlaceholder}
+                    onKeyDown={(evt) => changeHandler(evt)}
+                    onChange={(evt) => {
+                      setMessageSend(evt.target.value);
+                    }}
+                    value={messageSend}
+                    disabled={isChatBlocked && !isInternalMode}
+                    style={{ maxHeight: `${MAX_MESSAGE_HEIGHT}px` }}
+                  />
                 </div>
-                <textarea
-                  ref={messageInputRef}
-                  rows={1}
-                  className={clsx(
-                    "flex-1 bg-transparent resize-none overflow-y-auto max-h-44",
-                    "px-2 text-base leading-relaxed text-slate-50 caret-emerald-400",
-                    "placeholder:text-slate-300 focus:outline-none",
-                    isChatBlocked && !isInternalMode && "cursor-not-allowed"
-                  )}
-                  placeholder={composerPlaceholder}
-                  onKeyDown={(evt) => changeHandler(evt)}
-                  onChange={(evt) => {
-                    setMessageSend(evt.target.value);
-                  }}
-                  value={messageSend}
-                  disabled={isChatBlocked && !isInternalMode}
-                  style={{ maxHeight: `${MAX_MESSAGE_HEIGHT}px` }}
-                />
                 <button
                   type="button"
                   onClick={handleSendMessage}
                   disabled={sendDisabled}
                   className={clsx(
-                    "ml-1 h-9 px-4 rounded-2xl text-sm font-medium",
+                    "h-9 px-4 rounded-2xl text-sm font-medium shrink-0",
                     isInternalMode ? "bg-amber-500 text-slate-950 hover:bg-amber-400" : "bg-emerald-600 text-white hover:bg-emerald-500",
                     "disabled:opacity-50 disabled:cursor-not-allowed",
                     "transition-colors"
@@ -4013,222 +4622,146 @@ useEffect(() => {
                   {composerActionLabel}
                 </button>
               </div>
+              <ActiveChips />
             </div>
           </div>
-          <div className="rounded-2xl border border-slate-800 bg-slate-950/80">
-            <div className="max-h-[60vh] overflow-y-auto lg:max-h-[60vh] lg:overflow-y-auto pr-1 pb-4">
-              <FanManagerDrawer
-                managerSuggestions={managerSuggestions}
-                onApplySuggestion={handleApplyManagerSuggestion}
-                currentObjective={currentObjective}
-                suggestedObjective={fanManagerAnalysis.defaultObjective}
-                fanManagerState={fanManagerAnalysis.state}
-                fanManagerHeadline={fanManagerAnalysis.headline}
-                fanManagerChips={fanManagerAnalysis.chips}
-                tone={fanTone}
-                onChangeTone={handleChangeFanTone}
-                statusLine={statusLine}
-                lapexSummary={lapexSummary}
-                sessionSummary={sessionSummary}
-                iaSummary={iaSummary}
-                planSummary={planSummary}
-                closedSummary={managerShortSummary}
-                fanId={conversation.id}
-                onManagerSummary={(s) => setManagerSummary(s)}
-                onSuggestionClick={handleManagerSuggestion}
-                onQuickGreeting={() => handleManagerQuickAction("romper_hielo")}
-                onRenew={() => handleManagerQuickAction("reactivar_fan_frio")}
-                onQuickExtra={() => handleManagerQuickAction("ofrecer_extra")}
-                onPackOffer={() => handleManagerQuickAction("llevar_a_mensual")}
-                showRenewAction={showRenewAction}
-                quickExtraDisabled={quickExtraDisabled}
-                isRecommended={isRecommended}
-                isBlocked={isChatBlocked}
-                autoPilotEnabled={autoPilotEnabled}
-                onToggleAutoPilot={handleToggleAutoPilot}
-                isAutoPilotLoading={isAutoPilotLoading}
-                hasAutopilotContext={hasAutopilotContext}
-                onAutopilotSoften={handleAutopilotSoften}
-                onAutopilotMakeBolder={handleAutopilotMakeBolder}
-              />
-              <div className="mt-2 text-[11px] text-slate-400">
-                Modo IA: <span className="text-slate-200">{formatToneLabel(fanTone) || "—"}</span> · Objetivo:{" "}
-                <span className="text-slate-200">
-                  {formatObjectiveLabel(currentObjective ?? fanManagerAnalysis.defaultObjective) || "—"}
-                </span>
+        </div>
+        </div>
+        </div>
+      </div>
+      {isInternalChatOpen && (
+        <div className="fixed inset-0 z-[60] flex items-end md:items-center justify-center bg-black/50 backdrop-blur-md px-4 py-6">
+          <div className="w-full max-w-2xl rounded-2xl border border-slate-700/60 bg-slate-950/80 shadow-[0_12px_40px_rgba(0,0,0,0.45)] ring-1 ring-white/5 flex flex-col max-h-[85vh]">
+            <div className="flex items-center justify-between border-b border-slate-800/70 px-4 py-3">
+              <div>
+                <div className="text-sm font-semibold text-slate-100">Chat interno con Manager IA</div>
+                <p className="text-[11px] text-slate-400">Solo tú ves este hilo. No se envía al fan.</p>
               </div>
-              <div className="mt-3 rounded-xl border border-slate-800/80 bg-slate-900/70 p-3 flex flex-col gap-3">
-                <div className="flex items-center justify-between px-1">
-                  <div className="space-y-0.5">
-                    <div className="text-sm font-semibold text-slate-100">Chat interno con Manager IA</div>
-                    <p className="text-[11px] text-slate-400">Solo tú ves este hilo. No se envía al fan.</p>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      if (isInternalChatOpen) {
-                        setIsInternalChatOpen(false);
-                      } else {
-                        openInternalThread();
-                      }
-                    }}
-                    className="text-xs px-3 py-1 rounded-full border border-slate-600 hover:bg-slate-800 transition"
-                  >
-                    {isInternalChatOpen ? "Cerrar" : "Abrir"}
-                  </button>
+              <button
+                type="button"
+                onClick={() => setIsInternalChatOpen(false)}
+                className="inline-flex h-7 w-7 items-center justify-center rounded-full text-slate-200 transition hover:bg-slate-800/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/60"
+              >
+                ✕
+              </button>
+            </div>
+            <div
+              ref={managerChatListRef}
+              className="flex-1 flex flex-col gap-2 overflow-y-auto px-4 py-3"
+            >
+              {isLoadingInternalMessages && (
+                <div className="text-[11px] text-slate-500">Cargando mensajes internos...</div>
+              )}
+              {internalMessagesError && !isLoadingInternalMessages && (
+                <div className="text-[11px] text-rose-300">{internalMessagesError}</div>
+              )}
+              {!hasInternalThreadMessages && !isLoadingInternalMessages && !internalMessagesError && (
+                <div className="text-[11px] text-slate-500">
+                  Aún no hay mensajes internos ni mensajes del Manager IA.
                 </div>
-                {isInternalChatOpen && (
-                  <div className="flex flex-col gap-3 max-h-80">
-                    {managerPromptTemplate && (
-                      <div className="rounded-lg border border-slate-800 bg-slate-900/70 p-3 space-y-2 text-[11px] text-slate-200">
-                        <div className="flex items-center justify-between gap-2">
-                          <span className="font-semibold text-slate-100">
-                            Plantilla sugerida para este fan
-                          </span>
-                        </div>
-                        <p className="text-[12px] leading-relaxed text-slate-200">{managerPromptTemplate}</p>
-                        <div>
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setManagerChatInput(managerPromptTemplate);
-                              requestAnimationFrame(() => {
-                                if (managerChatInputRef.current) {
-                                  managerChatInputRef.current.focus();
-                                  managerChatInputRef.current.setSelectionRange(
-                                    managerPromptTemplate.length,
-                                    managerPromptTemplate.length
-                                  );
-                                  managerChatInputRef.current.scrollIntoView({ block: "nearest" });
-                                }
-                              });
-                            }}
-                            className="inline-flex items-center rounded-full border border-emerald-500/60 bg-emerald-500/10 px-4 py-1.5 text-[12px] font-medium text-emerald-100 hover:bg-emerald-500/20 transition"
-                          >
-                            Usar plantilla
-                          </button>
+              )}
+              {internalNotes.length > 0 && (
+                <div className="space-y-2">
+                  <div className="text-[10px] uppercase tracking-wide text-slate-500">Mensajes internos</div>
+                  {internalNotes.map((msg) => {
+                    const origin = normalizeFrom(msg.from);
+                    const isCreatorNote = origin === "creator";
+                    const label = isCreatorNote ? "Tú" : "Manager IA";
+                    const noteText =
+                      msg.type === "CONTENT"
+                        ? msg.contentItem?.title || "Contenido interno"
+                        : msg.text || "";
+                    return (
+                      <div
+                        key={msg.id}
+                        className={clsx(
+                          "flex flex-col max-w-[80%]",
+                          isCreatorNote ? "self-end items-end" : "self-start items-start"
+                        )}
+                      >
+                        <span className="text-[10px] uppercase tracking-wide text-slate-500">{label}</span>
+                        <div
+                          className={clsx(
+                            "rounded-2xl px-3 py-2 text-sm leading-relaxed",
+                            isCreatorNote
+                              ? "bg-amber-500/20 text-amber-50"
+                              : "bg-slate-800/80 text-slate-100"
+                          )}
+                        >
+                          {isCreatorNote && (
+                            <span className="mb-1 inline-flex items-center rounded-full border border-amber-400/70 px-2 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-amber-200">
+                              INTERNO
+                            </span>
+                          )}
+                          <div>{noteText}</div>
                         </div>
                       </div>
-                    )}
+                    );
+                  })}
+                </div>
+              )}
+              {managerChatMessages.length > 0 && (
+                <div className="space-y-2">
+                  <div className="text-[10px] uppercase tracking-wide text-slate-500">Manager IA</div>
+                  {managerChatMessages.map((msg) => (
                     <div
-                      ref={managerChatListRef}
-                      className="flex-1 flex flex-col gap-2 overflow-y-auto pr-1 border-t border-slate-700 pt-3"
+                      key={msg.id}
+                      className={clsx(
+                        "flex flex-col max-w-[80%]",
+                        msg.role === "creator" ? "self-end items-end" : "self-start items-start"
+                      )}
                     >
-                      {isLoadingInternalMessages && (
-                        <div className="text-[11px] text-slate-500">Cargando mensajes internos...</div>
-                      )}
-                      {internalMessagesError && !isLoadingInternalMessages && (
-                        <div className="text-[11px] text-rose-300">{internalMessagesError}</div>
-                      )}
-                      {!hasInternalThreadMessages && !isLoadingInternalMessages && !internalMessagesError && (
-                        <div className="text-[11px] text-slate-500">
-                          Aún no hay mensajes internos ni mensajes del Manager IA.
-                        </div>
-                      )}
-                      {internalNotes.length > 0 && (
-                        <div className="space-y-2">
-                          <div className="text-[10px] uppercase tracking-wide text-slate-500">Mensajes internos</div>
-                          {internalNotes.map((msg) => {
-                            const origin = normalizeFrom(msg.from);
-                            const isCreatorNote = origin === "creator";
-                            const label = isCreatorNote ? "Tú" : "Manager IA";
-                            const noteText =
-                              msg.type === "CONTENT"
-                                ? msg.contentItem?.title || "Contenido interno"
-                                : msg.text || "";
-                            return (
-                              <div
-                                key={msg.id}
-                                className={clsx(
-                                  "flex flex-col max-w-[80%]",
-                                  isCreatorNote ? "self-end items-end" : "self-start items-start"
-                                )}
-                              >
-                                <span className="text-[10px] uppercase tracking-wide text-slate-500">{label}</span>
-                                <div
-                                  className={clsx(
-                                    "rounded-2xl px-3 py-2 text-sm leading-relaxed",
-                                    isCreatorNote
-                                      ? "bg-amber-500/20 text-amber-50"
-                                      : "bg-slate-800/80 text-slate-100"
-                                  )}
-                                >
-                                  {isCreatorNote && (
-                                    <span className="mb-1 inline-flex items-center rounded-full border border-amber-400/70 px-2 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-amber-200">
-                                      INTERNO
-                                    </span>
-                                  )}
-                                  <div>{noteText}</div>
-                                </div>
-                              </div>
-                            );
-                          })}
-                        </div>
-                      )}
-                      {managerChatMessages.length > 0 && (
-                        <div className="space-y-2">
-                          <div className="text-[10px] uppercase tracking-wide text-slate-500">Manager IA</div>
-                          {managerChatMessages.map((msg) => (
-                            <div
-                              key={msg.id}
-                              className={clsx(
-                                "flex flex-col max-w-[80%]",
-                                msg.role === "creator" ? "self-end items-end" : "self-start items-start"
-                              )}
-                            >
-                              <span className="text-[10px] uppercase tracking-wide text-slate-500">
-                                {msg.role === "creator" ? "Tú" : "Manager IA"}
-                              </span>
-                              <div
-                                className={clsx(
-                                  "rounded-2xl px-3 py-2 text-sm leading-relaxed",
-                                  msg.role === "creator"
-                                    ? "bg-emerald-600/80 text-white"
-                                    : "bg-slate-800/80 text-slate-100"
-                                )}
-                              >
-                                {msg.text}
-                              </div>
-                              {msg.role === "manager" && (
-                                <button
-                                  type="button"
-                                  onClick={() => handleUseManagerReplyAsMainMessage(msg.text)}
-                                  className="mt-1 inline-flex items-center rounded-full border border-emerald-500/60 bg-emerald-500/10 px-3 py-1 text-[11px] font-medium text-emerald-100 hover:bg-emerald-500/20 transition"
-                                >
-                                  Usar en mensaje
-                                </button>
-                              )}
-                            </div>
-                          ))}
-                        </div>
-                      )}
-                  </div>
-                    <div className="flex items-end gap-2 border-t border-slate-700 pt-3">
-                      <textarea
-                        rows={1}
-                        className="flex-1 rounded-2xl bg-slate-800/80 px-3 py-2 text-sm leading-relaxed text-slate-100 placeholder:text-slate-400 resize-none overflow-y-auto max-h-32 focus:outline-none focus:ring-2 focus:ring-emerald-500/70"
-                        placeholder="Preguntarle algo al Manager IA sobre este fan…"
-                        ref={managerChatInputRef}
-                        value={managerChatInput}
-                        onChange={(e) => setManagerChatInput(e.target.value)}
-                        onKeyDown={handleManagerChatKeyDown}
-                      />
-                      <button
-                        type="button"
-                        onClick={handleSendManagerChat}
-                        className="h-9 px-4 rounded-2xl bg-emerald-600 text-sm font-semibold text-white hover:bg-emerald-500 transition disabled:opacity-50 disabled:cursor-not-allowed"
-                        disabled={!managerChatInput.trim()}
+                      <span className="text-[10px] uppercase tracking-wide text-slate-500">
+                        {msg.role === "creator" ? "Tú" : "Manager IA"}
+                      </span>
+                      <div
+                        className={clsx(
+                          "rounded-2xl px-3 py-2 text-sm leading-relaxed",
+                          msg.role === "creator"
+                            ? "bg-emerald-600/80 text-white"
+                            : "bg-slate-800/80 text-slate-100"
+                        )}
                       >
-                        Enviar
-                      </button>
+                        {msg.text}
+                      </div>
+                      {msg.role === "manager" && (
+                        <button
+                          type="button"
+                          onClick={() => handleUseManagerReplyAsMainMessage(msg.text)}
+                          className="mt-1 inline-flex items-center rounded-full border border-emerald-500/60 bg-emerald-500/10 px-3 py-1 text-[11px] font-medium text-emerald-100 transition hover:bg-emerald-500/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/60"
+                        >
+                          Usar en mensaje
+                        </button>
+                      )}
                     </div>
-                  </div>
-                )}
+                  ))}
+                </div>
+              )}
+            </div>
+            <div className="border-t border-slate-800 px-4 py-3">
+              <div className="flex items-end gap-2">
+                <textarea
+                  rows={1}
+                  className="flex-1 rounded-2xl bg-slate-900/80 px-3 py-2 text-sm leading-relaxed text-slate-100 placeholder:text-slate-400 resize-none overflow-y-auto max-h-32 focus:outline-none focus:ring-2 focus:ring-emerald-500/70"
+                  placeholder="Preguntarle algo al Manager IA sobre este fan…"
+                  ref={managerChatInputRef}
+                  value={managerChatInput}
+                  onChange={(e) => setManagerChatInput(e.target.value)}
+                  onKeyDown={handleManagerChatKeyDown}
+                />
+                <button
+                  type="button"
+                  onClick={handleSendManagerChat}
+                  className="h-9 px-4 rounded-2xl bg-emerald-600 text-sm font-semibold text-white transition hover:bg-emerald-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/60 disabled:opacity-50 disabled:cursor-not-allowed"
+                  disabled={!managerChatInput.trim()}
+                >
+                  Enviar
+                </button>
               </div>
             </div>
           </div>
         </div>
-      </div>
+      )}
       {showContentModal && (
         <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 px-4">
           <div className="w-full max-w-lg rounded-2xl bg-slate-900 p-6 border border-slate-800 shadow-xl">
