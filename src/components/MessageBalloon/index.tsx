@@ -9,12 +9,20 @@ interface MessageBalloonProps {
   meLabel?: string;
   status?: "sending" | "failed" | "sent";
   translatedText?: string;
+  badge?: string;
+  variant?: "default" | "internal";
 }
 
 export default function MessageBalloon(props: MessageBalloonProps) {
   const [time, setTime] = useState("");
   const [isTranslationOpen, setIsTranslationOpen] = useState(false);
-  const { me, message, seen, fromLabel, meLabel, status, translatedText } = props;
+  const { me, message, seen, fromLabel, meLabel, status, translatedText, badge, variant = "default" } = props;
+  const bubbleClass =
+    variant === "internal"
+      ? "bg-amber-500/15 text-amber-50 border border-amber-400/60"
+      : me
+      ? "bg-emerald-600 text-white"
+      : "bg-slate-800 text-slate-50";
 
   useEffect(() => {
     if (props.time) {
@@ -38,12 +46,15 @@ export default function MessageBalloon(props: MessageBalloonProps) {
         <p
           className={`mb-1 text-[10px] uppercase tracking-wide text-slate-400 ${me ? "text-right" : ""}`}
         >
-          {me ? meLabel || "Tú" : fromLabel || "Fan"} • {time}
+          <span>{me ? meLabel || "Tú" : fromLabel || "Fan"} • {time}</span>
+          {badge && (
+            <span className="ml-2 inline-flex items-center rounded-full border border-amber-400/70 bg-amber-500/10 px-2 py-0.5 text-[9px] font-semibold text-amber-200">
+              {badge}
+            </span>
+          )}
         </p>
         <div
-        className={`rounded-2xl px-4 py-2 text-sm shadow whitespace-pre-wrap ${
-          me ? "bg-emerald-600 text-white" : "bg-slate-800 text-slate-50"
-        }`}
+        className={`rounded-2xl px-4 py-2 text-sm shadow whitespace-pre-wrap ${bubbleClass}`}
       >
         {message}
       </div>

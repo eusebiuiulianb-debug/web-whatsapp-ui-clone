@@ -337,16 +337,24 @@ export default function FanManagerDrawer({
           <div className="text-[11px] font-semibold uppercase tracking-wide text-emerald-200">
             Sugerencias del Manager
           </div>
-          <div className="flex flex-wrap gap-2">
+          <div className="space-y-2">
             {managerSuggestions.slice(0, 3).map((suggestion) => (
-              <button
+              <div
                 key={suggestion.id}
-                type="button"
-                onClick={() => onApplySuggestion?.(suggestion.message)}
-                className="inline-flex items-center rounded-full border border-emerald-500/60 bg-emerald-500/10 px-4 py-2 text-[13px] font-medium text-emerald-100 hover:bg-emerald-500/20 transition"
+                className="rounded-xl border border-slate-800/70 bg-slate-900/70 px-3 py-2 space-y-2"
               >
-                {suggestion.label}
-              </button>
+                <div className="text-[10px] uppercase tracking-wide text-slate-400">
+                  {suggestion.label}
+                </div>
+                <div className="text-[12px] text-slate-100">{suggestion.message}</div>
+                <button
+                  type="button"
+                  onClick={() => onApplySuggestion?.(suggestion.message)}
+                  className="inline-flex items-center rounded-full border border-emerald-500/60 bg-emerald-500/10 px-3 py-1 text-[11px] font-medium text-emerald-100 hover:bg-emerald-500/20 transition"
+                >
+                  Usar en mensaje
+                </button>
+              </div>
             ))}
           </div>
         </div>
