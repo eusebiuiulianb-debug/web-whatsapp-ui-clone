@@ -43,7 +43,7 @@ import { useIsomorphicLayoutEffect } from "../../hooks/useIsomorphicLayoutEffect
 
 type ManagerQuickIntent = ManagerObjective;
 type ComposerAudienceMode = "CREATOR" | "INTERNAL";
-type FanInlineTab = "manager" | "templates" | "tools";
+type FanInlineTab = "templates" | "tools";
 type InternalInlineTab = "manager" | "internal";
 type InlineTab = FanInlineTab | InternalInlineTab;
 
@@ -70,7 +70,7 @@ const AUDIENCE_STORAGE_KEY = "novsy.creatorMessageAudience";
 const TRANSLATION_PREVIEW_KEY_PREFIX = "novsy.creatorTranslationPreview";
 
 const INLINE_TABS_BY_MODE = {
-  CREATOR: ["manager", "templates", "tools"],
+  CREATOR: ["templates", "tools"],
   INTERNAL: ["manager", "internal"],
 } as const;
 
@@ -204,7 +204,6 @@ export default function ConversationDetails({ onBackToBoard }: ConversationDetai
   const translationPreviewAbortRef = useRef<AbortController | null>(null);
   const translationPreviewRequestId = useRef(0);
   const translationPreviewKeyRef = useRef<string | null>(null);
-  const inlinePanelRef = useRef<InlineTab | null>(null);
   const [ showContentModal, setShowContentModal ] = useState(false);
   const [ contentModalMode, setContentModalMode ] = useState<"packs" | "extras">("packs");
   const [ extraTierFilter, setExtraTierFilter ] = useState<"T0" | "T1" | "T2" | "T3" | "T4" | null>(null);
@@ -626,6 +625,15 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
     const filled = text.replace("{nombre}", getFirstName(contactName) || contactName || "");
     focusMainMessageInput(filled);
   };
+  function handleComposerAudienceChange(mode: ComposerAudienceMode) {
+    if (mode === composerAudience) return;
+    setComposerAudience(mode);
+    setInlinePanel(null);
+    setToolsTranslateOpen(false);
+    if (mode === "CREATOR") {
+      setIsInternalChatOpen(false);
+    }
+  }
   const handleSelectFanFromBanner = useCallback(
     (fan: ConversationListData | null) => {
       if (!fan?.id) return;
@@ -646,7 +654,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
   }
 
   function handleUseManagerReplyAsMainMessage(text: string) {
-    setComposerAudience("CREATOR");
+    handleComposerAudienceChange("CREATOR");
     focusMainMessageInput(text);
   }
 
@@ -1585,20 +1593,9 @@ useEffect(() => {
   }, [id, translationPreviewOpen]);
 
   useEffect(() => {
-    inlinePanelRef.current = inlinePanel;
-  }, [inlinePanel]);
-
-  useEffect(() => {
-    const allowedTabs = INLINE_TABS_BY_MODE[composerAudience];
-    const currentTab = inlinePanelRef.current;
-    if (currentTab && allowedTabs.includes(currentTab as any)) return;
-    const lastTab = lastTabByMode[composerAudience];
-    if (lastTab && allowedTabs.includes(lastTab as any)) {
-      setInlinePanel(lastTab as InlineTab);
-    } else {
-      setInlinePanel(null);
-    }
-  }, [composerAudience, lastTabByMode]);
+    setInlinePanel(null);
+    setToolsTranslateOpen(false);
+  }, [composerAudience]);
 
   useEffect(() => {
     if (!inlinePanel) return;
@@ -1662,8 +1659,8 @@ useEffect(() => {
 
   const toggleInlineTab = useCallback(
     (tab: InlineTab) => {
-      const allowedTabs = INLINE_TABS_BY_MODE[composerAudience];
-      if (!allowedTabs.includes(tab as any)) return;
+      const allowedTabs = INLINE_TABS_BY_MODE[composerAudience] as readonly InlineTab[];
+      if (!allowedTabs.includes(tab)) return;
       setInlinePanel((prev) => {
         const next = prev === tab ? null : tab;
         if (next) {
@@ -4559,7 +4556,7 @@ useEffect(() => {
                   >
                     <button
                       type="button"
-                      onClick={() => setComposerAudience("CREATOR")}
+                      onClick={() => handleComposerAudienceChange("CREATOR")}
                       className={clsx(
                         "rounded-full px-2.5 py-0.5 text-[10px] font-semibold transition",
                         composerAudience === "CREATOR"
@@ -4571,7 +4568,7 @@ useEffect(() => {
                     </button>
                     <button
                       type="button"
-                      onClick={() => setComposerAudience("INTERNAL")}
+                      onClick={() => handleComposerAudienceChange("INTERNAL")}
                       className={clsx(
                         "rounded-full px-2.5 py-0.5 text-[10px] font-semibold transition",
                         composerAudience === "INTERNAL"
