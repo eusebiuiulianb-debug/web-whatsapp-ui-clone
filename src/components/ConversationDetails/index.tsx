@@ -1,4 +1,17 @@
-import { KeyboardEvent, MouseEvent, ReactNode, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
+import {
+  KeyboardEvent,
+  MouseEvent,
+  ReactNode,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type Ref,
+  type UIEventHandler,
+  type WheelEventHandler,
+} from "react";
 import { format, formatDistanceToNow } from "date-fns";
 import { es } from "date-fns/locale";
 import { ConversationContext } from "../../context/ConversationContext";
@@ -74,6 +87,58 @@ const INLINE_TABS_BY_MODE = {
   CREATOR: ["templates", "tools"],
   INTERNAL: ["manager", "internal"],
 } as const;
+
+type InlinePanelShellProps = {
+  title: string;
+  children: ReactNode;
+  onClose: () => void;
+  bodyRef?: Ref<HTMLDivElement>;
+  bodyClassName?: string;
+  onBodyScroll?: UIEventHandler<HTMLDivElement>;
+  onBodyWheel?: WheelEventHandler<HTMLDivElement>;
+  scrollable?: boolean;
+};
+
+function InlinePanelShell({
+  title,
+  children,
+  onClose,
+  bodyRef,
+  bodyClassName,
+  onBodyScroll,
+  onBodyWheel,
+  scrollable = true,
+}: InlinePanelShellProps) {
+  return (
+    <div className="w-full rounded-2xl border border-slate-700/60 bg-slate-900/80 backdrop-blur-md shadow-[0_10px_35px_rgba(0,0,0,0.35)] ring-1 ring-white/5">
+      <div className="flex items-center justify-between border-b border-slate-800/70 px-4 py-2.5">
+        <span className="text-[10px] uppercase tracking-[0.2em] text-slate-400">{title}</span>
+        <button
+          type="button"
+          onClick={onClose}
+          className="inline-flex h-6 w-6 items-center justify-center rounded-full text-slate-300 transition hover:bg-slate-800/80 hover:text-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/60"
+          aria-label="Cerrar panel"
+        >
+          ✕
+        </button>
+      </div>
+      <div
+        ref={bodyRef}
+        onScroll={onBodyScroll}
+        onWheelCapture={onBodyWheel}
+        className={clsx(
+          "px-4 py-3 text-[12px] text-slate-200",
+          scrollable
+            ? "min-h-0 max-h-[360px] overflow-y-auto overscroll-contain space-y-3"
+            : "overflow-hidden",
+          bodyClassName
+        )}
+      >
+        {children}
+      </div>
+    </div>
+  );
+}
 
 function reconcileMessages(
   existing: ConversationMessage[],
@@ -251,6 +316,7 @@ export default function ConversationDetails({ onBackToBoard }: ConversationDetai
   const router = useRouter();
   const actionsMenuRef = useRef<HTMLDivElement | null>(null);
   const MAX_MESSAGE_HEIGHT = 96;
+  const SCROLL_BOTTOM_THRESHOLD = 48;
   const messageInputRef = useRef<HTMLTextAreaElement | null>(null);
   type ManagerChatMessage = {
     id: string;
@@ -268,9 +334,14 @@ export default function ConversationDetails({ onBackToBoard }: ConversationDetai
   };
   const [ managerChatByFan, setManagerChatByFan ] = useState<Record<string, ManagerChatMessage[]>>({});
   const [ managerChatInput, setManagerChatInput ] = useState("");
-  const [ isInternalChatOpen, setIsInternalChatOpen ] = useState(false);
   const managerChatListRef = useRef<HTMLDivElement | null>(null);
   const managerChatInputRef = useRef<HTMLTextAreaElement | null>(null);
+  const managerPanelScrollRef = useRef<HTMLDivElement | null>(null);
+  const managerPanelScrollTopRef = useRef(0);
+  const managerPanelStickToBottomRef = useRef(false);
+  const internalChatScrollTopRef = useRef(0);
+  const internalChatStickToBottomRef = useRef(true);
+  const internalChatForceScrollRef = useRef(false);
   const [ internalMessages, setInternalMessages ] = useState<ApiMessage[]>([]);
   const [ internalMessagesError, setInternalMessagesError ] = useState("");
   const [ isLoadingInternalMessages, setIsLoadingInternalMessages ] = useState(false);
@@ -641,7 +712,6 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
     }));
     setComposerAudience(mode);
     setInlinePanel(null);
-    setIsInternalChatOpen(false);
   }
   const handleSelectFanFromBanner = useCallback(
     (fan: ConversationListData | null) => {
@@ -1350,15 +1420,21 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
     }, 1600);
   }, [schemaError]);
 
-  const openInternalThread = useCallback(() => {
-    setIsInternalChatOpen(true);
-    requestAnimationFrame(() => {
-      if (managerChatListRef.current) {
-        managerChatListRef.current.scrollTop = managerChatListRef.current.scrollHeight;
-        managerChatListRef.current.scrollIntoView({ block: "nearest" });
+  const openInternalThread = useCallback(
+    (options?: { forceScroll?: boolean }) => {
+      const allowedTabs = INLINE_TABS_BY_MODE[composerAudience] as readonly InlineTab[];
+      if (!allowedTabs.includes("internal")) return;
+      if (options?.forceScroll) {
+        internalChatForceScrollRef.current = true;
       }
-    });
-  }, []);
+      setInlinePanel("internal");
+      setLastTabByMode((prev) => ({
+        ...prev,
+        [composerAudience]: "internal" as any,
+      }));
+    },
+    [composerAudience]
+  );
 
   const fetchMessages = useCallback(
     async (shouldShowLoading = false) => {
@@ -1466,14 +1542,14 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
   }, [id]);
 
   useEffect(() => {
-    if (!id || !isInternalChatOpen) return;
+    if (!id || inlinePanel !== "internal") return;
     fetchInternalMessages(true);
     return () => {
       if (internalMessagesAbortRef.current) {
         internalMessagesAbortRef.current.abort();
       }
     };
-  }, [fetchInternalMessages, id, isInternalChatOpen]);
+  }, [fetchInternalMessages, id, inlinePanel]);
 
   useEffect(() => {
     if (!id) return undefined;
@@ -1604,8 +1680,8 @@ useEffect(() => {
   useEffect(() => {
     if (composerAudience !== "INTERNAL") return;
     if (!lastPanelOpenByMode.INTERNAL) return;
-    if (lastTabByMode.INTERNAL !== "manager") return;
-    setInlinePanel("manager");
+    if (!lastTabByMode.INTERNAL) return;
+    setInlinePanel(lastTabByMode.INTERNAL);
   }, [composerAudience, lastPanelOpenByMode.INTERNAL, lastTabByMode.INTERNAL]);
 
   useEffect(() => {
@@ -1626,10 +1702,17 @@ useEffect(() => {
   }, [conversation.id]);
 
   useEffect(() => {
+    managerPanelScrollTopRef.current = 0;
+    managerPanelStickToBottomRef.current = false;
+    internalChatScrollTopRef.current = 0;
+    internalChatStickToBottomRef.current = true;
+    internalChatForceScrollRef.current = false;
+  }, [conversation.id]);
+
+  useEffect(() => {
     if (typeof window === "undefined") return;
     const handleConversationChanging = () => {
       setInlinePanel(null);
-      setIsInternalChatOpen(false);
     };
     window.addEventListener("novsy:conversation:changing", handleConversationChanging as EventListener);
     return () => {
@@ -1646,6 +1729,7 @@ useEffect(() => {
   const hasComposerText = messageSend.trim().length > 0;
   const translateEnabled = translationPreviewOpen && composerAudience === "CREATOR" && !conversation.isManager;
   const isFanMode = composerAudience === "CREATOR";
+  const hasAutopilotContext = !!(lastAutopilotObjective && lastAutopilotTone);
   const disableTranslationPreview = () => {
     if (translationPreviewTimer.current) {
       clearTimeout(translationPreviewTimer.current);
@@ -1681,16 +1765,14 @@ useEffect(() => {
   const handleInternalTabClick = useCallback(() => {
     const allowedTabs = INLINE_TABS_BY_MODE[composerAudience] as readonly InlineTab[];
     if (!allowedTabs.includes("internal")) return;
-    const willOpen = inlinePanel !== "internal";
-    toggleInlineTab("internal");
-    if (willOpen) {
-      openInternalThread();
-    } else {
-      setIsInternalChatOpen(false);
+    if (inlinePanel === "internal") {
+      setInlinePanel(null);
+      return;
     }
-  }, [composerAudience, inlinePanel, openInternalThread, toggleInlineTab]);
+    openInternalThread();
+  }, [composerAudience, inlinePanel, openInternalThread]);
 
-  const handleAttachContentClick = (options?: { closeInline?: boolean }) => {
+  const openAttachContent = (options?: { closeInline?: boolean }) => {
     if (isChatBlocked && !isInternalMode) return;
     openContentModal({ mode: "packs" });
     if (options?.closeInline ?? true) {
@@ -1698,7 +1780,11 @@ useEffect(() => {
     }
   };
 
-  const ActiveChips = () => {
+  const handleAttachContentClick = () => {
+    openAttachContent();
+  };
+
+  const renderActiveChips = () => {
     const managerAlert = fanManagerAnalysis.chips.some(
       (chip) => chip.tone === "danger" || chip.tone === "warning"
     );
@@ -1736,25 +1822,6 @@ useEffect(() => {
     const chipBase =
       "inline-flex h-8 items-center gap-2 rounded-full border px-3.5 text-[11px] font-semibold whitespace-nowrap transition-all duration-150 shadow-sm";
 
-    const InlinePanelShell = ({ title, children }: { title: string; children: ReactNode }) => (
-      <div className="w-full rounded-2xl border border-slate-700/60 bg-slate-900/80 backdrop-blur-md shadow-[0_10px_35px_rgba(0,0,0,0.35)] ring-1 ring-white/5">
-        <div className="flex items-center justify-between border-b border-slate-800/70 px-4 py-2.5">
-          <span className="text-[10px] uppercase tracking-[0.2em] text-slate-400">{title}</span>
-          <button
-            type="button"
-            onClick={() => setInlinePanel(null)}
-            className="inline-flex h-6 w-6 items-center justify-center rounded-full text-slate-300 transition hover:bg-slate-800/80 hover:text-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/60"
-            aria-label="Cerrar panel"
-          >
-            ✕
-          </button>
-        </div>
-        <div className="max-h-[360px] overflow-y-auto px-4 py-3 text-[12px] text-slate-200 space-y-3">
-          {children}
-        </div>
-      </div>
-    );
-
     const InlineEmptyState = ({
       icon,
       title,
@@ -1776,14 +1843,20 @@ useEffect(() => {
     const inlineActionButtonClass =
       "inline-flex items-center justify-center rounded-full border border-emerald-500/60 bg-emerald-500/10 px-3 py-1 text-[11px] font-semibold text-emerald-100 transition hover:bg-emerald-500/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/60";
 
-    const InlineToolsPanel = () => (
-      <InlinePanelShell title="Herramientas">
+    const closeInlinePanel = () => setInlinePanel(null);
+
+    const handlePanelWheel: WheelEventHandler<HTMLDivElement> = (event) => {
+      event.stopPropagation();
+    };
+
+    const renderInlineToolsPanel = () => (
+      <InlinePanelShell title="Herramientas" onClose={closeInlinePanel}>
         {composerAudience === "CREATOR" && !conversation.isManager ? (
           <div className="space-y-3">
             <div className="text-[10px] uppercase tracking-[0.2em] text-slate-500">Acciones</div>
             <button
               type="button"
-              onClick={handleAttachContentClick}
+              onClick={() => handleAttachContentClick()}
               disabled={isChatBlocked}
               className={clsx(
                 "flex w-full items-center justify-between rounded-xl border px-3 py-2 text-[12px] font-semibold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/60",
@@ -1890,102 +1963,142 @@ useEffect(() => {
       </InlinePanelShell>
     );
 
-    const InlineInternalPanel = () => {
-      const notePreview = internalNotes.slice(-3);
-      const managerPreview = managerChatMessages.slice(-3);
-      return (
-        <InlinePanelShell title="Chat interno con Manager IA">
-          <div className="rounded-xl border border-slate-800/70 bg-slate-900/70 p-3 space-y-3">
-            <div className="flex items-center justify-between">
-              <span className="text-[10px] uppercase tracking-[0.2em] text-slate-400">Hilo interno</span>
-              <button
-                type="button"
-                onClick={openInternalThread}
-                className="text-[11px] font-semibold text-slate-200 transition hover:text-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/60"
-              >
-                Abrir en ventana
-              </button>
-            </div>
-            <div className="space-y-2 max-h-32 overflow-y-auto pr-1">
-              {isLoadingInternalMessages && (
-                <div className="text-[11px] text-slate-400">Cargando mensajes internos…</div>
-              )}
-              {internalMessagesError && !isLoadingInternalMessages && (
-                <div className="text-[11px] text-rose-300">{internalMessagesError}</div>
-              )}
-              {!hasInternalThreadMessages && !isLoadingInternalMessages && !internalMessagesError && (
-                <InlineEmptyState icon="💬" title="Sin mensajes internos" subtitle="Pregúntale algo al Manager IA." />
-              )}
-              {notePreview.length > 0 && (
-                <div className="space-y-1">
-                  <div className="text-[10px] uppercase tracking-wide text-slate-500">Internos</div>
-                  {notePreview.map((msg) => {
-                    const origin = normalizeFrom(msg.from);
-                    const label = origin === "creator" ? "Tú" : "Manager IA";
-                    const noteText =
-                      msg.type === "CONTENT"
-                        ? msg.contentItem?.title || "Contenido interno"
-                        : msg.text || "";
-                    return (
-                      <div key={msg.id} className="text-[11px] text-slate-300 line-clamp-1">
-                        <span className="text-slate-400">{label} · </span>
-                        <span className="text-slate-100">{noteText}</span>
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-              {managerPreview.length > 0 && (
-                <div className="space-y-1">
-                  <div className="text-[10px] uppercase tracking-wide text-slate-500">Manager IA</div>
-                  {managerPreview.map((msg) => {
-                    const isManager = msg.role === "manager";
-                    const hasSuggestions = isManager && (msg.suggestions?.length ?? 0) > 0;
-                    return (
-                      <div key={msg.id} className="space-y-1 text-[11px] text-slate-300">
-                        <div className="text-slate-400">{isManager ? "Manager IA" : "Tú"}</div>
-                        {hasSuggestions ? (
-                          <div className="space-y-1">
-                            {msg.title && (
-                              <div className="text-[10px] uppercase tracking-wide text-slate-500">
-                                {msg.title}
-                              </div>
-                            )}
-                            {msg.suggestions?.map((suggestion, idx) => (
-                              <div key={`${msg.id}-suggestion-${idx}`} className="flex items-center gap-2">
-                                <span className="text-slate-100 line-clamp-1">{suggestion}</span>
-                                <button
-                                  type="button"
-                                  onClick={() => handleUseManagerReplyAsMainMessage(suggestion)}
-                                  className={`${inlineActionButtonClass} ml-1 px-2 py-0.5 text-[10px]`}
-                                >
-                                  Usar en mensaje
-                                </button>
-                              </div>
-                            ))}
-                          </div>
-                        ) : (
-                          <div className="text-slate-100 line-clamp-1">{msg.text}</div>
+    const renderInlineInternalPanel = () => (
+      <InlinePanelShell
+        title="Chat interno"
+        scrollable={false}
+        bodyClassName="px-0 py-0"
+        onClose={closeInlinePanel}
+      >
+        <div className="flex min-h-0 flex-col gap-3 px-4 py-3">
+          <div className="text-[11px] text-slate-400">
+            Solo tú ves este hilo. No se envía al fan.
+          </div>
+          <div
+            ref={managerChatListRef}
+            onScroll={updateInternalChatScrollState}
+            onWheelCapture={handlePanelWheel}
+            className="flex min-h-0 max-h-[320px] flex-col gap-2 overflow-y-auto overscroll-contain pr-1"
+          >
+            {isLoadingInternalMessages && (
+              <div className="text-[11px] text-slate-500">Cargando mensajes internos...</div>
+            )}
+            {internalMessagesError && !isLoadingInternalMessages && (
+              <div className="text-[11px] text-rose-300">{internalMessagesError}</div>
+            )}
+            {!hasInternalThreadMessages && !isLoadingInternalMessages && !internalMessagesError && (
+              <div className="text-[11px] text-slate-500">
+                Aún no hay mensajes internos ni mensajes del Manager IA.
+              </div>
+            )}
+            {internalNotes.length > 0 && (
+              <div className="space-y-2">
+                <div className="text-[10px] uppercase tracking-wide text-slate-500">Mensajes internos</div>
+                {internalNotes.map((msg) => {
+                  const origin = normalizeFrom(msg.from);
+                  const isCreatorNote = origin === "creator";
+                  const label = isCreatorNote ? "Tú" : "Manager IA";
+                  const noteText =
+                    msg.type === "CONTENT" ? msg.contentItem?.title || "Contenido interno" : msg.text || "";
+                  return (
+                    <div
+                      key={msg.id}
+                      className={clsx(
+                        "flex flex-col max-w-[85%]",
+                        isCreatorNote ? "self-end items-end" : "self-start items-start"
+                      )}
+                    >
+                      <span className="text-[10px] uppercase tracking-wide text-slate-500">{label}</span>
+                      <div
+                        className={clsx(
+                          "rounded-2xl px-3 py-2 text-xs leading-relaxed",
+                          isCreatorNote
+                            ? "bg-amber-500/20 text-amber-50"
+                            : "bg-slate-800/80 text-slate-100"
                         )}
-                        {isManager && !hasSuggestions && (
+                      >
+                        {isCreatorNote && (
+                          <span className="mb-1 inline-flex items-center rounded-full border border-amber-400/70 px-2 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-amber-200">
+                            INTERNO
+                          </span>
+                        )}
+                        <div>{noteText}</div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+            {managerChatMessages.length > 0 && (
+              <div className="space-y-2">
+                <div className="text-[10px] uppercase tracking-wide text-slate-500">Manager IA</div>
+                {managerChatMessages.map((msg) => (
+                  <div
+                    key={msg.id}
+                    className={clsx(
+                      "flex flex-col max-w-[85%]",
+                      msg.role === "creator" ? "self-end items-end" : "self-start items-start"
+                    )}
+                  >
+                    <span className="text-[10px] uppercase tracking-wide text-slate-500">
+                      {msg.role === "creator" ? "Tú" : "Manager IA"}
+                    </span>
+                    {msg.role === "manager" && (msg.suggestions?.length ?? 0) > 0 ? (
+                      <div className="rounded-2xl border border-slate-700 bg-slate-900/70 px-3 py-2 text-xs leading-relaxed text-slate-100 space-y-2">
+                        {msg.title && (
+                          <div className="text-[10px] uppercase tracking-wide text-slate-400">
+                            {msg.title}
+                          </div>
+                        )}
+                        {msg.suggestions?.map((suggestion, idx) => (
+                          <div
+                            key={`${msg.id}-suggestion-${idx}`}
+                            className="flex flex-col gap-2 rounded-xl border border-slate-800 bg-slate-950/60 px-3 py-2"
+                          >
+                            <div className="text-[11px] text-slate-100">{suggestion}</div>
+                            <button
+                              type="button"
+                              onClick={() => handleUseManagerReplyAsMainMessage(suggestion)}
+                              className="inline-flex items-center rounded-full border border-emerald-500/60 bg-emerald-500/10 px-3 py-1 text-[11px] font-medium text-emerald-100 transition hover:bg-emerald-500/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/60"
+                            >
+                              Usar en mensaje
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <>
+                        <div
+                          className={clsx(
+                            "rounded-2xl px-3 py-2 text-xs leading-relaxed",
+                            msg.role === "creator"
+                              ? "bg-emerald-600/80 text-white"
+                              : "bg-slate-800/80 text-slate-100"
+                          )}
+                        >
+                          {msg.text}
+                        </div>
+                        {msg.role === "manager" && (
                           <button
                             type="button"
                             onClick={() => handleUseManagerReplyAsMainMessage(msg.text)}
-                            className={`${inlineActionButtonClass} ml-1 px-2 py-0.5 text-[10px]`}
+                            className="mt-1 inline-flex items-center rounded-full border border-emerald-500/60 bg-emerald-500/10 px-3 py-1 text-[11px] font-medium text-emerald-100 transition hover:bg-emerald-500/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/60"
                           >
                             Usar en mensaje
                           </button>
                         )}
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
-            <div className="mt-2 flex items-end gap-2">
+                      </>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+          <div className="border-t border-slate-800/70 pt-3">
+            <div className="flex items-end gap-2">
               <textarea
                 rows={1}
-                className="flex-1 rounded-2xl bg-slate-800/80 px-3 py-2 text-xs leading-relaxed text-slate-100 placeholder:text-slate-400 resize-none overflow-y-auto max-h-24 focus:outline-none focus:ring-2 focus:ring-emerald-500/70"
+                className="flex-1 rounded-2xl bg-slate-900/80 px-3 py-2 text-xs leading-relaxed text-slate-100 placeholder:text-slate-400 resize-none overflow-y-auto max-h-24 focus:outline-none focus:ring-2 focus:ring-emerald-500/70"
                 placeholder="Preguntarle algo al Manager IA..."
                 ref={managerChatInputRef}
                 value={managerChatInput}
@@ -2002,9 +2115,9 @@ useEffect(() => {
               </button>
             </div>
           </div>
-        </InlinePanelShell>
-      );
-    };
+        </div>
+      </InlinePanelShell>
+    );
 
     const renderInlinePanel = (tab: InlineTab | null) => {
       if (!tab) return null;
@@ -2012,46 +2125,50 @@ useEffect(() => {
       if (tab === "manager") {
         if (!isFanMode) {
           return (
-            <InlinePanelShell title="Manager IA">
+            <InlinePanelShell
+              title="Manager IA"
+              onClose={closeInlinePanel}
+              bodyRef={managerPanelScrollRef}
+              onBodyScroll={updateManagerPanelScrollState}
+              onBodyWheel={handlePanelWheel}
+            >
               <div className="space-y-3">
                 <div className="text-[10px] uppercase tracking-[0.2em] text-slate-500">Insights y control</div>
                 <div className="rounded-xl border border-slate-800/70 bg-slate-900/70 p-3">
-                  <div className="max-h-48 overflow-y-auto pr-1">
-                    <FanManagerDrawer
-                      managerSuggestions={managerSuggestions}
-                      onApplySuggestion={handleApplyManagerSuggestion}
-                      currentObjective={currentObjective}
-                      suggestedObjective={fanManagerAnalysis.defaultObjective}
-                      fanManagerState={fanManagerAnalysis.state}
-                      fanManagerHeadline={fanManagerAnalysis.headline}
-                      fanManagerChips={fanManagerAnalysis.chips}
-                      tone={fanTone}
-                      onChangeTone={handleChangeFanTone}
-                      statusLine={statusLine}
-                      lapexSummary={lapexSummary}
-                      sessionSummary={sessionSummary}
-                      iaSummary={iaSummary}
-                      planSummary={planSummary}
-                      closedSummary={managerShortSummary}
-                      fanId={conversation.id}
-                      onManagerSummary={(s) => setManagerSummary(s)}
-                      onSuggestionClick={handleManagerSuggestion}
-                      onQuickGreeting={() => handleManagerQuickAction("romper_hielo")}
-                      onRenew={() => handleManagerQuickAction("reactivar_fan_frio")}
-                      onQuickExtra={() => handleManagerQuickAction("ofrecer_extra")}
-                      onPackOffer={() => handleManagerQuickAction("llevar_a_mensual")}
-                      showRenewAction={showRenewAction}
-                      quickExtraDisabled={quickExtraDisabled}
-                      isRecommended={isRecommended}
-                      isBlocked={isChatBlocked}
-                      autoPilotEnabled={autoPilotEnabled}
-                      onToggleAutoPilot={handleToggleAutoPilot}
-                      isAutoPilotLoading={isAutoPilotLoading}
-                      hasAutopilotContext={hasAutopilotContext}
-                      onAutopilotSoften={handleAutopilotSoften}
-                      onAutopilotMakeBolder={handleAutopilotMakeBolder}
-                    />
-                  </div>
+                  <FanManagerDrawer
+                    managerSuggestions={managerSuggestions}
+                    onApplySuggestion={handleApplyManagerSuggestion}
+                    currentObjective={currentObjective}
+                    suggestedObjective={fanManagerAnalysis.defaultObjective}
+                    fanManagerState={fanManagerAnalysis.state}
+                    fanManagerHeadline={fanManagerAnalysis.headline}
+                    fanManagerChips={fanManagerAnalysis.chips}
+                    tone={fanTone}
+                    onChangeTone={handleChangeFanTone}
+                    statusLine={statusLine}
+                    lapexSummary={lapexSummary}
+                    sessionSummary={sessionSummary}
+                    iaSummary={iaSummary}
+                    planSummary={planSummary}
+                    closedSummary={managerShortSummary}
+                    fanId={conversation.id}
+                    onManagerSummary={(s) => setManagerSummary(s)}
+                    onSuggestionClick={handleManagerSuggestion}
+                    onQuickGreeting={() => handleManagerQuickAction("romper_hielo")}
+                    onRenew={() => handleManagerQuickAction("reactivar_fan_frio")}
+                    onQuickExtra={() => handleManagerQuickAction("ofrecer_extra")}
+                    onPackOffer={() => handleManagerQuickAction("llevar_a_mensual")}
+                    showRenewAction={showRenewAction}
+                    quickExtraDisabled={quickExtraDisabled}
+                    isRecommended={isRecommended}
+                    isBlocked={isChatBlocked}
+                    autoPilotEnabled={autoPilotEnabled}
+                    onToggleAutoPilot={handleToggleAutoPilot}
+                    isAutoPilotLoading={isAutoPilotLoading}
+                    hasAutopilotContext={hasAutopilotContext}
+                    onAutopilotSoften={handleAutopilotSoften}
+                    onAutopilotMakeBolder={handleAutopilotMakeBolder}
+                  />
                 </div>
               </div>
             </InlinePanelShell>
@@ -2061,7 +2178,7 @@ useEffect(() => {
         const suggestions = managerSuggestions.slice(0, 3);
         const managerContext = managerStatusLabel;
         return (
-          <InlinePanelShell title="Manager IA">
+          <InlinePanelShell title="Manager IA" onClose={closeInlinePanel}>
             <div className="space-y-3">
               <div>
                 <div className="text-[10px] uppercase tracking-[0.2em] text-slate-500">Contexto</div>
@@ -2100,7 +2217,7 @@ useEffect(() => {
       if (tab === "templates") {
         const hasQuickTemplates = TRANSLATION_QUICK_CHIPS.length > 0;
         return (
-          <InlinePanelShell title="Plantillas">
+          <InlinePanelShell title="Plantillas" onClose={closeInlinePanel}>
             <div className="space-y-3">
               {managerPromptTemplate && (
                 <div className="rounded-xl border border-slate-800/70 bg-slate-900/70 p-3 space-y-2">
@@ -2151,11 +2268,11 @@ useEffect(() => {
       }
 
       if (tab === "internal") {
-        return <InlineInternalPanel />;
+        return renderInlineInternalPanel();
       }
 
       if (tab === "tools") {
-        return <InlineToolsPanel />;
+        return renderInlineToolsPanel();
       }
 
       return null;
@@ -2227,7 +2344,7 @@ useEffect(() => {
                 className="inline-flex items-center gap-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/40"
                 aria-expanded={inlinePanel === "internal"}
               >
-                <span>Chat interno con Manager IA</span>
+                <span>Chat interno</span>
               </button>
             </div>
           )}
@@ -2335,11 +2452,6 @@ useEffect(() => {
     setLastAutopilotTone(null);
     setIsAutoPilotLoading(false);
   }, [conversation.id, fanManagerAnalysis.state]);
-
-  useEffect(() => {
-    if (!managerChatListRef.current) return;
-    managerChatListRef.current.scrollTop = managerChatListRef.current.scrollHeight;
-  }, [managerChatMessages.length, internalMessages.length]);
 
   useEffect(() => {
     if (!isTranslationPreviewAvailable || !translationPreviewOpen) {
@@ -2454,6 +2566,70 @@ useEffect(() => {
       setFanTone(getDefaultFanTone(fanManagerAnalysis.state));
     }
   }, [fanManagerAnalysis.state, hasManualTone]);
+
+  const updateManagerPanelScrollState = useCallback(() => {
+    const el = managerPanelScrollRef.current;
+    if (!el) return;
+    managerPanelScrollTopRef.current = el.scrollTop;
+    const distanceToBottom = el.scrollHeight - el.clientHeight - el.scrollTop;
+    managerPanelStickToBottomRef.current = distanceToBottom < SCROLL_BOTTOM_THRESHOLD;
+  }, [SCROLL_BOTTOM_THRESHOLD]);
+
+  const syncManagerPanelScroll = useCallback(
+    (options?: { forceToBottom?: boolean }) => {
+      const el = managerPanelScrollRef.current;
+      if (!el) return;
+      const maxScrollTop = Math.max(0, el.scrollHeight - el.clientHeight);
+      const shouldStick = options?.forceToBottom || managerPanelStickToBottomRef.current;
+      if (shouldStick) {
+        el.scrollTop = maxScrollTop;
+        return;
+      }
+      el.scrollTop = Math.min(managerPanelScrollTopRef.current, maxScrollTop);
+    },
+    []
+  );
+
+  const updateInternalChatScrollState = useCallback(() => {
+    const el = managerChatListRef.current;
+    if (!el) return;
+    internalChatScrollTopRef.current = el.scrollTop;
+    const distanceToBottom = el.scrollHeight - el.clientHeight - el.scrollTop;
+    internalChatStickToBottomRef.current = distanceToBottom < SCROLL_BOTTOM_THRESHOLD;
+  }, [SCROLL_BOTTOM_THRESHOLD]);
+
+  const syncInternalChatScroll = useCallback(
+    (options?: { forceToBottom?: boolean }) => {
+      const el = managerChatListRef.current;
+      if (!el) return;
+      const maxScrollTop = Math.max(0, el.scrollHeight - el.clientHeight);
+      const shouldStick =
+        options?.forceToBottom || internalChatForceScrollRef.current || internalChatStickToBottomRef.current;
+      if (shouldStick) {
+        el.scrollTop = maxScrollTop;
+        internalChatForceScrollRef.current = false;
+        return;
+      }
+      el.scrollTop = Math.min(internalChatScrollTopRef.current, maxScrollTop);
+    },
+    []
+  );
+
+  useIsomorphicLayoutEffect(() => {
+    if (inlinePanel !== "manager" || isFanMode) return;
+    const frame = requestAnimationFrame(() => {
+      syncManagerPanelScroll();
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [inlinePanel, isFanMode, conversation.id, syncManagerPanelScroll]);
+
+  useIsomorphicLayoutEffect(() => {
+    if (inlinePanel !== "internal") return;
+    const frame = requestAnimationFrame(() => {
+      syncInternalChatScroll();
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [inlinePanel, internalMessages.length, managerChatMessages.length, syncInternalChatScroll]);
 
   const mapQuickIntentToSuggestionIntent = (intent?: ManagerQuickIntent): ManagerSuggestionIntent => {
     switch (intent) {
@@ -2886,7 +3062,7 @@ useEffect(() => {
       return { ...prev, [fanKey]: [...prevMsgs, creatorMessage] };
     });
     setManagerChatInput("");
-    setIsInternalChatOpen(true);
+    openInternalThread({ forceScroll: true });
 
     setTimeout(() => {
       const resolvedIntent = intent
@@ -2905,6 +3081,7 @@ useEffect(() => {
         suggestions: bundle.suggestions,
         createdAt: new Date().toISOString(),
       };
+      internalChatForceScrollRef.current = true;
       setManagerChatByFan((prev) => {
         const prevMsgs = prev[fanKey] ?? [];
         return { ...prev, [fanKey]: [...prevMsgs, managerMessage] };
@@ -2926,7 +3103,6 @@ useEffect(() => {
   const AUTOPILOT_OBJECTIVES: AutopilotObjective[] = ["reactivar_fan_frio", "ofrecer_extra", "llevar_a_mensual"];
   const isAutopilotObjective = (objective: ManagerQuickIntent): objective is AutopilotObjective =>
     AUTOPILOT_OBJECTIVES.includes(objective as AutopilotObjective);
-  const hasAutopilotContext = !!(lastAutopilotObjective && lastAutopilotTone);
 
   const logManagerUsage = async ({
     actionType,
@@ -3175,7 +3351,7 @@ useEffect(() => {
           setInternalMessages((prev) => reconcileApiMessages(prev, internalOnly, id));
         }
         setInternalToast("Guardado como interno");
-        openInternalThread();
+        openInternalThread({ forceScroll: true });
         if (internalToastTimer.current) {
           clearTimeout(internalToastTimer.current);
         }
@@ -4668,7 +4844,7 @@ useEffect(() => {
                   <div className="relative shrink-0">
                     <button
                       type="button"
-                      onClick={() => handleAttachContentClick({ closeInline: false })}
+                      onClick={() => openAttachContent({ closeInline: false })}
                       className="flex h-9 w-9 items-center justify-center rounded-full transition text-slate-200 hover:bg-slate-800/80"
                       title="Adjuntar contenido"
                       aria-label="Adjuntar contenido"
@@ -4710,7 +4886,7 @@ useEffect(() => {
                           ? "bg-amber-500/20 text-amber-100"
                           : "text-slate-300 hover:text-slate-100"
                       )}
-                      title="No se envía al fan. Se guarda en el chat interno con Manager IA."
+                      title="No se envía al fan. Se guarda en el chat interno."
                     >
                       {isInternalMode ? "🔒 Interno" : "Interno"}
                     </button>
@@ -4754,173 +4930,13 @@ useEffect(() => {
                   {composerActionLabel}
                 </button>
               </div>
-              <ActiveChips />
+              {renderActiveChips()}
             </div>
           </div>
         </div>
         </div>
         </div>
       </div>
-      {isInternalChatOpen && (
-        <div className="fixed inset-0 z-[60] flex items-end md:items-center justify-center bg-black/50 backdrop-blur-md px-4 py-6">
-          <div className="w-full max-w-2xl rounded-2xl border border-slate-700/60 bg-slate-950/80 shadow-[0_12px_40px_rgba(0,0,0,0.45)] ring-1 ring-white/5 flex flex-col max-h-[85vh]">
-            <div className="flex items-center justify-between border-b border-slate-800/70 px-4 py-3">
-              <div>
-                <div className="text-sm font-semibold text-slate-100">Chat interno con Manager IA</div>
-                <p className="text-[11px] text-slate-400">Solo tú ves este hilo. No se envía al fan.</p>
-              </div>
-              <button
-                type="button"
-                onClick={() => setIsInternalChatOpen(false)}
-                className="inline-flex h-7 w-7 items-center justify-center rounded-full text-slate-200 transition hover:bg-slate-800/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/60"
-              >
-                ✕
-              </button>
-            </div>
-            <div
-              ref={managerChatListRef}
-              className="flex-1 flex flex-col gap-2 overflow-y-auto px-4 py-3"
-            >
-              {isLoadingInternalMessages && (
-                <div className="text-[11px] text-slate-500">Cargando mensajes internos...</div>
-              )}
-              {internalMessagesError && !isLoadingInternalMessages && (
-                <div className="text-[11px] text-rose-300">{internalMessagesError}</div>
-              )}
-              {!hasInternalThreadMessages && !isLoadingInternalMessages && !internalMessagesError && (
-                <div className="text-[11px] text-slate-500">
-                  Aún no hay mensajes internos ni mensajes del Manager IA.
-                </div>
-              )}
-              {internalNotes.length > 0 && (
-                <div className="space-y-2">
-                  <div className="text-[10px] uppercase tracking-wide text-slate-500">Mensajes internos</div>
-                  {internalNotes.map((msg) => {
-                    const origin = normalizeFrom(msg.from);
-                    const isCreatorNote = origin === "creator";
-                    const label = isCreatorNote ? "Tú" : "Manager IA";
-                    const noteText =
-                      msg.type === "CONTENT"
-                        ? msg.contentItem?.title || "Contenido interno"
-                        : msg.text || "";
-                    return (
-                      <div
-                        key={msg.id}
-                        className={clsx(
-                          "flex flex-col max-w-[80%]",
-                          isCreatorNote ? "self-end items-end" : "self-start items-start"
-                        )}
-                      >
-                        <span className="text-[10px] uppercase tracking-wide text-slate-500">{label}</span>
-                        <div
-                          className={clsx(
-                            "rounded-2xl px-3 py-2 text-sm leading-relaxed",
-                            isCreatorNote
-                              ? "bg-amber-500/20 text-amber-50"
-                              : "bg-slate-800/80 text-slate-100"
-                          )}
-                        >
-                          {isCreatorNote && (
-                            <span className="mb-1 inline-flex items-center rounded-full border border-amber-400/70 px-2 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-amber-200">
-                              INTERNO
-                            </span>
-                          )}
-                          <div>{noteText}</div>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-              {managerChatMessages.length > 0 && (
-                <div className="space-y-2">
-                  <div className="text-[10px] uppercase tracking-wide text-slate-500">Manager IA</div>
-                  {managerChatMessages.map((msg) => (
-                    <div
-                      key={msg.id}
-                      className={clsx(
-                        "flex flex-col max-w-[80%]",
-                        msg.role === "creator" ? "self-end items-end" : "self-start items-start"
-                      )}
-                    >
-                      <span className="text-[10px] uppercase tracking-wide text-slate-500">
-                        {msg.role === "creator" ? "Tú" : "Manager IA"}
-                      </span>
-                      {msg.role === "manager" && (msg.suggestions?.length ?? 0) > 0 ? (
-                        <div className="rounded-2xl border border-slate-700 bg-slate-900/70 px-3 py-2 text-sm leading-relaxed text-slate-100 space-y-2">
-                          {msg.title && (
-                            <div className="text-[10px] uppercase tracking-wide text-slate-400">
-                              {msg.title}
-                            </div>
-                          )}
-                          {msg.suggestions?.map((suggestion, idx) => (
-                            <div
-                              key={`${msg.id}-suggestion-${idx}`}
-                              className="flex flex-col gap-2 rounded-xl border border-slate-800 bg-slate-950/60 px-3 py-2"
-                            >
-                              <div className="text-[12px] text-slate-100">{suggestion}</div>
-                              <button
-                                type="button"
-                                onClick={() => handleUseManagerReplyAsMainMessage(suggestion)}
-                                className="inline-flex items-center rounded-full border border-emerald-500/60 bg-emerald-500/10 px-3 py-1 text-[11px] font-medium text-emerald-100 transition hover:bg-emerald-500/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/60"
-                              >
-                                Usar en mensaje
-                              </button>
-                            </div>
-                          ))}
-                        </div>
-                      ) : (
-                        <>
-                          <div
-                            className={clsx(
-                              "rounded-2xl px-3 py-2 text-sm leading-relaxed",
-                              msg.role === "creator"
-                                ? "bg-emerald-600/80 text-white"
-                                : "bg-slate-800/80 text-slate-100"
-                            )}
-                          >
-                            {msg.text}
-                          </div>
-                          {msg.role === "manager" && (
-                            <button
-                              type="button"
-                              onClick={() => handleUseManagerReplyAsMainMessage(msg.text)}
-                              className="mt-1 inline-flex items-center rounded-full border border-emerald-500/60 bg-emerald-500/10 px-3 py-1 text-[11px] font-medium text-emerald-100 transition hover:bg-emerald-500/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/60"
-                            >
-                              Usar en mensaje
-                            </button>
-                          )}
-                        </>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-            <div className="border-t border-slate-800 px-4 py-3">
-              <div className="flex items-end gap-2">
-                <textarea
-                  rows={1}
-                  className="flex-1 rounded-2xl bg-slate-900/80 px-3 py-2 text-sm leading-relaxed text-slate-100 placeholder:text-slate-400 resize-none overflow-y-auto max-h-32 focus:outline-none focus:ring-2 focus:ring-emerald-500/70"
-                  placeholder="Preguntarle algo al Manager IA sobre este fan…"
-                  ref={managerChatInputRef}
-                  value={managerChatInput}
-                  onChange={(e) => setManagerChatInput(e.target.value)}
-                  onKeyDown={handleManagerChatKeyDown}
-                />
-                <button
-                  type="button"
-                  onClick={handleSendManagerChat}
-                  className="h-9 px-4 rounded-2xl bg-emerald-600 text-sm font-semibold text-white transition hover:bg-emerald-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/60 disabled:opacity-50 disabled:cursor-not-allowed"
-                  disabled={!managerChatInput.trim()}
-                >
-                  Enviar
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
       {showContentModal && (
         <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 px-4">
           <div className="w-full max-w-lg rounded-2xl bg-slate-900 p-6 border border-slate-800 shadow-xl">

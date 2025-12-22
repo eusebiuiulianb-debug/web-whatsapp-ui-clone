@@ -99,7 +99,7 @@ export default function FanManagerDrawer({
   onAutopilotSoften,
   onAutopilotMakeBolder,
 }: Props) {
-  const [isOpen, setIsOpen] = useState(false);
+  const [showMore, setShowMore] = useState(false);
   const summaryLine = closedSummary || planSummary || statusLine;
   const planSummaryText = planSummary ? planSummary.replace(/^Plan de hoy:\s*/i, "").trim() : null;
   const managerDisabled = isBlocked;
@@ -240,10 +240,20 @@ export default function FanManagerDrawer({
             )}
             <button
               type="button"
-              onClick={() => setIsOpen((prev) => !prev)}
-              className="self-start rounded-full border border-slate-700 bg-slate-800/80 px-3 py-1.5 text-[11px] font-semibold text-slate-100 hover:bg-slate-700"
+              onClick={() => setShowMore((prev) => !prev)}
+              className="self-start inline-flex items-center gap-1.5 rounded-full border border-slate-700 bg-slate-800/80 px-3 py-1.5 text-[11px] font-semibold text-slate-100 hover:bg-slate-700"
+              aria-expanded={showMore}
             >
-              {isOpen ? "Ocultar ▴" : "Ver más ▾"}
+              <span>{showMore ? "Ocultar" : "Ver más"}</span>
+              <span
+                className={clsx(
+                  "inline-flex items-center transition-transform duration-200",
+                  showMore ? "rotate-180" : "rotate-0"
+                )}
+                aria-hidden="true"
+              >
+                ▾
+              </span>
             </button>
           </div>
         </div>
@@ -359,8 +369,19 @@ export default function FanManagerDrawer({
           </div>
         </div>
       )}
-      {isOpen && (
-        <div className="mt-3 space-y-3 border-t border-slate-800 pt-3 text-[11px] text-slate-200">
+      <div
+        className={clsx(
+          "mt-3 overflow-hidden transition-[max-height,opacity] duration-200 ease-out",
+          showMore ? "max-h-[900px] opacity-100" : "max-h-0 opacity-0"
+        )}
+        aria-hidden={!showMore}
+      >
+        <div
+          className={clsx(
+            "space-y-3 text-[11px] text-slate-200",
+            showMore ? "border-t border-slate-800 pt-3" : "pt-0"
+          )}
+        >
           {(statusLine || sessionSummary || iaSummary) && (
             <div className="flex flex-col gap-1 text-sm md:text-base text-slate-200">
               {statusLine && <div className="font-semibold text-slate-100">{statusLine}</div>}
@@ -389,7 +410,7 @@ export default function FanManagerDrawer({
             </div>
           )}
         </div>
-      )}
+      </div>
       <div className="hidden">
         <FanManagerPanel
           fanId={fanId}
