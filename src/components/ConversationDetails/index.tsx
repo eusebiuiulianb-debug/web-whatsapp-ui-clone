@@ -59,6 +59,16 @@ type ManagerSuggestionIntent = "romper_hielo" | "pregunta_simple" | "cierre_suav
 type ComposerAudienceMode = "CREATOR" | "INTERNAL";
 type InlineTab = "templates" | "tools" | "manager";
 type InternalPanelTab = "manager" | "internal" | "note";
+type InlineActionKind = "ok" | "info" | "warn";
+type InlineAction = {
+  id: string;
+  kind: InlineActionKind;
+  title: string;
+  detail?: string;
+  undoLabel?: string;
+  onUndo?: () => void;
+  ttlMs?: number;
+};
 
 type ConversationDetailsProps = {
   onBackToBoard?: () => void;
@@ -109,9 +119,9 @@ function InlinePanelShell({
   scrollable = true,
 }: InlinePanelShellProps) {
   return (
-    <div className="w-full rounded-2xl border border-slate-700/60 bg-slate-900/80 backdrop-blur-md shadow-[0_10px_35px_rgba(0,0,0,0.35)] ring-1 ring-white/5">
-      <div className="flex items-center justify-between border-b border-slate-800/70 px-4 py-2.5">
-        <span className="text-[10px] uppercase tracking-[0.2em] text-slate-400">{title}</span>
+    <div className="w-full rounded-2xl border border-slate-800/60 bg-gradient-to-b from-slate-950/70 via-slate-900/80 to-slate-900/70 backdrop-blur-xl shadow-[0_12px_30px_rgba(0,0,0,0.25)] ring-1 ring-white/5">
+      <div className="flex items-center justify-between border-b border-slate-800/50 px-4 py-2">
+        <span className="text-[11px] font-semibold text-slate-300">{title}</span>
         <button
           type="button"
           onClick={onClose}
@@ -128,7 +138,7 @@ function InlinePanelShell({
         className={clsx(
           "px-4 py-3 text-[12px] text-slate-200",
           scrollable
-            ? "min-h-0 max-h-[360px] overflow-y-auto overscroll-contain space-y-3"
+            ? "min-h-0 max-h-[45vh] overflow-y-auto overscroll-contain space-y-3"
             : "overflow-hidden",
           bodyClassName
         )}
@@ -147,7 +157,7 @@ function ComposerChipsRow({ children }: ComposerChipsRowProps) {
   return (
     <div
       className={clsx(
-        "mt-2 flex w-full flex-wrap items-center gap-2 pb-2",
+        "mt-1.5 flex w-full flex-wrap items-center gap-2 pb-1.5",
         "[-ms-overflow-style:'none'] [scrollbar-width:'none'] [&::-webkit-scrollbar]:hidden"
       )}
     >
@@ -160,19 +170,25 @@ type InlinePanelContainerProps = {
   children: ReactNode;
   isOpen: boolean;
   panelId?: string;
+  bottomOffset?: number;
 };
 
-function InlinePanelContainer({ children, isOpen, panelId }: InlinePanelContainerProps) {
+function InlinePanelContainer({ children, isOpen, panelId, bottomOffset }: InlinePanelContainerProps) {
   return (
     <div
       id={panelId}
       className={clsx(
         "transition-all duration-200 ease-out overflow-hidden",
+        bottomOffset ? "sticky z-10" : null,
         isOpen
-          ? "mt-3 max-h-[520px] opacity-100 translate-y-0 visible"
+          ? "mt-3 max-h-[55vh] opacity-100 translate-y-0 visible"
           : "mt-0 max-h-0 opacity-0 -translate-y-1 invisible pointer-events-none"
       )}
-      style={{ willChange: "opacity, transform, max-height" }}
+      style={{
+        willChange: "opacity, transform, max-height",
+        bottom: bottomOffset,
+        marginBottom: bottomOffset,
+      }}
       aria-hidden={!isOpen}
     >
       {children}
@@ -284,6 +300,7 @@ export default function ConversationDetails({ onBackToBoard }: ConversationDetai
   const [ preferredLanguageSaving, setPreferredLanguageSaving ] = useState(false);
   const [ preferredLanguageError, setPreferredLanguageError ] = useState<string | null>(null);
   const [ internalToast, setInternalToast ] = useState<string | null>(null);
+  const [ inlineAction, setInlineAction ] = useState<InlineAction | null>(null);
   const [ translationPreviewOpen, setTranslationPreviewOpen ] = useState(false);
   const [ inlinePanel, setInlinePanel ] = useState<InlineTab | null>(null);
   const [ internalPanelTab, setInternalPanelTab ] = useState<InternalPanelTab>("manager");
@@ -302,9 +319,11 @@ export default function ConversationDetails({ onBackToBoard }: ConversationDetai
   const [ inviteCopyUrl, setInviteCopyUrl ] = useState<string | null>(null);
   const [ inviteCopyToast, setInviteCopyToast ] = useState("");
   const inviteCopyToastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [ dockHeight, setDockHeight ] = useState(0);
   const schemaCopyTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isSendingRef = useRef(false);
   const internalToastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const inlineActionTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const translationPreviewTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const translationPreviewAbortRef = useRef<AbortController | null>(null);
   const translationPreviewRequestId = useRef(0);
@@ -357,6 +376,8 @@ export default function ConversationDetails({ onBackToBoard }: ConversationDetai
   const MAX_MESSAGE_HEIGHT = 96;
   const SCROLL_BOTTOM_THRESHOLD = 48;
   const messageInputRef = useRef<HTMLTextAreaElement | null>(null);
+  const composerDockRef = useRef<HTMLDivElement | null>(null);
+  const nextActionInputRef = useRef<HTMLInputElement | null>(null);
   type ManagerChatMessage = {
     id: string;
     role: "creator" | "manager";
@@ -373,6 +394,7 @@ export default function ConversationDetails({ onBackToBoard }: ConversationDetai
   };
   const [ managerChatByFan, setManagerChatByFan ] = useState<Record<string, ManagerChatMessage[]>>({});
   const [ managerChatInput, setManagerChatInput ] = useState("");
+  const [ internalDraftInput, setInternalDraftInput ] = useState("");
   const managerChatListRef = useRef<HTMLDivElement | null>(null);
   const managerChatInputRef = useRef<HTMLTextAreaElement | null>(null);
   const managerPanelScrollRef = useRef<HTMLDivElement | null>(null);
@@ -393,6 +415,8 @@ export default function ConversationDetails({ onBackToBoard }: ConversationDetai
   const [ isAutoPilotLoading, setIsAutoPilotLoading ] = useState(false);
   const [ lastAutopilotObjective, setLastAutopilotObjective ] = useState<AutopilotObjective | null>(null);
   const [ lastAutopilotTone, setLastAutopilotTone ] = useState<FanTone | null>(null);
+  const [ fanToneById, setFanToneById ] = useState<Record<string, FanTone>>({});
+  const [ includeInternalContextByFan, setIncludeInternalContextByFan ] = useState<Record<string, boolean>>({});
   const fanManagerAnalysis: FanManagerStateAnalysis = useMemo(
     () => deriveFanManagerState({ fan: conversation, messages }),
     [conversation, messages]
@@ -403,6 +427,7 @@ export default function ConversationDetails({ onBackToBoard }: ConversationDetai
   const [isAtBottom, setIsAtBottom] = useState(true);
   const chatPanelScrollTopRef = useRef(0);
   const chatPanelRestorePendingRef = useRef(false);
+  const previousInlinePanelRef = useRef<InlineTab | null>(null);
   const fanHeaderRef = useRef<HTMLDivElement | null>(null);
   const { config } = useCreatorConfig();
   const accessSummary = getAccessSummary({
@@ -485,6 +510,28 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
     }, 1800);
   }, []);
 
+  const clearInlineAction = useCallback(() => {
+    if (inlineActionTimerRef.current) {
+      clearTimeout(inlineActionTimerRef.current);
+      inlineActionTimerRef.current = null;
+    }
+    setInlineAction(null);
+  }, []);
+
+  const showInlineAction = useCallback((payload: Omit<InlineAction, "id">) => {
+    const id = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+    const ttlMs = payload.ttlMs ?? (payload.undoLabel ? 9000 : 4500);
+    if (inlineActionTimerRef.current) {
+      clearTimeout(inlineActionTimerRef.current);
+    }
+    setInlineAction({ ...payload, id, ttlMs });
+    if (ttlMs > 0) {
+      inlineActionTimerRef.current = setTimeout(() => {
+        setInlineAction(null);
+      }, ttlMs);
+    }
+  }, []);
+
   const firstName = (contactName || "").split(" ")[0] || contactName || "";
   const messagesLength = messages?.length ?? 0;
 
@@ -525,9 +572,28 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
   }, [messageSend]);
 
   useEffect(() => {
+    const el = composerDockRef.current;
+    if (!el) return;
+    const update = () => {
+      setDockHeight(el.getBoundingClientRect().height);
+    };
+    update();
+    if (typeof ResizeObserver === "undefined") {
+      window.addEventListener("resize", update);
+      return () => window.removeEventListener("resize", update);
+    }
+    const observer = new ResizeObserver(() => update());
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
+
+  useEffect(() => {
     return () => {
       if (inviteCopyToastTimer.current) {
         clearTimeout(inviteCopyToastTimer.current);
+      }
+      if (inlineActionTimerRef.current) {
+        clearTimeout(inlineActionTimerRef.current);
       }
     };
   }, []);
@@ -570,6 +636,22 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
     });
     return () => cancelAnimationFrame(frame);
   }, [inlinePanel]);
+
+  useIsomorphicLayoutEffect(() => {
+    const prev = previousInlinePanelRef.current;
+    if (!prev && inlinePanel) {
+      scrollToBottom("auto");
+    }
+    previousInlinePanelRef.current = inlinePanel;
+  }, [inlinePanel]);
+
+  useIsomorphicLayoutEffect(() => {
+    if (!inlineAction || !isAtBottom) return;
+    const frame = requestAnimationFrame(() => {
+      scrollToBottom("smooth");
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [inlineAction, isAtBottom]);
 
   function getPackTypeFromName(name: string) {
     const lower = name.toLowerCase();
@@ -773,9 +855,27 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
       }
     });
   };
-  const handleApplyManagerSuggestion = (text: string) => {
+  const insertComposerTextWithUndo = (
+    nextText: string,
+    options: { title: string; detail?: string; forceFan?: boolean }
+  ) => {
+    const previousText = messageSend;
+    if (options.forceFan) {
+      handleComposerAudienceChange("CREATOR");
+    }
+    focusMainMessageInput(nextText);
+    showInlineAction({
+      kind: "ok",
+      title: options.title,
+      detail: options.detail,
+      undoLabel: "Deshacer",
+      onUndo: () => focusMainMessageInput(previousText),
+      ttlMs: 9000,
+    });
+  };
+  const handleApplyManagerSuggestion = (text: string, detail?: string) => {
     const filled = text.replace("{nombre}", getFirstName(contactName) || contactName || "");
-    handleUseManagerReplyAsMainMessage(filled);
+    handleUseManagerReplyAsMainMessage(filled, detail);
   };
   function handleComposerAudienceChange(mode: ComposerAudienceMode) {
     if (mode === composerAudience) return;
@@ -808,15 +908,24 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
     handleApplyManagerSuggestion(text);
   }
 
-  function handleUseManagerReplyAsMainMessage(text: string) {
-    handleComposerAudienceChange("CREATOR");
-    focusMainMessageInput(text);
+  function handleUseManagerReplyAsMainMessage(text: string, detail?: string) {
+    insertComposerTextWithUndo(text, {
+      title: "Sugerencia insertada",
+      detail: detail ?? "Manager IA",
+      forceFan: true,
+    });
   }
 
-  const handleChangeFanTone = useCallback((tone: FanTone) => {
-    setFanTone(tone);
-    setHasManualTone(true);
-  }, []);
+  const handleChangeFanTone = useCallback(
+    (tone: FanTone) => {
+      setFanTone(tone);
+      setHasManualTone(true);
+      if (id) {
+        setFanToneById((prev) => ({ ...prev, [id]: tone }));
+      }
+    },
+    [id]
+  );
 
   function formatObjectiveLabel(objective?: ManagerObjective | null) {
     switch (objective) {
@@ -1591,6 +1700,11 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
     if (internalToastTimer.current) {
       clearTimeout(internalToastTimer.current);
     }
+    setInlineAction(null);
+    if (inlineActionTimerRef.current) {
+      clearTimeout(inlineActionTimerRef.current);
+      inlineActionTimerRef.current = null;
+    }
   }, [id]);
 
   useEffect(() => {
@@ -1603,14 +1717,28 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
 
   useEffect(() => {
     if (!id || composerAudience !== "INTERNAL") return;
-    if (inlinePanel !== "manager" || internalPanelTab !== "internal") return;
+    if (inlinePanel !== "manager") return;
+    const includeContext = includeInternalContextByFan[id] ?? true;
+    if (
+      internalPanelTab !== "internal" &&
+      !(internalPanelTab === "manager" && includeContext)
+    ) {
+      return;
+    }
     fetchInternalMessages(true);
     return () => {
       if (internalMessagesAbortRef.current) {
         internalMessagesAbortRef.current.abort();
       }
     };
-  }, [fetchInternalMessages, id, inlinePanel, composerAudience, internalPanelTab]);
+  }, [
+    fetchInternalMessages,
+    id,
+    inlinePanel,
+    composerAudience,
+    internalPanelTab,
+    includeInternalContextByFan,
+  ]);
 
   useEffect(() => {
     if (!id) return undefined;
@@ -1626,6 +1754,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
   }, [fetchMessages, id]);
   useEffect(() => {
     setMessageSend("");
+    setInternalDraftInput("");
     setShowPackSelector(false);
     setOpenPanel("none");
     setNotes([]);
@@ -1743,21 +1872,25 @@ useEffect(() => {
     if (composerAudience !== "INTERNAL") return;
     if (!lastPanelOpenByMode.INTERNAL) return;
     if (!lastTabByMode.INTERNAL) return;
-    captureChatScrollForPanelToggle();
     setInlinePanel(lastTabByMode.INTERNAL);
-  }, [composerAudience, lastPanelOpenByMode.INTERNAL, lastTabByMode.INTERNAL, captureChatScrollForPanelToggle]);
+  }, [composerAudience, lastPanelOpenByMode.INTERNAL, lastTabByMode.INTERNAL]);
 
   useEffect(() => {
-    if (!inlinePanel) return;
+    if (!inlinePanel && !inlineAction) return;
     const handleKeyDown = (event: globalThis.KeyboardEvent) => {
       if (event.key === "Escape") {
-        captureChatScrollForPanelToggle();
-        setInlinePanel(null);
+        if (inlinePanel) {
+          captureChatScrollForPanelToggle();
+          setInlinePanel(null);
+        }
+        if (inlineAction) {
+          clearInlineAction();
+        }
       }
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [inlinePanel, captureChatScrollForPanelToggle]);
+  }, [inlinePanel, inlineAction, captureChatScrollForPanelToggle, clearInlineAction]);
 
   useEffect(() => {
     setInlinePanel(null);
@@ -1785,6 +1918,18 @@ useEffect(() => {
 
   const managerChatMessages = managerChatByFan[id ?? ""] ?? [];
   const internalNotes = internalMessages.filter((message) => deriveAudience(message) === "INTERNAL");
+  const internalContextKey = id ?? "global";
+  const includeInternalContext = includeInternalContextByFan[internalContextKey] ?? true;
+  const recentInternalDrafts = useMemo(() => {
+    return internalNotes
+      .slice(-3)
+      .map((msg) => {
+        if (msg.type === "CONTENT") return msg.contentItem?.title || "Contenido interno";
+        return msg.text || "";
+      })
+      .map((line) => line.trim())
+      .filter(Boolean);
+  }, [internalNotes]);
   const hasInternalThreadMessages = internalNotes.length > 0 || managerChatMessages.length > 0;
   const effectiveLanguage = (preferredLanguage ?? "en") as SupportedLanguage;
   const isTranslationPreviewAvailable =
@@ -1813,7 +1958,9 @@ useEffect(() => {
       if (!allowedTabs.includes(tab)) return;
       const next = inlinePanel === tab ? null : tab;
       if (next === inlinePanel) return;
-      captureChatScrollForPanelToggle();
+      if (!next) {
+        captureChatScrollForPanelToggle();
+      }
       setInlinePanel(next);
       if (next) {
         setLastTabByMode((prevTabs) => ({
@@ -1832,7 +1979,6 @@ useEffect(() => {
       if (!allowedTabs.includes(tab)) return;
       const shouldOpen = inlinePanel !== tab || targetAudience !== composerAudience;
       if (!shouldOpen) return;
-      captureChatScrollForPanelToggle();
       if (targetAudience !== composerAudience) {
         setLastPanelOpenByMode((prev) => ({
           ...prev,
@@ -1846,12 +1992,12 @@ useEffect(() => {
         [targetAudience]: tab as any,
       }));
     },
-    [composerAudience, inlinePanel, captureChatScrollForPanelToggle]
+    [composerAudience, inlinePanel]
   );
 
   const openInternalPanelTab = useCallback(
     (tab: InternalPanelTab, options?: { forceScroll?: boolean }) => {
-      if (options?.forceScroll) {
+      if (tab === "internal" && options?.forceScroll) {
         internalChatForceScrollRef.current = true;
       }
       setInternalPanelTab(tab);
@@ -1863,6 +2009,40 @@ useEffect(() => {
   const openInternalThread = useCallback(
     (options?: { forceScroll?: boolean }) => {
       openInternalPanelTab("internal", options);
+    },
+    [openInternalPanelTab]
+  );
+
+  const toggleIncludeInternalContext = useCallback(() => {
+    const key = id ?? "global";
+    setIncludeInternalContextByFan((prev) => {
+      const current = prev[key];
+      const nextValue = !(current ?? true);
+      return { ...prev, [key]: nextValue };
+    });
+  }, [id]);
+
+  const openFollowUpNote = useCallback(() => {
+    openInternalPanelTab("note");
+    if (!nextActionDate) {
+      const tomorrow = new Date();
+      tomorrow.setDate(tomorrow.getDate() + 1);
+      setNextActionDate(tomorrow.toISOString().slice(0, 10));
+    }
+    requestAnimationFrame(() => {
+      nextActionInputRef.current?.focus();
+    });
+  }, [openInternalPanelTab, nextActionDate]);
+
+  const handleAskManagerFromDraft = useCallback(
+    (text: string) => {
+      const trimmed = text.trim();
+      if (!trimmed) return;
+      setManagerChatInput(trimmed);
+      openInternalPanelTab("manager");
+      requestAnimationFrame(() => {
+        managerChatInputRef.current?.focus();
+      });
     },
     [openInternalPanelTab]
   );
@@ -1886,6 +2066,9 @@ useEffect(() => {
     const managerAlert = fanManagerAnalysis.chips.some(
       (chip) => chip.tone === "danger" || chip.tone === "warning"
     );
+    const dockOffset = Math.max(0, dockHeight) + 12;
+    const internalPanelPadding = Math.max(24, Math.min(96, dockHeight || 0));
+    const internalDraftCount = includeInternalContext ? recentInternalDrafts.length : 0;
     const templatesCount: number = TRANSLATION_QUICK_CHIPS.length;
     const allowedTabs = INLINE_TABS_BY_MODE[composerAudience] as readonly InlineTab[];
     const showManagerChip = allowedTabs.includes("manager");
@@ -1898,10 +2081,10 @@ useEffect(() => {
         <span>Manager</span>
         <span
           className={clsx(
-            "rounded-full border px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide",
+            "rounded-full border px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-[0.12em]",
             managerAlert
               ? "border-rose-400/60 bg-rose-500/10 text-rose-200"
-              : "border-slate-600 bg-slate-900/70 text-slate-300"
+              : "border-emerald-400/40 bg-emerald-500/10 text-emerald-100"
           )}
         >
           {managerChipStatus}
@@ -1917,7 +2100,12 @@ useEffect(() => {
     }
 
     const chipBase =
-      "inline-flex h-8 items-center gap-2 rounded-full border px-3 text-sm font-medium whitespace-nowrap transition-colors";
+      "inline-flex h-8 items-center gap-2 rounded-full border px-3 text-sm font-medium whitespace-nowrap transition-colors duration-150 active:scale-[0.98]";
+    const chipInactiveClass =
+      "border-slate-800/70 bg-slate-900/50 text-slate-200 hover:border-slate-600/70 hover:bg-slate-800/60";
+    const chipActiveClass = isFanMode
+      ? "border-emerald-400/70 bg-emerald-500/12 text-emerald-100 ring-1 ring-emerald-400/20"
+      : "border-amber-400/70 bg-amber-500/12 text-amber-100 ring-1 ring-amber-400/20";
 
     const InlineEmptyState = ({
       icon,
@@ -1937,8 +2125,12 @@ useEffect(() => {
       </div>
     );
 
-    const inlineActionButtonClass =
-      "inline-flex items-center justify-center rounded-full border border-emerald-500/60 bg-emerald-500/10 px-3 py-1 text-[11px] font-semibold text-emerald-100 transition hover:bg-emerald-500/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/60";
+    const inlineActionButtonClass = clsx(
+      "inline-flex h-7 items-center justify-center rounded-full border px-3.5 text-[11px] font-semibold transition focus-visible:outline-none focus-visible:ring-2",
+      isFanMode
+        ? "border-emerald-500/60 bg-emerald-500/10 text-emerald-100 hover:bg-emerald-500/20 focus-visible:ring-emerald-400/50"
+        : "border-amber-400/70 bg-amber-500/10 text-amber-100 hover:bg-amber-500/20 focus-visible:ring-amber-400/40"
+    );
 
     const closeInlinePanel = () => {
       if (inlinePanel !== null) {
@@ -1958,16 +2150,16 @@ useEffect(() => {
       <InlinePanelShell title="Herramientas" onClose={closeInlinePanel}>
         {composerAudience === "CREATOR" && !conversation.isManager ? (
           <div className="space-y-3">
-            <div className="text-[10px] uppercase tracking-[0.2em] text-slate-500">Acciones</div>
+            <div className="text-[11px] font-semibold text-slate-400">Acciones</div>
             <button
               type="button"
               onClick={() => handleAttachContentClick()}
               disabled={isChatBlocked}
               className={clsx(
-                "flex w-full items-center justify-between rounded-xl border px-3 py-2 text-[12px] font-semibold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/60",
+                "flex w-full items-center justify-between rounded-xl border px-3 py-2 text-[12px] font-semibold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/50",
                 isChatBlocked
-                  ? "cursor-not-allowed border-slate-800 bg-slate-900/50 text-slate-500"
-                  : "border-slate-700 bg-slate-950/40 text-slate-200 hover:border-slate-500 hover:bg-slate-900/60"
+                  ? "cursor-not-allowed border-slate-800 bg-slate-900/40 text-slate-500"
+                  : "border-slate-800/70 bg-slate-950/40 text-slate-200 hover:border-slate-600/80 hover:bg-slate-900/60"
               )}
             >
               <span className="flex items-center gap-2">
@@ -1975,59 +2167,63 @@ useEffect(() => {
                 <span>Adjuntar contenido</span>
               </span>
             </button>
-            <div className="text-[10px] uppercase tracking-[0.2em] text-slate-500">Traducción</div>
-            <div
-              className={clsx(
-                "flex w-full items-center justify-between rounded-xl border px-3 py-2 text-[12px] font-semibold transition",
-                translationPreviewOpen
-                  ? "border-emerald-400/60 bg-emerald-500/10 text-emerald-100"
-                  : "border-slate-700 bg-slate-950/40 text-slate-200"
-              )}
-            >
-              <span className="flex items-center gap-2">
-                <span className="text-base leading-none">🌐</span>
-                <span>Traducir</span>
-              </span>
-              <div className="flex items-center gap-2">
-                <span
-                  className={clsx(
-                    "inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-semibold transition",
-                    translationPreviewOpen
-                      ? "border-emerald-400/70 bg-emerald-500/15 text-emerald-100"
-                      : "border-slate-600 text-slate-400"
-                  )}
-                >
-                  {translationPreviewOpen ? "ON" : "OFF"}
+            <div className="text-[11px] font-semibold text-slate-400">Traducción</div>
+            {isTranslationPreviewAvailable ? (
+              <div
+                className={clsx(
+                  "flex w-full items-center justify-between rounded-xl border px-3 py-2 text-[12px] font-semibold transition",
+                  translationPreviewOpen
+                    ? "border-emerald-400/60 bg-emerald-500/10 text-emerald-100"
+                    : "border-slate-800/70 bg-slate-950/40 text-slate-200"
+                )}
+              >
+                <span className="flex items-center gap-2">
+                  <span className="text-base leading-none">🌐</span>
+                  <span>Traducir</span>
                 </span>
-                <button
-                  type="button"
-                  onClick={() => {
-                    if (translateEnabled) {
-                      disableTranslationPreview();
-                    } else {
-                      setTranslationPreviewOpen(true);
-                    }
-                  }}
-                  className={clsx(
-                    "relative inline-flex h-5 w-10 items-center rounded-full border transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/60",
-                    translationPreviewOpen
-                      ? "border-emerald-400/70 bg-emerald-500/20"
-                      : "border-slate-600 bg-slate-900/70"
-                  )}
-                  aria-pressed={translationPreviewOpen}
-                >
-                  <span
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (translateEnabled) {
+                        disableTranslationPreview();
+                        showInlineAction({ kind: "info", title: "Traducción desactivada" });
+                      } else {
+                        setTranslationPreviewOpen(true);
+                        showInlineAction({ kind: "info", title: "Traducción activada" });
+                      }
+                    }}
                     className={clsx(
-                      "inline-block h-4 w-4 rounded-full transition",
-                      translationPreviewOpen ? "translate-x-5 bg-emerald-200" : "translate-x-1 bg-slate-400"
+                      "relative inline-flex h-5 w-10 items-center rounded-full border transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/60",
+                      translationPreviewOpen
+                        ? "border-emerald-400/70 bg-emerald-500/20"
+                        : "border-slate-600 bg-slate-900/70"
                     )}
-                  />
-                </button>
+                    aria-pressed={translationPreviewOpen}
+                  >
+                    <span
+                      className={clsx(
+                        "inline-block h-4 w-4 rounded-full transition",
+                        translationPreviewOpen ? "translate-x-5 bg-emerald-200" : "translate-x-1 bg-slate-400"
+                      )}
+                    />
+                  </button>
+                </div>
               </div>
-            </div>
-            {translationPreviewOpen && (
+            ) : (
+              <div className="flex w-full items-center justify-between rounded-xl border border-slate-800/70 bg-slate-950/40 px-3 py-2 text-[12px] font-semibold text-slate-500">
+                <span className="flex items-center gap-2">
+                  <span className="text-base leading-none">🌐</span>
+                  <span>Traducir</span>
+                </span>
+                <span className="rounded-full border border-slate-700/70 bg-slate-900/60 px-2 py-0.5 text-[9px] uppercase tracking-[0.2em] text-slate-400">
+                  Próximamente
+                </span>
+              </div>
+            )}
+            {isTranslationPreviewAvailable && translationPreviewOpen && (
               <div className="space-y-2 rounded-xl border border-slate-800 bg-slate-950/60 px-3 py-2">
-                <div className="text-[10px] uppercase tracking-wide text-slate-400">Traducción automática</div>
+                <div className="text-[11px] font-semibold text-slate-400">Traducción automática</div>
                 <div className="flex items-center gap-2 text-[11px] text-slate-200">
                   <span className="text-slate-400">Idioma</span>
                   <select
@@ -2057,17 +2253,61 @@ useEffect(() => {
                 )}
               </div>
             )}
-            <div className="text-[10px] uppercase tracking-[0.2em] text-slate-500">Acciones rápidas</div>
+            <div className="text-[11px] font-semibold text-slate-400">Acciones rápidas</div>
             <div className="grid gap-2 sm:grid-cols-3">
-              {["Copiar enlace", "Abrir ficha", "Marcar seguimiento"].map((label) => (
+              {[
+                {
+                  label: "Copiar enlace",
+                  icon: "🔗",
+                  onClick: async () => {
+                    if (!id) {
+                      showInlineAction({ kind: "warn", title: "Selecciona un fan primero" });
+                      return;
+                    }
+                    const ok = await copyInviteLinkForTools();
+                    showInlineAction({
+                      kind: ok ? "ok" : "warn",
+                      title: ok ? "Enlace copiado" : "No se pudo copiar el enlace",
+                    });
+                  },
+                },
+                {
+                  label: "Abrir ficha",
+                  icon: "🗂️",
+                  onClick: () => {
+                    if (!id) {
+                      showInlineAction({ kind: "warn", title: "Selecciona un fan" });
+                      return;
+                    }
+                    closeInlinePanel();
+                    handleViewProfile();
+                    showInlineAction({ kind: "info", title: "Ficha abierta" });
+                  },
+                },
+                {
+                  label: "Marcar seguimiento",
+                  icon: "⏰",
+                  onClick: () => {
+                    if (!id) {
+                      showInlineAction({ kind: "warn", title: "Selecciona un fan" });
+                      return;
+                    }
+                    closeInlinePanel();
+                    openFollowUpNote();
+                  },
+                },
+              ].map((action) => (
                 <button
-                  key={label}
+                  key={action.label}
                   type="button"
-                  disabled
-                  aria-disabled="true"
-                  className="rounded-xl border border-slate-800 bg-slate-900/50 px-3 py-2 text-[11px] font-semibold text-slate-400"
+                  onClick={action.onClick}
+                  className={clsx(
+                    "flex items-center gap-2 rounded-xl border px-3 py-2 text-[11px] font-semibold transition",
+                    "border-slate-800/70 bg-slate-950/40 text-slate-200 hover:border-slate-600/80 hover:bg-slate-900/60"
+                  )}
                 >
-                  {label}
+                  <span className="text-base leading-none">{action.icon}</span>
+                  <span>{action.label}</span>
                 </button>
               ))}
             </div>
@@ -2083,64 +2323,163 @@ useEffect(() => {
     );
 
     const renderInternalManagerContent = () => (
-      <div
-        ref={managerPanelScrollRef}
-        onScroll={updateManagerPanelScrollState}
-        onWheelCapture={handlePanelWheel}
-        className="min-h-0 max-h-[360px] overflow-y-auto overscroll-contain pr-1"
-      >
-        <div className="space-y-3">
-          <div className="text-[10px] uppercase tracking-[0.2em] text-slate-500">Insights y control</div>
-          <div className="rounded-xl border border-slate-800/70 bg-slate-900/70 p-3">
-            <FanManagerDrawer
-              managerSuggestions={managerSuggestions}
-              onApplySuggestion={handleApplyManagerSuggestion}
-              currentObjective={currentObjective}
-              suggestedObjective={fanManagerAnalysis.defaultObjective}
-              fanManagerState={fanManagerAnalysis.state}
-              fanManagerHeadline={fanManagerAnalysis.headline}
-              fanManagerChips={fanManagerAnalysis.chips}
-              tone={fanTone}
-              onChangeTone={handleChangeFanTone}
-              statusLine={statusLine}
-              lapexSummary={lapexSummary}
-              sessionSummary={sessionSummary}
-              iaSummary={iaSummary}
-              planSummary={planSummary}
-              closedSummary={managerShortSummary}
-              fanId={conversation.id}
-              onManagerSummary={(s) => setManagerSummary(s)}
-              onSuggestionClick={handleManagerSuggestion}
-              onQuickGreeting={() => handleManagerQuickAction("romper_hielo")}
-              onRenew={() => handleManagerQuickAction("reactivar_fan_frio")}
-              onQuickExtra={() => handleManagerQuickAction("ofrecer_extra")}
-              onPackOffer={() => handleManagerQuickAction("llevar_a_mensual")}
-              showRenewAction={showRenewAction}
-              quickExtraDisabled={quickExtraDisabled}
-              isRecommended={isRecommended}
-              isBlocked={isChatBlocked}
-              autoPilotEnabled={autoPilotEnabled}
-              onToggleAutoPilot={handleToggleAutoPilot}
-              isAutoPilotLoading={isAutoPilotLoading}
-              hasAutopilotContext={hasAutopilotContext}
-              onAutopilotSoften={handleAutopilotSoften}
-              onAutopilotMakeBolder={handleAutopilotMakeBolder}
+      <div className="flex min-h-0 flex-1 flex-col">
+        <div
+          ref={managerPanelScrollRef}
+          onScroll={updateManagerPanelScrollState}
+          onWheelCapture={handlePanelWheel}
+          className="flex-1 min-h-0 overflow-y-auto overscroll-contain pr-1"
+          style={{ paddingBottom: internalPanelPadding }}
+        >
+          <div className="space-y-3">
+            <div className="text-[11px] font-semibold text-slate-400">Insights y control</div>
+            <div className="rounded-xl border border-slate-800/60 bg-slate-950/40 p-3">
+              <FanManagerDrawer
+                managerSuggestions={managerSuggestions}
+                onApplySuggestion={handleApplyManagerSuggestion}
+                currentObjective={currentObjective}
+                suggestedObjective={fanManagerAnalysis.defaultObjective}
+                fanManagerState={fanManagerAnalysis.state}
+                fanManagerHeadline={fanManagerAnalysis.headline}
+                fanManagerChips={fanManagerAnalysis.chips}
+                tone={fanTone}
+                onChangeTone={handleChangeFanTone}
+                statusLine={statusLine}
+                lapexSummary={lapexSummary}
+                sessionSummary={sessionSummary}
+                iaSummary={iaSummary}
+                planSummary={planSummary}
+                closedSummary={managerShortSummary}
+                fanId={conversation.id}
+                onManagerSummary={(s) => setManagerSummary(s)}
+                onSuggestionClick={handleManagerSuggestion}
+                onQuickGreeting={() => handleManagerQuickAction("romper_hielo")}
+                onRenew={() => handleManagerQuickAction("reactivar_fan_frio")}
+                onQuickExtra={() => handleManagerQuickAction("ofrecer_extra")}
+                onPackOffer={() => handleManagerQuickAction("llevar_a_mensual")}
+                showRenewAction={showRenewAction}
+                quickExtraDisabled={quickExtraDisabled}
+                isRecommended={isRecommended}
+                isBlocked={isChatBlocked}
+                autoPilotEnabled={autoPilotEnabled}
+                onToggleAutoPilot={handleToggleAutoPilot}
+                isAutoPilotLoading={isAutoPilotLoading}
+                hasAutopilotContext={hasAutopilotContext}
+                onAutopilotSoften={handleAutopilotSoften}
+                onAutopilotMakeBolder={handleAutopilotMakeBolder}
+              />
+            </div>
+            <div className="space-y-2">
+              <div className="text-[11px] font-semibold text-slate-400">Conversación con Manager IA</div>
+              {managerChatMessages.length === 0 && (
+                <div className="text-[11px] text-slate-500">Aún no has preguntado al Manager IA.</div>
+              )}
+              {managerChatMessages.map((msg) => (
+                <div
+                  key={msg.id}
+                  className={clsx(
+                    "flex flex-col max-w-[85%]",
+                    msg.role === "creator" ? "self-end items-end" : "self-start items-start"
+                  )}
+                >
+                  <span className="text-[10px] uppercase tracking-wide text-slate-500">
+                    {msg.role === "creator" ? "Tú" : "Manager IA"}
+                  </span>
+                  {msg.role === "manager" && (msg.suggestions?.length ?? 0) > 0 ? (
+                    <div className="rounded-2xl border border-slate-700 bg-slate-900/70 px-3 py-2 text-xs leading-relaxed text-slate-100 space-y-2">
+                      {msg.title && (
+                        <div className="text-[10px] uppercase tracking-wide text-slate-400">
+                          {msg.title}
+                        </div>
+                      )}
+                      {msg.suggestions?.map((suggestion, idx) => (
+                        <div
+                          key={`${msg.id}-suggestion-${idx}`}
+                          className="flex flex-col gap-2 rounded-xl border border-slate-800 bg-slate-950/60 px-3 py-2"
+                        >
+                          <div className="text-[11px] text-slate-100">{suggestion}</div>
+                          <button
+                            type="button"
+                            onClick={() =>
+                              handleUseManagerReplyAsMainMessage(suggestion, msg.title ?? "Manager IA")
+                            }
+                            className={inlineActionButtonClass}
+                          >
+                            Usar en mensaje
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <>
+                      <div
+                        className={clsx(
+                          "rounded-2xl px-3 py-2 text-xs leading-relaxed",
+                          msg.role === "creator"
+                            ? "bg-emerald-600/80 text-white"
+                            : "bg-slate-800/80 text-slate-100"
+                        )}
+                      >
+                        {msg.text}
+                      </div>
+                      {msg.role === "manager" && (
+                        <button
+                          type="button"
+                          onClick={() => handleUseManagerReplyAsMainMessage(msg.text, msg.title ?? "Manager IA")}
+                          className={clsx("mt-1", inlineActionButtonClass)}
+                        >
+                          Usar en mensaje
+                        </button>
+                      )}
+                    </>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+        <div className="shrink-0 border-t border-slate-800/70 pt-3">
+          <label className="mb-2 flex items-center gap-2 text-[11px] text-slate-400">
+            <input
+              type="checkbox"
+              checked={includeInternalContext}
+              onChange={toggleIncludeInternalContext}
+              className="h-3 w-3 rounded border-slate-600 bg-slate-900 text-emerald-400 focus:ring-2 focus:ring-emerald-400/40"
             />
+            <span>Incluir borradores ({internalDraftCount})</span>
+          </label>
+          <div className="flex items-end gap-2">
+            <textarea
+              rows={1}
+              className="flex-1 rounded-2xl bg-slate-900/80 px-3 py-2 text-xs leading-relaxed text-slate-100 placeholder:text-slate-400 resize-none overflow-y-auto max-h-24 focus:outline-none focus:ring-2 focus:ring-amber-400/60"
+              placeholder="Pregúntale al Manager IA…"
+              ref={managerChatInputRef}
+              value={managerChatInput}
+              onChange={(e) => setManagerChatInput(e.target.value)}
+              onKeyDown={handleManagerChatKeyDown}
+            />
+            <button
+              type="button"
+              onClick={handleSendManagerChat}
+              className="h-8 px-3 rounded-2xl bg-amber-500 text-[11px] font-semibold text-slate-950 transition hover:bg-amber-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/50 disabled:opacity-50 disabled:cursor-not-allowed"
+              disabled={!managerChatInput.trim()}
+            >
+              Enviar
+            </button>
           </div>
         </div>
       </div>
     );
 
     const renderInternalChatContent = () => (
-      <div className="flex min-h-0 flex-col gap-3">
-        <div className="text-[11px] text-slate-400">
-          Solo tú ves este hilo. No se envía al fan.
-        </div>
+      <div className="flex min-h-0 flex-1 flex-col gap-3">
+        <div className="text-[11px] text-slate-400">Borradores tuyos. No se envía al fan.</div>
         <div
           ref={managerChatListRef}
           onScroll={updateInternalChatScrollState}
           onWheelCapture={handlePanelWheel}
-          className="flex min-h-0 max-h-[320px] flex-col gap-2 overflow-y-auto overscroll-contain pr-1"
+          className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto overscroll-contain pr-1"
+          style={{ paddingBottom: internalPanelPadding }}
         >
           {isLoadingInternalMessages && (
             <div className="text-[11px] text-slate-500">Cargando mensajes internos...</div>
@@ -2148,14 +2487,14 @@ useEffect(() => {
           {internalMessagesError && !isLoadingInternalMessages && (
             <div className="text-[11px] text-rose-300">{internalMessagesError}</div>
           )}
-          {!hasInternalThreadMessages && !isLoadingInternalMessages && !internalMessagesError && (
+          {!internalNotes.length && !isLoadingInternalMessages && !internalMessagesError && (
             <div className="text-[11px] text-slate-500">
-              Aún no hay mensajes internos ni mensajes del Manager IA.
+              Aún no hay borradores internos.
             </div>
           )}
           {internalNotes.length > 0 && (
             <div className="space-y-2">
-              <div className="text-[10px] uppercase tracking-wide text-slate-500">Mensajes internos</div>
+              <div className="text-[11px] font-semibold text-slate-400">Borradores</div>
               {internalNotes.map((msg) => {
                 const origin = normalizeFrom(msg.from);
                 const isCreatorNote = origin === "creator";
@@ -2185,95 +2524,38 @@ useEffect(() => {
                         </span>
                       )}
                       <div>{noteText}</div>
+                      <button
+                        type="button"
+                        onClick={() => handleAskManagerFromDraft(noteText)}
+                        className={clsx("mt-2", inlineActionButtonClass)}
+                      >
+                        Preguntar al Manager con esto
+                      </button>
                     </div>
                   </div>
                 );
               })}
             </div>
           )}
-          {managerChatMessages.length > 0 && (
-            <div className="space-y-2">
-              <div className="text-[10px] uppercase tracking-wide text-slate-500">Manager IA</div>
-              {managerChatMessages.map((msg) => (
-                <div
-                  key={msg.id}
-                  className={clsx(
-                    "flex flex-col max-w-[85%]",
-                    msg.role === "creator" ? "self-end items-end" : "self-start items-start"
-                  )}
-                >
-                  <span className="text-[10px] uppercase tracking-wide text-slate-500">
-                    {msg.role === "creator" ? "Tú" : "Manager IA"}
-                  </span>
-                  {msg.role === "manager" && (msg.suggestions?.length ?? 0) > 0 ? (
-                    <div className="rounded-2xl border border-slate-700 bg-slate-900/70 px-3 py-2 text-xs leading-relaxed text-slate-100 space-y-2">
-                      {msg.title && (
-                        <div className="text-[10px] uppercase tracking-wide text-slate-400">
-                          {msg.title}
-                        </div>
-                      )}
-                      {msg.suggestions?.map((suggestion, idx) => (
-                        <div
-                          key={`${msg.id}-suggestion-${idx}`}
-                          className="flex flex-col gap-2 rounded-xl border border-slate-800 bg-slate-950/60 px-3 py-2"
-                        >
-                          <div className="text-[11px] text-slate-100">{suggestion}</div>
-                          <button
-                            type="button"
-                            onClick={() => handleUseManagerReplyAsMainMessage(suggestion)}
-                            className="inline-flex items-center rounded-full border border-emerald-500/60 bg-emerald-500/10 px-3 py-1 text-[11px] font-medium text-emerald-100 transition hover:bg-emerald-500/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/60"
-                          >
-                            Usar en mensaje
-                          </button>
-                        </div>
-                      ))}
-                    </div>
-                  ) : (
-                    <>
-                      <div
-                        className={clsx(
-                          "rounded-2xl px-3 py-2 text-xs leading-relaxed",
-                          msg.role === "creator"
-                            ? "bg-emerald-600/80 text-white"
-                            : "bg-slate-800/80 text-slate-100"
-                        )}
-                      >
-                        {msg.text}
-                      </div>
-                      {msg.role === "manager" && (
-                        <button
-                          type="button"
-                          onClick={() => handleUseManagerReplyAsMainMessage(msg.text)}
-                          className="mt-1 inline-flex items-center rounded-full border border-emerald-500/60 bg-emerald-500/10 px-3 py-1 text-[11px] font-medium text-emerald-100 transition hover:bg-emerald-500/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/60"
-                        >
-                          Usar en mensaje
-                        </button>
-                      )}
-                    </>
-                  )}
-                </div>
-              ))}
-            </div>
-          )}
         </div>
-        <div className="border-t border-slate-800/70 pt-3">
-          <div className="flex items-end gap-2">
+        <div className="shrink-0 border-t border-slate-800/70 pt-3">
+          <div className="text-[11px] font-semibold text-slate-400">Nuevo borrador</div>
+          <div className="mt-2 flex items-end gap-2">
             <textarea
-              rows={1}
-              className="flex-1 rounded-2xl bg-slate-900/80 px-3 py-2 text-xs leading-relaxed text-slate-100 placeholder:text-slate-400 resize-none overflow-y-auto max-h-24 focus:outline-none focus:ring-2 focus:ring-emerald-500/70"
-              placeholder="Preguntarle algo al Manager IA..."
-              ref={managerChatInputRef}
-              value={managerChatInput}
-              onChange={(e) => setManagerChatInput(e.target.value)}
-              onKeyDown={handleManagerChatKeyDown}
+              rows={2}
+              className="flex-1 rounded-2xl bg-slate-900/80 px-3 py-2 text-xs leading-relaxed text-slate-100 placeholder:text-slate-400 resize-none overflow-y-auto max-h-24 focus:outline-none focus:ring-2 focus:ring-amber-400/60"
+              placeholder="Guarda un borrador interno…"
+              value={internalDraftInput}
+              onChange={(e) => setInternalDraftInput(e.target.value)}
+              onKeyDown={handleInternalDraftKeyDown}
             />
             <button
               type="button"
-              onClick={handleSendManagerChat}
-              className="h-8 px-3 rounded-2xl bg-emerald-600 text-[11px] font-semibold text-white transition hover:bg-emerald-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/60 disabled:opacity-50 disabled:cursor-not-allowed"
-              disabled={!managerChatInput.trim()}
+              onClick={handleSendInternalDraft}
+              className="h-8 px-3 rounded-2xl border border-amber-400/70 bg-amber-500/10 text-[11px] font-semibold text-amber-100 transition hover:bg-amber-500/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/50 disabled:opacity-50 disabled:cursor-not-allowed"
+              disabled={!internalDraftInput.trim()}
             >
-              Enviar
+              Guardar
             </button>
           </div>
         </div>
@@ -2283,15 +2565,17 @@ useEffect(() => {
     const renderInternalNoteContent = () => (
       <div
         onWheelCapture={handlePanelWheel}
-        className="min-h-0 max-h-[360px] overflow-y-auto overscroll-contain pr-1 space-y-3"
+        className="flex-1 min-h-0 overflow-y-auto overscroll-contain pr-1 space-y-3"
+        style={{ paddingBottom: internalPanelPadding }}
       >
         <div className="text-[11px] text-slate-400">
-          Notas CRM (próxima acción). Para mensajes internos del chat usa &quot;Chat interno&quot;.
+          Seguimiento: próxima acción + nota persistente.
         </div>
         <div className="space-y-2">
-          <div className="text-[10px] uppercase tracking-wide text-slate-500">Próxima acción</div>
+          <div className="text-[11px] font-semibold text-slate-400">Próxima acción</div>
           <div className="grid grid-cols-1 gap-2 md:grid-cols-3">
             <input
+              ref={nextActionInputRef}
               type="text"
               value={nextActionDraft}
               onChange={(e) => setNextActionDraft(e.target.value)}
@@ -2360,14 +2644,14 @@ useEffect(() => {
               onClose={closeInlinePanel}
               onBodyWheel={handlePanelWheel}
               scrollable={false}
-              bodyClassName="px-0 py-0"
+              bodyClassName="px-0 py-0 min-h-0"
             >
-              <div className="flex min-h-0 flex-col gap-3 px-4 py-3">
+              <div className="flex max-h-[55vh] min-h-0 flex-col gap-3 px-4 py-3 overflow-hidden">
                 <div className="flex flex-wrap items-center gap-2" role="tablist" aria-label="Panel interno">
                   {[
                     { id: "manager", label: "Manager IA" },
-                    { id: "internal", label: "Chat interno" },
-                    { id: "note", label: "Nota" },
+                    { id: "internal", label: "Borradores" },
+                    { id: "note", label: "CRM" },
                   ].map((tabItem) => {
                     const isActive = internalPanelTab === tabItem.id;
                     return (
@@ -2403,7 +2687,7 @@ useEffect(() => {
           <InlinePanelShell title="Manager IA" onClose={closeInlinePanel}>
             <div className="space-y-3">
               <div>
-                <div className="text-[10px] uppercase tracking-[0.2em] text-slate-500">Contexto</div>
+                <div className="text-[11px] font-semibold text-slate-400">Contexto</div>
                 <div className="mt-1 text-[11px] text-slate-200">{managerContext}</div>
               </div>
               <div className="space-y-2">
@@ -2411,14 +2695,16 @@ useEffect(() => {
                   suggestions.map((suggestion) => (
                     <div
                       key={suggestion.id}
-                      className="rounded-xl border border-slate-800/70 bg-slate-900/70 p-3 space-y-2"
+                      className="rounded-xl border border-slate-800/60 bg-slate-950/40 p-3 space-y-2"
                     >
-                      <div className="text-[11px] font-semibold text-slate-100">{suggestion.label}</div>
-                      <div className="text-[11px] text-slate-300 line-clamp-2">{suggestion.message}</div>
+                      <div className="text-[12px] font-semibold text-slate-100">{suggestion.label}</div>
+                      <div className="text-[11px] leading-relaxed text-slate-300 line-clamp-2">
+                        {suggestion.message}
+                      </div>
                       <button
                         type="button"
                         onClick={() => {
-                          handleApplyManagerSuggestion(suggestion.message);
+                          handleApplyManagerSuggestion(suggestion.message, suggestion.label);
                           setInlinePanel(null);
                         }}
                         className={inlineActionButtonClass}
@@ -2442,15 +2728,16 @@ useEffect(() => {
           <InlinePanelShell title="Plantillas" onClose={closeInlinePanel}>
             <div className="space-y-3">
               {managerPromptTemplate && (
-                <div className="rounded-xl border border-slate-800/70 bg-slate-900/70 p-3 space-y-2">
-                  <div className="text-[10px] uppercase tracking-[0.2em] text-slate-400">
-                    Plantilla sugerida
-                  </div>
-                  <p className="text-[11px] text-slate-200 line-clamp-3">{managerPromptTemplate}</p>
+                <div className="rounded-xl border border-slate-800/60 bg-slate-950/40 p-3 space-y-2">
+                  <div className="text-[11px] font-semibold text-slate-400">Plantilla sugerida</div>
+                  <p className="text-[11px] text-slate-200 line-clamp-2">{managerPromptTemplate}</p>
                   <button
                     type="button"
                     onClick={() => {
-                      focusMainMessageInput(managerPromptTemplate);
+                      insertComposerTextWithUndo(managerPromptTemplate, {
+                        title: "Plantilla insertada",
+                        detail: "Plantilla sugerida",
+                      });
                       setInlinePanel(null);
                     }}
                     className={inlineActionButtonClass}
@@ -2460,18 +2747,21 @@ useEffect(() => {
                 </div>
               )}
               {hasQuickTemplates ? (
-                <div className="flex flex-wrap gap-2">
+                <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
                   {TRANSLATION_QUICK_CHIPS.slice(0, 3).map((chip) => (
                     <div
                       key={chip.id}
-                      className="flex min-w-[180px] flex-1 flex-col gap-2 rounded-xl border border-slate-800/70 bg-slate-900/70 px-3 py-2"
+                      className="flex flex-col gap-2 rounded-xl border border-slate-800/60 bg-slate-950/40 px-3 py-2"
                     >
-                      <div className="text-[11px] font-semibold text-slate-100">{chip.label}</div>
-                      <p className="text-[10px] text-slate-400 line-clamp-2">{chip.text}</p>
+                      <div className="text-[12px] font-semibold text-slate-100">{chip.label}</div>
+                      <p className="text-[11px] text-slate-400 line-clamp-1">{chip.text}</p>
                       <button
                         type="button"
                         onClick={() => {
-                          focusMainMessageInput(chip.text);
+                          insertComposerTextWithUndo(chip.text, {
+                            title: "Plantilla insertada",
+                            detail: chip.label,
+                          });
                           setInlinePanel(null);
                         }}
                         className={inlineActionButtonClass}
@@ -2511,11 +2801,7 @@ useEffect(() => {
           <div
             className={clsx(
               chipBase,
-              inlinePanel === "manager"
-                ? "border-sky-400/70 bg-sky-500/15 text-sky-100 ring-1 ring-sky-400/20"
-                : managerAlert
-                ? "border-rose-400/60 bg-rose-500/10 text-rose-100"
-                : "border-slate-700/70 bg-slate-900/60 text-slate-200 hover:border-slate-500/80"
+              inlinePanel === "manager" ? chipActiveClass : chipInactiveClass
             )}
           >
             <button
@@ -2540,7 +2826,7 @@ useEffect(() => {
                   event.stopPropagation();
                   closeInlinePanel();
                 }}
-                className="inline-flex h-5 w-5 items-center justify-center rounded-full border border-slate-700 text-[10px] leading-none text-slate-400 transition hover:border-slate-500 hover:bg-slate-800/60 hover:text-slate-200"
+                className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-slate-900/60 text-[9px] leading-none text-slate-300 ring-1 ring-slate-700/60 transition hover:bg-slate-800/80 hover:text-slate-100"
                 aria-label="Cerrar panel"
               >
                 ✕
@@ -2552,9 +2838,7 @@ useEffect(() => {
           <div
             className={clsx(
               chipBase,
-              inlinePanel === "templates"
-                ? "border-cyan-400/70 bg-cyan-500/15 text-cyan-100 ring-1 ring-cyan-400/20"
-                : "border-slate-700/70 bg-slate-900/60 text-slate-200 hover:border-slate-500/80"
+              inlinePanel === "templates" ? chipActiveClass : chipInactiveClass
             )}
           >
             <button
@@ -2581,7 +2865,7 @@ useEffect(() => {
                   event.stopPropagation();
                   closeInlinePanel();
                 }}
-                className="inline-flex h-5 w-5 items-center justify-center rounded-full border border-slate-700 text-[10px] leading-none text-slate-400 transition hover:border-slate-500 hover:bg-slate-800/60 hover:text-slate-200"
+                className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-slate-900/60 text-[9px] leading-none text-slate-300 ring-1 ring-slate-700/60 transition hover:bg-slate-800/80 hover:text-slate-100"
                 aria-label="Cerrar panel"
               >
                 ✕
@@ -2593,9 +2877,7 @@ useEffect(() => {
           <div
             className={clsx(
               chipBase,
-              inlinePanel === "tools"
-                ? "border-emerald-400/70 bg-emerald-500/15 text-emerald-100 ring-1 ring-emerald-400/20"
-                : "border-slate-700/70 bg-slate-900/60 text-slate-200 hover:border-slate-500/80"
+              inlinePanel === "tools" ? chipActiveClass : chipInactiveClass
             )}
           >
             <button
@@ -2617,7 +2899,7 @@ useEffect(() => {
                   event.stopPropagation();
                   closeInlinePanel();
                 }}
-                className="inline-flex h-5 w-5 items-center justify-center rounded-full border border-slate-700 text-[10px] leading-none text-slate-400 transition hover:border-slate-500 hover:bg-slate-800/60 hover:text-slate-200"
+                className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-slate-900/60 text-[9px] leading-none text-slate-300 ring-1 ring-slate-700/60 transition hover:bg-slate-800/80 hover:text-slate-100"
                 aria-label="Cerrar panel"
               >
                 ✕
@@ -2631,7 +2913,11 @@ useEffect(() => {
     return {
       chips: <ComposerChipsRow>{chips}</ComposerChipsRow>,
       panel: (
-        <InlinePanelContainer isOpen={isPanelOpen} panelId={panelId}>
+        <InlinePanelContainer
+          isOpen={isPanelOpen}
+          panelId={panelId}
+          bottomOffset={!isFanMode ? dockOffset : undefined}
+        >
           {panelContent}
         </InlinePanelContainer>
       ),
@@ -2661,12 +2947,13 @@ useEffect(() => {
     setHasManualManagerObjective(false);
     setCurrentObjective(null);
     setManagerSuggestions([]);
-    setHasManualTone(false);
-    setFanTone(getDefaultFanTone(fanManagerAnalysis.state));
+    const storedTone = id ? fanToneById[id] : null;
+    setHasManualTone(Boolean(storedTone));
+    setFanTone(storedTone ?? getDefaultFanTone(fanManagerAnalysis.state));
     setLastAutopilotObjective(null);
     setLastAutopilotTone(null);
     setIsAutoPilotLoading(false);
-  }, [conversation.id, fanManagerAnalysis.state]);
+  }, [conversation.id, fanManagerAnalysis.state, fanToneById, id]);
 
   useEffect(() => {
     if (!isTranslationPreviewAvailable || !translationPreviewOpen) {
@@ -2836,7 +3123,14 @@ useEffect(() => {
       syncManagerPanelScroll();
     });
     return () => cancelAnimationFrame(frame);
-  }, [inlinePanel, isFanMode, internalPanelTab, conversation.id, syncManagerPanelScroll]);
+  }, [
+    inlinePanel,
+    isFanMode,
+    internalPanelTab,
+    conversation.id,
+    managerChatMessages.length,
+    syncManagerPanelScroll,
+  ]);
 
   useIsomorphicLayoutEffect(() => {
     if (inlinePanel !== "manager" || isFanMode || internalPanelTab !== "internal") return;
@@ -2844,7 +3138,7 @@ useEffect(() => {
       syncInternalChatScroll();
     });
     return () => cancelAnimationFrame(frame);
-  }, [inlinePanel, isFanMode, internalPanelTab, internalMessages.length, managerChatMessages.length, syncInternalChatScroll]);
+  }, [inlinePanel, isFanMode, internalPanelTab, internalMessages.length, syncInternalChatScroll]);
 
   const mapQuickIntentToSuggestionIntent = (intent?: ManagerQuickIntent): ManagerSuggestionIntent => {
     switch (intent) {
@@ -3261,11 +3555,20 @@ useEffect(() => {
     setManagerSuggestions(suggestions.slice(0, 3));
   }, [fanTone, currentObjective, contactName, fanManagerAnalysis, buildSuggestionsForObjective]);
 
+  const buildInternalContextPrompt = () => {
+    if (!includeInternalContext) return "";
+    if (!recentInternalDrafts.length) return "";
+    return `\n\nContexto interno:\n${recentInternalDrafts.map((line) => `- ${line}`).join("\n")}`;
+  };
+
   const askInternalManager = (question: string, intent?: ManagerQuickIntent, toneOverride?: FanTone) => {
     if (!id) return;
     const trimmed = question.trim();
     if (!trimmed) return;
+    const contextPrompt = buildInternalContextPrompt();
+    const promptForManager = `${trimmed}${contextPrompt}`;
     const fanKey = id;
+    managerPanelStickToBottomRef.current = true;
     const creatorMessage: ManagerChatMessage = {
       id: `${fanKey}-${Date.now()}-creator`,
       role: "creator",
@@ -3277,12 +3580,12 @@ useEffect(() => {
       return { ...prev, [fanKey]: [...prevMsgs, creatorMessage] };
     });
     setManagerChatInput("");
-    openInternalThread({ forceScroll: true });
+    openInternalPanelTab("manager");
 
     setTimeout(() => {
       const resolvedIntent = intent
         ? mapQuickIntentToSuggestionIntent(intent)
-        : inferSuggestionIntentFromPrompt(trimmed);
+        : inferSuggestionIntentFromPrompt(promptForManager);
       const bundle = buildSimulatedManagerSuggestions({
         fanName: contactName,
         tone: toneOverride ?? fanTone,
@@ -3296,7 +3599,6 @@ useEffect(() => {
         suggestions: bundle.suggestions,
         createdAt: new Date().toISOString(),
       };
-      internalChatForceScrollRef.current = true;
       setManagerChatByFan((prev) => {
         const prevMsgs = prev[fanKey] ?? [];
         return { ...prev, [fanKey]: [...prevMsgs, managerMessage] };
@@ -3312,6 +3614,20 @@ useEffect(() => {
     if (evt.key === "Enter" && !evt.shiftKey) {
       evt.preventDefault();
       handleSendManagerChat();
+    }
+  };
+
+  const handleSendInternalDraft = async () => {
+    const trimmed = internalDraftInput.trim();
+    if (!trimmed) return;
+    setInternalDraftInput("");
+    await sendMessageText(trimmed, "INTERNAL", { preserveComposer: true });
+  };
+
+  const handleInternalDraftKeyDown = (evt: KeyboardEvent<HTMLTextAreaElement>) => {
+    if (evt.key === "Enter" && !evt.shiftKey) {
+      evt.preventDefault();
+      void handleSendInternalDraft();
     }
   };
 
@@ -3412,6 +3728,9 @@ useEffect(() => {
     if (options?.toneOverride) {
       setFanTone(options.toneOverride);
       setHasManualTone(true);
+      if (id) {
+        setFanToneById((prev) => ({ ...prev, [id]: options.toneOverride as FanTone }));
+      }
     }
     const newSuggestions = buildSuggestionsForObjective({
       objective: intent,
@@ -3436,6 +3755,9 @@ useEffect(() => {
     const toneOverride: FanTone = "suave";
     setFanTone(toneOverride);
     setHasManualTone(true);
+    if (id) {
+      setFanToneById((prev) => ({ ...prev, [id]: toneOverride }));
+    }
     handleManagerQuickAction(lastAutopilotObjective, { toneOverride, skipInternalChat: true });
   };
 
@@ -3444,6 +3766,9 @@ useEffect(() => {
     const toneOverride: FanTone = "picante";
     setFanTone(toneOverride);
     setHasManualTone(true);
+    if (id) {
+      setFanToneById((prev) => ({ ...prev, [id]: toneOverride }));
+    }
     handleManagerQuickAction(lastAutopilotObjective, { toneOverride, skipInternalChat: true });
   };
 
@@ -3495,7 +3820,11 @@ useEffect(() => {
     el.style.height = `${next}px`;
   };
 
-  async function sendMessageText(text: string, audienceMode: ComposerAudienceMode = "CREATOR") {
+  async function sendMessageText(
+    text: string,
+    audienceMode: ComposerAudienceMode = "CREATOR",
+    options?: { preserveComposer?: boolean }
+  ) {
     if (!id) return;
     const isInternal = audienceMode === "INTERNAL";
     if (isChatBlocked && !isInternal) {
@@ -3579,8 +3908,10 @@ useEffect(() => {
         showComposerToast("Enviado");
       }
       setSchemaError(null);
-      setMessageSend("");
-      resetMessageInputHeight();
+      if (!options?.preserveComposer) {
+        setMessageSend("");
+        resetMessageInputHeight();
+      }
     } catch (err) {
       console.error("Error enviando mensaje", err);
       setMessagesError(isInternal ? "Error guardando mensaje interno" : "Error enviando mensaje");
@@ -4017,6 +4348,7 @@ useEffect(() => {
     setConversation({ ...conversation, ...patch } as any);
   };
 
+
   const handleBlockChat = async () => {
     if (!id) return;
     setIsChatActionLoading(true);
@@ -4120,6 +4452,25 @@ useEffect(() => {
       setInviteCopyError("No se pudo copiar el enlace.");
     }
   };
+
+  const copyInviteLinkForTools = useCallback(async () => {
+    if (!id) return false;
+    try {
+      const res = await fetch(`/api/fans/${id}/invite`, { method: "POST" });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data?.inviteUrl) {
+        if (process.env.NODE_ENV !== "production") {
+          console.warn("[invite] generate failed", data?.error || res.statusText);
+        }
+        return false;
+      }
+      await navigator.clipboard.writeText(data.inviteUrl);
+      return true;
+    } catch (error) {
+      console.error("Error copying invite link", error);
+      return false;
+    }
+  }, [id]);
 
   const handleRenewAction = () => {
     const first = getFirstName(contactName) || contactName;
@@ -4252,6 +4603,23 @@ useEffect(() => {
 
   const managerShortSummary = managerSummary?.priorityReason || fanManagerAnalysis.headline || plan.summaryLabel || statusLine;
   const quickExtraDisabled = iaBlocked || aiStatus?.limitReached;
+  const messageListBottomPadding = Math.max(144, dockHeight + 48);
+  const inlineActionTone = inlineAction
+    ? {
+        ok: {
+          icon: "✅",
+          iconClass: "border-emerald-400/50 bg-emerald-500/10 text-emerald-200",
+        },
+        info: {
+          icon: "ℹ️",
+          iconClass: "border-sky-400/50 bg-sky-500/10 text-sky-200",
+        },
+        warn: {
+          icon: "⚠️",
+          iconClass: "border-amber-400/60 bg-amber-500/10 text-amber-200",
+        },
+      }[inlineAction.kind]
+    : null;
   const composerDock = renderComposerDock();
   const showHistory = openPanel === "history";
   const showExtraTemplates = openPanel === "extras";
@@ -4634,7 +5002,10 @@ useEffect(() => {
           className="flex flex-col w-full flex-1 overflow-y-auto"
           style={{ backgroundImage: "url('/assets/images/background.jpg')" }}
         >
-          <div className="max-w-4xl mx-auto w-full px-4 sm:px-6 lg:px-8 py-6 pb-32">
+          <div
+            className="max-w-4xl mx-auto w-full px-4 sm:px-6 lg:px-8 py-6"
+            style={{ paddingBottom: messageListBottomPadding }}
+          >
             {schemaError && (
               <div className="mb-4 rounded-xl border border-rose-500/60 bg-rose-500/10 px-4 py-3 text-rose-100">
                 <div className="flex items-start justify-between gap-3">
@@ -4703,6 +5074,47 @@ useEffect(() => {
             )}
             {messagesError && !isLoadingMessages && (
               <div className="text-center text-red-400 text-sm mt-2">{messagesError}</div>
+            )}
+            {composerDock?.panel}
+            {inlineAction && (
+              <div className="mt-3">
+                <div className="relative flex items-start gap-3 rounded-2xl border border-slate-800/60 bg-slate-950/70 px-4 py-3 text-xs text-slate-100 shadow-[0_8px_20px_rgba(0,0,0,0.25)] ring-1 ring-white/5 backdrop-blur">
+                  <span
+                    className={clsx(
+                      "flex h-8 w-8 items-center justify-center rounded-full border text-base",
+                      inlineActionTone?.iconClass
+                    )}
+                  >
+                    {inlineActionTone?.icon}
+                  </span>
+                  <div className="flex min-w-0 flex-1 flex-col gap-0.5 pr-6">
+                    <div className="text-[12px] font-semibold text-slate-100">{inlineAction.title}</div>
+                    {inlineAction.detail && (
+                      <div className="text-[11px] text-slate-400 line-clamp-1">{inlineAction.detail}</div>
+                    )}
+                  </div>
+                  {inlineAction.undoLabel && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        inlineAction.onUndo?.();
+                        clearInlineAction();
+                      }}
+                      className="inline-flex h-7 items-center justify-center rounded-full border border-slate-700 bg-slate-900/60 px-3 text-[11px] font-semibold text-slate-100 transition hover:border-slate-500/80 hover:bg-slate-800/80"
+                    >
+                      {inlineAction.undoLabel}
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={clearInlineAction}
+                    className="absolute right-3 top-3 inline-flex h-6 w-6 items-center justify-center rounded-full text-slate-400 transition hover:bg-slate-800/80 hover:text-slate-100"
+                    aria-label="Cerrar aviso"
+                  >
+                    ✕
+                  </button>
+                </div>
+              </div>
             )}
           </div>
         </div>
@@ -4959,16 +5371,19 @@ useEffect(() => {
 
             </div>
           )}
-          <div className="sticky bottom-0 z-30 border-t border-slate-800 bg-slate-950/95 backdrop-blur">
-            <div className="max-w-4xl mx-auto w-full px-4 sm:px-6 lg:px-8 py-3">
+          <div
+            ref={composerDockRef}
+            className="sticky bottom-0 z-30 border-t border-slate-800/60 bg-gradient-to-b from-slate-950/90 via-slate-950/80 to-slate-950/70 backdrop-blur-xl"
+          >
+            <div className="max-w-4xl mx-auto w-full px-4 sm:px-6 lg:px-8 py-2.5">
               {internalToast && <div className="mb-2 text-[11px] text-emerald-300">{internalToast}</div>}
               {composerDock?.chips}
               <div
                 className={clsx(
-                  "mt-2 flex items-center gap-2 rounded-2xl border px-3 py-2 transition",
+                  "mt-1.5 flex items-center gap-2 rounded-2xl border px-3 py-1.5 transition backdrop-blur",
                   isInternalMode
-                    ? "bg-amber-500/5 border-amber-400/50"
-                    : "bg-slate-900/70 border-slate-700/70",
+                    ? "bg-gradient-to-r from-amber-500/10 via-slate-900/70 to-amber-500/10 border-amber-400/50"
+                    : "bg-gradient-to-r from-slate-950/50 via-slate-900/70 to-slate-950/50 border-slate-800/60",
                   isInternalMode
                     ? "focus-within:border-amber-400/70 focus-within:ring-1 focus-within:ring-amber-400/20"
                     : "focus-within:border-emerald-400/70 focus-within:ring-1 focus-within:ring-emerald-400/20",
@@ -4980,7 +5395,7 @@ useEffect(() => {
                     <button
                       type="button"
                       onClick={() => openAttachContent({ closeInline: false })}
-                      className="flex h-8 w-8 items-center justify-center rounded-full border border-slate-700/70 text-slate-200 transition hover:border-slate-500/80 hover:bg-slate-800/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/30"
+                      className="flex h-8 w-8 items-center justify-center rounded-full border border-slate-800/70 bg-slate-900/50 text-slate-200 transition hover:border-slate-600/80 hover:bg-slate-800/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/30"
                       title="Adjuntar contenido"
                       aria-label="Adjuntar contenido"
                     >
@@ -4996,8 +5411,8 @@ useEffect(() => {
                     className={clsx(
                       "inline-flex h-7 items-center rounded-full border p-0.5 shrink-0",
                       isInternalMode
-                        ? "border-amber-400/60 bg-amber-500/10"
-                        : "border-slate-700/70 bg-slate-900/60"
+                        ? "border-amber-400/60 bg-amber-500/12"
+                        : "border-slate-800/70 bg-slate-900/50"
                     )}
                   >
                     <button
@@ -5067,7 +5482,6 @@ useEffect(() => {
                   {composerActionLabel}
                 </button>
               </div>
-              {composerDock?.panel}
             </div>
           </div>
         </div>
