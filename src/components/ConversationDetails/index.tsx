@@ -475,6 +475,16 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
     chatPanelRestorePendingRef.current = true;
   }, []);
 
+  const showComposerToast = useCallback((message: string) => {
+    setInternalToast(message);
+    if (internalToastTimer.current) {
+      clearTimeout(internalToastTimer.current);
+    }
+    internalToastTimer.current = setTimeout(() => {
+      setInternalToast(null);
+    }, 1800);
+  }, []);
+
   const firstName = (contactName || "").split(" ")[0] || contactName || "";
   const messagesLength = messages?.length ?? 0;
 
@@ -3555,14 +3565,8 @@ useEffect(() => {
         if (internalOnly.length > 0) {
           setInternalMessages((prev) => reconcileApiMessages(prev, internalOnly, id));
         }
-        setInternalToast("Guardado como interno");
+        showComposerToast("Enviado al hilo interno (no se envía al fan)");
         openInternalThread({ forceScroll: true });
-        if (internalToastTimer.current) {
-          clearTimeout(internalToastTimer.current);
-        }
-        internalToastTimer.current = setTimeout(() => {
-          setInternalToast(null);
-        }, 1800);
       } else {
         const mapped = mapApiMessagesToState(apiMessages);
         if (mapped.length > 0) {
@@ -3572,6 +3576,7 @@ useEffect(() => {
           });
         }
         void track(ANALYTICS_EVENTS.SEND_MESSAGE, { fanId: id });
+        showComposerToast("Enviado");
       }
       setSchemaError(null);
       setMessageSend("");
@@ -3823,9 +3828,9 @@ useEffect(() => {
   const composerPlaceholder = isChatBlocked && !isInternalMode
     ? "Has bloqueado este chat. Desbloquéalo para volver a escribir."
     : isInternalMode
-    ? "Nota interna (no se envía)"
+    ? "Mensaje interno (no se envía)"
     : "Mensaje al fan";
-  const composerActionLabel = isInternalMode ? "Guardar nota" : "Enviar";
+  const composerActionLabel = "Enviar";
   const managerStatusLabel =
     fanManagerAnalysis.chips.find((chip) => chip.tone === "danger")?.label ||
     (autoPilotEnabled ? "AUTO" : fanManagerAnalysis.chips[0]?.label || "Manual");
