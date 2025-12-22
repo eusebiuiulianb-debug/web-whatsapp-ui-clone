@@ -147,7 +147,7 @@ function ComposerChipsRow({ children }: ComposerChipsRowProps) {
   return (
     <div
       className={clsx(
-        "mt-2 flex w-full items-center gap-1.5 overflow-x-auto pb-1.5 sm:flex-wrap sm:overflow-visible",
+        "mt-2 flex w-full flex-wrap items-center gap-2 pb-2",
         "[-ms-overflow-style:'none'] [scrollbar-width:'none'] [&::-webkit-scrollbar]:hidden"
       )}
     >
@@ -401,6 +401,8 @@ export default function ConversationDetails({ onBackToBoard }: ConversationDetai
   const [ hasManualTone, setHasManualTone ] = useState(false);
   const messagesContainerRef = useRef<HTMLDivElement | null>(null);
   const [isAtBottom, setIsAtBottom] = useState(true);
+  const chatPanelScrollTopRef = useRef(0);
+  const chatPanelRestorePendingRef = useRef(false);
   const fanHeaderRef = useRef<HTMLDivElement | null>(null);
   const { config } = useCreatorConfig();
   const accessSummary = getAccessSummary({
@@ -465,6 +467,13 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
       behavior,
     });
   };
+
+  const captureChatScrollForPanelToggle = useCallback(() => {
+    const el = messagesContainerRef.current;
+    if (!el) return;
+    chatPanelScrollTopRef.current = el.scrollTop;
+    chatPanelRestorePendingRef.current = true;
+  }, []);
 
   const firstName = (contactName || "").split(" ")[0] || contactName || "";
   const messagesLength = messages?.length ?? 0;
@@ -536,6 +545,21 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
     if (!messagesLength) return;
     scrollToBottom("smooth");
   }, [messagesLength, isAtBottom]);
+
+  useIsomorphicLayoutEffect(() => {
+    if (!chatPanelRestorePendingRef.current) return;
+    const el = messagesContainerRef.current;
+    if (!el) {
+      chatPanelRestorePendingRef.current = false;
+      return;
+    }
+    const target = chatPanelScrollTopRef.current;
+    const frame = requestAnimationFrame(() => {
+      el.scrollTop = target;
+      chatPanelRestorePendingRef.current = false;
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [inlinePanel]);
 
   function getPackTypeFromName(name: string) {
     const lower = name.toLowerCase();
@@ -749,6 +773,9 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
       ...prev,
       [composerAudience]: inlinePanel !== null,
     }));
+    if (inlinePanel !== null) {
+      captureChatScrollForPanelToggle();
+    }
     setComposerAudience(mode);
     setInlinePanel(null);
   }
@@ -1706,19 +1733,21 @@ useEffect(() => {
     if (composerAudience !== "INTERNAL") return;
     if (!lastPanelOpenByMode.INTERNAL) return;
     if (!lastTabByMode.INTERNAL) return;
+    captureChatScrollForPanelToggle();
     setInlinePanel(lastTabByMode.INTERNAL);
-  }, [composerAudience, lastPanelOpenByMode.INTERNAL, lastTabByMode.INTERNAL]);
+  }, [composerAudience, lastPanelOpenByMode.INTERNAL, lastTabByMode.INTERNAL, captureChatScrollForPanelToggle]);
 
   useEffect(() => {
     if (!inlinePanel) return;
     const handleKeyDown = (event: globalThis.KeyboardEvent) => {
       if (event.key === "Escape") {
+        captureChatScrollForPanelToggle();
         setInlinePanel(null);
       }
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [inlinePanel]);
+  }, [inlinePanel, captureChatScrollForPanelToggle]);
 
   useEffect(() => {
     setInlinePanel(null);
@@ -1772,18 +1801,18 @@ useEffect(() => {
     (tab: InlineTab) => {
       const allowedTabs = INLINE_TABS_BY_MODE[composerAudience] as readonly InlineTab[];
       if (!allowedTabs.includes(tab)) return;
-      setInlinePanel((prev) => {
-        const next = prev === tab ? null : tab;
-        if (next) {
-          setLastTabByMode((prevTabs) => ({
-            ...prevTabs,
-            [composerAudience]: tab as any,
-          }));
-        }
-        return next;
-      });
+      const next = inlinePanel === tab ? null : tab;
+      if (next === inlinePanel) return;
+      captureChatScrollForPanelToggle();
+      setInlinePanel(next);
+      if (next) {
+        setLastTabByMode((prevTabs) => ({
+          ...prevTabs,
+          [composerAudience]: tab as any,
+        }));
+      }
     },
-    [composerAudience]
+    [composerAudience, inlinePanel, captureChatScrollForPanelToggle]
   );
 
   const openDockPanel = useCallback(
@@ -1791,6 +1820,9 @@ useEffect(() => {
       const targetAudience = options?.audience ?? composerAudience;
       const allowedTabs = INLINE_TABS_BY_MODE[targetAudience] as readonly InlineTab[];
       if (!allowedTabs.includes(tab)) return;
+      const shouldOpen = inlinePanel !== tab || targetAudience !== composerAudience;
+      if (!shouldOpen) return;
+      captureChatScrollForPanelToggle();
       if (targetAudience !== composerAudience) {
         setLastPanelOpenByMode((prev) => ({
           ...prev,
@@ -1804,7 +1836,7 @@ useEffect(() => {
         [targetAudience]: tab as any,
       }));
     },
-    [composerAudience, inlinePanel]
+    [composerAudience, inlinePanel, captureChatScrollForPanelToggle]
   );
 
   const openInternalPanelTab = useCallback(
@@ -1829,6 +1861,9 @@ useEffect(() => {
     if (isChatBlocked && !isInternalMode) return;
     openContentModal({ mode: "packs" });
     if (options?.closeInline ?? true) {
+      if (inlinePanel !== null) {
+        captureChatScrollForPanelToggle();
+      }
       setInlinePanel(null);
     }
   };
@@ -1853,7 +1888,7 @@ useEffect(() => {
         <span>Manager</span>
         <span
           className={clsx(
-            "rounded-full border px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide",
+            "rounded-full border px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide",
             managerAlert
               ? "border-rose-400/60 bg-rose-500/10 text-rose-200"
               : "border-slate-600 bg-slate-900/70 text-slate-300"
@@ -1872,7 +1907,7 @@ useEffect(() => {
     }
 
     const chipBase =
-      "inline-flex h-8 items-center gap-2 rounded-full border px-3.5 text-[11px] font-semibold whitespace-nowrap transition-all duration-150 shadow-sm";
+      "inline-flex h-8 items-center gap-2 rounded-full border px-3 text-sm font-medium whitespace-nowrap transition-colors";
 
     const InlineEmptyState = ({
       icon,
@@ -1896,6 +1931,9 @@ useEffect(() => {
       "inline-flex items-center justify-center rounded-full border border-emerald-500/60 bg-emerald-500/10 px-3 py-1 text-[11px] font-semibold text-emerald-100 transition hover:bg-emerald-500/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/60";
 
     const closeInlinePanel = () => {
+      if (inlinePanel !== null) {
+        captureChatScrollForPanelToggle();
+      }
       setInlinePanel(null);
       requestAnimationFrame(() => {
         messageInputRef.current?.focus();
@@ -2009,6 +2047,20 @@ useEffect(() => {
                 )}
               </div>
             )}
+            <div className="text-[10px] uppercase tracking-[0.2em] text-slate-500">Acciones rápidas</div>
+            <div className="grid gap-2 sm:grid-cols-3">
+              {["Copiar enlace", "Abrir ficha", "Marcar seguimiento"].map((label) => (
+                <button
+                  key={label}
+                  type="button"
+                  disabled
+                  aria-disabled="true"
+                  className="rounded-xl border border-slate-800 bg-slate-900/50 px-3 py-2 text-[11px] font-semibold text-slate-400"
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
           </div>
         ) : (
           <InlineEmptyState
@@ -2450,10 +2502,10 @@ useEffect(() => {
             className={clsx(
               chipBase,
               inlinePanel === "manager"
-                ? "border-sky-400/70 bg-sky-500/15 text-sky-100 ring-1 ring-sky-400/30"
+                ? "border-sky-400/70 bg-sky-500/15 text-sky-100 ring-1 ring-sky-400/20"
                 : managerAlert
-                ? "border-rose-400/70 bg-rose-500/10 text-rose-100"
-                : "border-slate-700 bg-slate-900/70 text-slate-200 hover:border-slate-500/80"
+                ? "border-rose-400/60 bg-rose-500/10 text-rose-100"
+                : "border-slate-700/70 bg-slate-900/60 text-slate-200 hover:border-slate-500/80"
             )}
           >
             <button
@@ -2478,7 +2530,7 @@ useEffect(() => {
                   event.stopPropagation();
                   closeInlinePanel();
                 }}
-                className="inline-flex h-4 w-4 items-center justify-center rounded-full border border-slate-700 text-[9px] text-slate-400 transition hover:border-slate-500 hover:bg-slate-800/60 hover:text-slate-200"
+                className="inline-flex h-5 w-5 items-center justify-center rounded-full border border-slate-700 text-[10px] leading-none text-slate-400 transition hover:border-slate-500 hover:bg-slate-800/60 hover:text-slate-200"
                 aria-label="Cerrar panel"
               >
                 ✕
@@ -2491,8 +2543,8 @@ useEffect(() => {
             className={clsx(
               chipBase,
               inlinePanel === "templates"
-                ? "border-cyan-400/70 bg-cyan-500/15 text-cyan-100 ring-1 ring-cyan-400/30"
-                : "border-slate-700 bg-slate-900/70 text-slate-200 hover:border-slate-500/80"
+                ? "border-cyan-400/70 bg-cyan-500/15 text-cyan-100 ring-1 ring-cyan-400/20"
+                : "border-slate-700/70 bg-slate-900/60 text-slate-200 hover:border-slate-500/80"
             )}
           >
             <button
@@ -2505,7 +2557,7 @@ useEffect(() => {
               <span className="flex items-center gap-1.5">
                 <span>Plantillas</span>
                 {templatesCount > 0 && (
-                  <span className="rounded-full border border-slate-600/80 bg-slate-900/60 px-1.5 py-0.5 text-[9px] text-slate-300">
+                  <span className="rounded-full border border-slate-600/80 bg-slate-900/70 px-1.5 py-0.5 text-[10px] text-slate-300">
                     {templatesCount}
                   </span>
                 )}
@@ -2519,7 +2571,7 @@ useEffect(() => {
                   event.stopPropagation();
                   closeInlinePanel();
                 }}
-                className="inline-flex h-4 w-4 items-center justify-center rounded-full border border-slate-700 text-[9px] text-slate-400 transition hover:border-slate-500 hover:bg-slate-800/60 hover:text-slate-200"
+                className="inline-flex h-5 w-5 items-center justify-center rounded-full border border-slate-700 text-[10px] leading-none text-slate-400 transition hover:border-slate-500 hover:bg-slate-800/60 hover:text-slate-200"
                 aria-label="Cerrar panel"
               >
                 ✕
@@ -2532,8 +2584,8 @@ useEffect(() => {
             className={clsx(
               chipBase,
               inlinePanel === "tools"
-                ? "border-emerald-400/70 bg-emerald-500/15 text-emerald-100 ring-1 ring-emerald-400/30"
-                : "border-slate-700 bg-slate-900/70 text-slate-200 hover:border-slate-500/80"
+                ? "border-emerald-400/70 bg-emerald-500/15 text-emerald-100 ring-1 ring-emerald-400/20"
+                : "border-slate-700/70 bg-slate-900/60 text-slate-200 hover:border-slate-500/80"
             )}
           >
             <button
@@ -2555,7 +2607,7 @@ useEffect(() => {
                   event.stopPropagation();
                   closeInlinePanel();
                 }}
-                className="inline-flex h-4 w-4 items-center justify-center rounded-full border border-slate-700 text-[9px] text-slate-400 transition hover:border-slate-500 hover:bg-slate-800/60 hover:text-slate-200"
+                className="inline-flex h-5 w-5 items-center justify-center rounded-full border border-slate-700 text-[10px] leading-none text-slate-400 transition hover:border-slate-500 hover:bg-slate-800/60 hover:text-slate-200"
                 aria-label="Cerrar panel"
               >
                 ✕
@@ -3771,7 +3823,7 @@ useEffect(() => {
   const composerPlaceholder = isChatBlocked && !isInternalMode
     ? "Has bloqueado este chat. Desbloquéalo para volver a escribir."
     : isInternalMode
-    ? "Nota interna…"
+    ? "Nota interna (no se envía)"
     : "Mensaje al fan";
   const composerActionLabel = isInternalMode ? "Guardar nota" : "Enviar";
   const managerStatusLabel =
@@ -4908,13 +4960,13 @@ useEffect(() => {
               {composerDock?.chips}
               <div
                 className={clsx(
-                  "mt-3 flex items-center gap-2 rounded-2xl border px-3 py-2",
+                  "mt-2 flex items-center gap-2 rounded-2xl border px-3 py-2 transition",
                   isInternalMode
-                    ? "bg-amber-500/5 border-amber-400/60 shadow-[0_0_0_1px_rgba(251,191,36,0.15)]"
-                    : "bg-slate-900/90 border-slate-700/80 shadow-sm",
+                    ? "bg-amber-500/5 border-amber-400/50"
+                    : "bg-slate-900/70 border-slate-700/70",
                   isInternalMode
-                    ? "focus-within:border-amber-400/80 focus-within:ring-1 focus-within:ring-amber-400/30"
-                    : "focus-within:border-emerald-500/80 focus-within:ring-1 focus-within:ring-emerald-500/40",
+                    ? "focus-within:border-amber-400/70 focus-within:ring-1 focus-within:ring-amber-400/20"
+                    : "focus-within:border-emerald-400/70 focus-within:ring-1 focus-within:ring-emerald-400/20",
                   isChatBlocked && !isInternalMode && "opacity-70"
                 )}
               >
@@ -4923,7 +4975,7 @@ useEffect(() => {
                     <button
                       type="button"
                       onClick={() => openAttachContent({ closeInline: false })}
-                      className="flex h-9 w-9 items-center justify-center rounded-full transition text-slate-200 hover:bg-slate-800/80"
+                      className="flex h-8 w-8 items-center justify-center rounded-full border border-slate-700/70 text-slate-200 transition hover:border-slate-500/80 hover:bg-slate-800/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/30"
                       title="Adjuntar contenido"
                       aria-label="Adjuntar contenido"
                     >
@@ -4937,17 +4989,17 @@ useEffect(() => {
                 <div className="flex min-w-0 flex-1 items-center gap-2">
                   <div
                     className={clsx(
-                      "inline-flex items-center rounded-full border p-0.5 shrink-0",
+                      "inline-flex h-7 items-center rounded-full border p-0.5 shrink-0",
                       isInternalMode
-                        ? "border-amber-400/70 bg-amber-500/10"
-                        : "border-slate-700 bg-slate-900/70"
+                        ? "border-amber-400/60 bg-amber-500/10"
+                        : "border-slate-700/70 bg-slate-900/60"
                     )}
                   >
                     <button
                       type="button"
                       onClick={() => handleComposerAudienceChange("CREATOR")}
                       className={clsx(
-                        "rounded-full px-2.5 py-0.5 text-[10px] font-semibold transition",
+                        "h-6 rounded-full px-2.5 text-[11px] font-semibold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/30",
                         composerAudience === "CREATOR"
                           ? "bg-emerald-500/20 text-emerald-100"
                           : "text-slate-300 hover:text-slate-100"
@@ -4959,7 +5011,7 @@ useEffect(() => {
                       type="button"
                       onClick={() => handleComposerAudienceChange("INTERNAL")}
                       className={clsx(
-                        "rounded-full px-2.5 py-0.5 text-[10px] font-semibold transition",
+                        "h-6 rounded-full px-2.5 text-[11px] font-semibold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/30",
                         composerAudience === "INTERNAL"
                           ? "bg-amber-500/20 text-amber-100"
                           : "text-slate-300 hover:text-slate-100"
@@ -4980,7 +5032,7 @@ useEffect(() => {
                     className={clsx(
                       "flex-1 min-w-0 bg-transparent resize-none overflow-y-auto max-h-36",
                       "px-1 text-base leading-relaxed text-slate-50",
-                      "placeholder:text-slate-300 focus:outline-none",
+                      "placeholder:text-slate-400 focus:outline-none",
                       isInternalMode ? "caret-amber-300" : "caret-emerald-400",
                       isChatBlocked && !isInternalMode && "cursor-not-allowed"
                     )}
@@ -4998,11 +5050,13 @@ useEffect(() => {
                   type="button"
                   onClick={handleSendMessage}
                   disabled={sendDisabled}
+                  aria-label={composerActionLabel}
                   className={clsx(
-                    "h-9 px-4 rounded-2xl text-sm font-medium shrink-0",
-                    isInternalMode ? "bg-amber-500 text-slate-950 hover:bg-amber-400" : "bg-emerald-600 text-white hover:bg-emerald-500",
-                    "disabled:opacity-50 disabled:cursor-not-allowed",
-                    "transition-colors"
+                    "h-8 px-3 rounded-full text-sm font-semibold shrink-0 transition-colors focus-visible:outline-none focus-visible:ring-2",
+                    isInternalMode
+                      ? "bg-amber-500/90 text-slate-950 hover:bg-amber-400 focus-visible:ring-amber-400/40"
+                      : "bg-emerald-600 text-white hover:bg-emerald-500 focus-visible:ring-emerald-400/40",
+                    "disabled:opacity-50 disabled:cursor-not-allowed"
                   )}
                 >
                   {composerActionLabel}
