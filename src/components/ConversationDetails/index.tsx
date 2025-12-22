@@ -57,8 +57,8 @@ import { useIsomorphicLayoutEffect } from "../../hooks/useIsomorphicLayoutEffect
 type ManagerQuickIntent = ManagerObjective;
 type ManagerSuggestionIntent = "romper_hielo" | "pregunta_simple" | "cierre_suave" | "upsell_mensual_suave";
 type ComposerAudienceMode = "CREATOR" | "INTERNAL";
-type FanInlineTab = "templates" | "tools";
-type InternalInlineTab = "manager" | "internal";
+type FanInlineTab = "templates" | "tools" | "manager";
+type InternalInlineTab = "manager" | "internal" | "note";
 type InlineTab = FanInlineTab | InternalInlineTab;
 
 type ConversationDetailsProps = {
@@ -84,8 +84,8 @@ const AUDIENCE_STORAGE_KEY = "novsy.creatorMessageAudience";
 const TRANSLATION_PREVIEW_KEY_PREFIX = "novsy.creatorTranslationPreview";
 
 const INLINE_TABS_BY_MODE = {
-  CREATOR: ["templates", "tools"],
-  INTERNAL: ["manager", "internal"],
+  CREATOR: ["templates", "tools", "manager"],
+  INTERNAL: ["manager", "internal", "note"],
 } as const;
 
 type InlinePanelShellProps = {
@@ -135,6 +135,40 @@ function InlinePanelShell({
         )}
       >
         {children}
+      </div>
+    </div>
+  );
+}
+
+type ComposerDockProps = {
+  chips: ReactNode;
+  panel: ReactNode;
+  isPanelOpen: boolean;
+};
+
+function ComposerDock({ chips, panel, isPanelOpen }: ComposerDockProps) {
+  return (
+    <div className="w-full">
+      <div
+        className={clsx(
+          "mt-2 flex w-full items-center gap-1.5 overflow-x-auto pb-2 sm:flex-wrap sm:overflow-visible",
+          isPanelOpen ? "border-b border-slate-800/60" : "border-b border-transparent",
+          "[-ms-overflow-style:'none'] [scrollbar-width:'none'] [&::-webkit-scrollbar]:hidden"
+        )}
+      >
+        {chips}
+      </div>
+      <div
+        className={clsx(
+          "transition-all duration-200 ease-out overflow-hidden",
+          isPanelOpen
+            ? "mt-3 max-h-[520px] opacity-100 translate-y-0 visible"
+            : "mt-0 max-h-0 opacity-0 -translate-y-1 invisible pointer-events-none"
+        )}
+        style={{ willChange: "opacity, transform, max-height" }}
+        aria-hidden={!isPanelOpen}
+      >
+        {panel}
       </div>
     </div>
   );
@@ -226,7 +260,7 @@ export default function ConversationDetails({ onBackToBoard }: ConversationDetai
     { id: string; fanId: string; type: string; createdAt: string; expiresAt: string }[]
   >([]);
   const [ accessGrantsLoading, setAccessGrantsLoading ] = useState(false);
-  const [ openPanel, setOpenPanel ] = useState<"none" | "notes" | "history" | "extras">("none");
+  const [ openPanel, setOpenPanel ] = useState<"none" | "history" | "extras">("none");
   const [ notesLoading, setNotesLoading ] = useState(false);
   const [ notes, setNotes ] = useState<FanNote[]>([]);
   const [ noteDraft, setNoteDraft ] = useState("");
@@ -1200,7 +1234,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
     }
   }, []);
 
-  async function fetchFanNotes(fanId: string) {
+  const fetchFanNotes = useCallback(async (fanId: string) => {
     try {
       setNotesLoading(true);
       setNotesError("");
@@ -1219,7 +1253,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
     } finally {
       setNotesLoading(false);
     }
-  }
+  }, []);
 
   async function fetchHistory(fanId: string) {
     try {
@@ -1604,9 +1638,9 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
   }, [conversation?.id, queueMode, todayQueue, queueIndex, setQueueIndex]);
 
 useEffect(() => {
-  if (!id || openPanel !== "notes") return;
+  if (!id || inlinePanel !== "note") return;
   fetchFanNotes(id);
-}, [id, openPanel]);
+}, [id, inlinePanel, fetchFanNotes]);
 
 useEffect(() => {
   if (!id || openPanel !== "history") return;
@@ -1762,6 +1796,27 @@ useEffect(() => {
     [composerAudience]
   );
 
+  const openDockPanel = useCallback(
+    (tab: InlineTab, options?: { audience?: ComposerAudienceMode }) => {
+      const targetAudience = options?.audience ?? composerAudience;
+      const allowedTabs = INLINE_TABS_BY_MODE[targetAudience] as readonly InlineTab[];
+      if (!allowedTabs.includes(tab)) return;
+      if (targetAudience !== composerAudience) {
+        setLastPanelOpenByMode((prev) => ({
+          ...prev,
+          [composerAudience]: inlinePanel !== null,
+        }));
+        setComposerAudience(targetAudience);
+      }
+      setInlinePanel(tab);
+      setLastTabByMode((prevTabs) => ({
+        ...prevTabs,
+        [targetAudience]: tab as any,
+      }));
+    },
+    [composerAudience, inlinePanel]
+  );
+
   const handleInternalTabClick = useCallback(() => {
     const allowedTabs = INLINE_TABS_BY_MODE[composerAudience] as readonly InlineTab[];
     if (!allowedTabs.includes("internal")) return;
@@ -1784,7 +1839,7 @@ useEffect(() => {
     openAttachContent();
   };
 
-  const renderActiveChips = () => {
+  const renderComposerDock = () => {
     const managerAlert = fanManagerAnalysis.chips.some(
       (chip) => chip.tone === "danger" || chip.tone === "warning"
     );
@@ -1794,6 +1849,7 @@ useEffect(() => {
     const showTemplatesChip = allowedTabs.includes("templates") && isFanMode && !hideTemplatesChip;
     const showToolsChip = allowedTabs.includes("tools") && isFanMode;
     const showInternalChip = allowedTabs.includes("internal") && !isFanMode;
+    const showNoteChip = allowedTabs.includes("note") && !isFanMode;
     const managerChipStatus = managerAlert ? "Riesgo" : "OK";
     const managerChipCount = managerSuggestions.length;
     const managerChipLabel = isFanMode ? (
@@ -1815,7 +1871,7 @@ useEffect(() => {
       "Manager IA"
     );
 
-    if (!showManagerChip && !showTemplatesChip && !showToolsChip && !showInternalChip) {
+    if (!showManagerChip && !showTemplatesChip && !showToolsChip && !showInternalChip && !showNoteChip) {
       return null;
     }
 
@@ -2119,6 +2175,74 @@ useEffect(() => {
       </InlinePanelShell>
     );
 
+    const renderInlineNotePanel = () => (
+      <InlinePanelShell title="Notas" onClose={closeInlinePanel} onBodyWheel={handlePanelWheel}>
+        <div className="space-y-3">
+          <div className="text-[11px] text-slate-400">
+            Notas CRM (próxima acción). Para mensajes internos del chat usa &quot;Chat interno&quot;.
+          </div>
+          <div className="space-y-2">
+            <div className="text-[10px] uppercase tracking-wide text-slate-500">Próxima acción</div>
+            <div className="grid grid-cols-1 gap-2 md:grid-cols-3">
+              <input
+                type="text"
+                value={nextActionDraft}
+                onChange={(e) => setNextActionDraft(e.target.value)}
+                className="md:col-span-2 rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-xs text-slate-100 placeholder:text-slate-500 outline-none focus:border-amber-400"
+                placeholder="Ej: Proponer pack especial cuando cobre"
+              />
+              <div className="flex gap-2">
+                <input
+                  type="date"
+                  value={nextActionDate}
+                  onChange={(e) => setNextActionDate(e.target.value)}
+                  className="flex-1 rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-xs text-slate-100 outline-none focus:border-amber-400 focus:text-amber-300"
+                />
+                <input
+                  type="time"
+                  value={nextActionTime}
+                  onChange={(e) => setNextActionTime(e.target.value)}
+                  className="flex-1 rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-xs text-slate-100 outline-none focus:border-amber-400 focus:text-amber-300"
+                />
+              </div>
+            </div>
+          </div>
+          <div className="flex gap-2">
+            <textarea
+              value={noteDraft}
+              onChange={(e) => setNoteDraft(e.target.value)}
+              rows={2}
+              className="flex-1 resize-none rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-xs text-slate-100 placeholder:text-slate-500 outline-none focus:border-amber-400"
+              placeholder="Añade una nota para recordar detalles, límites, miedos, etc."
+            />
+            <button
+              type="button"
+              onClick={handleAddNote}
+              disabled={!noteDraft.trim()}
+              className="self-start rounded-lg border border-amber-400/80 bg-amber-500/10 px-3 py-1 text-xs font-medium text-amber-100 disabled:cursor-not-allowed disabled:opacity-50 hover:bg-amber-500/20"
+            >
+              Guardar
+            </button>
+          </div>
+          <div className="space-y-2">
+            {notesLoading && <div className="text-[11px] text-slate-400">Cargando notas…</div>}
+            {notesError && !notesLoading && (
+              <div className="text-[11px] text-rose-300">{notesError}</div>
+            )}
+            {!notesLoading && notes.length === 0 && (
+              <div className="text-[11px] text-slate-500">Aún no hay notas para este fan.</div>
+            )}
+            {notes.map((note) => (
+              <div key={note.id} className="rounded-lg bg-slate-950/60 px-2 py-1.5">
+                <div className="text-[10px] text-slate-500">{formatNoteDate(note.createdAt)}</div>
+                <div className="text-[11px] whitespace-pre-wrap">{note.content}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </InlinePanelShell>
+    );
+
     const renderInlinePanel = (tab: InlineTab | null) => {
       if (!tab) return null;
 
@@ -2271,6 +2395,10 @@ useEffect(() => {
         return renderInlineInternalPanel();
       }
 
+      if (tab === "note") {
+        return renderInlineNotePanel();
+      }
+
       if (tab === "tools") {
         return renderInlineToolsPanel();
       }
@@ -2285,143 +2413,144 @@ useEffect(() => {
     const isPanelOpen = inlinePanel !== null;
     const panelContent = renderInlinePanel(panelTab);
 
-    return (
-      <div className="w-full">
-        <div
-          className={clsx(
-            "mt-2 flex w-full items-center gap-1.5 overflow-x-auto pb-2 sm:flex-wrap sm:overflow-visible",
-            isPanelOpen ? "border-b border-slate-800/60" : "border-b border-transparent",
-            "[-ms-overflow-style:'none'] [scrollbar-width:'none'] [&::-webkit-scrollbar]:hidden"
-          )}
-        >
-          {showManagerChip && (
-            <div
-              className={clsx(
-                chipBase,
-                inlinePanel === "manager"
-                  ? "border-sky-400/70 bg-sky-500/15 text-sky-100 ring-1 ring-sky-400/30"
-                  : managerAlert
-                  ? "border-rose-400/70 bg-rose-500/10 text-rose-100"
-                  : "border-slate-700 bg-slate-900/70 text-slate-200 hover:border-slate-500/80"
-              )}
+    const chips = (
+      <>
+        {showManagerChip && (
+          <div
+            className={clsx(
+              chipBase,
+              inlinePanel === "manager"
+                ? "border-sky-400/70 bg-sky-500/15 text-sky-100 ring-1 ring-sky-400/30"
+                : managerAlert
+                ? "border-rose-400/70 bg-rose-500/10 text-rose-100"
+                : "border-slate-700 bg-slate-900/70 text-slate-200 hover:border-slate-500/80"
+            )}
+          >
+            <button
+              type="button"
+              onClick={() => toggleInlineTab("manager")}
+              className="inline-flex items-center gap-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400/40"
+              aria-expanded={inlinePanel === "manager"}
             >
-              <button
-                type="button"
-                onClick={() => toggleInlineTab("manager")}
-                className="inline-flex items-center gap-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400/40"
-                aria-expanded={inlinePanel === "manager"}
-              >
-                <span>{managerChipLabel}</span>
-              </button>
-              {isFanMode && (
-                <button
-                  type="button"
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    setHideManagerChip(true);
-                    setInlinePanel((prev) => (prev === "manager" ? null : prev));
-                  }}
-                  className="inline-flex h-3.5 w-3.5 items-center justify-center rounded-full border border-slate-700 text-[9px] text-slate-400 transition hover:border-slate-500 hover:bg-slate-800/60 hover:text-slate-200"
-                  aria-label="Ocultar sugerencias Manager"
-                >
-                  ✕
-                </button>
-              )}
-            </div>
-          )}
-          {showInternalChip && (
-            <div
-              className={clsx(
-                chipBase,
-                inlinePanel === "internal"
-                  ? "border-amber-400/70 bg-amber-500/15 text-amber-100 ring-1 ring-amber-400/30"
-                  : "border-slate-700 bg-slate-900/70 text-slate-200 hover:border-slate-500/80"
-              )}
-            >
-              <button
-                type="button"
-                onClick={handleInternalTabClick}
-                className="inline-flex items-center gap-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/40"
-                aria-expanded={inlinePanel === "internal"}
-              >
-                <span>Chat interno</span>
-              </button>
-            </div>
-          )}
-          {showTemplatesChip && (
-            <div
-              className={clsx(
-                chipBase,
-                inlinePanel === "templates"
-                  ? "border-cyan-400/70 bg-cyan-500/15 text-cyan-100 ring-1 ring-cyan-400/30"
-                  : "border-slate-700 bg-slate-900/70 text-slate-200 hover:border-slate-500/80"
-              )}
-            >
-              <button
-                type="button"
-                onClick={() => toggleInlineTab("templates")}
-                className="inline-flex items-center gap-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400/40"
-                aria-expanded={inlinePanel === "templates"}
-              >
-                <span className="flex items-center gap-1.5">
-                  <span>Plantillas</span>
-                  {templatesCount > 0 && (
-                    <span className="rounded-full border border-slate-600/80 bg-slate-900/60 px-1.5 py-0.5 text-[9px] text-slate-300">
-                      {templatesCount}
-                    </span>
-                  )}
-                </span>
-              </button>
+              <span>{managerChipLabel}</span>
+            </button>
+            {isFanMode && (
               <button
                 type="button"
                 onClick={(event) => {
                   event.stopPropagation();
-                  setHideTemplatesChip(true);
-                  setInlinePanel((prev) => (prev === "templates" ? null : prev));
+                  setHideManagerChip(true);
+                  setInlinePanel((prev) => (prev === "manager" ? null : prev));
                 }}
                 className="inline-flex h-3.5 w-3.5 items-center justify-center rounded-full border border-slate-700 text-[9px] text-slate-400 transition hover:border-slate-500 hover:bg-slate-800/60 hover:text-slate-200"
-                aria-label="Ocultar plantillas"
+                aria-label="Ocultar sugerencias Manager"
               >
                 ✕
               </button>
-            </div>
-          )}
-          {showToolsChip && (
-            <div
-              className={clsx(
-                chipBase,
-                inlinePanel === "tools"
-                  ? "border-emerald-400/70 bg-emerald-500/15 text-emerald-100 ring-1 ring-emerald-400/30"
-                  : "border-slate-700 bg-slate-900/70 text-slate-200 hover:border-slate-500/80"
-              )}
+            )}
+          </div>
+        )}
+        {showInternalChip && (
+          <div
+            className={clsx(
+              chipBase,
+              inlinePanel === "internal"
+                ? "border-amber-400/70 bg-amber-500/15 text-amber-100 ring-1 ring-amber-400/30"
+                : "border-slate-700 bg-slate-900/70 text-slate-200 hover:border-slate-500/80"
+            )}
+          >
+            <button
+              type="button"
+              onClick={handleInternalTabClick}
+              className="inline-flex items-center gap-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/40"
+              aria-expanded={inlinePanel === "internal"}
             >
-              <button
-                type="button"
-                onClick={() => {
-                  toggleInlineTab("tools");
-                }}
-                className="inline-flex items-center gap-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/40"
-                aria-expanded={inlinePanel === "tools"}
-              >
-                <span>Herramientas</span>
-              </button>
-            </div>
-          )}
-        </div>
-        <div
-          className={clsx(
-            "transition-all duration-200 ease-out overflow-hidden",
-            isPanelOpen
-              ? "mt-3 max-h-[520px] opacity-100 translate-y-0 visible"
-              : "mt-0 max-h-0 opacity-0 -translate-y-1 invisible pointer-events-none"
-          )}
-          style={{ willChange: "opacity, transform, max-height" }}
-          aria-hidden={!isPanelOpen}
-        >
-          {panelContent}
-        </div>
-      </div>
+              <span>Chat interno</span>
+            </button>
+          </div>
+        )}
+        {showNoteChip && (
+          <div
+            className={clsx(
+              chipBase,
+              inlinePanel === "note"
+                ? "border-amber-400/70 bg-amber-500/15 text-amber-100 ring-1 ring-amber-400/30"
+                : "border-slate-700 bg-slate-900/70 text-slate-200 hover:border-slate-500/80"
+            )}
+          >
+            <button
+              type="button"
+              onClick={() => toggleInlineTab("note")}
+              className="inline-flex items-center gap-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/40"
+              aria-expanded={inlinePanel === "note"}
+            >
+              <span>Nota</span>
+            </button>
+          </div>
+        )}
+        {showTemplatesChip && (
+          <div
+            className={clsx(
+              chipBase,
+              inlinePanel === "templates"
+                ? "border-cyan-400/70 bg-cyan-500/15 text-cyan-100 ring-1 ring-cyan-400/30"
+                : "border-slate-700 bg-slate-900/70 text-slate-200 hover:border-slate-500/80"
+            )}
+          >
+            <button
+              type="button"
+              onClick={() => toggleInlineTab("templates")}
+              className="inline-flex items-center gap-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400/40"
+              aria-expanded={inlinePanel === "templates"}
+            >
+              <span className="flex items-center gap-1.5">
+                <span>Plantillas</span>
+                {templatesCount > 0 && (
+                  <span className="rounded-full border border-slate-600/80 bg-slate-900/60 px-1.5 py-0.5 text-[9px] text-slate-300">
+                    {templatesCount}
+                  </span>
+                )}
+              </span>
+            </button>
+            <button
+              type="button"
+              onClick={(event) => {
+                event.stopPropagation();
+                setHideTemplatesChip(true);
+                setInlinePanel((prev) => (prev === "templates" ? null : prev));
+              }}
+              className="inline-flex h-3.5 w-3.5 items-center justify-center rounded-full border border-slate-700 text-[9px] text-slate-400 transition hover:border-slate-500 hover:bg-slate-800/60 hover:text-slate-200"
+              aria-label="Ocultar plantillas"
+            >
+              ✕
+            </button>
+          </div>
+        )}
+        {showToolsChip && (
+          <div
+            className={clsx(
+              chipBase,
+              inlinePanel === "tools"
+                ? "border-emerald-400/70 bg-emerald-500/15 text-emerald-100 ring-1 ring-emerald-400/30"
+                : "border-slate-700 bg-slate-900/70 text-slate-200 hover:border-slate-500/80"
+            )}
+          >
+            <button
+              type="button"
+              onClick={() => {
+                toggleInlineTab("tools");
+              }}
+              className="inline-flex items-center gap-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/40"
+              aria-expanded={inlinePanel === "tools"}
+            >
+              <span>Herramientas</span>
+            </button>
+          </div>
+        )}
+      </>
     );
+
+    return <ComposerDock chips={chips} panel={panelContent} isPanelOpen={isPanelOpen} />;
   };
 
   useEffect(() => {
@@ -3781,7 +3910,8 @@ useEffect(() => {
 
   const handleOpenNotesFromSheet = () => {
     setShowQuickSheet(false);
-    setOpenPanel("notes");
+    setOpenPanel("none");
+    openDockPanel("note", { audience: "INTERNAL" });
     if (id) fetchFanNotes(id);
   };
 
@@ -3791,8 +3921,9 @@ useEffect(() => {
     if (id) fetchHistory(id);
   };
   const handleOpenNotesPanel = () => {
-    setOpenPanel("notes");
+    setOpenPanel("none");
     setIsActionsMenuOpen(false);
+    openDockPanel("note", { audience: "INTERNAL" });
     if (id) fetchFanNotes(id);
   };
 
@@ -4042,7 +4173,6 @@ useEffect(() => {
 
   const managerShortSummary = managerSummary?.priorityReason || fanManagerAnalysis.headline || plan.summaryLabel || statusLine;
   const quickExtraDisabled = iaBlocked || aiStatus?.limitReached;
-  const showNotes = openPanel === "notes";
   const showHistory = openPanel === "history";
   const showExtraTemplates = openPanel === "extras";
   const getTransactionPriceFor = (item?: ContentWithFlags | null) => {
@@ -4297,82 +4427,6 @@ useEffect(() => {
           <span className="font-medium text-amber-100">
             Le queda {conversation.daysLeft === 1 ? "1 día" : `${conversation.daysLeft} días`} de acceso. Buen momento para proponer el siguiente paso.
           </span>
-        </div>
-      )}
-      {showNotes && (
-        <div className="mb-3 mx-4 rounded-xl border border-slate-700 bg-slate-900/80 px-3 py-3 text-xs text-slate-100 flex flex-col gap-3 max-h-64">
-          <div className="flex items-center justify-between gap-2">
-            <span className="font-semibold text-slate-100">Notas internas de {contactName}</span>
-            <button
-              type="button"
-              onClick={() => setOpenPanel("none")}
-              className="rounded-full border border-slate-600 bg-slate-800/80 px-2 py-1 text-[11px] font-semibold text-slate-100 hover:bg-slate-700"
-            >
-              Cerrar
-            </button>
-          </div>
-          <div className="text-[11px] text-slate-400">
-            Estas son notas CRM (próxima acción). Para mensajes internos del chat usa &quot;Mensaje interno&quot;.
-          </div>
-          <div className="flex flex-col gap-1">
-            <span className="text-[11px] text-slate-400">Próxima acción</span>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
-              <input
-                type="text"
-                value={nextActionDraft}
-                onChange={(e) => setNextActionDraft(e.target.value)}
-                className="md:col-span-2 rounded-lg bg-slate-900 px-3 py-2 text-xs text-slate-100 placeholder:text-slate-500 outline-none border border-slate-700 focus:border-amber-400"
-                placeholder="Ej: Proponer pack especial cuando cobre"
-              />
-              <div className="flex gap-2">
-                <input
-                  type="date"
-                  value={nextActionDate}
-                  onChange={(e) => setNextActionDate(e.target.value)}
-                  className="flex-1 rounded-lg bg-slate-900 px-3 py-2 text-xs text-slate-100 outline-none border border-slate-700 focus:border-amber-400 focus:text-amber-300"
-                />
-                <input
-                  type="time"
-                  value={nextActionTime}
-                  onChange={(e) => setNextActionTime(e.target.value)}
-                  className="flex-1 rounded-lg bg-slate-900 px-3 py-2 text-xs text-slate-100 outline-none border border-slate-700 focus:border-amber-400 focus:text-amber-300"
-                />
-              </div>
-            </div>
-          </div>
-          <div className="flex gap-2">
-            <textarea
-              value={noteDraft}
-              onChange={(e) => setNoteDraft(e.target.value)}
-              rows={2}
-              className="flex-1 resize-none rounded-lg bg-slate-900 px-3 py-2 text-xs text-slate-100 placeholder:text-slate-500 outline-none border border-slate-700 focus:border-amber-400"
-              style={{ backgroundColor: '#0f172a' }}
-              placeholder="Añade una nota para recordar detalles, límites, miedos, etc."
-            />
-            <button
-              type="button"
-              onClick={handleAddNote}
-              disabled={!noteDraft.trim()}
-              className="self-start rounded-lg border border-amber-400/80 bg-amber-500/10 px-3 py-1 text-xs font-medium text-amber-100 disabled:opacity-50 disabled:cursor-not-allowed hover:bg-amber-500/20"
-            >
-              Guardar
-            </button>
-          </div>
-          <div className="flex-1 overflow-y-auto space-y-2">
-              {notesLoading && <div className="text-[11px] text-slate-400">Cargando notas…</div>}
-              {notesError && !notesLoading && (
-                <div className="text-[11px] text-rose-300">{notesError}</div>
-              )}
-              {!notesLoading && notes.length === 0 && (
-                <div className="text-[11px] text-slate-500">Aún no hay notas para este fan.</div>
-              )}
-            {notes.map((note) => (
-              <div key={note.id} className="rounded-lg bg-slate-950/60 px-2 py-1.5">
-                <div className="text-[10px] text-slate-500">{formatNoteDate(note.createdAt)}</div>
-                <div className="text-[11px] whitespace-pre-wrap">{note.content}</div>
-              </div>
-            ))}
-          </div>
         </div>
       )}
       {recommendedFan && recommendedFan.id !== id && (
@@ -4828,9 +4882,10 @@ useEffect(() => {
           <div className="sticky bottom-0 z-30 border-t border-slate-800 bg-slate-950/95 backdrop-blur">
             <div className="max-w-4xl mx-auto w-full px-4 sm:px-6 lg:px-8 py-3">
               {internalToast && <div className="mb-2 text-[11px] text-emerald-300">{internalToast}</div>}
+              {renderComposerDock()}
               <div
                 className={clsx(
-                  "flex items-center gap-2 rounded-2xl border px-3 py-2",
+                  "mt-3 flex items-center gap-2 rounded-2xl border px-3 py-2",
                   isInternalMode
                     ? "bg-amber-500/5 border-amber-400/60 shadow-[0_0_0_1px_rgba(251,191,36,0.15)]"
                     : "bg-slate-900/90 border-slate-700/80 shadow-sm",
@@ -4930,7 +4985,6 @@ useEffect(() => {
                   {composerActionLabel}
                 </button>
               </div>
-              {renderActiveChips()}
             </div>
           </div>
         </div>
