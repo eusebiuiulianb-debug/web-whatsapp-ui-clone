@@ -1,6 +1,8 @@
 import { createContext, ReactNode, useCallback, useMemo, useState, type Dispatch, type SetStateAction } from "react";
 import { Message, Conversation, ConversationListData } from "../types/Conversation";
 
+export type QueueFilter = "ventas_hoy" | "seguimiento_hoy" | "caducados" | "alta_prioridad" | null;
+
 interface ConversationProviderProps {
   children: ReactNode;
 }
@@ -10,12 +12,10 @@ interface ConversationContextType {
   message: Message[];
   setConversation: ( conversation: Conversation ) => void;
   setMessage: Dispatch<SetStateAction<Message[]>>;
-  queueMode: boolean;
-  setQueueMode: (value: boolean) => void;
-  todayQueue: ConversationListData[];
-  setTodayQueue: (list: ConversationListData[]) => void;
-  queueIndex: number;
-  setQueueIndex: (idx: number) => void;
+  activeQueueFilter: QueueFilter;
+  setActiveQueueFilter: (value: QueueFilter) => void;
+  queueFans: ConversationListData[];
+  setQueueFans: (list: ConversationListData[]) => void;
 }
 
 export const ConversationContext = createContext({} as ConversationContextType);
@@ -23,9 +23,8 @@ export const ConversationContext = createContext({} as ConversationContextType);
 export const ConversationProvider = ({ children }: ConversationProviderProps) => {
   const [ conversation, setConversationData ] = useState<Conversation>({} as Conversation);
   const [ message, setMessageData ] = useState<Message[]>([]);
-  const [ queueMode, setQueueMode ] = useState(false);
-  const [ todayQueue, setTodayQueue ] = useState<ConversationListData[]>([]);
-  const [ queueIndex, setQueueIndex ] = useState(0);
+  const [ activeQueueFilter, setActiveQueueFilter ] = useState<QueueFilter>(null);
+  const [ queueFans, setQueueFans ] = useState<ConversationListData[]>([]);
 
   const setConversation = useCallback((conversation: Conversation) => {
     setConversationData(conversation);
@@ -41,14 +40,12 @@ export const ConversationProvider = ({ children }: ConversationProviderProps) =>
       message,
       setConversation,
       setMessage,
-      queueMode,
-      setQueueMode,
-      todayQueue,
-      setTodayQueue,
-      queueIndex,
-      setQueueIndex,
+      activeQueueFilter,
+      setActiveQueueFilter,
+      queueFans,
+      setQueueFans,
     }),
-    [conversation, message, queueMode, todayQueue, queueIndex, setConversation, setMessage]
+    [conversation, message, activeQueueFilter, queueFans, setConversation, setMessage]
   );
 
   return (

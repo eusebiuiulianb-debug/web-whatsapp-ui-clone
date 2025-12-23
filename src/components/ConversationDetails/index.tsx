@@ -23,7 +23,7 @@ import { Message as ConversationMessage, ConversationListData } from "../../type
 import { getAccessLabel, getAccessState, getAccessSummary } from "../../lib/access";
 import { FollowUpTag, getFollowUpTag, getUrgencyLevel } from "../../utils/followUp";
 import { PACKS } from "../../config/packs";
-import { getRecommendedFan } from "../../utils/recommendedFan";
+import { ChatComposerBar } from "../ChatComposerBar";
 import { getFanDisplayNameForCreator } from "../../utils/fanDisplayName";
 import { ContentItem, getContentTypeLabel, getContentVisibilityLabel } from "../../types/content";
 import { getTimeOfDayTag } from "../../utils/contentTags";
@@ -90,6 +90,7 @@ const TRANSLATION_QUICK_CHIPS = [
   { id: "closing", label: "Cierre suave", text: "Cuando quieras seguimos, estoy aquí." },
 ] as const;
 const AUDIENCE_STORAGE_KEY = "novsy.creatorMessageAudience";
+const INTERNAL_PANEL_OPEN_KEY = "novsy:openInternalPanel";
 const TRANSLATION_PREVIEW_KEY_PREFIX = "novsy.creatorTranslationPreview";
 
 const INLINE_TABS_BY_MODE = {
@@ -281,10 +282,8 @@ export default function ConversationDetails({ onBackToBoard }: ConversationDetai
     message: messages,
     setMessage,
     setConversation,
-    queueMode,
-    todayQueue,
-    queueIndex,
-    setQueueIndex,
+    activeQueueFilter,
+    queueFans,
   } = useContext(ConversationContext);
   const {
     contactName,
@@ -320,7 +319,6 @@ export default function ConversationDetails({ onBackToBoard }: ConversationDetai
   const [ nextActionDraft, setNextActionDraft ] = useState("");
   const [ nextActionDate, setNextActionDate ] = useState("");
   const [ nextActionTime, setNextActionTime ] = useState("");
-  const [ recommendedFan, setRecommendedFan ] = useState<ConversationListData | null>(null);
   const [ isEditNameOpen, setIsEditNameOpen ] = useState(false);
   const [ editNameValue, setEditNameValue ] = useState("");
   const [ editNameError, setEditNameError ] = useState<string | null>(null);
@@ -402,7 +400,7 @@ export default function ConversationDetails({ onBackToBoard }: ConversationDetai
   const [ isChatActionLoading, setIsChatActionLoading ] = useState(false);
   const router = useRouter();
   const actionsMenuRef = useRef<HTMLDivElement | null>(null);
-  const MAX_MAIN_COMPOSER_HEIGHT = 220;
+const MAX_MAIN_COMPOSER_HEIGHT = 140;
   const MAX_INTERNAL_COMPOSER_HEIGHT = 220;
   const SCROLL_BOTTOM_THRESHOLD = 48;
   const messageInputRef = useRef<HTMLTextAreaElement | null>(null);
@@ -432,6 +430,7 @@ export default function ConversationDetails({ onBackToBoard }: ConversationDetai
   const managerChatEndRef = useRef<HTMLDivElement | null>(null);
   const managerPanelScrollTopRef = useRef(0);
   const managerPanelStickToBottomRef = useRef(false);
+  const managerPanelSkipAutoScrollRef = useRef(false);
   const internalChatScrollTopRef = useRef(0);
   const internalChatStickToBottomRef = useRef(true);
   const internalChatForceScrollRef = useRef(false);
@@ -471,6 +470,8 @@ export default function ConversationDetails({ onBackToBoard }: ConversationDetai
   const accessState = conversation.accessState || getAccessState({ membershipStatus, daysLeft });
   const accessLabel = conversation.accessLabel || getAccessLabel({ membershipStatus, daysLeft });
   const packLabel = accessLabel || (selectedPackType ? PACKS[selectedPackType].name : null) || getAccessLabel({ membershipStatus, daysLeft });
+  const selectedPackStatus = getPackStatusForType(selectedPackType);
+  const effectiveDaysLeft = selectedPackStatus.daysLeft ?? daysLeft;
   const followUpTag: FollowUpTag =
     conversationFollowUpTag ?? getFollowUpTag(membershipStatus, daysLeft, conversation.activeGrantTypes);
   const normalizedGrants = (conversation.activeGrantTypes ?? []).map((t) => t.toLowerCase());
@@ -729,57 +730,6 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
     return Math.max(0, Math.ceil(diff / (1000 * 60 * 60 * 24)));
   }
 
-  function mapFansForRecommendation(rawFans: Fan[]): ConversationListData[] {
-    return rawFans.map((fan) => ({
-      id: fan.id,
-      contactName: getFanDisplayNameForCreator(fan),
-      displayName: fan.displayName ?? null,
-      creatorLabel: fan.creatorLabel ?? null,
-      preferredLanguage: normalizePreferredLanguage(fan.preferredLanguage) ?? null,
-      lastMessage: fan.preview,
-      lastTime: fan.time,
-      image: fan.avatar || "/avatar.jpg",
-      messageHistory: [],
-      membershipStatus: fan.membershipStatus,
-      accessState: (fan as any).accessState,
-      accessType: (fan as any).accessType,
-      accessLabel: (fan as any).accessLabel,
-      daysLeft: fan.daysLeft,
-      activeGrantTypes: fan.activeGrantTypes ?? [],
-      hasAccessHistory: fan.hasAccessHistory ?? false,
-      unreadCount: fan.unreadCount,
-      isNew: fan.isNew,
-      lastSeen: fan.lastSeen,
-      lastSeenAt: fan.lastSeenAt ?? null,
-      lastCreatorMessageAt: fan.lastCreatorMessageAt,
-      followUpTag: getFollowUpTag(fan.membershipStatus, fan.daysLeft, fan.activeGrantTypes),
-      notesCount: fan.notesCount,
-      lifetimeValue: fan.lifetimeValue,
-      customerTier: fan.customerTier,
-      priorityScore: fan.priorityScore,
-      nextAction: fan.nextAction,
-      lastNoteSnippet: fan.lastNoteSnippet,
-      nextActionSnippet: fan.nextActionSnippet,
-      lastNoteSummary: fan.lastNoteSummary,
-      nextActionSummary: fan.nextActionSummary,
-      urgencyLevel: getUrgencyLevel(getFollowUpTag(fan.membershipStatus, fan.daysLeft, fan.activeGrantTypes), fan.daysLeft),
-      paidGrantsCount: fan.paidGrantsCount,
-      extrasCount: fan.extrasCount ?? 0,
-      extrasSpentTotal: fan.extrasSpentTotal ?? 0,
-      lastGrantType: (fan as any).lastGrantType ?? null,
-      maxExtraTier: fan.maxExtraTier ?? null,
-      novsyStatus: fan.novsyStatus ?? null,
-      isHighPriority: fan.isHighPriority ?? false,
-      highPriorityAt: fan.highPriorityAt ?? null,
-      extraLadderStatus: fan.extraLadderStatus ?? null,
-      firstUtmSource: (fan as any).firstUtmSource ?? null,
-      firstUtmMedium: (fan as any).firstUtmMedium ?? null,
-      firstUtmCampaign: (fan as any).firstUtmCampaign ?? null,
-      firstUtmContent: (fan as any).firstUtmContent ?? null,
-      firstUtmTerm: (fan as any).firstUtmTerm ?? null,
-    }));
-  }
-
   function formatLastCreatorMessage(lastMessage?: string | null) {
     if (!lastMessage) return "Nunca";
     const last = new Date(lastMessage);
@@ -891,9 +841,9 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
   }
 
   function getQueuePosition() {
-    if (!queueMode || !conversation?.id) return { index: -1, size: todayQueue.length };
-    const idx = todayQueue.findIndex((f) => f.id === conversation.id);
-    return { index: idx, size: todayQueue.length };
+    if (!activeQueueFilter || !conversation?.id) return { index: -1, size: queueFans.length };
+    const idx = queueFans.findIndex((f) => f.id === conversation.id);
+    return { index: idx, size: queueFans.length };
   }
 
   function fillMessage(template: string) {
@@ -1079,24 +1029,46 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
   }
 
   function handleNextInQueue() {
-    if (!queueMode) return;
-    const currentIdx = queueStatus.index >= 0 ? queueStatus.index : queueIndex;
-    const nextIdx = Math.min(currentIdx + 1, todayQueue.length - 1);
-    if (nextIdx <= currentIdx || nextIdx < 0 || nextIdx >= todayQueue.length) return;
-    const nextFan = todayQueue[nextIdx];
-    setQueueIndex(nextIdx);
-    if (nextFan) {
-      setConversation(nextFan as any);
+    if (!activeQueueFilter || queueFans.length === 0) {
+      showComposerToast("No hay cola activa.");
+      return;
+    }
+    const currentIdx = queueStatus.index >= 0 ? queueStatus.index : -1;
+    const nextIdx = currentIdx + 1;
+    const nextFan = queueFans[nextIdx >= 0 ? nextIdx : 0];
+    if (!nextFan) {
+      showComposerToast("Cola terminada.");
+      return;
+    }
+    setConversation(nextFan as any);
+  }
+
+  function handlePrevInQueue() {
+    if (!activeQueueFilter || queueFans.length === 0) {
+      showComposerToast("No hay cola activa.");
+      return;
+    }
+    if (queueStatus.index <= 0) {
+      showComposerToast("Estás al inicio de la cola.");
+      return;
+    }
+    const prevFan = queueFans[queueStatus.index - 1];
+    if (prevFan) {
+      setConversation(prevFan as any);
     }
   }
 
-  function handleSubscriptionLink() {
+  function handleSubscriptionLink(options?: { focus?: boolean }) {
     const subscriptionLinkMessage =
       "Aquí tienes el enlace para la suscripción mensual (25 €):\n\n" +
       "👉 [pega aquí tu enlace]\n\n" +
       "Incluye: acceso al chat 1:1 conmigo y contenido nuevo cada semana, adaptado a lo que vas viviendo.\n" +
       "Si tienes alguna duda antes de entrar, dímelo y lo aclaramos.";
-    fillMessage(subscriptionLinkMessage);
+    if (options?.focus) {
+      focusMainMessageInput(subscriptionLinkMessage);
+    } else {
+      fillMessage(subscriptionLinkMessage);
+    }
     setShowPackSelector(false);
     setOpenPanel("none");
   }
@@ -1516,29 +1488,6 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
     }
   }
 
-  const fetchRecommendedFan = useCallback(async (rawFans?: Fan[]) => {
-    try {
-      const fansData = rawFans
-        ? rawFans
-        : await (async () => {
-            const res = await fetch("/api/fans");
-            if (!res.ok) throw new Error("error");
-            const data = await res.json();
-            const payloadFans = Array.isArray(data.items)
-              ? (data.items as Fan[])
-              : Array.isArray(data.fans)
-              ? (data.fans as Fan[])
-              : [];
-            return payloadFans;
-          })();
-      const mapped = mapFansForRecommendation(fansData);
-      const rec = getRecommendedFan(mapped);
-      setRecommendedFan(rec ?? null);
-    } catch (_err) {
-      setRecommendedFan(null);
-    }
-  }, []);
-
   async function refreshFanData(fanId: string) {
     try {
       const res = await fetch(`/api/fans?fanId=${encodeURIComponent(fanId)}`);
@@ -1593,7 +1542,6 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
               ? ((targetFan as any).extraSessionToday ?? null)
               : (prev as any).extraSessionToday ?? null,
         });
-        await fetchRecommendedFan();
       }
       setSchemaError(null);
     } catch (_err) {
@@ -1831,24 +1779,13 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
   useEffect(() => {
     if (!id) return;
     fetchAccessGrants(id);
-    fetchRecommendedFan();
-  }, [fetchAccessGrants, fetchRecommendedFan, id]);
+  }, [fetchAccessGrants, id]);
 
   useEffect(() => {
     if (id) {
       fetchContentItems(id);
     }
   }, [fetchContentItems, id]);
-
-  useEffect(() => {
-    if (!queueMode) return;
-    if (!conversation?.id) return;
-    const idx = todayQueue.findIndex((f) => f.id === conversation.id);
-    // Si el fan actual no está en la cola, mantenemos queueMode activo pero ocultamos el botón de siguiente.
-    if (idx >= 0 && idx !== queueIndex) {
-      setQueueIndex(idx);
-    }
-  }, [conversation?.id, queueMode, todayQueue, queueIndex, setQueueIndex]);
 
 useEffect(() => {
   if (!id || composerAudience !== "INTERNAL") return;
@@ -2060,9 +1997,14 @@ useEffect(() => {
   );
 
   const openInternalPanelTab = useCallback(
-    (tab: InternalPanelTab, options?: { forceScroll?: boolean }) => {
+    (tab: InternalPanelTab, options?: { forceScroll?: boolean; scrollToTop?: boolean }) => {
       if (tab === "internal" && options?.forceScroll) {
         internalChatForceScrollRef.current = true;
+      }
+      if (tab === "manager" && options?.scrollToTop) {
+        managerPanelScrollTopRef.current = 0;
+        managerPanelStickToBottomRef.current = false;
+        managerPanelSkipAutoScrollRef.current = true;
       }
       setInternalPanelTab(tab);
       openDockPanel("manager", { audience: "INTERNAL" });
@@ -2076,6 +2018,21 @@ useEffect(() => {
     },
     [openInternalPanelTab]
   );
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const raw = window.sessionStorage.getItem(INTERNAL_PANEL_OPEN_KEY);
+    if (!raw) return;
+    let payload: { fanId?: string; tab?: InternalPanelTab; scroll?: string } | null = null;
+    try {
+      payload = JSON.parse(raw);
+    } catch (error) {
+      console.warn("Invalid internal panel payload", error);
+    }
+    if (!payload || payload.fanId !== conversation.id) return;
+    window.sessionStorage.removeItem(INTERNAL_PANEL_OPEN_KEY);
+    openInternalPanelTab(payload.tab ?? "manager", { scrollToTop: payload.scroll === "top" });
+  }, [conversation.id, openInternalPanelTab]);
 
   const toggleIncludeInternalContext = useCallback(() => {
     const key = id ?? "global";
@@ -2402,6 +2359,7 @@ useEffect(() => {
                 fanManagerState={fanManagerAnalysis.state}
                 fanManagerHeadline={fanManagerAnalysis.headline}
                 fanManagerChips={fanManagerAnalysis.chips}
+                daysLeft={typeof effectiveDaysLeft === "number" ? effectiveDaysLeft : null}
                 tone={fanTone}
                 onChangeTone={handleChangeFanTone}
                 statusLine={statusLine}
@@ -2414,6 +2372,7 @@ useEffect(() => {
                 onManagerSummary={(s) => setManagerSummary(s)}
                 onSuggestionClick={handleManagerSuggestion}
                 onQuickGreeting={() => handleManagerQuickAction("romper_hielo")}
+                onSendLink={handleSendLinkFromManager}
                 onRenew={() => handleManagerQuickAction("reactivar_fan_frio")}
                 onQuickExtra={() => handleManagerQuickAction("ofrecer_extra")}
                 onPackOffer={() => handleManagerQuickAction("llevar_a_mensual")}
@@ -2506,7 +2465,7 @@ useEffect(() => {
           <div className="flex items-end gap-2">
             <textarea
               rows={1}
-              className="flex-1 w-full rounded-xl bg-slate-900/80 px-4 py-3 text-xs leading-6 text-slate-100 placeholder:text-slate-400 resize-none overflow-y-auto focus:outline-none focus:ring-2 focus:ring-amber-400/60"
+              className="flex-1 w-full rounded-xl bg-slate-900/80 px-4 py-3 text-xs leading-6 text-slate-100 placeholder:text-slate-400 resize-none overflow-y-auto whitespace-pre-wrap break-words focus:outline-none focus:ring-2 focus:ring-amber-400/60"
               placeholder="Pregúntale al Manager…"
               ref={managerChatInputRef}
               value={managerChatInput}
@@ -2611,7 +2570,7 @@ useEffect(() => {
           <div className="mt-2 flex items-end gap-2">
             <textarea
               rows={1}
-              className="flex-1 w-full rounded-xl bg-slate-900/80 px-4 py-3 text-xs leading-6 text-slate-100 placeholder:text-slate-400 resize-none overflow-y-auto focus:outline-none focus:ring-2 focus:ring-amber-400/60"
+              className="flex-1 w-full rounded-xl bg-slate-900/80 px-4 py-3 text-xs leading-6 text-slate-100 placeholder:text-slate-400 resize-none overflow-y-auto whitespace-pre-wrap break-words focus:outline-none focus:ring-2 focus:ring-amber-400/60"
               placeholder="Guarda un borrador interno…"
               ref={internalDraftInputRef}
               value={internalDraftInput}
@@ -3196,6 +3155,10 @@ useEffect(() => {
   useEffect(() => {
     if (inlinePanel !== "manager" || isFanMode || internalPanelTab !== "manager") return;
     if (!managerChatEndRef.current) return;
+    if (managerPanelSkipAutoScrollRef.current) {
+      managerPanelSkipAutoScrollRef.current = false;
+      return;
+    }
     managerChatEndRef.current.scrollIntoView({ behavior: "smooth", block: "end" });
   }, [inlinePanel, isFanMode, internalPanelTab, managerChatMessages.length]);
 
@@ -3368,7 +3331,8 @@ useEffect(() => {
       analysis?: FanManagerStateAnalysis;
     }): ManagerSuggestion[] => {
       const nombre = fanName || "este fan";
-      const daysLeft = analysis?.context.daysLeft ?? null;
+      const daysLeft =
+        typeof effectiveDaysLeft === "number" ? effectiveDaysLeft : analysis?.context.daysLeft ?? null;
       const inactivityDays = analysis?.context.inactivityDays ?? null;
       const extrasCount = analysis?.context.extrasCount ?? 0;
       const isVip = analysis?.context.isVip ?? false;
@@ -3384,6 +3348,21 @@ useEffect(() => {
             ? "hoy"
             : `en ${daysLeft} día${daysLeft === 1 ? "" : "s"}`
           : "en pocos días";
+      const isCriticalExpiry = typeof daysLeft === "number" && daysLeft <= 0;
+      const criticalRenewalSuggestions: ManagerSuggestion[] = [
+        {
+          id: "renovacion-hoy-1",
+          label: "Renovación hoy",
+          message: `Hola ${nombre}, tu acceso termina ${renewalText}. Si quieres seguir, te dejo el enlace y lo dejamos listo.`,
+          intent: "renovacion",
+        },
+        {
+          id: "renovacion-hoy-2",
+          label: "Cerrar hoy",
+          message: `${nombre}, si te apetece seguir, hoy mismo te paso el enlace y mantenemos el acceso sin cortes.`,
+          intent: "renovacion",
+        },
+      ];
 
       const suggestions: Record<ManagerObjective, Record<FanTone, ManagerSuggestion[]>> = {
         bienvenida: {
@@ -3561,36 +3540,42 @@ useEffect(() => {
           ],
         },
         renovacion: {
-          suave: [
-            {
-              id: "renovacion-suave-1",
-              label: "Renovación clara",
-              message: `Hola ${nombre}, tu suscripción termina ${renewalText}. Si quieres seguir, te paso el enlace para mantener el acceso y preparo algo útil esta semana.`,
-              intent: "renovacion",
-            },
-          ],
-          intimo: [
-            {
-              id: "renovacion-urgente-1",
-              label: "Renovación clara",
-              message: `Oye ${nombre}, tu suscripción termina ${renewalText}. Si quieres seguir, te paso ahora el enlace para que mantengas el acceso al chat y esta semana preparo algo especial para ti.`,
-              intent: "renovacion",
-            },
-            {
-              id: "renovacion-urgente-2",
-              label: "Conservar valor",
-              message: `${nombre}, queda muy poco para que se cierre tu acceso (${renewalText}). Te propongo renovarlo ya para no perder lo que tienes y ajustar el contenido a lo que más te ha servido. ¿Te lo activo?`,
-              intent: "renovacion",
-            },
-          ],
-          picante: [
-            {
-              id: "renovacion-picante-1",
-              label: "Renovar con gancho",
-              message: `${nombre}, tu acceso acaba ${renewalText}. Si seguimos, preparo algo especial y más atrevido para este inicio. ¿Te paso el enlace para dejarlo cerrado ya?`,
-              intent: "renovacion",
-            },
-          ],
+          suave: isCriticalExpiry
+            ? criticalRenewalSuggestions
+            : [
+                {
+                  id: "renovacion-suave-1",
+                  label: "Renovación clara",
+                  message: `Hola ${nombre}, tu suscripción termina ${renewalText}. Si quieres seguir, te paso el enlace para mantener el acceso y preparo algo útil esta semana.`,
+                  intent: "renovacion",
+                },
+              ],
+          intimo: isCriticalExpiry
+            ? criticalRenewalSuggestions
+            : [
+                {
+                  id: "renovacion-urgente-1",
+                  label: "Renovación clara",
+                  message: `Oye ${nombre}, tu suscripción termina ${renewalText}. Si quieres seguir, te paso ahora el enlace para que mantengas el acceso al chat y esta semana preparo algo especial para ti.`,
+                  intent: "renovacion",
+                },
+                {
+                  id: "renovacion-urgente-2",
+                  label: "Conservar valor",
+                  message: `${nombre}, queda muy poco para que se cierre tu acceso (${renewalText}). Te propongo renovarlo ya para no perder lo que tienes y ajustar el contenido a lo que más te ha servido. ¿Te lo activo?`,
+                  intent: "renovacion",
+                },
+              ],
+          picante: isCriticalExpiry
+            ? criticalRenewalSuggestions
+            : [
+                {
+                  id: "renovacion-picante-1",
+                  label: "Renovar con gancho",
+                  message: `${nombre}, tu acceso acaba ${renewalText}. Si seguimos, preparo algo especial y más atrevido para este inicio. ¿Te paso el enlace para dejarlo cerrado ya?`,
+                  intent: "renovacion",
+                },
+              ],
         },
       };
 
@@ -3601,7 +3586,7 @@ useEffect(() => {
         message: sug.message.replace("{nombre}", nombre),
       }));
     },
-    []
+    [effectiveDaysLeft]
   );
 
   useEffect(() => {
@@ -3875,7 +3860,7 @@ useEffect(() => {
   function changeHandler(evt: KeyboardEvent<HTMLTextAreaElement>) {
     const { key } = evt;
 
-    if (isManagerPanelActive) return;
+    if (isInternalPanelOpen) return;
     if (key === "Enter" && !evt.shiftKey) {
       evt.preventDefault();
       if (isSendingRef.current) return;
@@ -3961,7 +3946,7 @@ useEffect(() => {
         if (internalOnly.length > 0) {
           setInternalMessages((prev) => reconcileApiMessages(prev, internalOnly, id));
         }
-        showComposerToast("Enviado al hilo interno (no se envía al fan)");
+        showComposerToast("Enviado al manager");
         openInternalThread({ forceScroll: true });
       } else {
         const mapped = mapApiMessagesToState(apiMessages);
@@ -3972,7 +3957,7 @@ useEffect(() => {
           });
         }
         void track(ANALYTICS_EVENTS.SEND_MESSAGE, { fanId: id });
-        showComposerToast("Enviado");
+        showComposerToast("Enviado al fan");
       }
       setSchemaError(null);
       if (!options?.preserveComposer) {
@@ -3991,7 +3976,7 @@ useEffect(() => {
   }
 
   async function handleSendMessage() {
-    if (isManagerPanelActive) return;
+    if (isInternalPanelOpen) return;
     if (isSendingRef.current) return;
     isSendingRef.current = true;
     setIsSending(true);
@@ -4204,9 +4189,6 @@ useEffect(() => {
     return { label: "Sin actividad reciente", color: "offline" as const };
   }
 
-  const selectedPackStatus = getPackStatusForType(selectedPackType);
-  const effectiveDaysLeft = selectedPackStatus.daysLeft ?? daysLeft;
-
   const membershipDetails = packLabel
     ? `${packLabel}${effectiveDaysLeft ? ` – ${effectiveDaysLeft} días restantes` : ""}`
     : membershipStatus
@@ -4223,21 +4205,22 @@ useEffect(() => {
     !conversation.isManager && preferredLanguage ? preferredLanguage.toUpperCase() : null;
   const languageSelectValue = preferredLanguage ?? "auto";
   const isInternalMode = composerAudience === "INTERNAL";
-  const isManagerPanelActive = inlinePanel === "manager" && internalPanelTab === "manager";
+  const isInternalPanelOpen = inlinePanel === "manager";
   const sendDisabled =
     isSending ||
     !(messageSend.trim().length > 0) ||
     (isChatBlocked && !isInternalMode) ||
-    isManagerPanelActive;
+    isInternalPanelOpen;
   const composerPlaceholder = isChatBlocked && !isInternalMode
     ? "Has bloqueado este chat. Desbloquéalo para volver a escribir."
     : isInternalMode
-    ? "Mensaje interno (no se envía)"
-    : "Mensaje al fan";
-  const mainComposerPlaceholder = isManagerPanelActive
-    ? "Usa el chat del Manager IA…"
+    ? "Mensaje interno..."
+    : "Mensaje al fan...";
+  const mainComposerPlaceholder = isInternalPanelOpen
+    ? "Panel interno abierto. Usa el chat interno…"
     : composerPlaceholder;
-  const composerActionLabel = "Enviar";
+  const composerActionLabel = isInternalMode ? "Enviar interno" : "Enviar a FAN";
+  const canAttachContent = !isInternalMode && !isChatBlocked && !isInternalPanelOpen;
   const extrasCountDisplay = conversation.extrasCount ?? 0;
   const extrasSpentDisplay = Math.round(conversation.extrasSpentTotal ?? 0);
   const extrasAmount = conversation.extrasSpentTotal ?? 0;
@@ -4555,12 +4538,25 @@ useEffect(() => {
     });
   };
 
+  const handleSendLinkFromManager = () => {
+    handleSubscriptionLink({ focus: true });
+  };
+
   const lifetimeValueDisplay = Math.round(conversation.lifetimeValue ?? 0);
   const notesCountDisplay = conversation.notesCount ?? 0;
   const novsyStatus = conversation.novsyStatus ?? null;
+  const isQueueActive = Boolean(activeQueueFilter);
   const queueStatus = getQueuePosition();
-  const isInQueue = queueMode && queueStatus.index >= 0;
-  const hasNextInQueue = isInQueue && queueStatus.index < (queueStatus.size - 1);
+  const isInQueue = isQueueActive && queueStatus.index >= 0;
+  const hasPrevInQueue = isInQueue && queueStatus.index > 0;
+  const recommendedFan = useMemo(() => {
+    if (!activeQueueFilter || queueFans.length === 0) return null;
+    const currentId = conversation?.id ?? null;
+    if (!currentId) return queueFans[0];
+    const idx = queueFans.findIndex((fan) => fan.id === currentId);
+    if (idx >= 0) return queueFans[idx + 1] ?? null;
+    return queueFans[0];
+  }, [activeQueueFilter, conversation?.id, queueFans]);
   const statusTags: string[] = [];
   if (conversation.isHighPriority) {
     if (vipAmountToday > 0) statusTags.push(`Alta prioridad · ${vipAmountToday} €`);
@@ -4709,7 +4705,7 @@ useEffect(() => {
     return sum + getTransactionPriceFor(item);
   }, 0);
   const handleMonthlyOfferFromManager = () => {
-    handleSubscriptionLink();
+    handleSubscriptionLink({ focus: true });
     openContentModal({ mode: "packs", packFocus: "MONTHLY" });
   };
 
@@ -4944,43 +4940,90 @@ useEffect(() => {
           </div>
         </div>
       )}
-      {conversation.membershipStatus === "active" && typeof conversation.daysLeft === "number" && conversation.daysLeft <= 1 && (
+      {conversation.membershipStatus === "active" && typeof effectiveDaysLeft === "number" && effectiveDaysLeft <= 1 && (
         <div className="mx-4 mb-3 flex items-center justify-between rounded-xl border border-amber-400/50 bg-amber-500/10 px-4 py-2 text-[11px] text-amber-100">
-          <span className="font-medium text-amber-100">
-            Le queda {conversation.daysLeft === 1 ? "1 día" : `${conversation.daysLeft} días`} de acceso. Buen momento para proponer el siguiente paso.
-          </span>
+          {effectiveDaysLeft <= 0 ? (
+            <div className="flex flex-col gap-1">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="inline-flex items-center rounded-full border border-amber-400/70 bg-amber-500/20 px-2 py-0.5 text-[10px] font-semibold text-amber-100">
+                  CADUCA HOY
+                </span>
+                <span className="inline-flex items-center rounded-full border border-rose-400/70 bg-rose-500/20 px-2 py-0.5 text-[10px] font-semibold text-rose-100">
+                  Crítico
+                </span>
+              </div>
+              <span className="text-[11px] text-amber-100/90">
+                Es el momento de renovar hoy mismo para mantener el acceso.
+              </span>
+            </div>
+          ) : (
+            <span className="font-medium text-amber-100">
+              Le queda {effectiveDaysLeft === 1 ? "1 día" : `${effectiveDaysLeft} días`} de acceso. Buen momento para proponer el siguiente paso.
+            </span>
+          )}
         </div>
       )}
-      {recommendedFan && recommendedFan.id !== id && (
+      {isQueueActive && (
         <div className="mt-2 mb-3 flex items-center justify-between rounded-xl border border-amber-500/60 bg-slate-900/70 px-3 py-2 text-xs">
           <div className="flex flex-col gap-1 truncate">
             <span className="font-semibold text-amber-300 flex items-center gap-1">
               ⚡ Siguiente recomendado
-              {(recommendedFan.customerTier === "priority" || recommendedFan.customerTier === "vip") && (
+              {recommendedFan && (recommendedFan.customerTier === "priority" || recommendedFan.customerTier === "vip") && (
                 <span className="text-[10px] rounded-full bg-amber-500/20 px-2 text-amber-200">🔥 Alta prioridad</span>
               )}
             </span>
-            <span className="truncate text-slate-200">
-              {recommendedFan.contactName} ·{" "}
-              {recommendedFan.customerTier === "priority" || recommendedFan.customerTier === "vip"
-                ? "Alta prioridad"
-                : recommendedFan.customerTier === "regular"
-                ? "Habitual"
-                : "Nuevo"}{" "}
-              · {Math.round(recommendedFan.lifetimeValue ?? 0)} € · {recommendedFan.notesCount ?? 0} nota
-              {(recommendedFan.notesCount ?? 0) === 1 ? "" : "s"}
-            </span>
-            {recommendedFan.nextAction && (
-              <span className="text-[11px] text-slate-400 truncate">Próx.: {recommendedFan.nextAction}</span>
+            {queueFans.length === 0 && (
+              <span className="text-slate-400">No hay cola activa.</span>
+            )}
+            {queueFans.length > 0 && !recommendedFan && (
+              <span className="text-slate-400">Cola terminada.</span>
+            )}
+            {recommendedFan && recommendedFan.id !== id && (
+              <>
+                <span className="truncate text-slate-200">
+                  {recommendedFan.contactName} ·{" "}
+                  {recommendedFan.customerTier === "priority" || recommendedFan.customerTier === "vip"
+                    ? "Alta prioridad"
+                    : recommendedFan.customerTier === "regular"
+                    ? "Habitual"
+                    : "Nuevo"}{" "}
+                  · {Math.round(recommendedFan.lifetimeValue ?? 0)} € · {recommendedFan.notesCount ?? 0} nota
+                  {(recommendedFan.notesCount ?? 0) === 1 ? "" : "s"}
+                </span>
+                {recommendedFan.nextAction && (
+                  <span className="text-[11px] text-slate-400 truncate">Próx.: {recommendedFan.nextAction}</span>
+                )}
+              </>
             )}
           </div>
-          <button
-            type="button"
-            className="ml-3 rounded-full border border-amber-400 bg-amber-500/10 px-3 py-1 text-[11px] font-semibold text-amber-300 hover:bg-amber-400/20"
-            onClick={() => handleSelectFanFromBanner(recommendedFan)}
-          >
-            Abrir chat
-          </button>
+          <div className="ml-3 flex items-center gap-2 shrink-0">
+            {hasPrevInQueue && (
+              <button
+                type="button"
+                className="rounded-full border border-slate-600 bg-slate-800/80 px-3 py-1 text-[11px] font-semibold text-slate-200 hover:bg-slate-700"
+                onClick={handlePrevInQueue}
+              >
+                Anterior
+              </button>
+            )}
+            <button
+              type="button"
+              className="rounded-full border border-amber-400 bg-amber-500/10 px-3 py-1 text-[11px] font-semibold text-amber-300 hover:bg-amber-400/20 disabled:opacity-60"
+              onClick={handleNextInQueue}
+              disabled={!isQueueActive || queueFans.length === 0}
+            >
+              Siguiente
+            </button>
+            {recommendedFan && recommendedFan.id !== id && (
+              <button
+                type="button"
+                className="rounded-full border border-amber-400 bg-amber-500/10 px-3 py-1 text-[11px] font-semibold text-amber-300 hover:bg-amber-400/20"
+                onClick={() => handleSelectFanFromBanner(recommendedFan)}
+              >
+                Abrir
+              </button>
+            )}
+          </div>
         </div>
       )}
       {showHistory && (
@@ -5452,112 +5495,29 @@ useEffect(() => {
             <div className="max-w-4xl mx-auto w-full px-4 sm:px-6 lg:px-8 py-2.5">
               {internalToast && <div className="mb-2 text-[11px] text-emerald-300">{internalToast}</div>}
               {composerDock?.chips}
-              <div
-                className={clsx(
-                  "mt-1.5 flex items-center gap-2 rounded-2xl border px-3 py-1.5 transition backdrop-blur",
-                  isInternalMode
-                    ? "bg-gradient-to-r from-amber-500/10 via-slate-900/70 to-amber-500/10 border-amber-400/50"
-                    : "bg-gradient-to-r from-slate-950/50 via-slate-900/70 to-slate-950/50 border-slate-800/60",
-                  isInternalMode
-                    ? "focus-within:border-amber-400/70 focus-within:ring-1 focus-within:ring-amber-400/20"
-                    : "focus-within:border-emerald-400/70 focus-within:ring-1 focus-within:ring-emerald-400/20",
-                  isChatBlocked && !isInternalMode && "opacity-70"
-                )}
-              >
-                {!isInternalMode && (
-                  <div className="relative shrink-0">
-                    <button
-                      type="button"
-                      onClick={() => openAttachContent({ closeInline: false })}
-                      className="flex h-8 w-8 items-center justify-center rounded-full border border-slate-800/70 bg-slate-900/50 text-slate-200 transition hover:border-slate-600/80 hover:bg-slate-800/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/30"
-                      title="Adjuntar contenido"
-                      aria-label="Adjuntar contenido"
-                    >
-                      <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2">
-                        <path d="M12 5v14" />
-                        <path d="M5 12h14" />
-                      </svg>
-                    </button>
-                  </div>
-                )}
-                <div className="flex min-w-0 flex-1 items-center gap-2">
-                  <div
-                    className={clsx(
-                      "inline-flex h-7 items-center rounded-full border p-0.5 shrink-0",
-                      isInternalMode
-                        ? "border-amber-400/60 bg-amber-500/12"
-                        : "border-slate-800/70 bg-slate-900/50"
-                    )}
-                  >
-                    <button
-                      type="button"
-                      onClick={() => handleComposerAudienceChange("CREATOR")}
-                      className={clsx(
-                        "h-6 rounded-full px-2.5 text-[11px] font-semibold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/30",
-                        composerAudience === "CREATOR"
-                          ? "bg-emerald-500/20 text-emerald-100"
-                          : "text-slate-300 hover:text-slate-100"
-                      )}
-                    >
-                      Fan
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => handleComposerAudienceChange("INTERNAL")}
-                      className={clsx(
-                        "h-6 rounded-full px-2.5 text-[11px] font-semibold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/30",
-                        composerAudience === "INTERNAL"
-                          ? "bg-amber-500/20 text-amber-100"
-                          : "text-slate-300 hover:text-slate-100"
-                      )}
-                      title="No se envía al fan. Se guarda en el chat interno."
-                    >
-                      {isInternalMode ? "🔒 Interno" : "Interno"}
-                    </button>
-                  </div>
-                  {isInternalMode && (
-                    <span className="shrink-0 text-[9px] uppercase tracking-[0.2em] text-amber-200/80">
-                      INTERNAL
-                    </span>
-                  )}
-                  <textarea
-                    ref={messageInputRef}
-                    rows={1}
-                    className={clsx(
-                      "flex-1 min-w-0 bg-transparent resize-none overflow-y-hidden",
-                      "px-1 text-base leading-relaxed text-slate-50 whitespace-pre-wrap break-words",
-                      "placeholder:text-slate-400 focus:outline-none",
-                      isInternalMode ? "caret-amber-300" : "caret-emerald-400",
-                      isChatBlocked && !isInternalMode && "cursor-not-allowed",
-                      isManagerPanelActive && "cursor-not-allowed"
-                    )}
-                    placeholder={mainComposerPlaceholder}
-                    onKeyDown={(evt) => changeHandler(evt)}
-                    onChange={(evt) => {
-                      setMessageSend(evt.target.value);
-                      autoGrowTextarea(evt.currentTarget, MAX_MAIN_COMPOSER_HEIGHT);
-                    }}
-                    value={messageSend}
-                    disabled={(isChatBlocked && !isInternalMode) || isManagerPanelActive}
-                    style={{ maxHeight: `${MAX_MAIN_COMPOSER_HEIGHT}px` }}
-                  />
-                </div>
-                <button
-                  type="button"
-                  onClick={handleSendMessage}
-                  disabled={sendDisabled}
-                  aria-label={composerActionLabel}
-                  className={clsx(
-                    "h-8 px-3 rounded-full text-sm font-semibold shrink-0 transition-colors focus-visible:outline-none focus-visible:ring-2",
-                    isInternalMode
-                      ? "bg-amber-500/90 text-slate-950 hover:bg-amber-400 focus-visible:ring-amber-400/40"
-                      : "bg-emerald-600 text-white hover:bg-emerald-500 focus-visible:ring-emerald-400/40",
-                    "disabled:opacity-50 disabled:cursor-not-allowed"
-                  )}
-                >
-                  {composerActionLabel}
-                </button>
-              </div>
+              <ChatComposerBar
+                value={messageSend}
+                onChange={(evt) => {
+                  setMessageSend(evt.target.value);
+                  autoGrowTextarea(evt.currentTarget, MAX_MAIN_COMPOSER_HEIGHT);
+                }}
+                onKeyDown={(evt) => changeHandler(evt)}
+                onSend={handleSendMessage}
+                sendDisabled={sendDisabled}
+                placeholder={mainComposerPlaceholder}
+                actionLabel={composerActionLabel}
+                audience={composerAudience}
+                onAudienceChange={handleComposerAudienceChange}
+                canAttach={canAttachContent}
+                onAttach={() => {
+                  if (!canAttachContent) return;
+                  openAttachContent({ closeInline: false });
+                }}
+                inputRef={messageInputRef}
+                maxHeight={MAX_MAIN_COMPOSER_HEIGHT}
+                isChatBlocked={isChatBlocked}
+                isInternalPanelOpen={isInternalPanelOpen}
+              />
             </div>
           </div>
         </div>

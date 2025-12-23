@@ -38,6 +38,7 @@ type Props = {
   fanManagerState?: FanManagerState | null;
   fanManagerHeadline?: string | null;
   fanManagerChips?: FanManagerChip[];
+  daysLeft?: number | null;
   tone?: FanTone;
   onChangeTone?: (tone: FanTone) => void;
   statusLine: string;
@@ -50,6 +51,7 @@ type Props = {
   onManagerSummary: (summary: FanManagerSummary | null) => void;
   onSuggestionClick: (text: string) => void;
   onQuickGreeting: () => void;
+  onSendLink?: () => void;
   onRenew: () => void;
   onQuickExtra: () => void;
   onPackOffer: () => void;
@@ -82,9 +84,11 @@ export default function FanManagerDrawer({
   fanManagerState,
   fanManagerHeadline,
   fanManagerChips,
+  daysLeft,
   tone,
   onChangeTone,
   onQuickGreeting,
+  onSendLink,
   onRenew,
   onQuickExtra,
   onPackOffer,
@@ -119,7 +123,11 @@ export default function FanManagerDrawer({
         ? "border-sky-400/70 bg-sky-500/10 text-sky-100"
         : "border-slate-700 bg-slate-900/60 text-slate-100"
     );
-  const suggestedObjectiveLabel = formatObjectiveLabel(suggestedObjective ?? null);
+  const isCriticalExpiry = typeof daysLeft === "number" && daysLeft <= 0;
+  const suggestedObjectiveLabel =
+    suggestedObjective === "renovacion" && isCriticalExpiry
+      ? "Renovación hoy"
+      : formatObjectiveLabel(suggestedObjective ?? null);
   const toneLabel = formatToneLabel(tone);
   const isObjectiveActive = (objective: ManagerObjective) => currentObjective === objective;
   const objectivesLocked = managerDisabled || isAutoPilotLoading;
@@ -266,6 +274,24 @@ export default function FanManagerDrawer({
           <div className="text-[11px] text-emerald-200">⚡ Generando borrador…</div>
         )}
         <div className="mt-3 flex flex-wrap items-center gap-3">
+          {isCriticalExpiry && onSendLink && (
+            <button
+              type="button"
+              className={clsx(
+                "inline-flex items-center justify-center whitespace-nowrap rounded-full border px-6 py-2 text-sm font-semibold transition",
+                "border-sky-400 bg-sky-500/20 text-sky-100 hover:bg-sky-500/30",
+                objectivesLocked && "opacity-60 cursor-not-allowed"
+              )}
+              onClick={() => {
+                if (objectivesLocked) return;
+                onSendLink();
+              }}
+              title="Enviar enlace de renovación ahora."
+              disabled={objectivesLocked}
+            >
+              Enviar enlace
+            </button>
+          )}
           <button
             type="button"
             className={clsx(

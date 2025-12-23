@@ -9,10 +9,9 @@ import { ConversationListData } from "../../types/Conversation";
 import { ExtrasSummary } from "../../types/extras";
 import clsx from "clsx";
 import { getFollowUpTag, getUrgencyLevel, shouldFollowUpToday, isExpiredAccess } from "../../utils/followUp";
-import { getRecommendedFan } from "../../utils/recommendedFan";
 import { getFanDisplayNameForCreator } from "../../utils/fanDisplayName";
 import { PACKS } from "../../config/packs";
-import { ConversationContext } from "../../context/ConversationContext";
+import { ConversationContext, QueueFilter } from "../../context/ConversationContext";
 import { EXTRAS_UPDATED_EVENT } from "../../constants/events";
 import { HIGH_PRIORITY_LIMIT } from "../../config/customers";
 import { normalizePreferredLanguage } from "../../lib/language";
@@ -50,6 +49,87 @@ class SideBarBoundary extends Component<{ children: React.ReactNode }, { hasErro
   }
 }
 
+type FanData = ConversationListData & { priorityScore?: number };
+type RecommendationMeta = {
+  fan: FanData;
+  score: number;
+  level: number;
+  tag: string;
+  tagTone: "amber" | "rose" | "sky" | "emerald";
+  reason: string;
+  daysLeftLabel: string;
+  daysLeftValue: number | null;
+  lastActivity: number;
+};
+type QueueSignals = {
+  followUpTag: ReturnType<typeof getFollowUpTag>;
+  daysLeftValue: number | null;
+  isTrial: boolean;
+  isMonthly: boolean;
+  isExpired: boolean;
+  isExpiringCritical: boolean;
+  isRisk: boolean;
+  isTrialSilent: boolean;
+  isFollowUpToday: boolean;
+  isHighPriority: boolean;
+  hasUnread: boolean;
+  extrasSignal: boolean;
+  hasNextAction: boolean;
+};
+
+function daysSince(dateStr: string | null | undefined): number | null {
+  if (!dateStr) return null;
+  const parsed = new Date(dateStr);
+  if (Number.isNaN(parsed.getTime())) return null;
+  const diffMs = Date.now() - parsed.getTime();
+  if (diffMs < 0) return 0;
+  return Math.floor(diffMs / (1000 * 60 * 60 * 24));
+}
+
+function getAccessKind(fan: FanData): "trial" | "monthly" | "special" | "none" {
+  const status = (fan.membershipStatus || "").toLowerCase();
+  const activeTypes = (fan.activeGrantTypes ?? []).map((type) => (type || "").toLowerCase());
+  const hasTrial =
+    activeTypes.some((type) => type.includes("trial") || type.includes("welcome")) ||
+    status.includes("trial") ||
+    status.includes("prueba");
+  if (hasTrial) return "trial";
+  const hasMonthly =
+    activeTypes.some((type) => type.includes("monthly")) ||
+    status.includes("monthly") ||
+    status.includes("mensual") ||
+    status.includes("suscrip");
+  if (hasMonthly) return "monthly";
+  const hasSpecial =
+    activeTypes.some((type) => type.includes("special")) ||
+    status.includes("especial") ||
+    status.includes("individual");
+  if (hasSpecial) return "special";
+  return "none";
+}
+
+function isSilentFan(fan: FanData): boolean {
+  if ((fan.unreadCount ?? 0) > 0) return false;
+  const inactivityDays = daysSince(fan.lastSeenAt ?? null);
+  if (inactivityDays === null) return true;
+  return inactivityDays >= 3;
+}
+
+function hasRiskFlag(fan: FanData): boolean {
+  const segment = ((fan.segment || "") as string).toUpperCase();
+  if (segment === "EN_RIESGO") return true;
+  const risk = (fan.riskLevel || "").toString().toUpperCase();
+  return risk !== "" && risk !== "LOW";
+}
+
+function hasExtrasSignal(fan: FanData): boolean {
+  const extrasSpent = fan.extrasSpentTotal ?? 0;
+  const extrasCount = fan.extrasCount ?? 0;
+  const sessionCount = fan.extraSessionToday?.todayCount ?? 0;
+  const ladderSessionCount = fan.extraLadderStatus?.sessionToday?.todayCount ?? 0;
+  return extrasSpent > 0 || extrasCount > 0 || sessionCount > 0 || ladderSessionCount > 0;
+}
+
 export default function SideBar() {
   return (
     <SideBarBoundary>
@@ -75,6 +155,8 @@ function SideBarInner() {
   const [ showAllTodayMetrics, setShowAllTodayMetrics ] = useState(false);
   const [ focusMode, setFocusMode ] = useState(false);
   const [ showPacksPanel, setShowPacksPanel ] = useState(false);
+  const [ listSegment, setListSegment ] = useState<"all" | "queue">("all");
+  const [ showPriorities, setShowPriorities ] = useState(true);
   const [ nextCursor, setNextCursor ] = useState<string | null>(null);
   const [ hasMore, setHasMore ] = useState(false);
   const [ isLoadingMore, setIsLoadingMore ] = useState(false);
@@ -89,12 +171,9 @@ function SideBarInner() {
   const {
     conversation,
     setConversation,
-    queueMode,
-    setQueueMode,
-    todayQueue,
-    setTodayQueue,
-    queueIndex,
-    setQueueIndex,
+    activeQueueFilter,
+    setActiveQueueFilter,
+    setQueueFans,
   } = useContext(ConversationContext);
   const [ extrasSummary, setExtrasSummary ] = useState<ExtrasSummary | null>(null);
   const [ extrasSummaryError, setExtrasSummaryError ] = useState<string | null>(null);
@@ -109,7 +188,6 @@ function SideBarInner() {
   const [ newFanInviteState, setNewFanInviteState ] = useState<"idle" | "loading" | "copied" | "error">("idle");
   const [ newFanInviteError, setNewFanInviteError ] = useState<string | null>(null);
 
-  type FanData = ConversationListData & { priorityScore?: number };
 
   function normalizeTier(tier?: string | null): "new" | "regular" | "vip" {
     if (!tier) return "new";
@@ -117,6 +195,27 @@ function SideBarInner() {
     if (lower === "priority" || lower === "vip") return "vip";
     if (lower === "regular") return "regular";
     return "new";
+  }
+
+
+  function getRecommendationTagClass(
+    tone: RecommendationMeta["tagTone"],
+    size: "sm" | "xs" = "sm"
+  ) {
+    const sizeClass = size === "sm" ? "px-2 py-0.5 text-[10px]" : "px-1.5 py-0.5 text-[9px]";
+    const toneClass =
+      tone === "rose"
+        ? "border-rose-400/70 bg-rose-500/15 text-rose-100"
+        : tone === "amber"
+        ? "border-amber-400/70 bg-amber-500/15 text-amber-100"
+        : tone === "sky"
+        ? "border-sky-400/70 bg-sky-500/15 text-sky-100"
+        : "border-emerald-400/70 bg-emerald-500/15 text-emerald-100";
+    return clsx(
+      "inline-flex items-center rounded-full border font-semibold uppercase tracking-wide whitespace-nowrap",
+      sizeClass,
+      toneClass
+    );
   }
 
   const mapFans = useCallback((rawFans: Fan[]): ConversationListData[] => {
@@ -282,6 +381,20 @@ function SideBarInner() {
     [router, setConversation]
   );
 
+  const handleOpenRecommended = useCallback(
+    (item: FanData) => {
+      if (!item?.id) return;
+      if (typeof window !== "undefined") {
+        window.sessionStorage.setItem(
+          "novsy:openInternalPanel",
+          JSON.stringify({ fanId: item.id, tab: "manager", scroll: "top" })
+        );
+      }
+      handleSelectConversation(item);
+    },
+    [handleSelectConversation]
+  );
+
   const getLastActivityTimestamp = useCallback((fan: FanData): number => {
     if (fan.lastCreatorMessageAt) {
       const d = new Date(fan.lastCreatorMessageAt);
@@ -303,55 +416,191 @@ function SideBarInner() {
     [getLastActivityTimestamp]
   );
 
-  const buildTodayQueue = useCallback((list: FanData[]): FanData[] => {
-    const groupHighPriority: FanData[] = [];
-    const groupFollowUp: FanData[] = [];
-    const groupUnread: FanData[] = [];
-    const groupExtras: FanData[] = [];
-    const groupRest: FanData[] = [];
-
-    list.forEach((fan) => {
-      const tag = fan.followUpTag ?? getFollowUpTag(fan.membershipStatus, fan.daysLeft, fan.activeGrantTypes);
-      const shouldFollow = shouldFollowUpToday({
-        membershipStatus: fan.membershipStatus,
-        daysLeft: fan.daysLeft,
-        followUpTag: tag,
-      });
-      const hasUnread = (fan.unreadCount ?? 0) > 0;
-      const hasExtrasSpend = (fan.extrasSpentTotal ?? 0) > 0;
-      const isPriority = fan.isHighPriority === true;
-
-      if (isPriority && (shouldFollow || hasUnread)) {
-        groupHighPriority.push(fan);
-        return;
-      }
-      if (shouldFollow) {
-        groupFollowUp.push(fan);
-        return;
-      }
-      if (hasUnread) {
-        groupUnread.push(fan);
-        return;
-      }
-      if (hasExtrasSpend) {
-        groupExtras.push(fan);
-        return;
-      }
-      groupRest.push(fan);
+  const getQueueSignals = useCallback((fan: FanData): QueueSignals => {
+    const followUpTag = fan.followUpTag ?? getFollowUpTag(fan.membershipStatus, fan.daysLeft, fan.activeGrantTypes);
+    const daysLeftValue = typeof fan.daysLeft === "number" ? fan.daysLeft : null;
+    const accessKind = getAccessKind(fan);
+    const isTrial = accessKind === "trial";
+    const isMonthly = accessKind === "monthly";
+    const isExpired = isExpiredAccess({
+      membershipStatus: fan.membershipStatus,
+      daysLeft: daysLeftValue,
+      followUpTag,
     });
+    const isExpiringCritical =
+      daysLeftValue !== null &&
+      daysLeftValue <= 1 &&
+      (isTrial || isMonthly);
+    const isRisk = hasRiskFlag(fan);
+    const isSilent = isSilentFan(fan);
+    const isTrialSilent =
+      isTrial &&
+      daysLeftValue !== null &&
+      daysLeftValue <= 7 &&
+      isSilent;
+    const isFollowUpToday = shouldFollowUpToday({
+      membershipStatus: fan.membershipStatus,
+      daysLeft: daysLeftValue,
+      followUpTag,
+    });
+    const isHighPriority = fan.isHighPriority === true;
+    const hasUnread = (fan.unreadCount ?? 0) > 0;
+    const extrasSignal = hasExtrasSignal(fan);
+    const hasNextAction = Boolean(fan.nextAction && fan.nextAction.trim().length > 0);
 
-    const byRecent = (a: FanData, b: FanData) => getLastActivityTimestamp(b) - getLastActivityTimestamp(a);
-    const byExtrasSpent = (a: FanData, b: FanData) =>
-      (b.extrasSpentTotal ?? 0) - (a.extrasSpentTotal ?? 0) || byRecent(a, b);
+    return {
+      followUpTag,
+      daysLeftValue,
+      isTrial,
+      isMonthly,
+      isExpired,
+      isExpiringCritical,
+      isRisk,
+      isTrialSilent,
+      isFollowUpToday,
+      isHighPriority,
+      hasUnread,
+      extrasSignal,
+      hasNextAction,
+    };
+  }, []);
 
-    return [
-      ...groupHighPriority.sort(byRecent),
-      ...groupFollowUp.sort(byRecent),
-      ...groupUnread.sort(byRecent),
-      ...groupExtras.sort(byExtrasSpent),
-      ...groupRest.sort(byRecent),
-    ];
-  }, [getLastActivityTimestamp]);
+  const buildQueueMeta = useCallback(
+    (fan: FanData, signals: QueueSignals): RecommendationMeta => {
+      let score = 0;
+      if (signals.isExpired) score += 120;
+      if (signals.isExpiringCritical) score += 110;
+      if (signals.isRisk) score += 90;
+      if (signals.isTrialSilent) score += 80;
+      if (signals.isFollowUpToday) score += 70;
+      if (signals.isHighPriority) score += 60;
+      if (signals.hasUnread) score += 40;
+      if (signals.extrasSignal) score += 30;
+      if (signals.hasNextAction) score += 20;
+      if (signals.daysLeftValue !== null && signals.daysLeftValue >= 0) {
+        score += Math.max(0, 10 - signals.daysLeftValue);
+      }
+
+      let tag: RecommendationMeta["tag"] = "Seguimiento hoy";
+      let tagTone: RecommendationMeta["tagTone"] = "emerald";
+      let reason = "Seguimiento marcado para hoy";
+
+      if (signals.isExpired) {
+        if (signals.daysLeftValue === 0) {
+          tag = "CADUCA HOY";
+          tagTone = "amber";
+          reason = "Crítico · 0 días restantes";
+        } else {
+          tag = "Caducado";
+          tagTone = "rose";
+          reason = "Acceso caducado";
+        }
+      } else if (signals.isExpiringCritical) {
+        tag = "Caduca";
+        tagTone = "amber";
+        const accessLabel = signals.isTrial ? "Trial" : signals.isMonthly ? "Mensual" : "Acceso";
+        const when =
+          signals.daysLeftValue === 0
+            ? "hoy"
+            : signals.daysLeftValue === 1
+            ? "mañana"
+            : `en ${signals.daysLeftValue} días`;
+        reason = `${accessLabel} · caduca ${when}`;
+      } else if (signals.isRisk) {
+        tag = "En riesgo";
+        tagTone = "rose";
+        reason = "Marcado en riesgo";
+      } else if (signals.isTrialSilent) {
+        tag = "Trial silencioso";
+        tagTone = "sky";
+        reason = "Trial ≤ 7 días sin respuesta";
+      } else if (signals.isFollowUpToday) {
+        tag = "Seguimiento hoy";
+        tagTone = "emerald";
+        reason = "Seguimiento marcado para hoy";
+      } else if (signals.isHighPriority) {
+        tag = "Alta prioridad";
+        tagTone = "amber";
+        reason = "Marcado por ti";
+      } else if (signals.hasUnread) {
+        tag = "Sin leer";
+        tagTone = "sky";
+        reason = "Mensajes sin leer";
+      } else if (signals.hasNextAction) {
+        tag = "Próxima acción";
+        tagTone = "emerald";
+        reason = "Acción pendiente";
+      } else if (signals.extrasSignal) {
+        tag = "Extras";
+        tagTone = "emerald";
+        reason = "Ha comprado extras";
+      } else {
+        reason = "En cola";
+      }
+
+      if (signals.extrasSignal && tag !== "Extras") {
+        reason = `${reason} · potencial extra`;
+      }
+
+      return {
+        fan,
+        score,
+        level: score,
+        tag,
+        tagTone,
+        reason,
+        daysLeftLabel: signals.daysLeftValue !== null ? `${signals.daysLeftValue} d` : "—",
+        daysLeftValue: signals.daysLeftValue,
+        lastActivity: getLastActivityTimestamp(fan),
+      };
+    },
+    [getLastActivityTimestamp]
+  );
+
+  const matchesQueueFilter = useCallback((signals: QueueSignals, filter: QueueFilter): boolean => {
+    if (!filter) return false;
+    if (filter === "ventas_hoy") {
+      return (
+        signals.isExpired ||
+        signals.isExpiringCritical ||
+        signals.isRisk ||
+        signals.isTrialSilent ||
+        signals.isFollowUpToday ||
+        signals.isHighPriority ||
+        signals.hasUnread ||
+        signals.extrasSignal ||
+        signals.hasNextAction
+      );
+    }
+    if (filter === "seguimiento_hoy") return signals.isFollowUpToday;
+    if (filter === "caducados") return signals.isExpired;
+    if (filter === "alta_prioridad") return signals.isHighPriority;
+    return false;
+  }, []);
+
+  const buildQueueMetaList = useCallback(
+    (list: FanData[], filter: QueueFilter): RecommendationMeta[] => {
+      if (!filter) return [];
+      const candidates: RecommendationMeta[] = [];
+
+      list.forEach((fan) => {
+        if (!fan?.id || fan.isManager) return;
+        const signals = getQueueSignals(fan);
+        if (!matchesQueueFilter(signals, filter)) return;
+        candidates.push(buildQueueMeta(fan, signals));
+      });
+
+      return candidates.sort((a, b) => {
+        if (a.score !== b.score) return b.score - a.score;
+        const da = a.daysLeftValue ?? Number.POSITIVE_INFINITY;
+        const db = b.daysLeftValue ?? Number.POSITIVE_INFINITY;
+        if (da !== db) return da - db;
+        if (a.lastActivity !== b.lastActivity) return b.lastActivity - a.lastActivity;
+        return a.fan.contactName.localeCompare(b.fan.contactName);
+      });
+    },
+    [buildQueueMeta, getQueueSignals, matchesQueueFilter]
+  );
 
   const totalCount = fans.length;
   const followUpTodayCount = fans.filter((fan) =>
@@ -379,6 +628,14 @@ function SideBarInner() {
   const regularCount = fans.filter((fan) => ((fan as any).segment || "").toUpperCase() === "LEAL_ESTABLE").length;
   const newCount = fans.filter((fan) => ((fan as any).segment || "").toUpperCase() === "NUEVO").length;
   const withExtrasCount = fans.filter((fan) => (fan.extrasSpentTotal ?? 0) > 0).length;
+  const listScrollRef = useRef<HTMLDivElement | null>(null);
+  const scrollListToTop = useCallback(() => {
+    const el = listScrollRef.current;
+    if (!el) return;
+    requestAnimationFrame(() => {
+      el.scrollTo({ top: 0, behavior: "smooth" });
+    });
+  }, []);
 
   const applyFilter = useCallback(
     (
@@ -392,9 +649,28 @@ function SideBarInner() {
       setShowOnlyWithNotes(onlyNotes);
       setTierFilter(tier);
       setOnlyWithFollowUp(onlyFollowUp);
+      scrollListToTop();
     },
-    []
+    [scrollListToTop]
   );
+
+  const handleSegmentChange = useCallback(
+    (next: "all" | "queue") => {
+      setListSegment(next);
+      if (next === "queue") {
+        setShowPriorities(true);
+      }
+      scrollListToTop();
+    },
+    [scrollListToTop]
+  );
+
+  const openQueueSegment = useCallback(() => {
+    handleSegmentChange("queue");
+    requestAnimationFrame(() => {
+      queueHeaderRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
+  }, [handleSegmentChange]);
 
   function selectStatusFilter(next: "active" | "archived" | "blocked") {
     setStatusFilter(next);
@@ -406,6 +682,7 @@ function SideBarInner() {
       setOnlyWithExtras(false);
       setShowPriorityOnly(false);
     }
+    scrollListToTop();
   }
 
   async function handleCreateNewFan() {
@@ -631,7 +908,6 @@ function SideBarInner() {
     () => (Array.isArray(filteredConversationsList) ? (filteredConversationsList as FanData[]) : []),
     [filteredConversationsList]
   );
-  const visibleList: FanData[] = queueMode ? buildTodayQueue(safeFilteredConversationsList) : safeFilteredConversationsList;
   const attendedTodayCount = fans.filter((fan) => {
     if (!fan.lastCreatorMessageAt) return false;
     const d = new Date(fan.lastCreatorMessageAt);
@@ -643,14 +919,56 @@ function SideBarInner() {
       d.getDate() === now.getDate()
     );
   }).length;
-  const safeTodayQueue = Array.isArray(todayQueue) ? todayQueue : [];
-  const queueLength = safeTodayQueue.length;
-  const vipInQueue = safeTodayQueue.filter((fan) => fan?.isHighPriority).length;
   const extrasTodayCount = Number.isFinite(extrasSummary?.today?.count) ? (extrasSummary?.today?.count as number) : 0;
   const extrasTodayAmount = Number.isFinite(extrasSummary?.today?.amount) ? (extrasSummary?.today?.amount as number) : 0;
   const legendRef = useRef<HTMLDivElement | null>(null);
+  const queueHeaderRef = useRef<HTMLDivElement | null>(null);
+  const activeQueueMeta = useMemo(
+    () => buildQueueMetaList(safeFilteredConversationsList, activeQueueFilter),
+    [activeQueueFilter, buildQueueMetaList, safeFilteredConversationsList]
+  );
+  const activeQueueCount = activeQueueMeta.length;
+  const ventasHoyQueueMeta = useMemo(
+    () => buildQueueMetaList(fans as FanData[], "ventas_hoy"),
+    [buildQueueMetaList, fans]
+  );
+  const ventasHoyCount = ventasHoyQueueMeta.length;
+  const vipInQueue = ventasHoyQueueMeta.filter((entry) => entry?.fan?.isHighPriority).length;
+  const recommendedCandidate = useMemo(() => {
+    if (!activeQueueFilter || activeQueueMeta.length === 0) return null;
+    const activeId = conversation?.id ?? null;
+    if (!activeId) return activeQueueMeta[0] ?? null;
+    const idx = activeQueueMeta.findIndex((entry) => entry.fan.id === activeId);
+    if (idx >= 0) return activeQueueMeta[idx + 1] ?? null;
+    return activeQueueMeta[0] ?? null;
+  }, [activeQueueFilter, activeQueueMeta, conversation?.id]);
+  const queueEntries = useMemo(() => {
+    if (!recommendedCandidate) return activeQueueMeta;
+    return activeQueueMeta.filter((entry) => entry.fan.id !== recommendedCandidate.fan.id);
+  }, [activeQueueMeta, recommendedCandidate]);
+  const queueCount = activeQueueCount;
+  const queuePreviewEntries = queueEntries.slice(0, 3);
+  const queueFanIds = useMemo(
+    () => new Set(activeQueueMeta.map((entry) => entry.fan.id).filter(Boolean)),
+    [activeQueueMeta]
+  );
+  const restList = useMemo(
+    () =>
+      safeFilteredConversationsList.filter((fan) => {
+        if (!fan?.id) return false;
+        return !queueFanIds.has(fan.id);
+      }),
+    [queueFanIds, safeFilteredConversationsList]
+  );
+  const restCount = restList.length;
+  const activeQueueList = useMemo(
+    () => activeQueueMeta.map((entry) => entry.fan),
+    [activeQueueMeta]
+  );
 
-  const recommendedFan = getRecommendedFan(fansWithScore);
+  useEffect(() => {
+    setQueueFans(activeQueueList);
+  }, [activeQueueList, setQueueFans]);
   const apiFilter = (() => {
     if (statusFilter === "archived") return "archived";
     if (statusFilter === "blocked") return "blocked";
@@ -928,34 +1246,6 @@ function SideBarInner() {
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, [showLegend]);
 
-  useEffect(() => {
-    if (!queueMode) return;
-    const queue = buildTodayQueue(safeFilteredConversationsList);
-    setTodayQueue(queue);
-    if (conversation?.id) {
-      const idx = queue.findIndex((f) => f.id === conversation.id);
-      setQueueIndex(idx >= 0 ? idx : queueIndex);
-    } else if (queue.length > 0 && queueIndex >= queue.length) {
-      setQueueIndex(0);
-    }
-  }, [
-    buildTodayQueue,
-    conversation?.id,
-    queueIndex,
-    queueMode,
-    safeFilteredConversationsList,
-    setQueueIndex,
-    setTodayQueue,
-  ]);
-
-  useEffect(() => {
-    if (!queueMode) return;
-    if (!conversation?.id) return;
-    const safeQueue = Array.isArray(todayQueue) ? todayQueue : [];
-    const idx = safeQueue.findIndex((f) => f.id === conversation.id);
-    if (idx >= 0 && idx !== queueIndex) setQueueIndex(idx);
-  }, [conversation?.id, queueMode, queueIndex, setQueueIndex, todayQueue]);
-
   function formatCurrency(value: number) {
     const rounded = Math.round((value ?? 0) * 100) / 100;
     return `${rounded % 1 === 0 ? rounded.toFixed(0) : rounded.toFixed(2)} €`;
@@ -1029,8 +1319,8 @@ function SideBarInner() {
                 </div>
                 <div className="flex flex-col rounded-xl bg-slate-950/70 px-3 py-3 shadow-sm">
                   <span className="text-[12px] text-slate-400">Ventas hoy (cola)</span>
-                  <span className={clsx("mt-1 text-2xl font-semibold", queueLength > 0 ? "text-emerald-300" : "text-slate-300")}>
-                    {queueLength}
+                  <span className={clsx("mt-1 text-2xl font-semibold", ventasHoyCount > 0 ? "text-emerald-300" : "text-slate-300")}>
+                    {ventasHoyCount}
                   </span>
                 </div>
                 <div className="flex flex-col rounded-xl bg-slate-950/70 px-3 py-3 shadow-sm">
@@ -1069,7 +1359,10 @@ function SideBarInner() {
           <div className="flex items-center justify-between">
             <button
               type="button"
-              onClick={() => applyFilter("all", false)}
+              onClick={() => {
+                applyFilter("all", false);
+                setActiveQueueFilter(null);
+              }}
               className="flex flex-1 justify-between text-left pr-2"
             >
               <span className={clsx("text-slate-400", followUpFilter === "all" && !showOnlyWithNotes && "font-semibold text-amber-300")}>Hoy</span>
@@ -1140,7 +1433,10 @@ function SideBarInner() {
           )}
           <button
             type="button"
-            onClick={() => applyFilter("today", false)}
+            onClick={() => {
+              applyFilter("today", false);
+              setActiveQueueFilter("seguimiento_hoy");
+            }}
             className="flex justify-between text-left"
           >
             <span className={clsx(followUpFilter === "today" && !showOnlyWithNotes && "font-semibold text-amber-300")}>
@@ -1166,7 +1462,10 @@ function SideBarInner() {
             <>
               <button
                 type="button"
-                onClick={() => applyFilter("expired", false)}
+                onClick={() => {
+                  applyFilter("expired", false);
+                  setActiveQueueFilter("caducados");
+                }}
                 className="flex justify-between text-left"
               >
                 <span className={clsx(followUpFilter === "expired" && !showOnlyWithNotes && "font-semibold text-amber-300")}>Caducados</span>
@@ -1264,7 +1563,10 @@ function SideBarInner() {
             <>
               <button
                 type="button"
-                onClick={() => setOnlyWithExtras((prev) => !prev)}
+                onClick={() => {
+                  setOnlyWithExtras((prev) => !prev);
+                  scrollListToTop();
+                }}
                 className="flex justify-between text-left"
               >
                 <span className={clsx(onlyWithExtras && "font-semibold text-amber-300")}>
@@ -1289,14 +1591,20 @@ function SideBarInner() {
               </button>
               <button
                 type="button"
-                onClick={() => applyFilter(followUpFilter, showOnlyWithNotes, tierFilter === "vip" ? "all" : "vip")}
+                onClick={() => {
+                  const nextPriorityOnly = !showPriorityOnly;
+                  setShowPriorityOnly(nextPriorityOnly);
+                  setTierFilter("all");
+                  setActiveQueueFilter(nextPriorityOnly ? "alta_prioridad" : null);
+                  scrollListToTop();
+                }}
                 className="flex justify-between text-left"
               >
-                <span className={clsx(tierFilter === "vip" && "font-semibold text-amber-300")}>
+                <span className={clsx(showPriorityOnly && "font-semibold text-amber-300")}>
                   🔥 Alta prioridad
                   <span
                     className="ml-1 inline-flex h-4 w-4 items-center justify-center rounded-full border border-slate-500 text-[9px] text-slate-300"
-                    title={`Fans que más han gastado contigo (VIP / límite ${HIGH_PRIORITY_LIMIT} €).`}
+                    title="Marcados por ti para atender primero."
                   >
                     i
                   </span>
@@ -1305,7 +1613,7 @@ function SideBarInner() {
                   className={clsx(
                     "inline-flex items-center rounded-full px-2.5 py-1 text-xs font-semibold",
                     priorityCount > 0 ? "bg-amber-500/20 text-amber-100" : "bg-slate-800 text-slate-300",
-                    tierFilter === "vip" && "ring-1 ring-amber-300/60"
+                    showPriorityOnly && "ring-1 ring-amber-300/60"
                   )}
                 >
                   {priorityCount}
@@ -1381,42 +1689,41 @@ function SideBarInner() {
           </div>
         </div>
       )}
-      {recommendedFan && (
-        <div className="mb-2 px-3">
-          <div className="flex items-center justify-between rounded-xl border border-amber-500/60 bg-slate-900/80 px-3 py-2">
-            <div className="flex flex-col">
-              <span className="text-[11px] text-slate-400">Siguiente recomendado</span>
-              <span className="text-sm font-semibold text-slate-50">{recommendedFan.contactName}</span>
-              <span className="text-[11px] text-slate-500">
-                {(recommendedFan.customerTier === "priority" || recommendedFan.customerTier === "vip"
-                  ? "Alta prioridad"
-                  : recommendedFan.customerTier === "regular"
-                  ? "Habitual"
-                  : "Nuevo") +
-                  ` · ${Math.round(recommendedFan.lifetimeValue ?? 0)} €` +
-                  (recommendedFan.followUpTag === "trial_soon" && typeof recommendedFan.daysLeft === "number"
-                    ? ` · prueba – ${recommendedFan.daysLeft} d`
-                    : recommendedFan.followUpTag === "monthly_soon" && typeof recommendedFan.daysLeft === "number"
-                    ? ` · suscripción – ${recommendedFan.daysLeft} d`
-                    : recommendedFan.daysLeft !== undefined && recommendedFan.daysLeft !== null
-                    ? ` · ${recommendedFan.daysLeft} d`
-                    : "")}
-              </span>
-            </div>
-            <button
-              type="button"
-              className="rounded-lg bg-amber-500/90 px-2 py-1 text-xs font-semibold text-slate-900 hover:bg-amber-500"
-              onClick={() => recommendedFan && handleSelectConversation(recommendedFan)}
-            >
-              Abrir chat
-            </button>
-          </div>
+      <div className="mb-2 px-3">
+        <div className="inline-flex rounded-full border border-slate-700 bg-slate-900/70 p-1 text-[11px] text-slate-200">
+          <button
+            type="button"
+            onClick={() => handleSegmentChange("all")}
+            className={clsx(
+              "rounded-full px-3 py-1 font-semibold transition",
+              listSegment === "all"
+                ? "bg-emerald-500/20 text-emerald-100"
+                : "text-slate-300 hover:text-slate-100"
+            )}
+          >
+            Todos ({totalCount})
+          </button>
+          <button
+            type="button"
+            onClick={openQueueSegment}
+            className={clsx(
+              "rounded-full px-3 py-1 font-semibold transition",
+              listSegment === "queue"
+                ? "bg-amber-500/20 text-amber-100"
+                : "text-slate-300 hover:text-slate-100"
+            )}
+          >
+            Cola ({queueCount})
+          </button>
         </div>
-      )}
+      </div>
       <div className="mb-2 flex gap-2 text-xs px-3">
         <button
           type="button"
-          onClick={() => applyFilter("all", false, "all", false)}
+          onClick={() => {
+            applyFilter("all", false, "all", false);
+            setActiveQueueFilter(null);
+          }}
           className={clsx(
             "rounded-full border px-3 py-1",
             followUpFilter === "all"
@@ -1428,7 +1735,10 @@ function SideBarInner() {
         </button>
         <button
           type="button"
-          onClick={() => applyFilter("today", false, "all", false)}
+          onClick={() => {
+            applyFilter("today", false, "all", false);
+            setActiveQueueFilter("seguimiento_hoy");
+          }}
           className={clsx(
             "rounded-full border px-3 py-1",
             followUpFilter === "today"
@@ -1440,7 +1750,10 @@ function SideBarInner() {
         </button>
         <button
           type="button"
-          onClick={() => applyFilter("expired", false, "all", false)}
+          onClick={() => {
+            applyFilter("expired", false, "all", false);
+            setActiveQueueFilter("caducados");
+          }}
           className={clsx(
             "rounded-full border px-3 py-1",
             followUpFilter === "expired"
@@ -1453,14 +1766,18 @@ function SideBarInner() {
         <button
           type="button"
           onClick={() => {
+            const nextPriorityOnly = !showPriorityOnly;
             setFollowUpFilter("all");
             setShowOnlyWithNotes(false);
             setOnlyWithFollowUp(false);
-            setTierFilter(tierFilter === "vip" ? "all" : "vip");
+            setTierFilter("all");
+            setShowPriorityOnly(nextPriorityOnly);
+            setActiveQueueFilter(nextPriorityOnly ? "alta_prioridad" : null);
+            scrollListToTop();
           }}
           className={clsx(
             "rounded-full border px-3 py-1",
-            tierFilter === "vip"
+            showPriorityOnly
               ? "border-amber-400 bg-amber-500/10 text-amber-100"
               : "border-amber-700 bg-slate-800/60 text-amber-200/80"
           )}
@@ -1470,25 +1787,13 @@ function SideBarInner() {
         <button
           type="button"
           onClick={() => {
-            const next = !queueMode;
-            setQueueMode(next);
-            if (!next) {
-              setTodayQueue([]);
-              setQueueIndex(0);
-            } else {
-              const queue = buildTodayQueue(safeFilteredConversationsList);
-              setTodayQueue(queue);
-              if (conversation?.id) {
-                const idx = queue.findIndex((f) => f.id === conversation.id);
-                setQueueIndex(idx >= 0 ? idx : 0);
-              } else {
-                setQueueIndex(0);
-              }
-            }
+            const nextFilter = activeQueueFilter === "ventas_hoy" ? null : "ventas_hoy";
+            setActiveQueueFilter(nextFilter);
+            handleSegmentChange(nextFilter ? "queue" : "all");
           }}
           className={clsx(
             "rounded-full border px-3 py-1",
-            queueMode
+            activeQueueFilter === "ventas_hoy"
               ? "border-emerald-400 bg-emerald-500/10 text-emerald-100"
               : "border-emerald-700 bg-slate-800/60 text-emerald-200/80"
           )}
@@ -1505,7 +1810,10 @@ function SideBarInner() {
             className="flex-1 min-w-[160px] bg-transparent border-none outline-none text-sm text-slate-100 placeholder:text-slate-400"
             placeholder="Buscar o iniciar un nuevo chat"
             value={search}
-            onChange={e => setSearch(e.target.value)}
+            onChange={(e) => {
+              setSearch(e.target.value);
+              scrollListToTop();
+            }}
           />
           <button
             type="button"
@@ -1541,56 +1849,285 @@ function SideBarInner() {
             + Crear invitación
           </button>
         </div>
+        <div className="mt-2">
+          <button
+            type="button"
+            onClick={() => handleSelectConversation(managerChatEntry)}
+            className="flex w-full items-center justify-between rounded-xl border border-slate-800/70 bg-slate-900/70 px-3 py-2 text-left text-xs text-slate-200 hover:border-emerald-400/60 hover:bg-slate-900/90"
+          >
+            <div className="flex items-center gap-2">
+              <span className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-emerald-500/15 text-emerald-200">
+                IA
+              </span>
+              <div>
+                <div className="font-semibold text-slate-100">Manager IA</div>
+                <div className="text-[10px] text-slate-400">Chat interno</div>
+              </div>
+            </div>
+            <span className="text-[11px] font-semibold text-emerald-200">Abrir</span>
+          </button>
+        </div>
       </div>
-      <div className="flex flex-col w-full flex-1 overflow-y-auto" id="conversation">
+      <div
+        ref={listScrollRef}
+        className="flex flex-col w-full flex-1 min-h-0 overflow-y-auto"
+        id="conversation"
+      >
         {loadingFans && (
           <div className="text-center text-[#aebac1] py-4 text-sm">Cargando fans...</div>
         )}
         {fansError && !loadingFans && (
           <div className="text-center text-red-400 py-4 text-sm">{fansError}</div>
         )}
-        {showPriorityOnly && filteredConversationsList.length === 0 && (
-          <div className="px-4 py-3 text-xs text-slate-400">
-            No hay chats prioritarios por ahora.
-          </div>
+        {!loadingFans && !fansError && listSegment === "queue" && !focusMode && (
+          <>
+            <div ref={queueHeaderRef} className="px-3 pt-2 pb-2">
+              <div className="flex items-center justify-between">
+                <span className="text-[11px] font-semibold text-slate-400">En cola ({queueCount})</span>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setShowPriorities((prev) => !prev)}
+                    className="text-[11px] font-semibold text-slate-300 hover:text-slate-100"
+                  >
+                    {showPriorities ? "Ocultar cola" : "Mostrar cola"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleSegmentChange("all")}
+                    className="text-[11px] font-semibold text-slate-300 hover:text-slate-100"
+                  >
+                    Ver todos
+                  </button>
+                </div>
+              </div>
+              {showPriorities ? (
+                <div className="mt-2 space-y-2">
+                  {recommendedCandidate ? (
+                    <div className="rounded-xl border border-amber-500/50 bg-slate-900/80 px-3 py-2">
+                      <div className="text-[11px] text-slate-400">Siguiente recomendado</div>
+                      <div className="mt-1 flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span className="text-sm font-semibold text-slate-50 truncate">
+                              {recommendedCandidate.fan.contactName}
+                            </span>
+                            <span className={getRecommendationTagClass(recommendedCandidate.tagTone)}>
+                              {recommendedCandidate.tag}
+                            </span>
+                            <span className="text-[10px] text-slate-400">{recommendedCandidate.daysLeftLabel}</span>
+                          </div>
+                          <div className="text-[11px] text-slate-500 truncate">
+                            {recommendedCandidate.reason}
+                          </div>
+                        </div>
+                        <button
+                          type="button"
+                          className="rounded-lg bg-amber-500/90 px-2 py-1 text-xs font-semibold text-slate-900 hover:bg-amber-500"
+                          onClick={() => handleOpenRecommended(recommendedCandidate.fan)}
+                        >
+                          Abrir
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="text-xs text-slate-400">
+                      {activeQueueFilter
+                        ? activeQueueCount === 0
+                          ? "No hay cola activa."
+                          : "Cola terminada."
+                        : "No hay cola activa."}
+                    </div>
+                  )}
+                  {queueCount > 0 ? (
+                    <div className="rounded-xl border border-slate-800/70 bg-slate-900/70 px-3 py-2">
+                      <div className="text-[11px] font-semibold text-slate-400">Cola ({queueCount})</div>
+                      <div className="mt-1 space-y-1">
+                        {queueEntries.map((entry) => (
+                          <button
+                            key={entry.fan.id}
+                            type="button"
+                            onClick={() => handleSelectConversation(entry.fan)}
+                            className="flex w-full flex-col gap-1 rounded-lg border border-transparent px-2 py-1 text-left transition hover:border-slate-700/70 hover:bg-slate-900/60"
+                          >
+                            <div className="flex items-center justify-between gap-2">
+                              <span className="text-[12px] font-semibold text-slate-100 truncate">
+                                {entry.fan.contactName}
+                              </span>
+                              <span className="text-[10px] text-slate-400 shrink-0">
+                                {entry.daysLeftLabel}
+                              </span>
+                            </div>
+                            <div className="flex items-center gap-2 text-[10px] text-slate-400">
+                              <span className={getRecommendationTagClass(entry.tagTone, "xs")}>{entry.tag}</span>
+                              <span className="truncate">{entry.reason}</span>
+                            </div>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="text-xs text-slate-400">Sin cola por ahora.</div>
+                  )}
+                </div>
+              ) : (
+                <div className="mt-2 text-xs text-slate-400">Cola oculta.</div>
+              )}
+            </div>
+            <div className="px-3 pt-2 pb-2">
+              <div className="text-[11px] font-semibold text-slate-400">Resto ({restCount})</div>
+            </div>
+            {restCount === 0 ? (
+              <div className="px-3 pb-2 text-xs text-slate-400">Sin más fans.</div>
+            ) : (
+              restList.map((conversation, index) => (
+                <ConversationList
+                  key={conversation.id || index}
+                  isFirstConversation={index === 0}
+                  data={conversation}
+                  onSelect={handleSelectConversation}
+                  onToggleHighPriority={handleToggleHighPriority}
+                  onCopyInvite={handleCopyInviteForFan}
+                />
+              ))
+            )}
+          </>
         )}
-        {!loadingFans && !fansError && visibleList.length === 0 && (
-          <div className="text-center text-[#aebac1] py-4 text-sm px-4 whitespace-pre-line">
-            {(() => {
-              if (followUpFilter === "today") {
-                return "Hoy no tienes seguimientos pendientes.\nVerás personas aquí cuando su suscripción esté cerca de renovarse o les marques «Próxima acción» ⚡ en el chat.";
-              }
-              if (tierFilter === "vip") {
-                return `Aún no tienes clientes de alta prioridad.\nSe marcan 🔥 cuando alguien ha gastado más de ${HIGH_PRIORITY_LIMIT} € en total contigo.`;
-              }
-              if (queueMode) {
-                return "No hay ventas en cola.\nTip: revisa el filtro «Con extras» y ofrece un nuevo pack o contenido extra.";
-              }
-              return "No hay fans que cumplan este filtro por ahora.";
-            })()}
-          </div>
+        {!loadingFans && !fansError && listSegment === "all" && !focusMode && (
+          <>
+            <div className="px-3 pt-2 pb-2">
+              <div className="flex items-center justify-between">
+                <span className="text-[11px] font-semibold text-slate-400">Prioridades</span>
+                <button
+                  type="button"
+                  onClick={() => setShowPriorities((prev) => !prev)}
+                  className="text-[11px] font-semibold text-slate-300 hover:text-slate-100"
+                >
+                  {showPriorities ? "Ocultar prioridades" : "Mostrar prioridades"}
+                </button>
+              </div>
+              {showPriorities && (
+                <div className="mt-2 space-y-2">
+                  {recommendedCandidate ? (
+                    <div className="rounded-xl border border-amber-500/50 bg-slate-900/80 px-3 py-2">
+                      <div className="text-[11px] text-slate-400">Siguiente recomendado</div>
+                      <div className="mt-1 flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span className="text-sm font-semibold text-slate-50 truncate">
+                              {recommendedCandidate.fan.contactName}
+                            </span>
+                            <span className={getRecommendationTagClass(recommendedCandidate.tagTone)}>
+                              {recommendedCandidate.tag}
+                            </span>
+                            <span className="text-[10px] text-slate-400">{recommendedCandidate.daysLeftLabel}</span>
+                          </div>
+                          <div className="text-[11px] text-slate-500 truncate">
+                            {recommendedCandidate.reason}
+                          </div>
+                        </div>
+                        <button
+                          type="button"
+                          className="rounded-lg bg-amber-500/90 px-2 py-1 text-xs font-semibold text-slate-900 hover:bg-amber-500"
+                          onClick={() => handleOpenRecommended(recommendedCandidate.fan)}
+                        >
+                          Abrir
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="text-xs text-slate-400">
+                      {activeQueueFilter
+                        ? activeQueueCount === 0
+                          ? "No hay cola activa."
+                          : "Cola terminada."
+                        : "No hay cola activa."}
+                    </div>
+                  )}
+                  {queueCount > 0 && (
+                    <div className="rounded-xl border border-slate-800/70 bg-slate-900/70 px-3 py-2">
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="text-[11px] font-semibold text-slate-400">Cola ({queueCount})</div>
+                        <button
+                          type="button"
+                          onClick={openQueueSegment}
+                          className="text-[11px] font-semibold text-slate-300 hover:text-slate-100"
+                        >
+                          Ver cola ({queueCount})
+                        </button>
+                      </div>
+                      <div className="mt-1 space-y-1">
+                        {queuePreviewEntries.map((entry) => (
+                          <button
+                            key={entry.fan.id}
+                            type="button"
+                            onClick={() => handleSelectConversation(entry.fan)}
+                            className="flex w-full flex-col gap-1 rounded-lg border border-transparent px-2 py-1 text-left transition hover:border-slate-700/70 hover:bg-slate-900/60"
+                          >
+                            <div className="flex items-center justify-between gap-2">
+                              <span className="text-[12px] font-semibold text-slate-100 truncate">
+                                {entry.fan.contactName}
+                              </span>
+                              <span className="text-[10px] text-slate-400 shrink-0">
+                                {entry.daysLeftLabel}
+                              </span>
+                            </div>
+                            <div className="flex items-center gap-2 text-[10px] text-slate-400">
+                              <span className={getRecommendationTagClass(entry.tagTone, "xs")}>{entry.tag}</span>
+                              <span className="truncate">{entry.reason}</span>
+                            </div>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+            {showPriorityOnly && safeFilteredConversationsList.length === 0 && (
+              <div className="px-4 py-3 text-xs text-slate-400">
+                No hay chats prioritarios por ahora.
+              </div>
+            )}
+            {safeFilteredConversationsList.length === 0 && (
+              <div className="text-center text-[#aebac1] py-4 text-sm px-4 whitespace-pre-line">
+                {(() => {
+                  if (followUpFilter === "today") {
+                    return "Hoy no tienes seguimientos pendientes.\nVerás personas aquí cuando su suscripción esté cerca de renovarse o les marques «Próxima acción» ⚡ en el chat.";
+                  }
+                  if (showPriorityOnly) {
+                    return "Aún no tienes chats de alta prioridad.\nSe marcan 🔥 cuando los señalas manualmente para atender primero.";
+                  }
+                  if (activeQueueFilter === "ventas_hoy") {
+                    return "No hay ventas en cola.\nTip: revisa el filtro «Con extras» y ofrece un nuevo pack o contenido extra.";
+                  }
+                  if (activeQueueFilter === "seguimiento_hoy") {
+                    return "No hay seguimientos en cola para hoy.";
+                  }
+                  if (activeQueueFilter === "caducados") {
+                    return "No hay accesos caducados en cola.";
+                  }
+                  if (activeQueueFilter === "alta_prioridad") {
+                    return "No hay chats marcados como alta prioridad.";
+                  }
+                  return "No hay fans que cumplan este filtro por ahora.";
+                })()}
+              </div>
+            )}
+            {safeFilteredConversationsList.map((conversation, index) => {
+              return (
+                <ConversationList
+                  key={conversation.id || index}
+                  isFirstConversation={index == 0}
+                  data={conversation}
+                  onSelect={handleSelectConversation}
+                  onToggleHighPriority={handleToggleHighPriority}
+                  onCopyInvite={handleCopyInviteForFan}
+                />
+              );
+            })}
+          </>
         )}
-        {!loadingFans && !fansError && !focusMode && (
-          <ConversationList
-            key={managerChatEntry.id}
-            data={managerChatEntry}
-            onSelect={handleSelectConversation}
-            onToggleHighPriority={handleToggleHighPriority}
-            onCopyInvite={handleCopyInviteForFan}
-          />
-        )}
-        {!loadingFans && !fansError && !focusMode && visibleList.map((conversation, index) => {
-          return (
-            <ConversationList
-              key={conversation.id || index}
-              isFirstConversation={index == 0}
-              data={conversation}
-              onSelect={handleSelectConversation}
-              onToggleHighPriority={handleToggleHighPriority}
-              onCopyInvite={handleCopyInviteForFan}
-            />
-          )
-        })}
         {!loadingFans && !fansError && !focusMode && hasMore && (
           <div className="px-4 py-3">
             <button

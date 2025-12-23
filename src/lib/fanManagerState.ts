@@ -88,6 +88,9 @@ function buildHeadline(state: FanManagerState, context: FanManagerStateContext):
     case "nuevo_timido":
       return "Fan nuevo y tímido; casi no ha hablado todavía.";
     case "a_punto_de_caducar":
+      if (context.daysLeft !== null && context.daysLeft <= 0) {
+        return "Tu suscripción caduca hoy. Si no actúas, pierdes un fan de pago.";
+      }
       return `Tu suscripción está a punto de caducar (${daysLabel}). Si no actúas, pierdes un fan de pago.`;
     case "fan_frio":
       return inactivityLabel || "Fan frío: ha bajado el ritmo de mensajes y necesita un motivo para volver.";
@@ -108,15 +111,20 @@ function buildChips(state: FanManagerState, context: FanManagerStateContext): Fa
     chips.push({ label: "NUEVO", tone: "info" });
     chips.push({ label: "Silencioso", tone: "neutral" });
   } else if (state === "a_punto_de_caducar") {
-    chips.push({ label: "RIESGO", tone: "danger" });
-    chips.push({ label: "Riesgo alto", tone: "danger" });
-    if (context.daysLeft !== null) {
-      chips.push({
-        label: `${context.daysLeft} día${context.daysLeft === 1 ? "" : "s"} restantes`,
-        tone: context.daysLeft <= 1 ? "danger" : "warning",
-      });
-    } else if (context.expiryTagSoon) {
-      chips.push({ label: "Caduca en breve", tone: "warning" });
+    if (context.daysLeft !== null && context.daysLeft <= 0) {
+      chips.push({ label: "CADUCA HOY", tone: "danger" });
+      chips.push({ label: "Crítico", tone: "danger" });
+    } else {
+      chips.push({ label: "RIESGO", tone: "danger" });
+      chips.push({ label: "Riesgo alto", tone: "danger" });
+      if (context.daysLeft !== null) {
+        chips.push({
+          label: `${context.daysLeft} día${context.daysLeft === 1 ? "" : "s"} restantes`,
+          tone: context.daysLeft <= 1 ? "danger" : "warning",
+        });
+      } else if (context.expiryTagSoon) {
+        chips.push({ label: "Caduca en breve", tone: "warning" });
+      }
     }
   } else if (state === "fan_frio") {
     chips.push({ label: "FRÍO", tone: "warning" });

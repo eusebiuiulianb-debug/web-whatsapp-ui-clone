@@ -10,13 +10,21 @@ import { normalizePreferredLanguage } from "../../lib/language";
 interface ConversationListProps {
   isFirstConversation?: boolean;
   data: ConversationListData;
+  variant?: "default" | "compact";
   onSelect?: (conversation: ConversationListData) => void;
   onToggleHighPriority?: (conversation: ConversationListData) => void;
   onCopyInvite?: (conversation: ConversationListData) => Promise<boolean>;
 }
 
 export default function ConversationList(props: ConversationListProps) {
-  const { isFirstConversation, data, onSelect, onToggleHighPriority, onCopyInvite } = props;
+  const {
+    isFirstConversation,
+    data,
+    onSelect,
+    onToggleHighPriority,
+    onCopyInvite,
+    variant = "default",
+  } = props;
   const { setConversation } = useContext(ConversationContext);
   const {
     contactName,
@@ -37,8 +45,14 @@ export default function ConversationList(props: ConversationListProps) {
   const [ inviteCopyState, setInviteCopyState ] = useState<"idle" | "copying" | "copied" | "error">("idle");
   const isManagerChat = data.isManager === true;
   const hasUnread = !isManagerChat && !!unreadCount && unreadCount > 0;
-  const nameClasses = hasUnread ? "text-slate-50 text-sm font-semibold" : "text-slate-50 text-sm font-medium";
+  const isCompact = variant === "compact";
+  const nameSizeClass = isCompact ? "text-[13px]" : "text-sm";
+  const nameClasses = hasUnread
+    ? `text-slate-50 ${nameSizeClass} font-semibold`
+    : `text-slate-50 ${nameSizeClass} font-medium`;
   const previewClasses = hasUnread ? "text-slate-50 text-xs font-medium" : "text-slate-400 text-xs";
+  const rowPadding = isCompact ? "px-3 py-2.5" : "px-3 py-3.5";
+  const avatarSize = isCompact ? { width: "w-9", height: "h-9" } : { width: "w-12", height: "h-12" };
   const sourceLabelRaw = typeof data.firstUtmSource === "string" ? data.firstUtmSource : null;
   const sourceLabel = sourceLabelRaw && sourceLabelRaw.trim().length > 0 ? formatSourceLabel(sourceLabelRaw) : "";
   const campaignLabel = data.firstUtmCampaign?.trim();
@@ -46,7 +60,8 @@ export default function ConversationList(props: ConversationListProps) {
   if (isManagerChat) {
     return (
       <div 
-        className={`flex items-center w-full bg-[#111B21] px-3 py-3.5 hover:bg-[#2A3942] cursor-pointer border-t ${borderClass}`}
+        className={`flex items-center w-full bg-[#111B21] ${rowPadding} hover:bg-[#2A3942] cursor-pointer border-t ${borderClass}`}
+        style={{ contentVisibility: "auto" }}
         onMouseMove={ () => seHover(true) }
         onMouseLeave={ () => seHover(false) }
         onClick={() => {
@@ -58,7 +73,7 @@ export default function ConversationList(props: ConversationListProps) {
         }}
       >
         <div className="flex items-center gap-3 w-full">
-          <Avatar width="w-12" height="h-12" image={image} />
+          <Avatar width={avatarSize.width} height={avatarSize.height} image={image} />
           <div className="flex flex-col gap-[2px] min-w-0 w-full">
             <div className="flex items-center gap-2 min-w-0">
               <span className={`truncate ${nameClasses}`}>{contactName}</span>
@@ -178,7 +193,8 @@ export default function ConversationList(props: ConversationListProps) {
 
   return (
     <div 
-      className={`flex items-center w-full bg-[#111B21] px-3 py-3.5 hover:bg-[#2A3942] cursor-pointer border-t ${borderClass}`}
+      className={`flex items-center w-full bg-[#111B21] ${rowPadding} hover:bg-[#2A3942] cursor-pointer border-t ${borderClass}`}
+      style={{ contentVisibility: "auto" }}
       onMouseMove={ () => seHover(true) }
       onMouseLeave={ () => seHover(false) }
       onClick={() => {
@@ -190,7 +206,7 @@ export default function ConversationList(props: ConversationListProps) {
       }}
     >
       <div className="flex items-center gap-3 w-full">
-        <Avatar width="w-12" height="h-12" image={image} />
+        <Avatar width={avatarSize.width} height={avatarSize.height} image={image} />
         <div className="flex w-full items-start gap-3 min-w-0">
           <div className="flex flex-col gap-[2px] min-w-0 w-full">
             <div className="flex items-center gap-2 min-w-0">
@@ -234,46 +250,48 @@ export default function ConversationList(props: ConversationListProps) {
                 </span>
               )}
             </div>
-            <span className={`truncate ${previewClasses}`}>{lastMessage}</span>
-            <div className="flex items-center gap-1 text-[11px] text-slate-500">
-              <span>{`${totalSpent} €`}</span>
-              <span className="w-1 h-1 rounded-full bg-slate-600" />
-              <span>{notesLabel}</span>
-              {hasExtrasPaid ? (
-                <>
-                  <span className="w-1 h-1 rounded-full bg-slate-600" />
-                  <span>{`Extras: ${extrasCount} · ${extrasSpent} €`}</span>
-                </>
-              ) : null}
-              {isHighPriority && (
-                <span className="inline-flex items-center text-amber-300" aria-label="Alta prioridad">
-                  🔥
-                </span>
-              )}
-              {notesCount > 0 && (
-                <span
-                  className="inline-flex items-center gap-1 text-slate-400"
-                  title={lastNoteSummary || ""}
-                >
-                  <span aria-hidden>📝</span>
-                </span>
-              )}
-              {hasNextAction && (
-                <span
-                  className="inline-flex items-center gap-1 text-slate-400"
-                  title={nextActionTooltip}
-                >
-                  <span aria-hidden>⚡</span>
-                </span>
-              )}
-            </div>
-            <div className="flex flex-wrap items-center gap-2 mt-1">
+            {!isCompact && <span className={`truncate ${previewClasses}`}>{lastMessage}</span>}
+            {!isCompact && (
+              <div className="flex items-center gap-1 text-[11px] text-slate-500">
+                <span>{`${totalSpent} €`}</span>
+                <span className="w-1 h-1 rounded-full bg-slate-600" />
+                <span>{notesLabel}</span>
+                {hasExtrasPaid ? (
+                  <>
+                    <span className="w-1 h-1 rounded-full bg-slate-600" />
+                    <span>{`Extras: ${extrasCount} · ${extrasSpent} €`}</span>
+                  </>
+                ) : null}
+                {isHighPriority && (
+                  <span className="inline-flex items-center text-amber-300" aria-label="Alta prioridad">
+                    🔥
+                  </span>
+                )}
+                {notesCount > 0 && (
+                  <span
+                    className="inline-flex items-center gap-1 text-slate-400"
+                    title={lastNoteSummary || ""}
+                  >
+                    <span aria-hidden>📝</span>
+                  </span>
+                )}
+                {hasNextAction && (
+                  <span
+                    className="inline-flex items-center gap-1 text-slate-400"
+                    title={nextActionTooltip}
+                  >
+                    <span aria-hidden>⚡</span>
+                  </span>
+                )}
+              </div>
+            )}
+            <div className={clsx("flex flex-wrap items-center gap-2", isCompact ? "mt-0.5" : "mt-1")}>
               {shouldShowAccessChip ? (
                 <span className="inline-flex items-center rounded-full bg-slate-800/80 text-[11px] text-amber-200 px-3 py-1 font-semibold whitespace-nowrap shrink-0 w-auto">
                   {accessChipLabel}
                 </span>
               ) : null}
-              {isInvitePending && (
+              {!isCompact && isInvitePending && (
                 <span
                   className="inline-flex items-center rounded-full border border-amber-400/70 bg-amber-500/10 px-2.5 py-1 text-[11px] font-semibold text-amber-100 whitespace-nowrap shrink-0"
                   title="Invitación privada /i/token pendiente de entrar"
@@ -281,7 +299,7 @@ export default function ConversationList(props: ConversationListProps) {
                   Pendiente
                 </span>
               )}
-              {canCopyInvite && (
+              {!isCompact && canCopyInvite && (
                 <button
                   type="button"
                   className="inline-flex items-center rounded-full border border-slate-700 bg-slate-900/70 px-2.5 py-1 text-[11px] font-semibold text-slate-200 hover:border-emerald-400 hover:text-emerald-100 whitespace-nowrap shrink-0 w-auto"
@@ -316,13 +334,13 @@ export default function ConversationList(props: ConversationListProps) {
                   {daysLabel}
                 </span>
               ) : null}
-              {notesCount > 0 && (
+              {!isCompact && notesCount > 0 && (
                 <span className="inline-flex items-center gap-1 text-[11px] text-slate-400 whitespace-nowrap shrink-0">
                   <span className="text-xs">📝</span>
                   <span>{notesCount}</span>
                 </span>
               )}
-              {(sourceLabel || campaignLabel || contentLabel) && (
+              {!isCompact && (sourceLabel || campaignLabel || contentLabel) && (
                 <div className="flex flex-wrap items-center gap-1">
                   {sourceLabel && (
                     <span className="inline-flex items-center rounded-full border border-slate-700 bg-slate-900/70 px-2.5 py-0.5 text-[11px] font-semibold text-slate-200 whitespace-nowrap shrink-0">
