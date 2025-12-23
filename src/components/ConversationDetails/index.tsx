@@ -403,14 +403,14 @@ export default function ConversationDetails({ onBackToBoard }: ConversationDetai
   const router = useRouter();
   const actionsMenuRef = useRef<HTMLDivElement | null>(null);
   const MAX_MESSAGE_HEIGHT = 96;
-  const MAX_INTERNAL_COMPOSER_HEIGHT = 180;
+  const MAX_INTERNAL_COMPOSER_HEIGHT = 220;
   const SCROLL_BOTTOM_THRESHOLD = 48;
   const messageInputRef = useRef<HTMLTextAreaElement | null>(null);
   const composerDockRef = useRef<HTMLDivElement | null>(null);
   const nextActionInputRef = useRef<HTMLInputElement | null>(null);
   type ManagerChatMessage = {
     id: string;
-    role: "creator" | "manager";
+    role: "creator" | "manager" | "system";
     text: string;
     createdAt: string;
     title?: string;
@@ -563,6 +563,27 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
       }, ttlMs);
     }
   }, []);
+
+  const autoGrowTextarea = useCallback((el: HTMLTextAreaElement | null, maxHeight: number) => {
+    if (!el) return;
+    el.style.height = "0px";
+    const next = Math.min(el.scrollHeight, maxHeight);
+    el.style.height = `${next}px`;
+    el.style.overflowY = el.scrollHeight > maxHeight ? "auto" : "hidden";
+  }, []);
+
+  const focusManagerComposer = useCallback((withSelectionEnd = true) => {
+    requestAnimationFrame(() => {
+      const input = managerChatInputRef.current;
+      if (!input) return;
+      input.focus();
+      if (withSelectionEnd) {
+        const len = input.value.length;
+        input.setSelectionRange(len, len);
+      }
+      autoGrowTextarea(input, MAX_INTERNAL_COMPOSER_HEIGHT);
+    });
+  }, [autoGrowTextarea]);
 
   const firstName = (contactName || "").split(" ")[0] || contactName || "";
   const messagesLength = messages?.length ?? 0;
@@ -1911,10 +1932,8 @@ useEffect(() => {
     if (inlinePanel !== "manager") return;
     if (internalPanelTab !== "manager") return;
     if (composerAudience !== "INTERNAL") return;
-    requestAnimationFrame(() => {
-      managerChatInputRef.current?.focus();
-    });
-  }, [inlinePanel, internalPanelTab, composerAudience]);
+    focusManagerComposer(true);
+  }, [inlinePanel, internalPanelTab, composerAudience, focusManagerComposer]);
 
   useEffect(() => {
     if (!inlinePanel && !inlineAction) return;
@@ -2081,11 +2100,9 @@ useEffect(() => {
       if (!trimmed) return;
       setManagerChatInput(trimmed);
       openInternalPanelTab("manager");
-      requestAnimationFrame(() => {
-        managerChatInputRef.current?.focus();
-      });
+      focusManagerComposer(true);
     },
-    [openInternalPanelTab]
+    [openInternalPanelTab, focusManagerComposer]
   );
 
   const openAttachContent = (options?: { closeInline?: boolean }) => {
@@ -2408,74 +2425,100 @@ useEffect(() => {
                 onAutopilotMakeBolder={handleAutopilotMakeBolder}
               />
             </div>
-            <div className="space-y-2">
+            <div className="space-y-3">
               <div className="text-[11px] font-semibold text-slate-400">Conversación con Manager IA</div>
-              {managerChatMessages.length === 0 && (
-                <div className="text-[11px] text-slate-500">Aún no has preguntado al Manager IA.</div>
-              )}
-              {managerChatMessages.map((msg) => (
-                <div
-                  key={msg.id}
-                  className={clsx(
-                    "flex flex-col",
-                    msg.role === "manager" ? "w-full max-w-none" : "max-w-[85%]",
-                    msg.role === "creator" ? "self-end items-end" : "self-start items-start"
-                  )}
-                >
-                  <span className="text-[10px] uppercase tracking-wide text-slate-500">
-                    {msg.role === "creator" ? "Tú" : "Manager IA"}
-                  </span>
-                  {msg.role === "manager" && (msg.suggestions?.length ?? 0) > 0 ? (
-                    <div className="w-full rounded-2xl border border-slate-700 bg-slate-900/70 px-3 py-2 text-xs leading-relaxed text-slate-100 space-y-2">
-                      {msg.title && (
-                        <div className="text-[10px] uppercase tracking-wide text-slate-400">
-                          {msg.title}
-                        </div>
+              <div className="rounded-2xl border border-slate-800/60 bg-slate-950/40 p-3 space-y-4">
+                {managerChatMessages.length === 0 && (
+                  <div className="text-[11px] text-slate-500">Aún no has preguntado al Manager IA.</div>
+                )}
+                {managerChatMessages.map((msg) => {
+                  const isCreator = msg.role === "creator";
+                  const isManager = msg.role === "manager";
+                  const isSystem = msg.role === "system";
+                  const hasSuggestions = isManager && (msg.suggestions?.length ?? 0) > 0;
+                  const bubbleClass = clsx(
+                    "rounded-2xl px-4 py-2.5 text-xs leading-relaxed whitespace-pre-wrap break-words [overflow-wrap:anywhere]",
+                    "[&_a]:underline [&_a]:underline-offset-2",
+                    isCreator
+                      ? "bg-emerald-600/80 text-white"
+                      : isManager
+                      ? "bg-slate-800/80 text-slate-100"
+                      : "bg-slate-900/70 text-slate-300"
+                  );
+                  return (
+                    <div
+                      key={msg.id}
+                      className={clsx(
+                        "flex w-full",
+                        isSystem ? "justify-center" : isCreator ? "justify-end" : "justify-start"
                       )}
-                      {msg.suggestions?.map((suggestion, idx) => (
-                        <div
-                          key={`${msg.id}-suggestion-${idx}`}
-                          className="flex w-full flex-col gap-2 rounded-xl border border-slate-800 bg-slate-950/60 px-3 py-2"
-                        >
-                          <div className="text-[11px] text-slate-100">{suggestion}</div>
+                    >
+                      <div
+                        className={clsx(
+                          "flex flex-col gap-1",
+                          isSystem ? "items-center max-w-[85%]" : "w-full",
+                          isCreator ? "items-end" : "items-start"
+                        )}
+                      >
+                        {!isSystem && (
+                          <span className="text-[10px] uppercase tracking-wide text-slate-500">
+                            {isCreator ? "Tú" : "Manager IA"}
+                          </span>
+                        )}
+                        {isSystem ? (
+                          <div className="rounded-full border border-slate-700 bg-slate-900/60 px-3 py-1 text-[10px] uppercase tracking-wide text-slate-400 text-center">
+                            {msg.text}
+                          </div>
+                        ) : (
+                          <div className={clsx(bubbleClass, "max-w-[75%]")}>{msg.text}</div>
+                        )}
+                        {isManager && !hasSuggestions && (
                           <button
                             type="button"
-                            onClick={() =>
-                              handleUseManagerReplyAsMainMessage(suggestion, msg.title ?? "Manager IA")
-                            }
-                            className={inlineActionButtonClass}
+                            onClick={() => handleUseManagerReplyAsMainMessage(msg.text, msg.title ?? "Manager IA")}
+                            className={clsx("mt-1", inlineActionButtonClass)}
                           >
                             Usar en mensaje
                           </button>
-                        </div>
-                      ))}
-                    </div>
-                  ) : (
-                    <>
-                      <div
-                        className={clsx(
-                          "rounded-2xl px-3 py-2 text-xs leading-relaxed",
-                          msg.role === "manager" && "w-full",
-                          msg.role === "creator"
-                            ? "bg-emerald-600/80 text-white"
-                            : "bg-slate-800/80 text-slate-100"
                         )}
-                      >
-                        {msg.text}
+                        {hasSuggestions && (
+                          <div className="mt-2 w-full max-w-none rounded-xl border border-slate-800/70 bg-slate-950/60 p-3 space-y-2">
+                            <div className="text-[10px] uppercase tracking-wide text-slate-500">
+                              Sugerencias del Manager
+                            </div>
+                            {msg.title && (
+                              <div className="text-[10px] uppercase tracking-wide text-slate-400">
+                                {msg.title}
+                              </div>
+                            )}
+                            <div className="space-y-2">
+                              {msg.suggestions?.map((suggestion, idx) => (
+                                <div
+                                  key={`${msg.id}-suggestion-${idx}`}
+                                  className="flex w-full flex-col gap-2 rounded-xl border border-slate-800 bg-slate-950/60 px-3 py-2"
+                                >
+                                  <div className="text-[11px] text-slate-100 whitespace-pre-wrap break-words [overflow-wrap:anywhere]">
+                                    {suggestion}
+                                  </div>
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      handleUseManagerReplyAsMainMessage(suggestion, msg.title ?? "Manager IA")
+                                    }
+                                    className={inlineActionButtonClass}
+                                  >
+                                    Usar en mensaje
+                                  </button>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
                       </div>
-                      {msg.role === "manager" && (
-                        <button
-                          type="button"
-                          onClick={() => handleUseManagerReplyAsMainMessage(msg.text, msg.title ?? "Manager IA")}
-                          className={clsx("mt-1", inlineActionButtonClass)}
-                        >
-                          Usar en mensaje
-                        </button>
-                      )}
-                    </>
-                  )}
-                </div>
-              ))}
+                    </div>
+                  );
+                })}
+              </div>
               <div ref={managerChatEndRef} />
             </div>
           </div>
@@ -3196,11 +3239,11 @@ useEffect(() => {
 
   useIsomorphicLayoutEffect(() => {
     autoGrowTextarea(managerChatInputRef.current, MAX_INTERNAL_COMPOSER_HEIGHT);
-  }, [managerChatInput]);
+  }, [managerChatInput, autoGrowTextarea]);
 
   useIsomorphicLayoutEffect(() => {
     autoGrowTextarea(internalDraftInputRef.current, MAX_INTERNAL_COMPOSER_HEIGHT);
-  }, [internalDraftInput]);
+  }, [internalDraftInput, autoGrowTextarea]);
 
   const mapQuickIntentToSuggestionIntent = (intent?: ManagerQuickIntent): ManagerSuggestionIntent => {
     switch (intent) {
@@ -3643,6 +3686,7 @@ useEffect(() => {
     });
     setManagerChatInput("");
     openInternalPanelTab("manager");
+    focusManagerComposer(true);
 
     setTimeout(() => {
       const resolvedIntent = intent
@@ -3881,14 +3925,6 @@ useEffect(() => {
     el.style.height = "auto";
     const next = Math.min(el.scrollHeight, MAX_MESSAGE_HEIGHT);
     el.style.height = `${next}px`;
-  };
-
-  const autoGrowTextarea = (el: HTMLTextAreaElement | null, maxHeight: number) => {
-    if (!el) return;
-    el.style.height = "0px";
-    const next = Math.min(el.scrollHeight, maxHeight);
-    el.style.height = `${next}px`;
-    el.style.overflowY = el.scrollHeight > maxHeight ? "auto" : "hidden";
   };
 
   async function sendMessageText(
