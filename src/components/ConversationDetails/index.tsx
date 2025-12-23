@@ -101,26 +101,42 @@ type InlinePanelShellProps = {
   title: string;
   children: ReactNode;
   onClose: () => void;
+  containerClassName?: string;
   bodyRef?: Ref<HTMLDivElement>;
   bodyClassName?: string;
+  bodyScrollClassName?: string;
   onBodyScroll?: UIEventHandler<HTMLDivElement>;
   onBodyWheel?: WheelEventHandler<HTMLDivElement>;
   scrollable?: boolean;
+  footer?: ReactNode;
 };
 
 function InlinePanelShell({
   title,
   children,
   onClose,
+  containerClassName,
   bodyRef,
   bodyClassName,
+  bodyScrollClassName,
   onBodyScroll,
   onBodyWheel,
   scrollable = true,
+  footer,
 }: InlinePanelShellProps) {
+  const scrollClassName =
+    bodyScrollClassName ??
+    (scrollable
+      ? "min-h-0 max-h-[45vh] overflow-y-auto overscroll-contain space-y-3"
+      : "overflow-hidden");
   return (
-    <div className="w-full rounded-2xl border border-slate-800/60 bg-gradient-to-b from-slate-950/70 via-slate-900/80 to-slate-900/70 backdrop-blur-xl shadow-[0_12px_30px_rgba(0,0,0,0.25)] ring-1 ring-white/5">
-      <div className="flex items-center justify-between border-b border-slate-800/50 px-4 py-2">
+    <div
+      className={clsx(
+        "w-full rounded-2xl border border-slate-800/60 bg-gradient-to-b from-slate-950/70 via-slate-900/80 to-slate-900/70 backdrop-blur-xl shadow-[0_12px_30px_rgba(0,0,0,0.25)] ring-1 ring-white/5",
+        containerClassName
+      )}
+    >
+      <div className="shrink-0 flex items-center justify-between border-b border-slate-800/50 px-4 py-2">
         <span className="text-[11px] font-semibold text-slate-300">{title}</span>
         <button
           type="button"
@@ -137,14 +153,13 @@ function InlinePanelShell({
         onWheelCapture={onBodyWheel}
         className={clsx(
           "px-4 py-3 text-[12px] text-slate-200",
-          scrollable
-            ? "min-h-0 max-h-[45vh] overflow-y-auto overscroll-contain space-y-3"
-            : "overflow-hidden",
+          scrollClassName,
           bodyClassName
         )}
       >
         {children}
       </div>
+      {footer}
     </div>
   );
 }
@@ -171,18 +186,32 @@ type InlinePanelContainerProps = {
   isOpen: boolean;
   panelId?: string;
   bottomOffset?: number;
+  openMaxHeightClassName?: string;
+  isOverlay?: boolean;
 };
 
-function InlinePanelContainer({ children, isOpen, panelId, bottomOffset }: InlinePanelContainerProps) {
+function InlinePanelContainer({
+  children,
+  isOpen,
+  panelId,
+  bottomOffset,
+  openMaxHeightClassName,
+  isOverlay = false,
+}: InlinePanelContainerProps) {
+  const openMaxHeight = openMaxHeightClassName ?? "max-h-[55vh]";
+  const openClassName = isOverlay
+    ? "opacity-100 visible"
+    : clsx("mt-3 opacity-100 translate-y-0 visible", openMaxHeight);
+  const closedClassName = isOverlay
+    ? "opacity-0 invisible pointer-events-none"
+    : "mt-0 max-h-0 opacity-0 -translate-y-1 invisible pointer-events-none";
   return (
     <div
       id={panelId}
       className={clsx(
         "transition-all duration-200 ease-out overflow-hidden",
-        bottomOffset ? "sticky z-10" : null,
-        isOpen
-          ? "mt-3 max-h-[55vh] opacity-100 translate-y-0 visible"
-          : "mt-0 max-h-0 opacity-0 -translate-y-1 invisible pointer-events-none"
+        isOverlay ? "absolute inset-0 z-40" : bottomOffset ? "sticky z-10" : null,
+        isOpen ? openClassName : closedClassName
       )}
       style={{
         willChange: "opacity, transform, max-height",
@@ -398,6 +427,7 @@ export default function ConversationDetails({ onBackToBoard }: ConversationDetai
   const managerChatListRef = useRef<HTMLDivElement | null>(null);
   const managerChatInputRef = useRef<HTMLTextAreaElement | null>(null);
   const managerPanelScrollRef = useRef<HTMLDivElement | null>(null);
+  const managerChatEndRef = useRef<HTMLDivElement | null>(null);
   const managerPanelScrollTopRef = useRef(0);
   const managerPanelStickToBottomRef = useRef(false);
   const internalChatScrollTopRef = useRef(0);
@@ -1876,6 +1906,15 @@ useEffect(() => {
   }, [composerAudience, lastPanelOpenByMode.INTERNAL, lastTabByMode.INTERNAL]);
 
   useEffect(() => {
+    if (inlinePanel !== "manager") return;
+    if (internalPanelTab !== "manager") return;
+    if (composerAudience !== "INTERNAL") return;
+    requestAnimationFrame(() => {
+      managerChatInputRef.current?.focus();
+    });
+  }, [inlinePanel, internalPanelTab, composerAudience]);
+
+  useEffect(() => {
     if (!inlinePanel && !inlineAction) return;
     const handleKeyDown = (event: globalThis.KeyboardEvent) => {
       if (event.key === "Escape") {
@@ -2067,7 +2106,6 @@ useEffect(() => {
       (chip) => chip.tone === "danger" || chip.tone === "warning"
     );
     const dockOffset = Math.max(0, dockHeight) + 12;
-    const internalPanelPadding = Math.max(24, Math.min(96, dockHeight || 0));
     const internalDraftCount = includeInternalContext ? recentInternalDrafts.length : 0;
     const templatesCount: number = TRANSLATION_QUICK_CHIPS.length;
     const allowedTabs = INLINE_TABS_BY_MODE[composerAudience] as readonly InlineTab[];
@@ -2328,8 +2366,7 @@ useEffect(() => {
           ref={managerPanelScrollRef}
           onScroll={updateManagerPanelScrollState}
           onWheelCapture={handlePanelWheel}
-          className="flex-1 min-h-0 overflow-y-auto overscroll-contain pr-1"
-          style={{ paddingBottom: internalPanelPadding }}
+          className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-4 py-3 pb-28"
         >
           <div className="space-y-3">
             <div className="text-[11px] font-semibold text-slate-400">Insights y control</div>
@@ -2378,7 +2415,8 @@ useEffect(() => {
                 <div
                   key={msg.id}
                   className={clsx(
-                    "flex flex-col max-w-[85%]",
+                    "flex flex-col",
+                    msg.role === "manager" ? "w-full max-w-none" : "max-w-[85%]",
                     msg.role === "creator" ? "self-end items-end" : "self-start items-start"
                   )}
                 >
@@ -2386,7 +2424,7 @@ useEffect(() => {
                     {msg.role === "creator" ? "Tú" : "Manager IA"}
                   </span>
                   {msg.role === "manager" && (msg.suggestions?.length ?? 0) > 0 ? (
-                    <div className="rounded-2xl border border-slate-700 bg-slate-900/70 px-3 py-2 text-xs leading-relaxed text-slate-100 space-y-2">
+                    <div className="w-full rounded-2xl border border-slate-700 bg-slate-900/70 px-3 py-2 text-xs leading-relaxed text-slate-100 space-y-2">
                       {msg.title && (
                         <div className="text-[10px] uppercase tracking-wide text-slate-400">
                           {msg.title}
@@ -2395,7 +2433,7 @@ useEffect(() => {
                       {msg.suggestions?.map((suggestion, idx) => (
                         <div
                           key={`${msg.id}-suggestion-${idx}`}
-                          className="flex flex-col gap-2 rounded-xl border border-slate-800 bg-slate-950/60 px-3 py-2"
+                          className="flex w-full flex-col gap-2 rounded-xl border border-slate-800 bg-slate-950/60 px-3 py-2"
                         >
                           <div className="text-[11px] text-slate-100">{suggestion}</div>
                           <button
@@ -2415,6 +2453,7 @@ useEffect(() => {
                       <div
                         className={clsx(
                           "rounded-2xl px-3 py-2 text-xs leading-relaxed",
+                          msg.role === "manager" && "w-full",
                           msg.role === "creator"
                             ? "bg-emerald-600/80 text-white"
                             : "bg-slate-800/80 text-slate-100"
@@ -2435,10 +2474,11 @@ useEffect(() => {
                   )}
                 </div>
               ))}
+              <div ref={managerChatEndRef} />
             </div>
           </div>
         </div>
-        <div className="shrink-0 border-t border-slate-800/70 pt-3">
+        <div className="shrink-0 border-t border-slate-800/70 bg-slate-950/80 px-4 py-3">
           <label className="mb-2 flex items-center gap-2 text-[11px] text-slate-400">
             <input
               type="checkbox"
@@ -2452,7 +2492,7 @@ useEffect(() => {
             <textarea
               rows={1}
               className="flex-1 rounded-2xl bg-slate-900/80 px-3 py-2 text-xs leading-relaxed text-slate-100 placeholder:text-slate-400 resize-none overflow-y-auto max-h-24 focus:outline-none focus:ring-2 focus:ring-amber-400/60"
-              placeholder="Pregúntale al Manager IA…"
+              placeholder="Pregúntale al Manager…"
               ref={managerChatInputRef}
               value={managerChatInput}
               onChange={(e) => setManagerChatInput(e.target.value)}
@@ -2472,14 +2512,15 @@ useEffect(() => {
     );
 
     const renderInternalChatContent = () => (
-      <div className="flex min-h-0 flex-1 flex-col gap-3">
-        <div className="text-[11px] text-slate-400">Borradores tuyos. No se envía al fan.</div>
+      <div className="flex min-h-0 flex-1 flex-col">
+        <div className="px-4 pt-3 text-[11px] text-slate-400">
+          Borradores tuyos. No se envía al fan.
+        </div>
         <div
           ref={managerChatListRef}
           onScroll={updateInternalChatScrollState}
           onWheelCapture={handlePanelWheel}
-          className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto overscroll-contain pr-1"
-          style={{ paddingBottom: internalPanelPadding }}
+          className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto overscroll-contain px-4 py-3 pb-28"
         >
           {isLoadingInternalMessages && (
             <div className="text-[11px] text-slate-500">Cargando mensajes internos...</div>
@@ -2505,14 +2546,14 @@ useEffect(() => {
                   <div
                     key={msg.id}
                     className={clsx(
-                      "flex flex-col max-w-[85%]",
-                      isCreatorNote ? "self-end items-end" : "self-start items-start"
+                      "flex w-full max-w-none flex-col",
+                      isCreatorNote ? "items-end" : "items-start"
                     )}
                   >
                     <span className="text-[10px] uppercase tracking-wide text-slate-500">{label}</span>
                     <div
                       className={clsx(
-                        "rounded-2xl px-3 py-2 text-xs leading-relaxed",
+                        "w-full rounded-2xl px-4 py-3 text-xs leading-relaxed",
                         isCreatorNote
                           ? "bg-amber-500/20 text-amber-50"
                           : "bg-slate-800/80 text-slate-100"
@@ -2524,13 +2565,22 @@ useEffect(() => {
                         </span>
                       )}
                       <div>{noteText}</div>
-                      <button
-                        type="button"
-                        onClick={() => handleAskManagerFromDraft(noteText)}
-                        className={clsx("mt-2", inlineActionButtonClass)}
-                      >
-                        Preguntar al Manager con esto
-                      </button>
+                      <div className="mt-3 flex flex-wrap gap-2">
+                        <button
+                          type="button"
+                          onClick={() => handleUseManagerReplyAsMainMessage(noteText, "Borrador interno")}
+                          className={inlineActionButtonClass}
+                        >
+                          Usar en mensaje
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleAskManagerFromDraft(noteText)}
+                          className={inlineActionButtonClass}
+                        >
+                          Preguntar al Manager
+                        </button>
+                      </div>
                     </div>
                   </div>
                 );
@@ -2538,7 +2588,7 @@ useEffect(() => {
             </div>
           )}
         </div>
-        <div className="shrink-0 border-t border-slate-800/70 pt-3">
+        <div className="shrink-0 border-t border-slate-800/70 bg-slate-950/80 px-4 py-3">
           <div className="text-[11px] font-semibold text-slate-400">Nuevo borrador</div>
           <div className="mt-2 flex items-end gap-2">
             <textarea
@@ -2565,8 +2615,7 @@ useEffect(() => {
     const renderInternalNoteContent = () => (
       <div
         onWheelCapture={handlePanelWheel}
-        className="flex-1 min-h-0 overflow-y-auto overscroll-contain pr-1 space-y-3"
-        style={{ paddingBottom: internalPanelPadding }}
+        className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-4 py-3 pb-28 space-y-3"
       >
         <div className="text-[11px] text-slate-400">
           Seguimiento: próxima acción + nota persistente.
@@ -2643,11 +2692,16 @@ useEffect(() => {
               title="Panel interno"
               onClose={closeInlinePanel}
               onBodyWheel={handlePanelWheel}
+              containerClassName="flex flex-col h-full min-h-0 w-full max-w-none overflow-hidden"
               scrollable={false}
-              bodyClassName="px-0 py-0 min-h-0"
+              bodyClassName="px-0 py-0 min-h-0 flex-1 flex flex-col overflow-hidden"
             >
-              <div className="flex max-h-[55vh] min-h-0 flex-col gap-3 px-4 py-3 overflow-hidden">
-                <div className="flex flex-wrap items-center gap-2" role="tablist" aria-label="Panel interno">
+              <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-hidden">
+                <div
+                  className="shrink-0 flex flex-wrap items-center gap-2 px-4 pt-3"
+                  role="tablist"
+                  aria-label="Panel interno"
+                >
                   {[
                     { id: "manager", label: "Manager IA" },
                     { id: "internal", label: "Borradores" },
@@ -2681,42 +2735,21 @@ useEffect(() => {
           );
         }
 
-        const suggestions = managerSuggestions.slice(0, 3);
-        const managerContext = managerStatusLabel;
         return (
           <InlinePanelShell title="Manager IA" onClose={closeInlinePanel}>
             <div className="space-y-3">
-              <div>
-                <div className="text-[11px] font-semibold text-slate-400">Contexto</div>
-                <div className="mt-1 text-[11px] text-slate-200">{managerContext}</div>
-              </div>
-              <div className="space-y-2">
-                {suggestions.length > 0 ? (
-                  suggestions.map((suggestion) => (
-                    <div
-                      key={suggestion.id}
-                      className="rounded-xl border border-slate-800/60 bg-slate-950/40 p-3 space-y-2"
-                    >
-                      <div className="text-[12px] font-semibold text-slate-100">{suggestion.label}</div>
-                      <div className="text-[11px] leading-relaxed text-slate-300 line-clamp-2">
-                        {suggestion.message}
-                      </div>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          handleApplyManagerSuggestion(suggestion.message, suggestion.label);
-                          setInlinePanel(null);
-                        }}
-                        className={inlineActionButtonClass}
-                      >
-                        Insertar
-                      </button>
-                    </div>
-                  ))
-                ) : (
-                  <InlineEmptyState icon="✨" title="Sin sugerencias nuevas" subtitle="Vuelve en unos minutos." />
-                )}
-              </div>
+              <InlineEmptyState
+                icon="IA"
+                title="Abre el chat del Manager IA"
+                subtitle="Este atajo abre el panel interno para conversar con tu Manager."
+              />
+              <button
+                type="button"
+                onClick={() => openInternalPanelTab("manager")}
+                className={inlineActionButtonClass}
+              >
+                Abrir chat
+              </button>
             </div>
           </InlinePanelShell>
         );
@@ -2794,6 +2827,8 @@ useEffect(() => {
     const panelContent = renderInlinePanel(panelTab);
 
     const panelId = "composer-inline-panel";
+    const isInternalPanelOverlay = !isFanMode && panelTab === "manager";
+    const panelMaxHeightClassName = isInternalPanelOverlay ? "max-h-none h-full" : undefined;
 
     const chips = (
       <>
@@ -2807,10 +2842,11 @@ useEffect(() => {
             <button
               type="button"
               onClick={() => {
-                if (!isFanMode && inlinePanel !== "manager") {
-                  setInternalPanelTab("manager");
+                if (inlinePanel === "manager" && !isFanMode) {
+                  closeInlinePanel();
+                  return;
                 }
-                toggleInlineTab("manager");
+                openInternalPanelTab("manager");
               }}
               className="inline-flex items-center gap-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400/40"
               aria-expanded={inlinePanel === "manager"}
@@ -2916,12 +2952,15 @@ useEffect(() => {
         <InlinePanelContainer
           isOpen={isPanelOpen}
           panelId={panelId}
-          bottomOffset={!isFanMode ? dockOffset : undefined}
+          bottomOffset={isInternalPanelOverlay ? undefined : !isFanMode ? dockOffset : undefined}
+          openMaxHeightClassName={panelMaxHeightClassName}
+          isOverlay={isInternalPanelOverlay}
         >
           {panelContent}
         </InlinePanelContainer>
       ),
       isPanelOpen,
+      isInternalPanelOverlay,
     };
   };
 
@@ -3131,6 +3170,12 @@ useEffect(() => {
     managerChatMessages.length,
     syncManagerPanelScroll,
   ]);
+
+  useEffect(() => {
+    if (inlinePanel !== "manager" || isFanMode || internalPanelTab !== "manager") return;
+    if (!managerChatEndRef.current) return;
+    managerChatEndRef.current.scrollIntoView({ behavior: "smooth", block: "end" });
+  }, [inlinePanel, isFanMode, internalPanelTab, managerChatMessages.length]);
 
   useIsomorphicLayoutEffect(() => {
     if (inlinePanel !== "manager" || isFanMode || internalPanelTab !== "internal") return;
@@ -3799,6 +3844,7 @@ useEffect(() => {
   function changeHandler(evt: KeyboardEvent<HTMLTextAreaElement>) {
     const { key } = evt;
 
+    if (isManagerPanelActive) return;
     if (key === "Enter" && !evt.shiftKey) {
       evt.preventDefault();
       if (isSendingRef.current) return;
@@ -3924,6 +3970,7 @@ useEffect(() => {
   }
 
   async function handleSendMessage() {
+    if (isManagerPanelActive) return;
     if (isSendingRef.current) return;
     isSendingRef.current = true;
     setIsSending(true);
@@ -4155,16 +4202,21 @@ useEffect(() => {
     !conversation.isManager && preferredLanguage ? preferredLanguage.toUpperCase() : null;
   const languageSelectValue = preferredLanguage ?? "auto";
   const isInternalMode = composerAudience === "INTERNAL";
-  const sendDisabled = isSending || !(messageSend.trim().length > 0) || (isChatBlocked && !isInternalMode);
+  const isManagerPanelActive = inlinePanel === "manager" && internalPanelTab === "manager";
+  const sendDisabled =
+    isSending ||
+    !(messageSend.trim().length > 0) ||
+    (isChatBlocked && !isInternalMode) ||
+    isManagerPanelActive;
   const composerPlaceholder = isChatBlocked && !isInternalMode
     ? "Has bloqueado este chat. Desbloquéalo para volver a escribir."
     : isInternalMode
     ? "Mensaje interno (no se envía)"
     : "Mensaje al fan";
+  const mainComposerPlaceholder = isManagerPanelActive
+    ? "Usa el chat del Manager IA…"
+    : composerPlaceholder;
   const composerActionLabel = "Enviar";
-  const managerStatusLabel =
-    fanManagerAnalysis.chips.find((chip) => chip.tone === "danger")?.label ||
-    (autoPilotEnabled ? "AUTO" : fanManagerAnalysis.chips[0]?.label || "Manual");
   const extrasCountDisplay = conversation.extrasCount ?? 0;
   const extrasSpentDisplay = Math.round(conversation.extrasSpentTotal ?? 0);
   const extrasAmount = conversation.extrasSpentTotal ?? 0;
@@ -4677,7 +4729,7 @@ useEffect(() => {
         </header>
       )}
       <div className="flex flex-1 min-h-0 min-w-0">
-        <div className="flex flex-col flex-1 min-h-0 min-w-0">
+        <div className="relative flex flex-col flex-1 min-h-0 min-w-0 h-full">
           <header ref={fanHeaderRef} className="sticky top-0 z-20 backdrop-blur">
             <div className="max-w-4xl mx-auto w-full bg-slate-950/70 border-b border-slate-800 px-4 py-3 md:px-6 md:py-4 flex flex-col gap-3">
           {/* Piso 1 */}
@@ -4844,6 +4896,7 @@ useEffect(() => {
           </div>
         </div>
       </header>
+      {composerDock?.isInternalPanelOverlay && composerDock.panel}
       {isChatBlocked && (
         <div className="mx-4 mt-2 rounded-xl border border-red-500/40 bg-red-500/10 px-3 py-2 text-xs md:text-sm text-red-200 flex items-center gap-2">
           <span className="inline-block h-2 w-2 rounded-full bg-red-400" />
@@ -5075,7 +5128,7 @@ useEffect(() => {
             {messagesError && !isLoadingMessages && (
               <div className="text-center text-red-400 text-sm mt-2">{messagesError}</div>
             )}
-            {composerDock?.panel}
+            {!composerDock?.isInternalPanelOverlay && composerDock?.panel}
             {inlineAction && (
               <div className="mt-3">
                 <div className="relative flex items-start gap-3 rounded-2xl border border-slate-800/60 bg-slate-950/70 px-4 py-3 text-xs text-slate-100 shadow-[0_8px_20px_rgba(0,0,0,0.25)] ring-1 ring-white/5 backdrop-blur">
@@ -5454,15 +5507,16 @@ useEffect(() => {
                       "px-1 text-base leading-relaxed text-slate-50",
                       "placeholder:text-slate-400 focus:outline-none",
                       isInternalMode ? "caret-amber-300" : "caret-emerald-400",
-                      isChatBlocked && !isInternalMode && "cursor-not-allowed"
+                      isChatBlocked && !isInternalMode && "cursor-not-allowed",
+                      isManagerPanelActive && "cursor-not-allowed"
                     )}
-                    placeholder={composerPlaceholder}
+                    placeholder={mainComposerPlaceholder}
                     onKeyDown={(evt) => changeHandler(evt)}
                     onChange={(evt) => {
                       setMessageSend(evt.target.value);
                     }}
                     value={messageSend}
-                    disabled={isChatBlocked && !isInternalMode}
+                    disabled={(isChatBlocked && !isInternalMode) || isManagerPanelActive}
                     style={{ maxHeight: `${MAX_MESSAGE_HEIGHT}px` }}
                   />
                 </div>
