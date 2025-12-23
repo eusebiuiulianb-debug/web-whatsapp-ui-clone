@@ -403,6 +403,7 @@ export default function ConversationDetails({ onBackToBoard }: ConversationDetai
   const router = useRouter();
   const actionsMenuRef = useRef<HTMLDivElement | null>(null);
   const MAX_MESSAGE_HEIGHT = 96;
+  const MAX_INTERNAL_COMPOSER_HEIGHT = 180;
   const SCROLL_BOTTOM_THRESHOLD = 48;
   const messageInputRef = useRef<HTMLTextAreaElement | null>(null);
   const composerDockRef = useRef<HTMLDivElement | null>(null);
@@ -426,6 +427,7 @@ export default function ConversationDetails({ onBackToBoard }: ConversationDetai
   const [ internalDraftInput, setInternalDraftInput ] = useState("");
   const managerChatListRef = useRef<HTMLDivElement | null>(null);
   const managerChatInputRef = useRef<HTMLTextAreaElement | null>(null);
+  const internalDraftInputRef = useRef<HTMLTextAreaElement | null>(null);
   const managerPanelScrollRef = useRef<HTMLDivElement | null>(null);
   const managerChatEndRef = useRef<HTMLDivElement | null>(null);
   const managerPanelScrollTopRef = useRef(0);
@@ -2491,11 +2493,14 @@ useEffect(() => {
           <div className="flex items-end gap-2">
             <textarea
               rows={1}
-              className="flex-1 rounded-2xl bg-slate-900/80 px-3 py-2 text-xs leading-relaxed text-slate-100 placeholder:text-slate-400 resize-none overflow-y-auto max-h-24 focus:outline-none focus:ring-2 focus:ring-amber-400/60"
+              className="flex-1 w-full rounded-xl bg-slate-900/80 px-4 py-3 text-xs leading-6 text-slate-100 placeholder:text-slate-400 resize-none overflow-y-auto focus:outline-none focus:ring-2 focus:ring-amber-400/60"
               placeholder="Pregúntale al Manager…"
               ref={managerChatInputRef}
               value={managerChatInput}
-              onChange={(e) => setManagerChatInput(e.target.value)}
+              onChange={(e) => {
+                setManagerChatInput(e.target.value);
+                autoGrowTextarea(e.currentTarget, MAX_INTERNAL_COMPOSER_HEIGHT);
+              }}
               onKeyDown={handleManagerChatKeyDown}
             />
             <button
@@ -2592,11 +2597,15 @@ useEffect(() => {
           <div className="text-[11px] font-semibold text-slate-400">Nuevo borrador</div>
           <div className="mt-2 flex items-end gap-2">
             <textarea
-              rows={2}
-              className="flex-1 rounded-2xl bg-slate-900/80 px-3 py-2 text-xs leading-relaxed text-slate-100 placeholder:text-slate-400 resize-none overflow-y-auto max-h-24 focus:outline-none focus:ring-2 focus:ring-amber-400/60"
+              rows={1}
+              className="flex-1 w-full rounded-xl bg-slate-900/80 px-4 py-3 text-xs leading-6 text-slate-100 placeholder:text-slate-400 resize-none overflow-y-auto focus:outline-none focus:ring-2 focus:ring-amber-400/60"
               placeholder="Guarda un borrador interno…"
+              ref={internalDraftInputRef}
               value={internalDraftInput}
-              onChange={(e) => setInternalDraftInput(e.target.value)}
+              onChange={(e) => {
+                setInternalDraftInput(e.target.value);
+                autoGrowTextarea(e.currentTarget, MAX_INTERNAL_COMPOSER_HEIGHT);
+              }}
               onKeyDown={handleInternalDraftKeyDown}
             />
             <button
@@ -3184,6 +3193,14 @@ useEffect(() => {
     });
     return () => cancelAnimationFrame(frame);
   }, [inlinePanel, isFanMode, internalPanelTab, internalMessages.length, syncInternalChatScroll]);
+
+  useIsomorphicLayoutEffect(() => {
+    autoGrowTextarea(managerChatInputRef.current, MAX_INTERNAL_COMPOSER_HEIGHT);
+  }, [managerChatInput]);
+
+  useIsomorphicLayoutEffect(() => {
+    autoGrowTextarea(internalDraftInputRef.current, MAX_INTERNAL_COMPOSER_HEIGHT);
+  }, [internalDraftInput]);
 
   const mapQuickIntentToSuggestionIntent = (intent?: ManagerQuickIntent): ManagerSuggestionIntent => {
     switch (intent) {
@@ -3864,6 +3881,14 @@ useEffect(() => {
     el.style.height = "auto";
     const next = Math.min(el.scrollHeight, MAX_MESSAGE_HEIGHT);
     el.style.height = `${next}px`;
+  };
+
+  const autoGrowTextarea = (el: HTMLTextAreaElement | null, maxHeight: number) => {
+    if (!el) return;
+    el.style.height = "0px";
+    const next = Math.min(el.scrollHeight, maxHeight);
+    el.style.height = `${next}px`;
+    el.style.overflowY = el.scrollHeight > maxHeight ? "auto" : "hidden";
   };
 
   async function sendMessageText(
