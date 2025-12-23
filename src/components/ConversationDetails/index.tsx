@@ -402,7 +402,7 @@ export default function ConversationDetails({ onBackToBoard }: ConversationDetai
   const [ isChatActionLoading, setIsChatActionLoading ] = useState(false);
   const router = useRouter();
   const actionsMenuRef = useRef<HTMLDivElement | null>(null);
-  const MAX_MESSAGE_HEIGHT = 96;
+  const MAX_MAIN_COMPOSER_HEIGHT = 220;
   const MAX_INTERNAL_COMPOSER_HEIGHT = 220;
   const SCROLL_BOTTOM_THRESHOLD = 48;
   const messageInputRef = useRef<HTMLTextAreaElement | null>(null);
@@ -585,6 +585,10 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
     });
   }, [autoGrowTextarea]);
 
+  const resetMessageInputHeight = useCallback(() => {
+    autoGrowTextarea(messageInputRef.current, MAX_MAIN_COMPOSER_HEIGHT);
+  }, [autoGrowTextarea]);
+
   const firstName = (contactName || "").split(" ")[0] || contactName || "";
   const messagesLength = messages?.length ?? 0;
 
@@ -607,7 +611,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
     setIsChatBlocked(conversation.isBlocked ?? false);
     setIsChatArchived(conversation.isArchived ?? false);
     resetMessageInputHeight();
-  }, [conversation.id, conversation.isBlocked, conversation.isArchived]);
+  }, [conversation.id, conversation.isBlocked, conversation.isArchived, resetMessageInputHeight]);
 
   useEffect(() => {
     function handleClickOutside(event: globalThis.MouseEvent) {
@@ -620,9 +624,9 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
-  useEffect(() => {
-    adjustMessageInputHeight();
-  }, [messageSend]);
+  useIsomorphicLayoutEffect(() => {
+    autoGrowTextarea(messageInputRef.current, MAX_MAIN_COMPOSER_HEIGHT);
+  }, [messageSend, autoGrowTextarea]);
 
   useEffect(() => {
     const el = composerDockRef.current;
@@ -2435,7 +2439,6 @@ useEffect(() => {
                   const isCreator = msg.role === "creator";
                   const isManager = msg.role === "manager";
                   const isSystem = msg.role === "system";
-                  const hasSuggestions = isManager && (msg.suggestions?.length ?? 0) > 0;
                   const bubbleClass = clsx(
                     "rounded-2xl px-4 py-2.5 text-xs leading-relaxed whitespace-pre-wrap break-words [overflow-wrap:anywhere]",
                     "[&_a]:underline [&_a]:underline-offset-2",
@@ -2472,7 +2475,7 @@ useEffect(() => {
                         ) : (
                           <div className={clsx(bubbleClass, "max-w-[75%]")}>{msg.text}</div>
                         )}
-                        {isManager && !hasSuggestions && (
+                        {isManager && (
                           <button
                             type="button"
                             onClick={() => handleUseManagerReplyAsMainMessage(msg.text, msg.title ?? "Manager IA")}
@@ -2480,39 +2483,6 @@ useEffect(() => {
                           >
                             Usar en mensaje
                           </button>
-                        )}
-                        {hasSuggestions && (
-                          <div className="mt-2 w-full max-w-none rounded-xl border border-slate-800/70 bg-slate-950/60 p-3 space-y-2">
-                            <div className="text-[10px] uppercase tracking-wide text-slate-500">
-                              Sugerencias del Manager
-                            </div>
-                            {msg.title && (
-                              <div className="text-[10px] uppercase tracking-wide text-slate-400">
-                                {msg.title}
-                              </div>
-                            )}
-                            <div className="space-y-2">
-                              {msg.suggestions?.map((suggestion, idx) => (
-                                <div
-                                  key={`${msg.id}-suggestion-${idx}`}
-                                  className="flex w-full flex-col gap-2 rounded-xl border border-slate-800 bg-slate-950/60 px-3 py-2"
-                                >
-                                  <div className="text-[11px] text-slate-100 whitespace-pre-wrap break-words [overflow-wrap:anywhere]">
-                                    {suggestion}
-                                  </div>
-                                  <button
-                                    type="button"
-                                    onClick={() =>
-                                      handleUseManagerReplyAsMainMessage(suggestion, msg.title ?? "Manager IA")
-                                    }
-                                    className={inlineActionButtonClass}
-                                  >
-                                    Usar en mensaje
-                                  </button>
-                                </div>
-                              ))}
-                            </div>
-                          </div>
                         )}
                       </div>
                     </div>
@@ -3847,7 +3817,7 @@ useEffect(() => {
     });
     setManagerSuggestions(newSuggestions.slice(0, 3));
     const question = buildQuickIntentQuestion(intent, contactName);
-    if (!options?.skipInternalChat) {
+    if (options?.skipInternalChat === false) {
       askInternalManager(question, intent, toneToUse);
     }
 
@@ -3913,18 +3883,8 @@ useEffect(() => {
     }
   }
 
-  const resetMessageInputHeight = () => {
-    if (messageInputRef.current) {
-      messageInputRef.current.style.height = "auto";
-    }
-  };
-
   const adjustMessageInputHeight = () => {
-    const el = messageInputRef.current;
-    if (!el) return;
-    el.style.height = "auto";
-    const next = Math.min(el.scrollHeight, MAX_MESSAGE_HEIGHT);
-    el.style.height = `${next}px`;
+    autoGrowTextarea(messageInputRef.current, MAX_MAIN_COMPOSER_HEIGHT);
   };
 
   async function sendMessageText(
@@ -5564,8 +5524,8 @@ useEffect(() => {
                     ref={messageInputRef}
                     rows={1}
                     className={clsx(
-                      "flex-1 min-w-0 bg-transparent resize-none overflow-y-auto max-h-36",
-                      "px-1 text-base leading-relaxed text-slate-50",
+                      "flex-1 min-w-0 bg-transparent resize-none overflow-y-hidden",
+                      "px-1 text-base leading-relaxed text-slate-50 whitespace-pre-wrap break-words",
                       "placeholder:text-slate-400 focus:outline-none",
                       isInternalMode ? "caret-amber-300" : "caret-emerald-400",
                       isChatBlocked && !isInternalMode && "cursor-not-allowed",
@@ -5575,10 +5535,11 @@ useEffect(() => {
                     onKeyDown={(evt) => changeHandler(evt)}
                     onChange={(evt) => {
                       setMessageSend(evt.target.value);
+                      autoGrowTextarea(evt.currentTarget, MAX_MAIN_COMPOSER_HEIGHT);
                     }}
                     value={messageSend}
                     disabled={(isChatBlocked && !isInternalMode) || isManagerPanelActive}
-                    style={{ maxHeight: `${MAX_MESSAGE_HEIGHT}px` }}
+                    style={{ maxHeight: `${MAX_MAIN_COMPOSER_HEIGHT}px` }}
                   />
                 </div>
                 <button
