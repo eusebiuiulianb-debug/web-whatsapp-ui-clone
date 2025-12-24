@@ -130,6 +130,36 @@ function hasExtrasSignal(fan: FanData): boolean {
   return extrasSpent > 0 || extrasCount > 0 || sessionCount > 0 || ladderSessionCount > 0;
 }
 
+function normalizeTier(tier?: string | null): "new" | "regular" | "vip" {
+  if (!tier) return "new";
+  const lower = tier.toLowerCase();
+  if (lower === "priority" || lower === "vip") return "vip";
+  if (lower === "regular") return "regular";
+  return "new";
+}
+
+function computePriorityScore(fan: FanData): number {
+  const tag = fan.followUpTag ?? getFollowUpTag(fan.membershipStatus, fan.daysLeft, fan.activeGrantTypes);
+  const isExpiredToday = tag === "expired" && (fan.daysLeft ?? 0) === 0;
+  let urgencyScore = 0;
+  switch (isExpiredToday ? "expired_today" : tag) {
+    case "trial_soon":
+    case "monthly_soon":
+      urgencyScore = 3;
+      break;
+    case "expired_today":
+      urgencyScore = 2;
+      break;
+    default:
+      urgencyScore = 0;
+  }
+
+  const tier = normalizeTier(fan.customerTier);
+  const tierScore = tier === "vip" ? 2 : tier === "regular" ? 1 : 0;
+
+  return urgencyScore * 10 + tierScore;
+}
+
 export default function SideBar() {
   return (
     <SideBarBoundary>
@@ -174,6 +204,7 @@ function SideBarInner() {
     activeQueueFilter,
     setActiveQueueFilter,
     setQueueFans,
+    queueFans,
   } = useContext(ConversationContext);
   const [ extrasSummary, setExtrasSummary ] = useState<ExtrasSummary | null>(null);
   const [ extrasSummaryError, setExtrasSummaryError ] = useState<string | null>(null);
@@ -187,15 +218,6 @@ function SideBarInner() {
   const [ newFanInviteUrl, setNewFanInviteUrl ] = useState<string | null>(null);
   const [ newFanInviteState, setNewFanInviteState ] = useState<"idle" | "loading" | "copied" | "error">("idle");
   const [ newFanInviteError, setNewFanInviteError ] = useState<string | null>(null);
-
-
-  function normalizeTier(tier?: string | null): "new" | "regular" | "vip" {
-    if (!tier) return "new";
-    const lower = tier.toLowerCase();
-    if (lower === "priority" || lower === "vip") return "vip";
-    if (lower === "regular") return "regular";
-    return "new";
-  }
 
 
   function getRecommendationTagClass(
@@ -278,28 +300,6 @@ function SideBarInner() {
     }));
   }, []);
 
-  function computePriorityScore(fan: FanData): number {
-    const tag = fan.followUpTag ?? getFollowUpTag(fan.membershipStatus, fan.daysLeft, fan.activeGrantTypes);
-    const isExpiredToday = tag === "expired" && (fan.daysLeft ?? 0) === 0;
-    let urgencyScore = 0;
-    switch (isExpiredToday ? "expired_today" : tag) {
-      case "trial_soon":
-      case "monthly_soon":
-        urgencyScore = 3;
-        break;
-      case "expired_today":
-        urgencyScore = 2;
-        break;
-      default:
-        urgencyScore = 0;
-    }
-
-    const tier = normalizeTier(fan.customerTier);
-    const tierScore = tier === "vip" ? 2 : tier === "regular" ? 1 : 0;
-
-    return urgencyScore * 10 + tierScore;
-  }
-
   const hasFanListChanged = useCallback((prev: ConversationListData[], next: ConversationListData[]): boolean => {
     if (prev.length !== next.length) return true;
     const prevMap = new Map<string, ConversationListData>();
@@ -351,10 +351,14 @@ function SideBarInner() {
     fansRef.current = fans;
   }, [fans]);
 
-  const fansWithScore: FanData[] = fans.map((fan) => ({
-    ...fan,
-    priorityScore: typeof fan.priorityScore === "number" ? fan.priorityScore : computePriorityScore(fan),
-  }));
+  const fansWithScore: FanData[] = useMemo(
+    () =>
+      fans.map((fan) => ({
+        ...fan,
+        priorityScore: typeof fan.priorityScore === "number" ? fan.priorityScore : computePriorityScore(fan),
+      })),
+    [fans]
+  );
 
   const handleSelectConversation = useCallback(
     (item: ConversationListData) => {
@@ -826,83 +830,100 @@ function SideBarInner() {
     setNewFanInviteError(null);
   }
 
-  const filteredConversationsList =
-    (search.length > 0 ? fansWithScore.filter((fan) => fan.contactName.toLowerCase().includes(search.toLowerCase())) : fansWithScore)
-      .filter((fan) => {
-        if (statusFilter === "archived") return fan.isArchived === true;
-        if (statusFilter === "blocked") return fan.isBlocked === true;
-        return fan.isArchived !== true && fan.isBlocked !== true;
-      })
-      .filter((fan) => (showPriorityOnly ? (fan.isHighPriority ?? false) : true))
-      .filter((fan) => (!showOnlyWithNotes ? true : (fan.notesCount ?? 0) > 0))
-      .filter((fan) => (!onlyWithExtras ? true : (fan.extrasSpentTotal ?? 0) > 0))
-      .filter((fan) => {
-        if (!onlyWithFollowUp) return true;
-        const tag = fan.followUpTag ?? getFollowUpTag(fan.membershipStatus, fan.daysLeft, fan.activeGrantTypes);
-        return tag && tag !== "none";
-      })
-      .filter((fan) => {
-        const tag = fan.followUpTag ?? getFollowUpTag(fan.membershipStatus, fan.daysLeft, fan.activeGrantTypes);
-        if (followUpFilter === "all") return true;
-        if (followUpFilter === "expired") {
-          return isExpiredAccess({ membershipStatus: fan.membershipStatus, daysLeft: fan.daysLeft, followUpTag: tag });
-        }
-        if (followUpFilter === "today") {
-          return shouldFollowUpToday({
-            membershipStatus: fan.membershipStatus,
-            daysLeft: fan.daysLeft,
-            followUpTag: tag,
-          });
-        }
-        return true;
-      })
-      .filter((fan) => {
-        if (tierFilter === "all") return true;
-        const segment = ((fan as any).segment || "").toUpperCase();
-        if (tierFilter === "vip") return segment === "VIP";
-        if (tierFilter === "regular") return segment === "LEAL_ESTABLE";
-        if (tierFilter === "new") return segment === "NUEVO";
-        const tier = normalizeTier(fan.customerTier);
-        return tier === tierFilter;
-      })
-      .sort((a, b) => {
-        const highPriorityDelta = Number(!!b.isHighPriority) - Number(!!a.isHighPriority);
-        if (highPriorityDelta !== 0) return highPriorityDelta;
-        if (a.isHighPriority && b.isHighPriority) {
-          const ha = getHighPriorityTimestamp(a);
-          const hb = getHighPriorityTimestamp(b);
-          if (ha !== hb) return hb - ha;
+  const filteredConversationsList = useMemo(
+    () =>
+      (search.length > 0
+        ? fansWithScore.filter((fan) => fan.contactName.toLowerCase().includes(search.toLowerCase()))
+        : fansWithScore)
+        .filter((fan) => {
+          if (statusFilter === "archived") return fan.isArchived === true;
+          if (statusFilter === "blocked") return fan.isBlocked === true;
+          return fan.isArchived !== true && fan.isBlocked !== true;
+        })
+        .filter((fan) => (showPriorityOnly ? (fan.isHighPriority ?? false) : true))
+        .filter((fan) => (!showOnlyWithNotes ? true : (fan.notesCount ?? 0) > 0))
+        .filter((fan) => (!onlyWithExtras ? true : (fan.extrasSpentTotal ?? 0) > 0))
+        .filter((fan) => {
+          if (!onlyWithFollowUp) return true;
+          const tag = fan.followUpTag ?? getFollowUpTag(fan.membershipStatus, fan.daysLeft, fan.activeGrantTypes);
+          return tag && tag !== "none";
+        })
+        .filter((fan) => {
+          const tag = fan.followUpTag ?? getFollowUpTag(fan.membershipStatus, fan.daysLeft, fan.activeGrantTypes);
+          if (followUpFilter === "all") return true;
+          if (followUpFilter === "expired") {
+            return isExpiredAccess({ membershipStatus: fan.membershipStatus, daysLeft: fan.daysLeft, followUpTag: tag });
+          }
+          if (followUpFilter === "today") {
+            return shouldFollowUpToday({
+              membershipStatus: fan.membershipStatus,
+              daysLeft: fan.daysLeft,
+              followUpTag: tag,
+            });
+          }
+          return true;
+        })
+        .filter((fan) => {
+          if (tierFilter === "all") return true;
+          const segment = ((fan as any).segment || "").toUpperCase();
+          if (tierFilter === "vip") return segment === "VIP";
+          if (tierFilter === "regular") return segment === "LEAL_ESTABLE";
+          if (tierFilter === "new") return segment === "NUEVO";
+          const tier = normalizeTier(fan.customerTier);
+          return tier === tierFilter;
+        })
+        .sort((a, b) => {
+          const highPriorityDelta = Number(!!b.isHighPriority) - Number(!!a.isHighPriority);
+          if (highPriorityDelta !== 0) return highPriorityDelta;
+          if (a.isHighPriority && b.isHighPriority) {
+            const ha = getHighPriorityTimestamp(a);
+            const hb = getHighPriorityTimestamp(b);
+            if (ha !== hb) return hb - ha;
+            const la = getLastActivityTimestamp(a);
+            const lb = getLastActivityTimestamp(b);
+            if (la !== lb) return lb - la;
+            return 0;
+          }
+          if (followUpFilter === "today") {
+            const pa = a.priorityScore ?? 0;
+            const pb = b.priorityScore ?? 0;
+            if (pa !== pb) return pb - pa;
+            const da = typeof a.daysLeft === "number" ? a.daysLeft : Number.POSITIVE_INFINITY;
+            const db = typeof b.daysLeft === "number" ? b.daysLeft : Number.POSITIVE_INFINITY;
+            if (da !== db) return da - db;
+            const la = a.lastCreatorMessageAt ? new Date(a.lastCreatorMessageAt).getTime() : 0;
+            const lb = b.lastCreatorMessageAt ? new Date(b.lastCreatorMessageAt).getTime() : 0;
+            return lb - la;
+          }
+
+          if (tierFilter === "vip") {
+            const pa = a.priorityScore ?? 0;
+            const pb = b.priorityScore ?? 0;
+            if (pa !== pb) return pb - pa;
+            const da = typeof a.daysLeft === "number" ? a.daysLeft : Number.POSITIVE_INFINITY;
+            const db = typeof b.daysLeft === "number" ? b.daysLeft : Number.POSITIVE_INFINITY;
+            return da - db;
+          }
+
           const la = getLastActivityTimestamp(a);
           const lb = getLastActivityTimestamp(b);
           if (la !== lb) return lb - la;
           return 0;
-        }
-        if (followUpFilter === "today") {
-          const pa = a.priorityScore ?? 0;
-          const pb = b.priorityScore ?? 0;
-          if (pa !== pb) return pb - pa;
-          const da = typeof a.daysLeft === "number" ? a.daysLeft : Number.POSITIVE_INFINITY;
-          const db = typeof b.daysLeft === "number" ? b.daysLeft : Number.POSITIVE_INFINITY;
-          if (da !== db) return da - db;
-          const la = a.lastCreatorMessageAt ? new Date(a.lastCreatorMessageAt).getTime() : 0;
-          const lb = b.lastCreatorMessageAt ? new Date(b.lastCreatorMessageAt).getTime() : 0;
-          return lb - la;
-        }
-
-        if (tierFilter === "vip") {
-          const pa = a.priorityScore ?? 0;
-          const pb = b.priorityScore ?? 0;
-          if (pa !== pb) return pb - pa;
-          const da = typeof a.daysLeft === "number" ? a.daysLeft : Number.POSITIVE_INFINITY;
-          const db = typeof b.daysLeft === "number" ? b.daysLeft : Number.POSITIVE_INFINITY;
-          return da - db;
-        }
-
-        const la = getLastActivityTimestamp(a);
-        const lb = getLastActivityTimestamp(b);
-        if (la !== lb) return lb - la;
-        return 0;
-      });
+        }),
+    [
+      fansWithScore,
+      followUpFilter,
+      getHighPriorityTimestamp,
+      getLastActivityTimestamp,
+      onlyWithExtras,
+      onlyWithFollowUp,
+      search,
+      showOnlyWithNotes,
+      showPriorityOnly,
+      statusFilter,
+      tierFilter,
+    ]
+  );
 
   const safeFilteredConversationsList: FanData[] = useMemo(
     () => (Array.isArray(filteredConversationsList) ? (filteredConversationsList as FanData[]) : []),
@@ -967,8 +988,14 @@ function SideBarInner() {
   );
 
   useEffect(() => {
+    const sameLength = queueFans.length === activeQueueList.length;
+    const sameOrder =
+      sameLength && queueFans.every((fan, idx) => fan.id === activeQueueList[idx]?.id);
+    if (sameOrder && !hasFanListChanged(queueFans, activeQueueList)) {
+      return;
+    }
     setQueueFans(activeQueueList);
-  }, [activeQueueList, setQueueFans]);
+  }, [activeQueueList, hasFanListChanged, queueFans, setQueueFans]);
   const apiFilter = (() => {
     if (statusFilter === "archived") return "archived";
     if (statusFilter === "blocked") return "blocked";

@@ -533,6 +533,40 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
     chatPanelRestorePendingRef.current = true;
   }, []);
 
+  const closeInlinePanel = useCallback(
+    (options?: { focus?: boolean }) => {
+      if (inlinePanel !== null) {
+        captureChatScrollForPanelToggle();
+      }
+      setInlinePanel(null);
+      if (options?.focus) {
+        requestAnimationFrame(() => {
+          messageInputRef.current?.focus();
+        });
+      }
+    },
+    [inlinePanel, captureChatScrollForPanelToggle]
+  );
+
+  const closeContentModal = useCallback(() => {
+    setShowContentModal(false);
+    setSelectedContentIds([]);
+    setContentModalPackFocus(null);
+    setRegisterExtrasChecked(false);
+    setRegisterExtrasSource(null);
+    setTransactionPrices({});
+  }, []);
+
+  const closeOverlays = useCallback(() => {
+    closeInlinePanel();
+    closeContentModal();
+    setShowQuickSheet(false);
+    setIsEditNameOpen(false);
+    setEditNameError(null);
+    setOpenPanel("none");
+    setShowManualExtraForm(false);
+  }, [closeInlinePanel, closeContentModal]);
+
   const showComposerToast = useCallback((message: string) => {
     setInternalToast(message);
     if (internalToastTimer.current) {
@@ -1894,9 +1928,18 @@ useEffect(() => {
   }, [inlinePanel, inlineAction, captureChatScrollForPanelToggle, clearInlineAction]);
 
   useEffect(() => {
-    setInlinePanel(null);
+    closeOverlays();
     setInternalPanelTab("manager");
-  }, [conversation.id]);
+  }, [conversation.id, closeOverlays]);
+
+  useEffect(() => {
+    if (!conversation?.id) return;
+    if (conversation.isManager) {
+      setComposerAudience("INTERNAL");
+      return;
+    }
+    setComposerAudience("CREATOR");
+  }, [conversation.id, conversation.isManager]);
 
   useEffect(() => {
     managerPanelScrollTopRef.current = 0;
@@ -1909,13 +1952,23 @@ useEffect(() => {
   useEffect(() => {
     if (typeof window === "undefined") return;
     const handleConversationChanging = () => {
-      setInlinePanel(null);
+      closeOverlays();
     };
     window.addEventListener("novsy:conversation:changing", handleConversationChanging as EventListener);
     return () => {
       window.removeEventListener("novsy:conversation:changing", handleConversationChanging as EventListener);
     };
-  }, []);
+  }, [closeOverlays]);
+
+  useEffect(() => {
+    const handleRouteChange = () => {
+      closeOverlays();
+    };
+    router.events.on("routeChangeStart", handleRouteChange);
+    return () => {
+      router.events.off("routeChangeStart", handleRouteChange);
+    };
+  }, [router.events, closeOverlays]);
 
   const managerChatMessages = managerChatByFan[id ?? ""] ?? [];
   const internalNotes = internalMessages.filter((message) => deriveAudience(message) === "INTERNAL");
@@ -2150,14 +2203,8 @@ useEffect(() => {
         : "border-amber-400/70 bg-amber-500/10 text-amber-100 hover:bg-amber-500/20 focus-visible:ring-amber-400/40"
     );
 
-    const closeInlinePanel = () => {
-      if (inlinePanel !== null) {
-        captureChatScrollForPanelToggle();
-      }
-      setInlinePanel(null);
-      requestAnimationFrame(() => {
-        messageInputRef.current?.focus();
-      });
+    const closeDockPanel = () => {
+      closeInlinePanel({ focus: true });
     };
 
     const handlePanelWheel: WheelEventHandler<HTMLDivElement> = (event) => {
@@ -2165,7 +2212,7 @@ useEffect(() => {
     };
 
     const renderInlineToolsPanel = () => (
-      <InlinePanelShell title="Herramientas" onClose={closeInlinePanel}>
+      <InlinePanelShell title="Herramientas" onClose={closeDockPanel}>
         {composerAudience === "CREATOR" && !conversation.isManager ? (
           <div className="space-y-3">
             <div className="text-[11px] font-semibold text-slate-400">Acciones</div>
@@ -2297,7 +2344,7 @@ useEffect(() => {
                       showInlineAction({ kind: "warn", title: "Selecciona un fan" });
                       return;
                     }
-                    closeInlinePanel();
+                    closeDockPanel();
                     handleViewProfile();
                     showInlineAction({ kind: "info", title: "Ficha abierta" });
                   },
@@ -2310,7 +2357,7 @@ useEffect(() => {
                       showInlineAction({ kind: "warn", title: "Selecciona un fan" });
                       return;
                     }
-                    closeInlinePanel();
+                    closeDockPanel();
                     openFollowUpNote();
                   },
                 },
@@ -2671,7 +2718,7 @@ useEffect(() => {
           return (
             <InlinePanelShell
               title="Panel interno"
-              onClose={closeInlinePanel}
+              onClose={closeDockPanel}
               onBodyWheel={handlePanelWheel}
               containerClassName="flex flex-col h-full min-h-0 w-full max-w-none overflow-hidden"
               scrollable={false}
@@ -2717,7 +2764,7 @@ useEffect(() => {
         }
 
         return (
-          <InlinePanelShell title="Manager IA" onClose={closeInlinePanel}>
+          <InlinePanelShell title="Manager IA" onClose={closeDockPanel}>
             <div className="space-y-3">
               <InlineEmptyState
                 icon="IA"
@@ -2739,7 +2786,7 @@ useEffect(() => {
       if (tab === "templates") {
         const hasQuickTemplates = TRANSLATION_QUICK_CHIPS.length > 0;
         return (
-          <InlinePanelShell title="Plantillas" onClose={closeInlinePanel}>
+          <InlinePanelShell title="Plantillas" onClose={closeDockPanel}>
             <div className="space-y-3">
               {managerPromptTemplate && (
                 <div className="rounded-xl border border-slate-800/60 bg-slate-950/40 p-3 space-y-2">
@@ -2752,7 +2799,7 @@ useEffect(() => {
                         title: "Plantilla insertada",
                         detail: "Plantilla sugerida",
                       });
-                      setInlinePanel(null);
+                      closeDockPanel();
                     }}
                     className={inlineActionButtonClass}
                   >
@@ -2776,7 +2823,7 @@ useEffect(() => {
                             title: "Plantilla insertada",
                             detail: chip.label,
                           });
-                          setInlinePanel(null);
+                          closeDockPanel();
                         }}
                         className={inlineActionButtonClass}
                       >
@@ -2808,7 +2855,7 @@ useEffect(() => {
     const panelContent = renderInlinePanel(panelTab);
 
     const panelId = "composer-inline-panel";
-    const isInternalPanelOverlay = !isFanMode && panelTab === "manager";
+    const isInternalPanelOverlay = isPanelOpen && !isFanMode && panelTab === "manager";
     const panelMaxHeightClassName = isInternalPanelOverlay ? "max-h-none h-full" : undefined;
 
     const chips = (
@@ -2824,7 +2871,7 @@ useEffect(() => {
               type="button"
               onClick={() => {
                 if (inlinePanel === "manager" && !isFanMode) {
-                  closeInlinePanel();
+                  closeDockPanel();
                   return;
                 }
                 openInternalPanelTab("manager");
@@ -2841,7 +2888,7 @@ useEffect(() => {
                 onMouseDown={(event) => event.preventDefault()}
                 onClick={(event) => {
                   event.stopPropagation();
-                  closeInlinePanel();
+                  closeDockPanel();
                 }}
                 className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-slate-900/60 text-[9px] leading-none text-slate-300 ring-1 ring-slate-700/60 transition hover:bg-slate-800/80 hover:text-slate-100"
                 aria-label="Cerrar panel"
@@ -2880,7 +2927,7 @@ useEffect(() => {
                 onMouseDown={(event) => event.preventDefault()}
                 onClick={(event) => {
                   event.stopPropagation();
-                  closeInlinePanel();
+                  closeDockPanel();
                 }}
                 className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-slate-900/60 text-[9px] leading-none text-slate-300 ring-1 ring-slate-700/60 transition hover:bg-slate-800/80 hover:text-slate-100"
                 aria-label="Cerrar panel"
@@ -2914,7 +2961,7 @@ useEffect(() => {
                 onMouseDown={(event) => event.preventDefault()}
                 onClick={(event) => {
                   event.stopPropagation();
-                  closeInlinePanel();
+                  closeDockPanel();
                 }}
                 className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-slate-900/60 text-[9px] leading-none text-slate-300 ring-1 ring-slate-700/60 transition hover:bg-slate-800/80 hover:text-slate-100"
                 aria-label="Cerrar panel"
@@ -2927,9 +2974,8 @@ useEffect(() => {
       </>
     );
 
-    return {
-      chips: <ComposerChipsRow>{chips}</ComposerChipsRow>,
-      panel: (
+    const panel =
+      isPanelOpen && panelContent ? (
         <InlinePanelContainer
           isOpen={isPanelOpen}
           panelId={panelId}
@@ -2939,7 +2985,11 @@ useEffect(() => {
         >
           {panelContent}
         </InlinePanelContainer>
-      ),
+      ) : null;
+
+    return {
+      chips: <ComposerChipsRow>{chips}</ComposerChipsRow>,
+      panel,
       isPanelOpen,
       isInternalPanelOverlay,
     };
@@ -4539,6 +4589,14 @@ useEffect(() => {
   };
 
   const handleSendLinkFromManager = () => {
+    closeInlinePanel();
+    if (conversation.isManager) {
+      setComposerAudience("INTERNAL");
+    } else if (composerAudience !== "CREATOR") {
+      handleComposerAudienceChange("CREATOR");
+    } else {
+      setComposerAudience("CREATOR");
+    }
     handleSubscriptionLink({ focus: true });
   };
 
@@ -4720,7 +4778,7 @@ useEffect(() => {
   });
 
   return (
-    <div className="flex flex-col w-full h-[100dvh] max-h-[100dvh]">
+    <div className="relative flex flex-col w-full h-[100dvh] max-h-[100dvh]">
       {onBackToBoard && (
         <header className="md:hidden sticky top-0 z-30 flex items-center justify-between gap-3 px-4 py-3 bg-slate-950/95 border-b border-slate-800 backdrop-blur">
           <button
