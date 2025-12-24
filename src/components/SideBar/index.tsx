@@ -205,6 +205,7 @@ function SideBarInner() {
     setActiveQueueFilter,
     setQueueFans,
     queueFans,
+    openManagerPanel,
   } = useContext(ConversationContext);
   const [ extrasSummary, setExtrasSummary ] = useState<ExtrasSummary | null>(null);
   const [ extrasSummaryError, setExtrasSummaryError ] = useState<string | null>(null);
@@ -388,12 +389,6 @@ function SideBarInner() {
   const handleOpenRecommended = useCallback(
     (item: FanData) => {
       if (!item?.id) return;
-      if (typeof window !== "undefined") {
-        window.sessionStorage.setItem(
-          "novsy:openInternalPanel",
-          JSON.stringify({ fanId: item.id, tab: "manager", scroll: "top" })
-        );
-      }
       handleSelectConversation(item);
     },
     [handleSelectConversation]
@@ -1278,15 +1273,23 @@ function SideBarInner() {
     return `${rounded % 1 === 0 ? rounded.toFixed(0) : rounded.toFixed(2)} €`;
   }
 
-  const managerChatEntry: ConversationListData = {
-    id: "manager-ia",
-    contactName: "Manager IA",
-    lastMessage: "Panel e insights en tiempo real",
-    lastTime: "Hoy",
-    image: "avatar3.png",
-    messageHistory: [],
-    isManager: true,
-  };
+  const handleOpenManagerInternal = useCallback((event: React.MouseEvent<HTMLButtonElement>) => {
+    event.preventDefault();
+    event.stopPropagation();
+    if (process.env.NODE_ENV !== "production") {
+      console.debug("Manager open click", {
+        activeConversationId: conversation?.id ?? null,
+        isManager: conversation?.isManager ?? false,
+      });
+    }
+    const targetFanId = conversation?.isManager ? null : conversation?.id ?? null;
+    openManagerPanel({
+      tab: "manager",
+      mode: targetFanId ? "fan" : "general",
+      targetFanId,
+      source: "sidebar",
+    });
+  }, [conversation?.id, conversation?.isManager, openManagerPanel]);
 
   const isLoading = loadingFans;
   const isError = Boolean(fansError);
@@ -1879,7 +1882,7 @@ function SideBarInner() {
         <div className="mt-2">
           <button
             type="button"
-            onClick={() => handleSelectConversation(managerChatEntry)}
+            onClick={handleOpenManagerInternal}
             className="flex w-full items-center justify-between rounded-xl border border-slate-800/70 bg-slate-900/70 px-3 py-2 text-left text-xs text-slate-200 hover:border-emerald-400/60 hover:bg-slate-900/90"
           >
             <div className="flex items-center gap-2">

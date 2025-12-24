@@ -90,7 +90,6 @@ const TRANSLATION_QUICK_CHIPS = [
   { id: "closing", label: "Cierre suave", text: "Cuando quieras seguimos, estoy aquí." },
 ] as const;
 const AUDIENCE_STORAGE_KEY = "novsy.creatorMessageAudience";
-const INTERNAL_PANEL_OPEN_KEY = "novsy:openInternalPanel";
 const TRANSLATION_PREVIEW_KEY_PREFIX = "novsy.creatorTranslationPreview";
 
 const INLINE_TABS_BY_MODE = {
@@ -189,6 +188,7 @@ type InlinePanelContainerProps = {
   bottomOffset?: number;
   openMaxHeightClassName?: string;
   isOverlay?: boolean;
+  onBackdropPointerDown?: (event: React.PointerEvent<HTMLDivElement>) => void;
 };
 
 function InlinePanelContainer({
@@ -198,6 +198,7 @@ function InlinePanelContainer({
   bottomOffset,
   openMaxHeightClassName,
   isOverlay = false,
+  onBackdropPointerDown,
 }: InlinePanelContainerProps) {
   const openMaxHeight = openMaxHeightClassName ?? "max-h-[55vh]";
   const openClassName = isOverlay
@@ -206,6 +207,10 @@ function InlinePanelContainer({
   const closedClassName = isOverlay
     ? "opacity-0 invisible pointer-events-none"
     : "mt-0 max-h-0 opacity-0 -translate-y-1 invisible pointer-events-none";
+  const handlePointerDown = (event: React.PointerEvent<HTMLDivElement>) => {
+    if (!isOverlay || !onBackdropPointerDown) return;
+    onBackdropPointerDown(event);
+  };
   return (
     <div
       id={panelId}
@@ -219,6 +224,7 @@ function InlinePanelContainer({
         bottom: bottomOffset,
         marginBottom: bottomOffset,
       }}
+      onPointerDown={handlePointerDown}
       aria-hidden={!isOpen}
     >
       {children}
@@ -284,6 +290,10 @@ export default function ConversationDetails({ onBackToBoard }: ConversationDetai
     setConversation,
     activeQueueFilter,
     queueFans,
+    managerPanelOpen,
+    managerPanelTab,
+    openManagerPanel,
+    closeManagerPanel,
   } = useContext(ConversationContext);
   const {
     contactName,
@@ -335,7 +345,6 @@ export default function ConversationDetails({ onBackToBoard }: ConversationDetai
     CREATOR: InlineTab | null;
     INTERNAL: InlineTab | null;
   }>({ CREATOR: null, INTERNAL: null });
-  const [ lastPanelOpenByMode, setLastPanelOpenByMode ] = useState({ CREATOR: false, INTERNAL: false });
   const [ translationPreviewStatus, setTranslationPreviewStatus ] = useState<
     "idle" | "loading" | "ready" | "unavailable" | "error"
   >("idle");
@@ -535,17 +544,21 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
 
   const closeInlinePanel = useCallback(
     (options?: { focus?: boolean }) => {
+      const wasPanelOpen = inlinePanel !== null;
       if (inlinePanel !== null) {
         captureChatScrollForPanelToggle();
       }
       setInlinePanel(null);
+      if (wasPanelOpen) {
+        closeManagerPanel();
+      }
       if (options?.focus) {
         requestAnimationFrame(() => {
           messageInputRef.current?.focus();
         });
       }
     },
-    [inlinePanel, captureChatScrollForPanelToggle]
+    [inlinePanel, captureChatScrollForPanelToggle, closeManagerPanel]
   );
 
   const closeContentModal = useCallback(() => {
@@ -920,15 +933,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
   };
   function handleComposerAudienceChange(mode: ComposerAudienceMode) {
     if (mode === composerAudience) return;
-    setLastPanelOpenByMode((prev) => ({
-      ...prev,
-      [composerAudience]: inlinePanel !== null,
-    }));
-    if (inlinePanel !== null) {
-      captureChatScrollForPanelToggle();
-    }
     setComposerAudience(mode);
-    setInlinePanel(null);
   }
   const handleSelectFanFromBanner = useCallback(
     (fan: ConversationListData | null) => {
@@ -1755,7 +1760,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
   }, [id]);
 
   useEffect(() => {
-    if (!id || composerAudience !== "INTERNAL") return;
+    if (!id || !managerPanelOpen) return;
     if (inlinePanel !== "manager") return;
     const includeContext = includeInternalContextByFan[id] ?? true;
     if (
@@ -1774,9 +1779,9 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
     fetchInternalMessages,
     id,
     inlinePanel,
-    composerAudience,
     internalPanelTab,
     includeInternalContextByFan,
+    managerPanelOpen,
   ]);
 
   useEffect(() => {
@@ -1822,10 +1827,10 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
   }, [fetchContentItems, id]);
 
 useEffect(() => {
-  if (!id || composerAudience !== "INTERNAL") return;
+  if (!id || !managerPanelOpen) return;
   if (inlinePanel !== "manager" || internalPanelTab !== "note") return;
   fetchFanNotes(id);
-}, [id, inlinePanel, composerAudience, internalPanelTab, fetchFanNotes]);
+}, [id, inlinePanel, internalPanelTab, fetchFanNotes, managerPanelOpen]);
 
 useEffect(() => {
   if (!id || openPanel !== "history") return;
@@ -1897,13 +1902,6 @@ useEffect(() => {
   }, [id, translationPreviewOpen]);
 
   useEffect(() => {
-    if (composerAudience !== "INTERNAL") return;
-    if (!lastPanelOpenByMode.INTERNAL) return;
-    if (!lastTabByMode.INTERNAL) return;
-    setInlinePanel(lastTabByMode.INTERNAL);
-  }, [composerAudience, lastPanelOpenByMode.INTERNAL, lastTabByMode.INTERNAL]);
-
-  useEffect(() => {
     if (inlinePanel !== "manager") return;
     if (internalPanelTab !== "manager") return;
     if (composerAudience !== "INTERNAL") return;
@@ -1915,8 +1913,7 @@ useEffect(() => {
     const handleKeyDown = (event: globalThis.KeyboardEvent) => {
       if (event.key === "Escape") {
         if (inlinePanel) {
-          captureChatScrollForPanelToggle();
-          setInlinePanel(null);
+          closeInlinePanel();
         }
         if (inlineAction) {
           clearInlineAction();
@@ -1925,7 +1922,7 @@ useEffect(() => {
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [inlinePanel, inlineAction, captureChatScrollForPanelToggle, clearInlineAction]);
+  }, [inlinePanel, inlineAction, closeInlinePanel, clearInlineAction]);
 
   useEffect(() => {
     closeOverlays();
@@ -2006,26 +2003,6 @@ useEffect(() => {
     setTranslationPreviewOpen(false);
   };
 
-  const toggleInlineTab = useCallback(
-    (tab: InlineTab) => {
-      const allowedTabs = INLINE_TABS_BY_MODE[composerAudience] as readonly InlineTab[];
-      if (!allowedTabs.includes(tab)) return;
-      const next = inlinePanel === tab ? null : tab;
-      if (next === inlinePanel) return;
-      if (!next) {
-        captureChatScrollForPanelToggle();
-      }
-      setInlinePanel(next);
-      if (next) {
-        setLastTabByMode((prevTabs) => ({
-          ...prevTabs,
-          [composerAudience]: tab as any,
-        }));
-      }
-    },
-    [composerAudience, inlinePanel, captureChatScrollForPanelToggle]
-  );
-
   const openDockPanel = useCallback(
     (tab: InlineTab, options?: { audience?: ComposerAudienceMode }) => {
       const targetAudience = options?.audience ?? composerAudience;
@@ -2034,10 +2011,6 @@ useEffect(() => {
       const shouldOpen = inlinePanel !== tab || targetAudience !== composerAudience;
       if (!shouldOpen) return;
       if (targetAudience !== composerAudience) {
-        setLastPanelOpenByMode((prev) => ({
-          ...prev,
-          [composerAudience]: inlinePanel !== null,
-        }));
         setComposerAudience(targetAudience);
       }
       setInlinePanel(tab);
@@ -2060,9 +2033,15 @@ useEffect(() => {
         managerPanelSkipAutoScrollRef.current = true;
       }
       setInternalPanelTab(tab);
-      openDockPanel("manager", { audience: "INTERNAL" });
+      const targetFanId = conversation?.isManager ? null : conversation?.id ?? null;
+      openManagerPanel({
+        mode: targetFanId ? "fan" : "general",
+        targetFanId,
+        tab: "manager",
+        source: "internal",
+      });
     },
-    [openDockPanel]
+    [conversation?.id, conversation?.isManager, openManagerPanel]
   );
 
   const openInternalThread = useCallback(
@@ -2072,20 +2051,43 @@ useEffect(() => {
     [openInternalPanelTab]
   );
 
+  const handleManagerPanelTabClick = useCallback(
+    (tab: InlineTab) => {
+      if (managerPanelOpen && managerPanelTab === tab) {
+        closeManagerPanel();
+        return;
+      }
+      const targetFanId = conversation?.isManager ? null : conversation?.id ?? null;
+      openManagerPanel({
+        tab,
+        mode: targetFanId ? "fan" : "general",
+        targetFanId,
+        source: "composer",
+      });
+    },
+    [
+      managerPanelOpen,
+      managerPanelTab,
+      conversation?.id,
+      conversation?.isManager,
+      openManagerPanel,
+      closeManagerPanel,
+    ]
+  );
+
   useEffect(() => {
-    if (typeof window === "undefined") return;
-    const raw = window.sessionStorage.getItem(INTERNAL_PANEL_OPEN_KEY);
-    if (!raw) return;
-    let payload: { fanId?: string; tab?: InternalPanelTab; scroll?: string } | null = null;
-    try {
-      payload = JSON.parse(raw);
-    } catch (error) {
-      console.warn("Invalid internal panel payload", error);
-    }
-    if (!payload || payload.fanId !== conversation.id) return;
-    window.sessionStorage.removeItem(INTERNAL_PANEL_OPEN_KEY);
-    openInternalPanelTab(payload.tab ?? "manager", { scrollToTop: payload.scroll === "top" });
-  }, [conversation.id, openInternalPanelTab]);
+    if (!managerPanelOpen) return;
+    const allowedTabs = INLINE_TABS_BY_MODE[composerAudience] as readonly InlineTab[];
+    const nextTab = allowedTabs.includes(managerPanelTab) ? managerPanelTab : "manager";
+    if (inlinePanel === nextTab) return;
+    openDockPanel(nextTab);
+  }, [managerPanelOpen, managerPanelTab, inlinePanel, openDockPanel, composerAudience]);
+
+  useEffect(() => {
+    if (managerPanelOpen) return;
+    if (!inlinePanel) return;
+    closeInlinePanel({ focus: true });
+  }, [managerPanelOpen, inlinePanel, closeInlinePanel]);
 
   const toggleIncludeInternalContext = useCallback(() => {
     const key = id ?? "global";
@@ -2124,9 +2126,8 @@ useEffect(() => {
     openContentModal({ mode: "packs" });
     if (options?.closeInline ?? true) {
       if (inlinePanel !== null) {
-        captureChatScrollForPanelToggle();
+        closeInlinePanel();
       }
-      setInlinePanel(null);
     }
   };
 
@@ -2714,70 +2715,53 @@ useEffect(() => {
       if (!tab) return null;
 
       if (tab === "manager") {
-        if (!isFanMode) {
-          return (
-            <InlinePanelShell
-              title="Panel interno"
-              onClose={closeDockPanel}
-              onBodyWheel={handlePanelWheel}
-              containerClassName="flex flex-col h-full min-h-0 w-full max-w-none overflow-hidden"
-              scrollable={false}
-              bodyClassName="px-0 py-0 min-h-0 flex-1 flex flex-col overflow-hidden"
-            >
-              <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-hidden">
-                <div
-                  className="shrink-0 flex flex-wrap items-center gap-2 px-4 pt-3"
-                  role="tablist"
-                  aria-label="Panel interno"
-                >
-                  {[
-                    { id: "manager", label: "Manager IA" },
-                    { id: "internal", label: "Borradores" },
-                    { id: "note", label: "CRM" },
-                  ].map((tabItem) => {
-                    const isActive = internalPanelTab === tabItem.id;
-                    return (
-                      <button
-                        key={tabItem.id}
-                        type="button"
-                        role="tab"
-                        aria-selected={isActive}
-                        onClick={() => setInternalPanelTab(tabItem.id as InternalPanelTab)}
-                        className={clsx(
-                          "inline-flex items-center rounded-full border px-3 py-1 text-[11px] font-semibold transition",
-                          isActive
-                            ? "border-amber-400/70 bg-amber-500/15 text-amber-100"
-                            : "border-slate-700 bg-slate-900/60 text-slate-300 hover:border-slate-500/80"
-                        )}
-                      >
-                        {tabItem.label}
-                      </button>
-                    );
-                  })}
-                </div>
-                {internalPanelTab === "manager" && renderInternalManagerContent()}
-                {internalPanelTab === "internal" && renderInternalChatContent()}
-                {internalPanelTab === "note" && renderInternalNoteContent()}
-              </div>
-            </InlinePanelShell>
-          );
-        }
-
         return (
-          <InlinePanelShell title="Manager IA" onClose={closeDockPanel}>
-            <div className="space-y-3">
-              <InlineEmptyState
-                icon="IA"
-                title="Abre el chat del Manager IA"
-                subtitle="Este atajo abre el panel interno para conversar con tu Manager."
-              />
-              <button
-                type="button"
-                onClick={() => openInternalPanelTab("manager")}
-                className={inlineActionButtonClass}
+          <InlinePanelShell
+            title="Panel interno"
+            onClose={closeDockPanel}
+            onBodyWheel={handlePanelWheel}
+            containerClassName="flex flex-col h-full min-h-0 w-full max-w-none overflow-hidden"
+            scrollable={false}
+            bodyClassName="px-0 py-0 min-h-0 flex-1 flex flex-col overflow-hidden"
+          >
+            <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-hidden">
+              <div
+                className="shrink-0 flex flex-wrap items-center gap-2 px-4 pt-3"
+                role="tablist"
+                aria-label="Panel interno"
               >
-                Abrir chat
-              </button>
+                {[
+                  { id: "manager", label: "Manager IA" },
+                  { id: "internal", label: "Borradores" },
+                  { id: "note", label: "CRM" },
+                ].map((tabItem) => {
+                  const isActive = internalPanelTab === tabItem.id;
+                  return (
+                    <button
+                      key={tabItem.id}
+                      type="button"
+                      role="tab"
+                      aria-selected={isActive}
+                      onClick={(event) => {
+                        event.preventDefault();
+                        event.stopPropagation();
+                        setInternalPanelTab(tabItem.id as InternalPanelTab);
+                      }}
+                      className={clsx(
+                        "inline-flex items-center rounded-full border px-3 py-1 text-[11px] font-semibold transition",
+                        isActive
+                          ? "border-amber-400/70 bg-amber-500/15 text-amber-100"
+                          : "border-slate-700 bg-slate-900/60 text-slate-300 hover:border-slate-500/80"
+                      )}
+                    >
+                      {tabItem.label}
+                    </button>
+                  );
+                })}
+              </div>
+              {internalPanelTab === "manager" && renderInternalManagerContent()}
+              {internalPanelTab === "internal" && renderInternalChatContent()}
+              {internalPanelTab === "note" && renderInternalNoteContent()}
             </div>
           </InlinePanelShell>
         );
@@ -2855,7 +2839,7 @@ useEffect(() => {
     const panelContent = renderInlinePanel(panelTab);
 
     const panelId = "composer-inline-panel";
-    const isInternalPanelOverlay = isPanelOpen && !isFanMode && panelTab === "manager";
+    const isInternalPanelOverlay = isPanelOpen && panelTab === "manager";
     const panelMaxHeightClassName = isInternalPanelOverlay ? "max-h-none h-full" : undefined;
 
     const chips = (
@@ -2869,12 +2853,10 @@ useEffect(() => {
           >
             <button
               type="button"
-              onClick={() => {
-                if (inlinePanel === "manager" && !isFanMode) {
-                  closeDockPanel();
-                  return;
-                }
-                openInternalPanelTab("manager");
+              onClick={(event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                handleManagerPanelTabClick("manager");
               }}
               className="inline-flex items-center gap-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400/40"
               aria-expanded={inlinePanel === "manager"}
@@ -2907,7 +2889,11 @@ useEffect(() => {
           >
             <button
               type="button"
-              onClick={() => toggleInlineTab("templates")}
+              onClick={(event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                handleManagerPanelTabClick("templates");
+              }}
               className="inline-flex items-center gap-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400/40"
               aria-expanded={inlinePanel === "templates"}
               aria-controls={panelId}
@@ -2946,8 +2932,10 @@ useEffect(() => {
           >
             <button
               type="button"
-              onClick={() => {
-                toggleInlineTab("tools");
+              onClick={(event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                handleManagerPanelTabClick("tools");
               }}
               className="inline-flex items-center gap-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/40"
               aria-expanded={inlinePanel === "tools"}
@@ -2982,6 +2970,14 @@ useEffect(() => {
           bottomOffset={isInternalPanelOverlay ? undefined : !isFanMode ? dockOffset : undefined}
           openMaxHeightClassName={panelMaxHeightClassName}
           isOverlay={isInternalPanelOverlay}
+          onBackdropPointerDown={
+            isInternalPanelOverlay
+              ? (event) => {
+                  if (event.target !== event.currentTarget) return;
+                  closeDockPanel();
+                }
+              : undefined
+          }
         >
           {panelContent}
         </InlinePanelContainer>
@@ -3188,14 +3184,13 @@ useEffect(() => {
   );
 
   useIsomorphicLayoutEffect(() => {
-    if (inlinePanel !== "manager" || isFanMode || internalPanelTab !== "manager") return;
+    if (inlinePanel !== "manager" || internalPanelTab !== "manager") return;
     const frame = requestAnimationFrame(() => {
       syncManagerPanelScroll();
     });
     return () => cancelAnimationFrame(frame);
   }, [
     inlinePanel,
-    isFanMode,
     internalPanelTab,
     conversation.id,
     managerChatMessages.length,
@@ -3203,22 +3198,22 @@ useEffect(() => {
   ]);
 
   useEffect(() => {
-    if (inlinePanel !== "manager" || isFanMode || internalPanelTab !== "manager") return;
+    if (inlinePanel !== "manager" || internalPanelTab !== "manager") return;
     if (!managerChatEndRef.current) return;
     if (managerPanelSkipAutoScrollRef.current) {
       managerPanelSkipAutoScrollRef.current = false;
       return;
     }
     managerChatEndRef.current.scrollIntoView({ behavior: "smooth", block: "end" });
-  }, [inlinePanel, isFanMode, internalPanelTab, managerChatMessages.length]);
+  }, [inlinePanel, internalPanelTab, managerChatMessages.length]);
 
   useIsomorphicLayoutEffect(() => {
-    if (inlinePanel !== "manager" || isFanMode || internalPanelTab !== "internal") return;
+    if (inlinePanel !== "manager" || internalPanelTab !== "internal") return;
     const frame = requestAnimationFrame(() => {
       syncInternalChatScroll();
     });
     return () => cancelAnimationFrame(frame);
-  }, [inlinePanel, isFanMode, internalPanelTab, internalMessages.length, syncInternalChatScroll]);
+  }, [inlinePanel, internalPanelTab, internalMessages.length, syncInternalChatScroll]);
 
   useIsomorphicLayoutEffect(() => {
     autoGrowTextarea(managerChatInputRef.current, MAX_INTERNAL_COMPOSER_HEIGHT);

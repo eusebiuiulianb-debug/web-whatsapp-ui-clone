@@ -9,7 +9,7 @@ import { track } from "../lib/analyticsClient";
 import { ANALYTICS_EVENTS } from "../lib/analyticsEvents";
 
 export default function Home() {
-  const { conversation } = useContext(ConversationContext);
+  const { conversation, openManagerPanel } = useContext(ConversationContext);
   const hasConversation = Boolean(conversation?.id);
   const hasContactName = Boolean(conversation?.contactName);
   const router = useRouter();
@@ -62,6 +62,32 @@ export default function Home() {
     setMobileView("chat");
     conversationSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
   }, [hasConversation]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const handleOpenInternalPanel = (event: Event) => {
+      const detail = (event as CustomEvent)?.detail as
+        | { fanId?: string; source?: string }
+        | undefined;
+      if (process.env.NODE_ENV !== "production") {
+        console.debug("[openInternalPanel:event]", {
+          fanId: detail?.fanId ?? null,
+          source: detail?.source ?? null,
+        });
+      }
+      const targetFanId = detail?.fanId ?? null;
+      openManagerPanel({
+        tab: "manager",
+        mode: targetFanId ? "fan" : "general",
+        targetFanId,
+        source: detail?.source ?? "event",
+      });
+    };
+    window.addEventListener("novsy:openInternalPanel", handleOpenInternalPanel as EventListener);
+    return () => {
+      window.removeEventListener("novsy:openInternalPanel", handleOpenInternalPanel as EventListener);
+    };
+  }, [openManagerPanel]);
 
   useEffect(() => {
     if (!hasConversation || !conversation?.id) return;
