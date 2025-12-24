@@ -78,8 +78,7 @@ export default function Home() {
       const targetFanId = detail?.fanId ?? null;
       openManagerPanel({
         tab: "manager",
-        mode: targetFanId ? "fan" : "general",
-        targetFanId,
+        targetFanId: targetFanId ?? null,
         source: detail?.source ?? "event",
       });
     };

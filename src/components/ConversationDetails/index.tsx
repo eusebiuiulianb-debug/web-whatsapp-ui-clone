@@ -92,11 +92,6 @@ const TRANSLATION_QUICK_CHIPS = [
 const AUDIENCE_STORAGE_KEY = "novsy.creatorMessageAudience";
 const TRANSLATION_PREVIEW_KEY_PREFIX = "novsy.creatorTranslationPreview";
 
-const INLINE_TABS_BY_MODE = {
-  CREATOR: ["templates", "tools", "manager"],
-  INTERNAL: ["manager"],
-} as const;
-
 type InlinePanelShellProps = {
   title: string;
   children: ReactNode;
@@ -306,6 +301,7 @@ export default function ConversationDetails({ onBackToBoard }: ConversationDetai
     followUpTag: conversationFollowUpTag,
     lastCreatorMessageAt,
   } = conversation;
+  const activeFanId = conversation?.isManager ? null : id ?? null;
   const [ messageSend, setMessageSend ] = useState("");
   const [ isSending, setIsSending ] = useState(false);
   const [ composerAudience, setComposerAudience ] = useState<ComposerAudienceMode>("CREATOR");
@@ -339,12 +335,7 @@ export default function ConversationDetails({ onBackToBoard }: ConversationDetai
   const [ internalToast, setInternalToast ] = useState<string | null>(null);
   const [ inlineAction, setInlineAction ] = useState<InlineAction | null>(null);
   const [ translationPreviewOpen, setTranslationPreviewOpen ] = useState(false);
-  const [ inlinePanel, setInlinePanel ] = useState<InlineTab | null>(null);
   const [ internalPanelTab, setInternalPanelTab ] = useState<InternalPanelTab>("manager");
-  const [ lastTabByMode, setLastTabByMode ] = useState<{
-    CREATOR: InlineTab | null;
-    INTERNAL: InlineTab | null;
-  }>({ CREATOR: null, INTERNAL: null });
   const [ translationPreviewStatus, setTranslationPreviewStatus ] = useState<
     "idle" | "loading" | "ready" | "unavailable" | "error"
   >("idle");
@@ -467,7 +458,7 @@ const MAX_MAIN_COMPOSER_HEIGHT = 140;
   const [isAtBottom, setIsAtBottom] = useState(true);
   const chatPanelScrollTopRef = useRef(0);
   const chatPanelRestorePendingRef = useRef(false);
-  const previousInlinePanelRef = useRef<InlineTab | null>(null);
+  const previousPanelOpenRef = useRef(false);
   const fanHeaderRef = useRef<HTMLDivElement | null>(null);
   const { config } = useCreatorConfig();
   const accessSummary = getAccessSummary({
@@ -544,12 +535,8 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
 
   const closeInlinePanel = useCallback(
     (options?: { focus?: boolean }) => {
-      const wasPanelOpen = inlinePanel !== null;
-      if (inlinePanel !== null) {
+      if (managerPanelOpen) {
         captureChatScrollForPanelToggle();
-      }
-      setInlinePanel(null);
-      if (wasPanelOpen) {
         closeManagerPanel();
       }
       if (options?.focus) {
@@ -558,7 +545,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
         });
       }
     },
-    [inlinePanel, captureChatScrollForPanelToggle, closeManagerPanel]
+    [managerPanelOpen, captureChatScrollForPanelToggle, closeManagerPanel]
   );
 
   const closeContentModal = useCallback(() => {
@@ -740,15 +727,15 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
       chatPanelRestorePendingRef.current = false;
     });
     return () => cancelAnimationFrame(frame);
-  }, [inlinePanel]);
+  }, [managerPanelOpen]);
 
   useIsomorphicLayoutEffect(() => {
-    const prev = previousInlinePanelRef.current;
-    if (!prev && inlinePanel) {
+    const prev = previousPanelOpenRef.current;
+    if (!prev && managerPanelOpen) {
       scrollToBottom("auto");
     }
-    previousInlinePanelRef.current = inlinePanel;
-  }, [inlinePanel]);
+    previousPanelOpenRef.current = managerPanelOpen;
+  }, [managerPanelOpen]);
 
   useIsomorphicLayoutEffect(() => {
     if (!inlineAction || !isAtBottom) return;
@@ -933,6 +920,12 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
   };
   function handleComposerAudienceChange(mode: ComposerAudienceMode) {
     if (mode === composerAudience) return;
+    if (mode === "INTERNAL" && process.env.NODE_ENV !== "production") {
+      console.trace("SET_INTERNAL", {
+        from: "ConversationDetails/index.tsx:924",
+        reason: "audience toggle",
+      });
+    }
     setComposerAudience(mode);
   }
   const handleSelectFanFromBanner = useCallback(
@@ -1761,7 +1754,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
 
   useEffect(() => {
     if (!id || !managerPanelOpen) return;
-    if (inlinePanel !== "manager") return;
+    if (managerPanelTab !== "manager") return;
     const includeContext = includeInternalContextByFan[id] ?? true;
     if (
       internalPanelTab !== "internal" &&
@@ -1778,7 +1771,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
   }, [
     fetchInternalMessages,
     id,
-    inlinePanel,
+    managerPanelTab,
     internalPanelTab,
     includeInternalContextByFan,
     managerPanelOpen,
@@ -1826,16 +1819,16 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
     }
   }, [fetchContentItems, id]);
 
-useEffect(() => {
-  if (!id || !managerPanelOpen) return;
-  if (inlinePanel !== "manager" || internalPanelTab !== "note") return;
-  fetchFanNotes(id);
-}, [id, inlinePanel, internalPanelTab, fetchFanNotes, managerPanelOpen]);
+  useEffect(() => {
+    if (!id || !managerPanelOpen) return;
+    if (managerPanelTab !== "manager" || internalPanelTab !== "note") return;
+    fetchFanNotes(id);
+  }, [id, managerPanelTab, internalPanelTab, fetchFanNotes, managerPanelOpen]);
 
-useEffect(() => {
-  if (!id || openPanel !== "history") return;
-  fetchHistory(id);
-}, [id, openPanel]);
+  useEffect(() => {
+    if (!id || openPanel !== "history") return;
+    fetchHistory(id);
+  }, [id, openPanel]);
 
   useEffect(() => {
     if (!id || openPanel !== "extras") return;
@@ -1848,36 +1841,42 @@ useEffect(() => {
     setInviteCopyUrl(null);
   }, [id, showQuickSheet]);
 
-useEffect(() => {
-  if (!showContentModal) return;
-  if (contentModalMode !== "extras") return;
-  if (selectedContentIds.length > 0) return;
-  const firstMatch = contentItems.find((item) => {
-    const isExtraItem = item.isExtra === true || item.visibility === "EXTRA";
-    if (!isExtraItem) return false;
-    const matchesTier =
-      !extraTierFilter || item.extraTier === extraTierFilter || item.extraTier === null;
-    const matchesTime =
-      timeOfDayFilter === "all" ||
-      item.timeOfDay === "ANY" ||
-      (timeOfDayFilter === "day" && item.timeOfDay === "DAY") ||
-      (timeOfDayFilter === "night" && item.timeOfDay === "NIGHT");
-    return matchesTier && matchesTime;
-  });
-  if (firstMatch) {
-    setSelectedContentIds([firstMatch.id]);
-  }
-}, [showContentModal, contentModalMode, contentItems, extraTierFilter, timeOfDayFilter, selectedContentIds.length]);
+  useEffect(() => {
+    if (!showContentModal) return;
+    if (contentModalMode !== "extras") return;
+    if (selectedContentIds.length > 0) return;
+    const firstMatch = contentItems.find((item) => {
+      const isExtraItem = item.isExtra === true || item.visibility === "EXTRA";
+      if (!isExtraItem) return false;
+      const matchesTier =
+        !extraTierFilter || item.extraTier === extraTierFilter || item.extraTier === null;
+      const matchesTime =
+        timeOfDayFilter === "all" ||
+        item.timeOfDay === "ANY" ||
+        (timeOfDayFilter === "day" && item.timeOfDay === "DAY") ||
+        (timeOfDayFilter === "night" && item.timeOfDay === "NIGHT");
+      return matchesTier && matchesTime;
+    });
+    if (firstMatch) {
+      setSelectedContentIds([firstMatch.id]);
+    }
+  }, [showContentModal, contentModalMode, contentItems, extraTierFilter, timeOfDayFilter, selectedContentIds.length]);
 
-useEffect(() => {
-  fetchAiStatus();
-  fetchAiSettingsTone();
-}, []);
+  useEffect(() => {
+    fetchAiStatus();
+    fetchAiSettingsTone();
+  }, []);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
     const stored = window.localStorage.getItem(AUDIENCE_STORAGE_KEY);
     if (stored === "CREATOR" || stored === "INTERNAL") {
+      if (stored === "INTERNAL" && process.env.NODE_ENV !== "production") {
+        console.trace("SET_INTERNAL", {
+          from: "ConversationDetails/index.tsx:1875",
+          reason: "restore stored audience",
+        });
+      }
       setComposerAudience(stored);
     }
   }, []);
@@ -1902,17 +1901,17 @@ useEffect(() => {
   }, [id, translationPreviewOpen]);
 
   useEffect(() => {
-    if (inlinePanel !== "manager") return;
+    if (!managerPanelOpen || managerPanelTab !== "manager") return;
     if (internalPanelTab !== "manager") return;
     if (composerAudience !== "INTERNAL") return;
     focusManagerComposer(true);
-  }, [inlinePanel, internalPanelTab, composerAudience, focusManagerComposer]);
+  }, [managerPanelOpen, managerPanelTab, internalPanelTab, composerAudience, focusManagerComposer]);
 
   useEffect(() => {
-    if (!inlinePanel && !inlineAction) return;
+    if (!managerPanelOpen && !inlineAction) return;
     const handleKeyDown = (event: globalThis.KeyboardEvent) => {
       if (event.key === "Escape") {
-        if (inlinePanel) {
+        if (managerPanelOpen) {
           closeInlinePanel();
         }
         if (inlineAction) {
@@ -1922,7 +1921,7 @@ useEffect(() => {
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [inlinePanel, inlineAction, closeInlinePanel, clearInlineAction]);
+  }, [managerPanelOpen, inlineAction, closeInlinePanel, clearInlineAction]);
 
   useEffect(() => {
     closeOverlays();
@@ -1932,6 +1931,12 @@ useEffect(() => {
   useEffect(() => {
     if (!conversation?.id) return;
     if (conversation.isManager) {
+      if (process.env.NODE_ENV !== "production") {
+        console.trace("SET_INTERNAL", {
+          from: "ConversationDetails/index.tsx:1935",
+          reason: "conversation.isManager",
+        });
+      }
       setComposerAudience("INTERNAL");
       return;
     }
@@ -2003,25 +2008,6 @@ useEffect(() => {
     setTranslationPreviewOpen(false);
   };
 
-  const openDockPanel = useCallback(
-    (tab: InlineTab, options?: { audience?: ComposerAudienceMode }) => {
-      const targetAudience = options?.audience ?? composerAudience;
-      const allowedTabs = INLINE_TABS_BY_MODE[targetAudience] as readonly InlineTab[];
-      if (!allowedTabs.includes(tab)) return;
-      const shouldOpen = inlinePanel !== tab || targetAudience !== composerAudience;
-      if (!shouldOpen) return;
-      if (targetAudience !== composerAudience) {
-        setComposerAudience(targetAudience);
-      }
-      setInlinePanel(tab);
-      setLastTabByMode((prevTabs) => ({
-        ...prevTabs,
-        [targetAudience]: tab as any,
-      }));
-    },
-    [composerAudience, inlinePanel]
-  );
-
   const openInternalPanelTab = useCallback(
     (tab: InternalPanelTab, options?: { forceScroll?: boolean; scrollToTop?: boolean }) => {
       if (tab === "internal" && options?.forceScroll) {
@@ -2033,15 +2019,13 @@ useEffect(() => {
         managerPanelSkipAutoScrollRef.current = true;
       }
       setInternalPanelTab(tab);
-      const targetFanId = conversation?.isManager ? null : conversation?.id ?? null;
       openManagerPanel({
-        mode: targetFanId ? "fan" : "general",
-        targetFanId,
         tab: "manager",
+        targetFanId: activeFanId ?? null,
         source: "internal",
       });
     },
-    [conversation?.id, conversation?.isManager, openManagerPanel]
+    [activeFanId, openManagerPanel]
   );
 
   const openInternalThread = useCallback(
@@ -2054,40 +2038,23 @@ useEffect(() => {
   const handleManagerPanelTabClick = useCallback(
     (tab: InlineTab) => {
       if (managerPanelOpen && managerPanelTab === tab) {
-        closeManagerPanel();
+        closeInlinePanel({ focus: true });
         return;
       }
-      const targetFanId = conversation?.isManager ? null : conversation?.id ?? null;
       openManagerPanel({
         tab,
-        mode: targetFanId ? "fan" : "general",
-        targetFanId,
+        targetFanId: activeFanId ?? null,
         source: "composer",
       });
     },
     [
+      activeFanId,
       managerPanelOpen,
       managerPanelTab,
-      conversation?.id,
-      conversation?.isManager,
       openManagerPanel,
-      closeManagerPanel,
+      closeInlinePanel,
     ]
   );
-
-  useEffect(() => {
-    if (!managerPanelOpen) return;
-    const allowedTabs = INLINE_TABS_BY_MODE[composerAudience] as readonly InlineTab[];
-    const nextTab = allowedTabs.includes(managerPanelTab) ? managerPanelTab : "manager";
-    if (inlinePanel === nextTab) return;
-    openDockPanel(nextTab);
-  }, [managerPanelOpen, managerPanelTab, inlinePanel, openDockPanel, composerAudience]);
-
-  useEffect(() => {
-    if (managerPanelOpen) return;
-    if (!inlinePanel) return;
-    closeInlinePanel({ focus: true });
-  }, [managerPanelOpen, inlinePanel, closeInlinePanel]);
 
   const toggleIncludeInternalContext = useCallback(() => {
     const key = id ?? "global";
@@ -2125,7 +2092,7 @@ useEffect(() => {
     if (isChatBlocked && !isInternalMode) return;
     openContentModal({ mode: "packs" });
     if (options?.closeInline ?? true) {
-      if (inlinePanel !== null) {
+      if (managerPanelOpen) {
         closeInlinePanel();
       }
     }
@@ -2142,10 +2109,9 @@ useEffect(() => {
     const dockOffset = Math.max(0, dockHeight) + 12;
     const internalDraftCount = includeInternalContext ? recentInternalDrafts.length : 0;
     const templatesCount: number = TRANSLATION_QUICK_CHIPS.length;
-    const allowedTabs = INLINE_TABS_BY_MODE[composerAudience] as readonly InlineTab[];
-    const showManagerChip = allowedTabs.includes("manager");
-    const showTemplatesChip = isFanMode && allowedTabs.includes("templates");
-    const showToolsChip = allowedTabs.includes("tools") && isFanMode;
+    const showManagerChip = true;
+    const showTemplatesChip = isFanMode;
+    const showToolsChip = isFanMode;
     const managerChipStatus = managerAlert ? "Riesgo" : "OK";
     const managerChipCount = managerSuggestions.length;
     const managerChipLabel = isFanMode ? (
@@ -2831,11 +2797,8 @@ useEffect(() => {
       return null;
     };
 
-    const lastTab = lastTabByMode[composerAudience];
-    const panelTab =
-      inlinePanel ??
-      (lastTab && allowedTabs.includes(lastTab as InlineTab) ? (lastTab as InlineTab) : null);
-    const isPanelOpen = inlinePanel !== null;
+    const panelTab = managerPanelOpen ? managerPanelTab : null;
+    const isPanelOpen = managerPanelOpen;
     const panelContent = renderInlinePanel(panelTab);
 
     const panelId = "composer-inline-panel";
@@ -2848,7 +2811,7 @@ useEffect(() => {
           <div
             className={clsx(
               chipBase,
-              inlinePanel === "manager" ? chipActiveClass : chipInactiveClass
+              managerPanelOpen && managerPanelTab === "manager" ? chipActiveClass : chipInactiveClass
             )}
           >
             <button
@@ -2859,12 +2822,12 @@ useEffect(() => {
                 handleManagerPanelTabClick("manager");
               }}
               className="inline-flex items-center gap-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400/40"
-              aria-expanded={inlinePanel === "manager"}
+              aria-expanded={managerPanelOpen && managerPanelTab === "manager"}
               aria-controls={panelId}
             >
               <span>{managerChipLabel}</span>
             </button>
-            {inlinePanel === "manager" && (
+            {managerPanelOpen && managerPanelTab === "manager" && (
               <button
                 type="button"
                 onMouseDown={(event) => event.preventDefault()}
@@ -2884,7 +2847,7 @@ useEffect(() => {
           <div
             className={clsx(
               chipBase,
-              inlinePanel === "templates" ? chipActiveClass : chipInactiveClass
+              managerPanelOpen && managerPanelTab === "templates" ? chipActiveClass : chipInactiveClass
             )}
           >
             <button
@@ -2895,7 +2858,7 @@ useEffect(() => {
                 handleManagerPanelTabClick("templates");
               }}
               className="inline-flex items-center gap-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400/40"
-              aria-expanded={inlinePanel === "templates"}
+              aria-expanded={managerPanelOpen && managerPanelTab === "templates"}
               aria-controls={panelId}
             >
               <span className="flex items-center gap-1.5">
@@ -2907,7 +2870,7 @@ useEffect(() => {
                 )}
               </span>
             </button>
-            {inlinePanel === "templates" && (
+            {managerPanelOpen && managerPanelTab === "templates" && (
               <button
                 type="button"
                 onMouseDown={(event) => event.preventDefault()}
@@ -2927,7 +2890,7 @@ useEffect(() => {
           <div
             className={clsx(
               chipBase,
-              inlinePanel === "tools" ? chipActiveClass : chipInactiveClass
+              managerPanelOpen && managerPanelTab === "tools" ? chipActiveClass : chipInactiveClass
             )}
           >
             <button
@@ -2938,12 +2901,12 @@ useEffect(() => {
                 handleManagerPanelTabClick("tools");
               }}
               className="inline-flex items-center gap-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/40"
-              aria-expanded={inlinePanel === "tools"}
+              aria-expanded={managerPanelOpen && managerPanelTab === "tools"}
               aria-controls={panelId}
             >
               <span>Herramientas</span>
             </button>
-            {inlinePanel === "tools" && (
+            {managerPanelOpen && managerPanelTab === "tools" && (
               <button
                 type="button"
                 onMouseDown={(event) => event.preventDefault()}
@@ -2979,7 +2942,12 @@ useEffect(() => {
               : undefined
           }
         >
-          {panelContent}
+          <div
+            onPointerDown={(event) => event.stopPropagation()}
+            onClick={(event) => event.stopPropagation()}
+          >
+            {panelContent}
+          </div>
         </InlinePanelContainer>
       ) : null;
 
@@ -3184,13 +3152,14 @@ useEffect(() => {
   );
 
   useIsomorphicLayoutEffect(() => {
-    if (inlinePanel !== "manager" || internalPanelTab !== "manager") return;
+    if (!managerPanelOpen || managerPanelTab !== "manager" || internalPanelTab !== "manager") return;
     const frame = requestAnimationFrame(() => {
       syncManagerPanelScroll();
     });
     return () => cancelAnimationFrame(frame);
   }, [
-    inlinePanel,
+    managerPanelOpen,
+    managerPanelTab,
     internalPanelTab,
     conversation.id,
     managerChatMessages.length,
@@ -3198,22 +3167,22 @@ useEffect(() => {
   ]);
 
   useEffect(() => {
-    if (inlinePanel !== "manager" || internalPanelTab !== "manager") return;
+    if (!managerPanelOpen || managerPanelTab !== "manager" || internalPanelTab !== "manager") return;
     if (!managerChatEndRef.current) return;
     if (managerPanelSkipAutoScrollRef.current) {
       managerPanelSkipAutoScrollRef.current = false;
       return;
     }
     managerChatEndRef.current.scrollIntoView({ behavior: "smooth", block: "end" });
-  }, [inlinePanel, internalPanelTab, managerChatMessages.length]);
+  }, [managerPanelOpen, managerPanelTab, internalPanelTab, managerChatMessages.length]);
 
   useIsomorphicLayoutEffect(() => {
-    if (inlinePanel !== "manager" || internalPanelTab !== "internal") return;
+    if (!managerPanelOpen || managerPanelTab !== "manager" || internalPanelTab !== "internal") return;
     const frame = requestAnimationFrame(() => {
       syncInternalChatScroll();
     });
     return () => cancelAnimationFrame(frame);
-  }, [inlinePanel, internalPanelTab, internalMessages.length, syncInternalChatScroll]);
+  }, [managerPanelOpen, managerPanelTab, internalPanelTab, internalMessages.length, syncInternalChatScroll]);
 
   useIsomorphicLayoutEffect(() => {
     autoGrowTextarea(managerChatInputRef.current, MAX_INTERNAL_COMPOSER_HEIGHT);
@@ -4250,7 +4219,7 @@ useEffect(() => {
     !conversation.isManager && preferredLanguage ? preferredLanguage.toUpperCase() : null;
   const languageSelectValue = preferredLanguage ?? "auto";
   const isInternalMode = composerAudience === "INTERNAL";
-  const isInternalPanelOpen = inlinePanel === "manager";
+  const isInternalPanelOpen = managerPanelOpen && managerPanelTab === "manager";
   const sendDisabled =
     isSending ||
     !(messageSend.trim().length > 0) ||
@@ -4586,6 +4555,12 @@ useEffect(() => {
   const handleSendLinkFromManager = () => {
     closeInlinePanel();
     if (conversation.isManager) {
+      if (process.env.NODE_ENV !== "production") {
+        console.trace("SET_INTERNAL", {
+          from: "ConversationDetails/index.tsx:4559",
+          reason: "manager send link",
+        });
+      }
       setComposerAudience("INTERNAL");
     } else if (composerAudience !== "CREATOR") {
       handleComposerAudienceChange("CREATOR");

@@ -1285,8 +1285,7 @@ function SideBarInner() {
     const targetFanId = conversation?.isManager ? null : conversation?.id ?? null;
     openManagerPanel({
       tab: "manager",
-      mode: targetFanId ? "fan" : "general",
-      targetFanId,
+      targetFanId: targetFanId ?? null,
       source: "sidebar",
     });
   }, [conversation?.id, conversation?.isManager, openManagerPanel]);
