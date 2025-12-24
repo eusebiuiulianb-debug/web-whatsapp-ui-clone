@@ -72,6 +72,10 @@ export const ConversationProvider = ({ children }: ConversationProviderProps) =>
       setManagerPanelOpen(true);
 
       if (process.env.NODE_ENV !== "production") {
+        console.trace("OPEN_MANAGER_PANEL", {
+          tab: resolvedTab,
+          targetFanId: resolvedFanId,
+        });
         console.debug("[openManagerPanel]", {
           requestedFanId: requestedFanId ?? null,
           resolvedFanId,
@@ -86,7 +90,7 @@ export const ConversationProvider = ({ children }: ConversationProviderProps) =>
 
   const closeManagerPanel = useCallback(() => {
     if (process.env.NODE_ENV !== "production") {
-      console.trace("closeManagerPanel");
+      console.trace("CLOSE_MANAGER_PANEL");
     }
     setManagerPanelOpen(false);
   }, []);

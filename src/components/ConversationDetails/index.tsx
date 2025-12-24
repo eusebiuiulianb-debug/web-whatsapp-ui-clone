@@ -97,6 +97,8 @@ type InlinePanelShellProps = {
   children: ReactNode;
   onClose: () => void;
   containerClassName?: string;
+  headerSlot?: ReactNode;
+  stickyHeader?: boolean;
   bodyRef?: Ref<HTMLDivElement>;
   bodyClassName?: string;
   bodyScrollClassName?: string;
@@ -111,6 +113,8 @@ function InlinePanelShell({
   children,
   onClose,
   containerClassName,
+  headerSlot,
+  stickyHeader = false,
   bodyRef,
   bodyClassName,
   bodyScrollClassName,
@@ -131,16 +135,24 @@ function InlinePanelShell({
         containerClassName
       )}
     >
-      <div className="shrink-0 flex items-center justify-between border-b border-slate-800/50 px-4 py-2">
-        <span className="text-[11px] font-semibold text-slate-300">{title}</span>
-        <button
-          type="button"
-          onClick={onClose}
-          className="inline-flex h-6 w-6 items-center justify-center rounded-full text-slate-300 transition hover:bg-slate-800/80 hover:text-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/60"
-          aria-label="Cerrar panel"
-        >
-          ✕
-        </button>
+      <div
+        className={clsx(
+          "shrink-0 border-b border-slate-800/50",
+          stickyHeader && "sticky top-0 z-10 backdrop-blur bg-slate-950/80"
+        )}
+      >
+        <div className="flex items-center justify-between px-4 py-2">
+          <span className="text-[11px] font-semibold text-slate-300">{title}</span>
+          <button
+            type="button"
+            onClick={onClose}
+            className="inline-flex h-6 w-6 items-center justify-center rounded-full text-slate-300 transition hover:bg-slate-800/80 hover:text-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/60"
+            aria-label="Cerrar panel"
+          >
+            ✕
+          </button>
+        </div>
+        {headerSlot && <div className="px-4 pb-3">{headerSlot}</div>}
       </div>
       <div
         ref={bodyRef}
@@ -211,7 +223,7 @@ function InlinePanelContainer({
       id={panelId}
       className={clsx(
         "transition-all duration-200 ease-out overflow-hidden",
-        isOverlay ? "absolute inset-0 z-40" : bottomOffset ? "sticky z-10" : null,
+        isOverlay ? "fixed inset-0 z-50 md:absolute" : bottomOffset ? "sticky z-10" : null,
         isOpen ? openClassName : closedClassName
       )}
       style={{
@@ -535,6 +547,9 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
 
   const closeInlinePanel = useCallback(
     (options?: { focus?: boolean }) => {
+      if (process.env.NODE_ENV !== "production") {
+        console.trace("CLOSE_INLINE_PANEL");
+      }
       if (managerPanelOpen) {
         captureChatScrollForPanelToggle();
         closeManagerPanel();
@@ -557,8 +572,10 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
     setTransactionPrices({});
   }, []);
 
-  const closeOverlays = useCallback(() => {
-    closeInlinePanel();
+  const closeOverlays = useCallback((options?: { keepManagerPanel?: boolean }) => {
+    if (!options?.keepManagerPanel) {
+      closeInlinePanel();
+    }
     closeContentModal();
     setShowQuickSheet(false);
     setIsEditNameOpen(false);
@@ -922,7 +939,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
     if (mode === composerAudience) return;
     if (mode === "INTERNAL" && process.env.NODE_ENV !== "production") {
       console.trace("SET_INTERNAL", {
-        from: "ConversationDetails/index.tsx:924",
+        from: "ConversationDetails/index.tsx:941",
         reason: "audience toggle",
       });
     }
@@ -1873,7 +1890,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
     if (stored === "CREATOR" || stored === "INTERNAL") {
       if (stored === "INTERNAL" && process.env.NODE_ENV !== "production") {
         console.trace("SET_INTERNAL", {
-          from: "ConversationDetails/index.tsx:1875",
+          from: "ConversationDetails/index.tsx:1892",
           reason: "restore stored audience",
         });
       }
@@ -1924,7 +1941,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
   }, [managerPanelOpen, inlineAction, closeInlinePanel, clearInlineAction]);
 
   useEffect(() => {
-    closeOverlays();
+    closeOverlays({ keepManagerPanel: true });
     setInternalPanelTab("manager");
   }, [conversation.id, closeOverlays]);
 
@@ -1933,7 +1950,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
     if (conversation.isManager) {
       if (process.env.NODE_ENV !== "production") {
         console.trace("SET_INTERNAL", {
-          from: "ConversationDetails/index.tsx:1935",
+          from: "ConversationDetails/index.tsx:1952",
           reason: "conversation.isManager",
         });
       }
@@ -1954,7 +1971,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
   useEffect(() => {
     if (typeof window === "undefined") return;
     const handleConversationChanging = () => {
-      closeOverlays();
+      closeOverlays({ keepManagerPanel: true });
     };
     window.addEventListener("novsy:conversation:changing", handleConversationChanging as EventListener);
     return () => {
@@ -1964,7 +1981,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
 
   useEffect(() => {
     const handleRouteChange = () => {
-      closeOverlays();
+      closeOverlays({ keepManagerPanel: true });
     };
     router.events.on("routeChangeStart", handleRouteChange);
     return () => {
@@ -2686,13 +2703,13 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
             title="Panel interno"
             onClose={closeDockPanel}
             onBodyWheel={handlePanelWheel}
-            containerClassName="flex flex-col h-full min-h-0 w-full max-w-none overflow-hidden"
+            containerClassName="flex flex-col h-full min-h-0 w-full max-w-none max-h-[calc(100vh-96px)] overflow-y-auto overscroll-contain"
             scrollable={false}
-            bodyClassName="px-0 py-0 min-h-0 flex-1 flex flex-col overflow-hidden"
-          >
-            <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-hidden">
+            bodyClassName="px-0 py-0 min-h-0 flex-1 flex flex-col"
+            stickyHeader
+            headerSlot={(
               <div
-                className="shrink-0 flex flex-wrap items-center gap-2 px-4 pt-3"
+                className="flex flex-wrap items-center gap-2"
                 role="tablist"
                 aria-label="Panel interno"
               >
@@ -2725,6 +2742,9 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
                   );
                 })}
               </div>
+            )}
+          >
+            <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-hidden">
               {internalPanelTab === "manager" && renderInternalManagerContent()}
               {internalPanelTab === "internal" && renderInternalChatContent()}
               {internalPanelTab === "note" && renderInternalNoteContent()}
@@ -2933,21 +2953,33 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
           bottomOffset={isInternalPanelOverlay ? undefined : !isFanMode ? dockOffset : undefined}
           openMaxHeightClassName={panelMaxHeightClassName}
           isOverlay={isInternalPanelOverlay}
-          onBackdropPointerDown={
-            isInternalPanelOverlay
-              ? (event) => {
+        >
+          {isInternalPanelOverlay ? (
+            <>
+              <div
+                className="absolute inset-0 bg-slate-950/70"
+                onPointerDown={(event) => {
+                  event.stopPropagation();
                   if (event.target !== event.currentTarget) return;
                   closeDockPanel();
-                }
-              : undefined
-          }
-        >
-          <div
-            onPointerDown={(event) => event.stopPropagation()}
-            onClick={(event) => event.stopPropagation()}
-          >
-            {panelContent}
-          </div>
+                }}
+              />
+              <div
+                className="relative z-10 w-full max-w-[760px] mx-auto px-4 py-6 md:py-8"
+                onPointerDown={(event) => event.stopPropagation()}
+                onClick={(event) => event.stopPropagation()}
+              >
+                {panelContent}
+              </div>
+            </>
+          ) : (
+            <div
+              onPointerDown={(event) => event.stopPropagation()}
+              onClick={(event) => event.stopPropagation()}
+            >
+              {panelContent}
+            </div>
+          )}
         </InlinePanelContainer>
       ) : null;
 
@@ -4220,6 +4252,17 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
   const languageSelectValue = preferredLanguage ?? "auto";
   const isInternalMode = composerAudience === "INTERNAL";
   const isInternalPanelOpen = managerPanelOpen && managerPanelTab === "manager";
+
+  useEffect(() => {
+    if (typeof document === "undefined") return;
+    if (!isInternalPanelOpen) return;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = previousOverflow;
+    };
+  }, [isInternalPanelOpen]);
+
   const sendDisabled =
     isSending ||
     !(messageSend.trim().length > 0) ||
@@ -4557,7 +4600,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
     if (conversation.isManager) {
       if (process.env.NODE_ENV !== "production") {
         console.trace("SET_INTERNAL", {
-          from: "ConversationDetails/index.tsx:4559",
+          from: "ConversationDetails/index.tsx:4602",
           reason: "manager send link",
         });
       }
