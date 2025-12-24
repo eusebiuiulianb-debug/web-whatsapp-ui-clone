@@ -186,7 +186,7 @@ function SideBarInner() {
   const [ focusMode, setFocusMode ] = useState(false);
   const [ showPacksPanel, setShowPacksPanel ] = useState(false);
   const [ listSegment, setListSegment ] = useState<"all" | "queue">("all");
-  const [ showPriorities, setShowPriorities ] = useState(true);
+  const [ showPriorities, setShowPriorities ] = useState(false);
   const [ nextCursor, setNextCursor ] = useState<string | null>(null);
   const [ hasMore, setHasMore ] = useState(false);
   const [ isLoadingMore, setIsLoadingMore ] = useState(false);
@@ -205,7 +205,6 @@ function SideBarInner() {
     setActiveQueueFilter,
     setQueueFans,
     queueFans,
-    openManagerPanel,
   } = useContext(ConversationContext);
   const [ extrasSummary, setExtrasSummary ] = useState<ExtrasSummary | null>(null);
   const [ extrasSummaryError, setExtrasSummaryError ] = useState<string | null>(null);
@@ -656,20 +655,17 @@ function SideBarInner() {
   const handleSegmentChange = useCallback(
     (next: "all" | "queue") => {
       setListSegment(next);
-      if (next === "queue") {
-        setShowPriorities(true);
-      }
       scrollListToTop();
     },
     [scrollListToTop]
   );
 
   const openQueueSegment = useCallback(() => {
+    if (!activeQueueFilter) {
+      setActiveQueueFilter("ventas_hoy");
+    }
     handleSegmentChange("queue");
-    requestAnimationFrame(() => {
-      queueHeaderRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
-    });
-  }, [handleSegmentChange]);
+  }, [activeQueueFilter, handleSegmentChange, setActiveQueueFilter]);
 
   function selectStatusFilter(next: "active" | "archived" | "blocked") {
     setStatusFilter(next);
@@ -938,18 +934,17 @@ function SideBarInner() {
   const extrasTodayCount = Number.isFinite(extrasSummary?.today?.count) ? (extrasSummary?.today?.count as number) : 0;
   const extrasTodayAmount = Number.isFinite(extrasSummary?.today?.amount) ? (extrasSummary?.today?.amount as number) : 0;
   const legendRef = useRef<HTMLDivElement | null>(null);
-  const queueHeaderRef = useRef<HTMLDivElement | null>(null);
   const activeQueueMeta = useMemo(
-    () => buildQueueMetaList(safeFilteredConversationsList, activeQueueFilter),
-    [activeQueueFilter, buildQueueMetaList, safeFilteredConversationsList]
+    () => buildQueueMetaList(fans as FanData[], activeQueueFilter),
+    [activeQueueFilter, buildQueueMetaList, fans]
   );
   const activeQueueCount = activeQueueMeta.length;
-  const ventasHoyQueueMeta = useMemo(
+  const colaHoyQueueMeta = useMemo(
     () => buildQueueMetaList(fans as FanData[], "ventas_hoy"),
     [buildQueueMetaList, fans]
   );
-  const ventasHoyCount = ventasHoyQueueMeta.length;
-  const vipInQueue = ventasHoyQueueMeta.filter((entry) => entry?.fan?.isHighPriority).length;
+  const colaHoyCount = colaHoyQueueMeta.length;
+  const vipInQueue = colaHoyQueueMeta.filter((entry) => entry?.fan?.isHighPriority).length;
   const recommendedCandidate = useMemo(() => {
     if (!activeQueueFilter || activeQueueMeta.length === 0) return null;
     const activeId = conversation?.id ?? null;
@@ -958,25 +953,8 @@ function SideBarInner() {
     if (idx >= 0) return activeQueueMeta[idx + 1] ?? null;
     return activeQueueMeta[0] ?? null;
   }, [activeQueueFilter, activeQueueMeta, conversation?.id]);
-  const queueEntries = useMemo(() => {
-    if (!recommendedCandidate) return activeQueueMeta;
-    return activeQueueMeta.filter((entry) => entry.fan.id !== recommendedCandidate.fan.id);
-  }, [activeQueueMeta, recommendedCandidate]);
   const queueCount = activeQueueCount;
-  const queuePreviewEntries = queueEntries.slice(0, 3);
-  const queueFanIds = useMemo(
-    () => new Set(activeQueueMeta.map((entry) => entry.fan.id).filter(Boolean)),
-    [activeQueueMeta]
-  );
-  const restList = useMemo(
-    () =>
-      safeFilteredConversationsList.filter((fan) => {
-        if (!fan?.id) return false;
-        return !queueFanIds.has(fan.id);
-      }),
-    [queueFanIds, safeFilteredConversationsList]
-  );
-  const restCount = restList.length;
+  const queuePreviewEntries = activeQueueMeta.slice(0, 3);
   const activeQueueList = useMemo(
     () => activeQueueMeta.map((entry) => entry.fan),
     [activeQueueMeta]
@@ -1273,22 +1251,26 @@ function SideBarInner() {
     return `${rounded % 1 === 0 ? rounded.toFixed(0) : rounded.toFixed(2)} €`;
   }
 
-  const handleOpenManagerInternal = useCallback((event: React.MouseEvent<HTMLButtonElement>) => {
-    event.preventDefault();
-    event.stopPropagation();
-    if (process.env.NODE_ENV !== "production") {
-      console.debug("Manager open click", {
-        activeConversationId: conversation?.id ?? null,
-        isManager: conversation?.isManager ?? false,
-      });
+  const handleOpenManagerPanel = useCallback((_item?: ConversationListData) => {
+    if (typeof window !== "undefined") {
+      window.dispatchEvent(new CustomEvent("novsy:conversation:changing"));
     }
-    const targetFanId = conversation?.isManager ? null : conversation?.id ?? null;
-    openManagerPanel({
-      tab: "manager",
-      targetFanId: targetFanId ?? null,
-      source: "sidebar",
-    });
-  }, [conversation?.id, conversation?.isManager, openManagerPanel]);
+    void router.push("/creator/manager", undefined, { scroll: false });
+  }, [router]);
+
+  const managerPanelItem = useMemo<ConversationListData>(
+    () => ({
+      id: "__manager_panel__",
+      contactName: "Manager IA",
+      lastMessage: "Panel (global)",
+      lastTime: "",
+      image: "avatar.jpg",
+      messageHistory: [],
+      isManager: true,
+      managerCaption: "",
+    }),
+    []
+  );
 
   const isLoading = loadingFans;
   const isError = Boolean(fansError);
@@ -1347,9 +1329,9 @@ function SideBarInner() {
                   </span>
                 </div>
                 <div className="flex flex-col rounded-xl bg-slate-950/70 px-3 py-3 shadow-sm">
-                  <span className="text-[12px] text-slate-400">Ventas hoy (cola)</span>
-                  <span className={clsx("mt-1 text-2xl font-semibold", ventasHoyCount > 0 ? "text-emerald-300" : "text-slate-300")}>
-                    {ventasHoyCount}
+                  <span className="text-[12px] text-slate-400">Cola hoy</span>
+                  <span className={clsx("mt-1 text-2xl font-semibold", colaHoyCount > 0 ? "text-emerald-300" : "text-slate-300")}>
+                    {colaHoyCount}
                   </span>
                 </div>
                 <div className="flex flex-col rounded-xl bg-slate-950/70 px-3 py-3 shadow-sm">
@@ -1448,12 +1430,12 @@ function SideBarInner() {
                 <li><span className="font-semibold">Extras</span> → Ya te han comprado contenido extra (PPV).</li>
                 <li><span className="font-semibold">⚡ Próxima acción</span> → Le debes un mensaje o seguimiento hoy.</li>
                 <li><span className="font-semibold">Seguimiento hoy</span> → Suscripción a punto de renovarse o tarea marcada para hoy.</li>
-                <li><span className="font-semibold">Ventas hoy</span> → Lista de chats importantes para hoy, ordenados por prioridad.</li>
+                <li><span className="font-semibold">Cola hoy</span> → Lista de chats importantes para hoy, ordenados por prioridad.</li>
               </ul>
               <div className="mt-3 border-t border-slate-700 pt-2">
                 <div className="text-[12px] font-semibold text-slate-100 mb-1">Cómo usarlo hoy</div>
                 <ol className="list-decimal list-inside space-y-1 text-slate-300">
-                  <li>Enciende «Ventas hoy» para ver tu cola del día.</li>
+                  <li>Enciende «Cola hoy» para ver tu cola del día.</li>
                   <li>Usa «Siguiente venta» hasta vaciar la cola.</li>
                   <li>Revisa «Alta prioridad» y «Con extras» para cerrar el día.</li>
                 </ol>
@@ -1718,190 +1700,287 @@ function SideBarInner() {
           </div>
         </div>
       )}
-      <div className="mb-2 px-3">
-        <div className="inline-flex rounded-full border border-slate-700 bg-slate-900/70 p-1 text-[11px] text-slate-200">
-          <button
-            type="button"
-            onClick={() => handleSegmentChange("all")}
-            className={clsx(
-              "rounded-full px-3 py-1 font-semibold transition",
-              listSegment === "all"
-                ? "bg-emerald-500/20 text-emerald-100"
-                : "text-slate-300 hover:text-slate-100"
-            )}
-          >
-            Todos ({totalCount})
-          </button>
-          <button
-            type="button"
-            onClick={openQueueSegment}
-            className={clsx(
-              "rounded-full px-3 py-1 font-semibold transition",
-              listSegment === "queue"
-                ? "bg-amber-500/20 text-amber-100"
-                : "text-slate-300 hover:text-slate-100"
-            )}
-          >
-            Cola ({queueCount})
-          </button>
-        </div>
-      </div>
-      <div className="mb-2 flex gap-2 text-xs px-3">
-        <button
-          type="button"
-          onClick={() => {
-            applyFilter("all", false, "all", false);
-            setActiveQueueFilter(null);
-          }}
-          className={clsx(
-            "rounded-full border px-3 py-1",
-            followUpFilter === "all"
-              ? "border-slate-400 bg-slate-700/60 text-slate-50"
-              : "border-slate-600 bg-slate-800/60 text-slate-300"
-          )}
-        >
-          Todos{totalCount > 0 ? ` (${totalCount})` : ""}
-        </button>
-        <button
-          type="button"
-          onClick={() => {
-            applyFilter("today", false, "all", false);
-            setActiveQueueFilter("seguimiento_hoy");
-          }}
-          className={clsx(
-            "rounded-full border px-3 py-1",
-            followUpFilter === "today"
-              ? "border-amber-400 bg-amber-500/10 text-amber-100"
-              : "border-amber-700 bg-slate-800/60 text-amber-200/80"
-          )}
-        >
-          Seguimiento hoy{followUpTodayCount > 0 ? ` (${followUpTodayCount})` : ""}
-        </button>
-        <button
-          type="button"
-          onClick={() => {
-            applyFilter("expired", false, "all", false);
-            setActiveQueueFilter("caducados");
-          }}
-          className={clsx(
-            "rounded-full border px-3 py-1",
-            followUpFilter === "expired"
-              ? "border-rose-400 bg-rose-500/10 text-rose-100"
-              : "border-rose-800 bg-slate-800/60 text-rose-200/80"
-          )}
-        >
-          Caducados{expiredCount > 0 ? ` (${expiredCount})` : ""}
-        </button>
-        <button
-          type="button"
-          onClick={() => {
-            const nextPriorityOnly = !showPriorityOnly;
-            setFollowUpFilter("all");
-            setShowOnlyWithNotes(false);
-            setOnlyWithFollowUp(false);
-            setTierFilter("all");
-            setShowPriorityOnly(nextPriorityOnly);
-            setActiveQueueFilter(nextPriorityOnly ? "alta_prioridad" : null);
-            scrollListToTop();
-          }}
-          className={clsx(
-            "rounded-full border px-3 py-1",
-            showPriorityOnly
-              ? "border-amber-400 bg-amber-500/10 text-amber-100"
-              : "border-amber-700 bg-slate-800/60 text-amber-200/80"
-          )}
-        >
-          Alta prioridad{priorityCount > 0 ? ` (${priorityCount})` : ""}
-        </button>
-        <button
-          type="button"
-          onClick={() => {
-            const nextFilter = activeQueueFilter === "ventas_hoy" ? null : "ventas_hoy";
-            setActiveQueueFilter(nextFilter);
-            handleSegmentChange(nextFilter ? "queue" : "all");
-          }}
-          className={clsx(
-            "rounded-full border px-3 py-1",
-            activeQueueFilter === "ventas_hoy"
-              ? "border-emerald-400 bg-emerald-500/10 text-emerald-100"
-              : "border-emerald-700 bg-slate-800/60 text-emerald-200/80"
-          )}
-        >
-          Ventas hoy
-        </button>
-      </div>
-      <div className="px-3 mb-3 w-full">
-        <div className="flex items-center gap-3 w-full rounded-full bg-slate-900/80 border border-slate-800/70 px-3 py-2 shadow-sm flex-wrap">
-          <svg viewBox="0 0 24 24" width="20" height="20" className="text-slate-400/80">
-            <path fill="currentColor" d="M15.009 13.805h-.636l-.22-.219a5.184 5.184 0 0 0 1.256-3.386 5.207 5.207 0 1 0-5.207 5.208 5.183 5.183 0 0 0 3.385-1.255l.221.22v.635l4.004 3.999 1.194-1.195-3.997-4.007zm-4.808 0a3.605 3.605 0 1 1 0-7.21 3.605 3.605 0 0 1 0 7.21z" />
-          </svg>
-          <input
-            className="flex-1 min-w-[160px] bg-transparent border-none outline-none text-sm text-slate-100 placeholder:text-slate-400"
-            placeholder="Buscar o iniciar un nuevo chat"
-            value={search}
-            onChange={(e) => {
-              setSearch(e.target.value);
-              scrollListToTop();
-            }}
-          />
-          <button
-            type="button"
-            onClick={() => setFocusMode((prev) => !prev)}
-            className={clsx(
-              "inline-flex h-10 w-10 items-center justify-center rounded-full border transition",
-              focusMode
-                ? "border-emerald-400 bg-emerald-500/25 text-emerald-50 shadow-[0_0_0_1px_rgba(16,185,129,0.25)]"
-                : "border-slate-700 bg-slate-800/70 text-slate-300 hover:bg-slate-700"
-            )}
-            aria-pressed={focusMode}
-            title={focusMode ? "Salir de modo enfoque" : "Activar modo enfoque"}
-          >
-            <svg viewBox="0 0 24 24" width="20" height="20" preserveAspectRatio="xMidYMid meet">
-              <path fill="currentColor" d="M10 18.1h4v-2h-4v2zm-7-12v2h18v-2H3zm3 7h12v-2H6v2z">
-              </path>
-            </svg>
-          </button>
-        </div>
-        <div className="mt-2 flex justify-end">
-          <button
-            type="button"
-            className="rounded-full border border-emerald-500/70 bg-emerald-500/10 px-4 py-1.5 text-xs font-semibold text-emerald-100 hover:bg-emerald-500/20"
-            onClick={() => {
-              setIsNewFanOpen(true);
-              setNewFanError(null);
-              setNewFanId(null);
-              setNewFanInviteUrl(null);
-              setNewFanInviteState("idle");
-              setNewFanInviteError(null);
-            }}
-          >
-            + Crear invitación
-          </button>
-        </div>
-        <div className="mt-2">
-          <button
-            type="button"
-            onClick={handleOpenManagerInternal}
-            className="flex w-full items-center justify-between rounded-xl border border-slate-800/70 bg-slate-900/70 px-3 py-2 text-left text-xs text-slate-200 hover:border-emerald-400/60 hover:bg-slate-900/90"
-          >
-            <div className="flex items-center gap-2">
-              <span className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-emerald-500/15 text-emerald-200">
-                IA
-              </span>
-              <div>
-                <div className="font-semibold text-slate-100">Manager IA</div>
-                <div className="text-[10px] text-slate-400">Chat interno</div>
-              </div>
-            </div>
-            <span className="text-[11px] font-semibold text-emerald-200">Abrir</span>
-          </button>
-        </div>
-      </div>
       <div
         ref={listScrollRef}
-        className="flex flex-col w-full flex-1 min-h-0 overflow-y-auto"
+        className="relative flex flex-col w-full flex-1 min-h-0 overflow-y-auto"
         id="conversation"
       >
+        <div className="sticky top-0 z-30 bg-[#202c33] pb-3">
+          <div className="relative">
+            <div className="px-3 pt-3">
+              <div className="flex items-center justify-between gap-2">
+                <div className="inline-flex rounded-full border border-slate-700 bg-slate-900/70 p-1 text-[11px] text-slate-200">
+                  <button
+                    type="button"
+                    onClick={() => handleSegmentChange("all")}
+                    className={clsx(
+                      "rounded-full px-3 py-1 font-semibold transition",
+                      listSegment === "all"
+                        ? "bg-emerald-500/20 text-emerald-100"
+                        : "text-slate-300 hover:text-slate-100"
+                    )}
+                  >
+                    Todos ({totalCount})
+                  </button>
+                  <button
+                    type="button"
+                    onClick={openQueueSegment}
+                    className={clsx(
+                      "rounded-full px-3 py-1 font-semibold transition",
+                      listSegment === "queue"
+                        ? "bg-amber-500/20 text-amber-100"
+                        : "text-slate-300 hover:text-slate-100"
+                    )}
+                  >
+                    Cola ({queueCount})
+                  </button>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setShowPriorities((prev) => !prev)}
+                  className={clsx(
+                    "rounded-full border px-3 py-1 text-[11px] font-semibold transition",
+                    showPriorities
+                      ? "border-amber-400/70 bg-amber-500/15 text-amber-100"
+                      : "border-slate-700 bg-slate-900/70 text-slate-300 hover:text-slate-100"
+                  )}
+                  aria-expanded={showPriorities}
+                >
+                  Prioridades
+                </button>
+              </div>
+            </div>
+            <div className="mt-2 flex gap-2 text-xs px-3">
+              <button
+                type="button"
+                onClick={() => {
+                  applyFilter("all", false, "all", false);
+                  setActiveQueueFilter(null);
+                }}
+                className={clsx(
+                  "rounded-full border px-3 py-1",
+                  followUpFilter === "all"
+                    ? "border-slate-400 bg-slate-700/60 text-slate-50"
+                    : "border-slate-600 bg-slate-800/60 text-slate-300"
+                )}
+              >
+                Todos{totalCount > 0 ? ` (${totalCount})` : ""}
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  applyFilter("today", false, "all", false);
+                  setActiveQueueFilter("seguimiento_hoy");
+                }}
+                className={clsx(
+                  "rounded-full border px-3 py-1",
+                  followUpFilter === "today"
+                    ? "border-amber-400 bg-amber-500/10 text-amber-100"
+                    : "border-amber-700 bg-slate-800/60 text-amber-200/80"
+                )}
+              >
+                Seguimiento hoy{followUpTodayCount > 0 ? ` (${followUpTodayCount})` : ""}
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  applyFilter("expired", false, "all", false);
+                  setActiveQueueFilter("caducados");
+                }}
+                className={clsx(
+                  "rounded-full border px-3 py-1",
+                  followUpFilter === "expired"
+                    ? "border-rose-400 bg-rose-500/10 text-rose-100"
+                    : "border-rose-800 bg-slate-800/60 text-rose-200/80"
+                )}
+              >
+                Caducados{expiredCount > 0 ? ` (${expiredCount})` : ""}
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  const nextPriorityOnly = !showPriorityOnly;
+                  setFollowUpFilter("all");
+                  setShowOnlyWithNotes(false);
+                  setOnlyWithFollowUp(false);
+                  setTierFilter("all");
+                  setShowPriorityOnly(nextPriorityOnly);
+                  setActiveQueueFilter(nextPriorityOnly ? "alta_prioridad" : null);
+                  scrollListToTop();
+                }}
+                className={clsx(
+                  "rounded-full border px-3 py-1",
+                  showPriorityOnly
+                    ? "border-amber-400 bg-amber-500/10 text-amber-100"
+                    : "border-amber-700 bg-slate-800/60 text-amber-200/80"
+                )}
+              >
+                Alta prioridad{priorityCount > 0 ? ` (${priorityCount})` : ""}
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  const nextFilter = activeQueueFilter === "ventas_hoy" ? null : "ventas_hoy";
+                  setActiveQueueFilter(nextFilter);
+                  handleSegmentChange(nextFilter ? "queue" : "all");
+                }}
+                className={clsx(
+                  "rounded-full border px-3 py-1",
+                  activeQueueFilter === "ventas_hoy"
+                    ? "border-emerald-400 bg-emerald-500/10 text-emerald-100"
+                    : "border-emerald-700 bg-slate-800/60 text-emerald-200/80"
+                )}
+              >
+                Cola hoy
+              </button>
+            </div>
+            <div className="mt-3 px-3 w-full">
+              <div className="flex items-center gap-3 w-full rounded-full bg-slate-900/80 border border-slate-800/70 px-3 py-2 shadow-sm flex-wrap">
+                <svg viewBox="0 0 24 24" width="20" height="20" className="text-slate-400/80">
+                  <path fill="currentColor" d="M15.009 13.805h-.636l-.22-.219a5.184 5.184 0 0 0 1.256-3.386 5.207 5.207 0 1 0-5.207 5.208 5.183 5.183 0 0 0 3.385-1.255l.221.22v.635l4.004 3.999 1.194-1.195-3.997-4.007zm-4.808 0a3.605 3.605 0 1 1 0-7.21 3.605 3.605 0 0 1 0 7.21z" />
+                </svg>
+                <input
+                  className="flex-1 min-w-[160px] bg-transparent border-none outline-none text-sm text-slate-100 placeholder:text-slate-400"
+                  placeholder="Buscar o iniciar un nuevo chat"
+                  value={search}
+                  onChange={(e) => {
+                    setSearch(e.target.value);
+                    scrollListToTop();
+                  }}
+                />
+                <button
+                  type="button"
+                  onClick={() => setFocusMode((prev) => !prev)}
+                  className={clsx(
+                    "inline-flex h-10 w-10 items-center justify-center rounded-full border transition",
+                    focusMode
+                      ? "border-emerald-400 bg-emerald-500/25 text-emerald-50 shadow-[0_0_0_1px_rgba(16,185,129,0.25)]"
+                      : "border-slate-700 bg-slate-800/70 text-slate-300 hover:bg-slate-700"
+                  )}
+                  aria-pressed={focusMode}
+                  title={focusMode ? "Salir de modo enfoque" : "Activar modo enfoque"}
+                >
+                  <svg viewBox="0 0 24 24" width="20" height="20" preserveAspectRatio="xMidYMid meet">
+                    <path fill="currentColor" d="M10 18.1h4v-2h-4v2zm-7-12v2h18v-2H3zm3 7h12v-2H6v2z">
+                    </path>
+                  </svg>
+                </button>
+              </div>
+              <div className="mt-2 flex justify-end">
+                <button
+                  type="button"
+                  className="rounded-full border border-emerald-500/70 bg-emerald-500/10 px-4 py-1.5 text-xs font-semibold text-emerald-100 hover:bg-emerald-500/20"
+                  onClick={() => {
+                    setIsNewFanOpen(true);
+                    setNewFanError(null);
+                    setNewFanId(null);
+                    setNewFanInviteUrl(null);
+                    setNewFanInviteState("idle");
+                    setNewFanInviteError(null);
+                  }}
+                >
+                  + Crear invitación
+                </button>
+              </div>
+            </div>
+            {showPriorities && (
+              <div className="absolute left-0 right-0 top-full mt-2 px-3 pb-3">
+                <div className="rounded-xl border border-slate-700 bg-slate-900/95 px-3 py-3 text-[11px] text-slate-200 shadow-xl">
+                  <div className="flex items-center justify-between">
+                    <span className="font-semibold text-slate-100">Prioridades</span>
+                    <button
+                      type="button"
+                      className="text-[11px] text-slate-400 hover:text-slate-100"
+                      onClick={() => setShowPriorities(false)}
+                    >
+                      Cerrar
+                    </button>
+                  </div>
+                  <div className="mt-2 space-y-2">
+                    {recommendedCandidate ? (
+                      <div className="rounded-xl border border-amber-500/50 bg-slate-900/80 px-3 py-2">
+                        <div className="text-[11px] text-slate-400">Siguiente recomendado</div>
+                        <div className="mt-1 flex items-start justify-between gap-3">
+                          <div className="min-w-0">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <span className="text-sm font-semibold text-slate-50 truncate">
+                                {recommendedCandidate.fan.contactName}
+                              </span>
+                              <span className={getRecommendationTagClass(recommendedCandidate.tagTone)}>
+                                {recommendedCandidate.tag}
+                              </span>
+                              <span className="text-[10px] text-slate-400">{recommendedCandidate.daysLeftLabel}</span>
+                            </div>
+                            <div className="text-[11px] text-slate-500 truncate">
+                              {recommendedCandidate.reason}
+                            </div>
+                          </div>
+                          <button
+                            type="button"
+                            className="rounded-lg bg-amber-500/90 px-2 py-1 text-xs font-semibold text-slate-900 hover:bg-amber-500"
+                            onClick={() => handleOpenRecommended(recommendedCandidate.fan)}
+                          >
+                            Abrir
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="text-xs text-slate-400">
+                        {activeQueueFilter
+                          ? activeQueueCount === 0
+                            ? "No hay cola activa."
+                            : "Cola terminada."
+                          : "No hay cola activa."}
+                      </div>
+                    )}
+                    {queueCount > 0 && (
+                      <div className="rounded-xl border border-slate-800/70 bg-slate-900/70 px-3 py-2">
+                        <div className="flex items-center justify-between gap-2">
+                          <div className="text-[11px] font-semibold text-slate-400">Cola ({queueCount})</div>
+                          <button
+                            type="button"
+                            onClick={openQueueSegment}
+                            className="text-[11px] font-semibold text-slate-300 hover:text-slate-100"
+                          >
+                            Ver cola ({queueCount})
+                          </button>
+                        </div>
+                        <div className="mt-1 space-y-1">
+                          {queuePreviewEntries.map((entry) => (
+                            <button
+                              key={entry.fan.id}
+                              type="button"
+                              onClick={() => handleSelectConversation(entry.fan)}
+                              className="flex w-full flex-col gap-1 rounded-lg border border-transparent px-2 py-1 text-left transition hover:border-slate-700/70 hover:bg-slate-900/60"
+                            >
+                              <div className="flex items-center justify-between gap-2">
+                                <span className="text-[12px] font-semibold text-slate-100 truncate">
+                                  {entry.fan.contactName}
+                                </span>
+                                <span className="text-[10px] text-slate-400 shrink-0">
+                                  {entry.daysLeftLabel}
+                                </span>
+                              </div>
+                              <div className="flex items-center gap-2 text-[10px] text-slate-400">
+                                <span className={getRecommendationTagClass(entry.tagTone, "xs")}>{entry.tag}</span>
+                                <span className="truncate">{entry.reason}</span>
+                              </div>
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+        <ConversationList
+          data={managerPanelItem}
+          isFirstConversation
+          onSelect={handleOpenManagerPanel}
+        />
         {loadingFans && (
           <div className="text-center text-[#aebac1] py-4 text-sm">Cargando fans...</div>
         )}
@@ -1910,109 +1989,15 @@ function SideBarInner() {
         )}
         {!loadingFans && !fansError && listSegment === "queue" && !focusMode && (
           <>
-            <div ref={queueHeaderRef} className="px-3 pt-2 pb-2">
-              <div className="flex items-center justify-between">
-                <span className="text-[11px] font-semibold text-slate-400">En cola ({queueCount})</span>
-                <div className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setShowPriorities((prev) => !prev)}
-                    className="text-[11px] font-semibold text-slate-300 hover:text-slate-100"
-                  >
-                    {showPriorities ? "Ocultar cola" : "Mostrar cola"}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => handleSegmentChange("all")}
-                    className="text-[11px] font-semibold text-slate-300 hover:text-slate-100"
-                  >
-                    Ver todos
-                  </button>
-                </div>
+            {queueCount === 0 ? (
+              <div className="px-4 py-3 text-xs text-slate-400">
+                {activeQueueFilter ? "No hay chats en cola." : "Selecciona una cola para ver resultados."}
               </div>
-              {showPriorities ? (
-                <div className="mt-2 space-y-2">
-                  {recommendedCandidate ? (
-                    <div className="rounded-xl border border-amber-500/50 bg-slate-900/80 px-3 py-2">
-                      <div className="text-[11px] text-slate-400">Siguiente recomendado</div>
-                      <div className="mt-1 flex items-start justify-between gap-3">
-                        <div className="min-w-0">
-                          <div className="flex flex-wrap items-center gap-2">
-                            <span className="text-sm font-semibold text-slate-50 truncate">
-                              {recommendedCandidate.fan.contactName}
-                            </span>
-                            <span className={getRecommendationTagClass(recommendedCandidate.tagTone)}>
-                              {recommendedCandidate.tag}
-                            </span>
-                            <span className="text-[10px] text-slate-400">{recommendedCandidate.daysLeftLabel}</span>
-                          </div>
-                          <div className="text-[11px] text-slate-500 truncate">
-                            {recommendedCandidate.reason}
-                          </div>
-                        </div>
-                        <button
-                          type="button"
-                          className="rounded-lg bg-amber-500/90 px-2 py-1 text-xs font-semibold text-slate-900 hover:bg-amber-500"
-                          onClick={() => handleOpenRecommended(recommendedCandidate.fan)}
-                        >
-                          Abrir
-                        </button>
-                      </div>
-                    </div>
-                  ) : (
-                    <div className="text-xs text-slate-400">
-                      {activeQueueFilter
-                        ? activeQueueCount === 0
-                          ? "No hay cola activa."
-                          : "Cola terminada."
-                        : "No hay cola activa."}
-                    </div>
-                  )}
-                  {queueCount > 0 ? (
-                    <div className="rounded-xl border border-slate-800/70 bg-slate-900/70 px-3 py-2">
-                      <div className="text-[11px] font-semibold text-slate-400">Cola ({queueCount})</div>
-                      <div className="mt-1 space-y-1">
-                        {queueEntries.map((entry) => (
-                          <button
-                            key={entry.fan.id}
-                            type="button"
-                            onClick={() => handleSelectConversation(entry.fan)}
-                            className="flex w-full flex-col gap-1 rounded-lg border border-transparent px-2 py-1 text-left transition hover:border-slate-700/70 hover:bg-slate-900/60"
-                          >
-                            <div className="flex items-center justify-between gap-2">
-                              <span className="text-[12px] font-semibold text-slate-100 truncate">
-                                {entry.fan.contactName}
-                              </span>
-                              <span className="text-[10px] text-slate-400 shrink-0">
-                                {entry.daysLeftLabel}
-                              </span>
-                            </div>
-                            <div className="flex items-center gap-2 text-[10px] text-slate-400">
-                              <span className={getRecommendationTagClass(entry.tagTone, "xs")}>{entry.tag}</span>
-                              <span className="truncate">{entry.reason}</span>
-                            </div>
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-                  ) : (
-                    <div className="text-xs text-slate-400">Sin cola por ahora.</div>
-                  )}
-                </div>
-              ) : (
-                <div className="mt-2 text-xs text-slate-400">Cola oculta.</div>
-              )}
-            </div>
-            <div className="px-3 pt-2 pb-2">
-              <div className="text-[11px] font-semibold text-slate-400">Resto ({restCount})</div>
-            </div>
-            {restCount === 0 ? (
-              <div className="px-3 pb-2 text-xs text-slate-400">Sin más fans.</div>
             ) : (
-              restList.map((conversation, index) => (
+              activeQueueList.map((conversation, index) => (
                 <ConversationList
                   key={conversation.id || index}
-                  isFirstConversation={index === 0}
+                  isFirstConversation={false}
                   data={conversation}
                   onSelect={handleSelectConversation}
                   onToggleHighPriority={handleToggleHighPriority}
@@ -2024,95 +2009,6 @@ function SideBarInner() {
         )}
         {!loadingFans && !fansError && listSegment === "all" && !focusMode && (
           <>
-            <div className="px-3 pt-2 pb-2">
-              <div className="flex items-center justify-between">
-                <span className="text-[11px] font-semibold text-slate-400">Prioridades</span>
-                <button
-                  type="button"
-                  onClick={() => setShowPriorities((prev) => !prev)}
-                  className="text-[11px] font-semibold text-slate-300 hover:text-slate-100"
-                >
-                  {showPriorities ? "Ocultar prioridades" : "Mostrar prioridades"}
-                </button>
-              </div>
-              {showPriorities && (
-                <div className="mt-2 space-y-2">
-                  {recommendedCandidate ? (
-                    <div className="rounded-xl border border-amber-500/50 bg-slate-900/80 px-3 py-2">
-                      <div className="text-[11px] text-slate-400">Siguiente recomendado</div>
-                      <div className="mt-1 flex items-start justify-between gap-3">
-                        <div className="min-w-0">
-                          <div className="flex flex-wrap items-center gap-2">
-                            <span className="text-sm font-semibold text-slate-50 truncate">
-                              {recommendedCandidate.fan.contactName}
-                            </span>
-                            <span className={getRecommendationTagClass(recommendedCandidate.tagTone)}>
-                              {recommendedCandidate.tag}
-                            </span>
-                            <span className="text-[10px] text-slate-400">{recommendedCandidate.daysLeftLabel}</span>
-                          </div>
-                          <div className="text-[11px] text-slate-500 truncate">
-                            {recommendedCandidate.reason}
-                          </div>
-                        </div>
-                        <button
-                          type="button"
-                          className="rounded-lg bg-amber-500/90 px-2 py-1 text-xs font-semibold text-slate-900 hover:bg-amber-500"
-                          onClick={() => handleOpenRecommended(recommendedCandidate.fan)}
-                        >
-                          Abrir
-                        </button>
-                      </div>
-                    </div>
-                  ) : (
-                    <div className="text-xs text-slate-400">
-                      {activeQueueFilter
-                        ? activeQueueCount === 0
-                          ? "No hay cola activa."
-                          : "Cola terminada."
-                        : "No hay cola activa."}
-                    </div>
-                  )}
-                  {queueCount > 0 && (
-                    <div className="rounded-xl border border-slate-800/70 bg-slate-900/70 px-3 py-2">
-                      <div className="flex items-center justify-between gap-2">
-                        <div className="text-[11px] font-semibold text-slate-400">Cola ({queueCount})</div>
-                        <button
-                          type="button"
-                          onClick={openQueueSegment}
-                          className="text-[11px] font-semibold text-slate-300 hover:text-slate-100"
-                        >
-                          Ver cola ({queueCount})
-                        </button>
-                      </div>
-                      <div className="mt-1 space-y-1">
-                        {queuePreviewEntries.map((entry) => (
-                          <button
-                            key={entry.fan.id}
-                            type="button"
-                            onClick={() => handleSelectConversation(entry.fan)}
-                            className="flex w-full flex-col gap-1 rounded-lg border border-transparent px-2 py-1 text-left transition hover:border-slate-700/70 hover:bg-slate-900/60"
-                          >
-                            <div className="flex items-center justify-between gap-2">
-                              <span className="text-[12px] font-semibold text-slate-100 truncate">
-                                {entry.fan.contactName}
-                              </span>
-                              <span className="text-[10px] text-slate-400 shrink-0">
-                                {entry.daysLeftLabel}
-                              </span>
-                            </div>
-                            <div className="flex items-center gap-2 text-[10px] text-slate-400">
-                              <span className={getRecommendationTagClass(entry.tagTone, "xs")}>{entry.tag}</span>
-                              <span className="truncate">{entry.reason}</span>
-                            </div>
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-                </div>
-              )}
-            </div>
             {showPriorityOnly && safeFilteredConversationsList.length === 0 && (
               <div className="px-4 py-3 text-xs text-slate-400">
                 No hay chats prioritarios por ahora.
@@ -2128,7 +2024,7 @@ function SideBarInner() {
                     return "Aún no tienes chats de alta prioridad.\nSe marcan 🔥 cuando los señalas manualmente para atender primero.";
                   }
                   if (activeQueueFilter === "ventas_hoy") {
-                    return "No hay ventas en cola.\nTip: revisa el filtro «Con extras» y ofrece un nuevo pack o contenido extra.";
+                    return "No hay cola hoy.\nTip: revisa el filtro «Con extras» y ofrece un nuevo pack o contenido extra.";
                   }
                   if (activeQueueFilter === "seguimiento_hoy") {
                     return "No hay seguimientos en cola para hoy.";
@@ -2147,7 +2043,7 @@ function SideBarInner() {
               return (
                 <ConversationList
                   key={conversation.id || index}
-                  isFirstConversation={index == 0}
+                  isFirstConversation={false}
                   data={conversation}
                   onSelect={handleSelectConversation}
                   onToggleHighPriority={handleToggleHighPriority}

@@ -58,6 +58,8 @@ export default function ConversationList(props: ConversationListProps) {
   const campaignLabel = data.firstUtmCampaign?.trim();
   const contentLabel = data.firstUtmContent?.trim();
   if (isManagerChat) {
+    const managerCaption = data.managerCaption ?? "Chat interno del Manager IA";
+    const hasManagerCaption = managerCaption.trim().length > 0;
     return (
       <div 
         className={`flex items-center w-full bg-[#111B21] ${rowPadding} hover:bg-[#2A3942] cursor-pointer border-t ${borderClass}`}
@@ -82,15 +84,17 @@ export default function ConversationList(props: ConversationListProps) {
               </span>
             </div>
             <span className={`truncate ${previewClasses}`}>{lastMessage}</span>
-            <div className="flex items-center gap-2 text-[11px] text-slate-500">
-              <span>Chat interno del Manager IA</span>
-              {lastTime ? (
-                <>
-                  <span className="w-1 h-1 rounded-full bg-slate-600" />
-                  <span>{lastTime}</span>
-                </>
-              ) : null}
-            </div>
+            {hasManagerCaption && (
+              <div className="flex items-center gap-2 text-[11px] text-slate-500">
+                <span>{managerCaption}</span>
+                {lastTime ? (
+                  <>
+                    <span className="w-1 h-1 rounded-full bg-slate-600" />
+                    <span>{lastTime}</span>
+                  </>
+                ) : null}
+              </div>
+            )}
           </div>
         </div>
       </div>

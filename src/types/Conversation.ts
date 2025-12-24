@@ -90,6 +90,7 @@ interface Conversation {
   isBlocked?: boolean;
   isArchived?: boolean;
   isManager?: boolean;
+  managerCaption?: string | null;
   firstUtmSource?: string | null;
   firstUtmMedium?: string | null;
   firstUtmCampaign?: string | null;
