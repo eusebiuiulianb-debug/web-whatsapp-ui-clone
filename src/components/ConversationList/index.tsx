@@ -60,6 +60,7 @@ export default function ConversationList(props: ConversationListProps) {
   if (isManagerChat) {
     const managerCaption = data.managerCaption ?? "Chat interno del Manager IA";
     const hasManagerCaption = managerCaption.trim().length > 0;
+    const hasManagerPreview = typeof lastMessage === "string" && lastMessage.trim().length > 0;
     return (
       <div 
         className={`flex items-center w-full bg-[#111B21] ${rowPadding} hover:bg-[#2A3942] cursor-pointer border-t ${borderClass}`}
@@ -83,7 +84,7 @@ export default function ConversationList(props: ConversationListProps) {
                 IA
               </span>
             </div>
-            <span className={`truncate ${previewClasses}`}>{lastMessage}</span>
+            {hasManagerPreview && <span className={`truncate ${previewClasses}`}>{lastMessage}</span>}
             {hasManagerCaption && (
               <div className="flex items-center gap-2 text-[11px] text-slate-500">
                 <span>{managerCaption}</span>

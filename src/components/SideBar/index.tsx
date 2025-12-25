@@ -61,6 +61,22 @@ type RecommendationMeta = {
   daysLeftValue: number | null;
   lastActivity: number;
 };
+type PriorityQueueCounts = {
+  total: number;
+  expiringCritical: number;
+  expiringSoon: number;
+  expired: number;
+  risk: number;
+  highPriority: number;
+  followUpToday: number;
+  vip: number;
+  trialSilent: number;
+};
+type PriorityQueueResult = {
+  queueList: RecommendationMeta[];
+  nextRecommended: RecommendationMeta | null;
+  counts: PriorityQueueCounts;
+};
 type QueueSignals = {
   followUpTag: ReturnType<typeof getFollowUpTag>;
   daysLeftValue: number | null;
@@ -600,6 +616,43 @@ function SideBarInner() {
     [buildQueueMeta, getQueueSignals, matchesQueueFilter]
   );
 
+  const getPriorityQueue = useCallback(
+    (list: FanData[]): PriorityQueueResult => {
+      const queueList = buildQueueMetaList(list, "ventas_hoy");
+      const counts: PriorityQueueCounts = {
+        total: queueList.length,
+        expiringCritical: 0,
+        expiringSoon: 0,
+        expired: 0,
+        risk: 0,
+        highPriority: 0,
+        followUpToday: 0,
+        vip: 0,
+        trialSilent: 0,
+      };
+
+      queueList.forEach((entry) => {
+        const signals = getQueueSignals(entry.fan);
+        if (signals.isExpired) counts.expired += 1;
+        if (signals.isExpiringCritical) counts.expiringCritical += 1;
+        if (signals.daysLeftValue === 1) counts.expiringSoon += 1;
+        if (signals.isRisk) counts.risk += 1;
+        if (signals.isHighPriority) counts.highPriority += 1;
+        if (signals.isFollowUpToday) counts.followUpToday += 1;
+        if (signals.isTrialSilent) counts.trialSilent += 1;
+        const tier = (entry.fan.customerTier ?? "").toLowerCase();
+        if (tier === "vip" || tier === "priority") counts.vip += 1;
+      });
+
+      return {
+        queueList,
+        nextRecommended: queueList[0] ?? null,
+        counts,
+      };
+    },
+    [buildQueueMetaList, getQueueSignals]
+  );
+
   const totalCount = fans.length;
   const followUpTodayCount = fans.filter((fan) =>
     shouldFollowUpToday({
@@ -661,11 +714,9 @@ function SideBarInner() {
   );
 
   const openQueueSegment = useCallback(() => {
-    if (!activeQueueFilter) {
-      setActiveQueueFilter("ventas_hoy");
-    }
+    setActiveQueueFilter("ventas_hoy");
     handleSegmentChange("queue");
-  }, [activeQueueFilter, handleSegmentChange, setActiveQueueFilter]);
+  }, [handleSegmentChange, setActiveQueueFilter]);
 
   function selectStatusFilter(next: "active" | "archived" | "blocked") {
     setStatusFilter(next);
@@ -934,41 +985,30 @@ function SideBarInner() {
   const extrasTodayCount = Number.isFinite(extrasSummary?.today?.count) ? (extrasSummary?.today?.count as number) : 0;
   const extrasTodayAmount = Number.isFinite(extrasSummary?.today?.amount) ? (extrasSummary?.today?.amount as number) : 0;
   const legendRef = useRef<HTMLDivElement | null>(null);
-  const activeQueueMeta = useMemo(
-    () => buildQueueMetaList(fans as FanData[], activeQueueFilter),
-    [activeQueueFilter, buildQueueMetaList, fans]
+  const priorityQueue = useMemo(
+    () => getPriorityQueue(fans as FanData[]),
+    [fans, getPriorityQueue]
   );
-  const activeQueueCount = activeQueueMeta.length;
-  const colaHoyQueueMeta = useMemo(
-    () => buildQueueMetaList(fans as FanData[], "ventas_hoy"),
-    [buildQueueMetaList, fans]
-  );
-  const colaHoyCount = colaHoyQueueMeta.length;
-  const vipInQueue = colaHoyQueueMeta.filter((entry) => entry?.fan?.isHighPriority).length;
-  const recommendedCandidate = useMemo(() => {
-    if (!activeQueueFilter || activeQueueMeta.length === 0) return null;
-    const activeId = conversation?.id ?? null;
-    if (!activeId) return activeQueueMeta[0] ?? null;
-    const idx = activeQueueMeta.findIndex((entry) => entry.fan.id === activeId);
-    if (idx >= 0) return activeQueueMeta[idx + 1] ?? null;
-    return activeQueueMeta[0] ?? null;
-  }, [activeQueueFilter, activeQueueMeta, conversation?.id]);
-  const queueCount = activeQueueCount;
-  const queuePreviewEntries = activeQueueMeta.slice(0, 3);
-  const activeQueueList = useMemo(
-    () => activeQueueMeta.map((entry) => entry.fan),
-    [activeQueueMeta]
+  const queueList = priorityQueue.queueList;
+  const queueCount = priorityQueue.counts.total;
+  const colaHoyCount = priorityQueue.counts.total;
+  const vipInQueue = priorityQueue.counts.vip;
+  const recommendedCandidate = priorityQueue.nextRecommended;
+  const queuePreviewEntries = queueList.slice(0, 3);
+  const priorityQueueList = useMemo(
+    () => queueList.map((entry) => entry.fan),
+    [queueList]
   );
 
   useEffect(() => {
-    const sameLength = queueFans.length === activeQueueList.length;
+    const sameLength = queueFans.length === priorityQueueList.length;
     const sameOrder =
-      sameLength && queueFans.every((fan, idx) => fan.id === activeQueueList[idx]?.id);
-    if (sameOrder && !hasFanListChanged(queueFans, activeQueueList)) {
+      sameLength && queueFans.every((fan, idx) => fan.id === priorityQueueList[idx]?.id);
+    if (sameOrder && !hasFanListChanged(queueFans, priorityQueueList)) {
       return;
     }
-    setQueueFans(activeQueueList);
-  }, [activeQueueList, hasFanListChanged, queueFans, setQueueFans]);
+    setQueueFans(priorityQueueList);
+  }, [priorityQueueList, hasFanListChanged, queueFans, setQueueFans]);
   const apiFilter = (() => {
     if (statusFilter === "archived") return "archived";
     if (statusFilter === "blocked") return "blocked";
@@ -1262,7 +1302,7 @@ function SideBarInner() {
     () => ({
       id: "__manager_panel__",
       contactName: "Manager IA",
-      lastMessage: "Panel (global)",
+      lastMessage: "",
       lastTime: "",
       image: "avatar.jpg",
       messageHistory: [],
@@ -1329,7 +1369,7 @@ function SideBarInner() {
                   </span>
                 </div>
                 <div className="flex flex-col rounded-xl bg-slate-950/70 px-3 py-3 shadow-sm">
-                  <span className="text-[12px] text-slate-400">Cola hoy</span>
+                  <span className="text-[12px] text-slate-400">Cola</span>
                   <span className={clsx("mt-1 text-2xl font-semibold", colaHoyCount > 0 ? "text-emerald-300" : "text-slate-300")}>
                     {colaHoyCount}
                   </span>
@@ -1430,12 +1470,12 @@ function SideBarInner() {
                 <li><span className="font-semibold">Extras</span> → Ya te han comprado contenido extra (PPV).</li>
                 <li><span className="font-semibold">⚡ Próxima acción</span> → Le debes un mensaje o seguimiento hoy.</li>
                 <li><span className="font-semibold">Seguimiento hoy</span> → Suscripción a punto de renovarse o tarea marcada para hoy.</li>
-                <li><span className="font-semibold">Cola hoy</span> → Lista de chats importantes para hoy, ordenados por prioridad.</li>
+                <li><span className="font-semibold">Cola</span> → Lista de chats importantes para hoy, ordenados por prioridad.</li>
               </ul>
               <div className="mt-3 border-t border-slate-700 pt-2">
                 <div className="text-[12px] font-semibold text-slate-100 mb-1">Cómo usarlo hoy</div>
                 <ol className="list-decimal list-inside space-y-1 text-slate-300">
-                  <li>Enciende «Cola hoy» para ver tu cola del día.</li>
+                  <li>Abre «Cola» para ver tu cola del día.</li>
                   <li>Usa «Siguiente venta» hasta vaciar la cola.</li>
                   <li>Revisa «Alta prioridad» y «Con extras» para cerrar el día.</li>
                 </ol>
@@ -1446,7 +1486,6 @@ function SideBarInner() {
             type="button"
             onClick={() => {
               applyFilter("today", false);
-              setActiveQueueFilter("seguimiento_hoy");
             }}
             className="flex justify-between text-left"
           >
@@ -1475,7 +1514,6 @@ function SideBarInner() {
                 type="button"
                 onClick={() => {
                   applyFilter("expired", false);
-                  setActiveQueueFilter("caducados");
                 }}
                 className="flex justify-between text-left"
               >
@@ -1606,7 +1644,6 @@ function SideBarInner() {
                   const nextPriorityOnly = !showPriorityOnly;
                   setShowPriorityOnly(nextPriorityOnly);
                   setTierFilter("all");
-                  setActiveQueueFilter(nextPriorityOnly ? "alta_prioridad" : null);
                   scrollListToTop();
                 }}
                 className="flex justify-between text-left"
@@ -1712,7 +1749,10 @@ function SideBarInner() {
                 <div className="inline-flex rounded-full border border-slate-700 bg-slate-900/70 p-1 text-[11px] text-slate-200">
                   <button
                     type="button"
-                    onClick={() => handleSegmentChange("all")}
+                    onClick={() => {
+                      setActiveQueueFilter(null);
+                      handleSegmentChange("all");
+                    }}
                     className={clsx(
                       "rounded-full px-3 py-1 font-semibold transition",
                       listSegment === "all"
@@ -1770,7 +1810,6 @@ function SideBarInner() {
                 type="button"
                 onClick={() => {
                   applyFilter("today", false, "all", false);
-                  setActiveQueueFilter("seguimiento_hoy");
                 }}
                 className={clsx(
                   "rounded-full border px-3 py-1",
@@ -1785,7 +1824,6 @@ function SideBarInner() {
                 type="button"
                 onClick={() => {
                   applyFilter("expired", false, "all", false);
-                  setActiveQueueFilter("caducados");
                 }}
                 className={clsx(
                   "rounded-full border px-3 py-1",
@@ -1805,7 +1843,6 @@ function SideBarInner() {
                   setOnlyWithFollowUp(false);
                   setTierFilter("all");
                   setShowPriorityOnly(nextPriorityOnly);
-                  setActiveQueueFilter(nextPriorityOnly ? "alta_prioridad" : null);
                   scrollListToTop();
                 }}
                 className={clsx(
@@ -1816,22 +1853,6 @@ function SideBarInner() {
                 )}
               >
                 Alta prioridad{priorityCount > 0 ? ` (${priorityCount})` : ""}
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  const nextFilter = activeQueueFilter === "ventas_hoy" ? null : "ventas_hoy";
-                  setActiveQueueFilter(nextFilter);
-                  handleSegmentChange(nextFilter ? "queue" : "all");
-                }}
-                className={clsx(
-                  "rounded-full border px-3 py-1",
-                  activeQueueFilter === "ventas_hoy"
-                    ? "border-emerald-400 bg-emerald-500/10 text-emerald-100"
-                    : "border-emerald-700 bg-slate-800/60 text-emerald-200/80"
-                )}
-              >
-                Cola hoy
               </button>
             </div>
             <div className="mt-3 px-3 w-full">
@@ -1926,11 +1947,7 @@ function SideBarInner() {
                       </div>
                     ) : (
                       <div className="text-xs text-slate-400">
-                        {activeQueueFilter
-                          ? activeQueueCount === 0
-                            ? "No hay cola activa."
-                            : "Cola terminada."
-                          : "No hay cola activa."}
+                        No hay prioridades ahora.
                       </div>
                     )}
                     {queueCount > 0 && (
@@ -1980,6 +1997,7 @@ function SideBarInner() {
           data={managerPanelItem}
           isFirstConversation
           onSelect={handleOpenManagerPanel}
+          variant="compact"
         />
         {loadingFans && (
           <div className="text-center text-[#aebac1] py-4 text-sm">Cargando fans...</div>
@@ -1991,10 +2009,10 @@ function SideBarInner() {
           <>
             {queueCount === 0 ? (
               <div className="px-4 py-3 text-xs text-slate-400">
-                {activeQueueFilter ? "No hay chats en cola." : "Selecciona una cola para ver resultados."}
+                No hay chats en cola.
               </div>
             ) : (
-              activeQueueList.map((conversation, index) => (
+              priorityQueueList.map((conversation, index) => (
                 <ConversationList
                   key={conversation.id || index}
                   isFirstConversation={false}
@@ -2024,7 +2042,7 @@ function SideBarInner() {
                     return "Aún no tienes chats de alta prioridad.\nSe marcan 🔥 cuando los señalas manualmente para atender primero.";
                   }
                   if (activeQueueFilter === "ventas_hoy") {
-                    return "No hay cola hoy.\nTip: revisa el filtro «Con extras» y ofrece un nuevo pack o contenido extra.";
+                    return "No hay cola.\nTip: revisa el filtro «Con extras» y ofrece un nuevo pack o contenido extra.";
                   }
                   if (activeQueueFilter === "seguimiento_hoy") {
                     return "No hay seguimientos en cola para hoy.";
