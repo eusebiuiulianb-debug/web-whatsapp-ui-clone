@@ -49,12 +49,9 @@ type Props = {
   density?: "comfortable" | "compact";
   variant?: "card" | "chat";
   onBackToBoard?: () => void;
-  onShowSummary?: () => void;
   title?: string;
   avatarUrl?: string;
   statusText?: string;
-  onOpenInsights?: () => void;
-  onOpenSettings?: () => void;
   contextContent?: ReactNode;
   scope?: "global" | "fan";
   platforms?: CreatorPlatforms | null;
@@ -74,12 +71,9 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
     density = "comfortable",
     variant = "card",
     onBackToBoard,
-    onShowSummary,
     title,
     avatarUrl,
     statusText,
-    onOpenInsights,
-    onOpenSettings,
     contextContent,
     platforms,
     scope = "fan",
@@ -93,8 +87,6 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
   const [input, setInput] = useState("");
   const [usedFallback, setUsedFallback] = useState(false);
   const [settingsStatus, setSettingsStatus] = useState<"ok" | "settings_missing" | null>(null);
-  const [mobileActionsOpen, setMobileActionsOpen] = useState(false);
-  const [actionsOpen, setActionsOpen] = useState(false);
   const [globalMode, setGlobalMode] = useState<GlobalMode>("HOY");
   const [growthPlatform, setGrowthPlatform] = useState<CreatorPlatformKey>("tiktok");
   const listRef = useRef<HTMLDivElement | null>(null);
@@ -369,12 +361,7 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
       ? suggestions
       : defaultSuggestions;
 
-  const chipRowClass = clsx(
-    "flex items-center gap-2 pb-1",
-    scope === "fan"
-      ? "flex-nowrap overflow-x-auto overscroll-x-contain px-3 py-2 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
-      : "flex-wrap"
-  );
+  const chipRowClass = clsx("flex flex-wrap items-center gap-2 pb-1", scope === "fan" ? "px-3 py-2" : "");
   const modeRowClass =
     "flex flex-nowrap items-center gap-2 overflow-x-auto overscroll-x-contain px-3 py-2 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden";
   const applyPrompt = (prompt: string, autoSend: boolean) => {
@@ -413,56 +400,6 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
                 </span>
               </div>
             )}
-            <div className="relative">
-              <button
-                type="button"
-                onClick={() => setMobileActionsOpen((prev) => !prev)}
-                className="inline-flex items-center justify-center rounded-full border border-slate-700 bg-slate-800/70 px-2.5 py-2 text-[11px] font-semibold text-slate-100 hover:border-emerald-500/60"
-                aria-label="Opciones"
-              >
-                ⋮
-              </button>
-              {mobileActionsOpen && (
-                <div className="absolute right-0 mt-2 w-40 rounded-lg border border-slate-700 bg-slate-900 shadow-lg z-20">
-                  {scope === "fan" && onShowSummary && (
-                    <button
-                      type="button"
-                      className="w-full text-left px-3 py-2 text-xs text-slate-100 hover:bg-slate-800"
-                      onClick={() => {
-                        setMobileActionsOpen(false);
-                        onShowSummary();
-                      }}
-                    >
-                      Ver ficha
-                    </button>
-                  )}
-                  {onOpenInsights && (
-                    <button
-                      type="button"
-                      className="w-full text-left px-3 py-2 text-xs text-slate-100 hover:bg-slate-800"
-                      onClick={() => {
-                        setMobileActionsOpen(false);
-                        onOpenInsights();
-                      }}
-                    >
-                      Insights
-                    </button>
-                  )}
-                  {onOpenSettings && (
-                    <button
-                      type="button"
-                      className="w-full text-left px-3 py-2 text-xs text-slate-100 hover:bg-slate-800"
-                      onClick={() => {
-                        setMobileActionsOpen(false);
-                        onOpenSettings();
-                      }}
-                    >
-                      Ajustes
-                    </button>
-                  )}
-                </div>
-              )}
-            </div>
           </header>
         )}
         <div className={desktopHeaderClass}>
@@ -484,67 +421,20 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
               </div>
             </div>
           )}
-          <div className={clsx("relative", hideTitle && "ml-auto")}>
-            <button
-              type="button"
-              onClick={() => setActionsOpen((prev) => !prev)}
-              className="inline-flex items-center justify-center rounded-full border border-slate-700 bg-slate-800/70 px-3 py-2 text-xs font-semibold text-slate-100 hover:border-emerald-500/60"
-              aria-label="Opciones"
-            >
-              ⋮
-            </button>
-            {actionsOpen && (
-              <div className="absolute right-0 mt-2 w-44 rounded-lg border border-slate-700 bg-slate-900 shadow-lg z-20">
-                {scope === "fan" && onShowSummary && (
-                  <button
-                    type="button"
-                    className="w-full text-left px-3 py-2 text-xs text-slate-100 hover:bg-slate-800"
-                    onClick={() => {
-                      setActionsOpen(false);
-                      onShowSummary();
-                    }}
-                  >
-                    Ver ficha
-                  </button>
-                )}
-                {onOpenInsights && (
-                  <button
-                    type="button"
-                    className="w-full text-left px-3 py-2 text-xs text-slate-100 hover:bg-slate-800"
-                    onClick={() => {
-                      setActionsOpen(false);
-                      onOpenInsights();
-                    }}
-                  >
-                    Insights
-                  </button>
-                )}
-                {onOpenSettings && (
-                  <button
-                    type="button"
-                    className="w-full text-left px-3 py-2 text-xs text-slate-100 hover:bg-slate-800"
-                    onClick={() => {
-                      setActionsOpen(false);
-                      onOpenSettings();
-                    }}
-                  >
-                    Ajustes
-                  </button>
-                )}
-              </div>
-            )}
-          </div>
         </div>
         <div className="flex flex-col flex-1 min-h-0 overflow-hidden">
           {contextContent ? (
-            <div className="bg-[#0f1f26] border-b border-slate-800 px-4 py-3">{contextContent}</div>
+            <div className="bg-slate-950/80 border-b border-slate-800 px-4 py-2.5">{contextContent}</div>
           ) : null}
           <div
             ref={listRef}
-            className="flex-1 min-h-0 overflow-y-auto"
-            style={{ backgroundImage: "url('/assets/images/background.jpg')" }}
+            className="flex-1 min-h-0 overflow-y-auto bg-slate-950/90 bg-cover bg-center"
+            style={{
+              backgroundImage:
+                "linear-gradient(rgba(8, 14, 20, 0.85), rgba(8, 14, 20, 0.85)), url('/assets/images/background.jpg')",
+            }}
           >
-            <div className="max-w-4xl mx-auto w-full px-4 sm:px-6 lg:px-8 py-6 space-y-3">
+            <div className="max-w-4xl mx-auto w-full px-4 sm:px-6 lg:px-8 py-5 space-y-3">
               {loading && <div className="text-center text-[#aebac1] text-sm mt-2">Cargando mensajes...</div>}
               {error && !loading && <div className="text-center text-red-400 text-sm mt-2">{error}</div>}
               {!loading && !error && messages.length === 0 && (
@@ -577,8 +467,8 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
               {fallbackBanner}
             </div>
           )}
-          <div className="px-4 sm:px-6 lg:px-8 py-4 space-y-3">
-          {scope === "global" ? (
+          <div className="px-4 sm:px-6 lg:px-8 py-3 space-y-3">
+            {scope === "global" ? (
             <>
               <div className={modeRowClass}>
                 {globalModes.map((mode) => {
@@ -653,7 +543,7 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
                   intent="secondary"
                   size="sm"
                   onClick={() => {
-                    applyPrompt(sugg, true);
+                    applyPrompt(sugg, false);
                   }}
                   disabled={sending}
                 >
@@ -837,9 +727,6 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
                   return `${prev.trim()}\n\n${prompt}`;
                 });
                 inputRef.current?.focus();
-                if (scope === "fan") {
-                  void handleSend(prompt);
-                }
               }}
               disabled={sending}
             >

@@ -10,7 +10,6 @@ import { getCreatorContentSnapshot } from "../../lib/creatorContentManager";
 import type { CreatorAiAdvisorInput } from "../../server/manager/managerSchemas";
 import type { CreatorPlatforms } from "../../lib/creatorPlatforms";
 import { normalizeCreatorPlatforms } from "../../lib/creatorPlatforms";
-import { openCreatorChat } from "../../lib/navigation/openCreatorChat";
 import SideBar from "../../components/SideBar";
 import { CreatorShell } from "../../components/creator/CreatorShell";
 import { ManagerChatCard, ManagerChatCardHandle } from "../../components/creator/ManagerChatCard";
@@ -94,6 +93,8 @@ type ManagerQueueData = {
   nextAction: ManagerQueueNextAction;
 };
 
+type InsightsTab = "sales" | "catalog" | "growth";
+
 function formatCurrency(amount: number) {
   return `${Math.round(amount)} €`;
 }
@@ -112,7 +113,7 @@ export default function CreatorManagerPage({ initialSnapshot, initialContentSnap
   const conversationSectionRef = useRef<HTMLDivElement>(null!);
   const chatRef = useRef<ManagerChatCardHandle>(null!);
   const [insightsOpen, setInsightsOpen] = useState(false);
-  const [contextOpen, setContextOpen] = useState(false);
+  const [insightsTab, setInsightsTab] = useState<InsightsTab>("sales");
   const [platforms, setPlatforms] = useState<CreatorPlatforms | null>(null);
   const handleOpenSettings = useCallback(() => {
     void router.push("/creator/ai-settings");
@@ -181,11 +182,6 @@ export default function CreatorManagerPage({ initialSnapshot, initialContentSnap
     }
   }
 
-  function handleOpenFanChat(fanId: string) {
-    if (!fanId) return;
-    openCreatorChat(router, fanId);
-  }
-
   return (
     <>
       <Head>
@@ -206,15 +202,16 @@ export default function CreatorManagerPage({ initialSnapshot, initialContentSnap
             advisorInput={advisorInput}
             advisorError={advisorError}
             advisorLoading={advisorLoading}
-            onOpenFanChat={handleOpenFanChat}
             onBackToBoard={onBackToBoard}
             chatRef={chatRef}
             insightsOpen={insightsOpen}
+            insightsTab={insightsTab}
             onCloseInsights={() => setInsightsOpen(false)}
-            onOpenInsights={() => setInsightsOpen(true)}
+            onOpenInsights={(tab) => {
+              setInsightsTab(tab ?? "sales");
+              setInsightsOpen(true);
+            }}
             onOpenSettings={handleOpenSettings}
-            contextOpen={contextOpen}
-            onToggleContext={() => setContextOpen((prev) => !prev)}
             creatorName={config.creatorName || "Creador"}
             creatorSubtitle={config.creatorSubtitle || "Panel e insights en tiempo real"}
             avatarUrl={config.avatarUrl}
@@ -237,15 +234,13 @@ type ManagerChatLayoutProps = {
   advisorInput?: CreatorAiAdvisorInput | null;
   advisorError: boolean;
   advisorLoading: boolean;
-  onOpenFanChat: (fanId: string) => void;
   onBackToBoard: () => void;
   chatRef: React.RefObject<ManagerChatCardHandle>;
   insightsOpen: boolean;
+  insightsTab: InsightsTab;
   onCloseInsights: () => void;
-  onOpenInsights: () => void;
+  onOpenInsights: (tab?: InsightsTab) => void;
   onOpenSettings: () => void;
-  contextOpen: boolean;
-  onToggleContext: () => void;
   creatorName: string;
   creatorSubtitle: string;
   avatarUrl?: string | null;
@@ -261,23 +256,23 @@ function ManagerChatLayout({
   advisorInput,
   advisorError,
   advisorLoading,
-  onOpenFanChat,
   onBackToBoard,
   chatRef,
   insightsOpen,
+  insightsTab,
   onCloseInsights,
   onOpenInsights,
   onOpenSettings,
-  contextOpen,
-  onToggleContext,
   creatorName,
   creatorSubtitle,
   avatarUrl,
   platforms,
 }: ManagerChatLayoutProps) {
   const summaryRef = useRef<HTMLDivElement | null>(null);
+  const headerMenuRef = useRef<HTMLDivElement | null>(null);
   const [activeTab, setActiveTab] = useState<"strategy" | "content">("strategy");
   const [soloChat, setSoloChat] = useState(false);
+  const [headerMenuOpen, setHeaderMenuOpen] = useState(false);
   const [discoveryProfile, setDiscoveryProfile] = useState<CreatorDiscoveryProfile>({
     isDiscoverable: false,
     niches: [],
@@ -313,6 +308,16 @@ function ManagerChatLayout({
   useEffect(() => {
     loadDiscoveryProfile();
   }, [loadDiscoveryProfile]);
+  useEffect(() => {
+    if (!headerMenuOpen) return;
+    const handleClick = (event: MouseEvent) => {
+      if (!headerMenuRef.current) return;
+      if (headerMenuRef.current.contains(event.target as Node)) return;
+      setHeaderMenuOpen(false);
+    };
+    document.addEventListener("mousedown", handleClick);
+    return () => document.removeEventListener("mousedown", handleClick);
+  }, [headerMenuOpen]);
   const quickActions =
     activeTab === "strategy"
       ? ["¿A qué fans priorizo hoy?", "Resúmeme mis números de esta semana", "Dame 1 acción para subir ingresos hoy"]
@@ -332,10 +337,13 @@ function ManagerChatLayout({
     : 0;
   const safeRiskRevenue = Number.isFinite(summary?.revenueAtRisk7d) ? summary?.revenueAtRisk7d ?? 0 : 0;
   const queueTop3 = useMemo(() => queueData?.top3 ?? [], [queueData]);
-  const nextAction = queueData?.nextAction ?? { fan: null, reason: null };
   const prioritizedToday = queueStats?.todayCount ?? 0;
   const vipCount = Number.isFinite(summary?.segments?.vip) ? summary?.segments?.vip ?? 0 : 0;
   const atRiskCount = queueStats?.atRiskCount ?? (summary?.segments?.atRisk ?? 0);
+  const expiringSoonCount = useMemo(
+    () => queueData?.queue?.filter((item) => item.flags.expiredSoon).length ?? 0,
+    [queueData]
+  );
 
   const statTiles = [
     {
@@ -377,16 +385,12 @@ function ManagerChatLayout({
       })),
     [queueTop3]
   );
-  const summaryBullets = [
-    `Prioridades hoy: ${formatNumber(prioritizedToday)} fans`,
-    `Ingresos 7d: ${formatCurrency(safeRevenue7)} · En riesgo 7d: ${formatCurrency(safeRiskRevenue)}`,
-    `Extras 30d: ${formatNumber(safeExtras30)} · Fans nuevos 30d: ${formatNumber(safeNewFans30)}`,
+  const statusStats = [
+    { id: "today", label: "Hoy", value: prioritizedToday },
+    { id: "queue", label: "Cola", value: queueStats?.queueCount ?? 0 },
+    { id: "expiring", label: "Caducan pronto", value: expiringSoonCount },
+    { id: "risk", label: "En riesgo", value: atRiskCount },
   ];
-  const nextActionTarget = nextAction.fan ?? queueTop3[0] ?? null;
-  const nextActionReason = nextAction.reason ?? nextActionTarget?.nextReason ?? "Seguimiento";
-  const nextActionCopy = nextActionTarget
-    ? `Escribe a ${nextActionTarget.displayName}. Motivo: ${nextActionReason}.`
-    : "Revisa la cola de prioridades para decidir a quién contactar hoy.";
 
   const tabHighlights =
     activeTab === "strategy"
@@ -431,9 +435,9 @@ function ManagerChatLayout({
 
   return (
     <div className="flex flex-col flex-1 min-h-0 text-white">
-      <div className="flex-1 min-h-0 px-0 md:px-4 md:pb-4">
-        <div className="max-w-6xl xl:max-w-7xl mx-auto h-full w-full flex flex-col gap-4 md:gap-5">
-          <div className="flex flex-wrap items-start justify-between gap-3 px-4 pt-4">
+      <div className="flex-1 min-h-0 px-0 md:px-4 md:pb-3">
+        <div className="max-w-6xl xl:max-w-7xl mx-auto h-full w-full flex flex-col gap-3 md:gap-4">
+          <div className="flex flex-wrap items-start justify-between gap-3 px-4 pt-3">
             <div className="space-y-1">
               <p className="text-[11px] uppercase tracking-wide text-slate-400">Panel del creador</p>
               <h1 className="text-2xl font-semibold text-white">Manager IA</h1>
@@ -456,6 +460,40 @@ function ManagerChatLayout({
               >
                 {soloChat ? "Ver panel + tabs" : "Solo chat"}
               </button>
+              <div className="relative" ref={headerMenuRef}>
+                <button
+                  type="button"
+                  aria-label="Opciones"
+                  onClick={() => setHeaderMenuOpen((prev) => !prev)}
+                  className="inline-flex items-center justify-center rounded-full border border-slate-700 bg-slate-800/70 px-2.5 py-2 text-[11px] font-semibold text-slate-100 hover:border-emerald-500/60"
+                >
+                  ⋮
+                </button>
+                {headerMenuOpen && (
+                  <div className="absolute right-0 mt-2 w-40 rounded-lg border border-slate-700 bg-slate-900 shadow-lg z-20">
+                    <button
+                      type="button"
+                      className="w-full text-left px-3 py-2 text-xs text-slate-100 hover:bg-slate-800"
+                      onClick={() => {
+                        setHeaderMenuOpen(false);
+                        onOpenInsights("sales");
+                      }}
+                    >
+                      Insights
+                    </button>
+                    <button
+                      type="button"
+                      className="w-full text-left px-3 py-2 text-xs text-slate-100 hover:bg-slate-800"
+                      onClick={() => {
+                        setHeaderMenuOpen(false);
+                        onOpenSettings();
+                      }}
+                    >
+                      Ajustes
+                    </button>
+                  </div>
+                )}
+              </div>
             </div>
           </div>
 
@@ -562,7 +600,7 @@ function ManagerChatLayout({
             </div>
           )}
 
-          <div className="flex-1 min-h-[560px] px-0 md:px-4 pb-4">
+          <div className="flex-1 min-h-[560px] px-0 md:px-4 pb-3">
             <div className="h-full rounded-2xl border border-slate-800 bg-slate-900/60 shadow-xl">
               <ManagerChatCard
                 ref={chatRef}
@@ -570,57 +608,30 @@ function ManagerChatLayout({
                 hideTitle
                 businessSnapshot={initialSnapshot}
                 onBackToBoard={onBackToBoard}
-                onShowSummary={() => summaryRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })}
                 suggestions={quickActions}
                 avatarUrl={avatarUrl || undefined}
                 title="Manager IA"
                 statusText="Panel e insights en tiempo real"
-                onOpenInsights={onOpenInsights}
-                onOpenSettings={onOpenSettings}
                 contextContent={
-                  <div className="space-y-2">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 flex-1 min-w-[220px]">
+                      {statusStats.map((item) => (
+                        <div
+                          key={item.id}
+                          className="flex items-center justify-between rounded-full border border-slate-800 bg-slate-900/70 px-3 py-1.5 text-xs text-slate-200"
+                        >
+                          <span className="text-[11px] uppercase tracking-wide text-slate-400">{item.label}</span>
+                          <span className="font-semibold text-slate-100">{formatNumber(item.value)}</span>
+                        </div>
+                      ))}
+                    </div>
                     <button
                       type="button"
-                      onClick={onToggleContext}
-                      className="inline-flex items-center gap-2 rounded-full border border-slate-700 bg-slate-900/70 px-3 py-1.5 text-xs font-semibold text-slate-100 hover:border-emerald-500/60"
+                      onClick={() => onOpenInsights("sales")}
+                      className="inline-flex items-center rounded-full border border-slate-700 bg-slate-800/70 px-3 py-1.5 text-xs font-semibold text-slate-100 hover:border-emerald-500/60"
                     >
-                      Contexto
-                      <span className="text-[11px] text-slate-400">{contextOpen ? "Ocultar" : "Ver más"}</span>
+                      Ver más
                     </button>
-                    {contextOpen && (
-                      <div className="rounded-xl border border-slate-800 bg-slate-900/70 px-4 py-4 shadow-sm space-y-4">
-                        <div>
-                          <div className="text-[11px] uppercase tracking-wide text-slate-400">Resumen hoy</div>
-                          <ul className="mt-2 space-y-1 text-sm text-slate-200">
-                            {summaryBullets.map((bullet, index) => (
-                              <li key={`${index}-${bullet}`} className="flex items-start gap-2">
-                                <span className="text-slate-400">•</span>
-                                <span>{bullet}</span>
-                              </li>
-                            ))}
-                          </ul>
-                        </div>
-                        <div>
-                          <div className="text-[11px] uppercase tracking-wide text-slate-400">Siguiente acción</div>
-                          <div className="mt-2 rounded-lg border border-slate-800 bg-slate-950/70 px-3 py-3 space-y-2">
-                            <p className="text-sm text-slate-200">{nextActionCopy}</p>
-                            <button
-                              type="button"
-                              onClick={() => {
-                                if (nextActionTarget) {
-                                  onOpenFanChat(nextActionTarget.fanId);
-                                } else {
-                                  onOpenInsights();
-                                }
-                              }}
-                              className="inline-flex items-center rounded-full border border-emerald-400/70 bg-emerald-500/15 px-3 py-1.5 text-xs font-semibold text-emerald-100 hover:bg-emerald-500/25"
-                            >
-                              {nextActionTarget ? "Abrir chat" : "Abrir insights"}
-                            </button>
-                          </div>
-                        </div>
-                      </div>
-                    )}
                   </div>
                 }
                 scope="global"
@@ -637,6 +648,7 @@ function ManagerChatLayout({
         priorityItems={topPriorityItems}
         preview={advisorInput?.preview}
         onPrompt={handlePrompt}
+        initialTab={insightsTab}
       />
     </div>
   );

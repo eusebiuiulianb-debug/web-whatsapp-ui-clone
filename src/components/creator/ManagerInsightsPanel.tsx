@@ -11,6 +11,7 @@ type Props = {
   priorityItems?: PriorityItem[];
   preview?: CreatorAiAdvisorInput["preview"];
   onPrompt?: (tab: "strategy" | "content" | "growth", text: string) => void;
+  initialTab?: TabId;
 };
 
 type TabId = "sales" | "catalog" | "growth";
@@ -34,9 +35,9 @@ type CampaignLink = {
   createdAt: string;
 };
 
-export function ManagerInsightsPanel({ open, onClose, summary, priorityItems, preview, onPrompt }: Props) {
+export function ManagerInsightsPanel({ open, onClose, summary, priorityItems, preview, onPrompt, initialTab }: Props) {
   const router = useRouter();
-  const [tab, setTab] = useState<TabId>("sales");
+  const [tab, setTab] = useState<TabId>(initialTab ?? "sales");
   const [growthInput, setGrowthInput] = useState("");
   const [growthActions, setGrowthActions] = useState<string[] | null>(null);
   const [growthLoading, setGrowthLoading] = useState(false);
@@ -48,6 +49,7 @@ export function ManagerInsightsPanel({ open, onClose, summary, priorityItems, pr
   const [campaignsMeta, setCampaignsMeta] = useState<CampaignMeta[]>([]);
   const [campaignsRollups, setCampaignsRollups] = useState<CampaignRollup[]>([]);
   const [campaignsLastLinks, setCampaignsLastLinks] = useState<CampaignLink[]>([]);
+  const hasCampaigns = campaignsMeta.length > 0;
 
   const topPriorities = useMemo(() => {
     if (priorityItems && priorityItems.length > 0) return priorityItems.slice(0, 3);
@@ -128,9 +130,11 @@ export function ManagerInsightsPanel({ open, onClose, summary, priorityItems, pr
     const safeRisk = Number.isFinite(summary?.revenueAtRisk7d) ? summary?.revenueAtRisk7d ?? 0 : 0;
     return { safeRevenue30, safeRevenue7, safeExtras30, safeExtras7, safeRisk };
   }, [summary]);
+  const hasExtras = metrics.safeExtras30 > 0;
 
   useEffect(() => {
     if (!open) return;
+    setTab(initialTab ?? "sales");
     let alive = true;
     const loadCampaigns = async () => {
       try {
@@ -158,7 +162,7 @@ export function ManagerInsightsPanel({ open, onClose, summary, priorityItems, pr
     return () => {
       alive = false;
     };
-  }, [open]);
+  }, [open, initialTab]);
 
   useEffect(() => {
     return () => {
@@ -286,9 +290,21 @@ export function ManagerInsightsPanel({ open, onClose, summary, priorityItems, pr
           <div className="grid grid-cols-2 gap-3">
             <InsightCard title="Packs activos" value={3} helper="Bienvenida · Mensual · Especial" />
             <InsightCard title="Segmentos" value={safeCount(summary?.segments?.vip) + safeCount(summary?.segments?.habitual) + safeCount(summary?.segments?.newFans)} helper="VIP · Habitual · Nuevos" />
-            <InsightCard title="Extras activos" value="—" helper="Conecta para ver tus extras" />
+            <InsightCard title="Extras activos" value={metrics.safeExtras30} helper="Ventas extras 30d" />
             <InsightCard title="Huecos" value="2" helper="Upsell VIP · Reactivar riesgo" tone="muted" />
           </div>
+          {!hasExtras && (
+            <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-slate-800 bg-slate-900/70 px-3 py-2">
+              <span className="text-xs text-slate-300">Aún no tienes extras activos</span>
+              <button
+                type="button"
+                className="rounded-full border border-emerald-500/60 bg-emerald-600/10 px-3 py-1 text-[11px] font-semibold text-emerald-100 hover:bg-emerald-600/20"
+                onClick={() => handlePrompt("content", "Crea un extra…")}
+              >
+                Crea un extra…
+              </button>
+            </div>
+          )}
           <div className="space-y-2">
             <div className="text-sm font-semibold text-white">Huecos sugeridos</div>
             <ul className="space-y-2 text-sm text-slate-200">
@@ -418,7 +434,10 @@ export function ManagerInsightsPanel({ open, onClose, summary, priorityItems, pr
             </div>
             {campaignsLoading && <p className="text-xs text-slate-400">Cargando campañas...</p>}
             {campaignsError && <p className="text-xs text-rose-300">{campaignsError}</p>}
-            {!campaignsLoading && !campaignsError && campaignInsights.topByChats.length === 0 && (
+            {!campaignsLoading && !campaignsError && !hasCampaigns && (
+              <p className="text-xs text-slate-400">Sin campañas todavía</p>
+            )}
+            {!campaignsLoading && !campaignsError && hasCampaigns && campaignInsights.topByChats.length === 0 && (
               <p className="text-xs text-slate-400">Aún no hay campañas con datos.</p>
             )}
             {!campaignsLoading && !campaignsError && campaignInsights.topByChats.length > 0 && (
@@ -436,12 +455,12 @@ export function ManagerInsightsPanel({ open, onClose, summary, priorityItems, pr
                 ))}
               </div>
             )}
-            {!campaignsLoading && !campaignsError && campaignInsights.activeCampaigns.length === 0 && (
+            {!campaignsLoading && !campaignsError && hasCampaigns && campaignInsights.activeCampaigns.length === 0 && (
               <div className="rounded-lg border border-slate-800 bg-slate-950/70 px-3 py-2 text-xs text-slate-200">
                 No hay campañas activas. Crea una campaña en Analítica → Campañas.
               </div>
             )}
-            {!campaignsLoading && !campaignsError && campaignInsights.campaignsMissingLink.length > 0 && (
+            {!campaignsLoading && !campaignsError && hasCampaigns && campaignInsights.campaignsMissingLink.length > 0 && (
               <div className="rounded-lg border border-slate-800 bg-slate-950/70 px-3 py-2 text-xs text-slate-200">
                 Genera un link para:{" "}
                 {campaignInsights.campaignsMissingLink
