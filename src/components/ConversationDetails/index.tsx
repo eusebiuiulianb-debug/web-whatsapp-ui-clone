@@ -296,6 +296,7 @@ export default function ConversationDetails({ onBackToBoard }: ConversationDetai
     setMessage,
     setConversation,
     activeQueueFilter,
+    setActiveQueueFilter,
     queueFans,
     managerPanelOpen,
     managerPanelTab,
@@ -435,6 +436,7 @@ const MAX_MAIN_COMPOSER_HEIGHT = 140;
   const [ managerChatByFan, setManagerChatByFan ] = useState<Record<string, ManagerChatMessage[]>>({});
   const [ managerChatInput, setManagerChatInput ] = useState("");
   const [ internalDraftInput, setInternalDraftInput ] = useState("");
+  const [ highlightDraftId, setHighlightDraftId ] = useState<string | null>(null);
   const managerChatListRef = useRef<HTMLDivElement | null>(null);
   const managerChatInputRef = useRef<HTMLTextAreaElement | null>(null);
   const internalDraftInputRef = useRef<HTMLTextAreaElement | null>(null);
@@ -892,7 +894,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
   }
 
   function getQueuePosition() {
-    if (!activeQueueFilter || !conversation?.id) return { index: -1, size: queueFans.length };
+    if (activeQueueFilter !== "ventas_hoy" || !conversation?.id) return { index: -1, size: queueFans.length };
     const idx = queueFans.findIndex((f) => f.id === conversation.id);
     return { index: idx, size: queueFans.length };
   }
@@ -965,10 +967,23 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
   }
 
   function handleUseManagerReplyAsMainMessage(text: string, detail?: string) {
-    insertComposerTextWithUndo(text, {
+    const nextText = text || "";
+    setComposerAudience("CREATOR");
+    setMessageSend(nextText);
+    autoGrowTextarea(messageInputRef.current, MAX_MAIN_COMPOSER_HEIGHT);
+    closeInlinePanel({ focus: true });
+    requestAnimationFrame(() => {
+      const input = messageInputRef.current;
+      if (!input) return;
+      const len = nextText.length;
+      input.focus();
+      input.setSelectionRange(len, len);
+    });
+    showInlineAction({
+      kind: "ok",
       title: "Sugerencia insertada",
       detail: detail ?? "Manager IA",
-      forceFan: true,
+      ttlMs: 1600,
     });
   }
 
@@ -1078,7 +1093,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
   }
 
   function handleNextInQueue() {
-    if (!activeQueueFilter || queueFans.length === 0) {
+    if (activeQueueFilter !== "ventas_hoy" || queueFans.length === 0) {
       showComposerToast("No hay cola activa.");
       return;
     }
@@ -1093,7 +1108,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
   }
 
   function handlePrevInQueue() {
-    if (!activeQueueFilter || queueFans.length === 0) {
+    if (activeQueueFilter !== "ventas_hoy" || queueFans.length === 0) {
       showComposerToast("No hay cola activa.");
       return;
     }
@@ -1918,6 +1933,21 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
   }, [id, translationPreviewOpen]);
 
   useEffect(() => {
+    if (!highlightDraftId) return;
+    if (!managerPanelOpen || internalPanelTab !== "internal") return;
+    const target = document.querySelector<HTMLElement>(`[data-draft-id="${highlightDraftId}"]`);
+    if (target) {
+      target.scrollIntoView({ behavior: "smooth", block: "start" });
+      target.classList.add("ring-2", "ring-emerald-400/60", "ring-offset-2", "ring-offset-slate-900");
+      setTimeout(() => {
+        target.classList.remove("ring-2", "ring-emerald-400/60", "ring-offset-2", "ring-offset-slate-900");
+      }, 1600);
+    }
+    const timer = setTimeout(() => setHighlightDraftId(null), 1800);
+    return () => clearTimeout(timer);
+  }, [highlightDraftId, internalPanelTab, managerPanelOpen]);
+
+  useEffect(() => {
     if (!managerPanelOpen || managerPanelTab !== "manager") return;
     if (internalPanelTab !== "manager") return;
     if (composerAudience !== "INTERNAL") return;
@@ -1942,8 +1972,11 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
 
   useEffect(() => {
     closeOverlays({ keepManagerPanel: true });
-    setInternalPanelTab("manager");
-  }, [conversation.id, closeOverlays]);
+    setHighlightDraftId(null);
+    if (!managerPanelOpen) {
+      setInternalPanelTab("manager");
+    }
+  }, [conversation.id, closeOverlays, managerPanelOpen]);
 
   useEffect(() => {
     if (!conversation?.id) return;
@@ -1991,10 +2024,41 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
 
   const managerChatMessages = managerChatByFan[id ?? ""] ?? [];
   const internalNotes = internalMessages.filter((message) => deriveAudience(message) === "INTERNAL");
+  const getMsgTs = useCallback((msg: unknown): number => {
+    if (!msg || typeof msg !== "object") return 0;
+    const data = msg as Record<string, unknown>;
+    const candidates = [
+      data.createdAt,
+      data.created_at,
+      data.time,
+      data.timestamp,
+      data.sentAt,
+      data.date,
+    ];
+    for (const value of candidates) {
+      if (value == null) continue;
+      if (value instanceof Date) {
+        const ts = value.getTime();
+        return Number.isFinite(ts) ? ts : 0;
+      }
+      if (typeof value === "number" || typeof value === "string") {
+        const ts = new Date(value).getTime();
+        if (Number.isFinite(ts)) return ts;
+      }
+    }
+    return 0;
+  }, []);
+  const displayInternalNotes = useMemo(() => {
+    return [...internalNotes].sort((a, b) => {
+      const ta = getMsgTs(a);
+      const tb = getMsgTs(b);
+      return tb - ta;
+    });
+  }, [internalNotes, getMsgTs]);
   const internalContextKey = id ?? "global";
   const includeInternalContext = includeInternalContextByFan[internalContextKey] ?? true;
   const recentInternalDrafts = useMemo(() => {
-    return internalNotes
+    return displayInternalNotes
       .slice(-3)
       .map((msg) => {
         if (msg.type === "CONTENT") return msg.contentItem?.title || "Contenido interno";
@@ -2002,7 +2066,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
       })
       .map((line) => line.trim())
       .filter(Boolean);
-  }, [internalNotes]);
+  }, [displayInternalNotes]);
   const hasInternalThreadMessages = internalNotes.length > 0 || managerChatMessages.length > 0;
   const effectiveLanguage = (preferredLanguage ?? "en") as SupportedLanguage;
   const isTranslationPreviewAvailable =
@@ -2025,17 +2089,28 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
     setTranslationPreviewOpen(false);
   };
 
-  const openInternalPanelTab = useCallback(
-    (tab: InternalPanelTab, options?: { forceScroll?: boolean; scrollToTop?: boolean }) => {
-      if (tab === "internal" && options?.forceScroll) {
+  const openInternalPanel = useCallback(
+    (
+      tab: "manager" | "drafts" | "crm",
+      options?: { forceScroll?: boolean; scrollToTop?: boolean; highlightDraftId?: string | null }
+    ) => {
+      const nextTab: InternalPanelTab = tab === "drafts" ? "internal" : tab === "crm" ? "note" : "manager";
+      if (nextTab === "internal" && options?.forceScroll) {
         internalChatForceScrollRef.current = true;
       }
-      if (tab === "manager" && options?.scrollToTop) {
+      if (nextTab === "internal" && options?.scrollToTop) {
+        internalChatScrollTopRef.current = 0;
+        internalChatStickToBottomRef.current = true;
+      }
+      if (nextTab === "manager" && options?.scrollToTop) {
         managerPanelScrollTopRef.current = 0;
         managerPanelStickToBottomRef.current = false;
         managerPanelSkipAutoScrollRef.current = true;
       }
-      setInternalPanelTab(tab);
+      if (nextTab === "internal" && options?.highlightDraftId) {
+        setHighlightDraftId(options.highlightDraftId);
+      }
+      setInternalPanelTab(nextTab);
       openManagerPanel({
         tab: "manager",
         targetFanId: activeFanId ?? null,
@@ -2045,11 +2120,19 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
     [activeFanId, openManagerPanel]
   );
 
+  const openInternalPanelTab = useCallback(
+    (tab: InternalPanelTab, options?: { forceScroll?: boolean; scrollToTop?: boolean }) => {
+      const mapped = tab === "internal" ? "drafts" : tab === "note" ? "crm" : "manager";
+      openInternalPanel(mapped, options);
+    },
+    [openInternalPanel]
+  );
+
   const openInternalThread = useCallback(
     (options?: { forceScroll?: boolean }) => {
-      openInternalPanelTab("internal", options);
+      openInternalPanel("drafts", options);
     },
-    [openInternalPanelTab]
+    [openInternalPanel]
   );
 
   const handleManagerPanelTabClick = useCallback(
@@ -2083,7 +2166,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
   }, [id]);
 
   const openFollowUpNote = useCallback(() => {
-    openInternalPanelTab("note");
+    openInternalPanel("crm");
     if (!nextActionDate) {
       const tomorrow = new Date();
       tomorrow.setDate(tomorrow.getDate() + 1);
@@ -2092,17 +2175,17 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
     requestAnimationFrame(() => {
       nextActionInputRef.current?.focus();
     });
-  }, [openInternalPanelTab, nextActionDate]);
+  }, [openInternalPanel, nextActionDate]);
 
   const handleAskManagerFromDraft = useCallback(
     (text: string) => {
       const trimmed = text.trim();
       if (!trimmed) return;
       setManagerChatInput(trimmed);
-      openInternalPanelTab("manager");
+      openInternalPanel("manager");
       focusManagerComposer(true);
     },
-    [openInternalPanelTab, focusManagerComposer]
+    [openInternalPanel, focusManagerComposer]
   );
 
   const openAttachContent = (options?: { closeInline?: boolean }) => {
@@ -2541,10 +2624,10 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
               Aún no hay borradores internos.
             </div>
           )}
-          {internalNotes.length > 0 && (
+          {displayInternalNotes.length > 0 && (
             <div className="space-y-2">
               <div className="text-[11px] font-semibold text-slate-400">Borradores</div>
-              {internalNotes.map((msg) => {
+              {displayInternalNotes.map((msg) => {
                 const origin = normalizeFrom(msg.from);
                 const isCreatorNote = origin === "creator";
                 const label = isCreatorNote ? "Tú" : "Manager IA";
@@ -2557,6 +2640,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
                       "flex w-full max-w-none flex-col",
                       isCreatorNote ? "items-end" : "items-start"
                     )}
+                    data-draft-id={msg.id}
                   >
                     <span className="text-[10px] uppercase tracking-wide text-slate-500">{label}</span>
                     <div
@@ -2565,6 +2649,8 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
                         isCreatorNote
                           ? "bg-amber-500/20 text-amber-50"
                           : "bg-slate-800/80 text-slate-100"
+                        ,
+                        highlightDraftId === msg.id && "ring-2 ring-emerald-400/60 ring-offset-2 ring-offset-slate-900"
                       )}
                     >
                       {isCreatorNote && (
@@ -3992,8 +4078,14 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
         if (internalOnly.length > 0) {
           setInternalMessages((prev) => reconcileApiMessages(prev, internalOnly, id));
         }
-        showComposerToast("Enviado al manager");
-        openInternalThread({ forceScroll: true });
+        const newestInternalId = internalOnly[internalOnly.length - 1]?.id ?? null;
+        showComposerToast("Borrador guardado");
+        openInternalPanel("drafts", {
+          forceScroll: true,
+          scrollToTop: true,
+          highlightDraftId: newestInternalId ?? undefined,
+        });
+        setComposerAudience("CREATOR");
       } else {
         const mapped = mapApiMessagesToState(apiMessages);
         if (mapped.length > 0) {
@@ -4009,6 +4101,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
       if (!options?.preserveComposer) {
         setMessageSend("");
         resetMessageInputHeight();
+        requestAnimationFrame(() => messageInputRef.current?.focus());
       }
     } catch (err) {
       console.error("Error enviando mensaje", err);
@@ -4616,12 +4709,34 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
   const lifetimeValueDisplay = Math.round(conversation.lifetimeValue ?? 0);
   const notesCountDisplay = conversation.notesCount ?? 0;
   const novsyStatus = conversation.novsyStatus ?? null;
-  const isQueueActive = Boolean(activeQueueFilter);
+  const isQueueActive = activeQueueFilter === "ventas_hoy";
   const queueStatus = getQueuePosition();
   const isInQueue = isQueueActive && queueStatus.index >= 0;
   const hasPrevInQueue = isInQueue && queueStatus.index > 0;
+  const isTodayLocal = useCallback((value?: string | null) => {
+    if (!value) return false;
+    const d = new Date(value);
+    if (Number.isNaN(d.getTime())) return false;
+    const now = new Date();
+    return (
+      d.getFullYear() === now.getFullYear() &&
+      d.getMonth() === now.getMonth() &&
+      d.getDate() === now.getDate()
+    );
+  }, []);
+  const attendedInQueueToday = useMemo(
+    () =>
+      queueFans.filter(
+        (fan) =>
+          isTodayLocal((fan as any).lastHandledAt as string | null) ||
+          isTodayLocal((fan as any).lastCreatorMessageAt as string | null)
+      ).length,
+    [queueFans, isTodayLocal]
+  );
+  const queueTotal = queueFans.length;
+  const currentQueuePosition = isInQueue ? queueStatus.index + 1 : 0;
   const recommendedFan = useMemo(() => {
-    if (!activeQueueFilter || queueFans.length === 0) return null;
+    if (activeQueueFilter !== "ventas_hoy" || queueFans.length === 0) return null;
     const currentId = conversation?.id ?? null;
     if (!currentId) return queueFans[0];
     const idx = queueFans.findIndex((fan) => fan.id === currentId);
@@ -5043,11 +5158,17 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
                 <span className="text-[10px] rounded-full bg-amber-500/20 px-2 text-amber-200">🔥 Alta prioridad</span>
               )}
             </span>
+            <div className="flex flex-wrap items-center gap-2 text-[11px] text-amber-200">
+              <span>Atendidos: {attendedInQueueToday}/{queueTotal}</span>
+              {queueTotal > 0 && currentQueuePosition > 0 && (
+                <span>Actual: {currentQueuePosition}/{queueTotal}</span>
+              )}
+            </div>
             {queueFans.length === 0 && (
               <span className="text-slate-400">No hay cola activa.</span>
             )}
             {queueFans.length > 0 && !recommendedFan && (
-              <span className="text-slate-400">Cola terminada.</span>
+              <span className="text-slate-400">Cola terminada · Atendidos {attendedInQueueToday}/{queueTotal}</span>
             )}
             {recommendedFan && recommendedFan.id !== id && (
               <>
@@ -5081,7 +5202,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
               type="button"
               className="rounded-full border border-amber-400 bg-amber-500/10 px-3 py-1 text-[11px] font-semibold text-amber-300 hover:bg-amber-400/20 disabled:opacity-60"
               onClick={handleNextInQueue}
-              disabled={!isQueueActive || queueFans.length === 0}
+              disabled={!isQueueActive || queueFans.length === 0 || !recommendedFan}
             >
               Siguiente
             </button>
@@ -5092,6 +5213,17 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
                 onClick={() => handleSelectFanFromBanner(recommendedFan)}
               >
                 Abrir
+              </button>
+            )}
+            {!recommendedFan && queueFans.length > 0 && (
+              <button
+                type="button"
+                className="rounded-full border border-slate-600 bg-slate-800/70 px-3 py-1 text-[11px] font-semibold text-slate-200 hover:bg-slate-700"
+                onClick={() => {
+                  setActiveQueueFilter?.(null);
+                }}
+              >
+                Volver a Todos
               </button>
             )}
           </div>

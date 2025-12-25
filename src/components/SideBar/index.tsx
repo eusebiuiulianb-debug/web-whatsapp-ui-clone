@@ -191,8 +191,7 @@ function SideBarInner() {
   const [ fans, setFans ] = useState<ConversationListData[]>([]);
   const [ loadingFans, setLoadingFans ] = useState(true);
   const [ fansError, setFansError ] = useState("");
-  const [ showPriorityOnly, setShowPriorityOnly ] = useState(false);
-  const [ followUpFilter, setFollowUpFilter ] = useState<"all" | "today" | "expired">("all");
+  const [ followUpMode, setFollowUpMode ] = useState<"all" | "today" | "expired" | "priority">("all");
   const [ showOnlyWithNotes, setShowOnlyWithNotes ] = useState(false);
   const [ tierFilter, setTierFilter ] = useState<"all" | "new" | "regular" | "vip">("all");
   const [ onlyWithFollowUp, setOnlyWithFollowUp ] = useState(false);
@@ -202,7 +201,6 @@ function SideBarInner() {
   const [ focusMode, setFocusMode ] = useState(false);
   const [ showPacksPanel, setShowPacksPanel ] = useState(false);
   const [ listSegment, setListSegment ] = useState<"all" | "queue">("all");
-  const [ showPriorities, setShowPriorities ] = useState(false);
   const [ nextCursor, setNextCursor ] = useState<string | null>(null);
   const [ hasMore, setHasMore ] = useState(false);
   const [ isLoadingMore, setIsLoadingMore ] = useState(false);
@@ -235,26 +233,6 @@ function SideBarInner() {
   const [ newFanInviteState, setNewFanInviteState ] = useState<"idle" | "loading" | "copied" | "error">("idle");
   const [ newFanInviteError, setNewFanInviteError ] = useState<string | null>(null);
 
-
-  function getRecommendationTagClass(
-    tone: RecommendationMeta["tagTone"],
-    size: "sm" | "xs" = "sm"
-  ) {
-    const sizeClass = size === "sm" ? "px-2 py-0.5 text-[10px]" : "px-1.5 py-0.5 text-[9px]";
-    const toneClass =
-      tone === "rose"
-        ? "border-rose-400/70 bg-rose-500/15 text-rose-100"
-        : tone === "amber"
-        ? "border-amber-400/70 bg-amber-500/15 text-amber-100"
-        : tone === "sky"
-        ? "border-sky-400/70 bg-sky-500/15 text-sky-100"
-        : "border-emerald-400/70 bg-emerald-500/15 text-emerald-100";
-    return clsx(
-      "inline-flex items-center rounded-full border font-semibold uppercase tracking-wide whitespace-nowrap",
-      sizeClass,
-      toneClass
-    );
-  }
 
   const mapFans = useCallback((rawFans: Fan[]): ConversationListData[] => {
     return rawFans.map((fan) => ({
@@ -399,14 +377,6 @@ function SideBarInner() {
       setConversation(item as any);
     },
     [router, setConversation]
-  );
-
-  const handleOpenRecommended = useCallback(
-    (item: FanData) => {
-      if (!item?.id) return;
-      handleSelectConversation(item);
-    },
-    [handleSelectConversation]
   );
 
   const getLastActivityTimestamp = useCallback((fan: FanData): number => {
@@ -690,43 +660,54 @@ function SideBarInner() {
 
   const applyFilter = useCallback(
     (
-      filter: "all" | "today" | "expired",
+      filter: "all" | "today" | "expired" | "priority",
       onlyNotes = false,
       tier: "all" | "new" | "regular" | "vip" = "all",
       onlyFollowUp = false
     ) => {
+      setListSegment("all");
+      setActiveQueueFilter(null);
       setStatusFilter("active");
-      setFollowUpFilter(filter);
+      setFollowUpMode(filter);
       setShowOnlyWithNotes(onlyNotes);
       setTierFilter(tier);
       setOnlyWithFollowUp(onlyFollowUp);
       scrollListToTop();
     },
-    [scrollListToTop]
+    [scrollListToTop, setActiveQueueFilter]
+  );
+
+  const toggleFollowUpMode = useCallback(
+    (mode: "today" | "expired" | "priority") => {
+      const next = followUpMode === mode ? "all" : mode;
+      applyFilter(next, false, "all", false);
+    },
+    [applyFilter, followUpMode]
   );
 
   const handleSegmentChange = useCallback(
     (next: "all" | "queue") => {
       setListSegment(next);
+      if (next === "queue") {
+        setActiveQueueFilter("ventas_hoy");
+      } else {
+        setActiveQueueFilter(null);
+      }
       scrollListToTop();
     },
-    [scrollListToTop]
+    [scrollListToTop, setActiveQueueFilter]
   );
 
-  const openQueueSegment = useCallback(() => {
-    setActiveQueueFilter("ventas_hoy");
-    handleSegmentChange("queue");
-  }, [handleSegmentChange, setActiveQueueFilter]);
-
   function selectStatusFilter(next: "active" | "archived" | "blocked") {
+    setListSegment("all");
+    setActiveQueueFilter(null);
     setStatusFilter(next);
     if (next !== "active") {
-      setFollowUpFilter("all");
+      setFollowUpMode("all");
       setShowOnlyWithNotes(false);
       setTierFilter("all");
       setOnlyWithFollowUp(false);
       setOnlyWithExtras(false);
-      setShowPriorityOnly(false);
     }
     scrollListToTop();
   }
@@ -882,7 +863,7 @@ function SideBarInner() {
           if (statusFilter === "blocked") return fan.isBlocked === true;
           return fan.isArchived !== true && fan.isBlocked !== true;
         })
-        .filter((fan) => (showPriorityOnly ? (fan.isHighPriority ?? false) : true))
+        .filter((fan) => (followUpMode === "priority" ? (fan.isHighPriority ?? false) : true))
         .filter((fan) => (!showOnlyWithNotes ? true : (fan.notesCount ?? 0) > 0))
         .filter((fan) => (!onlyWithExtras ? true : (fan.extrasSpentTotal ?? 0) > 0))
         .filter((fan) => {
@@ -892,11 +873,11 @@ function SideBarInner() {
         })
         .filter((fan) => {
           const tag = fan.followUpTag ?? getFollowUpTag(fan.membershipStatus, fan.daysLeft, fan.activeGrantTypes);
-          if (followUpFilter === "all") return true;
-          if (followUpFilter === "expired") {
+          if (followUpMode === "all" || followUpMode === "priority") return true;
+          if (followUpMode === "expired") {
             return isExpiredAccess({ membershipStatus: fan.membershipStatus, daysLeft: fan.daysLeft, followUpTag: tag });
           }
-          if (followUpFilter === "today") {
+          if (followUpMode === "today") {
             return shouldFollowUpToday({
               membershipStatus: fan.membershipStatus,
               daysLeft: fan.daysLeft,
@@ -926,7 +907,7 @@ function SideBarInner() {
             if (la !== lb) return lb - la;
             return 0;
           }
-          if (followUpFilter === "today") {
+          if (followUpMode === "today") {
             const pa = a.priorityScore ?? 0;
             const pb = b.priorityScore ?? 0;
             if (pa !== pb) return pb - pa;
@@ -954,14 +935,13 @@ function SideBarInner() {
         }),
     [
       fansWithScore,
-      followUpFilter,
       getHighPriorityTimestamp,
       getLastActivityTimestamp,
       onlyWithExtras,
       onlyWithFollowUp,
       search,
       showOnlyWithNotes,
-      showPriorityOnly,
+      followUpMode,
       statusFilter,
       tierFilter,
     ]
@@ -993,8 +973,6 @@ function SideBarInner() {
   const queueCount = priorityQueue.counts.total;
   const colaHoyCount = priorityQueue.counts.total;
   const vipInQueue = priorityQueue.counts.vip;
-  const recommendedCandidate = priorityQueue.nextRecommended;
-  const queuePreviewEntries = queueList.slice(0, 3);
   const priorityQueueList = useMemo(
     () => queueList.map((entry) => entry.fan),
     [queueList]
@@ -1015,8 +993,8 @@ function SideBarInner() {
     if (showOnlyWithNotes) return "notes";
     if (onlyWithFollowUp) return "followup";
     if (tierFilter === "new") return "new";
-    if (followUpFilter === "expired") return "expired";
-    if (followUpFilter === "today") return "today";
+    if (followUpMode === "expired") return "expired";
+    if (followUpMode === "today") return "today";
     return "all";
   })();
 
@@ -1228,7 +1206,7 @@ function SideBarInner() {
     const handleExternalFilter = (event: Event) => {
       const detail = (event as CustomEvent)?.detail as
         | {
-            followUpFilter?: "all" | "today" | "expired";
+            followUpFilter?: "all" | "today" | "expired" | "priority";
             tierFilter?: "all" | "new" | "regular" | "vip";
             onlyWithExtras?: boolean;
           }
@@ -1406,17 +1384,16 @@ function SideBarInner() {
             )}
           </>
         )}
-        <div className="flex flex-col gap-2 rounded-xl border border-slate-700 bg-slate-900/80 px-3 py-3 text-[12px] text-slate-300">
+          <div className="flex flex-col gap-2 rounded-xl border border-slate-700 bg-slate-900/80 px-3 py-3 text-[12px] text-slate-300">
           <div className="flex items-center justify-between">
             <button
               type="button"
               onClick={() => {
                 applyFilter("all", false);
-                setActiveQueueFilter(null);
               }}
               className="flex flex-1 justify-between text-left pr-2"
             >
-              <span className={clsx("text-slate-400", followUpFilter === "all" && !showOnlyWithNotes && "font-semibold text-amber-300")}>Hoy</span>
+              <span className={clsx("text-slate-400", followUpMode === "all" && !showOnlyWithNotes && "font-semibold text-amber-300")}>Hoy</span>
               <span
                 className={clsx(
                   "inline-flex items-center rounded-full px-3 py-1 text-[12px] font-semibold",
@@ -1485,11 +1462,11 @@ function SideBarInner() {
           <button
             type="button"
             onClick={() => {
-              applyFilter("today", false);
+              toggleFollowUpMode("today");
             }}
             className="flex justify-between text-left"
           >
-            <span className={clsx(followUpFilter === "today" && !showOnlyWithNotes && "font-semibold text-amber-300")}>
+            <span className={clsx(followUpMode === "today" && !showOnlyWithNotes && "font-semibold text-amber-300")}>
               Seguimiento hoy
               <span
                 className="ml-1 inline-flex h-4 w-4 items-center justify-center rounded-full border border-slate-500 text-[9px] text-slate-300"
@@ -1502,7 +1479,7 @@ function SideBarInner() {
               className={clsx(
                 "inline-flex items-center rounded-full px-2.5 py-1 text-xs font-semibold",
                 followUpTodayCount > 0 ? "bg-emerald-500/20 text-emerald-100" : "bg-slate-800 text-slate-300",
-                followUpFilter === "today" && !showOnlyWithNotes && "ring-1 ring-amber-300/60"
+                followUpMode === "today" && !showOnlyWithNotes && "ring-1 ring-amber-300/60"
               )}
             >
               {followUpTodayCount}
@@ -1513,16 +1490,16 @@ function SideBarInner() {
               <button
                 type="button"
                 onClick={() => {
-                  applyFilter("expired", false);
+                  toggleFollowUpMode("expired");
                 }}
                 className="flex justify-between text-left"
               >
-                <span className={clsx(followUpFilter === "expired" && !showOnlyWithNotes && "font-semibold text-amber-300")}>Caducados</span>
+                <span className={clsx(followUpMode === "expired" && !showOnlyWithNotes && "font-semibold text-amber-300")}>Caducados</span>
                 <span
                   className={clsx(
                     "inline-flex items-center rounded-full px-2.5 py-1 text-xs font-semibold",
                     expiredCount > 0 ? "bg-rose-500/20 text-rose-100" : "bg-slate-800 text-slate-300",
-                    followUpFilter === "expired" && !showOnlyWithNotes && "ring-1 ring-amber-300/60"
+                    followUpMode === "expired" && !showOnlyWithNotes && "ring-1 ring-amber-300/60"
                   )}
                 >
                   {expiredCount}
@@ -1586,7 +1563,7 @@ function SideBarInner() {
           )}
           <button
             type="button"
-            onClick={() => applyFilter(followUpFilter, showOnlyWithNotes, tierFilter, !onlyWithFollowUp)}
+            onClick={() => applyFilter(followUpMode, showOnlyWithNotes, tierFilter, !onlyWithFollowUp)}
             className="flex justify-between text-left"
           >
             <span className={clsx(onlyWithFollowUp && "font-semibold text-amber-300")}>
@@ -1614,6 +1591,8 @@ function SideBarInner() {
                 type="button"
                 onClick={() => {
                   setOnlyWithExtras((prev) => !prev);
+                  setListSegment("all");
+                  setActiveQueueFilter(null);
                   scrollListToTop();
                 }}
                 className="flex justify-between text-left"
@@ -1641,14 +1620,16 @@ function SideBarInner() {
               <button
                 type="button"
                 onClick={() => {
-                  const nextPriorityOnly = !showPriorityOnly;
-                  setShowPriorityOnly(nextPriorityOnly);
+                  const next = followUpMode === "priority" ? "all" : "priority";
+                  setFollowUpMode(next);
                   setTierFilter("all");
+                  setListSegment("all");
+                  setActiveQueueFilter(null);
                   scrollListToTop();
                 }}
                 className="flex justify-between text-left"
               >
-                <span className={clsx(showPriorityOnly && "font-semibold text-amber-300")}>
+                <span className={clsx(followUpMode === "priority" && "font-semibold text-amber-300")}>
                   🔥 Alta prioridad
                   <span
                     className="ml-1 inline-flex h-4 w-4 items-center justify-center rounded-full border border-slate-500 text-[9px] text-slate-300"
@@ -1657,11 +1638,11 @@ function SideBarInner() {
                     i
                   </span>
                 </span>
-                <span
-                  className={clsx(
-                    "inline-flex items-center rounded-full px-2.5 py-1 text-xs font-semibold",
+                  <span
+                    className={clsx(
+                      "inline-flex items-center rounded-full px-2.5 py-1 text-xs font-semibold",
                     priorityCount > 0 ? "bg-amber-500/20 text-amber-100" : "bg-slate-800 text-slate-300",
-                    showPriorityOnly && "ring-1 ring-amber-300/60"
+                    followUpMode === "priority" && "ring-1 ring-amber-300/60"
                   )}
                 >
                   {priorityCount}
@@ -1669,7 +1650,7 @@ function SideBarInner() {
               </button>
               <button
                 type="button"
-                onClick={() => applyFilter(followUpFilter, showOnlyWithNotes, tierFilter === "regular" ? "all" : "regular")}
+            onClick={() => applyFilter(followUpMode, showOnlyWithNotes, tierFilter === "regular" ? "all" : "regular")}
                 className="flex justify-between text-left"
               >
                 <span className={clsx(tierFilter === "regular" && "font-semibold text-amber-300")}>Habituales</span>
@@ -1685,7 +1666,7 @@ function SideBarInner() {
               </button>
               <button
                 type="button"
-                onClick={() => applyFilter(followUpFilter, showOnlyWithNotes, tierFilter === "new" ? "all" : "new")}
+            onClick={() => applyFilter(followUpMode, showOnlyWithNotes, tierFilter === "new" ? "all" : "new")}
                 className="flex justify-between text-left"
               >
                 <span className={clsx(tierFilter === "new" && "font-semibold text-amber-300")}>Nuevos</span>
@@ -1742,15 +1723,64 @@ function SideBarInner() {
         className="relative flex flex-col w-full flex-1 min-h-0 overflow-y-auto"
         id="conversation"
       >
-        <div className="sticky top-0 z-30 bg-[#202c33] pb-3">
+        <div className="sticky top-0 z-30 bg-[#202c33] pb-2">
           <div className="relative">
-            <div className="px-3 pt-3">
-              <div className="flex items-center justify-between gap-2">
-                <div className="inline-flex rounded-full border border-slate-700 bg-slate-900/70 p-1 text-[11px] text-slate-200">
+            <div className="px-3 pt-2">
+              <div
+                className={clsx(
+                  "flex items-center gap-2 text-xs",
+                  listSegment === "all" ? "overflow-x-auto whitespace-nowrap flex-nowrap" : "justify-end"
+                )}
+              >
+                {listSegment === "all" && (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => toggleFollowUpMode("today")}
+                      className={clsx(
+                        "rounded-full border px-3 py-1 shrink-0",
+                        followUpMode === "today"
+                          ? "border-amber-400 bg-amber-500/10 text-amber-100"
+                          : "border-amber-700 bg-slate-800/60 text-amber-200/80"
+                      )}
+                    >
+                      Seguimiento hoy{followUpTodayCount > 0 ? ` (${followUpTodayCount})` : ""}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => toggleFollowUpMode("expired")}
+                      className={clsx(
+                        "rounded-full border px-3 py-1 shrink-0",
+                        followUpMode === "expired"
+                          ? "border-rose-400 bg-rose-500/10 text-rose-100"
+                          : "border-rose-800 bg-slate-800/60 text-rose-200/80"
+                      )}
+                    >
+                      Caducados{expiredCount > 0 ? ` (${expiredCount})` : ""}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => toggleFollowUpMode("priority")}
+                      className={clsx(
+                        "rounded-full border px-3 py-1 shrink-0",
+                        followUpMode === "priority"
+                          ? "border-amber-400 bg-amber-500/10 text-amber-100"
+                          : "border-amber-700 bg-slate-800/60 text-amber-200/80"
+                      )}
+                    >
+                      Alta prioridad{priorityCount > 0 ? ` (${priorityCount})` : ""}
+                    </button>
+                  </>
+                )}
+                <div
+                  className={clsx(
+                    "inline-flex rounded-full border border-slate-700 bg-slate-900/70 p-1 text-[11px] text-slate-200 shrink-0",
+                    listSegment === "all" && "ml-auto"
+                  )}
+                >
                   <button
                     type="button"
                     onClick={() => {
-                      setActiveQueueFilter(null);
                       handleSegmentChange("all");
                     }}
                     className={clsx(
@@ -1764,7 +1794,7 @@ function SideBarInner() {
                   </button>
                   <button
                     type="button"
-                    onClick={openQueueSegment}
+                    onClick={() => handleSegmentChange("queue")}
                     className={clsx(
                       "rounded-full px-3 py-1 font-semibold transition",
                       listSegment === "queue"
@@ -1775,93 +1805,15 @@ function SideBarInner() {
                     Cola ({queueCount})
                   </button>
                 </div>
-                <button
-                  type="button"
-                  onClick={() => setShowPriorities((prev) => !prev)}
-                  className={clsx(
-                    "rounded-full border px-3 py-1 text-[11px] font-semibold transition",
-                    showPriorities
-                      ? "border-amber-400/70 bg-amber-500/15 text-amber-100"
-                      : "border-slate-700 bg-slate-900/70 text-slate-300 hover:text-slate-100"
-                  )}
-                  aria-expanded={showPriorities}
-                >
-                  Prioridades
-                </button>
               </div>
             </div>
-            <div className="mt-2 flex gap-2 text-xs px-3">
-              <button
-                type="button"
-                onClick={() => {
-                  applyFilter("all", false, "all", false);
-                  setActiveQueueFilter(null);
-                }}
-                className={clsx(
-                  "rounded-full border px-3 py-1",
-                  followUpFilter === "all"
-                    ? "border-slate-400 bg-slate-700/60 text-slate-50"
-                    : "border-slate-600 bg-slate-800/60 text-slate-300"
-                )}
-              >
-                Todos{totalCount > 0 ? ` (${totalCount})` : ""}
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  applyFilter("today", false, "all", false);
-                }}
-                className={clsx(
-                  "rounded-full border px-3 py-1",
-                  followUpFilter === "today"
-                    ? "border-amber-400 bg-amber-500/10 text-amber-100"
-                    : "border-amber-700 bg-slate-800/60 text-amber-200/80"
-                )}
-              >
-                Seguimiento hoy{followUpTodayCount > 0 ? ` (${followUpTodayCount})` : ""}
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  applyFilter("expired", false, "all", false);
-                }}
-                className={clsx(
-                  "rounded-full border px-3 py-1",
-                  followUpFilter === "expired"
-                    ? "border-rose-400 bg-rose-500/10 text-rose-100"
-                    : "border-rose-800 bg-slate-800/60 text-rose-200/80"
-                )}
-              >
-                Caducados{expiredCount > 0 ? ` (${expiredCount})` : ""}
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  const nextPriorityOnly = !showPriorityOnly;
-                  setFollowUpFilter("all");
-                  setShowOnlyWithNotes(false);
-                  setOnlyWithFollowUp(false);
-                  setTierFilter("all");
-                  setShowPriorityOnly(nextPriorityOnly);
-                  scrollListToTop();
-                }}
-                className={clsx(
-                  "rounded-full border px-3 py-1",
-                  showPriorityOnly
-                    ? "border-amber-400 bg-amber-500/10 text-amber-100"
-                    : "border-amber-700 bg-slate-800/60 text-amber-200/80"
-                )}
-              >
-                Alta prioridad{priorityCount > 0 ? ` (${priorityCount})` : ""}
-              </button>
-            </div>
-            <div className="mt-3 px-3 w-full">
-              <div className="flex items-center gap-3 w-full rounded-full bg-slate-900/80 border border-slate-800/70 px-3 py-2 shadow-sm flex-wrap">
+            <div className="mt-2 px-3 w-full">
+              <div className="flex items-center gap-3 w-full rounded-full bg-slate-900/80 border border-slate-800/70 px-3 py-2 shadow-sm transition focus-within:border-emerald-400/70 focus-within:ring-1 focus-within:ring-emerald-400/25">
                 <svg viewBox="0 0 24 24" width="20" height="20" className="text-slate-400/80">
                   <path fill="currentColor" d="M15.009 13.805h-.636l-.22-.219a5.184 5.184 0 0 0 1.256-3.386 5.207 5.207 0 1 0-5.207 5.208 5.183 5.183 0 0 0 3.385-1.255l.221.22v.635l4.004 3.999 1.194-1.195-3.997-4.007zm-4.808 0a3.605 3.605 0 1 1 0-7.21 3.605 3.605 0 0 1 0 7.21z" />
                 </svg>
                 <input
-                  className="flex-1 min-w-[160px] bg-transparent border-none outline-none text-sm text-slate-100 placeholder:text-slate-400"
+                  className="flex-1 min-w-0 bg-transparent border-none outline-none text-sm text-slate-100 placeholder:text-slate-400"
                   placeholder="Buscar o iniciar un nuevo chat"
                   value={search}
                   onChange={(e) => {
@@ -1869,11 +1821,29 @@ function SideBarInner() {
                     scrollListToTop();
                   }}
                 />
+                {listSegment === "all" && (
+                  <button
+                    type="button"
+                    className="inline-flex items-center gap-2 rounded-full border border-emerald-500/70 bg-emerald-500/10 px-3 py-2 text-xs font-semibold text-emerald-100 hover:bg-emerald-500/20 shrink-0"
+                    aria-label="Crear invitación"
+                    onClick={() => {
+                      setIsNewFanOpen(true);
+                      setNewFanError(null);
+                      setNewFanId(null);
+                      setNewFanInviteUrl(null);
+                      setNewFanInviteState("idle");
+                      setNewFanInviteError(null);
+                    }}
+                  >
+                    <span aria-hidden>+</span>
+                    <span className="hidden sm:inline">Crear invitación</span>
+                  </button>
+                )}
                 <button
                   type="button"
                   onClick={() => setFocusMode((prev) => !prev)}
                   className={clsx(
-                    "inline-flex h-10 w-10 items-center justify-center rounded-full border transition",
+                    "inline-flex h-10 w-10 items-center justify-center rounded-full border transition shrink-0",
                     focusMode
                       ? "border-emerald-400 bg-emerald-500/25 text-emerald-50 shadow-[0_0_0_1px_rgba(16,185,129,0.25)]"
                       : "border-slate-700 bg-slate-800/70 text-slate-300 hover:bg-slate-700"
@@ -1887,110 +1857,7 @@ function SideBarInner() {
                   </svg>
                 </button>
               </div>
-              <div className="mt-2 flex justify-end">
-                <button
-                  type="button"
-                  className="rounded-full border border-emerald-500/70 bg-emerald-500/10 px-4 py-1.5 text-xs font-semibold text-emerald-100 hover:bg-emerald-500/20"
-                  onClick={() => {
-                    setIsNewFanOpen(true);
-                    setNewFanError(null);
-                    setNewFanId(null);
-                    setNewFanInviteUrl(null);
-                    setNewFanInviteState("idle");
-                    setNewFanInviteError(null);
-                  }}
-                >
-                  + Crear invitación
-                </button>
-              </div>
             </div>
-            {showPriorities && (
-              <div className="absolute left-0 right-0 top-full mt-2 px-3 pb-3">
-                <div className="rounded-xl border border-slate-700 bg-slate-900/95 px-3 py-3 text-[11px] text-slate-200 shadow-xl">
-                  <div className="flex items-center justify-between">
-                    <span className="font-semibold text-slate-100">Prioridades</span>
-                    <button
-                      type="button"
-                      className="text-[11px] text-slate-400 hover:text-slate-100"
-                      onClick={() => setShowPriorities(false)}
-                    >
-                      Cerrar
-                    </button>
-                  </div>
-                  <div className="mt-2 space-y-2">
-                    {recommendedCandidate ? (
-                      <div className="rounded-xl border border-amber-500/50 bg-slate-900/80 px-3 py-2">
-                        <div className="text-[11px] text-slate-400">Siguiente recomendado</div>
-                        <div className="mt-1 flex items-start justify-between gap-3">
-                          <div className="min-w-0">
-                            <div className="flex flex-wrap items-center gap-2">
-                              <span className="text-sm font-semibold text-slate-50 truncate">
-                                {recommendedCandidate.fan.contactName}
-                              </span>
-                              <span className={getRecommendationTagClass(recommendedCandidate.tagTone)}>
-                                {recommendedCandidate.tag}
-                              </span>
-                              <span className="text-[10px] text-slate-400">{recommendedCandidate.daysLeftLabel}</span>
-                            </div>
-                            <div className="text-[11px] text-slate-500 truncate">
-                              {recommendedCandidate.reason}
-                            </div>
-                          </div>
-                          <button
-                            type="button"
-                            className="rounded-lg bg-amber-500/90 px-2 py-1 text-xs font-semibold text-slate-900 hover:bg-amber-500"
-                            onClick={() => handleOpenRecommended(recommendedCandidate.fan)}
-                          >
-                            Abrir
-                          </button>
-                        </div>
-                      </div>
-                    ) : (
-                      <div className="text-xs text-slate-400">
-                        No hay prioridades ahora.
-                      </div>
-                    )}
-                    {queueCount > 0 && (
-                      <div className="rounded-xl border border-slate-800/70 bg-slate-900/70 px-3 py-2">
-                        <div className="flex items-center justify-between gap-2">
-                          <div className="text-[11px] font-semibold text-slate-400">Cola ({queueCount})</div>
-                          <button
-                            type="button"
-                            onClick={openQueueSegment}
-                            className="text-[11px] font-semibold text-slate-300 hover:text-slate-100"
-                          >
-                            Ver cola ({queueCount})
-                          </button>
-                        </div>
-                        <div className="mt-1 space-y-1">
-                          {queuePreviewEntries.map((entry) => (
-                            <button
-                              key={entry.fan.id}
-                              type="button"
-                              onClick={() => handleSelectConversation(entry.fan)}
-                              className="flex w-full flex-col gap-1 rounded-lg border border-transparent px-2 py-1 text-left transition hover:border-slate-700/70 hover:bg-slate-900/60"
-                            >
-                              <div className="flex items-center justify-between gap-2">
-                                <span className="text-[12px] font-semibold text-slate-100 truncate">
-                                  {entry.fan.contactName}
-                                </span>
-                                <span className="text-[10px] text-slate-400 shrink-0">
-                                  {entry.daysLeftLabel}
-                                </span>
-                              </div>
-                              <div className="flex items-center gap-2 text-[10px] text-slate-400">
-                                <span className={getRecommendationTagClass(entry.tagTone, "xs")}>{entry.tag}</span>
-                                <span className="truncate">{entry.reason}</span>
-                              </div>
-                            </button>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                </div>
-              </div>
-            )}
           </div>
         </div>
         <ConversationList
@@ -2027,7 +1894,7 @@ function SideBarInner() {
         )}
         {!loadingFans && !fansError && listSegment === "all" && !focusMode && (
           <>
-            {showPriorityOnly && safeFilteredConversationsList.length === 0 && (
+            {followUpMode === "priority" && safeFilteredConversationsList.length === 0 && (
               <div className="px-4 py-3 text-xs text-slate-400">
                 No hay chats prioritarios por ahora.
               </div>
@@ -2035,10 +1902,10 @@ function SideBarInner() {
             {safeFilteredConversationsList.length === 0 && (
               <div className="text-center text-[#aebac1] py-4 text-sm px-4 whitespace-pre-line">
                 {(() => {
-                  if (followUpFilter === "today") {
+                  if (followUpMode === "today") {
                     return "Hoy no tienes seguimientos pendientes.\nVerás personas aquí cuando su suscripción esté cerca de renovarse o les marques «Próxima acción» ⚡ en el chat.";
                   }
-                  if (showPriorityOnly) {
+                  if (followUpMode === "priority") {
                     return "Aún no tienes chats de alta prioridad.\nSe marcan 🔥 cuando los señalas manualmente para atender primero.";
                   }
                   if (activeQueueFilter === "ventas_hoy") {
