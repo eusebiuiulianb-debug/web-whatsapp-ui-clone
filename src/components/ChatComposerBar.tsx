@@ -19,6 +19,8 @@ type ChatComposerBarProps = {
   maxHeight: number;
   isChatBlocked: boolean;
   isInternalPanelOpen: boolean;
+  showAudienceToggle?: boolean;
+  showAttach?: boolean;
 };
 
 export function ChatComposerBar({
@@ -37,6 +39,8 @@ export function ChatComposerBar({
   maxHeight,
   isChatBlocked,
   isInternalPanelOpen,
+  showAudienceToggle = true,
+  showAttach = true,
 }: ChatComposerBarProps) {
   const isInternalMode = audience === "INTERNAL";
   const isInputDisabled = (isChatBlocked && !isInternalMode) || isInternalPanelOpen;
@@ -73,58 +77,62 @@ export function ChatComposerBar({
       />
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="flex items-center gap-2">
-          <button
-            type="button"
-            onClick={onAttach}
-            disabled={!canAttach}
-            className={clsx(
-              "flex h-9 w-9 items-center justify-center rounded-full border transition focus-visible:outline-none focus-visible:ring-2",
-              canAttach
-                ? "border-slate-800/70 bg-slate-900/50 text-slate-200 hover:border-slate-600/80 hover:bg-slate-800/70 focus-visible:ring-emerald-400/30"
-                : "border-slate-800/50 bg-slate-900/30 text-slate-500 cursor-not-allowed"
-            )}
-            title={canAttach ? "Adjuntar contenido" : "Solo disponible cuando escribes al fan."}
-            aria-label="Adjuntar contenido"
-          >
-            <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2">
-              <path d="M12 5v14" />
-              <path d="M5 12h14" />
-            </svg>
-          </button>
-          <div
-            className={clsx(
-              "inline-flex h-8 items-center rounded-full border p-0.5 shrink-0",
-              isInternalMode
-                ? "border-amber-400/60 bg-amber-500/12"
-                : "border-slate-800/70 bg-slate-900/50"
-            )}
-          >
+          {showAttach && (
             <button
               type="button"
-              onClick={() => onAudienceChange("CREATOR")}
+              onClick={onAttach}
+              disabled={!canAttach}
               className={clsx(
-                "h-7 rounded-full px-2.5 text-[11px] font-semibold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/30",
-                audience === "CREATOR"
-                  ? "bg-emerald-500/20 text-emerald-100"
-                  : "text-slate-300 hover:text-slate-100"
+                "flex h-9 w-9 items-center justify-center rounded-full border transition focus-visible:outline-none focus-visible:ring-2",
+                canAttach
+                  ? "border-slate-800/70 bg-slate-900/50 text-slate-200 hover:border-slate-600/80 hover:bg-slate-800/70 focus-visible:ring-emerald-400/30"
+                  : "border-slate-800/50 bg-slate-900/30 text-slate-500 cursor-not-allowed"
+              )}
+              title={canAttach ? "Adjuntar contenido" : "Solo disponible cuando escribes al fan."}
+              aria-label="Adjuntar contenido"
+            >
+              <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M12 5v14" />
+                <path d="M5 12h14" />
+              </svg>
+            </button>
+          )}
+          {showAudienceToggle && (
+            <div
+              className={clsx(
+                "inline-flex h-8 items-center rounded-full border p-0.5 shrink-0",
+                isInternalMode
+                  ? "border-amber-400/60 bg-amber-500/12"
+                  : "border-slate-800/70 bg-slate-900/50"
               )}
             >
-              Fan
-            </button>
-            <button
-              type="button"
-              onClick={() => onAudienceChange("INTERNAL")}
-              className={clsx(
-                "h-7 rounded-full px-2.5 text-[11px] font-semibold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/30",
-                audience === "INTERNAL"
-                  ? "bg-amber-500/20 text-amber-100"
-                  : "text-slate-300 hover:text-slate-100"
-              )}
-              title="No se envía al fan. Se guarda en el chat interno."
-            >
-              {isInternalMode ? "🔒 Interno" : "Interno"}
-            </button>
-          </div>
+              <button
+                type="button"
+                onClick={() => onAudienceChange("CREATOR")}
+                className={clsx(
+                  "h-7 rounded-full px-2.5 text-[11px] font-semibold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/30",
+                  audience === "CREATOR"
+                    ? "bg-emerald-500/20 text-emerald-100"
+                    : "text-slate-300 hover:text-slate-100"
+                )}
+              >
+                Fan
+              </button>
+              <button
+                type="button"
+                onClick={() => onAudienceChange("INTERNAL")}
+                className={clsx(
+                  "h-7 rounded-full px-2.5 text-[11px] font-semibold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/30",
+                  audience === "INTERNAL"
+                    ? "bg-amber-500/20 text-amber-100"
+                    : "text-slate-300 hover:text-slate-100"
+                )}
+                title="No se envía al fan. Se guarda en el chat interno."
+              >
+                {isInternalMode ? "🔒 Interno" : "Interno"}
+              </button>
+            </div>
+          )}
         </div>
         <button
           type="button"

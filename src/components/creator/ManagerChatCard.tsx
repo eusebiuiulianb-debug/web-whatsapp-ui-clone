@@ -1,8 +1,9 @@
-import { forwardRef, ReactNode, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
+import { forwardRef, ReactNode, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
 import clsx from "clsx";
 import Link from "next/link";
 import type { CreatorBusinessSnapshot } from "../../lib/creatorManager";
 import MessageBalloon from "../MessageBalloon";
+import { ChatComposerBar } from "../ChatComposerBar";
 import { PillButton } from "../ui/PillButton";
 import {
   CreatorPlatformKey,
@@ -38,6 +39,7 @@ const defaultSuggestions = [
   "Resúmeme mis números clave de esta semana.",
   "Dame una acción concreta para aumentar ingresos hoy.",
 ];
+const MAX_MAIN_COMPOSER_HEIGHT = 140;
 
 type GlobalMode = "HOY" | "VENTAS" | "CATALOGO" | "CRECIMIENTO";
 
@@ -93,6 +95,12 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
   const [snapshot, setSnapshot] = useState<CreatorBusinessSnapshot | null>(businessSnapshot ?? null);
   const isDemo = !process.env.NEXT_PUBLIC_OPENAI_API_KEY;
+  const resizeComposer = useCallback((el: HTMLTextAreaElement | null) => {
+    if (!el) return;
+    el.style.height = "auto";
+    const nextHeight = Math.min(el.scrollHeight, MAX_MAIN_COMPOSER_HEIGHT);
+    el.style.height = `${nextHeight}px`;
+  }, []);
 
   useEffect(() => {
     void loadMessages();
@@ -108,6 +116,10 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
       setSnapshot(businessSnapshot);
     }
   }, [businessSnapshot]);
+
+  useEffect(() => {
+    resizeComposer(inputRef.current);
+  }, [input, resizeComposer]);
 
   async function loadMessages(opts?: { silent?: boolean }) {
     try {
@@ -230,6 +242,7 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
     },
     setDraft: (message: string) => {
       setInput(message);
+      requestAnimationFrame(() => resizeComposer(inputRef.current));
       inputRef.current?.focus();
     },
   }));
@@ -374,6 +387,13 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
       void handleSend(prompt);
     }
   };
+  const sendDisabled = sending || !input.trim();
+  const handleComposerKeyDown = (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (event.key === "Enter" && !event.shiftKey) {
+      event.preventDefault();
+      void handleSend();
+    }
+  };
 
   if (variant === "chat") {
     const headerLabel = title || "Manager IA";
@@ -467,145 +487,118 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
               {fallbackBanner}
             </div>
           )}
-          <div className="px-4 sm:px-6 lg:px-8 py-3 space-y-3">
-            {scope === "global" ? (
-            <>
-              <div className={modeRowClass}>
-                {globalModes.map((mode) => {
-                  const isActive = globalMode === mode;
-                  return (
-                    <PillButton
-                      key={mode}
-                      intent={isActive ? "primary" : "ghost"}
-                      size="sm"
-                      className="shrink-0"
-                      onClick={() => setGlobalMode(mode)}
-                    >
-                      {mode === "HOY"
-                        ? "Hoy"
-                        : mode === "VENTAS"
-                        ? "Ventas"
-                        : mode === "CATALOGO"
-                        ? "Catálogo"
-                        : "Crecimiento"}
-                  </PillButton>
-                );
-              })}
-              </div>
-              {globalMode === "CRECIMIENTO" && (
-                <div className="flex flex-wrap items-center gap-2 px-1">
-                  <span className="text-[11px] uppercase tracking-wide text-slate-400">Plataforma foco</span>
-                  {(enabledPlatforms.length > 1 ? enabledPlatforms : enabledPlatforms.length === 1 ? enabledPlatforms : [activeGrowthPlatform]).map((platform) => (
-                    <PillButton
-                      key={platform}
-                      intent={platform === activeGrowthPlatform ? "primary" : "ghost"}
-                      size="sm"
-                      onClick={() => setGrowthPlatform(platform)}
-                    >
-                      {formatPlatformLabel(platform)}
-                    </PillButton>
-                  ))}
-                  <span className="text-xs text-slate-400">Activas: {growthActiveList}</span>
-                </div>
-              )}
-              <div className="space-y-2">
-                <div className="flex flex-wrap items-center gap-2">
-                  {(globalModeContent?.actions ?? []).map((action, idx) => (
-                    <PillButton
-                      key={action}
-                      intent={idx === 0 ? "primary" : "secondary"}
-                      size="md"
-                      onClick={() => applyPrompt(getGlobalPrompt(action), false)}
-                    >
-                      {action}
-                    </PillButton>
-                  ))}
-                </div>
-                <div className="flex flex-wrap items-center gap-2">
-                  {(globalModeContent?.suggestions ?? []).map((sugg) => (
+          <div className="sticky bottom-0 z-20 border-t border-slate-800/60 bg-gradient-to-b from-slate-950/90 via-slate-950/80 to-slate-950/70 backdrop-blur-xl">
+            <div className="px-4 sm:px-6 lg:px-8 py-3 space-y-3">
+              {scope === "global" ? (
+                <>
+                  <div className={modeRowClass}>
+                    {globalModes.map((mode) => {
+                      const isActive = globalMode === mode;
+                      return (
+                        <PillButton
+                          key={mode}
+                          intent={isActive ? "primary" : "ghost"}
+                          size="sm"
+                          className="shrink-0"
+                          onClick={() => setGlobalMode(mode)}
+                        >
+                          {mode === "HOY"
+                            ? "Hoy"
+                            : mode === "VENTAS"
+                            ? "Ventas"
+                            : mode === "CATALOGO"
+                            ? "Catálogo"
+                            : "Crecimiento"}
+                        </PillButton>
+                      );
+                    })}
+                  </div>
+                  {globalMode === "CRECIMIENTO" && (
+                    <div className="flex flex-wrap items-center gap-2 px-1">
+                      <span className="text-[11px] uppercase tracking-wide text-slate-400">Plataforma foco</span>
+                      {(enabledPlatforms.length > 1 ? enabledPlatforms : enabledPlatforms.length === 1 ? enabledPlatforms : [activeGrowthPlatform]).map(
+                        (platform) => (
+                          <PillButton
+                            key={platform}
+                            intent={platform === activeGrowthPlatform ? "primary" : "ghost"}
+                            size="sm"
+                            onClick={() => setGrowthPlatform(platform)}
+                          >
+                            {formatPlatformLabel(platform)}
+                          </PillButton>
+                        )
+                      )}
+                      <span className="text-xs text-slate-400">Activas: {growthActiveList}</span>
+                    </div>
+                  )}
+                  <div className="space-y-2">
+                    <div className="flex flex-wrap items-center gap-2">
+                      {(globalModeContent?.actions ?? []).map((action, idx) => (
+                        <PillButton
+                          key={action}
+                          intent={idx === 0 ? "primary" : "secondary"}
+                          size="md"
+                          onClick={() => applyPrompt(getGlobalPrompt(action), false)}
+                        >
+                          {action}
+                        </PillButton>
+                      ))}
+                    </div>
+                    <div className="flex flex-wrap items-center gap-2">
+                      {(globalModeContent?.suggestions ?? []).map((sugg) => (
+                        <PillButton
+                          key={sugg}
+                          intent="secondary"
+                          size="sm"
+                          onClick={() => applyPrompt(getGlobalPrompt(sugg), false)}
+                        >
+                          {sugg}
+                        </PillButton>
+                      ))}
+                    </div>
+                  </div>
+                </>
+              ) : (
+                <div className={chipRowClass}>
+                  {quickSuggestions.map((sugg) => (
                     <PillButton
                       key={sugg}
                       intent="secondary"
                       size="sm"
-                      onClick={() => applyPrompt(getGlobalPrompt(sugg), false)}
+                      onClick={() => {
+                        applyPrompt(sugg, false);
+                      }}
+                      disabled={sending}
                     >
                       {sugg}
                     </PillButton>
                   ))}
                 </div>
-              </div>
-            </>
-          ) : (
-            <div className={chipRowClass}>
-              {quickSuggestions.map((sugg) => (
-                <PillButton
-                  key={sugg}
-                  intent="secondary"
-                  size="sm"
-                  onClick={() => {
-                    applyPrompt(sugg, false);
-                  }}
-                  disabled={sending}
-                >
-                  {sugg}
-                </PillButton>
-              ))}
-            </div>
-          )}
-            <div className="border-t border-slate-950 bg-slate-950 px-4 py-3 rounded-2xl border border-slate-800/60 shadow-sm">
-              <div
-                className={clsx(
-                  "flex items-center gap-2 rounded-3xl border px-3 py-2.5",
-                  "bg-slate-900/90 border-slate-700/80 shadow-sm",
-                  "focus-within:border-emerald-500/80 focus-within:ring-1 focus-within:ring-emerald-500/40"
-                )}
-              >
-                <div className="relative">
-                  <button
-                    type="button"
-                    className="flex h-9 w-9 items-center justify-center rounded-full hover:bg-slate-800/80 transition text-slate-400 cursor-not-allowed"
-                    title="Adjuntar contenido"
-                    aria-label="Adjuntar contenido"
-                    disabled
-                  >
-                    <svg viewBox="0 0 24 24" width="24" height="24" className="cursor-not-allowed">
-                      <path fill="currentColor" d="M1.816 15.556v.002c0 1.502.584 2.912 1.646 3.972s2.472 1.647 3.974 1.647a5.58 5.58 0 0 0 3.972-1.645l9.547-9.548c.769-.768 1.147-1.767 1.058-2.817-.079-.968-.548-1.927-1.319-2.698-1.594-1.592-4.068-1.711-5.517-.262l-7.916 7.915c-.881.881-.792 2.25.214 3.261.959.958 2.423 1.053 3.263.215l5.511-5.512c.28-.28.267-.722.053-.936l-.244-.244c-.191-.191-.567-.349-.957.04l-5.506 5.506c-.18.18-.635.127-.976-.214-.098-.097-.576-.613-.213-.973l7.915-7.917c.818-.817 2.267-.699 3.23.262.5.501.802 1.1.849 1.685.051.573-.156 1.111-.589 1.543l-9.547 9.549a3.97 3.97 0 0 1-2.829 1.171 3.975 3.975 0 0 1-2.83-1.173 3.973 3.973 0 0 1-1.172-2.828c0-1.071.415-2.076 1.172-2.83l7.209-7.211c.157-.157.264-.579.028-.814L11.5 4.36a.572.572 0 0 0-.834.018l-7.205 7.207a5.577 5.577 0 0 0-1.645 3.971z">
-                      </path>
-                    </svg>
-                  </button>
-                </div>
-                <form
-                  onSubmit={(e) => {
-                    e.preventDefault();
-                    void handleSend();
-                  }}
-                  className="flex items-center gap-2 flex-1"
-                >
-                  <textarea
-                    ref={inputRef}
-                    value={input}
-                    onChange={(e) => setInput(e.target.value)}
-                    disabled={sending}
-                    placeholder="Cuéntale al Manager IA en qué necesitas ayuda."
-                    className="flex-1 bg-transparent resize-none overflow-y-auto max-h-44 px-2 text-base leading-relaxed text-slate-50 caret-emerald-400 placeholder:text-slate-300 focus:outline-none"
-                    rows={1}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter" && !e.shiftKey) {
-                        e.preventDefault();
-                        void handleSend();
-                      }
-                    }}
-                  />
-                  <button
-                    type="submit"
-                    disabled={sending || !input.trim()}
-                    className="ml-1 h-9 px-4 rounded-2xl text-sm font-medium bg-emerald-600 text-white hover:bg-emerald-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                  >
-                    {sending ? "Enviando..." : "Enviar"}
-                  </button>
-                </form>
-              </div>
-              {error && <div className="text-sm text-rose-300 mt-2">{error}</div>}
+              )}
+              <ChatComposerBar
+                value={input}
+                onChange={(event) => {
+                  setInput(event.target.value);
+                  resizeComposer(event.currentTarget);
+                }}
+                onKeyDown={handleComposerKeyDown}
+                onSend={() => {
+                  void handleSend();
+                }}
+                sendDisabled={sendDisabled}
+                placeholder="Cuéntale al Manager IA en qué necesitas ayuda."
+                actionLabel="Enviar"
+                audience="CREATOR"
+                onAudienceChange={() => {}}
+                canAttach={false}
+                onAttach={() => {}}
+                inputRef={inputRef}
+                maxHeight={MAX_MAIN_COMPOSER_HEIGHT}
+                isChatBlocked={false}
+                isInternalPanelOpen={false}
+                showAudienceToggle={false}
+              />
+              {error && <div className="text-sm text-rose-300">{error}</div>}
             </div>
           </div>
         </div>
@@ -734,36 +727,31 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
             </PillButton>
           ))}
         </div>
-        <form
-          onSubmit={(e) => {
-            e.preventDefault();
-            void handleSend();
-          }}
-          className="flex gap-2 pt-2 border-t border-slate-800"
-        >
-          <textarea
-            ref={inputRef}
+        <div className="pt-2 border-t border-slate-800">
+          <ChatComposerBar
             value={input}
-            onChange={(e) => setInput(e.target.value)}
-            disabled={sending}
+            onChange={(event) => {
+              setInput(event.target.value);
+              resizeComposer(event.currentTarget);
+            }}
+            onKeyDown={handleComposerKeyDown}
+            onSend={() => {
+              void handleSend();
+            }}
+            sendDisabled={sendDisabled}
             placeholder="Cuéntale al Manager IA en qué necesitas ayuda."
-            className={clsx(
-              "flex-1 resize-none rounded-xl border border-slate-700 bg-slate-950/70 text-sm text-slate-100 focus:outline-none focus:ring-2 focus:ring-emerald-500/70 disabled:cursor-not-allowed disabled:opacity-70",
-              density === "compact" ? "px-2.5 py-2 text-sm" : "px-3 py-2.5"
-            )}
-            rows={density === "compact" ? 2 : 3}
+            actionLabel="Enviar"
+            audience="CREATOR"
+            onAudienceChange={() => {}}
+            canAttach={false}
+            onAttach={() => {}}
+            inputRef={inputRef}
+            maxHeight={MAX_MAIN_COMPOSER_HEIGHT}
+            isChatBlocked={false}
+            isInternalPanelOpen={false}
+            showAudienceToggle={false}
           />
-          <button
-            type="submit"
-            disabled={sending || !input.trim()}
-            className={clsx(
-              "self-end rounded-xl bg-emerald-600 text-sm font-semibold text-white hover:bg-emerald-500 disabled:opacity-50",
-              density === "compact" ? "px-3 py-2" : "px-4 py-2.5"
-            )}
-          >
-            {sending ? "Enviando..." : "Enviar"}
-          </button>
-        </form>
+        </div>
       </div>
     </section>
   );
