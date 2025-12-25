@@ -2029,10 +2029,11 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
     const data = msg as Record<string, unknown>;
     const candidates = [
       data.createdAt,
-      data.created_at,
       data.time,
-      data.timestamp,
       data.sentAt,
+      data.ts,
+      data.created_at,
+      data.timestamp,
       data.date,
     ];
     for (const value of candidates) {

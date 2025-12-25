@@ -1,6 +1,7 @@
 import Head from "next/head";
 import type { GetServerSideProps } from "next";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/router";
 import type { CreatorBusinessSnapshot, CreatorManagerSummary } from "../../lib/creatorManager";
 import { getCreatorBusinessSnapshot } from "../../lib/creatorManager";
@@ -247,8 +248,6 @@ function ManagerChatLayout({
     cityApprox: null,
   });
   const [discoveryLoading, setDiscoveryLoading] = useState(false);
-  const [discoverySaving, setDiscoverySaving] = useState(false);
-  const [discoveryMessage, setDiscoveryMessage] = useState<string | null>(null);
   const [discoveryError, setDiscoveryError] = useState<string | null>(null);
   const loadDiscoveryProfile = useCallback(async () => {
     try {
@@ -351,75 +350,27 @@ function ManagerChatLayout({
     chatRef.current?.setDraft(text);
   };
 
-  const updateDiscoveryField = useCallback(
-    (key: keyof CreatorDiscoveryProfile, value: any) => {
-      setDiscoveryProfile((prev) => ({ ...prev, [key]: value }));
-      setDiscoveryMessage(null);
-      setDiscoveryError(null);
-    },
-    []
-  );
-
-  const handleSaveDiscovery = useCallback(async () => {
-    const { priceMin, priceMax } = discoveryProfile;
-    if (priceMin !== null && priceMax !== null && priceMin > priceMax) {
-      setDiscoveryError("priceMin no puede ser mayor que priceMax");
-      return;
-    }
-    try {
-      setDiscoverySaving(true);
-      setDiscoveryError(null);
-      setDiscoveryMessage(null);
-      const res = await fetch("/api/creator/discovery-profile", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          ...discoveryProfile,
-          niches: discoveryProfile.niches,
-          showCityApprox: discoveryProfile.showCountry && discoveryProfile.showCityApprox,
-        }),
-      });
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
-        throw new Error(data?.error || "Error guardando Discovery");
-      }
-      const data = await res.json();
-      setDiscoveryProfile((prev) => ({ ...prev, ...data }));
-      setDiscoveryMessage("Guardado");
-    } catch (err) {
-      console.error(err);
-      setDiscoveryError(err instanceof Error ? err.message : "No se pudo guardar");
-    } finally {
-      setDiscoverySaving(false);
-    }
+  const discoverySummary = useMemo(() => {
+    const priceRange =
+      discoveryProfile.priceMin !== null && discoveryProfile.priceMax !== null
+        ? `${discoveryProfile.priceMin}€ - ${discoveryProfile.priceMax}€`
+        : discoveryProfile.priceMin !== null
+        ? `Desde ${discoveryProfile.priceMin}€`
+        : discoveryProfile.priceMax !== null
+        ? `Hasta ${discoveryProfile.priceMax}€`
+        : "Rango privado";
+    const response =
+      typeof discoveryProfile.responseHours === "number"
+        ? `Resp. ~${discoveryProfile.responseHours}h`
+        : "Resp. estándar";
+    const tags = discoveryProfile.niches.length > 0 ? discoveryProfile.niches.join(", ") : "Sin tags";
+    return {
+      visibility: discoveryProfile.isDiscoverable ? "Descubrible" : "Invisible",
+      tags,
+      priceRange,
+      response,
+    };
   }, [discoveryProfile]);
-
-  const discoveryPreview = useMemo(
-    () => ({
-      name: discoveryProfile.creatorName || creatorName,
-      avatar: discoveryProfile.avatarUrl || avatarUrl || null,
-      priceRange:
-        discoveryProfile.priceMin !== null && discoveryProfile.priceMax !== null
-          ? `${discoveryProfile.priceMin}€ - ${discoveryProfile.priceMax}€`
-          : discoveryProfile.priceMin !== null
-          ? `Desde ${discoveryProfile.priceMin}€`
-          : discoveryProfile.priceMax !== null
-          ? `Hasta ${discoveryProfile.priceMax}€`
-          : "Rango privado",
-      response:
-        typeof discoveryProfile.responseHours === "number"
-          ? `Resp. ~${discoveryProfile.responseHours}h`
-          : "Resp. estándar",
-      location:
-        discoveryProfile.showCountry && discoveryProfile.country
-          ? discoveryProfile.cityApprox
-            ? `${discoveryProfile.cityApprox}, ${discoveryProfile.country}`
-            : discoveryProfile.country
-          : null,
-      handle: discoveryProfile.handle || "creator",
-    }),
-    [avatarUrl, creatorName, discoveryProfile]
-  );
 
   return (
     <div className="flex flex-col flex-1 min-h-0 text-white">
@@ -511,209 +462,42 @@ function ManagerChatLayout({
                       <p className="text-[11px] uppercase tracking-wide text-emerald-300/80">Discovery</p>
                       <h3 className="text-lg font-semibold text-white">Ficha para el asistente de fans</h3>
                       <p className="text-sm text-slate-400">
-                        Activa o desactiva tu visibilidad. Solo se muestra en el asistente guiado, no hay muro público.
+                        Resumen rapido de tu ficha. Edita los detalles desde Bio-link.
                       </p>
                     </div>
-                    <div className="flex items-center gap-2">
-                      <span className="text-xs text-slate-400">Visibilidad</span>
-                      <button
-                        type="button"
-                        className={`rounded-full border px-3 py-1 text-xs font-semibold ${
-                          discoveryProfile.isDiscoverable
-                            ? "border-emerald-500/70 bg-emerald-600/20 text-emerald-100"
-                            : "border-slate-700 bg-slate-800/70 text-slate-200"
-                        }`}
-                        onClick={() => updateDiscoveryField("isDiscoverable", !discoveryProfile.isDiscoverable)}
-                      >
-                        {discoveryProfile.isDiscoverable ? "Descubrible" : "Invisible"}
-                      </button>
-                    </div>
+                    <Link href="/creator/bio-link/discovery" legacyBehavior>
+                      <a className="inline-flex items-center justify-center rounded-lg bg-emerald-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-emerald-500">
+                        Editar ficha Discovery
+                      </a>
+                    </Link>
                   </div>
 
                   {discoveryError && <div className="text-sm text-rose-300">{discoveryError}</div>}
-                  {discoveryMessage && <div className="text-sm text-emerald-300">{discoveryMessage}</div>}
 
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div className="space-y-3">
-                      <label className="space-y-1 text-sm text-slate-200">
-                        <span>Tags / nichos (separados por coma)</span>
-                        <input
-                          type="text"
-                          value={discoveryProfile.niches.join(", ")}
-                          onChange={(e) =>
-                            updateDiscoveryField(
-                              "niches",
-                              e.target.value
-                                .split(",")
-                                .map((t) => t.trim())
-                                .filter(Boolean)
-                            )
-                          }
-                          placeholder="compania, conversacion, contenido"
-                          className="w-full rounded-lg bg-slate-900 border border-slate-800 px-3 py-2 text-sm text-white focus:border-emerald-400"
-                        />
-                      </label>
-
-                      <label className="space-y-1 text-sm text-slate-200">
-                        <span>Estilo de trato</span>
-                        <select
-                          value={discoveryProfile.communicationStyle}
-                          onChange={(e) => updateDiscoveryField("communicationStyle", e.target.value)}
-                          className="w-full rounded-lg bg-slate-900 border border-slate-800 px-3 py-2 text-sm text-white focus:border-emerald-400"
-                        >
-                          {["calido", "directo", "divertido", "elegante"].map((opt) => (
-                            <option key={opt} value={opt}>
-                              {opt}
-                            </option>
-                          ))}
-                        </select>
-                      </label>
-
-                      <label className="space-y-1 text-sm text-slate-200">
-                        <span>Límites</span>
-                        <textarea
-                          value={discoveryProfile.limits}
-                          onChange={(e) => updateDiscoveryField("limits", e.target.value)}
-                          rows={2}
-                          placeholder="Ej: sin contenido explícito, foco en audio y conversación."
-                          className="w-full rounded-lg bg-slate-900 border border-slate-800 px-3 py-2 text-sm text-white focus:border-emerald-400"
-                        />
-                      </label>
-
-                      <div className="grid grid-cols-2 gap-3">
-                        <label className="space-y-1 text-sm text-slate-200">
-                          <span>Precio mínimo (€)</span>
-                          <input
-                            type="number"
-                            value={discoveryProfile.priceMin ?? ""}
-                            onChange={(e) =>
-                              updateDiscoveryField("priceMin", e.target.value === "" ? null : Number(e.target.value))
-                            }
-                            className="w-full rounded-lg bg-slate-900 border border-slate-800 px-3 py-2 text-sm text-white focus:border-emerald-400"
-                          />
-                        </label>
-                        <label className="space-y-1 text-sm text-slate-200">
-                          <span>Precio máximo (€)</span>
-                          <input
-                            type="number"
-                            value={discoveryProfile.priceMax ?? ""}
-                            onChange={(e) =>
-                              updateDiscoveryField("priceMax", e.target.value === "" ? null : Number(e.target.value))
-                            }
-                            className="w-full rounded-lg bg-slate-900 border border-slate-800 px-3 py-2 text-sm text-white focus:border-emerald-400"
-                          />
-                        </label>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    <div className="rounded-xl border border-slate-800 bg-slate-950/60 px-4 py-3">
+                      <div className="text-[11px] uppercase tracking-wide text-slate-400">Visibilidad</div>
+                      <div className="text-sm font-semibold text-white">
+                        {discoveryLoading ? "Cargando..." : discoverySummary.visibility}
                       </div>
-
-                      <label className="space-y-1 text-sm text-slate-200">
-                        <span>Tiempo de respuesta (horas)</span>
-                        <select
-                          value={discoveryProfile.responseHours ?? ""}
-                          onChange={(e) =>
-                            updateDiscoveryField(
-                              "responseHours",
-                              e.target.value === "" ? null : Number(e.target.value)
-                            )
-                          }
-                          className="w-full rounded-lg bg-slate-900 border border-slate-800 px-3 py-2 text-sm text-white focus:border-emerald-400"
-                        >
-                          <option value="">Estándar</option>
-                          {[1, 6, 12, 24, 48].map((opt) => (
-                            <option key={opt} value={opt}>
-                              {opt}h
-                            </option>
-                          ))}
-                        </select>
-                      </label>
                     </div>
-
-                    <div className="space-y-3">
-                      <div className="flex items-center justify-between gap-3">
-                        <div className="space-y-1">
-                          <p className="text-sm font-semibold text-white">Privacidad y ubicación</p>
-                          <p className="text-xs text-slate-400">
-                            Solo se muestra país/ciudad si lo permites. El asistente filtra solo a creadores
-                            descubribles.
-                          </p>
-                        </div>
+                    <div className="rounded-xl border border-slate-800 bg-slate-950/60 px-4 py-3">
+                      <div className="text-[11px] uppercase tracking-wide text-slate-400">Tags</div>
+                      <div className="text-sm text-slate-200">
+                        {discoveryLoading ? "Cargando..." : discoverySummary.tags}
                       </div>
-                      <div className="flex flex-col gap-2">
-                        <ToggleRow
-                          label="Permitir usar ubicación para matching"
-                          value={discoveryProfile.allowLocationMatching}
-                          onChange={(val) => updateDiscoveryField("allowLocationMatching", val)}
-                        />
-                        <ToggleRow
-                          label="Mostrar país"
-                          value={discoveryProfile.showCountry}
-                          onChange={(val) => {
-                            updateDiscoveryField("showCountry", val);
-                            if (!val) updateDiscoveryField("showCityApprox", false);
-                          }}
-                        />
-                        <ToggleRow
-                          label="Mostrar ciudad (aprox.)"
-                          disabled={!discoveryProfile.showCountry}
-                          value={discoveryProfile.showCityApprox}
-                          onChange={(val) => updateDiscoveryField("showCityApprox", val)}
-                        />
-                        {discoveryProfile.showCountry && (
-                          <>
-                            <input
-                              type="text"
-                              value={discoveryProfile.country || ""}
-                              onChange={(e) => updateDiscoveryField("country", e.target.value)}
-                              placeholder="País (opcional)"
-                              className="w-full rounded-lg bg-slate-900 border border-slate-800 px-3 py-2 text-sm text-white focus:border-emerald-400"
-                            />
-                            {discoveryProfile.showCityApprox && (
-                              <input
-                                type="text"
-                                value={discoveryProfile.cityApprox || ""}
-                                onChange={(e) => updateDiscoveryField("cityApprox", e.target.value)}
-                                placeholder="Ciudad aproximada (opcional)"
-                                className="w-full rounded-lg bg-slate-900 border border-slate-800 px-3 py-2 text-sm text-white focus:border-emerald-400"
-                              />
-                            )}
-                          </>
-                        )}
+                    </div>
+                    <div className="rounded-xl border border-slate-800 bg-slate-950/60 px-4 py-3">
+                      <div className="text-[11px] uppercase tracking-wide text-slate-400">Precio</div>
+                      <div className="text-sm text-slate-200">
+                        {discoveryLoading ? "Cargando..." : discoverySummary.priceRange}
                       </div>
-
-                      <div className="space-y-2 rounded-xl border border-slate-800 bg-slate-900/60 p-3">
-                        <p className="text-sm font-semibold text-white">Vista previa /discover</p>
-                        <div className="flex items-center gap-3">
-                          <div className="h-12 w-12 rounded-full overflow-hidden bg-emerald-600/20 border border-emerald-500/30 flex items-center justify-center text-lg font-semibold">
-                            {discoveryPreview.avatar ? (
-                              // eslint-disable-next-line @next/next/no-img-element
-                              <img src={discoveryPreview.avatar} alt={discoveryPreview.name} className="h-full w-full object-cover" />
-                            ) : (
-                              (discoveryPreview.name || "C")[0]
-                            )}
-                          </div>
-                          <div className="flex flex-col">
-                            <div className="text-sm font-semibold">{discoveryPreview.name}</div>
-                            <div className="text-xs text-slate-400">
-                              {discoveryPreview.priceRange} · {discoveryPreview.response}
-                            </div>
-                            {discoveryPreview.location && (
-                              <div className="text-xs text-slate-500">{discoveryPreview.location}</div>
-                            )}
-                          </div>
-                        </div>
-                        <div className="text-xs text-slate-400">
-                          CTA en /discover → perfil: <span className="text-emerald-200">/link/{discoveryPreview.handle}</span> · chat:{" "}
-                          <span className="text-emerald-200">/c/{discoveryPreview.handle}</span>
-                        </div>
+                    </div>
+                    <div className="rounded-xl border border-slate-800 bg-slate-950/60 px-4 py-3">
+                      <div className="text-[11px] uppercase tracking-wide text-slate-400">Tiempo de respuesta</div>
+                      <div className="text-sm text-slate-200">
+                        {discoveryLoading ? "Cargando..." : discoverySummary.response}
                       </div>
-
-                      <button
-                        type="button"
-                        disabled={discoverySaving || discoveryLoading}
-                        onClick={handleSaveDiscovery}
-                        className="inline-flex items-center justify-center rounded-lg bg-emerald-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-emerald-500 disabled:opacity-50"
-                      >
-                        {discoverySaving ? "Guardando..." : "Guardar ficha Discovery"}
-                      </button>
                     </div>
                   </div>
                 </div>
@@ -726,6 +510,7 @@ function ManagerChatLayout({
               <ManagerChatCard
                 ref={chatRef}
                 variant="chat"
+                hideTitle
                 businessSnapshot={initialSnapshot}
                 onBackToBoard={onBackToBoard}
                 onShowSummary={() => summaryRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })}
@@ -814,34 +599,6 @@ function ManagerChatLayout({
         onPrompt={handlePrompt}
       />
     </div>
-  );
-}
-
-function ToggleRow({
-  label,
-  value,
-  onChange,
-  disabled,
-}: {
-  label: string;
-  value: boolean;
-  onChange: (val: boolean) => void;
-  disabled?: boolean;
-}) {
-  return (
-    <label className={`flex items-center justify-between rounded-lg border px-3 py-2 text-sm ${disabled ? "border-slate-800 text-slate-500" : "border-slate-800 text-slate-200"}`}>
-      <span className="pr-2">{label}</span>
-      <button
-        type="button"
-        disabled={disabled}
-        onClick={() => onChange(!value)}
-        className={`rounded-full px-3 py-1 text-xs font-semibold ${
-          value ? "bg-emerald-600/20 border border-emerald-500/60 text-emerald-100" : "bg-slate-800 border border-slate-700 text-slate-200"
-        } ${disabled ? "opacity-60" : ""}`}
-      >
-        {value ? "Sí" : "No"}
-      </button>
-    </label>
   );
 }
 

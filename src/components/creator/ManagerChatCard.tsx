@@ -390,6 +390,10 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
 
   if (variant === "chat") {
     const headerLabel = title || "Manager IA";
+    const desktopHeaderClass = clsx(
+      "hidden md:flex items-center gap-3 bg-slate-950/70 border-b border-slate-800 px-4 md:px-6",
+      hideTitle ? "py-2 justify-end" : "py-3 md:py-4 justify-between"
+    );
     return (
       <div className="flex flex-col w-full h-full min-h-0">
         {onBackToBoard && (
@@ -401,12 +405,14 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
             >
               ← Volver
             </button>
-            <div className="flex items-center gap-2 min-w-0 flex-1 justify-center">
-              <span className="truncate text-sm font-semibold text-slate-50">{headerLabel}</span>
-              <span className="inline-flex items-center rounded-full border border-emerald-400/70 bg-emerald-500/20 px-2 py-0.5 text-[11px] font-semibold text-emerald-100">
-                IA
-              </span>
-            </div>
+            {!hideTitle && (
+              <div className="flex items-center gap-2 min-w-0 flex-1 justify-center">
+                <span className="truncate text-sm font-semibold text-slate-50">{headerLabel}</span>
+                <span className="inline-flex items-center rounded-full border border-emerald-400/70 bg-emerald-500/20 px-2 py-0.5 text-[11px] font-semibold text-emerald-100">
+                  IA
+                </span>
+              </div>
+            )}
             <div className="relative">
               <button
                 type="button"
@@ -459,24 +465,26 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
             </div>
           </header>
         )}
-        <div className="hidden md:flex items-center justify-between gap-3 bg-slate-950/70 border-b border-slate-800 px-4 py-3 md:px-6 md:py-4">
-          <div className="flex items-center gap-3 min-w-0">
-            {avatarUrl ? (
-              <div className="w-12 h-12 rounded-full overflow-hidden border border-[rgba(134,150,160,0.2)] bg-[#2a3942] shadow-md">
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src={avatarUrl} alt={headerLabel} className="w-full h-full object-cover" />
+        <div className={desktopHeaderClass}>
+          {!hideTitle && (
+            <div className="flex items-center gap-3 min-w-0">
+              {avatarUrl ? (
+                <div className="w-12 h-12 rounded-full overflow-hidden border border-[rgba(134,150,160,0.2)] bg-[#2a3942] shadow-md">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src={avatarUrl} alt={headerLabel} className="w-full h-full object-cover" />
+                </div>
+              ) : (
+                <div className="flex items-center justify-center w-12 h-12 rounded-full bg-[#2a3942] text-white font-semibold shadow-md">
+                  {headerLabel.trim().charAt(0)}
+                </div>
+              )}
+              <div className="flex flex-col">
+                <h1 className="text-base font-semibold text-slate-50">{headerLabel}</h1>
+                <p className="text-sm text-slate-300">{statusText || "Chat interno. No se envía nada a tus fans."}</p>
               </div>
-            ) : (
-              <div className="flex items-center justify-center w-12 h-12 rounded-full bg-[#2a3942] text-white font-semibold shadow-md">
-                {headerLabel.trim().charAt(0)}
-              </div>
-            )}
-            <div className="flex flex-col">
-              <h1 className="text-base font-semibold text-slate-50">{headerLabel}</h1>
-              <p className="text-sm text-slate-300">{statusText || "Chat interno. No se envía nada a tus fans."}</p>
             </div>
-          </div>
-          <div className="relative">
+          )}
+          <div className={clsx("relative", hideTitle && "ml-auto")}>
             <button
               type="button"
               onClick={() => setActionsOpen((prev) => !prev)}
