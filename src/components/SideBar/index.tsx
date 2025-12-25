@@ -252,6 +252,7 @@ function SideBarInner() {
       daysLeft: fan.daysLeft,
       unreadCount: fan.unreadCount,
       isNew: fan.isNew,
+      isNew30d: fan.isNew30d ?? false,
       lastSeen: fan.lastSeen,
       lastSeenAt: fan.lastSeenAt ?? null,
       lastCreatorMessageAt: fan.lastCreatorMessageAt,
@@ -647,7 +648,7 @@ function SideBarInner() {
   const blockedCount = fans.filter((fan) => fan.isBlocked === true).length;
   const priorityCount = fans.filter((fan) => (fan as any).isHighPriority === true).length;
   const regularCount = fans.filter((fan) => ((fan as any).segment || "").toUpperCase() === "LEAL_ESTABLE").length;
-  const newCount = fans.filter((fan) => ((fan as any).segment || "").toUpperCase() === "NUEVO").length;
+  const newCount = fans.filter((fan) => fan.isArchived !== true && fan.isBlocked !== true && fan.isNew30d === true).length;
   const withExtrasCount = fans.filter((fan) => (fan.extrasSpentTotal ?? 0) > 0).length;
   const listScrollRef = useRef<HTMLDivElement | null>(null);
   const scrollListToTop = useCallback(() => {
@@ -891,7 +892,7 @@ function SideBarInner() {
           const segment = ((fan as any).segment || "").toUpperCase();
           if (tierFilter === "vip") return segment === "VIP";
           if (tierFilter === "regular") return segment === "LEAL_ESTABLE";
-          if (tierFilter === "new") return segment === "NUEVO";
+          if (tierFilter === "new") return fan.isNew30d === true;
           const tier = normalizeTier(fan.customerTier);
           return tier === tierFilter;
         })

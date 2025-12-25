@@ -7,7 +7,6 @@ import type { CreatorBusinessSnapshot, CreatorManagerSummary } from "../../lib/c
 import { getCreatorBusinessSnapshot } from "../../lib/creatorManager";
 import type { CreatorContentSnapshot } from "../../lib/creatorContentManager";
 import { getCreatorContentSnapshot } from "../../lib/creatorContentManager";
-import type { FanManagerRow } from "../../server/manager/managerService";
 import type { CreatorAiAdvisorInput } from "../../server/manager/managerSchemas";
 import type { CreatorPlatforms } from "../../lib/creatorPlatforms";
 import { normalizeCreatorPlatforms } from "../../lib/creatorPlatforms";
@@ -43,6 +42,58 @@ type CreatorDiscoveryProfile = {
   handle?: string;
 };
 
+type ManagerQueueFlags = {
+  expiredSoon: boolean;
+  expired: boolean;
+  atRisk7d: boolean;
+  followUpToday: boolean;
+  isNew30d: boolean;
+};
+
+type ManagerQueueItem = {
+  fanId: string;
+  handle: string | null;
+  displayName: string;
+  flags: ManagerQueueFlags;
+  nextReason: string;
+  expiresInDays?: number | null;
+  lastActivityAt: string | null;
+};
+
+type ManagerQueueStats = {
+  todayCount: number;
+  queueCount: number;
+  atRiskCount: number;
+  activePacksCount?: number;
+  activeExtrasCount?: number;
+  revenue7d?: number;
+  revenue30d?: number;
+  newFans30d?: number;
+  fansNew30d?: number;
+  archivedCount?: number;
+  blockedCount?: number;
+};
+
+type ManagerQueueNextAction = {
+  fan: ManagerQueueItem | null;
+  reason: string | null;
+};
+
+type ManagerOverviewResponse = {
+  summary: CreatorManagerSummary;
+  queue: ManagerQueueItem[];
+  stats: ManagerQueueStats;
+  top3: ManagerQueueItem[];
+  nextAction: ManagerQueueNextAction;
+};
+
+type ManagerQueueData = {
+  queue: ManagerQueueItem[];
+  stats: ManagerQueueStats;
+  top3: ManagerQueueItem[];
+  nextAction: ManagerQueueNextAction;
+};
+
 function formatCurrency(amount: number) {
   return `${Math.round(amount)} €`;
 }
@@ -50,11 +101,10 @@ function formatCurrency(amount: number) {
 export default function CreatorManagerPage({ initialSnapshot, initialContentSnapshot }: Props) {
   const { config } = useCreatorConfig();
   const [summary, setSummary] = useState<CreatorManagerSummary | null>(null);
+  const [queueData, setQueueData] = useState<ManagerQueueData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const router = useRouter();
-  const [queue, setQueue] = useState<FanManagerRow[]>([]);
-  const [queueError, setQueueError] = useState("");
   const [advisorInput, setAdvisorInput] = useState<CreatorAiAdvisorInput | null>(null);
   const [advisorLoading, setAdvisorLoading] = useState(true);
   const [advisorError, setAdvisorError] = useState(false);
@@ -64,10 +114,12 @@ export default function CreatorManagerPage({ initialSnapshot, initialContentSnap
   const [insightsOpen, setInsightsOpen] = useState(false);
   const [contextOpen, setContextOpen] = useState(false);
   const [platforms, setPlatforms] = useState<CreatorPlatforms | null>(null);
+  const handleOpenSettings = useCallback(() => {
+    void router.push("/creator/ai-settings");
+  }, [router]);
 
   useEffect(() => {
     fetchSummary();
-    fetchQueue();
     fetchAdvisorInput();
     fetchPlatforms();
   }, []);
@@ -86,8 +138,14 @@ export default function CreatorManagerPage({ initialSnapshot, initialContentSnap
       setError("");
       const res = await fetch("/api/manager/overview");
       if (!res.ok) throw new Error("Error fetching summary");
-      const data = (await res.json()) as any;
-      setSummary(data as CreatorManagerSummary);
+      const data = (await res.json()) as ManagerOverviewResponse;
+      setSummary(data.summary);
+      setQueueData({
+        queue: data.queue ?? [],
+        stats: data.stats ?? { todayCount: 0, queueCount: 0, atRiskCount: 0 },
+        top3: data.top3 ?? [],
+        nextAction: data.nextAction ?? { fan: null, reason: null },
+      });
     } catch (_err) {
       setError("No se pudo cargar el panel del creador.");
     } finally {
@@ -123,19 +181,6 @@ export default function CreatorManagerPage({ initialSnapshot, initialContentSnap
     }
   }
 
-  async function fetchQueue() {
-    try {
-      setQueueError("");
-      const res = await fetch("/api/manager/queue");
-      if (!res.ok) throw new Error("Error fetching queue");
-      const data = (await res.json()) as FanManagerRow[];
-      setQueue(data);
-    } catch (_err) {
-      setQueueError("No se pudo cargar la cola de fans.");
-      setQueue([]);
-    }
-  }
-
   function handleOpenFanChat(fanId: string) {
     if (!fanId) return;
     openCreatorChat(router, fanId);
@@ -156,9 +201,8 @@ export default function CreatorManagerPage({ initialSnapshot, initialContentSnap
             loading={loading}
             error={error}
             summary={summary}
+            queueData={queueData}
             initialSnapshot={initialSnapshot}
-            queue={queue}
-            queueError={queueError}
             advisorInput={advisorInput}
             advisorError={advisorError}
             advisorLoading={advisorLoading}
@@ -168,6 +212,7 @@ export default function CreatorManagerPage({ initialSnapshot, initialContentSnap
             insightsOpen={insightsOpen}
             onCloseInsights={() => setInsightsOpen(false)}
             onOpenInsights={() => setInsightsOpen(true)}
+            onOpenSettings={handleOpenSettings}
             contextOpen={contextOpen}
             onToggleContext={() => setContextOpen((prev) => !prev)}
             creatorName={config.creatorName || "Creador"}
@@ -187,9 +232,8 @@ type ManagerChatLayoutProps = {
   loading: boolean;
   error: string;
   summary: CreatorManagerSummary | null;
+  queueData: ManagerQueueData | null;
   initialSnapshot: CreatorBusinessSnapshot | null;
-  queue: FanManagerRow[];
-  queueError: string;
   advisorInput?: CreatorAiAdvisorInput | null;
   advisorError: boolean;
   advisorLoading: boolean;
@@ -199,6 +243,7 @@ type ManagerChatLayoutProps = {
   insightsOpen: boolean;
   onCloseInsights: () => void;
   onOpenInsights: () => void;
+  onOpenSettings: () => void;
   contextOpen: boolean;
   onToggleContext: () => void;
   creatorName: string;
@@ -211,9 +256,8 @@ function ManagerChatLayout({
   loading,
   error,
   summary,
+  queueData,
   initialSnapshot,
-  queue,
-  queueError,
   advisorInput,
   advisorError,
   advisorLoading,
@@ -223,6 +267,7 @@ function ManagerChatLayout({
   insightsOpen,
   onCloseInsights,
   onOpenInsights,
+  onOpenSettings,
   contextOpen,
   onToggleContext,
   creatorName,
@@ -273,15 +318,24 @@ function ManagerChatLayout({
       ? ["¿A qué fans priorizo hoy?", "Resúmeme mis números de esta semana", "Dame 1 acción para subir ingresos hoy"]
       : ["Idea de extra para VIP", "CTA a mensual desde contenido", "Plantilla breve para fans en riesgo"];
 
+  const queueStats = queueData?.stats;
   const formatNumber = (value: number) => new Intl.NumberFormat("es-ES").format(value);
   const safeRevenue7 = Number.isFinite(summary?.kpis?.last7?.revenue) ? summary?.kpis?.last7?.revenue ?? 0 : 0;
   const safeRevenue30 = Number.isFinite(summary?.kpis?.last30?.revenue) ? summary?.kpis?.last30?.revenue ?? 0 : 0;
   const safeExtras30 = Number.isFinite(summary?.kpis?.last30?.extras) ? summary?.kpis?.last30?.extras ?? 0 : 0;
-  const safeNewFans30 = Number.isFinite(summary?.kpis?.last30?.newFans) ? summary?.kpis?.last30?.newFans ?? 0 : 0;
+  const safeNewFans30 = Number.isFinite(queueStats?.newFans30d)
+    ? queueStats?.newFans30d ?? 0
+    : Number.isFinite(queueStats?.fansNew30d)
+    ? queueStats?.fansNew30d ?? 0
+    : Number.isFinite(summary?.kpis?.last30?.newFans)
+    ? summary?.kpis?.last30?.newFans ?? 0
+    : 0;
   const safeRiskRevenue = Number.isFinite(summary?.revenueAtRisk7d) ? summary?.revenueAtRisk7d ?? 0 : 0;
-  const prioritizedToday = initialSnapshot?.prioritizedFansToday?.length ?? 0;
+  const queueTop3 = useMemo(() => queueData?.top3 ?? [], [queueData]);
+  const nextAction = queueData?.nextAction ?? { fan: null, reason: null };
+  const prioritizedToday = queueStats?.todayCount ?? 0;
   const vipCount = Number.isFinite(summary?.segments?.vip) ? summary?.segments?.vip ?? 0 : 0;
-  const atRiskCount = Number.isFinite(summary?.segments?.atRisk) ? summary?.segments?.atRisk ?? 0 : 0;
+  const atRiskCount = queueStats?.atRiskCount ?? (summary?.segments?.atRisk ?? 0);
 
   const statTiles = [
     {
@@ -293,8 +347,8 @@ function ManagerChatLayout({
     {
       id: "queue",
       title: "Cola",
-      value: `${formatNumber(queue.length)} fans`,
-      helper: queueError || "En espera",
+      value: `${formatNumber(queueStats?.queueCount ?? 0)} fans`,
+      helper: "En espera",
     },
     {
       id: "pulse",
@@ -310,25 +364,28 @@ function ManagerChatLayout({
     },
   ];
 
-  const formatPriorityReason = (fan: FanManagerRow) => {
-    if (fan.segment === "EN_RIESGO") return "En riesgo";
-    if (fan.segment === "VIP") {
-      return fan.daysToExpiry !== null ? `VIP · renueva en ${fan.daysToExpiry}d` : "VIP activo";
-    }
-    if (fan.segment === "DORMIDO") return "Dormido";
-    if (fan.daysToExpiry !== null) return `Renueva en ${fan.daysToExpiry}d`;
-    return "Seguimiento";
-  };
-
-  const topPriorityFans = queue.slice(0, 3);
+  const topPriorityItems = useMemo(
+    () =>
+      queueTop3.map((fan, index) => ({
+        id: fan.fanId,
+        kind: "AT_RISK" as const,
+        title: fan.displayName,
+        subtitle: fan.nextReason,
+        fanId: fan.fanId,
+        score: 100 - index,
+        primaryAction: { type: "open" as const, label: "Abrir chat" },
+      })),
+    [queueTop3]
+  );
   const summaryBullets = [
     `Prioridades hoy: ${formatNumber(prioritizedToday)} fans`,
     `Ingresos 7d: ${formatCurrency(safeRevenue7)} · En riesgo 7d: ${formatCurrency(safeRiskRevenue)}`,
     `Extras 30d: ${formatNumber(safeExtras30)} · Fans nuevos 30d: ${formatNumber(safeNewFans30)}`,
   ];
-  const nextActionTarget = topPriorityFans[0] || null;
+  const nextActionTarget = nextAction.fan ?? queueTop3[0] ?? null;
+  const nextActionReason = nextAction.reason ?? nextActionTarget?.nextReason ?? "Seguimiento";
   const nextActionCopy = nextActionTarget
-    ? `Escribe a ${nextActionTarget.displayName}. Motivo: ${formatPriorityReason(nextActionTarget)}.`
+    ? `Escribe a ${nextActionTarget.displayName}. Motivo: ${nextActionReason}.`
     : "Revisa la cola de prioridades para decidir a quién contactar hoy.";
 
   const tabHighlights =
@@ -519,7 +576,7 @@ function ManagerChatLayout({
                 title="Manager IA"
                 statusText="Panel e insights en tiempo real"
                 onOpenInsights={onOpenInsights}
-                onOpenSettings={() => window.location.assign("/creator/edit")}
+                onOpenSettings={onOpenSettings}
                 contextContent={
                   <div className="space-y-2">
                     <button
@@ -544,24 +601,6 @@ function ManagerChatLayout({
                           </ul>
                         </div>
                         <div>
-                          <div className="text-[11px] uppercase tracking-wide text-slate-400">Top 3 prioridades</div>
-                          {topPriorityFans.length === 0 ? (
-                            <div className="mt-2 text-sm text-slate-400">No hay prioridades en cola ahora mismo.</div>
-                          ) : (
-                            <div className="mt-2 space-y-2">
-                              {topPriorityFans.map((fan) => (
-                                <div
-                                  key={fan.id}
-                                  className="flex items-center justify-between rounded-lg border border-slate-800 bg-slate-950/70 px-3 py-2 text-sm text-slate-200"
-                                >
-                                  <span className="font-semibold text-white">{fan.displayName}</span>
-                                  <span className="text-xs text-slate-400">{formatPriorityReason(fan)}</span>
-                                </div>
-                              ))}
-                            </div>
-                          )}
-                        </div>
-                        <div>
                           <div className="text-[11px] uppercase tracking-wide text-slate-400">Siguiente acción</div>
                           <div className="mt-2 rounded-lg border border-slate-800 bg-slate-950/70 px-3 py-3 space-y-2">
                             <p className="text-sm text-slate-200">{nextActionCopy}</p>
@@ -569,7 +608,7 @@ function ManagerChatLayout({
                               type="button"
                               onClick={() => {
                                 if (nextActionTarget) {
-                                  onOpenFanChat(nextActionTarget.id);
+                                  onOpenFanChat(nextActionTarget.fanId);
                                 } else {
                                   onOpenInsights();
                                 }
@@ -595,6 +634,7 @@ function ManagerChatLayout({
         open={insightsOpen}
         onClose={onCloseInsights}
         summary={summary}
+        priorityItems={topPriorityItems}
         preview={advisorInput?.preview}
         onPrompt={handlePrompt}
       />

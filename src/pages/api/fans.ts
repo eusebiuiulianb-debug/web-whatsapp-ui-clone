@@ -8,6 +8,7 @@ import {
   type ExtraLadderStatus,
   type ExtraSessionToday,
 } from "../../lib/extraLadder";
+import { isNewWithinDays } from "../../lib/fanNewness";
 import { createInviteTokenForFan } from "../../utils/createInviteToken";
 import { isVisibleToFan, normalizeFrom } from "../../lib/messageAudience";
 import { normalizePreferredLanguage } from "../../lib/language";
@@ -94,8 +95,6 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         where.nextAction = { not: null };
         const existingNot = Array.isArray(where.NOT) ? where.NOT : where.NOT ? [where.NOT] : [];
         where.NOT = [...existingNot, { nextAction: "" }];
-      } else if (filter === "new") {
-        where.isNew = true;
       } else if (filter === "expired") {
         where.accessGrants = { some: { expiresAt: { lte: new Date() } } };
       }
@@ -157,6 +156,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
             contentItem: { select: { title: true } },
           },
         },
+        inviteCreatedAt: true,
         inviteUsedAt: true,
         _count: { select: { notes: true } },
       },
@@ -319,6 +319,11 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       }
 
       const followUpTag = getFollowUpTag(membershipStatus, daysLeft, activeGrantTypes);
+      const isNew30d = isNewWithinDays(
+        { id: fan.id, inviteCreatedAt: fan.inviteCreatedAt, inviteUsedAt: fan.inviteUsedAt },
+        30,
+        now
+      );
 
       function computePriorityScore() {
         let urgencyScore = 0;
@@ -400,6 +405,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         time: hasMessages ? lastVisibleTime : "",
         unreadCount: hasMessages ? fan.unreadCount ?? 0 : 0,
         isNew: fan.isNew ?? false,
+        isNew30d,
         accessState,
         accessType,
         accessLabel,
@@ -463,6 +469,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
     if (!isArchivedFilter && filter === "followup") {
       mappedFans = mappedFans.filter((fan) => fan.followUpTag && fan.followUpTag !== "none");
+    }
+
+    if (!isArchivedFilter && filter === "new") {
+      mappedFans = mappedFans.filter((fan) => fan.isNew30d === true);
     }
 
     if (!isArchivedFilter && filter === "highPriority" && mappedFans.length) {

@@ -38,6 +38,7 @@ interface Conversation {
   daysLeft?: number;
   unreadCount?: number;
   isNew?: boolean;
+  isNew30d?: boolean;
   lastSeen?: string;
   lastSeenAt?: string | null;
   lastTime?: string;
@@ -115,6 +116,7 @@ interface ConversationListData {
   daysLeft?: number;
   unreadCount?: number;
   isNew?: boolean;
+  isNew30d?: boolean;
   lastSeen?: string;
   lastSeenAt?: string | null;
   followUpTag?: FollowUpTag;

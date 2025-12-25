@@ -1,13 +1,14 @@
 import clsx from "clsx";
 import { useRouter } from "next/router";
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { CreatorManagerSummary } from "../../lib/creatorManager";
+import type { CreatorManagerSummary, PriorityItem } from "../../lib/creatorManager";
 import type { CreatorAiAdvisorInput } from "../../server/manager/managerSchemas";
 
 type Props = {
   open: boolean;
   onClose: () => void;
   summary: CreatorManagerSummary | null;
+  priorityItems?: PriorityItem[];
   preview?: CreatorAiAdvisorInput["preview"];
   onPrompt?: (tab: "strategy" | "content" | "growth", text: string) => void;
 };
@@ -33,7 +34,7 @@ type CampaignLink = {
   createdAt: string;
 };
 
-export function ManagerInsightsPanel({ open, onClose, summary, preview, onPrompt }: Props) {
+export function ManagerInsightsPanel({ open, onClose, summary, priorityItems, preview, onPrompt }: Props) {
   const router = useRouter();
   const [tab, setTab] = useState<TabId>("sales");
   const [growthInput, setGrowthInput] = useState("");
@@ -49,10 +50,11 @@ export function ManagerInsightsPanel({ open, onClose, summary, preview, onPrompt
   const [campaignsLastLinks, setCampaignsLastLinks] = useState<CampaignLink[]>([]);
 
   const topPriorities = useMemo(() => {
+    if (priorityItems && priorityItems.length > 0) return priorityItems.slice(0, 3);
     if (!summary) return [];
     const items = summary.topPriorities?.length ? summary.topPriorities : summary.priorityItems ?? [];
     return items.slice(0, 3);
-  }, [summary]);
+  }, [priorityItems, summary]);
 
   const safeDecode = (value: string) => {
     try {

@@ -25,6 +25,7 @@ export interface Fan {
   time: string;
   unreadCount: number;
   isNew: boolean;
+  isNew30d?: boolean;
   membershipStatus: string;
   accessState?: "ACTIVE" | "EXPIRED" | "NONE";
   accessType?: string | null;
