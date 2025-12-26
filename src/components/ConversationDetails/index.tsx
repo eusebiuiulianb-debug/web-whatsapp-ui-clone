@@ -1,6 +1,7 @@
 import {
   KeyboardEvent,
   MouseEvent,
+  type PointerEvent as ReactPointerEvent,
   ReactNode,
   useCallback,
   useContext,
@@ -18,7 +19,7 @@ import { ConversationContext } from "../../context/ConversationContext";
 import Avatar from "../Avatar";
 import MessageBalloon from "../MessageBalloon";
 import { useCreatorConfig } from "../../context/CreatorConfigContext";
-import { Message as ApiMessage, Fan } from "../../types/chat";
+import { Message as ApiMessage, Fan, FanFollowUp } from "../../types/chat";
 import { Message as ConversationMessage, ConversationListData } from "../../types/Conversation";
 import { getAccessLabel, getAccessState, getAccessSummary } from "../../lib/access";
 import { FollowUpTag, getFollowUpTag, getUrgencyLevel } from "../../utils/followUp";
@@ -43,6 +44,7 @@ import type { FanTone, ManagerObjective } from "../../types/manager";
 import { track } from "../../lib/analyticsClient";
 import { ANALYTICS_EVENTS } from "../../lib/analyticsEvents";
 import { deriveAudience, isVisibleToFan, normalizeFrom } from "../../lib/messageAudience";
+import { getNearDuplicateSimilarity } from "../../lib/text/isNearDuplicate";
 import {
   DB_SCHEMA_OUT_OF_SYNC_FIX,
   DB_SCHEMA_OUT_OF_SYNC_MESSAGE,
@@ -56,7 +58,8 @@ import { useIsomorphicLayoutEffect } from "../../hooks/useIsomorphicLayoutEffect
 
 type ManagerQuickIntent = ManagerObjective;
 type ManagerSuggestionIntent = "romper_hielo" | "pregunta_simple" | "cierre_suave" | "upsell_mensual_suave";
-type ComposerAudienceMode = "CREATOR" | "INTERNAL";
+type ComposerTarget = "fan" | "manager";
+type MessageAudienceMode = "CREATOR" | "INTERNAL";
 type InlineTab = "templates" | "tools" | "manager";
 type InternalPanelTab = "manager" | "internal" | "note";
 type InlineActionKind = "ok" | "info" | "warn";
@@ -78,6 +81,11 @@ const PACK_ESPECIAL_UPSELL_TEXT =
   "Veo que lo que estás pidiendo entra ya en el terreno de mi Pack especial: incluye todo lo de tu suscripción mensual + fotos y escenas extra más intensas. Si quieres subir de nivel, son 49 € y te lo dejo desbloqueado en este chat.";
 const PACK_MONTHLY_UPSELL_TEXT =
   'Te propongo subir al siguiente nivel: la suscripción mensual. Incluye fotos, vídeos y guías extra para seguir trabajando en tu relación. Si te interesa, dime "MENSUAL" y te paso el enlace.';
+const DUPLICATE_SIMILARITY_THRESHOLD = 0.88;
+const DUPLICATE_STRICT_SIMILARITY = 0.93;
+const DUPLICATE_RECENT_HOURS = 6;
+const DUPLICATE_STRICT_HOURS = 24;
+const TOOLBAR_MARGIN = 12;
 
 const CONTENT_PACKS = [
   { code: "WELCOME" as const, label: "Pack bienvenida" },
@@ -89,7 +97,6 @@ const TRANSLATION_QUICK_CHIPS = [
   { id: "question", label: "Pregunta simple", text: "¿Cómo ha ido tu día?" },
   { id: "closing", label: "Cierre suave", text: "Cuando quieras seguimos, estoy aquí." },
 ] as const;
-const AUDIENCE_STORAGE_KEY = "novsy.creatorMessageAudience";
 const TRANSLATION_PREVIEW_KEY_PREFIX = "novsy.creatorTranslationPreview";
 
 type InlinePanelShellProps = {
@@ -317,7 +324,7 @@ export default function ConversationDetails({ onBackToBoard }: ConversationDetai
   const activeFanId = conversation?.isManager ? null : id ?? null;
   const [ messageSend, setMessageSend ] = useState("");
   const [ isSending, setIsSending ] = useState(false);
-  const [ composerAudience, setComposerAudience ] = useState<ComposerAudienceMode>("CREATOR");
+  const [ composerTarget, setComposerTarget ] = useState<ComposerTarget>("fan");
   const [ showPackSelector, setShowPackSelector ] = useState(false);
   const [ isLoadingMessages, setIsLoadingMessages ] = useState(false);
   const [ messagesError, setMessagesError ] = useState("");
@@ -330,10 +337,16 @@ export default function ConversationDetails({ onBackToBoard }: ConversationDetai
   >([]);
   const [ accessGrantsLoading, setAccessGrantsLoading ] = useState(false);
   const [ openPanel, setOpenPanel ] = useState<"none" | "history" | "extras">("none");
-  const [ notesLoading, setNotesLoading ] = useState(false);
-  const [ notes, setNotes ] = useState<FanNote[]>([]);
-  const [ noteDraft, setNoteDraft ] = useState("");
-  const [ notesError, setNotesError ] = useState("");
+  const [ profileText, setProfileText ] = useState(conversation.profileText ?? "");
+  const [ profileLoading, setProfileLoading ] = useState(false);
+  const [ profileDraft, setProfileDraft ] = useState("");
+  const [ profileError, setProfileError ] = useState("");
+  const [ followUpOpen, setFollowUpOpen ] = useState<FanFollowUp | null>(conversation.followUpOpen ?? null);
+  const [ followUpHistory, setFollowUpHistory ] = useState<FanFollowUp[]>([]);
+  const [ followUpLoading, setFollowUpLoading ] = useState(false);
+  const [ followUpHistoryLoading, setFollowUpHistoryLoading ] = useState(false);
+  const [ followUpError, setFollowUpError ] = useState("");
+  const [ followUpHistoryError, setFollowUpHistoryError ] = useState("");
   const [ historyError, setHistoryError ] = useState("");
   const [ nextActionDraft, setNextActionDraft ] = useState("");
   const [ nextActionDate, setNextActionDate ] = useState("");
@@ -348,6 +361,7 @@ export default function ConversationDetails({ onBackToBoard }: ConversationDetai
   const [ internalToast, setInternalToast ] = useState<string | null>(null);
   const [ inlineAction, setInlineAction ] = useState<InlineAction | null>(null);
   const [ translationPreviewOpen, setTranslationPreviewOpen ] = useState(false);
+  const [ templateScope, setTemplateScope ] = useState<"fan" | "manager">("fan");
   const [ internalPanelTab, setInternalPanelTab ] = useState<InternalPanelTab>("manager");
   const [ translationPreviewStatus, setTranslationPreviewStatus ] = useState<
     "idle" | "loading" | "ready" | "unavailable" | "error"
@@ -359,6 +373,7 @@ export default function ConversationDetails({ onBackToBoard }: ConversationDetai
   const [ inviteCopyUrl, setInviteCopyUrl ] = useState<string | null>(null);
   const [ inviteCopyToast, setInviteCopyToast ] = useState("");
   const inviteCopyToastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const profileDraftEditedRef = useRef(false);
   const [ dockHeight, setDockHeight ] = useState(0);
   const schemaCopyTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isSendingRef = useRef(false);
@@ -369,6 +384,18 @@ export default function ConversationDetails({ onBackToBoard }: ConversationDetai
   const translationPreviewRequestId = useRef(0);
   const translationPreviewKeyRef = useRef<string | null>(null);
   const [ showContentModal, setShowContentModal ] = useState(false);
+  const [ duplicateConfirm, setDuplicateConfirm ] = useState<{ candidate: string } | null>(null);
+  const [ messageContextMenu, setMessageContextMenu ] = useState<{
+    x: number;
+    y: number;
+    text: string;
+  } | null>(null);
+  const [ selectionToolbar, setSelectionToolbar ] = useState<{
+    x: number;
+    y: number;
+    text: string;
+    maxWidth: number;
+  } | null>(null);
   const [ contentModalMode, setContentModalMode ] = useState<"packs" | "extras">("packs");
   const [ extraTierFilter, setExtraTierFilter ] = useState<"T0" | "T1" | "T2" | "T3" | "T4" | null>(null);
   const [ contentModalPackFocus, setContentModalPackFocus ] = useState<"WELCOME" | "MONTHLY" | "SPECIAL" | null>(null);
@@ -413,11 +440,14 @@ export default function ConversationDetails({ onBackToBoard }: ConversationDetai
   const [ isChatActionLoading, setIsChatActionLoading ] = useState(false);
   const router = useRouter();
   const actionsMenuRef = useRef<HTMLDivElement | null>(null);
-const MAX_MAIN_COMPOSER_HEIGHT = 140;
+  const selectionToolbarRef = useRef<HTMLDivElement | null>(null);
+  const isPointerDownRef = useRef(false);
+  const MAX_MAIN_COMPOSER_HEIGHT = 140;
   const MAX_INTERNAL_COMPOSER_HEIGHT = 220;
   const SCROLL_BOTTOM_THRESHOLD = 48;
   const messageInputRef = useRef<HTMLTextAreaElement | null>(null);
   const composerDockRef = useRef<HTMLDivElement | null>(null);
+  const profileInputRef = useRef<HTMLTextAreaElement | null>(null);
   const nextActionInputRef = useRef<HTMLInputElement | null>(null);
   type ManagerChatMessage = {
     id: string;
@@ -435,6 +465,7 @@ const MAX_MAIN_COMPOSER_HEIGHT = 140;
   };
   const [ managerChatByFan, setManagerChatByFan ] = useState<Record<string, ManagerChatMessage[]>>({});
   const [ managerChatInput, setManagerChatInput ] = useState("");
+  const [ managerSelectedText, setManagerSelectedText ] = useState<string | null>(null);
   const [ internalDraftInput, setInternalDraftInput ] = useState("");
   const [ highlightDraftId, setHighlightDraftId ] = useState<string | null>(null);
   const managerChatListRef = useRef<HTMLDivElement | null>(null);
@@ -506,14 +537,6 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
   const canOfferSpecial = hasMonthly && !hasSpecial;
   const isRecommended = (id: string) => Boolean(managerSummary?.recommendedButtons?.includes(id));
 
-  type FanNote = {
-    id: string;
-    fanId: string;
-    creatorId: string;
-    content: string;
-    createdAt: string;
-  };
-
   function parseNextActionValue(value?: string | null) {
     if (!value) return { text: "", date: "", time: "" };
     const match = value.match(/\(para\s+(\d{4}-\d{2}-\d{2})(?:\s+(\d{2}:\d{2}))?\)/i);
@@ -521,6 +544,15 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
     const time = match?.[2] ?? "";
     const text = value.replace(/\(para\s+(\d{4}-\d{2}-\d{2})(?:\s+\d{2}:\d{2})?\)/i, "").trim();
     return { text, date, time };
+  }
+
+  function splitDueAt(dueAt?: string | null) {
+    if (!dueAt) return { date: "", time: "" };
+    const parsed = new Date(dueAt);
+    if (Number.isNaN(parsed.getTime())) return { date: "", time: "" };
+    const date = parsed.toLocaleDateString("en-CA");
+    const time = parsed.toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit", hour12: false });
+    return { date, time };
   }
 
   function derivePackFromLabel(label?: string | null) {
@@ -618,6 +650,10 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
     }
   }, []);
 
+  const closeMessageContextMenu = useCallback(() => {
+    setMessageContextMenu(null);
+  }, []);
+
   const autoGrowTextarea = useCallback((el: HTMLTextAreaElement | null, maxHeight: number) => {
     if (!el) return;
     el.style.height = "0px";
@@ -647,11 +683,24 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
   const messagesLength = messages?.length ?? 0;
 
   useEffect(() => {
+    setProfileText(conversation.profileText ?? "");
+    setFollowUpOpen(conversation.followUpOpen ?? null);
+  }, [conversation.id, conversation.profileText, conversation.followUpOpen]);
+
+  useEffect(() => {
+    const openFollowUp = conversation.followUpOpen ?? followUpOpen;
+    if (openFollowUp) {
+      setNextActionDraft(openFollowUp.title ?? "");
+      const parsedDue = splitDueAt(openFollowUp.dueAt ?? null);
+      setNextActionDate(parsedDue.date);
+      setNextActionTime(parsedDue.time);
+      return;
+    }
     const parsed = parseNextActionValue(conversation.nextAction);
     setNextActionDraft(parsed.text);
     setNextActionDate(parsed.date);
     setNextActionTime(parsed.time);
-  }, [conversation.id, conversation.nextAction]);
+  }, [conversation.id, conversation.nextAction, conversation.followUpOpen, followUpOpen]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -814,6 +863,20 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
     return `${day} · ${time}`;
   }
 
+  function getFollowUpStatusFromDate(dateStr?: string | null) {
+    if (!dateStr) return null;
+    const target = dateStr.includes("T") ? new Date(dateStr) : new Date(`${dateStr}T00:00:00`);
+    if (Number.isNaN(target.getTime())) return null;
+    const now = new Date();
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const targetDay = new Date(target.getFullYear(), target.getMonth(), target.getDate());
+    const diffDays = Math.round((targetDay.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+    if (diffDays < 0) return { label: "Atrasado", tone: "overdue" as const };
+    if (diffDays === 0) return { label: "Hoy", tone: "today" as const };
+    if (diffDays === 1) return { label: "Mañana", tone: "tomorrow" as const };
+    return null;
+  }
+
   type PackStatus = "active" | "expired" | "never";
 
   function getPackStatusForType(type: "trial" | "monthly" | "special"): { status: PackStatus; daysLeft?: number } {
@@ -900,9 +963,11 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
   }
 
   function fillMessage(template: string) {
+    setComposerTarget("fan");
     setMessageSend(template);
   }
   const focusMainMessageInput = (text: string) => {
+    setComposerTarget("fan");
     setMessageSend(text);
     requestAnimationFrame(() => {
       adjustMessageInputHeight();
@@ -921,7 +986,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
   ) => {
     const previousText = messageSend;
     if (options.forceFan) {
-      handleComposerAudienceChange("CREATOR");
+      setComposerTarget("fan");
     }
     focusMainMessageInput(nextText);
     showInlineAction({
@@ -937,16 +1002,6 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
     const filled = text.replace("{nombre}", getFirstName(contactName) || contactName || "");
     handleUseManagerReplyAsMainMessage(filled, detail);
   };
-  function handleComposerAudienceChange(mode: ComposerAudienceMode) {
-    if (mode === composerAudience) return;
-    if (mode === "INTERNAL" && process.env.NODE_ENV !== "production") {
-      console.trace("SET_INTERNAL", {
-        from: "ConversationDetails/index.tsx:941",
-        reason: "audience toggle",
-      });
-    }
-    setComposerAudience(mode);
-  }
   const handleSelectFanFromBanner = useCallback(
     (fan: ConversationListData | null) => {
       if (!fan?.id) return;
@@ -968,7 +1023,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
 
   function handleUseManagerReplyAsMainMessage(text: string, detail?: string) {
     const nextText = text || "";
-    setComposerAudience("CREATOR");
+    setComposerTarget("fan");
     setMessageSend(nextText);
     autoGrowTextarea(messageInputRef.current, MAX_MAIN_COMPOSER_HEIGHT);
     closeInlinePanel({ focus: true });
@@ -1478,24 +1533,55 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
     }
   }, []);
 
-  const fetchFanNotes = useCallback(async (fanId: string) => {
+  const fetchFanProfile = useCallback(async (fanId: string) => {
     try {
-      setNotesLoading(true);
-      setNotesError("");
-      const res = await fetch(`/api/fan-notes?fanId=${fanId}`);
-      if (!res.ok) throw new Error("error");
-      const data = await res.json();
-      const sorted = Array.isArray(data.notes)
-        ? [...data.notes].sort(
-            (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
-          )
-        : [];
-      setNotes(sorted);
+      setProfileLoading(true);
+      setProfileError("");
+      const res = await fetch(`/api/fans/profile?fanId=${fanId}`);
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data?.ok) throw new Error("error");
+      const nextProfile = typeof data.profileText === "string" ? data.profileText : "";
+      setProfileText(nextProfile);
+      if (!profileDraftEditedRef.current) {
+        setProfileDraft(nextProfile);
+      }
     } catch (_err) {
-      setNotes([]);
-      setNotesError("Error cargando notas");
+      setProfileError("Error cargando perfil");
     } finally {
-      setNotesLoading(false);
+      setProfileLoading(false);
+    }
+  }, []);
+
+  const fetchFollowUpOpen = useCallback(async (fanId: string) => {
+    try {
+      setFollowUpLoading(true);
+      setFollowUpError("");
+      const res = await fetch(`/api/fans/follow-up?fanId=${fanId}`);
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data?.ok) throw new Error("error");
+      setFollowUpOpen(data.followUp ?? null);
+    } catch (_err) {
+      setFollowUpError("Error cargando seguimiento");
+      setFollowUpOpen(null);
+    } finally {
+      setFollowUpLoading(false);
+    }
+  }, []);
+
+  const fetchFollowUpHistory = useCallback(async (fanId: string) => {
+    try {
+      setFollowUpHistoryLoading(true);
+      setFollowUpHistoryError("");
+      const res = await fetch(`/api/fans/follow-up/history?fanId=${fanId}`);
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data?.ok) throw new Error("error");
+      const history = Array.isArray(data.history) ? data.history : [];
+      setFollowUpHistory(history);
+    } catch (_err) {
+      setFollowUpHistory([]);
+      setFollowUpHistoryError("Error cargando historial");
+    } finally {
+      setFollowUpHistoryLoading(false);
     }
   }, []);
 
@@ -1589,6 +1675,8 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
           followUpTag: getFollowUpTag(targetFan.membershipStatus, targetFan.daysLeft, targetFan.activeGrantTypes),
           lastCreatorMessageAt: targetFan.lastCreatorMessageAt ?? prev.lastCreatorMessageAt,
           notesCount: targetFan.notesCount ?? prev.notesCount,
+          profileText: targetFan.profileText ?? prev.profileText ?? null,
+          followUpOpen: targetFan.followUpOpen ?? prev.followUpOpen ?? null,
           nextAction: targetFan.nextAction ?? prev.nextAction,
           lastGrantType: (targetFan as any).lastGrantType ?? prev.lastGrantType ?? null,
           extrasCount: targetFan.extrasCount ?? prev.extrasCount,
@@ -1826,13 +1914,18 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
     setInternalDraftInput("");
     setShowPackSelector(false);
     setOpenPanel("none");
-    setNotes([]);
-    setNoteDraft("");
-    setNotesError("");
-    setNextActionDraft(conversation.nextAction || "");
+    setProfileText(conversation.profileText ?? "");
+    setProfileDraft(conversation.profileText ?? "");
+    setFollowUpOpen(conversation.followUpOpen ?? null);
+    setFollowUpHistory([]);
+    profileDraftEditedRef.current = false;
+    setProfileError("");
+    setFollowUpError("");
+    setFollowUpHistoryError("");
+    setManagerSelectedText(null);
     const derivedPack = derivePackFromLabel(membershipStatus || accessLabel) || "monthly";
     setSelectedPackType(derivedPack);
-  }, [accessLabel, conversation.id, conversation.nextAction, membershipStatus]);
+  }, [accessLabel, conversation.id, conversation.followUpOpen, conversation.profileText, membershipStatus]);
 
   useEffect(() => {
     const normalized = normalizePreferredLanguage(conversation.preferredLanguage) ?? null;
@@ -1852,10 +1945,11 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
   }, [fetchContentItems, id]);
 
   useEffect(() => {
-    if (!id || !managerPanelOpen) return;
-    if (managerPanelTab !== "manager" || internalPanelTab !== "note") return;
-    fetchFanNotes(id);
-  }, [id, managerPanelTab, internalPanelTab, fetchFanNotes, managerPanelOpen]);
+    if (!id) return;
+    fetchFanProfile(id);
+    fetchFollowUpOpen(id);
+    fetchFollowUpHistory(id);
+  }, [id, fetchFanProfile, fetchFollowUpOpen, fetchFollowUpHistory]);
 
   useEffect(() => {
     if (!id || openPanel !== "history") return;
@@ -1900,25 +1994,6 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
   }, []);
 
   useEffect(() => {
-    if (typeof window === "undefined") return;
-    const stored = window.localStorage.getItem(AUDIENCE_STORAGE_KEY);
-    if (stored === "CREATOR" || stored === "INTERNAL") {
-      if (stored === "INTERNAL" && process.env.NODE_ENV !== "production") {
-        console.trace("SET_INTERNAL", {
-          from: "ConversationDetails/index.tsx:1892",
-          reason: "restore stored audience",
-        });
-      }
-      setComposerAudience(stored);
-    }
-  }, []);
-
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    window.localStorage.setItem(AUDIENCE_STORAGE_KEY, composerAudience);
-  }, [composerAudience]);
-
-  useEffect(() => {
     if (!id || typeof window === "undefined") return;
     const stored = window.localStorage.getItem(`${TRANSLATION_PREVIEW_KEY_PREFIX}:${id}`);
     setTranslationPreviewOpen(stored === "1");
@@ -1950,9 +2025,8 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
   useEffect(() => {
     if (!managerPanelOpen || managerPanelTab !== "manager") return;
     if (internalPanelTab !== "manager") return;
-    if (composerAudience !== "INTERNAL") return;
     focusManagerComposer(true);
-  }, [managerPanelOpen, managerPanelTab, internalPanelTab, composerAudience, focusManagerComposer]);
+  }, [managerPanelOpen, managerPanelTab, internalPanelTab, focusManagerComposer]);
 
   useEffect(() => {
     if (!managerPanelOpen && !inlineAction) return;
@@ -1971,6 +2045,31 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
   }, [managerPanelOpen, inlineAction, closeInlinePanel, clearInlineAction]);
 
   useEffect(() => {
+    if (!messageContextMenu) return;
+    const handleClick = () => {
+      setMessageContextMenu(null);
+    };
+    const handleKeyDown = (event: globalThis.KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setMessageContextMenu(null);
+      }
+    };
+    const handleScroll = () => {
+      setMessageContextMenu(null);
+    };
+    window.addEventListener("click", handleClick);
+    window.addEventListener("contextmenu", handleClick);
+    window.addEventListener("keydown", handleKeyDown);
+    window.addEventListener("scroll", handleScroll, true);
+    return () => {
+      window.removeEventListener("click", handleClick);
+      window.removeEventListener("contextmenu", handleClick);
+      window.removeEventListener("keydown", handleKeyDown);
+      window.removeEventListener("scroll", handleScroll, true);
+    };
+  }, [messageContextMenu]);
+
+  useEffect(() => {
     closeOverlays({ keepManagerPanel: true });
     setHighlightDraftId(null);
     if (!managerPanelOpen) {
@@ -1980,18 +2079,13 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
 
   useEffect(() => {
     if (!conversation?.id) return;
-    if (conversation.isManager) {
-      if (process.env.NODE_ENV !== "production") {
-        console.trace("SET_INTERNAL", {
-          from: "ConversationDetails/index.tsx:1952",
-          reason: "conversation.isManager",
-        });
-      }
-      setComposerAudience("INTERNAL");
-      return;
-    }
-    setComposerAudience("CREATOR");
+    setComposerTarget("fan");
   }, [conversation.id, conversation.isManager]);
+
+  useEffect(() => {
+    profileDraftEditedRef.current = false;
+    setProfileDraft("");
+  }, [conversation.id]);
 
   useEffect(() => {
     managerPanelScrollTopRef.current = 0;
@@ -2068,13 +2162,32 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
       .map((line) => line.trim())
       .filter(Boolean);
   }, [displayInternalNotes]);
+  const normalizedProfileText = useMemo(() => (profileText || "").trim(), [profileText]);
+  const recentConversationLines = useMemo(() => {
+    return (messages || [])
+      .filter((msg) => msg.audience !== "INTERNAL")
+      .filter((msg) => msg.kind !== "content")
+      .map((msg) => {
+        const prefix = msg.me ? "Creador" : "Fan";
+        return `${prefix}: ${(msg.message || "").trim()}`;
+      })
+      .filter((line) => line.length > 0)
+      .slice(-6);
+  }, [messages]);
+
+  useEffect(() => {
+    if (profileDraftEditedRef.current) return;
+    setProfileDraft(profileText);
+  }, [profileText]);
   const hasInternalThreadMessages = internalNotes.length > 0 || managerChatMessages.length > 0;
   const effectiveLanguage = (preferredLanguage ?? "en") as SupportedLanguage;
   const isTranslationPreviewAvailable =
-    !!id && !conversation.isManager && composerAudience === "CREATOR" && effectiveLanguage !== "es";
+    !!id && !conversation.isManager && effectiveLanguage !== "es";
   const hasComposerText = messageSend.trim().length > 0;
-  const translateEnabled = translationPreviewOpen && composerAudience === "CREATOR" && !conversation.isManager;
-  const isFanMode = composerAudience === "CREATOR";
+  const isFanTarget = composerTarget === "fan";
+  const composerAudience = isFanTarget ? "CREATOR" : "INTERNAL";
+  const translateEnabled = translationPreviewOpen && !conversation.isManager && isFanTarget;
+  const isFanMode = !conversation.isManager;
   const hasAutopilotContext = !!(lastAutopilotObjective && lastAutopilotTone);
   const disableTranslationPreview = () => {
     if (translationPreviewTimer.current) {
@@ -2173,24 +2286,361 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
       tomorrow.setDate(tomorrow.getDate() + 1);
       setNextActionDate(tomorrow.toISOString().slice(0, 10));
     }
+    if (id) {
+      fetchFollowUpHistory(id);
+    }
+    setFollowUpError("");
     requestAnimationFrame(() => {
       nextActionInputRef.current?.focus();
     });
-  }, [openInternalPanel, nextActionDate]);
+  }, [openInternalPanel, nextActionDate, id, fetchFollowUpHistory]);
 
   const handleAskManagerFromDraft = useCallback(
-    (text: string) => {
+    (text: string, options?: { selectedText?: string | null }) => {
       const trimmed = text.trim();
       if (!trimmed) return;
       setManagerChatInput(trimmed);
+      setManagerSelectedText(options?.selectedText ?? null);
       openInternalPanel("manager");
       focusManagerComposer(true);
     },
     [openInternalPanel, focusManagerComposer]
   );
 
+  const clampToolbarPosition = useCallback(
+    (x: number, y: number, options?: { containerRect?: DOMRect | null; maxWidth?: number }) => {
+    if (typeof window === "undefined") return { x, y };
+    const toolbarHeight = 48;
+    const margin = TOOLBAR_MARGIN;
+    const maxY = window.innerHeight - toolbarHeight - margin;
+    const clampedY = Math.max(margin, Math.min(y - toolbarHeight, maxY));
+    const containerRect = options?.containerRect ?? null;
+    const maxWidth = Math.max(0, options?.maxWidth ?? 0);
+    if (containerRect) {
+      const leftBound = containerRect.left + margin;
+      const rightBound = containerRect.right - maxWidth - margin;
+      const safeRight = Math.max(leftBound, rightBound);
+      const centeredX = x - maxWidth / 2;
+      return {
+        x: Math.max(leftBound, Math.min(centeredX, safeRight)),
+        y: clampedY,
+      };
+    }
+    const fallbackWidth = 320;
+    const maxX = window.innerWidth - fallbackWidth - margin;
+    return {
+      x: Math.max(margin, Math.min(x - fallbackWidth / 2, maxX)),
+      y: clampedY,
+    };
+  }, []);
+
+  const updateSelectionToolbar = useCallback((options?: { force?: boolean }) => {
+    if (isPointerDownRef.current && !options?.force) return;
+    if (typeof window === "undefined") return;
+    const container = messagesContainerRef.current;
+    if (!container) return;
+    const selection = window.getSelection();
+    if (!selection || selection.isCollapsed) {
+      setSelectionToolbar(null);
+      return;
+    }
+    const selectedText = selection.toString().trim();
+    if (!selectedText) {
+      setSelectionToolbar(null);
+      return;
+    }
+    const range = selection.rangeCount > 0 ? selection.getRangeAt(0) : null;
+    if (!range) {
+      setSelectionToolbar(null);
+      return;
+    }
+    const commonNode = range.commonAncestorContainer;
+    const commonElement =
+      commonNode.nodeType === Node.ELEMENT_NODE ? (commonNode as Element) : commonNode.parentElement;
+    if (!commonElement || !container.contains(commonElement)) {
+      setSelectionToolbar(null);
+      return;
+    }
+    if (commonElement.closest("input, textarea, [contenteditable=\"true\"]")) {
+      setSelectionToolbar(null);
+      return;
+    }
+    const rect = range.getBoundingClientRect();
+    if (!rect || (rect.width === 0 && rect.height === 0)) {
+      setSelectionToolbar(null);
+      return;
+    }
+    const containerRect = container.getBoundingClientRect();
+    const maxWidth = Math.max(0, containerRect.width - TOOLBAR_MARGIN * 2);
+    const position = clampToolbarPosition(rect.left + rect.width / 2, rect.top, {
+      containerRect,
+      maxWidth,
+    });
+    setSelectionToolbar({ x: position.x, y: position.y, text: selectedText, maxWidth });
+  }, [clampToolbarPosition]);
+
+  const clearSelectionRanges = useCallback(() => {
+    if (typeof window === "undefined") return;
+    const selection = window.getSelection();
+    if (!selection) return;
+    try {
+      selection.removeAllRanges();
+    } catch (_err) {
+      // noop
+    }
+  }, []);
+
+  const closeSelectionToolbar = useCallback(() => {
+    setSelectionToolbar(null);
+    clearSelectionRanges();
+  }, [clearSelectionRanges]);
+
+  useEffect(() => {
+    if (typeof document === "undefined") return;
+    let raf = 0;
+    const scheduleUpdate = (force = false) => {
+      if (raf) cancelAnimationFrame(raf);
+      raf = requestAnimationFrame(() => updateSelectionToolbar({ force }));
+    };
+    const clearOnScroll = () => setSelectionToolbar(null);
+    const handleSelectionChange = () => scheduleUpdate(false);
+    const handleKeyUp = () => scheduleUpdate(false);
+    const handlePointerDown = () => {
+      isPointerDownRef.current = true;
+      setSelectionToolbar(null);
+    };
+    const handlePointerUp = () => {
+      if (!isPointerDownRef.current) return;
+      isPointerDownRef.current = false;
+      scheduleUpdate(true);
+    };
+    document.addEventListener("selectionchange", handleSelectionChange);
+    document.addEventListener("keyup", handleKeyUp);
+    document.addEventListener("pointerdown", handlePointerDown);
+    document.addEventListener("pointerup", handlePointerUp);
+    document.addEventListener("scroll", clearOnScroll, true);
+    return () => {
+      if (raf) cancelAnimationFrame(raf);
+      document.removeEventListener("selectionchange", handleSelectionChange);
+      document.removeEventListener("keyup", handleKeyUp);
+      document.removeEventListener("pointerdown", handlePointerDown);
+      document.removeEventListener("pointerup", handlePointerUp);
+      document.removeEventListener("scroll", clearOnScroll, true);
+    };
+  }, [updateSelectionToolbar]);
+
+  useEffect(() => {
+    if (typeof document === "undefined") return;
+    const handleKeyDown = (event: globalThis.KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      if (!selectionToolbar) return;
+      closeSelectionToolbar();
+    };
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
+  }, [closeSelectionToolbar, selectionToolbar]);
+
+  useEffect(() => {
+    if (!selectionToolbar?.text) return;
+    closeMessageContextMenu();
+  }, [closeMessageContextMenu, selectionToolbar?.text]);
+
+  const getSelectionInsideMessagesContainer = useCallback(() => {
+    if (typeof window === "undefined") return null;
+    const container = messagesContainerRef.current;
+    if (!container) return null;
+    const selection = window.getSelection();
+    if (!selection || selection.isCollapsed) return null;
+    const selectedText = selection.toString().trim();
+    if (!selectedText) return null;
+    const anchorNode = selection.anchorNode;
+    if (!anchorNode || !container.contains(anchorNode)) return null;
+    const anchorElement =
+      anchorNode.nodeType === Node.ELEMENT_NODE ? (anchorNode as Element) : anchorNode.parentElement;
+    if (anchorElement?.closest("input, textarea, [contenteditable=\"true\"]")) return null;
+    return selectedText;
+  }, []);
+
+  const getContextMenuText = (event: MouseEvent<HTMLElement>, fallbackText: string) => {
+    if (typeof window === "undefined") return fallbackText;
+    const selection = window.getSelection();
+    if (!selection) return fallbackText;
+    const selectedText = selection.toString().trim();
+    if (!selectedText) return fallbackText;
+    const range = selection.rangeCount > 0 ? selection.getRangeAt(0) : null;
+    if (!range) return fallbackText;
+    if (event.currentTarget.contains(range.commonAncestorContainer)) {
+      return selectedText;
+    }
+    return fallbackText;
+  };
+
+  const clampContextMenuPosition = (x: number, y: number) => {
+    if (typeof window === "undefined") return { x, y };
+    const menuWidth = 280;
+    const menuHeight = 160;
+    const margin = 12;
+    const maxX = window.innerWidth - menuWidth - margin;
+    const maxY = window.innerHeight - menuHeight - margin;
+    return {
+      x: Math.max(margin, Math.min(x, maxX)),
+      y: Math.max(margin, Math.min(y, maxY)),
+    };
+  };
+
+  const handleMessageContextMenu = (event: MouseEvent<HTMLElement>, fallbackText: string) => {
+    if (selectionToolbar?.text) {
+      event.preventDefault();
+      event.stopPropagation();
+      setMessageContextMenu(null);
+      return;
+    }
+    const selectionText = getSelectionInsideMessagesContainer();
+    if (selectionText) {
+      event.preventDefault();
+      event.stopPropagation();
+      setMessageContextMenu(null);
+      return;
+    }
+    if (!selectionText) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const text = getContextMenuText(event, fallbackText);
+    const position = clampContextMenuPosition(event.clientX, event.clientY);
+    setSelectionToolbar(null);
+    setMessageContextMenu({ x: position.x, y: position.y, text });
+  };
+
+  const buildManagerQuotePrompt = (text: string) => {
+    return (
+      `Texto seleccionado: «${text}»\n\n` +
+      "Qué quiero: dime cómo responderle sin sonar vendedor, tono íntimo, CTA suave."
+    );
+  };
+
+  const buildManagerRephrasePrompt = (text: string) => {
+    const name = getFirstName(contactName) || contactName || "este fan";
+    return (
+      `Texto seleccionado: «${text}»\n\n` +
+      `Reformula este mensaje para ${name}: íntimo, natural, cero presión, que parezca conversación real. ` +
+      "Devuélveme 2 versiones."
+    );
+  };
+
+  const copyTextToClipboard = async (text: string) => {
+    if (typeof navigator !== "undefined" && navigator.clipboard?.writeText) {
+      try {
+        await navigator.clipboard.writeText(text);
+        return true;
+      } catch (err) {
+        console.error(err);
+      }
+    }
+    if (typeof document === "undefined") return false;
+    try {
+      const textarea = document.createElement("textarea");
+      textarea.value = text;
+      textarea.style.position = "fixed";
+      textarea.style.opacity = "0";
+      document.body.appendChild(textarea);
+      textarea.focus();
+      textarea.select();
+      const success = document.execCommand("copy");
+      document.body.removeChild(textarea);
+      return success;
+    } catch (err) {
+      console.error(err);
+      return false;
+    }
+  };
+
+  const handleContextMenuQuote = () => {
+    if (!messageContextMenu) return;
+    handleAskManagerFromDraft(buildManagerQuotePrompt(messageContextMenu.text), {
+      selectedText: messageContextMenu.text,
+    });
+    closeMessageContextMenu();
+  };
+
+  const handleContextMenuRephrase = () => {
+    if (!messageContextMenu) return;
+    handleAskManagerFromDraft(buildManagerRephrasePrompt(messageContextMenu.text), {
+      selectedText: messageContextMenu.text,
+    });
+    closeMessageContextMenu();
+  };
+
+  const handleContextMenuCopy = async () => {
+    if (!messageContextMenu) return;
+    const ok = await copyTextToClipboard(messageContextMenu.text);
+    showComposerToast(ok ? "Texto copiado" : "No se pudo copiar");
+    closeMessageContextMenu();
+  };
+
+  const mergeProfileDraft = (base: string, addition: string) => {
+    const trimmedBase = base.trim();
+    const trimmedAddition = addition.trim();
+    if (!trimmedAddition) return trimmedBase;
+    if (!trimmedBase) return trimmedAddition;
+    if (trimmedBase.includes(trimmedAddition)) return trimmedBase;
+    return `${trimmedBase}\n${trimmedAddition}`.trim();
+  };
+
+  const handleSelectionQuote = () => {
+    if (!selectionToolbar) return;
+    handleAskManagerFromDraft(buildManagerQuotePrompt(selectionToolbar.text), {
+      selectedText: selectionToolbar.text,
+    });
+    closeSelectionToolbar();
+  };
+
+  const handleSelectionRephrase = () => {
+    if (!selectionToolbar) return;
+    handleAskManagerFromDraft(buildManagerRephrasePrompt(selectionToolbar.text), {
+      selectedText: selectionToolbar.text,
+    });
+    closeSelectionToolbar();
+  };
+
+  const handleSelectionCopy = async () => {
+    if (!selectionToolbar) return;
+    const ok = await copyTextToClipboard(selectionToolbar.text);
+    showComposerToast(ok ? "Texto copiado" : "No se pudo copiar");
+    closeSelectionToolbar();
+  };
+
+  const handleSelectionSaveProfile = () => {
+    if (!selectionToolbar) return;
+    const merged = mergeProfileDraft(profileDraft, selectionToolbar.text);
+    profileDraftEditedRef.current = true;
+    setProfileDraft(merged);
+    openInternalPanel("crm");
+    requestAnimationFrame(() => {
+      profileInputRef.current?.focus();
+    });
+    showInlineAction({
+      kind: "info",
+      title: "Texto listo en perfil",
+      detail: "Guárdalo para que el Manager lo use.",
+      ttlMs: 2200,
+    });
+    closeSelectionToolbar();
+  };
+
+  const handleSelectionCreateFollowUp = () => {
+    if (!selectionToolbar) return;
+    setNextActionDraft(selectionToolbar.text.trim());
+    openFollowUpNote();
+    closeSelectionToolbar();
+  };
+
+  const handleToolbarPointerDown = useCallback((event: ReactPointerEvent) => {
+    event.preventDefault();
+    event.stopPropagation();
+  }, []);
+
   const openAttachContent = (options?: { closeInline?: boolean }) => {
-    if (isChatBlocked && !isInternalMode) return;
+    if (isChatBlocked) return;
     openContentModal({ mode: "packs" });
     if (options?.closeInline ?? true) {
       if (managerPanelOpen) {
@@ -2200,6 +2650,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
   };
 
   const handleAttachContentClick = () => {
+    if (!isFanTarget || isChatBlocked || isInternalPanelOpen) return;
     openAttachContent();
   };
 
@@ -2209,7 +2660,8 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
     );
     const dockOffset = Math.max(0, dockHeight) + 12;
     const internalDraftCount = includeInternalContext ? recentInternalDrafts.length : 0;
-    const templatesCount: number = TRANSLATION_QUICK_CHIPS.length;
+    const managerTemplateCount = managerPromptTemplate ? 1 : 0;
+    const templatesCount: number = TRANSLATION_QUICK_CHIPS.length + managerTemplateCount;
     const showManagerChip = true;
     const showTemplatesChip = isFanMode;
     const showToolsChip = isFanMode;
@@ -2270,6 +2722,10 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
         ? "border-emerald-500/60 bg-emerald-500/10 text-emerald-100 hover:bg-emerald-500/20 focus-visible:ring-emerald-400/50"
         : "border-amber-400/70 bg-amber-500/10 text-amber-100 hover:bg-amber-500/20 focus-visible:ring-amber-400/40"
     );
+    const managerActionButtonClass = clsx(
+      "inline-flex h-7 items-center justify-center rounded-full border px-3.5 text-[11px] font-semibold transition focus-visible:outline-none focus-visible:ring-2",
+      "border-amber-400/70 bg-amber-500/10 text-amber-100 hover:bg-amber-500/20 focus-visible:ring-amber-400/40"
+    );
 
     const closeDockPanel = () => {
       closeInlinePanel({ focus: true });
@@ -2279,181 +2735,198 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
       event.stopPropagation();
     };
 
-    const renderInlineToolsPanel = () => (
-      <InlinePanelShell title="Herramientas" onClose={closeDockPanel}>
-        {composerAudience === "CREATOR" && !conversation.isManager ? (
-          <div className="space-y-3">
-            <div className="text-[11px] font-semibold text-slate-400">Acciones</div>
-            <button
-              type="button"
-              onClick={() => handleAttachContentClick()}
-              disabled={isChatBlocked}
-              className={clsx(
-                "flex w-full items-center justify-between rounded-xl border px-3 py-2 text-[12px] font-semibold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/50",
-                isChatBlocked
-                  ? "cursor-not-allowed border-slate-800 bg-slate-900/40 text-slate-500"
-                  : "border-slate-800/70 bg-slate-950/40 text-slate-200 hover:border-slate-600/80 hover:bg-slate-900/60"
-              )}
-            >
-              <span className="flex items-center gap-2">
-                <span className="text-base leading-none">📎</span>
-                <span>Adjuntar contenido</span>
-              </span>
-            </button>
-            <div className="text-[11px] font-semibold text-slate-400">Traducción</div>
-            {isTranslationPreviewAvailable ? (
-              <div
+    const renderInlineToolsPanel = () => {
+      const toolsDisabled = !isFanTarget;
+      const translationDisabled = !isFanTarget || isInternalPanelOpen;
+      return (
+        <InlinePanelShell title="Herramientas" onClose={closeDockPanel}>
+          {!conversation.isManager ? (
+            <div className="space-y-3">
+              <div className="text-[11px] font-semibold text-slate-400">Acciones</div>
+              <button
+                type="button"
+                onClick={() => handleAttachContentClick()}
+                disabled={!canAttachContent}
                 className={clsx(
-                  "flex w-full items-center justify-between rounded-xl border px-3 py-2 text-[12px] font-semibold transition",
-                  translationPreviewOpen
-                    ? "border-emerald-400/60 bg-emerald-500/10 text-emerald-100"
-                    : "border-slate-800/70 bg-slate-950/40 text-slate-200"
+                  "flex w-full items-center justify-between rounded-xl border px-3 py-2 text-[12px] font-semibold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/50",
+                  !canAttachContent
+                    ? "cursor-not-allowed border-slate-800 bg-slate-900/40 text-slate-500"
+                    : "border-slate-800/70 bg-slate-950/40 text-slate-200 hover:border-slate-600/80 hover:bg-slate-900/60"
                 )}
               >
                 <span className="flex items-center gap-2">
-                  <span className="text-base leading-none">🌐</span>
-                  <span>Traducir</span>
+                  <span className="text-base leading-none">📎</span>
+                  <span>Adjuntar contenido</span>
                 </span>
-                <div className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      if (translateEnabled) {
-                        disableTranslationPreview();
-                        showInlineAction({ kind: "info", title: "Traducción desactivada" });
-                      } else {
-                        setTranslationPreviewOpen(true);
-                        showInlineAction({ kind: "info", title: "Traducción activada" });
-                      }
-                    }}
-                    className={clsx(
-                      "relative inline-flex h-5 w-10 items-center rounded-full border transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/60",
-                      translationPreviewOpen
-                        ? "border-emerald-400/70 bg-emerald-500/20"
-                        : "border-slate-600 bg-slate-900/70"
-                    )}
-                    aria-pressed={translationPreviewOpen}
-                  >
-                    <span
-                      className={clsx(
-                        "inline-block h-4 w-4 rounded-full transition",
-                        translationPreviewOpen ? "translate-x-5 bg-emerald-200" : "translate-x-1 bg-slate-400"
-                      )}
-                    />
-                  </button>
-                </div>
-              </div>
-            ) : (
-              <div className="flex w-full items-center justify-between rounded-xl border border-slate-800/70 bg-slate-950/40 px-3 py-2 text-[12px] font-semibold text-slate-500">
-                <span className="flex items-center gap-2">
-                  <span className="text-base leading-none">🌐</span>
-                  <span>Traducir</span>
-                </span>
-                <span className="rounded-full border border-slate-700/70 bg-slate-900/60 px-2 py-0.5 text-[9px] uppercase tracking-[0.2em] text-slate-400">
-                  Próximamente
-                </span>
-              </div>
-            )}
-            {isTranslationPreviewAvailable && translationPreviewOpen && (
-              <div className="space-y-2 rounded-xl border border-slate-800 bg-slate-950/60 px-3 py-2">
-                <div className="text-[11px] font-semibold text-slate-400">Traducción automática</div>
-                <div className="flex items-center gap-2 text-[11px] text-slate-200">
-                  <span className="text-slate-400">Idioma</span>
-                  <select
-                    value={languageSelectValue}
-                    onChange={(event) => {
-                      const value = event.target.value;
-                      if (value === "auto") return;
-                      handlePreferredLanguageChange(value as SupportedLanguage);
-                    }}
-                    disabled={preferredLanguageSaving}
-                    className="flex-1 rounded-lg border border-slate-700 bg-slate-900 px-2 py-1 text-[11px] font-semibold text-slate-100 focus:border-emerald-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/60"
-                  >
-                    <option value="auto" disabled>
-                      Auto (EN por defecto)
-                    </option>
-                    {SUPPORTED_LANGUAGES.map((lang) => (
-                      <option key={lang} value={lang}>
-                        {lang.toUpperCase()}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                {!isTranslationPreviewAvailable && (
-                  <div className="text-[10px] text-slate-500">
-                    Selecciona un idioma distinto de ES para activar preview.
-                  </div>
+                {toolsDisabled && (
+                  <span className="rounded-full border border-slate-700/70 bg-slate-900/60 px-2 py-0.5 text-[9px] uppercase tracking-[0.18em] text-slate-500">
+                    Solo fan
+                  </span>
                 )}
-              </div>
-            )}
-            <div className="text-[11px] font-semibold text-slate-400">Acciones rápidas</div>
-            <div className="grid gap-2 sm:grid-cols-3">
-              {[
-                {
-                  label: "Copiar enlace",
-                  icon: "🔗",
-                  onClick: async () => {
-                    if (!id) {
-                      showInlineAction({ kind: "warn", title: "Selecciona un fan primero" });
-                      return;
-                    }
-                    const ok = await copyInviteLinkForTools();
-                    showInlineAction({
-                      kind: ok ? "ok" : "warn",
-                      title: ok ? "Enlace copiado" : "No se pudo copiar el enlace",
-                    });
-                  },
-                },
-                {
-                  label: "Abrir ficha",
-                  icon: "🗂️",
-                  onClick: () => {
-                    if (!id) {
-                      showInlineAction({ kind: "warn", title: "Selecciona un fan" });
-                      return;
-                    }
-                    closeDockPanel();
-                    handleViewProfile();
-                    showInlineAction({ kind: "info", title: "Ficha abierta" });
-                  },
-                },
-                {
-                  label: "Marcar seguimiento",
-                  icon: "⏰",
-                  onClick: () => {
-                    if (!id) {
-                      showInlineAction({ kind: "warn", title: "Selecciona un fan" });
-                      return;
-                    }
-                    closeDockPanel();
-                    openFollowUpNote();
-                  },
-                },
-              ].map((action) => (
-                <button
-                  key={action.label}
-                  type="button"
-                  onClick={action.onClick}
+              </button>
+              <div className="text-[11px] font-semibold text-slate-400">Traducción</div>
+              {isTranslationPreviewAvailable ? (
+                <div
                   className={clsx(
-                    "flex items-center gap-2 rounded-xl border px-3 py-2 text-[11px] font-semibold transition",
-                    "border-slate-800/70 bg-slate-950/40 text-slate-200 hover:border-slate-600/80 hover:bg-slate-900/60"
+                    "flex w-full items-center justify-between rounded-xl border px-3 py-2 text-[12px] font-semibold transition",
+                    translationPreviewOpen
+                      ? "border-emerald-400/60 bg-emerald-500/10 text-emerald-100"
+                      : "border-slate-800/70 bg-slate-950/40 text-slate-200",
+                    translationDisabled && "opacity-60"
                   )}
                 >
-                  <span className="text-base leading-none">{action.icon}</span>
-                  <span>{action.label}</span>
-                </button>
-              ))}
+                  <span className="flex items-center gap-2">
+                    <span className="text-base leading-none">🌐</span>
+                    <span>Traducir</span>
+                  </span>
+                  <div className="flex items-center gap-2">
+                    {translationDisabled && (
+                      <span className="rounded-full border border-slate-700/70 bg-slate-900/60 px-2 py-0.5 text-[9px] uppercase tracking-[0.18em] text-slate-500">
+                        Solo fan
+                      </span>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (translateEnabled) {
+                          disableTranslationPreview();
+                          showInlineAction({ kind: "info", title: "Traducción desactivada" });
+                        } else {
+                          setTranslationPreviewOpen(true);
+                          showInlineAction({ kind: "info", title: "Traducción activada" });
+                        }
+                      }}
+                      disabled={translationDisabled}
+                      className={clsx(
+                        "relative inline-flex h-5 w-10 items-center rounded-full border transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/60",
+                        translationPreviewOpen
+                          ? "border-emerald-400/70 bg-emerald-500/20"
+                          : "border-slate-600 bg-slate-900/70",
+                        translationDisabled && "cursor-not-allowed"
+                      )}
+                      aria-pressed={translationPreviewOpen}
+                    >
+                      <span
+                        className={clsx(
+                          "inline-block h-4 w-4 rounded-full transition",
+                          translationPreviewOpen ? "translate-x-5 bg-emerald-200" : "translate-x-1 bg-slate-400"
+                        )}
+                      />
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <div className="flex w-full items-center justify-between rounded-xl border border-slate-800/70 bg-slate-950/40 px-3 py-2 text-[12px] font-semibold text-slate-500">
+                  <span className="flex items-center gap-2">
+                    <span className="text-base leading-none">🌐</span>
+                    <span>Traducir</span>
+                  </span>
+                  <span className="rounded-full border border-slate-700/70 bg-slate-900/60 px-2 py-0.5 text-[9px] uppercase tracking-[0.2em] text-slate-400">
+                    Próximamente
+                  </span>
+                </div>
+              )}
+              {isTranslationPreviewAvailable && translationPreviewOpen && isFanTarget && (
+                <div className="space-y-2 rounded-xl border border-slate-800 bg-slate-950/60 px-3 py-2">
+                  <div className="text-[11px] font-semibold text-slate-400">Traducción automática</div>
+                  <div className="flex items-center gap-2 text-[11px] text-slate-200">
+                    <span className="text-slate-400">Idioma</span>
+                    <select
+                      value={languageSelectValue}
+                      onChange={(event) => {
+                        const value = event.target.value;
+                        if (value === "auto") return;
+                        handlePreferredLanguageChange(value as SupportedLanguage);
+                      }}
+                      disabled={preferredLanguageSaving}
+                      className="flex-1 rounded-lg border border-slate-700 bg-slate-900 px-2 py-1 text-[11px] font-semibold text-slate-100 focus:border-emerald-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/60"
+                    >
+                      <option value="auto" disabled>
+                        Auto (EN por defecto)
+                      </option>
+                      {SUPPORTED_LANGUAGES.map((lang) => (
+                        <option key={lang} value={lang}>
+                          {lang.toUpperCase()}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  {!isTranslationPreviewAvailable && (
+                    <div className="text-[10px] text-slate-500">
+                      Selecciona un idioma distinto de ES para activar preview.
+                    </div>
+                  )}
+                </div>
+              )}
+              <div className="text-[11px] font-semibold text-slate-400">Acciones rápidas</div>
+              <div className="grid gap-2 sm:grid-cols-3">
+                {[
+                  {
+                    label: "Copiar enlace",
+                    icon: "🔗",
+                    onClick: async () => {
+                      if (!id) {
+                        showInlineAction({ kind: "warn", title: "Selecciona un fan primero" });
+                        return;
+                      }
+                      const ok = await copyInviteLinkForTools();
+                      showInlineAction({
+                        kind: ok ? "ok" : "warn",
+                        title: ok ? "Enlace copiado" : "No se pudo copiar el enlace",
+                      });
+                    },
+                  },
+                  {
+                    label: "Abrir ficha",
+                    icon: "🗂️",
+                    onClick: () => {
+                      if (!id) {
+                        showInlineAction({ kind: "warn", title: "Selecciona un fan" });
+                        return;
+                      }
+                      closeDockPanel();
+                      handleViewProfile();
+                      showInlineAction({ kind: "info", title: "Ficha abierta" });
+                    },
+                  },
+                  {
+                    label: "Marcar seguimiento",
+                    icon: "⏰",
+                    onClick: () => {
+                      if (!id) {
+                        showInlineAction({ kind: "warn", title: "Selecciona un fan" });
+                        return;
+                      }
+                      closeDockPanel();
+                      openFollowUpNote();
+                    },
+                  },
+                ].map((action) => (
+                  <button
+                    key={action.label}
+                    type="button"
+                    onClick={action.onClick}
+                    className={clsx(
+                      "flex items-center gap-2 rounded-xl border px-3 py-2 text-[11px] font-semibold transition",
+                      "border-slate-800/70 bg-slate-950/40 text-slate-200 hover:border-slate-600/80 hover:bg-slate-900/60"
+                    )}
+                  >
+                    <span className="text-base leading-none">{action.icon}</span>
+                    <span>{action.label}</span>
+                  </button>
+                ))}
+              </div>
             </div>
-          </div>
-        ) : (
-          <InlineEmptyState
-            icon="🛠️"
-            title="Sin herramientas disponibles"
-            subtitle="Solo disponibles en chats con fans."
-          />
-        )}
-      </InlinePanelShell>
-    );
+          ) : (
+            <InlineEmptyState
+              icon="🛠️"
+              title="Sin herramientas disponibles"
+              subtitle="Solo disponibles en chats con fans."
+            />
+          )}
+        </InlinePanelShell>
+      );
+    };
 
     const renderInternalManagerContent = () => (
       <div className="flex min-h-0 flex-1 flex-col">
@@ -2465,6 +2938,23 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
         >
           <div className="space-y-3">
             <div className="text-[11px] font-semibold text-slate-400">Insights y control</div>
+            {normalizedProfileText && (
+              <div className="rounded-xl border border-slate-800/60 bg-slate-950/40 p-3">
+                <div className="flex items-center justify-between gap-2 text-[10px] font-semibold text-slate-400">
+                  <span>Perfil del fan (resumen)</span>
+                  <button
+                    type="button"
+                    onClick={() => openInternalPanelTab("note")}
+                    className="rounded-full border border-amber-400/70 bg-amber-500/10 px-2.5 py-0.5 text-[10px] font-semibold text-amber-100 hover:bg-amber-500/20"
+                  >
+                    Editar
+                  </button>
+                </div>
+                <div className="mt-2 text-[11px] text-slate-200 whitespace-pre-wrap line-clamp-3">
+                  {normalizedProfileText}
+                </div>
+              </div>
+            )}
             <div className="rounded-xl border border-slate-800/60 bg-slate-950/40 p-3">
               <FanManagerDrawer
                 managerSuggestions={managerSuggestions}
@@ -2586,6 +3076,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
               value={managerChatInput}
               onChange={(e) => {
                 setManagerChatInput(e.target.value);
+                setManagerSelectedText(null);
                 autoGrowTextarea(e.currentTarget, MAX_INTERNAL_COMPOSER_HEIGHT);
               }}
               onKeyDown={handleManagerChatKeyDown}
@@ -2711,75 +3202,150 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
       </div>
     );
 
-    const renderInternalNoteContent = () => (
-      <div
-        onWheelCapture={handlePanelWheel}
-        className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-4 py-3 pb-28 space-y-3"
-      >
-        <div className="text-[11px] text-slate-400">
-          Seguimiento: próxima acción + nota persistente.
-        </div>
-        <div className="space-y-2">
-          <div className="text-[11px] font-semibold text-slate-400">Próxima acción</div>
-          <div className="grid grid-cols-1 gap-2 md:grid-cols-3">
-            <input
-              ref={nextActionInputRef}
-              type="text"
-              value={nextActionDraft}
-              onChange={(e) => setNextActionDraft(e.target.value)}
-              className="md:col-span-2 rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-xs text-slate-100 placeholder:text-slate-500 outline-none focus:border-amber-400"
-              placeholder="Ej: Proponer pack especial cuando cobre"
+    const renderInternalNoteContent = () => {
+      const trimmedProfile = profileDraft.trim();
+      const profileChanged = trimmedProfile !== normalizedProfileText;
+      const canSaveProfile = profileChanged;
+      const hasNextActionDraft = Boolean(
+        nextActionDraft.trim() || nextActionDate.trim() || nextActionTime.trim()
+      );
+      const hasSavedNextAction = Boolean(followUpOpen);
+      const canClearNextAction = hasNextActionDraft || hasSavedNextAction;
+      const canArchiveNextAction = hasSavedNextAction;
+
+      const renderHistoryItem = (item: FanFollowUp) => {
+        const timestamp = item.doneAt || item.updatedAt || item.createdAt || "";
+        const statusLabel = item.status === "DONE" ? "Seguimiento hecho" : "Seguimiento borrado";
+        const statusTone = item.status === "DONE" ? "text-amber-200" : "text-rose-200";
+        const due = splitDueAt(item.dueAt ?? null);
+        return (
+          <div key={item.id} className="rounded-lg bg-slate-950/60 px-2 py-1.5">
+            <div className="flex items-center justify-between gap-2 text-[10px] text-slate-500">
+              <span>{timestamp ? formatNoteDate(timestamp) : ""}</span>
+              <span className={statusTone}>{statusLabel}</span>
+            </div>
+            <div className="text-[11px] whitespace-pre-wrap">{item.title}</div>
+            {item.note && <div className="text-[11px] whitespace-pre-wrap text-slate-300">{item.note}</div>}
+            {due.date && (
+              <div className="text-[10px] text-slate-500">
+                Para {due.date}
+                {due.time ? ` · ${due.time}` : ""}
+              </div>
+            )}
+          </div>
+        );
+      };
+
+      return (
+        <div
+          onWheelCapture={handlePanelWheel}
+          className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-4 py-3 pb-28 space-y-4"
+        >
+          <div className="text-[11px] text-slate-400">
+            Perfil del fan + seguimiento. Se usa como contexto del Manager IA.
+          </div>
+          <div className="space-y-2">
+            <div className="flex items-center justify-between gap-2">
+              <div className="text-[11px] font-semibold text-slate-400">Perfil del fan</div>
+            </div>
+            <textarea
+              ref={profileInputRef}
+              value={profileDraft}
+              onChange={(e) => {
+                profileDraftEditedRef.current = true;
+                setProfileDraft(e.target.value);
+              }}
+              rows={3}
+              className="w-full resize-none rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-xs text-slate-100 placeholder:text-slate-500 outline-none focus:border-amber-400"
+              placeholder="Perfil del fan: contexto, límites, preferencias, tono, etc."
             />
-            <div className="flex gap-2">
-              <input
-                type="date"
-                value={nextActionDate}
-                onChange={(e) => setNextActionDate(e.target.value)}
-                className="flex-1 rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-xs text-slate-100 outline-none focus:border-amber-400 focus:text-amber-300"
-              />
-              <input
-                type="time"
-                value={nextActionTime}
-                onChange={(e) => setNextActionTime(e.target.value)}
-                className="flex-1 rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-xs text-slate-100 outline-none focus:border-amber-400 focus:text-amber-300"
-              />
+            <div className="flex flex-wrap items-center gap-2 text-[10px] text-slate-500">
+              <button
+                type="button"
+                onClick={handleSaveProfile}
+                disabled={!canSaveProfile}
+                className="rounded-lg border border-amber-400/80 bg-amber-500/10 px-3 py-1 text-xs font-medium text-amber-100 disabled:cursor-not-allowed disabled:opacity-50 hover:bg-amber-500/20"
+              >
+                Guardar perfil
+              </button>
+              {!canSaveProfile && trimmedProfile.length > 0 && (
+                <span>Sin cambios</span>
+              )}
+              {profileError && <span className="text-rose-300">{profileError}</span>}
+              {profileLoading && <span>Actualizando...</span>}
             </div>
           </div>
-        </div>
-        <div className="flex gap-2">
-          <textarea
-            value={noteDraft}
-            onChange={(e) => setNoteDraft(e.target.value)}
-            rows={2}
-            className="flex-1 resize-none rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-xs text-slate-100 placeholder:text-slate-500 outline-none focus:border-amber-400"
-            placeholder="Añade una nota para recordar detalles, límites, miedos, etc."
-          />
-          <button
-            type="button"
-            onClick={handleAddNote}
-            disabled={!noteDraft.trim()}
-            className="self-start rounded-lg border border-amber-400/80 bg-amber-500/10 px-3 py-1 text-xs font-medium text-amber-100 disabled:cursor-not-allowed disabled:opacity-50 hover:bg-amber-500/20"
-          >
-            Guardar
-          </button>
-        </div>
-        <div className="space-y-2">
-          {notesLoading && <div className="text-[11px] text-slate-400">Cargando notas…</div>}
-          {notesError && !notesLoading && (
-            <div className="text-[11px] text-rose-300">{notesError}</div>
-          )}
-          {!notesLoading && notes.length === 0 && (
-            <div className="text-[11px] text-slate-500">Aún no hay notas para este fan.</div>
-          )}
-          {notes.map((note) => (
-            <div key={note.id} className="rounded-lg bg-slate-950/60 px-2 py-1.5">
-              <div className="text-[10px] text-slate-500">{formatNoteDate(note.createdAt)}</div>
-              <div className="text-[11px] whitespace-pre-wrap">{note.content}</div>
+
+          <div className="space-y-2">
+            <div className="text-[11px] font-semibold text-slate-400">Seguimiento</div>
+            <div className="grid grid-cols-1 gap-2 md:grid-cols-3">
+              <input
+                ref={nextActionInputRef}
+                type="text"
+                value={nextActionDraft}
+                onChange={(e) => setNextActionDraft(e.target.value)}
+                className="md:col-span-2 rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-xs text-slate-100 placeholder:text-slate-500 outline-none focus:border-amber-400"
+                placeholder="Ej: Proponer pack especial cuando cobre"
+              />
+              <div className="flex gap-2">
+                <input
+                  type="date"
+                  value={nextActionDate}
+                  onChange={(e) => setNextActionDate(e.target.value)}
+                  className="flex-1 rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-xs text-slate-100 outline-none focus:border-amber-400 focus:text-amber-300"
+                />
+                <input
+                  type="time"
+                  value={nextActionTime}
+                  onChange={(e) => setNextActionTime(e.target.value)}
+                  className="flex-1 rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-xs text-slate-100 outline-none focus:border-amber-400 focus:text-amber-300"
+                />
+              </div>
             </div>
-          ))}
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={handleSaveNextAction}
+                disabled={!hasNextActionDraft}
+                className="rounded-lg border border-emerald-400/80 bg-emerald-500/10 px-3 py-1 text-xs font-medium text-emerald-100 disabled:cursor-not-allowed disabled:opacity-50 hover:bg-emerald-500/20"
+              >
+                Guardar seguimiento
+              </button>
+              <button
+                type="button"
+                onClick={handleClearNextAction}
+                disabled={!canClearNextAction}
+                className="rounded-lg border border-slate-600/80 bg-slate-900/60 px-3 py-1 text-xs font-medium text-slate-200 disabled:cursor-not-allowed disabled:opacity-50 hover:bg-slate-800/80"
+              >
+                Borrar seguimiento
+              </button>
+              <button
+                type="button"
+                onClick={handleArchiveNextAction}
+                disabled={!canArchiveNextAction}
+                className="rounded-lg border border-amber-400/80 bg-amber-500/10 px-3 py-1 text-xs font-medium text-amber-100 disabled:cursor-not-allowed disabled:opacity-50 hover:bg-amber-500/20"
+              >
+                Marcar como hecho
+              </button>
+              {followUpError && <span className="text-[10px] text-rose-300">{followUpError}</span>}
+              {followUpLoading && <span className="text-[10px] text-slate-400">Actualizando...</span>}
+            </div>
+          </div>
+
+          <div className="space-y-2">
+            <div className="text-[11px] font-semibold text-slate-400">Historial</div>
+            {followUpHistoryLoading && <div className="text-[11px] text-slate-400">Cargando historial…</div>}
+            {followUpHistoryError && !followUpHistoryLoading && (
+              <div className="text-[11px] text-rose-300">{followUpHistoryError}</div>
+            )}
+            {!followUpHistoryLoading && followUpHistory.length === 0 && (
+              <div className="text-[11px] text-slate-500">Aún no hay entradas de historial.</div>
+            )}
+            {followUpHistory.map((item) => renderHistoryItem(item))}
+          </div>
         </div>
-      </div>
-    );
+      );
+    };
 
     const renderInlinePanel = (tab: InlineTab | null) => {
       if (!tab) return null;
@@ -2803,7 +3369,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
                 {[
                   { id: "manager", label: "Manager IA" },
                   { id: "internal", label: "Borradores" },
-                  { id: "note", label: "CRM" },
+                  { id: "note", label: "Perfil + Seguimiento" },
                 ].map((tabItem) => {
                   const isActive = internalPanelTab === tabItem.id;
                   return (
@@ -2841,56 +3407,89 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
       }
 
       if (tab === "templates") {
-        const hasQuickTemplates = TRANSLATION_QUICK_CHIPS.length > 0;
+        const hasFanTemplates = TRANSLATION_QUICK_CHIPS.length > 0;
+        const templateTabs = [
+          { id: "fan", label: "Para el fan" },
+          { id: "manager", label: "Para el Manager" },
+        ] as const;
+        const templateTabBase =
+          "inline-flex items-center rounded-full border px-3 py-1 text-[11px] font-semibold transition";
+        const templateTabInactive =
+          "border-slate-700 bg-slate-900/60 text-slate-300 hover:border-slate-500/80";
+        const templateTabFanActive = "border-emerald-400/70 bg-emerald-500/15 text-emerald-100";
+        const templateTabManagerActive = "border-amber-400/70 bg-amber-500/15 text-amber-100";
         return (
           <InlinePanelShell title="Plantillas" onClose={closeDockPanel}>
             <div className="space-y-3">
-              {managerPromptTemplate && (
+              <div
+                className="flex flex-wrap items-center gap-2"
+                role="tablist"
+                aria-label="Plantillas"
+              >
+                {templateTabs.map((tabItem) => {
+                  const isActive = templateScope === tabItem.id;
+                  const activeClass = tabItem.id === "fan" ? templateTabFanActive : templateTabManagerActive;
+                  return (
+                    <button
+                      key={tabItem.id}
+                      type="button"
+                      role="tab"
+                      aria-selected={isActive}
+                      onClick={(event) => {
+                        event.preventDefault();
+                        event.stopPropagation();
+                        setTemplateScope(tabItem.id);
+                      }}
+                      className={clsx(templateTabBase, isActive ? activeClass : templateTabInactive)}
+                    >
+                      {tabItem.label}
+                    </button>
+                  );
+                })}
+              </div>
+              {templateScope === "fan" ? (
+                hasFanTemplates ? (
+                  <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                    {TRANSLATION_QUICK_CHIPS.slice(0, 3).map((chip) => (
+                      <div
+                        key={chip.id}
+                        className="flex flex-col gap-2 rounded-xl border border-slate-800/60 bg-slate-950/40 px-3 py-2"
+                      >
+                        <div className="text-[12px] font-semibold text-slate-100">{chip.label}</div>
+                        <p className="text-[11px] text-slate-400 line-clamp-1">{chip.text}</p>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            insertComposerTextWithUndo(chip.text, {
+                              title: "Plantilla insertada",
+                              detail: chip.label,
+                            });
+                            closeDockPanel();
+                          }}
+                          className={inlineActionButtonClass}
+                        >
+                          Insertar en mensaje
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <InlineEmptyState icon="🗂️" title="Sin plantillas para el fan" />
+                )
+              ) : managerPromptTemplate ? (
                 <div className="rounded-xl border border-slate-800/60 bg-slate-950/40 p-3 space-y-2">
                   <div className="text-[11px] font-semibold text-slate-400">Plantilla sugerida</div>
                   <p className="text-[11px] text-slate-200 line-clamp-2">{managerPromptTemplate}</p>
                   <button
                     type="button"
-                    onClick={() => {
-                      insertComposerTextWithUndo(managerPromptTemplate, {
-                        title: "Plantilla insertada",
-                        detail: "Plantilla sugerida",
-                      });
-                      closeDockPanel();
-                    }}
-                    className={inlineActionButtonClass}
+                    onClick={() => handleAskManagerFromDraft(managerPromptTemplate)}
+                    className={managerActionButtonClass}
                   >
-                    Insertar
+                    Insertar en Manager
                   </button>
                 </div>
-              )}
-              {hasQuickTemplates ? (
-                <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-                  {TRANSLATION_QUICK_CHIPS.slice(0, 3).map((chip) => (
-                    <div
-                      key={chip.id}
-                      className="flex flex-col gap-2 rounded-xl border border-slate-800/60 bg-slate-950/40 px-3 py-2"
-                    >
-                      <div className="text-[12px] font-semibold text-slate-100">{chip.label}</div>
-                      <p className="text-[11px] text-slate-400 line-clamp-1">{chip.text}</p>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          insertComposerTextWithUndo(chip.text, {
-                            title: "Plantilla insertada",
-                            detail: chip.label,
-                          });
-                          closeDockPanel();
-                        }}
-                        className={inlineActionButtonClass}
-                      >
-                        Insertar
-                      </button>
-                    </div>
-                  ))}
-                </div>
               ) : (
-                <InlineEmptyState icon="🗂️" title="Sin plantillas disponibles" />
+                <InlineEmptyState icon="🗂️" title="Sin plantillas para el Manager" />
               )}
             </div>
           </InlinePanelShell>
@@ -3109,7 +3708,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
   }, [conversation.id, fanManagerAnalysis.state, fanToneById, id]);
 
   useEffect(() => {
-    if (!isTranslationPreviewAvailable || !translationPreviewOpen) {
+    if (!isTranslationPreviewAvailable || !translationPreviewOpen || !isFanTarget) {
       if (translationPreviewTimer.current) {
         clearTimeout(translationPreviewTimer.current);
       }
@@ -3212,6 +3811,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
     effectiveLanguage,
     id,
     isTranslationPreviewAvailable,
+    isFanTarget,
     messageSend,
     translationPreviewOpen,
   ]);
@@ -3748,17 +4348,66 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
     setManagerSuggestions(suggestions.slice(0, 3));
   }, [fanTone, currentObjective, contactName, fanManagerAnalysis, buildSuggestionsForObjective]);
 
-  const buildInternalContextPrompt = () => {
-    if (!includeInternalContext) return "";
-    if (!recentInternalDrafts.length) return "";
-    return `\n\nContexto interno:\n${recentInternalDrafts.map((line) => `- ${line}`).join("\n")}`;
-  };
+  const buildManagerContextPrompt = useCallback(
+    (options?: { selectedText?: string | null }) => {
+      const name = getFirstName(contactName) || contactName || "este fan";
+      const draftText = messageSend.trim();
+      const followUpSummary = (() => {
+        if (followUpOpen) {
+          const due = splitDueAt(followUpOpen.dueAt ?? null);
+          const dueLabel = due.date ? ` (para ${due.date}${due.time ? ` ${due.time}` : ""})` : "";
+          const note = followUpOpen.note ? ` · ${followUpOpen.note}` : "";
+          return `${followUpOpen.title}${dueLabel}${note}`.trim();
+        }
+        if (conversation.nextAction && conversation.nextAction.trim()) {
+          return conversation.nextAction.trim();
+        }
+        return "Sin seguimiento activo";
+      })();
+      const selectedText = options?.selectedText?.trim() ?? "";
+      const segments = [
+        `Fan: ${name}`,
+        `Perfil del fan: ${normalizedProfileText || "Sin perfil guardado"}`,
+        `Seguimiento activo: ${followUpSummary}`,
+        recentConversationLines.length
+          ? `Últimos mensajes:\n${recentConversationLines.join("\n")}`
+          : "Últimos mensajes: (sin historial reciente)",
+      ];
 
-  const askInternalManager = (question: string, intent?: ManagerQuickIntent, toneOverride?: FanTone) => {
+      if (selectedText) {
+        segments.push(`Texto seleccionado: «${selectedText}»`);
+      }
+
+      segments.push(`Borrador actual: ${draftText || "Sin borrador"}`);
+
+      if (includeInternalContext && recentInternalDrafts.length) {
+        segments.push(`Borradores internos:\n${recentInternalDrafts.map((line) => `- ${line}`).join("\n")}`);
+      }
+
+      return `\n\nContexto:\n${segments.join("\n\n")}`;
+    },
+    [
+      contactName,
+      conversation.nextAction,
+      followUpOpen,
+      includeInternalContext,
+      messageSend,
+      normalizedProfileText,
+      recentConversationLines,
+      recentInternalDrafts,
+    ]
+  );
+
+  const askInternalManager = (
+    question: string,
+    intent?: ManagerQuickIntent,
+    toneOverride?: FanTone,
+    options?: { selectedText?: string | null }
+  ) => {
     if (!id) return;
     const trimmed = question.trim();
     if (!trimmed) return;
-    const contextPrompt = buildInternalContextPrompt();
+    const contextPrompt = buildManagerContextPrompt({ selectedText: options?.selectedText ?? null });
     const promptForManager = `${trimmed}${contextPrompt}`;
     const fanKey = id;
     managerPanelStickToBottomRef.current = true;
@@ -3773,6 +4422,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
       return { ...prev, [fanKey]: [...prevMsgs, creatorMessage] };
     });
     setManagerChatInput("");
+    setManagerSelectedText(null);
     openInternalPanelTab("manager");
     focusManagerComposer(true);
 
@@ -3801,7 +4451,8 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
   };
 
   const handleSendManagerChat = () => {
-    askInternalManager(managerChatInput);
+    askInternalManager(managerChatInput, undefined, undefined, { selectedText: managerSelectedText });
+    setManagerSelectedText(null);
   };
 
   const handleManagerChatKeyDown = (evt: KeyboardEvent<HTMLTextAreaElement>) => {
@@ -4005,9 +4656,50 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
     autoGrowTextarea(messageInputRef.current, MAX_MAIN_COMPOSER_HEIGHT);
   };
 
+  const getLastCreatorMessage = useCallback(() => {
+    for (let i = messages.length - 1; i >= 0; i -= 1) {
+      const msg = messages[i];
+      if (!msg?.me) continue;
+      if (msg.audience === "INTERNAL") continue;
+      if (msg.kind === "content") continue;
+      const text = (msg.message || "").trim();
+      if (!text) continue;
+      return msg;
+    }
+    return null;
+  }, [messages]);
+
+  const getMessageTimestamp = useCallback(
+    (message: ConversationMessage | null) => {
+      const candidate = message?.createdAt ?? lastCreatorMessageAt ?? null;
+      if (!candidate) return null;
+      const ts = new Date(candidate).getTime();
+      if (Number.isNaN(ts)) return null;
+      return ts;
+    },
+    [lastCreatorMessageAt]
+  );
+
+  const getDuplicateWarning = useCallback(
+    (candidate: string) => {
+      const lastMessage = getLastCreatorMessage();
+      if (!lastMessage?.message) return null;
+      const similarity = getNearDuplicateSimilarity(candidate, lastMessage.message);
+      if (similarity < DUPLICATE_SIMILARITY_THRESHOLD) return null;
+      const lastTs = getMessageTimestamp(lastMessage);
+      if (!lastTs) return null;
+      const diffHours = (Date.now() - lastTs) / (1000 * 60 * 60);
+      const isRecent = diffHours <= DUPLICATE_RECENT_HOURS;
+      const isStrictRecent = diffHours <= DUPLICATE_STRICT_HOURS && similarity >= DUPLICATE_STRICT_SIMILARITY;
+      if (!isRecent && !isStrictRecent) return null;
+      return { similarity, lastMessage: lastMessage.message };
+    },
+    [getLastCreatorMessage, getMessageTimestamp]
+  );
+
   async function sendMessageText(
     text: string,
-    audienceMode: ComposerAudienceMode = "CREATOR",
+    audienceMode: MessageAudienceMode = "CREATOR",
     options?: { preserveComposer?: boolean }
   ) {
     if (!id) return;
@@ -4027,6 +4719,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
         me: true,
         message: trimmedMessage,
         time: new Date().toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit", hour12: false }),
+        createdAt: new Date().toISOString(),
         status: "sending",
         kind: "text",
         type: "TEXT",
@@ -4086,7 +4779,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
           scrollToTop: true,
           highlightDraftId: newestInternalId ?? undefined,
         });
-        setComposerAudience("CREATOR");
+        setComposerTarget("fan");
       } else {
         const mapped = mapApiMessagesToState(apiMessages);
         if (mapped.length > 0) {
@@ -4115,18 +4808,72 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
     }
   }
 
-  async function handleSendMessage() {
+  async function sendFanMessage(text: string, options?: { bypassDuplicateCheck?: boolean }) {
     if (isInternalPanelOpen) return;
+    const trimmed = text.trim();
+    if (!trimmed) return;
+    if (!options?.bypassDuplicateCheck) {
+      const duplicate = getDuplicateWarning(trimmed);
+      if (duplicate) {
+        setDuplicateConfirm({ candidate: trimmed });
+        return;
+      }
+    }
     if (isSendingRef.current) return;
     isSendingRef.current = true;
     setIsSending(true);
     try {
-      await sendMessageText(messageSend, composerAudience);
+      await sendMessageText(trimmed, "CREATOR");
     } finally {
       isSendingRef.current = false;
       setIsSending(false);
     }
   }
+
+  async function handleSendMessage() {
+    const trimmed = messageSend.trim();
+    if (!trimmed) return;
+    if (!isFanTarget) {
+      setManagerChatInput(trimmed);
+      setManagerSelectedText(null);
+      setMessageSend("");
+      adjustMessageInputHeight();
+      openInternalPanelTab("manager");
+      focusManagerComposer(true);
+      showInlineAction({
+        kind: "info",
+        title: "Texto listo en Manager IA",
+        detail: "No se envía al fan.",
+        ttlMs: 2000,
+      });
+      return;
+    }
+    await sendFanMessage(trimmed);
+  }
+
+  async function handleConfirmDuplicateSend() {
+    if (!duplicateConfirm?.candidate) return;
+    const candidate = duplicateConfirm.candidate;
+    setDuplicateConfirm(null);
+    await sendFanMessage(candidate, { bypassDuplicateCheck: true });
+  }
+
+  const buildDuplicateRephrasePrompt = (text: string) => {
+    const name = getFirstName(contactName) || contactName || "este fan";
+    return (
+      `Mensaje base: «${text}»\n\n` +
+      `Reformula este mensaje para ${name} con 2 versiones distintas. Cambia el arranque y la estructura.`
+    );
+  };
+
+  const handleDuplicateRephrase = () => {
+    if (!duplicateConfirm?.candidate) return;
+    const candidate = duplicateConfirm.candidate;
+    setDuplicateConfirm(null);
+    askInternalManager(buildDuplicateRephrasePrompt(candidate), undefined, undefined, {
+      selectedText: candidate,
+    });
+  };
 
   async function handleCreatePaymentLink(item: ContentWithFlags) {
     if (!id) return;
@@ -4154,7 +4901,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
       const data = await res.json();
       const url = data?.url;
       if (typeof url === "string" && url.trim().length > 0) {
-        await sendMessageText(`Te dejo aquí el enlace para este pack: ${url}`);
+        await sendFanMessage(`Te dejo aquí el enlace para este pack: ${url}`);
       }
     } catch (err) {
       console.error(err);
@@ -4199,69 +4946,146 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
 
   function handleOfferPack(level: "monthly" | "special") {
     const text = level === "monthly" ? PACK_MONTHLY_UPSELL_TEXT : PACK_ESPECIAL_UPSELL_TEXT;
-    sendMessageText(text);
+    void sendFanMessage(text);
     setShowContentModal(false);
     setSelectedContentIds([]);
   }
 
-  function buildNextActionPayload() {
-    const text = nextActionDraft.trim();
-    const date = nextActionDate.trim();
-    const time = nextActionTime.trim();
-    if (!text && !date && !time) return null;
-    if (date) {
-      const suffix = time ? ` ${time}` : "";
-      return `${text || "Seguimiento"} (para ${date}${suffix})`.trim();
-    }
-    return text || null;
+  async function saveFanProfile(content: string) {
+    if (!id) return null;
+    const res = await fetch("/api/fans/profile", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ fanId: id, profileText: content }),
+    });
+    if (!res.ok) return null;
+    const data = await res.json().catch(() => ({}));
+    if (!data?.ok) return null;
+    return typeof data.profileText === "string" ? data.profileText : "";
   }
 
-  async function handleAddNote() {
+  async function upsertFollowUp(payload: { title: string; date: string; time: string }) {
+    if (!id) return null;
+    const res = await fetch("/api/fans/follow-up", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ fanId: id, title: payload.title, date: payload.date, time: payload.time }),
+    });
+    if (!res.ok) return null;
+    const data = await res.json().catch(() => ({}));
+    return data.followUp ?? null;
+  }
+
+  async function clearFollowUp() {
+    if (!id) return false;
+    const res = await fetch("/api/fans/follow-up/delete", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ fanId: id }),
+    });
+    return res.ok;
+  }
+
+  async function completeFollowUp() {
+    if (!id) return false;
+    const res = await fetch("/api/fans/follow-up/done", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ fanId: id }),
+    });
+    return res.ok;
+  }
+
+  async function handleSaveProfile() {
     if (!id) return;
-    const content = noteDraft.trim();
-    const nextActionPayload = buildNextActionPayload();
+    const content = profileDraft.trim();
+    if (content === normalizedProfileText) return;
     try {
-      // Update next action first
-      const resNext = await fetch("/api/fans/next-action", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ fanId: id, nextAction: nextActionPayload || null }),
-      });
-      if (!resNext.ok) {
-        console.error("Error guardando próxima acción");
-        setNotesError("Error guardando próxima acción");
+      const nextProfile = await saveFanProfile(content);
+      if (nextProfile === null) {
+        setProfileError("Error guardando perfil");
         return;
       }
-
-      if (content) {
-        const res = await fetch("/api/fan-notes", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ fanId: id, content }),
-        });
-        if (!res.ok) {
-          console.error("Error guardando nota");
-          setNotesError("Error guardando nota");
-          return;
-        }
-        const data = await res.json();
-        if (data.note) {
-          setNotes((prev) => [data.note as FanNote, ...prev]);
-          setNoteDraft("");
-          setNotesError("");
-        }
-      }
-
+      setProfileText(nextProfile);
+      profileDraftEditedRef.current = false;
+      setProfileError("");
+      showComposerToast("Perfil actualizado");
       await refreshFanData(id);
-      // sincroniza contadores y próxima acción en la conversación actual
-      setConversation({
-        ...conversation,
-        notesCount: (conversation.notesCount ?? 0) + (content ? 1 : 0),
-        nextAction: nextActionPayload || null,
-      });
     } catch (err) {
-      console.error("Error guardando nota", err);
-      setNotesError("Error guardando nota");
+      console.error("Error guardando perfil", err);
+      setProfileError("Error guardando perfil");
+    }
+  }
+
+  async function handleSaveNextAction() {
+    if (!id) return;
+    const title = nextActionDraft.trim();
+    const date = nextActionDate.trim();
+    const time = nextActionTime.trim();
+    if (!title) {
+      setFollowUpError("Escribe el seguimiento antes de guardar.");
+      nextActionInputRef.current?.focus();
+      return;
+    }
+    try {
+      const followUp = await upsertFollowUp({ title, date, time });
+      if (!followUp) {
+        setFollowUpError("Error guardando seguimiento");
+        return;
+      }
+      setFollowUpOpen(followUp);
+      setFollowUpError("");
+      showComposerToast("Seguimiento guardado");
+      await refreshFanData(id);
+    } catch (err) {
+      console.error("Error guardando seguimiento", err);
+      setFollowUpError("Error guardando seguimiento");
+    }
+  }
+
+  async function handleClearNextAction() {
+    try {
+      const ok = await clearFollowUp();
+      if (!ok) {
+        setFollowUpError("Error borrando seguimiento");
+        return;
+      }
+      setNextActionDraft("");
+      setNextActionDate("");
+      setNextActionTime("");
+      setFollowUpOpen(null);
+      setFollowUpError("");
+      showComposerToast("Seguimiento borrado");
+      if (id) {
+        await refreshFanData(id);
+        await fetchFollowUpHistory(id);
+      }
+    } catch (err) {
+      console.error("Error borrando seguimiento", err);
+      setFollowUpError("Error borrando seguimiento");
+    }
+  }
+
+  async function handleArchiveNextAction() {
+    if (!id) return;
+    if (!nextActionDraft.trim() && !nextActionDate.trim() && !nextActionTime.trim() && !followUpOpen) return;
+    try {
+      const ok = await completeFollowUp();
+      if (!ok) {
+        setFollowUpError("Error archivando seguimiento");
+        return;
+      }
+      setNextActionDraft("");
+      setNextActionDate("");
+      setNextActionTime("");
+      setFollowUpOpen(null);
+      setFollowUpError("");
+      showComposerToast("Seguimiento archivado");
+      await refreshFanData(id);
+      await fetchFollowUpHistory(id);
+    } catch (err) {
+      console.error("Error archivando seguimiento", err);
+      setFollowUpError("Error archivando seguimiento");
     }
   }
 
@@ -4344,7 +5168,6 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
   const languageBadgeLabel =
     !conversation.isManager && preferredLanguage ? preferredLanguage.toUpperCase() : null;
   const languageSelectValue = preferredLanguage ?? "auto";
-  const isInternalMode = composerAudience === "INTERNAL";
   const isInternalPanelOpen = managerPanelOpen && managerPanelTab === "manager";
 
   useEffect(() => {
@@ -4360,18 +5183,19 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
   const sendDisabled =
     isSending ||
     !(messageSend.trim().length > 0) ||
-    (isChatBlocked && !isInternalMode) ||
-    isInternalPanelOpen;
-  const composerPlaceholder = isChatBlocked && !isInternalMode
+    isInternalPanelOpen ||
+    (isFanTarget && isChatBlocked);
+  const composerPlaceholder = isChatBlocked && isFanTarget
     ? "Has bloqueado este chat. Desbloquéalo para volver a escribir."
-    : isInternalMode
-    ? "Mensaje interno..."
-    : "Mensaje al fan...";
+    : isFanTarget
+    ? "Mensaje al fan..."
+    : "Pregúntale al Manager…";
   const mainComposerPlaceholder = isInternalPanelOpen
     ? "Panel interno abierto. Usa el chat interno…"
     : composerPlaceholder;
-  const composerActionLabel = isInternalMode ? "Enviar interno" : "Enviar a FAN";
-  const canAttachContent = !isInternalMode && !isChatBlocked && !isInternalPanelOpen;
+  const composerActionLabel = isFanTarget ? "Enviar a FAN" : "Enviar al Manager";
+  const canAttachContent = isFanTarget && !isChatBlocked && !isInternalPanelOpen;
+  const nextActionStatus = getFollowUpStatusFromDate(nextActionDate);
   const extrasCountDisplay = conversation.extrasCount ?? 0;
   const extrasSpentDisplay = Math.round(conversation.extrasSpentTotal ?? 0);
   const extrasAmount = conversation.extrasSpentTotal ?? 0;
@@ -4691,19 +5515,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
 
   const handleSendLinkFromManager = () => {
     closeInlinePanel();
-    if (conversation.isManager) {
-      if (process.env.NODE_ENV !== "production") {
-        console.trace("SET_INTERNAL", {
-          from: "ConversationDetails/index.tsx:4602",
-          reason: "manager send link",
-        });
-      }
-      setComposerAudience("INTERNAL");
-    } else if (composerAudience !== "CREATOR") {
-      handleComposerAudienceChange("CREATOR");
-    } else {
-      setComposerAudience("CREATOR");
-    }
+    setComposerTarget("fan");
     handleSubscriptionLink({ focus: true });
   };
 
@@ -4754,9 +5566,10 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
   if (!conversation.isHighPriority) {
     statusTags.push(`${Math.round(lifetimeAmount)} €`);
   }
-  if (conversation.nextAction) {
-    const shortNext = conversation.nextAction.length > 60 ? `${conversation.nextAction.slice(0, 57)}…` : conversation.nextAction;
-    statusTags.push(`Próxima acción: ${shortNext}`);
+  if (followUpOpen?.title || conversation.nextAction) {
+    const baseText = followUpOpen?.title ?? conversation.nextAction ?? "";
+    const shortNext = baseText.length > 60 ? `${baseText.slice(0, 57)}…` : baseText;
+    statusTags.push(`Seguimiento: ${shortNext}`);
   }
   const statusLine = statusTags.join(" · ");
   const tierLabels: Record<number, string> = {
@@ -4929,6 +5742,21 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
                 {conversation.isHighPriority ? "📌 Alta" : "Extras"}
               </span>
             )}
+            {nextActionStatus && (
+              <span
+                className={clsx(
+                  "inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-semibold",
+                  nextActionStatus.tone === "overdue" &&
+                    "border-rose-400/70 bg-rose-500/15 text-rose-100",
+                  nextActionStatus.tone === "today" &&
+                    "border-amber-400/70 bg-amber-500/15 text-amber-100",
+                  nextActionStatus.tone === "tomorrow" &&
+                    "border-sky-400/70 bg-sky-500/15 text-sky-100"
+                )}
+              >
+                ⚡ {nextActionStatus.label}
+              </span>
+            )}
           </div>
         </header>
       )}
@@ -4998,7 +5826,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
                       className="flex w-full items-center px-3 py-2 text-sm text-slate-100 hover:bg-slate-800 transition"
                       onClick={handleOpenNotesPanel}
                     >
-                      Notas
+                      Perfil + seguimiento
                     </button>
                     <button
                       type="button"
@@ -5077,6 +5905,21 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
                 Extras
               </span>
             )}
+            {nextActionStatus && (
+              <span
+                className={clsx(
+                  "inline-flex items-center rounded-full border px-3 py-1 text-[11px] font-semibold whitespace-nowrap",
+                  nextActionStatus.tone === "overdue" &&
+                    "border-rose-400/70 bg-rose-500/15 text-rose-100",
+                  nextActionStatus.tone === "today" &&
+                    "border-amber-400/70 bg-amber-500/15 text-amber-100",
+                  nextActionStatus.tone === "tomorrow" &&
+                    "border-sky-400/70 bg-sky-500/15 text-sky-100"
+                )}
+              >
+                ⚡ {nextActionStatus.label}
+              </span>
+            )}
           </div>
 
           {/* Piso 3 */}
@@ -5092,9 +5935,9 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
               </span>
             </div>
             <div className="md:col-span-2 flex items-start gap-1 min-w-0">
-              <span className="text-slate-400">Próxima acción:</span>
+              <span className="text-slate-400">Seguimiento:</span>
               <span className="min-w-0 line-clamp-1 md:line-clamp-2 text-slate-200">
-                {conversation.nextAction ? conversation.nextAction : "Sin próxima acción"}
+                {followUpOpen?.title || conversation.nextAction || "Sin seguimiento definido"}
               </span>
             </div>
           </div>
@@ -5183,8 +6026,10 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
                   · {Math.round(recommendedFan.lifetimeValue ?? 0)} € · {recommendedFan.notesCount ?? 0} nota
                   {(recommendedFan.notesCount ?? 0) === 1 ? "" : "s"}
                 </span>
-                {recommendedFan.nextAction && (
-                  <span className="text-[11px] text-slate-400 truncate">Próx.: {recommendedFan.nextAction}</span>
+                {(recommendedFan.followUpOpen?.title || recommendedFan.nextAction) && (
+                  <span className="text-[11px] text-slate-400 truncate">
+                    Seguimiento: {recommendedFan.followUpOpen?.title || recommendedFan.nextAction}
+                  </span>
                 )}
               </>
             )}
@@ -5375,13 +6220,16 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
                     translatedText={translatedText}
                     badge={isInternalMessage ? "INTERNO" : undefined}
                     variant={isInternalMessage ? "internal" : "default"}
+                    onContextMenu={(event) => handleMessageContextMenu(event, message)}
                   />
                   {messageConversation.status === "failed" && (
                     <div className="flex justify-end">
                       <button
                         type="button"
                         className="text-[11px] text-rose-300 hover:text-rose-200 underline"
-                        onClick={() => sendMessageText(messageConversation.message)}
+                        onClick={() => {
+                          void sendFanMessage(messageConversation.message);
+                        }}
                       >
                         Reintentar
                       </button>
@@ -5711,7 +6559,9 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
                 placeholder={mainComposerPlaceholder}
                 actionLabel={composerActionLabel}
                 audience={composerAudience}
-                onAudienceChange={handleComposerAudienceChange}
+                onAudienceChange={(mode) => {
+                  setComposerTarget(mode === "CREATOR" ? "fan" : "manager");
+                }}
                 canAttach={canAttachContent}
                 onAttach={() => {
                   if (!canAttachContent) return;
@@ -5721,6 +6571,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
                 maxHeight={MAX_MAIN_COMPOSER_HEIGHT}
                 isChatBlocked={isChatBlocked}
                 isInternalPanelOpen={isInternalPanelOpen}
+                showAudienceToggle
               />
             </div>
           </div>
@@ -5728,6 +6579,111 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
         </div>
         </div>
       </div>
+      {selectionToolbar && (
+        <div
+          className="fixed inset-0 z-40 pointer-events-none"
+          onContextMenu={(event) => event.preventDefault()}
+        >
+          <div
+            ref={selectionToolbarRef}
+            className="absolute pointer-events-auto"
+            style={{
+              left: selectionToolbar.x,
+              top: selectionToolbar.y,
+              maxWidth: selectionToolbar.maxWidth,
+            }}
+            onPointerDown={handleToolbarPointerDown}
+          >
+            <div
+              className={clsx(
+                "flex items-center gap-2 rounded-full border border-slate-800/80 bg-slate-950/95 px-3 py-2 shadow-xl",
+                "whitespace-nowrap overflow-x-auto",
+                "[-ms-overflow-style:'none'] [scrollbar-width:'none'] [&::-webkit-scrollbar]:hidden"
+              )}
+            >
+              <button
+                type="button"
+                onClick={handleSelectionQuote}
+                onPointerDown={handleToolbarPointerDown}
+                className="inline-flex items-center gap-1 rounded-full border border-slate-700/80 bg-slate-900/70 px-3 py-1 text-[11px] font-semibold text-slate-100 hover:bg-slate-800/70"
+              >
+                Citar al Manager
+              </button>
+              <button
+                type="button"
+                onClick={handleSelectionRephrase}
+                onPointerDown={handleToolbarPointerDown}
+                className="inline-flex items-center gap-1 rounded-full border border-slate-700/80 bg-slate-900/70 px-3 py-1 text-[11px] font-semibold text-slate-100 hover:bg-slate-800/70"
+              >
+                Reformular
+              </button>
+              <button
+                type="button"
+                onClick={handleSelectionCopy}
+                onPointerDown={handleToolbarPointerDown}
+                className="inline-flex items-center gap-1 rounded-full border border-slate-700/80 bg-slate-900/70 px-3 py-1 text-[11px] font-semibold text-slate-100 hover:bg-slate-800/70"
+              >
+                Copiar
+              </button>
+              <button
+                type="button"
+                onClick={handleSelectionSaveProfile}
+                onPointerDown={handleToolbarPointerDown}
+                className="inline-flex items-center gap-1 rounded-full border border-amber-400/70 bg-amber-500/10 px-3 py-1 text-[11px] font-semibold text-amber-100 hover:bg-amber-500/20"
+              >
+                Guardar en Perfil
+              </button>
+              <button
+                type="button"
+                onClick={handleSelectionCreateFollowUp}
+                onPointerDown={handleToolbarPointerDown}
+                className="inline-flex items-center gap-1 rounded-full border border-emerald-400/70 bg-emerald-500/10 px-3 py-1 text-[11px] font-semibold text-emerald-100 hover:bg-emerald-500/20"
+              >
+                Crear seguimiento
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {messageContextMenu && !selectionToolbar?.text && (
+        <div
+          className="fixed inset-0 z-50"
+          onClick={closeMessageContextMenu}
+          onContextMenu={(event) => {
+            event.preventDefault();
+            closeMessageContextMenu();
+          }}
+        >
+          <div
+            className="absolute w-72 rounded-xl border border-slate-800/80 bg-slate-950/95 p-2 shadow-2xl"
+            style={{ left: messageContextMenu.x, top: messageContextMenu.y }}
+            onClick={(event) => event.stopPropagation()}
+            onContextMenu={(event) => event.preventDefault()}
+          >
+            <button
+              type="button"
+              onClick={handleContextMenuQuote}
+              className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-[12px] font-semibold text-slate-100 transition hover:bg-slate-800/70"
+            >
+              Citar al Manager
+            </button>
+            <button
+              type="button"
+              onClick={handleContextMenuRephrase}
+              className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-[12px] font-semibold text-slate-100 transition hover:bg-slate-800/70"
+            >
+              Reformular para enviar al fan (sin vender agresivo)
+            </button>
+            <button
+              type="button"
+              onClick={handleContextMenuCopy}
+              className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-[12px] font-semibold text-slate-100 transition hover:bg-slate-800/70"
+            >
+              Copiar texto
+            </button>
+          </div>
+        </div>
+      )}
       {showContentModal && (
         <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 px-4">
           <div className="w-full max-w-lg rounded-2xl bg-slate-900 p-6 border border-slate-800 shadow-xl">
@@ -6124,6 +7080,39 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
           </div>
         </div>
       )}
+      {duplicateConfirm && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 px-4">
+          <div className="w-full max-w-sm rounded-2xl border border-slate-800 bg-slate-900 p-6 shadow-xl">
+            <h3 className="text-lg font-semibold text-white">Este mensaje se parece mucho al anterior</h3>
+            <p className="mt-2 text-sm text-slate-300">
+              Puede sonar repetido. ¿Quieres enviarlo igualmente?
+            </p>
+            <div className="mt-4 flex items-center justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setDuplicateConfirm(null)}
+                className="rounded-full border border-slate-700 bg-slate-900/60 px-4 py-2 text-sm font-semibold text-slate-200 hover:border-slate-500/80 hover:bg-slate-800/70"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={handleDuplicateRephrase}
+                className="rounded-full border border-amber-400/70 bg-amber-500/10 px-4 py-2 text-sm font-semibold text-amber-100 hover:bg-amber-500/20"
+              >
+                Reformular para variar
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmDuplicateSend}
+                className="rounded-full border border-emerald-500/60 bg-emerald-600/20 px-4 py-2 text-sm font-semibold text-emerald-100 hover:bg-emerald-600/30"
+              >
+                Enviar igual
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       {showQuickSheet && (
         <div className="fixed inset-0 z-40 flex items-end justify-center bg-slate-950/60 backdrop-blur-sm">
           <div className="w-full max-w-md rounded-t-3xl bg-slate-900 border border-slate-700 shadow-xl p-5 space-y-5">
@@ -6208,9 +7197,9 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
               </div>
               {preferredLanguageError && <p className="text-xs text-rose-300">{preferredLanguageError}</p>}
               <div className="flex flex-col gap-1 rounded-xl border border-slate-800 bg-slate-900/70 px-3 py-2">
-                <span className="text-slate-400 text-xs">Próxima acción</span>
+                <span className="text-slate-400 text-xs">Seguimiento</span>
                 <span className="text-slate-50 text-sm leading-snug">
-                  {conversation.nextAction ? conversation.nextAction : "Sin próxima acción definida"}
+                  {followUpOpen?.title || conversation.nextAction || "Sin seguimiento definido"}
                 </span>
               </div>
             </div>
@@ -6221,7 +7210,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
                 onClick={handleOpenNotesFromSheet}
                 className="rounded-full border border-slate-600 bg-slate-900 px-4 py-2 text-sm font-medium text-slate-50 hover:bg-slate-800"
               >
-                Abrir notas
+                Perfil + seguimiento
               </button>
               <button
                 type="button"
