@@ -14,13 +14,14 @@
     "clean": "node scripts/clean-next.js",
     "clean:next": "node scripts/clean-next.js",
     "build": "next build",
-    "start": "next start",
-    "lint": "next lint"
+    "start": "next start"
   },
   "prisma": {
     "seed": "node --experimental-strip-types prisma/seed.ts"
   },
   "dependencies": {
+    "@emoji-mart/data": "^1.2.1",
+    "@emoji-mart/react": "^1.1.1",
     "@prisma/client": "6.19.0",
     "clsx": "^2.1.1",
     "date-fns": "^4.1.0",

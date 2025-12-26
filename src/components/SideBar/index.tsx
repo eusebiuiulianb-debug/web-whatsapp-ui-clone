@@ -264,6 +264,8 @@ function SideBarInner() {
         fan.daysLeft
       ),
       notesCount: fan.notesCount ?? 0,
+      profileText: fan.profileText ?? null,
+      followUpOpen: fan.followUpOpen ?? null,
       paidGrantsCount: fan.paidGrantsCount ?? 0,
       lifetimeValue: fan.lifetimeValue ?? 0,
       extrasCount: fan.extrasCount ?? 0,
@@ -317,9 +319,17 @@ function SideBarInner() {
         "extrasCount",
         "extrasSpentTotal",
         "notesCount",
+        "nextAction",
       ];
       const changed = fields.some((field) => (prevFan as any)?.[field] !== (fan as any)?.[field]);
       if (changed) return true;
+      const prevFollowUp = prevFan.followUpOpen;
+      const nextFollowUp = fan.followUpOpen;
+      const followUpChanged =
+        (prevFollowUp?.updatedAt ?? null) !== (nextFollowUp?.updatedAt ?? null) ||
+        (prevFollowUp?.status ?? null) !== (nextFollowUp?.status ?? null) ||
+        (prevFollowUp?.dueAt ?? null) !== (nextFollowUp?.dueAt ?? null);
+      if (followUpChanged) return true;
     }
     return false;
   }, []);
@@ -431,7 +441,9 @@ function SideBarInner() {
     const isHighPriority = fan.isHighPriority === true;
     const hasUnread = (fan.unreadCount ?? 0) > 0;
     const extrasSignal = hasExtrasSignal(fan);
-    const hasNextAction = Boolean(fan.nextAction && fan.nextAction.trim().length > 0);
+    const hasNextAction = Boolean(
+      fan.followUpOpen || (fan.nextAction && fan.nextAction.trim().length > 0)
+    );
 
     return {
       followUpTag,
@@ -869,8 +881,9 @@ function SideBarInner() {
         .filter((fan) => (!onlyWithExtras ? true : (fan.extrasSpentTotal ?? 0) > 0))
         .filter((fan) => {
           if (!onlyWithFollowUp) return true;
-          const tag = fan.followUpTag ?? getFollowUpTag(fan.membershipStatus, fan.daysLeft, fan.activeGrantTypes);
-          return tag && tag !== "none";
+          return Boolean(
+            fan.followUpOpen || (fan.nextAction && fan.nextAction.trim().length > 0)
+          );
         })
         .filter((fan) => {
           const tag = fan.followUpTag ?? getFollowUpTag(fan.membershipStatus, fan.daysLeft, fan.activeGrantTypes);

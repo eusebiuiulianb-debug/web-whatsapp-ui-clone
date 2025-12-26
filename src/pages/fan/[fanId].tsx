@@ -16,6 +16,7 @@ import { useIsomorphicLayoutEffect } from "../../hooks/useIsomorphicLayoutEffect
 import { getFanDisplayName } from "../../utils/fanDisplayName";
 import { isVisibleToFan } from "../../lib/messageAudience";
 import { inferPreferredLanguage, LANGUAGE_LABELS, normalizePreferredLanguage, type SupportedLanguage } from "../../lib/language";
+import { getStickerById } from "../../lib/emoji/stickers";
 
 type ApiContentItem = {
   id: string;
@@ -38,7 +39,8 @@ type ApiMessage = {
   creatorTranslatedText?: string | null;
   time?: string | null;
   isLastFromCreator?: boolean | null;
-  type?: "TEXT" | "CONTENT";
+  type?: "TEXT" | "CONTENT" | "STICKER";
+  stickerId?: string | null;
   contentItem?: ApiContentItem | null;
   status?: "sending" | "failed" | "sent";
 };
@@ -470,8 +472,14 @@ export default function FanChatPage({ includedContent, initialAccessSummary }: F
               if (isContent) {
                 return <ContentCard key={msg.id} message={msg} />;
               }
+              const isSticker = msg.type === "STICKER";
+              const sticker = isSticker ? getStickerById(msg.stickerId ?? null) : null;
               const displayText =
-                msg.from === "creator" ? (msg.deliveredText ?? msg.text ?? "") : msg.text ?? "";
+                isSticker
+                  ? ""
+                  : msg.from === "creator"
+                  ? (msg.deliveredText ?? msg.text ?? "")
+                  : msg.text ?? "";
               return (
                 <MessageBalloon
                   key={msg.id}
@@ -480,6 +488,8 @@ export default function FanChatPage({ includedContent, initialAccessSummary }: F
                   seen={!!msg.isLastFromCreator}
                   time={msg.time || undefined}
                   status={msg.status}
+                  stickerSrc={isSticker ? sticker?.src ?? null : null}
+                  stickerAlt={isSticker ? sticker?.label || "Sticker" : null}
                 />
               );
             })}

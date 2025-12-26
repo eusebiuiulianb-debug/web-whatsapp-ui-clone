@@ -12,8 +12,11 @@ interface Message {
   time?: string;
   createdAt?: string;
   status?: "sending" | "failed" | "sent";
-  kind?: "text" | "content";
-  type?: "TEXT" | "CONTENT";
+  kind?: "text" | "content" | "sticker";
+  type?: "TEXT" | "CONTENT" | "STICKER";
+  stickerId?: string | null;
+  stickerSrc?: string | null;
+  stickerAlt?: string | null;
   contentItem?: {
     id: string;
     title: string;
@@ -45,6 +48,8 @@ interface Conversation {
   followUpTag?: FollowUpTag;
   lastCreatorMessageAt?: string | null;
   notesCount?: number;
+  profileText?: string | null;
+  followUpOpen?: FanFollowUp | null;
   urgencyLevel?: UrgencyLevel;
   paidGrantsCount?: number;
   lifetimeValue?: number;
@@ -122,6 +127,8 @@ interface ConversationListData {
   followUpTag?: FollowUpTag;
   lastCreatorMessageAt?: string | null;
   notesCount?: number;
+  profileText?: string | null;
+  followUpOpen?: FanFollowUp | null;
   urgencyLevel?: UrgencyLevel;
   paidGrantsCount?: number;
   lifetimeValue?: number;
@@ -174,6 +181,17 @@ interface ConversationListData {
   firstUtmCampaign?: string | null;
   firstUtmContent?: string | null;
   firstUtmTerm?: string | null;
+}
+
+interface FanFollowUp {
+  id: string;
+  title: string;
+  note?: string | null;
+  dueAt?: string | null;
+  status: "OPEN" | "DONE" | "DELETED";
+  createdAt?: string | null;
+  updatedAt?: string | null;
+  doneAt?: string | null;
 }
 
 export type { Message, Conversation, ConversationListData }

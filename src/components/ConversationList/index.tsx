@@ -117,14 +117,24 @@ export default function ConversationList(props: ConversationListProps) {
   const segment = (data.segment || "").toUpperCase();
   const customerTier = (data.customerTier ?? "new") as "new" | "regular" | "vip" | "priority";
   const lifetimeValue = data.lifetimeSpend ?? data.lifetimeValue ?? 0; // usar siempre el gasto total acumulado
-  const hasNextAction = typeof data.nextAction === "string" && data.nextAction.trim().length > 0;
+  const followUpOpen = data.followUpOpen ?? null;
+  const followUpTitle = followUpOpen?.title ?? null;
+  const followUpNote = followUpOpen?.note ?? null;
+  const followUpDueAt = followUpOpen?.dueAt ?? null;
+  const hasNextAction = Boolean(
+    followUpOpen ||
+      (typeof data.nextAction === "string" && data.nextAction.trim().length > 0)
+  );
   const lastNoteSummary = data.lastNoteSummary ?? data.lastNoteSnippet ?? null;
-  const nextActionSummary = data.nextActionSummary ?? data.nextActionSnippet ?? null;
+  const nextActionSummary = followUpNote ?? data.nextActionSummary ?? data.nextActionSnippet ?? null;
   const nextActionTooltip = nextActionSummary
     ? shorten(nextActionSummary, 100)
+    : followUpTitle
+    ? shorten(followUpTitle, 100)
     : data.nextAction
     ? shorten(data.nextAction, 100)
     : "";
+  const nextActionStatus = getFollowUpStatusFromDate(followUpDueAt) ?? getNextActionStatus(data.nextAction ?? null);
   const novsyStatus = (data as any).novsyStatus ?? null;
   const preferredLanguage = normalizePreferredLanguage(data.preferredLanguage);
   const languageBadgeLabel = !isManagerChat && preferredLanguage ? preferredLanguage.toUpperCase() : null;
@@ -167,6 +177,28 @@ export default function ConversationList(props: ConversationListProps) {
     const trimmed = text.trim();
     if (trimmed.length <= max) return trimmed;
     return trimmed.slice(0, max - 1) + "…";
+  }
+
+  function getNextActionStatus(nextAction?: string | null) {
+    if (!nextAction) return null;
+    const match = nextAction.match(/\(para\s+(\d{4}-\d{2}-\d{2})(?:\s+\d{2}:\d{2})?\)/i);
+    const dateStr = match?.[1];
+    if (!dateStr) return null;
+    return getFollowUpStatusFromDate(dateStr);
+  }
+
+  function getFollowUpStatusFromDate(dateStr?: string | null) {
+    if (!dateStr) return null;
+    const target = dateStr.includes("T") ? new Date(dateStr) : new Date(`${dateStr}T00:00:00`);
+    if (Number.isNaN(target.getTime())) return null;
+    const now = new Date();
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const targetDay = new Date(target.getFullYear(), target.getMonth(), target.getDate());
+    const diffDays = Math.round((targetDay.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+    if (diffDays < 0) return { label: "Atrasado", tone: "overdue" as const };
+    if (diffDays === 0) return { label: "Hoy", tone: "today" as const };
+    if (diffDays === 1) return { label: "Mañana", tone: "tomorrow" as const };
+    return null;
   }
 
   function getAccessChipLabel() {
@@ -252,6 +284,22 @@ export default function ConversationList(props: ConversationListProps) {
                   {followUpTag === "trial_soon" && `Prueba · ${daysLeft ?? ""} d`}
                   {followUpTag === "monthly_soon" && `Renueva en ${daysLeft ?? ""} d`}
                   {followUpTag === "expired" && "Caducado"}
+                </span>
+              )}
+              {nextActionStatus && (
+                <span
+                  className={clsx(
+                    "inline-flex items-center rounded-full px-2.5 py-1 text-[11px] font-semibold whitespace-nowrap shrink-0",
+                    nextActionStatus.tone === "overdue" &&
+                      "border border-rose-400/70 bg-rose-500/15 text-rose-100",
+                    nextActionStatus.tone === "today" &&
+                      "border border-amber-400/70 bg-amber-500/15 text-amber-100",
+                    nextActionStatus.tone === "tomorrow" &&
+                      "border border-sky-400/70 bg-sky-500/15 text-sky-100"
+                  )}
+                  title={nextActionTooltip}
+                >
+                  ⚡ {nextActionStatus.label}
                 </span>
               )}
             </div>

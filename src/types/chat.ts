@@ -35,6 +35,8 @@ export interface Fan {
   lastSeenAt?: string | null;
   lastCreatorMessageAt?: string | null;
   notesCount?: number;
+  profileText?: string | null;
+  followUpOpen?: FanFollowUp | null;
   followUpTag?: FollowUpTag;
   urgencyLevel?: UrgencyLevel;
   paidGrantsCount?: number;
@@ -88,6 +90,17 @@ export interface Fan {
   firstUtmTerm?: string | null;
 }
 
+export interface FanFollowUp {
+  id: string;
+  title: string;
+  note?: string | null;
+  dueAt?: string | null;
+  status: "OPEN" | "DONE" | "DELETED";
+  createdAt?: string | null;
+  updatedAt?: string | null;
+  doneAt?: string | null;
+}
+
 export interface Message {
   id: string;
   fanId: string;
@@ -98,7 +111,8 @@ export interface Message {
   creatorTranslatedText?: string | null;
   time: string;
   isLastFromCreator?: boolean;
-  type?: "TEXT" | "CONTENT";
+  type?: "TEXT" | "CONTENT" | "STICKER";
+  stickerId?: string | null;
   contentItem?: {
     id: string;
     title: string;

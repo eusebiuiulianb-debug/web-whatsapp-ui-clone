@@ -45,6 +45,8 @@ import { track } from "../../lib/analyticsClient";
 import { ANALYTICS_EVENTS } from "../../lib/analyticsEvents";
 import { deriveAudience, isVisibleToFan, normalizeFrom } from "../../lib/messageAudience";
 import { getNearDuplicateSimilarity } from "../../lib/text/isNearDuplicate";
+import { getStickerById } from "../../lib/emoji/stickers";
+import type { StickerItem } from "../../lib/emoji/stickers";
 import {
   DB_SCHEMA_OUT_OF_SYNC_FIX,
   DB_SCHEMA_OUT_OF_SYNC_MESSAGE,
@@ -55,9 +57,34 @@ import { LANGUAGE_LABELS, SUPPORTED_LANGUAGES, normalizePreferredLanguage, type 
 import clsx from "clsx";
 import { useRouter } from "next/router";
 import { useIsomorphicLayoutEffect } from "../../hooks/useIsomorphicLayoutEffect";
+import Image from "next/image";
 
 type ManagerQuickIntent = ManagerObjective;
 type ManagerSuggestionIntent = "romper_hielo" | "pregunta_simple" | "cierre_suave" | "upsell_mensual_suave";
+type SuggestionVariantMode = "alternate" | "shorter";
+type DraftVariantMode = "alternate" | "shorter" | "softer" | "bolder";
+type DraftSource = "reformular" | "citar" | "autosuggest";
+type DraftCard = {
+  id: string;
+  text: string;
+  label: string;
+  source: DraftSource;
+  createdAt: string;
+  tone?: FanTone | null;
+  objective?: ManagerObjective | null;
+  selectedText?: string | null;
+  basePrompt?: string | null;
+};
+type FanTemplateTone = "suave" | "intimo" | "picante" | "any";
+type FanTemplateCategory = "greeting" | "question" | "closing";
+type FanTemplateItem = {
+  id: string;
+  title: string;
+  text: string;
+  tone?: FanTemplateTone;
+};
+type FanTemplatePools = Record<FanTemplateCategory, FanTemplateItem[]>;
+type FanTemplateSelection = Record<FanTemplateCategory, string | null>;
 type ComposerTarget = "fan" | "manager";
 type MessageAudienceMode = "CREATOR" | "INTERNAL";
 type InlineTab = "templates" | "tools" | "manager";
@@ -92,12 +119,131 @@ const CONTENT_PACKS = [
   { code: "MONTHLY" as const, label: "Suscripción mensual" },
   { code: "SPECIAL" as const, label: "Pack especial pareja" },
 ] as const;
-const TRANSLATION_QUICK_CHIPS = [
-  { id: "greeting", label: "Saludo corto", text: "Hola, ¿qué tal estás?" },
-  { id: "question", label: "Pregunta simple", text: "¿Cómo ha ido tu día?" },
-  { id: "closing", label: "Cierre suave", text: "Cuando quieras seguimos, estoy aquí." },
-] as const;
+const FAN_TEMPLATE_CATEGORIES: { id: FanTemplateCategory; label: string }[] = [
+  { id: "greeting", label: "Saludo corto" },
+  { id: "question", label: "Pregunta simple" },
+  { id: "closing", label: "Cierre suave" },
+];
+const FAN_TEMPLATE_CATEGORY_LABELS: Record<FanTemplateCategory, string> = {
+  greeting: "Saludo corto",
+  question: "Pregunta simple",
+  closing: "Cierre suave",
+};
+const EMPTY_DRAFTS: DraftCard[] = [];
+const LOCAL_FAN_TEMPLATE_POOLS: FanTemplatePools = {
+  greeting: [
+    { id: "greet-suave-1", title: "Saludo corto", text: "Hola, ¿cómo estás?", tone: "suave" },
+    { id: "greet-suave-2", title: "Saludo cálido", text: "Hola, ¿qué tal va tu día?", tone: "suave" },
+    { id: "greet-suave-3", title: "Saludo amable", text: "Hola, me alegra verte por aquí.", tone: "suave" },
+    { id: "greet-intimo-1", title: "Saludo íntimo", text: "Hola, tenía ganas de leerte. ¿Cómo estás?", tone: "intimo" },
+    { id: "greet-intimo-2", title: "Saludo cercano", text: "Ey, qué gusto verte. ¿Cómo te sientes hoy?", tone: "intimo" },
+    { id: "greet-intimo-3", title: "Saludo suave", text: "Hola, aquí contigo. ¿Qué te apetece?", tone: "intimo" },
+    { id: "greet-picante-1", title: "Saludo con chispa", text: "Hey, ¿vienes con ganas hoy? 😏", tone: "picante" },
+    { id: "greet-picante-2", title: "Saludo juguetón", text: "Hola, ¿te apetece jugar un poco? 😉", tone: "picante" },
+    { id: "greet-picante-3", title: "Saludo picante", text: "Ey, ¿hoy suave o con chispa? 🔥", tone: "picante" },
+    { id: "greet-any-1", title: "Saludo simple", text: "Hola, ¿qué tal vas?", tone: "any" },
+  ],
+  question: [
+    { id: "question-suave-1", title: "Pregunta simple", text: "¿Te apetece algo corto o prefieres algo más completo?", tone: "suave" },
+    { id: "question-suave-2", title: "Pregunta suave", text: "¿Prefieres algo suave o un poco más directo hoy?", tone: "suave" },
+    { id: "question-suave-3", title: "Pregunta abierta", text: "¿Qué te gustaría recibir ahora mismo?", tone: "suave" },
+    { id: "question-intimo-1", title: "Pregunta íntima", text: "¿Qué te haría sentir mejor ahora?", tone: "intimo" },
+    { id: "question-intimo-2", title: "Pregunta cercana", text: "¿Te apetece algo más íntimo o más ligero hoy?", tone: "intimo" },
+    { id: "question-intimo-3", title: "Pregunta lenta", text: "¿Quieres que vaya despacio o te apetece algo más intenso?", tone: "intimo" },
+    { id: "question-picante-1", title: "Pregunta atrevida", text: "¿Te va un toque más atrevido hoy? 😈", tone: "picante" },
+    { id: "question-picante-2", title: "Pregunta con chispa", text: "¿Quieres algo con más chispa o lo hacemos suave?", tone: "picante" },
+    { id: "question-picante-3", title: "Pregunta directa", text: "¿Te apetece que suba un poco el tono? 🔥", tone: "picante" },
+    { id: "question-any-1", title: "Pregunta rápida", text: "¿Quieres una idea rápida o prefieres contarme qué te apetece?", tone: "any" },
+  ],
+  closing: [
+    { id: "close-suave-1", title: "Cierre suave", text: "Cuando quieras seguimos, estoy aquí.", tone: "suave" },
+    { id: "close-suave-2", title: "Cierre tranquilo", text: "Lo dejamos por hoy. Escríbeme cuando te apetezca.", tone: "suave" },
+    { id: "close-suave-3", title: "Cierre corto", text: "Te leo cuando quieras, sin prisa.", tone: "suave" },
+    { id: "close-intimo-1", title: "Cierre íntimo", text: "Me quedo cerquita; cuando quieras retomamos.", tone: "intimo" },
+    { id: "close-intimo-2", title: "Cierre cercano", text: "Aquí contigo. Si te apetece, seguimos luego.", tone: "intimo" },
+    { id: "close-intimo-3", title: "Cierre cálido", text: "Lo dejamos suave por hoy. Cuando quieras, estoy.", tone: "intimo" },
+    { id: "close-picante-1", title: "Cierre con ganas", text: "Te dejo con ganas 😏 Avísame y seguimos.", tone: "picante" },
+    { id: "close-picante-2", title: "Cierre juguetón", text: "Lo paramos aquí y luego seguimos jugando 😉", tone: "picante" },
+    { id: "close-picante-3", title: "Cierre picante", text: "Te quedo debiendo más... cuando quieras, seguimos 🔥", tone: "picante" },
+    { id: "close-any-1", title: "Cierre simple", text: "Estoy aquí cuando quieras.", tone: "any" },
+  ],
+};
 const TRANSLATION_PREVIEW_KEY_PREFIX = "novsy.creatorTranslationPreview";
+
+type ApiAiTemplate = {
+  id?: string;
+  name?: string;
+  category?: string;
+  tone?: string | null;
+  content?: string;
+  isActive?: boolean;
+};
+
+const AI_TEMPLATE_CATEGORY_MAP: Record<string, FanTemplateCategory> = {
+  welcome: "greeting",
+  warmup: "question",
+  followup: "closing",
+};
+
+const mapAiTemplateTone = (tone?: string | null): FanTemplateTone => {
+  const normalized = (tone ?? "").toLowerCase();
+  if (normalized === "cercano") return "suave";
+  if (normalized === "jugueton") return "picante";
+  if (normalized === "profesional") return "any";
+  return "any";
+};
+
+const isSafeFanTemplateContent = (content: string) => {
+  const matches = content.match(/\{[^}]+\}/g);
+  if (!matches) return true;
+  return matches.every((token) => {
+    const normalized = token.toLowerCase();
+    return normalized === "{nombre_fan}" || normalized === "{nombre}";
+  });
+};
+
+const mergeFanTemplateLists = (primary: FanTemplateItem[], fallback: FanTemplateItem[]) => {
+  const seen = new Set<string>();
+  const merged: FanTemplateItem[] = [];
+  const pushUnique = (item: FanTemplateItem) => {
+    const key = item.text.trim().toLowerCase();
+    if (!key || seen.has(key)) return;
+    seen.add(key);
+    merged.push(item);
+  };
+  primary.forEach(pushUnique);
+  fallback.forEach(pushUnique);
+  return merged;
+};
+
+const buildFanTemplatePoolsFromApi = (
+  templates: ApiAiTemplate[] | null | undefined,
+  fallback: FanTemplatePools
+): FanTemplatePools => {
+  const pools: FanTemplatePools = { greeting: [], question: [], closing: [] };
+  if (!Array.isArray(templates)) return fallback;
+  templates.forEach((tpl, index) => {
+    if (!tpl || tpl.isActive === false) return;
+    const category = AI_TEMPLATE_CATEGORY_MAP[tpl.category ?? ""];
+    if (!category) return;
+    const text = typeof tpl.content === "string" ? tpl.content.trim() : "";
+    if (!text || !isSafeFanTemplateContent(text)) return;
+    const title = typeof tpl.name === "string" && tpl.name.trim()
+      ? tpl.name.trim()
+      : FAN_TEMPLATE_CATEGORY_LABELS[category];
+    pools[category].push({
+      id: `api-${tpl.id ?? `${category}-${index}`}`,
+      title,
+      text,
+      tone: mapAiTemplateTone(tpl.tone),
+    });
+  });
+  return {
+    greeting: mergeFanTemplateLists(pools.greeting, fallback.greeting),
+    question: mergeFanTemplateLists(pools.question, fallback.question),
+    closing: mergeFanTemplateLists(pools.closing, fallback.closing),
+  };
+};
 
 type InlinePanelShellProps = {
   title: string;
@@ -291,6 +437,12 @@ function reconcileApiMessages(existing: ApiMessage[], incoming: ApiMessage[], ta
   });
 }
 
+function getFirstName(name?: string | null) {
+  if (!name) return "";
+  const first = name.trim().split(" ")[0];
+  return first;
+}
+
 function getReengageTemplate(name: string) {
   const cleanName = name?.trim() || "";
   return `Hola ${cleanName || "allí"}, soy Eusebiu. Hoy termina tu acceso a este espacio privado. Si quieres que sigamos trabajando juntos en tu relación y tu vida sexual, puedo ofrecerte renovar la suscripción o prepararte un pack especial solo para ti. Si te interesa, dime “QUIERO SEGUIR” y lo vemos juntos.`;
@@ -323,6 +475,7 @@ export default function ConversationDetails({ onBackToBoard }: ConversationDetai
   } = conversation;
   const activeFanId = conversation?.isManager ? null : id ?? null;
   const [ messageSend, setMessageSend ] = useState("");
+  const [ pendingInsert, setPendingInsert ] = useState<{ text: string; detail?: string } | null>(null);
   const [ isSending, setIsSending ] = useState(false);
   const [ composerTarget, setComposerTarget ] = useState<ComposerTarget>("fan");
   const [ showPackSelector, setShowPackSelector ] = useState(false);
@@ -362,6 +515,14 @@ export default function ConversationDetails({ onBackToBoard }: ConversationDetai
   const [ inlineAction, setInlineAction ] = useState<InlineAction | null>(null);
   const [ translationPreviewOpen, setTranslationPreviewOpen ] = useState(false);
   const [ templateScope, setTemplateScope ] = useState<"fan" | "manager">("fan");
+  const [ fanTemplatePools, setFanTemplatePools ] = useState<FanTemplatePools>(LOCAL_FAN_TEMPLATE_POOLS);
+  const [ fanTemplateSelection, setFanTemplateSelection ] = useState<FanTemplateSelection>({
+    greeting: null,
+    question: null,
+    closing: null,
+  });
+  const [ draftCardsByFan, setDraftCardsByFan ] = useState<Record<string, DraftCard[]>>({});
+  const [ generatedDraftsByFan, setGeneratedDraftsByFan ] = useState<Record<string, DraftCard[]>>({});
   const [ internalPanelTab, setInternalPanelTab ] = useState<InternalPanelTab>("manager");
   const [ translationPreviewStatus, setTranslationPreviewStatus ] = useState<
     "idle" | "loading" | "ready" | "unavailable" | "error"
@@ -385,11 +546,6 @@ export default function ConversationDetails({ onBackToBoard }: ConversationDetai
   const translationPreviewKeyRef = useRef<string | null>(null);
   const [ showContentModal, setShowContentModal ] = useState(false);
   const [ duplicateConfirm, setDuplicateConfirm ] = useState<{ candidate: string } | null>(null);
-  const [ messageContextMenu, setMessageContextMenu ] = useState<{
-    x: number;
-    y: number;
-    text: string;
-  } | null>(null);
   const [ selectionToolbar, setSelectionToolbar ] = useState<{
     x: number;
     y: number;
@@ -442,6 +598,7 @@ export default function ConversationDetails({ onBackToBoard }: ConversationDetai
   const actionsMenuRef = useRef<HTMLDivElement | null>(null);
   const selectionToolbarRef = useRef<HTMLDivElement | null>(null);
   const isPointerDownRef = useRef(false);
+  const templatePanelOpenRef = useRef(false);
   const MAX_MAIN_COMPOSER_HEIGHT = 140;
   const MAX_INTERNAL_COMPOSER_HEIGHT = 220;
   const SCROLL_BOTTOM_THRESHOLD = 48;
@@ -499,6 +656,14 @@ export default function ConversationDetails({ onBackToBoard }: ConversationDetai
   );
   const [ fanTone, setFanTone ] = useState<FanTone>(() => getDefaultFanTone(fanManagerAnalysis.state));
   const [ hasManualTone, setHasManualTone ] = useState(false);
+  const fanTemplateCount = useMemo(
+    () =>
+      FAN_TEMPLATE_CATEGORIES.reduce(
+        (sum, category) => sum + (fanTemplatePools[category.id]?.length ? 1 : 0),
+        0
+      ),
+    [fanTemplatePools]
+  );
   const messagesContainerRef = useRef<HTMLDivElement | null>(null);
   const [isAtBottom, setIsAtBottom] = useState(true);
   const chatPanelScrollTopRef = useRef(0);
@@ -648,10 +813,6 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
         setInlineAction(null);
       }, ttlMs);
     }
-  }, []);
-
-  const closeMessageContextMenu = useCallback(() => {
-    setMessageContextMenu(null);
   }, []);
 
   const autoGrowTextarea = useCallback((el: HTMLTextAreaElement | null, maxHeight: number) => {
@@ -966,6 +1127,50 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
     setComposerTarget("fan");
     setMessageSend(template);
   }
+  const handleInsertEmoji = useCallback(
+    (emoji: string) => {
+      const input = messageInputRef.current;
+      if (!input) {
+        setMessageSend((prev) => `${prev}${emoji}`);
+        return;
+      }
+      const start = input.selectionStart ?? input.value.length;
+      const end = input.selectionEnd ?? input.value.length;
+      const nextValue = `${input.value.slice(0, start)}${emoji}${input.value.slice(end)}`;
+      setMessageSend(nextValue);
+      requestAnimationFrame(() => {
+        input.focus();
+        const cursor = start + emoji.length;
+        input.setSelectionRange(cursor, cursor);
+        autoGrowTextarea(input, MAX_MAIN_COMPOSER_HEIGHT);
+      });
+    },
+    [autoGrowTextarea]
+  );
+  const handleInsertManagerEmoji = useCallback(
+    (emoji: string) => {
+      const input = managerChatInputRef.current;
+      if (!input) {
+        setManagerChatInput((prev) => `${prev}${emoji}`);
+        return;
+      }
+      const start = input.selectionStart ?? input.value.length;
+      const end = input.selectionEnd ?? input.value.length;
+      const nextValue = `${input.value.slice(0, start)}${emoji}${input.value.slice(end)}`;
+      setManagerChatInput(nextValue);
+      setManagerSelectedText(null);
+      requestAnimationFrame(() => {
+        input.focus();
+        const cursor = start + emoji.length;
+        input.setSelectionRange(cursor, cursor);
+        autoGrowTextarea(input, MAX_INTERNAL_COMPOSER_HEIGHT);
+      });
+    },
+    [autoGrowTextarea]
+  );
+  const handleInsertSticker = (sticker: StickerItem) => {
+    void sendStickerMessage(sticker);
+  };
   const focusMainMessageInput = (text: string) => {
     setComposerTarget("fan");
     setMessageSend(text);
@@ -1021,8 +1226,20 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
     handleApplyManagerSuggestion(text);
   }
 
-  function handleUseManagerReplyAsMainMessage(text: string, detail?: string) {
-    const nextText = text || "";
+  const mergeComposerText = (existing: string, incoming: string, mode: "replace" | "prepend" | "append") => {
+    if (mode === "replace") return incoming;
+    const trimmedExisting = existing.trim();
+    const trimmedIncoming = incoming.trim();
+    if (!trimmedExisting) return trimmedIncoming;
+    if (!trimmedIncoming) return trimmedExisting;
+    if (mode === "prepend") {
+      return `${trimmedIncoming}\n\n${trimmedExisting}`;
+    }
+    return `${trimmedExisting}\n\n${trimmedIncoming}`;
+  };
+
+  const applyComposerInsert = (text: string, mode: "replace" | "prepend" | "append", detail?: string) => {
+    const nextText = mergeComposerText(messageSend, text, mode);
     setComposerTarget("fan");
     setMessageSend(nextText);
     autoGrowTextarea(messageInputRef.current, MAX_MAIN_COMPOSER_HEIGHT);
@@ -1040,6 +1257,15 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
       detail: detail ?? "Manager IA",
       ttlMs: 1600,
     });
+  };
+
+  function handleUseManagerReplyAsMainMessage(text: string, detail?: string) {
+    const nextText = text || "";
+    if (messageSend.trim()) {
+      setPendingInsert({ text: nextText, detail });
+      return;
+    }
+    applyComposerInsert(nextText, "replace", detail);
   }
 
   const handleChangeFanTone = useCallback(
@@ -1093,11 +1319,99 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
     setAutoPilotEnabled((prev) => !prev);
   }, []);
 
-  function getFirstName(name?: string | null) {
-    if (!name) return "";
-    const first = name.trim().split(" ")[0];
-    return first;
-  }
+  const templateTone: FanTemplateTone | null =
+    fanTone === "suave" || fanTone === "intimo" || fanTone === "picante" ? fanTone : null;
+
+  const resolveFanTemplateText = useCallback(
+    (text: string) => {
+      const firstName = getFirstName(contactName);
+      if (!firstName) return text;
+      return text.replace(/\{nombre_fan\}/gi, firstName).replace(/\{nombre\}/gi, firstName);
+    },
+    [contactName]
+  );
+
+  const getTemplatePoolForTone = useCallback(
+    (category: FanTemplateCategory, tone: FanTemplateTone | null, options?: { allowAnyFallback?: boolean }) => {
+      const pool = fanTemplatePools[category] ?? [];
+      if (!tone) return pool;
+      const toneMatches = pool.filter((item) => item.tone === tone);
+      const anyMatches = pool.filter((item) => !item.tone || item.tone === "any");
+      let selectedPool = toneMatches.length > 0 ? toneMatches : anyMatches.length > 0 ? anyMatches : pool;
+      if (options?.allowAnyFallback && selectedPool.length < 2) {
+        const combined = [ ...toneMatches, ...anyMatches ].filter(
+          (item, index, arr) => arr.findIndex((entry) => entry.id === item.id) === index
+        );
+        if (combined.length >= 2) {
+          selectedPool = combined;
+        } else if (pool.length >= 2) {
+          selectedPool = pool;
+        }
+      }
+      return selectedPool.length ? selectedPool : pool;
+    },
+    [fanTemplatePools]
+  );
+
+  const syncFanTemplateSelection = useCallback(
+    (forceRandom: boolean) => {
+      setFanTemplateSelection((prev) => {
+        let changed = false;
+        const next: FanTemplateSelection = { ...prev };
+        FAN_TEMPLATE_CATEGORIES.forEach((category) => {
+          const pool = getTemplatePoolForTone(category.id, templateTone);
+          if (pool.length === 0) {
+            if (next[category.id] !== null) {
+              next[category.id] = null;
+              changed = true;
+            }
+            return;
+          }
+          const current = forceRandom ? null : pool.find((item) => item.id === next[category.id]);
+          if (!current) {
+            const pick = pool[Math.floor(Math.random() * pool.length)];
+            next[category.id] = pick.id;
+            changed = true;
+          }
+        });
+        return changed ? next : prev;
+      });
+    },
+    [getTemplatePoolForTone, templateTone]
+  );
+
+  const handleFanTemplateRotate = useCallback(
+    (category: FanTemplateCategory) => {
+      setFanTemplateSelection((prev) => {
+        const pool = getTemplatePoolForTone(category, templateTone, { allowAnyFallback: true });
+        if (pool.length === 0) return prev;
+        const currentId = prev[category];
+        const alternatives = pool.filter((item) => item.id !== currentId);
+        const candidates = alternatives.length > 0 ? alternatives : pool;
+        const pick = candidates[Math.floor(Math.random() * candidates.length)];
+        if (pick.id === currentId) return prev;
+        return { ...prev, [category]: pick.id };
+      });
+    },
+    [getTemplatePoolForTone, templateTone]
+  );
+
+  useEffect(() => {
+    const isTemplatesOpen = managerPanelOpen && managerPanelTab === "templates";
+    if (!isTemplatesOpen) {
+      templatePanelOpenRef.current = false;
+      return;
+    }
+    if (!templatePanelOpenRef.current) {
+      templatePanelOpenRef.current = true;
+      syncFanTemplateSelection(true);
+    }
+  }, [managerPanelOpen, managerPanelTab, syncFanTemplateSelection]);
+
+  useEffect(() => {
+    if (!managerPanelOpen || managerPanelTab !== "templates") return;
+    syncFanTemplateSelection(false);
+  }, [fanTemplatePools, templateTone, managerPanelOpen, managerPanelTab, syncFanTemplateSelection]);
 
   function buildFollowUpTrialMessage(firstName?: string) {
     const greeting = firstName ? `Hola ${firstName},` : "Hola,";
@@ -1704,19 +2018,24 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
   const mapApiMessagesToState = useCallback((apiMessages: ApiMessage[]): ConversationMessage[] => {
     return apiMessages.map((msg) => {
       const isContent = msg.type === "CONTENT";
+      const isSticker = msg.type === "STICKER";
+      const sticker = isSticker ? getStickerById(msg.stickerId ?? null) : null;
       return {
         id: msg.id,
         fanId: msg.fanId,
         me: msg.from === "creator",
-        message: msg.text,
-        translatedText: msg.creatorTranslatedText ?? undefined,
+        message: isSticker ? "" : msg.text,
+        translatedText: isSticker ? undefined : msg.creatorTranslatedText ?? undefined,
         audience: deriveAudience(msg),
         seen: !!msg.isLastFromCreator,
         time: msg.time || "",
         createdAt: (msg as any)?.createdAt ?? undefined,
         status: "sent",
-        kind: isContent ? "content" : "text",
+        kind: isSticker ? "sticker" : isContent ? "content" : "text",
         type: msg.type,
+        stickerId: isSticker ? msg.stickerId ?? null : null,
+        stickerSrc: sticker?.src ?? null,
+        stickerAlt: sticker?.label ?? null,
         contentItem: msg.contentItem
           ? {
               id: msg.contentItem.id,
@@ -2008,6 +2327,29 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
   }, [id, translationPreviewOpen]);
 
   useEffect(() => {
+    let cancelled = false;
+    const loadFanTemplatePools = async () => {
+      try {
+        const res = await fetch("/api/creator/ai/templates");
+        if (!res.ok) throw new Error("failed to load templates");
+        const data = await res.json();
+        if (!cancelled) {
+          const merged = buildFanTemplatePoolsFromApi(data?.templates, LOCAL_FAN_TEMPLATE_POOLS);
+          setFanTemplatePools(merged);
+        }
+      } catch (err) {
+        if (!cancelled) {
+          setFanTemplatePools(LOCAL_FAN_TEMPLATE_POOLS);
+        }
+      }
+    };
+    loadFanTemplatePools();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
     if (!highlightDraftId) return;
     if (!managerPanelOpen || internalPanelTab !== "internal") return;
     const target = document.querySelector<HTMLElement>(`[data-draft-id="${highlightDraftId}"]`);
@@ -2043,31 +2385,6 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [managerPanelOpen, inlineAction, closeInlinePanel, clearInlineAction]);
-
-  useEffect(() => {
-    if (!messageContextMenu) return;
-    const handleClick = () => {
-      setMessageContextMenu(null);
-    };
-    const handleKeyDown = (event: globalThis.KeyboardEvent) => {
-      if (event.key === "Escape") {
-        setMessageContextMenu(null);
-      }
-    };
-    const handleScroll = () => {
-      setMessageContextMenu(null);
-    };
-    window.addEventListener("click", handleClick);
-    window.addEventListener("contextmenu", handleClick);
-    window.addEventListener("keydown", handleKeyDown);
-    window.addEventListener("scroll", handleScroll, true);
-    return () => {
-      window.removeEventListener("click", handleClick);
-      window.removeEventListener("contextmenu", handleClick);
-      window.removeEventListener("keydown", handleKeyDown);
-      window.removeEventListener("scroll", handleScroll, true);
-    };
-  }, [messageContextMenu]);
 
   useEffect(() => {
     closeOverlays({ keepManagerPanel: true });
@@ -2117,6 +2434,14 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
   }, [router.events, closeOverlays]);
 
   const managerChatMessages = managerChatByFan[id ?? ""] ?? [];
+  const draftCards = useMemo(() => {
+    if (!id) return EMPTY_DRAFTS;
+    return draftCardsByFan[id] ?? EMPTY_DRAFTS;
+  }, [draftCardsByFan, id]);
+  const generatedDrafts = useMemo(() => {
+    if (!id) return EMPTY_DRAFTS;
+    return generatedDraftsByFan[id] ?? EMPTY_DRAFTS;
+  }, [generatedDraftsByFan, id]);
   const internalNotes = internalMessages.filter((message) => deriveAudience(message) === "INTERNAL");
   const getMsgTs = useCallback((msg: unknown): number => {
     if (!msg || typeof msg !== "object") return 0;
@@ -2150,6 +2475,13 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
       return tb - ta;
     });
   }, [internalNotes, getMsgTs]);
+  const displayGeneratedDrafts = useMemo(() => {
+    return [...generatedDrafts].sort((a, b) => {
+      const ta = new Date(a.createdAt).getTime();
+      const tb = new Date(b.createdAt).getTime();
+      return tb - ta;
+    });
+  }, [generatedDrafts]);
   const internalContextKey = id ?? "global";
   const includeInternalContext = includeInternalContextByFan[internalContextKey] ?? true;
   const recentInternalDrafts = useMemo(() => {
@@ -2157,6 +2489,10 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
       .slice(-3)
       .map((msg) => {
         if (msg.type === "CONTENT") return msg.contentItem?.title || "Contenido interno";
+        if (msg.type === "STICKER") {
+          const sticker = getStickerById(msg.stickerId ?? null);
+          return sticker?.label || "Sticker";
+        }
         return msg.text || "";
       })
       .map((line) => line.trim())
@@ -2166,7 +2502,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
   const recentConversationLines = useMemo(() => {
     return (messages || [])
       .filter((msg) => msg.audience !== "INTERNAL")
-      .filter((msg) => msg.kind !== "content")
+      .filter((msg) => msg.kind === "text" || !msg.kind)
       .map((msg) => {
         const prefix = msg.me ? "Creador" : "Fan";
         return `${prefix}: ${(msg.message || "").trim()}`;
@@ -2440,11 +2776,6 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
     return () => document.removeEventListener("keydown", handleKeyDown);
   }, [closeSelectionToolbar, selectionToolbar]);
 
-  useEffect(() => {
-    if (!selectionToolbar?.text) return;
-    closeMessageContextMenu();
-  }, [closeMessageContextMenu, selectionToolbar?.text]);
-
   const getSelectionInsideMessagesContainer = useCallback(() => {
     if (typeof window === "undefined") return null;
     const container = messagesContainerRef.current;
@@ -2461,54 +2792,11 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
     return selectedText;
   }, []);
 
-  const getContextMenuText = (event: MouseEvent<HTMLElement>, fallbackText: string) => {
-    if (typeof window === "undefined") return fallbackText;
-    const selection = window.getSelection();
-    if (!selection) return fallbackText;
-    const selectedText = selection.toString().trim();
-    if (!selectedText) return fallbackText;
-    const range = selection.rangeCount > 0 ? selection.getRangeAt(0) : null;
-    if (!range) return fallbackText;
-    if (event.currentTarget.contains(range.commonAncestorContainer)) {
-      return selectedText;
-    }
-    return fallbackText;
-  };
-
-  const clampContextMenuPosition = (x: number, y: number) => {
-    if (typeof window === "undefined") return { x, y };
-    const menuWidth = 280;
-    const menuHeight = 160;
-    const margin = 12;
-    const maxX = window.innerWidth - menuWidth - margin;
-    const maxY = window.innerHeight - menuHeight - margin;
-    return {
-      x: Math.max(margin, Math.min(x, maxX)),
-      y: Math.max(margin, Math.min(y, maxY)),
-    };
-  };
-
-  const handleMessageContextMenu = (event: MouseEvent<HTMLElement>, fallbackText: string) => {
-    if (selectionToolbar?.text) {
+  const handleMessageContextMenu = (event: MouseEvent<HTMLElement>) => {
+    if (selectionToolbar?.text || getSelectionInsideMessagesContainer()) {
       event.preventDefault();
       event.stopPropagation();
-      setMessageContextMenu(null);
-      return;
     }
-    const selectionText = getSelectionInsideMessagesContainer();
-    if (selectionText) {
-      event.preventDefault();
-      event.stopPropagation();
-      setMessageContextMenu(null);
-      return;
-    }
-    if (!selectionText) return;
-    event.preventDefault();
-    event.stopPropagation();
-    const text = getContextMenuText(event, fallbackText);
-    const position = clampContextMenuPosition(event.clientX, event.clientY);
-    setSelectionToolbar(null);
-    setMessageContextMenu({ x: position.x, y: position.y, text });
   };
 
   const buildManagerQuotePrompt = (text: string) => {
@@ -2525,6 +2813,31 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
       `Reformula este mensaje para ${name}: íntimo, natural, cero presión, que parezca conversación real. ` +
       "Devuélveme 2 versiones."
     );
+  };
+
+  const buildManagerVariantPrompt = useCallback((mode: SuggestionVariantMode, text: string) => {
+    const base = text.trim();
+    if (mode === "shorter") {
+      return (
+        "Reescribe este mensaje en una versión más corta y directa, manteniendo el tono y la intención:\n\n" +
+        `«${base}»`
+      );
+    }
+    return (
+      "Dame otra versión de este mensaje manteniendo el tono y la intención, con palabras distintas:\n\n" +
+      `«${base}»`
+    );
+  }, []);
+
+  const shortenSuggestionText = (text: string) => {
+    const trimmed = text.trim();
+    if (!trimmed) return trimmed;
+    const sentenceMatch = trimmed.match(/^[^.!?]+[.!?]?/);
+    const candidate = (sentenceMatch ? sentenceMatch[0] : trimmed).trim();
+    const maxLen = 140;
+    if (candidate.length <= maxLen) return candidate;
+    const clipped = candidate.slice(0, maxLen).trim().replace(/[.,;:!?]$/, "");
+    return `${clipped}...`;
   };
 
   const copyTextToClipboard = async (text: string) => {
@@ -2554,28 +2867,6 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
     }
   };
 
-  const handleContextMenuQuote = () => {
-    if (!messageContextMenu) return;
-    handleAskManagerFromDraft(buildManagerQuotePrompt(messageContextMenu.text), {
-      selectedText: messageContextMenu.text,
-    });
-    closeMessageContextMenu();
-  };
-
-  const handleContextMenuRephrase = () => {
-    if (!messageContextMenu) return;
-    handleAskManagerFromDraft(buildManagerRephrasePrompt(messageContextMenu.text), {
-      selectedText: messageContextMenu.text,
-    });
-    closeMessageContextMenu();
-  };
-
-  const handleContextMenuCopy = async () => {
-    if (!messageContextMenu) return;
-    const ok = await copyTextToClipboard(messageContextMenu.text);
-    showComposerToast(ok ? "Texto copiado" : "No se pudo copiar");
-    closeMessageContextMenu();
-  };
 
   const mergeProfileDraft = (base: string, addition: string) => {
     const trimmedBase = base.trim();
@@ -2588,7 +2879,10 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
 
   const handleSelectionQuote = () => {
     if (!selectionToolbar) return;
-    handleAskManagerFromDraft(buildManagerQuotePrompt(selectionToolbar.text), {
+    requestDraftCardFromPrompt({
+      prompt: buildManagerQuotePrompt(selectionToolbar.text),
+      source: "citar",
+      label: "Citar al Manager",
       selectedText: selectionToolbar.text,
     });
     closeSelectionToolbar();
@@ -2596,7 +2890,10 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
 
   const handleSelectionRephrase = () => {
     if (!selectionToolbar) return;
-    handleAskManagerFromDraft(buildManagerRephrasePrompt(selectionToolbar.text), {
+    requestDraftCardFromPrompt({
+      prompt: buildManagerRephrasePrompt(selectionToolbar.text),
+      source: "reformular",
+      label: "Reformular",
       selectedText: selectionToolbar.text,
     });
     closeSelectionToolbar();
@@ -2661,7 +2958,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
     const dockOffset = Math.max(0, dockHeight) + 12;
     const internalDraftCount = includeInternalContext ? recentInternalDrafts.length : 0;
     const managerTemplateCount = managerPromptTemplate ? 1 : 0;
-    const templatesCount: number = TRANSLATION_QUICK_CHIPS.length + managerTemplateCount;
+    const templatesCount: number = fanTemplateCount + managerTemplateCount;
     const showManagerChip = true;
     const showTemplatesChip = isFanMode;
     const showToolsChip = isFanMode;
@@ -2959,6 +3256,8 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
               <FanManagerDrawer
                 managerSuggestions={managerSuggestions}
                 onApplySuggestion={handleApplyManagerSuggestion}
+                draftCards={draftCards}
+                onDraftAction={handleDraftCardVariant}
                 currentObjective={currentObjective}
                 suggestedObjective={fanManagerAnalysis.defaultObjective}
                 fanManagerState={fanManagerAnalysis.state}
@@ -2981,6 +3280,8 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
                 onRenew={() => handleManagerQuickAction("reactivar_fan_frio")}
                 onQuickExtra={() => handleManagerQuickAction("ofrecer_extra")}
                 onPackOffer={() => handleManagerQuickAction("llevar_a_mensual")}
+                onRequestSuggestionAlt={(text) => handleRequestSuggestionVariant("alternate", text)}
+                onRequestSuggestionShorter={(text) => handleRequestSuggestionVariant("shorter", text)}
                 showRenewAction={showRenewAction}
                 quickExtraDisabled={quickExtraDisabled}
                 isRecommended={isRecommended}
@@ -3067,29 +3368,31 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
             />
             <span>Incluir borradores ({internalDraftCount})</span>
           </label>
-          <div className="flex items-end gap-2">
-            <textarea
-              rows={1}
-              className="flex-1 w-full rounded-xl bg-slate-900/80 px-4 py-3 text-xs leading-6 text-slate-100 placeholder:text-slate-400 resize-none overflow-y-auto whitespace-pre-wrap break-words focus:outline-none focus:ring-2 focus:ring-amber-400/60"
-              placeholder="Pregúntale al Manager…"
-              ref={managerChatInputRef}
-              value={managerChatInput}
-              onChange={(e) => {
-                setManagerChatInput(e.target.value);
-                setManagerSelectedText(null);
-                autoGrowTextarea(e.currentTarget, MAX_INTERNAL_COMPOSER_HEIGHT);
-              }}
-              onKeyDown={handleManagerChatKeyDown}
-            />
-            <button
-              type="button"
-              onClick={handleSendManagerChat}
-              className="h-8 px-3 rounded-2xl bg-amber-500 text-[11px] font-semibold text-slate-950 transition hover:bg-amber-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/50 disabled:opacity-50 disabled:cursor-not-allowed"
-              disabled={!managerChatInput.trim()}
-            >
-              Enviar
-            </button>
-          </div>
+          <ChatComposerBar
+            value={managerChatInput}
+            onChange={(e) => {
+              setManagerChatInput(e.target.value);
+              setManagerSelectedText(null);
+              autoGrowTextarea(e.currentTarget, MAX_INTERNAL_COMPOSER_HEIGHT);
+            }}
+            onKeyDown={handleManagerChatKeyDown}
+            onSend={handleSendManagerChat}
+            sendDisabled={!managerChatInput.trim()}
+            placeholder="Pregúntale al Manager…"
+            actionLabel="Enviar"
+            audience="INTERNAL"
+            onAudienceChange={() => {}}
+            canAttach={false}
+            onAttach={() => {}}
+            inputRef={managerChatInputRef}
+            maxHeight={MAX_INTERNAL_COMPOSER_HEIGHT}
+            isChatBlocked={false}
+            isInternalPanelOpen={false}
+            showAudienceToggle={false}
+            showAttach={false}
+            showEmoji
+            onEmojiSelect={handleInsertManagerEmoji}
+          />
         </div>
       </div>
     );
@@ -3111,9 +3414,49 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
           {internalMessagesError && !isLoadingInternalMessages && (
             <div className="text-[11px] text-rose-300">{internalMessagesError}</div>
           )}
-          {!internalNotes.length && !isLoadingInternalMessages && !internalMessagesError && (
+          {!internalNotes.length && displayGeneratedDrafts.length === 0 && !isLoadingInternalMessages && !internalMessagesError && (
             <div className="text-[11px] text-slate-500">
               Aún no hay borradores internos.
+            </div>
+          )}
+          {displayGeneratedDrafts.length > 0 && (
+            <div className="space-y-2">
+              <div className="text-[11px] font-semibold text-slate-400">Borradores IA</div>
+              {displayGeneratedDrafts.map((draft) => {
+                const toneLabel = draft.tone ? formatToneLabel(draft.tone) : null;
+                const sourceLabel = draftSourceLabel(draft.source);
+                const showLabel = draft.label && draft.label !== sourceLabel ? draft.label : null;
+                return (
+                  <div
+                    key={draft.id}
+                    className="flex w-full max-w-none flex-col items-start rounded-2xl border border-slate-800/70 bg-slate-900/70 px-4 py-3 text-xs leading-relaxed"
+                  >
+                    <div className="flex flex-wrap items-center gap-2 text-[10px] uppercase tracking-wide text-slate-500">
+                      <span>{formatNoteDate(draft.createdAt)}</span>
+                      <span className="text-emerald-200">{sourceLabel}</span>
+                      {showLabel && <span className="text-slate-300">{showLabel}</span>}
+                      {toneLabel && <span className="text-slate-300">Tono {toneLabel}</span>}
+                    </div>
+                    <div className="mt-2 text-[12px] text-slate-100 whitespace-pre-wrap">{draft.text}</div>
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      <button
+                        type="button"
+                        onClick={() => handleUseManagerReplyAsMainMessage(draft.text, draft.label ?? sourceLabel)}
+                        className={inlineActionButtonClass}
+                      >
+                        Usar en mensaje
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleDeleteGeneratedDraft(draft.id)}
+                        className="inline-flex items-center rounded-full border border-rose-400/60 bg-rose-500/10 px-3 py-1 text-[11px] font-semibold text-rose-100 hover:bg-rose-500/20"
+                      >
+                        Eliminar
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
             </div>
           )}
           {displayInternalNotes.length > 0 && (
@@ -3123,8 +3466,14 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
                 const origin = normalizeFrom(msg.from);
                 const isCreatorNote = origin === "creator";
                 const label = isCreatorNote ? "Tú" : "Manager IA";
+                const isStickerNote = msg.type === "STICKER";
+                const sticker = isStickerNote ? getStickerById(msg.stickerId ?? null) : null;
                 const noteText =
-                  msg.type === "CONTENT" ? msg.contentItem?.title || "Contenido interno" : msg.text || "";
+                  msg.type === "CONTENT"
+                    ? msg.contentItem?.title || "Contenido interno"
+                    : isStickerNote
+                    ? sticker?.label || "Sticker"
+                    : msg.text || "";
                 return (
                   <div
                     key={msg.id}
@@ -3150,23 +3499,42 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
                           INTERNO
                         </span>
                       )}
-                      <div>{noteText}</div>
-                      <div className="mt-3 flex flex-wrap gap-2">
-                        <button
-                          type="button"
-                          onClick={() => handleUseManagerReplyAsMainMessage(noteText, "Borrador interno")}
-                          className={inlineActionButtonClass}
-                        >
-                          Usar en mensaje
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => handleAskManagerFromDraft(noteText)}
-                          className={inlineActionButtonClass}
-                        >
-                          Preguntar al Manager
-                        </button>
-                      </div>
+                      {isStickerNote ? (
+                        <div className="flex items-center justify-center">
+                          {sticker ? (
+                            <Image
+                              src={sticker.src}
+                              alt={sticker.label}
+                              width={96}
+                              height={96}
+                              unoptimized
+                              className="h-24 w-24 object-contain"
+                            />
+                          ) : (
+                            <span className="text-[11px] text-slate-300">Sticker</span>
+                          )}
+                        </div>
+                      ) : (
+                        <>
+                          <div>{noteText}</div>
+                          <div className="mt-3 flex flex-wrap gap-2">
+                            <button
+                              type="button"
+                              onClick={() => handleUseManagerReplyAsMainMessage(noteText, "Borrador interno")}
+                              className={inlineActionButtonClass}
+                            >
+                              Usar en mensaje
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleAskManagerFromDraft(noteText)}
+                              className={inlineActionButtonClass}
+                            >
+                              Preguntar al Manager
+                            </button>
+                          </div>
+                        </>
+                      )}
                     </div>
                   </div>
                 );
@@ -3407,7 +3775,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
       }
 
       if (tab === "templates") {
-        const hasFanTemplates = TRANSLATION_QUICK_CHIPS.length > 0;
+        const hasFanTemplates = fanTemplateCount > 0;
         const templateTabs = [
           { id: "fan", label: "Para el fan" },
           { id: "manager", label: "Para el Manager" },
@@ -3449,29 +3817,65 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
               </div>
               {templateScope === "fan" ? (
                 hasFanTemplates ? (
-                  <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-                    {TRANSLATION_QUICK_CHIPS.slice(0, 3).map((chip) => (
-                      <div
-                        key={chip.id}
-                        className="flex flex-col gap-2 rounded-xl border border-slate-800/60 bg-slate-950/40 px-3 py-2"
+                  <div className="space-y-3">
+                    <div className="flex justify-end">
+                      <button
+                        type="button"
+                        onClick={() => syncFanTemplateSelection(true)}
+                        className="inline-flex items-center rounded-full border border-slate-700/70 bg-slate-900/50 px-3 py-1 text-[11px] font-semibold text-slate-200 hover:border-slate-500/80"
                       >
-                        <div className="text-[12px] font-semibold text-slate-100">{chip.label}</div>
-                        <p className="text-[11px] text-slate-400 line-clamp-1">{chip.text}</p>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            insertComposerTextWithUndo(chip.text, {
-                              title: "Plantilla insertada",
-                              detail: chip.label,
-                            });
-                            closeDockPanel();
-                          }}
-                          className={inlineActionButtonClass}
-                        >
-                          Insertar en mensaje
-                        </button>
-                      </div>
-                    ))}
+                        Barajar todo
+                      </button>
+                    </div>
+                    <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                      {FAN_TEMPLATE_CATEGORIES.map((category) => {
+                        const pool = getTemplatePoolForTone(category.id, templateTone);
+                        const selected =
+                          pool.find((item) => item.id === fanTemplateSelection[category.id]) ?? pool[0] ?? null;
+                        if (!selected) {
+                          return (
+                            <div
+                              key={category.id}
+                              className="flex flex-col gap-2 rounded-xl border border-slate-800/60 bg-slate-950/40 px-3 py-2"
+                            >
+                              <div className="text-[12px] font-semibold text-slate-100">{category.label}</div>
+                              <p className="text-[11px] text-slate-500">Sin opciones disponibles.</p>
+                            </div>
+                          );
+                        }
+                        return (
+                          <div
+                            key={selected.id}
+                            className="flex flex-col gap-2 rounded-xl border border-slate-800/60 bg-slate-950/40 px-3 py-2"
+                          >
+                            <div className="text-[12px] font-semibold text-slate-100">{selected.title}</div>
+                            <p className="text-[11px] text-slate-400 line-clamp-2">{selected.text}</p>
+                            <div className="flex flex-wrap items-center gap-2">
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  insertComposerTextWithUndo(resolveFanTemplateText(selected.text), {
+                                    title: "Plantilla insertada",
+                                    detail: selected.title,
+                                  });
+                                  closeDockPanel();
+                                }}
+                                className={inlineActionButtonClass}
+                              >
+                                Insertar en mensaje
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleFanTemplateRotate(category.id)}
+                                className="inline-flex items-center rounded-full border border-slate-700/70 bg-slate-900/50 px-3 py-1 text-[11px] font-semibold text-slate-200 hover:border-slate-500/80"
+                              >
+                                Otra opción
+                              </button>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
                   </div>
                 ) : (
                   <InlineEmptyState icon="🗂️" title="Sin plantillas para el fan" />
@@ -3911,7 +4315,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
     autoGrowTextarea(internalDraftInputRef.current, MAX_INTERNAL_COMPOSER_HEIGHT);
   }, [internalDraftInput, autoGrowTextarea]);
 
-  const mapQuickIntentToSuggestionIntent = (intent?: ManagerQuickIntent): ManagerSuggestionIntent => {
+  const mapQuickIntentToSuggestionIntent = useCallback((intent?: ManagerQuickIntent): ManagerSuggestionIntent => {
     switch (intent) {
       case "romper_hielo":
       case "bienvenida":
@@ -3924,9 +4328,9 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
       default:
         return "pregunta_simple";
     }
-  };
+  }, []);
 
-  const inferSuggestionIntentFromPrompt = (prompt: string): ManagerSuggestionIntent => {
+  const inferSuggestionIntentFromPrompt = useCallback((prompt: string): ManagerSuggestionIntent => {
     const normalized = prompt.toLowerCase();
     if (normalized.includes("mensual") || normalized.includes("suscrip") || normalized.includes("renov")) {
       return "upsell_mensual_suave";
@@ -3938,9 +4342,9 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
       return "pregunta_simple";
     }
     return "romper_hielo";
-  };
+  }, []);
 
-  const buildSimulatedManagerSuggestions = ({
+  const buildSimulatedManagerSuggestions = useCallback(({
     fanName,
     tone,
     intent,
@@ -4029,7 +4433,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
     };
     const suggestions = suggestionsByIntent[intent]?.[tone] ?? suggestionsByIntent[intent].suave;
     return { title: titles[intent], suggestions: suggestions.slice(0, 3) };
-  };
+  }, []);
 
   const buildQuickIntentQuestion = (intent: ManagerQuickIntent, fanName?: string) => {
     const nombre = fanName || "este fan";
@@ -4398,57 +4802,263 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
     ]
   );
 
-  const askInternalManager = (
-    question: string,
-    intent?: ManagerQuickIntent,
-    toneOverride?: FanTone,
-    options?: { selectedText?: string | null }
-  ) => {
-    if (!id) return;
-    const trimmed = question.trim();
-    if (!trimmed) return;
-    const contextPrompt = buildManagerContextPrompt({ selectedText: options?.selectedText ?? null });
-    const promptForManager = `${trimmed}${contextPrompt}`;
-    const fanKey = id;
-    managerPanelStickToBottomRef.current = true;
-    const creatorMessage: ManagerChatMessage = {
-      id: `${fanKey}-${Date.now()}-creator`,
-      role: "creator",
-      text: trimmed,
-      createdAt: new Date().toISOString(),
-    };
-    setManagerChatByFan((prev) => {
-      const prevMsgs = prev[fanKey] ?? [];
-      return { ...prev, [fanKey]: [...prevMsgs, creatorMessage] };
-    });
-    setManagerChatInput("");
-    setManagerSelectedText(null);
-    openInternalPanelTab("manager");
-    focusManagerComposer(true);
+  const askInternalManager = useCallback(
+    (
+      question: string,
+      intent?: ManagerQuickIntent,
+      toneOverride?: FanTone,
+      options?: {
+        selectedText?: string | null;
+        onSuggestions?: (payload: { title: string; suggestions: string[] }) => void;
+        skipChat?: boolean;
+      }
+    ) => {
+      if (!id) return;
+      const trimmed = question.trim();
+      if (!trimmed) return;
+      const contextPrompt = buildManagerContextPrompt({ selectedText: options?.selectedText ?? null });
+      const promptForManager = `${trimmed}${contextPrompt}`;
+      const fanKey = id;
+      managerPanelStickToBottomRef.current = true;
+      if (!options?.skipChat) {
+        const creatorMessage: ManagerChatMessage = {
+          id: `${fanKey}-${Date.now()}-creator`,
+          role: "creator",
+          text: trimmed,
+          createdAt: new Date().toISOString(),
+        };
+        setManagerChatByFan((prev) => {
+          const prevMsgs = prev[fanKey] ?? [];
+          return { ...prev, [fanKey]: [...prevMsgs, creatorMessage] };
+        });
+        setManagerChatInput("");
+        setManagerSelectedText(null);
+        openInternalPanelTab("manager");
+        focusManagerComposer(true);
+      }
 
-    setTimeout(() => {
-      const resolvedIntent = intent
-        ? mapQuickIntentToSuggestionIntent(intent)
-        : inferSuggestionIntentFromPrompt(promptForManager);
-      const bundle = buildSimulatedManagerSuggestions({
-        fanName: contactName,
-        tone: toneOverride ?? fanTone,
-        intent: resolvedIntent,
-      });
-      const managerMessage: ManagerChatMessage = {
-        id: `${fanKey}-${Date.now()}-manager`,
-        role: "manager",
-        text: bundle.suggestions[0] ?? bundle.title,
-        title: bundle.title,
-        suggestions: bundle.suggestions,
-        createdAt: new Date().toISOString(),
-      };
-      setManagerChatByFan((prev) => {
-        const prevMsgs = prev[fanKey] ?? [];
-        return { ...prev, [fanKey]: [...prevMsgs, managerMessage] };
-      });
-    }, 700);
+      setTimeout(() => {
+        const resolvedIntent = intent
+          ? mapQuickIntentToSuggestionIntent(intent)
+          : inferSuggestionIntentFromPrompt(promptForManager);
+        const bundle = buildSimulatedManagerSuggestions({
+          fanName: contactName,
+          tone: toneOverride ?? fanTone,
+          intent: resolvedIntent,
+        });
+        if (!options?.skipChat) {
+          const managerMessage: ManagerChatMessage = {
+            id: `${fanKey}-${Date.now()}-manager`,
+            role: "manager",
+            text: bundle.suggestions[0] ?? bundle.title,
+            title: bundle.title,
+            suggestions: bundle.suggestions,
+            createdAt: new Date().toISOString(),
+          };
+          setManagerChatByFan((prev) => {
+            const prevMsgs = prev[fanKey] ?? [];
+            return { ...prev, [fanKey]: [...prevMsgs, managerMessage] };
+          });
+        }
+        options?.onSuggestions?.(bundle);
+      }, 700);
+    },
+    [
+      buildManagerContextPrompt,
+      buildSimulatedManagerSuggestions,
+      contactName,
+      fanTone,
+      focusManagerComposer,
+      id,
+      inferSuggestionIntentFromPrompt,
+      mapQuickIntentToSuggestionIntent,
+      openInternalPanelTab,
+      setManagerChatByFan,
+      setManagerChatInput,
+      setManagerSelectedText,
+    ]
+  );
+
+  const handleRequestSuggestionVariant = (mode: SuggestionVariantMode, text: string) => {
+    const trimmed = text.trim();
+    if (!trimmed) return;
+    const label = mode === "shorter" ? "Más corta" : "Otra versión";
+    const prompt = buildManagerVariantPrompt(mode, trimmed);
+    askInternalManager(prompt, undefined, undefined, {
+      selectedText: trimmed,
+      onSuggestions: (bundle) => {
+        const baseSuggestion = bundle.suggestions[0] ?? trimmed;
+        const nextMessage = mode === "shorter" ? shortenSuggestionText(baseSuggestion) : baseSuggestion;
+        if (!nextMessage.trim()) return;
+        setManagerSuggestions((prev) => {
+          const filtered = prev.filter((item) => item.message !== nextMessage);
+          return [
+            {
+              id: `variant-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+              label,
+              message: nextMessage,
+            },
+            ...filtered,
+          ].slice(0, 3);
+        });
+      },
+    });
   };
+
+  const draftSourceLabel = useCallback((source: DraftSource) => {
+    switch (source) {
+      case "reformular":
+        return "Reformular";
+      case "citar":
+        return "Citar al Manager";
+      case "autosuggest":
+        return "Auto-sugerir";
+      default:
+        return "Borrador IA";
+    }
+  }, []);
+
+  const buildDraftVariantPrompt = useCallback((mode: DraftVariantMode, basePrompt: string) => {
+    const normalized = basePrompt.trim();
+    if (!normalized) return basePrompt;
+    const suffix =
+      mode === "shorter"
+        ? "Haz una versión más corta y directa, en 1-2 frases."
+        : mode === "softer"
+        ? "Reescribe en un tono más suave y cercano, menos directo."
+        : mode === "bolder"
+        ? "Reescribe en un tono más directo y claro, sin sonar agresivo."
+        : "Dame otra versión distinta manteniendo el tono e intención.";
+    return `${normalized}\n\n${suffix}`;
+  }, []);
+
+  const buildDraftCard = useCallback(
+    (
+      text: string,
+      options: {
+        source: DraftSource;
+        label?: string;
+        selectedText?: string | null;
+        basePrompt?: string | null;
+        tone?: FanTone | null;
+        objective?: ManagerObjective | null;
+      }
+    ) => {
+      return {
+        id: `draft-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+        text,
+        label: options.label ?? draftSourceLabel(options.source),
+        source: options.source,
+        createdAt: new Date().toISOString(),
+        tone: options.tone ?? fanTone,
+        objective: options.objective ?? currentObjective ?? null,
+        selectedText: options.selectedText ?? null,
+        basePrompt: options.basePrompt ?? null,
+      };
+    },
+    [currentObjective, draftSourceLabel, fanTone]
+  );
+
+  const addDraftCard = useCallback((draft: DraftCard) => {
+    if (!id) return;
+    setDraftCardsByFan((prev) => {
+      const existing = prev[id] ?? [];
+      const next = [draft, ...existing].slice(0, 6);
+      return { ...prev, [id]: next };
+    });
+  }, [id]);
+
+  const addGeneratedDraft = useCallback((draft: DraftCard) => {
+    if (!id) return;
+    setGeneratedDraftsByFan((prev) => {
+      const existing = prev[id] ?? [];
+      return { ...prev, [id]: [draft, ...existing] };
+    });
+  }, [id]);
+
+  const addDraftPair = useCallback(
+    (text: string, options: { source: DraftSource; label?: string; selectedText?: string | null; basePrompt?: string | null }) => {
+      const card = buildDraftCard(text, options);
+      addDraftCard(card);
+      addGeneratedDraft(buildDraftCard(text, options));
+    },
+    [addDraftCard, addGeneratedDraft, buildDraftCard]
+  );
+
+  const updateDraftCard = useCallback((draftId: string, nextText: string) => {
+    if (!id) return;
+    setDraftCardsByFan((prev) => {
+      const existing = prev[id] ?? [];
+      const next = existing.map((item) =>
+        item.id === draftId ? { ...item, text: nextText, createdAt: new Date().toISOString() } : item
+      );
+      return { ...prev, [id]: next };
+    });
+  }, [id]);
+
+  const requestDraftCardFromPrompt = useCallback(
+    (options: { prompt: string; source: DraftSource; label?: string; selectedText?: string | null }) => {
+      const trimmed = options.prompt.trim();
+      if (!trimmed) return;
+      openInternalPanel("manager");
+      askInternalManager(trimmed, undefined, undefined, {
+        selectedText: options.selectedText ?? null,
+        skipChat: true,
+        onSuggestions: (bundle) => {
+          const nextText = bundle.suggestions[0] ?? "";
+          if (!nextText.trim()) return;
+          addDraftPair(nextText, {
+            source: options.source,
+            label: options.label,
+            selectedText: options.selectedText ?? null,
+            basePrompt: trimmed,
+          });
+        },
+      });
+    },
+    [addDraftPair, askInternalManager, openInternalPanel]
+  );
+
+  const handleDraftCardVariant = useCallback(
+    (draftId: string, mode: DraftVariantMode) => {
+      if (!id) return;
+      const cards = draftCardsByFan[id] ?? [];
+      const target = cards.find((item) => item.id === draftId);
+      if (!target) return;
+      const basePrompt = target.basePrompt?.trim();
+      const fallbackMode: SuggestionVariantMode = mode === "shorter" ? "shorter" : "alternate";
+      const prompt = basePrompt
+        ? buildDraftVariantPrompt(mode, basePrompt)
+        : buildManagerVariantPrompt(fallbackMode, target.text);
+      askInternalManager(prompt, undefined, undefined, {
+        selectedText: target.selectedText ?? null,
+        skipChat: true,
+        onSuggestions: (bundle) => {
+          const nextText = bundle.suggestions[0] ?? target.text;
+          if (!nextText.trim()) return;
+          updateDraftCard(draftId, nextText);
+          addGeneratedDraft(
+            buildDraftCard(nextText, {
+              source: target.source,
+              label: target.label,
+              selectedText: target.selectedText ?? null,
+              basePrompt: target.basePrompt ?? null,
+            })
+          );
+        },
+      });
+    },
+    [addGeneratedDraft, askInternalManager, buildDraftCard, buildDraftVariantPrompt, buildManagerVariantPrompt, draftCardsByFan, id, updateDraftCard]
+  );
+
+  const handleDeleteGeneratedDraft = useCallback((draftId: string) => {
+    if (!id) return;
+    setGeneratedDraftsByFan((prev) => {
+      const existing = prev[id] ?? [];
+      const next = existing.filter((draft) => draft.id !== draftId);
+      return { ...prev, [id]: next };
+    });
+  }, [id]);
 
   const handleSendManagerChat = () => {
     askInternalManager(managerChatInput, undefined, undefined, { selectedText: managerSelectedText });
@@ -4551,6 +5161,14 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
       setLastAutopilotObjective(objective);
       setLastAutopilotTone(toneForDraft);
       focusMainMessageInput(draft);
+      addGeneratedDraft(
+        buildDraftCard(draft, {
+          source: "autosuggest",
+          label: formatObjectiveLabel(objective) ?? "Auto-sugerir",
+          tone: toneForDraft,
+          objective,
+        })
+      );
       await logManagerUsage({
         actionType: mapObjectiveToActionType(objective),
         text: draft,
@@ -4661,7 +5279,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
       const msg = messages[i];
       if (!msg?.me) continue;
       if (msg.audience === "INTERNAL") continue;
-      if (msg.kind === "content") continue;
+      if (msg.kind && msg.kind !== "text") continue;
       const text = (msg.message || "").trim();
       if (!text) continue;
       return msg;
@@ -4805,6 +5423,88 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
           (prev || []).map((m) => (m.id === tempId ? { ...m, status: "failed" as const } : m))
         );
       }
+    }
+  }
+
+  async function sendStickerMessage(sticker: StickerItem) {
+    if (!id) return;
+    if (!sticker?.id) return;
+    if (isChatBlocked) {
+      setMessagesError("Chat bloqueado. Desbloquéalo para escribir.");
+      return;
+    }
+
+    const tempId = `temp-sticker-${Date.now()}`;
+    const timeLabel = new Date().toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit", hour12: false });
+    const tempMessage: ConversationMessage = {
+      id: tempId,
+      fanId: id,
+      me: true,
+      message: "",
+      time: timeLabel,
+      createdAt: new Date().toISOString(),
+      status: "sending",
+      kind: "sticker",
+      type: "STICKER",
+      stickerId: sticker.id,
+      stickerSrc: sticker.src,
+      stickerAlt: sticker.label,
+    };
+    setMessage((prev) => {
+      if (!id) return prev || [];
+      return [...(prev || []), tempMessage];
+    });
+    scrollToBottom("auto");
+
+    try {
+      setMessagesError("");
+      const payload: Record<string, unknown> = {
+        fanId: id,
+        from: "creator",
+        type: "STICKER",
+        stickerId: sticker.id,
+        text: sticker.label,
+      };
+      const res = await fetch("/api/messages", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (handleSchemaOutOfSync(data)) {
+        setMessage((prev) =>
+          (prev || []).map((m) => (m.id === tempId ? { ...m, status: "failed" as const } : m))
+        );
+        return;
+      }
+      if (!res.ok || !data?.ok) {
+        setMessagesError("Error enviando sticker");
+        setMessage((prev) =>
+          (prev || []).map((m) => (m.id === tempId ? { ...m, status: "failed" as const } : m))
+        );
+        return;
+      }
+      const apiMessages: ApiMessage[] = Array.isArray(data.messages)
+        ? (data.messages as ApiMessage[])
+        : data.message
+        ? [data.message as ApiMessage]
+        : [];
+      const mapped = mapApiMessagesToState(apiMessages);
+      if (mapped.length > 0) {
+        setMessage((prev) => {
+          const withoutTemp = (prev || []).filter((m) => m.id !== tempId);
+          return reconcileMessages(withoutTemp, mapped, id);
+        });
+      }
+      void track(ANALYTICS_EVENTS.SEND_MESSAGE, { fanId: id });
+      showComposerToast("Sticker enviado");
+      setSchemaError(null);
+    } catch (err) {
+      console.error("Error enviando sticker", err);
+      setMessagesError("Error enviando sticker");
+      setMessage((prev) =>
+        (prev || []).map((m) => (m.id === tempId ? { ...m, status: "failed" as const } : m))
+      );
     }
   }
 
@@ -6208,19 +6908,25 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
 
               const { me, message, seen, time } = messageConversation;
               const isInternalMessage = messageConversation.audience === "INTERNAL";
+              const isStickerMessage = messageConversation.kind === "sticker";
+              const retrySticker = isStickerMessage ? getStickerById(messageConversation.stickerId ?? null) : null;
               const translatedText = !me ? messageConversation.translatedText ?? undefined : undefined;
               return (
                 <div key={messageConversation.id || index} className="space-y-1">
                   <MessageBalloon
                     me={me}
                     message={message}
+                    messageId={messageConversation.id || `message-${index}`}
                     seen={seen}
                     time={time}
                     status={messageConversation.status}
-                    translatedText={translatedText}
+                    translatedText={isStickerMessage ? undefined : translatedText}
                     badge={isInternalMessage ? "INTERNO" : undefined}
                     variant={isInternalMessage ? "internal" : "default"}
-                    onContextMenu={(event) => handleMessageContextMenu(event, message)}
+                    onContextMenu={handleMessageContextMenu}
+                    stickerSrc={isStickerMessage ? messageConversation.stickerSrc ?? null : null}
+                    stickerAlt={isStickerMessage ? messageConversation.stickerAlt ?? "Sticker" : null}
+                    enableReactions={!isInternalMessage}
                   />
                   {messageConversation.status === "failed" && (
                     <div className="flex justify-end">
@@ -6228,6 +6934,10 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
                         type="button"
                         className="text-[11px] text-rose-300 hover:text-rose-200 underline"
                         onClick={() => {
+                          if (retrySticker) {
+                            void sendStickerMessage(retrySticker);
+                            return;
+                          }
                           void sendFanMessage(messageConversation.message);
                         }}
                       >
@@ -6567,6 +7277,10 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
                   if (!canAttachContent) return;
                   openAttachContent({ closeInline: false });
                 }}
+                showEmoji={isFanTarget}
+                onEmojiSelect={handleInsertEmoji}
+                showStickers={isFanTarget}
+                onStickerSelect={handleInsertSticker}
                 inputRef={messageInputRef}
                 maxHeight={MAX_MAIN_COMPOSER_HEIGHT}
                 isChatBlocked={isChatBlocked}
@@ -6645,42 +7359,52 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
           </div>
         </div>
       )}
-      {messageContextMenu && !selectionToolbar?.text && (
-        <div
-          className="fixed inset-0 z-50"
-          onClick={closeMessageContextMenu}
-          onContextMenu={(event) => {
-            event.preventDefault();
-            closeMessageContextMenu();
-          }}
-        >
-          <div
-            className="absolute w-72 rounded-xl border border-slate-800/80 bg-slate-950/95 p-2 shadow-2xl"
-            style={{ left: messageContextMenu.x, top: messageContextMenu.y }}
-            onClick={(event) => event.stopPropagation()}
-            onContextMenu={(event) => event.preventDefault()}
-          >
-            <button
-              type="button"
-              onClick={handleContextMenuQuote}
-              className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-[12px] font-semibold text-slate-100 transition hover:bg-slate-800/70"
-            >
-              Citar al Manager
-            </button>
-            <button
-              type="button"
-              onClick={handleContextMenuRephrase}
-              className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-[12px] font-semibold text-slate-100 transition hover:bg-slate-800/70"
-            >
-              Reformular para enviar al fan (sin vender agresivo)
-            </button>
-            <button
-              type="button"
-              onClick={handleContextMenuCopy}
-              className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-[12px] font-semibold text-slate-100 transition hover:bg-slate-800/70"
-            >
-              Copiar texto
-            </button>
+      {pendingInsert && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4">
+          <div className="w-full max-w-sm rounded-2xl border border-slate-800/80 bg-slate-950/95 p-4 shadow-2xl">
+            <div className="text-sm font-semibold text-slate-100">Ya tienes un mensaje escrito</div>
+            <div className="mt-1 text-[11px] text-slate-400">
+              ¿Cómo quieres insertar esta sugerencia?
+            </div>
+            <div className="mt-4 flex flex-col gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  applyComposerInsert(pendingInsert.text, "append", pendingInsert.detail);
+                  setPendingInsert(null);
+                }}
+                className="inline-flex w-full items-center justify-center rounded-full border border-emerald-500/70 bg-emerald-500/15 px-4 py-2 text-[12px] font-semibold text-emerald-100 hover:bg-emerald-500/25"
+              >
+                Añadir abajo
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  applyComposerInsert(pendingInsert.text, "prepend", pendingInsert.detail);
+                  setPendingInsert(null);
+                }}
+                className="inline-flex w-full items-center justify-center rounded-full border border-slate-700/70 bg-slate-900/60 px-4 py-2 text-[12px] font-semibold text-slate-100 hover:bg-slate-800/70"
+              >
+                Añadir arriba
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  applyComposerInsert(pendingInsert.text, "replace", pendingInsert.detail);
+                  setPendingInsert(null);
+                }}
+                className="inline-flex w-full items-center justify-center rounded-full border border-amber-400/70 bg-amber-500/10 px-4 py-2 text-[12px] font-semibold text-amber-100 hover:bg-amber-500/20"
+              >
+                Reemplazar
+              </button>
+              <button
+                type="button"
+                onClick={() => setPendingInsert(null)}
+                className="mt-1 inline-flex w-full items-center justify-center rounded-full border border-slate-700/70 bg-transparent px-4 py-2 text-[12px] font-semibold text-slate-300 hover:bg-slate-900/40"
+              >
+                Cancelar
+              </button>
+            </div>
           </div>
         </div>
       )}

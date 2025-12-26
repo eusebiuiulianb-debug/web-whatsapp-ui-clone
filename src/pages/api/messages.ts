@@ -9,6 +9,7 @@ import {
 import { normalizePreferredLanguage } from "../../lib/language";
 import { getDbSchemaOutOfSyncPayload, isDbSchemaOutOfSyncError } from "../../lib/dbSchemaGuard";
 import { translateText } from "../../server/ai/translateText";
+import { getStickerById } from "../../lib/emoji/stickers";
 
 type MessageResponse =
   | { ok: true; items: any[]; messages?: any[] }
@@ -164,13 +165,13 @@ async function handleGet(req: NextApiRequest, res: NextApiResponse<MessageRespon
 }
 
 async function handlePost(req: NextApiRequest, res: NextApiResponse<MessageResponse>) {
-  const { fanId, text, from, type, contentItemId, audience } = req.body || {};
+  const { fanId, text, from, type, contentItemId, audience, stickerId } = req.body || {};
 
   if (!fanId || typeof fanId !== "string") {
     return res.status(400).json({ ok: false, error: "fanId is required" });
   }
 
-  const normalizedType = type === "CONTENT" ? "CONTENT" : "TEXT";
+  const normalizedType = type === "CONTENT" ? "CONTENT" : type === "STICKER" ? "STICKER" : "TEXT";
 
   if (normalizedType === "TEXT") {
     if (!text || typeof text !== "string" || text.trim().length === 0) {
@@ -183,6 +184,26 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse<MessageRespo
       return res.status(400).json({ ok: false, error: "contentItemId is required for content messages" });
     }
   }
+  if (normalizedType === "STICKER") {
+    if (!stickerId || typeof stickerId !== "string") {
+      return res.status(400).json({ ok: false, error: "stickerId is required for sticker messages" });
+    }
+  }
+
+  const normalizedStickerId = normalizedType === "STICKER" ? stickerId.trim() : null;
+  if (normalizedType === "STICKER" && !normalizedStickerId) {
+    return res.status(400).json({ ok: false, error: "stickerId is required for sticker messages" });
+  }
+  const sticker = normalizedType === "STICKER" ? getStickerById(normalizedStickerId) : null;
+  const stickerLabel = sticker?.label || "Sticker";
+  const messageText =
+    normalizedType === "STICKER"
+      ? typeof text === "string" && text.trim().length > 0
+        ? text.trim()
+        : stickerLabel
+      : typeof text === "string"
+      ? text
+      : "";
 
   const normalizedFrom = normalizeFrom(typeof from === "string" ? from : undefined);
   const storedFrom = normalizedFrom === "fan" ? "fan" : "creator";
@@ -259,13 +280,14 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse<MessageRespo
         fanId,
         from: storedFrom,
         audience: normalizedAudience,
-        text: typeof text === "string" ? text : "",
+        text: messageText,
         deliveredText,
         creatorTranslatedText,
         time,
         isLastFromCreator: shouldUpdateThread && normalizedFrom === "creator",
         type: normalizedType,
         contentItemId: normalizedType === "CONTENT" ? (contentItemId as string) : null,
+        stickerId: normalizedType === "STICKER" ? normalizedStickerId : null,
       },
       include: { contentItem: true },
     });
@@ -274,6 +296,8 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse<MessageRespo
       const previewSource =
         normalizedType === "CONTENT"
           ? created.contentItem?.title || "Contenido compartido"
+          : normalizedType === "STICKER"
+          ? stickerLabel
           : typeof text === "string"
           ? text
           : "";

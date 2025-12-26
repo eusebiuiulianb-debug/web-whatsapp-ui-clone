@@ -32,7 +32,9 @@ function formatToneLabel(tone?: FanTone | null) {
 
 type Props = {
   managerSuggestions?: { id: string; label: string; message: string }[];
-  onApplySuggestion?: (text: string) => void;
+  onApplySuggestion?: (text: string, detail?: string) => void;
+  draftCards?: { id: string; label: string; text: string }[];
+  onDraftAction?: (draftId: string, action: "alternate" | "shorter" | "softer" | "bolder") => void;
   currentObjective?: ManagerObjective | null;
   suggestedObjective?: ManagerObjective | null;
   fanManagerState?: FanManagerState | null;
@@ -55,6 +57,8 @@ type Props = {
   onRenew: () => void;
   onQuickExtra: () => void;
   onPackOffer: () => void;
+  onRequestSuggestionAlt?: (text: string) => void;
+  onRequestSuggestionShorter?: (text: string) => void;
   showRenewAction: boolean;
   quickExtraDisabled?: boolean;
   isRecommended: (id: string) => boolean;
@@ -79,6 +83,8 @@ export default function FanManagerDrawer({
   onSuggestionClick,
   managerSuggestions,
   onApplySuggestion,
+  draftCards,
+  onDraftAction,
   currentObjective,
   suggestedObjective,
   fanManagerState,
@@ -92,6 +98,8 @@ export default function FanManagerDrawer({
   onRenew,
   onQuickExtra,
   onPackOffer,
+  onRequestSuggestionAlt,
+  onRequestSuggestionShorter,
   showRenewAction,
   quickExtraDisabled,
   isRecommended,
@@ -131,11 +139,12 @@ export default function FanManagerDrawer({
   const toneLabel = formatToneLabel(tone);
   const isObjectiveActive = (objective: ManagerObjective) => currentObjective === objective;
   const objectivesLocked = managerDisabled || isAutoPilotLoading;
+  const showAutopilotAdjust = autoPilotEnabled && hasAutopilotContext;
 
   return (
     <div className="rounded-2xl border border-slate-800 bg-slate-950/80 px-4 py-3 md:px-6 md:py-4 text-[11px] text-slate-100 space-y-2">
       <div className="flex flex-col gap-2">
-        <div className="flex items-start justify-between gap-3">
+        <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
           <div className="flex-1 min-w-0 space-y-1.5">
             <div className="text-sm md:text-base font-semibold text-slate-100">Manager IA</div>
             {stateChips.length > 0 && (
@@ -197,62 +206,76 @@ export default function FanManagerDrawer({
             )}
             {summaryLine && <div className="text-[11px] md:text-xs text-slate-300 truncate">{summaryLine}</div>}
           </div>
-          <div className="flex flex-col items-end gap-2">
+          <div className="flex flex-col items-end gap-2 w-full md:w-[280px] shrink-0">
             {onToggleAutoPilot && (
-              <button
-                type="button"
-                onClick={onToggleAutoPilot}
-                disabled={managerDisabled}
-                className={clsx(
-                  "inline-flex items-center gap-1 rounded-full border px-3 py-1.5 text-[11px] font-semibold transition",
-                  autoPilotEnabled
-                    ? "border-emerald-400 bg-emerald-500/20 text-emerald-100"
-                    : "border-slate-600 bg-slate-800/80 text-slate-100 hover:border-emerald-400 hover:text-emerald-100",
-                  managerDisabled && "opacity-60 cursor-not-allowed"
-                )}
-                title="Genera un borrador automático al elegir objetivo."
-              >
-                ⚡ Autopiloto IA {autoPilotEnabled ? "ON" : "OFF"}
-              </button>
-            )}
-            {autoPilotEnabled && hasAutopilotContext && (
-              <div className="flex flex-col items-end gap-1 text-[11px] text-slate-300">
-                <span className="text-right">Ajustar mensaje rápido:</span>
-                <div className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    disabled={isAutoPilotLoading || managerDisabled}
-                    onClick={onAutopilotSoften}
-                    className={clsx(
-                      "rounded-full border px-3 py-1 transition",
-                      "border-slate-600 bg-slate-800/80 text-slate-100 hover:border-emerald-400 hover:text-emerald-100",
-                      (isAutoPilotLoading || managerDisabled) && "opacity-60 cursor-not-allowed"
-                    )}
-                  >
-                    Suavizar
-                  </button>
-                  <button
-                    type="button"
-                    disabled={isAutoPilotLoading || managerDisabled}
-                    onClick={onAutopilotMakeBolder}
-                    className={clsx(
-                      "rounded-full border px-3 py-1 transition",
-                      "border-slate-600 bg-slate-800/80 text-slate-100 hover:border-emerald-400 hover:text-emerald-100",
-                      (isAutoPilotLoading || managerDisabled) && "opacity-60 cursor-not-allowed"
-                    )}
-                  >
-                    Más directo
-                  </button>
+              <div className="flex flex-col items-end gap-2 w-full">
+                <button
+                  type="button"
+                  onClick={onToggleAutoPilot}
+                  disabled={managerDisabled}
+                  className={clsx(
+                    "inline-flex items-center gap-1 rounded-full border px-3 py-1.5 text-[11px] font-semibold transition",
+                    autoPilotEnabled
+                      ? "border-emerald-400 bg-emerald-500/20 text-emerald-100"
+                      : "border-slate-600 bg-slate-800/80 text-slate-100 hover:border-emerald-400 hover:text-emerald-100",
+                    managerDisabled && "opacity-60 cursor-not-allowed"
+                  )}
+                  title="Genera borradores sugeridos según el estado del fan."
+                >
+                  ⚡ Auto-sugerir (solo borradores)
+                </button>
+                <div className="flex w-full flex-col items-end gap-1 text-[10px] leading-snug min-h-[32px]">
+                  <div className="text-slate-400">Nunca envía nada automáticamente. Tú decides qué se envía.</div>
+                  <div className={clsx(autoPilotEnabled ? "text-emerald-200" : "text-slate-400")}>
+                    {autoPilotEnabled
+                      ? "ON · Genera borradores sugeridos según el estado del fan (riesgo, caducidad, silencio…)."
+                      : "OFF · No genera sugerencias por su cuenta."}
+                  </div>
                 </div>
               </div>
             )}
+            <div
+              className={clsx(
+                "flex w-full flex-col items-end gap-1 text-[11px] text-slate-300 min-h-[64px]",
+                showAutopilotAdjust ? "visible" : "invisible"
+              )}
+              aria-hidden={!showAutopilotAdjust}
+            >
+              <span className="text-right">Ajustar mensaje rápido:</span>
+              <div className="flex flex-wrap items-center justify-end gap-2">
+                <button
+                  type="button"
+                  disabled={isAutoPilotLoading || managerDisabled || !showAutopilotAdjust}
+                  onClick={onAutopilotSoften}
+                  className={clsx(
+                    "rounded-full border px-3 py-1 transition",
+                    "border-slate-600 bg-slate-800/80 text-slate-100 hover:border-emerald-400 hover:text-emerald-100",
+                    (isAutoPilotLoading || managerDisabled || !showAutopilotAdjust) && "opacity-60 cursor-not-allowed"
+                  )}
+                >
+                  Suavizar
+                </button>
+                <button
+                  type="button"
+                  disabled={isAutoPilotLoading || managerDisabled || !showAutopilotAdjust}
+                  onClick={onAutopilotMakeBolder}
+                  className={clsx(
+                    "rounded-full border px-3 py-1 transition",
+                    "border-slate-600 bg-slate-800/80 text-slate-100 hover:border-emerald-400 hover:text-emerald-100",
+                    (isAutoPilotLoading || managerDisabled || !showAutopilotAdjust) && "opacity-60 cursor-not-allowed"
+                  )}
+                >
+                  Más directo
+                </button>
+              </div>
+            </div>
             <button
               type="button"
               onClick={() => setShowMore((prev) => !prev)}
               className="self-start inline-flex items-center gap-1.5 rounded-full border border-slate-700 bg-slate-800/80 px-3 py-1.5 text-[11px] font-semibold text-slate-100 hover:bg-slate-700"
               aria-expanded={showMore}
             >
-              <span>{showMore ? "Ocultar" : "Ver más"}</span>
+              <span>{showMore ? "Ocultar" : "Opciones"}</span>
               <span
                 className={clsx(
                   "inline-flex items-center transition-transform duration-200",
@@ -368,6 +391,61 @@ export default function FanManagerDrawer({
           </button>
         </div>
       </div>
+      {draftCards && draftCards.length > 0 && (
+        <div className="mt-3 rounded-xl border border-emerald-500/30 bg-emerald-500/5 p-3 flex flex-col gap-2">
+          <div className="text-[11px] font-semibold uppercase tracking-wide text-emerald-200">
+            Borradores generados
+          </div>
+          <div className="space-y-2">
+            {draftCards.map((draft) => (
+              <div
+                key={draft.id}
+                className="rounded-xl border border-slate-800/70 bg-slate-900/70 px-3 py-2 space-y-2"
+              >
+                <div className="text-[10px] uppercase tracking-wide text-slate-400">{draft.label}</div>
+                <div className="text-[12px] text-slate-100">{draft.text}</div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => onApplySuggestion?.(draft.text, draft.label)}
+                    className="inline-flex items-center rounded-full border border-emerald-500/60 bg-emerald-500/10 px-3 py-1 text-[11px] font-medium text-emerald-100 hover:bg-emerald-500/20 transition"
+                  >
+                    Usar en mensaje
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => onDraftAction?.(draft.id, "alternate")}
+                    className="inline-flex items-center rounded-full border border-slate-700/70 bg-slate-900/40 px-2.5 py-1 text-[10px] font-semibold text-slate-200 hover:border-slate-500/70"
+                  >
+                    Otra versión
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => onDraftAction?.(draft.id, "shorter")}
+                    className="inline-flex items-center rounded-full border border-slate-700/70 bg-slate-900/40 px-2.5 py-1 text-[10px] font-semibold text-slate-200 hover:border-slate-500/70"
+                  >
+                    Más corta
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => onDraftAction?.(draft.id, "softer")}
+                    className="inline-flex items-center rounded-full border border-slate-700/70 bg-slate-900/40 px-2.5 py-1 text-[10px] font-semibold text-slate-200 hover:border-slate-500/70"
+                  >
+                    Suavizar
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => onDraftAction?.(draft.id, "bolder")}
+                    className="inline-flex items-center rounded-full border border-slate-700/70 bg-slate-900/40 px-2.5 py-1 text-[10px] font-semibold text-slate-200 hover:border-slate-500/70"
+                  >
+                    Más directo
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
       {managerSuggestions && managerSuggestions.length > 0 && (
         <div className="mt-3 rounded-xl border border-emerald-500/30 bg-emerald-500/5 p-3 flex flex-col gap-2">
           <div className="text-[11px] font-semibold uppercase tracking-wide text-emerald-200">
@@ -383,13 +461,29 @@ export default function FanManagerDrawer({
                   {suggestion.label}
                 </div>
                 <div className="text-[12px] text-slate-100">{suggestion.message}</div>
+                <div className="flex flex-wrap items-center gap-2">
                 <button
                   type="button"
-                  onClick={() => onApplySuggestion?.(suggestion.message)}
+                  onClick={() => onApplySuggestion?.(suggestion.message, suggestion.label)}
                   className="inline-flex items-center rounded-full border border-emerald-500/60 bg-emerald-500/10 px-3 py-1 text-[11px] font-medium text-emerald-100 hover:bg-emerald-500/20 transition"
                 >
                   Usar en mensaje
                 </button>
+                  <button
+                    type="button"
+                    onClick={() => onRequestSuggestionAlt?.(suggestion.message)}
+                    className="inline-flex items-center rounded-full border border-slate-700/70 bg-slate-900/40 px-2.5 py-1 text-[10px] font-semibold text-slate-200 hover:border-slate-500/70"
+                  >
+                    Otra versión
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => onRequestSuggestionShorter?.(suggestion.message)}
+                    className="inline-flex items-center rounded-full border border-slate-700/70 bg-slate-900/40 px-2.5 py-1 text-[10px] font-semibold text-slate-200 hover:border-slate-500/70"
+                  >
+                    Más corta
+                  </button>
+                </div>
               </div>
             ))}
           </div>

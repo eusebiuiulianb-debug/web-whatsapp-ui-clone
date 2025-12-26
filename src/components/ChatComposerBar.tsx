@@ -1,5 +1,21 @@
-import React from "react";
+import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import clsx from "clsx";
+import dynamic from "next/dynamic";
+import emojiData from "@emoji-mart/data";
+import { createPortal } from "react-dom";
+import Image from "next/image";
+import { readEmojiRecents, recordEmojiRecent } from "../lib/emoji/recents";
+import { useEmojiFavorites } from "../hooks/useEmojiFavorites";
+import { STICKER_CATEGORIES, STICKER_ITEMS, type StickerCategory, type StickerItem } from "../lib/emoji/stickers";
+
+const EmojiPicker = dynamic<any>(() => import("@emoji-mart/react"), { ssr: false });
+const HIDDEN_POPOVER_STYLE: React.CSSProperties = { position: "fixed", left: -9999, top: -9999 };
+
+type EmojiSelectPayload = {
+  native?: string;
+  emoji?: string;
+};
+type StickerCategoryFilter = "all" | StickerCategory;
 
 type ComposerAudience = "CREATOR" | "INTERNAL";
 
@@ -21,6 +37,10 @@ type ChatComposerBarProps = {
   isInternalPanelOpen: boolean;
   showAudienceToggle?: boolean;
   showAttach?: boolean;
+  showEmoji?: boolean;
+  onEmojiSelect?: (emoji: string) => void;
+  showStickers?: boolean;
+  onStickerSelect?: (sticker: StickerItem) => void;
 };
 
 export function ChatComposerBar({
@@ -41,9 +61,361 @@ export function ChatComposerBar({
   isInternalPanelOpen,
   showAudienceToggle = true,
   showAttach = true,
+  showEmoji = false,
+  onEmojiSelect,
+  showStickers = false,
+  onStickerSelect,
 }: ChatComposerBarProps) {
   const isInternalMode = audience === "INTERNAL";
   const isInputDisabled = (isChatBlocked && !isInternalMode) || isInternalPanelOpen;
+  const [ isEmojiOpen, setIsEmojiOpen ] = useState(false);
+  const [ isStickerOpen, setIsStickerOpen ] = useState(false);
+  const [ isEditingFavorites, setIsEditingFavorites ] = useState(false);
+  const [ emojiPickerMode, setEmojiPickerMode ] = useState<"insert" | "favorite">("insert");
+  const [ stickerCategory, setStickerCategory ] = useState<StickerCategoryFilter>("all");
+  const emojiButtonRef = useRef<HTMLButtonElement | null>(null);
+  const emojiAddButtonRef = useRef<HTMLButtonElement | null>(null);
+  const stickerButtonRef = useRef<HTMLButtonElement | null>(null);
+  const emojiPopoverRef = useRef<HTMLDivElement | null>(null);
+  const emojiSheetRef = useRef<HTMLDivElement | null>(null);
+  const stickerPopoverRef = useRef<HTMLDivElement | null>(null);
+  const stickerSheetRef = useRef<HTMLDivElement | null>(null);
+  const [ emojiPopoverStyle, setEmojiPopoverStyle ] = useState<React.CSSProperties | null>(null);
+  const [ stickerPopoverStyle, setStickerPopoverStyle ] = useState<React.CSSProperties | null>(null);
+  const [ emojiRecents, setEmojiRecents ] = useState<string[]>([]);
+  const { favorites, addFavorite, removeFavorite, replaceFavorites, isAtMax } = useEmojiFavorites();
+  const draggedEmojiRef = useRef<string | null>(null);
+  const canUseEmoji = showEmoji && !!onEmojiSelect;
+  const filteredStickers = useMemo(() => {
+    if (stickerCategory === "all") return STICKER_ITEMS;
+    return STICKER_ITEMS.filter((item) => item.category === stickerCategory);
+  }, [stickerCategory]);
+
+  useEffect(() => {
+    if (!isEmojiOpen && !isStickerOpen) return;
+
+    const handlePointerDown = (event: PointerEvent) => {
+      const target = event.target as Node | null;
+      if (!target) return;
+      if (emojiButtonRef.current?.contains(target)) return;
+      if (emojiAddButtonRef.current?.contains(target)) return;
+      if (emojiPopoverRef.current?.contains(target)) return;
+      if (emojiSheetRef.current?.contains(target)) return;
+      if (stickerButtonRef.current?.contains(target)) return;
+      if (stickerPopoverRef.current?.contains(target)) return;
+      if (stickerSheetRef.current?.contains(target)) return;
+      setIsEmojiOpen(false);
+      setIsStickerOpen(false);
+      setEmojiPickerMode("insert");
+    };
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setIsEmojiOpen(false);
+        setIsStickerOpen(false);
+        setEmojiPickerMode("insert");
+      }
+    };
+
+    document.addEventListener("pointerdown", handlePointerDown);
+    document.addEventListener("keydown", handleKeyDown);
+    return () => {
+      document.removeEventListener("pointerdown", handlePointerDown);
+      document.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [isEmojiOpen, isStickerOpen]);
+
+  useEffect(() => {
+    if (!showEmoji || isInputDisabled) {
+      setIsEmojiOpen(false);
+      setEmojiPickerMode("insert");
+    }
+  }, [showEmoji, isInputDisabled]);
+
+  useEffect(() => {
+    if (!showStickers || isInputDisabled) {
+      setIsStickerOpen(false);
+    }
+  }, [showStickers, isInputDisabled]);
+
+  useEffect(() => {
+    if (!isEmojiOpen) return;
+    setEmojiRecents(readEmojiRecents());
+  }, [isEmojiOpen]);
+
+  useLayoutEffect(() => {
+    if (!isEmojiOpen || typeof window === "undefined") return;
+    const anchor = emojiPickerMode === "favorite" ? emojiAddButtonRef.current : emojiButtonRef.current;
+    const popover = emojiPopoverRef.current;
+    if (!anchor || !popover) return;
+
+    const padding = 8;
+    const anchorRect = anchor.getBoundingClientRect();
+    const popoverRect = popover.getBoundingClientRect();
+    const viewportWidth = window.innerWidth;
+    const viewportHeight = window.innerHeight;
+
+    const minLeft = padding;
+    const maxLeft = Math.max(padding, viewportWidth - popoverRect.width - padding);
+    const nextLeft = Math.min(Math.max(anchorRect.left, minLeft), maxLeft);
+
+    const preferredTop = anchorRect.top - popoverRect.height - padding;
+    const minTop = padding;
+    const maxTop = Math.max(padding, viewportHeight - popoverRect.height - padding);
+    let nextTop = preferredTop;
+    if (nextTop < minTop) {
+      nextTop = anchorRect.bottom + padding;
+    }
+    nextTop = Math.min(Math.max(nextTop, minTop), maxTop);
+
+    setEmojiPopoverStyle({
+      position: "fixed",
+      left: nextLeft,
+      top: nextTop,
+    });
+  }, [isEmojiOpen, emojiPickerMode]);
+
+  useEffect(() => {
+    if (!isEmojiOpen || typeof window === "undefined") return;
+    const handleReposition = () => {
+      const anchor = emojiPickerMode === "favorite" ? emojiAddButtonRef.current : emojiButtonRef.current;
+      const popover = emojiPopoverRef.current;
+      if (!anchor || !popover) return;
+
+      const padding = 8;
+      const anchorRect = anchor.getBoundingClientRect();
+      const popoverRect = popover.getBoundingClientRect();
+      const viewportWidth = window.innerWidth;
+      const viewportHeight = window.innerHeight;
+
+      const minLeft = padding;
+      const maxLeft = Math.max(padding, viewportWidth - popoverRect.width - padding);
+      const nextLeft = Math.min(Math.max(anchorRect.left, minLeft), maxLeft);
+
+      const preferredTop = anchorRect.top - popoverRect.height - padding;
+      const minTop = padding;
+      const maxTop = Math.max(padding, viewportHeight - popoverRect.height - padding);
+      let nextTop = preferredTop;
+      if (nextTop < minTop) {
+        nextTop = anchorRect.bottom + padding;
+      }
+      nextTop = Math.min(Math.max(nextTop, minTop), maxTop);
+
+      setEmojiPopoverStyle({
+        position: "fixed",
+        left: nextLeft,
+        top: nextTop,
+      });
+    };
+    window.addEventListener("resize", handleReposition);
+    window.addEventListener("scroll", handleReposition, true);
+    const raf = window.requestAnimationFrame(handleReposition);
+    return () => {
+      window.removeEventListener("resize", handleReposition);
+      window.removeEventListener("scroll", handleReposition, true);
+      window.cancelAnimationFrame(raf);
+    };
+  }, [isEmojiOpen, emojiPickerMode]);
+
+  useLayoutEffect(() => {
+    if (!isStickerOpen || typeof window === "undefined") return;
+    const anchor = stickerButtonRef.current;
+    const popover = stickerPopoverRef.current;
+    if (!anchor || !popover) return;
+
+    const padding = 8;
+    const anchorRect = anchor.getBoundingClientRect();
+    const popoverRect = popover.getBoundingClientRect();
+    const viewportWidth = window.innerWidth;
+    const viewportHeight = window.innerHeight;
+
+    const minLeft = padding;
+    const maxLeft = Math.max(padding, viewportWidth - popoverRect.width - padding);
+    const nextLeft = Math.min(Math.max(anchorRect.left, minLeft), maxLeft);
+
+    const preferredTop = anchorRect.top - popoverRect.height - padding;
+    const minTop = padding;
+    const maxTop = Math.max(padding, viewportHeight - popoverRect.height - padding);
+    let nextTop = preferredTop;
+    if (nextTop < minTop) {
+      nextTop = anchorRect.bottom + padding;
+    }
+    nextTop = Math.min(Math.max(nextTop, minTop), maxTop);
+
+    setStickerPopoverStyle({
+      position: "fixed",
+      left: nextLeft,
+      top: nextTop,
+    });
+  }, [isStickerOpen]);
+
+  useEffect(() => {
+    if (!isStickerOpen || typeof window === "undefined") return;
+    const handleReposition = () => {
+      const anchor = stickerButtonRef.current;
+      const popover = stickerPopoverRef.current;
+      if (!anchor || !popover) return;
+
+      const padding = 8;
+      const anchorRect = anchor.getBoundingClientRect();
+      const popoverRect = popover.getBoundingClientRect();
+      const viewportWidth = window.innerWidth;
+      const viewportHeight = window.innerHeight;
+
+      const minLeft = padding;
+      const maxLeft = Math.max(padding, viewportWidth - popoverRect.width - padding);
+      const nextLeft = Math.min(Math.max(anchorRect.left, minLeft), maxLeft);
+
+      const preferredTop = anchorRect.top - popoverRect.height - padding;
+      const minTop = padding;
+      const maxTop = Math.max(padding, viewportHeight - popoverRect.height - padding);
+      let nextTop = preferredTop;
+      if (nextTop < minTop) {
+        nextTop = anchorRect.bottom + padding;
+      }
+      nextTop = Math.min(Math.max(nextTop, minTop), maxTop);
+
+      setStickerPopoverStyle({
+        position: "fixed",
+        left: nextLeft,
+        top: nextTop,
+      });
+    };
+    window.addEventListener("resize", handleReposition);
+    window.addEventListener("scroll", handleReposition, true);
+    const raf = window.requestAnimationFrame(handleReposition);
+    return () => {
+      window.removeEventListener("resize", handleReposition);
+      window.removeEventListener("scroll", handleReposition, true);
+      window.cancelAnimationFrame(raf);
+    };
+  }, [isStickerOpen]);
+
+  const handleEmojiSelect = (payload: EmojiSelectPayload | string) => {
+    const emoji =
+      typeof payload === "string"
+        ? payload
+        : payload?.native || payload?.emoji || "";
+    if (!emoji) return;
+    if (emojiPickerMode === "favorite") {
+      if (!isAtMax) {
+        addFavorite(emoji);
+      }
+      setIsEmojiOpen(false);
+      setEmojiPickerMode("insert");
+      return;
+    }
+    if (!onEmojiSelect) return;
+    onEmojiSelect(emoji);
+    setEmojiRecents((prev) => recordEmojiRecent(emoji, prev));
+    setIsEmojiOpen(false);
+  };
+
+  const handleQuickEmojiInsert = (emoji: string) => {
+    if (!onEmojiSelect || isInputDisabled) return;
+    onEmojiSelect(emoji);
+    setEmojiRecents((prev) => recordEmojiRecent(emoji, prev));
+  };
+  const handleRecentEmojiInsert = (emoji: string) => {
+    if (emojiPickerMode === "favorite") {
+      if (!isAtMax) {
+        addFavorite(emoji);
+      }
+      setIsEmojiOpen(false);
+      setEmojiPickerMode("insert");
+      return;
+    }
+    handleQuickEmojiInsert(emoji);
+    setIsEmojiOpen(false);
+  };
+
+  const handleEmojiToggle = () => {
+    if (isInputDisabled || !onEmojiSelect) return;
+    setEmojiPickerMode("insert");
+    setIsStickerOpen(false);
+    setIsEmojiOpen((prev) => !prev);
+  };
+
+  const handleEmojiPointerDown = (event: React.PointerEvent<HTMLButtonElement>) => {
+    event.preventDefault();
+  };
+
+  const handleStickerToggle = () => {
+    if (isInputDisabled || !onStickerSelect) return;
+    setIsEmojiOpen(false);
+    setEmojiPickerMode("insert");
+    setIsStickerOpen((prev) => !prev);
+  };
+
+  const handleStickerSelect = (sticker: StickerItem) => {
+    if (!onStickerSelect) return;
+    onStickerSelect(sticker);
+    setIsStickerOpen(false);
+  };
+
+  const handleAddFavoriteClick = () => {
+    if (isInputDisabled || isAtMax) return;
+    setEmojiPickerMode("favorite");
+    setIsStickerOpen(false);
+    setIsEmojiOpen(true);
+  };
+
+  const handleRemoveFavorite = (emoji: string) => {
+    removeFavorite(emoji);
+  };
+
+  const handleFavoriteDragStart = (emoji: string) => (event: React.DragEvent<HTMLButtonElement>) => {
+    if (!isEditingFavorites) return;
+    draggedEmojiRef.current = emoji;
+    event.dataTransfer.effectAllowed = "move";
+    event.dataTransfer.setData("text/plain", emoji);
+  };
+
+  const handleFavoriteDragOver = (event: React.DragEvent<HTMLDivElement>) => {
+    if (!isEditingFavorites) return;
+    event.preventDefault();
+    event.dataTransfer.dropEffect = "move";
+  };
+
+  const handleFavoriteDrop = (targetEmoji: string) => (event: React.DragEvent<HTMLDivElement>) => {
+    if (!isEditingFavorites) return;
+    event.preventDefault();
+    const sourceEmoji = draggedEmojiRef.current || event.dataTransfer.getData("text/plain");
+    draggedEmojiRef.current = null;
+    if (!sourceEmoji || sourceEmoji === targetEmoji) return;
+    const next = favorites.filter((item) => item !== sourceEmoji);
+    const targetIndex = next.indexOf(targetEmoji);
+    if (targetIndex < 0) {
+      replaceFavorites([...next, sourceEmoji]);
+      return;
+    }
+    next.splice(targetIndex, 0, sourceEmoji);
+    replaceFavorites(next);
+  };
+
+  const handleFavoriteDragEnd = () => {
+    draggedEmojiRef.current = null;
+  };
+
+  const renderEmojiRecents = () => {
+    if (!emojiRecents.length) return null;
+    return (
+      <div className="mb-2 flex flex-wrap items-center gap-1 rounded-xl border border-slate-800/70 bg-slate-900/60 px-2 py-1">
+        <span className="text-[10px] uppercase tracking-wide text-slate-400">Recientes</span>
+        {emojiRecents.map((emoji, idx) => (
+          <button
+            key={`${emoji}-${idx}`}
+            type="button"
+            onClick={() => handleRecentEmojiInsert(emoji)}
+            className="flex h-7 w-7 items-center justify-center rounded-full border border-slate-700/70 bg-slate-900/70 text-sm text-slate-100 hover:bg-slate-800/80"
+            aria-label={`Emoji reciente ${emoji}`}
+          >
+            {emoji}
+          </button>
+        ))}
+      </div>
+    );
+  };
+
   return (
     <div
       className={clsx(
@@ -58,6 +430,87 @@ export function ChatComposerBar({
         isChatBlocked && !isInternalMode && "opacity-70"
       )}
     >
+      {canUseEmoji && (
+        <div className="flex flex-col gap-2 px-1 pt-1">
+          <div className="flex items-center justify-between gap-2">
+            <div className="flex items-center gap-2">
+              <span className="text-[10px] uppercase tracking-wide text-slate-500">Favoritos</span>
+            </div>
+            <button
+              type="button"
+              onClick={() => {
+                setIsEditingFavorites((prev) => {
+                  if (prev) {
+                    setIsEmojiOpen(false);
+                    setEmojiPickerMode("insert");
+                  }
+                  return !prev;
+                });
+              }}
+              className="text-[10px] font-semibold text-slate-400 hover:text-slate-200"
+            >
+              {isEditingFavorites ? "Listo" : "Editar"}
+            </button>
+          </div>
+          <div className="flex flex-wrap items-center gap-1" onDragOver={handleFavoriteDragOver}>
+            {favorites.length === 0 && (
+              <span className="text-[11px] text-slate-500">Sin favoritos todavía.</span>
+            )}
+            {favorites.map((emoji) => (
+              <div
+                key={emoji}
+                className="relative"
+                onDrop={handleFavoriteDrop(emoji)}
+              >
+                <button
+                  type="button"
+                  onClick={() => handleQuickEmojiInsert(emoji)}
+                  disabled={isInputDisabled}
+                  draggable={isEditingFavorites}
+                  onDragStart={handleFavoriteDragStart(emoji)}
+                  onDragEnd={handleFavoriteDragEnd}
+                  className={clsx(
+                    "flex h-7 w-7 items-center justify-center rounded-full border text-sm",
+                    isInputDisabled
+                      ? "border-slate-800/60 bg-slate-900/30 text-slate-500 cursor-not-allowed"
+                      : "border-slate-700/70 bg-slate-900/60 text-slate-100 hover:bg-slate-800/80"
+                  )}
+                  aria-label={`Emoji favorito ${emoji}`}
+                >
+                  {emoji}
+                </button>
+                {isEditingFavorites && (
+                  <button
+                    type="button"
+                    onClick={() => handleRemoveFavorite(emoji)}
+                    className="absolute -top-1.5 -right-1.5 flex h-4 w-4 items-center justify-center rounded-full border border-slate-700 bg-slate-950 text-[9px] text-slate-200 hover:bg-slate-800"
+                    aria-label={`Eliminar favorito ${emoji}`}
+                  >
+                    ✕
+                  </button>
+                )}
+              </div>
+            ))}
+            {isEditingFavorites && (
+              <button
+                type="button"
+                ref={emojiAddButtonRef}
+                onClick={handleAddFavoriteClick}
+                disabled={isInputDisabled || isAtMax}
+                className={clsx(
+                  "flex h-7 w-7 items-center justify-center rounded-full border text-[12px] font-semibold",
+                  isInputDisabled || isAtMax
+                    ? "border-slate-800/60 bg-slate-900/30 text-slate-500 cursor-not-allowed"
+                    : "border-dashed border-slate-600/70 bg-slate-900/40 text-slate-200 hover:bg-slate-800/80"
+                )}
+                aria-label="Añadir favorito"
+              >
+                +
+              </button>
+            )}
+          </div>
+        </div>
+      )}
       <textarea
         ref={inputRef}
         rows={1}
@@ -97,6 +550,223 @@ export function ChatComposerBar({
               </svg>
             </button>
           )}
+          {showEmoji && (
+            <div className="relative">
+              <button
+                type="button"
+                ref={emojiButtonRef}
+                onPointerDown={handleEmojiPointerDown}
+                onClick={handleEmojiToggle}
+                disabled={isInputDisabled || !onEmojiSelect}
+                className={clsx(
+                  "flex h-9 w-9 items-center justify-center rounded-full border transition focus-visible:outline-none focus-visible:ring-2",
+                  !isInputDisabled && onEmojiSelect
+                    ? "border-slate-800/70 bg-slate-900/50 text-slate-200 hover:border-slate-600/80 hover:bg-slate-800/70 focus-visible:ring-emerald-400/30"
+                    : "border-slate-800/50 bg-slate-900/30 text-slate-500 cursor-not-allowed"
+                )}
+                title="Insertar emoji"
+                aria-label="Insertar emoji"
+              >
+                <span className="text-lg leading-none">🙂</span>
+              </button>
+              {isEmojiOpen && (
+                <>
+                  {typeof document !== "undefined" &&
+                    createPortal(
+                      <div
+                        ref={emojiPopoverRef}
+                        className="hidden sm:block z-[9999]"
+                        style={emojiPopoverStyle ?? HIDDEN_POPOVER_STYLE}
+                      >
+                        <div className="rounded-2xl border border-slate-800/80 bg-slate-950/95 p-2 shadow-2xl min-w-[360px] w-[360px] max-w-[calc(100vw-16px)] max-h-[420px] overflow-hidden">
+                          {emojiPickerMode === "favorite" && (
+                            <div className="mb-2 rounded-lg border border-emerald-500/40 bg-emerald-500/10 px-2 py-1 text-[11px] text-emerald-100">
+                              {isAtMax ? "Límite de favoritos alcanzado." : "Selecciona un emoji para favoritos."}
+                            </div>
+                          )}
+                          {renderEmojiRecents()}
+                          <EmojiPicker
+                            data={emojiData}
+                            theme="dark"
+                            onEmojiSelect={handleEmojiSelect}
+                            previewPosition="none"
+                            perLine={9}
+                            style={{ width: "100%" }}
+                            autoFocus={false}
+                          />
+                        </div>
+                      </div>,
+                      document.body
+                    )}
+                  <div className="sm:hidden fixed inset-0 z-50 flex items-end justify-center bg-black/60">
+                    <div
+                      ref={emojiSheetRef}
+                      className="w-full max-w-lg rounded-t-2xl border border-slate-800/80 bg-slate-950/95 p-3 shadow-2xl"
+                    >
+                      {emojiPickerMode === "favorite" && (
+                        <div className="mb-2 rounded-lg border border-emerald-500/40 bg-emerald-500/10 px-2 py-1 text-[11px] text-emerald-100">
+                          {isAtMax ? "Límite de favoritos alcanzado." : "Selecciona un emoji para favoritos."}
+                        </div>
+                      )}
+                      {renderEmojiRecents()}
+                      <EmojiPicker
+                        data={emojiData}
+                        theme="dark"
+                        onEmojiSelect={handleEmojiSelect}
+                        previewPosition="none"
+                        autoFocus={false}
+                      />
+                    </div>
+                  </div>
+                </>
+              )}
+            </div>
+          )}
+          {showStickers && (
+            <div className="relative">
+              <button
+                type="button"
+                ref={stickerButtonRef}
+                onClick={handleStickerToggle}
+                disabled={isInputDisabled || !onStickerSelect}
+                className={clsx(
+                  "h-9 px-3 rounded-full border text-[11px] font-semibold transition focus-visible:outline-none focus-visible:ring-2",
+                  !isInputDisabled && onStickerSelect
+                    ? "border-slate-800/70 bg-slate-900/50 text-slate-200 hover:border-slate-600/80 hover:bg-slate-800/70 focus-visible:ring-emerald-400/30"
+                    : "border-slate-800/50 bg-slate-900/30 text-slate-500 cursor-not-allowed"
+                )}
+                title="Stickers"
+                aria-label="Stickers"
+              >
+                Stickers
+              </button>
+              {isStickerOpen && (
+                <>
+                  {typeof document !== "undefined" &&
+                    createPortal(
+                      <div
+                        ref={stickerPopoverRef}
+                        className="hidden sm:block z-[9999]"
+                        style={stickerPopoverStyle ?? HIDDEN_POPOVER_STYLE}
+                      >
+                        <div className="rounded-2xl border border-slate-800/80 bg-slate-950/95 p-3 shadow-2xl min-w-[320px] w-[360px] max-w-[calc(100vw-16px)] max-h-[420px] overflow-hidden">
+                          <div className="mb-2 text-[11px] font-semibold text-slate-300">Stickers</div>
+                          <div className="mb-2 flex flex-wrap items-center gap-1">
+                            <button
+                              type="button"
+                              onClick={() => setStickerCategory("all")}
+                              className={clsx(
+                                "rounded-full border px-2 py-0.5 text-[10px] font-semibold",
+                                stickerCategory === "all"
+                                  ? "border-emerald-400/70 bg-emerald-500/10 text-emerald-100"
+                                  : "border-slate-700/70 bg-slate-900/60 text-slate-300 hover:text-slate-100"
+                              )}
+                            >
+                              Todas
+                            </button>
+                            {STICKER_CATEGORIES.map((category) => (
+                              <button
+                                key={category.id}
+                                type="button"
+                                onClick={() => setStickerCategory(category.id)}
+                                className={clsx(
+                                  "rounded-full border px-2 py-0.5 text-[10px] font-semibold",
+                                  stickerCategory === category.id
+                                    ? "border-emerald-400/70 bg-emerald-500/10 text-emerald-100"
+                                    : "border-slate-700/70 bg-slate-900/60 text-slate-300 hover:text-slate-100"
+                                )}
+                              >
+                                {category.label}
+                              </button>
+                            ))}
+                          </div>
+                          <div className="grid grid-cols-3 gap-2 max-h-[320px] overflow-y-auto pr-1">
+                            {filteredStickers.map((sticker) => (
+                              <button
+                                key={sticker.id}
+                                type="button"
+                                onClick={() => handleStickerSelect(sticker)}
+                                className="group flex flex-col items-center justify-center gap-1 rounded-xl border border-slate-800/70 bg-slate-900/60 p-2 hover:bg-slate-800/80"
+                              >
+                                <Image
+                                  src={sticker.src}
+                                  alt={sticker.label}
+                                  width={60}
+                                  height={60}
+                                  unoptimized
+                                  className="h-16 w-16 object-contain transition-transform group-hover:scale-105"
+                                />
+                                <span className="text-[10px] text-slate-300">{sticker.label}</span>
+                                <span className="text-[10px] text-emerald-200/80 group-hover:text-emerald-100">Insertar</span>
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      </div>,
+                      document.body
+                    )}
+                  <div className="sm:hidden fixed inset-0 z-50 flex items-end justify-center bg-black/60">
+                    <div
+                      ref={stickerSheetRef}
+                      className="w-full max-w-lg rounded-t-2xl border border-slate-800/80 bg-slate-950/95 p-3 shadow-2xl"
+                    >
+                      <div className="mb-2 text-[11px] font-semibold text-slate-300">Stickers</div>
+                      <div className="mb-2 flex flex-wrap items-center gap-1">
+                        <button
+                          type="button"
+                          onClick={() => setStickerCategory("all")}
+                          className={clsx(
+                            "rounded-full border px-2 py-0.5 text-[10px] font-semibold",
+                            stickerCategory === "all"
+                              ? "border-emerald-400/70 bg-emerald-500/10 text-emerald-100"
+                              : "border-slate-700/70 bg-slate-900/60 text-slate-300 hover:text-slate-100"
+                          )}
+                        >
+                          Todas
+                        </button>
+                        {STICKER_CATEGORIES.map((category) => (
+                          <button
+                            key={category.id}
+                            type="button"
+                            onClick={() => setStickerCategory(category.id)}
+                            className={clsx(
+                              "rounded-full border px-2 py-0.5 text-[10px] font-semibold",
+                              stickerCategory === category.id
+                                ? "border-emerald-400/70 bg-emerald-500/10 text-emerald-100"
+                                : "border-slate-700/70 bg-slate-900/60 text-slate-300 hover:text-slate-100"
+                            )}
+                          >
+                            {category.label}
+                          </button>
+                        ))}
+                      </div>
+                      <div className="grid grid-cols-3 gap-2 max-h-[320px] overflow-y-auto pr-1">
+                        {filteredStickers.map((sticker) => (
+                          <button
+                            key={sticker.id}
+                            type="button"
+                            onClick={() => handleStickerSelect(sticker)}
+                            className="group flex flex-col items-center justify-center gap-1 rounded-xl border border-slate-800/70 bg-slate-900/60 p-2 hover:bg-slate-800/80"
+                          >
+                            <Image
+                              src={sticker.src}
+                              alt={sticker.label}
+                              width={60}
+                              height={60}
+                              unoptimized
+                              className="h-16 w-16 object-contain transition-transform group-hover:scale-105"
+                            />
+                            <span className="text-[10px] text-slate-300">{sticker.label}</span>
+                            <span className="text-[10px] text-emerald-200/80 group-hover:text-emerald-100">Insertar</span>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                </>
+              )}
+            </div>
+          )}
           {showAudienceToggle && (
             <div
               className={clsx(
@@ -116,7 +786,7 @@ export function ChatComposerBar({
                     : "text-slate-300 hover:text-slate-100"
                 )}
               >
-                Fan
+                Al fan
               </button>
               <button
                 type="button"
@@ -127,9 +797,9 @@ export function ChatComposerBar({
                     ? "bg-amber-500/20 text-amber-100"
                     : "text-slate-300 hover:text-slate-100"
                 )}
-                title="No se envía al fan. Se guarda en el chat interno."
+                title="No se envía al fan. Se prepara en el Manager interno."
               >
-                {isInternalMode ? "🔒 Interno" : "Interno"}
+                Interno/Manager
               </button>
             </div>
           )}
@@ -142,7 +812,7 @@ export function ChatComposerBar({
           className={clsx(
             "h-9 px-4 rounded-full text-sm font-semibold shrink-0 transition-colors focus-visible:outline-none focus-visible:ring-2",
             isInternalMode
-              ? "bg-sky-500/90 text-slate-950 hover:bg-sky-400 focus-visible:ring-sky-400/40"
+              ? "bg-amber-400 text-slate-950 hover:bg-amber-300 focus-visible:ring-amber-400/40"
               : "bg-emerald-600 text-white hover:bg-emerald-500 focus-visible:ring-emerald-400/40",
             "disabled:opacity-50 disabled:cursor-not-allowed"
           )}

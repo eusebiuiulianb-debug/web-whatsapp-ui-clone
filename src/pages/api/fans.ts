@@ -13,6 +13,7 @@ import { createInviteTokenForFan } from "../../utils/createInviteToken";
 import { isVisibleToFan, normalizeFrom } from "../../lib/messageAudience";
 import { normalizePreferredLanguage } from "../../lib/language";
 import { getDbSchemaOutOfSyncPayload, isDbSchemaOutOfSyncError } from "../../lib/dbSchemaGuard";
+import { getStickerById } from "../../lib/emoji/stickers";
 
 function parseMessageTimestamp(messageId: string): Date | null {
   const parts = messageId.split("-");
@@ -37,6 +38,41 @@ function truncateSnippet(text: string | null | undefined, max = 80): string | nu
   const trimmed = text.trim();
   if (trimmed.length <= max) return trimmed;
   return `${trimmed.slice(0, max - 1)}…`;
+}
+
+function formatNextActionFromFollowUp(followUp?: {
+  title: string;
+  dueAt: Date | null;
+} | null): string | null {
+  if (!followUp?.title) return null;
+  if (!followUp.dueAt) return followUp.title;
+  const iso = followUp.dueAt.toISOString();
+  const date = iso.slice(0, 10);
+  const time = iso.slice(11, 16);
+  const suffix = time ? ` ${time}` : "";
+  return `${followUp.title} (para ${date}${suffix})`;
+}
+
+function mapFollowUp(followUp: {
+  id: string;
+  title: string;
+  note: string | null;
+  dueAt: Date | null;
+  status: "OPEN" | "DONE" | "DELETED";
+  createdAt: Date;
+  updatedAt: Date;
+  doneAt: Date | null;
+}) {
+  return {
+    id: followUp.id,
+    title: followUp.title,
+    note: followUp.note ?? null,
+    dueAt: followUp.dueAt ? followUp.dueAt.toISOString() : null,
+    status: followUp.status,
+    createdAt: followUp.createdAt ? followUp.createdAt.toISOString() : null,
+    updatedAt: followUp.updatedAt ? followUp.updatedAt.toISOString() : null,
+    doneAt: followUp.doneAt ? followUp.doneAt.toISOString() : null,
+  };
 }
 
 const DEFAULT_LIMIT = 50;
@@ -132,6 +168,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         daysLeft: true,
         lastSeen: true,
         nextAction: true,
+        profileText: true,
         creatorId: true,
         segment: true,
         riskLevel: true,
@@ -144,6 +181,21 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           orderBy: { createdAt: "desc" },
           take: 1,
           select: { content: true },
+        },
+        followUps: {
+          where: { status: "OPEN" },
+          orderBy: { updatedAt: "desc" },
+          take: 1,
+          select: {
+            id: true,
+            title: true,
+            note: true,
+            dueAt: true,
+            status: true,
+            createdAt: true,
+            updatedAt: true,
+            doneAt: true,
+          },
         },
         messages: {
           select: {
@@ -360,9 +412,12 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           ts: parseMessageTimestamp(msg.id)?.getTime() ?? 0,
         }))
         .sort((a, b) => b.ts - a.ts)[0]?.msg;
+      const lastVisibleType = lastVisibleMessage ? ((lastVisibleMessage as any).type as string | undefined) : undefined;
       const previewSource = lastVisibleMessage
-        ? lastVisibleMessage.type === "CONTENT"
+        ? lastVisibleType === "CONTENT"
           ? lastVisibleMessage.contentItem?.title || "Contenido compartido"
+          : lastVisibleType === "STICKER"
+          ? getStickerById((lastVisibleMessage as any).stickerId ?? null)?.label || "Sticker"
           : typeof lastVisibleMessage.text === "string"
           ? lastVisibleMessage.text
           : ""
@@ -380,7 +435,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         .sort((a, b) => b.getTime() - a.getTime())[0];
 
       const lastNoteSnippet = truncateSnippet(fan.notes?.[0]?.content);
-      const nextActionSnippet = truncateSnippet(fan.nextAction);
+      const openFollowUp = fan.followUps?.[0] ?? null;
+      const followUpOpen = openFollowUp ? mapFollowUp(openFollowUp) : null;
+      const nextActionValue = fan.nextAction || formatNextActionFromFollowUp(openFollowUp);
+      const nextActionSnippet = truncateSnippet(nextActionValue);
       const lastNoteSummary = lastNoteSnippet;
       const nextActionSummary = nextActionSnippet;
       const hasMonthly = activeGrantTypes.includes("monthly");
@@ -419,7 +477,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         lifetimeValue: totalSpend, // mantenemos compatibilidad pero usando el gasto total real
         lifetimeSpend: totalSpend,
         customerTier,
-        nextAction: fan.nextAction || null,
+        profileText: fan.profileText ?? null,
+        followUpOpen,
+        nextAction: nextActionValue || null,
         activeGrantTypes,
         hasAccessHistory,
         lastGrantType,

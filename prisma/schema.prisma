@@ -39,6 +39,7 @@ model Creator {
   profile      CreatorProfile?
   generatedAssets GeneratedAsset[]
   campaigns   CampaignMeta[]
+  followUps   FanFollowUp[]
 }
 
 model CreatorProfile {
@@ -73,11 +74,13 @@ model Fan {
   daysLeft         Int?
   lastSeen         String?
   nextAction       String?
+  profileText      String?
   creatorId        String
   creator          Creator         @relation(fields: [creatorId], references: [id])
   messages         Message[]
   accessGrants     AccessGrant[]
   notes            FanNote[]
+  followUps        FanFollowUp[]
   extraPurchases   ExtraPurchase[]
   aiUsageLogs      AiUsageLog[]
   segment          String          @default("NUEVO")
@@ -105,6 +108,30 @@ model Fan {
   firstUtmTerm     String?
 }
 
+enum FanFollowUpStatus {
+  OPEN
+  DONE
+  DELETED
+}
+
+model FanFollowUp {
+  id        String            @id @default(cuid())
+  fanId     String
+  creatorId String
+  title     String
+  note      String?
+  dueAt     DateTime?
+  status    FanFollowUpStatus @default(OPEN)
+  createdAt DateTime          @default(now())
+  updatedAt DateTime          @updatedAt
+  doneAt    DateTime?
+  fan       Fan               @relation(fields: [fanId], references: [id])
+  creator   Creator           @relation(fields: [creatorId], references: [id])
+
+  @@index([fanId, creatorId, status])
+  @@index([creatorId, status, dueAt])
+}
+
 model Message {
   id                String       @id
   fanId             String
@@ -119,6 +146,7 @@ model Message {
   type              MessageType  @default(TEXT)
   contentItemId     String?
   contentItem       ContentItem? @relation("MessageContentItems", fields: [contentItemId], references: [id])
+  stickerId         String?
 }
 
 model ContentItem {
@@ -214,6 +242,7 @@ enum TimeOfDay {
 enum MessageType {
   TEXT
   CONTENT
+  STICKER
 }
 
 enum MessageAudience {

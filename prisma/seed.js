@@ -18,6 +18,7 @@ const prisma = new PrismaClient({
 
 async function main() {
   await prisma.message.deleteMany();
+  await prisma.fanFollowUp.deleteMany();
   await prisma.fan.deleteMany();
   await prisma.pack.deleteMany();
   await prisma.creator.deleteMany();
@@ -71,6 +72,7 @@ async function main() {
         membershipStatus: "Suscripción mensual",
         daysLeft: 12,
         lastSeen: "hoy a las 19:10",
+        profileText: "Le gustan los mensajes cálidos y directos. Prefiere propuestas suaves y sin presión.",
         creatorId: creator.id,
       },
     }),
@@ -101,6 +103,7 @@ async function main() {
         membershipStatus: "Prueba 7 días",
         daysLeft: 1,
         lastSeen: "ayer a las 22:34",
+        profileText: "Responde mejor cuando el tono es íntimo pero breve. Le gusta el humor suave.",
         creatorId: creator.id,
       },
     }),
@@ -120,6 +123,27 @@ async function main() {
       },
     }),
   ]);
+
+  await prisma.fanFollowUp.createMany({
+    data: [
+      {
+        fanId: "ana",
+        creatorId: creator.id,
+        title: "Proponer pack especial",
+        note: "Le interesa contenido más intenso si hay contexto.",
+        dueAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
+        status: "OPEN",
+      },
+      {
+        fanId: "lucia",
+        creatorId: creator.id,
+        title: "Reactivar después de la prueba",
+        dueAt: new Date(Date.now() - 24 * 60 * 60 * 1000),
+        status: "DONE",
+        doneAt: new Date(),
+      },
+    ],
+  });
 
   await prisma.message.createMany({
     data: [
