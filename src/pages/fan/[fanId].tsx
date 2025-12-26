@@ -488,7 +488,7 @@ export default function FanChatPage({ includedContent, initialAccessSummary }: F
                   seen={!!msg.isLastFromCreator}
                   time={msg.time || undefined}
                   status={msg.status}
-                  stickerSrc={isSticker ? sticker?.src ?? null : null}
+                  stickerSrc={isSticker ? sticker?.file ?? null : null}
                   stickerAlt={isSticker ? sticker?.label || "Sticker" : null}
                 />
               );

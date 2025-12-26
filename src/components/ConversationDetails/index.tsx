@@ -475,6 +475,7 @@ export default function ConversationDetails({ onBackToBoard }: ConversationDetai
   } = conversation;
   const activeFanId = conversation?.isManager ? null : id ?? null;
   const [ messageSend, setMessageSend ] = useState("");
+  const [ pendingSticker, setPendingSticker ] = useState<StickerItem | null>(null);
   const [ pendingInsert, setPendingInsert ] = useState<{ text: string; detail?: string } | null>(null);
   const [ isSending, setIsSending ] = useState(false);
   const [ composerTarget, setComposerTarget ] = useState<ComposerTarget>("fan");
@@ -1169,7 +1170,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
     [autoGrowTextarea]
   );
   const handleInsertSticker = (sticker: StickerItem) => {
-    void sendStickerMessage(sticker);
+    setPendingSticker(sticker);
   };
   const focusMainMessageInput = (text: string) => {
     setComposerTarget("fan");
@@ -2034,7 +2035,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
         kind: isSticker ? "sticker" : isContent ? "content" : "text",
         type: msg.type,
         stickerId: isSticker ? msg.stickerId ?? null : null,
-        stickerSrc: sticker?.src ?? null,
+        stickerSrc: sticker?.file ?? null,
         stickerAlt: sticker?.label ?? null,
         contentItem: msg.contentItem
           ? {
@@ -3503,7 +3504,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
                         <div className="flex items-center justify-center">
                           {sticker ? (
                             <Image
-                              src={sticker.src}
+                              src={sticker.file}
                               alt={sticker.label}
                               width={96}
                               height={96}
@@ -5266,7 +5267,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
     if (key === "Enter" && !evt.shiftKey) {
       evt.preventDefault();
       if (isSendingRef.current) return;
-      if (messageSend.trim()) handleSendMessage();
+      if (messageSend.trim() || pendingSticker) handleSendMessage();
     }
   }
 
@@ -5447,7 +5448,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
       kind: "sticker",
       type: "STICKER",
       stickerId: sticker.id,
-      stickerSrc: sticker.src,
+      stickerSrc: sticker.file,
       stickerAlt: sticker.label,
     };
     setMessage((prev) => {
@@ -5509,21 +5510,22 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
   }
 
   async function sendFanMessage(text: string, options?: { bypassDuplicateCheck?: boolean }) {
-    if (isInternalPanelOpen) return;
+    if (isInternalPanelOpen) return false;
     const trimmed = text.trim();
-    if (!trimmed) return;
+    if (!trimmed) return false;
     if (!options?.bypassDuplicateCheck) {
       const duplicate = getDuplicateWarning(trimmed);
       if (duplicate) {
         setDuplicateConfirm({ candidate: trimmed });
-        return;
+        return false;
       }
     }
-    if (isSendingRef.current) return;
+    if (isSendingRef.current) return false;
     isSendingRef.current = true;
     setIsSending(true);
     try {
       await sendMessageText(trimmed, "CREATOR");
+      return true;
     } finally {
       isSendingRef.current = false;
       setIsSending(false);
@@ -5532,7 +5534,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
 
   async function handleSendMessage() {
     const trimmed = messageSend.trim();
-    if (!trimmed) return;
+    if (!trimmed && !pendingSticker) return;
     if (!isFanTarget) {
       setManagerChatInput(trimmed);
       setManagerSelectedText(null);
@@ -5548,7 +5550,13 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
       });
       return;
     }
-    await sendFanMessage(trimmed);
+    const sentText = trimmed ? await sendFanMessage(trimmed) : false;
+    if (pendingSticker) {
+      if (trimmed && !sentText) return;
+      const nextSticker = pendingSticker;
+      setPendingSticker(null);
+      await sendStickerMessage(nextSticker);
+    }
   }
 
   async function handleConfirmDuplicateSend() {
@@ -5880,9 +5888,16 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
     };
   }, [isInternalPanelOpen]);
 
+  useEffect(() => {
+    if (isFanTarget) return;
+    if (!pendingSticker) return;
+    setPendingSticker(null);
+  }, [isFanTarget, pendingSticker]);
+
+  const hasComposerPayload = messageSend.trim().length > 0 || (isFanTarget && !!pendingSticker);
   const sendDisabled =
     isSending ||
-    !(messageSend.trim().length > 0) ||
+    !hasComposerPayload ||
     isInternalPanelOpen ||
     (isFanTarget && isChatBlocked);
   const composerPlaceholder = isChatBlocked && isFanTarget
@@ -7281,6 +7296,8 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
                 onEmojiSelect={handleInsertEmoji}
                 showStickers={isFanTarget}
                 onStickerSelect={handleInsertSticker}
+                stickerDraft={pendingSticker}
+                onStickerDraftClear={() => setPendingSticker(null)}
                 inputRef={messageInputRef}
                 maxHeight={MAX_MAIN_COMPOSER_HEIGHT}
                 isChatBlocked={isChatBlocked}
