@@ -1,9 +1,8 @@
-import { useEffect, useMemo, useRef, useState, type MouseEventHandler } from "react";
-import dynamic from "next/dynamic";
-import emojiData from "@emoji-mart/data";
+import { memo, useEffect, useMemo, useRef, useState, type MouseEventHandler } from "react";
 import clsx from "clsx";
 import Image from "next/image";
 import { useEmojiFavorites } from "../../hooks/useEmojiFavorites";
+import { EmojiPicker } from "../EmojiPicker";
 import {
   getActorReaction,
   getReactionSummary,
@@ -12,8 +11,6 @@ import {
   subscribeMessageReactions,
   toggleMessageReaction,
 } from "../../lib/emoji/reactions";
-
-const EmojiPicker = dynamic<any>(() => import("@emoji-mart/react"), { ssr: false });
 
 interface MessageBalloonProps {
   me: boolean;
@@ -34,7 +31,7 @@ interface MessageBalloonProps {
   reactionActor?: string;
 }
 
-export default function MessageBalloon(props: MessageBalloonProps) {
+const MessageBalloon = memo(function MessageBalloon(props: MessageBalloonProps) {
   const [time, setTime] = useState("");
   const [isTranslationOpen, setIsTranslationOpen] = useState(false);
   const {
@@ -72,6 +69,7 @@ export default function MessageBalloon(props: MessageBalloonProps) {
   const [ isReactionPickerOpen, setIsReactionPickerOpen ] = useState(false);
   const [ isHovered, setIsHovered ] = useState(false);
   const reactionBarRef = useRef<HTMLDivElement | null>(null);
+  const reactionPickerAnchorRef = useRef<HTMLButtonElement | null>(null);
   const longPressTimerRef = useRef<number | null>(null);
   const reactionSummary = useMemo(() => getReactionSummary(reactions), [reactions]);
   const actorReaction = useMemo(() => getActorReaction(reactions, reactionActor), [reactions, reactionActor]);
@@ -115,7 +113,10 @@ export default function MessageBalloon(props: MessageBalloonProps) {
     const handlePointerDown = (event: PointerEvent) => {
       const target = event.target as Node | null;
       if (!target) return;
+      const element = target as Element;
       if (reactionBarRef.current?.contains(target)) return;
+      if (reactionPickerAnchorRef.current?.contains(target)) return;
+      if (element.closest?.("[data-emoji-picker=\"true\"]")) return;
       setIsReactionBarOpen(false);
       setIsReactionPickerOpen(false);
     };
@@ -128,6 +129,14 @@ export default function MessageBalloon(props: MessageBalloonProps) {
   const handleSelectReaction = (emoji: string) => {
     if (!messageId) return;
     const next = toggleMessageReaction(messageId, emoji, reactionActor);
+    setReactions(next);
+    setIsReactionBarOpen(false);
+    setIsReactionPickerOpen(false);
+  };
+
+  const handleClearReaction = () => {
+    if (!messageId || !actorReaction) return;
+    const next = toggleMessageReaction(messageId, actorReaction, reactionActor);
     setReactions(next);
     setIsReactionBarOpen(false);
     setIsReactionPickerOpen(false);
@@ -212,36 +221,35 @@ export default function MessageBalloon(props: MessageBalloonProps) {
                   {emoji}
                 </button>
               ))}
+              {actorReaction && (
+                <button
+                  type="button"
+                  onClick={handleClearReaction}
+                  className="flex h-7 w-7 items-center justify-center rounded-full border border-slate-700/70 bg-slate-900/70 text-[11px] font-semibold text-slate-200 hover:bg-slate-800/80"
+                  aria-label="Quitar reacción"
+                >
+                  ✕
+                </button>
+              )}
               <button
                 type="button"
                 onClick={() => setIsReactionPickerOpen((prev) => !prev)}
                 className="flex h-7 w-7 items-center justify-center rounded-full border border-slate-700/70 bg-slate-900/70 text-[12px] font-semibold text-slate-100 hover:bg-slate-800/80"
                 aria-label="Más reacciones"
+                ref={reactionPickerAnchorRef}
               >
                 +
               </button>
-              {isReactionPickerOpen && (
-                <div className="absolute right-0 top-10 rounded-2xl border border-slate-800/80 bg-slate-950/95 p-2 shadow-2xl">
-                  <EmojiPicker
-                    data={emojiData}
-                    theme="dark"
-                    onEmojiSelect={(payload: { native?: string; emoji?: string } | string) => {
-                      const selected =
-                        typeof payload === "string"
-                          ? payload
-                          : payload?.native || payload?.emoji || "";
-                      if (selected) {
-                        handleSelectReaction(selected);
-                      }
-                    }}
-                    previewPosition="none"
-                    perLine={8}
-                    autoFocus={false}
-                    style={{ width: "260px" }}
-                  />
-                </div>
-              )}
             </div>
+          )}
+          {canShowReactions && (
+            <EmojiPicker
+              isOpen={isReactionPickerOpen}
+              anchorRef={reactionPickerAnchorRef}
+              onClose={() => setIsReactionPickerOpen(false)}
+              onSelect={handleSelectReaction}
+              mode="reaction"
+            />
           )}
           <div
             className={clsx(
@@ -306,5 +314,7 @@ export default function MessageBalloon(props: MessageBalloonProps) {
         {me && seen ? <div className="mt-1 text-[10px] text-[#8edafc] text-right">✔✔ Visto</div> : null}
       </div>
     </div>
-  )
-}
+  );
+});
+
+export default MessageBalloon;

@@ -1,14 +1,12 @@
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import clsx from "clsx";
-import dynamic from "next/dynamic";
-import emojiData from "@emoji-mart/data";
 import { createPortal } from "react-dom";
 import Image from "next/image";
 import { readEmojiRecents, recordEmojiRecent } from "../lib/emoji/recents";
 import { useEmojiFavorites } from "../hooks/useEmojiFavorites";
 import { STICKER_PACKS, STICKERS, type StickerIntent, type StickerItem, type StickerPackId } from "../lib/emoji/stickers";
+import { EmojiPicker } from "./EmojiPicker";
 
-const EmojiPicker = dynamic<any>(() => import("@emoji-mart/react"), { ssr: false });
 const HIDDEN_POPOVER_STYLE: React.CSSProperties = { position: "fixed", left: -9999, top: -9999 };
 
 type EmojiSelectPayload = {
@@ -98,11 +96,8 @@ export function ChatComposerBar({
   const emojiButtonRef = useRef<HTMLButtonElement | null>(null);
   const emojiAddButtonRef = useRef<HTMLButtonElement | null>(null);
   const stickerButtonRef = useRef<HTMLButtonElement | null>(null);
-  const emojiPopoverRef = useRef<HTMLDivElement | null>(null);
-  const emojiSheetRef = useRef<HTMLDivElement | null>(null);
   const stickerPopoverRef = useRef<HTMLDivElement | null>(null);
   const stickerSheetRef = useRef<HTMLDivElement | null>(null);
-  const [ emojiPopoverStyle, setEmojiPopoverStyle ] = useState<React.CSSProperties | null>(null);
   const [ stickerPopoverStyle, setStickerPopoverStyle ] = useState<React.CSSProperties | null>(null);
   const [ emojiRecents, setEmojiRecents ] = useState<string[]>([]);
   const { favorites, addFavorite, removeFavorite, replaceFavorites, isAtMax } = useEmojiFavorites();
@@ -133,13 +128,13 @@ export function ChatComposerBar({
     const handlePointerDown = (event: PointerEvent) => {
       const target = event.target as Node | null;
       if (!target) return;
+      const element = target as Element;
       if (emojiButtonRef.current?.contains(target)) return;
       if (emojiAddButtonRef.current?.contains(target)) return;
-      if (emojiPopoverRef.current?.contains(target)) return;
-      if (emojiSheetRef.current?.contains(target)) return;
       if (stickerButtonRef.current?.contains(target)) return;
       if (stickerPopoverRef.current?.contains(target)) return;
       if (stickerSheetRef.current?.contains(target)) return;
+      if (element.closest?.("[data-emoji-picker=\"true\"]")) return;
       setIsEmojiOpen(false);
       setIsStickerOpen(false);
       setEmojiPickerMode("insert");
@@ -203,80 +198,6 @@ export function ChatComposerBar({
     if (!isEmojiOpen) return;
     setEmojiRecents(readEmojiRecents());
   }, [isEmojiOpen]);
-
-  useLayoutEffect(() => {
-    if (!isEmojiOpen || typeof window === "undefined") return;
-    const anchor = emojiPickerMode === "favorite" ? emojiAddButtonRef.current : emojiButtonRef.current;
-    const popover = emojiPopoverRef.current;
-    if (!anchor || !popover) return;
-
-    const padding = 8;
-    const anchorRect = anchor.getBoundingClientRect();
-    const popoverRect = popover.getBoundingClientRect();
-    const viewportWidth = window.innerWidth;
-    const viewportHeight = window.innerHeight;
-
-    const minLeft = padding;
-    const maxLeft = Math.max(padding, viewportWidth - popoverRect.width - padding);
-    const nextLeft = Math.min(Math.max(anchorRect.left, minLeft), maxLeft);
-
-    const preferredTop = anchorRect.top - popoverRect.height - padding;
-    const minTop = padding;
-    const maxTop = Math.max(padding, viewportHeight - popoverRect.height - padding);
-    let nextTop = preferredTop;
-    if (nextTop < minTop) {
-      nextTop = anchorRect.bottom + padding;
-    }
-    nextTop = Math.min(Math.max(nextTop, minTop), maxTop);
-
-    setEmojiPopoverStyle({
-      position: "fixed",
-      left: nextLeft,
-      top: nextTop,
-    });
-  }, [isEmojiOpen, emojiPickerMode]);
-
-  useEffect(() => {
-    if (!isEmojiOpen || typeof window === "undefined") return;
-    const handleReposition = () => {
-      const anchor = emojiPickerMode === "favorite" ? emojiAddButtonRef.current : emojiButtonRef.current;
-      const popover = emojiPopoverRef.current;
-      if (!anchor || !popover) return;
-
-      const padding = 8;
-      const anchorRect = anchor.getBoundingClientRect();
-      const popoverRect = popover.getBoundingClientRect();
-      const viewportWidth = window.innerWidth;
-      const viewportHeight = window.innerHeight;
-
-      const minLeft = padding;
-      const maxLeft = Math.max(padding, viewportWidth - popoverRect.width - padding);
-      const nextLeft = Math.min(Math.max(anchorRect.left, minLeft), maxLeft);
-
-      const preferredTop = anchorRect.top - popoverRect.height - padding;
-      const minTop = padding;
-      const maxTop = Math.max(padding, viewportHeight - popoverRect.height - padding);
-      let nextTop = preferredTop;
-      if (nextTop < minTop) {
-        nextTop = anchorRect.bottom + padding;
-      }
-      nextTop = Math.min(Math.max(nextTop, minTop), maxTop);
-
-      setEmojiPopoverStyle({
-        position: "fixed",
-        left: nextLeft,
-        top: nextTop,
-      });
-    };
-    window.addEventListener("resize", handleReposition);
-    window.addEventListener("scroll", handleReposition, true);
-    const raf = window.requestAnimationFrame(handleReposition);
-    return () => {
-      window.removeEventListener("resize", handleReposition);
-      window.removeEventListener("scroll", handleReposition, true);
-      window.cancelAnimationFrame(raf);
-    };
-  }, [isEmojiOpen, emojiPickerMode]);
 
   useLayoutEffect(() => {
     if (!isStickerOpen || typeof window === "undefined") return;
@@ -362,14 +283,11 @@ export function ChatComposerBar({
       if (!isAtMax) {
         addFavorite(emoji);
       }
-      setIsEmojiOpen(false);
-      setEmojiPickerMode("insert");
       return;
     }
     if (!onEmojiSelect) return;
     onEmojiSelect(emoji);
     setEmojiRecents((prev) => recordEmojiRecent(emoji, prev));
-    setIsEmojiOpen(false);
   };
 
   const handleQuickEmojiInsert = (emoji: string) => {
@@ -382,12 +300,11 @@ export function ChatComposerBar({
       if (!isAtMax) {
         addFavorite(emoji);
       }
-      setIsEmojiOpen(false);
-      setEmojiPickerMode("insert");
+      handleEmojiPickerClose();
       return;
     }
     handleQuickEmojiInsert(emoji);
-    setIsEmojiOpen(false);
+    handleEmojiPickerClose();
   };
 
   const handleEmojiToggle = () => {
@@ -399,6 +316,11 @@ export function ChatComposerBar({
 
   const handleEmojiPointerDown = (event: React.PointerEvent<HTMLButtonElement>) => {
     event.preventDefault();
+  };
+
+  const handleEmojiPickerClose = () => {
+    setIsEmojiOpen(false);
+    setEmojiPickerMode("insert");
   };
 
   const handleStickerToggle = () => {
@@ -477,6 +399,17 @@ export function ChatComposerBar({
       </div>
     );
   };
+
+  const emojiPickerTopContent = (
+    <>
+      {emojiPickerMode === "favorite" && (
+        <div className="mb-2 rounded-lg border border-emerald-500/40 bg-emerald-500/10 px-2 py-1 text-[11px] text-emerald-100">
+          {isAtMax ? "Límite de favoritos alcanzado." : "Selecciona un emoji para favoritos."}
+        </div>
+      )}
+      {renderEmojiRecents()}
+    </>
+  );
 
   return (
     <div
@@ -658,57 +591,15 @@ export function ChatComposerBar({
               >
                 <span className="text-lg leading-none">🙂</span>
               </button>
-              {isEmojiOpen && (
-                <>
-                  {typeof document !== "undefined" &&
-                    createPortal(
-                      <div
-                        ref={emojiPopoverRef}
-                        className="hidden sm:block z-[9999]"
-                        style={emojiPopoverStyle ?? HIDDEN_POPOVER_STYLE}
-                      >
-                        <div className="rounded-2xl border border-slate-800/80 bg-slate-950/95 p-2 shadow-2xl min-w-[360px] w-[360px] max-w-[calc(100vw-16px)] max-h-[420px] overflow-hidden">
-                          {emojiPickerMode === "favorite" && (
-                            <div className="mb-2 rounded-lg border border-emerald-500/40 bg-emerald-500/10 px-2 py-1 text-[11px] text-emerald-100">
-                              {isAtMax ? "Límite de favoritos alcanzado." : "Selecciona un emoji para favoritos."}
-                            </div>
-                          )}
-                          {renderEmojiRecents()}
-                          <EmojiPicker
-                            data={emojiData}
-                            theme="dark"
-                            onEmojiSelect={handleEmojiSelect}
-                            previewPosition="none"
-                            perLine={9}
-                            style={{ width: "100%" }}
-                            autoFocus={false}
-                          />
-                        </div>
-                      </div>,
-                      document.body
-                    )}
-                  <div className="sm:hidden fixed inset-0 z-50 flex items-end justify-center bg-black/60">
-                    <div
-                      ref={emojiSheetRef}
-                      className="w-full max-w-lg rounded-t-2xl border border-slate-800/80 bg-slate-950/95 p-3 shadow-2xl"
-                    >
-                      {emojiPickerMode === "favorite" && (
-                        <div className="mb-2 rounded-lg border border-emerald-500/40 bg-emerald-500/10 px-2 py-1 text-[11px] text-emerald-100">
-                          {isAtMax ? "Límite de favoritos alcanzado." : "Selecciona un emoji para favoritos."}
-                        </div>
-                      )}
-                      {renderEmojiRecents()}
-                      <EmojiPicker
-                        data={emojiData}
-                        theme="dark"
-                        onEmojiSelect={handleEmojiSelect}
-                        previewPosition="none"
-                        autoFocus={false}
-                      />
-                    </div>
-                  </div>
-                </>
-              )}
+              <EmojiPicker
+                isOpen={isEmojiOpen}
+                anchorRef={emojiPickerMode === "favorite" ? emojiAddButtonRef : emojiButtonRef}
+                onClose={handleEmojiPickerClose}
+                onSelect={handleEmojiSelect}
+                mode="insert"
+                topContent={emojiPickerTopContent}
+                perLine={9}
+              />
             </div>
           )}
           {showStickers && (

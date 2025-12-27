@@ -2793,12 +2793,15 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
     return selectedText;
   }, []);
 
-  const handleMessageContextMenu = (event: MouseEvent<HTMLElement>) => {
-    if (selectionToolbar?.text || getSelectionInsideMessagesContainer()) {
-      event.preventDefault();
-      event.stopPropagation();
-    }
-  };
+  const handleMessageContextMenu = useCallback(
+    (event: MouseEvent<HTMLElement>) => {
+      if (selectionToolbar?.text || getSelectionInsideMessagesContainer()) {
+        event.preventDefault();
+        event.stopPropagation();
+      }
+    },
+    [getSelectionInsideMessagesContainer, selectionToolbar]
+  );
 
   const buildManagerQuotePrompt = (text: string) => {
     return (
@@ -3393,6 +3396,8 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
             showAttach={false}
             showEmoji
             onEmojiSelect={handleInsertManagerEmoji}
+            stickerDraft={pendingSticker}
+            onStickerDraftClear={() => setPendingSticker(null)}
           />
         </div>
       </div>
@@ -5534,7 +5539,8 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
 
   async function handleSendMessage() {
     const trimmed = messageSend.trim();
-    if (!trimmed && !pendingSticker) return;
+    const nextSticker = pendingSticker;
+    if (!trimmed && !nextSticker) return;
     if (!isFanTarget) {
       setManagerChatInput(trimmed);
       setManagerSelectedText(null);
@@ -5550,12 +5556,17 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
       });
       return;
     }
-    const sentText = trimmed ? await sendFanMessage(trimmed) : false;
-    if (pendingSticker) {
-      if (trimmed && !sentText) return;
-      const nextSticker = pendingSticker;
+    if (nextSticker) {
       setPendingSticker(null);
       await sendStickerMessage(nextSticker);
+    }
+    if (trimmed) {
+      const sentText = await sendFanMessage(trimmed);
+      if (!sentText) return;
+    } else if (messageSend) {
+      setMessageSend("");
+      resetMessageInputHeight();
+      requestAnimationFrame(() => messageInputRef.current?.focus());
     }
   }
 
@@ -5887,12 +5898,6 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
       document.body.style.overflow = previousOverflow;
     };
   }, [isInternalPanelOpen]);
-
-  useEffect(() => {
-    if (isFanTarget) return;
-    if (!pendingSticker) return;
-    setPendingSticker(null);
-  }, [isFanTarget, pendingSticker]);
 
   const hasComposerPayload = messageSend.trim().length > 0 || (isFanTarget && !!pendingSticker);
   const sendDisabled =
