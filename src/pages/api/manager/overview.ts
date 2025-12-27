@@ -22,6 +22,7 @@ type ManagerQueueItem = {
   expiresInDays?: number | null;
   lastActivityAt: string | null;
   quickNote?: string | null;
+  attendedAt?: string | null;
 };
 
 type ManagerQueueStats = {
@@ -64,11 +65,18 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         lastMessageAt: true,
         lastPurchaseAt: true,
         quickNote: true,
+        attendedAt: true,
       },
     });
     const fanMetaMap = new Map<
       string,
-      { handle: string | null; displayName: string; lastActivityAt: string | null; quickNote: string | null }
+      {
+        handle: string | null;
+        displayName: string;
+        lastActivityAt: string | null;
+        quickNote: string | null;
+        attendedAt: string | null;
+      }
     >();
     fanMetaRows.forEach((row) => {
       const lastActivityCandidates = [row.lastMessageAt, row.lastPurchaseAt].filter(Boolean) as Date[];
@@ -81,6 +89,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         displayName: row.displayName || row.name || "Fan",
         lastActivityAt,
         quickNote: row.quickNote ?? null,
+        attendedAt: row.attendedAt ? row.attendedAt.toISOString() : null,
       });
     });
 
@@ -117,6 +126,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         expiresInDays,
         lastActivityAt: meta?.lastActivityAt ?? null,
         quickNote: meta?.quickNote ?? null,
+        attendedAt: meta?.attendedAt ?? null,
       };
     });
 

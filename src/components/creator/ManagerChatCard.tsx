@@ -210,6 +210,7 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
   const [hasUsedQuickAccess, setHasUsedQuickAccess] = useState(false);
   const [actionsWidth, setActionsWidth] = useState(0);
   const [visibleCount, setVisibleCount] = useState(MAX_VISIBLE_CHIPS);
+  const [isNarrowMobile, setIsNarrowMobile] = useState(false);
   const listRef = useRef<HTMLDivElement | null>(null);
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
   const emojiButtonRef = useRef<HTMLButtonElement | null>(null);
@@ -224,7 +225,7 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
   const isDemo = !process.env.NEXT_PUBLIC_OPENAI_API_KEY;
   const activeTabKey = useMemo(() => (scope === "global" ? toCortexTab(globalMode) : "hoy"), [globalMode, scope]);
   const favoritesStorageKey = useMemo(() => `${FAVORITES_KEY_PREFIX}:${activeTabKey}`, [activeTabKey]);
-  const scrollerPaddingRight = Math.max(actionsWidth + 12, 64);
+  const scrollerPaddingRight = isNarrowMobile ? 12 : Math.max(actionsWidth + 12, 64);
   const resizeComposer = useCallback((el: HTMLTextAreaElement | null) => {
     if (!el) return;
     el.style.height = "auto";
@@ -234,6 +235,15 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
 
   useEffect(() => {
     void loadMessages();
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const mq = window.matchMedia("(max-width: 480px)");
+    const update = () => setIsNarrowMobile(mq.matches);
+    update();
+    mq.addEventListener("change", update);
+    return () => mq.removeEventListener("change", update);
   }, []);
 
   useEffect(() => {
@@ -669,14 +679,15 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
     if (!scroller || !measurer) return;
 
     const measure = () => {
+      const minVisible = visiblePrompts.length > 0 ? 1 : 0;
       const available = scroller.clientWidth - scrollerPaddingRight;
       if (available <= 0) {
-        setVisibleCount(0);
+        setVisibleCount((prev) => (prev === minVisible ? prev : minVisible));
         return;
       }
       const items = Array.from(measurer.querySelectorAll("[data-measure-chip]")) as HTMLElement[];
       if (items.length === 0) {
-        setVisibleCount(0);
+        setVisibleCount((prev) => (prev === minVisible ? prev : minVisible));
         return;
       }
       let total = 0;
@@ -688,7 +699,9 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
         total = nextTotal;
         count += 1;
       }
-      const nextCount = Math.min(count, MAX_VISIBLE_CHIPS);
+      const maxAllowed = Math.min(MAX_VISIBLE_CHIPS, visiblePrompts.length);
+      let nextCount = Math.min(count, maxAllowed);
+      if (nextCount < minVisible) nextCount = minVisible;
       setVisibleCount((prev) => (prev === nextCount ? prev : nextCount));
     };
 
@@ -1148,7 +1161,11 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
                               intent={isActive ? "primary" : "ghost"}
                               size="sm"
                               className="h-7 px-2.5 text-[11px]"
-                              onClick={() => setGlobalMode(mode)}
+                              onPointerDown={(event) => event.stopPropagation()}
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                setGlobalMode(mode);
+                              }}
                             >
                               {mode === "HOY"
                                 ? "Hoy"
@@ -1175,7 +1192,11 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
                               intent={platform === activeGrowthPlatform ? "primary" : "ghost"}
                               size="sm"
                               className="h-7 px-2.5 text-[11px]"
-                              onClick={() => setGrowthPlatform(platform)}
+                              onPointerDown={(event) => event.stopPropagation()}
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                setGrowthPlatform(platform);
+                              }}
                             >
                               {formatPlatformLabel(platform)}
                             </PillButton>
@@ -1185,12 +1206,12 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
                       )}
                     </div>
                   )}
-                  <div className="flex flex-nowrap items-center gap-3 min-w-0">
-                    <span className="text-[11px] font-semibold text-slate-300 shrink-0">
+                  <div className="grid grid-cols-[auto,1fr,auto] items-center gap-3 min-w-0 [@media(max-width:480px)]:grid-cols-[auto,1fr] [@media(max-width:480px)]:grid-rows-[auto,auto] [@media(max-width:480px)]:gap-2">
+                    <span className="text-[11px] font-semibold text-slate-300 shrink-0 [@media(max-width:480px)]:col-start-1 [@media(max-width:480px)]:row-start-1">
                       <span className="mr-1">⚡</span>
                       {quickAccessLabel}
                     </span>
-                    <div className="relative flex items-center gap-2 flex-1 min-w-0">
+                    <div className="relative flex items-center gap-2 min-w-0 [@media(max-width:480px)]:col-span-2 [@media(max-width:480px)]:row-start-2">
                       <div
                         ref={quickAccessScrollerRef}
                         className="flex-1 min-w-0 flex flex-nowrap items-center gap-2 whitespace-nowrap overflow-x-auto overflow-y-hidden overscroll-x-contain touch-pan-x [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
@@ -1200,7 +1221,9 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
                           <button
                             key={label}
                             type="button"
-                            onClick={() => {
+                            onPointerDown={(event) => event.stopPropagation()}
+                            onClick={(event) => {
+                              event.stopPropagation();
                               markQuickAccessUsed();
                               applyPrompt(scope === "global" ? getGlobalPrompt(label) : label, false);
                             }}
@@ -1222,39 +1245,6 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
                         )}
                       </div>
                       <div
-                        ref={quickAccessActionsRef}
-                        className="shrink-0 flex items-center gap-2"
-                      >
-                        {overflowCount > 0 && (
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setIsEmojiOpen(false);
-                              setOverflowOpen(true);
-                            }}
-                            title="Ver atajos"
-                            aria-label="Más atajos"
-                            className="shrink-0 inline-flex items-center gap-1 rounded-full border border-dashed border-slate-600/70 bg-slate-900/40 px-2.5 py-1 text-[11px] font-semibold text-slate-200 hover:bg-slate-800/70"
-                          >
-                            <span>Más</span>
-                            <span className="inline-flex min-w-[16px] items-center justify-center rounded-full bg-slate-800 px-1 text-[10px] text-slate-200">
-                              +{overflowCount}
-                            </span>
-                          </button>
-                        )}
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setIsEmojiOpen(false);
-                          setOverflowOpen(false);
-                          setIsFavoritesEditorOpen(true);
-                        }}
-                          className="inline-flex shrink-0 items-center gap-1 rounded-full border border-slate-700/70 bg-slate-900/70 px-2.5 py-1 text-[11px] font-semibold text-slate-200 hover:bg-slate-800/90"
-                        >
-                          Editar
-                        </button>
-                      </div>
-                      <div
                         ref={quickAccessMeasureRef}
                         className="pointer-events-none absolute left-[-9999px] top-0 opacity-0 whitespace-nowrap"
                         aria-hidden="true"
@@ -1269,6 +1259,43 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
                           </span>
                         ))}
                       </div>
+                    </div>
+                    <div
+                      ref={quickAccessActionsRef}
+                      className="shrink-0 flex items-center gap-2 [@media(max-width:480px)]:col-start-2 [@media(max-width:480px)]:row-start-1 [@media(max-width:480px)]:justify-self-end"
+                    >
+                      {overflowCount > 0 && (
+                        <button
+                          type="button"
+                          onPointerDown={(event) => event.stopPropagation()}
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            setIsEmojiOpen(false);
+                            setOverflowOpen(true);
+                          }}
+                          title="Ver atajos"
+                          aria-label="Más atajos"
+                          className="shrink-0 inline-flex items-center gap-1 rounded-full border border-dashed border-slate-600/70 bg-slate-900/40 px-2.5 py-1 text-[11px] font-semibold text-slate-200 hover:bg-slate-800/70"
+                        >
+                          <span>Más</span>
+                          <span className="inline-flex min-w-[16px] items-center justify-center rounded-full bg-slate-800 px-1 text-[10px] text-slate-200">
+                            +{overflowCount}
+                          </span>
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        onPointerDown={(event) => event.stopPropagation()}
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          setIsEmojiOpen(false);
+                          setOverflowOpen(false);
+                          setIsFavoritesEditorOpen(true);
+                        }}
+                        className="inline-flex shrink-0 items-center gap-1 rounded-full border border-slate-700/70 bg-slate-900/70 px-2.5 py-1 text-[11px] font-semibold text-slate-200 hover:bg-slate-800/90"
+                      >
+                        Editar
+                      </button>
                     </div>
                   </div>
                   {!hasUsedQuickAccess && visibleChipLabels.length > 0 && (
@@ -1459,7 +1486,11 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
                   intent={isActive ? "primary" : "ghost"}
                   size="sm"
                   className="shrink-0"
-                  onClick={() => setGlobalMode(mode)}
+                  onPointerDown={(event) => event.stopPropagation()}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    setGlobalMode(mode);
+                  }}
                 >
                   {mode === "HOY" ? "Hoy" : mode === "VENTAS" ? "Ventas" : mode === "CATALOGO" ? "Catálogo" : "Crecimiento"}
                 </PillButton>
@@ -1474,7 +1505,9 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
               intent="secondary"
               size="sm"
               className={clsx(scope === "global" && "shrink-0")}
-              onClick={() => {
+              onPointerDown={(event) => event.stopPropagation()}
+              onClick={(event) => {
+                event.stopPropagation();
                 const prompt = scope === "global" ? getGlobalPrompt(sugg) : sugg;
                 setInput((prev) => {
                   if (!prev || !prev.trim()) return prompt;

@@ -59,6 +59,7 @@ type ManagerQueueItem = {
   expiresInDays?: number | null;
   lastActivityAt: string | null;
   quickNote?: string | null;
+  attendedAt?: string | null;
 };
 
 type ManagerQueueStats = {
@@ -201,6 +202,7 @@ export default function CreatorManagerPage({ initialSnapshot, initialContentSnap
             error={error}
             summary={summary}
             queueData={queueData}
+            setQueueData={setQueueData}
             initialSnapshot={initialSnapshot}
             advisorInput={advisorInput}
             advisorError={advisorError}
@@ -214,6 +216,7 @@ export default function CreatorManagerPage({ initialSnapshot, initialContentSnap
               setInsightsTab(tab ?? "sales");
               setInsightsOpen(true);
             }}
+            onRefreshOverview={fetchSummary}
             onOpenSettings={handleOpenSettings}
             creatorName={config.creatorName || "Creador"}
             creatorSubtitle={config.creatorSubtitle || "Centro de mando del creador"}
@@ -233,6 +236,7 @@ type ManagerChatLayoutProps = {
   error: string;
   summary: CreatorManagerSummary | null;
   queueData: ManagerQueueData | null;
+  setQueueData: React.Dispatch<React.SetStateAction<ManagerQueueData | null>>;
   initialSnapshot: CreatorBusinessSnapshot | null;
   advisorInput?: CreatorAiAdvisorInput | null;
   advisorError: boolean;
@@ -243,6 +247,7 @@ type ManagerChatLayoutProps = {
   insightsTab: InsightsTab;
   onCloseInsights: () => void;
   onOpenInsights: (tab?: InsightsTab) => void;
+  onRefreshOverview: () => Promise<void>;
   onOpenSettings: () => void;
   creatorName: string;
   creatorSubtitle: string;
@@ -255,6 +260,7 @@ function ManagerChatLayout({
   error,
   summary,
   queueData,
+  setQueueData,
   initialSnapshot,
   advisorInput,
   advisorError,
@@ -265,6 +271,7 @@ function ManagerChatLayout({
   insightsTab,
   onCloseInsights,
   onOpenInsights,
+  onRefreshOverview,
   onOpenSettings,
   creatorName,
   creatorSubtitle,
@@ -278,7 +285,6 @@ function ManagerChatLayout({
   const [soloChat, setSoloChat] = useState(false);
   const [activeFilter, setActiveFilter] = useState<SummaryFilter>(null);
   const [fanPanelOpen, setFanPanelOpen] = useState(false);
-  const [attendedFanIds, setAttendedFanIds] = useState<string[]>([]);
   const [notes, setNotes] = useState<Record<string, string>>({});
   const [noteEditingId, setNoteEditingId] = useState<string | null>(null);
   const [noteDraft, setNoteDraft] = useState("");
@@ -577,15 +583,58 @@ function ManagerChatLayout({
       return "Sin actividad reciente";
     }
   };
+  const isAttendedToday = useCallback((value: string | null | undefined) => {
+    if (!value) return false;
+    const attendedAt = new Date(value);
+    if (Number.isNaN(attendedAt.getTime())) return false;
+    const now = new Date();
+    const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    return attendedAt >= startOfToday;
+  }, []);
+  const getAttendedAtForFan = useCallback((data: ManagerQueueData | null, fanId: string) => {
+    if (!data) return null;
+    const queueMatch = data.queue.find((item) => item.fanId === fanId);
+    if (queueMatch) return queueMatch.attendedAt ?? null;
+    const topMatch = data.top3.find((item) => item.fanId === fanId);
+    if (topMatch) return topMatch.attendedAt ?? null;
+    if (data.nextAction?.fan?.fanId === fanId) {
+      return data.nextAction.fan.attendedAt ?? null;
+    }
+    return null;
+  }, []);
+  const updateAttendedInQueue = useCallback(
+    (data: ManagerQueueData, fanId: string, attendedAt: string | null) => ({
+      ...data,
+      queue: data.queue.map((item) => (item.fanId === fanId ? { ...item, attendedAt } : item)),
+      top3: data.top3.map((item) => (item.fanId === fanId ? { ...item, attendedAt } : item)),
+      nextAction:
+        data.nextAction?.fan?.fanId === fanId
+          ? { ...data.nextAction, fan: { ...data.nextAction.fan, attendedAt } }
+          : data.nextAction,
+    }),
+    []
+  );
   const handleOpenChat = (fanId: string) => {
     if (!fanId) return;
     setFanPanelOpen(false);
     void router.push(`/?fanId=${encodeURIComponent(fanId)}`);
   };
-  const toggleAttended = (fanId: string) => {
-    setAttendedFanIds((prev) =>
-      prev.includes(fanId) ? prev.filter((id) => id !== fanId) : [...prev, fanId]
-    );
+  const toggleAttended = async (fanId: string) => {
+    if (!fanId) return;
+    const previousAttendedAt = getAttendedAtForFan(queueData, fanId);
+    const optimisticAttendedAt = isAttendedToday(previousAttendedAt) ? null : new Date().toISOString();
+    setQueueData((prev) => (prev ? updateAttendedInQueue(prev, fanId, optimisticAttendedAt) : prev));
+    try {
+      const res = await fetch(`/api/fans/${encodeURIComponent(fanId)}/attended`, { method: "PATCH" });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data?.ok) throw new Error("attended update failed");
+      const nextAttendedAt = typeof data.attendedAt === "string" ? data.attendedAt : null;
+      setQueueData((prev) => (prev ? updateAttendedInQueue(prev, fanId, nextAttendedAt) : prev));
+      await onRefreshOverview();
+    } catch (err) {
+      console.error("Error updating attended status", err);
+      setQueueData((prev) => (prev ? updateAttendedInQueue(prev, fanId, previousAttendedAt) : prev));
+    }
   };
   const handleCopyLink = async (fanId: string) => {
     if (!fanId || typeof window === "undefined") return;
@@ -705,7 +754,7 @@ function ManagerChatLayout({
           </div>
         ) : (
           visibleQueue.map((fan) => {
-            const isAttended = attendedFanIds.includes(fan.fanId);
+            const isAttended = isAttendedToday(fan.attendedAt);
             const expiringLabel = fan.flags.expired
               ? "Caducado"
               : typeof fan.expiresInDays === "number"
@@ -803,7 +852,7 @@ function ManagerChatLayout({
                         type="button"
                         onClick={(event) => {
                           event.stopPropagation();
-                          toggleAttended(fan.fanId);
+                          void toggleAttended(fan.fanId);
                         }}
                         title={isAttended ? "Deshacer atendido" : "Marcar atendido"}
                         aria-label={isAttended ? "Deshacer atendido" : "Marcar atendido"}
