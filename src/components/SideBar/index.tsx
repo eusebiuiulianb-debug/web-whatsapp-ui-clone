@@ -265,6 +265,7 @@ function SideBarInner() {
       ),
       notesCount: fan.notesCount ?? 0,
       profileText: fan.profileText ?? null,
+      quickNote: fan.quickNote ?? null,
       followUpOpen: fan.followUpOpen ?? null,
       paidGrantsCount: fan.paidGrantsCount ?? 0,
       lifetimeValue: fan.lifetimeValue ?? 0,
@@ -1293,7 +1294,7 @@ function SideBarInner() {
   const managerPanelItem = useMemo<ConversationListData>(
     () => ({
       id: "__manager_panel__",
-      contactName: "Manager IA",
+      contactName: "Cortex",
       lastMessage: "",
       lastTime: "",
       image: "avatar.jpg",

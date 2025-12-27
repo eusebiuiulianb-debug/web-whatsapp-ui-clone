@@ -3,6 +3,7 @@ import clsx from "clsx";
 import Image from "next/image";
 import { useEmojiFavorites } from "../../hooks/useEmojiFavorites";
 import { EmojiPicker } from "../EmojiPicker";
+import { readEmojiRecents, recordEmojiRecent } from "../../lib/emoji/recents";
 import {
   getActorReaction,
   getReactionSummary,
@@ -63,7 +64,11 @@ const MessageBalloon = memo(function MessageBalloon(props: MessageBalloonProps) 
   const reactionAlign = me ? "right-0" : "left-0";
   const canShowReactions = enableReactions && Boolean(messageId) && !isSticker;
   const { favorites } = useEmojiFavorites();
-  const reactionChoices = favorites.slice(0, 6);
+  const [reactionRecents, setReactionRecents] = useState<string[]>([]);
+  const reactionChoices = useMemo(() => {
+    const deduped = favorites.concat(reactionRecents.filter((emoji) => !favorites.includes(emoji)));
+    return deduped.slice(0, 6);
+  }, [favorites, reactionRecents]);
   const [ reactions, setReactions ] = useState<MessageReaction[]>([]);
   const [ isReactionBarOpen, setIsReactionBarOpen ] = useState(false);
   const [ isReactionPickerOpen, setIsReactionPickerOpen ] = useState(false);
@@ -71,8 +76,11 @@ const MessageBalloon = memo(function MessageBalloon(props: MessageBalloonProps) 
   const reactionBarRef = useRef<HTMLDivElement | null>(null);
   const reactionPickerAnchorRef = useRef<HTMLButtonElement | null>(null);
   const longPressTimerRef = useRef<number | null>(null);
+  const longPressStartRef = useRef<{ x: number; y: number; pointerId: number } | null>(null);
   const reactionSummary = useMemo(() => getReactionSummary(reactions), [reactions]);
   const actorReaction = useMemo(() => getActorReaction(reactions, reactionActor), [reactions, reactionActor]);
+  const LONG_PRESS_DELAY = 350;
+  const LONG_PRESS_MOVE_THRESHOLD = 12;
 
   useEffect(() => {
     if (props.time) {
@@ -88,6 +96,7 @@ const MessageBalloon = memo(function MessageBalloon(props: MessageBalloonProps) 
         window.clearTimeout(longPressTimerRef.current);
         longPressTimerRef.current = null;
       }
+      longPressStartRef.current = null;
     };
   }, []);
 
@@ -110,6 +119,12 @@ const MessageBalloon = memo(function MessageBalloon(props: MessageBalloonProps) 
   useEffect(() => {
     if (!canShowReactions) return;
     if (!isReactionBarOpen && !isReactionPickerOpen) return;
+    setReactionRecents(readEmojiRecents());
+  }, [canShowReactions, isReactionBarOpen, isReactionPickerOpen]);
+
+  useEffect(() => {
+    if (!canShowReactions) return;
+    if (!isReactionBarOpen && !isReactionPickerOpen) return;
     const handlePointerDown = (event: PointerEvent) => {
       const target = event.target as Node | null;
       if (!target) return;
@@ -128,6 +143,7 @@ const MessageBalloon = memo(function MessageBalloon(props: MessageBalloonProps) 
 
   const handleSelectReaction = (emoji: string) => {
     if (!messageId) return;
+    setReactionRecents((prev) => recordEmojiRecent(emoji, prev));
     const next = toggleMessageReaction(messageId, emoji, reactionActor);
     setReactions(next);
     setIsReactionBarOpen(false);
@@ -142,32 +158,66 @@ const MessageBalloon = memo(function MessageBalloon(props: MessageBalloonProps) 
     setIsReactionPickerOpen(false);
   };
 
-  const handleTouchStart = () => {
+  const clearLongPressTimer = () => {
+    if (longPressTimerRef.current) {
+      window.clearTimeout(longPressTimerRef.current);
+      longPressTimerRef.current = null;
+    }
+    longPressStartRef.current = null;
+  };
+
+  const handlePointerDown = (event: React.PointerEvent<HTMLDivElement>) => {
     if (!canShowReactions) return;
+    if (event.pointerType !== "touch") return;
+    if (isReactionBarOpen || isReactionPickerOpen) return;
     if (longPressTimerRef.current) {
       window.clearTimeout(longPressTimerRef.current);
     }
+    longPressStartRef.current = {
+      x: event.clientX,
+      y: event.clientY,
+      pointerId: event.pointerId,
+    };
     longPressTimerRef.current = window.setTimeout(() => {
       setIsReactionBarOpen(true);
       setIsReactionPickerOpen(false);
-    }, 420);
+    }, LONG_PRESS_DELAY);
   };
 
-  const handleTouchEnd = () => {
-    if (!longPressTimerRef.current) return;
-    window.clearTimeout(longPressTimerRef.current);
-    longPressTimerRef.current = null;
+  const handlePointerMove = (event: React.PointerEvent<HTMLDivElement>) => {
+    if (event.pointerType !== "touch") return;
+    const start = longPressStartRef.current;
+    if (!start || start.pointerId !== event.pointerId) return;
+    const dx = event.clientX - start.x;
+    const dy = event.clientY - start.y;
+    if (Math.hypot(dx, dy) >= LONG_PRESS_MOVE_THRESHOLD) {
+      clearLongPressTimer();
+    }
+  };
+
+  const handlePointerUp = (event: React.PointerEvent<HTMLDivElement>) => {
+    if (event.pointerType !== "touch") return;
+    clearLongPressTimer();
+  };
+
+  const handlePointerCancel = (event: React.PointerEvent<HTMLDivElement>) => {
+    if (event.pointerType !== "touch") return;
+    clearLongPressTimer();
   };
 
   return (
     <div
-      className={me ? "flex justify-end" : "flex justify-start"}
+      className={clsx(
+        me ? "flex justify-end" : "flex justify-start",
+        "touch-pan-y select-none md:select-text"
+      )}
       onContextMenu={onContextMenu}
       onMouseEnter={() => setIsHovered(true)}
       onMouseLeave={() => setIsHovered(false)}
-      onTouchStart={handleTouchStart}
-      onTouchEnd={handleTouchEnd}
-      onTouchCancel={handleTouchEnd}
+      onPointerDown={handlePointerDown}
+      onPointerMove={handlePointerMove}
+      onPointerUp={handlePointerUp}
+      onPointerCancel={handlePointerCancel}
     >
       <div className="max-w-[75%]">
         <p
@@ -262,10 +312,10 @@ const MessageBalloon = memo(function MessageBalloon(props: MessageBalloonProps) 
               <Image
                 src={stickerSrc ?? ""}
                 alt={stickerAlt ?? "Sticker"}
-                width={96}
-                height={96}
+                width={144}
+                height={144}
                 unoptimized
-                className="h-24 w-24 object-contain"
+                className="h-36 w-36 object-contain"
               />
             ) : (
               message

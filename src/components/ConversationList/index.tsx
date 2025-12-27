@@ -6,6 +6,7 @@ import { getFollowUpTag } from "../../utils/followUp";
 import clsx from "clsx";
 import { PACKS } from "../../config/packs";
 import { normalizePreferredLanguage } from "../../lib/language";
+import { isStickerToken } from "../../lib/stickers";
 
 interface ConversationListProps {
   isFirstConversation?: boolean;
@@ -44,6 +45,8 @@ export default function ConversationList(props: ConversationListProps) {
   const [ isHover, seHover ] = useState(false);
   const [ inviteCopyState, setInviteCopyState ] = useState<"idle" | "copying" | "copied" | "error">("idle");
   const isManagerChat = data.isManager === true;
+  const previewMessage =
+    typeof lastMessage === "string" && isStickerToken(lastMessage) ? "Sticker" : lastMessage;
   const hasUnread = !isManagerChat && !!unreadCount && unreadCount > 0;
   const isCompact = variant === "compact";
   const nameSizeClass = isCompact ? "text-[13px]" : "text-sm";
@@ -60,7 +63,7 @@ export default function ConversationList(props: ConversationListProps) {
   if (isManagerChat) {
     const managerCaption = data.managerCaption ?? "Chat interno del Manager IA";
     const hasManagerCaption = managerCaption.trim().length > 0;
-    const hasManagerPreview = typeof lastMessage === "string" && lastMessage.trim().length > 0;
+    const hasManagerPreview = typeof previewMessage === "string" && previewMessage.trim().length > 0;
     return (
       <div 
         className={`flex items-center w-full bg-[#111B21] ${rowPadding} hover:bg-[#2A3942] cursor-pointer border-t ${borderClass}`}
@@ -84,7 +87,7 @@ export default function ConversationList(props: ConversationListProps) {
                 IA
               </span>
             </div>
-            {hasManagerPreview && <span className={`truncate ${previewClasses}`}>{lastMessage}</span>}
+            {hasManagerPreview && <span className={`truncate ${previewClasses}`}>{previewMessage}</span>}
             {hasManagerCaption && (
               <div className="flex items-center gap-2 text-[11px] text-slate-500">
                 <span>{managerCaption}</span>
@@ -303,7 +306,7 @@ export default function ConversationList(props: ConversationListProps) {
                 </span>
               )}
             </div>
-            {!isCompact && <span className={`truncate ${previewClasses}`}>{lastMessage}</span>}
+            {!isCompact && <span className={`truncate ${previewClasses}`}>{previewMessage}</span>}
             {!isCompact && (
               <div className="flex items-center gap-1 text-[11px] text-slate-500">
                 <span>{`${totalSpent} €`}</span>

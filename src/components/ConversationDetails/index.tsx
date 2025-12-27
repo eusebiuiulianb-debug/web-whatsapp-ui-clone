@@ -45,8 +45,8 @@ import { track } from "../../lib/analyticsClient";
 import { ANALYTICS_EVENTS } from "../../lib/analyticsEvents";
 import { deriveAudience, isVisibleToFan, normalizeFrom } from "../../lib/messageAudience";
 import { getNearDuplicateSimilarity } from "../../lib/text/isNearDuplicate";
-import { getStickerById } from "../../lib/emoji/stickers";
-import type { StickerItem } from "../../lib/emoji/stickers";
+import { getStickerById, type StickerItem as LegacyStickerItem } from "../../lib/emoji/stickers";
+import { buildStickerToken, getStickerByToken, type StickerItem as PickerStickerItem } from "../../lib/stickers";
 import {
   DB_SCHEMA_OUT_OF_SYNC_FIX,
   DB_SCHEMA_OUT_OF_SYNC_MESSAGE,
@@ -475,7 +475,6 @@ export default function ConversationDetails({ onBackToBoard }: ConversationDetai
   } = conversation;
   const activeFanId = conversation?.isManager ? null : id ?? null;
   const [ messageSend, setMessageSend ] = useState("");
-  const [ pendingSticker, setPendingSticker ] = useState<StickerItem | null>(null);
   const [ pendingInsert, setPendingInsert ] = useState<{ text: string; detail?: string } | null>(null);
   const [ isSending, setIsSending ] = useState(false);
   const [ composerTarget, setComposerTarget ] = useState<ComposerTarget>("fan");
@@ -495,6 +494,11 @@ export default function ConversationDetails({ onBackToBoard }: ConversationDetai
   const [ profileLoading, setProfileLoading ] = useState(false);
   const [ profileDraft, setProfileDraft ] = useState("");
   const [ profileError, setProfileError ] = useState("");
+  const [ quickNote, setQuickNote ] = useState(conversation.quickNote ?? "");
+  const [ quickNoteDraft, setQuickNoteDraft ] = useState("");
+  const [ quickNoteEditing, setQuickNoteEditing ] = useState(false);
+  const [ quickNoteLoading, setQuickNoteLoading ] = useState(false);
+  const [ quickNoteError, setQuickNoteError ] = useState("");
   const [ followUpOpen, setFollowUpOpen ] = useState<FanFollowUp | null>(conversation.followUpOpen ?? null);
   const [ followUpHistory, setFollowUpHistory ] = useState<FanFollowUp[]>([]);
   const [ followUpLoading, setFollowUpLoading ] = useState(false);
@@ -846,8 +850,9 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
 
   useEffect(() => {
     setProfileText(conversation.profileText ?? "");
+    setQuickNote(conversation.quickNote ?? "");
     setFollowUpOpen(conversation.followUpOpen ?? null);
-  }, [conversation.id, conversation.profileText, conversation.followUpOpen]);
+  }, [conversation.id, conversation.profileText, conversation.quickNote, conversation.followUpOpen]);
 
   useEffect(() => {
     const openFollowUp = conversation.followUpOpen ?? followUpOpen;
@@ -1169,9 +1174,20 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
     },
     [autoGrowTextarea]
   );
-  const handleInsertSticker = (sticker: StickerItem) => {
-    setPendingSticker(sticker);
-  };
+  const handleInsertSticker = useCallback(
+    (sticker: PickerStickerItem) => {
+      const token = buildStickerToken(sticker.collectionId, sticker.packId, sticker.id);
+      const input = messageInputRef.current;
+      setMessageSend(token);
+      requestAnimationFrame(() => {
+        if (!input) return;
+        input.focus();
+        input.setSelectionRange(token.length, token.length);
+        autoGrowTextarea(input, MAX_MAIN_COMPOSER_HEIGHT);
+      });
+    },
+    [autoGrowTextarea]
+  );
   const focusMainMessageInput = (text: string) => {
     setComposerTarget("fan");
     setMessageSend(text);
@@ -1991,6 +2007,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
           lastCreatorMessageAt: targetFan.lastCreatorMessageAt ?? prev.lastCreatorMessageAt,
           notesCount: targetFan.notesCount ?? prev.notesCount,
           profileText: targetFan.profileText ?? prev.profileText ?? null,
+          quickNote: targetFan.quickNote ?? prev.quickNote ?? null,
           followUpOpen: targetFan.followUpOpen ?? prev.followUpOpen ?? null,
           nextAction: targetFan.nextAction ?? prev.nextAction,
           lastGrantType: (targetFan as any).lastGrantType ?? prev.lastGrantType ?? null,
@@ -2019,24 +2036,28 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
   const mapApiMessagesToState = useCallback((apiMessages: ApiMessage[]): ConversationMessage[] => {
     return apiMessages.map((msg) => {
       const isContent = msg.type === "CONTENT";
-      const isSticker = msg.type === "STICKER";
-      const sticker = isSticker ? getStickerById(msg.stickerId ?? null) : null;
+      const isLegacySticker = msg.type === "STICKER";
+      const tokenSticker = !isContent && !isLegacySticker ? getStickerByToken(msg.text ?? "") : null;
+      const isSticker = isLegacySticker || Boolean(tokenSticker);
+      const sticker = isLegacySticker ? getStickerById(msg.stickerId ?? null) : null;
+      const stickerSrc = isLegacySticker ? sticker?.file ?? null : tokenSticker?.src ?? null;
+      const stickerAlt = isLegacySticker ? sticker?.label ?? null : tokenSticker?.label ?? null;
       return {
         id: msg.id,
         fanId: msg.fanId,
         me: msg.from === "creator",
-        message: isSticker ? "" : msg.text,
+        message: msg.text ?? "",
         translatedText: isSticker ? undefined : msg.creatorTranslatedText ?? undefined,
         audience: deriveAudience(msg),
         seen: !!msg.isLastFromCreator,
         time: msg.time || "",
         createdAt: (msg as any)?.createdAt ?? undefined,
         status: "sent",
-        kind: isSticker ? "sticker" : isContent ? "content" : "text",
+        kind: isContent ? "content" : isSticker ? "sticker" : "text",
         type: msg.type,
-        stickerId: isSticker ? msg.stickerId ?? null : null,
-        stickerSrc: sticker?.file ?? null,
-        stickerAlt: sticker?.label ?? null,
+        stickerId: isLegacySticker ? msg.stickerId ?? null : null,
+        stickerSrc,
+        stickerAlt,
         contentItem: msg.contentItem
           ? {
               id: msg.contentItem.id,
@@ -2236,16 +2257,20 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
     setOpenPanel("none");
     setProfileText(conversation.profileText ?? "");
     setProfileDraft(conversation.profileText ?? "");
+    setQuickNote(conversation.quickNote ?? "");
+    setQuickNoteDraft(conversation.quickNote ?? "");
+    setQuickNoteEditing(false);
     setFollowUpOpen(conversation.followUpOpen ?? null);
     setFollowUpHistory([]);
     profileDraftEditedRef.current = false;
     setProfileError("");
+    setQuickNoteError("");
     setFollowUpError("");
     setFollowUpHistoryError("");
     setManagerSelectedText(null);
     const derivedPack = derivePackFromLabel(membershipStatus || accessLabel) || "monthly";
     setSelectedPackType(derivedPack);
-  }, [accessLabel, conversation.id, conversation.followUpOpen, conversation.profileText, membershipStatus]);
+  }, [accessLabel, conversation.id, conversation.followUpOpen, conversation.profileText, conversation.quickNote, membershipStatus]);
 
   useEffect(() => {
     const normalized = normalizePreferredLanguage(conversation.preferredLanguage) ?? null;
@@ -3396,8 +3421,6 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
             showAttach={false}
             showEmoji
             onEmojiSelect={handleInsertManagerEmoji}
-            stickerDraft={pendingSticker}
-            onStickerDraftClear={() => setPendingSticker(null)}
           />
         </div>
       </div>
@@ -3648,6 +3671,57 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
               {profileError && <span className="text-rose-300">{profileError}</span>}
               {profileLoading && <span>Actualizando...</span>}
             </div>
+          </div>
+
+          <div className="space-y-2">
+            <div className="flex items-center justify-between gap-2">
+              <div className="text-[11px] font-semibold text-slate-400">Nota rápida</div>
+              {!quickNoteEditing && (
+                <button
+                  type="button"
+                  onClick={openQuickNoteEditor}
+                  className="rounded-lg border border-slate-600/80 bg-slate-900/60 px-2.5 py-1 text-[10px] font-semibold text-slate-200 hover:border-amber-400/70 hover:text-amber-100"
+                >
+                  Editar
+                </button>
+              )}
+            </div>
+            {quickNoteEditing ? (
+              <div className="space-y-2">
+                <textarea
+                  value={quickNoteDraft}
+                  onChange={(e) => setQuickNoteDraft(e.target.value)}
+                  rows={3}
+                  className="w-full resize-none rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-xs text-slate-100 placeholder:text-slate-500 outline-none focus:border-amber-400"
+                  placeholder="Nota rápida..."
+                />
+                <div className="flex flex-wrap items-center gap-2 text-[10px] text-slate-500">
+                  <button
+                    type="button"
+                    onClick={handleSaveQuickNote}
+                    disabled={quickNoteLoading}
+                    className="rounded-lg border border-amber-400/80 bg-amber-500/10 px-3 py-1 text-xs font-medium text-amber-100 disabled:cursor-not-allowed disabled:opacity-50 hover:bg-amber-500/20"
+                  >
+                    Guardar
+                  </button>
+                  <button
+                    type="button"
+                    onClick={cancelQuickNoteEditor}
+                    className="rounded-lg border border-slate-600/80 bg-slate-900/60 px-3 py-1 text-xs font-medium text-slate-200 hover:bg-slate-800/80"
+                  >
+                    Cancelar
+                  </button>
+                  {quickNoteLoading && <span>Guardando...</span>}
+                  {quickNoteError && <span className="text-rose-300">{quickNoteError}</span>}
+                </div>
+              </div>
+            ) : quickNote.trim() ? (
+              <div className="rounded-lg border border-slate-800 bg-slate-950/60 px-3 py-2 text-xs text-slate-200 whitespace-pre-wrap">
+                {quickNote}
+              </div>
+            ) : (
+              <div className="text-[11px] text-slate-500">Sin nota rápida.</div>
+            )}
           </div>
 
           <div className="space-y-2">
@@ -5272,7 +5346,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
     if (key === "Enter" && !evt.shiftKey) {
       evt.preventDefault();
       if (isSendingRef.current) return;
-      if (messageSend.trim() || pendingSticker) handleSendMessage();
+      if (messageSend.trim()) handleSendMessage();
     }
   }
 
@@ -5334,6 +5408,8 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
     }
     const trimmedMessage = text.trim();
     if (!trimmedMessage) return;
+    const tokenSticker = getStickerByToken(trimmedMessage);
+    const isTokenSticker = Boolean(tokenSticker);
 
     const tempId = `temp-${Date.now()}`;
     if (!isInternal) {
@@ -5345,8 +5421,10 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
         time: new Date().toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit", hour12: false }),
         createdAt: new Date().toISOString(),
         status: "sending",
-        kind: "text",
+        kind: isTokenSticker ? "sticker" : "text",
         type: "TEXT",
+        stickerSrc: isTokenSticker ? tokenSticker?.src ?? null : null,
+        stickerAlt: isTokenSticker ? tokenSticker?.label ?? null : null,
       };
       setMessage((prev) => {
         if (!id) return prev || [];
@@ -5432,7 +5510,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
     }
   }
 
-  async function sendStickerMessage(sticker: StickerItem) {
+  async function sendStickerMessage(sticker: LegacyStickerItem) {
     if (!id) return;
     if (!sticker?.id) return;
     if (isChatBlocked) {
@@ -5539,8 +5617,14 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
 
   async function handleSendMessage() {
     const trimmed = messageSend.trim();
-    const nextSticker = pendingSticker;
-    if (!trimmed && !nextSticker) return;
+    if (!trimmed) {
+      if (messageSend) {
+        setMessageSend("");
+        resetMessageInputHeight();
+        requestAnimationFrame(() => messageInputRef.current?.focus());
+      }
+      return;
+    }
     if (!isFanTarget) {
       setManagerChatInput(trimmed);
       setManagerSelectedText(null);
@@ -5556,18 +5640,8 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
       });
       return;
     }
-    if (nextSticker) {
-      setPendingSticker(null);
-      await sendStickerMessage(nextSticker);
-    }
-    if (trimmed) {
-      const sentText = await sendFanMessage(trimmed);
-      if (!sentText) return;
-    } else if (messageSend) {
-      setMessageSend("");
-      resetMessageInputHeight();
-      requestAnimationFrame(() => messageInputRef.current?.focus());
-    }
+    const sentText = await sendFanMessage(trimmed);
+    if (!sentText) return;
   }
 
   async function handleConfirmDuplicateSend() {
@@ -5670,6 +5744,19 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
     setSelectedContentIds([]);
   }
 
+  async function saveQuickNote(content: string) {
+    if (!id) return null;
+    const res = await fetch("/api/fans/quick-note", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ fanId: id, quickNote: content }),
+    });
+    if (!res.ok) return null;
+    const data = await res.json().catch(() => ({}));
+    if (!data?.ok) return null;
+    return typeof data.quickNote === "string" ? data.quickNote : "";
+  }
+
   async function saveFanProfile(content: string) {
     if (!id) return null;
     const res = await fetch("/api/fans/profile", {
@@ -5713,6 +5800,52 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
       body: JSON.stringify({ fanId: id }),
     });
     return res.ok;
+  }
+
+  function openQuickNoteEditor() {
+    setQuickNoteEditing(true);
+    setQuickNoteDraft(quickNote);
+    setQuickNoteError("");
+  }
+
+  function cancelQuickNoteEditor() {
+    setQuickNoteEditing(false);
+    setQuickNoteDraft(quickNote);
+    setQuickNoteError("");
+  }
+
+  async function handleSaveQuickNote() {
+    if (!id) return;
+    const content = quickNoteDraft.trim();
+    const previous = quickNote;
+    if (content === previous.trim()) {
+      setQuickNoteEditing(false);
+      setQuickNoteError("");
+      return;
+    }
+    try {
+      setQuickNoteLoading(true);
+      setQuickNoteError("");
+      setQuickNote(content);
+      setQuickNoteEditing(false);
+      const nextNote = await saveQuickNote(content);
+      if (nextNote === null) {
+        throw new Error("quick note save failed");
+      }
+      setQuickNote(nextNote);
+      setQuickNoteDraft(nextNote);
+      showComposerToast("Nota rápida guardada");
+      await refreshFanData(id);
+    } catch (err) {
+      console.error("Error guardando nota rápida", err);
+      setQuickNote(previous);
+      setQuickNoteDraft(previous);
+      setQuickNoteEditing(true);
+      setQuickNoteError("Error guardando nota rápida");
+      showComposerToast("No se pudo guardar la nota");
+    } finally {
+      setQuickNoteLoading(false);
+    }
   }
 
   async function handleSaveProfile() {
@@ -5899,7 +6032,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
     };
   }, [isInternalPanelOpen]);
 
-  const hasComposerPayload = messageSend.trim().length > 0 || (isFanTarget && !!pendingSticker);
+  const hasComposerPayload = messageSend.trim().length > 0;
   const sendDisabled =
     isSending ||
     !hasComposerPayload ||
@@ -6929,7 +7062,8 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
               const { me, message, seen, time } = messageConversation;
               const isInternalMessage = messageConversation.audience === "INTERNAL";
               const isStickerMessage = messageConversation.kind === "sticker";
-              const retrySticker = isStickerMessage ? getStickerById(messageConversation.stickerId ?? null) : null;
+              const isLegacySticker = messageConversation.type === "STICKER";
+              const retrySticker = isLegacySticker ? getStickerById(messageConversation.stickerId ?? null) : null;
               const translatedText = !me ? messageConversation.translatedText ?? undefined : undefined;
               return (
                 <div key={messageConversation.id || index} className="space-y-1">
@@ -7301,8 +7435,6 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
                 onEmojiSelect={handleInsertEmoji}
                 showStickers={isFanTarget}
                 onStickerSelect={handleInsertSticker}
-                stickerDraft={pendingSticker}
-                onStickerDraftClear={() => setPendingSticker(null)}
                 inputRef={messageInputRef}
                 maxHeight={MAX_MAIN_COMPOSER_HEIGHT}
                 isChatBlocked={isChatBlocked}

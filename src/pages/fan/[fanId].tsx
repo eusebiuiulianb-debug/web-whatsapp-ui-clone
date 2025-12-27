@@ -17,6 +17,7 @@ import { getFanDisplayName } from "../../utils/fanDisplayName";
 import { isVisibleToFan } from "../../lib/messageAudience";
 import { inferPreferredLanguage, LANGUAGE_LABELS, normalizePreferredLanguage, type SupportedLanguage } from "../../lib/language";
 import { getStickerById } from "../../lib/emoji/stickers";
+import { getStickerByToken } from "../../lib/stickers";
 
 type ApiContentItem = {
   id: string;
@@ -472,8 +473,12 @@ export default function FanChatPage({ includedContent, initialAccessSummary }: F
               if (isContent) {
                 return <ContentCard key={msg.id} message={msg} />;
               }
-              const isSticker = msg.type === "STICKER";
-              const sticker = isSticker ? getStickerById(msg.stickerId ?? null) : null;
+              const tokenSticker =
+                msg.type !== "STICKER" ? getStickerByToken(msg.text ?? "") : null;
+              const isSticker = msg.type === "STICKER" || Boolean(tokenSticker);
+              const sticker = msg.type === "STICKER" ? getStickerById(msg.stickerId ?? null) : null;
+              const stickerSrc = msg.type === "STICKER" ? sticker?.file ?? null : tokenSticker?.src ?? null;
+              const stickerAlt = msg.type === "STICKER" ? sticker?.label || "Sticker" : tokenSticker?.label ?? null;
               const displayText =
                 isSticker
                   ? ""
@@ -488,8 +493,8 @@ export default function FanChatPage({ includedContent, initialAccessSummary }: F
                   seen={!!msg.isLastFromCreator}
                   time={msg.time || undefined}
                   status={msg.status}
-                  stickerSrc={isSticker ? sticker?.file ?? null : null}
-                  stickerAlt={isSticker ? sticker?.label || "Sticker" : null}
+                  stickerSrc={isSticker ? stickerSrc : null}
+                  stickerAlt={isSticker ? stickerAlt : null}
                 />
               );
             })}

@@ -32,7 +32,7 @@ export default function CreatorHeader({ name, role, subtitle, initial, avatarUrl
 
   const navTabs = [
     { label: "Chat privado", href: "/", active: isChat, className: "" },
-    { label: "Panel", href: "/creator/manager", active: isPanel, className: "" },
+    { label: "Cortex", href: "/creator/manager", active: isPanel, className: "" },
     { label: "Bio-link", href: "/creator/bio-link", active: isBioLink, className: "" },
     { label: "Analítica", href: "/creator/analytics", active: isAnalytics, className: "" },
   ];

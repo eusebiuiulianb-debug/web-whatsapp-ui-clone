@@ -75,6 +75,7 @@ model Fan {
   lastSeen         String?
   nextAction       String?
   profileText      String?
+  quickNote        String?
   creatorId        String
   creator          Creator         @relation(fields: [creatorId], references: [id])
   messages         Message[]

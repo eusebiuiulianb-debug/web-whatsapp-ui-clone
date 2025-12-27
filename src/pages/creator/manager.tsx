@@ -1,4 +1,5 @@
 import Head from "next/head";
+import clsx from "clsx";
 import type { GetServerSideProps } from "next";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
@@ -57,6 +58,7 @@ type ManagerQueueItem = {
   nextReason: string;
   expiresInDays?: number | null;
   lastActivityAt: string | null;
+  quickNote?: string | null;
 };
 
 type ManagerQueueStats = {
@@ -94,6 +96,7 @@ type ManagerQueueData = {
 };
 
 type InsightsTab = "sales" | "catalog" | "growth";
+type SummaryFilter = "today" | "queue" | "pulse" | "catalog" | "expiring" | "risk" | null;
 
 function formatCurrency(amount: number) {
   return `${Math.round(amount)} €`;
@@ -185,7 +188,7 @@ export default function CreatorManagerPage({ initialSnapshot, initialContentSnap
   return (
     <>
       <Head>
-        <title>Panel del creador · NOVSY</title>
+        <title>Cortex · NOVSY</title>
       </Head>
       <CreatorShell
         mobileView={mobileView}
@@ -213,7 +216,7 @@ export default function CreatorManagerPage({ initialSnapshot, initialContentSnap
             }}
             onOpenSettings={handleOpenSettings}
             creatorName={config.creatorName || "Creador"}
-            creatorSubtitle={config.creatorSubtitle || "Panel e insights en tiempo real"}
+            creatorSubtitle={config.creatorSubtitle || "Centro de mando del creador"}
             avatarUrl={config.avatarUrl}
             platforms={platforms}
           />
@@ -268,10 +271,24 @@ function ManagerChatLayout({
   avatarUrl,
   platforms,
 }: ManagerChatLayoutProps) {
+  const router = useRouter();
   const summaryRef = useRef<HTMLDivElement | null>(null);
   const headerMenuRef = useRef<HTMLDivElement | null>(null);
   const [activeTab, setActiveTab] = useState<"strategy" | "content">("strategy");
   const [soloChat, setSoloChat] = useState(false);
+  const [activeFilter, setActiveFilter] = useState<SummaryFilter>(null);
+  const [fanPanelOpen, setFanPanelOpen] = useState(false);
+  const [attendedFanIds, setAttendedFanIds] = useState<string[]>([]);
+  const [notes, setNotes] = useState<Record<string, string>>({});
+  const [noteEditingId, setNoteEditingId] = useState<string | null>(null);
+  const [noteDraft, setNoteDraft] = useState("");
+  const [noteSavingId, setNoteSavingId] = useState<string | null>(null);
+  const [noteToast, setNoteToast] = useState("");
+  const [copiedFanId, setCopiedFanId] = useState<string | null>(null);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [debouncedSearch, setDebouncedSearch] = useState("");
+  const copyTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const noteToastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [headerMenuOpen, setHeaderMenuOpen] = useState(false);
   const [discoveryProfile, setDiscoveryProfile] = useState<CreatorDiscoveryProfile>({
     isDiscoverable: false,
@@ -318,6 +335,60 @@ function ManagerChatLayout({
     document.addEventListener("mousedown", handleClick);
     return () => document.removeEventListener("mousedown", handleClick);
   }, [headerMenuOpen]);
+  useEffect(() => {
+    const handle = window.setTimeout(() => {
+      setDebouncedSearch(searchQuery.trim());
+    }, 220);
+    return () => {
+      window.clearTimeout(handle);
+    };
+  }, [searchQuery]);
+  useEffect(() => {
+    return () => {
+      if (copyTimeoutRef.current) {
+        clearTimeout(copyTimeoutRef.current);
+        copyTimeoutRef.current = null;
+      }
+      if (noteToastTimerRef.current) {
+        clearTimeout(noteToastTimerRef.current);
+        noteToastTimerRef.current = null;
+      }
+    };
+  }, []);
+  useEffect(() => {
+    if (!soloChat) return;
+    setFanPanelOpen(false);
+  }, [soloChat]);
+  useEffect(() => {
+    if (fanPanelOpen) return;
+    setNoteEditingId(null);
+    setNoteDraft("");
+  }, [fanPanelOpen]);
+  useEffect(() => {
+    if (!fanPanelOpen) return;
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      setFanPanelOpen(false);
+    };
+    document.addEventListener("keydown", handleKeyDown);
+    return () => {
+      document.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [fanPanelOpen]);
+  useEffect(() => {
+    if (!queueData?.queue) return;
+    setNotes((prev) => {
+      const next = { ...prev };
+      queueData.queue.forEach((item) => {
+        if (typeof item.quickNote === "string") {
+          next[item.fanId] = item.quickNote;
+        } else if (item.quickNote === null) {
+          next[item.fanId] = "";
+        }
+      });
+      return next;
+    });
+  }, [queueData]);
   const quickActions =
     activeTab === "strategy"
       ? ["¿A qué fans priorizo hoy?", "Resúmeme mis números de esta semana", "Dame 1 acción para subir ingresos hoy"]
@@ -345,7 +416,7 @@ function ManagerChatLayout({
     [queueData]
   );
 
-  const statTiles = [
+  const statTiles: Array<{ id: Exclude<SummaryFilter, null>; title: string; value: string; helper: string }> = [
     {
       id: "today",
       title: "Hoy",
@@ -385,7 +456,7 @@ function ManagerChatLayout({
       })),
     [queueTop3]
   );
-  const statusStats = [
+  const statusStats: Array<{ id: Exclude<SummaryFilter, null>; label: string; value: number }> = [
     { id: "today", label: "Hoy", value: prioritizedToday },
     { id: "queue", label: "Cola", value: queueStats?.queueCount ?? 0 },
     { id: "expiring", label: "Caducan pronto", value: expiringSoonCount },
@@ -406,6 +477,441 @@ function ManagerChatLayout({
           { title: "Packs activos", value: "3", helper: "Bienvenida · Mensual · Especial" },
           { title: "Ideas de extras", value: "En curso", helper: "Activa con el chat" },
         ];
+  const filterLabels: Record<Exclude<SummaryFilter, null>, string> = {
+    today: "Hoy",
+    queue: "Cola",
+    pulse: "Pulso",
+    catalog: "Catálogo",
+    expiring: "Caducan pronto",
+    risk: "En riesgo",
+  };
+  const monthlyActive = summary?.packs?.monthly?.activeFans ?? 0;
+  const specialActive = summary?.packs?.special?.activeFans ?? 0;
+  const filterHighlights = activeFilter
+    ? activeFilter === "pulse"
+      ? [
+          { title: "Ingresos 7d", value: formatCurrency(safeRevenue7), helper: "Pulso corto" },
+          { title: "Ingresos 30d", value: formatCurrency(safeRevenue30), helper: "Mes en curso" },
+          { title: "Riesgo 7d", value: formatCurrency(safeRiskRevenue), helper: "Revisar hoy" },
+          { title: "Extras 30d", value: `${safeExtras30}`, helper: "Ventas" },
+        ]
+      : activeFilter === "catalog"
+      ? [
+          { title: "Extras 30d", value: `${safeExtras30}`, helper: "Ventas recientes" },
+          { title: "VIP activos", value: `${vipCount}`, helper: "Upsell" },
+          { title: "Mensual activos", value: `${formatNumber(monthlyActive)}`, helper: "Retención" },
+          { title: "Especial activos", value: `${formatNumber(specialActive)}`, helper: "Catálogo" },
+        ]
+      : activeFilter === "expiring"
+      ? [
+          { title: "Caducan pronto", value: `${formatNumber(expiringSoonCount)}`, helper: "72h" },
+          { title: "En riesgo", value: `${formatNumber(atRiskCount)}`, helper: "Seguimiento" },
+          { title: "Ingresos 7d", value: formatCurrency(safeRevenue7), helper: "Pulso corto" },
+          { title: "Prioridades hoy", value: `${formatNumber(prioritizedToday)}`, helper: "Pendientes" },
+        ]
+      : activeFilter === "risk"
+      ? [
+          { title: "En riesgo", value: `${formatNumber(atRiskCount)}`, helper: "Seguimiento" },
+          { title: "Riesgo 7d", value: formatCurrency(safeRiskRevenue), helper: "Ingresos" },
+          { title: "Caducan pronto", value: `${formatNumber(expiringSoonCount)}`, helper: "72h" },
+          { title: "Cola total", value: `${formatNumber(queueStats?.queueCount ?? 0)}`, helper: "En espera" },
+        ]
+      : [
+          { title: "Prioridades hoy", value: `${formatNumber(prioritizedToday)}`, helper: "Pendientes" },
+          { title: "Cola total", value: `${formatNumber(queueStats?.queueCount ?? 0)}`, helper: "En espera" },
+          { title: "En riesgo", value: `${formatNumber(atRiskCount)}`, helper: "Seguimiento" },
+          { title: "Caducan pronto", value: `${formatNumber(expiringSoonCount)}`, helper: "72h" },
+        ]
+    : tabHighlights;
+  const panelFilter: Exclude<SummaryFilter, null> = activeFilter ?? "queue";
+  const queueItems = useMemo(() => queueData?.queue ?? [], [queueData]);
+  const filteredQueue = useMemo(() => {
+    if (queueItems.length === 0) return [];
+    switch (panelFilter) {
+      case "today":
+        return queueItems.filter((item) => item.flags.followUpToday);
+      case "queue":
+        return queueItems;
+      case "expiring":
+        return queueItems.filter((item) => item.flags.expiredSoon || item.flags.expired);
+      case "risk":
+        return queueItems.filter((item) => item.flags.atRisk7d);
+      case "pulse":
+        return queueItems.filter((item) => item.flags.atRisk7d || item.flags.expiredSoon || item.flags.expired);
+      case "catalog":
+        return queueItems.filter((item) => item.flags.isNew30d);
+      default:
+        return queueItems;
+    }
+  }, [panelFilter, queueItems]);
+  const normalizedSearch = debouncedSearch.toLowerCase();
+  const visibleQueue = useMemo(() => {
+    if (!normalizedSearch) return filteredQueue;
+    return filteredQueue.filter((fan) => {
+      const haystack = [fan.displayName, fan.handle, fan.nextReason]
+        .filter(Boolean)
+        .join(" ")
+        .toLowerCase();
+      return haystack.includes(normalizedSearch);
+    });
+  }, [filteredQueue, normalizedSearch]);
+  const emptyMessages: Record<Exclude<SummaryFilter, null>, { title: string; detail: string }> = {
+    today: { title: "Sin prioridades hoy", detail: "No hay fans marcados para seguimiento inmediato." },
+    queue: { title: "Cola vacía", detail: "Tu cola está limpia por ahora." },
+    expiring: { title: "Sin caducidades próximas", detail: "Ningún fan caduca en las próximas 72 horas." },
+    risk: { title: "Sin fans en riesgo", detail: "Todo estable por ahora." },
+    pulse: { title: "Pulso en calma", detail: "No hay alertas activas para ingresos." },
+    catalog: { title: "Sin fans de catálogo", detail: "No hay movimientos de catálogo para este filtro." },
+  };
+  const hasSearch = normalizedSearch.length > 0;
+  const panelMeta = hasSearch
+    ? { title: "Sin resultados", detail: "Prueba otro nombre o handle." }
+    : emptyMessages[panelFilter];
+  const panelTitle = filterLabels[panelFilter];
+  const isQueueLoading = loading && queueItems.length === 0;
+  const formatLastActivity = (value: string | null) => {
+    if (!value) return "Sin actividad reciente";
+    try {
+      return new Intl.DateTimeFormat("es-ES", { day: "2-digit", month: "short" }).format(new Date(value));
+    } catch (_err) {
+      return "Sin actividad reciente";
+    }
+  };
+  const handleOpenChat = (fanId: string) => {
+    if (!fanId) return;
+    setFanPanelOpen(false);
+    void router.push(`/?fanId=${encodeURIComponent(fanId)}`);
+  };
+  const toggleAttended = (fanId: string) => {
+    setAttendedFanIds((prev) =>
+      prev.includes(fanId) ? prev.filter((id) => id !== fanId) : [...prev, fanId]
+    );
+  };
+  const handleCopyLink = async (fanId: string) => {
+    if (!fanId || typeof window === "undefined") return;
+    const base = window.location.origin;
+    const link = `${base}/?fanId=${encodeURIComponent(fanId)}`;
+    try {
+      await navigator.clipboard.writeText(link);
+      setCopiedFanId(fanId);
+      if (copyTimeoutRef.current) clearTimeout(copyTimeoutRef.current);
+      copyTimeoutRef.current = setTimeout(() => {
+        setCopiedFanId(null);
+      }, 1800);
+    } catch (_err) {
+      setCopiedFanId(null);
+    }
+  };
+  const showNoteToast = (message: string) => {
+    setNoteToast(message);
+    if (noteToastTimerRef.current) {
+      clearTimeout(noteToastTimerRef.current);
+    }
+    noteToastTimerRef.current = setTimeout(() => setNoteToast(""), 2000);
+  };
+  const openNoteEditor = (fanId: string, noteText: string) => {
+    setNoteEditingId(fanId);
+    setNoteDraft(noteText);
+  };
+  const saveNote = async (fanId: string) => {
+    const trimmed = noteDraft.trim();
+    const previousNote = notes[fanId] ?? "";
+    setNotes((prev) => ({ ...prev, [fanId]: trimmed }));
+    setNoteEditingId(null);
+    setNoteDraft("");
+    try {
+      setNoteSavingId(fanId);
+      const res = await fetch("/api/fans/quick-note", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ fanId, quickNote: trimmed }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data?.ok) throw new Error("save failed");
+      const saved = typeof data.quickNote === "string" ? data.quickNote : "";
+      setNotes((prev) => ({ ...prev, [fanId]: saved }));
+      showNoteToast("Nota guardada");
+    } catch (err) {
+      console.error("Error guardando nota rápida", err);
+      setNotes((prev) => ({ ...prev, [fanId]: previousNote }));
+      showNoteToast("No se pudo guardar la nota");
+    } finally {
+      setNoteSavingId(null);
+    }
+  };
+  const cancelNote = () => {
+    setNoteEditingId(null);
+    setNoteDraft("");
+  };
+  const fanPanelContent = (
+    <div className="flex h-full flex-col">
+      <div className="lg:hidden flex justify-center py-2">
+        <div className="h-1 w-12 rounded-full bg-slate-700/80" />
+      </div>
+      <div className="sticky top-0 z-10 flex items-center justify-between border-b border-slate-800/80 bg-slate-950/90 px-4 py-3 backdrop-blur">
+        <div>
+          <p className="text-[11px] uppercase tracking-wide text-slate-400">Fans · {panelTitle}</p>
+          <p className="text-xs text-slate-400">
+            {isQueueLoading
+              ? "Cargando..."
+              : `${visibleQueue.length} ${hasSearch ? "coincidencias" : "resultados"}`}
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={() => setFanPanelOpen(false)}
+          className="inline-flex items-center gap-1 rounded-full border border-slate-700 bg-slate-900/70 px-2.5 py-1 text-[11px] font-semibold text-slate-100 hover:border-emerald-500/60"
+        >
+          ✕
+          <span>Cerrar</span>
+        </button>
+      </div>
+      <div className="border-b border-slate-900/70 bg-slate-950/80 px-4 py-3">
+        <div className="relative">
+          <input
+            value={searchQuery}
+            onChange={(event) => setSearchQuery(event.target.value)}
+            placeholder="Buscar fan..."
+            className="w-full rounded-full border border-slate-800 bg-slate-900/70 py-2 pl-3 pr-9 text-xs text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/40"
+            aria-label="Buscar fan"
+          />
+          {searchQuery && (
+            <button
+              type="button"
+              onClick={() => setSearchQuery("")}
+              className="absolute right-2 top-1/2 -translate-y-1/2 rounded-full border border-slate-700/70 bg-slate-900/60 px-2 py-0.5 text-[10px] text-slate-300 hover:text-slate-100"
+              aria-label="Limpiar búsqueda"
+              title="Limpiar"
+            >
+              ✕
+            </button>
+          )}
+        </div>
+      </div>
+      {noteToast && (
+        <div className="border-b border-slate-900/70 bg-slate-950/80 px-4 py-2 text-[11px] text-emerald-200">
+          {noteToast}
+        </div>
+      )}
+      <div className="flex-1 overflow-y-auto p-4 space-y-3">
+        {isQueueLoading ? (
+          <div className="rounded-xl border border-slate-800 bg-slate-900/70 p-4 text-sm text-slate-300">
+            Cargando lista de fans…
+          </div>
+        ) : visibleQueue.length === 0 ? (
+          <div className="rounded-xl border border-dashed border-slate-800 bg-slate-900/50 p-4 text-sm text-slate-300">
+            <div className="text-sm font-semibold text-slate-100">{panelMeta.title}</div>
+            <div className="text-xs text-slate-400">{panelMeta.detail}</div>
+          </div>
+        ) : (
+          visibleQueue.map((fan) => {
+            const isAttended = attendedFanIds.includes(fan.fanId);
+            const expiringLabel = fan.flags.expired
+              ? "Caducado"
+              : typeof fan.expiresInDays === "number"
+              ? `Caduca en ${Math.max(fan.expiresInDays, 0)}d`
+              : "Caduca pronto";
+            const badgeCandidates = [
+              { key: "new", label: "Nuevo", show: fan.flags.isNew30d, tone: "emerald" },
+              { key: "risk", label: "En riesgo", show: fan.flags.atRisk7d, tone: "rose" },
+              { key: "expiring", label: expiringLabel, show: fan.flags.expiredSoon || fan.flags.expired, tone: "amber" },
+              { key: "today", label: "Hoy", show: fan.flags.followUpToday, tone: "sky" },
+            ].filter((badge) => badge.show);
+            const primaryBadges = badgeCandidates.slice(0, 3);
+            const extraBadges = badgeCandidates.slice(3);
+            const extraBadgeLabel = extraBadges.map((badge) => badge.label).join(", ");
+            const noteValue =
+              typeof notes[fan.fanId] === "string" ? notes[fan.fanId] : fan.quickNote ?? "";
+            const hasNote = Boolean(noteValue.trim()) || noteEditingId === fan.fanId;
+            const badgeToneClass = (tone: string) =>
+              tone === "emerald"
+                ? "border-emerald-500/50 bg-emerald-500/10 text-emerald-100"
+                : tone === "rose"
+                ? "border-rose-500/50 bg-rose-500/10 text-rose-100"
+                : tone === "amber"
+                ? "border-amber-500/50 bg-amber-500/10 text-amber-100"
+                : "border-sky-500/50 bg-sky-500/10 text-sky-100";
+            return (
+              <div
+                key={fan.fanId}
+                role="button"
+                tabIndex={0}
+                onClick={() => handleOpenChat(fan.fanId)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" || event.key === " ") {
+                    event.preventDefault();
+                    handleOpenChat(fan.fanId);
+                  }
+                }}
+                className={clsx(
+                  "group rounded-xl border border-slate-800 bg-slate-900/70 p-3 transition",
+                  "hover:border-slate-700/80 hover:bg-slate-900/80 cursor-pointer",
+                  isAttended && "opacity-70"
+                )}
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0 flex-1 space-y-1">
+                    <div className="flex items-center gap-2">
+                      <div className="min-w-0 flex-1 flex items-center gap-2">
+                        <span className={clsx("truncate text-sm font-semibold text-white", isAttended && "line-through")}>
+                          {fan.displayName}
+                        </span>
+                        {fan.handle && <span className="truncate text-[10px] text-slate-500">@{fan.handle}</span>}
+                      </div>
+                      <span className="shrink-0 text-[10px] text-slate-500 whitespace-nowrap">
+                        Últ. act. {formatLastActivity(fan.lastActivityAt)}
+                      </span>
+                    </div>
+                    <div className="text-xs text-slate-400">{fan.nextReason}</div>
+                    {(primaryBadges.length > 0 || extraBadges.length > 0) && (
+                      <div className="flex flex-wrap gap-1 pt-1">
+                        {primaryBadges.map((badge) => (
+                          <span
+                            key={badge.key}
+                            className={clsx(
+                              "rounded-full border px-2 py-0.5 text-[10px] font-semibold",
+                              badgeToneClass(badge.tone)
+                            )}
+                          >
+                            {badge.label}
+                          </span>
+                        ))}
+                        {extraBadges.length > 0 && (
+                          <span
+                            title={extraBadgeLabel}
+                            className="rounded-full border border-slate-700/70 bg-slate-950/70 px-2 py-0.5 text-[10px] text-slate-300"
+                          >
+                            +{extraBadges.length}
+                          </span>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                  <div className="flex flex-col items-end gap-2">
+                    <button
+                      type="button"
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        handleOpenChat(fan.fanId);
+                      }}
+                      className="inline-flex h-8 items-center rounded-full border border-emerald-500/60 bg-emerald-600/15 px-3 text-[11px] font-semibold text-emerald-100 hover:bg-emerald-600/25"
+                    >
+                      Abrir chat
+                    </button>
+                    <div className="flex items-center gap-1">
+                      <button
+                        type="button"
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          toggleAttended(fan.fanId);
+                        }}
+                        title={isAttended ? "Deshacer atendido" : "Marcar atendido"}
+                        aria-label={isAttended ? "Deshacer atendido" : "Marcar atendido"}
+                        className={clsx(
+                          "flex h-8 w-8 items-center justify-center rounded-full border transition",
+                          isAttended
+                            ? "border-emerald-500/60 bg-emerald-500/15 text-emerald-100"
+                            : "border-slate-700/70 bg-slate-950/60 text-slate-200 hover:border-slate-500/70 hover:text-white"
+                        )}
+                      >
+                        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2">
+                          <path d="M5 13l4 4L19 7" />
+                        </svg>
+                      </button>
+                      {fan.fanId && (
+                        <button
+                          type="button"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            void handleCopyLink(fan.fanId);
+                          }}
+                          title={copiedFanId === fan.fanId ? "Copiado" : "Copiar enlace"}
+                          aria-label="Copiar enlace"
+                          className={clsx(
+                            "flex h-8 w-8 items-center justify-center rounded-full border transition",
+                            copiedFanId === fan.fanId
+                              ? "border-emerald-500/60 bg-emerald-500/15 text-emerald-100"
+                              : "border-slate-700/70 bg-slate-950/60 text-slate-200 hover:border-slate-500/70 hover:text-white"
+                          )}
+                        >
+                          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2">
+                            <rect x="9" y="9" width="10" height="10" rx="2" />
+                            <rect x="5" y="5" width="10" height="10" rx="2" />
+                          </svg>
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          openNoteEditor(fan.fanId, noteValue);
+                        }}
+                        title="Nota rápida"
+                        aria-label="Nota rápida"
+                        className={clsx(
+                          "flex h-8 w-8 items-center justify-center rounded-full border transition",
+                          hasNote
+                            ? "border-amber-500/60 bg-amber-500/15 text-amber-100"
+                            : "border-slate-700/70 bg-slate-950/60 text-slate-200 hover:border-slate-500/70 hover:text-white"
+                        )}
+                      >
+                        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2">
+                          <path d="M4 20h4l10-10-4-4L4 16v4z" />
+                          <path d="M14 6l4 4" />
+                        </svg>
+                      </button>
+                    </div>
+                  </div>
+                </div>
+                {noteEditingId === fan.fanId ? (
+                  <div className="mt-2 space-y-2" onClick={(event) => event.stopPropagation()}>
+                    <textarea
+                      value={noteDraft}
+                      onChange={(event) => setNoteDraft(event.target.value)}
+                      onKeyDown={(event) => event.stopPropagation()}
+                      placeholder="Nota rápida..."
+                      className="w-full rounded-lg border border-slate-700 bg-slate-950/70 px-3 py-2 text-xs text-slate-100 focus:outline-none focus:ring-2 focus:ring-emerald-500/50"
+                      rows={3}
+                    />
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          void saveNote(fan.fanId);
+                        }}
+                        disabled={noteSavingId === fan.fanId}
+                        className="rounded-full border border-emerald-500/60 bg-emerald-600/20 px-3 py-1 text-[11px] font-semibold text-emerald-100 hover:bg-emerald-600/30"
+                      >
+                        {noteSavingId === fan.fanId ? "Guardando..." : "Guardar"}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          cancelNote();
+                        }}
+                        className="rounded-full border border-slate-700/70 bg-slate-950/60 px-3 py-1 text-[11px] text-slate-300 hover:text-white"
+                      >
+                        Cancelar
+                      </button>
+                    </div>
+                  </div>
+                ) : noteValue.trim() ? (
+                  <div
+                    className="mt-2 rounded-lg border border-slate-800 bg-slate-950/60 px-3 py-2 text-[11px] text-slate-200"
+                    onClick={(event) => event.stopPropagation()}
+                  >
+                    {noteValue}
+                  </div>
+                ) : null}
+              </div>
+            );
+          })
+        )}
+      </div>
+    </div>
+  );
 
   const handlePrompt = (_tab: "strategy" | "content" | "growth", text: string) => {
     chatRef.current?.setDraft(text);
@@ -436,36 +942,52 @@ function ManagerChatLayout({
   return (
     <div className="flex flex-col flex-1 min-h-0 text-white">
       <div className="flex-1 min-h-0 px-0 md:px-4 md:pb-3">
-        <div className="max-w-6xl xl:max-w-7xl mx-auto h-full w-full flex flex-col gap-3 md:gap-4">
-          <div className="flex flex-wrap items-start justify-between gap-3 px-4 pt-3">
-            <div className="space-y-1">
-              <p className="text-[11px] uppercase tracking-wide text-slate-400">Panel del creador</p>
-              <h1 className="text-2xl font-semibold text-white">Manager IA</h1>
-              <p className="text-sm text-slate-400">Chat ancho con pulsos clave y catálogo sin columnas estrechas.</p>
+        <div className="h-full w-full flex flex-col gap-3 md:gap-4">
+          <div className="flex flex-wrap items-center justify-between gap-2 px-4 pt-1.5">
+            <div className="space-y-0">
+              <p className="text-[10px] uppercase tracking-wide text-slate-400">Cortex</p>
+              <h1 className="flex items-center gap-2 text-lg font-semibold text-white">
+                <svg
+                  viewBox="0 0 24 24"
+                  className="h-4 w-4 text-slate-400/70"
+                  aria-hidden="true"
+                >
+                  <circle cx="12" cy="12" r="8" fill="none" stroke="currentColor" strokeWidth="1.6" />
+                  <circle cx="12" cy="12" r="4" fill="none" stroke="currentColor" strokeWidth="1.6" />
+                  <circle cx="12" cy="12" r="1.5" fill="currentColor" />
+                </svg>
+                <span>Cortex</span>
+              </h1>
+              <p className="text-xs text-slate-400">Centro de mando del creador</p>
             </div>
             <div className="flex items-center gap-2 flex-wrap">
               {!soloChat && (
                 <button
                   type="button"
-                  className="rounded-full border border-slate-700 bg-slate-800/70 px-3 py-1.5 text-xs font-semibold text-slate-100 hover:border-emerald-500/60"
+                  className="h-8 rounded-full border border-slate-700/70 bg-slate-800/60 px-3 text-[11px] font-semibold text-slate-200 hover:border-emerald-500/60"
                   onClick={() => summaryRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })}
                 >
-                  Ir a tarjetas
+                  Ver panel
                 </button>
               )}
               <button
                 type="button"
-                className="rounded-full border border-emerald-500/60 bg-emerald-600/15 px-3 py-1.5 text-xs font-semibold text-emerald-100 hover:bg-emerald-600/25"
+                className={clsx(
+                  "h-8 rounded-full border px-3 text-[11px] font-semibold transition",
+                  soloChat
+                    ? "border-slate-700/70 bg-slate-900/60 text-slate-300 hover:text-slate-100"
+                    : "border-emerald-500/60 bg-emerald-600/15 text-emerald-100 hover:bg-emerald-600/25"
+                )}
                 onClick={() => setSoloChat((prev) => !prev)}
               >
-                {soloChat ? "Ver panel + tabs" : "Solo chat"}
+                {soloChat ? "Ver panel + tabs" : "Enfocar chat"}
               </button>
               <div className="relative" ref={headerMenuRef}>
                 <button
                   type="button"
                   aria-label="Opciones"
                   onClick={() => setHeaderMenuOpen((prev) => !prev)}
-                  className="inline-flex items-center justify-center rounded-full border border-slate-700 bg-slate-800/70 px-2.5 py-2 text-[11px] font-semibold text-slate-100 hover:border-emerald-500/60"
+                  className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-slate-700 bg-slate-800/70 text-[10px] font-semibold text-slate-100 hover:border-emerald-500/60"
                 >
                   ⋮
                 </button>
@@ -497,111 +1019,135 @@ function ManagerChatLayout({
             </div>
           </div>
 
-          {!soloChat && (
-            <div className="flex flex-col gap-3 px-4" ref={summaryRef}>
+          <div
+            className={clsx(
+              "flex flex-col gap-3 px-4 overflow-hidden transition-[max-height,opacity] duration-200",
+              soloChat ? "max-h-0 opacity-0 pointer-events-none" : "max-h-[1200px] opacity-100"
+            )}
+            ref={summaryRef}
+            aria-hidden={soloChat}
+          >
               <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
                 {statTiles.map((item) => (
-                  <div
+                  <button
                     key={item.id}
-                    className="rounded-2xl border border-slate-800 bg-slate-900/70 px-4 py-3 shadow-sm flex flex-col gap-1"
+                    type="button"
+                    onClick={() => setActiveFilter((prev) => (prev === item.id ? null : item.id))}
+                    className={clsx(
+                      "rounded-2xl border px-4 py-3 shadow-sm flex flex-col gap-1 text-left transition cursor-pointer",
+                      activeFilter === item.id
+                        ? "border-emerald-500/70 bg-emerald-500/10 ring-1 ring-emerald-500/30"
+                        : "border-slate-800 bg-slate-900/70 hover:border-emerald-500/40 hover:bg-slate-900/80"
+                    )}
+                    aria-pressed={activeFilter === item.id}
                   >
                     <div className="text-[11px] uppercase tracking-wide text-slate-400">{item.title}</div>
                     <div className="text-xl font-semibold text-white leading-tight">{item.value}</div>
                     <div className="text-xs text-slate-400">{item.helper}</div>
-                  </div>
+                  </button>
                 ))}
               </div>
 
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <div className="flex flex-wrap items-center gap-2">
-              {[
-                { id: "strategy", label: "Estrategia y números" },
-                { id: "content", label: "Contenido y catálogo" },
-                  ].map((tab) => (
+              <div className="rounded-2xl border border-slate-800 bg-slate-900/70 p-3 flex flex-col gap-3">
+                {activeFilter && (
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="rounded-full border border-emerald-500/50 bg-emerald-500/10 px-2 py-0.5 text-[10px] font-semibold text-emerald-100">
+                      Filtro: {filterLabels[activeFilter]}
+                    </span>
                     <button
-                      key={tab.id}
                       type="button"
-                      onClick={() => setActiveTab(tab.id as "strategy" | "content")}
-                      className={`rounded-full border px-3 py-1.5 text-xs font-semibold ${
-                        activeTab === tab.id
-                          ? "border-emerald-500/70 bg-emerald-600/20 text-emerald-100"
-                          : "border-slate-700 bg-slate-800/70 text-slate-200 hover:border-emerald-400/60 hover:text-emerald-100"
-                      }`}
+                      onClick={() => setActiveFilter(null)}
+                      className="inline-flex items-center gap-1 rounded-full border border-slate-700/70 bg-slate-950/60 px-2 py-0.5 text-[10px] text-slate-300 hover:text-slate-100"
                     >
-                      {tab.label}
+                      ✕
+                      Quitar
                     </button>
+                  </div>
+                )}
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div className="inline-flex flex-wrap items-center gap-2 rounded-full border border-slate-800 bg-slate-950/60 px-2 py-1">
+                    {[
+                      { id: "strategy", label: "Estrategia y números" },
+                      { id: "content", label: "Contenido y catálogo" },
+                    ].map((tab) => (
+                      <button
+                        key={tab.id}
+                        type="button"
+                        onClick={() => setActiveTab(tab.id as "strategy" | "content")}
+                        className={clsx(
+                          "rounded-full px-2.5 py-1 text-[11px] font-semibold transition",
+                          activeTab === tab.id
+                            ? "bg-emerald-600/20 text-emerald-100 ring-1 ring-emerald-500/40"
+                            : "text-slate-200 hover:text-emerald-100"
+                        )}
+                      >
+                        {tab.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                  {filterHighlights.map((item) => (
+                    <div
+                      key={item.title}
+                      className="rounded-xl border border-slate-800 bg-slate-900/70 px-4 py-3 shadow-sm"
+                    >
+                      <div className="text-[11px] uppercase tracking-wide text-slate-400">{item.title}</div>
+                      <div className="text-lg font-semibold text-white">{item.value}</div>
+                      <div className="text-xs text-slate-400">{item.helper}</div>
+                    </div>
                   ))}
                 </div>
-                <div className="flex items-center gap-2">
-                  <span className="text-xs text-slate-400">Modo amplio · sin columnas estrechas</span>
-                </div>
+
+                {activeTab === "content" && !soloChat && (
+                  <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-3">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <div>
+                        <p className="text-[10px] uppercase tracking-wide text-emerald-300/80">Discovery</p>
+                        <p className="text-xs text-slate-400">Ficha del asistente · resumen rápido.</p>
+                      </div>
+                      <Link href="/creator/bio-link/discovery" legacyBehavior>
+                        <a className="inline-flex items-center justify-center rounded-full border border-emerald-500/60 bg-emerald-600/15 px-3 py-1 text-xs font-semibold text-emerald-100 hover:bg-emerald-600/25">
+                          Editar ficha
+                        </a>
+                      </Link>
+                    </div>
+
+                    {discoveryError && <div className="mt-2 text-xs text-rose-300">{discoveryError}</div>}
+
+                    <div className="mt-2 grid grid-cols-2 md:grid-cols-4 gap-2">
+                      <div className="rounded-lg border border-slate-800 bg-slate-900/60 px-3 py-2">
+                        <div className="text-[10px] uppercase tracking-wide text-slate-400">Visibilidad</div>
+                        <div className="text-xs font-semibold text-white">
+                          {discoveryLoading ? "Cargando..." : discoverySummary.visibility}
+                        </div>
+                      </div>
+                      <div className="rounded-lg border border-slate-800 bg-slate-900/60 px-3 py-2">
+                        <div className="text-[10px] uppercase tracking-wide text-slate-400">Tags</div>
+                        <div className="text-xs text-slate-200">
+                          {discoveryLoading ? "Cargando..." : discoverySummary.tags}
+                        </div>
+                      </div>
+                      <div className="rounded-lg border border-slate-800 bg-slate-900/60 px-3 py-2">
+                        <div className="text-[10px] uppercase tracking-wide text-slate-400">Precio</div>
+                        <div className="text-xs text-slate-200">
+                          {discoveryLoading ? "Cargando..." : discoverySummary.priceRange}
+                        </div>
+                      </div>
+                      <div className="rounded-lg border border-slate-800 bg-slate-900/60 px-3 py-2">
+                        <div className="text-[10px] uppercase tracking-wide text-slate-400">Respuesta</div>
+                        <div className="text-xs text-slate-200">
+                          {discoveryLoading ? "Cargando..." : discoverySummary.response}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
               </div>
-
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                {tabHighlights.map((item) => (
-                  <div
-                    key={item.title}
-                    className="rounded-xl border border-slate-800 bg-slate-900/70 px-4 py-3 shadow-sm"
-                  >
-                    <div className="text-[11px] uppercase tracking-wide text-slate-400">{item.title}</div>
-                    <div className="text-lg font-semibold text-white">{item.value}</div>
-                    <div className="text-xs text-slate-400">{item.helper}</div>
-                  </div>
-                ))}
-              </div>
-
-              {activeTab === "content" && !soloChat && (
-                <div className="mt-4 space-y-4 rounded-2xl border border-slate-800 bg-slate-900/70 p-4">
-                  <div className="flex flex-wrap items-center justify-between gap-3">
-                    <div>
-                      <p className="text-[11px] uppercase tracking-wide text-emerald-300/80">Discovery</p>
-                      <h3 className="text-lg font-semibold text-white">Ficha para el asistente de fans</h3>
-                      <p className="text-sm text-slate-400">
-                        Resumen rapido de tu ficha. Edita los detalles desde Bio-link.
-                      </p>
-                    </div>
-                    <Link href="/creator/bio-link/discovery" legacyBehavior>
-                      <a className="inline-flex items-center justify-center rounded-lg bg-emerald-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-emerald-500">
-                        Editar ficha Discovery
-                      </a>
-                    </Link>
-                  </div>
-
-                  {discoveryError && <div className="text-sm text-rose-300">{discoveryError}</div>}
-
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                    <div className="rounded-xl border border-slate-800 bg-slate-950/60 px-4 py-3">
-                      <div className="text-[11px] uppercase tracking-wide text-slate-400">Visibilidad</div>
-                      <div className="text-sm font-semibold text-white">
-                        {discoveryLoading ? "Cargando..." : discoverySummary.visibility}
-                      </div>
-                    </div>
-                    <div className="rounded-xl border border-slate-800 bg-slate-950/60 px-4 py-3">
-                      <div className="text-[11px] uppercase tracking-wide text-slate-400">Tags</div>
-                      <div className="text-sm text-slate-200">
-                        {discoveryLoading ? "Cargando..." : discoverySummary.tags}
-                      </div>
-                    </div>
-                    <div className="rounded-xl border border-slate-800 bg-slate-950/60 px-4 py-3">
-                      <div className="text-[11px] uppercase tracking-wide text-slate-400">Precio</div>
-                      <div className="text-sm text-slate-200">
-                        {discoveryLoading ? "Cargando..." : discoverySummary.priceRange}
-                      </div>
-                    </div>
-                    <div className="rounded-xl border border-slate-800 bg-slate-950/60 px-4 py-3">
-                      <div className="text-[11px] uppercase tracking-wide text-slate-400">Tiempo de respuesta</div>
-                      <div className="text-sm text-slate-200">
-                        {discoveryLoading ? "Cargando..." : discoverySummary.response}
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              )}
             </div>
-          )}
 
           <div className="flex-1 min-h-[560px] px-0 md:px-4 pb-3">
-            <div className="h-full rounded-2xl border border-slate-800 bg-slate-900/60 shadow-xl">
+            <div className="relative h-full rounded-2xl border border-slate-800 bg-slate-900/60 shadow-xl overflow-hidden">
               <ManagerChatCard
                 ref={chatRef}
                 variant="chat"
@@ -610,25 +1156,32 @@ function ManagerChatLayout({
                 onBackToBoard={onBackToBoard}
                 suggestions={quickActions}
                 avatarUrl={avatarUrl || undefined}
-                title="Manager IA"
-                statusText="Panel e insights en tiempo real"
+                title="Cortex"
+                statusText="Chat primero · control total"
                 contextContent={
                   <div className="flex flex-wrap items-center justify-between gap-3">
                     <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 flex-1 min-w-[220px]">
-                      {statusStats.map((item) => (
-                        <div
-                          key={item.id}
-                          className="flex items-center justify-between rounded-full border border-slate-800 bg-slate-900/70 px-3 py-1.5 text-xs text-slate-200"
-                        >
-                          <span className="text-[11px] uppercase tracking-wide text-slate-400">{item.label}</span>
-                          <span className="font-semibold text-slate-100">{formatNumber(item.value)}</span>
-                        </div>
+                        {statusStats.map((item) => (
+                      <button
+                        key={item.id}
+                        type="button"
+                        onClick={() => setActiveFilter((prev) => (prev === item.id ? null : (item.id as SummaryFilter)))}
+                        className={clsx(
+                          "flex h-7 items-center justify-between rounded-full border px-2 text-[11px] transition",
+                          activeFilter === item.id
+                            ? "border-emerald-500/70 bg-emerald-500/10 text-emerald-100 ring-1 ring-emerald-500/40"
+                            : "border-slate-800 bg-slate-900/70 text-slate-200 hover:border-emerald-500/40"
+                        )}
+                      >
+                        <span className="text-[10px] uppercase tracking-wide text-slate-400">{item.label}</span>
+                        <span className="font-semibold text-slate-100">{formatNumber(item.value)}</span>
+                      </button>
                       ))}
                     </div>
                     <button
                       type="button"
-                      onClick={() => onOpenInsights("sales")}
-                      className="inline-flex items-center rounded-full border border-slate-700 bg-slate-800/70 px-3 py-1.5 text-xs font-semibold text-slate-100 hover:border-emerald-500/60"
+                      onClick={() => setFanPanelOpen(true)}
+                      className="inline-flex h-8 items-center rounded-full border border-slate-700 bg-slate-800/70 px-3 text-xs font-semibold text-slate-100 hover:border-emerald-500/60"
                     >
                       Ver más
                     </button>
@@ -637,10 +1190,31 @@ function ManagerChatLayout({
                 scope="global"
                 platforms={platforms}
               />
+              {fanPanelOpen && (
+                <div className="absolute inset-0 z-20 hidden lg:flex">
+                  <div
+                    className="absolute inset-0 bg-black/50 backdrop-blur-sm"
+                    onClick={() => setFanPanelOpen(false)}
+                  />
+                  <div className="relative ml-auto h-full w-full max-w-[380px] border-l border-slate-700/80 bg-slate-950/95 shadow-2xl">
+                    {fanPanelContent}
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         </div>
       </div>
+      {fanPanelOpen && (
+        <div className="fixed inset-0 z-50 flex items-end justify-center lg:hidden">
+          <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => setFanPanelOpen(false)} />
+          <div className="relative w-full max-w-3xl">
+            <div className="rounded-t-3xl border border-slate-800 bg-slate-950 shadow-2xl max-h-[85dvh] overflow-hidden">
+              {fanPanelContent}
+            </div>
+          </div>
+        </div>
+      )}
       <ManagerInsightsPanel
         open={insightsOpen}
         onClose={onCloseInsights}

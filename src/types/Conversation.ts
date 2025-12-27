@@ -49,6 +49,7 @@ interface Conversation {
   lastCreatorMessageAt?: string | null;
   notesCount?: number;
   profileText?: string | null;
+  quickNote?: string | null;
   followUpOpen?: FanFollowUp | null;
   urgencyLevel?: UrgencyLevel;
   paidGrantsCount?: number;
@@ -128,6 +129,7 @@ interface ConversationListData {
   lastCreatorMessageAt?: string | null;
   notesCount?: number;
   profileText?: string | null;
+  quickNote?: string | null;
   followUpOpen?: FanFollowUp | null;
   urgencyLevel?: UrgencyLevel;
   paidGrantsCount?: number;

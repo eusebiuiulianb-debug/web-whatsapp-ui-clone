@@ -1,9 +1,12 @@
 import { forwardRef, ReactNode, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import clsx from "clsx";
 import Link from "next/link";
 import type { CreatorBusinessSnapshot } from "../../lib/creatorManager";
+import { readEmojiRecents, recordEmojiRecent } from "../../lib/emoji/recents";
 import MessageBalloon from "../MessageBalloon";
 import { ChatComposerBar } from "../ChatComposerBar";
+import { EmojiPicker } from "../EmojiPicker";
 import { PillButton } from "../ui/PillButton";
 import {
   CreatorPlatformKey,
@@ -40,6 +43,113 @@ const defaultSuggestions = [
   "Dame una acción concreta para aumentar ingresos hoy.",
 ];
 const MAX_MAIN_COMPOSER_HEIGHT = 140;
+const FAVORITES_KEY_PREFIX = "cortex_quick_prompts_pinned:v1";
+const LEGACY_FAVORITES_KEY = "cortex_quick_prompts_pinned";
+const MAX_VISIBLE_CHIPS = 4;
+const CHIP_GAP = 8;
+
+type CortexTab = "hoy" | "ventas" | "catalogo" | "crecimiento";
+
+const CORTEX_TAB_LABELS: Record<CortexTab, string> = {
+  hoy: "Hoy",
+  ventas: "Ventas",
+  catalogo: "Catálogo",
+  crecimiento: "Crecimiento",
+};
+
+const GROWTH_PROMPT_IDS = [
+  "ideas_plataforma",
+  "calendario_7",
+  "publicar_hoy",
+  "hooks_guiones",
+  "plan_14d",
+];
+
+const DEFAULT_PINNED_BY_TAB: Record<CortexTab, string[]> = {
+  hoy: ["priorizo_hoy", "diagnostico_3", "acciones_rapidas", "plan_7", "rescatar"],
+  ventas: ["empuje_mensual", "oferta_dia", "ctas_listos", "optimizar_precios", "vender_vip"],
+  catalogo: ["falta_grabar", "extras_nuevos", "mejorar_packs", "bundles", "copy_catalogo"],
+  crecimiento: GROWTH_PROMPT_IDS,
+};
+
+const PROMPT_LABEL_TO_ID_BY_TAB: Record<Exclude<CortexTab, "crecimiento">, Record<string, string>> = {
+  hoy: {
+    "¿Qué priorizo hoy?": "priorizo_hoy",
+    "Diagnóstico 3 bullets": "diagnostico_3",
+    "3 acciones rápidas": "acciones_rapidas",
+    "Plan 7 días": "plan_7",
+    "Rescatar caducan pronto": "rescatar",
+  },
+  ventas: {
+    "Empuje a mensual (hoy)": "empuje_mensual",
+    "Oferta del día": "oferta_dia",
+    "3 CTAs listos": "ctas_listos",
+    "Optimizar precios": "optimizar_precios",
+    "Qué vender a VIP": "vender_vip",
+  },
+  catalogo: {
+    "Qué falta grabar": "falta_grabar",
+    "5 extras nuevos": "extras_nuevos",
+    "Mejorar packs": "mejorar_packs",
+    Bundles: "bundles",
+    "Copy de catálogo": "copy_catalogo",
+  },
+};
+
+const GROWTH_PROMPT_MATCHERS: Array<{ id: string; match: (label: string) => boolean }> = [
+  { id: "ideas_plataforma", match: (label) => label.toLowerCase().startsWith("3 ideas") },
+  { id: "calendario_7", match: (label) => label.toLowerCase().startsWith("calendario 7") },
+  { id: "publicar_hoy", match: (label) => label.toLowerCase().startsWith("qué publicar hoy") },
+  { id: "hooks_guiones", match: (label) => label.toLowerCase().startsWith("hooks") },
+  {
+    id: "plan_14d",
+    match: (label) =>
+      label.toLowerCase().startsWith("plan crecimiento 14") ||
+      label.toLowerCase().startsWith("plan de crecimiento"),
+  },
+];
+
+function toCortexTab(mode: GlobalMode): CortexTab {
+  if (mode === "VENTAS") return "ventas";
+  if (mode === "CATALOGO") return "catalogo";
+  if (mode === "CRECIMIENTO") return "crecimiento";
+  return "hoy";
+}
+
+function normalizePromptId(value: string) {
+  return value
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "");
+}
+
+function resolvePromptId(tab: CortexTab, label: string) {
+  if (tab === "crecimiento") {
+    const match = GROWTH_PROMPT_MATCHERS.find((item) => item.match(label));
+    if (match) return match.id;
+    return normalizePromptId(label);
+  }
+  const mapped = PROMPT_LABEL_TO_ID_BY_TAB[tab]?.[label];
+  return mapped ?? normalizePromptId(label);
+}
+
+function normalizePinnedIds(tab: CortexTab, values: unknown) {
+  if (!Array.isArray(values)) return [];
+  const knownIds = new Set([
+    ...DEFAULT_PINNED_BY_TAB[tab],
+    ...(tab === "crecimiento" ? GROWTH_PROMPT_IDS : Object.values(PROMPT_LABEL_TO_ID_BY_TAB[tab] ?? {})),
+  ]);
+  const next = values
+    .map((item) => {
+      if (typeof item !== "string") return null;
+      const resolved = knownIds.has(item) ? item : resolvePromptId(tab, item);
+      return knownIds.has(resolved) ? resolved : null;
+    })
+    .filter((item): item is string => Boolean(item));
+  return Array.from(new Set(next));
+}
 
 type GlobalMode = "HOY" | "VENTAS" | "CATALOGO" | "CRECIMIENTO";
 
@@ -91,10 +201,30 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
   const [settingsStatus, setSettingsStatus] = useState<"ok" | "settings_missing" | null>(null);
   const [globalMode, setGlobalMode] = useState<GlobalMode>("HOY");
   const [growthPlatform, setGrowthPlatform] = useState<CreatorPlatformKey>("tiktok");
+  const [isEmojiOpen, setIsEmojiOpen] = useState(false);
+  const [emojiRecents, setEmojiRecents] = useState<string[]>([]);
+  const [isFavoritesEditorOpen, setIsFavoritesEditorOpen] = useState(false);
+  const [overflowOpen, setOverflowOpen] = useState(false);
+  const [pinnedPromptIds, setPinnedPromptIds] = useState<string[]>(() => DEFAULT_PINNED_BY_TAB.hoy);
+  const [didLoadPinned, setDidLoadPinned] = useState(false);
+  const [hasUsedQuickAccess, setHasUsedQuickAccess] = useState(false);
+  const [actionsWidth, setActionsWidth] = useState(0);
+  const [visibleCount, setVisibleCount] = useState(MAX_VISIBLE_CHIPS);
   const listRef = useRef<HTMLDivElement | null>(null);
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
+  const emojiButtonRef = useRef<HTMLButtonElement | null>(null);
+  const favoritesModalRef = useRef<HTMLDivElement | null>(null);
+  const favoritesSheetRef = useRef<HTMLDivElement | null>(null);
+  const quickAccessActionsRef = useRef<HTMLDivElement | null>(null);
+  const quickAccessScrollerRef = useRef<HTMLDivElement | null>(null);
+  const quickAccessMeasureRef = useRef<HTMLDivElement | null>(null);
+  const overflowModalRef = useRef<HTMLDivElement | null>(null);
+  const overflowSheetRef = useRef<HTMLDivElement | null>(null);
   const [snapshot, setSnapshot] = useState<CreatorBusinessSnapshot | null>(businessSnapshot ?? null);
   const isDemo = !process.env.NEXT_PUBLIC_OPENAI_API_KEY;
+  const activeTabKey = useMemo(() => (scope === "global" ? toCortexTab(globalMode) : "hoy"), [globalMode, scope]);
+  const favoritesStorageKey = useMemo(() => `${FAVORITES_KEY_PREFIX}:${activeTabKey}`, [activeTabKey]);
+  const scrollerPaddingRight = Math.max(actionsWidth + 12, 64);
   const resizeComposer = useCallback((el: HTMLTextAreaElement | null) => {
     if (!el) return;
     el.style.height = "auto";
@@ -120,6 +250,138 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
   useEffect(() => {
     resizeComposer(inputRef.current);
   }, [input, resizeComposer]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    setDidLoadPinned(false);
+    const raw = window.localStorage.getItem(favoritesStorageKey);
+    if (raw) {
+      try {
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed) && parsed.length === 0) {
+          setPinnedPromptIds([]);
+        } else {
+          const normalized = normalizePinnedIds(activeTabKey, parsed);
+          const next = normalized.length > 0 ? normalized : DEFAULT_PINNED_BY_TAB[activeTabKey];
+          setPinnedPromptIds(next);
+        }
+      } catch {
+        setPinnedPromptIds(DEFAULT_PINNED_BY_TAB[activeTabKey]);
+      }
+      setDidLoadPinned(true);
+      return;
+    }
+
+    let legacyValues: unknown = null;
+    const legacyRaw = window.localStorage.getItem(LEGACY_FAVORITES_KEY);
+    if (legacyRaw) {
+      try {
+        const parsed = JSON.parse(legacyRaw) as Record<string, unknown> | unknown[];
+        if (Array.isArray(parsed)) {
+          legacyValues = parsed;
+        } else if (parsed && typeof parsed === "object") {
+          const record = parsed as Record<string, unknown>;
+          if (Array.isArray(record.global)) {
+            legacyValues = record.global;
+          } else if (Array.isArray(record[activeTabKey])) {
+            legacyValues = record[activeTabKey];
+          }
+        }
+      } catch {
+        legacyValues = null;
+      }
+    }
+
+    if (Array.isArray(legacyValues) && legacyValues.length === 0) {
+      setPinnedPromptIds([]);
+      window.localStorage.setItem(favoritesStorageKey, JSON.stringify([]));
+      if (legacyRaw) {
+        window.localStorage.removeItem(LEGACY_FAVORITES_KEY);
+      }
+      setDidLoadPinned(true);
+      return;
+    }
+
+    const normalizedLegacy = normalizePinnedIds(activeTabKey, legacyValues);
+    const next = normalizedLegacy.length > 0 ? normalizedLegacy : DEFAULT_PINNED_BY_TAB[activeTabKey];
+    setPinnedPromptIds(next);
+    window.localStorage.setItem(favoritesStorageKey, JSON.stringify(next));
+    if (legacyRaw) {
+      window.localStorage.removeItem(LEGACY_FAVORITES_KEY);
+    }
+    setDidLoadPinned(true);
+  }, [activeTabKey, favoritesStorageKey]);
+
+  useEffect(() => {
+    if (!didLoadPinned || typeof window === "undefined") return;
+    window.localStorage.setItem(favoritesStorageKey, JSON.stringify(pinnedPromptIds));
+  }, [didLoadPinned, favoritesStorageKey, pinnedPromptIds]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    setHasUsedQuickAccess(window.localStorage.getItem("cortex_used_quick_access") === "true");
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const node = quickAccessActionsRef.current;
+    if (!node) return;
+    const updateWidth = () => setActionsWidth(node.offsetWidth);
+    updateWidth();
+    if (typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(() => updateWidth());
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [activeTabKey, pinnedPromptIds.length]);
+
+  useEffect(() => {
+    if (!isEmojiOpen) return;
+    setEmojiRecents(readEmojiRecents());
+  }, [isEmojiOpen]);
+
+  useEffect(() => {
+    if (!isFavoritesEditorOpen) return;
+    const handlePointerDown = (event: PointerEvent) => {
+      const target = event.target as Node | null;
+      if (!target) return;
+      if (favoritesModalRef.current?.contains(target)) return;
+      if (favoritesSheetRef.current?.contains(target)) return;
+      setIsFavoritesEditorOpen(false);
+    };
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setIsFavoritesEditorOpen(false);
+      }
+    };
+    document.addEventListener("pointerdown", handlePointerDown);
+    document.addEventListener("keydown", handleKeyDown);
+    return () => {
+      document.removeEventListener("pointerdown", handlePointerDown);
+      document.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [isFavoritesEditorOpen]);
+
+  useEffect(() => {
+    if (!overflowOpen) return;
+    const handlePointerDown = (event: PointerEvent) => {
+      const target = event.target as Node | null;
+      if (!target) return;
+      if (overflowModalRef.current?.contains(target)) return;
+      if (overflowSheetRef.current?.contains(target)) return;
+      setOverflowOpen(false);
+    };
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setOverflowOpen(false);
+      }
+    };
+    document.addEventListener("pointerdown", handlePointerDown);
+    document.addEventListener("keydown", handleKeyDown);
+    return () => {
+      document.removeEventListener("pointerdown", handlePointerDown);
+      document.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [overflowOpen]);
 
   async function loadMessages(opts?: { silent?: boolean }) {
     try {
@@ -373,6 +635,74 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
       : suggestions && suggestions.length > 0
       ? suggestions
       : defaultSuggestions;
+  const availablePrompts = quickSuggestions;
+  const promptCatalog = useMemo(
+    () =>
+      availablePrompts.map((label) => ({
+        id: resolvePromptId(activeTabKey, label),
+        label,
+      })),
+    [availablePrompts, activeTabKey]
+  );
+  const promptLabelById = useMemo(() => {
+    const map = new Map<string, string>();
+    promptCatalog.forEach((item) => {
+      map.set(item.id, item.label);
+    });
+    return map;
+  }, [promptCatalog]);
+  const resolvedPinnedIds = useMemo(
+    () => pinnedPromptIds.filter((id) => promptLabelById.has(id)),
+    [pinnedPromptIds, promptLabelById]
+  );
+  const visiblePrompts = useMemo(
+    () => resolvedPinnedIds
+      .map((id) => promptLabelById.get(id))
+      .filter((label): label is string => Boolean(label)),
+    [resolvedPinnedIds, promptLabelById]
+  );
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const scroller = quickAccessScrollerRef.current;
+    const measurer = quickAccessMeasureRef.current;
+    if (!scroller || !measurer) return;
+
+    const measure = () => {
+      const available = scroller.clientWidth - scrollerPaddingRight;
+      if (available <= 0) {
+        setVisibleCount(0);
+        return;
+      }
+      const items = Array.from(measurer.querySelectorAll("[data-measure-chip]")) as HTMLElement[];
+      if (items.length === 0) {
+        setVisibleCount(0);
+        return;
+      }
+      let total = 0;
+      let count = 0;
+      for (const item of items) {
+        const width = item.offsetWidth;
+        const nextTotal = count === 0 ? width : total + CHIP_GAP + width;
+        if (nextTotal > available) break;
+        total = nextTotal;
+        count += 1;
+      }
+      const nextCount = Math.min(count, MAX_VISIBLE_CHIPS);
+      setVisibleCount((prev) => (prev === nextCount ? prev : nextCount));
+    };
+
+    const raf = window.requestAnimationFrame(measure);
+    if (typeof ResizeObserver === "undefined") {
+      return () => window.cancelAnimationFrame(raf);
+    }
+    const observer = new ResizeObserver(() => measure());
+    observer.observe(scroller);
+    return () => {
+      window.cancelAnimationFrame(raf);
+      observer.disconnect();
+    };
+  }, [resolvedPinnedIds, scrollerPaddingRight, visiblePrompts]);
 
   const chipRowClass = clsx("flex flex-wrap items-center gap-2 pb-1", scope === "fan" ? "px-3 py-2" : "");
   const modeRowClass =
@@ -394,9 +724,318 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
       void handleSend();
     }
   };
+  const handleInsertEmoji = useCallback(
+    (emoji: string) => {
+      const inputEl = inputRef.current;
+      if (!inputEl) {
+        setInput((prev) => `${prev}${emoji}`);
+        return;
+      }
+      const start = inputEl.selectionStart ?? inputEl.value.length;
+      const end = inputEl.selectionEnd ?? inputEl.value.length;
+      const nextValue = `${inputEl.value.slice(0, start)}${emoji}${inputEl.value.slice(end)}`;
+      setInput(nextValue);
+      requestAnimationFrame(() => {
+        inputEl.focus();
+        const cursor = start + emoji.length;
+        inputEl.setSelectionRange(cursor, cursor);
+        resizeComposer(inputEl);
+      });
+    },
+    [resizeComposer]
+  );
+  const handleEmojiSelect = useCallback(
+    (emoji: string) => {
+      handleInsertEmoji(emoji);
+      setEmojiRecents((prev) => recordEmojiRecent(emoji, prev));
+    },
+    [handleInsertEmoji]
+  );
+  const handleRecentEmojiInsert = (emoji: string) => {
+    handleEmojiSelect(emoji);
+    setIsEmojiOpen(false);
+  };
+  const handleEmojiToggle = () => {
+    setIsEmojiOpen((prev) => !prev);
+  };
+  const handleEmojiPointerDown = (event: React.PointerEvent<HTMLButtonElement>) => {
+    event.preventDefault();
+  };
+  const markQuickAccessUsed = useCallback(() => {
+    if (hasUsedQuickAccess || typeof window === "undefined") return;
+    window.localStorage.setItem("cortex_used_quick_access", "true");
+    setHasUsedQuickAccess(true);
+  }, [hasUsedQuickAccess]);
+  const handleFavoritesEditorClose = () => {
+    setIsFavoritesEditorOpen(false);
+  };
+  const togglePinnedPrompt = (id: string) => {
+    setPinnedPromptIds((prev) => {
+      const isPinned = prev.includes(id);
+      return isPinned ? prev.filter((item) => item !== id) : [ ...prev, id ];
+    });
+  };
 
   if (variant === "chat") {
     const headerLabel = title || "Manager IA";
+    const tabLabel = scope === "global" ? CORTEX_TAB_LABELS[activeTabKey] : "Cortex";
+    const quickAccessLabel = scope === "global" ? `Atajos · ${tabLabel}` : "Atajos";
+    const editorTitle = scope === "global" ? `Editar atajos · ${tabLabel}` : "Editar atajos";
+    const editorList = promptCatalog;
+    const visibleCountCapped = Math.min(visibleCount, MAX_VISIBLE_CHIPS, visiblePrompts.length);
+    const visibleChipLabels = visiblePrompts.slice(0, visibleCountCapped);
+    const overflowChipLabels = visiblePrompts.slice(visibleCountCapped);
+    const overflowCount = overflowChipLabels.length;
+    const emojiPickerTopContent = emojiRecents.length ? (
+      <div className="mb-2 flex flex-wrap items-center gap-1 rounded-xl border border-slate-800/70 bg-slate-900/60 px-2 py-1">
+        <span className="text-[10px] uppercase tracking-wide text-slate-400">Recientes</span>
+        {emojiRecents.map((emoji, idx) => (
+          <button
+            key={`${emoji}-${idx}`}
+            type="button"
+            onClick={() => handleRecentEmojiInsert(emoji)}
+            className="flex h-7 w-7 items-center justify-center rounded-full border border-slate-700/70 bg-slate-900/70 text-sm text-slate-100 hover:bg-slate-800/80"
+            aria-label={`Emoji reciente ${emoji}`}
+          >
+            {emoji}
+          </button>
+        ))}
+      </div>
+    ) : null;
+    const editorListContent = (
+      <div className="mt-4 space-y-2 max-h-none sm:max-h-[60vh] overflow-y-auto pr-1">
+        {editorList.length === 0 && (
+          <div className="text-[12px] text-slate-400">No hay prompts disponibles.</div>
+        )}
+        {editorList.map((item) => {
+          const isPinned = pinnedPromptIds.includes(item.id);
+          return (
+            <div
+              key={item.id}
+              className="flex items-center justify-between gap-3 rounded-xl border border-slate-800/70 bg-slate-900/50 px-3 py-2"
+            >
+              <span className="text-[13px] text-slate-100">{item.label}</span>
+              <button
+                type="button"
+                onClick={() => togglePinnedPrompt(item.id)}
+                className={clsx(
+                  "rounded-full px-3 py-1 text-[11px] font-semibold transition",
+                  isPinned
+                    ? "bg-emerald-500/20 text-emerald-100 hover:bg-emerald-500/30"
+                    : "bg-slate-800/70 text-slate-200 hover:bg-slate-800"
+                )}
+              >
+                {isPinned ? "Ocultar" : "Mostrar"}
+              </button>
+            </div>
+          );
+        })}
+      </div>
+    );
+    const editorFooter = (
+      <div className="mt-4 flex items-center justify-between gap-2">
+        <button
+          type="button"
+          onClick={() => setPinnedPromptIds(DEFAULT_PINNED_BY_TAB[activeTabKey])}
+          className="rounded-full border border-slate-700/70 bg-slate-900/60 px-3 py-1.5 text-[11px] font-semibold text-slate-200 hover:bg-slate-800/80"
+        >
+          Recomendados
+        </button>
+        <button
+          type="button"
+          onClick={handleFavoritesEditorClose}
+          className="h-9 px-4 rounded-full text-sm font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 bg-emerald-600 text-white hover:bg-emerald-500 focus-visible:ring-emerald-400/40"
+        >
+          Listo
+        </button>
+      </div>
+    );
+    const overflowPanel =
+      overflowOpen && typeof document !== "undefined"
+        ? createPortal(
+            <>
+              <div className="hidden sm:flex fixed inset-0 z-[9999] items-center justify-center bg-black/60 px-4 py-6">
+                <div
+                  ref={overflowModalRef}
+                  className="w-full max-w-md rounded-2xl border border-slate-800/80 bg-slate-950/95 p-4 shadow-2xl"
+                  role="dialog"
+                  aria-modal="true"
+                  aria-label="Atajos ocultos"
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <h3 className="text-sm font-semibold text-slate-100">Atajos · {tabLabel}</h3>
+                      <p className="text-[11px] text-slate-400">
+                        Toca uno para insertarlo. No cambia tus atajos.
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setOverflowOpen(false)}
+                      className="text-[12px] font-semibold text-slate-300 hover:text-slate-100"
+                    >
+                      Cerrar
+                    </button>
+                  </div>
+                  <div className="mt-4 space-y-2 max-h-[50vh] overflow-y-auto pr-1">
+                    {overflowChipLabels.length === 0 && (
+                      <div className="text-[12px] text-slate-400">No hay atajos ocultos.</div>
+                    )}
+                    {overflowChipLabels.map((label) => (
+                      <button
+                        key={label}
+                        type="button"
+                        onClick={() => {
+                          markQuickAccessUsed();
+                          applyPrompt(scope === "global" ? getGlobalPrompt(label) : label, false);
+                          setOverflowOpen(false);
+                        }}
+                        className="w-full text-left rounded-xl border border-slate-800/70 bg-slate-900/50 px-3 py-2 text-[13px] text-slate-100 hover:bg-slate-800/70"
+                      >
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+                  <div className="mt-4 flex items-center justify-end gap-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setOverflowOpen(false);
+                        setIsEmojiOpen(false);
+                        setIsFavoritesEditorOpen(true);
+                      }}
+                      className="rounded-full border border-slate-700/70 bg-slate-900/60 px-3 py-1.5 text-[11px] font-semibold text-slate-200 hover:bg-slate-800/80"
+                    >
+                      Editar atajos
+                    </button>
+                  </div>
+                </div>
+              </div>
+              <div className="sm:hidden fixed inset-0 z-[9999] flex items-end justify-center bg-black/60">
+                <div
+                  ref={overflowSheetRef}
+                  className="w-full max-w-lg rounded-t-2xl border border-slate-800/80 bg-slate-950/95 p-4 shadow-2xl max-h-[80vh] overflow-y-auto"
+                  role="dialog"
+                  aria-modal="true"
+                  aria-label="Atajos ocultos"
+                >
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <h3 className="text-sm font-semibold text-slate-100">Atajos · {tabLabel}</h3>
+                      <p className="text-[11px] text-slate-400">
+                        Toca uno para insertarlo. No cambia tus atajos.
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setOverflowOpen(false)}
+                      className="text-[12px] font-semibold text-slate-300 hover:text-slate-100"
+                    >
+                      Cerrar
+                    </button>
+                  </div>
+                  <div className="mt-4 space-y-2">
+                    {overflowChipLabels.length === 0 && (
+                      <div className="text-[12px] text-slate-400">No hay atajos ocultos.</div>
+                    )}
+                    {overflowChipLabels.map((label) => (
+                      <button
+                        key={label}
+                        type="button"
+                        onClick={() => {
+                          markQuickAccessUsed();
+                          applyPrompt(scope === "global" ? getGlobalPrompt(label) : label, false);
+                          setOverflowOpen(false);
+                        }}
+                        className="w-full text-left rounded-xl border border-slate-800/70 bg-slate-900/50 px-3 py-2 text-[13px] text-slate-100 hover:bg-slate-800/70"
+                      >
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+                  <div className="mt-4 flex items-center justify-end gap-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setOverflowOpen(false);
+                        setIsEmojiOpen(false);
+                        setIsFavoritesEditorOpen(true);
+                      }}
+                      className="rounded-full border border-slate-700/70 bg-slate-900/60 px-3 py-1.5 text-[11px] font-semibold text-slate-200 hover:bg-slate-800/80"
+                    >
+                      Editar atajos
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </>,
+            document.body
+          )
+        : null;
+    const favoritesEditor =
+      isFavoritesEditorOpen && typeof document !== "undefined"
+        ? createPortal(
+            <>
+              <div className="hidden sm:flex fixed inset-0 z-[9999] items-center justify-center bg-black/60 px-4 py-6">
+                <div
+                  ref={favoritesModalRef}
+                  className="w-full max-w-lg rounded-2xl border border-slate-800/80 bg-slate-950/95 p-4 shadow-2xl"
+                  role="dialog"
+                  aria-modal="true"
+                  aria-label="Editar favoritos"
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <h3 className="text-sm font-semibold text-slate-100">{editorTitle}</h3>
+                      <p className="text-[11px] text-slate-400">
+                        Elige qué botones aparecen abajo.{" "}
+                        <span className="text-slate-500">(máx recomendado 6)</span>
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={handleFavoritesEditorClose}
+                      className="text-[12px] font-semibold text-slate-300 hover:text-slate-100"
+                    >
+                      Cerrar
+                    </button>
+                  </div>
+                  {editorListContent}
+                  {editorFooter}
+                </div>
+              </div>
+              <div className="sm:hidden fixed inset-0 z-[9999] flex items-end justify-center bg-black/60">
+                <div
+                  ref={favoritesSheetRef}
+                  className="w-full max-w-lg rounded-t-2xl border border-slate-800/80 bg-slate-950/95 p-4 shadow-2xl max-h-[80vh] overflow-y-auto"
+                  role="dialog"
+                  aria-modal="true"
+                  aria-label="Editar favoritos"
+                >
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <h3 className="text-sm font-semibold text-slate-100">{editorTitle}</h3>
+                      <p className="text-[11px] text-slate-400">
+                        Elige qué botones aparecen abajo.{" "}
+                        <span className="text-slate-500">(máx recomendado 6)</span>
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={handleFavoritesEditorClose}
+                      className="text-[12px] font-semibold text-slate-300 hover:text-slate-100"
+                    >
+                      Cerrar
+                    </button>
+                  </div>
+                  {editorListContent}
+                  {editorFooter}
+                </div>
+              </div>
+            </>,
+            document.body
+          )
+        : null;
     const desktopHeaderClass = clsx(
       "hidden md:flex items-center gap-3 bg-slate-950/70 border-b border-slate-800 px-4 md:px-6",
       hideTitle ? "py-2 justify-end" : "py-3 md:py-4 justify-between"
@@ -460,7 +1099,7 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
               {!loading && !error && messages.length === 0 && (
                 <MessageBalloon
                   me={false}
-                  message="Hola, soy tu Manager IA. Pregúntame qué priorizar, pídeme diagnóstico o un plan de 7 días y te ayudo."
+                  message="Hola, soy tu Manager IA en Cortex. Pregúntame qué priorizar, pídeme diagnóstico o un plan de 7 días y te ayudo."
                   time={new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
                   fromLabel="Manager IA"
                   meLabel="Tú"
@@ -488,117 +1127,239 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
             </div>
           )}
           <div className="sticky bottom-0 z-20 border-t border-slate-800/60 bg-gradient-to-b from-slate-950/90 via-slate-950/80 to-slate-950/70 backdrop-blur-xl">
-            <div className="px-4 sm:px-6 lg:px-8 py-3 space-y-3">
-              {scope === "global" ? (
-                <>
-                  <div className={modeRowClass}>
-                    {globalModes.map((mode) => {
-                      const isActive = globalMode === mode;
-                      return (
-                        <PillButton
-                          key={mode}
-                          intent={isActive ? "primary" : "ghost"}
-                          size="sm"
-                          className="shrink-0"
-                          onClick={() => setGlobalMode(mode)}
-                        >
-                          {mode === "HOY"
-                            ? "Hoy"
-                            : mode === "VENTAS"
-                            ? "Ventas"
-                            : mode === "CATALOGO"
-                            ? "Catálogo"
-                            : "Crecimiento"}
-                        </PillButton>
-                      );
-                    })}
-                  </div>
-                  {globalMode === "CRECIMIENTO" && (
-                    <div className="flex flex-wrap items-center gap-2 px-1">
-                      <span className="text-[11px] uppercase tracking-wide text-slate-400">Plataforma foco</span>
-                      {(enabledPlatforms.length > 1 ? enabledPlatforms : enabledPlatforms.length === 1 ? enabledPlatforms : [activeGrowthPlatform]).map(
-                        (platform) => (
-                          <PillButton
-                            key={platform}
-                            intent={platform === activeGrowthPlatform ? "primary" : "ghost"}
-                            size="sm"
-                            onClick={() => setGrowthPlatform(platform)}
-                          >
-                            {formatPlatformLabel(platform)}
-                          </PillButton>
-                        )
+            <div className="px-4 sm:px-6 lg:px-8 py-3">
+              <div
+                className={clsx(
+                  "mt-1.5 flex flex-col gap-2 rounded-2xl border px-3 py-2.5 transition backdrop-blur",
+                  "shadow-[0_-12px_22px_-16px_rgba(0,0,0,0.55)]",
+                  "bg-gradient-to-r from-slate-900/55 via-slate-900/75 to-slate-900/55 border-slate-700/70",
+                  "focus-within:border-emerald-400/70 focus-within:ring-1 focus-within:ring-emerald-400/25"
+                )}
+              >
+                <div className="flex flex-col gap-2 px-1 pt-1">
+                  {scope === "global" && (
+                    <div className="flex flex-col gap-2">
+                      <div className="flex flex-nowrap items-center gap-2 overflow-x-auto overscroll-x-contain [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+                        {globalModes.map((mode) => {
+                          const isActive = globalMode === mode;
+                          return (
+                            <PillButton
+                              key={mode}
+                              intent={isActive ? "primary" : "ghost"}
+                              size="sm"
+                              className="h-7 px-2.5 text-[11px]"
+                              onClick={() => setGlobalMode(mode)}
+                            >
+                              {mode === "HOY"
+                                ? "Hoy"
+                                : mode === "VENTAS"
+                                ? "Ventas"
+                                : mode === "CATALOGO"
+                                ? "Catálogo"
+                                : "Crecimiento"}
+                            </PillButton>
+                          );
+                        })}
+                      </div>
+                      {globalMode === "CRECIMIENTO" && (
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="text-[10px] uppercase tracking-wide text-slate-500">Plataforma</span>
+                          {(enabledPlatforms.length > 1
+                            ? enabledPlatforms
+                            : enabledPlatforms.length === 1
+                            ? enabledPlatforms
+                            : [activeGrowthPlatform]
+                          ).map((platform) => (
+                            <PillButton
+                              key={platform}
+                              intent={platform === activeGrowthPlatform ? "primary" : "ghost"}
+                              size="sm"
+                              className="h-7 px-2.5 text-[11px]"
+                              onClick={() => setGrowthPlatform(platform)}
+                            >
+                              {formatPlatformLabel(platform)}
+                            </PillButton>
+                          ))}
+                          <span className="text-[10px] text-slate-500">Activas: {growthActiveList}</span>
+                        </div>
                       )}
-                      <span className="text-xs text-slate-400">Activas: {growthActiveList}</span>
                     </div>
                   )}
-                  <div className="space-y-2">
-                    <div className="flex flex-wrap items-center gap-2">
-                      {(globalModeContent?.actions ?? []).map((action, idx) => (
-                        <PillButton
-                          key={action}
-                          intent={idx === 0 ? "primary" : "secondary"}
-                          size="md"
-                          onClick={() => applyPrompt(getGlobalPrompt(action), false)}
+                  <div className="flex flex-nowrap items-center gap-3 min-w-0">
+                    <span className="text-[11px] font-semibold text-slate-300 shrink-0">
+                      <span className="mr-1">⚡</span>
+                      {quickAccessLabel}
+                    </span>
+                    <div className="relative flex items-center gap-2 flex-1 min-w-0">
+                      <div
+                        ref={quickAccessScrollerRef}
+                        className="flex-1 min-w-0 flex flex-nowrap items-center gap-2 whitespace-nowrap overflow-x-auto overflow-y-hidden overscroll-x-contain touch-pan-x [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+                        style={{ paddingRight: `${scrollerPaddingRight}px`, WebkitOverflowScrolling: "touch" }}
+                      >
+                        {visibleChipLabels.map((label, idx) => (
+                          <button
+                            key={label}
+                            type="button"
+                            onClick={() => {
+                              markQuickAccessUsed();
+                              applyPrompt(scope === "global" ? getGlobalPrompt(label) : label, false);
+                            }}
+                            title={label}
+                            className={clsx(
+                              "shrink-0 max-w-[160px] truncate rounded-full border px-2 py-1 text-[11px] font-semibold transition",
+                              idx === 0
+                                ? "border-emerald-500/60 bg-emerald-500/15 text-emerald-100"
+                                : "border-slate-700/70 bg-slate-900/60 text-slate-200 hover:text-slate-100"
+                            )}
+                          >
+                            {label}
+                          </button>
+                        ))}
+                        {visiblePrompts.length === 0 && (
+                          <span className="text-[11px] text-slate-500 whitespace-nowrap">
+                            Sin atajos. Pulsa Editar.
+                          </span>
+                        )}
+                      </div>
+                      <div
+                        ref={quickAccessActionsRef}
+                        className="shrink-0 flex items-center gap-2"
+                      >
+                        {overflowCount > 0 && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setIsEmojiOpen(false);
+                              setOverflowOpen(true);
+                            }}
+                            title="Ver atajos"
+                            aria-label="Más atajos"
+                            className="shrink-0 inline-flex items-center gap-1 rounded-full border border-dashed border-slate-600/70 bg-slate-900/40 px-2.5 py-1 text-[11px] font-semibold text-slate-200 hover:bg-slate-800/70"
+                          >
+                            <span>Más</span>
+                            <span className="inline-flex min-w-[16px] items-center justify-center rounded-full bg-slate-800 px-1 text-[10px] text-slate-200">
+                              +{overflowCount}
+                            </span>
+                          </button>
+                        )}
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setIsEmojiOpen(false);
+                          setOverflowOpen(false);
+                          setIsFavoritesEditorOpen(true);
+                        }}
+                          className="inline-flex shrink-0 items-center gap-1 rounded-full border border-slate-700/70 bg-slate-900/70 px-2.5 py-1 text-[11px] font-semibold text-slate-200 hover:bg-slate-800/90"
                         >
-                          {action}
-                        </PillButton>
-                      ))}
-                    </div>
-                    <div className="flex flex-wrap items-center gap-2">
-                      {(globalModeContent?.suggestions ?? []).map((sugg) => (
-                        <PillButton
-                          key={sugg}
-                          intent="secondary"
-                          size="sm"
-                          onClick={() => applyPrompt(getGlobalPrompt(sugg), false)}
-                        >
-                          {sugg}
-                        </PillButton>
-                      ))}
+                          Editar
+                        </button>
+                      </div>
+                      <div
+                        ref={quickAccessMeasureRef}
+                        className="pointer-events-none absolute left-[-9999px] top-0 opacity-0 whitespace-nowrap"
+                        aria-hidden="true"
+                      >
+                        {visiblePrompts.map((label, idx) => (
+                          <span
+                            key={`measure-${label}-${idx}`}
+                            data-measure-chip
+                            className="shrink-0 max-w-[160px] truncate rounded-full border px-2 py-1 text-[11px] font-semibold"
+                          >
+                            {label}
+                          </span>
+                        ))}
+                      </div>
                     </div>
                   </div>
-                </>
-              ) : (
-                <div className={chipRowClass}>
-                  {quickSuggestions.map((sugg) => (
-                    <PillButton
-                      key={sugg}
-                      intent="secondary"
-                      size="sm"
-                      onClick={() => {
-                        applyPrompt(sugg, false);
-                      }}
-                      disabled={sending}
-                    >
-                      {sugg}
-                    </PillButton>
-                  ))}
+                  {!hasUsedQuickAccess && visibleChipLabels.length > 0 && (
+                    <div className="pl-1 text-[11px] text-slate-500">
+                      Pulsa un atajo para insertarlo en el mensaje.
+                    </div>
+                  )}
                 </div>
-              )}
-              <ChatComposerBar
-                value={input}
-                onChange={(event) => {
-                  setInput(event.target.value);
-                  resizeComposer(event.currentTarget);
-                }}
-                onKeyDown={handleComposerKeyDown}
-                onSend={() => {
-                  void handleSend();
-                }}
-                sendDisabled={sendDisabled}
-                placeholder="Cuéntale al Manager IA en qué necesitas ayuda."
-                actionLabel="Enviar"
-                audience="CREATOR"
-                onAudienceChange={() => {}}
-                canAttach={false}
-                onAttach={() => {}}
-                inputRef={inputRef}
-                maxHeight={MAX_MAIN_COMPOSER_HEIGHT}
-                isChatBlocked={false}
-                isInternalPanelOpen={false}
-                showAudienceToggle={false}
-              />
-              {error && <div className="text-sm text-rose-300">{error}</div>}
+                <textarea
+                  ref={inputRef}
+                  rows={1}
+                  className={clsx(
+                    "w-full min-h-[44px] resize-none overflow-y-auto bg-transparent border-0 outline-none ring-0",
+                    "px-1 pt-2 pb-1 text-sm leading-6 text-slate-50 whitespace-pre-wrap break-words",
+                    "placeholder:text-slate-300/95 caret-emerald-400"
+                  )}
+                  placeholder="Mensaje a Cortex..."
+                  onKeyDown={handleComposerKeyDown}
+                  onChange={(event) => {
+                    setInput(event.target.value);
+                    resizeComposer(event.currentTarget);
+                  }}
+                  value={input}
+                  style={{ maxHeight: `${MAX_MAIN_COMPOSER_HEIGHT}px` }}
+                />
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      disabled
+                      className="flex h-9 w-9 items-center justify-center rounded-full border border-slate-800/50 bg-slate-900/30 text-slate-500 cursor-not-allowed"
+                      title="Adjuntar"
+                      aria-label="Adjuntar"
+                    >
+                      <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2">
+                        <path d="M12 5v14" />
+                        <path d="M5 12h14" />
+                      </svg>
+                    </button>
+                    <div className="relative">
+                      <button
+                        type="button"
+                        ref={emojiButtonRef}
+                        onPointerDown={handleEmojiPointerDown}
+                        onClick={handleEmojiToggle}
+                        className="flex h-9 w-9 items-center justify-center rounded-full border border-slate-800/70 bg-slate-900/50 text-slate-200 transition hover:border-slate-600/80 hover:bg-slate-800/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/30"
+                        title="Insertar emoji"
+                        aria-label="Insertar emoji"
+                      >
+                        <span className="text-lg leading-none">🙂</span>
+                      </button>
+                      <EmojiPicker
+                        isOpen={isEmojiOpen}
+                        anchorRef={emojiButtonRef}
+                        onClose={() => setIsEmojiOpen(false)}
+                        onSelect={handleEmojiSelect}
+                        mode="insert"
+                        topContent={emojiPickerTopContent}
+                        perLine={9}
+                      />
+                    </div>
+                    <button
+                      type="button"
+                      disabled
+                      className="h-9 px-3 rounded-full border text-[11px] font-semibold transition border-slate-800/50 bg-slate-900/30 text-slate-500 cursor-not-allowed"
+                      title="Stickers"
+                      aria-label="Stickers"
+                    >
+                      Stickers
+                    </button>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      void handleSend();
+                    }}
+                    disabled={sendDisabled}
+                    aria-label="Enviar"
+                    className={clsx(
+                      "h-9 px-4 rounded-full text-sm font-semibold shrink-0 transition-colors focus-visible:outline-none focus-visible:ring-2",
+                      "bg-emerald-600 text-white hover:bg-emerald-500 focus-visible:ring-emerald-400/40",
+                      "disabled:opacity-50 disabled:cursor-not-allowed"
+                    )}
+                  >
+                    Enviar
+                  </button>
+                </div>
+              </div>
+              {overflowPanel}
+              {favoritesEditor}
+              {error && <div className="text-sm text-rose-300 mt-2">{error}</div>}
             </div>
           </div>
         </div>

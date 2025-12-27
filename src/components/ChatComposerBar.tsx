@@ -1,35 +1,20 @@
-import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import clsx from "clsx";
-import { createPortal } from "react-dom";
-import Image from "next/image";
+import dynamic from "next/dynamic";
 import { readEmojiRecents, recordEmojiRecent } from "../lib/emoji/recents";
 import { useEmojiFavorites } from "../hooks/useEmojiFavorites";
-import { STICKER_PACKS, STICKERS, type StickerIntent, type StickerItem, type StickerPackId } from "../lib/emoji/stickers";
 import { EmojiPicker } from "./EmojiPicker";
-
-const HIDDEN_POPOVER_STYLE: React.CSSProperties = { position: "fixed", left: -9999, top: -9999 };
+import type { StickerItem } from "../lib/stickers";
 
 type EmojiSelectPayload = {
   native?: string;
   emoji?: string;
 };
-type StickerIntentFilter = "all" | StickerIntent;
 
-const STICKER_PACK_STORAGE_KEY = "stickerPackId";
-const STICKER_INTENT_STORAGE_KEY = "stickerIntent";
-const SORTED_STICKER_PACKS = [...STICKER_PACKS].sort((a, b) => a.order - b.order);
-const DEFAULT_STICKER_PACK_ID: StickerPackId = SORTED_STICKER_PACKS[0]?.id ?? "flirt_v1";
-const STICKER_INTENT_OPTIONS: Array<{ id: StickerIntentFilter; label: string }> = [
-  { id: "all", label: "Todo" },
-  { id: "mirada", label: "Mirada" },
-  { id: "cita", label: "Cita" },
-  { id: "cierre", label: "Cierre" },
-];
-const STICKER_INTENT_IDS: StickerIntentFilter[] = STICKER_INTENT_OPTIONS.map((option) => option.id);
-const isStickerPackId = (value: string): value is StickerPackId =>
-  SORTED_STICKER_PACKS.some((pack) => pack.id === value);
-const isStickerIntentFilter = (value: string): value is StickerIntentFilter =>
-  STICKER_INTENT_IDS.includes(value as StickerIntentFilter);
+const StickerPicker = dynamic(
+  () => import("./chat/StickerPicker").then((mod) => mod.StickerPicker),
+  { ssr: false }
+);
 
 type ComposerAudience = "CREATOR" | "INTERNAL";
 
@@ -55,8 +40,6 @@ type ChatComposerBarProps = {
   onEmojiSelect?: (emoji: string) => void;
   showStickers?: boolean;
   onStickerSelect?: (sticker: StickerItem) => void;
-  stickerDraft?: StickerItem | null;
-  onStickerDraftClear?: () => void;
 };
 
 export function ChatComposerBar({
@@ -81,8 +64,6 @@ export function ChatComposerBar({
   onEmojiSelect,
   showStickers = false,
   onStickerSelect,
-  stickerDraft = null,
-  onStickerDraftClear,
 }: ChatComposerBarProps) {
   const isInternalMode = audience === "INTERNAL";
   const isInputDisabled = (isChatBlocked && !isInternalMode) || isInternalPanelOpen;
@@ -90,37 +71,13 @@ export function ChatComposerBar({
   const [ isStickerOpen, setIsStickerOpen ] = useState(false);
   const [ isEditingFavorites, setIsEditingFavorites ] = useState(false);
   const [ emojiPickerMode, setEmojiPickerMode ] = useState<"insert" | "favorite">("insert");
-  const [ stickerPackId, setStickerPackId ] = useState<StickerPackId>(DEFAULT_STICKER_PACK_ID);
-  const [ stickerIntent, setStickerIntent ] = useState<StickerIntentFilter>("all");
-  const [ stickerShuffleSeed, setStickerShuffleSeed ] = useState(0);
   const emojiButtonRef = useRef<HTMLButtonElement | null>(null);
   const emojiAddButtonRef = useRef<HTMLButtonElement | null>(null);
   const stickerButtonRef = useRef<HTMLButtonElement | null>(null);
-  const stickerPopoverRef = useRef<HTMLDivElement | null>(null);
-  const stickerSheetRef = useRef<HTMLDivElement | null>(null);
-  const [ stickerPopoverStyle, setStickerPopoverStyle ] = useState<React.CSSProperties | null>(null);
   const [ emojiRecents, setEmojiRecents ] = useState<string[]>([]);
   const { favorites, addFavorite, removeFavorite, replaceFavorites, isAtMax } = useEmojiFavorites();
   const draggedEmojiRef = useRef<string | null>(null);
   const canUseEmoji = showEmoji && !!onEmojiSelect;
-  const filteredStickers = useMemo(() => {
-    return STICKERS.filter((item) => {
-      const packId = item.packId ?? DEFAULT_STICKER_PACK_ID;
-      const intent = item.intent ?? "mirada";
-      if (packId !== stickerPackId) return false;
-      if (stickerIntent !== "all" && intent !== stickerIntent) return false;
-      return true;
-    });
-  }, [stickerPackId, stickerIntent]);
-  const shuffledStickers = useMemo(() => {
-    if (stickerShuffleSeed === 0) return filteredStickers;
-    const next = [...filteredStickers];
-    for (let i = next.length - 1; i > 0; i -= 1) {
-      const j = Math.floor(Math.random() * (i + 1));
-      [next[i], next[j]] = [next[j], next[i]];
-    }
-    return next;
-  }, [filteredStickers, stickerShuffleSeed]);
 
   useEffect(() => {
     if (!isEmojiOpen && !isStickerOpen) return;
@@ -132,9 +89,8 @@ export function ChatComposerBar({
       if (emojiButtonRef.current?.contains(target)) return;
       if (emojiAddButtonRef.current?.contains(target)) return;
       if (stickerButtonRef.current?.contains(target)) return;
-      if (stickerPopoverRef.current?.contains(target)) return;
-      if (stickerSheetRef.current?.contains(target)) return;
       if (element.closest?.("[data-emoji-picker=\"true\"]")) return;
+      if (element.closest?.("[data-sticker-picker=\"true\"]")) return;
       setIsEmojiOpen(false);
       setIsStickerOpen(false);
       setEmojiPickerMode("insert");
@@ -169,109 +125,9 @@ export function ChatComposerBar({
   }, [showStickers, isInputDisabled]);
 
   useEffect(() => {
-    if (typeof window === "undefined") return;
-    const storedPackId = window.localStorage.getItem(STICKER_PACK_STORAGE_KEY);
-    if (storedPackId && isStickerPackId(storedPackId)) {
-      setStickerPackId(storedPackId);
-    }
-    const storedIntent = window.localStorage.getItem(STICKER_INTENT_STORAGE_KEY);
-    if (storedIntent && isStickerIntentFilter(storedIntent)) {
-      setStickerIntent(storedIntent);
-    }
-  }, []);
-
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    window.localStorage.setItem(STICKER_PACK_STORAGE_KEY, stickerPackId);
-  }, [stickerPackId]);
-
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    window.localStorage.setItem(STICKER_INTENT_STORAGE_KEY, stickerIntent);
-  }, [stickerIntent]);
-
-  useEffect(() => {
-    setStickerShuffleSeed(0);
-  }, [stickerPackId, stickerIntent]);
-
-  useEffect(() => {
     if (!isEmojiOpen) return;
     setEmojiRecents(readEmojiRecents());
   }, [isEmojiOpen]);
-
-  useLayoutEffect(() => {
-    if (!isStickerOpen || typeof window === "undefined") return;
-    const anchor = stickerButtonRef.current;
-    const popover = stickerPopoverRef.current;
-    if (!anchor || !popover) return;
-
-    const padding = 8;
-    const anchorRect = anchor.getBoundingClientRect();
-    const popoverRect = popover.getBoundingClientRect();
-    const viewportWidth = window.innerWidth;
-    const viewportHeight = window.innerHeight;
-
-    const minLeft = padding;
-    const maxLeft = Math.max(padding, viewportWidth - popoverRect.width - padding);
-    const nextLeft = Math.min(Math.max(anchorRect.left, minLeft), maxLeft);
-
-    const preferredTop = anchorRect.top - popoverRect.height - padding;
-    const minTop = padding;
-    const maxTop = Math.max(padding, viewportHeight - popoverRect.height - padding);
-    let nextTop = preferredTop;
-    if (nextTop < minTop) {
-      nextTop = anchorRect.bottom + padding;
-    }
-    nextTop = Math.min(Math.max(nextTop, minTop), maxTop);
-
-    setStickerPopoverStyle({
-      position: "fixed",
-      left: nextLeft,
-      top: nextTop,
-    });
-  }, [isStickerOpen]);
-
-  useEffect(() => {
-    if (!isStickerOpen || typeof window === "undefined") return;
-    const handleReposition = () => {
-      const anchor = stickerButtonRef.current;
-      const popover = stickerPopoverRef.current;
-      if (!anchor || !popover) return;
-
-      const padding = 8;
-      const anchorRect = anchor.getBoundingClientRect();
-      const popoverRect = popover.getBoundingClientRect();
-      const viewportWidth = window.innerWidth;
-      const viewportHeight = window.innerHeight;
-
-      const minLeft = padding;
-      const maxLeft = Math.max(padding, viewportWidth - popoverRect.width - padding);
-      const nextLeft = Math.min(Math.max(anchorRect.left, minLeft), maxLeft);
-
-      const preferredTop = anchorRect.top - popoverRect.height - padding;
-      const minTop = padding;
-      const maxTop = Math.max(padding, viewportHeight - popoverRect.height - padding);
-      let nextTop = preferredTop;
-      if (nextTop < minTop) {
-        nextTop = anchorRect.bottom + padding;
-      }
-      nextTop = Math.min(Math.max(nextTop, minTop), maxTop);
-
-      setStickerPopoverStyle({
-        position: "fixed",
-        left: nextLeft,
-        top: nextTop,
-      });
-    };
-    window.addEventListener("resize", handleReposition);
-    window.addEventListener("scroll", handleReposition, true);
-    const raf = window.requestAnimationFrame(handleReposition);
-    return () => {
-      window.removeEventListener("resize", handleReposition);
-      window.removeEventListener("scroll", handleReposition, true);
-      window.cancelAnimationFrame(raf);
-    };
-  }, [isStickerOpen]);
 
   const handleEmojiSelect = (payload: EmojiSelectPayload | string) => {
     const emoji =
@@ -506,33 +362,6 @@ export function ChatComposerBar({
           </div>
         </div>
       )}
-      {stickerDraft && (
-        <div className="flex items-center justify-between gap-3 rounded-xl border border-slate-800/70 bg-slate-950/40 px-3 py-2">
-          <div className="flex items-center gap-3">
-            <Image
-              src={stickerDraft.file}
-              alt={stickerDraft.label}
-              width={48}
-              height={48}
-              unoptimized
-              className="h-12 w-12 rounded-lg border border-slate-800/70 bg-slate-900/60 object-contain"
-            />
-            <div>
-              <div className="text-[10px] uppercase tracking-wide text-slate-400">Sticker listo</div>
-              <div className="text-xs text-slate-100">{stickerDraft.label}</div>
-            </div>
-          </div>
-          {onStickerDraftClear && (
-            <button
-              type="button"
-              onClick={onStickerDraftClear}
-              className="rounded-full border border-slate-700/70 bg-slate-900/60 px-2 py-1 text-[10px] font-semibold text-slate-200 hover:bg-slate-800/80"
-            >
-              Quitar
-            </button>
-          )}
-        </div>
-      )}
       <textarea
         ref={inputRef}
         rows={1}
@@ -621,157 +450,12 @@ export function ChatComposerBar({
                 Stickers
               </button>
               {isStickerOpen && (
-                <>
-                  {typeof document !== "undefined" &&
-                    createPortal(
-                      <div
-                        ref={stickerPopoverRef}
-                        className="hidden sm:block z-[9999]"
-                        style={stickerPopoverStyle ?? HIDDEN_POPOVER_STYLE}
-                      >
-                        <div className="rounded-2xl border border-slate-800/80 bg-slate-950/95 p-3 shadow-2xl min-w-[320px] w-[360px] max-w-[calc(100vw-16px)] max-h-[420px] overflow-hidden">
-                          <div className="mb-2 flex items-center justify-between gap-2">
-                            <div className="text-[11px] font-semibold text-slate-300">Stickers</div>
-                            <button
-                              type="button"
-                              onClick={() => setStickerShuffleSeed((prev) => prev + 1)}
-                              className="rounded-full border border-slate-700/70 bg-slate-900/60 px-2 py-0.5 text-[10px] font-semibold text-slate-200 hover:bg-slate-800/80"
-                            >
-                              Barajar
-                            </button>
-                          </div>
-                          <div className="mb-2 flex flex-wrap items-center gap-1">
-                            {SORTED_STICKER_PACKS.map((pack) => (
-                              <button
-                                key={pack.id}
-                                type="button"
-                                onClick={() => setStickerPackId(pack.id)}
-                                className={clsx(
-                                  "rounded-full border px-2 py-0.5 text-[10px] font-semibold",
-                                  stickerPackId === pack.id
-                                    ? "border-emerald-400/70 bg-emerald-500/10 text-emerald-100"
-                                    : "border-slate-700/70 bg-slate-900/60 text-slate-300 hover:text-slate-100"
-                                )}
-                              >
-                                {pack.label}
-                              </button>
-                            ))}
-                          </div>
-                          <div className="mb-2 flex flex-wrap items-center gap-1">
-                            {STICKER_INTENT_OPTIONS.map((intentOption) => (
-                              <button
-                                key={intentOption.id}
-                                type="button"
-                                onClick={() => setStickerIntent(intentOption.id)}
-                                className={clsx(
-                                  "rounded-full border px-2 py-0.5 text-[10px] font-semibold",
-                                  stickerIntent === intentOption.id
-                                    ? "border-emerald-400/70 bg-emerald-500/10 text-emerald-100"
-                                    : "border-slate-700/70 bg-slate-900/60 text-slate-300 hover:text-slate-100"
-                                )}
-                              >
-                                {intentOption.label}
-                              </button>
-                            ))}
-                          </div>
-                          <div className="grid grid-cols-3 gap-2 max-h-[320px] overflow-y-auto pr-1">
-                            {shuffledStickers.map((sticker) => (
-                              <button
-                                key={sticker.id}
-                                type="button"
-                                onClick={() => handleStickerSelect(sticker)}
-                                className="group flex flex-col items-center justify-center gap-1 rounded-xl border border-slate-800/70 bg-slate-900/60 p-2 hover:bg-slate-800/80"
-                              >
-                                <Image
-                                  src={sticker.file}
-                                  alt={sticker.label}
-                                  width={60}
-                                  height={60}
-                                  unoptimized
-                                  className="h-16 w-16 object-contain transition-transform group-hover:scale-105"
-                                />
-                                <span className="text-[10px] text-slate-300">{sticker.label}</span>
-                                <span className="text-[10px] text-emerald-200/80 group-hover:text-emerald-100">Insertar</span>
-                              </button>
-                            ))}
-                          </div>
-                        </div>
-                      </div>,
-                      document.body
-                    )}
-                  <div className="sm:hidden fixed inset-0 z-50 flex items-end justify-center bg-black/60">
-                    <div
-                      ref={stickerSheetRef}
-                      className="w-full max-w-lg rounded-t-2xl border border-slate-800/80 bg-slate-950/95 p-3 shadow-2xl"
-                    >
-                      <div className="mb-2 flex items-center justify-between gap-2">
-                        <div className="text-[11px] font-semibold text-slate-300">Stickers</div>
-                        <button
-                          type="button"
-                          onClick={() => setStickerShuffleSeed((prev) => prev + 1)}
-                          className="rounded-full border border-slate-700/70 bg-slate-900/60 px-2 py-0.5 text-[10px] font-semibold text-slate-200 hover:bg-slate-800/80"
-                        >
-                          Barajar
-                        </button>
-                      </div>
-                      <div className="mb-2 flex flex-wrap items-center gap-1">
-                        {SORTED_STICKER_PACKS.map((pack) => (
-                          <button
-                            key={pack.id}
-                            type="button"
-                            onClick={() => setStickerPackId(pack.id)}
-                            className={clsx(
-                              "rounded-full border px-2 py-0.5 text-[10px] font-semibold",
-                              stickerPackId === pack.id
-                                ? "border-emerald-400/70 bg-emerald-500/10 text-emerald-100"
-                                : "border-slate-700/70 bg-slate-900/60 text-slate-300 hover:text-slate-100"
-                            )}
-                          >
-                            {pack.label}
-                          </button>
-                        ))}
-                      </div>
-                      <div className="mb-2 flex flex-wrap items-center gap-1">
-                        {STICKER_INTENT_OPTIONS.map((intentOption) => (
-                          <button
-                            key={intentOption.id}
-                            type="button"
-                            onClick={() => setStickerIntent(intentOption.id)}
-                            className={clsx(
-                              "rounded-full border px-2 py-0.5 text-[10px] font-semibold",
-                              stickerIntent === intentOption.id
-                                ? "border-emerald-400/70 bg-emerald-500/10 text-emerald-100"
-                                : "border-slate-700/70 bg-slate-900/60 text-slate-300 hover:text-slate-100"
-                            )}
-                          >
-                            {intentOption.label}
-                          </button>
-                        ))}
-                      </div>
-                      <div className="grid grid-cols-3 gap-2 max-h-[320px] overflow-y-auto pr-1">
-                        {shuffledStickers.map((sticker) => (
-                          <button
-                            key={sticker.id}
-                            type="button"
-                            onClick={() => handleStickerSelect(sticker)}
-                            className="group flex flex-col items-center justify-center gap-1 rounded-xl border border-slate-800/70 bg-slate-900/60 p-2 hover:bg-slate-800/80"
-                          >
-                            <Image
-                              src={sticker.file}
-                              alt={sticker.label}
-                              width={60}
-                              height={60}
-                              unoptimized
-                              className="h-16 w-16 object-contain transition-transform group-hover:scale-105"
-                            />
-                            <span className="text-[10px] text-slate-300">{sticker.label}</span>
-                            <span className="text-[10px] text-emerald-200/80 group-hover:text-emerald-100">Insertar</span>
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-                  </div>
-                </>
+                <StickerPicker
+                  isOpen={isStickerOpen}
+                  anchorRef={stickerButtonRef}
+                  onClose={() => setIsStickerOpen(false)}
+                  onSelect={handleStickerSelect}
+                />
               )}
             </div>
           )}

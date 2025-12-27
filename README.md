@@ -7,7 +7,9 @@ Chat tipo WhatsApp para creadores y fans (versión preliminar).
 ```bash
 npm install
 npx prisma generate
-npx prisma migrate dev`
+npx prisma migrate dev
+
+```
 
 La app se levanta en modo desarrollo en `http://localhost:3005`. Para pasos completos y troubleshooting en Windows, revisa el runbook de abajo.
 
