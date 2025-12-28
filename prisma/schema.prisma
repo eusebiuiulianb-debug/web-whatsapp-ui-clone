@@ -29,6 +29,7 @@ model Creator {
   notes        FanNote[]
   contentItems ContentItem[]
   catalogItems CatalogItem[]
+  popClips     PopClip[]
   aiSettings   CreatorAiSettings?
   aiUsageLogs  AiUsageLog[]
   aiTemplates  CreatorAiTemplate[]
@@ -227,8 +228,28 @@ model CatalogItem {
   sortOrder   Int             @default(0)
   createdAt   DateTime        @default(now())
   updatedAt   DateTime        @updatedAt
+  popClips    PopClip[]
 
   @@index([creatorId, isActive, sortOrder, createdAt])
+}
+
+model PopClip {
+  id            String      @id @default(cuid())
+  creatorId     String
+  creator       Creator     @relation(fields: [creatorId], references: [id])
+  catalogItemId String
+  catalogItem   CatalogItem @relation(fields: [catalogItemId], references: [id])
+  title         String?
+  videoUrl      String
+  posterUrl     String?
+  durationSec   Int?
+  isActive      Boolean     @default(true)
+  sortOrder     Int         @default(0)
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+
+  @@index([creatorId, isActive, sortOrder])
+  @@unique([creatorId, catalogItemId])
 }
 
 enum ManagerAiTab {

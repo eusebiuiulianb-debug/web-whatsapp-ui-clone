@@ -2,7 +2,7 @@ import Head from "next/head";
 import type { GetServerSideProps } from "next";
 import PublicProfileView from "../../components/public-profile/PublicProfileView";
 import { PROFILE_COPY, mapToPublicProfileCopy } from "../../lib/publicProfileCopy";
-import type { PublicCatalogItem, PublicProfileCopy, PublicProfileStats } from "../../types/publicProfile";
+import type { PublicCatalogItem, PublicPopClip, PublicProfileCopy, PublicProfileStats } from "../../types/publicProfile";
 import { getPublicProfileStats } from "../../lib/publicProfileStats";
 import { normalizeImageSrc } from "../../utils/normalizeImageSrc";
 
@@ -15,6 +15,7 @@ type Props = {
   creatorInitial?: string;
   stats?: PublicProfileStats;
   catalogItems?: PublicCatalogItem[];
+  popClips?: PublicPopClip[];
   creatorHandle?: string;
 };
 
@@ -28,6 +29,25 @@ type CatalogItemRow = {
   includes: unknown;
 };
 
+type PopClipRow = {
+  id: string;
+  title: string | null;
+  videoUrl: string;
+  posterUrl: string | null;
+  durationSec: number | null;
+  sortOrder: number;
+  catalogItem: {
+    id: string;
+    title: string;
+    description: string | null;
+    priceCents: number;
+    currency: string;
+    type: "EXTRA" | "BUNDLE" | "PACK";
+    isPublic: boolean;
+    isActive: boolean;
+  };
+};
+
 export default function PublicCreatorByHandle({
   notFound,
   copy,
@@ -37,6 +57,7 @@ export default function PublicCreatorByHandle({
   creatorInitial,
   stats,
   catalogItems,
+  popClips,
   creatorHandle,
 }: Props) {
   if (notFound || !copy || !creatorName) {
@@ -64,6 +85,7 @@ export default function PublicCreatorByHandle({
           avatarUrl={avatarUrl || undefined}
           stats={stats}
           catalogItems={catalogItems}
+          popClips={popClips}
           creatorHandle={creatorHandle}
         />
       </div>
@@ -83,6 +105,7 @@ export const getServerSideProps: GetServerSideProps<Props> = async (ctx) => {
 
   const stats = await getSafeStats(match.id);
   const catalogItems = await getPublicCatalogItems(match.id);
+  const popClips = await getPublicPopClips(match.id);
   const packs = [
     { id: "welcome", name: "Pack bienvenida", price: "9 €" },
     { id: "monthly", name: "Suscripción mensual", price: "25 €" },
@@ -111,6 +134,7 @@ export const getServerSideProps: GetServerSideProps<Props> = async (ctx) => {
       creatorInitial: (match.name || "C").charAt(0),
       stats,
       catalogItems,
+      popClips,
       creatorHandle: slugify(match.name),
     },
   };
@@ -156,4 +180,52 @@ async function getPublicCatalogItems(creatorId: string): Promise<PublicCatalogIt
       includes,
     };
   });
+}
+
+async function getPublicPopClips(creatorId: string): Promise<PublicPopClip[]> {
+  const prisma = (await import("../../lib/prisma.server")).default;
+  const clips = (await prisma.popClip.findMany({
+    where: {
+      creatorId,
+      isActive: true,
+      catalogItem: {
+        isActive: true,
+        isPublic: true,
+      },
+    },
+    orderBy: [{ sortOrder: "asc" }, { createdAt: "desc" }],
+    include: {
+      catalogItem: {
+        select: {
+          id: true,
+          title: true,
+          description: true,
+          priceCents: true,
+          currency: true,
+          type: true,
+          isPublic: true,
+          isActive: true,
+        },
+      },
+    },
+  })) as PopClipRow[];
+
+  return clips
+    .filter((clip) => clip.catalogItem?.type === "PACK" && clip.videoUrl.trim().length > 0)
+    .map((clip) => ({
+      id: clip.id,
+      title: clip.title ?? null,
+      videoUrl: clip.videoUrl,
+      posterUrl: clip.posterUrl ?? null,
+      durationSec: clip.durationSec ?? null,
+      sortOrder: clip.sortOrder,
+      pack: {
+        id: clip.catalogItem.id,
+        title: clip.catalogItem.title,
+        description: clip.catalogItem.description,
+        priceCents: clip.catalogItem.priceCents,
+        currency: clip.catalogItem.currency,
+        type: clip.catalogItem.type,
+      },
+    }));
 }

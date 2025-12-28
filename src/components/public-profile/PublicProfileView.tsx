@@ -1,6 +1,11 @@
 import Link from "next/link";
-import { useState } from "react";
-import type { PublicCatalogItem, PublicProfileCopy, PublicProfileStats } from "../../types/publicProfile";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type {
+  PublicCatalogItem,
+  PublicPopClip,
+  PublicProfileCopy,
+  PublicProfileStats,
+} from "../../types/publicProfile";
 
 type Props = {
   copy: PublicProfileCopy;
@@ -10,6 +15,7 @@ type Props = {
   avatarUrl?: string | null;
   stats?: PublicProfileStats;
   catalogItems?: PublicCatalogItem[];
+  popClips?: PublicPopClip[];
   creatorHandle?: string;
 };
 
@@ -21,6 +27,7 @@ export default function PublicProfileView({
   avatarUrl,
   stats,
   catalogItems,
+  popClips,
   creatorHandle,
 }: Props) {
   const recommended = copy.packs.find((p) => p.id === copy.recommendedPackId) || copy.packs[0];
@@ -35,6 +42,16 @@ export default function PublicProfileView({
   const catalog = catalogItems ?? [];
   const groupedCatalog = groupCatalogItems(catalog);
   const hasCatalog = catalog.length > 0;
+  const sortedPopClips = useMemo(
+    () => [ ...(popClips ?? []) ].sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0)),
+    [popClips]
+  );
+  const hasPopClips = sortedPopClips.length > 0;
+  const clipRefs = useRef<Record<string, HTMLDivElement | null>>({});
+  const videoRefs = useRef<Record<string, HTMLVideoElement | null>>({});
+  const [activeClipId, setActiveClipId] = useState<string | null>(null);
+  const [blockedClips, setBlockedClips] = useState<Record<string, boolean>>({});
+  const [activePack, setActivePack] = useState<PublicPopClip | null>(null);
 
   const hasWhatInside = copy.hero.showWhatInside !== false && (copy.hero.whatInsideBullets?.length ?? 0) > 0;
   const heroBackgroundStyle =
@@ -45,6 +62,128 @@ export default function PublicProfileView({
           backgroundPosition: "center",
         }
       : undefined;
+
+  const ensureVideoSource = useCallback((video: HTMLVideoElement | null) => {
+    if (!video) return;
+    const dataSrc = video.dataset.src;
+    if (dataSrc && video.getAttribute("src") !== dataSrc) {
+      video.src = dataSrc;
+      video.load();
+    }
+  }, []);
+
+  const attemptPlay = useCallback(
+    (clipId: string) => {
+      const video = videoRefs.current[clipId];
+      if (!video) return;
+      video.muted = true;
+      ensureVideoSource(video);
+      const playPromise = video.play();
+      if (playPromise && typeof playPromise.then === "function") {
+        playPromise
+          .then(() => {
+            setBlockedClips((prev) => ({ ...prev, [clipId]: false }));
+          })
+          .catch(() => {
+            setBlockedClips((prev) => ({ ...prev, [clipId]: true }));
+          });
+      }
+    },
+    [ensureVideoSource]
+  );
+
+  const handleManualPlay = useCallback(
+    (clipId: string) => {
+      setActiveClipId(clipId);
+      attemptPlay(clipId);
+    },
+    [attemptPlay]
+  );
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (sortedPopClips.length === 0) return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        entries.forEach((entry) => {
+          const clipId = entry.target.getAttribute("data-clip-id");
+          if (!clipId) return;
+          const video = videoRefs.current[clipId];
+          if (!video) return;
+          if (entry.isIntersecting) {
+            ensureVideoSource(video);
+            setActiveClipId((prev) => (prev === clipId ? prev : clipId));
+          } else {
+            video.pause();
+          }
+        });
+      },
+      { threshold: 0.6 }
+    );
+    sortedPopClips.forEach((clip) => {
+      const node = clipRefs.current[clip.id];
+      if (node) observer.observe(node);
+    });
+    return () => observer.disconnect();
+  }, [ensureVideoSource, sortedPopClips]);
+
+  useEffect(() => {
+    if (!activeClipId) return;
+    sortedPopClips.forEach((clip) => {
+      const video = videoRefs.current[clip.id];
+      if (!video) return;
+      if (clip.id === activeClipId) {
+        attemptPlay(clip.id);
+        return;
+      }
+      video.pause();
+    });
+  }, [activeClipId, attemptPlay, sortedPopClips]);
+
+  const packDraft = activePack ? buildPackDraft(activePack.pack) : "";
+  const packHref =
+    activePack && creatorHandle
+      ? { pathname: `/go/${creatorHandle}`, query: { draft: packDraft } }
+      : { pathname: "/" };
+  const packModal = activePack ? (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-4 py-6">
+      <div className="w-full max-w-md rounded-2xl border border-slate-800 bg-slate-900/95 p-5 shadow-2xl">
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <h3 className="text-lg font-semibold text-white">{activePack.pack.title}</h3>
+            <p className="text-sm text-amber-300">
+              {formatPriceCents(activePack.pack.priceCents, activePack.pack.currency)}
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => setActivePack(null)}
+            className="text-[12px] font-semibold text-slate-300 hover:text-slate-100"
+          >
+            Cerrar
+          </button>
+        </div>
+        {activePack.pack.description && (
+          <p className="mt-3 text-sm text-slate-300 leading-relaxed">{activePack.pack.description}</p>
+        )}
+        <div className="mt-4 flex items-center justify-end gap-2">
+          <button
+            type="button"
+            onClick={() => setActivePack(null)}
+            className="rounded-full border border-slate-700/70 bg-slate-900/60 px-3 py-1.5 text-[11px] font-semibold text-slate-200 hover:bg-slate-800/80"
+          >
+            Volver
+          </button>
+          <Link
+            href={packHref}
+            className="inline-flex items-center justify-center rounded-full bg-emerald-500 px-4 py-2 text-xs font-semibold text-slate-950 hover:bg-emerald-400"
+          >
+            Pedir
+          </Link>
+        </div>
+      </div>
+    </div>
+  ) : null;
 
   return (
     <div className="min-h-screen bg-[#0b141a] text-white">
@@ -180,6 +319,71 @@ export default function PublicProfileView({
           </div>
         </section>
 
+        {hasPopClips && (
+          <section className="space-y-4">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <h2 className="text-2xl font-semibold">PopClips</h2>
+              <span className="text-xs text-slate-400">Desliza para ver más</span>
+            </div>
+            <div className="rounded-3xl border border-slate-800 bg-slate-900/60 p-3">
+              <div className="h-[80vh] md:h-[72vh] overflow-y-auto snap-y snap-mandatory space-y-6 pr-2">
+                {sortedPopClips.map((clip) => {
+                  const clipTitle = clip.title?.trim() || clip.pack.title;
+                  const priceLabel = formatPriceCents(clip.pack.priceCents, clip.pack.currency);
+                  const isBlocked = Boolean(blockedClips[clip.id]);
+                  return (
+                    <div
+                      key={clip.id}
+                      ref={(node) => {
+                        clipRefs.current[clip.id] = node;
+                      }}
+                      data-clip-id={clip.id}
+                      className="relative h-[75vh] md:h-[70vh] snap-start overflow-hidden rounded-2xl border border-slate-800 bg-black/80"
+                    >
+                      <video
+                        ref={(node) => {
+                          videoRefs.current[clip.id] = node;
+                        }}
+                        data-src={clip.videoUrl}
+                        poster={clip.posterUrl?.trim() ? clip.posterUrl : undefined}
+                        muted
+                        loop
+                        playsInline
+                        preload="none"
+                        className="absolute inset-0 h-full w-full object-cover"
+                      />
+                      <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/20 to-transparent" />
+                      <div className="absolute bottom-4 left-4 right-4 flex items-end justify-between gap-4">
+                        <div className="space-y-1">
+                          <p className="text-[11px] uppercase tracking-wide text-emerald-200">PopClip</p>
+                          <h3 className="text-lg font-semibold text-white">{clipTitle}</h3>
+                          <p className="text-sm text-amber-300">{priceLabel}</p>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => setActivePack(clip)}
+                          className="rounded-full bg-emerald-500 px-4 py-2 text-xs font-semibold text-slate-950 hover:bg-emerald-400"
+                        >
+                          Ver pack
+                        </button>
+                      </div>
+                      {isBlocked && (
+                        <button
+                          type="button"
+                          onClick={() => handleManualPlay(clip.id)}
+                          className="absolute inset-0 flex items-center justify-center bg-black/40 text-sm font-semibold text-white"
+                        >
+                          Reproducir
+                        </button>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          </section>
+        )}
+
         {showCatalog && (
           <section className="space-y-4">
             <h2 className="text-2xl font-semibold">Catálogo</h2>
@@ -258,6 +462,7 @@ export default function PublicProfileView({
           </section>
         )}
       </div>
+      {packModal}
     </div>
   );
 }
@@ -299,6 +504,11 @@ function buildCatalogDraft(item: PublicCatalogItem) {
   const typeLabel = item.type === "BUNDLE" ? "bundle" : item.type === "PACK" ? "pack" : "extra";
   const priceLabel = formatPriceCents(item.priceCents, item.currency);
   return `Quiero el ${typeLabel} "${item.title}" (${priceLabel}). ¿Me lo activas?`;
+}
+
+function buildPackDraft(pack: PublicPopClip["pack"]) {
+  const priceLabel = formatPriceCents(pack.priceCents, pack.currency);
+  return `Quiero el pack "${pack.title}" (${priceLabel}). ¿Me lo activas?`;
 }
 
 function formatIncludesPreview(includes: string[]) {

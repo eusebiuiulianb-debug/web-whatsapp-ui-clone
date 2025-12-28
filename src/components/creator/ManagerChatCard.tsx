@@ -39,6 +39,7 @@ import {
   type CatalogItem,
   type CatalogItemType,
 } from "../../lib/catalog";
+import type { PopClip } from "../../lib/popclips";
 import MessageBalloon from "../MessageBalloon";
 import { ChatComposerBar } from "../ChatComposerBar";
 import { EmojiPicker } from "../EmojiPicker";
@@ -125,6 +126,16 @@ type CatalogEditorDraft = {
   includes: string[];
 };
 
+type PopClipEditorDraft = {
+  id?: string;
+  catalogItemId: string;
+  title: string;
+  videoUrl: string;
+  posterUrl: string;
+  durationSec: string;
+  isActive: boolean;
+};
+
 type CortexActionCard = {
   id: string;
   actionId: string;
@@ -208,6 +219,14 @@ function buildExpiringFansContext(fans?: CortexOverviewFan[] | null) {
 }
 
 function sortCatalogItems(items: CatalogItem[]) {
+  return [ ...items ].sort((a, b) => {
+    if (a.isActive !== b.isActive) return a.isActive ? -1 : 1;
+    if (a.sortOrder !== b.sortOrder) return a.sortOrder - b.sortOrder;
+    return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+  });
+}
+
+function sortPopClips(items: PopClip[]) {
   return [ ...items ].sort((a, b) => {
     if (a.isActive !== b.isActive) return a.isActive ? -1 : 1;
     if (a.sortOrder !== b.sortOrder) return a.sortOrder - b.sortOrder;
@@ -358,6 +377,15 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
   const [localCatalogItems, setLocalCatalogItems] = useState<CatalogItem[]>(() => catalogItems ?? []);
   const [showAllCatalogItems, setShowAllCatalogItems] = useState(false);
   const [catalogToast, setCatalogToast] = useState<string | null>(null);
+  const [popClips, setPopClips] = useState<PopClip[]>([]);
+  const [popClipsLoading, setPopClipsLoading] = useState(false);
+  const [popClipsError, setPopClipsError] = useState<string | null>(null);
+  const [isPopClipEditorOpen, setIsPopClipEditorOpen] = useState(false);
+  const [popClipDraft, setPopClipDraft] = useState<PopClipEditorDraft | null>(null);
+  const [popClipDraftItem, setPopClipDraftItem] = useState<CatalogItem | null>(null);
+  const [popClipSaving, setPopClipSaving] = useState(false);
+  const [popClipDeleting, setPopClipDeleting] = useState(false);
+  const [popClipEditorError, setPopClipEditorError] = useState<string | null>(null);
   const [isCatalogEditorOpen, setIsCatalogEditorOpen] = useState(false);
   const [catalogEditorMode, setCatalogEditorMode] = useState<"create" | "edit">("create");
   const [catalogDraft, setCatalogDraft] = useState<CatalogEditorDraft | null>(null);
@@ -368,6 +396,9 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
   const catalogEditorTitleRef = useRef<HTMLInputElement | null>(null);
   const catalogEditorModalRef = useRef<HTMLDivElement | null>(null);
   const catalogEditorSheetRef = useRef<HTMLDivElement | null>(null);
+  const popClipEditorVideoRef = useRef<HTMLInputElement | null>(null);
+  const popClipEditorModalRef = useRef<HTMLDivElement | null>(null);
+  const popClipEditorSheetRef = useRef<HTMLDivElement | null>(null);
   const catalogFanPickerModalRef = useRef<HTMLDivElement | null>(null);
   const catalogFanPickerSheetRef = useRef<HTMLDivElement | null>(null);
   const catalogToastTimeoutRef = useRef<number | null>(null);
@@ -395,6 +426,10 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
     ((updater: SetStateAction<CatalogItem[]>) => {
       setLocalCatalogItems(updater);
     });
+  const popClipsByCatalogItemId = useMemo(
+    () => new Map(popClips.map((clip) => [clip.catalogItemId, clip] as const)),
+    [popClips]
+  );
   const scrollerPaddingRight = isNarrowMobile ? 12 : Math.max(actionsWidth + 12, 64);
   const expiringFans = overviewData?.expiringFans ?? [];
   const resizeComposer = useCallback((el: HTMLTextAreaElement | null) => {
@@ -402,6 +437,32 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
     el.style.height = "auto";
     const nextHeight = Math.min(el.scrollHeight, MAX_MAIN_COMPOSER_HEIGHT);
     el.style.height = `${nextHeight}px`;
+  }, []);
+  const fetchPopClips = useCallback(async () => {
+    if (!creatorId) return;
+    try {
+      setPopClipsLoading(true);
+      setPopClipsError(null);
+      const res = await fetch(`/api/popclips?creatorId=${encodeURIComponent(creatorId)}`);
+      if (!res.ok) throw new Error("Error fetching popclips");
+      const data = await res.json().catch(() => ({}));
+      const clips = Array.isArray(data?.clips)
+        ? (data.clips as PopClip[])
+        : Array.isArray(data)
+        ? (data as PopClip[])
+        : [];
+      setPopClips(sortPopClips(clips));
+    } catch (_err) {
+      setPopClipsError("No se pudo cargar PopClips.");
+    } finally {
+      setPopClipsLoading(false);
+    }
+  }, [creatorId]);
+  const closePopClipEditor = useCallback(() => {
+    setIsPopClipEditorOpen(false);
+    setPopClipDraft(null);
+    setPopClipDraftItem(null);
+    setPopClipEditorError(null);
   }, []);
 
   useEffect(() => {
@@ -433,6 +494,10 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
       setLocalCatalogItems(catalogItems);
     }
   }, [catalogItems]);
+
+  useEffect(() => {
+    void fetchPopClips();
+  }, [fetchPopClips]);
 
   useEffect(() => {
     resizeComposer(inputRef.current);
@@ -645,6 +710,28 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
   }, [isCatalogEditorOpen]);
 
   useEffect(() => {
+    if (!isPopClipEditorOpen) return;
+    const handlePointerDown = (event: PointerEvent) => {
+      const target = event.target as Node | null;
+      if (!target) return;
+      if (popClipEditorModalRef.current?.contains(target)) return;
+      if (popClipEditorSheetRef.current?.contains(target)) return;
+      closePopClipEditor();
+    };
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        closePopClipEditor();
+      }
+    };
+    document.addEventListener("pointerdown", handlePointerDown);
+    document.addEventListener("keydown", handleKeyDown);
+    return () => {
+      document.removeEventListener("pointerdown", handlePointerDown);
+      document.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [closePopClipEditor, isPopClipEditorOpen]);
+
+  useEffect(() => {
     if (!catalogFanPickerOpen) return;
     const handlePointerDown = (event: PointerEvent) => {
       const target = event.target as Node | null;
@@ -676,6 +763,15 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
     });
     return () => cancelAnimationFrame(raf);
   }, [isCatalogEditorOpen]);
+
+  useEffect(() => {
+    if (!isPopClipEditorOpen) return;
+    const raf = requestAnimationFrame(() => {
+      popClipEditorVideoRef.current?.focus();
+      popClipEditorVideoRef.current?.select();
+    });
+    return () => cancelAnimationFrame(raf);
+  }, [isPopClipEditorOpen]);
 
   async function loadMessages(opts?: { silent?: boolean }) {
     try {
@@ -1429,6 +1525,22 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
       "create"
     );
   };
+  const openPopClipEditor = (item: CatalogItem) => {
+    if (item.type !== "PACK") return;
+    const existing = popClipsByCatalogItemId.get(item.id);
+    setPopClipEditorError(null);
+    setPopClipDraftItem(item);
+    setPopClipDraft({
+      id: existing?.id,
+      catalogItemId: item.id,
+      title: existing?.title ?? "",
+      videoUrl: existing?.videoUrl ?? "",
+      posterUrl: existing?.posterUrl ?? "",
+      durationSec: existing?.durationSec ? String(existing.durationSec) : "",
+      isActive: existing?.isActive ?? true,
+    });
+    setIsPopClipEditorOpen(true);
+  };
   const createCatalogItemAndEdit = async (type: CatalogItemType) => {
     if (!creatorId) {
       setCatalogToast("No hay creatorId para crear el ítem.");
@@ -1641,6 +1753,95 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
         sortCatalogItems(prev.map((entry) => (entry.id === item.id ? item : entry)))
       );
       setCatalogToast("No se pudo actualizar.");
+    }
+  };
+  const handlePopClipSave = async () => {
+    if (!popClipDraft) return;
+    if (!creatorId) {
+      setPopClipEditorError("No hay creatorId para guardar.");
+      return;
+    }
+    const videoUrl = popClipDraft.videoUrl.trim();
+    if (!videoUrl) {
+      setPopClipEditorError("El video es obligatorio.");
+      return;
+    }
+    const durationRaw = popClipDraft.durationSec.trim();
+    const durationValue = durationRaw.length > 0 ? Number(durationRaw) : null;
+    if (durationValue !== null && (!Number.isFinite(durationValue) || durationValue < 0)) {
+      setPopClipEditorError("La duración debe ser válida.");
+      return;
+    }
+    setPopClipSaving(true);
+    setPopClipEditorError(null);
+    const payload = {
+      creatorId,
+      catalogItemId: popClipDraft.catalogItemId,
+      title: popClipDraft.title.trim() || null,
+      videoUrl,
+      posterUrl: popClipDraft.posterUrl.trim() || null,
+      durationSec: durationValue === null ? null : Math.round(durationValue),
+      isActive: popClipDraft.isActive,
+    };
+
+    try {
+      if (popClipDraft.id) {
+        const res = await fetch(`/api/popclips/${popClipDraft.id}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+        if (!res.ok) {
+          throw new Error("Error updating popclip");
+        }
+        const data = (await res.json()) as { clip: PopClip };
+        setPopClips((prev) => sortPopClips(prev.map((clip) => (clip.id === data.clip.id ? data.clip : clip))));
+        closePopClipEditor();
+        return;
+      }
+
+      const res = await fetch("/api/popclips", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      if (!res.ok) {
+        throw new Error("Error creating popclip");
+      }
+      const data = (await res.json()) as { clip: PopClip };
+      setPopClips((prev) => sortPopClips([data.clip, ...prev]));
+      closePopClipEditor();
+    } catch (_err) {
+      setPopClipEditorError("No se pudo guardar el clip.");
+    } finally {
+      setPopClipSaving(false);
+    }
+  };
+  const handlePopClipDelete = async () => {
+    if (!popClipDraft?.id) {
+      closePopClipEditor();
+      return;
+    }
+    if (!creatorId) {
+      setPopClipEditorError("No hay creatorId para eliminar.");
+      return;
+    }
+    setPopClipDeleting(true);
+    setPopClipEditorError(null);
+    try {
+      const res = await fetch(
+        `/api/popclips/${popClipDraft.id}?creatorId=${encodeURIComponent(creatorId)}`,
+        { method: "DELETE" }
+      );
+      if (!res.ok) {
+        throw new Error("Error deleting popclip");
+      }
+      setPopClips((prev) => prev.filter((clip) => clip.id !== popClipDraft.id));
+      closePopClipEditor();
+    } catch (_err) {
+      setPopClipEditorError("No se pudo eliminar el clip.");
+    } finally {
+      setPopClipDeleting(false);
     }
   };
   const handleCatalogQuickAction = (actionId?: string) => {
@@ -1990,12 +2191,17 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
           </div>
           {catalogLoading && <div className="mt-3 text-[12px] text-slate-400">Cargando catálogo...</div>}
           {catalogError && <div className="mt-3 text-[12px] text-rose-300">{catalogError}</div>}
+          {popClipsLoading && <div className="mt-2 text-[12px] text-slate-500">Cargando PopClips...</div>}
+          {popClipsError && <div className="mt-2 text-[12px] text-rose-300">{popClipsError}</div>}
           {!catalogLoading && visibleCatalogItems.length === 0 && (
             <div className="mt-3 text-[12px] text-slate-400">Aún no tienes ítems en el catálogo.</div>
           )}
           <div className="mt-3 space-y-2">
             {visibleCatalogItems.map((item) => {
               const includesPreview = item.type === "BUNDLE" ? buildBundleIncludesPreview(item) : "";
+              const popClip = popClipsByCatalogItemId.get(item.id);
+              const hasActivePopClip = Boolean(popClip?.isActive);
+              const hasPopClip = Boolean(popClip);
               return (
                 <div
                   key={item.id}
@@ -2015,6 +2221,11 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
                   >
                     {item.isPublic ? "Público" : "Oculto"}
                   </span>
+                  {item.type === "PACK" && hasActivePopClip && (
+                    <span className="rounded-full border border-emerald-400/60 bg-emerald-500/10 px-2 py-0.5 text-[10px] font-semibold text-emerald-100">
+                      En PopClips
+                    </span>
+                  )}
                     <div className="min-w-0">
                       <div className="text-[13px] font-semibold text-slate-100 truncate">{item.title}</div>
                       {item.description && (
@@ -2056,6 +2267,19 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
                   >
                     Editar
                   </button>
+                  {item.type === "PACK" && (
+                    <button
+                      type="button"
+                      onPointerDown={(event) => event.stopPropagation()}
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        openPopClipEditor(item);
+                      }}
+                      className="rounded-full border border-slate-700/70 bg-slate-950/60 px-2.5 py-1 text-[10px] font-semibold text-slate-200 hover:bg-slate-800/80"
+                    >
+                      {hasPopClip ? "Editar clip" : "Añadir clip"}
+                    </button>
+                  )}
                   <button
                     type="button"
                     onPointerDown={(event) => event.stopPropagation()}
@@ -2506,6 +2730,324 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
                     >
                       {catalogSaving ? "Guardando..." : "Guardar"}
                     </button>
+                  </div>
+                </div>
+              </div>
+            </>,
+            document.body
+          )
+        : null;
+    const popClipEditor =
+      isPopClipEditorOpen && popClipDraft && popClipDraftItem && typeof document !== "undefined"
+        ? createPortal(
+            <>
+              <div className="hidden sm:flex fixed inset-0 z-[9999] items-center justify-center bg-black/60 px-4 py-6">
+                <div
+                  ref={popClipEditorModalRef}
+                  className="w-full max-w-lg rounded-2xl border border-slate-800/80 bg-slate-950/95 p-4 shadow-2xl"
+                  role="dialog"
+                  aria-modal="true"
+                  aria-label="Editor PopClips"
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <h3 className="text-sm font-semibold text-slate-100">
+                        {popClipDraft.id ? "Editar PopClip" : "Añadir PopClip"}
+                      </h3>
+                      <p className="text-[11px] text-slate-400">Clip público para este pack.</p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={closePopClipEditor}
+                      className="text-[12px] font-semibold text-slate-300 hover:text-slate-100"
+                    >
+                      Cerrar
+                    </button>
+                  </div>
+                  <div className="mt-4 space-y-3">
+                    <div className="rounded-lg border border-slate-800 bg-slate-950/70 px-3 py-2">
+                      <div className="text-[10px] uppercase tracking-wide text-slate-500">Pack</div>
+                      <div className="mt-1 text-[12px] font-semibold text-slate-100">{popClipDraftItem.title}</div>
+                      <div className="text-[11px] text-slate-400">
+                        {formatPriceCents(popClipDraftItem.priceCents, popClipDraftItem.currency)}
+                      </div>
+                    </div>
+                    {!popClipDraftItem.isPublic && (
+                      <div className="rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-[11px] text-amber-200">
+                        Este pack está oculto en el perfil. PopClips es público: actívalo en “Visible en perfil” o el
+                        clip no se mostrará.
+                      </div>
+                    )}
+                    <label className="block text-[11px] text-slate-400">
+                      Título (opcional)
+                      <input
+                        value={popClipDraft.title}
+                        onChange={(event) =>
+                          setPopClipDraft((prev) => (prev ? { ...prev, title: event.target.value } : prev))
+                        }
+                        className="mt-1 w-full rounded-lg border border-slate-800 bg-slate-950/70 px-3 py-2 text-sm text-slate-100"
+                        placeholder="Título del clip"
+                      />
+                    </label>
+                    <label className="block text-[11px] text-slate-400">
+                      Video URL
+                      <input
+                        ref={popClipEditorVideoRef}
+                        value={popClipDraft.videoUrl}
+                        onChange={(event) =>
+                          setPopClipDraft((prev) => (prev ? { ...prev, videoUrl: event.target.value } : prev))
+                        }
+                        className="mt-1 w-full rounded-lg border border-slate-800 bg-slate-950/70 px-3 py-2 text-sm text-slate-100"
+                        placeholder="https://..."
+                        inputMode="url"
+                      />
+                    </label>
+                    <label className="block text-[11px] text-slate-400">
+                      Poster URL (opcional)
+                      <input
+                        value={popClipDraft.posterUrl}
+                        onChange={(event) =>
+                          setPopClipDraft((prev) => (prev ? { ...prev, posterUrl: event.target.value } : prev))
+                        }
+                        className="mt-1 w-full rounded-lg border border-slate-800 bg-slate-950/70 px-3 py-2 text-sm text-slate-100"
+                        placeholder="https://..."
+                        inputMode="url"
+                      />
+                    </label>
+                    <label className="block text-[11px] text-slate-400">
+                      Duración (segundos)
+                      <input
+                        value={popClipDraft.durationSec}
+                        onChange={(event) =>
+                          setPopClipDraft((prev) => (prev ? { ...prev, durationSec: event.target.value } : prev))
+                        }
+                        className="mt-1 w-full rounded-lg border border-slate-800 bg-slate-950/70 px-3 py-2 text-sm text-slate-100"
+                        placeholder="8"
+                        inputMode="numeric"
+                      />
+                    </label>
+                    <label className="flex items-center justify-between rounded-lg border border-slate-800 bg-slate-950/70 px-3 py-2 text-[11px] text-slate-200">
+                      Activo
+                      <input
+                        type="checkbox"
+                        checked={popClipDraft.isActive}
+                        onChange={(event) =>
+                          setPopClipDraft((prev) => (prev ? { ...prev, isActive: event.target.checked } : prev))
+                        }
+                        className="h-4 w-4 accent-emerald-500"
+                      />
+                    </label>
+                    {popClipEditorError && <div className="text-[11px] text-rose-300">{popClipEditorError}</div>}
+                    <div className="rounded-lg border border-slate-800 bg-slate-950/70 px-3 py-2">
+                      <div className="text-[10px] uppercase tracking-wide text-slate-500">Preview</div>
+                      {popClipDraft.videoUrl.trim() ? (
+                        <video
+                          src={popClipDraft.videoUrl.trim()}
+                          poster={popClipDraft.posterUrl.trim() || undefined}
+                          muted
+                          loop
+                          playsInline
+                          controls
+                          className="mt-2 w-full rounded-lg border border-slate-800/70 bg-black/40"
+                        />
+                      ) : (
+                        <div className="mt-2 text-[11px] text-slate-500">Añade un video URL para previsualizar.</div>
+                      )}
+                    </div>
+                  </div>
+                  <div className="mt-4 flex items-center justify-between gap-2">
+                    {popClipDraft.id ? (
+                      <button
+                        type="button"
+                        onClick={handlePopClipDelete}
+                        disabled={popClipDeleting || popClipSaving}
+                        className="rounded-full border border-rose-500/60 bg-rose-500/10 px-3 py-1.5 text-[11px] font-semibold text-rose-200 hover:bg-rose-500/20 disabled:opacity-60"
+                      >
+                        {popClipDeleting ? "Eliminando..." : "Eliminar"}
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={closePopClipEditor}
+                        className="rounded-full border border-slate-700/70 bg-slate-900/60 px-3 py-1.5 text-[11px] font-semibold text-slate-200 hover:bg-slate-800/80"
+                      >
+                        Cancelar
+                      </button>
+                    )}
+                    <div className="flex items-center gap-2">
+                      {popClipDraft.id && (
+                        <button
+                          type="button"
+                          onClick={closePopClipEditor}
+                          className="rounded-full border border-slate-700/70 bg-slate-900/60 px-3 py-1.5 text-[11px] font-semibold text-slate-200 hover:bg-slate-800/80"
+                        >
+                          Cancelar
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        onClick={handlePopClipSave}
+                        disabled={popClipSaving || popClipDeleting}
+                        className="h-9 px-4 rounded-full text-sm font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 bg-emerald-600 text-white hover:bg-emerald-500 focus-visible:ring-emerald-400/40 disabled:opacity-60"
+                      >
+                        {popClipSaving ? "Guardando..." : "Guardar"}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+              <div className="sm:hidden fixed inset-0 z-[9999] flex items-end justify-center bg-black/60">
+                <div
+                  ref={popClipEditorSheetRef}
+                  className="w-full max-w-lg rounded-t-2xl border border-slate-800/80 bg-slate-950/95 p-4 shadow-2xl max-h-[85vh] overflow-y-auto"
+                  role="dialog"
+                  aria-modal="true"
+                  aria-label="Editor PopClips"
+                >
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <h3 className="text-sm font-semibold text-slate-100">
+                        {popClipDraft.id ? "Editar PopClip" : "Añadir PopClip"}
+                      </h3>
+                      <p className="text-[11px] text-slate-400">Clip público para este pack.</p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={closePopClipEditor}
+                      className="text-[12px] font-semibold text-slate-300 hover:text-slate-100"
+                    >
+                      Cerrar
+                    </button>
+                  </div>
+                  <div className="mt-4 space-y-3">
+                    <div className="rounded-lg border border-slate-800 bg-slate-950/70 px-3 py-2">
+                      <div className="text-[10px] uppercase tracking-wide text-slate-500">Pack</div>
+                      <div className="mt-1 text-[12px] font-semibold text-slate-100">{popClipDraftItem.title}</div>
+                      <div className="text-[11px] text-slate-400">
+                        {formatPriceCents(popClipDraftItem.priceCents, popClipDraftItem.currency)}
+                      </div>
+                    </div>
+                    {!popClipDraftItem.isPublic && (
+                      <div className="rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-[11px] text-amber-200">
+                        Este pack está oculto en el perfil. PopClips es público: actívalo en “Visible en perfil” o el
+                        clip no se mostrará.
+                      </div>
+                    )}
+                    <label className="block text-[11px] text-slate-400">
+                      Título (opcional)
+                      <input
+                        value={popClipDraft.title}
+                        onChange={(event) =>
+                          setPopClipDraft((prev) => (prev ? { ...prev, title: event.target.value } : prev))
+                        }
+                        className="mt-1 w-full rounded-lg border border-slate-800 bg-slate-950/70 px-3 py-2 text-sm text-slate-100"
+                        placeholder="Título del clip"
+                      />
+                    </label>
+                    <label className="block text-[11px] text-slate-400">
+                      Video URL
+                      <input
+                        ref={popClipEditorVideoRef}
+                        value={popClipDraft.videoUrl}
+                        onChange={(event) =>
+                          setPopClipDraft((prev) => (prev ? { ...prev, videoUrl: event.target.value } : prev))
+                        }
+                        className="mt-1 w-full rounded-lg border border-slate-800 bg-slate-950/70 px-3 py-2 text-sm text-slate-100"
+                        placeholder="https://..."
+                        inputMode="url"
+                      />
+                    </label>
+                    <label className="block text-[11px] text-slate-400">
+                      Poster URL (opcional)
+                      <input
+                        value={popClipDraft.posterUrl}
+                        onChange={(event) =>
+                          setPopClipDraft((prev) => (prev ? { ...prev, posterUrl: event.target.value } : prev))
+                        }
+                        className="mt-1 w-full rounded-lg border border-slate-800 bg-slate-950/70 px-3 py-2 text-sm text-slate-100"
+                        placeholder="https://..."
+                        inputMode="url"
+                      />
+                    </label>
+                    <label className="block text-[11px] text-slate-400">
+                      Duración (segundos)
+                      <input
+                        value={popClipDraft.durationSec}
+                        onChange={(event) =>
+                          setPopClipDraft((prev) => (prev ? { ...prev, durationSec: event.target.value } : prev))
+                        }
+                        className="mt-1 w-full rounded-lg border border-slate-800 bg-slate-950/70 px-3 py-2 text-sm text-slate-100"
+                        placeholder="8"
+                        inputMode="numeric"
+                      />
+                    </label>
+                    <label className="flex items-center justify-between rounded-lg border border-slate-800 bg-slate-950/70 px-3 py-2 text-[11px] text-slate-200">
+                      Activo
+                      <input
+                        type="checkbox"
+                        checked={popClipDraft.isActive}
+                        onChange={(event) =>
+                          setPopClipDraft((prev) => (prev ? { ...prev, isActive: event.target.checked } : prev))
+                        }
+                        className="h-4 w-4 accent-emerald-500"
+                      />
+                    </label>
+                    {popClipEditorError && <div className="text-[11px] text-rose-300">{popClipEditorError}</div>}
+                    <div className="rounded-lg border border-slate-800 bg-slate-950/70 px-3 py-2">
+                      <div className="text-[10px] uppercase tracking-wide text-slate-500">Preview</div>
+                      {popClipDraft.videoUrl.trim() ? (
+                        <video
+                          src={popClipDraft.videoUrl.trim()}
+                          poster={popClipDraft.posterUrl.trim() || undefined}
+                          muted
+                          loop
+                          playsInline
+                          controls
+                          className="mt-2 w-full rounded-lg border border-slate-800/70 bg-black/40"
+                        />
+                      ) : (
+                        <div className="mt-2 text-[11px] text-slate-500">Añade un video URL para previsualizar.</div>
+                      )}
+                    </div>
+                  </div>
+                  <div className="mt-4 flex items-center justify-between gap-2">
+                    {popClipDraft.id ? (
+                      <button
+                        type="button"
+                        onClick={handlePopClipDelete}
+                        disabled={popClipDeleting || popClipSaving}
+                        className="rounded-full border border-rose-500/60 bg-rose-500/10 px-3 py-1.5 text-[11px] font-semibold text-rose-200 hover:bg-rose-500/20 disabled:opacity-60"
+                      >
+                        {popClipDeleting ? "Eliminando..." : "Eliminar"}
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={closePopClipEditor}
+                        className="rounded-full border border-slate-700/70 bg-slate-900/60 px-3 py-1.5 text-[11px] font-semibold text-slate-200 hover:bg-slate-800/80"
+                      >
+                        Cancelar
+                      </button>
+                    )}
+                    <div className="flex items-center gap-2">
+                      {popClipDraft.id && (
+                        <button
+                          type="button"
+                          onClick={closePopClipEditor}
+                          className="rounded-full border border-slate-700/70 bg-slate-900/60 px-3 py-1.5 text-[11px] font-semibold text-slate-200 hover:bg-slate-800/80"
+                        >
+                          Cancelar
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        onClick={handlePopClipSave}
+                        disabled={popClipSaving || popClipDeleting}
+                        className="h-9 px-4 rounded-full text-sm font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 bg-emerald-600 text-white hover:bg-emerald-500 focus-visible:ring-emerald-400/40 disabled:opacity-60"
+                      >
+                        {popClipSaving ? "Guardando..." : "Guardar"}
+                      </button>
+                    </div>
                   </div>
                 </div>
               </div>
@@ -3215,6 +3757,7 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
               {overflowPanel}
               {favoritesEditor}
               {catalogEditor}
+              {popClipEditor}
               {catalogFanPicker}
               {error && <div className="text-sm text-rose-300 mt-2">{error}</div>}
             </div>

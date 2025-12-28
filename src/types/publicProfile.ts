@@ -47,3 +47,20 @@ export type PublicCatalogItem = {
   currency: string;
   includes: string[];
 };
+
+export type PublicPopClip = {
+  id: string;
+  title?: string | null;
+  videoUrl: string;
+  posterUrl?: string | null;
+  durationSec?: number | null;
+  sortOrder?: number;
+  pack: {
+    id: string;
+    title: string;
+    description?: string | null;
+    priceCents: number;
+    currency: string;
+    type: PublicCatalogItemType;
+  };
+};
