@@ -105,7 +105,8 @@ export const getServerSideProps: GetServerSideProps<Props> = async (ctx) => {
 
   const stats = await getSafeStats(match.id);
   const catalogItems = await getPublicCatalogItems(match.id);
-  const popClips = await getPublicPopClips(match.id);
+  const creatorHandle = slugify(match.name);
+  const popClips = await getPublicPopClips(match.id, creatorHandle);
   const packs = [
     { id: "welcome", name: "Pack bienvenida", price: "9 €" },
     { id: "monthly", name: "Suscripción mensual", price: "25 €" },
@@ -135,7 +136,7 @@ export const getServerSideProps: GetServerSideProps<Props> = async (ctx) => {
       stats,
       catalogItems,
       popClips,
-      creatorHandle: slugify(match.name),
+      creatorHandle,
     },
   };
 };
@@ -182,7 +183,7 @@ async function getPublicCatalogItems(creatorId: string): Promise<PublicCatalogIt
   });
 }
 
-async function getPublicPopClips(creatorId: string): Promise<PublicPopClip[]> {
+async function getPublicPopClips(creatorId: string, creatorHandle: string): Promise<PublicPopClip[]> {
   const prisma = (await import("../../lib/prisma.server")).default;
   const clips = (await prisma.popClip.findMany({
     where: {
@@ -226,6 +227,13 @@ async function getPublicPopClips(creatorId: string): Promise<PublicPopClip[]> {
         priceCents: clip.catalogItem.priceCents,
         currency: clip.catalogItem.currency,
         type: clip.catalogItem.type,
+        slug: slugify(clip.catalogItem.title),
+        route: buildPackRoute(creatorHandle, clip.catalogItem.id),
+        coverUrl: clip.posterUrl ?? null,
       },
     }));
+}
+
+function buildPackRoute(handle: string, packId: string) {
+  return `/p/${handle}/${packId}`;
 }

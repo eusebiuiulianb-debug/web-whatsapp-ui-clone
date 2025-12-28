@@ -2223,7 +2223,7 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
                   </span>
                   {item.type === "PACK" && hasActivePopClip && (
                     <span className="rounded-full border border-emerald-400/60 bg-emerald-500/10 px-2 py-0.5 text-[10px] font-semibold text-emerald-100">
-                      En PopClips
+                      PopClips público
                     </span>
                   )}
                     <div className="min-w-0">
@@ -2526,7 +2526,7 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
                       />
                     </label>
                     <label className="flex items-center justify-between rounded-lg border border-slate-800 bg-slate-950/70 px-3 py-2 text-[11px] text-slate-200">
-                      Visible en perfil
+                      Visible en perfil público
                       <input
                         type="checkbox"
                         checked={catalogDraft.isPublic}
@@ -2703,7 +2703,7 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
                       />
                     </label>
                     <label className="flex items-center justify-between rounded-lg border border-slate-800 bg-slate-950/70 px-3 py-2 text-[11px] text-slate-200">
-                      Visible en perfil
+                      Visible en perfil público
                       <input
                         type="checkbox"
                         checked={catalogDraft.isPublic}
@@ -2774,7 +2774,7 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
                     </div>
                     {!popClipDraftItem.isPublic && (
                       <div className="rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-[11px] text-amber-200">
-                        Este pack está oculto en el perfil. PopClips es público: actívalo en “Visible en perfil” o el
+                        Este pack está oculto en el perfil. PopClips es público: actívalo en “Visible en perfil público” o el
                         clip no se mostrará.
                       </div>
                     )}
@@ -2929,7 +2929,7 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
                     </div>
                     {!popClipDraftItem.isPublic && (
                       <div className="rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-[11px] text-amber-200">
-                        Este pack está oculto en el perfil. PopClips es público: actívalo en “Visible en perfil” o el
+                        Este pack está oculto en el perfil. PopClips es público: actívalo en “Visible en perfil público” o el
                         clip no se mostrará.
                       </div>
                     )}

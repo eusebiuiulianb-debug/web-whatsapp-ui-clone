@@ -62,5 +62,8 @@ export type PublicPopClip = {
     priceCents: number;
     currency: string;
     type: PublicCatalogItemType;
+    slug?: string;
+    route?: string;
+    coverUrl?: string | null;
   };
 };

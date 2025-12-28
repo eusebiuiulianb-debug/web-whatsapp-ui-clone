@@ -19,6 +19,8 @@ type Props = {
   creatorHandle?: string;
 };
 
+type ClipPlaybackStatus = "loading" | "ready" | "playing" | "paused" | "error";
+
 export default function PublicProfileView({
   copy,
   creatorName,
@@ -46,11 +48,17 @@ export default function PublicProfileView({
     () => [ ...(popClips ?? []) ].sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0)),
     [popClips]
   );
+  const popClipsLoading = typeof popClips === "undefined";
+  const showPopClipsSection = popClipsLoading || typeof popClips !== "undefined";
   const hasPopClips = sortedPopClips.length > 0;
   const clipRefs = useRef<Record<string, HTMLDivElement | null>>({});
   const videoRefs = useRef<Record<string, HTMLVideoElement | null>>({});
   const [activeClipId, setActiveClipId] = useState<string | null>(null);
+  const lastActiveClipIdRef = useRef<string | null>(null);
   const [blockedClips, setBlockedClips] = useState<Record<string, boolean>>({});
+  const [clipStatus, setClipStatus] = useState<Record<string, ClipPlaybackStatus>>({});
+  const [visibleClips, setVisibleClips] = useState<Record<string, boolean>>({});
+  const [isPageVisible, setIsPageVisible] = useState(true);
   const [activePack, setActivePack] = useState<PublicPopClip | null>(null);
 
   const hasWhatInside = copy.hero.showWhatInside !== false && (copy.hero.whatInsideBullets?.length ?? 0) > 0;
@@ -62,6 +70,26 @@ export default function PublicProfileView({
           backgroundPosition: "center",
         }
       : undefined;
+  const autoplayAllowed = isPageVisible && !activePack;
+
+  useEffect(() => {
+    if (typeof document === "undefined") return;
+    const handleVisibility = () => setIsPageVisible(!document.hidden);
+    handleVisibility();
+    document.addEventListener("visibilitychange", handleVisibility);
+    return () => document.removeEventListener("visibilitychange", handleVisibility);
+  }, []);
+
+  useEffect(() => {
+    if (sortedPopClips.length === 0) return;
+    setClipStatus((prev) => {
+      const next: Record<string, ClipPlaybackStatus> = {};
+      sortedPopClips.forEach((clip) => {
+        next[clip.id] = prev[clip.id] ?? "loading";
+      });
+      return next;
+    });
+  }, [sortedPopClips]);
 
   const ensureVideoSource = useCallback((video: HTMLVideoElement | null) => {
     if (!video) return;
@@ -72,10 +100,29 @@ export default function PublicProfileView({
     }
   }, []);
 
+  const updateClipStatus = useCallback((clipId: string, status: ClipPlaybackStatus) => {
+    setClipStatus((prev) => {
+      const current = prev[clipId];
+      if (current === status) return prev;
+      if (current === "playing" && status === "ready") return prev;
+      if (current === "error" && status !== "loading") return prev;
+      return { ...prev, [clipId]: status };
+    });
+  }, []);
+
+  const pauseAllClips = useCallback(() => {
+    sortedPopClips.forEach((clip) => {
+      const video = videoRefs.current[clip.id];
+      if (video) video.pause();
+    });
+  }, [sortedPopClips]);
+
   const attemptPlay = useCallback(
     (clipId: string) => {
       const video = videoRefs.current[clipId];
       if (!video) return;
+      if (!autoplayAllowed) return;
+      if (!visibleClips[clipId]) return;
       video.muted = true;
       ensureVideoSource(video);
       const playPromise = video.play();
@@ -86,18 +133,33 @@ export default function PublicProfileView({
           })
           .catch(() => {
             setBlockedClips((prev) => ({ ...prev, [clipId]: true }));
+            updateClipStatus(clipId, "paused");
           });
       }
     },
-    [ensureVideoSource]
+    [autoplayAllowed, ensureVideoSource, updateClipStatus, visibleClips]
   );
 
   const handleManualPlay = useCallback(
     (clipId: string) => {
+      setBlockedClips((prev) => ({ ...prev, [clipId]: false }));
       setActiveClipId(clipId);
       attemptPlay(clipId);
     },
     [attemptPlay]
+  );
+
+  const retryClip = useCallback(
+    (clipId: string) => {
+      const video = videoRefs.current[clipId];
+      if (!video) return;
+      setBlockedClips((prev) => ({ ...prev, [clipId]: false }));
+      updateClipStatus(clipId, "loading");
+      ensureVideoSource(video);
+      video.load();
+      attemptPlay(clipId);
+    },
+    [attemptPlay, ensureVideoSource, updateClipStatus]
   );
 
   useEffect(() => {
@@ -105,17 +167,25 @@ export default function PublicProfileView({
     if (sortedPopClips.length === 0) return;
     const observer = new IntersectionObserver(
       (entries) => {
-        entries.forEach((entry) => {
-          const clipId = entry.target.getAttribute("data-clip-id");
-          if (!clipId) return;
-          const video = videoRefs.current[clipId];
-          if (!video) return;
-          if (entry.isIntersecting) {
-            ensureVideoSource(video);
-            setActiveClipId((prev) => (prev === clipId ? prev : clipId));
-          } else {
-            video.pause();
-          }
+        setVisibleClips((prev) => {
+          const next = { ...prev };
+          entries.forEach((entry) => {
+            const clipId = entry.target.getAttribute("data-clip-id");
+            if (!clipId) return;
+            next[clipId] = entry.isIntersecting;
+            const video = videoRefs.current[clipId];
+            if (!video) return;
+            if (entry.isIntersecting) {
+              ensureVideoSource(video);
+              if (autoplayAllowed) {
+                setActiveClipId((current) => (current === clipId ? current : clipId));
+              }
+            } else {
+              video.pause();
+              updateClipStatus(clipId, "paused");
+            }
+          });
+          return next;
         });
       },
       { threshold: 0.6 }
@@ -125,10 +195,11 @@ export default function PublicProfileView({
       if (node) observer.observe(node);
     });
     return () => observer.disconnect();
-  }, [ensureVideoSource, sortedPopClips]);
+  }, [autoplayAllowed, ensureVideoSource, sortedPopClips, updateClipStatus]);
 
   useEffect(() => {
-    if (!activeClipId) return;
+    if (!activeClipId || !autoplayAllowed) return;
+    if (!visibleClips[activeClipId]) return;
     sortedPopClips.forEach((clip) => {
       const video = videoRefs.current[clip.id];
       if (!video) return;
@@ -138,13 +209,33 @@ export default function PublicProfileView({
       }
       video.pause();
     });
-  }, [activeClipId, attemptPlay, sortedPopClips]);
+  }, [activeClipId, attemptPlay, autoplayAllowed, sortedPopClips, visibleClips]);
+
+  useEffect(() => {
+    if (autoplayAllowed) {
+      if (!activeClipId) {
+        const fallback = lastActiveClipIdRef.current;
+        const visibleEntry = fallback && visibleClips[fallback] ? fallback : null;
+        const next = visibleEntry || Object.keys(visibleClips).find((id) => visibleClips[id]);
+        if (next) setActiveClipId(next);
+      }
+      return;
+    }
+    if (activeClipId) {
+      lastActiveClipIdRef.current = activeClipId;
+      setActiveClipId(null);
+    }
+    pauseAllClips();
+  }, [activeClipId, autoplayAllowed, pauseAllClips, visibleClips]);
 
   const packDraft = activePack ? buildPackDraft(activePack.pack) : "";
-  const packHref =
+  const packChatHref =
     activePack && creatorHandle
       ? { pathname: `/go/${creatorHandle}`, query: { draft: packDraft } }
       : { pathname: "/" };
+  const packLandingHref =
+    activePack?.pack.route || (activePack && creatorHandle ? `/p/${creatorHandle}/${activePack.pack.id}` : "/");
+  const packCoverUrl = activePack?.pack.coverUrl || activePack?.posterUrl || null;
   const packModal = activePack ? (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-4 py-6">
       <div className="w-full max-w-md rounded-2xl border border-slate-800 bg-slate-900/95 p-5 shadow-2xl">
@@ -163,6 +254,16 @@ export default function PublicProfileView({
             Cerrar
           </button>
         </div>
+        {packCoverUrl && (
+          <div
+            className="mt-4 h-40 w-full overflow-hidden rounded-xl border border-slate-800 bg-slate-950/80"
+            style={{
+              backgroundImage: `linear-gradient(135deg, rgba(11,20,26,0.85), rgba(11,20,26,0.55)), url('${packCoverUrl}')`,
+              backgroundSize: "cover",
+              backgroundPosition: "center",
+            }}
+          />
+        )}
         {activePack.pack.description && (
           <p className="mt-3 text-sm text-slate-300 leading-relaxed">{activePack.pack.description}</p>
         )}
@@ -175,7 +276,13 @@ export default function PublicProfileView({
             Volver
           </button>
           <Link
-            href={packHref}
+            href={packLandingHref}
+            className="inline-flex items-center justify-center rounded-full border border-slate-700/70 bg-slate-900/60 px-4 py-2 text-xs font-semibold text-slate-100 hover:bg-slate-800/80"
+          >
+            Ver pack
+          </Link>
+          <Link
+            href={packChatHref}
             className="inline-flex items-center justify-center rounded-full bg-emerald-500 px-4 py-2 text-xs font-semibold text-slate-950 hover:bg-emerald-400"
           >
             Pedir
@@ -319,67 +426,109 @@ export default function PublicProfileView({
           </div>
         </section>
 
-        {hasPopClips && (
+        {showPopClipsSection && (
           <section className="space-y-4">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <h2 className="text-2xl font-semibold">PopClips</h2>
-              <span className="text-xs text-slate-400">Desliza para ver más</span>
+              {hasPopClips && <span className="text-xs text-slate-400">Desliza para ver más</span>}
             </div>
             <div className="rounded-3xl border border-slate-800 bg-slate-900/60 p-3">
-              <div className="h-[80vh] md:h-[72vh] overflow-y-auto snap-y snap-mandatory space-y-6 pr-2">
-                {sortedPopClips.map((clip) => {
-                  const clipTitle = clip.title?.trim() || clip.pack.title;
-                  const priceLabel = formatPriceCents(clip.pack.priceCents, clip.pack.currency);
-                  const isBlocked = Boolean(blockedClips[clip.id]);
-                  return (
+              {popClipsLoading && (
+                <div className="h-[80vh] md:h-[72vh] overflow-hidden space-y-6 pr-2">
+                  {Array.from({ length: 4 }).map((_, idx) => (
                     <div
-                      key={clip.id}
-                      ref={(node) => {
-                        clipRefs.current[clip.id] = node;
-                      }}
-                      data-clip-id={clip.id}
-                      className="relative h-[75vh] md:h-[70vh] snap-start overflow-hidden rounded-2xl border border-slate-800 bg-black/80"
-                    >
-                      <video
+                      key={`popclip-skeleton-${idx}`}
+                      className="h-[75vh] md:h-[70vh] rounded-2xl border border-slate-800 bg-slate-950/80 animate-pulse"
+                    />
+                  ))}
+                </div>
+              )}
+              {!popClipsLoading && !hasPopClips && (
+                <div className="flex h-[45vh] items-center justify-center rounded-2xl border border-dashed border-slate-800 bg-slate-950/40">
+                  <p className="text-sm text-slate-300">Este creador aún no tiene PopClips.</p>
+                </div>
+              )}
+              {hasPopClips && (
+                <div className="h-[80vh] md:h-[72vh] overflow-y-auto snap-y snap-mandatory space-y-6 pr-2">
+                  {sortedPopClips.map((clip) => {
+                    const clipTitle = clip.title?.trim() || clip.pack.title;
+                    const priceLabel = formatPriceCents(clip.pack.priceCents, clip.pack.currency);
+                    const isBlocked = Boolean(blockedClips[clip.id]);
+                    const status = clipStatus[clip.id] ?? "loading";
+                    const isLoading = status === "loading";
+                    const isError = status === "error";
+                    return (
+                      <div
+                        key={clip.id}
                         ref={(node) => {
-                          videoRefs.current[clip.id] = node;
+                          clipRefs.current[clip.id] = node;
                         }}
-                        data-src={clip.videoUrl}
-                        poster={clip.posterUrl?.trim() ? clip.posterUrl : undefined}
-                        muted
-                        loop
-                        playsInline
-                        preload="none"
-                        className="absolute inset-0 h-full w-full object-cover"
-                      />
-                      <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/20 to-transparent" />
-                      <div className="absolute bottom-4 left-4 right-4 flex items-end justify-between gap-4">
-                        <div className="space-y-1">
-                          <p className="text-[11px] uppercase tracking-wide text-emerald-200">PopClip</p>
-                          <h3 className="text-lg font-semibold text-white">{clipTitle}</h3>
-                          <p className="text-sm text-amber-300">{priceLabel}</p>
+                        data-clip-id={clip.id}
+                        className="relative h-[75vh] md:h-[70vh] snap-start overflow-hidden rounded-2xl border border-slate-800 bg-black/80"
+                      >
+                        <video
+                          ref={(node) => {
+                            videoRefs.current[clip.id] = node;
+                          }}
+                          data-src={clip.videoUrl}
+                          poster={clip.posterUrl?.trim() ? clip.posterUrl : undefined}
+                          muted
+                          loop
+                          playsInline
+                          preload="none"
+                          onLoadStart={() => updateClipStatus(clip.id, "loading")}
+                          onLoadedData={() => updateClipStatus(clip.id, "ready")}
+                          onPlay={() => updateClipStatus(clip.id, "playing")}
+                          onPause={() => updateClipStatus(clip.id, "paused")}
+                          onError={() => updateClipStatus(clip.id, "error")}
+                          className="absolute inset-0 h-full w-full object-cover"
+                        />
+                        <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/20 to-transparent" />
+                        <div className="absolute bottom-4 left-4 right-4 flex items-end justify-between gap-4">
+                          <div className="space-y-1">
+                            <p className="text-[11px] uppercase tracking-wide text-emerald-200">PopClip</p>
+                            <h3 className="text-lg font-semibold text-white">{clipTitle}</h3>
+                            <p className="text-sm text-amber-300">{priceLabel}</p>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => setActivePack(clip)}
+                            className="rounded-full bg-emerald-500 px-4 py-2 text-xs font-semibold text-slate-950 hover:bg-emerald-400"
+                          >
+                            Ver pack
+                          </button>
                         </div>
-                        <button
-                          type="button"
-                          onClick={() => setActivePack(clip)}
-                          className="rounded-full bg-emerald-500 px-4 py-2 text-xs font-semibold text-slate-950 hover:bg-emerald-400"
-                        >
-                          Ver pack
-                        </button>
+                        {isLoading && (
+                          <div className="absolute inset-0 flex items-center justify-center bg-black/30 text-xs font-semibold text-slate-100">
+                            Cargando...
+                          </div>
+                        )}
+                        {isError && (
+                          <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-black/60 text-center">
+                            <p className="text-sm font-semibold text-slate-100">No se pudo cargar el clip.</p>
+                            <button
+                              type="button"
+                              onClick={() => retryClip(clip.id)}
+                              className="rounded-full border border-emerald-400/70 bg-emerald-500/10 px-4 py-1.5 text-xs font-semibold text-emerald-100 hover:bg-emerald-500/20"
+                            >
+                              Reintentar
+                            </button>
+                          </div>
+                        )}
+                        {!isError && isBlocked && (
+                          <button
+                            type="button"
+                            onClick={() => handleManualPlay(clip.id)}
+                            className="absolute inset-0 flex items-center justify-center bg-black/40 text-sm font-semibold text-white"
+                          >
+                            Toca para reproducir
+                          </button>
+                        )}
                       </div>
-                      {isBlocked && (
-                        <button
-                          type="button"
-                          onClick={() => handleManualPlay(clip.id)}
-                          className="absolute inset-0 flex items-center justify-center bg-black/40 text-sm font-semibold text-white"
-                        >
-                          Reproducir
-                        </button>
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
+                    );
+                  })}
+                </div>
+              )}
             </div>
           </section>
         )}
@@ -508,7 +657,10 @@ function buildCatalogDraft(item: PublicCatalogItem) {
 
 function buildPackDraft(pack: PublicPopClip["pack"]) {
   const priceLabel = formatPriceCents(pack.priceCents, pack.currency);
-  return `Quiero el pack "${pack.title}" (${priceLabel}). ¿Me lo activas?`;
+  const refParts = [`productId=${pack.id}`];
+  if (pack.slug) refParts.push(`slug=${pack.slug}`);
+  const refLine = refParts.length > 0 ? `\n\nRef pack: ${refParts.join(" ")}` : "";
+  return `Quiero el pack "${pack.title}" (${priceLabel}). ¿Me lo activas?${refLine}`;
 }
 
 function formatIncludesPreview(includes: string[]) {

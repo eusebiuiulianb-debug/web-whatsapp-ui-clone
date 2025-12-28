@@ -16,6 +16,9 @@ type PublicPopClip = {
     priceCents: number;
     currency: string;
     type: string;
+    slug: string;
+    route: string;
+    coverUrl: string | null;
   };
 };
 
@@ -85,6 +88,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           priceCents: clip.catalogItem?.priceCents ?? 0,
           currency: clip.catalogItem?.currency ?? "EUR",
           type: clip.catalogItem?.type ?? "PACK",
+          slug: slugify(clip.catalogItem?.title || clip.title || "pack"),
+          route: buildPackRoute(handle, clip.catalogItem?.id || clip.catalogItemId),
+          coverUrl: clip.posterUrl ?? null,
         },
       }));
 
@@ -97,4 +103,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
 function slugify(value?: string | null) {
   return (value || "creator").toLowerCase().replace(/[^a-z0-9]+/g, "-");
+}
+
+function buildPackRoute(handle: string, packId: string) {
+  return `/p/${handle}/${packId}`;
 }
