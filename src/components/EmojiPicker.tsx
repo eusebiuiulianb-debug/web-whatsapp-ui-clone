@@ -14,6 +14,7 @@ import clsx from "clsx";
 import { readEmojiRecents, recordEmojiRecent } from "../lib/emoji/recents";
 import { useEmojiFavorites } from "../hooks/useEmojiFavorites";
 
+const useIsomorphicLayoutEffect = typeof window !== "undefined" ? useLayoutEffect : useEffect;
 const HIDDEN_POPOVER_STYLE: CSSProperties = { position: "fixed", left: -9999, top: -9999 };
 const REACTION_CATEGORIES = ["frequent", "people", "nature", "foods", "symbols"];
 
@@ -48,6 +49,7 @@ export function EmojiPicker({
   const [ emojiPickerData, setEmojiPickerData ] = useState<any | null>(null);
   const [ isCentered, setIsCentered ] = useState(false);
   const [ emojiRecents, setEmojiRecents ] = useState<string[]>([]);
+  const [ portalTarget, setPortalTarget ] = useState<HTMLElement | null>(null);
   const { favorites } = useEmojiFavorites();
   const isReactionMode = mode === "reaction";
   const pickerPerLine = perLine ?? (isReactionMode ? 8 : 9);
@@ -84,6 +86,11 @@ export function EmojiPicker({
     if (!isOpen) return;
     setEmojiRecents(readEmojiRecents());
   }, [isOpen]);
+
+  useIsomorphicLayoutEffect(() => {
+    if (typeof document === "undefined") return;
+    setPortalTarget(document.body);
+  }, []);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -186,7 +193,7 @@ export function EmojiPicker({
     });
   }, [anchorRef, isOpen, isReactionMode]);
 
-  useLayoutEffect(() => {
+  useIsomorphicLayoutEffect(() => {
     if (!isOpen || typeof window === "undefined") return;
     updatePosition();
   }, [EmojiMartPicker, isOpen, updatePosition, emojiPickerData, topContent, emojiRecents, favorites.length]);
@@ -302,7 +309,7 @@ export function EmojiPicker({
     );
   };
 
-  if (!isOpen || typeof document === "undefined") return null;
+  if (!isOpen || !portalTarget) return null;
 
   return createPortal(
     <>
@@ -361,6 +368,6 @@ export function EmojiPicker({
         </div>
       </div>
     </>,
-    document.body
+    portalTarget
   );
 }

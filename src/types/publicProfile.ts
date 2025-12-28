@@ -36,3 +36,14 @@ export type PublicProfileStats = {
   videos: number;
   audios: number;
 };
+
+export type PublicCatalogItemType = "EXTRA" | "BUNDLE" | "PACK";
+
+export type PublicCatalogItem = {
+  type: PublicCatalogItemType;
+  title: string;
+  description?: string | null;
+  priceCents: number;
+  currency: string;
+  includes: string[];
+};

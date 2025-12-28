@@ -48,6 +48,12 @@ import { getNearDuplicateSimilarity } from "../../lib/text/isNearDuplicate";
 import { getStickerById, type StickerItem as LegacyStickerItem } from "../../lib/emoji/stickers";
 import { buildStickerToken, getStickerByToken, type StickerItem as PickerStickerItem } from "../../lib/stickers";
 import {
+  buildCatalogPitch,
+  formatCatalogIncludesSummary,
+  formatCatalogPriceCents,
+  type CatalogItem,
+} from "../../lib/catalog";
+import {
   DB_SCHEMA_OUT_OF_SYNC_FIX,
   DB_SCHEMA_OUT_OF_SYNC_MESSAGE,
   isDbSchemaOutOfSyncPayload,
@@ -443,6 +449,21 @@ function getFirstName(name?: string | null) {
   return first;
 }
 
+function safeDecodeQueryParam(value: string) {
+  try {
+    return decodeURIComponent(value);
+  } catch (_err) {
+    return value;
+  }
+}
+
+function normalizeSearchText(value: string) {
+  return value
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "");
+}
+
 function getReengageTemplate(name: string) {
   const cleanName = name?.trim() || "";
   return `Hola ${cleanName || "allí"}, soy Eusebiu. Hoy termina tu acceso a este espacio privado. Si quieres que sigamos trabajando juntos en tu relación y tu vida sexual, puedo ofrecerte renovar la suscripción o prepararte un pack especial solo para ti. Si te interesa, dime “QUIERO SEGUIR” y lo vemos juntos.`;
@@ -545,6 +566,9 @@ export default function ConversationDetails({ onBackToBoard }: ConversationDetai
   const isSendingRef = useRef(false);
   const internalToastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const inlineActionTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pendingComposerDraftRef = useRef<string | null>(null);
+  const pendingComposerDraftFanIdRef = useRef<string | null>(null);
+  const draftAppliedFanIdRef = useRef<string | null>(null);
   const translationPreviewTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const translationPreviewAbortRef = useRef<AbortController | null>(null);
   const translationPreviewRequestId = useRef(0);
@@ -557,7 +581,7 @@ export default function ConversationDetails({ onBackToBoard }: ConversationDetai
     text: string;
     maxWidth: number;
   } | null>(null);
-  const [ contentModalMode, setContentModalMode ] = useState<"packs" | "extras">("packs");
+  const [ contentModalMode, setContentModalMode ] = useState<"packs" | "extras" | "catalog">("packs");
   const [ extraTierFilter, setExtraTierFilter ] = useState<"T0" | "T1" | "T2" | "T3" | "T4" | null>(null);
   const [ contentModalPackFocus, setContentModalPackFocus ] = useState<"WELCOME" | "MONTHLY" | "SPECIAL" | null>(null);
   const [ registerExtrasChecked, setRegisterExtrasChecked ] = useState(false);
@@ -574,6 +598,13 @@ export default function ConversationDetails({ onBackToBoard }: ConversationDetai
   const [ contentItems, setContentItems ] = useState<ContentWithFlags[]>([]);
   const [ contentLoading, setContentLoading ] = useState(false);
   const [ contentError, setContentError ] = useState("");
+  const [ catalogItems, setCatalogItems ] = useState<CatalogItem[]>([]);
+  const [ catalogLoading, setCatalogLoading ] = useState(false);
+  const catalogLoadingRef = useRef(false);
+  const [ catalogError, setCatalogError ] = useState<string | null>(null);
+  const [ catalogSearch, setCatalogSearch ] = useState("");
+  const [ catalogTypeFilter, setCatalogTypeFilter ] = useState<"all" | "EXTRA" | "BUNDLE" | "PACK">("all");
+  const [ creatorId, setCreatorId ] = useState<string | null>(null);
   const [ loadingPaymentId, setLoadingPaymentId ] = useState<string | null>(null);
   const [ selectedContentIds, setSelectedContentIds ] = useState<string[]>([]);
   type TimeOfDayFilter = "all" | "day" | "night";
@@ -774,6 +805,8 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
     setRegisterExtrasChecked(false);
     setRegisterExtrasSource(null);
     setTransactionPrices({});
+    setCatalogSearch("");
+    setCatalogTypeFilter("all");
   }, []);
 
   const closeOverlays = useCallback((options?: { keepManagerPanel?: boolean }) => {
@@ -844,6 +877,24 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
   const resetMessageInputHeight = useCallback(() => {
     autoGrowTextarea(messageInputRef.current, MAX_MAIN_COMPOSER_HEIGHT);
   }, [autoGrowTextarea]);
+
+  useEffect(() => {
+    if (!router.isReady) return;
+    const rawDraft = router.query.draft;
+    if (typeof rawDraft === "undefined") return;
+    const draftValue = Array.isArray(rawDraft) ? rawDraft[0] : rawDraft;
+    if (process.env.NODE_ENV !== "production") {
+    }
+    if (typeof draftValue !== "string") return;
+    const decodedDraft = safeDecodeQueryParam(draftValue);
+    pendingComposerDraftRef.current = decodedDraft;
+    const rawFanId = router.query.fanId;
+    const fanIdValue = Array.isArray(rawFanId) ? rawFanId[0] : rawFanId;
+    pendingComposerDraftFanIdRef.current = typeof fanIdValue === "string" ? fanIdValue : null;
+    const nextQuery = { ...router.query };
+    delete nextQuery.draft;
+    void router.replace({ pathname: router.pathname, query: nextQuery }, undefined, { shallow: true });
+  }, [router]);
 
   const firstName = (contactName || "").split(" ")[0] || contactName || "";
   const messagesLength = messages?.length ?? 0;
@@ -1765,7 +1816,13 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
     }
   }
 
-  function openContentModal(options?: { mode?: "packs" | "extras"; tier?: "T0" | "T1" | "T2" | "T3" | "T4" | null; packFocus?: "WELCOME" | "MONTHLY" | "SPECIAL" | null; defaultRegisterExtras?: boolean; registerSource?: string | null }) {
+  function openContentModal(options?: {
+    mode?: "packs" | "extras" | "catalog";
+    tier?: "T0" | "T1" | "T2" | "T3" | "T4" | null;
+    packFocus?: "WELCOME" | "MONTHLY" | "SPECIAL" | null;
+    defaultRegisterExtras?: boolean;
+    registerSource?: string | null;
+  }) {
     const nextMode = options?.mode ?? "packs";
     setContentModalMode(nextMode);
     setExtraTierFilter(options?.tier ?? null);
@@ -1776,8 +1833,10 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
     setOpenPanel("none");
     setShowPackSelector(false);
     setSelectedContentIds([]);
-    fetchContentItems(id);
-    if (id) fetchAccessGrants(id);
+    if (nextMode !== "catalog") {
+      fetchContentItems(id);
+      if (id) fetchAccessGrants(id);
+    }
     setShowContentModal(true);
   }
 
@@ -1946,6 +2005,63 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
       setContentLoading(false);
     }
   }, []);
+
+  const resolveCreatorId = useCallback(async () => {
+    if (creatorId) return creatorId;
+    try {
+      const res = await fetch("/api/creator");
+      if (!res.ok) return null;
+      const data = await res.json().catch(() => ({}));
+      const idValue = typeof data?.creator?.id === "string" ? data.creator.id : null;
+      if (idValue) {
+        setCreatorId(idValue);
+      }
+      return idValue;
+    } catch (_err) {
+      return null;
+    }
+  }, [creatorId]);
+
+  const fetchCatalogItems = useCallback(async () => {
+    if (catalogLoadingRef.current) return;
+    catalogLoadingRef.current = true;
+    try {
+      setCatalogLoading(true);
+      setCatalogError(null);
+      const resolvedCreatorId = await resolveCreatorId();
+      if (!resolvedCreatorId) {
+        setCatalogError("No se pudo cargar el catalogo.");
+        setCatalogItems([]);
+        return;
+      }
+      const res = await fetch(`/api/catalog?creatorId=${encodeURIComponent(resolvedCreatorId)}`);
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error("error");
+      const rawItems = Array.isArray(data)
+        ? (data as CatalogItem[])
+        : Array.isArray(data.items)
+        ? (data.items as CatalogItem[])
+        : [];
+      const items = rawItems.map((raw) => {
+        const item = raw as CatalogItem;
+        const includes = Array.isArray(item.includes)
+          ? item.includes.filter((entry): entry is string => typeof entry === "string")
+          : [];
+        return {
+          ...item,
+          includes,
+          isPublic: typeof item.isPublic === "boolean" ? item.isPublic : true,
+        };
+      });
+      setCatalogItems(items as CatalogItem[]);
+    } catch (_err) {
+      setCatalogError("No se pudo cargar el catalogo.");
+      setCatalogItems([]);
+    } finally {
+      catalogLoadingRef.current = false;
+      setCatalogLoading(false);
+    }
+  }, [resolveCreatorId]);
 
   async function fetchExtrasHistory(fanId: string) {
     try {
@@ -2251,7 +2367,13 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
     };
   }, [fetchMessages, id]);
   useEffect(() => {
-    setMessageSend("");
+    if (draftAppliedFanIdRef.current && draftAppliedFanIdRef.current !== conversation.id) {
+      draftAppliedFanIdRef.current = null;
+    }
+    const preserveDraft = draftAppliedFanIdRef.current === conversation.id;
+    if (!preserveDraft) {
+      setMessageSend("");
+    }
     setInternalDraftInput("");
     setShowPackSelector(false);
     setOpenPanel("none");
@@ -2271,6 +2393,29 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
     const derivedPack = derivePackFromLabel(membershipStatus || accessLabel) || "monthly";
     setSelectedPackType(derivedPack);
   }, [accessLabel, conversation.id, conversation.followUpOpen, conversation.profileText, conversation.quickNote, membershipStatus]);
+
+  useEffect(() => {
+    if (!id) return;
+    const pendingDraft = pendingComposerDraftRef.current;
+    if (!pendingDraft) return;
+    const targetFanId = pendingComposerDraftFanIdRef.current;
+    if (targetFanId && targetFanId !== id) return;
+    const trimmed = pendingDraft.trim();
+    pendingComposerDraftRef.current = null;
+    pendingComposerDraftFanIdRef.current = null;
+    if (!trimmed) return;
+    setComposerTarget("fan");
+    setMessageSend(pendingDraft);
+    draftAppliedFanIdRef.current = id;
+    requestAnimationFrame(() => {
+      const input = messageInputRef.current;
+      if (!input) return;
+      input.focus();
+      const len = pendingDraft.length;
+      input.setSelectionRange(len, len);
+      autoGrowTextarea(input, MAX_MAIN_COMPOSER_HEIGHT);
+    });
+  }, [autoGrowTextarea, id]);
 
   useEffect(() => {
     const normalized = normalizePreferredLanguage(conversation.preferredLanguage) ?? null;
@@ -2332,6 +2477,19 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
       setSelectedContentIds([firstMatch.id]);
     }
   }, [showContentModal, contentModalMode, contentItems, extraTierFilter, timeOfDayFilter, selectedContentIds.length]);
+
+  useEffect(() => {
+    if (!showContentModal) return;
+    if (contentModalMode !== "catalog") return;
+    void fetchCatalogItems();
+  }, [showContentModal, contentModalMode, fetchCatalogItems]);
+
+  useEffect(() => {
+    if (!showContentModal) return;
+    if (contentModalMode !== "catalog") return;
+    setCatalogSearch("");
+    setCatalogTypeFilter("all");
+  }, [showContentModal, contentModalMode]);
 
   useEffect(() => {
     fetchAiStatus();
@@ -3497,6 +3655,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
                 const label = isCreatorNote ? "Tú" : "Manager IA";
                 const isStickerNote = msg.type === "STICKER";
                 const sticker = isStickerNote ? getStickerById(msg.stickerId ?? null) : null;
+                const stickerSrc = typeof sticker?.file === "string" ? sticker.file.trim() : "";
                 const noteText =
                   msg.type === "CONTENT"
                     ? msg.contentItem?.title || "Contenido interno"
@@ -3530,9 +3689,9 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
                       )}
                       {isStickerNote ? (
                         <div className="flex items-center justify-center">
-                          {sticker ? (
+                          {sticker && stickerSrc ? (
                             <Image
-                              src={sticker.file}
+                              src={stickerSrc}
                               alt={sticker.label}
                               width={96}
                               height={96}
@@ -5983,6 +6142,76 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
     }
   }
 
+  const catalogExtrasById = useMemo(() => {
+    const map = new Map<string, string>();
+    catalogItems
+      .filter((item) => item.type === "EXTRA")
+      .forEach((item) => {
+        map.set(item.id, item.title);
+      });
+    return map;
+  }, [catalogItems]);
+
+  const filteredCatalogItems = useMemo(() => {
+    const query = normalizeSearchText(catalogSearch.trim());
+    return catalogItems.filter((item) => {
+      if (catalogTypeFilter !== "all" && item.type !== catalogTypeFilter) return false;
+      if (!query) return true;
+      const haystack = normalizeSearchText(`${item.title} ${item.description ?? ""}`);
+      return haystack.includes(query);
+    });
+  }, [catalogItems, catalogSearch, catalogTypeFilter]);
+
+  const buildCatalogIncludesPreview = useCallback(
+    (item: CatalogItem) => {
+      if (item.type !== "BUNDLE") return "";
+      const includes = Array.isArray(item.includes) ? item.includes : [];
+      const count = includes.length;
+      if (count === 0) return "";
+      const names = includes
+        .map((id) => catalogExtrasById.get(id))
+        .filter((title): title is string => Boolean(title));
+      const preview = names.slice(0, 2).join(", ");
+      const remaining = Math.max(0, count - 2);
+      const label = count === 1 ? "extra" : "extras";
+      const previewSuffix = preview ? ` · ${preview}${remaining > 0 ? ` +${remaining}` : ""}` : "";
+      return `Incluye: ${count} ${label}${previewSuffix}`;
+    },
+    [catalogExtrasById]
+  );
+
+  const buildCatalogIncludesSummary = useCallback(
+    (item: CatalogItem) => {
+      if (item.type !== "BUNDLE") return "";
+      const includes = Array.isArray(item.includes) ? item.includes : [];
+      const names = includes
+        .map((id) => catalogExtrasById.get(id))
+        .filter((title): title is string => Boolean(title));
+      if (names.length === 0 && includes.length > 0) {
+        return `${includes.length} extras`;
+      }
+      return formatCatalogIncludesSummary(names);
+    },
+    [catalogExtrasById]
+  );
+
+  const handleCatalogInsert = (item: CatalogItem) => {
+    const fanName = getFirstName(contactName || "") || getFirstName(conversation.displayName || "") || "alli";
+    const includesSummary = buildCatalogIncludesSummary(item) || undefined;
+    const draft = buildCatalogPitch({ fanName, item, includesSummary });
+    setShowContentModal(false);
+    setSelectedContentIds([]);
+    setContentModalPackFocus(null);
+    setRegisterExtrasChecked(false);
+    setRegisterExtrasSource(null);
+    setTransactionPrices({});
+    if (messageSend.trim()) {
+      setPendingInsert({ text: draft, detail: "Catalogo" });
+      return;
+    }
+    applyComposerInsert(draft, "replace", "Catalogo");
+  };
+
   function getPresenceStatus(sourceLastSeenAt?: string | null, fallbackLabel?: string | null) {
     if (sourceLastSeenAt) {
       const last = new Date(sourceLastSeenAt);
@@ -7568,11 +7797,15 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
             <div className="flex items-center justify-between mb-2">
               <div>
                 <h3 className="text-lg font-semibold text-white">Adjuntar contenido</h3>
-                <p className="text-sm text-slate-300">Elige qué quieres enviar a este fan según sus packs.</p>
+                <p className="text-sm text-slate-300">
+                  {contentModalMode === "catalog"
+                    ? "Elige un item del catalogo para insertar en el mensaje."
+                    : "Elige que quieres enviar a este fan segun sus packs."}
+                </p>
               </div>
               <div className="flex items-center gap-2">
                 <div className="inline-flex rounded-full border border-slate-700 bg-slate-800/60 p-1">
-                  {(["packs", "extras"] as const).map((mode) => {
+                  {(["packs", "extras", "catalog"] as const).map((mode) => {
                     const isActive = contentModalMode === mode;
                     return (
                       <button
@@ -7586,7 +7819,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
                         )}
                         onClick={() => setContentModalMode(mode)}
                       >
-                        {mode === "packs" ? "Packs" : "Extras PPV"}
+                        {mode === "packs" ? "Packs" : mode === "extras" ? "Extras PPV" : "Catalogo"}
                       </button>
                     );
                   })}
@@ -7662,8 +7895,8 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
               </div>
             )}
             <div className="mt-3 flex flex-col gap-3 max-h-[60vh] overflow-y-auto">
-              {contentError && (
-                <div className="text-sm text-rose-300">No se ha podido cargar la información de packs.</div>
+              {contentError && contentModalMode !== "catalog" && (
+                <div className="text-sm text-rose-300">No se ha podido cargar la informacion de packs.</div>
               )}
               {!contentError && contentModalMode === "packs" && CONTENT_PACKS.map((packMeta) => {
                   const isUnlocked =
@@ -7869,6 +8102,121 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
                   </div>
                 </div>
               )}
+              {contentModalMode === "catalog" && (
+                <div className="rounded-xl border border-slate-800 bg-slate-900/70 p-3 space-y-3">
+                  <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                    <input
+                      value={catalogSearch}
+                      onChange={(event) => setCatalogSearch(event.target.value)}
+                      placeholder="Buscar..."
+                      className="w-full sm:max-w-[240px] rounded-md border border-slate-700 bg-slate-900 px-3 py-2 text-xs text-white placeholder:text-slate-500"
+                    />
+                    <div className="inline-flex rounded-full border border-slate-700 bg-slate-800/60 p-1 text-[10px] font-semibold">
+                      {([
+                        { id: "all", label: "Todos" },
+                        { id: "EXTRA", label: "Extras" },
+                        { id: "BUNDLE", label: "Bundles" },
+                        { id: "PACK", label: "Packs" },
+                      ] as const).map((entry) => {
+                        const isActive = catalogTypeFilter === entry.id;
+                        return (
+                          <button
+                            key={entry.id}
+                            type="button"
+                            onClick={() => setCatalogTypeFilter(entry.id)}
+                            className={clsx(
+                              "px-3 py-1 rounded-full transition",
+                              isActive
+                                ? "bg-emerald-500/20 text-emerald-200 border border-emerald-400/70"
+                                : "text-slate-200"
+                            )}
+                          >
+                            {entry.label}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                  {catalogLoading && <div className="text-xs text-slate-400">Cargando catalogo...</div>}
+                  {catalogError && <div className="text-xs text-rose-300">{catalogError}</div>}
+                  {!catalogLoading && !catalogError && filteredCatalogItems.length === 0 && (
+                    <div className="rounded-lg border border-slate-800/70 bg-slate-950/60 px-3 py-3 text-xs text-slate-400 space-y-2">
+                      <div>No tienes catalogo aun. Ve a Cortex → Catalogo para crear items.</div>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          void router.push("/creator/manager");
+                        }}
+                        className="inline-flex items-center justify-center rounded-full border border-emerald-500/60 bg-emerald-500/15 px-3 py-1 text-[11px] font-semibold text-emerald-100 hover:bg-emerald-500/25"
+                      >
+                        Abrir Cortex
+                      </button>
+                    </div>
+                  )}
+                  {!catalogLoading && !catalogError && filteredCatalogItems.length > 0 && (
+                    <div className="space-y-2">
+                      {filteredCatalogItems.map((item) => {
+                        const includesPreview = buildCatalogIncludesPreview(item);
+                        return (
+                          <div
+                            key={item.id}
+                            className="rounded-lg border border-slate-800 bg-slate-900/80 px-3 py-2 text-sm text-slate-100"
+                          >
+                            <div className="flex items-start justify-between gap-3">
+                              <div className="min-w-0">
+                                <div className="flex flex-wrap items-center gap-2">
+                                  <span className="rounded-full border border-slate-700/70 bg-slate-950/70 px-2 py-0.5 text-[10px] font-semibold text-slate-200">
+                                    {item.type}
+                                  </span>
+                                  <span
+                                    className={clsx(
+                                      "rounded-full border px-2 py-0.5 text-[10px] font-semibold",
+                                      item.isActive
+                                        ? "border-emerald-500/50 bg-emerald-500/10 text-emerald-100"
+                                        : "border-slate-700/70 bg-slate-950/60 text-slate-300"
+                                    )}
+                                  >
+                                    {item.isActive ? "Activo" : "Inactivo"}
+                                  </span>
+                                  <span
+                                    className={clsx(
+                                      "rounded-full border px-2 py-0.5 text-[10px] font-semibold",
+                                      item.isPublic
+                                        ? "border-emerald-500/50 bg-emerald-500/10 text-emerald-100"
+                                        : "border-slate-700/70 bg-slate-950/60 text-slate-300"
+                                    )}
+                                  >
+                                    {item.isPublic ? "Publico" : "Oculto"}
+                                  </span>
+                                </div>
+                                <div className="mt-1 text-[13px] font-semibold text-slate-100 truncate">{item.title}</div>
+                                {item.description && (
+                                  <div className="text-[11px] text-slate-400 truncate">{item.description}</div>
+                                )}
+                                {includesPreview && (
+                                  <div className="text-[11px] text-slate-500 truncate">{includesPreview}</div>
+                                )}
+                              </div>
+                              <div className="flex flex-col items-end gap-2">
+                                <span className="text-[12px] font-semibold text-slate-100">
+                                  {formatCatalogPriceCents(item.priceCents, item.currency)}
+                                </span>
+                                <button
+                                  type="button"
+                                  onClick={() => handleCatalogInsert(item)}
+                                  className="inline-flex items-center justify-center rounded-full border border-emerald-500/60 bg-emerald-500/15 px-3 py-1 text-[11px] font-semibold text-emerald-100 hover:bg-emerald-500/25"
+                                >
+                                  Insertar
+                                </button>
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
             {contentModalMode === "extras" && selectedContentIds.length > 0 && (
               <div className="mt-3 flex items-center justify-between gap-2 rounded-lg border border-slate-800 bg-slate-900/70 px-3 py-2">
@@ -7897,63 +8245,65 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
                   setTransactionPrices({});
                 }}
               >
-                Cancelar
+                {contentModalMode === "catalog" ? "Cerrar" : "Cancelar"}
               </button>
-              <button
-                type="button"
-                disabled={selectedContentIds.length === 0 || !!contentError}
-                className={clsx(
-                  "rounded-full border px-3 py-1.5 text-xs font-semibold transition",
-                  selectedContentIds.length === 0 || !!contentError
-                    ? "border-slate-700 bg-slate-800/60 text-slate-500 cursor-not-allowed"
-                    : "border-amber-400 bg-amber-500/10 text-amber-100 hover:bg-amber-500/20"
-                )}
-                onClick={async () => {
-                  if (selectedContentIds.length === 0) return;
-                  const chosen = contentItems.filter((item) => selectedContentIds.includes(item.id));
-                  if (chosen.length === 0) return;
-                  // Enviamos cada contenido como mensaje CONTENT para mantener consistencia con /api/messages.
-                  const sentItems: ContentWithFlags[] = [];
-                  for (const item of chosen) {
-                    // eslint-disable-next-line no-await-in-loop
-                    await handleAttachContent(item, { keepOpen: true });
-                    sentItems.push(item);
-                  }
-                  if (contentModalMode === "extras" && registerExtrasChecked && sentItems.length > 0 && id) {
-                    const sessionTag = `${timeOfDay}_${new Date().toISOString().slice(0, 10)}`;
-                    const failed: string[] = [];
-                    for (const item of sentItems) {
-                      const tier = getExtraTier(item);
-                      const amount = getTransactionPriceFor(item);
+              {contentModalMode !== "catalog" && (
+                <button
+                  type="button"
+                  disabled={selectedContentIds.length === 0 || !!contentError}
+                  className={clsx(
+                    "rounded-full border px-3 py-1.5 text-xs font-semibold transition",
+                    selectedContentIds.length === 0 || !!contentError
+                      ? "border-slate-700 bg-slate-800/60 text-slate-500 cursor-not-allowed"
+                      : "border-amber-400 bg-amber-500/10 text-amber-100 hover:bg-amber-500/20"
+                  )}
+                  onClick={async () => {
+                    if (selectedContentIds.length === 0) return;
+                    const chosen = contentItems.filter((item) => selectedContentIds.includes(item.id));
+                    if (chosen.length === 0) return;
+                    // Enviamos cada contenido como mensaje CONTENT para mantener consistencia con /api/messages.
+                    const sentItems: ContentWithFlags[] = [];
+                    for (const item of chosen) {
                       // eslint-disable-next-line no-await-in-loop
-                      const result = await registerExtraSale({
-                        fanId: id,
-                        extraId: item.id,
-                        amount,
-                        tier,
-                        sessionTag,
-                        source: registerExtrasSource ?? "offer_flow",
-                      });
-                      if (!result.ok) {
-                        failed.push(item.title || "Extra");
+                      await handleAttachContent(item, { keepOpen: true });
+                      sentItems.push(item);
+                    }
+                    if (contentModalMode === "extras" && registerExtrasChecked && sentItems.length > 0 && id) {
+                      const sessionTag = `${timeOfDay}_${new Date().toISOString().slice(0, 10)}`;
+                      const failed: string[] = [];
+                      for (const item of sentItems) {
+                        const tier = getExtraTier(item);
+                        const amount = getTransactionPriceFor(item);
+                        // eslint-disable-next-line no-await-in-loop
+                        const result = await registerExtraSale({
+                          fanId: id,
+                          extraId: item.id,
+                          amount,
+                          tier,
+                          sessionTag,
+                          source: registerExtrasSource ?? "offer_flow",
+                        });
+                        if (!result.ok) {
+                          failed.push(item.title || "Extra");
+                        }
+                      }
+                      if (failed.length > 0) {
+                        alert('Contenido enviado, pero no se ha podido registrar la venta. Inténtalo desde "Ventas extra".');
                       }
                     }
-                    if (failed.length > 0) {
-                      alert('Contenido enviado, pero no se ha podido registrar la venta. Inténtalo desde "Ventas extra".');
-                    }
-                  }
-                  setShowContentModal(false);
-                  setSelectedContentIds([]);
-                  setContentModalPackFocus(null);
-                  setRegisterExtrasChecked(false);
-                  setRegisterExtrasSource(null);
-                  setTransactionPrices({});
-                }}
-              >
-                {selectedContentIds.length <= 1
-                  ? "Enviar 1 elemento"
-                  : `Enviar ${selectedContentIds.length} elementos`}
-              </button>
+                    setShowContentModal(false);
+                    setSelectedContentIds([]);
+                    setContentModalPackFocus(null);
+                    setRegisterExtrasChecked(false);
+                    setRegisterExtrasSource(null);
+                    setTransactionPrices({});
+                  }}
+                >
+                  {selectedContentIds.length <= 1
+                    ? "Enviar 1 elemento"
+                    : `Enviar ${selectedContentIds.length} elementos`}
+                </button>
+              )}
             </div>
           </div>
         </div>

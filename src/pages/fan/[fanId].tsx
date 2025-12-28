@@ -88,6 +88,8 @@ export default function FanChatPage({ includedContent, initialAccessSummary }: F
   const [onboardingSaving, setOnboardingSaving] = useState(false);
   const [onboardingLanguage, setOnboardingLanguage] = useState<SupportedLanguage>("en");
   const messagesContainerRef = useRef<HTMLDivElement | null>(null);
+  const composerInputRef = useRef<HTMLInputElement | null>(null);
+  const draftAppliedRef = useRef(false);
   const [isAtBottom, setIsAtBottom] = useState(true);
   const pollAbortRef = useRef<AbortController | null>(null);
   const pollIntervalRef = useRef<NodeJS.Timeout | null>(null);
@@ -165,6 +167,29 @@ export default function FanChatPage({ includedContent, initialAccessSummary }: F
       if (pollAbortRef.current) pollAbortRef.current.abort();
     };
   }, [fanId, fetchMessages]);
+
+  useEffect(() => {
+    if (!router.isReady || draftAppliedRef.current) return;
+    const rawDraft = router.query.draft;
+    if (typeof rawDraft === "undefined") return;
+    const draftValue = Array.isArray(rawDraft) ? rawDraft[0] : rawDraft;
+    if (typeof draftValue !== "string") return;
+    const decodedDraft = safeDecodeQueryParam(draftValue);
+    if (decodedDraft.trim()) {
+      setDraft(decodedDraft);
+      draftAppliedRef.current = true;
+      requestAnimationFrame(() => {
+        const input = composerInputRef.current;
+        if (!input) return;
+        input.focus();
+        const len = input.value.length;
+        input.setSelectionRange(len, len);
+      });
+    }
+    const nextQuery = { ...router.query };
+    delete nextQuery.draft;
+    void router.replace({ pathname: router.pathname, query: nextQuery }, undefined, { shallow: true });
+  }, [router]);
 
   const getFallbackLanguage = useCallback((): SupportedLanguage => {
     if (typeof navigator === "undefined") return "en";
@@ -577,6 +602,7 @@ export default function FanChatPage({ includedContent, initialAccessSummary }: F
               <div className="flex flex-1 h-12">
                 <input
                   type="text"
+                  ref={composerInputRef}
                   className="bg-[#2a3942] rounded-lg w-full px-3 py-3 text-white"
                   placeholder="Escribe un mensaje..."
                   onChange={(evt) => setDraft(evt.target.value)}
@@ -659,6 +685,14 @@ function getContentEmoji(type?: ContentType) {
   if (type === "AUDIO") return "🎧";
   if (type === "TEXT") return "📝";
   return "📷";
+}
+
+function safeDecodeQueryParam(value: string) {
+  try {
+    return decodeURIComponent(value);
+  } catch (_err) {
+    return value;
+  }
 }
 
 function IncludedContentSection({ items }: { items: IncludedContent[] }) {

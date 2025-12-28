@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { useState } from "react";
-import type { PublicProfileCopy, PublicProfileStats } from "../../types/publicProfile";
+import type { PublicCatalogItem, PublicProfileCopy, PublicProfileStats } from "../../types/publicProfile";
 
 type Props = {
   copy: PublicProfileCopy;
@@ -9,9 +9,20 @@ type Props = {
   subtitle: string;
   avatarUrl?: string | null;
   stats?: PublicProfileStats;
+  catalogItems?: PublicCatalogItem[];
+  creatorHandle?: string;
 };
 
-export default function PublicProfileView({ copy, creatorName, creatorInitial, subtitle, avatarUrl, stats }: Props) {
+export default function PublicProfileView({
+  copy,
+  creatorName,
+  creatorInitial,
+  subtitle,
+  avatarUrl,
+  stats,
+  catalogItems,
+  creatorHandle,
+}: Props) {
   const recommended = copy.packs.find((p) => p.id === copy.recommendedPackId) || copy.packs[0];
   const highlights = (recommended?.bullets ?? []).slice(0, 3);
   const [openFaqId, setOpenFaqId] = useState<string | null>(null);
@@ -20,6 +31,10 @@ export default function PublicProfileView({ copy, creatorName, creatorInitial, s
   const visibleFreebies = (copy.freebies || []).filter((item) => item.visible !== false);
   const showStats = copy.hero.showStats !== false;
   const statsLine = showStats && stats ? buildStatsLine(stats) : "";
+  const showCatalog = typeof catalogItems !== "undefined";
+  const catalog = catalogItems ?? [];
+  const groupedCatalog = groupCatalogItems(catalog);
+  const hasCatalog = catalog.length > 0;
 
   const hasWhatInside = copy.hero.showWhatInside !== false && (copy.hero.whatInsideBullets?.length ?? 0) > 0;
   const heroBackgroundStyle =
@@ -165,6 +180,36 @@ export default function PublicProfileView({ copy, creatorName, creatorInitial, s
           </div>
         </section>
 
+        {showCatalog && (
+          <section className="space-y-4">
+            <h2 className="text-2xl font-semibold">Catálogo</h2>
+            {!hasCatalog && (
+              <div className="rounded-2xl border border-slate-800 bg-slate-900/60 p-6 text-slate-300">
+                Aún no hay catálogo público.
+              </div>
+            )}
+            {hasCatalog && (
+              <div className="space-y-6">
+                {renderCatalogGroup({
+                  title: "Extras",
+                  items: groupedCatalog.extras,
+                  creatorHandle,
+                })}
+                {renderCatalogGroup({
+                  title: "Bundles",
+                  items: groupedCatalog.bundles,
+                  creatorHandle,
+                })}
+                {renderCatalogGroup({
+                  title: "Packs",
+                  items: groupedCatalog.packs,
+                  creatorHandle,
+                })}
+              </div>
+            )}
+          </section>
+        )}
+
         {copy.freebiesSectionVisible !== false && visibleFreebies.length > 0 && (
           <section className="space-y-4">
             <h2 className="text-2xl font-semibold">Para los que aún estáis curioseando 👀</h2>
@@ -224,4 +269,94 @@ function buildStatsLine(stats: PublicProfileStats) {
   if (stats.videos > 0) parts.push(`${stats.videos} vídeos`);
   if (stats.audios > 0) parts.push(`${stats.audios} audios`);
   return parts.join(" · ");
+}
+
+function formatPriceCents(cents: number, currency = "EUR") {
+  const amount = cents / 100;
+  const hasDecimals = cents % 100 !== 0;
+  try {
+    return new Intl.NumberFormat("es-ES", {
+      style: "currency",
+      currency,
+      minimumFractionDigits: hasDecimals ? 2 : 0,
+      maximumFractionDigits: hasDecimals ? 2 : 0,
+    }).format(amount);
+  } catch {
+    const fixed = hasDecimals ? amount.toFixed(2) : Math.round(amount).toString();
+    return `${fixed} ${currency}`;
+  }
+}
+
+function groupCatalogItems(items: PublicCatalogItem[]) {
+  return {
+    extras: items.filter((item) => item.type === "EXTRA"),
+    bundles: items.filter((item) => item.type === "BUNDLE"),
+    packs: items.filter((item) => item.type === "PACK"),
+  };
+}
+
+function buildCatalogDraft(item: PublicCatalogItem) {
+  const typeLabel = item.type === "BUNDLE" ? "bundle" : item.type === "PACK" ? "pack" : "extra";
+  const priceLabel = formatPriceCents(item.priceCents, item.currency);
+  return `Quiero el ${typeLabel} "${item.title}" (${priceLabel}). ¿Me lo activas?`;
+}
+
+function formatIncludesPreview(includes: string[]) {
+  if (includes.length === 0) return "";
+  const preview = includes.slice(0, 2).join(", ");
+  const remaining = Math.max(0, includes.length - 2);
+  const tail = remaining > 0 ? ` y ${remaining} más` : "";
+  return `Incluye: ${preview}${tail}.`;
+}
+
+function renderCatalogGroup({
+  title,
+  items,
+  creatorHandle,
+}: {
+  title: string;
+  items: PublicCatalogItem[];
+  creatorHandle?: string;
+}) {
+  if (!items || items.length === 0) return null;
+  return (
+    <div className="space-y-3">
+      <h3 className="text-lg font-semibold text-slate-100">{title}</h3>
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        {items.map((item, index) => {
+          const includesLine = item.type === "BUNDLE" ? formatIncludesPreview(item.includes) : "";
+          const draft = buildCatalogDraft(item);
+          const href =
+            creatorHandle
+              ? { pathname: `/go/${creatorHandle}`, query: { draft } }
+              : { pathname: "/" };
+          return (
+            <div
+              key={`${item.type}-${item.title}-${index}`}
+              className="rounded-2xl border border-slate-800 bg-slate-900/60 p-4 flex flex-col gap-3 shadow-lg shadow-black/20"
+            >
+              <div className="flex flex-col gap-1">
+                <div className="flex items-center justify-between gap-3">
+                  <h4 className="text-base font-semibold text-slate-100">{item.title}</h4>
+                  <span className="text-lg font-semibold text-amber-300">
+                    {formatPriceCents(item.priceCents, item.currency)}
+                  </span>
+                </div>
+                {item.description && (
+                  <p className="text-sm text-slate-300 leading-relaxed">{item.description}</p>
+                )}
+                {includesLine && <p className="text-xs text-slate-400">{includesLine}</p>}
+              </div>
+              <Link
+                href={href}
+                className="inline-flex w-full items-center justify-center rounded-lg border border-emerald-400/70 bg-emerald-500/10 px-3 py-2 text-sm font-semibold text-emerald-100 hover:bg-emerald-500/20 transition"
+              >
+                Pedir
+              </Link>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
 }

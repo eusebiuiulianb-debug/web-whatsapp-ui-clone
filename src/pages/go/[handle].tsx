@@ -11,6 +11,8 @@ export const getServerSideProps: GetServerSideProps = async (ctx) => {
   const utmCampaign = typeof query.utm_campaign === "string" ? query.utm_campaign : undefined;
   const utmContent = typeof query.utm_content === "string" ? query.utm_content : undefined;
   const utmTerm = typeof query.utm_term === "string" ? query.utm_term : undefined;
+  const rawDraft = Array.isArray(query.draft) ? query.draft[0] : query.draft;
+  const draftValue = typeof rawDraft === "string" ? safeDecodeQueryParam(rawDraft) : "";
 
   const referrer = (ctx.req?.headers?.referer as string | undefined) || (ctx.req?.headers?.referrer as string | undefined);
 
@@ -66,7 +68,7 @@ export const getServerSideProps: GetServerSideProps = async (ctx) => {
 
   return {
     redirect: {
-      destination: `/fan/${fanId}`,
+      destination: draftValue ? `/fan/${fanId}?draft=${encodeURIComponent(draftValue)}` : `/fan/${fanId}`,
       permanent: false,
     },
   };
@@ -74,4 +76,12 @@ export const getServerSideProps: GetServerSideProps = async (ctx) => {
 
 export default function GoRedirectPage() {
   return null;
+}
+
+function safeDecodeQueryParam(value: string) {
+  try {
+    return decodeURIComponent(value);
+  } catch (_err) {
+    return value;
+  }
 }

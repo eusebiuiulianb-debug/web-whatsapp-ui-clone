@@ -28,7 +28,8 @@ function hasLatestModels(client: PrismaClient) {
   return (
     Boolean(anyClient?.analyticsEvent?.create) &&
     Boolean(anyClient?.campaignLink?.create) &&
-    Boolean(anyClient?.campaignMeta?.create)
+    Boolean(anyClient?.campaignMeta?.create) &&
+    Boolean(anyClient?.catalogItem?.create)
   );
 }
 

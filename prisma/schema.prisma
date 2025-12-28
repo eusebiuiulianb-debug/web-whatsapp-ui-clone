@@ -28,6 +28,7 @@ model Creator {
   fans         Fan[]
   notes        FanNote[]
   contentItems ContentItem[]
+  catalogItems CatalogItem[]
   aiSettings   CreatorAiSettings?
   aiUsageLogs  AiUsageLog[]
   aiTemplates  CreatorAiTemplate[]
@@ -203,6 +204,31 @@ enum ExtraTier {
   T2
   T3
   T4
+}
+
+enum CatalogItemType {
+  EXTRA
+  BUNDLE
+  PACK
+}
+
+model CatalogItem {
+  id          String          @id @default(cuid())
+  creatorId   String
+  creator     Creator         @relation(fields: [creatorId], references: [id])
+  type        CatalogItemType
+  title       String
+  description String?
+  includes    Json?
+  priceCents  Int
+  currency    String          @default("EUR")
+  isActive    Boolean         @default(true)
+  isPublic    Boolean         @default(true)
+  sortOrder   Int             @default(0)
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
+
+  @@index([creatorId, isActive, sortOrder, createdAt])
 }
 
 enum ManagerAiTab {

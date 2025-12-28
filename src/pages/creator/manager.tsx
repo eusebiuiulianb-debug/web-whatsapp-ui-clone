@@ -13,13 +13,21 @@ import type { CreatorPlatforms } from "../../lib/creatorPlatforms";
 import { normalizeCreatorPlatforms } from "../../lib/creatorPlatforms";
 import SideBar from "../../components/SideBar";
 import { CreatorShell } from "../../components/creator/CreatorShell";
-import { ManagerChatCard, ManagerChatCardHandle } from "../../components/creator/ManagerChatCard";
+import {
+  ManagerChatCard,
+  type ManagerChatCardHandle,
+  type CortexCatalogFans,
+  type CortexOverviewData,
+  type CortexOverviewFan,
+} from "../../components/creator/ManagerChatCard";
 import { useCreatorConfig } from "../../context/CreatorConfigContext";
 import { ManagerInsightsPanel } from "../../components/creator/ManagerInsightsPanel";
+import type { CatalogItem } from "../../lib/catalog";
 
 type Props = {
   initialSnapshot: CreatorBusinessSnapshot | null;
   initialContentSnapshot: CreatorContentSnapshot | null;
+  creatorId?: string;
 };
 
 type CreatorDiscoveryProfile = {
@@ -103,7 +111,8 @@ function formatCurrency(amount: number) {
   return `${Math.round(amount)} €`;
 }
 
-export default function CreatorManagerPage({ initialSnapshot, initialContentSnapshot }: Props) {
+export default function CreatorManagerPage(props: Props) {
+  const { initialSnapshot, initialContentSnapshot } = props;
   const { config } = useCreatorConfig();
   const [summary, setSummary] = useState<CreatorManagerSummary | null>(null);
   const [queueData, setQueueData] = useState<ManagerQueueData | null>(null);
@@ -119,15 +128,13 @@ export default function CreatorManagerPage({ initialSnapshot, initialContentSnap
   const [insightsOpen, setInsightsOpen] = useState(false);
   const [insightsTab, setInsightsTab] = useState<InsightsTab>("sales");
   const [platforms, setPlatforms] = useState<CreatorPlatforms | null>(null);
+  const [catalogItems, setCatalogItems] = useState<CatalogItem[]>([]);
+  const [catalogError, setCatalogError] = useState<string | null>(null);
+  const [catalogLoading, setCatalogLoading] = useState(false);
+  const creatorId = props.creatorId ?? "creator-1";
   const handleOpenSettings = useCallback(() => {
     void router.push("/creator/ai-settings");
   }, [router]);
-
-  useEffect(() => {
-    fetchSummary();
-    fetchAdvisorInput();
-    fetchPlatforms();
-  }, []);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -137,7 +144,23 @@ export default function CreatorManagerPage({ initialSnapshot, initialContentSnap
     }
   }, []);
 
-  async function fetchSummary() {
+  const fetchCatalogItems = useCallback(async () => {
+    if (!creatorId) return;
+    try {
+      setCatalogLoading(true);
+      setCatalogError(null);
+      const res = await fetch(`/api/catalog?creatorId=${encodeURIComponent(creatorId)}`);
+      if (!res.ok) throw new Error("Error fetching catalog");
+      const data = (await res.json()) as { items: CatalogItem[] };
+      setCatalogItems(data.items ?? []);
+    } catch (_err) {
+      setCatalogError("No se pudo cargar el catálogo.");
+    } finally {
+      setCatalogLoading(false);
+    }
+  }, [creatorId]);
+
+  const fetchSummary = useCallback(async () => {
     try {
       setLoading(true);
       setError("");
@@ -156,9 +179,10 @@ export default function CreatorManagerPage({ initialSnapshot, initialContentSnap
     } finally {
       setLoading(false);
     }
-  }
+    void fetchCatalogItems();
+  }, [fetchCatalogItems]);
 
-  async function fetchAdvisorInput() {
+  const fetchAdvisorInput = useCallback(async () => {
     try {
       setAdvisorLoading(true);
       setAdvisorError(false);
@@ -172,9 +196,9 @@ export default function CreatorManagerPage({ initialSnapshot, initialContentSnap
     } finally {
       setAdvisorLoading(false);
     }
-  }
+  }, []);
 
-  async function fetchPlatforms() {
+  const fetchPlatforms = useCallback(async () => {
     try {
       const res = await fetch("/api/creator/ai-settings");
       if (!res.ok) throw new Error("Error fetching platforms");
@@ -184,7 +208,13 @@ export default function CreatorManagerPage({ initialSnapshot, initialContentSnap
     } catch (_err) {
       setPlatforms(null);
     }
-  }
+  }, []);
+
+  useEffect(() => {
+    void fetchSummary();
+    void fetchAdvisorInput();
+    void fetchPlatforms();
+  }, [fetchSummary, fetchAdvisorInput, fetchPlatforms]);
 
   return (
     <>
@@ -222,6 +252,12 @@ export default function CreatorManagerPage({ initialSnapshot, initialContentSnap
             creatorSubtitle={config.creatorSubtitle || "Centro de mando del creador"}
             avatarUrl={config.avatarUrl}
             platforms={platforms}
+            creatorId={props.creatorId}
+            catalogItems={catalogItems}
+            catalogLoading={catalogLoading}
+            catalogError={catalogError}
+            setCatalogItems={setCatalogItems}
+            onRefreshCatalog={fetchCatalogItems}
           />
         )}
         fallback={<div />}
@@ -253,6 +289,12 @@ type ManagerChatLayoutProps = {
   creatorSubtitle: string;
   avatarUrl?: string | null;
   platforms: CreatorPlatforms | null;
+  creatorId?: string;
+  catalogItems: CatalogItem[];
+  catalogLoading: boolean;
+  catalogError: string | null;
+  setCatalogItems: React.Dispatch<React.SetStateAction<CatalogItem[]>>;
+  onRefreshCatalog: () => Promise<void>;
 };
 
 function ManagerChatLayout({
@@ -277,6 +319,12 @@ function ManagerChatLayout({
   creatorSubtitle,
   avatarUrl,
   platforms,
+  creatorId,
+  catalogItems,
+  catalogLoading,
+  catalogError,
+  setCatalogItems,
+  onRefreshCatalog,
 }: ManagerChatLayoutProps) {
   const router = useRouter();
   const summaryRef = useRef<HTMLDivElement | null>(null);
@@ -421,6 +469,95 @@ function ManagerChatLayout({
     () => queueData?.queue?.filter((item) => item.flags.expiredSoon).length ?? 0,
     [queueData]
   );
+  const expiringFans = useMemo<CortexOverviewData["expiringFans"]>(() => {
+    if (!queueData?.queue) return [];
+    return queueData.queue
+      .filter(
+        (fan) =>
+          fan.flags.expired ||
+          fan.flags.expiredSoon ||
+          (typeof fan.expiresInDays === "number" && fan.expiresInDays <= 7)
+      )
+      .sort((a, b) => {
+        const aDays = typeof a.expiresInDays === "number" ? a.expiresInDays : Number.POSITIVE_INFINITY;
+        const bDays = typeof b.expiresInDays === "number" ? b.expiresInDays : Number.POSITIVE_INFINITY;
+        return aDays - bDays;
+      })
+      .slice(0, 5)
+      .map((fan) => ({
+        fanId: fan.fanId,
+        displayName: fan.displayName,
+        expiresInDays: fan.expiresInDays ?? null,
+        flags: {
+          expired: fan.flags.expired,
+          expiredSoon: fan.flags.expiredSoon,
+          isNew30d: fan.flags.isNew30d,
+          atRisk7d: fan.flags.atRisk7d,
+        },
+      }));
+  }, [queueData]);
+  const overviewData = useMemo<CortexOverviewData | null>(() => {
+    if (!summary && !queueData) return null;
+    return {
+      metrics: {
+        todayCount: queueStats?.todayCount,
+        queueCount: queueStats?.queueCount,
+        expiringSoonCount,
+        atRiskCount,
+        revenue7d: safeRevenue7,
+        revenue30d: safeRevenue30,
+        extras30d: safeExtras30,
+        newFans30d: safeNewFans30,
+      },
+      expiringFans,
+    };
+  }, [
+    summary,
+    queueData,
+    queueStats?.queueCount,
+    queueStats?.todayCount,
+    expiringSoonCount,
+    atRiskCount,
+    safeRevenue7,
+    safeRevenue30,
+    safeExtras30,
+    safeNewFans30,
+    expiringFans,
+  ]);
+
+  const catalogFans = useMemo<CortexCatalogFans>(() => {
+    if (!queueData?.queue) return { priority: [], rest: [] };
+    const priorityFans = queueData.queue
+      .filter((fan) => fan.flags.expired || fan.flags.expiredSoon || fan.flags.atRisk7d)
+      .map<CortexOverviewFan>((fan) => ({
+        fanId: fan.fanId,
+        displayName: fan.displayName,
+        expiresInDays: fan.expiresInDays ?? null,
+        flags: {
+          expired: fan.flags.expired,
+          expiredSoon: fan.flags.expiredSoon,
+          isNew30d: fan.flags.isNew30d,
+          atRisk7d: fan.flags.atRisk7d,
+        },
+      }))
+      .slice(0, 8);
+    const priorityIds = new Set(priorityFans.map((fan) => fan.fanId));
+    const restFans = queueData.queue
+      .filter((fan) => !priorityIds.has(fan.fanId))
+      .map<CortexOverviewFan>((fan) => ({
+        fanId: fan.fanId,
+        displayName: fan.displayName,
+        expiresInDays: fan.expiresInDays ?? null,
+        flags: {
+          expired: fan.flags.expired,
+          expiredSoon: fan.flags.expiredSoon,
+          isNew30d: fan.flags.isNew30d,
+          atRisk7d: fan.flags.atRisk7d,
+        },
+      }))
+      .slice(0, 10);
+    return { priority: priorityFans, rest: restFans };
+  }, [queueData]);
 
   const statTiles: Array<{ id: Exclude<SummaryFilter, null>; title: string; value: string; helper: string }> = [
     {
@@ -618,6 +755,37 @@ function ManagerChatLayout({
     if (!fanId) return;
     setFanPanelOpen(false);
     void router.push(`/?fanId=${encodeURIComponent(fanId)}`);
+  };
+  const getFirstName = (name: string) => {
+    const trimmed = name.trim();
+    if (!trimmed) return "";
+    return trimmed.split(" ")[0];
+  };
+  const buildSuggestedMessage = (fan: ManagerQueueItem) => {
+    const name = getFirstName(fan.displayName || "");
+    const safeName = name || "allí";
+    if (fan.flags.expired) {
+      return `Hola ${safeName}, vi que tu acceso terminó.\nSi quieres, lo reactivamos hoy y te preparo algo especial.`;
+    }
+    if (typeof fan.expiresInDays === "number" && fan.expiresInDays > 0 && fan.expiresInDays <= 7) {
+      return `Hola ${safeName}, tu renovación está cerca.\nSi te apetece, lo dejamos listo hoy.`;
+    }
+    if (fan.flags.isNew30d) {
+      return `Hola ${safeName}, bienvenida por aquí.\n¿Qué te apetece ver primero?`;
+    }
+    return `Hola ${safeName}, ¿cómo estás?\nSi te apetece, te cuento novedades.`;
+  };
+  const handleSendDraft = (fan: ManagerQueueItem) => {
+    if (!fan.fanId) return;
+    const draft = buildSuggestedMessage(fan);
+    if (!draft.trim()) {
+      handleOpenChat(fan.fanId);
+      return;
+    }
+    setFanPanelOpen(false);
+    const fanParam = encodeURIComponent(fan.fanId);
+    const draftParam = encodeURIComponent(draft);
+    void router.push(`/?fanId=${fanParam}&draft=${draftParam}`);
   };
   const toggleAttended = async (fanId: string) => {
     if (!fanId) return;
@@ -889,6 +1057,20 @@ function ManagerChatLayout({
                           </svg>
                         </button>
                       )}
+                      <button
+                        type="button"
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          handleSendDraft(fan);
+                        }}
+                        title="Enviar borrador"
+                        aria-label="Enviar borrador"
+                        className="flex h-8 w-8 items-center justify-center rounded-full border border-slate-700/70 bg-slate-950/60 text-slate-200 transition hover:border-slate-500/70 hover:text-white"
+                      >
+                        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2">
+                          <path d="M3 11l18-8-8 18-2-7-8-3z" />
+                        </svg>
+                      </button>
                       <button
                         type="button"
                         onClick={(event) => {
@@ -1202,6 +1384,14 @@ function ManagerChatLayout({
                 variant="chat"
                 hideTitle
                 businessSnapshot={initialSnapshot}
+                overviewData={overviewData}
+                creatorId={creatorId}
+                catalogItems={catalogItems}
+                catalogLoading={catalogLoading}
+                catalogError={catalogError}
+                catalogFans={catalogFans}
+                setCatalogItems={setCatalogItems}
+                refreshCatalogItems={onRefreshCatalog}
                 onBackToBoard={onBackToBoard}
                 suggestions={quickActions}
                 avatarUrl={avatarUrl || undefined}
@@ -1298,6 +1488,7 @@ export const getServerSideProps: GetServerSideProps<Props> = async () => {
 
   return {
     props: {
+      creatorId,
       initialSnapshot,
       initialContentSnapshot,
     },

@@ -2,7 +2,7 @@ import Head from "next/head";
 import type { GetServerSideProps } from "next";
 import PublicProfileView from "../../components/public-profile/PublicProfileView";
 import { PROFILE_COPY, mapToPublicProfileCopy } from "../../lib/publicProfileCopy";
-import type { PublicProfileCopy, PublicProfileStats } from "../../types/publicProfile";
+import type { PublicCatalogItem, PublicProfileCopy, PublicProfileStats } from "../../types/publicProfile";
 import { getPublicProfileStats } from "../../lib/publicProfileStats";
 import { normalizeImageSrc } from "../../utils/normalizeImageSrc";
 
@@ -14,9 +14,31 @@ type Props = {
   avatarUrl?: string | null;
   creatorInitial?: string;
   stats?: PublicProfileStats;
+  catalogItems?: PublicCatalogItem[];
+  creatorHandle?: string;
 };
 
-export default function PublicCreatorByHandle({ notFound, copy, creatorName, subtitle, avatarUrl, creatorInitial, stats }: Props) {
+type CatalogItemRow = {
+  id: string;
+  type: "EXTRA" | "BUNDLE" | "PACK";
+  title: string;
+  description: string | null;
+  priceCents: number;
+  currency: string;
+  includes: unknown;
+};
+
+export default function PublicCreatorByHandle({
+  notFound,
+  copy,
+  creatorName,
+  subtitle,
+  avatarUrl,
+  creatorInitial,
+  stats,
+  catalogItems,
+  creatorHandle,
+}: Props) {
   if (notFound || !copy || !creatorName) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-slate-950 text-slate-300 px-4">
@@ -41,6 +63,8 @@ export default function PublicCreatorByHandle({ notFound, copy, creatorName, sub
           subtitle={subtitle || ""}
           avatarUrl={avatarUrl || undefined}
           stats={stats}
+          catalogItems={catalogItems}
+          creatorHandle={creatorHandle}
         />
       </div>
     </>
@@ -58,6 +82,7 @@ export const getServerSideProps: GetServerSideProps<Props> = async (ctx) => {
   }
 
   const stats = await getSafeStats(match.id);
+  const catalogItems = await getPublicCatalogItems(match.id);
   const packs = [
     { id: "welcome", name: "Pack bienvenida", price: "9 €" },
     { id: "monthly", name: "Suscripción mensual", price: "25 €" },
@@ -85,6 +110,8 @@ export const getServerSideProps: GetServerSideProps<Props> = async (ctx) => {
       avatarUrl,
       creatorInitial: (match.name || "C").charAt(0),
       stats,
+      catalogItems,
+      creatorHandle: slugify(match.name),
     },
   };
 };
@@ -99,4 +126,34 @@ async function getSafeStats(creatorId: string): Promise<PublicProfileStats> {
 
 function slugify(value?: string | null) {
   return (value || "creator").toLowerCase().replace(/[^a-z0-9]+/g, "-");
+}
+
+async function getPublicCatalogItems(creatorId: string): Promise<PublicCatalogItem[]> {
+  const prisma = (await import("../../lib/prisma.server")).default;
+  const items = (await (prisma.catalogItem as any).findMany({
+    where: { creatorId, isActive: true, isPublic: true },
+    orderBy: [{ sortOrder: "asc" }, { createdAt: "desc" }],
+  })) as CatalogItemRow[];
+  const extrasById = new Map(
+    items
+      .filter((item) => item.type === "EXTRA")
+      .map((item) => [item.id, item.title] as const)
+  );
+  return items.map((item) => {
+    const includesRaw = Array.isArray(item.includes) ? item.includes : [];
+    const includes =
+      item.type === "BUNDLE"
+        ? includesRaw
+            .map((id) => extrasById.get(String(id)))
+            .filter((title): title is string => Boolean(title))
+        : [];
+    return {
+      type: item.type,
+      title: item.title,
+      description: item.description,
+      priceCents: item.priceCents,
+      currency: item.currency,
+      includes,
+    };
+  });
 }
