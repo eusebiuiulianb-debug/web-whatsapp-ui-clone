@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { useRouter } from "next/router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type {
   PublicCatalogItem,
@@ -44,12 +45,26 @@ export default function PublicProfileView({
   const catalog = catalogItems ?? [];
   const groupedCatalog = groupCatalogItems(catalog);
   const hasCatalog = catalog.length > 0;
-  const sortedPopClips = useMemo(
-    () => [ ...(popClips ?? []) ].sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0)),
-    [popClips]
+  const router = useRouter();
+  const [popClipsLoading, setPopClipsLoading] = useState(() => typeof popClips === "undefined");
+  const [popClipsError, setPopClipsError] = useState<string | null>(null);
+  const [remotePopClips, setRemotePopClips] = useState<PublicPopClip[] | null>(null);
+  const [popClipsRetryKey, setPopClipsRetryKey] = useState(0);
+  const hasPopClipsProp = typeof popClips !== "undefined";
+  const routerHandle = typeof router.query.handle === "string" ? router.query.handle : "";
+  const effectiveHandle = (creatorHandle || routerHandle).trim();
+  const resolvedPopClips = useMemo(
+    () => (hasPopClipsProp ? popClips ?? [] : remotePopClips ?? []),
+    [hasPopClipsProp, popClips, remotePopClips]
   );
-  const popClipsLoading = typeof popClips === "undefined";
-  const showPopClipsSection = popClipsLoading || typeof popClips !== "undefined";
+  const sortedPopClips = useMemo(
+    () => [ ...resolvedPopClips ].sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0)),
+    [resolvedPopClips]
+  );
+  const showPopClipsSection =
+    hasPopClipsProp || popClipsLoading || popClipsError !== null || remotePopClips !== null;
+  const isPopClipsLoading = !hasPopClipsProp && popClipsLoading;
+  const showPopClipsError = !hasPopClipsProp && popClipsError;
   const hasPopClips = sortedPopClips.length > 0;
   const clipRefs = useRef<Record<string, HTMLDivElement | null>>({});
   const videoRefs = useRef<Record<string, HTMLVideoElement | null>>({});
@@ -71,6 +86,46 @@ export default function PublicProfileView({
         }
       : undefined;
   const autoplayAllowed = isPageVisible && !activePack;
+
+  const handlePopClipsRetry = useCallback(() => {
+    setPopClipsRetryKey((prev) => prev + 1);
+  }, []);
+
+  useEffect(() => {
+    if (hasPopClipsProp) return;
+    if (!effectiveHandle || effectiveHandle === "creator") {
+      setPopClipsError("No se pudo cargar PopClips.");
+      setRemotePopClips([]);
+      setPopClipsLoading(false);
+      return;
+    }
+    const controller = new AbortController();
+    setPopClipsLoading(true);
+    setPopClipsError(null);
+    setRemotePopClips(null);
+    fetch(`/api/public/popclips?handle=${encodeURIComponent(effectiveHandle)}`, { signal: controller.signal })
+      .then(async (res) => {
+        if (!res.ok) throw new Error("request failed");
+        const data = (await res.json()) as { clips?: PublicPopClip[] };
+        const clips = Array.isArray(data?.clips) ? data.clips : [];
+        setRemotePopClips(clips);
+      })
+      .catch((err) => {
+        if (err instanceof DOMException && err.name === "AbortError") return;
+        setPopClipsError("No se pudo cargar PopClips.");
+        setRemotePopClips([]);
+      })
+      .finally(() => {
+        setPopClipsLoading(false);
+      });
+    return () => controller.abort();
+  }, [effectiveHandle, hasPopClipsProp, popClipsRetryKey]);
+
+  useEffect(() => {
+    if (!hasPopClipsProp) return;
+    setPopClipsLoading(false);
+    setPopClipsError(null);
+  }, [hasPopClipsProp]);
 
   useEffect(() => {
     if (typeof document === "undefined") return;
@@ -433,7 +488,21 @@ export default function PublicProfileView({
               {hasPopClips && <span className="text-xs text-slate-400">Desliza para ver más</span>}
             </div>
             <div className="rounded-3xl border border-slate-800 bg-slate-900/60 p-3">
-              {popClipsLoading && (
+              {showPopClipsError && (
+                <div className="flex h-[45vh] items-center justify-center rounded-2xl border border-rose-500/30 bg-rose-500/10 px-4 text-center">
+                  <div className="space-y-3">
+                    <p className="text-sm font-semibold text-rose-100">{popClipsError}</p>
+                    <button
+                      type="button"
+                      onClick={handlePopClipsRetry}
+                      className="rounded-full border border-rose-400/70 bg-rose-500/10 px-4 py-1.5 text-xs font-semibold text-rose-100 hover:bg-rose-500/20"
+                    >
+                      Reintentar
+                    </button>
+                  </div>
+                </div>
+              )}
+              {isPopClipsLoading && (
                 <div className="h-[80vh] md:h-[72vh] overflow-hidden space-y-6 pr-2">
                   {Array.from({ length: 4 }).map((_, idx) => (
                     <div
@@ -443,12 +512,12 @@ export default function PublicProfileView({
                   ))}
                 </div>
               )}
-              {!popClipsLoading && !hasPopClips && (
+              {!isPopClipsLoading && !showPopClipsError && !hasPopClips && (
                 <div className="flex h-[45vh] items-center justify-center rounded-2xl border border-dashed border-slate-800 bg-slate-950/40">
                   <p className="text-sm text-slate-300">Este creador aún no tiene PopClips.</p>
                 </div>
               )}
-              {hasPopClips && (
+              {!showPopClipsError && hasPopClips && (
                 <div className="h-[80vh] md:h-[72vh] overflow-y-auto snap-y snap-mandatory space-y-6 pr-2">
                   {sortedPopClips.map((clip) => {
                     const clipTitle = clip.title?.trim() || clip.pack.title;

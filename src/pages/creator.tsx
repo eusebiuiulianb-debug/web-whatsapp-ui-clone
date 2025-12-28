@@ -42,6 +42,11 @@ export default function CreatorPublicPage({ stats }: Props) {
           subtitle={config.creatorSubtitle}
           avatarUrl={config.avatarUrl}
           stats={stats}
+          creatorHandle={
+            config.creatorHandle && config.creatorHandle !== "creator"
+              ? config.creatorHandle
+              : slugifyHandle(config.creatorName)
+          }
         />
       </div>
     </>
@@ -58,3 +63,11 @@ export const getServerSideProps: GetServerSideProps<Props> = async () => {
   }
   return { props: { stats } };
 };
+
+function slugifyHandle(value?: string) {
+  return (value || "")
+    .toLowerCase()
+    .trim()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+}

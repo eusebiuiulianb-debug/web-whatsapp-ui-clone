@@ -131,6 +131,11 @@ export default function CreatorEditPage({ stats }: Props) {
               subtitle={config.creatorSubtitle}
               avatarUrl={config.avatarUrl}
               stats={stats}
+              creatorHandle={
+                config.creatorHandle && config.creatorHandle !== "creator"
+                  ? config.creatorHandle
+                  : slugifyHandle(config.creatorName)
+              }
             />
           </div>
           <div className="border border-slate-800 rounded-2xl bg-slate-900/60 p-4 flex flex-col gap-4">
@@ -426,6 +431,14 @@ function Block({ title, children }: { title: string; children: React.ReactNode }
       {children}
     </div>
   );
+}
+
+function slugifyHandle(value?: string) {
+  return (value || "")
+    .toLowerCase()
+    .trim()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
 }
 
 function LabeledInput({ label, value, onChange }: { label: string; value: string; onChange: (v: string) => void }) {

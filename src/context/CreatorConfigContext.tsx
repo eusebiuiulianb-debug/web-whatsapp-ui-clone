@@ -30,6 +30,10 @@ export function CreatorConfigProvider({ children }: { children: ReactNode }) {
         const data = await response.json();
         const baseConfig: CreatorConfig = {
           creatorName: data.creator?.name || DEFAULT_CREATOR_CONFIG.creatorName,
+          creatorHandle:
+            data.creator?.handle ||
+            slugifyHandle(data.creator?.name || DEFAULT_CREATOR_CONFIG.creatorName) ||
+            DEFAULT_CREATOR_CONFIG.creatorHandle,
           creatorSubtitle: data.creator?.subtitle || DEFAULT_CREATOR_CONFIG.creatorSubtitle,
           creatorDescription: data.creator?.description || DEFAULT_CREATOR_CONFIG.creatorDescription,
           avatarUrl: data.creator?.avatarUrl || DEFAULT_CREATOR_CONFIG.avatarUrl || "",
@@ -70,3 +74,11 @@ export function CreatorConfigProvider({ children }: { children: ReactNode }) {
 }
 
 export const useCreatorConfig = () => useContext(CreatorConfigContext);
+
+function slugifyHandle(value?: string) {
+  return (value || "")
+    .toLowerCase()
+    .trim()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+}

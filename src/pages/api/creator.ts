@@ -28,6 +28,7 @@ async function handleGet(res: NextApiResponse) {
       subtitle: creator.subtitle,
       description: creator.description,
       avatarUrl: creator.bioLinkAvatarUrl || "",
+      handle: slugifyHandle(creator.name),
     };
 
     const mappedPacks = creator.packs.map((pack) => ({
@@ -72,6 +73,7 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
       subtitle: creator.subtitle,
       description: creator.description,
       avatarUrl: creator.bioLinkAvatarUrl || "",
+      handle: slugifyHandle(creator.name),
     };
 
     const mappedPacks = creator.packs.map((pack) => ({
@@ -85,4 +87,12 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
   } catch (_err) {
     return sendServerError(res, "Error actualizando datos del creador");
   }
+}
+
+function slugifyHandle(value?: string | null) {
+  return (value || "")
+    .toLowerCase()
+    .trim()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
 }
