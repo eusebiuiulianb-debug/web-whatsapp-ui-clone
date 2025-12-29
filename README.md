@@ -2,6 +2,26 @@
 
 Chat tipo WhatsApp para creadores y fans (versión preliminar).
 
+## Estado (28 Dic)
+
+- Bug resuelto: PopClips no aparecía en `/creator` porque el perfil público usaba handle="creator".
+- Ahora `/creator` resuelve el handle real desde `/api/creator` y lo pasa a `PublicProfileView`.
+- `PublicProfileView`: fetch `/api/public/popclips?handle=...` + estados loading/empty/error con retry visible.
+- PopClips feed ya renderiza el clip y “Ver pack” navega a landing pública del pack.
+
+Cambios recientes (6 archivos):
+- `src/components/public-profile/PublicProfileView.tsx`
+- `src/config/creatorConfig.ts`
+- `src/context/CreatorConfigContext.tsx`
+- `src/pages/creator.tsx`
+- `src/pages/api/creator.ts`
+- `src/pages/creator/edit.tsx`
+
+Siguiente prioridad:
+1. Validación dura en editor: Video URL solo `.mp4`/`.webm` (bloquear YouTube y mostrar mensaje).
+2. Mejorar landing pública del pack (hero/cover placeholder, CTA Pedir más claro, volver al perfil).
+3. Pulir UX del feed: icono audio, overlay tap-to-play cuando falle autoplay, skeletons bonitos.
+
 ## Cómo arrancar el proyecto
 
 ```bash

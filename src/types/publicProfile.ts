@@ -53,6 +53,7 @@ export type PublicPopClip = {
   title?: string | null;
   videoUrl: string;
   posterUrl?: string | null;
+  startAtSec?: number | null;
   durationSec?: number | null;
   sortOrder?: number;
   pack: {

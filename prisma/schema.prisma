@@ -175,6 +175,7 @@ model ContentItem {
   updatedAt      DateTime          @updatedAt
   messages       Message[]         @relation("MessageContentItems")
   extraPurchases ExtraPurchase[]
+  popClips       PopClip[]
 
   @@unique([creatorId, slug])
   @@index([pack, order])
@@ -237,11 +238,14 @@ model PopClip {
   id            String      @id @default(cuid())
   creatorId     String
   creator       Creator     @relation(fields: [creatorId], references: [id])
-  catalogItemId String
-  catalogItem   CatalogItem @relation(fields: [catalogItemId], references: [id])
+  catalogItemId String?
+  catalogItem   CatalogItem? @relation(fields: [catalogItemId], references: [id])
+  contentItemId String?
+  contentItem   ContentItem? @relation(fields: [contentItemId], references: [id])
   title         String?
   videoUrl      String
   posterUrl     String?
+  startAtSec    Int         @default(0)
   durationSec   Int?
   isActive      Boolean     @default(true)
   sortOrder     Int         @default(0)
@@ -250,6 +254,7 @@ model PopClip {
 
   @@index([creatorId, isActive, sortOrder])
   @@unique([creatorId, catalogItemId])
+  @@unique([creatorId, contentItemId])
 }
 
 enum ManagerAiTab {

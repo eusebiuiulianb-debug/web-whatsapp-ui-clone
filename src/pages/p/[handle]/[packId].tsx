@@ -89,10 +89,49 @@ export const getServerSideProps: GetServerSideProps<PackLandingProps> = async (c
     return { props: { notFound: true } };
   }
 
-  const creators = await prisma.creator.findMany();
+  const creators = await prisma.creator.findMany({ include: { packs: true } });
   const creator = creators.find((item) => slugify(item.name) === handleParam);
   if (!creator) {
     return { props: { notFound: true } };
+  }
+
+  const packKey = normalizeContentPackKey(packId);
+  if (packKey) {
+    const creatorPack =
+      creator.packs.find((pack) => pack.id.toLowerCase() === packKey) ||
+      creator.packs.find((pack) => slugify(pack.name) === packKey);
+    const fallback = DEFAULT_PACK_META[packKey];
+    const title = creatorPack?.name || fallback.title;
+    const priceMeta = creatorPack ? parsePriceToCents(creatorPack.price) : { cents: fallback.priceCents, currency: "EUR" };
+    const profile = await prisma.creatorProfile.findUnique({
+      where: { creatorId: creator.id },
+      select: { coverUrl: true },
+    });
+    const clip = await prisma.popClip.findFirst({
+      where: {
+        creatorId: creator.id,
+        isActive: true,
+        contentItem: { pack: packKey.toUpperCase() as "WELCOME" | "MONTHLY" | "SPECIAL" },
+      },
+      orderBy: [{ sortOrder: "asc" }, { createdAt: "desc" }],
+      select: { posterUrl: true },
+    });
+
+    return {
+      props: {
+        creatorName: creator.name || "Creador",
+        creatorHandle: slugify(creator.name),
+        pack: {
+          id: packKey,
+          title,
+          description: creatorPack?.description ?? null,
+          priceCents: priceMeta.cents,
+          currency: priceMeta.currency,
+          coverUrl: clip?.posterUrl ?? profile?.coverUrl ?? null,
+          slug: slugify(title),
+        },
+      },
+    };
   }
 
   const pack = await prisma.catalogItem.findFirst({
@@ -147,6 +186,28 @@ export const getServerSideProps: GetServerSideProps<PackLandingProps> = async (c
 
 function slugify(value?: string | null) {
   return (value || "creator").toLowerCase().replace(/[^a-z0-9]+/g, "-");
+}
+
+const DEFAULT_PACK_META: Record<string, { title: string; priceCents: number }> = {
+  welcome: { title: "Pack bienvenida", priceCents: 900 },
+  monthly: { title: "Suscripción mensual", priceCents: 2500 },
+  special: { title: "Pack especial", priceCents: 4900 },
+};
+
+function normalizeContentPackKey(value?: string | null) {
+  const key = (value || "").toLowerCase().trim();
+  if (key === "welcome" || key === "monthly" || key === "special") return key;
+  return "";
+}
+
+function parsePriceToCents(value?: string | null) {
+  const raw = (value || "").trim();
+  if (!raw) return { cents: 0, currency: "EUR" };
+  const currency = raw.includes("$") ? "USD" : raw.includes("£") ? "GBP" : "EUR";
+  const normalized = raw.replace(/[^\d.,]/g, "").replace(",", ".");
+  const amount = Number.parseFloat(normalized);
+  if (Number.isNaN(amount)) return { cents: 0, currency };
+  return { cents: Math.round(amount * 100), currency };
 }
 
 function formatPriceCents(cents: number, currency = "EUR") {

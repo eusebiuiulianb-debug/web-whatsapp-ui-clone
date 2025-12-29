@@ -4,6 +4,7 @@ import { sendBadRequest, sendServerError } from "../../../lib/apiError";
 import { serializePopClip, type PopClipInput } from "../../../lib/popclips";
 
 const ALLOWED_PACK_TYPES = new Set(["PACK"]);
+const ALLOWED_VIDEO_EXTENSIONS = [".mp4", ".webm"];
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method === "GET") {
@@ -53,9 +54,17 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
   const body = (req.body ?? {}) as Partial<PopClipInput>;
   const creatorId = typeof body.creatorId === "string" ? body.creatorId.trim() : "";
   const catalogItemId = typeof body.catalogItemId === "string" ? body.catalogItemId.trim() : "";
+  const contentItemId = typeof body.contentItemId === "string" ? body.contentItemId.trim() : "";
   const title = typeof body.title === "string" ? body.title.trim() : "";
   const videoUrl = typeof body.videoUrl === "string" ? body.videoUrl.trim() : "";
   const posterUrl = typeof body.posterUrl === "string" ? body.posterUrl.trim() : "";
+  const startAtRaw = body.startAtSec;
+  const startAtSec =
+    startAtRaw === null || startAtRaw === undefined
+      ? 0
+      : Number.isFinite(Number(startAtRaw))
+      ? Math.max(0, Math.round(Number(startAtRaw)))
+      : NaN;
   const durationSecRaw = body.durationSec;
   const durationSec =
     durationSecRaw === null || durationSecRaw === undefined
@@ -67,47 +76,85 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
   if (!creatorId) {
     return sendBadRequest(res, "creatorId is required");
   }
-  if (!catalogItemId) {
-    return sendBadRequest(res, "catalogItemId is required");
+  if (!catalogItemId && !contentItemId) {
+    return sendBadRequest(res, "catalogItemId or contentItemId is required");
   }
-  if (!videoUrl) {
-    return sendBadRequest(res, "videoUrl is required");
+  if (Number.isNaN(startAtSec)) {
+    return sendBadRequest(res, "startAtSec must be a number");
   }
   if (Number.isNaN(durationSec)) {
     return sendBadRequest(res, "durationSec must be a number");
   }
 
   try {
-    const catalogItem = await prisma.catalogItem.findUnique({
-      where: { id: catalogItemId },
-      select: { id: true, creatorId: true, type: true },
-    });
+    let resolvedVideoUrl = videoUrl;
 
-    if (!catalogItem) {
-      return res.status(404).json({ error: "Catalog item not found" });
-    }
-    if (catalogItem.creatorId !== creatorId) {
-      return res.status(403).json({ error: "Forbidden" });
-    }
-    if (!ALLOWED_PACK_TYPES.has(catalogItem.type)) {
-      return sendBadRequest(res, "catalog item type not allowed");
+    if (catalogItemId) {
+      const catalogItem = await prisma.catalogItem.findUnique({
+        where: { id: catalogItemId },
+        select: { id: true, creatorId: true, type: true },
+      });
+
+      if (!catalogItem) {
+        return res.status(404).json({ error: "Catalog item not found" });
+      }
+      if (catalogItem.creatorId !== creatorId) {
+        return res.status(403).json({ error: "Forbidden" });
+      }
+      if (!ALLOWED_PACK_TYPES.has(catalogItem.type)) {
+        return sendBadRequest(res, "catalog item type not allowed");
+      }
     }
 
-    const existing = await prisma.popClip.findFirst({
-      where: { creatorId, catalogItemId },
-      select: { id: true },
-    });
-    if (existing) {
-      return res.status(409).json({ error: "PopClip already exists" });
+    if (contentItemId) {
+      const contentItem = await prisma.contentItem.findUnique({
+        where: { id: contentItemId },
+        select: { id: true, creatorId: true, type: true, mediaPath: true, externalUrl: true },
+      });
+      if (!contentItem) {
+        return res.status(404).json({ error: "Content item not found" });
+      }
+      if (contentItem.creatorId !== creatorId) {
+        return res.status(403).json({ error: "Forbidden" });
+      }
+      resolvedVideoUrl = resolvedVideoUrl || resolveContentMediaUrl(contentItem);
+    }
+
+    if (!resolvedVideoUrl) {
+      return sendBadRequest(res, "videoUrl is required");
+    }
+    if (!isDirectVideoUrl(resolvedVideoUrl)) {
+      return sendBadRequest(res, "videoUrl must be a direct .mp4 or .webm link");
+    }
+
+    if (catalogItemId) {
+      const existing = await prisma.popClip.findFirst({
+        where: { creatorId, catalogItemId },
+        select: { id: true },
+      });
+      if (existing) {
+        return res.status(409).json({ error: "PopClip already exists" });
+      }
+    }
+    if (contentItemId) {
+      const existing = await prisma.popClip.findFirst({
+        where: { creatorId, contentItemId },
+        select: { id: true },
+      });
+      if (existing) {
+        return res.status(409).json({ error: "PopClip already exists" });
+      }
     }
 
     const clip = await (prisma.popClip as any).create({
       data: {
         creatorId,
-        catalogItemId,
+        catalogItemId: catalogItemId || null,
+        contentItemId: contentItemId || null,
         title: title || null,
-        videoUrl,
+        videoUrl: resolvedVideoUrl,
         posterUrl: posterUrl || null,
+        startAtSec,
         durationSec: durationSec ?? null,
         isActive: typeof body.isActive === "boolean" ? body.isActive : true,
         sortOrder: Number.isFinite(Number(body.sortOrder)) ? Math.round(Number(body.sortOrder)) : 0,
@@ -133,4 +180,18 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
     console.error("Error creating popclip", err);
     return sendServerError(res);
   }
+}
+
+function resolveContentMediaUrl(contentItem: { mediaPath: string | null; externalUrl: string | null }) {
+  const direct = (contentItem.externalUrl || "").trim();
+  if (direct) return direct;
+  return (contentItem.mediaPath || "").trim();
+}
+
+function isDirectVideoUrl(url: string) {
+  const trimmed = url.trim().toLowerCase();
+  if (!trimmed) return false;
+  if (trimmed.includes("youtube.com") || trimmed.includes("youtu.be")) return false;
+  const clean = trimmed.split("?")[0]?.split("#")[0] ?? trimmed;
+  return ALLOWED_VIDEO_EXTENSIONS.some((ext) => clean.endsWith(ext));
 }

@@ -3,6 +3,8 @@ import prisma from "../../../lib/prisma.server";
 import { sendBadRequest, sendServerError } from "../../../lib/apiError";
 import { serializePopClip } from "../../../lib/popclips";
 
+const ALLOWED_VIDEO_EXTENSIONS = [".mp4", ".webm"];
+
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method === "PATCH") {
     return handlePatch(req, res);
@@ -47,6 +49,7 @@ async function handlePatch(req: NextApiRequest, res: NextApiResponse) {
       title?: string | null;
       videoUrl?: string;
       posterUrl?: string | null;
+      startAtSec?: number;
       durationSec?: number | null;
       isActive?: boolean;
       sortOrder?: number;
@@ -67,6 +70,9 @@ async function handlePatch(req: NextApiRequest, res: NextApiResponse) {
       if (typeof body.videoUrl !== "string" || !body.videoUrl.trim()) {
         return sendBadRequest(res, "videoUrl is required");
       }
+      if (!isDirectVideoUrl(body.videoUrl)) {
+        return sendBadRequest(res, "videoUrl must be a direct .mp4 or .webm link");
+      }
       data.videoUrl = body.videoUrl.trim();
     }
 
@@ -79,6 +85,13 @@ async function handlePatch(req: NextApiRequest, res: NextApiResponse) {
       } else {
         return sendBadRequest(res, "posterUrl must be a string");
       }
+    }
+
+    if ("startAtSec" in body) {
+      if (!Number.isFinite(Number(body.startAtSec))) {
+        return sendBadRequest(res, "startAtSec must be a number");
+      }
+      data.startAtSec = Math.max(0, Math.round(Number(body.startAtSec)));
     }
 
     if ("durationSec" in body) {
@@ -129,6 +142,14 @@ async function handlePatch(req: NextApiRequest, res: NextApiResponse) {
     console.error("Error updating popclip", err);
     return sendServerError(res);
   }
+}
+
+function isDirectVideoUrl(url: string) {
+  const trimmed = url.trim().toLowerCase();
+  if (!trimmed) return false;
+  if (trimmed.includes("youtube.com") || trimmed.includes("youtu.be")) return false;
+  const clean = trimmed.split("?")[0]?.split("#")[0] ?? trimmed;
+  return ALLOWED_VIDEO_EXTENSIONS.some((ext) => clean.endsWith(ext));
 }
 
 async function handleDelete(req: NextApiRequest, res: NextApiResponse) {

@@ -34,6 +34,7 @@ type PopClipRow = {
   title: string | null;
   videoUrl: string;
   posterUrl: string | null;
+  startAtSec: number | null;
   durationSec: number | null;
   sortOrder: number;
   catalogItem: {
@@ -45,7 +46,14 @@ type PopClipRow = {
     type: "EXTRA" | "BUNDLE" | "PACK";
     isPublic: boolean;
     isActive: boolean;
-  };
+  } | null;
+  contentItem: {
+    id: string;
+    pack: "WELCOME" | "MONTHLY" | "SPECIAL";
+    type: "IMAGE" | "VIDEO" | "AUDIO" | "TEXT";
+    mediaPath: string | null;
+    externalUrl: string | null;
+  } | null;
 };
 
 export default function PublicCreatorByHandle({
@@ -189,10 +197,15 @@ async function getPublicPopClips(creatorId: string, creatorHandle: string): Prom
     where: {
       creatorId,
       isActive: true,
-      catalogItem: {
-        isActive: true,
-        isPublic: true,
-      },
+      OR: [
+        {
+          catalogItem: {
+            isActive: true,
+            isPublic: true,
+          },
+        },
+        { contentItemId: { not: null } },
+      ],
     },
     orderBy: [{ sortOrder: "asc" }, { createdAt: "desc" }],
     include: {
@@ -208,32 +221,119 @@ async function getPublicPopClips(creatorId: string, creatorHandle: string): Prom
           isActive: true,
         },
       },
+      contentItem: {
+        select: {
+          id: true,
+          pack: true,
+          type: true,
+          mediaPath: true,
+          externalUrl: true,
+        },
+      },
     },
   })) as PopClipRow[];
 
+  const packs = (await prisma.creator.findUnique({
+    where: { id: creatorId },
+    select: { packs: true },
+  }))?.packs ?? [];
+
   return clips
-    .filter((clip) => clip.catalogItem?.type === "PACK" && clip.videoUrl.trim().length > 0)
-    .map((clip) => ({
-      id: clip.id,
-      title: clip.title ?? null,
-      videoUrl: clip.videoUrl,
-      posterUrl: clip.posterUrl ?? null,
-      durationSec: clip.durationSec ?? null,
-      sortOrder: clip.sortOrder,
-      pack: {
-        id: clip.catalogItem.id,
-        title: clip.catalogItem.title,
-        description: clip.catalogItem.description,
-        priceCents: clip.catalogItem.priceCents,
-        currency: clip.catalogItem.currency,
-        type: clip.catalogItem.type,
-        slug: slugify(clip.catalogItem.title),
-        route: buildPackRoute(creatorHandle, clip.catalogItem.id),
-        coverUrl: clip.posterUrl ?? null,
-      },
-    }));
+    .map((clip) => {
+      const packMeta = resolvePackMeta({
+        clip,
+        creatorHandle,
+        creatorPacks: packs,
+      });
+      if (!packMeta) return null;
+      const videoUrl = clip.videoUrl || resolveContentMediaUrl(clip.contentItem);
+      if (!videoUrl || !videoUrl.trim()) return null;
+      return {
+        id: clip.id,
+        title: clip.title ?? null,
+        videoUrl,
+        posterUrl: clip.posterUrl ?? null,
+        startAtSec: Number.isFinite(Number(clip.startAtSec)) ? Math.max(0, Number(clip.startAtSec)) : 0,
+        durationSec: clip.durationSec ?? null,
+        sortOrder: clip.sortOrder,
+        pack: packMeta,
+      };
+    })
+    .filter((clip): clip is PublicPopClip => Boolean(clip));
 }
 
 function buildPackRoute(handle: string, packId: string) {
   return `/p/${handle}/${packId}`;
+}
+
+function resolveContentMediaUrl(contentItem?: { mediaPath: string | null; externalUrl: string | null } | null) {
+  if (!contentItem) return "";
+  return (contentItem.externalUrl || contentItem.mediaPath || "").trim();
+}
+
+function resolvePackMeta({
+  clip,
+  creatorHandle,
+  creatorPacks,
+}: {
+  clip: PopClipRow;
+  creatorHandle: string;
+  creatorPacks: Array<{ id: string; name: string; price: string; description: string }>;
+}) {
+  if (clip.catalogItem?.type === "PACK") {
+    return {
+      id: clip.catalogItem.id,
+      title: clip.catalogItem.title,
+      description: clip.catalogItem.description,
+      priceCents: clip.catalogItem.priceCents,
+      currency: clip.catalogItem.currency,
+      type: clip.catalogItem.type,
+      slug: slugify(clip.catalogItem.title),
+      route: buildPackRoute(creatorHandle, clip.catalogItem.id),
+      coverUrl: clip.posterUrl ?? null,
+    };
+  }
+
+  const packKey = normalizeContentPackKey(clip.contentItem?.pack);
+  if (!packKey) return null;
+  const fallback = DEFAULT_PACK_META[packKey];
+  const creatorPack =
+    creatorPacks.find((pack) => pack.id === packKey) ||
+    creatorPacks.find((pack) => slugify(pack.name) === packKey);
+  const title = creatorPack?.name || fallback.title;
+  const priceMeta = creatorPack ? parsePriceToCents(creatorPack.price) : { cents: fallback.priceCents, currency: "EUR" };
+
+  return {
+    id: packKey,
+    title,
+    description: creatorPack?.description ?? null,
+    priceCents: priceMeta.cents,
+    currency: priceMeta.currency,
+    type: "PACK" as const,
+    slug: slugify(title),
+    route: buildPackRoute(creatorHandle, packKey),
+    coverUrl: clip.posterUrl ?? null,
+  };
+}
+
+const DEFAULT_PACK_META: Record<string, { title: string; priceCents: number }> = {
+  welcome: { title: "Pack bienvenida", priceCents: 900 },
+  monthly: { title: "Suscripción mensual", priceCents: 2500 },
+  special: { title: "Pack especial", priceCents: 4900 },
+};
+
+function normalizeContentPackKey(value?: string | null) {
+  const key = (value || "").toLowerCase().trim();
+  if (key === "welcome" || key === "monthly" || key === "special") return key;
+  return "";
+}
+
+function parsePriceToCents(value?: string | null) {
+  const raw = (value || "").trim();
+  if (!raw) return { cents: 0, currency: "EUR" };
+  const currency = raw.includes("$") ? "USD" : raw.includes("£") ? "GBP" : "EUR";
+  const normalized = raw.replace(/[^\d.,]/g, "").replace(",", ".");
+  const amount = Number.parseFloat(normalized);
+  if (Number.isNaN(amount)) return { cents: 0, currency };
+  return { cents: Math.round(amount * 100), currency };
 }

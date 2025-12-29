@@ -14,10 +14,12 @@ export type PopClipCatalogItem = {
 export type PopClip = {
   id: string;
   creatorId: string;
-  catalogItemId: string;
+  catalogItemId: string | null;
+  contentItemId?: string | null;
   title: string | null;
   videoUrl: string;
   posterUrl: string | null;
+  startAtSec?: number | null;
   durationSec: number | null;
   isActive: boolean;
   sortOrder: number;
@@ -28,10 +30,12 @@ export type PopClip = {
 
 export type PopClipInput = {
   creatorId: string;
-  catalogItemId: string;
+  catalogItemId?: string | null;
+  contentItemId?: string | null;
   title?: string | null;
   videoUrl: string;
   posterUrl?: string | null;
+  startAtSec?: number | null;
   durationSec?: number | null;
   isActive?: boolean;
   sortOrder?: number;
@@ -40,10 +44,12 @@ export type PopClipInput = {
 export type PopClipDb = {
   id: string;
   creatorId: string;
-  catalogItemId: string;
+  catalogItemId: string | null;
+  contentItemId?: string | null;
   title: string | null;
   videoUrl: string;
   posterUrl: string | null;
+  startAtSec?: number | null;
   durationSec: number | null;
   isActive: boolean;
   sortOrder: number;
@@ -65,10 +71,12 @@ export function serializePopClip(item: PopClipDb): PopClip {
   return {
     id: item.id,
     creatorId: item.creatorId,
-    catalogItemId: item.catalogItemId,
+    catalogItemId: item.catalogItemId ?? null,
+    contentItemId: item.contentItemId ?? null,
     title: item.title ?? null,
     videoUrl: item.videoUrl,
     posterUrl: item.posterUrl ?? null,
+    startAtSec: typeof item.startAtSec === "number" ? item.startAtSec : 0,
     durationSec: item.durationSec ?? null,
     isActive: item.isActive,
     sortOrder: item.sortOrder,

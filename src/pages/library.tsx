@@ -6,6 +6,7 @@ import CreatorHeader from "../components/CreatorHeader";
 import { ContentType } from "../types/content";
 import type { ContentItem as PrismaContentItem, ContentType as PrismaContentType, ContentPack } from "@prisma/client";
 import { NewContentModal } from "../components/content/NewContentModal";
+import type { PopClip } from "../lib/popclips";
 
 type PackKey = "WELCOME" | "MONTHLY" | "SPECIAL";
 type ContentTypeKey = ContentType | "TEXT";
@@ -30,6 +31,14 @@ type PackSummary = {
   label: string;
   total: number;
   byType: { AUDIO: number; VIDEO: number; PHOTO: number; TEXT: number };
+};
+
+type PopClipEditorState = {
+  content: PrismaContentItem;
+  clip: PopClip | null;
+  startAtSec: string;
+  durationSec: string;
+  posterUrl: string;
 };
 
 function summarizeByPack(items: PrismaContentItem[]): PackSummary[] {
@@ -58,6 +67,15 @@ export default function LibraryPage() {
   const [items, setItems] = useState<PrismaContentItem[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [creatorId, setCreatorId] = useState("");
+  const [popClipsByContentId, setPopClipsByContentId] = useState<Record<string, PopClip>>({});
+  const [popClipsLoading, setPopClipsLoading] = useState(false);
+  const [popClipsError, setPopClipsError] = useState("");
+  const [popClipMessages, setPopClipMessages] = useState<Record<string, string>>({});
+  const [popClipSaving, setPopClipSaving] = useState<Record<string, boolean>>({});
+  const [popClipEditor, setPopClipEditor] = useState<PopClipEditorState | null>(null);
+  const [popClipEditorError, setPopClipEditorError] = useState("");
+  const [popClipEditorSaving, setPopClipEditorSaving] = useState(false);
   const [showModal, setShowModal] = useState(false);
   const [modalMode, setModalMode] = useState<"create" | "edit">("create");
   const [selectedContent, setSelectedContent] = useState<PrismaContentItem | undefined>();
@@ -73,6 +91,15 @@ export default function LibraryPage() {
     fetchItems();
   }, []);
 
+  useEffect(() => {
+    fetchCreator();
+  }, []);
+
+  useEffect(() => {
+    if (!creatorId) return;
+    fetchPopClips(creatorId);
+  }, [creatorId]);
+
   async function fetchItems() {
     try {
       setLoading(true);
@@ -87,6 +114,41 @@ export default function LibraryPage() {
       setItems([]);
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function fetchCreator() {
+    try {
+      const res = await fetch("/api/creator");
+      if (!res.ok) throw new Error("Error loading creator");
+      const data = await res.json();
+      const id = typeof data?.creator?.id === "string" ? data.creator.id : "";
+      setCreatorId(id || "creator-1");
+    } catch (_err) {
+      setCreatorId("creator-1");
+    }
+  }
+
+  async function fetchPopClips(currentCreatorId: string) {
+    try {
+      setPopClipsLoading(true);
+      setPopClipsError("");
+      const res = await fetch(`/api/popclips?creatorId=${encodeURIComponent(currentCreatorId)}`);
+      if (!res.ok) throw new Error("Error loading popclips");
+      const data = await res.json();
+      const clips = Array.isArray(data.clips) ? (data.clips as PopClip[]) : [];
+      const byContentId: Record<string, PopClip> = {};
+      clips.forEach((clip) => {
+        if (clip.contentItemId) {
+          byContentId[clip.contentItemId] = clip;
+        }
+      });
+      setPopClipsByContentId(byContentId);
+    } catch (_err) {
+      setPopClipsError("Error cargando PopClips.");
+      setPopClipsByContentId({});
+    } finally {
+      setPopClipsLoading(false);
     }
   }
 
@@ -119,6 +181,176 @@ export default function LibraryPage() {
     });
     return base;
   }, [extraItems]);
+
+  const getPopClipMeta = (content: PrismaContentItem) => {
+    const clip = popClipsByContentId[content.id] ?? null;
+    const mediaUrl = resolveContentMediaUrl(content);
+    return {
+      clip,
+      canEnable: isSupportedVideoUrl(mediaUrl) && isAllowedVideoUrl(mediaUrl),
+      message: popClipMessages[content.id] || "",
+      saving: Boolean(popClipSaving[content.id]),
+    };
+  };
+
+  const validatePopClipMedia = async (content: PrismaContentItem) => {
+    const mediaUrl = resolveContentMediaUrl(content);
+    if (!mediaUrl) {
+      return { ok: false, message: "Falta la URL del vídeo." };
+    }
+    if (!isSupportedVideoUrl(mediaUrl)) {
+      return { ok: false, message: "El vídeo debe ser un enlace directo .mp4 o .webm (sin YouTube)." };
+    }
+    if (!isAllowedVideoUrl(mediaUrl)) {
+      return { ok: false, message: "La URL debe empezar por http/https o /media/." };
+    }
+    if (isLocalMediaPath(mediaUrl)) {
+      const exists = await checkLocalMediaExists(mediaUrl);
+      if (!exists) {
+        return { ok: false, message: `Falta el archivo: public${mediaUrl}` };
+      }
+    }
+    return { ok: true, url: mediaUrl };
+  };
+
+  const openPopClipEditor = async (content: PrismaContentItem, clip?: PopClip | null) => {
+    const validation = await validatePopClipMedia(content);
+    if (!validation.ok) {
+      setPopClipMessages((prev) => ({
+        ...prev,
+        [content.id]: validation.message,
+      }));
+      return;
+    }
+
+    setPopClipMessages((prev) => {
+      if (!prev[content.id]) return prev;
+      const next = { ...prev };
+      delete next[content.id];
+      return next;
+    });
+    setPopClipEditor({
+      content,
+      clip: clip ?? null,
+      startAtSec: String(clip?.startAtSec ?? 0),
+      durationSec: String(clip?.durationSec ?? 10),
+      posterUrl: clip?.posterUrl ?? "",
+    });
+    setPopClipEditorError("");
+  };
+
+  const handleTogglePopClip = async (content: PrismaContentItem) => {
+    const existing = popClipsByContentId[content.id] ?? null;
+    if (existing?.isActive) {
+      if (!creatorId) {
+        setPopClipMessages((prev) => ({
+          ...prev,
+          [content.id]: "No se pudo resolver el creador para desactivar el PopClip.",
+        }));
+        return;
+      }
+      setPopClipSaving((prev) => ({ ...prev, [content.id]: true }));
+      try {
+        const res = await fetch(`/api/popclips/${existing.id}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ creatorId, isActive: false }),
+        });
+        if (!res.ok) throw new Error("Error updating popclip");
+        await fetchPopClips(creatorId);
+      } catch (_err) {
+        setPopClipMessages((prev) => ({
+          ...prev,
+          [content.id]: "No se pudo desactivar el PopClip.",
+        }));
+      } finally {
+        setPopClipSaving((prev) => ({ ...prev, [content.id]: false }));
+      }
+      return;
+    }
+
+    await openPopClipEditor(content, existing);
+  };
+
+  const handleEditPopClip = async (content: PrismaContentItem) => {
+    const existing = popClipsByContentId[content.id] ?? null;
+    if (!existing) return;
+    await openPopClipEditor(content, existing);
+  };
+
+  const handleClosePopClipEditor = () => {
+    setPopClipEditor(null);
+    setPopClipEditorError("");
+  };
+
+  const handleSavePopClip = async () => {
+    if (!popClipEditor) return;
+    if (!creatorId) {
+      setPopClipEditorError("No se pudo resolver el creador.");
+      return;
+    }
+
+    const validation = await validatePopClipMedia(popClipEditor.content);
+    if (!validation.ok) {
+      setPopClipEditorError(validation.message);
+      return;
+    }
+
+    const startAtSec = Number.parseInt(popClipEditor.startAtSec, 10);
+    if (!Number.isFinite(startAtSec) || startAtSec < 0) {
+      setPopClipEditorError("El inicio debe ser un número mayor o igual a 0.");
+      return;
+    }
+
+    const durationSec = Number.parseInt(popClipEditor.durationSec, 10);
+    if (!Number.isFinite(durationSec) || durationSec <= 0) {
+      setPopClipEditorError("La duración debe ser un número mayor que 0.");
+      return;
+    }
+
+    setPopClipEditorSaving(true);
+    setPopClipEditorError("");
+    try {
+      const posterUrl = popClipEditor.posterUrl.trim();
+      const mediaUrl = validation.url;
+      if (popClipEditor.clip) {
+        const res = await fetch(`/api/popclips/${popClipEditor.clip.id}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            creatorId,
+            startAtSec,
+            durationSec,
+            posterUrl: posterUrl || null,
+            isActive: true,
+          }),
+        });
+        if (!res.ok) throw new Error("Error updating popclip");
+      } else {
+        const res = await fetch("/api/popclips", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            creatorId,
+            contentItemId: popClipEditor.content.id,
+            videoUrl: mediaUrl,
+            startAtSec,
+            durationSec,
+            posterUrl: posterUrl || null,
+            isActive: true,
+          }),
+        });
+        if (!res.ok) throw new Error("Error creating popclip");
+      }
+
+      await fetchPopClips(creatorId);
+      handleClosePopClipEditor();
+    } catch (_err) {
+      setPopClipEditorError("No se pudo guardar el PopClip.");
+    } finally {
+      setPopClipEditorSaving(false);
+    }
+  };
 
   const tierTitles: Record<ExtraTier, string> = {
     T0: "T0 – Gratis / incluido",
@@ -230,32 +462,43 @@ export default function LibraryPage() {
 
         {error && <div className="text-sm text-rose-300">{error}</div>}
         {loading && <div className="text-sm text-slate-300">Cargando contenidos...</div>}
+        {popClipsLoading && <div className="text-xs text-slate-400">Cargando PopClips...</div>}
+        {popClipsError && <div className="text-xs text-rose-300">{popClipsError}</div>}
 
         {mode === "packs" && (
           <div className="mt-6 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-            {filteredItems.map((item) => (
-              <ContentCard
-                key={item.id}
-                content={item}
-                onEdit={(content) => {
-                  setSelectedContent(content);
-                  setModalMode("edit");
-                  setShowModal(true);
-                }}
-                onDelete={async (content) => {
-                  if (!window.confirm("¿Seguro que quieres eliminar este contenido?")) return;
-                  try {
-                    const res = await fetch(`/api/content/${content.id}`, { method: "DELETE" });
-                    if (!res.ok && res.status !== 204) {
-                      console.error("Error al eliminar contenido");
+            {filteredItems.map((item) => {
+              const popClipMeta = getPopClipMeta(item);
+              return (
+                <ContentCard
+                  key={item.id}
+                  content={item}
+                  popClip={popClipMeta.clip}
+                  canEnablePopClip={popClipMeta.canEnable}
+                  popClipMessage={popClipMeta.message}
+                  popClipSaving={popClipMeta.saving}
+                  onTogglePopClip={() => handleTogglePopClip(item)}
+                  onEditPopClip={() => handleEditPopClip(item)}
+                  onEdit={(content) => {
+                    setSelectedContent(content);
+                    setModalMode("edit");
+                    setShowModal(true);
+                  }}
+                  onDelete={async (content) => {
+                    if (!window.confirm("¿Seguro que quieres eliminar este contenido?")) return;
+                    try {
+                      const res = await fetch(`/api/content/${content.id}`, { method: "DELETE" });
+                      if (!res.ok && res.status !== 204) {
+                        console.error("Error al eliminar contenido");
+                      }
+                      router.reload();
+                    } catch (err) {
+                      console.error(err);
                     }
-                    router.reload();
-                  } catch (err) {
-                    console.error(err);
-                  }
-                }}
-              />
-            ))}
+                  }}
+                />
+              );
+            })}
           </div>
         )}
 
@@ -282,53 +525,71 @@ export default function LibraryPage() {
                   <div className="space-y-2">
                     <p className="text-xs text-slate-300 uppercase tracking-wide">{label}</p>
                     <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-                      {regularItems.map((item) => (
-                        <ContentCard
-                          key={item.id}
-                          content={item}
-                          onEdit={(content) => {
-                            setSelectedContent(content);
-                            setModalMode("edit");
-                            setShowModal(true);
-                          }}
-                          onDelete={async (content) => {
-                            if (!window.confirm("¿Seguro que quieres eliminar este contenido?")) return;
-                            try {
-                              const res = await fetch(`/api/content/${content.id}`, { method: "DELETE" });
-                              if (!res.ok && res.status !== 204) {
-                                console.error("Error al eliminar contenido");
+                      {regularItems.map((item) => {
+                        const popClipMeta = getPopClipMeta(item);
+                        return (
+                          <ContentCard
+                            key={item.id}
+                            content={item}
+                            popClip={popClipMeta.clip}
+                            canEnablePopClip={popClipMeta.canEnable}
+                            popClipMessage={popClipMeta.message}
+                            popClipSaving={popClipMeta.saving}
+                            onTogglePopClip={() => handleTogglePopClip(item)}
+                            onEditPopClip={() => handleEditPopClip(item)}
+                            onEdit={(content) => {
+                              setSelectedContent(content);
+                              setModalMode("edit");
+                              setShowModal(true);
+                            }}
+                            onDelete={async (content) => {
+                              if (!window.confirm("¿Seguro que quieres eliminar este contenido?")) return;
+                              try {
+                                const res = await fetch(`/api/content/${content.id}`, { method: "DELETE" });
+                                if (!res.ok && res.status !== 204) {
+                                  console.error("Error al eliminar contenido");
+                                }
+                                router.reload();
+                              } catch (err) {
+                                console.error(err);
                               }
-                              router.reload();
-                            } catch (err) {
-                              console.error(err);
-                            }
-                          }}
-                        />
-                      ))}
-                      {registerOnlyItems.map((item) => (
-                        <ContentCard
-                          key={item.id}
-                          content={item}
-                          badge="Solo historial"
-                          onEdit={(content) => {
-                            setSelectedContent(content);
-                            setModalMode("edit");
-                            setShowModal(true);
-                          }}
-                          onDelete={async (content) => {
-                            if (!window.confirm("¿Seguro que quieres eliminar este contenido?")) return;
-                            try {
-                              const res = await fetch(`/api/content/${content.id}`, { method: "DELETE" });
-                              if (!res.ok && res.status !== 204) {
-                                console.error("Error al eliminar contenido");
+                            }}
+                          />
+                        );
+                      })}
+                      {registerOnlyItems.map((item) => {
+                        const popClipMeta = getPopClipMeta(item);
+                        return (
+                          <ContentCard
+                            key={item.id}
+                            content={item}
+                            badge="Solo historial"
+                            popClip={popClipMeta.clip}
+                            canEnablePopClip={popClipMeta.canEnable}
+                            popClipMessage={popClipMeta.message}
+                            popClipSaving={popClipMeta.saving}
+                            onTogglePopClip={() => handleTogglePopClip(item)}
+                            onEditPopClip={() => handleEditPopClip(item)}
+                            onEdit={(content) => {
+                              setSelectedContent(content);
+                              setModalMode("edit");
+                              setShowModal(true);
+                            }}
+                            onDelete={async (content) => {
+                              if (!window.confirm("¿Seguro que quieres eliminar este contenido?")) return;
+                              try {
+                                const res = await fetch(`/api/content/${content.id}`, { method: "DELETE" });
+                                if (!res.ok && res.status !== 204) {
+                                  console.error("Error al eliminar contenido");
+                                }
+                                router.reload();
+                              } catch (err) {
+                                console.error(err);
                               }
-                              router.reload();
-                            } catch (err) {
-                              console.error(err);
-                            }
-                          }}
-                        />
-                      ))}
+                            }}
+                          />
+                        );
+                      })}
                     </div>
                   </div>
                 );
@@ -348,6 +609,89 @@ export default function LibraryPage() {
           </div>
         )}
       </div>
+
+      {popClipEditor && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-4 py-6">
+          <div className="w-full max-w-md rounded-2xl border border-slate-800 bg-slate-900/95 p-5 shadow-2xl">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <h3 className="text-lg font-semibold text-white">PopClip público</h3>
+                <p className="text-xs text-slate-400">
+                  {mapTypeToLabel(popClipEditor.content.type as PrismaContentType)} · {popClipEditor.content.title}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={handleClosePopClipEditor}
+                className="text-[12px] font-semibold text-slate-300 hover:text-slate-100"
+              >
+                Cerrar
+              </button>
+            </div>
+            <div className="mt-4 space-y-3">
+              <label className="block text-xs text-slate-300">
+                Inicio (seg)
+                <input
+                  type="number"
+                  min={0}
+                  value={popClipEditor.startAtSec}
+                  onChange={(event) =>
+                    setPopClipEditor((prev) => (prev ? { ...prev, startAtSec: event.target.value } : prev))
+                  }
+                  className="mt-1 w-full rounded-lg border border-slate-700 bg-slate-950/70 px-3 py-2 text-sm text-white"
+                />
+              </label>
+              <label className="block text-xs text-slate-300">
+                Duración (seg)
+                <input
+                  type="number"
+                  min={1}
+                  value={popClipEditor.durationSec}
+                  onChange={(event) =>
+                    setPopClipEditor((prev) => (prev ? { ...prev, durationSec: event.target.value } : prev))
+                  }
+                  className="mt-1 w-full rounded-lg border border-slate-700 bg-slate-950/70 px-3 py-2 text-sm text-white"
+                />
+              </label>
+              <label className="block text-xs text-slate-300">
+                Poster (opcional)
+                <input
+                  type="text"
+                  placeholder="https://..."
+                  value={popClipEditor.posterUrl}
+                  onChange={(event) =>
+                    setPopClipEditor((prev) => (prev ? { ...prev, posterUrl: event.target.value } : prev))
+                  }
+                  className="mt-1 w-full rounded-lg border border-slate-700 bg-slate-950/70 px-3 py-2 text-sm text-white"
+                />
+              </label>
+              <p className="text-[11px] text-slate-400">Recomendado: 8-12 segundos de teaser.</p>
+              {popClipEditorError && <p className="text-xs text-rose-300">{popClipEditorError}</p>}
+            </div>
+            <div className="mt-4 flex items-center justify-end gap-2">
+              <button
+                type="button"
+                onClick={handleClosePopClipEditor}
+                className="rounded-full border border-slate-700/70 bg-slate-900/60 px-3 py-1.5 text-[11px] font-semibold text-slate-200 hover:bg-slate-800/80"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={handleSavePopClip}
+                disabled={popClipEditorSaving}
+                className="rounded-full bg-emerald-500 px-4 py-2 text-xs font-semibold text-slate-950 hover:bg-emerald-400 disabled:opacity-60"
+              >
+                {popClipEditorSaving
+                  ? "Guardando..."
+                  : popClipEditor.clip
+                  ? "Guardar cambios"
+                  : "Publicar PopClip"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {showModal && (
         <NewContentModal
@@ -404,19 +748,87 @@ function mapPackToLabel(pack: ContentPack): string {
   }
 }
 
+const ALLOWED_VIDEO_EXTENSIONS = [".mp4", ".webm"];
+
+function resolveContentMediaUrl(content: PrismaContentItem) {
+  return (content.externalUrl || content.mediaPath || "").trim();
+}
+
+function isSupportedVideoUrl(url: string) {
+  const trimmed = url.trim().toLowerCase();
+  if (!trimmed) return false;
+  if (trimmed.includes("youtube.com") || trimmed.includes("youtu.be")) return false;
+  const clean = trimmed.split("?")[0]?.split("#")[0] ?? trimmed;
+  return ALLOWED_VIDEO_EXTENSIONS.some((ext) => clean.endsWith(ext));
+}
+
+function isHttpUrl(url: string) {
+  return /^https?:\/\//i.test(url.trim());
+}
+
+function isLocalMediaPath(url: string) {
+  return url.trim().startsWith("/media/");
+}
+
+function isAllowedVideoUrl(url: string) {
+  return isHttpUrl(url) || isLocalMediaPath(url);
+}
+
+async function checkLocalMediaExists(url: string) {
+  try {
+    const headRes = await fetch(url, { method: "HEAD", cache: "no-store" });
+    if (headRes.ok) return true;
+    if (headRes.status === 405 || headRes.status === 501) {
+      const rangeRes = await fetch(url, {
+        method: "GET",
+        headers: { Range: "bytes=0-0" },
+        cache: "no-store",
+      });
+      return rangeRes.ok;
+    }
+    return false;
+  } catch (_err) {
+    return false;
+  }
+}
+
 type ContentCardProps = {
   content: PrismaContentItem;
   onEdit?: (content: PrismaContentItem) => void;
   onDelete?: (content: PrismaContentItem) => void;
   badge?: string;
+  popClip?: PopClip | null;
+  popClipMessage?: string;
+  popClipSaving?: boolean;
+  canEnablePopClip?: boolean;
+  onTogglePopClip?: () => void;
+  onEditPopClip?: () => void;
 };
 
-function ContentCard({ content, onEdit, onDelete, badge }: ContentCardProps) {
+function ContentCard({
+  content,
+  onEdit,
+  onDelete,
+  badge,
+  popClip,
+  popClipMessage,
+  popClipSaving,
+  canEnablePopClip,
+  onTogglePopClip,
+  onEditPopClip,
+}: ContentCardProps) {
   const isExtra = content.visibility === "EXTRA";
   const typeLabel = mapTypeToLabel(content.type as PrismaContentType);
   const packLabel = mapPackToLabel(content.pack as ContentPack);
   const visibilityLabel = isExtra ? "Extra de pago" : "Incluido en tu suscripción";
   const formattedDate = formatDate(content.createdAt as unknown as string);
+  const isPopClipActive = Boolean(popClip?.isActive);
+  const canTogglePopClip = typeof onTogglePopClip === "function";
+  const isToggleDisabled = Boolean(popClipSaving) || (!canEnablePopClip && !isPopClipActive);
+  const startAtLabel =
+    typeof popClip?.startAtSec === "number" ? `${popClip.startAtSec}s` : "0s";
+  const durationLabel =
+    typeof popClip?.durationSec === "number" ? `${popClip.durationSec}s` : "10s";
 
   return (
     <div className="flex h-full flex-col justify-between rounded-xl bg-slate-900/60 p-4 shadow-sm border border-slate-800">
@@ -457,6 +869,53 @@ function ContentCard({ content, onEdit, onDelete, badge }: ContentCardProps) {
         >
           {visibilityLabel}
         </span>
+        {canTogglePopClip && (
+          <div className="mt-2 space-y-1">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <p className="text-[11px] text-slate-400">PopClips público</p>
+                {isPopClipActive && (
+                  <p className="text-[11px] text-slate-500">
+                    Teaser: {startAtLabel} · {durationLabel}
+                  </p>
+                )}
+              </div>
+              <div className="flex items-center gap-2">
+                {isPopClipActive && (
+                  <button
+                    type="button"
+                    onClick={onEditPopClip}
+                    className="text-[11px] font-semibold text-emerald-200 hover:text-emerald-100"
+                  >
+                    Editar
+                  </button>
+                )}
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={isPopClipActive}
+                  onClick={onTogglePopClip}
+                  disabled={isToggleDisabled}
+                  className={`relative h-5 w-9 rounded-full border transition ${
+                    isPopClipActive
+                      ? "border-emerald-400/70 bg-emerald-500/30"
+                      : "border-slate-700 bg-slate-800"
+                  } ${isToggleDisabled ? "cursor-not-allowed opacity-60" : ""}`}
+                >
+                  <span
+                    className={`absolute top-0.5 h-4 w-4 rounded-full bg-white transition ${
+                      isPopClipActive ? "translate-x-4" : "translate-x-0.5"
+                    }`}
+                  />
+                </button>
+              </div>
+            </div>
+            {popClipMessage && <p className="text-[11px] text-rose-300">{popClipMessage}</p>}
+            {!canEnablePopClip && !isPopClipActive && !popClipMessage && (
+              <p className="text-[11px] text-slate-500">Solo vídeos .mp4/.webm (http/https o /media/, sin YouTube).</p>
+            )}
+          </div>
+        )}
       </div>
       <p className="mt-3 text-[11px] text-slate-400">Añadido el {formattedDate}</p>
     </div>

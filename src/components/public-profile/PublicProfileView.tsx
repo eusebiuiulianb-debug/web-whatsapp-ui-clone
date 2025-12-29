@@ -66,8 +66,13 @@ export default function PublicProfileView({
   const isPopClipsLoading = !hasPopClipsProp && popClipsLoading;
   const showPopClipsError = !hasPopClipsProp && popClipsError;
   const hasPopClips = sortedPopClips.length > 0;
+  const popClipsById = useMemo(
+    () => new Map(sortedPopClips.map((clip) => [clip.id, clip])),
+    [sortedPopClips]
+  );
   const clipRefs = useRef<Record<string, HTMLDivElement | null>>({});
   const videoRefs = useRef<Record<string, HTMLVideoElement | null>>({});
+  const clipErrorFetchRef = useRef<Record<string, boolean>>({});
   const [activeClipId, setActiveClipId] = useState<string | null>(null);
   const lastActiveClipIdRef = useRef<string | null>(null);
   const [blockedClips, setBlockedClips] = useState<Record<string, boolean>>({});
@@ -75,6 +80,7 @@ export default function PublicProfileView({
   const [visibleClips, setVisibleClips] = useState<Record<string, boolean>>({});
   const [isPageVisible, setIsPageVisible] = useState(true);
   const [activePack, setActivePack] = useState<PublicPopClip | null>(null);
+  const [clipErrorDetails, setClipErrorDetails] = useState<Record<string, { url: string; status?: number | null }>>({});
 
   const hasWhatInside = copy.hero.showWhatInside !== false && (copy.hero.whatInsideBullets?.length ?? 0) > 0;
   const heroBackgroundStyle =
@@ -86,6 +92,7 @@ export default function PublicProfileView({
         }
       : undefined;
   const autoplayAllowed = isPageVisible && !activePack;
+  const isDev = process.env.NODE_ENV === "development";
 
   const handlePopClipsRetry = useCallback(() => {
     setPopClipsRetryKey((prev) => prev + 1);
@@ -165,6 +172,36 @@ export default function PublicProfileView({
     });
   }, []);
 
+  const seekToStart = useCallback((clipId: string, startAtSec: number) => {
+    const video = videoRefs.current[clipId];
+    if (!video) return;
+    if (!Number.isFinite(startAtSec) || startAtSec <= 0) return;
+    if (video.readyState < 1) return;
+    const safeStart = Math.max(0, startAtSec);
+    if (Math.abs(video.currentTime - safeStart) > 0.2) {
+      try {
+        video.currentTime = safeStart;
+      } catch (_err) {
+        // ignore seek errors on some browsers
+      }
+    }
+  }, []);
+
+  const handleTimeUpdate = useCallback(
+    (clipId: string, startAtSec: number, durationSec?: number | null) => {
+      if (!durationSec || durationSec <= 0) return;
+      const video = videoRefs.current[clipId];
+      if (!video) return;
+      const endAt = startAtSec + durationSec;
+      if (video.currentTime >= endAt) {
+        video.pause();
+        updateClipStatus(clipId, "paused");
+        seekToStart(clipId, startAtSec);
+      }
+    },
+    [seekToStart, updateClipStatus]
+  );
+
   const pauseAllClips = useCallback(() => {
     sortedPopClips.forEach((clip) => {
       const video = videoRefs.current[clip.id];
@@ -178,8 +215,14 @@ export default function PublicProfileView({
       if (!video) return;
       if (!autoplayAllowed) return;
       if (!visibleClips[clipId]) return;
+      if (clipStatus[clipId] === "error") return;
+      const clip = popClipsById.get(clipId);
+      const startAt = clip ? Math.max(0, Number(clip.startAtSec ?? 0)) : 0;
       video.muted = true;
       ensureVideoSource(video);
+      if (video.readyState >= 1) {
+        seekToStart(clipId, startAt);
+      }
       const playPromise = video.play();
       if (playPromise && typeof playPromise.then === "function") {
         playPromise
@@ -192,7 +235,7 @@ export default function PublicProfileView({
           });
       }
     },
-    [autoplayAllowed, ensureVideoSource, updateClipStatus, visibleClips]
+    [autoplayAllowed, clipStatus, ensureVideoSource, popClipsById, seekToStart, updateClipStatus, visibleClips]
   );
 
   const handleManualPlay = useCallback(
@@ -210,11 +253,55 @@ export default function PublicProfileView({
       if (!video) return;
       setBlockedClips((prev) => ({ ...prev, [clipId]: false }));
       updateClipStatus(clipId, "loading");
+      setClipErrorDetails((prev) => {
+        if (!prev[clipId]) return prev;
+        const next = { ...prev };
+        delete next[clipId];
+        return next;
+      });
+      if (clipErrorFetchRef.current[clipId]) {
+        delete clipErrorFetchRef.current[clipId];
+      }
       ensureVideoSource(video);
       video.load();
       attemptPlay(clipId);
     },
     [attemptPlay, ensureVideoSource, updateClipStatus]
+  );
+
+  const handleClipError = useCallback(
+    async (clipId: string, url: string) => {
+      updateClipStatus(clipId, "error");
+      if (!isDev || !url) return;
+      setClipErrorDetails((prev) => {
+        if (prev[clipId]) return prev;
+        return { ...prev, [clipId]: { url } };
+      });
+      if (clipErrorFetchRef.current[clipId]) return;
+      clipErrorFetchRef.current[clipId] = true;
+      try {
+        const headRes = await fetch(url, { method: "HEAD", cache: "no-store" });
+        let status = headRes.status;
+        if (status === 405 || status === 501) {
+          const rangeRes = await fetch(url, {
+            method: "GET",
+            headers: { Range: "bytes=0-0" },
+            cache: "no-store",
+          });
+          status = rangeRes.status;
+        }
+        setClipErrorDetails((prev) => {
+          if (prev[clipId]?.status !== undefined) return prev;
+          return { ...prev, [clipId]: { url, status } };
+        });
+      } catch (_err) {
+        setClipErrorDetails((prev) => {
+          if (prev[clipId]?.status !== undefined) return prev;
+          return { ...prev, [clipId]: { url, status: null } };
+        });
+      }
+    },
+    [isDev, updateClipStatus]
   );
 
   useEffect(() => {
@@ -522,6 +609,8 @@ export default function PublicProfileView({
                   {sortedPopClips.map((clip) => {
                     const clipTitle = clip.title?.trim() || clip.pack.title;
                     const priceLabel = formatPriceCents(clip.pack.priceCents, clip.pack.currency);
+                    const startAtSec = Math.max(0, Number(clip.startAtSec ?? 0));
+                    const durationSec = clip.durationSec ?? null;
                     const isBlocked = Boolean(blockedClips[clip.id]);
                     const status = clipStatus[clip.id] ?? "loading";
                     const isLoading = status === "loading";
@@ -542,14 +631,18 @@ export default function PublicProfileView({
                           data-src={clip.videoUrl}
                           poster={clip.posterUrl?.trim() ? clip.posterUrl : undefined}
                           muted
-                          loop
+                          loop={!durationSec}
                           playsInline
                           preload="none"
                           onLoadStart={() => updateClipStatus(clip.id, "loading")}
-                          onLoadedData={() => updateClipStatus(clip.id, "ready")}
+                          onLoadedMetadata={() => {
+                            updateClipStatus(clip.id, "ready");
+                            seekToStart(clip.id, startAtSec);
+                          }}
                           onPlay={() => updateClipStatus(clip.id, "playing")}
                           onPause={() => updateClipStatus(clip.id, "paused")}
-                          onError={() => updateClipStatus(clip.id, "error")}
+                          onError={() => handleClipError(clip.id, clip.videoUrl)}
+                          onTimeUpdate={() => handleTimeUpdate(clip.id, startAtSec, durationSec)}
                           className="absolute inset-0 h-full w-full object-cover"
                         />
                         <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/20 to-transparent" />
@@ -557,6 +650,7 @@ export default function PublicProfileView({
                           <div className="space-y-1">
                             <p className="text-[11px] uppercase tracking-wide text-emerald-200">PopClip</p>
                             <h3 className="text-lg font-semibold text-white">{clipTitle}</h3>
+                            <p className="text-xs text-slate-300">Disponible en: {clip.pack.title}</p>
                             <p className="text-sm text-amber-300">{priceLabel}</p>
                           </div>
                           <button
@@ -574,7 +668,15 @@ export default function PublicProfileView({
                         )}
                         {isError && (
                           <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-black/60 text-center">
-                            <p className="text-sm font-semibold text-slate-100">No se pudo cargar el clip.</p>
+                            <p className="text-sm font-semibold text-slate-100">
+                              No se pudo cargar el clip. Revisa la URL o el archivo local.
+                            </p>
+                            {isDev && clipErrorDetails[clip.id] && (
+                              <p className="text-[11px] text-slate-300">
+                                URL: {clipErrorDetails[clip.id].url} (
+                                {clipErrorDetails[clip.id].status ?? "error"})
+                              </p>
+                            )}
                             <button
                               type="button"
                               onClick={() => retryClip(clip.id)}
