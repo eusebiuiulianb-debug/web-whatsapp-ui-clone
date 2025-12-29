@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import {
   addEmojiFavorite,
+  FAVORITE_EMOJIS,
   readEmojiFavorites,
   removeEmojiFavorite,
   subscribeEmojiFavorites,
@@ -9,7 +10,7 @@ import {
 } from "../lib/emoji/recents";
 
 export function useEmojiFavorites() {
-  const [favorites, setFavorites] = useState<string[]>(() => readEmojiFavorites());
+  const [favorites, setFavorites] = useState<string[]>(FAVORITE_EMOJIS);
 
   useEffect(() => {
     setFavorites(readEmojiFavorites());

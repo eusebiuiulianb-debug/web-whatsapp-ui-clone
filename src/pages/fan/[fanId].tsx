@@ -1,7 +1,8 @@
 import Head from "next/head";
 import { GetServerSideProps } from "next";
 import { useRouter } from "next/router";
-import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
+import { ChatComposerBar } from "../../components/ChatComposerBar";
 import MessageBalloon from "../../components/MessageBalloon";
 import { useCreatorConfig } from "../../context/CreatorConfigContext";
 import {
@@ -10,14 +11,17 @@ import {
   getContentTypeLabel,
   getContentVisibilityLabel,
 } from "../../types/content";
-import { AccessSummary, getAccessSummary } from "../../lib/access";
+import { AccessSummary } from "../../lib/access";
 import type { IncludedContent } from "../../lib/fanContent";
 import { useIsomorphicLayoutEffect } from "../../hooks/useIsomorphicLayoutEffect";
 import { getFanDisplayName } from "../../utils/fanDisplayName";
 import { isVisibleToFan } from "../../lib/messageAudience";
 import { inferPreferredLanguage, LANGUAGE_LABELS, normalizePreferredLanguage, type SupportedLanguage } from "../../lib/language";
+import { parseReactionsRaw, useReactions } from "../../lib/emoji/reactions";
 import { getStickerById } from "../../lib/emoji/stickers";
-import { getStickerByToken } from "../../lib/stickers";
+import { buildFanChatProps } from "../../lib/fanChatProps";
+import { appendExtraEvent } from "../../lib/localExtras";
+import { buildStickerTokenFromItem, getStickerByToken, type StickerItem } from "../../lib/stickers";
 
 type ApiContentItem = {
   id: string;
@@ -40,30 +44,58 @@ type ApiMessage = {
   creatorTranslatedText?: string | null;
   time?: string | null;
   isLastFromCreator?: boolean | null;
-  type?: "TEXT" | "CONTENT" | "STICKER";
+  type?: "TEXT" | "CONTENT" | "STICKER" | "SYSTEM";
   stickerId?: string | null;
   contentItem?: ApiContentItem | null;
   status?: "sending" | "failed" | "sent";
 };
 
-type FanChatPageProps = {
+export type FanChatPageProps = {
   includedContent: IncludedContent[];
   initialAccessSummary: AccessSummary;
+  fanIdOverride?: string;
+  inviteOverride?: boolean;
 };
 
-export default function FanChatPage({ includedContent, initialAccessSummary }: FanChatPageProps) {
+type PackSummary = {
+  id: string;
+  name: string;
+  price: string;
+  description: string;
+};
+
+export function FanChatPage({
+  includedContent,
+  initialAccessSummary,
+  fanIdOverride,
+  inviteOverride,
+}: FanChatPageProps) {
   const router = useRouter();
-  const fanId = useMemo(
-    () => (typeof router.query.fanId === "string" ? router.query.fanId : undefined),
-    [router.query.fanId]
-  );
-  const inviteFlag = useMemo(
-    () => router.query.invite === "1",
-    [router.query.invite]
-  );
+  const fanId = useMemo(() => {
+    if (fanIdOverride) return fanIdOverride;
+    return typeof router.query.fanId === "string" ? router.query.fanId : undefined;
+  }, [fanIdOverride, router.query.fanId]);
+  const inviteFlag = useMemo(() => {
+    if (typeof inviteOverride === "boolean") return inviteOverride;
+    return router.query.invite === "1";
+  }, [inviteOverride, router.query.invite]);
   const { config } = useCreatorConfig();
   const creatorName = config.creatorName || "Tu creador";
   const creatorInitial = creatorName.trim().charAt(0).toUpperCase() || "C";
+  const availablePacks = useMemo<PackSummary[]>(
+    () =>
+      Array.isArray(config.packs)
+        ? config.packs.map((pack) => ({
+            id: pack.id,
+            name: pack.name,
+            price: pack.price,
+            description: pack.description,
+          }))
+        : [],
+    [config.packs]
+  );
+  const reactionsRaw = useReactions(fanId || "");
+  const reactionsStore = useMemo(() => parseReactionsRaw(reactionsRaw), [reactionsRaw]);
 
   const [messages, setMessages] = useState<ApiMessage[]>([]);
   const [loading, setLoading] = useState(false);
@@ -88,19 +120,31 @@ export default function FanChatPage({ includedContent, initialAccessSummary }: F
   const [onboardingSaving, setOnboardingSaving] = useState(false);
   const [onboardingLanguage, setOnboardingLanguage] = useState<SupportedLanguage>("en");
   const messagesContainerRef = useRef<HTMLDivElement | null>(null);
-  const composerInputRef = useRef<HTMLInputElement | null>(null);
+  const composerInputRef = useRef<HTMLTextAreaElement | null>(null);
   const draftAppliedRef = useRef(false);
   const [isAtBottom, setIsAtBottom] = useState(true);
   const pollAbortRef = useRef<AbortController | null>(null);
   const pollIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const [actionMenuOpen, setActionMenuOpen] = useState(false);
+  const [contentSheetOpen, setContentSheetOpen] = useState(false);
+  const [contentSheetTab, setContentSheetTab] = useState<"content" | "packs">("content");
+  const [packView, setPackView] = useState<"list" | "details">("list");
+  const [selectedPack, setSelectedPack] = useState<PackSummary | null>(null);
+  const [moneyModal, setMoneyModal] = useState<null | "tip" | "gift">(null);
+  const [tipAmountPreset, setTipAmountPreset] = useState<number | null>(null);
+  const [tipAmountCustom, setTipAmountCustom] = useState("");
+  const [tipError, setTipError] = useState("");
+  const [giftView, setGiftView] = useState<"list" | "details">("list");
+  const [selectedGiftPack, setSelectedGiftPack] = useState<PackSummary | null>(null);
 
   const sortMessages = useCallback((list: ApiMessage[]) => {
-    return [...list].sort((a, b) => {
-      const at = a.id ? String(a.id) : "";
-      const bt = b.id ? String(b.id) : "";
-      if (at === bt) return 0;
-      return at > bt ? 1 : -1;
-    });
+    const withKeys = list.map((msg, idx) => ({
+      msg,
+      idx,
+      key: getMessageSortKey(msg, idx),
+    }));
+    withKeys.sort((a, b) => a.key - b.key || a.idx - b.idx);
+    return withKeys.map((entry) => entry.msg);
   }, []);
 
   const visibleMessages = useMemo(() => {
@@ -318,12 +362,13 @@ export default function FanChatPage({ includedContent, initialAccessSummary }: F
     [fanId, sortMessages]
   );
 
-  async function handleSendMessage(evt: FormEvent<HTMLFormElement>) {
-    evt.preventDefault();
-    if (isOnboardingVisible) return;
-    const ok = await sendFanMessage(draft);
-    if (ok) setDraft("");
-  }
+  const focusComposer = useCallback(() => {
+    const input = composerInputRef.current;
+    if (!input) return;
+    input.focus();
+    const len = input.value.length;
+    input.setSelectionRange(len, len);
+  }, []);
 
   const shouldPromptForName = inviteFlag
     ? !fanProfile.displayName
@@ -335,6 +380,173 @@ export default function FanChatPage({ includedContent, initialAccessSummary }: F
     visibleMessages.length === 0 &&
     shouldPromptForName;
   const isComposerDisabled = sending || isOnboardingVisible || onboardingSaving;
+
+  const handleSendMessage = useCallback(async () => {
+    if (isOnboardingVisible) return;
+    const ok = await sendFanMessage(draft);
+    if (ok) {
+      setDraft("");
+      requestAnimationFrame(() => focusComposer());
+    }
+  }, [draft, focusComposer, isOnboardingVisible, sendFanMessage]);
+
+  const handleComposerKeyDown = useCallback(
+    (event: KeyboardEvent<HTMLTextAreaElement>) => {
+      if (event.key !== "Enter" || event.shiftKey) return;
+      event.preventDefault();
+      void handleSendMessage();
+    },
+    [handleSendMessage]
+  );
+
+  const insertIntoDraft = useCallback((snippet: string) => {
+    const input = composerInputRef.current;
+    if (!input) {
+      setDraft((prev) => `${prev}${snippet}`);
+      return;
+    }
+    const start = input.selectionStart ?? input.value.length;
+    const end = input.selectionEnd ?? input.value.length;
+    setDraft((prev) => `${prev.slice(0, start)}${snippet}${prev.slice(end)}`);
+    requestAnimationFrame(() => {
+      const nextPos = start + snippet.length;
+      input.focus();
+      input.setSelectionRange(nextPos, nextPos);
+    });
+  }, []);
+
+  const handleEmojiSelect = useCallback(
+    (emoji: string) => {
+      if (isComposerDisabled) return;
+      insertIntoDraft(emoji);
+    },
+    [insertIntoDraft, isComposerDisabled]
+  );
+
+  const handleStickerSelect = useCallback(
+    (sticker: StickerItem) => {
+      if (isComposerDisabled) return;
+      const token = buildStickerTokenFromItem(sticker);
+      void sendFanMessage(token);
+    },
+    [isComposerDisabled, sendFanMessage]
+  );
+
+  const openContentSheet = useCallback((tab: "content" | "packs") => {
+    setContentSheetTab(tab);
+    setContentSheetOpen(true);
+    setPackView("list");
+    setSelectedPack(null);
+  }, []);
+
+  const closeContentSheet = useCallback(() => {
+    setContentSheetOpen(false);
+    setPackView("list");
+    setSelectedPack(null);
+    requestAnimationFrame(() => focusComposer());
+  }, [focusComposer]);
+
+  const closeActionMenu = useCallback(() => {
+    setActionMenuOpen(false);
+    requestAnimationFrame(() => focusComposer());
+  }, [focusComposer]);
+
+  const openTipModal = useCallback(() => {
+    setActionMenuOpen(false);
+    setTipError("");
+    setTipAmountPreset(null);
+    setTipAmountCustom("");
+    setMoneyModal("tip");
+  }, []);
+
+  const openGiftModal = useCallback(() => {
+    setActionMenuOpen(false);
+    setGiftView("list");
+    setSelectedGiftPack(null);
+    setMoneyModal("gift");
+  }, []);
+
+  const openPacksSheet = useCallback(() => {
+    setActionMenuOpen(false);
+    openContentSheet("packs");
+  }, [openContentSheet]);
+
+  const closeMoneyModal = useCallback(() => {
+    setMoneyModal(null);
+    setTipAmountPreset(null);
+    setTipAmountCustom("");
+    setTipError("");
+    setGiftView("list");
+    setSelectedGiftPack(null);
+    requestAnimationFrame(() => focusComposer());
+  }, [focusComposer]);
+
+  const appendSystemMessage = useCallback(
+    (text: string) => {
+      if (!fanId) return;
+      const temp: ApiMessage = {
+        id: `local-${Date.now()}`,
+        fanId,
+        from: "fan",
+        text,
+        time: new Date().toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit", hour12: false }),
+        status: "sent",
+        type: "SYSTEM",
+        audience: "FAN",
+      };
+      setMessages((prev) => reconcileMessages(prev, [temp], sortMessages, fanId));
+    },
+    [fanId, sortMessages]
+  );
+
+  const handleTipConfirm = useCallback(() => {
+    if (!fanId) return;
+    const amountValue = tipAmountPreset ?? parseAmountToNumber(tipAmountCustom);
+    if (!Number.isFinite(amountValue) || amountValue <= 0 || amountValue > 500) {
+      setTipError("Introduce un importe válido.");
+      return;
+    }
+    const amountLabel = formatAmountLabel(amountValue);
+    appendSystemMessage(`🎁 Has apoyado con ${amountLabel}`);
+    appendExtraEvent(fanId, {
+      id: `extra-${Date.now()}`,
+      kind: "TIP",
+      amount: amountValue,
+      createdAt: new Date().toISOString(),
+    });
+    closeMoneyModal();
+  }, [appendSystemMessage, closeMoneyModal, fanId, tipAmountCustom, tipAmountPreset]);
+
+  const handleGiftConfirm = useCallback(
+    (pack: PackSummary) => {
+      if (!fanId) return;
+      const priceLabel = normalizePriceLabel(pack.price);
+      const amountValue = parseAmountToNumber(pack.price);
+      appendSystemMessage(`🎁 Has regalado ${pack.name} (${priceLabel})`);
+      appendExtraEvent(fanId, {
+        id: `extra-${Date.now()}`,
+        kind: "GIFT",
+        amount: amountValue,
+        packRef: pack.id,
+        packName: pack.name,
+        createdAt: new Date().toISOString(),
+      });
+      closeMoneyModal();
+    },
+    [appendSystemMessage, closeMoneyModal, fanId]
+  );
+
+  const handlePackRequest = useCallback(
+    (pack: PackSummary) => {
+      const draftText = buildPackDraft(pack);
+      setDraft(draftText);
+      closeContentSheet();
+      requestAnimationFrame(() => focusComposer());
+    },
+    [closeContentSheet, focusComposer]
+  );
+
+  const sendDisabled = isComposerDisabled || draft.trim().length === 0;
 
   const handleOnboardingSkip = () => {
     setOnboardingDismissed(true);
@@ -473,56 +685,71 @@ export default function FanChatPage({ includedContent, initialAccessSummary }: F
       )}
 
       <main className="flex flex-col flex-1 min-h-0 overflow-hidden">
+        <div className="px-4 sm:px-6 pt-3 space-y-3 shrink-0">
+          {accessLoading && !accessSummary ? (
+            <div className="rounded-xl border border-slate-800 bg-[#0f1f26] px-4 py-3 text-sm text-slate-200">
+              Cargando acceso...
+            </div>
+          ) : accessSummary ? (
+            <AccessBanner
+              summary={accessSummary}
+              contentCount={included?.length ?? 0}
+              onOpenContent={() => openContentSheet("content")}
+            />
+          ) : null}
+        </div>
         <div ref={messagesContainerRef} className="flex-1 min-h-0 overflow-y-auto">
-          <div className="px-4 sm:px-6 pt-3 space-y-3">
-            {accessLoading && !accessSummary ? (
-              <div className="rounded-xl border border-slate-800 bg-[#0f1f26] px-4 py-3 text-sm text-slate-200">
-                Cargando acceso...
-              </div>
-            ) : accessSummary ? (
-              <AccessBanner summary={accessSummary} />
-            ) : null}
-            {included?.length ? <IncludedContentSection items={included} /> : null}
-          </div>
           <div
             className="px-4 sm:px-6 py-4"
             style={{ backgroundImage: "url('/assets/images/background.jpg')" }}
           >
-            {loading && <div className="text-center text-[#aebac1] text-sm mt-2">Cargando mensajes...</div>}
-            {error && !loading && <div className="text-center text-red-400 text-sm mt-2">{error}</div>}
-            {!loading && !error && visibleMessages.length === 0 && (
-              <div className="text-center text-[#aebac1] text-sm mt-2">Aún no hay mensajes.</div>
-            )}
-            {visibleMessages.map((msg) => {
-              const isContent = msg.type === "CONTENT" && !!msg.contentItem;
-              if (isContent) {
-                return <ContentCard key={msg.id} message={msg} />;
-              }
-              const tokenSticker =
-                msg.type !== "STICKER" ? getStickerByToken(msg.text ?? "") : null;
-              const isSticker = msg.type === "STICKER" || Boolean(tokenSticker);
-              const sticker = msg.type === "STICKER" ? getStickerById(msg.stickerId ?? null) : null;
-              const stickerSrc = msg.type === "STICKER" ? sticker?.file ?? null : tokenSticker?.src ?? null;
-              const stickerAlt = msg.type === "STICKER" ? sticker?.label || "Sticker" : tokenSticker?.label ?? null;
-              const displayText =
-                isSticker
-                  ? ""
-                  : msg.from === "creator"
-                  ? (msg.deliveredText ?? msg.text ?? "")
-                  : msg.text ?? "";
-              return (
-                <MessageBalloon
-                  key={msg.id}
-                  me={msg.from === "fan"}
-                  message={displayText}
-                  seen={!!msg.isLastFromCreator}
-                  time={msg.time || undefined}
-                  status={msg.status}
-                  stickerSrc={isSticker ? stickerSrc : null}
-                  stickerAlt={isSticker ? stickerAlt : null}
-                />
-              );
-            })}
+            <div className="min-h-full flex flex-col justify-end gap-2">
+              {loading && <div className="text-center text-[#aebac1] text-sm mt-2">Cargando mensajes...</div>}
+              {error && !loading && <div className="text-center text-red-400 text-sm mt-2">{error}</div>}
+              {!loading && !error && visibleMessages.length === 0 && (
+                <div className="text-center text-[#aebac1] text-sm mt-2">Aún no hay mensajes.</div>
+              )}
+              {visibleMessages.map((msg, idx) => {
+                const messageId = msg.id || `message-${idx}`;
+                const isContent = msg.type === "CONTENT" && !!msg.contentItem;
+                if (isContent) {
+                  return <ContentCard key={msg.id} message={msg} />;
+                }
+                if (msg.type === "SYSTEM") {
+                  return <SystemMessage key={messageId} text={msg.text || ""} />;
+                }
+                const tokenSticker =
+                  msg.type !== "STICKER" ? getStickerByToken(msg.text ?? "") : null;
+                const isSticker = msg.type === "STICKER" || Boolean(tokenSticker);
+                const sticker = msg.type === "STICKER" ? getStickerById(msg.stickerId ?? null) : null;
+                const stickerSrc = msg.type === "STICKER" ? sticker?.file ?? null : tokenSticker?.src ?? null;
+                const stickerAlt = msg.type === "STICKER" ? sticker?.label || "Sticker" : tokenSticker?.label ?? null;
+                const displayText =
+                  isSticker
+                    ? ""
+                    : msg.from === "creator"
+                    ? (msg.deliveredText ?? msg.text ?? "")
+                    : msg.text ?? "";
+                const messageReactions = reactionsStore[messageId] ?? [];
+                return (
+                  <MessageBalloon
+                    key={messageId}
+                    me={msg.from === "fan"}
+                    message={displayText}
+                    messageId={messageId}
+                    seen={!!msg.isLastFromCreator}
+                    time={msg.time || undefined}
+                    status={msg.status}
+                    stickerSrc={isSticker ? stickerSrc : null}
+                    stickerAlt={isSticker ? stickerAlt : null}
+                    enableReactions
+                    reactionActor="fan"
+                    reactionFanId={fanId || undefined}
+                    reactions={messageReactions}
+                  />
+                );
+              })}
+            </div>
           </div>
         </div>
 
@@ -594,38 +821,336 @@ export default function FanChatPage({ includedContent, initialAccessSummary }: F
           </div>
         )}
         {!isOnboardingVisible && (
-          <>
-            <form
-              onSubmit={handleSendMessage}
-              className="flex items-center bg-[#202c33] w-full h-auto py-3 px-4 text-[#8696a0] gap-3 shrink-0"
-            >
-              <div className="flex flex-1 h-12">
-                <input
-                  type="text"
-                  ref={composerInputRef}
-                  className="bg-[#2a3942] rounded-lg w-full px-3 py-3 text-white"
-                  placeholder="Escribe un mensaje..."
-                  onChange={(evt) => setDraft(evt.target.value)}
+          <div className="shrink-0 border-t border-slate-800/60 bg-gradient-to-b from-slate-950/90 via-slate-950/80 to-slate-950/70 backdrop-blur-xl">
+            <div className="px-4 sm:px-6 py-3">
+              <div
+                className="flex flex-col gap-2 rounded-2xl border border-slate-700/70 bg-slate-950/60 px-3 py-2.5 shadow-[0_-12px_22px_-16px_rgba(0,0,0,0.55)] focus-within:border-emerald-400/70 focus-within:ring-1 focus-within:ring-emerald-400/25"
+              >
+                <ChatComposerBar
                   value={draft}
-                  disabled={isComposerDisabled}
+                  onChange={(event) => setDraft(event.target.value)}
+                  onKeyDown={handleComposerKeyDown}
+                  onSend={handleSendMessage}
+                  sendDisabled={sendDisabled}
+                  placeholder="Escribe un mensaje..."
+                  actionLabel="Enviar"
+                  audience="CREATOR"
+                  onAudienceChange={() => {}}
+                  canAttach={!isComposerDisabled}
+                  onAttach={() => setActionMenuOpen(true)}
+                  inputRef={composerInputRef}
+                  maxHeight={140}
+                  isChatBlocked={false}
+                  isInternalPanelOpen={false}
+                  showAudienceToggle={false}
+                  showAttach
+                  showEmoji
+                  onEmojiSelect={handleEmojiSelect}
+                  showStickers
+                  onStickerSelect={handleStickerSelect}
                 />
               </div>
-              <button
-                type="submit"
-                disabled={isComposerDisabled}
-                className="flex justify-center items-center h-12 px-3 rounded-lg bg-emerald-600 text-white text-sm font-semibold hover:bg-emerald-500 disabled:opacity-60"
-              >
-                Enviar
-              </button>
-            </form>
-            {sendError && (
-              <div className="px-4 pb-3 text-sm text-rose-300">
-                {sendError}
-              </div>
-            )}
-          </>
+              {sendError && <div className="pt-2 text-sm text-rose-300">{sendError}</div>}
+            </div>
+          </div>
         )}
       </main>
+      <BottomSheet open={actionMenuOpen} onClose={closeActionMenu}>
+        <div className="space-y-4">
+          <div>
+            <h3 className="text-base font-semibold text-slate-100">Acciones rápidas</h3>
+            <p className="text-xs text-slate-400">Elige una acción para continuar.</p>
+          </div>
+          <div className="grid gap-2">
+            <button
+              type="button"
+              onClick={openTipModal}
+              className="flex items-center justify-between rounded-xl border border-slate-800 bg-slate-900/60 px-4 py-3 text-sm text-slate-100 hover:bg-slate-800/70"
+            >
+              <span>Apoyar / Propina</span>
+              <span className="text-xs text-slate-400">Simulación</span>
+            </button>
+            <button
+              type="button"
+              onClick={openPacksSheet}
+              className="flex items-center justify-between rounded-xl border border-slate-800 bg-slate-900/60 px-4 py-3 text-sm text-slate-100 hover:bg-slate-800/70"
+            >
+              <span>Ver packs</span>
+              <span className="text-xs text-slate-400">{availablePacks.length}</span>
+            </button>
+            <button
+              type="button"
+              onClick={openGiftModal}
+              className="flex items-center justify-between rounded-xl border border-slate-800 bg-slate-900/60 px-4 py-3 text-sm text-slate-100 hover:bg-slate-800/70"
+            >
+              <span>Regalo</span>
+              <span className="text-xs text-slate-400">Simulación</span>
+            </button>
+          </div>
+        </div>
+      </BottomSheet>
+      <BottomSheet open={contentSheetOpen} onClose={closeContentSheet}>
+        <div className="flex items-center justify-between gap-3">
+          <div>
+            <h3 className="text-base font-semibold text-slate-100">Contenido y packs</h3>
+            <p className="text-xs text-slate-400">Todo dentro del chat.</p>
+          </div>
+          <button
+            type="button"
+            onClick={closeContentSheet}
+            className="rounded-full border border-slate-700 px-3 py-1 text-xs text-slate-200 hover:bg-slate-800/70"
+          >
+            Cerrar
+          </button>
+        </div>
+        <div className="mt-4 flex items-center gap-2">
+          {(["content", "packs"] as const).map((tab) => (
+            <button
+              key={tab}
+              type="button"
+              onClick={() => {
+                setContentSheetTab(tab);
+                if (tab === "packs") {
+                  setPackView("list");
+                  setSelectedPack(null);
+                }
+              }}
+              className={`rounded-full px-4 py-1.5 text-xs font-semibold ${
+                contentSheetTab === tab
+                  ? "bg-emerald-500/20 text-emerald-100 border border-emerald-400/70"
+                  : "border border-slate-800 text-slate-300 hover:text-slate-100"
+              }`}
+            >
+              {tab === "content" ? "Contenido" : "Packs"}
+            </button>
+          ))}
+        </div>
+        {contentSheetTab === "content" ? (
+          <div className="mt-4">
+            {included?.length ? (
+              <IncludedContentSection items={included} />
+            ) : (
+              <div className="rounded-xl border border-slate-800 bg-slate-900/60 px-4 py-4 text-sm text-slate-300">
+                Todavía no tienes contenido incluido.
+              </div>
+            )}
+          </div>
+        ) : (
+          <div className="mt-4 space-y-3">
+            {availablePacks.length === 0 && (
+              <div className="rounded-xl border border-slate-800 bg-slate-900/60 px-4 py-4 text-sm text-slate-300">
+                No hay packs públicos todavía.
+              </div>
+            )}
+            {packView === "list" &&
+              availablePacks.map((pack) => (
+                <div key={pack.id} className="rounded-xl border border-slate-800 bg-slate-900/60 px-4 py-3 space-y-2">
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <p className="text-sm font-semibold text-slate-100">{pack.name}</p>
+                      <p className="text-xs text-slate-400">{pack.description}</p>
+                    </div>
+                    <span className="text-sm font-semibold text-amber-300">{normalizePriceLabel(pack.price)}</span>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => handlePackRequest(pack)}
+                      className="rounded-full bg-emerald-500/20 px-4 py-1.5 text-xs font-semibold text-emerald-100 hover:bg-emerald-500/30"
+                    >
+                      Pedir
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSelectedPack(pack);
+                        setPackView("details");
+                      }}
+                      className="rounded-full border border-slate-700 px-4 py-1.5 text-xs text-slate-200 hover:bg-slate-800/70"
+                    >
+                      Ver pack
+                    </button>
+                  </div>
+                </div>
+              ))}
+            {packView === "details" && selectedPack && (
+              <div className="rounded-xl border border-slate-800 bg-slate-900/60 px-4 py-4 space-y-3">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <p className="text-sm font-semibold text-slate-100">{selectedPack.name}</p>
+                    <p className="text-xs text-slate-400">{selectedPack.description}</p>
+                  </div>
+                  <span className="text-sm font-semibold text-amber-300">{normalizePriceLabel(selectedPack.price)}</span>
+                </div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => handlePackRequest(selectedPack)}
+                    className="rounded-full bg-emerald-500/20 px-4 py-1.5 text-xs font-semibold text-emerald-100 hover:bg-emerald-500/30"
+                  >
+                    Pedir
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setPackView("list");
+                      setSelectedPack(null);
+                    }}
+                    className="rounded-full border border-slate-700 px-4 py-1.5 text-xs text-slate-200 hover:bg-slate-800/70"
+                  >
+                    Volver
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+      </BottomSheet>
+      <BottomSheet open={moneyModal === "tip"} onClose={closeMoneyModal}>
+        <div className="space-y-4">
+          <div>
+            <h3 className="text-base font-semibold text-slate-100">Apoyar / Propina</h3>
+            <p className="text-xs text-slate-400">Elige un importe.</p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {[3, 5, 10, 20].map((amount) => (
+              <button
+                key={amount}
+                type="button"
+              onClick={() => {
+                setTipAmountPreset(amount);
+                setTipAmountCustom("");
+                setTipError("");
+              }}
+                className={`rounded-full px-4 py-1.5 text-xs font-semibold border ${
+                  tipAmountPreset === amount
+                    ? "border-emerald-400/70 bg-emerald-500/20 text-emerald-100"
+                    : "border-slate-700 text-slate-200 hover:bg-slate-800/70"
+                }`}
+              >
+                {amount} €
+              </button>
+            ))}
+          </div>
+          <div className="space-y-2">
+            <label className="text-xs text-slate-300">Otro importe</label>
+            <input
+              type="number"
+              min={1}
+              max={500}
+              inputMode="decimal"
+              className="w-full rounded-lg bg-slate-900/70 border border-slate-700 px-3 py-2 text-sm text-white focus:border-emerald-400"
+              placeholder="Otro importe"
+              value={tipAmountCustom}
+              onChange={(event) => {
+                setTipAmountCustom(event.target.value);
+                setTipAmountPreset(null);
+                setTipError("");
+              }}
+            />
+          </div>
+          {tipError && <p className="text-xs text-rose-300">{tipError}</p>}
+          <div className="flex items-center justify-end gap-2">
+            <button
+              type="button"
+              onClick={closeMoneyModal}
+              className="rounded-full border border-slate-700 px-4 py-1.5 text-xs text-slate-200 hover:bg-slate-800/70"
+            >
+              Cancelar
+            </button>
+            <button
+              type="button"
+              onClick={handleTipConfirm}
+              className="rounded-full bg-emerald-500/20 px-4 py-1.5 text-xs font-semibold text-emerald-100 hover:bg-emerald-500/30"
+            >
+              Enviar propina
+            </button>
+          </div>
+        </div>
+      </BottomSheet>
+      <BottomSheet open={moneyModal === "gift"} onClose={closeMoneyModal}>
+        <div className="flex items-center justify-between gap-3">
+          <div>
+            <h3 className="text-base font-semibold text-slate-100">Regalo</h3>
+            <p className="text-xs text-slate-400">Elige qué quieres regalar.</p>
+          </div>
+          <button
+            type="button"
+            onClick={closeMoneyModal}
+            className="rounded-full border border-slate-700 px-3 py-1 text-xs text-slate-200 hover:bg-slate-800/70"
+          >
+            Cerrar
+          </button>
+        </div>
+        <div className="mt-4 space-y-3">
+          {giftView === "list" && availablePacks.length === 0 && (
+            <div className="rounded-xl border border-slate-800 bg-slate-900/60 px-4 py-4 text-sm text-slate-300">
+              No hay packs disponibles para regalar.
+            </div>
+          )}
+          {giftView === "list" &&
+            availablePacks.map((pack) => (
+              <div key={`gift-${pack.id}`} className="rounded-xl border border-slate-800 bg-slate-900/60 px-4 py-3 space-y-2">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <p className="text-sm font-semibold text-slate-100">{pack.name}</p>
+                    <p className="text-xs text-slate-400">{pack.description}</p>
+                  </div>
+                  <span className="text-sm font-semibold text-amber-300">{normalizePriceLabel(pack.price)}</span>
+                </div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => handleGiftConfirm(pack)}
+                    className="rounded-full bg-emerald-500/20 px-4 py-1.5 text-xs font-semibold text-emerald-100 hover:bg-emerald-500/30"
+                  >
+                    Regalar
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSelectedGiftPack(pack);
+                      setGiftView("details");
+                    }}
+                    className="rounded-full border border-slate-700 px-4 py-1.5 text-xs text-slate-200 hover:bg-slate-800/70"
+                  >
+                    Ver pack
+                  </button>
+                </div>
+              </div>
+            ))}
+          {giftView === "details" && selectedGiftPack && (
+            <div className="rounded-xl border border-slate-800 bg-slate-900/60 px-4 py-4 space-y-3">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <p className="text-sm font-semibold text-slate-100">{selectedGiftPack.name}</p>
+                  <p className="text-xs text-slate-400">{selectedGiftPack.description}</p>
+                </div>
+                <span className="text-sm font-semibold text-amber-300">{normalizePriceLabel(selectedGiftPack.price)}</span>
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => handleGiftConfirm(selectedGiftPack)}
+                  className="rounded-full bg-emerald-500/20 px-4 py-1.5 text-xs font-semibold text-emerald-100 hover:bg-emerald-500/30"
+                >
+                  Regalar
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setGiftView("list");
+                    setSelectedGiftPack(null);
+                  }}
+                  className="rounded-full border border-slate-700 px-4 py-1.5 text-xs text-slate-200 hover:bg-slate-800/70"
+                >
+                  Volver
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      </BottomSheet>
     </div>
   );
 }
@@ -758,6 +1283,74 @@ function openContentLink(mediaUrl?: string) {
   }
 }
 
+function SystemMessage({ text }: { text: string }) {
+  if (!text) return null;
+  return (
+    <div className="flex justify-center">
+      <div className="rounded-full border border-slate-700/70 bg-slate-900/70 px-3 py-1 text-[11px] text-slate-200">
+        {text}
+      </div>
+    </div>
+  );
+}
+
+function BottomSheet({
+  open,
+  onClose,
+  children,
+}: {
+  open: boolean;
+  onClose: () => void;
+  children: ReactNode;
+}) {
+  if (!open) return null;
+  return (
+    <div className="fixed inset-0 z-50">
+      <div className="absolute inset-0 bg-black/60" onClick={onClose} />
+      <div className="absolute inset-x-0 bottom-0 max-h-[85vh] overflow-y-auto rounded-t-3xl border border-slate-800 bg-[#0f1720] px-4 pb-6 pt-4">
+        <div className="mx-auto mb-3 h-1.5 w-12 rounded-full bg-slate-700/80" />
+        {children}
+      </div>
+    </div>
+  );
+}
+
+function normalizePriceLabel(value: string) {
+  const trimmed = (value || "").trim();
+  if (!trimmed) return "0 €";
+  if (/[€$£]/.test(trimmed)) return trimmed;
+  return `${trimmed} €`;
+}
+
+function parseAmountToNumber(value: string) {
+  const raw = (value || "").toString().trim();
+  if (!raw) return 0;
+  const normalized = raw.replace(/[^\d.,]/g, "").replace(",", ".");
+  const amount = Number.parseFloat(normalized);
+  return Number.isFinite(amount) ? amount : 0;
+}
+
+function formatAmountLabel(amount: number) {
+  if (!Number.isFinite(amount)) return "0 €";
+  const hasDecimals = Math.round(amount * 100) % 100 !== 0;
+  const label = hasDecimals ? amount.toFixed(2) : amount.toFixed(0);
+  return `${label} €`;
+}
+
+function buildPackDraft(pack: PackSummary) {
+  const priceLabel = normalizePriceLabel(pack.price);
+  return `Hola, me interesa el pack «${pack.name}» (${priceLabel}). ¿Cómo empezamos?\n\nRef pack: ${pack.id}`;
+}
+
+function getMessageSortKey(message: ApiMessage, fallbackIndex: number) {
+  const raw = message.id || "";
+  const parts = raw.split("-");
+  const lastPart = parts[parts.length - 1];
+  const timestamp = Number(lastPart);
+  if (Number.isFinite(timestamp)) return timestamp;
+  return fallbackIndex;
+}
+
 function reconcileMessages(
   existing: ApiMessage[],
   incoming: ApiMessage[],
@@ -784,7 +1377,15 @@ function reconcileMessages(
   return sorter(merged);
 }
 
-function AccessBanner({ summary }: { summary: AccessSummary }) {
+function AccessBanner({
+  summary,
+  contentCount = 0,
+  onOpenContent,
+}: {
+  summary: AccessSummary;
+  contentCount?: number;
+  onOpenContent?: () => void;
+}) {
   let containerClass = "rounded-xl border px-4 py-3";
   let titleClass = "text-sm font-semibold";
   let subtitleClass = "text-xs mt-1";
@@ -804,71 +1405,31 @@ function AccessBanner({ summary }: { summary: AccessSummary }) {
   }
 
   return (
-    <div className={containerClass}>
-      <div className={titleClass}>{summary.primaryLabel}</div>
-      {summary.secondaryLabel && <div className={subtitleClass}>{summary.secondaryLabel}</div>}
+    <div className={`${containerClass} flex items-start justify-between gap-3`}>
+      <div>
+        <div className={titleClass}>{summary.primaryLabel}</div>
+        {summary.secondaryLabel && <div className={subtitleClass}>{summary.secondaryLabel}</div>}
+      </div>
+      {onOpenContent && contentCount > 0 && (
+        <button
+          type="button"
+          onClick={onOpenContent}
+          className="rounded-full border border-slate-700 bg-slate-900/70 px-3 py-1 text-[11px] font-semibold text-slate-100 hover:bg-slate-800/80"
+        >
+          Contenido ({contentCount})
+        </button>
+      )}
     </div>
   );
 }
 
+export default FanChatPage;
+
 export const getServerSideProps: GetServerSideProps<FanChatPageProps> = async (context) => {
-  const prisma = (await import("../../lib/prisma.server")).default;
-  const { getFanContents } = await import("../../lib/fanContent");
-  const creatorId = "creator-1";
   const fanId = typeof context.params?.fanId === "string" ? context.params.fanId : "";
-  const now = new Date();
-
-  let membershipStatus: string | null = null;
-  let daysLeft: number | null = null;
-  let hasAccessHistory = false;
-  let activeGrantTypes: string[] = [];
-
-  if (fanId) {
-    const fan = await prisma.fan.findUnique({
-      where: { id: fanId },
-      include: { accessGrants: true },
-    });
-
-    if (fan) {
-      hasAccessHistory = fan.accessGrants.length > 0;
-
-      const activeGrants = fan.accessGrants.filter((grant) => grant.expiresAt > now);
-      activeGrantTypes = activeGrants.map((grant) => grant.type);
-
-      const latestExpiry = activeGrants.reduce<Date | null>((acc, grant) => {
-        if (!acc) return grant.expiresAt;
-        return grant.expiresAt > acc ? grant.expiresAt : acc;
-      }, null);
-
-      daysLeft = latestExpiry
-        ? Math.max(0, Math.ceil((latestExpiry.getTime() - now.getTime()) / (1000 * 60 * 60 * 24)))
-        : hasAccessHistory
-        ? 0
-        : null;
-
-      if (activeGrants.length > 0) {
-        membershipStatus = "active";
-      } else if (hasAccessHistory) {
-        membershipStatus = "expired";
-      } else {
-        membershipStatus = "none";
-      }
-    }
-  }
-
-  const accessSummary = getAccessSummary({
-    membershipStatus,
-    daysLeft,
-    hasAccessHistory,
-    activeGrantTypes,
-  });
-
-  const includedContent = await getFanContents(creatorId, accessSummary, activeGrantTypes);
+  const props = await buildFanChatProps(fanId);
 
   return {
-    props: {
-      includedContent,
-      initialAccessSummary: accessSummary,
-    },
+    props,
   };
 };

@@ -8,8 +8,6 @@ import {
   getActorReaction,
   getReactionSummary,
   type MessageReaction,
-  readMessageReactions,
-  subscribeMessageReactions,
   toggleMessageReaction,
 } from "../../lib/emoji/reactions";
 
@@ -30,6 +28,8 @@ interface MessageBalloonProps {
   stickerAlt?: string | null;
   enableReactions?: boolean;
   reactionActor?: string;
+  reactions?: MessageReaction[];
+  reactionFanId?: string;
 }
 
 const MessageBalloon = memo(function MessageBalloon(props: MessageBalloonProps) {
@@ -51,6 +51,8 @@ const MessageBalloon = memo(function MessageBalloon(props: MessageBalloonProps) 
     stickerAlt,
     enableReactions = false,
     reactionActor = "creator",
+    reactions: reactionsProp,
+    reactionFanId,
   } = props;
   const isSticker = Boolean(stickerSrc);
   const bubbleClass =
@@ -62,14 +64,14 @@ const MessageBalloon = memo(function MessageBalloon(props: MessageBalloonProps) 
   const bubblePadding = isSticker ? "p-2" : "px-4 py-2";
   const bubbleTone = isSticker ? "bg-slate-900/70 border border-slate-800/60" : bubbleClass;
   const reactionAlign = me ? "right-0" : "left-0";
-  const canShowReactions = enableReactions && Boolean(messageId) && !isSticker;
+  const canShowReactions = enableReactions && Boolean(messageId) && Boolean(reactionFanId) && !isSticker;
   const { favorites } = useEmojiFavorites();
   const [reactionRecents, setReactionRecents] = useState<string[]>([]);
   const reactionChoices = useMemo(() => {
     const deduped = favorites.concat(reactionRecents.filter((emoji) => !favorites.includes(emoji)));
     return deduped.slice(0, 6);
   }, [favorites, reactionRecents]);
-  const [ reactions, setReactions ] = useState<MessageReaction[]>([]);
+  const reactions = reactionsProp ?? [];
   const [ isReactionBarOpen, setIsReactionBarOpen ] = useState(false);
   const [ isReactionPickerOpen, setIsReactionPickerOpen ] = useState(false);
   const [ isHovered, setIsHovered ] = useState(false);
@@ -109,14 +111,6 @@ const MessageBalloon = memo(function MessageBalloon(props: MessageBalloonProps) 
   }
 
   useEffect(() => {
-    if (!canShowReactions || !messageId) return;
-    setReactions(readMessageReactions(messageId));
-    return subscribeMessageReactions(() => {
-      setReactions(readMessageReactions(messageId));
-    });
-  }, [canShowReactions, messageId]);
-
-  useEffect(() => {
     if (!canShowReactions) return;
     if (!isReactionBarOpen && !isReactionPickerOpen) return;
     setReactionRecents(readEmojiRecents());
@@ -142,18 +136,16 @@ const MessageBalloon = memo(function MessageBalloon(props: MessageBalloonProps) 
   }, [canShowReactions, isReactionBarOpen, isReactionPickerOpen]);
 
   const handleSelectReaction = (emoji: string) => {
-    if (!messageId) return;
+    if (!messageId || !reactionFanId) return;
     setReactionRecents((prev) => recordEmojiRecent(emoji, prev));
-    const next = toggleMessageReaction(messageId, emoji, reactionActor);
-    setReactions(next);
+    toggleMessageReaction(reactionFanId, messageId, emoji, reactionActor);
     setIsReactionBarOpen(false);
     setIsReactionPickerOpen(false);
   };
 
   const handleClearReaction = () => {
-    if (!messageId || !actorReaction) return;
-    const next = toggleMessageReaction(messageId, actorReaction, reactionActor);
-    setReactions(next);
+    if (!messageId || !reactionFanId || !actorReaction) return;
+    toggleMessageReaction(reactionFanId, messageId, actorReaction, reactionActor);
     setIsReactionBarOpen(false);
     setIsReactionPickerOpen(false);
   };

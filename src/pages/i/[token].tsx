@@ -1,10 +1,17 @@
 import type { GetServerSideProps } from "next";
+import FanChatPage, { type FanChatPageProps } from "../fan/[fanId]";
+import { buildFanChatProps } from "../../lib/fanChatProps";
 
-export default function InviteRedirectPage() {
-  return null;
+type InviteChatProps = FanChatPageProps & {
+  fanIdOverride: string;
+  inviteOverride: boolean;
+};
+
+export default function InviteChatPage(props: InviteChatProps) {
+  return <FanChatPage {...props} />;
 }
 
-export const getServerSideProps: GetServerSideProps = async ({ params, req }) => {
+export const getServerSideProps: GetServerSideProps<InviteChatProps> = async ({ params, req }) => {
   const token = typeof params?.token === "string" ? params.token.trim() : "";
   if (!token) {
     return { notFound: true };
@@ -28,15 +35,17 @@ export const getServerSideProps: GetServerSideProps = async ({ params, req }) =>
     if (!fanId) {
       return { notFound: true };
     }
+    const fanProps = await buildFanChatProps(fanId);
     return {
-      redirect: {
-        destination: `/fan/${fanId}?invite=1`,
-        permanent: false,
+      props: {
+        ...fanProps,
+        fanIdOverride: fanId,
+        inviteOverride: true,
       },
     };
   } catch (error) {
     if (process.env.NODE_ENV !== "production") {
-      console.warn("[invite] redirect error", error);
+      console.warn("[invite] resolve error", error);
     }
     return { notFound: true };
   }

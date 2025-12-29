@@ -1,5 +1,8 @@
-const EMOJI_REACTIONS_KEY = "novsy_message_reactions";
-const EMOJI_REACTIONS_EVENT = "novsy:emoji-reactions";
+import { useSyncExternalStore } from "react";
+
+const REACTIONS_STORAGE_PREFIX = "novsy:reactions:";
+const REACTIONS_EVENT = "novsy:reactions";
+const REACTIONS_CHANNEL = "novsy";
 const DEFAULT_ACTOR = "creator";
 
 export type MessageReaction = {
@@ -13,7 +16,29 @@ export type ReactionSummary = {
   actors: string[];
 };
 
-type ReactionStore = Record<string, MessageReaction[]>;
+export type ReactionStore = Record<string, MessageReaction[]>;
+
+export const EMPTY_REACTIONS_RAW = "{}";
+const EMPTY_REACTIONS: ReactionStore = Object.freeze({});
+
+const reactionsCacheRaw = new Map<string, string>();
+const reactionsCacheParsed = new Map<string, ReactionStore>();
+let reactionsChannel: BroadcastChannel | null = null;
+
+export function buildReactionsStorageKey(fanId: string): string {
+  return `${REACTIONS_STORAGE_PREFIX}${fanId}`;
+}
+
+function getReactionsChannel(): BroadcastChannel | null {
+  if (typeof window === "undefined") return null;
+  if (reactionsChannel) return reactionsChannel;
+  try {
+    reactionsChannel = new BroadcastChannel(REACTIONS_CHANNEL);
+  } catch (_err) {
+    reactionsChannel = null;
+  }
+  return reactionsChannel;
+}
 
 function sanitizeReaction(entry: unknown): MessageReaction | null {
   if (!entry || typeof entry !== "object") return null;
@@ -46,32 +71,60 @@ function normalizeStore(raw: unknown): ReactionStore {
   return next;
 }
 
-function readReactionStore(): ReactionStore {
-  if (typeof window === "undefined") return {};
+export function parseReactionsRaw(raw: string): ReactionStore {
+  if (!raw || raw === EMPTY_REACTIONS_RAW) return EMPTY_REACTIONS;
   try {
-    const stored = window.localStorage.getItem(EMOJI_REACTIONS_KEY);
-    if (!stored) return {};
-    const parsed = JSON.parse(stored);
-    return normalizeStore(parsed);
-  } catch (error) {
-    return {};
+    const parsed = JSON.parse(raw);
+    const normalized = normalizeStore(parsed);
+    return Object.keys(normalized).length > 0 ? normalized : EMPTY_REACTIONS;
+  } catch (_err) {
+    return EMPTY_REACTIONS;
   }
 }
 
-function writeReactionStore(next: ReactionStore) {
-  if (typeof window === "undefined") return;
+function readReactionsRawByKey(storageKey: string): string {
+  if (typeof window === "undefined") return EMPTY_REACTIONS_RAW;
+  let raw = EMPTY_REACTIONS_RAW;
   try {
-    window.localStorage.setItem(EMOJI_REACTIONS_KEY, JSON.stringify(next));
-    window.dispatchEvent(new Event(EMOJI_REACTIONS_EVENT));
-  } catch (error) {
-    // Ignore storage errors.
+    raw = window.localStorage.getItem(storageKey) ?? EMPTY_REACTIONS_RAW;
+  } catch (_err) {
+    raw = EMPTY_REACTIONS_RAW;
   }
+  const cachedRaw = reactionsCacheRaw.get(storageKey);
+  if (cachedRaw === raw) return cachedRaw;
+  reactionsCacheRaw.set(storageKey, raw);
+  reactionsCacheParsed.set(storageKey, parseReactionsRaw(raw));
+  return raw;
 }
 
-export function readMessageReactions(messageId: string): MessageReaction[] {
-  if (!messageId) return [];
-  const store = readReactionStore();
-  return store[messageId] ?? [];
+function readReactionStoreByKey(storageKey: string): ReactionStore {
+  readReactionsRawByKey(storageKey);
+  return reactionsCacheParsed.get(storageKey) ?? EMPTY_REACTIONS;
+}
+
+export function readReactionsRaw(fanId: string): string {
+  if (!fanId) return EMPTY_REACTIONS_RAW;
+  return readReactionsRawByKey(buildReactionsStorageKey(fanId));
+}
+
+export function readReactions(fanId: string): ReactionStore {
+  if (!fanId) return EMPTY_REACTIONS;
+  return readReactionStoreByKey(buildReactionsStorageKey(fanId));
+}
+
+export function writeReactions(fanId: string, next: ReactionStore) {
+  if (!fanId || typeof window === "undefined") return;
+  const storageKey = buildReactionsStorageKey(fanId);
+  const raw = JSON.stringify(next);
+  try {
+    window.localStorage.setItem(storageKey, raw);
+  } catch (_err) {
+    return;
+  }
+  reactionsCacheRaw.set(storageKey, raw);
+  reactionsCacheParsed.set(storageKey, next);
+  window.dispatchEvent(new CustomEvent(REACTIONS_EVENT, { detail: { fanId, storageKey } }));
+  getReactionsChannel()?.postMessage({ type: "reactions", fanId, storageKey });
 }
 
 export function getActorReaction(reactions: MessageReaction[], actor: string): string | null {
@@ -97,13 +150,18 @@ export function getReactionSummary(reactions: MessageReaction[]): ReactionSummar
   }));
 }
 
-export function toggleMessageReaction(messageId: string, emoji: string, actor: string): MessageReaction[] {
-  if (!messageId) return [];
+export function toggleMessageReaction(
+  fanId: string,
+  messageId: string,
+  emoji: string,
+  actor: string
+): MessageReaction[] {
+  if (!fanId || !messageId) return [];
   const normalizedEmoji = (emoji || "").trim();
   const normalizedActor = (actor || DEFAULT_ACTOR).trim() || DEFAULT_ACTOR;
-  if (!normalizedEmoji) return readMessageReactions(messageId);
+  if (!normalizedEmoji) return [];
 
-  const store = readReactionStore();
+  const store = readReactions(fanId);
   const current = store[messageId] ?? [];
   const existingForActor = current.find((reaction) => reaction.actor === normalizedActor);
   let next: MessageReaction[];
@@ -112,23 +170,57 @@ export function toggleMessageReaction(messageId: string, emoji: string, actor: s
     next = current.filter((reaction) => reaction.actor !== normalizedActor);
   } else {
     next = current.filter((reaction) => reaction.actor !== normalizedActor);
-    next.push({ emoji: normalizedEmoji, actor: normalizedActor });
+    next = [...next, { emoji: normalizedEmoji, actor: normalizedActor }];
   }
 
+  const nextStore: ReactionStore = { ...store };
   if (next.length > 0) {
-    store[messageId] = next;
+    nextStore[messageId] = next;
   } else {
-    delete store[messageId];
+    delete nextStore[messageId];
   }
-  writeReactionStore(store);
+
+  writeReactions(fanId, nextStore);
   return next;
 }
 
-export function subscribeMessageReactions(listener: () => void): () => void {
+function subscribeToReactions(storageKey: string, fanId: string, callback: () => void) {
   if (typeof window === "undefined") return () => {};
-  const handler = () => listener();
-  window.addEventListener(EMOJI_REACTIONS_EVENT, handler);
-  return () => {
-    window.removeEventListener(EMOJI_REACTIONS_EVENT, handler);
+  const handleCustom = (event: Event) => {
+    const detail = (event as CustomEvent)?.detail as { fanId?: string; storageKey?: string } | undefined;
+    if (detail?.storageKey && detail.storageKey !== storageKey) return;
+    if (detail?.fanId && fanId && detail.fanId !== fanId) return;
+    callback();
   };
+  const handleStorage = (event: StorageEvent) => {
+    if (event.key && event.key !== storageKey) return;
+    callback();
+  };
+  const handleBroadcast = (event: MessageEvent) => {
+    const data = event.data as { type?: string; fanId?: string; storageKey?: string } | null;
+    if (!data || data.type !== "reactions") return;
+    if (data.storageKey && data.storageKey !== storageKey) return;
+    if (data.fanId && fanId && data.fanId !== fanId) return;
+    callback();
+  };
+
+  window.addEventListener(REACTIONS_EVENT, handleCustom as EventListener);
+  window.addEventListener("storage", handleStorage);
+  const channel = getReactionsChannel();
+  channel?.addEventListener("message", handleBroadcast as EventListener);
+
+  return () => {
+    window.removeEventListener(REACTIONS_EVENT, handleCustom as EventListener);
+    window.removeEventListener("storage", handleStorage);
+    channel?.removeEventListener("message", handleBroadcast as EventListener);
+  };
+}
+
+export function useReactions(fanId: string): string {
+  const storageKey = buildReactionsStorageKey(fanId || "");
+  return useSyncExternalStore(
+    (callback) => (fanId ? subscribeToReactions(storageKey, fanId, callback) : () => {}),
+    () => (fanId ? readReactionsRawByKey(storageKey) : EMPTY_REACTIONS_RAW),
+    () => EMPTY_REACTIONS_RAW
+  );
 }

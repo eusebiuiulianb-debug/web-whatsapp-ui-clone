@@ -47,12 +47,14 @@ import { deriveAudience, isVisibleToFan, normalizeFrom } from "../../lib/message
 import { getNearDuplicateSimilarity } from "../../lib/text/isNearDuplicate";
 import { getStickerById, type StickerItem as LegacyStickerItem } from "../../lib/emoji/stickers";
 import { buildStickerToken, getStickerByToken, type StickerItem as PickerStickerItem } from "../../lib/stickers";
+import { parseReactionsRaw, useReactions } from "../../lib/emoji/reactions";
 import {
   buildCatalogPitch,
   formatCatalogIncludesSummary,
   formatCatalogPriceCents,
   type CatalogItem,
 } from "../../lib/catalog";
+import { parseExtrasRaw, useLocalExtras } from "../../lib/localExtras";
 import {
   DB_SCHEMA_OUT_OF_SYNC_FIX,
   DB_SCHEMA_OUT_OF_SYNC_MESSAGE,
@@ -495,6 +497,15 @@ export default function ConversationDetails({ onBackToBoard }: ConversationDetai
     lastCreatorMessageAt,
   } = conversation;
   const activeFanId = conversation?.isManager ? null : id ?? null;
+  const reactionsRaw = useReactions(activeFanId || "");
+  const reactionsStore = useMemo(() => parseReactionsRaw(reactionsRaw), [reactionsRaw]);
+  const extrasRaw = useLocalExtras(activeFanId || "");
+  const localExtras = useMemo(() => parseExtrasRaw(extrasRaw), [extrasRaw]);
+  const localExtrasCount = localExtras.length;
+  const localExtrasTotal = useMemo(
+    () => localExtras.reduce((sum, item) => sum + (Number.isFinite(item.amount) ? item.amount : 0), 0),
+    [localExtras]
+  );
   const [ messageSend, setMessageSend ] = useState("");
   const [ pendingInsert, setPendingInsert ] = useState<{ text: string; detail?: string } | null>(null);
   const [ isSending, setIsSending ] = useState(false);
@@ -6278,9 +6289,9 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
   const composerActionLabel = isFanTarget ? "Enviar a FAN" : "Enviar al Manager";
   const canAttachContent = isFanTarget && !isChatBlocked && !isInternalPanelOpen;
   const nextActionStatus = getFollowUpStatusFromDate(nextActionDate);
-  const extrasCountDisplay = conversation.extrasCount ?? 0;
-  const extrasSpentDisplay = Math.round(conversation.extrasSpentTotal ?? 0);
-  const extrasAmount = conversation.extrasSpentTotal ?? 0;
+  const extrasCountDisplay = (conversation.extrasCount ?? 0) + localExtrasCount;
+  const extrasSpentDisplay = Math.round((conversation.extrasSpentTotal ?? 0) + localExtrasTotal);
+  const extrasAmount = (conversation.extrasSpentTotal ?? 0) + localExtrasTotal;
   const lifetimeAmount = conversation.lifetimeSpend ?? 0;
   const subsAmount = Math.max(0, lifetimeAmount - extrasAmount);
   const sessionToday = conversation.extraSessionToday ?? {
@@ -7013,7 +7024,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
             <div className="flex items-center gap-1 min-w-0">
               <span className="text-slate-400">Extras:</span>
               <span className="truncate">
-                {extrasCountDisplay} · {extrasSpentDisplay}
+                {extrasCountDisplay} · {extrasSpentDisplay} €
               </span>
             </div>
             <div className="md:col-span-2 flex items-start gap-1 min-w-0">
@@ -7294,12 +7305,14 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
               const isLegacySticker = messageConversation.type === "STICKER";
               const retrySticker = isLegacySticker ? getStickerById(messageConversation.stickerId ?? null) : null;
               const translatedText = !me ? messageConversation.translatedText ?? undefined : undefined;
+              const messageId = messageConversation.id || `message-${index}`;
+              const messageReactions = reactionsStore[messageId] ?? [];
               return (
                 <div key={messageConversation.id || index} className="space-y-1">
                   <MessageBalloon
                     me={me}
                     message={message}
-                    messageId={messageConversation.id || `message-${index}`}
+                    messageId={messageId}
                     seen={seen}
                     time={time}
                     status={messageConversation.status}
@@ -7310,6 +7323,8 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
                     stickerSrc={isStickerMessage ? messageConversation.stickerSrc ?? null : null}
                     stickerAlt={isStickerMessage ? messageConversation.stickerAlt ?? "Sticker" : null}
                     enableReactions={!isInternalMessage}
+                    reactionFanId={activeFanId || undefined}
+                    reactions={isInternalMessage ? [] : messageReactions}
                   />
                   {messageConversation.status === "failed" && (
                     <div className="flex justify-end">
