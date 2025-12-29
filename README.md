@@ -8,6 +8,14 @@ Chat tipo WhatsApp para creadores y fans (versión preliminar).
 - Ahora `/creator` resuelve el handle real desde `/api/creator` y lo pasa a `PublicProfileView`.
 - `PublicProfileView`: fetch `/api/public/popclips?handle=...` + estados loading/empty/error con retry visible.
 - PopClips feed ya renderiza el clip y “Ver pack” navega a landing pública del pack.
+- Migrations SQLite: squash a una única migración `init` generada desde el schema actual; historial previo movido a `prisma/migrations_legacy/2025_12_29_pre_squash`.
+
+Checklist verificación (migrations):
+- [ ] `npx prisma migrate reset` completa sin errores.
+- [ ] `npx prisma generate` completa sin EPERM/P2021.
+- [ ] `npm run dev` arranca sin P2021 (AccessGrant).
+- [ ] Abrir `/creator` y el perfil público sin errores en stats.
+- [ ] `/api/popclips` responde sin errores.
 
 Cambios recientes (6 archivos):
 - `src/components/public-profile/PublicProfileView.tsx`
