@@ -137,6 +137,10 @@ export function FanChatPage({
   const [giftView, setGiftView] = useState<"list" | "details">("list");
   const [selectedGiftPack, setSelectedGiftPack] = useState<PackSummary | null>(null);
 
+  useEffect(() => {
+    setAccessSummary(initialAccessSummary || null);
+  }, [initialAccessSummary]);
+
   const sortMessages = useCallback((list: ApiMessage[]) => {
     const withKeys = list.map((msg, idx) => ({
       msg,
@@ -262,17 +266,6 @@ export function FanChatPage({
         });
         setOnboardingLanguage(normalizedLanguage);
         setFanProfileLoaded(true);
-        const hasHistory =
-          typeof target?.hasAccessHistory === "boolean"
-            ? target.hasAccessHistory
-            : (target?.paidGrantsCount ?? 0) > 0;
-        const summary = getAccessSummary({
-          membershipStatus: target?.membershipStatus,
-          daysLeft: target?.daysLeft,
-          hasAccessHistory: hasHistory,
-          activeGrantTypes: Array.isArray(target?.activeGrantTypes) ? target.activeGrantTypes : undefined,
-        });
-        setAccessSummary(summary);
       } catch (_err) {
         setFanProfile({
           name: "Invitado",
@@ -281,13 +274,6 @@ export function FanChatPage({
           preferredLanguage: getFallbackLanguage(),
         });
         setFanProfileLoaded(true);
-        setAccessSummary(
-          getAccessSummary({
-            membershipStatus: null,
-            daysLeft: 0,
-            hasAccessHistory: false,
-          })
-        );
       } finally {
         setAccessLoading(false);
       }
