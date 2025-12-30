@@ -13,6 +13,7 @@ import {
   type UIEventHandler,
   type WheelEventHandler,
 } from "react";
+import { createPortal } from "react-dom";
 import { format, formatDistanceToNow } from "date-fns";
 import { es } from "date-fns/locale";
 import { ConversationContext } from "../../context/ConversationContext";
@@ -54,7 +55,15 @@ import {
   formatCatalogPriceCents,
   type CatalogItem,
 } from "../../lib/catalog";
-import { parseExtrasRaw, useLocalExtras } from "../../lib/localExtras";
+import {
+  appendExtraEvent,
+  clearUnreadExtra,
+  createExtraEventId,
+  summarizeExtras,
+  useAllExtrasEvents,
+  useExtraSupportMessages,
+  useUnreadExtrasMap,
+} from "../../lib/localExtras";
 import {
   DB_SCHEMA_OUT_OF_SYNC_FIX,
   DB_SCHEMA_OUT_OF_SYNC_MESSAGE,
@@ -66,6 +75,7 @@ import clsx from "clsx";
 import { useRouter } from "next/router";
 import { useIsomorphicLayoutEffect } from "../../hooks/useIsomorphicLayoutEffect";
 import Image from "next/image";
+import type { ExtrasSummary } from "../../types/extras";
 
 type ManagerQuickIntent = ManagerObjective;
 type ManagerSuggestionIntent = "romper_hielo" | "pregunta_simple" | "cierre_suave" | "upsell_mensual_suave";
@@ -400,6 +410,63 @@ function InlinePanelContainer({
   );
 }
 
+type DockOverlayProps = {
+  open: boolean;
+  onClose: () => void;
+  bottomOffset: number;
+  children: ReactNode;
+  panelId?: string;
+};
+
+function DockOverlay({ open, onClose, bottomOffset, children, panelId }: DockOverlayProps) {
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
+  useEffect(() => {
+    if (!open || typeof document === "undefined") return;
+    const prevOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = prevOverflow;
+    };
+  }, [open]);
+
+  if (!open || !mounted || typeof document === "undefined") return null;
+
+  const safeBottom = Math.max(0, bottomOffset);
+
+  return createPortal(
+    <div className="dock-overlay fixed inset-0 z-[70] pointer-events-none">
+      <div
+        className="dock-overlay-backdrop absolute inset-x-0 top-0 pointer-events-auto bg-slate-950/70"
+        style={{ bottom: safeBottom }}
+        onPointerDown={(event) => {
+          if (event.target !== event.currentTarget) return;
+          onClose();
+        }}
+      />
+      <div
+        className="relative flex h-full w-full items-end justify-center"
+        style={{ paddingBottom: safeBottom }}
+      >
+        <div className="pointer-events-auto w-full max-w-4xl px-4 pb-4 md:pb-6">
+          <div
+            id={panelId}
+            className="dock-overlay-sheet max-h-[70vh] overflow-hidden"
+            aria-hidden={!open}
+          >
+            {children}
+          </div>
+        </div>
+      </div>
+    </div>,
+    document.body
+  );
+}
+
 function reconcileMessages(
   existing: ConversationMessage[],
   incoming: ConversationMessage[],
@@ -499,12 +566,24 @@ export default function ConversationDetails({ onBackToBoard }: ConversationDetai
   const activeFanId = conversation?.isManager ? null : id ?? null;
   const reactionsRaw = useReactions(activeFanId || "");
   const reactionsStore = useMemo(() => parseReactionsRaw(reactionsRaw), [reactionsRaw]);
-  const extrasRaw = useLocalExtras(activeFanId || "");
-  const localExtras = useMemo(() => parseExtrasRaw(extrasRaw), [extrasRaw]);
-  const localExtrasCount = localExtras.length;
+  const allExtrasEvents = useAllExtrasEvents();
+  const extraSupportMessages = useExtraSupportMessages(activeFanId || "");
+  const unreadExtrasMap = useUnreadExtrasMap();
+  const unreadExtrasCount = activeFanId ? unreadExtrasMap[activeFanId] ?? 0 : 0;
+  const hasUnreadExtras = unreadExtrasCount > 0;
+  const [ serverExtrasSummary, setServerExtrasSummary ] = useState<ExtrasSummary | null>(null);
+  useEffect(() => {
+    if (!activeFanId) return;
+    clearUnreadExtra(activeFanId);
+  }, [activeFanId, clearUnreadExtra]);
+  const fanExtrasEvents = useMemo(
+    () => (activeFanId ? allExtrasEvents.filter((event) => event.fanId === activeFanId) : []),
+    [activeFanId, allExtrasEvents]
+  );
+  const localExtrasCount = fanExtrasEvents.length;
   const localExtrasTotal = useMemo(
-    () => localExtras.reduce((sum, item) => sum + (Number.isFinite(item.amount) ? item.amount : 0), 0),
-    [localExtras]
+    () => fanExtrasEvents.reduce((sum, item) => sum + (Number.isFinite(item.amount) ? item.amount : 0), 0),
+    [fanExtrasEvents]
   );
   const [ messageSend, setMessageSend ] = useState("");
   const [ pendingInsert, setPendingInsert ] = useState<{ text: string; detail?: string } | null>(null);
@@ -522,6 +601,7 @@ export default function ConversationDetails({ onBackToBoard }: ConversationDetai
   >([]);
   const [ accessGrantsLoading, setAccessGrantsLoading ] = useState(false);
   const [ openPanel, setOpenPanel ] = useState<"none" | "history" | "extras">("none");
+  const [ extraSalesFilter, setExtraSalesFilter ] = useState<"today" | "last7" | "total">("today");
   const [ profileText, setProfileText ] = useState(conversation.profileText ?? "");
   const [ profileLoading, setProfileLoading ] = useState(false);
   const [ profileDraft, setProfileDraft ] = useState("");
@@ -621,18 +701,6 @@ export default function ConversationDetails({ onBackToBoard }: ConversationDetai
   type TimeOfDayFilter = "all" | "day" | "night";
   const [ timeOfDayFilter, setTimeOfDayFilter ] = useState<TimeOfDayFilter>("all");
   const [ timeOfDay, setTimeOfDay ] = useState<TimeOfDayValue>(getCurrentTimeOfDay());
-  const [ extraHistory, setExtraHistory ] = useState<
-    {
-      id: string;
-      tier: "T0" | "T1" | "T2" | "T3";
-      amount: number;
-      sessionTag?: string | null;
-      createdAt: string;
-      contentItem: { id: string; title: string; type: string; timeOfDay?: TimeOfDayValue; isExtra?: boolean; extraTier?: string | null };
-    }[]
-  >([]);
-  const [ extraHistoryError, setExtraHistoryError ] = useState("");
-  const [ isLoadingExtraHistory, setIsLoadingExtraHistory ] = useState(false);
   const [ selectedExtraId, setSelectedExtraId ] = useState<string>("");
   const [ extraAmount, setExtraAmount ] = useState<number | "">("");
   const [ extraError, setExtraError ] = useState<string | null>(null);
@@ -697,6 +765,85 @@ export default function ConversationDetails({ onBackToBoard }: ConversationDetai
   const [ lastAutopilotTone, setLastAutopilotTone ] = useState<FanTone | null>(null);
   const [ fanToneById, setFanToneById ] = useState<Record<string, FanTone>>({});
   const [ includeInternalContextByFan, setIncludeInternalContextByFan ] = useState<Record<string, boolean>>({});
+  const fetchServerExtrasSummary = useCallback(async () => {
+    try {
+      const res = await fetch("/api/extras/summary");
+      if (!res.ok) throw new Error("Error fetching extras summary");
+      const data = (await res.json()) as ExtrasSummary;
+      setServerExtrasSummary(data);
+    } catch (_err) {
+      setServerExtrasSummary(null);
+    }
+  }, []);
+
+  useEffect(() => {
+    void fetchServerExtrasSummary();
+  }, [fetchServerExtrasSummary]);
+
+  const extrasNow = useMemo(() => new Date(), [allExtrasEvents]);
+  const localExtrasSummary = useMemo(
+    () => summarizeExtras(allExtrasEvents, extrasNow),
+    [allExtrasEvents, extrasNow]
+  );
+  const extrasSummary = useMemo(() => {
+    const base = serverExtrasSummary ?? { today: { count: 0, amount: 0 }, last7Days: { count: 0, amount: 0 } };
+    return {
+      today: {
+        count: base.today.count + localExtrasSummary.today.count,
+        amount: base.today.amount + localExtrasSummary.today.amount,
+      },
+      last7Days: {
+        count: base.last7Days.count + localExtrasSummary.last7Days.count,
+        amount: base.last7Days.amount + localExtrasSummary.last7Days.amount,
+      },
+      total: localExtrasSummary.total,
+    };
+  }, [localExtrasSummary, serverExtrasSummary]);
+  const activeExtrasBucket =
+    extraSalesFilter === "today"
+      ? extrasSummary.today
+      : extraSalesFilter === "last7"
+      ? extrasSummary.last7Days
+      : extrasSummary.total;
+  const extraHistory = useMemo(
+    () => [...fanExtrasEvents].sort((a, b) => b.ts - a.ts),
+    [fanExtrasEvents]
+  );
+  const extrasStartOfToday = useMemo(() => {
+    const start = new Date(extrasNow);
+    start.setHours(0, 0, 0, 0);
+    return start.getTime();
+  }, [extrasNow]);
+  const extrasStart7Days = useMemo(() => {
+    const start = new Date(extrasStartOfToday);
+    start.setDate(start.getDate() - 6);
+    return start.getTime();
+  }, [extrasStartOfToday]);
+  const allExtrasSorted = useMemo(
+    () => [...allExtrasEvents].sort((a, b) => b.ts - a.ts),
+    [allExtrasEvents]
+  );
+  const filteredExtrasEvents = useMemo(() => {
+    if (extraSalesFilter === "total") return allExtrasSorted;
+    const threshold = extraSalesFilter === "today" ? extrasStartOfToday : extrasStart7Days;
+    return allExtrasSorted.filter((event) => event.ts >= threshold);
+  }, [allExtrasSorted, extraSalesFilter, extrasStartOfToday, extrasStart7Days]);
+  const extraFanLabels = useMemo(() => {
+    const map = new Map<string, string>();
+    if (conversation?.id && contactName) {
+      map.set(conversation.id, contactName);
+    }
+    queueFans.forEach((fan) => {
+      if (fan.id && fan.contactName) {
+        map.set(fan.id, fan.contactName);
+      }
+    });
+    return map;
+  }, [contactName, conversation?.id, queueFans]);
+  const getExtraFanLabel = useCallback(
+    (fanIdValue: string) => extraFanLabels.get(fanIdValue) ?? fanIdValue,
+    [extraFanLabels]
+  );
   const fanManagerAnalysis: FanManagerStateAnalysis = useMemo(
     () => deriveFanManagerState({ fan: conversation, messages }),
     [conversation, messages]
@@ -712,6 +859,7 @@ export default function ConversationDetails({ onBackToBoard }: ConversationDetai
     [fanTemplatePools]
   );
   const messagesContainerRef = useRef<HTMLDivElement | null>(null);
+  const handledExtraSupportIdsRef = useRef<Set<string>>(new Set());
   const [isAtBottom, setIsAtBottom] = useState(true);
   const chatPanelScrollTopRef = useRef(0);
   const chatPanelRestorePendingRef = useRef(false);
@@ -1698,8 +1846,16 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
         customerTier: updatedTier,
         isHighPriority: updatedHighPriority,
       });
+      const extraItem = contentItems.find((item) => item.id === extraId);
+      appendExtraEvent(fanId, {
+        id: createExtraEventId(),
+        kind: "EXTRA",
+        amount,
+        packRef: extraId,
+        packName: extraItem?.title || "Extra",
+        createdAt: new Date().toISOString(),
+      });
       await refreshFanData(fanId);
-      await fetchExtrasHistory(fanId);
       if (typeof window !== "undefined") {
         window.dispatchEvent(
           new CustomEvent(EXTRAS_UPDATED_EVENT, {
@@ -2074,28 +2230,6 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
     }
   }, [resolveCreatorId]);
 
-  async function fetchExtrasHistory(fanId: string) {
-    try {
-      setExtraHistoryError("");
-      setIsLoadingExtraHistory(true);
-      const res = await fetch(`/api/extras?fanId=${fanId}`);
-      if (!res.ok) {
-        console.error("Error fetching extras", res.statusText);
-        setExtraHistory([]);
-        setExtraHistoryError("");
-        return;
-      }
-      const data = await res.json();
-      const history = Array.isArray(data.history) ? data.history : [];
-      setExtraHistory(history);
-    } catch (_err) {
-      setExtraHistory([]);
-      setExtraHistoryError("");
-    } finally {
-      setIsLoadingExtraHistory(false);
-    }
-  }
-
   async function refreshFanData(fanId: string) {
     try {
       const res = await fetch(`/api/fans?fanId=${encodeURIComponent(fanId)}`);
@@ -2319,6 +2453,54 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
   }, [fetchMessages, id, setMessage]);
 
   useEffect(() => {
+    handledExtraSupportIdsRef.current = new Set();
+  }, [activeFanId]);
+
+  useEffect(() => {
+    if (!activeFanId || extraSupportMessages.length === 0) return;
+    const handled = handledExtraSupportIdsRef.current;
+    const existingIds = new Set((messages ?? []).map((msg) => msg.id).filter(Boolean) as string[]);
+    const existingEventIds = new Set(
+      (messages ?? [])
+        .map((msg) => {
+          if (msg.kind !== "system" || msg.subtype !== "extra_support") return null;
+          return msg.meta?.eventId || msg.id || null;
+        })
+        .filter(Boolean) as string[]
+    );
+    const incoming = extraSupportMessages
+      .filter((notice) => notice.fanId === activeFanId)
+      .filter((notice) => {
+        const eventId = notice.meta?.eventId || notice.id;
+        if (!eventId) return false;
+        if (handled.has(eventId) || existingEventIds.has(eventId)) return false;
+        if (notice.id && existingIds.has(notice.id)) return false;
+        return true;
+      })
+      .map((notice) => ({
+        id: notice.id,
+        fanId: activeFanId,
+        me: false,
+        message: "",
+        createdAt: notice.createdAt,
+        kind: "system",
+        subtype: notice.subtype,
+        amount: notice.amount,
+        currency: notice.currency,
+        fanName: notice.fanName,
+        ts: notice.ts,
+        meta: notice.meta,
+      } as ConversationMessage));
+    if (incoming.length === 0) return;
+    incoming.forEach((notice) => {
+      const eventId = notice.meta?.eventId || notice.id;
+      if (eventId) handled.add(eventId);
+    });
+    setMessage((prev) => reconcileMessages(prev || [], incoming, activeFanId));
+    scrollToBottom("smooth");
+  }, [activeFanId, extraSupportMessages, messages, setMessage]);
+
+  useEffect(() => {
     setSchemaError(null);
     setSchemaCopyState("idle");
     setInternalToast(null);
@@ -2458,11 +2640,6 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
   }, [id, openPanel]);
 
   useEffect(() => {
-    if (!id || openPanel !== "extras") return;
-    fetchExtrasHistory(id);
-  }, [id, openPanel]);
-
-  useEffect(() => {
     setInviteCopyState("idle");
     setInviteCopyError(null);
     setInviteCopyUrl(null);
@@ -2582,12 +2759,10 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
   }, [managerPanelOpen, inlineAction, closeInlinePanel, clearInlineAction]);
 
   useEffect(() => {
-    closeOverlays({ keepManagerPanel: true });
+    closeOverlays();
     setHighlightDraftId(null);
-    if (!managerPanelOpen) {
-      setInternalPanelTab("manager");
-    }
-  }, [conversation.id, closeOverlays, managerPanelOpen]);
+    setInternalPanelTab("manager");
+  }, [conversation.id, closeOverlays]);
 
   useEffect(() => {
     if (!conversation?.id) return;
@@ -4158,12 +4333,10 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
     };
 
     const panelTab = managerPanelOpen ? managerPanelTab : null;
-    const isPanelOpen = managerPanelOpen;
     const panelContent = renderInlinePanel(panelTab);
+    const isPanelOpen = Boolean(managerPanelOpen && panelContent);
 
     const panelId = "composer-inline-panel";
-    const isInternalPanelOverlay = isPanelOpen && panelTab === "manager";
-    const panelMaxHeightClassName = isInternalPanelOverlay ? "max-h-none h-full" : undefined;
 
     const chips = (
       <>
@@ -4287,47 +4460,21 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
 
     const panel =
       isPanelOpen && panelContent ? (
-        <InlinePanelContainer
-          isOpen={isPanelOpen}
+        <DockOverlay
+          open={isPanelOpen}
+          onClose={closeDockPanel}
+          bottomOffset={dockOffset}
           panelId={panelId}
-          bottomOffset={isInternalPanelOverlay ? undefined : !isFanMode ? dockOffset : undefined}
-          openMaxHeightClassName={panelMaxHeightClassName}
-          isOverlay={isInternalPanelOverlay}
         >
-          {isInternalPanelOverlay ? (
-            <>
-              <div
-                className="absolute inset-0 bg-slate-950/70"
-                onPointerDown={(event) => {
-                  event.stopPropagation();
-                  if (event.target !== event.currentTarget) return;
-                  closeDockPanel();
-                }}
-              />
-              <div
-                className="relative z-10 w-full max-w-[760px] mx-auto px-4 py-6 md:py-8"
-                onPointerDown={(event) => event.stopPropagation()}
-                onClick={(event) => event.stopPropagation()}
-              >
-                {panelContent}
-              </div>
-            </>
-          ) : (
-            <div
-              onPointerDown={(event) => event.stopPropagation()}
-              onClick={(event) => event.stopPropagation()}
-            >
-              {panelContent}
-            </div>
-          )}
-        </InlinePanelContainer>
+          {panelContent}
+        </DockOverlay>
       ) : null;
 
     return {
       chips: <ComposerChipsRow>{chips}</ComposerChipsRow>,
       panel,
       isPanelOpen,
-      isInternalPanelOverlay,
+      isPanelOverlay: isPanelOpen,
     };
   };
 
@@ -6701,6 +6848,24 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
     return `${hours}:${minutes}`;
   }
 
+  function formatExtraAmount(amount: number) {
+    const rounded = Math.round((amount ?? 0) * 100) / 100;
+    return `${rounded % 1 === 0 ? rounded.toFixed(0) : rounded.toFixed(2)} €`;
+  }
+
+  function formatExtraDate(createdAt: string) {
+    const parsed = new Date(createdAt);
+    if (Number.isNaN(parsed.getTime())) return "—";
+    return format(parsed, "dd/MM/yyyy");
+  }
+
+  function getExtraEventLabel(event: { kind: string; packName?: string | null }) {
+    if (event.packName) return event.packName;
+    if (event.kind === "GIFT") return "Regalo";
+    if (event.kind === "TIP") return "Apoyo";
+    return "Extra";
+  }
+
   function getNextExtraTierLabel(status: Fan["extraLadderStatus"]): string | null {
     if (!status || !status.suggestedTier) return null;
     const tier = status.suggestedTier;
@@ -6813,7 +6978,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
   });
 
   return (
-    <div className="relative flex flex-col w-full h-[100dvh] max-h-[100dvh]">
+    <div className="relative flex flex-col w-full h-full min-h-0">
       {onBackToBoard && (
         <header className="md:hidden sticky top-0 z-30 flex items-center justify-between gap-3 px-4 py-3 bg-slate-950/95 border-b border-slate-800 backdrop-blur">
           <button
@@ -6825,6 +6990,12 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
           </button>
           <div className="flex items-center gap-2 min-w-0 flex-1 justify-center">
             <span className="truncate text-sm font-medium text-slate-50">{contactName}</span>
+            {hasUnreadExtras && (
+              <span className="inline-flex items-center gap-1 rounded-full border border-amber-400/60 bg-amber-500/10 px-2 py-0.5 text-[10px] font-semibold text-amber-200">
+                <span aria-hidden>🎁</span>
+                {unreadExtrasCount > 1 ? <span>{unreadExtrasCount}</span> : null}
+              </span>
+            )}
             {languageBadgeLabel && (
               <span className="inline-flex items-center rounded-full border border-slate-600 bg-slate-900/70 px-2 py-0.5 text-[10px] font-semibold text-slate-200">
                 {languageBadgeLabel}
@@ -6864,6 +7035,12 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
               <div className="flex flex-col min-w-0">
                 <div className="flex items-center gap-2 min-w-0">
                   <h1 className="text-base font-semibold text-slate-50 truncate">{contactName}</h1>
+                  {hasUnreadExtras && (
+                    <span className="inline-flex items-center gap-1 rounded-full border border-amber-400/60 bg-amber-500/10 px-2 py-0.5 text-[10px] font-semibold text-amber-200">
+                      <span aria-hidden>🎁</span>
+                      {unreadExtrasCount > 1 ? <span>{unreadExtrasCount}</span> : null}
+                    </span>
+                  )}
                   {languageBadgeLabel && (
                     <span className="inline-flex items-center rounded-full border border-slate-600 bg-slate-900/70 px-2 py-0.5 text-[10px] font-semibold text-slate-200">
                       {languageBadgeLabel}
@@ -7036,7 +7213,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
           </div>
         </div>
       </header>
-      {composerDock?.isInternalPanelOverlay && composerDock.panel}
+      {composerDock?.isPanelOverlay && composerDock.panel}
       {isChatBlocked && (
         <div className="mx-4 mt-2 rounded-xl border border-red-500/40 bg-red-500/10 px-3 py-2 text-xs md:text-sm text-red-200 flex items-center gap-2">
           <span className="inline-block h-2 w-2 rounded-full bg-red-400" />
@@ -7210,6 +7387,22 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
                 </div>
               );
             })}
+            <div className="pt-2 border-t border-slate-800 space-y-2">
+              <div className="text-[11px] font-semibold text-slate-400">Extras recientes</div>
+              {extraHistory.length === 0 ? (
+                <div className="text-[11px] text-slate-400">Sin extras registrados en chat.</div>
+              ) : (
+                extraHistory.map((entry) => (
+                  <div key={entry.id} className="rounded-lg bg-slate-950/60 px-2 py-1.5">
+                    <div className="flex items-center justify-between text-[11px] text-slate-200">
+                      <span className="font-semibold">{getExtraEventLabel(entry)}</span>
+                      <span className="text-slate-400">{formatExtraDate(entry.createdAt)}</span>
+                    </div>
+                    <div className="text-[10px] text-slate-400">{formatExtraAmount(entry.amount)}</div>
+                  </div>
+                ))
+              )}
+            </div>
           </div>
         </div>
       )}
@@ -7255,11 +7448,13 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
           );
         })()
       )}
-      <div className="flex flex-col flex-1 min-h-0">
+      <div
+        className="flex flex-col flex-1 min-h-0 bg-center bg-cover"
+        style={{ backgroundImage: "url('/assets/images/background.jpg')" }}
+      >
         <div
           ref={messagesContainerRef}
-          className="flex flex-col w-full flex-1 overflow-y-auto"
-          style={{ backgroundImage: "url('/assets/images/background.jpg')" }}
+          className="flex flex-col w-full flex-1 min-h-0 overflow-y-auto"
         >
           <div
             className="max-w-4xl mx-auto w-full px-4 sm:px-6 lg:px-8 py-6"
@@ -7297,6 +7492,10 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
                     message={messageConversation}
                   />
                 );
+              }
+              if (messageConversation.kind === "system") {
+                const systemKey = messageConversation.id || `system-${index}`;
+                return <SystemNotice key={systemKey} message={messageConversation} />;
               }
 
               const { me, message, seen, time } = messageConversation;
@@ -7352,7 +7551,6 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
             {messagesError && !isLoadingMessages && (
               <div className="text-center text-red-400 text-sm mt-2">{messagesError}</div>
             )}
-            {!composerDock?.isInternalPanelOverlay && composerDock?.panel}
             {inlineAction && (
               <div className="mt-3">
                 <div className="relative flex items-start gap-3 rounded-2xl border border-slate-800/60 bg-slate-950/70 px-4 py-3 text-xs text-slate-100 shadow-[0_8px_20px_rgba(0,0,0,0.25)] ring-1 ring-white/5 backdrop-blur">
@@ -7400,99 +7598,100 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
             fanId={id || "none"} | loading={String(isLoadingMessages)} | msgs={messages.length} | error={messagesError || "none"}
           </div>
         )}
-        <div className="flex flex-col bg-[#202c33] w-full h-auto py-3 px-4 text-[#8696a0] gap-3 flex-shrink-0 overflow-visible">
+        <div className="flex flex-col w-full flex-shrink-0 gap-3 px-4 pb-3 pt-2 overflow-visible">
           {showExtraTemplates && (
             <div className="flex flex-col gap-3 bg-slate-800/60 border border-slate-700 rounded-lg p-3 w-full">
-              <div className="mb-1 flex items-center justify-between">
-                <div className="flex items-center justify-between gap-2">
-                  <div className="flex flex-col">
-                    <h3 className="text-sm font-semibold text-white">Historial de ventas extra</h3>
-                    <p className="text-[11px] text-slate-400">Registra las ventas desde el modal de Extras PPV. Aquí solo ajustes manuales.</p>
-                  </div>
-                  <div className="flex items-center justify-between gap-2">
-                    <div className="flex flex-col">
-                      <h3 className="text-sm font-semibold text-white">Historial de ventas extra</h3>
-                      <p className="text-[11px] text-slate-400">Registra las ventas desde el modal de Extras PPV. Aquí solo ajustes manuales.</p>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <div className="flex items-center gap-1 text-[11px] text-slate-300">
-                        <span>Modo</span>
-                        <div className="inline-flex rounded-full border border-slate-600 bg-slate-900">
-                          {(["DAY", "NIGHT"] as TimeOfDayValue[]).map((val) => (
-                            <button
-                              key={val}
-                              type="button"
-                              onClick={() => setTimeOfDay(val)}
-                              className={clsx(
-                                "px-2 py-0.5 text-[11px] font-semibold rounded-full",
-                                timeOfDay === val
-                                  ? "bg-amber-500/20 text-amber-100 border border-amber-400/70"
-                                  : "text-slate-200"
-                              )}
-                            >
-                              {val === "DAY" ? "Día" : "Noche"}
-                            </button>
-                          ))}
-                        </div>
-                      </div>
-                      <button
-                        type="button"
-                        className="rounded-full border border-slate-600 bg-slate-800/80 px-2 py-1 text-[11px] font-semibold text-slate-100 hover:bg-slate-700"
-                        onClick={() => setOpenPanel("none")}
-                      >
-                        Cerrar
-                      </button>
+              <div className="mb-1 flex flex-wrap items-center justify-between gap-2">
+                <div className="flex flex-col">
+                  <h3 className="text-sm font-semibold text-white">Ventas extras</h3>
+                  <p className="text-[11px] text-slate-400">
+                    Ventas registradas en el chat y ajustes manuales.
+                  </p>
+                </div>
+                <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-1 text-[11px] text-slate-300">
+                    <span>Modo</span>
+                    <div className="inline-flex rounded-full border border-slate-600 bg-slate-900">
+                      {(["DAY", "NIGHT"] as TimeOfDayValue[]).map((val) => (
+                        <button
+                          key={val}
+                          type="button"
+                          onClick={() => setTimeOfDay(val)}
+                          className={clsx(
+                            "px-2 py-0.5 text-[11px] font-semibold rounded-full",
+                            timeOfDay === val
+                              ? "bg-amber-500/20 text-amber-100 border border-amber-400/70"
+                              : "text-slate-200"
+                          )}
+                        >
+                          {val === "DAY" ? "Día" : "Noche"}
+                        </button>
+                      ))}
                     </div>
                   </div>
+                  <button
+                    type="button"
+                    className="rounded-full border border-slate-600 bg-slate-800/80 px-2 py-1 text-[11px] font-semibold text-slate-100 hover:bg-slate-700"
+                    onClick={() => setOpenPanel("none")}
+                  >
+                    Cerrar
+                  </button>
                 </div>
               </div>
 
               <div className="rounded-lg border border-slate-700 bg-slate-900/70 p-3 space-y-2">
-                <div className="flex items-center justify-between">
-                  <h4 className="text-sm font-semibold text-white">Historial de extras</h4>
-                  {isLoadingExtraHistory && <span className="text-[11px] text-slate-400">Cargando...</span>}
-                </div>
-                <div className="text-[11px] text-slate-400">
-                  {(conversation.extrasCount ?? 0) > 0 ? (
-                    <span>
-                      {`Este fan te ha comprado ${conversation.extrasCount} extra${(conversation.extrasCount ?? 0) !== 1 ? "s" : ""} por un total de ${Math.round(conversation.extrasSpentTotal ?? 0)} €.`}
-                    </span>
-                  ) : (
-                    <span>Todavía no has vendido extras a este fan.</span>
-                  )}
-                </div>
-                {extraHistoryError && <div className="text-xs text-rose-300">{extraHistoryError}</div>}
-                {!extraHistoryError && extraHistory.length === 0 && (
-                  <div className="text-xs text-slate-400">Todavía no hay extras registrados para este fan.</div>
-                )}
-                {!extraHistoryError && extraHistory.length > 0 && (
-                  <div className="flex flex-col gap-2 max-h-64 overflow-y-auto">
-                    {extraHistory.map((entry) => {
-                      const dateStr = new Date(entry.createdAt).toLocaleDateString("es-ES");
-                      const session =
-                        entry.sessionTag && entry.sessionTag.includes("_")
-                          ? entry.sessionTag.split("_")[0]
-                          : entry.contentItem?.timeOfDay ?? "ANY";
-                          const tier = entry.tier;
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <h4 className="text-sm font-semibold text-white">Ventas extras (global)</h4>
+                  <div className="inline-flex rounded-full border border-slate-600 bg-slate-900">
+                    {(["today", "last7", "total"] as const).map((filterId) => {
+                      const label =
+                        filterId === "today"
+                          ? `Hoy (${extrasSummary.today.count})`
+                          : filterId === "last7"
+                          ? `7d (${extrasSummary.last7Days.count})`
+                          : `Total (${extrasSummary.total.count})`;
                       return (
-                        <div
-                          key={entry.id}
-                          className="rounded-md border border-slate-700 bg-slate-900/80 px-2 py-2 text-xs text-slate-200"
+                        <button
+                          key={filterId}
+                          type="button"
+                          onClick={() => setExtraSalesFilter(filterId)}
+                          className={clsx(
+                            "px-2 py-0.5 text-[11px] font-semibold rounded-full",
+                            extraSalesFilter === filterId
+                              ? "bg-emerald-500/20 text-emerald-100 border border-emerald-400/70"
+                              : "text-slate-200"
+                          )}
                         >
-                          <div className="flex items-center justify-between">
-                            <span className="font-semibold">{entry.contentItem?.title || "Extra"}</span>
-                            <span className="text-slate-400">{dateStr}</span>
-                          </div>
-                          <div className="flex items-center gap-2 text-[11px] text-slate-300">
-                            <span>{session === "DAY" ? "Día" : session === "NIGHT" ? "Noche" : "Cualquiera"}</span>
-                            <span>·</span>
-                            <span>{`Tier ${tier}`}</span>
-                            <span>·</span>
-                            <span>{`${entry.amount} €`}</span>
-                          </div>
-                        </div>
+                          {label}
+                        </button>
                       );
                     })}
+                  </div>
+                </div>
+                <div className="text-[11px] text-slate-400">
+                  {activeExtrasBucket.count} venta{activeExtrasBucket.count === 1 ? "" : "s"} ·{" "}
+                  {formatExtraAmount(activeExtrasBucket.amount)}
+                </div>
+                {filteredExtrasEvents.length === 0 ? (
+                  <div className="text-xs text-slate-400">No hay extras registrados todavía.</div>
+                ) : (
+                  <div className="flex flex-col gap-2 max-h-64 overflow-y-auto">
+                    {filteredExtrasEvents.map((entry) => (
+                      <div
+                        key={`${entry.fanId}-${entry.id}`}
+                        className="rounded-md border border-slate-700 bg-slate-900/80 px-2 py-2 text-xs text-slate-200"
+                      >
+                        <div className="flex items-center justify-between">
+                          <span className="font-semibold">{getExtraEventLabel(entry)}</span>
+                          <span className="text-slate-400">{formatExtraDate(entry.createdAt)}</span>
+                        </div>
+                        <div className="flex items-center gap-2 text-[11px] text-slate-300">
+                          <span>{formatExtraAmount(entry.amount)}</span>
+                          <span>·</span>
+                          <span className="truncate">{getExtraFanLabel(entry.fanId)}</span>
+                        </div>
+                      </div>
+                    ))}
                   </div>
                 )}
                 <div className="pt-2 border-t border-slate-800 text-[11px] text-slate-400">
@@ -7596,61 +7795,11 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
                 </div>
               </div>
 
-              <div className="rounded-lg border border-slate-700 bg-slate-900/70 p-3 space-y-2">
-                <div className="flex items-center justify-between">
-                  <h4 className="text-sm font-semibold text-white">Historial de extras</h4>
-                  {isLoadingExtraHistory && <span className="text-[11px] text-slate-400">Cargando...</span>}
-                </div>
-                <div className="text-[11px] text-slate-400">
-                  {(conversation.extrasCount ?? 0) > 0 ? (
-                    <span>
-                      {`Este fan te ha comprado ${conversation.extrasCount} extra${(conversation.extrasCount ?? 0) !== 1 ? "s" : ""} por un total de ${Math.round(conversation.extrasSpentTotal ?? 0)} €.`}
-                    </span>
-                  ) : (
-                    <span>Todavía no has vendido extras a este fan.</span>
-                  )}
-                </div>
-                {extraHistoryError && <div className="text-xs text-rose-300">{extraHistoryError}</div>}
-                {!extraHistoryError && extraHistory.length === 0 && (
-                  <div className="text-xs text-slate-400">Todavía no hay extras registrados para este fan.</div>
-                )}
-                {!extraHistoryError && extraHistory.length > 0 && (
-                  <div className="flex flex-col gap-2 max-h-64 overflow-y-auto">
-                    {extraHistory.map((entry) => {
-                      const dateStr = new Date(entry.createdAt).toLocaleDateString("es-ES");
-                      const session =
-                        entry.sessionTag && entry.sessionTag.includes("_")
-                          ? entry.sessionTag.split("_")[0]
-                          : entry.contentItem?.timeOfDay ?? "ANY";
-                      const tier = entry.tier;
-                      return (
-                        <div
-                          key={entry.id}
-                          className="rounded-md border border-slate-700 bg-slate-900/80 px-2 py-2 text-xs text-slate-200"
-                        >
-                          <div className="flex items-center justify-between">
-                            <span className="font-semibold">{entry.contentItem?.title || "Extra"}</span>
-                            <span className="text-slate-400">{dateStr}</span>
-                          </div>
-                          <div className="flex items-center gap-2 text-[11px] text-slate-300">
-                            <span>{session === "DAY" ? "Día" : session === "NIGHT" ? "Noche" : "Cualquiera"}</span>
-                            <span>·</span>
-                            <span>{`Tier ${tier}`}</span>
-                            <span>·</span>
-                            <span>{`${entry.amount} €`}</span>
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
-              </div>
-
             </div>
           )}
           <div
             ref={composerDockRef}
-            className="sticky bottom-0 z-30 border-t border-slate-800/60 bg-gradient-to-b from-slate-950/90 via-slate-950/80 to-slate-950/70 backdrop-blur-xl"
+            className="sticky bottom-0 z-30 border-t border-slate-800/50 bg-slate-950/40 backdrop-blur-sm"
           >
             <div className="max-w-4xl mx-auto w-full px-4 sm:px-6 lg:px-8 py-2.5">
               {internalToast && <div className="mb-2 text-[11px] text-emerald-300">{internalToast}</div>}
@@ -8543,6 +8692,35 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
       )}
     </div>
   )
+}
+
+function formatSystemAmount(amount?: number, currency?: string) {
+  const numeric = typeof amount === "number" && Number.isFinite(amount) ? amount : 0;
+  const rounded = Math.round(numeric * 100) / 100;
+  const label = rounded % 1 === 0 ? rounded.toFixed(0) : rounded.toFixed(2);
+  const currencyLabel = currency && currency.toUpperCase() !== "EUR" ? currency : "€";
+  return `${label} ${currencyLabel}`;
+}
+
+function resolveSystemNoticeText(message: ConversationMessage): string {
+  if (message.kind === "system" && message.subtype === "extra_support" && Number.isFinite(message.amount)) {
+    const amountLabel = formatSystemAmount(message.amount, message.currency);
+    const fanLabel = message.fanName?.trim() || "Un fan";
+    return `🎁 ${fanLabel} te ha apoyado con ${amountLabel}`;
+  }
+  return message.message || "";
+}
+
+function SystemNotice({ message }: { message: ConversationMessage }) {
+  const text = resolveSystemNoticeText(message);
+  if (!text) return null;
+  return (
+    <div className="flex justify-center">
+      <div className="system-notice rounded-full border border-slate-700/70 bg-slate-900/70 px-3 py-1 text-[11px] text-slate-200">
+        {text}
+      </div>
+    </div>
+  );
 }
 
 function ContentAttachmentCard({ message }: { message: ConversationMessage }) {

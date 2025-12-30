@@ -12,7 +12,16 @@ interface Message {
   time?: string;
   createdAt?: string;
   status?: "sending" | "failed" | "sent";
-  kind?: "text" | "content" | "sticker";
+  kind?: "text" | "content" | "sticker" | "system";
+  subtype?: "extra_support";
+  amount?: number;
+  currency?: string;
+  fanName?: string | null;
+  ts?: number;
+  meta?: {
+    eventId?: string;
+    originClientId?: string;
+  };
   type?: "TEXT" | "CONTENT" | "STICKER";
   stickerId?: string | null;
   stickerSrc?: string | null;

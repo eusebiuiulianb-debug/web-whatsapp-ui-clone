@@ -47,6 +47,8 @@ function daysSince(dateStr: string | null | undefined): number | null {
 function countMessages(messages: MessageLike[]) {
   return messages.reduce(
     (acc, msg) => {
+      const kind = (msg as any)?.kind;
+      if (kind === "system") return acc;
       const from = (msg as any)?.from;
       const me = (msg as any)?.me;
       if (from === "fan" || me === false) acc.fan += 1;
