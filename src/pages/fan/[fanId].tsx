@@ -1,7 +1,7 @@
 import Head from "next/head";
 import { GetServerSideProps } from "next";
 import { useRouter } from "next/router";
-import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode, type RefObject } from "react";
 import { ChatComposerBar } from "../../components/ChatComposerBar";
 import MessageBalloon from "../../components/MessageBalloon";
 import { useCreatorConfig } from "../../context/CreatorConfigContext";
@@ -20,7 +20,12 @@ import { inferPreferredLanguage, LANGUAGE_LABELS, normalizePreferredLanguage, ty
 import { parseReactionsRaw, useReactions } from "../../lib/emoji/reactions";
 import { getStickerById } from "../../lib/emoji/stickers";
 import { buildFanChatProps } from "../../lib/fanChatProps";
-import { appendExtraEvent } from "../../lib/localExtras";
+import {
+  appendExtraEvent,
+  appendExtraSupportMessage,
+  createExtraEventId,
+  useExtraSupportMessages,
+} from "../../lib/localExtras";
 import { buildStickerTokenFromItem, getStickerByToken, type StickerItem } from "../../lib/stickers";
 
 type ApiContentItem = {
@@ -45,6 +50,17 @@ type ApiMessage = {
   time?: string | null;
   isLastFromCreator?: boolean | null;
   type?: "TEXT" | "CONTENT" | "STICKER" | "SYSTEM";
+  kind?: "system";
+  subtype?: "extra_support";
+  amount?: number;
+  currency?: string;
+  fanName?: string | null;
+  ts?: number;
+  meta?: {
+    eventId?: string;
+    originClientId?: string;
+  };
+  createdAt?: string | null;
   stickerId?: string | null;
   contentItem?: ApiContentItem | null;
   status?: "sending" | "failed" | "sent";
@@ -55,6 +71,7 @@ export type FanChatPageProps = {
   initialAccessSummary: AccessSummary;
   fanIdOverride?: string;
   inviteOverride?: boolean;
+  showComposer?: boolean;
 };
 
 type PackSummary = {
@@ -69,6 +86,7 @@ export function FanChatPage({
   initialAccessSummary,
   fanIdOverride,
   inviteOverride,
+  showComposer,
 }: FanChatPageProps) {
   const router = useRouter();
   const fanId = useMemo(() => {
@@ -96,6 +114,8 @@ export function FanChatPage({
   );
   const reactionsRaw = useReactions(fanId || "");
   const reactionsStore = useMemo(() => parseReactionsRaw(reactionsRaw), [reactionsRaw]);
+  const extraSupportMessages = useExtraSupportMessages(fanId || "");
+  const handledSystemIdsRef = useRef<Set<string>>(new Set());
 
   const [messages, setMessages] = useState<ApiMessage[]>([]);
   const [loading, setLoading] = useState(false);
@@ -155,6 +175,56 @@ export function FanChatPage({
     // TODO: Expand visibility rules beyond Message.audience (tiers/segments).
     return messages.filter((message) => isVisibleToFan(message));
   }, [messages]);
+
+  useEffect(() => {
+    handledSystemIdsRef.current = new Set();
+  }, [fanId]);
+
+  useEffect(() => {
+    if (!fanId || extraSupportMessages.length === 0) return;
+    const handled = handledSystemIdsRef.current;
+    const existingIds = new Set(messages.map((msg) => msg.id).filter(Boolean) as string[]);
+    const existingEventIds = new Set(
+      messages
+        .map((msg) => {
+          if (msg.kind !== "system" || msg.subtype !== "extra_support") return null;
+          return msg.meta?.eventId || msg.id || null;
+        })
+        .filter(Boolean) as string[]
+    );
+    const incoming = extraSupportMessages
+      .filter((notice) => notice.fanId === fanId)
+      .filter((notice) => {
+        const eventId = notice.meta?.eventId || notice.id;
+        if (!eventId) return false;
+        if (handled.has(eventId) || existingEventIds.has(eventId)) return false;
+        if (notice.id && existingIds.has(notice.id)) return false;
+        return true;
+      })
+      .map((notice) => ({
+        id: notice.id,
+        fanId,
+        from: "fan" as const,
+        audience: "FAN" as const,
+        text: null,
+        status: "sent" as const,
+        type: "SYSTEM" as const,
+        kind: "system" as const,
+        subtype: notice.subtype,
+        amount: notice.amount,
+        currency: notice.currency,
+        fanName: notice.fanName ?? null,
+        ts: notice.ts,
+        meta: notice.meta,
+        createdAt: notice.createdAt,
+      }));
+    if (incoming.length === 0) return;
+    incoming.forEach((notice) => {
+      const eventId = notice.meta?.eventId || notice.id;
+      if (eventId) handled.add(eventId);
+    });
+    setMessages((prev) => reconcileMessages(prev, incoming, sortMessages, fanId));
+  }, [extraSupportMessages, fanId, messages, sortMessages]);
 
   const fetchMessages = useCallback(
     async (targetFanId: string, options?: { showLoading?: boolean; silent?: boolean }) => {
@@ -366,6 +436,7 @@ export function FanChatPage({
     visibleMessages.length === 0 &&
     shouldPromptForName;
   const isComposerDisabled = sending || isOnboardingVisible || onboardingSaving;
+  const shouldShowComposer = showComposer !== false;
 
   const handleSendMessage = useCallback(async () => {
     if (isOnboardingVisible) return;
@@ -467,24 +538,6 @@ export function FanChatPage({
     requestAnimationFrame(() => focusComposer());
   }, [focusComposer]);
 
-  const appendSystemMessage = useCallback(
-    (text: string) => {
-      if (!fanId) return;
-      const temp: ApiMessage = {
-        id: `local-${Date.now()}`,
-        fanId,
-        from: "fan",
-        text,
-        time: new Date().toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit", hour12: false }),
-        status: "sent",
-        type: "SYSTEM",
-        audience: "FAN",
-      };
-      setMessages((prev) => reconcileMessages(prev, [temp], sortMessages, fanId));
-    },
-    [fanId, sortMessages]
-  );
-
   const handleTipConfirm = useCallback(() => {
     if (!fanId) return;
     const amountValue = tipAmountPreset ?? parseAmountToNumber(tipAmountCustom);
@@ -492,34 +545,56 @@ export function FanChatPage({
       setTipError("Introduce un importe válido.");
       return;
     }
-    const amountLabel = formatAmountLabel(amountValue);
-    appendSystemMessage(`🎁 Has apoyado con ${amountLabel}`);
+    const createdAt = new Date().toISOString();
+    const eventId = createExtraEventId();
+    const fanName = getFanDisplayName(fanProfile);
+    const fanLabel = fanName && fanName !== "Invitado" ? fanName : undefined;
     appendExtraEvent(fanId, {
-      id: `extra-${Date.now()}`,
+      id: eventId,
       kind: "TIP",
       amount: amountValue,
-      createdAt: new Date().toISOString(),
+      createdAt,
+    });
+    appendExtraSupportMessage({
+      fanId,
+      amount: amountValue,
+      currency: "EUR",
+      fanName: fanLabel,
+      createdAt,
+      eventId,
+      sourceEventId: eventId,
     });
     closeMoneyModal();
-  }, [appendSystemMessage, closeMoneyModal, fanId, tipAmountCustom, tipAmountPreset]);
+  }, [closeMoneyModal, fanId, fanProfile, tipAmountCustom, tipAmountPreset]);
 
   const handleGiftConfirm = useCallback(
     (pack: PackSummary) => {
       if (!fanId) return;
-      const priceLabel = normalizePriceLabel(pack.price);
       const amountValue = parseAmountToNumber(pack.price);
-      appendSystemMessage(`🎁 Has regalado ${pack.name} (${priceLabel})`);
+      const createdAt = new Date().toISOString();
+      const eventId = createExtraEventId();
+      const fanName = getFanDisplayName(fanProfile);
+      const fanLabel = fanName && fanName !== "Invitado" ? fanName : undefined;
       appendExtraEvent(fanId, {
-        id: `extra-${Date.now()}`,
+        id: eventId,
         kind: "GIFT",
         amount: amountValue,
         packRef: pack.id,
         packName: pack.name,
-        createdAt: new Date().toISOString(),
+        createdAt,
+      });
+      appendExtraSupportMessage({
+        fanId,
+        amount: amountValue,
+        currency: "EUR",
+        fanName: fanLabel,
+        createdAt,
+        eventId,
+        sourceEventId: eventId,
       });
       closeMoneyModal();
     },
-    [appendSystemMessage, closeMoneyModal, fanId]
+    [closeMoneyModal, fanId, fanProfile]
   );
 
   const handlePackRequest = useCallback(
@@ -684,60 +759,14 @@ export function FanChatPage({
             />
           ) : null}
         </div>
-        <div ref={messagesContainerRef} className="flex-1 min-h-0 overflow-y-auto">
-          <div
-            className="px-4 sm:px-6 py-4"
-            style={{ backgroundImage: "url('/assets/images/background.jpg')" }}
-          >
-            <div className="min-h-full flex flex-col justify-end gap-2">
-              {loading && <div className="text-center text-[#aebac1] text-sm mt-2">Cargando mensajes...</div>}
-              {error && !loading && <div className="text-center text-red-400 text-sm mt-2">{error}</div>}
-              {!loading && !error && visibleMessages.length === 0 && (
-                <div className="text-center text-[#aebac1] text-sm mt-2">Aún no hay mensajes.</div>
-              )}
-              {visibleMessages.map((msg, idx) => {
-                const messageId = msg.id || `message-${idx}`;
-                const isContent = msg.type === "CONTENT" && !!msg.contentItem;
-                if (isContent) {
-                  return <ContentCard key={msg.id} message={msg} />;
-                }
-                if (msg.type === "SYSTEM") {
-                  return <SystemMessage key={messageId} text={msg.text || ""} />;
-                }
-                const tokenSticker =
-                  msg.type !== "STICKER" ? getStickerByToken(msg.text ?? "") : null;
-                const isSticker = msg.type === "STICKER" || Boolean(tokenSticker);
-                const sticker = msg.type === "STICKER" ? getStickerById(msg.stickerId ?? null) : null;
-                const stickerSrc = msg.type === "STICKER" ? sticker?.file ?? null : tokenSticker?.src ?? null;
-                const stickerAlt = msg.type === "STICKER" ? sticker?.label || "Sticker" : tokenSticker?.label ?? null;
-                const displayText =
-                  isSticker
-                    ? ""
-                    : msg.from === "creator"
-                    ? (msg.deliveredText ?? msg.text ?? "")
-                    : msg.text ?? "";
-                const messageReactions = reactionsStore[messageId] ?? [];
-                return (
-                  <MessageBalloon
-                    key={messageId}
-                    me={msg.from === "fan"}
-                    message={displayText}
-                    messageId={messageId}
-                    seen={!!msg.isLastFromCreator}
-                    time={msg.time || undefined}
-                    status={msg.status}
-                    stickerSrc={isSticker ? stickerSrc : null}
-                    stickerAlt={isSticker ? stickerAlt : null}
-                    enableReactions
-                    reactionActor="fan"
-                    reactionFanId={fanId || undefined}
-                    reactions={messageReactions}
-                  />
-                );
-              })}
-            </div>
-          </div>
-        </div>
+        <ChatThread
+          containerRef={messagesContainerRef}
+          messages={visibleMessages}
+          loading={loading}
+          error={error}
+          reactionsStore={reactionsStore}
+          fanId={fanId}
+        />
 
         {isOnboardingVisible && (
           <div className="px-4 pb-3">
@@ -806,7 +835,7 @@ export function FanChatPage({
             </div>
           </div>
         )}
-        {!isOnboardingVisible && (
+        {!isOnboardingVisible && shouldShowComposer && (
           <div className="shrink-0 border-t border-slate-800/60 bg-gradient-to-b from-slate-950/90 via-slate-950/80 to-slate-950/70 backdrop-blur-xl">
             <div className="px-4 sm:px-6 py-3">
               <div
@@ -1269,12 +1298,94 @@ function openContentLink(mediaUrl?: string) {
   }
 }
 
-function SystemMessage({ text }: { text: string }) {
+function resolveSystemMessageText(message: ApiMessage): string {
+  if (message.kind === "system" && message.subtype === "extra_support" && Number.isFinite(message.amount)) {
+    const amountLabel = formatAmountLabel(message.amount ?? 0);
+    return `🎁 Has apoyado con ${amountLabel}`;
+  }
+  return message.text || "";
+}
+
+function SystemMessage({ message }: { message: ApiMessage }) {
+  const text = resolveSystemMessageText(message);
   if (!text) return null;
   return (
     <div className="flex justify-center">
-      <div className="rounded-full border border-slate-700/70 bg-slate-900/70 px-3 py-1 text-[11px] text-slate-200">
+      <div className="system-notice rounded-full border border-slate-700/70 bg-slate-900/70 px-3 py-1 text-[11px] text-slate-200">
         {text}
+      </div>
+    </div>
+  );
+}
+
+function ChatThread({
+  containerRef,
+  messages,
+  loading,
+  error,
+  reactionsStore,
+  fanId,
+}: {
+  containerRef: RefObject<HTMLDivElement>;
+  messages: ApiMessage[];
+  loading: boolean;
+  error: string;
+  reactionsStore: ReturnType<typeof parseReactionsRaw>;
+  fanId?: string;
+}) {
+  return (
+    <div ref={containerRef} className="flex-1 min-h-0 overflow-y-auto">
+      <div
+        className="px-4 sm:px-6 py-4"
+        style={{ backgroundImage: "url('/assets/images/background.jpg')" }}
+      >
+        <div className="min-h-full flex flex-col justify-end gap-2">
+          {loading && <div className="text-center text-[#aebac1] text-sm mt-2">Cargando mensajes...</div>}
+          {error && !loading && <div className="text-center text-red-400 text-sm mt-2">{error}</div>}
+          {!loading && !error && messages.length === 0 && (
+            <div className="text-center text-[#aebac1] text-sm mt-2">Aún no hay mensajes.</div>
+          )}
+          {messages.map((msg, idx) => {
+            const messageId = msg.id || `message-${idx}`;
+            const isContent = msg.type === "CONTENT" && !!msg.contentItem;
+            if (isContent) {
+              return <ContentCard key={msg.id} message={msg} />;
+            }
+            if (msg.kind === "system" || msg.type === "SYSTEM") {
+              return <SystemMessage key={messageId} message={msg} />;
+            }
+            const tokenSticker =
+              msg.type !== "STICKER" ? getStickerByToken(msg.text ?? "") : null;
+            const isSticker = msg.type === "STICKER" || Boolean(tokenSticker);
+            const sticker = msg.type === "STICKER" ? getStickerById(msg.stickerId ?? null) : null;
+            const stickerSrc = msg.type === "STICKER" ? sticker?.file ?? null : tokenSticker?.src ?? null;
+            const stickerAlt = msg.type === "STICKER" ? sticker?.label || "Sticker" : tokenSticker?.label ?? null;
+            const displayText =
+              isSticker
+                ? ""
+                : msg.from === "creator"
+                ? (msg.deliveredText ?? msg.text ?? "")
+                : msg.text ?? "";
+            const messageReactions = reactionsStore[messageId] ?? [];
+            return (
+              <MessageBalloon
+                key={messageId}
+                me={msg.from === "fan"}
+                message={displayText}
+                messageId={messageId}
+                seen={!!msg.isLastFromCreator}
+                time={msg.time || undefined}
+                status={msg.status}
+                stickerSrc={isSticker ? stickerSrc : null}
+                stickerAlt={isSticker ? stickerAlt : null}
+                enableReactions
+                reactionActor="fan"
+                reactionFanId={fanId || undefined}
+                reactions={messageReactions}
+              />
+            );
+          })}
+        </div>
       </div>
     </div>
   );
@@ -1329,6 +1440,9 @@ function buildPackDraft(pack: PackSummary) {
 }
 
 function getMessageSortKey(message: ApiMessage, fallbackIndex: number) {
+  if (message.kind === "system" && typeof message.ts === "number" && Number.isFinite(message.ts)) {
+    return message.ts;
+  }
   const raw = message.id || "";
   const parts = raw.split("-");
   const lastPart = parts[parts.length - 1];

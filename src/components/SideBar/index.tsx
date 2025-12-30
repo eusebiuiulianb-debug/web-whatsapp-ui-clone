@@ -6,7 +6,6 @@ import { useCreatorConfig } from "../../context/CreatorConfigContext";
 import CreatorSettingsPanel from "../CreatorSettingsPanel";
 import { Fan } from "../../types/chat";
 import { ConversationListData } from "../../types/Conversation";
-import { ExtrasSummary } from "../../types/extras";
 import clsx from "clsx";
 import { getFollowUpTag, getUrgencyLevel, shouldFollowUpToday, isExpiredAccess } from "../../utils/followUp";
 import { getFanDisplayNameForCreator } from "../../utils/fanDisplayName";
@@ -15,6 +14,8 @@ import { ConversationContext, QueueFilter } from "../../context/ConversationCont
 import { EXTRAS_UPDATED_EVENT } from "../../constants/events";
 import { HIGH_PRIORITY_LIMIT } from "../../config/customers";
 import { normalizePreferredLanguage } from "../../lib/language";
+import { clearUnreadExtra, summarizeExtras, useAllExtrasEvents, useUnreadExtrasMap } from "../../lib/localExtras";
+import type { ExtrasSummary } from "../../types/extras";
 
 class SideBarBoundary extends Component<{ children: React.ReactNode }, { hasError: boolean }> {
   constructor(props: { children: React.ReactNode }) {
@@ -220,8 +221,9 @@ function SideBarInner() {
     setQueueFans,
     queueFans,
   } = useContext(ConversationContext);
-  const [ extrasSummary, setExtrasSummary ] = useState<ExtrasSummary | null>(null);
-  const [ extrasSummaryError, setExtrasSummaryError ] = useState<string | null>(null);
+  const allExtrasEvents = useAllExtrasEvents();
+  const unreadExtrasMap = useUnreadExtrasMap();
+  const [ serverExtrasSummary, setServerExtrasSummary ] = useState<ExtrasSummary | null>(null);
   const [ statusFilter, setStatusFilter ] = useState<"active" | "archived" | "blocked">("active");
   const [ isNewFanOpen, setIsNewFanOpen ] = useState(false);
   const [ newFanName, setNewFanName ] = useState("");
@@ -385,10 +387,11 @@ function SideBarInner() {
           undefined,
           { shallow: true, scroll: false }
         );
+        clearUnreadExtra(item.id);
       }
       setConversation(item as any);
     },
-    [router, setConversation]
+    [router, setConversation, clearUnreadExtra]
   );
 
   const getLastActivityTimestamp = useCallback((fan: FanData): number => {
@@ -977,8 +980,25 @@ function SideBarInner() {
       d.getDate() === now.getDate()
     );
   }).length;
-  const extrasTodayCount = Number.isFinite(extrasSummary?.today?.count) ? (extrasSummary?.today?.count as number) : 0;
-  const extrasTodayAmount = Number.isFinite(extrasSummary?.today?.amount) ? (extrasSummary?.today?.amount as number) : 0;
+  const localExtrasSummary = useMemo(
+    () => summarizeExtras(allExtrasEvents, new Date()),
+    [allExtrasEvents]
+  );
+  const extrasSummary = useMemo(() => {
+    const base = serverExtrasSummary ?? { today: { count: 0, amount: 0 }, last7Days: { count: 0, amount: 0 } };
+    return {
+      today: {
+        count: base.today.count + localExtrasSummary.today.count,
+        amount: base.today.amount + localExtrasSummary.today.amount,
+      },
+      last7Days: {
+        count: base.last7Days.count + localExtrasSummary.last7Days.count,
+        amount: base.last7Days.amount + localExtrasSummary.last7Days.amount,
+      },
+    };
+  }, [localExtrasSummary, serverExtrasSummary]);
+  const extrasTodayCount = extrasSummary.today.count;
+  const extrasTodayAmount = extrasSummary.today.amount;
   const legendRef = useRef<HTMLDivElement | null>(null);
   const priorityQueue = useMemo(
     () => getPriorityQueue(fans as FanData[]),
@@ -1013,16 +1033,14 @@ function SideBarInner() {
     return "all";
   })();
 
-  const refreshExtrasSummary = useCallback(async () => {
+  const fetchServerExtrasSummary = useCallback(async () => {
     try {
       const res = await fetch("/api/extras/summary");
-      if (!res.ok) throw new Error("Failed to fetch extras summary");
+      if (!res.ok) throw new Error("Error fetching extras summary");
       const data = (await res.json()) as ExtrasSummary;
-      setExtrasSummary(data);
-      setExtrasSummaryError(null);
-    } catch (err) {
-      console.error("Error fetching extras summary", err);
-      setExtrasSummaryError("extras-summary-failed");
+      setServerExtrasSummary(data);
+    } catch (_err) {
+      setServerExtrasSummary(null);
     }
   }, []);
 
@@ -1055,6 +1073,10 @@ function SideBarInner() {
     },
     [apiFilter, mapFans, search]
   );
+
+  useEffect(() => {
+    void fetchServerExtrasSummary();
+  }, [fetchServerExtrasSummary]);
 
   const handleToggleHighPriority = useCallback(
     async (item: ConversationListData) => {
@@ -1134,8 +1156,7 @@ function SideBarInner() {
     if (didMountFetchRef.current) return;
     didMountFetchRef.current = true;
     fetchFansPage();
-    void refreshExtrasSummary();
-  }, [fetchFansPage, refreshExtrasSummary]);
+  }, [fetchFansPage]);
 
   useEffect(() => {
     if (!didInitialFetchRef.current) {
@@ -1213,8 +1234,8 @@ function SideBarInner() {
           )
         );
       }
+      void fetchServerExtrasSummary();
 
-      void refreshExtrasSummary();
     };
     window.addEventListener(EXTRAS_UPDATED_EVENT, handleExtrasUpdated as EventListener);
 
@@ -1254,7 +1275,7 @@ function SideBarInner() {
       window.removeEventListener(EXTRAS_UPDATED_EVENT, handleExtrasUpdated as EventListener);
       window.removeEventListener("applyChatFilter", handleExternalFilter as EventListener);
     };
-  }, [applyFilter, fetchFansPage, mapFans, refreshExtrasSummary]);
+  }, [applyFilter, fetchFansPage, fetchServerExtrasSummary, mapFans]);
 
   useEffect(() => {
     const fanIdFromQuery = typeof router.query.fanId === "string" ? router.query.fanId : null;
@@ -1263,8 +1284,9 @@ function SideBarInner() {
     const target = fans.find((fan) => fan.id === fanIdFromQuery);
     if (target) {
       setConversation(target as any);
+      clearUnreadExtra(target.id);
     }
-  }, [fans, router.query.fanId, setConversation]);
+  }, [fans, router.query.fanId, setConversation, clearUnreadExtra]);
 
 
   useEffect(() => {
@@ -1880,6 +1902,7 @@ function SideBarInner() {
           isFirstConversation
           onSelect={handleOpenManagerPanel}
           variant="compact"
+          unreadExtraCount={0}
         />
         {loadingFans && (
           <div className="text-center text-[#aebac1] py-4 text-sm">Cargando fans...</div>
@@ -1902,6 +1925,7 @@ function SideBarInner() {
                   onSelect={handleSelectConversation}
                   onToggleHighPriority={handleToggleHighPriority}
                   onCopyInvite={handleCopyInviteForFan}
+                  unreadExtraCount={conversation.id ? unreadExtrasMap[conversation.id] ?? 0 : 0}
                 />
               ))
             )}
@@ -1948,6 +1972,7 @@ function SideBarInner() {
                   onSelect={handleSelectConversation}
                   onToggleHighPriority={handleToggleHighPriority}
                   onCopyInvite={handleCopyInviteForFan}
+                  unreadExtraCount={conversation.id ? unreadExtrasMap[conversation.id] ?? 0 : 0}
                 />
               );
             })}

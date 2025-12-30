@@ -3,6 +3,7 @@ import type { AppProps } from 'next/app'
 import { useRouter } from "next/router";
 import { ConversationProvider } from "../context/ConversationContext";
 import { CreatorConfigProvider } from "../context/CreatorConfigContext";
+import CreatorExtrasNotifier from "../components/CreatorExtrasNotifier";
 
 function MyApp({ Component, pageProps }: AppProps) {
   const router = useRouter();
@@ -11,7 +12,14 @@ function MyApp({ Component, pageProps }: AppProps) {
 
   return (
     <CreatorConfigProvider>
-      {isFanRoute ? content : <ConversationProvider>{content}</ConversationProvider>}
+      {isFanRoute ? (
+        content
+      ) : (
+        <ConversationProvider>
+          <CreatorExtrasNotifier />
+          {content}
+        </ConversationProvider>
+      )}
     </CreatorConfigProvider>
   )
 }

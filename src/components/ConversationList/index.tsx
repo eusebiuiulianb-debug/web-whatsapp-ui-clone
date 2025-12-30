@@ -15,6 +15,7 @@ interface ConversationListProps {
   onSelect?: (conversation: ConversationListData) => void;
   onToggleHighPriority?: (conversation: ConversationListData) => void;
   onCopyInvite?: (conversation: ConversationListData) => Promise<boolean>;
+  unreadExtraCount?: number;
 }
 
 export default function ConversationList(props: ConversationListProps) {
@@ -25,6 +26,7 @@ export default function ConversationList(props: ConversationListProps) {
     onToggleHighPriority,
     onCopyInvite,
     variant = "default",
+    unreadExtraCount = 0,
   } = props;
   const { setConversation } = useContext(ConversationContext);
   const {
@@ -48,6 +50,8 @@ export default function ConversationList(props: ConversationListProps) {
   const previewMessage =
     typeof lastMessage === "string" && isStickerToken(lastMessage) ? "Sticker" : lastMessage;
   const hasUnread = !isManagerChat && !!unreadCount && unreadCount > 0;
+  const unreadExtras = !isManagerChat ? unreadExtraCount : 0;
+  const hasUnreadExtras = unreadExtras > 0;
   const isCompact = variant === "compact";
   const nameSizeClass = isCompact ? "text-[13px]" : "text-sm";
   const nameClasses = hasUnread
@@ -444,6 +448,12 @@ export default function ConversationList(props: ConversationListProps) {
             {hasUnread && (
               <span className="self-end min-w-[20px] h-5 px-2 rounded-full bg-[#53bdeb] text-[#0b141a] text-xs font-semibold flex items-center justify-center">
                 {unreadCount}
+              </span>
+            )}
+            {hasUnreadExtras && (
+              <span className="self-end min-w-[20px] h-5 px-2 rounded-full bg-amber-500/20 text-amber-100 text-[10px] font-semibold flex items-center justify-center gap-1">
+                <span aria-hidden>🎁</span>
+                {unreadExtras > 1 ? <span>{unreadExtras}</span> : null}
               </span>
             )}
             {isHover ? (
