@@ -416,9 +416,10 @@ type DockOverlayProps = {
   bottomOffset: number;
   children: ReactNode;
   panelId?: string;
+  portalEl?: HTMLElement | null;
 };
 
-function DockOverlay({ open, onClose, bottomOffset, children, panelId }: DockOverlayProps) {
+function DockOverlay({ open, onClose, bottomOffset, children, panelId, portalEl }: DockOverlayProps) {
   const [mounted, setMounted] = useState(false);
 
   useEffect(() => {
@@ -426,22 +427,29 @@ function DockOverlay({ open, onClose, bottomOffset, children, panelId }: DockOve
   }, []);
 
   useEffect(() => {
-    if (!open || typeof document === "undefined") return;
+    if (!open || typeof document === "undefined" || portalEl !== document.body) return;
     const prevOverflow = document.body.style.overflow;
     document.body.style.overflow = "hidden";
     return () => {
       document.body.style.overflow = prevOverflow;
     };
-  }, [open]);
+  }, [open, portalEl]);
 
-  if (!open || !mounted || typeof document === "undefined") return null;
+  const portalTarget = portalEl ?? null;
+  if (!open || !mounted || !portalTarget) return null;
 
   const safeBottom = Math.max(0, bottomOffset);
+  const isBodyPortal = typeof document !== "undefined" && portalTarget === document.body;
 
   return createPortal(
-    <div className="dock-overlay fixed inset-0 z-[70] pointer-events-none">
+    <div
+      className={clsx(
+        "dock-overlay inset-0 z-[70] pointer-events-none",
+        isBodyPortal ? "fixed" : "absolute"
+      )}
+    >
       <div
-        className="dock-overlay-backdrop absolute inset-x-0 top-0 pointer-events-auto bg-slate-950/70"
+        className="dock-overlay-backdrop absolute inset-0 pointer-events-auto bg-slate-950/70"
         style={{ bottom: safeBottom }}
         onPointerDown={(event) => {
           if (event.target !== event.currentTarget) return;
@@ -452,10 +460,10 @@ function DockOverlay({ open, onClose, bottomOffset, children, panelId }: DockOve
         className="relative flex h-full w-full items-end justify-center"
         style={{ paddingBottom: safeBottom }}
       >
-        <div className="pointer-events-auto w-full max-w-4xl px-4 pb-4 md:pb-6">
+        <div className="pointer-events-auto w-full max-w-5xl px-4 pb-4 md:pb-6">
           <div
             id={panelId}
-            className="dock-overlay-sheet max-h-[70vh] overflow-hidden"
+            className="dock-overlay-sheet max-h-[70%] overflow-auto"
             aria-hidden={!open}
           >
             {children}
@@ -463,7 +471,7 @@ function DockOverlay({ open, onClose, bottomOffset, children, panelId }: DockOve
         </div>
       </div>
     </div>,
-    document.body
+    portalTarget
   );
 }
 
@@ -660,10 +668,14 @@ export default function ConversationDetails({ onBackToBoard }: ConversationDetai
   const pendingComposerDraftRef = useRef<string | null>(null);
   const pendingComposerDraftFanIdRef = useRef<string | null>(null);
   const draftAppliedFanIdRef = useRef<string | null>(null);
+  const managerPanelOpenRef = useRef(false);
   const translationPreviewTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const translationPreviewAbortRef = useRef<AbortController | null>(null);
   const translationPreviewRequestId = useRef(0);
   const translationPreviewKeyRef = useRef<string | null>(null);
+  useEffect(() => {
+    managerPanelOpenRef.current = managerPanelOpen;
+  }, [managerPanelOpen]);
   const [ showContentModal, setShowContentModal ] = useState(false);
   const [ duplicateConfirm, setDuplicateConfirm ] = useState<{ candidate: string } | null>(null);
   const [ selectionToolbar, setSelectionToolbar ] = useState<{
@@ -719,6 +731,7 @@ export default function ConversationDetails({ onBackToBoard }: ConversationDetai
   const SCROLL_BOTTOM_THRESHOLD = 48;
   const messageInputRef = useRef<HTMLTextAreaElement | null>(null);
   const composerDockRef = useRef<HTMLDivElement | null>(null);
+  const chatPaneRef = useRef<HTMLDivElement | null>(null);
   const profileInputRef = useRef<HTMLTextAreaElement | null>(null);
   const nextActionInputRef = useRef<HTMLInputElement | null>(null);
   type ManagerChatMessage = {
@@ -944,7 +957,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
       if (process.env.NODE_ENV !== "production") {
         console.trace("CLOSE_INLINE_PANEL");
       }
-      if (managerPanelOpen) {
+      if (managerPanelOpenRef.current) {
         captureChatScrollForPanelToggle();
         closeManagerPanel();
       }
@@ -954,7 +967,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
         });
       }
     },
-    [managerPanelOpen, captureChatScrollForPanelToggle, closeManagerPanel]
+    [captureChatScrollForPanelToggle, closeManagerPanel]
   );
 
   const closeContentModal = useCallback(() => {
@@ -4465,6 +4478,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
           onClose={closeDockPanel}
           bottomOffset={dockOffset}
           panelId={panelId}
+          portalEl={chatPaneRef.current}
         >
           {panelContent}
         </DockOverlay>
@@ -7026,7 +7040,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
       )}
       <div className="flex flex-1 min-h-0 min-w-0">
         <div className="relative flex flex-col flex-1 min-h-0 min-w-0 h-full">
-          <header ref={fanHeaderRef} className="sticky top-0 z-20 backdrop-blur">
+          <header ref={fanHeaderRef} className="sticky top-0 z-20 backdrop-blur shrink-0">
             <div className="max-w-4xl mx-auto w-full bg-slate-950/70 border-b border-slate-800 px-4 py-3 md:px-6 md:py-4 flex flex-col gap-3">
           {/* Piso 1 */}
           <div className="flex flex-wrap items-center gap-3 sm:flex-nowrap" ref={actionsMenuRef}>
@@ -7213,245 +7227,250 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
           </div>
         </div>
       </header>
-      {composerDock?.isPanelOverlay && composerDock.panel}
-      {isChatBlocked && (
-        <div className="mx-4 mt-2 rounded-xl border border-red-500/40 bg-red-500/10 px-3 py-2 text-xs md:text-sm text-red-200 flex items-center gap-2">
-          <span className="inline-block h-2 w-2 rounded-full bg-red-400" />
-          <span>Chat bloqueado. No puedes enviar mensajes nuevos a este fan.</span>
-        </div>
-      )}
-      {/* Avisos de acceso caducado o a punto de caducar */}
-      {isAccessExpired && (
-        <div className="mx-4 mb-3 flex flex-col md:flex-row md:items-center md:justify-between gap-3 rounded-xl border border-amber-500/50 bg-amber-500/10 px-4 py-3 text-xs text-amber-100">
-          <div className="flex flex-col gap-1">
-            <span className="font-semibold text-amber-200">Acceso caducado · sin pack activo</span>
-            <span className="text-[11px] text-amber-100/90">
-              Puedes enviarle un mensaje de reenganche y decidir después si le das acceso a nuevos contenidos.
-            </span>
+      <div ref={chatPaneRef} className="relative flex flex-col flex-1 min-h-0 h-full">
+        {composerDock?.isPanelOverlay && composerDock.panel}
+        {isChatBlocked && (
+          <div className="mx-4 mt-2 rounded-xl border border-red-500/40 bg-red-500/10 px-3 py-2 text-xs md:text-sm text-red-200 flex items-center gap-2">
+            <span className="inline-block h-2 w-2 rounded-full bg-red-400" />
+            <span>Chat bloqueado. No puedes enviar mensajes nuevos a este fan.</span>
           </div>
-          <div className="flex items-center gap-2">
-            <button
-              type="button"
-              className="rounded-full border border-amber-400 bg-amber-500/10 px-3 py-1.5 text-[11px] font-semibold text-amber-100 hover:bg-amber-500/20"
-              onClick={handleRenewAction}
-            >
-              Mensaje de reenganche
-            </button>
-          </div>
-        </div>
-      )}
-      {conversation.membershipStatus === "active" && typeof effectiveDaysLeft === "number" && effectiveDaysLeft <= 1 && (
-        <div className="mx-4 mb-3 flex items-center justify-between rounded-xl border border-amber-400/50 bg-amber-500/10 px-4 py-2 text-[11px] text-amber-100">
-          {effectiveDaysLeft <= 0 ? (
+        )}
+        {/* Avisos de acceso caducado o a punto de caducar */}
+        {isAccessExpired && (
+          <div className="mx-4 mb-3 flex flex-col md:flex-row md:items-center md:justify-between gap-3 rounded-xl border border-amber-500/50 bg-amber-500/10 px-4 py-3 text-xs text-amber-100">
             <div className="flex flex-col gap-1">
-              <div className="flex flex-wrap items-center gap-2">
-                <span className="inline-flex items-center rounded-full border border-amber-400/70 bg-amber-500/20 px-2 py-0.5 text-[10px] font-semibold text-amber-100">
-                  CADUCA HOY
-                </span>
-                <span className="inline-flex items-center rounded-full border border-rose-400/70 bg-rose-500/20 px-2 py-0.5 text-[10px] font-semibold text-rose-100">
-                  Crítico
-                </span>
-              </div>
+              <span className="font-semibold text-amber-200">Acceso caducado · sin pack activo</span>
               <span className="text-[11px] text-amber-100/90">
-                Es el momento de renovar hoy mismo para mantener el acceso.
+                Puedes enviarle un mensaje de reenganche y decidir después si le das acceso a nuevos contenidos.
               </span>
             </div>
-          ) : (
-            <span className="font-medium text-amber-100">
-              Le queda {effectiveDaysLeft === 1 ? "1 día" : `${effectiveDaysLeft} días`} de acceso. Buen momento para proponer el siguiente paso.
-            </span>
-          )}
-        </div>
-      )}
-      {isQueueActive && (
-        <div className="mt-2 mb-3 flex items-center justify-between rounded-xl border border-amber-500/60 bg-slate-900/70 px-3 py-2 text-xs">
-          <div className="flex flex-col gap-1 truncate">
-            <span className="font-semibold text-amber-300 flex items-center gap-1">
-              ⚡ Siguiente recomendado
-              {recommendedFan && (recommendedFan.customerTier === "priority" || recommendedFan.customerTier === "vip") && (
-                <span className="text-[10px] rounded-full bg-amber-500/20 px-2 text-amber-200">🔥 Alta prioridad</span>
-              )}
-            </span>
-            <div className="flex flex-wrap items-center gap-2 text-[11px] text-amber-200">
-              <span>Atendidos: {attendedInQueueToday}/{queueTotal}</span>
-              {queueTotal > 0 && currentQueuePosition > 0 && (
-                <span>Actual: {currentQueuePosition}/{queueTotal}</span>
-              )}
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                className="rounded-full border border-amber-400 bg-amber-500/10 px-3 py-1.5 text-[11px] font-semibold text-amber-100 hover:bg-amber-500/20"
+                onClick={handleRenewAction}
+              >
+                Mensaje de reenganche
+              </button>
             </div>
-            {queueFans.length === 0 && (
-              <span className="text-slate-400">No hay cola activa.</span>
-            )}
-            {queueFans.length > 0 && !recommendedFan && (
-              <span className="text-slate-400">Cola terminada · Atendidos {attendedInQueueToday}/{queueTotal}</span>
-            )}
-            {recommendedFan && recommendedFan.id !== id && (
-              <>
-                <span className="truncate text-slate-200">
-                  {recommendedFan.contactName} ·{" "}
-                  {recommendedFan.customerTier === "priority" || recommendedFan.customerTier === "vip"
-                    ? "Alta prioridad"
-                    : recommendedFan.customerTier === "regular"
-                    ? "Habitual"
-                    : "Nuevo"}{" "}
-                  · {Math.round(recommendedFan.lifetimeValue ?? 0)} € · {recommendedFan.notesCount ?? 0} nota
-                  {(recommendedFan.notesCount ?? 0) === 1 ? "" : "s"}
-                </span>
-                {(recommendedFan.followUpOpen?.title || recommendedFan.nextAction) && (
-                  <span className="text-[11px] text-slate-400 truncate">
-                    Seguimiento: {recommendedFan.followUpOpen?.title || recommendedFan.nextAction}
+          </div>
+        )}
+        {conversation.membershipStatus === "active" &&
+          typeof effectiveDaysLeft === "number" &&
+          effectiveDaysLeft <= 1 && (
+            <div className="mx-4 mb-3 flex items-center justify-between rounded-xl border border-amber-400/50 bg-amber-500/10 px-4 py-2 text-[11px] text-amber-100">
+              {effectiveDaysLeft <= 0 ? (
+                <div className="flex flex-col gap-1">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="inline-flex items-center rounded-full border border-amber-400/70 bg-amber-500/20 px-2 py-0.5 text-[10px] font-semibold text-amber-100">
+                      CADUCA HOY
+                    </span>
+                    <span className="inline-flex items-center rounded-full border border-rose-400/70 bg-rose-500/20 px-2 py-0.5 text-[10px] font-semibold text-rose-100">
+                      Crítico
+                    </span>
+                  </div>
+                  <span className="text-[11px] text-amber-100/90">
+                    Es el momento de renovar hoy mismo para mantener el acceso.
                   </span>
-                )}
-              </>
-            )}
-          </div>
-          <div className="ml-3 flex items-center gap-2 shrink-0">
-            {hasPrevInQueue && (
-              <button
-                type="button"
-                className="rounded-full border border-slate-600 bg-slate-800/80 px-3 py-1 text-[11px] font-semibold text-slate-200 hover:bg-slate-700"
-                onClick={handlePrevInQueue}
-              >
-                Anterior
-              </button>
-            )}
-            <button
-              type="button"
-              className="rounded-full border border-amber-400 bg-amber-500/10 px-3 py-1 text-[11px] font-semibold text-amber-300 hover:bg-amber-400/20 disabled:opacity-60"
-              onClick={handleNextInQueue}
-              disabled={!isQueueActive || queueFans.length === 0 || !recommendedFan}
-            >
-              Siguiente
-            </button>
-            {recommendedFan && recommendedFan.id !== id && (
-              <button
-                type="button"
-                className="rounded-full border border-amber-400 bg-amber-500/10 px-3 py-1 text-[11px] font-semibold text-amber-300 hover:bg-amber-400/20"
-                onClick={() => handleSelectFanFromBanner(recommendedFan)}
-              >
-                Abrir
-              </button>
-            )}
-            {!recommendedFan && queueFans.length > 0 && (
-              <button
-                type="button"
-                className="rounded-full border border-slate-600 bg-slate-800/70 px-3 py-1 text-[11px] font-semibold text-slate-200 hover:bg-slate-700"
-                onClick={() => {
-                  setActiveQueueFilter?.(null);
-                }}
-              >
-                Volver a Todos
-              </button>
-            )}
-          </div>
-        </div>
-      )}
-      {showHistory && (
-        <div className="mb-3 mx-4 rounded-xl border border-slate-700 bg-slate-900/80 px-3 py-3 text-xs text-slate-100 flex flex-col gap-3 max-h-64">
-          <div className="flex items-center justify-between gap-2">
-            <span className="font-semibold text-slate-100">Historial de compras</span>
-            <button
-              type="button"
-              onClick={() => setOpenPanel("none")}
-              className="rounded-full border border-slate-600 bg-slate-800/80 px-2 py-1 text-[11px] font-semibold text-slate-100 hover:bg-slate-700"
-            >
-              Cerrar
-            </button>
-          </div>
-          {extrasCountDisplay > 0 && (
-            <div className="text-[11px] text-slate-400">
-              Este fan ha comprado {extrasCountDisplay} extra{extrasCountDisplay !== 1 ? "s" : ""} por un total de {extrasSpentDisplay} € (detalle en la pestaña &quot;Ventas extra&quot;).
+                </div>
+              ) : (
+                <span className="font-medium text-amber-100">
+                  Le queda {effectiveDaysLeft === 1 ? "1 día" : `${effectiveDaysLeft} días`} de acceso. Buen momento para
+                  proponer el siguiente paso.
+                </span>
+              )}
             </div>
           )}
-          {historyError && <div className="text-[11px] text-rose-300">{historyError}</div>}
-          {!historyError && accessGrants.length === 0 && (
-            <div className="text-[11px] text-slate-400">Sin historial de compras todavía.</div>
-          )}
-          <div className="flex-1 overflow-y-auto space-y-2">
-            {accessGrants.map((grant) => {
-              const mapped = mapGrantType(grant.type);
-              const status = getGrantStatus(grant.expiresAt);
-              return (
-                <div key={grant.id} className="rounded-lg bg-slate-950/60 px-2 py-1.5">
-                  <div className="flex flex-wrap items-center gap-2 text-[11px] text-slate-200">
-                    <span>{formatGrantDate(grant.createdAt)}</span>
-                    <span>·</span>
-                    <span>{mapped.label}</span>
-                    <span>·</span>
-                    <span>{mapped.amount} €</span>
-                    <span>·</span>
-                    <span className={status === "Activo" ? "text-emerald-300" : "text-slate-400"}>{status}</span>
-                  </div>
-                  {grant.expiresAt && (
-                    <div className="text-[10px] text-slate-400">Vence el {formatGrantDate(grant.expiresAt)}</div>
+        {isQueueActive && (
+          <div className="mt-2 mb-3 flex items-center justify-between rounded-xl border border-amber-500/60 bg-slate-900/70 px-3 py-2 text-xs">
+            <div className="flex flex-col gap-1 truncate">
+              <span className="font-semibold text-amber-300 flex items-center gap-1">
+                ⚡ Siguiente recomendado
+                {recommendedFan && (recommendedFan.customerTier === "priority" || recommendedFan.customerTier === "vip") && (
+                  <span className="text-[10px] rounded-full bg-amber-500/20 px-2 text-amber-200">🔥 Alta prioridad</span>
+                )}
+              </span>
+              <div className="flex flex-wrap items-center gap-2 text-[11px] text-amber-200">
+                <span>Atendidos: {attendedInQueueToday}/{queueTotal}</span>
+                {queueTotal > 0 && currentQueuePosition > 0 && (
+                  <span>Actual: {currentQueuePosition}/{queueTotal}</span>
+                )}
+              </div>
+              {queueFans.length === 0 && (
+                <span className="text-slate-400">No hay cola activa.</span>
+              )}
+              {queueFans.length > 0 && !recommendedFan && (
+                <span className="text-slate-400">Cola terminada · Atendidos {attendedInQueueToday}/{queueTotal}</span>
+              )}
+              {recommendedFan && recommendedFan.id !== id && (
+                <>
+                  <span className="truncate text-slate-200">
+                    {recommendedFan.contactName} ·{" "}
+                    {recommendedFan.customerTier === "priority" || recommendedFan.customerTier === "vip"
+                      ? "Alta prioridad"
+                      : recommendedFan.customerTier === "regular"
+                      ? "Habitual"
+                      : "Nuevo"}{" "}
+                    · {Math.round(recommendedFan.lifetimeValue ?? 0)} € · {recommendedFan.notesCount ?? 0} nota
+                    {(recommendedFan.notesCount ?? 0) === 1 ? "" : "s"}
+                  </span>
+                  {(recommendedFan.followUpOpen?.title || recommendedFan.nextAction) && (
+                    <span className="text-[11px] text-slate-400 truncate">
+                      Seguimiento: {recommendedFan.followUpOpen?.title || recommendedFan.nextAction}
+                    </span>
                   )}
-                </div>
-              );
-            })}
-            <div className="pt-2 border-t border-slate-800 space-y-2">
-              <div className="text-[11px] font-semibold text-slate-400">Extras recientes</div>
-              {extraHistory.length === 0 ? (
-                <div className="text-[11px] text-slate-400">Sin extras registrados en chat.</div>
-              ) : (
-                extraHistory.map((entry) => (
-                  <div key={entry.id} className="rounded-lg bg-slate-950/60 px-2 py-1.5">
-                    <div className="flex items-center justify-between text-[11px] text-slate-200">
-                      <span className="font-semibold">{getExtraEventLabel(entry)}</span>
-                      <span className="text-slate-400">{formatExtraDate(entry.createdAt)}</span>
-                    </div>
-                    <div className="text-[10px] text-slate-400">{formatExtraAmount(entry.amount)}</div>
-                  </div>
-                ))
+                </>
+              )}
+            </div>
+            <div className="ml-3 flex items-center gap-2 shrink-0">
+              {hasPrevInQueue && (
+                <button
+                  type="button"
+                  className="rounded-full border border-slate-600 bg-slate-800/80 px-3 py-1 text-[11px] font-semibold text-slate-200 hover:bg-slate-700"
+                  onClick={handlePrevInQueue}
+                >
+                  Anterior
+                </button>
+              )}
+              <button
+                type="button"
+                className="rounded-full border border-amber-400 bg-amber-500/10 px-3 py-1 text-[11px] font-semibold text-amber-300 hover:bg-amber-400/20 disabled:opacity-60"
+                onClick={handleNextInQueue}
+                disabled={!isQueueActive || queueFans.length === 0 || !recommendedFan}
+              >
+                Siguiente
+              </button>
+              {recommendedFan && recommendedFan.id !== id && (
+                <button
+                  type="button"
+                  className="rounded-full border border-amber-400 bg-amber-500/10 px-3 py-1 text-[11px] font-semibold text-amber-300 hover:bg-amber-400/20"
+                  onClick={() => handleSelectFanFromBanner(recommendedFan)}
+                >
+                  Abrir
+                </button>
+              )}
+              {!recommendedFan && queueFans.length > 0 && (
+                <button
+                  type="button"
+                  className="rounded-full border border-slate-600 bg-slate-800/70 px-3 py-1 text-[11px] font-semibold text-slate-200 hover:bg-slate-700"
+                  onClick={() => {
+                    setActiveQueueFilter?.(null);
+                  }}
+                >
+                  Volver a Todos
+                </button>
               )}
             </div>
           </div>
-        </div>
-      )}
-      {iaMessage && (
-        <div className="mx-4 mb-2 rounded-lg border border-amber-500/60 bg-amber-500/10 px-3 py-2 text-xs text-amber-100">
-          {iaMessage} {iaBlocked ? "Mañana se reiniciarán tus créditos diarios." : ""}
-        </div>
-      )}
-      {false && (
-        // Desactivado: el nuevo Manager IA cubre las sugerencias de próxima acción.
-        (() => {
-          const followUpTemplates = getFollowUpTemplates({
-            followUpTag,
-            daysLeft,
-            fanName: firstName,
-          });
-          if (!followUpTemplates.length) return null;
-          return (
-            <div className="mb-3 mx-4 rounded-xl border border-slate-700 bg-slate-900/70 px-3 py-2 text-xs text-slate-200 flex flex-col gap-2">
-              <div className="flex items-center justify-between gap-2">
-                <span className="font-semibold">
-                  {followUpTag === "trial_soon" &&
-                    `Próxima acción · Prueba · ${effectiveDaysLeft ?? daysLeft ?? ""} días`}
-                  {followUpTag === "monthly_soon" &&
-                    `Próxima acción · Suscripción · ${effectiveDaysLeft ?? daysLeft ?? ""} días`}
-                  {followUpTag === "expired" && "Próxima acción · Acceso caducado"}
-                </span>
-                {accessGrantsLoading && <span className="text-[10px] text-slate-400">Actualizando...</span>}
+        )}
+        {showHistory && (
+          <div className="mb-3 mx-4 rounded-xl border border-slate-700 bg-slate-900/80 px-3 py-3 text-xs text-slate-100 flex flex-col gap-3 max-h-64">
+            <div className="flex items-center justify-between gap-2">
+              <span className="font-semibold text-slate-100">Historial de compras</span>
+              <button
+                type="button"
+                onClick={() => setOpenPanel("none")}
+                className="rounded-full border border-slate-600 bg-slate-800/80 px-2 py-1 text-[11px] font-semibold text-slate-100 hover:bg-slate-700"
+              >
+                Cerrar
+              </button>
+            </div>
+            {extrasCountDisplay > 0 && (
+              <div className="text-[11px] text-slate-400">
+                Este fan ha comprado {extrasCountDisplay} extra{extrasCountDisplay !== 1 ? "s" : ""} por un total de{" "}
+                {extrasSpentDisplay} € (detalle en la pestaña &quot;Ventas extra&quot;).
               </div>
-              <div className="flex flex-wrap gap-2">
-                {followUpTemplates.map((tpl) => (
-                  <button
-                    key={tpl.id}
-                    type="button"
-                    onClick={() => fillMessage(tpl.text)}
-                    className="inline-flex items-center rounded-full border border-amber-400/80 bg-amber-500/10 px-3 py-1 text-[11px] font-medium text-amber-100 hover:bg-amber-500/20 transition"
-                  >
-                    {tpl.label}
-                  </button>
-                ))}
+            )}
+            {historyError && <div className="text-[11px] text-rose-300">{historyError}</div>}
+            {!historyError && accessGrants.length === 0 && (
+              <div className="text-[11px] text-slate-400">Sin historial de compras todavía.</div>
+            )}
+            <div className="flex-1 overflow-y-auto space-y-2">
+              {accessGrants.map((grant) => {
+                const mapped = mapGrantType(grant.type);
+                const status = getGrantStatus(grant.expiresAt);
+                return (
+                  <div key={grant.id} className="rounded-lg bg-slate-950/60 px-2 py-1.5">
+                    <div className="flex flex-wrap items-center gap-2 text-[11px] text-slate-200">
+                      <span>{formatGrantDate(grant.createdAt)}</span>
+                      <span>·</span>
+                      <span>{mapped.label}</span>
+                      <span>·</span>
+                      <span>{mapped.amount} €</span>
+                      <span>·</span>
+                      <span className={status === "Activo" ? "text-emerald-300" : "text-slate-400"}>{status}</span>
+                    </div>
+                    {grant.expiresAt && (
+                      <div className="text-[10px] text-slate-400">Vence el {formatGrantDate(grant.expiresAt)}</div>
+                    )}
+                  </div>
+                );
+              })}
+              <div className="pt-2 border-t border-slate-800 space-y-2">
+                <div className="text-[11px] font-semibold text-slate-400">Extras recientes</div>
+                {extraHistory.length === 0 ? (
+                  <div className="text-[11px] text-slate-400">Sin extras registrados en chat.</div>
+                ) : (
+                  extraHistory.map((entry) => (
+                    <div key={entry.id} className="rounded-lg bg-slate-950/60 px-2 py-1.5">
+                      <div className="flex items-center justify-between text-[11px] text-slate-200">
+                        <span className="font-semibold">{getExtraEventLabel(entry)}</span>
+                        <span className="text-slate-400">{formatExtraDate(entry.createdAt)}</span>
+                      </div>
+                      <div className="text-[10px] text-slate-400">{formatExtraAmount(entry.amount)}</div>
+                    </div>
+                  ))
+                )}
               </div>
             </div>
-          );
-        })()
-      )}
-      <div
-        className="flex flex-col flex-1 min-h-0 bg-center bg-cover"
-        style={{ backgroundImage: "url('/assets/images/background.jpg')" }}
-      >
+          </div>
+        )}
+        {iaMessage && (
+          <div className="mx-4 mb-2 rounded-lg border border-amber-500/60 bg-amber-500/10 px-3 py-2 text-xs text-amber-100">
+            {iaMessage} {iaBlocked ? "Mañana se reiniciarán tus créditos diarios." : ""}
+          </div>
+        )}
+        {false && (
+          // Desactivado: el nuevo Manager IA cubre las sugerencias de próxima acción.
+          (() => {
+            const followUpTemplates = getFollowUpTemplates({
+              followUpTag,
+              daysLeft,
+              fanName: firstName,
+            });
+            if (!followUpTemplates.length) return null;
+            return (
+              <div className="mb-3 mx-4 rounded-xl border border-slate-700 bg-slate-900/70 px-3 py-2 text-xs text-slate-200 flex flex-col gap-2">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="font-semibold">
+                    {followUpTag === "trial_soon" &&
+                      `Próxima acción · Prueba · ${effectiveDaysLeft ?? daysLeft ?? ""} días`}
+                    {followUpTag === "monthly_soon" &&
+                      `Próxima acción · Suscripción · ${effectiveDaysLeft ?? daysLeft ?? ""} días`}
+                    {followUpTag === "expired" && "Próxima acción · Acceso caducado"}
+                  </span>
+                  {accessGrantsLoading && <span className="text-[10px] text-slate-400">Actualizando...</span>}
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  {followUpTemplates.map((tpl) => (
+                    <button
+                      key={tpl.id}
+                      type="button"
+                      onClick={() => fillMessage(tpl.text)}
+                      className="inline-flex items-center rounded-full border border-amber-400/80 bg-amber-500/10 px-3 py-1 text-[11px] font-medium text-amber-100 hover:bg-amber-500/20 transition"
+                    >
+                      {tpl.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            );
+          })()
+        )}
+        <div
+          className="flex flex-col flex-1 min-h-0 bg-center bg-cover"
+          style={{ backgroundImage: "url('/assets/images/background.jpg')" }}
+        >
         <div
           ref={messagesContainerRef}
           className="flex flex-col w-full flex-1 min-h-0 overflow-y-auto"
@@ -7837,6 +7856,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
             </div>
           </div>
         </div>
+      </div>
         </div>
         </div>
       </div>
