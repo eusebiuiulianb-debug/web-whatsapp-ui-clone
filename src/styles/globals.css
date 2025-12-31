@@ -14,6 +14,16 @@ body {
   background: #0a1014;
 }
 
+:root {
+  --dock-gap: 8px;
+}
+
+@media (max-width: 768px) {
+  :root {
+    --dock-gap: 6px;
+  }
+}
+
 input:focus{
   outline: none;
 }
@@ -39,4 +49,73 @@ input[type="date"]::-webkit-calendar-picker-indicator,
 input[type="time"]::-webkit-calendar-picker-indicator {
   filter: invert(1);
   opacity: 0.9;
+}
+
+.dockOverlayBackdrop {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 0;
+  bottom: calc(var(--dock-h, 72px) + var(--dock-gap));
+  pointer-events: none;
+}
+
+.dockOverlayPanel {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: calc(var(--dock-h, 72px) + var(--dock-gap));
+  padding: 12px;
+  pointer-events: none;
+  display: flex;
+  justify-content: center;
+  z-index: 50;
+}
+
+.dockOverlayHeader {
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  background: inherit;
+}
+
+.dockOverlaySheet {
+  pointer-events: auto;
+  height: auto;
+  width: min(980px, 100%);
+  border-radius: 18px;
+  max-height: min(50vh, calc(100vh - var(--dock-h, 72px) - var(--dock-gap) - 24px));
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+@media (max-width: 768px) {
+  .dockOverlaySheet {
+    max-height: min(56vh, calc(100vh - var(--dock-h, 72px) - var(--dock-gap) - 24px));
+  }
+}
+
+@supports (height: 100dvh) {
+  .dockOverlaySheet {
+    max-height: min(50dvh, calc(100dvh - var(--dock-h, 72px) - var(--dock-gap) - 24px));
+  }
+}
+
+@supports (height: 100dvh) {
+  @media (max-width: 768px) {
+    .dockOverlaySheet {
+      max-height: min(56dvh, calc(100dvh - var(--dock-h, 72px) - var(--dock-gap) - 24px));
+    }
+  }
+}
+
+.dockOverlaySheetBody {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  touch-action: pan-y;
+  padding-bottom: calc(12px + env(safe-area-inset-bottom));
 }
