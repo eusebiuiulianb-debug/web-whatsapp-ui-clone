@@ -1,4 +1,5 @@
 import {
+  type CSSProperties,
   KeyboardEvent,
   MouseEvent,
   type PointerEvent as ReactPointerEvent,
@@ -375,6 +376,12 @@ function InlinePanelContainer({
   const closedClassName = isOverlay
     ? "opacity-0 invisible pointer-events-none"
     : "mt-0 max-h-0 opacity-0 -translate-y-1 invisible pointer-events-none";
+  const resolvedBottom = typeof bottomOffset === "number" ? bottomOffset : undefined;
+  const containerStyle: CSSProperties = {
+    willChange: "opacity, transform, max-height",
+    bottom: resolvedBottom,
+    marginBottom: !isOverlay && resolvedBottom ? resolvedBottom : undefined,
+  };
   const handlePointerDown = (event: React.PointerEvent<HTMLDivElement>) => {
     if (!isOverlay || !onBackdropPointerDown) return;
     onBackdropPointerDown(event);
@@ -384,14 +391,10 @@ function InlinePanelContainer({
       id={panelId}
       className={clsx(
         "transition-all duration-200 ease-out overflow-hidden",
-        isOverlay ? "fixed inset-0 z-50 md:absolute" : bottomOffset ? "sticky z-10" : null,
+        isOverlay ? "absolute inset-0 z-50 pointer-events-none" : bottomOffset ? "sticky z-10" : null,
         isOpen ? openClassName : closedClassName
       )}
-      style={{
-        willChange: "opacity, transform, max-height",
-        bottom: bottomOffset,
-        marginBottom: bottomOffset,
-      }}
+      style={containerStyle}
       onPointerDown={handlePointerDown}
       aria-hidden={!isOpen}
     >
@@ -3229,12 +3232,25 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
     const handlePanelWheel: WheelEventHandler<HTMLDivElement> = (event) => {
       event.stopPropagation();
     };
+    const dockOverlayOffset = dockHeight > 0 ? dockOffset : 160;
+    const dockOverlayPanelClassName =
+      "pointer-events-auto w-full max-w-[1040px] flex flex-col overflow-hidden min-h-0 h-auto max-h-[90%] sm:max-h-[60%]";
+    const dockOverlayFrameClassName =
+      "pointer-events-none relative z-10 flex h-full w-full items-end justify-center px-3 pt-[72px] sm:px-6 sm:pt-[96px]";
+    const dockOverlayBodyScrollClassName = "min-h-0 flex-1 overflow-y-auto overscroll-contain";
 
     const renderInlineToolsPanel = () => {
       const toolsDisabled = !isFanTarget;
       const translationDisabled = !isFanTarget || isInternalPanelOpen;
       return (
-        <InlinePanelShell title="Herramientas" onClose={closeDockPanel}>
+        <InlinePanelShell
+          title="Herramientas"
+          onClose={closeDockPanel}
+          containerClassName={dockOverlayPanelClassName}
+          bodyScrollClassName={dockOverlayBodyScrollClassName}
+          onBodyWheel={handlePanelWheel}
+          stickyHeader
+        >
           {!conversation.isManager ? (
             <div className="space-y-3">
               <div className="text-[11px] font-semibold text-slate-400">Acciones</div>
@@ -3974,7 +3990,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
             title="Panel interno"
             onClose={closeDockPanel}
             onBodyWheel={handlePanelWheel}
-            containerClassName="flex flex-col h-full min-h-0 w-full max-w-none max-h-[calc(100vh-96px)] overflow-y-auto overscroll-contain"
+            containerClassName={dockOverlayPanelClassName}
             scrollable={false}
             bodyClassName="px-0 py-0 min-h-0 flex-1 flex flex-col"
             stickyHeader
@@ -4037,7 +4053,14 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
         const templateTabFanActive = "border-emerald-400/70 bg-emerald-500/15 text-emerald-100";
         const templateTabManagerActive = "border-amber-400/70 bg-amber-500/15 text-amber-100";
         return (
-          <InlinePanelShell title="Plantillas" onClose={closeDockPanel}>
+          <InlinePanelShell
+            title="Plantillas"
+            onClose={closeDockPanel}
+            containerClassName={dockOverlayPanelClassName}
+            bodyScrollClassName={dockOverlayBodyScrollClassName}
+            onBodyWheel={handlePanelWheel}
+            stickyHeader
+          >
             <div className="space-y-3">
               <div
                 className="flex flex-wrap items-center gap-2"
@@ -4159,11 +4182,10 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
 
     const panelTab = managerPanelOpen ? managerPanelTab : null;
     const isPanelOpen = managerPanelOpen;
+    const isDockOverlay = Boolean(panelTab);
     const panelContent = renderInlinePanel(panelTab);
 
     const panelId = "composer-inline-panel";
-    const isInternalPanelOverlay = isPanelOpen && panelTab === "manager";
-    const panelMaxHeightClassName = isInternalPanelOverlay ? "max-h-none h-full" : undefined;
 
     const chips = (
       <>
@@ -4290,27 +4312,20 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
         <InlinePanelContainer
           isOpen={isPanelOpen}
           panelId={panelId}
-          bottomOffset={isInternalPanelOverlay ? undefined : !isFanMode ? dockOffset : undefined}
-          openMaxHeightClassName={panelMaxHeightClassName}
-          isOverlay={isInternalPanelOverlay}
+          bottomOffset={isDockOverlay ? dockOverlayOffset : !isFanMode ? dockOffset : undefined}
+          isOverlay={isDockOverlay}
         >
-          {isInternalPanelOverlay ? (
+          {isDockOverlay ? (
             <>
               <div
-                className="absolute inset-0 bg-slate-950/70"
+                className="absolute inset-0 bg-slate-950/70 pointer-events-auto"
                 onPointerDown={(event) => {
                   event.stopPropagation();
                   if (event.target !== event.currentTarget) return;
                   closeDockPanel();
                 }}
               />
-              <div
-                className="relative z-10 w-full max-w-[760px] mx-auto px-4 py-6 md:py-8"
-                onPointerDown={(event) => event.stopPropagation()}
-                onClick={(event) => event.stopPropagation()}
-              >
-                {panelContent}
-              </div>
+              <div className={dockOverlayFrameClassName}>{panelContent}</div>
             </>
           ) : (
             <div
@@ -4327,7 +4342,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
       chips: <ComposerChipsRow>{chips}</ComposerChipsRow>,
       panel,
       isPanelOpen,
-      isInternalPanelOverlay,
+      isDockOverlay,
     };
   };
 
@@ -7036,7 +7051,6 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
           </div>
         </div>
       </header>
-      {composerDock?.isInternalPanelOverlay && composerDock.panel}
       {isChatBlocked && (
         <div className="mx-4 mt-2 rounded-xl border border-red-500/40 bg-red-500/10 px-3 py-2 text-xs md:text-sm text-red-200 flex items-center gap-2">
           <span className="inline-block h-2 w-2 rounded-full bg-red-400" />
@@ -7258,7 +7272,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
       <div className="flex flex-col flex-1 min-h-0">
         <div
           ref={messagesContainerRef}
-          className="flex flex-col w-full flex-1 overflow-y-auto"
+          className="flex flex-col w-full flex-1 min-h-0 overflow-y-auto"
           style={{ backgroundImage: "url('/assets/images/background.jpg')" }}
         >
           <div
@@ -7352,7 +7366,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
             {messagesError && !isLoadingMessages && (
               <div className="text-center text-red-400 text-sm mt-2">{messagesError}</div>
             )}
-            {!composerDock?.isInternalPanelOverlay && composerDock?.panel}
+            {!composerDock?.isDockOverlay && composerDock?.panel}
             {inlineAction && (
               <div className="mt-3">
                 <div className="relative flex items-start gap-3 rounded-2xl border border-slate-800/60 bg-slate-950/70 px-4 py-3 text-xs text-slate-100 shadow-[0_8px_20px_rgba(0,0,0,0.25)] ring-1 ring-white/5 backdrop-blur">
@@ -7688,6 +7702,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
             </div>
           </div>
         </div>
+        {composerDock?.isDockOverlay && composerDock.panel}
         </div>
         </div>
       </div>
