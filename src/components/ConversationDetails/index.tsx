@@ -1,5 +1,6 @@
 import {
   type CSSProperties,
+  forwardRef,
   KeyboardEvent,
   MouseEvent,
   type PointerEvent as ReactPointerEvent,
@@ -11,6 +12,7 @@ import {
   useRef,
   useState,
   type Ref,
+  type TouchEventHandler,
   type UIEventHandler,
   type WheelEventHandler,
 } from "react";
@@ -259,6 +261,7 @@ type InlinePanelShellProps = {
   children: ReactNode;
   onClose: () => void;
   containerClassName?: string;
+  containerRef?: Ref<HTMLDivElement>;
   headerSlot?: ReactNode;
   stickyHeader?: boolean;
   bodyRef?: Ref<HTMLDivElement>;
@@ -266,6 +269,7 @@ type InlinePanelShellProps = {
   bodyScrollClassName?: string;
   onBodyScroll?: UIEventHandler<HTMLDivElement>;
   onBodyWheel?: WheelEventHandler<HTMLDivElement>;
+  onBodyTouchMove?: TouchEventHandler<HTMLDivElement>;
   scrollable?: boolean;
   footer?: ReactNode;
 };
@@ -275,6 +279,7 @@ function InlinePanelShell({
   children,
   onClose,
   containerClassName,
+  containerRef,
   headerSlot,
   stickyHeader = false,
   bodyRef,
@@ -282,6 +287,7 @@ function InlinePanelShell({
   bodyScrollClassName,
   onBodyScroll,
   onBodyWheel,
+  onBodyTouchMove,
   scrollable = true,
   footer,
 }: InlinePanelShellProps) {
@@ -292,6 +298,7 @@ function InlinePanelShell({
       : "overflow-hidden");
   return (
     <div
+      ref={containerRef}
       className={clsx(
         "w-full rounded-2xl border border-slate-800/60 bg-gradient-to-b from-slate-950/70 via-slate-900/80 to-slate-900/70 backdrop-blur-xl shadow-[0_12px_30px_rgba(0,0,0,0.25)] ring-1 ring-white/5",
         containerClassName
@@ -300,7 +307,7 @@ function InlinePanelShell({
       <div
         className={clsx(
           "shrink-0 border-b border-slate-800/50",
-          stickyHeader && "sticky top-0 z-10 backdrop-blur bg-slate-950/80"
+          stickyHeader && "dockOverlayHeader backdrop-blur"
         )}
       >
         <div className="flex items-center justify-between px-4 py-2">
@@ -320,6 +327,7 @@ function InlinePanelShell({
         ref={bodyRef}
         onScroll={onBodyScroll}
         onWheelCapture={onBodyWheel}
+        onTouchMoveCapture={onBodyTouchMove}
         className={clsx(
           "px-4 py-3 text-[12px] text-slate-200",
           scrollClassName,
@@ -337,18 +345,19 @@ type ComposerChipsRowProps = {
   children: ReactNode;
 };
 
-function ComposerChipsRow({ children }: ComposerChipsRowProps) {
-  return (
-    <div
-      className={clsx(
-        "mt-1.5 flex w-full flex-wrap items-center gap-2 pb-1.5",
-        "[-ms-overflow-style:'none'] [scrollbar-width:'none'] [&::-webkit-scrollbar]:hidden"
-      )}
-    >
-      {children}
-    </div>
-  );
-}
+const ComposerChipsRow = forwardRef<HTMLDivElement, ComposerChipsRowProps>(({ children }, ref) => (
+  <div
+    ref={ref}
+    className={clsx(
+      "mt-1.5 flex w-full flex-wrap items-center gap-2 pb-1.5",
+      "[-ms-overflow-style:'none'] [scrollbar-width:'none'] [&::-webkit-scrollbar]:hidden"
+    )}
+  >
+    {children}
+  </div>
+));
+
+ComposerChipsRow.displayName = "ComposerChipsRow";
 
 type InlinePanelContainerProps = {
   children: ReactNode;
@@ -653,7 +662,10 @@ export default function ConversationDetails({ onBackToBoard }: ConversationDetai
   const MAX_INTERNAL_COMPOSER_HEIGHT = 220;
   const SCROLL_BOTTOM_THRESHOLD = 48;
   const messageInputRef = useRef<HTMLTextAreaElement | null>(null);
-  const composerDockRef = useRef<HTMLDivElement | null>(null);
+  const rightPaneRef = useRef<HTMLDivElement | null>(null);
+  const dockRef = useRef<HTMLDivElement | null>(null);
+  const dockOverlaySheetRef = useRef<HTMLDivElement | null>(null);
+  const overlayBodyRef = useRef<HTMLDivElement | null>(null);
   const profileInputRef = useRef<HTMLTextAreaElement | null>(null);
   const nextActionInputRef = useRef<HTMLInputElement | null>(null);
   type ManagerChatMessage = {
@@ -964,19 +976,34 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
   }, [messageSend, autoGrowTextarea]);
 
   useEffect(() => {
-    const el = composerDockRef.current;
+    if (typeof window === "undefined") return;
+    const el = dockRef.current;
     if (!el) return;
     const update = () => {
-      setDockHeight(el.getBoundingClientRect().height);
+      const raw = el.getBoundingClientRect().height;
+      const height = Math.max(48, Math.min(raw, 88));
+      setDockHeight(height);
+      const pane = rightPaneRef.current;
+      if (pane) {
+        pane.style.setProperty("--dock-h", `${height}px`);
+      }
     };
     update();
-    if (typeof ResizeObserver === "undefined") {
-      window.addEventListener("resize", update);
-      return () => window.removeEventListener("resize", update);
+    const handleResize = () => update();
+    window.addEventListener("resize", handleResize);
+    let observer: ResizeObserver | null = null;
+    if (typeof ResizeObserver !== "undefined") {
+      observer = new ResizeObserver(() => update());
+      observer.observe(el);
     }
-    const observer = new ResizeObserver(() => update());
-    observer.observe(el);
-    return () => observer.disconnect();
+    return () => {
+      window.removeEventListener("resize", handleResize);
+      if (observer) observer.disconnect();
+      const pane = rightPaneRef.current;
+      if (pane) {
+        pane.style.removeProperty("--dock-h");
+      }
+    };
   }, []);
 
   useEffect(() => {
@@ -2585,6 +2612,19 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
   }, [managerPanelOpen, inlineAction, closeInlinePanel, clearInlineAction]);
 
   useEffect(() => {
+    if (!managerPanelOpen) return;
+    const handlePointerDown = (event: globalThis.PointerEvent) => {
+      const target = event.target as Node | null;
+      const sheet = dockOverlaySheetRef.current;
+      if (!sheet || !target) return;
+      if (sheet.contains(target)) return;
+      closeInlinePanel({ focus: true });
+    };
+    document.addEventListener("pointerdown", handlePointerDown);
+    return () => document.removeEventListener("pointerdown", handlePointerDown);
+  }, [managerPanelOpen, closeInlinePanel]);
+
+  useEffect(() => {
     closeOverlays({ keepManagerPanel: true });
     setHighlightDraftId(null);
     if (!managerPanelOpen) {
@@ -3232,12 +3272,12 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
     const handlePanelWheel: WheelEventHandler<HTMLDivElement> = (event) => {
       event.stopPropagation();
     };
-    const dockOverlayOffset = dockHeight > 0 ? dockOffset : 160;
-    const dockOverlayPanelClassName =
-      "pointer-events-auto w-full max-w-[1040px] flex flex-col overflow-hidden min-h-0 h-auto max-h-[90%] sm:max-h-[60%]";
-    const dockOverlayFrameClassName =
-      "pointer-events-none relative z-10 flex h-full w-full items-end justify-center px-3 pt-[72px] sm:px-6 sm:pt-[96px]";
-    const dockOverlayBodyScrollClassName = "min-h-0 flex-1 overflow-y-auto overscroll-contain";
+    const handlePanelTouchMove: TouchEventHandler<HTMLDivElement> = (event) => {
+      event.stopPropagation();
+    };
+    const dockOverlayPanelClassName = "dockOverlayPanel";
+    const dockOverlaySheetClassName = "dockOverlaySheet";
+    const dockOverlayBodyScrollClassName = "dockOverlaySheetBody";
 
     const renderInlineToolsPanel = () => {
       const toolsDisabled = !isFanTarget;
@@ -3246,9 +3286,12 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
         <InlinePanelShell
           title="Herramientas"
           onClose={closeDockPanel}
-          containerClassName={dockOverlayPanelClassName}
+          containerClassName={dockOverlaySheetClassName}
+          containerRef={dockOverlaySheetRef}
           bodyScrollClassName={dockOverlayBodyScrollClassName}
+          bodyRef={overlayBodyRef}
           onBodyWheel={handlePanelWheel}
+          onBodyTouchMove={handlePanelTouchMove}
           stickyHeader
         >
           {!conversation.isManager ? (
@@ -3440,139 +3483,132 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
     };
 
     const renderInternalManagerContent = () => (
-      <div className="flex min-h-0 flex-1 flex-col">
-        <div
-          ref={managerPanelScrollRef}
-          onScroll={updateManagerPanelScrollState}
-          onWheelCapture={handlePanelWheel}
-          className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-4 py-3 pb-28"
-        >
-          <div className="space-y-3">
-            <div className="text-[11px] font-semibold text-slate-400">Insights y control</div>
-            {normalizedProfileText && (
-              <div className="rounded-xl border border-slate-800/60 bg-slate-950/40 p-3">
-                <div className="flex items-center justify-between gap-2 text-[10px] font-semibold text-slate-400">
-                  <span>Perfil del fan (resumen)</span>
-                  <button
-                    type="button"
-                    onClick={() => openInternalPanelTab("note")}
-                    className="rounded-full border border-amber-400/70 bg-amber-500/10 px-2.5 py-0.5 text-[10px] font-semibold text-amber-100 hover:bg-amber-500/20"
-                  >
-                    Editar
-                  </button>
-                </div>
-                <div className="mt-2 text-[11px] text-slate-200 whitespace-pre-wrap line-clamp-3">
-                  {normalizedProfileText}
-                </div>
-              </div>
-            )}
+      <div className="space-y-3">
+        <div className="px-4 py-3 space-y-3">
+          <div className="text-[11px] font-semibold text-slate-400">Insights y control</div>
+          {normalizedProfileText && (
             <div className="rounded-xl border border-slate-800/60 bg-slate-950/40 p-3">
-              <FanManagerDrawer
-                managerSuggestions={managerSuggestions}
-                onApplySuggestion={handleApplyManagerSuggestion}
-                draftCards={draftCards}
-                onDraftAction={handleDraftCardVariant}
-                currentObjective={currentObjective}
-                suggestedObjective={fanManagerAnalysis.defaultObjective}
-                fanManagerState={fanManagerAnalysis.state}
-                fanManagerHeadline={fanManagerAnalysis.headline}
-                fanManagerChips={fanManagerAnalysis.chips}
-                daysLeft={typeof effectiveDaysLeft === "number" ? effectiveDaysLeft : null}
-                tone={fanTone}
-                onChangeTone={handleChangeFanTone}
-                statusLine={statusLine}
-                lapexSummary={lapexSummary}
-                sessionSummary={sessionSummary}
-                iaSummary={iaSummary}
-                planSummary={planSummary}
-                closedSummary={managerShortSummary}
-                fanId={conversation.id}
-                onManagerSummary={(s) => setManagerSummary(s)}
-                onSuggestionClick={handleManagerSuggestion}
-                onQuickGreeting={() => handleManagerQuickAction("romper_hielo")}
-                onSendLink={handleSendLinkFromManager}
-                onRenew={() => handleManagerQuickAction("reactivar_fan_frio")}
-                onQuickExtra={() => handleManagerQuickAction("ofrecer_extra")}
-                onPackOffer={() => handleManagerQuickAction("llevar_a_mensual")}
-                onRequestSuggestionAlt={(text) => handleRequestSuggestionVariant("alternate", text)}
-                onRequestSuggestionShorter={(text) => handleRequestSuggestionVariant("shorter", text)}
-                showRenewAction={showRenewAction}
-                quickExtraDisabled={quickExtraDisabled}
-                isRecommended={isRecommended}
-                isBlocked={isChatBlocked}
-                autoPilotEnabled={autoPilotEnabled}
-                onToggleAutoPilot={handleToggleAutoPilot}
-                isAutoPilotLoading={isAutoPilotLoading}
-                hasAutopilotContext={hasAutopilotContext}
-                onAutopilotSoften={handleAutopilotSoften}
-                onAutopilotMakeBolder={handleAutopilotMakeBolder}
-              />
+              <div className="flex items-center justify-between gap-2 text-[10px] font-semibold text-slate-400">
+                <span>Perfil del fan (resumen)</span>
+                <button
+                  type="button"
+                  onClick={() => openInternalPanelTab("note")}
+                  className="rounded-full border border-amber-400/70 bg-amber-500/10 px-2.5 py-0.5 text-[10px] font-semibold text-amber-100 hover:bg-amber-500/20"
+                >
+                  Editar
+                </button>
+              </div>
+              <div className="mt-2 text-[11px] text-slate-200 whitespace-pre-wrap line-clamp-3">
+                {normalizedProfileText}
+              </div>
             </div>
-            <div className="space-y-3">
-              <div className="text-[11px] font-semibold text-slate-400">Conversación con Manager IA</div>
-              <div className="rounded-2xl border border-slate-800/60 bg-slate-950/40 p-3 space-y-4">
-                {managerChatMessages.length === 0 && (
-                  <div className="text-[11px] text-slate-500">Aún no has preguntado al Manager IA.</div>
-                )}
-                {managerChatMessages.map((msg) => {
-                  const isCreator = msg.role === "creator";
-                  const isManager = msg.role === "manager";
-                  const isSystem = msg.role === "system";
-                  const bubbleClass = clsx(
-                    "rounded-2xl px-4 py-2.5 text-xs leading-relaxed whitespace-pre-wrap break-words [overflow-wrap:anywhere]",
-                    "[&_a]:underline [&_a]:underline-offset-2",
-                    isCreator
-                      ? "bg-emerald-600/80 text-white"
-                      : isManager
-                      ? "bg-slate-800/80 text-slate-100"
-                      : "bg-slate-900/70 text-slate-300"
-                  );
-                  return (
+          )}
+          <div className="rounded-xl border border-slate-800/60 bg-slate-950/40 p-3">
+            <FanManagerDrawer
+              managerSuggestions={managerSuggestions}
+              onApplySuggestion={handleApplyManagerSuggestion}
+              draftCards={draftCards}
+              onDraftAction={handleDraftCardVariant}
+              currentObjective={currentObjective}
+              suggestedObjective={fanManagerAnalysis.defaultObjective}
+              fanManagerState={fanManagerAnalysis.state}
+              fanManagerHeadline={fanManagerAnalysis.headline}
+              fanManagerChips={fanManagerAnalysis.chips}
+              daysLeft={typeof effectiveDaysLeft === "number" ? effectiveDaysLeft : null}
+              tone={fanTone}
+              onChangeTone={handleChangeFanTone}
+              statusLine={statusLine}
+              lapexSummary={lapexSummary}
+              sessionSummary={sessionSummary}
+              iaSummary={iaSummary}
+              planSummary={planSummary}
+              closedSummary={managerShortSummary}
+              fanId={conversation.id}
+              onManagerSummary={(s) => setManagerSummary(s)}
+              onSuggestionClick={handleManagerSuggestion}
+              onQuickGreeting={() => handleManagerQuickAction("romper_hielo")}
+              onSendLink={handleSendLinkFromManager}
+              onRenew={() => handleManagerQuickAction("reactivar_fan_frio")}
+              onQuickExtra={() => handleManagerQuickAction("ofrecer_extra")}
+              onPackOffer={() => handleManagerQuickAction("llevar_a_mensual")}
+              onRequestSuggestionAlt={(text) => handleRequestSuggestionVariant("alternate", text)}
+              onRequestSuggestionShorter={(text) => handleRequestSuggestionVariant("shorter", text)}
+              showRenewAction={showRenewAction}
+              quickExtraDisabled={quickExtraDisabled}
+              isRecommended={isRecommended}
+              isBlocked={isChatBlocked}
+              autoPilotEnabled={autoPilotEnabled}
+              onToggleAutoPilot={handleToggleAutoPilot}
+              isAutoPilotLoading={isAutoPilotLoading}
+              hasAutopilotContext={hasAutopilotContext}
+              onAutopilotSoften={handleAutopilotSoften}
+              onAutopilotMakeBolder={handleAutopilotMakeBolder}
+            />
+          </div>
+          <div className="space-y-3">
+            <div className="text-[11px] font-semibold text-slate-400">Conversación con Manager IA</div>
+            <div className="rounded-2xl border border-slate-800/60 bg-slate-950/40 p-3 space-y-4">
+              {managerChatMessages.length === 0 && (
+                <div className="text-[11px] text-slate-500">Aún no has preguntado al Manager IA.</div>
+              )}
+              {managerChatMessages.map((msg) => {
+                const isCreator = msg.role === "creator";
+                const isManager = msg.role === "manager";
+                const isSystem = msg.role === "system";
+                const bubbleClass = clsx(
+                  "rounded-2xl px-4 py-2.5 text-xs leading-relaxed whitespace-pre-wrap break-words [overflow-wrap:anywhere]",
+                  "[&_a]:underline [&_a]:underline-offset-2",
+                  isCreator
+                    ? "bg-emerald-600/80 text-white"
+                    : isManager
+                    ? "bg-slate-800/80 text-slate-100"
+                    : "bg-slate-900/70 text-slate-300"
+                );
+                return (
+                  <div
+                    key={msg.id}
+                    className={clsx(
+                      "flex w-full",
+                      isSystem ? "justify-center" : isCreator ? "justify-end" : "justify-start"
+                    )}
+                  >
                     <div
-                      key={msg.id}
                       className={clsx(
-                        "flex w-full",
-                        isSystem ? "justify-center" : isCreator ? "justify-end" : "justify-start"
+                        "flex flex-col gap-1",
+                        isSystem ? "items-center max-w-[85%]" : "w-full",
+                        isCreator ? "items-end" : "items-start"
                       )}
                     >
-                      <div
-                        className={clsx(
-                          "flex flex-col gap-1",
-                          isSystem ? "items-center max-w-[85%]" : "w-full",
-                          isCreator ? "items-end" : "items-start"
-                        )}
-                      >
-                        {!isSystem && (
-                          <span className="text-[10px] uppercase tracking-wide text-slate-500">
-                            {isCreator ? "Tú" : "Manager IA"}
-                          </span>
-                        )}
-                        {isSystem ? (
-                          <div className="rounded-full border border-slate-700 bg-slate-900/60 px-3 py-1 text-[10px] uppercase tracking-wide text-slate-400 text-center">
-                            {msg.text}
-                          </div>
-                        ) : (
-                          <div className={clsx(bubbleClass, "max-w-[75%]")}>{msg.text}</div>
-                        )}
-                        {isManager && (
-                          <button
-                            type="button"
-                            onClick={() => handleUseManagerReplyAsMainMessage(msg.text, msg.title ?? "Manager IA")}
-                            className={clsx("mt-1", inlineActionButtonClass)}
-                          >
-                            Usar en mensaje
-                          </button>
-                        )}
-                      </div>
+                      {!isSystem && (
+                        <span className="text-[10px] uppercase tracking-wide text-slate-500">
+                          {isCreator ? "Tú" : "Manager IA"}
+                        </span>
+                      )}
+                      {isSystem ? (
+                        <div className="rounded-full border border-slate-700 bg-slate-900/60 px-3 py-1 text-[10px] uppercase tracking-wide text-slate-400 text-center">
+                          {msg.text}
+                        </div>
+                      ) : (
+                        <div className={clsx(bubbleClass, "max-w-[75%]")}>{msg.text}</div>
+                      )}
+                      {isManager && (
+                        <button
+                          type="button"
+                          onClick={() => handleUseManagerReplyAsMainMessage(msg.text, msg.title ?? "Manager IA")}
+                          className={clsx("mt-1", inlineActionButtonClass)}
+                        >
+                          Usar en mensaje
+                        </button>
+                      )}
                     </div>
-                  );
-                })}
-              </div>
-              <div ref={managerChatEndRef} />
+                  </div>
+                );
+              })}
             </div>
+            <div ref={managerChatEndRef} />
           </div>
         </div>
-        <div className="shrink-0 border-t border-slate-800/70 bg-slate-950/80 px-4 py-3">
+        <div className="border-t border-slate-800/70 bg-slate-950/80 px-4 py-3">
           <label className="mb-2 flex items-center gap-2 text-[11px] text-slate-400">
             <input
               type="checkbox"
@@ -3612,16 +3648,11 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
     );
 
     const renderInternalChatContent = () => (
-      <div className="flex min-h-0 flex-1 flex-col">
+      <div className="space-y-3">
         <div className="px-4 pt-3 text-[11px] text-slate-400">
           Borradores tuyos. No se envía al fan.
         </div>
-        <div
-          ref={managerChatListRef}
-          onScroll={updateInternalChatScrollState}
-          onWheelCapture={handlePanelWheel}
-          className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto overscroll-contain px-4 py-3 pb-28"
-        >
+        <div className="px-4 pb-3 space-y-2">
           {isLoadingInternalMessages && (
             <div className="text-[11px] text-slate-500">Cargando mensajes internos...</div>
           )}
@@ -3704,8 +3735,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
                         "w-full rounded-2xl px-4 py-3 text-xs leading-relaxed",
                         isCreatorNote
                           ? "bg-amber-500/20 text-amber-50"
-                          : "bg-slate-800/80 text-slate-100"
-                        ,
+                          : "bg-slate-800/80 text-slate-100",
                         highlightDraftId === msg.id && "ring-2 ring-emerald-400/60 ring-offset-2 ring-offset-slate-900"
                       )}
                     >
@@ -3757,7 +3787,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
             </div>
           )}
         </div>
-        <div className="shrink-0 border-t border-slate-800/70 bg-slate-950/80 px-4 py-3">
+        <div className="border-t border-slate-800/70 bg-slate-950/80 px-4 py-3">
           <div className="text-[11px] font-semibold text-slate-400">Nuevo borrador</div>
           <div className="mt-2 flex items-end gap-2">
             <textarea
@@ -3820,10 +3850,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
       };
 
       return (
-        <div
-          onWheelCapture={handlePanelWheel}
-          className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-4 py-3 pb-28 space-y-4"
-        >
+        <div className="px-4 py-3 space-y-4">
           <div className="text-[11px] text-slate-400">
             Perfil del fan + seguimiento. Se usa como contexto del Manager IA.
           </div>
@@ -3985,14 +4012,26 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
       if (!tab) return null;
 
       if (tab === "manager") {
+        const managerBodyRef = internalPanelTab === "internal" ? managerChatListRef : managerPanelScrollRef;
+        const handleManagerBodyScroll =
+          internalPanelTab === "internal" ? updateInternalChatScrollState : updateManagerPanelScrollState;
+        const setManagerBodyRef = (node: HTMLDivElement | null) => {
+          overlayBodyRef.current = node;
+          managerBodyRef.current = node;
+        };
         return (
           <InlinePanelShell
             title="Panel interno"
             onClose={closeDockPanel}
             onBodyWheel={handlePanelWheel}
-            containerClassName={dockOverlayPanelClassName}
+            containerClassName={dockOverlaySheetClassName}
+            containerRef={dockOverlaySheetRef}
+            bodyScrollClassName={dockOverlayBodyScrollClassName}
+            bodyRef={setManagerBodyRef}
+            onBodyScroll={handleManagerBodyScroll}
             scrollable={false}
-            bodyClassName="px-0 py-0 min-h-0 flex-1 flex flex-col"
+            bodyClassName="px-0 py-0"
+            onBodyTouchMove={handlePanelTouchMove}
             stickyHeader
             headerSlot={(
               <div
@@ -4031,7 +4070,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
               </div>
             )}
           >
-            <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-hidden">
+            <div className="flex flex-col gap-3">
               {internalPanelTab === "manager" && renderInternalManagerContent()}
               {internalPanelTab === "internal" && renderInternalChatContent()}
               {internalPanelTab === "note" && renderInternalNoteContent()}
@@ -4056,9 +4095,12 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
           <InlinePanelShell
             title="Plantillas"
             onClose={closeDockPanel}
-            containerClassName={dockOverlayPanelClassName}
+            containerClassName={dockOverlaySheetClassName}
+            containerRef={dockOverlaySheetRef}
             bodyScrollClassName={dockOverlayBodyScrollClassName}
+            bodyRef={overlayBodyRef}
             onBodyWheel={handlePanelWheel}
+            onBodyTouchMove={handlePanelTouchMove}
             stickyHeader
           >
             <div className="space-y-3">
@@ -4312,20 +4354,15 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
         <InlinePanelContainer
           isOpen={isPanelOpen}
           panelId={panelId}
-          bottomOffset={isDockOverlay ? dockOverlayOffset : !isFanMode ? dockOffset : undefined}
+          bottomOffset={!isDockOverlay && !isFanMode ? dockOffset : undefined}
           isOverlay={isDockOverlay}
         >
           {isDockOverlay ? (
             <>
               <div
-                className="absolute inset-0 bg-slate-950/70 pointer-events-auto"
-                onPointerDown={(event) => {
-                  event.stopPropagation();
-                  if (event.target !== event.currentTarget) return;
-                  closeDockPanel();
-                }}
+                className="dockOverlayBackdrop bg-slate-950/70"
               />
-              <div className={dockOverlayFrameClassName}>{panelContent}</div>
+              <div className={dockOverlayPanelClassName}>{panelContent}</div>
             </>
           ) : (
             <div
@@ -4339,7 +4376,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
       ) : null;
 
     return {
-      chips: <ComposerChipsRow>{chips}</ComposerChipsRow>,
+      chips: <ComposerChipsRow ref={dockRef}>{chips}</ComposerChipsRow>,
       panel,
       isPanelOpen,
       isDockOverlay,
@@ -4571,6 +4608,27 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
     });
     return () => cancelAnimationFrame(frame);
   }, [managerPanelOpen, managerPanelTab, internalPanelTab, internalMessages.length, syncInternalChatScroll]);
+
+  useEffect(() => {
+    if (!managerPanelOpen) return;
+    managerPanelScrollTopRef.current = 0;
+    managerPanelStickToBottomRef.current = false;
+    managerPanelSkipAutoScrollRef.current = true;
+    internalChatScrollTopRef.current = 0;
+    internalChatStickToBottomRef.current = false;
+    internalChatForceScrollRef.current = false;
+    let frame = 0;
+    let frame2 = 0;
+    frame = requestAnimationFrame(() => {
+      frame2 = requestAnimationFrame(() => {
+        overlayBodyRef.current?.scrollTo({ top: 0, behavior: "auto" });
+      });
+    });
+    return () => {
+      cancelAnimationFrame(frame);
+      cancelAnimationFrame(frame2);
+    };
+  }, [managerPanelOpen, managerPanelTab, internalPanelTab, conversation.id]);
 
   useIsomorphicLayoutEffect(() => {
     autoGrowTextarea(managerChatInputRef.current, MAX_INTERNAL_COMPOSER_HEIGHT);
@@ -6869,7 +6927,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
         </header>
       )}
       <div className="flex flex-1 min-h-0 min-w-0">
-        <div className="relative flex flex-col flex-1 min-h-0 min-w-0 h-full">
+        <div ref={rightPaneRef} className="relative flex flex-col flex-1 min-h-0 min-w-0 h-full">
           <header ref={fanHeaderRef} className="sticky top-0 z-20 backdrop-blur">
             <div className="max-w-4xl mx-auto w-full bg-slate-950/70 border-b border-slate-800 px-4 py-3 md:px-6 md:py-4 flex flex-col gap-3">
           {/* Piso 1 */}
@@ -7366,7 +7424,6 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
             {messagesError && !isLoadingMessages && (
               <div className="text-center text-red-400 text-sm mt-2">{messagesError}</div>
             )}
-            {!composerDock?.isDockOverlay && composerDock?.panel}
             {inlineAction && (
               <div className="mt-3">
                 <div className="relative flex items-start gap-3 rounded-2xl border border-slate-800/60 bg-slate-950/70 px-4 py-3 text-xs text-slate-100 shadow-[0_8px_20px_rgba(0,0,0,0.25)] ring-1 ring-white/5 backdrop-blur">
@@ -7662,10 +7719,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
 
             </div>
           )}
-          <div
-            ref={composerDockRef}
-            className="sticky bottom-0 z-30 border-t border-slate-800/60 bg-gradient-to-b from-slate-950/90 via-slate-950/80 to-slate-950/70 backdrop-blur-xl"
-          >
+          <div className="sticky bottom-0 z-30 border-t border-slate-800/60 bg-gradient-to-b from-slate-950/90 via-slate-950/80 to-slate-950/70 backdrop-blur-xl">
             <div className="max-w-4xl mx-auto w-full px-4 sm:px-6 lg:px-8 py-2.5">
               {internalToast && <div className="mb-2 text-[11px] text-emerald-300">{internalToast}</div>}
               {composerDock?.chips}

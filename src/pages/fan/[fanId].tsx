@@ -11,7 +11,7 @@ import {
   getContentTypeLabel,
   getContentVisibilityLabel,
 } from "../../types/content";
-import { AccessSummary } from "../../lib/access";
+import { getAccessSummary, type AccessSummary } from "../../lib/access";
 import type { IncludedContent } from "../../lib/fanContent";
 import { useIsomorphicLayoutEffect } from "../../hooks/useIsomorphicLayoutEffect";
 import { getFanDisplayName } from "../../utils/fanDisplayName";
