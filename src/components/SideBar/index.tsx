@@ -15,6 +15,7 @@ import { ConversationContext, QueueFilter } from "../../context/ConversationCont
 import { EXTRAS_UPDATED_EVENT } from "../../constants/events";
 import { HIGH_PRIORITY_LIMIT } from "../../config/customers";
 import { normalizePreferredLanguage } from "../../lib/language";
+import { useLocalExtrasSummary } from "../../lib/localExtras";
 
 class SideBarBoundary extends Component<{ children: React.ReactNode }, { hasError: boolean }> {
   constructor(props: { children: React.ReactNode }) {
@@ -966,6 +967,7 @@ function SideBarInner() {
     () => (Array.isArray(filteredConversationsList) ? (filteredConversationsList as FanData[]) : []),
     [filteredConversationsList]
   );
+  const localExtrasSummary = useLocalExtrasSummary();
   const attendedTodayCount = fans.filter((fan) => {
     if (!fan.lastCreatorMessageAt) return false;
     const d = new Date(fan.lastCreatorMessageAt);
@@ -977,8 +979,26 @@ function SideBarInner() {
       d.getDate() === now.getDate()
     );
   }).length;
-  const extrasTodayCount = Number.isFinite(extrasSummary?.today?.count) ? (extrasSummary?.today?.count as number) : 0;
-  const extrasTodayAmount = Number.isFinite(extrasSummary?.today?.amount) ? (extrasSummary?.today?.amount as number) : 0;
+  const extrasTodayBaseCount = Number.isFinite(extrasSummary?.today?.count)
+    ? (extrasSummary?.today?.count as number)
+    : 0;
+  const extrasTodayBaseAmount = Number.isFinite(extrasSummary?.today?.amount)
+    ? (extrasSummary?.today?.amount as number)
+    : 0;
+  const extrasLast7BaseCount = Number.isFinite(extrasSummary?.last7Days?.count)
+    ? (extrasSummary?.last7Days?.count as number)
+    : 0;
+  const extrasLast7BaseAmount = Number.isFinite(extrasSummary?.last7Days?.amount)
+    ? (extrasSummary?.last7Days?.amount as number)
+    : 0;
+  const tipsToday = localExtrasSummary.tips.today;
+  const tipsLast7 = localExtrasSummary.tips.last7Days;
+  const giftedTodayCount = localExtrasSummary.gifts.today.count;
+  const giftedLast7Count = localExtrasSummary.gifts.last7Days.count;
+  const extrasTodayCount = extrasTodayBaseCount + tipsToday.count;
+  const extrasTodayAmount = extrasTodayBaseAmount + tipsToday.amount;
+  const extrasLast7Count = extrasLast7BaseCount + tipsLast7.count;
+  const extrasLast7Amount = extrasLast7BaseAmount + tipsLast7.amount;
   const legendRef = useRef<HTMLDivElement | null>(null);
   const priorityQueue = useMemo(
     () => getPriorityQueue(fans as FanData[]),
@@ -1375,9 +1395,12 @@ function SideBarInner() {
                 </div>
                 <div className="flex flex-col rounded-xl bg-slate-950/70 px-3 py-3 shadow-sm">
                   <span className="text-[12px] text-slate-400">Extras vendidos hoy</span>
-                  <span className={clsx("mt-1 text-lg font-semibold leading-tight", extrasTodayCount > 0 ? "text-emerald-300" : "text-slate-300")}>
+                  <div className={clsx("mt-1 text-lg font-semibold leading-tight", extrasTodayCount > 0 ? "text-emerald-300" : "text-slate-300")}>
                     {extrasTodayCount} venta{extrasTodayCount === 1 ? "" : "s"} · {formatCurrency(extrasTodayAmount)}
-                  </span>
+                  </div>
+                  {giftedTodayCount > 0 && (
+                    <span className="mt-1 text-[10px] text-slate-500">Regalos: {giftedTodayCount}</span>
+                  )}
                 </div>
               </div>
             </div>
@@ -1385,16 +1408,22 @@ function SideBarInner() {
               <div className="mb-2 rounded-xl border border-slate-700 bg-slate-900/80 px-3 py-3 text-[12px] text-slate-300">
                 <div className="flex justify-between">
                   <span>Extras hoy</span>
-                  <span className={clsx("font-semibold text-2xl leading-tight", extrasSummary.today.count > 0 ? "text-emerald-300" : "text-slate-300")}>
-                    {extrasSummary.today.count} venta{extrasSummary.today.count === 1 ? "" : "s"} · {formatCurrency(extrasSummary.today.amount)}
+                  <span className={clsx("font-semibold text-2xl leading-tight", extrasTodayCount > 0 ? "text-emerald-300" : "text-slate-300")}>
+                    {extrasTodayCount} venta{extrasTodayCount === 1 ? "" : "s"} · {formatCurrency(extrasTodayAmount)}
                   </span>
                 </div>
+                {giftedTodayCount > 0 && (
+                  <div className="mt-1 text-[10px] text-slate-500">Regalos hoy: {giftedTodayCount}</div>
+                )}
                 <div className="mt-2 flex justify-between text-slate-400">
                   <span>Últimos 7 días</span>
-                  <span className={clsx("font-semibold text-lg", extrasSummary.last7Days.count > 0 ? "text-emerald-200" : "text-slate-300")}>
-                    {extrasSummary.last7Days.count} venta{extrasSummary.last7Days.count === 1 ? "" : "s"} · {formatCurrency(extrasSummary.last7Days.amount)}
+                  <span className={clsx("font-semibold text-lg", extrasLast7Count > 0 ? "text-emerald-200" : "text-slate-300")}>
+                    {extrasLast7Count} venta{extrasLast7Count === 1 ? "" : "s"} · {formatCurrency(extrasLast7Amount)}
                   </span>
                 </div>
+                {giftedLast7Count > 0 && (
+                  <div className="mt-1 text-[10px] text-slate-500">Regalos 7d: {giftedLast7Count}</div>
+                )}
               </div>
             )}
           </>

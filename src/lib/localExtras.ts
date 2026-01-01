@@ -13,12 +13,37 @@ export type ExtraEvent = {
   createdAt: string;
 };
 
+export type ExtrasWindowSummary = {
+  count: number;
+  amount: number;
+};
+
+export type LocalExtrasSummary = {
+  tips: {
+    today: ExtrasWindowSummary;
+    last7Days: ExtrasWindowSummary;
+    last30Days: ExtrasWindowSummary;
+  };
+  gifts: {
+    today: ExtrasWindowSummary;
+    last7Days: ExtrasWindowSummary;
+    last30Days: ExtrasWindowSummary;
+  };
+};
+
 export const EMPTY_EXTRAS_RAW = "[]";
 const EMPTY_EXTRAS: ExtraEvent[] = Object.freeze([]);
+const EMPTY_WINDOW: ExtrasWindowSummary = Object.freeze({ count: 0, amount: 0 });
+const EMPTY_LOCAL_SUMMARY: LocalExtrasSummary = Object.freeze({
+  tips: { today: EMPTY_WINDOW, last7Days: EMPTY_WINDOW, last30Days: EMPTY_WINDOW },
+  gifts: { today: EMPTY_WINDOW, last7Days: EMPTY_WINDOW, last30Days: EMPTY_WINDOW },
+});
 
 const extrasCacheRaw = new Map<string, string>();
 const extrasCacheParsed = new Map<string, ExtraEvent[]>();
 let extrasChannel: BroadcastChannel | null = null;
+let extrasSummaryVersion = 0;
+let extrasSummaryCache: { version: number; summary: LocalExtrasSummary } | null = null;
 
 export function buildExtrasStorageKey(fanId: string): string {
   return `${EXTRAS_STORAGE_PREFIX}${fanId}`;
@@ -33,6 +58,25 @@ function getExtrasChannel(): BroadcastChannel | null {
     extrasChannel = null;
   }
   return extrasChannel;
+}
+
+function buildWindowSummary(): ExtrasWindowSummary {
+  return { count: 0, amount: 0 };
+}
+
+function buildLocalExtrasSummary(): LocalExtrasSummary {
+  return {
+    tips: {
+      today: buildWindowSummary(),
+      last7Days: buildWindowSummary(),
+      last30Days: buildWindowSummary(),
+    },
+    gifts: {
+      today: buildWindowSummary(),
+      last7Days: buildWindowSummary(),
+      last30Days: buildWindowSummary(),
+    },
+  };
 }
 
 function normalizeExtraEvent(entry: unknown): ExtraEvent | null {
@@ -165,5 +209,95 @@ export function useLocalExtras(fanId: string): string {
     (callback) => (fanId ? subscribeToExtras(storageKey, fanId, callback) : () => {}),
     () => (fanId ? readExtrasRawByKey(storageKey) : EMPTY_EXTRAS_RAW),
     () => EMPTY_EXTRAS_RAW
+  );
+}
+
+function subscribeToAllExtras(callback: () => void) {
+  if (typeof window === "undefined") return () => {};
+  const notify = () => {
+    extrasSummaryVersion += 1;
+    callback();
+  };
+  const handleCustom = (event: Event) => {
+    const detail = (event as CustomEvent)?.detail as { storageKey?: string } | undefined;
+    if (detail?.storageKey && !detail.storageKey.startsWith(EXTRAS_STORAGE_PREFIX)) return;
+    notify();
+  };
+  const handleStorage = (event: StorageEvent) => {
+    if (event.key && !event.key.startsWith(EXTRAS_STORAGE_PREFIX)) return;
+    notify();
+  };
+  const handleBroadcast = (event: MessageEvent) => {
+    const data = event.data as { type?: string } | null;
+    if (!data || data.type !== "extras") return;
+    notify();
+  };
+
+  window.addEventListener(EXTRAS_EVENT, handleCustom as EventListener);
+  window.addEventListener("storage", handleStorage);
+  const channel = getExtrasChannel();
+  channel?.addEventListener("message", handleBroadcast as EventListener);
+
+  return () => {
+    window.removeEventListener(EXTRAS_EVENT, handleCustom as EventListener);
+    window.removeEventListener("storage", handleStorage);
+    channel?.removeEventListener("message", handleBroadcast as EventListener);
+  };
+}
+
+export function summarizeLocalExtras(now = new Date()): LocalExtrasSummary {
+  if (typeof window === "undefined") return EMPTY_LOCAL_SUMMARY;
+  const summary = buildLocalExtrasSummary();
+  const startOfToday = new Date(now);
+  startOfToday.setHours(0, 0, 0, 0);
+  const start7 = new Date(startOfToday);
+  start7.setDate(start7.getDate() - 7);
+  const start30 = new Date(startOfToday);
+  start30.setDate(start30.getDate() - 30);
+
+  try {
+    for (let i = 0; i < window.localStorage.length; i += 1) {
+      const key = window.localStorage.key(i);
+      if (!key || !key.startsWith(EXTRAS_STORAGE_PREFIX)) continue;
+      const raw = window.localStorage.getItem(key) ?? EMPTY_EXTRAS_RAW;
+      const events = parseExtrasRaw(raw);
+      for (const event of events) {
+        if (!Number.isFinite(event.amount) || event.amount < 0) continue;
+        const createdAt = new Date(event.createdAt);
+        if (Number.isNaN(createdAt.getTime())) continue;
+        const bucket = event.kind === "TIP" ? summary.tips : summary.gifts;
+        if (createdAt >= startOfToday) {
+          bucket.today.count += 1;
+          bucket.today.amount += event.amount;
+        }
+        if (createdAt >= start7) {
+          bucket.last7Days.count += 1;
+          bucket.last7Days.amount += event.amount;
+        }
+        if (createdAt >= start30) {
+          bucket.last30Days.count += 1;
+          bucket.last30Days.amount += event.amount;
+        }
+      }
+    }
+  } catch (_err) {
+    return summary;
+  }
+
+  return summary;
+}
+
+export function useLocalExtrasSummary(): LocalExtrasSummary {
+  return useSyncExternalStore(
+    subscribeToAllExtras,
+    () => {
+      if (extrasSummaryCache && extrasSummaryCache.version === extrasSummaryVersion) {
+        return extrasSummaryCache.summary;
+      }
+      const summary = summarizeLocalExtras();
+      extrasSummaryCache = { version: extrasSummaryVersion, summary };
+      return summary;
+    },
+    () => EMPTY_LOCAL_SUMMARY
   );
 }

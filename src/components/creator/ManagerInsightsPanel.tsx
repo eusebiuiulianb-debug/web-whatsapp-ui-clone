@@ -125,12 +125,21 @@ export function ManagerInsightsPanel({ open, onClose, summary, priorityItems, pr
   const metrics = useMemo(() => {
     const safeRevenue30 = Number.isFinite(summary?.kpis?.last30?.revenue) ? summary?.kpis?.last30?.revenue ?? 0 : 0;
     const safeRevenue7 = Number.isFinite(summary?.kpis?.last7?.revenue) ? summary?.kpis?.last7?.revenue ?? 0 : 0;
-    const safeExtras30 = Number.isFinite(summary?.kpis?.last30?.extras) ? summary?.kpis?.last30?.extras ?? 0 : 0;
-    const safeExtras7 = Number.isFinite(summary?.kpis?.last7?.extras) ? summary?.kpis?.last7?.extras ?? 0 : 0;
+    const extrasRevenue30 =
+      (summary?.kpis?.extras?.last30?.revenue ?? 0) + (summary?.kpis?.tips?.last30?.revenue ?? 0);
+    const extrasRevenue7 =
+      (summary?.kpis?.extras?.last7?.revenue ?? 0) + (summary?.kpis?.tips?.last7?.revenue ?? 0);
+    const extrasCount30 =
+      (summary?.kpis?.extras?.last30?.count ?? summary?.kpis?.last30?.extras ?? 0) +
+      (summary?.kpis?.tips?.last30?.count ?? 0);
+    const extrasCount7 =
+      (summary?.kpis?.extras?.last7?.count ?? summary?.kpis?.last7?.extras ?? 0) +
+      (summary?.kpis?.tips?.last7?.count ?? 0);
+    const giftsCount30 = summary?.kpis?.gifts?.last30?.count ?? 0;
     const safeRisk = Number.isFinite(summary?.revenueAtRisk7d) ? summary?.revenueAtRisk7d ?? 0 : 0;
-    return { safeRevenue30, safeRevenue7, safeExtras30, safeExtras7, safeRisk };
+    return { safeRevenue30, safeRevenue7, extrasRevenue30, extrasRevenue7, extrasCount30, extrasCount7, giftsCount30, safeRisk };
   }, [summary]);
-  const hasExtras = metrics.safeExtras30 > 0;
+  const hasExtras = metrics.extrasCount30 > 0;
 
   useEffect(() => {
     if (!open) return;
@@ -263,8 +272,14 @@ export function ManagerInsightsPanel({ open, onClose, summary, priorityItems, pr
           <div className="grid grid-cols-2 gap-3">
             <InsightCard title="Ingresos 30d" value={formatCurrency(metrics.safeRevenue30)} helper="Ventas totales" />
             <InsightCard title="Ingresos 7d" value={formatCurrency(metrics.safeRevenue7)} helper="Última semana" />
-            <InsightCard title="Extras 30d" value={metrics.safeExtras30} helper="Ventas extras" />
-            <InsightCard title="Extras 7d" value={metrics.safeExtras7} helper="Ventas extras" />
+            <InsightCard
+              title="Extras 30d"
+              value={formatCurrency(metrics.extrasRevenue30)}
+              helper={
+                metrics.giftsCount30 > 0 ? `Ventas + propinas · ${metrics.giftsCount30} regalos` : "Ventas + propinas"
+              }
+            />
+            <InsightCard title="Extras 7d" value={formatCurrency(metrics.extrasRevenue7)} helper="Ventas + propinas" />
             <InsightCard title="Ingresos en riesgo" value={formatCurrency(metrics.safeRisk)} helper="Caducan en 7d" tone="warning" />
             {summary?.packs?.monthly?.renewalsIn7Days !== undefined && (
               <InsightCard title="Renovaciones 7d" value={summary.packs.monthly.renewalsIn7Days} helper="Suscripciones que renuevan" />
@@ -290,7 +305,7 @@ export function ManagerInsightsPanel({ open, onClose, summary, priorityItems, pr
           <div className="grid grid-cols-2 gap-3">
             <InsightCard title="Packs activos" value={3} helper="Bienvenida · Mensual · Especial" />
             <InsightCard title="Segmentos" value={safeCount(summary?.segments?.vip) + safeCount(summary?.segments?.habitual) + safeCount(summary?.segments?.newFans)} helper="VIP · Habitual · Nuevos" />
-            <InsightCard title="Extras activos" value={metrics.safeExtras30} helper="Ventas extras 30d" />
+            <InsightCard title="Extras activos" value={metrics.extrasCount30} helper="Ventas extras 30d" />
             <InsightCard title="Huecos" value="2" helper="Upsell VIP · Reactivar riesgo" tone="muted" />
           </div>
           {!hasExtras && (

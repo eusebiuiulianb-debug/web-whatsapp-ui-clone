@@ -2,6 +2,7 @@ import type { PrismaClient } from "@prisma/client";
 import prisma from "./prisma.server";
 import { PACKS } from "../config/packs";
 import { buildManagerQueueForCreator, type Segment } from "../server/manager/managerService";
+import { getCreatorRevenueSummary } from "./analytics/revenue";
 
 export type PriorityItemKind = "INVITE_PENDING" | "EXPIRING_ACCESS" | "NO_ACCESS_BUT_MESSAGE" | "AT_RISK";
 
@@ -30,6 +31,21 @@ export type CreatorManagerSummary = {
   kpis: {
     last7: { revenue: number; extras: number; newFans: number };
     last30: { revenue: number; extras: number; newFans: number };
+    extras: {
+      today: { count: number; revenue: number };
+      last7: { count: number; revenue: number };
+      last30: { count: number; revenue: number };
+    };
+    tips: {
+      today: { count: number; revenue: number };
+      last7: { count: number; revenue: number };
+      last30: { count: number; revenue: number };
+    };
+    gifts: {
+      today: { count: number };
+      last7: { count: number };
+      last30: { count: number };
+    };
   };
   packs: {
     welcome: { activeFans: number; revenue30: number };
@@ -162,6 +178,7 @@ function comparePriorityItems(a: PriorityItem, b: PriorityItem): number {
 export async function getCreatorManagerSummary(creatorId: string, deps: ManagerDeps = {}): Promise<CreatorManagerSummary> {
   const client = deps.prismaClient ?? prisma;
   const now = new Date();
+  const startToday = startOfToday();
   const start7 = daysAgo(7);
   const start30 = daysAgo(30);
   const expiryWindowEnd = daysFromNow(RENEWAL_WINDOW_DAYS);
@@ -176,64 +193,78 @@ export async function getCreatorManagerSummary(creatorId: string, deps: ManagerD
     }
   };
 
-  const [extrasLast7, extrasLast30, grantsLast7, grantsLast30, activeGrants, monthlyExpiringSoon, monthlyExpired30, fans] =
-    await Promise.all([
-      client.extraPurchase.aggregate({
-        where: { fan: { creatorId }, createdAt: { gte: start7 } },
-        _count: { _all: true },
-        _sum: { amount: true },
-      }),
-      client.extraPurchase.aggregate({
-        where: { fan: { creatorId }, createdAt: { gte: start30 } },
-        _count: { _all: true },
-        _sum: { amount: true },
-      }),
-      client.accessGrant.findMany({
-        where: { fan: { creatorId }, createdAt: { gte: start7 } },
-        select: { fanId: true, type: true },
-      }),
-      client.accessGrant.findMany({
-        where: { fan: { creatorId }, createdAt: { gte: start30 } },
-        select: { fanId: true, type: true },
-      }),
-      client.accessGrant.findMany({
-        where: { fan: { creatorId }, expiresAt: { gt: now } },
-        select: { fanId: true, type: true, expiresAt: true },
-      }),
-      client.accessGrant.findMany({
-        where: { fan: { creatorId }, type: "monthly", expiresAt: { gt: now, lte: expiryWindowEnd } },
-        select: { fanId: true, type: true, expiresAt: true },
-      }),
-      client.accessGrant.findMany({
-        where: { fan: { creatorId }, type: "monthly", expiresAt: { lte: now, gte: start30 } },
-        select: { fanId: true, type: true, expiresAt: true },
-      }),
-      client.fan.findMany({
-        where: { creatorId },
-        select: {
-          id: true,
-          name: true,
-          displayName: true,
-          inviteToken: true,
-          inviteUsedAt: true,
-          isNew: true,
-          accessGrants: { select: { type: true, createdAt: true, expiresAt: true } },
-          extraPurchases: { select: { amount: true, createdAt: true } },
-          messages: { where: { from: "fan" }, select: { id: true }, take: 1 },
-        },
-      }),
-    ]);
+  const [
+    revenueToday,
+    revenueLast7,
+    revenueLast30,
+    activeGrants,
+    monthlyExpiringSoon,
+    monthlyExpired30,
+    fans,
+  ] = await Promise.all([
+    getCreatorRevenueSummary({ creatorId, from: startToday, to: now, prismaClient: client }),
+    getCreatorRevenueSummary({ creatorId, from: start7, to: now, prismaClient: client }),
+    getCreatorRevenueSummary({ creatorId, from: start30, to: now, prismaClient: client }),
+    client.accessGrant.findMany({
+      where: { fan: { creatorId }, expiresAt: { gt: now } },
+      select: { fanId: true, type: true, expiresAt: true },
+    }),
+    client.accessGrant.findMany({
+      where: { fan: { creatorId }, type: "monthly", expiresAt: { gt: now, lte: expiryWindowEnd } },
+      select: { fanId: true, type: true, expiresAt: true },
+    }),
+    client.accessGrant.findMany({
+      where: { fan: { creatorId }, type: "monthly", expiresAt: { lte: now, gte: start30 } },
+      select: { fanId: true, type: true, expiresAt: true },
+    }),
+    client.fan.findMany({
+      where: { creatorId },
+      select: {
+        id: true,
+        name: true,
+        displayName: true,
+        inviteToken: true,
+        inviteUsedAt: true,
+        isNew: true,
+        accessGrants: { select: { type: true, createdAt: true, expiresAt: true } },
+        extraPurchases: { select: { amount: true, createdAt: true } },
+        messages: { where: { from: "fan" }, select: { id: true }, take: 1 },
+      },
+    }),
+  ]);
+
+  const extrasTodayCount = revenueToday.extras.count;
+  const extrasTodayRevenue = revenueToday.extras.amount;
+  const extrasLast7Count = revenueLast7.extras.count;
+  const extrasLast7Revenue = revenueLast7.extras.amount;
+  const extrasLast30Count = revenueLast30.extras.count;
+  const extrasLast30Revenue = revenueLast30.extras.amount;
 
   const kpis = {
     last7: {
-      revenue: (extrasLast7._sum?.amount ?? 0) + sumGrantRevenue(grantsLast7),
-      extras: extrasLast7._count?._all ?? 0,
+      revenue: revenueLast7.totals.amount,
+      extras: extrasLast7Count,
       newFans: 0, // se calcula más abajo
     },
     last30: {
-      revenue: (extrasLast30._sum?.amount ?? 0) + sumGrantRevenue(grantsLast30),
-      extras: extrasLast30._count?._all ?? 0,
+      revenue: revenueLast30.totals.amount,
+      extras: extrasLast30Count,
       newFans: 0, // se calcula más abajo
+    },
+    extras: {
+      today: { count: extrasTodayCount, revenue: extrasTodayRevenue },
+      last7: { count: extrasLast7Count, revenue: extrasLast7Revenue },
+      last30: { count: extrasLast30Count, revenue: extrasLast30Revenue },
+    },
+    tips: {
+      today: { count: revenueToday.tips.count, revenue: revenueToday.tips.amount },
+      last7: { count: revenueLast7.tips.count, revenue: revenueLast7.tips.amount },
+      last30: { count: revenueLast30.tips.count, revenue: revenueLast30.tips.amount },
+    },
+    gifts: {
+      today: { count: 0 },
+      last7: { count: 0 },
+      last30: { count: 0 },
     },
   };
 
@@ -368,20 +399,25 @@ export async function getCreatorManagerSummary(creatorId: string, deps: ManagerD
     // VIP fans ya se contaron en vip; no los restamos de atRisk para mantener una métrica conservadora.
   }
 
+  const subsByType30 = revenueLast30.subs.byType ?? {};
+  const welcomeRevenue30 = (subsByType30.trial?.amount ?? 0) + (subsByType30.welcome?.amount ?? 0);
+  const monthlyRevenue30 = subsByType30.monthly?.amount ?? 0;
+  const specialRevenue30 = subsByType30.special?.amount ?? 0;
+
   const packs = {
     welcome: {
       activeFans: getUniqueFanCount(welcomeActiveGrants),
-      revenue30: sumGrantRevenue(grantsLast30.filter((g) => g.type === "trial" || g.type === "welcome")),
+      revenue30: welcomeRevenue30,
     },
     monthly: {
       activeFans: getUniqueFanCount(monthlyActiveGrants),
       renewalsIn7Days: getUniqueFanCount(monthlyExpiringSoon),
       churn30: getUniqueFanCount(monthlyExpired30),
-      revenue30: sumGrantRevenue(grantsLast30.filter((g) => g.type === "monthly")),
+      revenue30: monthlyRevenue30,
     },
     special: {
       activeFans: getUniqueFanCount(specialActiveGrants),
-      revenue30: sumGrantRevenue(grantsLast30.filter((g) => g.type === "special")),
+      revenue30: specialRevenue30,
     },
   };
 

@@ -810,11 +810,13 @@ function PulsePanel({
   summary: CreatorManagerSummary | null;
   preview?: CreatorAiAdvisorInput["preview"];
 }) {
+  const extrasRevenue30 =
+    (summary?.kpis?.extras?.last30?.revenue ?? 0) + (summary?.kpis?.tips?.last30?.revenue ?? 0);
   const metrics = summary
     ? [
         { label: "Ingresos 7d", value: formatCurrency(summary.kpis.last7.revenue) },
         { label: "Ingresos 30d", value: formatCurrency(summary.kpis.last30.revenue) },
-        { label: "Extras 30d", value: summary.kpis.last30.extras },
+        { label: "Extras 30d", value: formatCurrency(extrasRevenue30) },
         { label: "Fans nuevos 30d", value: summary.kpis.last30.newFans },
         {
           label: "Riesgo 7d",

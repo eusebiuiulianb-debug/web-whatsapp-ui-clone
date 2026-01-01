@@ -139,7 +139,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         (summary.packs?.welcome?.activeFans ?? 0) +
         (summary.packs?.monthly?.activeFans ?? 0) +
         (summary.packs?.special?.activeFans ?? 0),
-      activeExtrasCount: summary.kpis?.last30?.extras ?? 0,
+      activeExtrasCount: summary.kpis?.extras?.last30?.count ?? summary.kpis?.last30?.extras ?? 0,
       revenue7d: summary.kpis?.last7?.revenue ?? 0,
       revenue30d: summary.kpis?.last30?.revenue ?? 0,
       newFans30d,

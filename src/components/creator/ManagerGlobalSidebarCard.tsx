@@ -24,6 +24,8 @@ export function ManagerGlobalSidebarCard({
 }: Props) {
   const preview = advisorInput?.preview;
   const planSteps = buildDailyPlan({ summary, queue });
+  const extrasRevenue30 =
+    (summary?.kpis?.extras?.last30?.revenue ?? 0) + (summary?.kpis?.tips?.last30?.revenue ?? 0);
 
   return (
     <div className="rounded-2xl border border-slate-800 bg-slate-900/80 p-4 lg:p-5 space-y-5 h-full shadow-inner">
@@ -91,7 +93,7 @@ export function ManagerGlobalSidebarCard({
             <div className="text-base leading-relaxed text-slate-100">{preview.headline}</div>
             <div className="grid grid-cols-3 gap-2">
               <MetricPill label="Ingresos 30d" value={`${Math.round(summary?.kpis.last30.revenue ?? 0)} €`} />
-              <MetricPill label="Extras 30d" value={`${summary?.kpis.last30.extras ?? 0}`} />
+              <MetricPill label="Extras 30d" value={`${Math.round(extrasRevenue30)} €`} />
               <MetricPill label="Nuevos 30d" value={`${summary?.kpis.last30.newFans ?? 0}`} />
             </div>
             <ul className="list-disc list-inside space-y-1 text-slate-300 text-[13px]">

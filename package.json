@@ -3,7 +3,8 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "predev": "node scripts/guard-next.js",
+    "postinstall": "prisma generate",
+    "predev": "node scripts/guard-prisma.js && node scripts/guard-next.js",
     "dev": "next dev -p 3005",
     "dev:reset": "node scripts/dev-reset.mjs",
     "lint": "next lint",

@@ -1,6 +1,6 @@
 import type { NextApiRequest, NextApiResponse } from "next";
-import prisma from "../../../lib/prisma.server";
 import { sendServerError } from "../../../lib/apiError";
+import { getCreatorRevenueSummary } from "../../../lib/analytics/revenue";
 import type { ExtrasSummary } from "../../../types/extras";
 
 function startOfToday(): Date {
@@ -23,29 +23,23 @@ export default async function handler(_req: NextApiRequest, res: NextApiResponse
 
   const todayStart = startOfToday();
   const weekStart = daysAgo(7);
+  const creatorId = process.env.CREATOR_ID ?? "creator-1";
+  const now = new Date();
 
   try {
-    const [todayAgg, last7Agg] = await Promise.all([
-      prisma.extraPurchase.aggregate({
-        where: { createdAt: { gte: todayStart } },
-        _count: { _all: true },
-        _sum: { amount: true },
-      }),
-      prisma.extraPurchase.aggregate({
-        where: { createdAt: { gte: weekStart } },
-        _count: { _all: true },
-        _sum: { amount: true },
-      }),
+    const [todaySummary, last7Summary] = await Promise.all([
+      getCreatorRevenueSummary({ creatorId, from: todayStart, to: now }),
+      getCreatorRevenueSummary({ creatorId, from: weekStart, to: now }),
     ]);
 
     const summary: ExtrasSummary = {
       today: {
-        count: todayAgg._count?._all ?? 0,
-        amount: todayAgg._sum?.amount ?? 0,
+        count: todaySummary.extras.count,
+        amount: todaySummary.extras.amount,
       },
       last7Days: {
-        count: last7Agg._count?._all ?? 0,
-        amount: last7Agg._sum?.amount ?? 0,
+        count: last7Summary.extras.count,
+        amount: last7Summary.extras.amount,
       },
     };
 

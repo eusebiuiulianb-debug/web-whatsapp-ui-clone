@@ -83,6 +83,20 @@ export type CortexOverviewMetrics = {
   revenue7d?: number;
   revenue30d?: number;
   extras30d?: number;
+  extrasRevenueToday?: number;
+  extrasCountToday?: number;
+  extrasRevenue7d?: number;
+  extrasCount7d?: number;
+  extrasRevenue30d?: number;
+  extrasCount30d?: number;
+  tipsRevenueToday?: number;
+  tipsCountToday?: number;
+  tipsRevenue7d?: number;
+  tipsCount7d?: number;
+  tipsRevenue30d?: number;
+  tipsCount30d?: number;
+  giftedCountToday?: number;
+  giftedCount30d?: number;
   newFans30d?: number;
 };
 

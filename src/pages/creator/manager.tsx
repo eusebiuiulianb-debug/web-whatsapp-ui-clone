@@ -23,6 +23,7 @@ import {
 import { useCreatorConfig } from "../../context/CreatorConfigContext";
 import { ManagerInsightsPanel } from "../../components/creator/ManagerInsightsPanel";
 import type { CatalogItem } from "../../lib/catalog";
+import { useLocalExtrasSummary } from "../../lib/localExtras";
 
 type Props = {
   initialSnapshot: CreatorBusinessSnapshot | null;
@@ -327,6 +328,7 @@ function ManagerChatLayout({
   onRefreshCatalog,
 }: ManagerChatLayoutProps) {
   const router = useRouter();
+  const localExtrasSummary = useLocalExtrasSummary();
   const summaryRef = useRef<HTMLDivElement | null>(null);
   const headerMenuRef = useRef<HTMLDivElement | null>(null);
   const [activeTab, setActiveTab] = useState<"strategy" | "content">("strategy");
@@ -448,23 +450,78 @@ function ManagerChatLayout({
       ? ["¿A qué fans priorizo hoy?", "Resúmeme mis números de esta semana", "Dame 1 acción para subir ingresos hoy"]
       : ["Idea de extra para VIP", "CTA a mensual desde contenido", "Plantilla breve para fans en riesgo"];
 
+  const summaryWithLocal = useMemo(() => {
+    if (!summary) return null;
+    const tips = localExtrasSummary.tips;
+    const gifts = localExtrasSummary.gifts;
+    return {
+      ...summary,
+      kpis: {
+        ...summary.kpis,
+        tips: {
+          today: { count: tips.today.count, revenue: tips.today.amount },
+          last7: { count: tips.last7Days.count, revenue: tips.last7Days.amount },
+          last30: { count: tips.last30Days.count, revenue: tips.last30Days.amount },
+        },
+        gifts: {
+          today: { count: gifts.today.count },
+          last7: { count: gifts.last7Days.count },
+          last30: { count: gifts.last30Days.count },
+        },
+        last7: {
+          ...summary.kpis.last7,
+          revenue: summary.kpis.last7.revenue + tips.last7Days.amount,
+        },
+        last30: {
+          ...summary.kpis.last30,
+          revenue: summary.kpis.last30.revenue + tips.last30Days.amount,
+        },
+      },
+    };
+  }, [summary, localExtrasSummary]);
+
   const queueStats = queueData?.stats;
   const formatNumber = (value: number) => new Intl.NumberFormat("es-ES").format(value);
-  const safeRevenue7 = Number.isFinite(summary?.kpis?.last7?.revenue) ? summary?.kpis?.last7?.revenue ?? 0 : 0;
-  const safeRevenue30 = Number.isFinite(summary?.kpis?.last30?.revenue) ? summary?.kpis?.last30?.revenue ?? 0 : 0;
-  const safeExtras30 = Number.isFinite(summary?.kpis?.last30?.extras) ? summary?.kpis?.last30?.extras ?? 0 : 0;
+  const safeRevenue7 = Number.isFinite(summaryWithLocal?.kpis?.last7?.revenue)
+    ? summaryWithLocal?.kpis?.last7?.revenue ?? 0
+    : 0;
+  const safeRevenue30 = Number.isFinite(summaryWithLocal?.kpis?.last30?.revenue)
+    ? summaryWithLocal?.kpis?.last30?.revenue ?? 0
+    : 0;
+  const safeExtras30Count = Number.isFinite(summaryWithLocal?.kpis?.last30?.extras)
+    ? summaryWithLocal?.kpis?.last30?.extras ?? 0
+    : 0;
+  const extrasBase = summaryWithLocal?.kpis?.extras;
+  const tipsBase = summaryWithLocal?.kpis?.tips;
+  const giftsBase = summaryWithLocal?.kpis?.gifts;
+  const extrasRevenueToday = (extrasBase?.today?.revenue ?? 0) + (tipsBase?.today?.revenue ?? 0);
+  const extrasCountToday = (extrasBase?.today?.count ?? 0) + (tipsBase?.today?.count ?? 0);
+  const extrasRevenue7 = (extrasBase?.last7?.revenue ?? 0) + (tipsBase?.last7?.revenue ?? 0);
+  const extrasCount7 = (extrasBase?.last7?.count ?? 0) + (tipsBase?.last7?.count ?? 0);
+  const extrasRevenue30 = (extrasBase?.last30?.revenue ?? 0) + (tipsBase?.last30?.revenue ?? 0);
+  const extrasCount30 = (extrasBase?.last30?.count ?? safeExtras30Count) + (tipsBase?.last30?.count ?? 0);
+  const tipsRevenueToday = tipsBase?.today?.revenue ?? 0;
+  const tipsCountToday = tipsBase?.today?.count ?? 0;
+  const tipsCount7 = tipsBase?.last7?.count ?? 0;
+  const tipsRevenue7 = tipsBase?.last7?.revenue ?? 0;
+  const tipsRevenue30 = tipsBase?.last30?.revenue ?? 0;
+  const tipsCount30 = tipsBase?.last30?.count ?? 0;
+  const giftedTodayCount = giftsBase?.today?.count ?? 0;
+  const gifted30Count = giftsBase?.last30?.count ?? 0;
   const safeNewFans30 = Number.isFinite(queueStats?.newFans30d)
     ? queueStats?.newFans30d ?? 0
     : Number.isFinite(queueStats?.fansNew30d)
     ? queueStats?.fansNew30d ?? 0
-    : Number.isFinite(summary?.kpis?.last30?.newFans)
-    ? summary?.kpis?.last30?.newFans ?? 0
+    : Number.isFinite(summaryWithLocal?.kpis?.last30?.newFans)
+    ? summaryWithLocal?.kpis?.last30?.newFans ?? 0
     : 0;
-  const safeRiskRevenue = Number.isFinite(summary?.revenueAtRisk7d) ? summary?.revenueAtRisk7d ?? 0 : 0;
+  const safeRiskRevenue = Number.isFinite(summaryWithLocal?.revenueAtRisk7d)
+    ? summaryWithLocal?.revenueAtRisk7d ?? 0
+    : 0;
   const queueTop3 = useMemo(() => queueData?.top3 ?? [], [queueData]);
   const prioritizedToday = queueStats?.todayCount ?? 0;
-  const vipCount = Number.isFinite(summary?.segments?.vip) ? summary?.segments?.vip ?? 0 : 0;
-  const atRiskCount = queueStats?.atRiskCount ?? (summary?.segments?.atRisk ?? 0);
+  const vipCount = Number.isFinite(summaryWithLocal?.segments?.vip) ? summaryWithLocal?.segments?.vip ?? 0 : 0;
+  const atRiskCount = queueStats?.atRiskCount ?? (summaryWithLocal?.segments?.atRisk ?? 0);
   const expiringSoonCount = useMemo(
     () => queueData?.queue?.filter((item) => item.flags.expiredSoon).length ?? 0,
     [queueData]
@@ -497,7 +554,7 @@ function ManagerChatLayout({
       }));
   }, [queueData]);
   const overviewData = useMemo<CortexOverviewData | null>(() => {
-    if (!summary && !queueData) return null;
+    if (!summaryWithLocal && !queueData) return null;
     return {
       metrics: {
         todayCount: queueStats?.todayCount,
@@ -506,13 +563,27 @@ function ManagerChatLayout({
         atRiskCount,
         revenue7d: safeRevenue7,
         revenue30d: safeRevenue30,
-        extras30d: safeExtras30,
+        extras30d: safeExtras30Count,
+        extrasRevenueToday: extrasRevenueToday,
+        extrasCountToday: extrasCountToday,
+        extrasRevenue7d: extrasRevenue7,
+        extrasCount7d: extrasCount7,
+        extrasRevenue30d: extrasRevenue30,
+        extrasCount30d: extrasCount30,
+        tipsRevenueToday: tipsRevenueToday,
+        tipsCountToday: tipsCountToday,
+        tipsRevenue7d: tipsRevenue7,
+        tipsCount7d: tipsCount7,
+        tipsRevenue30d: tipsRevenue30,
+        tipsCount30d: tipsCount30,
+        giftedCountToday: giftedTodayCount,
+        giftedCount30d: gifted30Count,
         newFans30d: safeNewFans30,
       },
       expiringFans,
     };
   }, [
-    summary,
+    summaryWithLocal,
     queueData,
     queueStats?.queueCount,
     queueStats?.todayCount,
@@ -520,7 +591,21 @@ function ManagerChatLayout({
     atRiskCount,
     safeRevenue7,
     safeRevenue30,
-    safeExtras30,
+    safeExtras30Count,
+    extrasRevenueToday,
+    extrasCountToday,
+    extrasRevenue7,
+    extrasCount7,
+    extrasRevenue30,
+    extrasCount30,
+    tipsRevenueToday,
+    tipsCountToday,
+    tipsCount7,
+    tipsRevenue7,
+    tipsRevenue30,
+    tipsCount30,
+    giftedTodayCount,
+    gifted30Count,
     safeNewFans30,
     expiringFans,
   ]);
@@ -581,7 +666,7 @@ function ManagerChatLayout({
     {
       id: "catalog",
       title: "Catálogo",
-      value: `${formatNumber(safeExtras30)} extras`,
+      value: `${formatNumber(safeExtras30Count)} extras`,
       helper: "Packs activos · últimas 4 semanas",
     },
   ];
@@ -611,7 +696,11 @@ function ManagerChatLayout({
       ? [
           { title: "Ingresos 30d", value: formatCurrency(safeRevenue30), helper: "Mes en curso" },
           { title: "Ingresos 7d", value: formatCurrency(safeRevenue7), helper: "Pulso corto" },
-          { title: "Extras 30d", value: `${safeExtras30}`, helper: "Ventas de catálogo" },
+          {
+            title: "Extras 30d",
+            value: formatCurrency(extrasRevenue30),
+            helper: gifted30Count > 0 ? `Ventas + propinas · ${gifted30Count} regalos` : "Ventas + propinas",
+          },
           { title: "Fans nuevos 30d", value: `${safeNewFans30}`, helper: "Altas recientes" },
         ]
       : [
@@ -628,19 +717,27 @@ function ManagerChatLayout({
     expiring: "Caducan pronto",
     risk: "En riesgo",
   };
-  const monthlyActive = summary?.packs?.monthly?.activeFans ?? 0;
-  const specialActive = summary?.packs?.special?.activeFans ?? 0;
+  const monthlyActive = summaryWithLocal?.packs?.monthly?.activeFans ?? 0;
+  const specialActive = summaryWithLocal?.packs?.special?.activeFans ?? 0;
   const filterHighlights = activeFilter
     ? activeFilter === "pulse"
       ? [
           { title: "Ingresos 7d", value: formatCurrency(safeRevenue7), helper: "Pulso corto" },
           { title: "Ingresos 30d", value: formatCurrency(safeRevenue30), helper: "Mes en curso" },
           { title: "Riesgo 7d", value: formatCurrency(safeRiskRevenue), helper: "Revisar hoy" },
-          { title: "Extras 30d", value: `${safeExtras30}`, helper: "Ventas" },
+          {
+            title: "Extras 30d",
+            value: formatCurrency(extrasRevenue30),
+            helper: gifted30Count > 0 ? `Ventas + propinas · ${gifted30Count} regalos` : "Ventas + propinas",
+          },
         ]
       : activeFilter === "catalog"
       ? [
-          { title: "Extras 30d", value: `${safeExtras30}`, helper: "Ventas recientes" },
+          {
+            title: "Extras 30d",
+            value: formatCurrency(extrasRevenue30),
+            helper: gifted30Count > 0 ? `Ventas + propinas · ${gifted30Count} regalos` : "Ventas + propinas",
+          },
           { title: "VIP activos", value: `${vipCount}`, helper: "Upsell" },
           { title: "Mensual activos", value: `${formatNumber(monthlyActive)}`, helper: "Retención" },
           { title: "Especial activos", value: `${formatNumber(specialActive)}`, helper: "Catálogo" },
@@ -1457,7 +1554,7 @@ function ManagerChatLayout({
       <ManagerInsightsPanel
         open={insightsOpen}
         onClose={onCloseInsights}
-        summary={summary}
+        summary={summaryWithLocal}
         priorityItems={topPriorityItems}
         preview={advisorInput?.preview}
         onPrompt={handlePrompt}

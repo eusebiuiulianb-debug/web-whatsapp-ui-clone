@@ -15,6 +15,16 @@ export function ManagerInsightsPane({ open, panelTab, summary, preview, onToggle
   if (!open) {
     return null;
   }
+  const extrasRevenue30 =
+    (summary?.kpis?.extras?.last30?.revenue ?? 0) + (summary?.kpis?.tips?.last30?.revenue ?? 0);
+  const extrasCount30 =
+    (summary?.kpis?.extras?.last30?.count ?? summary?.kpis?.last30?.extras ?? 0) +
+    (summary?.kpis?.tips?.last30?.count ?? 0);
+  const giftsCount30 = summary?.kpis?.gifts?.last30?.count ?? 0;
+  const extrasDetail =
+    giftsCount30 > 0
+      ? `${extrasCount30} ventas · ${giftsCount30} regalos`
+      : `${extrasCount30} ventas`;
 
   return (
     <div className="fixed inset-0 z-40 flex items-start justify-end">
@@ -51,7 +61,7 @@ export function ManagerInsightsPane({ open, panelTab, summary, preview, onToggle
             <div className="text-sm font-semibold text-slate-100">Pulso</div>
             <div className="grid grid-cols-2 gap-2">
               <CatalogRow title="Ingresos 30d" value={formatCurrency(summary.kpis.last30.revenue)} detail="Últimos 30 días" />
-              <CatalogRow title="Extras 30d" value={summary.kpis.last30.extras} detail="Ventas" />
+              <CatalogRow title="Extras 30d" value={formatCurrency(extrasRevenue30)} detail={extrasDetail} />
               <CatalogRow title="Churn" value={`${summary.packs.monthly.churn30}%`} detail="Mensual" />
               <CatalogRow title="Renovaciones 7d" value={summary.packs.monthly.renewalsIn7Days} detail="Próximas" />
             </div>
