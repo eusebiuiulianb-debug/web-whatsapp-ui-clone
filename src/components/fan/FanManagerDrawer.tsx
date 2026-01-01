@@ -50,6 +50,7 @@ type Props = {
   planSummary?: string | null;
   closedSummary?: string | null;
   monetization?: FanManagerSummary["monetization"] | null;
+  subscriptionLabel?: string | null;
   fanId: string | null | undefined;
   onManagerSummary: (summary: FanManagerSummary | null) => void;
   onSuggestionClick: (text: string) => void;
@@ -80,6 +81,7 @@ export default function FanManagerDrawer({
   planSummary,
   closedSummary,
   monetization,
+  subscriptionLabel,
   fanId,
   onManagerSummary,
   onSuggestionClick,
@@ -146,21 +148,22 @@ export default function FanManagerDrawer({
   const formatCount = (value?: number | null) => (typeof value === "number" ? `${value}` : "—");
   const formatEuro = (value?: number | null) =>
     typeof value === "number" && Number.isFinite(value) ? `${Math.round(value)}€` : "—";
-  const statusLabel =
-    monetizationData?.subscription?.status === "ACTIVE"
-      ? "Activo"
-      : monetizationData?.subscription?.status === "EXPIRED"
-      ? "Caducado"
-      : monetizationData?.subscription?.status === "NONE"
-      ? "Sin acceso"
-      : "—";
-  const tierLabel = monetizationData?.subscription?.tierName ?? "—";
-  const priceLabel = tierLabel === "—" ? "—" : formatEuro(monetizationData?.subscription?.price ?? null);
+  const fallbackSubscriptionLabel = monetizationData
+    ? monetizationData.subscription.active
+      ? "Suscripción activa"
+      : "Sin acceso"
+    : "—";
+  const tierLabel = subscriptionLabel ?? fallbackSubscriptionLabel;
+  const hasPrice =
+    Boolean(monetizationData?.subscription?.active) &&
+    typeof monetizationData?.subscription?.price === "number" &&
+    Number.isFinite(monetizationData.subscription.price);
+  const priceLabel = hasPrice ? formatEuro(monetizationData?.subscription?.price ?? null) : null;
   const daysLeftLabel =
     typeof monetizationData?.subscription?.daysLeft === "number"
       ? `${monetizationData.subscription.daysLeft}d`
       : "—";
-  const lifetimeTotalLabel = formatEuro(monetizationData?.lifetimeTotal ?? null);
+  const lifetimeTotalLabel = formatEuro(monetizationData?.totalSpent ?? null);
   const extrasLabel = `${formatCount(monetizationData?.extras?.count ?? null)} (${formatEuro(
     monetizationData?.extras?.total ?? null
   )})`;
@@ -563,9 +566,8 @@ export default function FanManagerDrawer({
             </p>
             <div className="space-y-1 text-xs md:text-sm text-slate-300">
               <div>
-                Nivel: <span className="text-slate-100">{tierLabel}</span>{" "}
-                <span className="text-slate-400">({priceLabel})</span> ·{" "}
-                <span className="text-slate-100">{statusLabel}</span> ·{" "}
+                Nivel: <span className="text-slate-100">{tierLabel}</span>
+                {priceLabel ? <span className="text-slate-400"> ({priceLabel})</span> : null} ·{" "}
                 <span className="text-slate-100">{daysLeftLabel}</span>
               </div>
               <div>

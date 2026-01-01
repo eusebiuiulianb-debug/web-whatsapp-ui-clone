@@ -14,6 +14,7 @@ import { isVisibleToFan, normalizeFrom } from "../../lib/messageAudience";
 import { normalizePreferredLanguage } from "../../lib/language";
 import { getDbSchemaOutOfSyncPayload, isDbSchemaOutOfSyncError } from "../../lib/dbSchemaGuard";
 import { getStickerById } from "../../lib/emoji/stickers";
+import { buildFanMonetizationSummaryFromFan } from "../../lib/analytics/revenue";
 
 function parseMessageTimestamp(messageId: string): Date | null {
   const parts = messageId.split("-");
@@ -23,14 +24,6 @@ function parseMessageTimestamp(messageId: string): Date | null {
     return new Date(ts);
   }
   return null;
-}
-
-function getGrantAmount(type: string) {
-  if (type === "monthly") return 25;
-  if (type === "special") return 49;
-  if (type === "single") return 25;
-  // trial y cualquier otro tipo se consideran sin coste para lifetimeSpend
-  return 0;
 }
 
 function truncateSnippet(text: string | null | undefined, max = 80): string | null {
@@ -228,24 +221,24 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
     const fanIds = fans.map((fan) => fan.id);
     const creatorId = fans[0]?.creatorId || "creator-1";
-    type ExtraStats = { count: number; totalAmount: number; maxTier: string | null };
+    type ExtraPurchaseRow = { amount: number | null; createdAt: Date; tier: string };
+    type ExtraStats = { purchases: ExtraPurchaseRow[]; maxTier: string | null };
     const extrasByFan = new Map<string, ExtraStats>();
 
     if (fanIds.length > 0) {
       try {
         const extras = await prisma.extraPurchase.findMany({
           where: { fanId: { in: fanIds } },
-          select: { fanId: true, amount: true, tier: true },
+          select: { fanId: true, amount: true, tier: true, createdAt: true },
         });
         const tierPriority: Record<string, number> = { T0: 0, T1: 1, T2: 2, T3: 3, T4: 4 };
         for (const purchase of extras) {
-          const current = extrasByFan.get(purchase.fanId) ?? { count: 0, totalAmount: 0, maxTier: null };
-          const nextCount = current.count + 1;
-          const nextTotal = current.totalAmount + (purchase.amount ?? 0);
+          const current = extrasByFan.get(purchase.fanId) ?? { purchases: [], maxTier: null };
+          current.purchases.push({ amount: purchase.amount ?? 0, createdAt: purchase.createdAt, tier: purchase.tier });
           const shouldUpdateTier =
             current.maxTier === null || (tierPriority[purchase.tier] ?? 0) > (tierPriority[current.maxTier] ?? 0);
           const nextTier = shouldUpdateTier ? purchase.tier : current.maxTier;
-          extrasByFan.set(purchase.fanId, { count: nextCount, totalAmount: nextTotal, maxTier: nextTier });
+          extrasByFan.set(purchase.fanId, { purchases: current.purchases, maxTier: nextTier });
         }
       } catch (err) {
         console.error("Error calculating extra metrics", err);
@@ -357,10 +350,13 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
       const paidGrants = fan.accessGrants.filter((grant) => grant.type === "monthly" || grant.type === "special" || grant.type === "single");
       const paidGrantsCount = paidGrants.length;
-      const subscriptionSpend = fan.accessGrants.reduce((acc, grant) => acc + getGrantAmount(grant.type), 0);
-      const extrasInfo = extrasByFan.get(fan.id) ?? { count: 0, totalAmount: 0, maxTier: null };
-      const extrasTotal = extrasInfo.totalAmount ?? (extrasInfo as any).spent ?? 0;
-      const totalSpend = subscriptionSpend + (extrasTotal ?? 0);
+      const extrasInfo = extrasByFan.get(fan.id) ?? { purchases: [], maxTier: null };
+      const monetization = buildFanMonetizationSummaryFromFan({
+        accessGrants: fan.accessGrants,
+        extraPurchases: extrasInfo.purchases,
+      }, now);
+      const extrasTotal = monetization.extras.total;
+      const totalSpend = monetization.totalSpent;
       // Tiers por gasto total acumulado: <50 nuevo, 50-199 habitual, >=200 vip (alta prioridad)
       let customerTier: "new" | "regular" | "vip";
       if (totalSpend >= 200) {
@@ -491,7 +487,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         nextActionSnippet,
         lastNoteSummary,
         nextActionSummary,
-        extrasCount: extrasInfo.count,
+        extrasCount: monetization.extras.count,
         extrasSpentTotal: extrasTotal,
         maxExtraTier: extrasInfo.maxTier,
         novsyStatus,

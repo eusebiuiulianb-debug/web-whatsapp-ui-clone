@@ -15,7 +15,6 @@ import { ConversationContext, QueueFilter } from "../../context/ConversationCont
 import { EXTRAS_UPDATED_EVENT } from "../../constants/events";
 import { HIGH_PRIORITY_LIMIT } from "../../config/customers";
 import { normalizePreferredLanguage } from "../../lib/language";
-import { useLocalExtrasSummary } from "../../lib/localExtras";
 
 class SideBarBoundary extends Component<{ children: React.ReactNode }, { hasError: boolean }> {
   constructor(props: { children: React.ReactNode }) {
@@ -967,7 +966,6 @@ function SideBarInner() {
     () => (Array.isArray(filteredConversationsList) ? (filteredConversationsList as FanData[]) : []),
     [filteredConversationsList]
   );
-  const localExtrasSummary = useLocalExtrasSummary();
   const attendedTodayCount = fans.filter((fan) => {
     if (!fan.lastCreatorMessageAt) return false;
     const d = new Date(fan.lastCreatorMessageAt);
@@ -991,14 +989,12 @@ function SideBarInner() {
   const extrasLast7BaseAmount = Number.isFinite(extrasSummary?.last7Days?.amount)
     ? (extrasSummary?.last7Days?.amount as number)
     : 0;
-  const tipsToday = localExtrasSummary.tips.today;
-  const tipsLast7 = localExtrasSummary.tips.last7Days;
-  const giftedTodayCount = localExtrasSummary.gifts.today.count;
-  const giftedLast7Count = localExtrasSummary.gifts.last7Days.count;
-  const extrasTodayCount = extrasTodayBaseCount + tipsToday.count;
-  const extrasTodayAmount = extrasTodayBaseAmount + tipsToday.amount;
-  const extrasLast7Count = extrasLast7BaseCount + tipsLast7.count;
-  const extrasLast7Amount = extrasLast7BaseAmount + tipsLast7.amount;
+  const giftedTodayCount = 0;
+  const giftedLast7Count = 0;
+  const extrasTodayCount = extrasTodayBaseCount;
+  const extrasTodayAmount = extrasTodayBaseAmount;
+  const extrasLast7Count = extrasLast7BaseCount;
+  const extrasLast7Amount = extrasLast7BaseAmount;
   const legendRef = useRef<HTMLDivElement | null>(null);
   const priorityQueue = useMemo(
     () => getPriorityQueue(fans as FanData[]),

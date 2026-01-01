@@ -57,7 +57,6 @@ import {
   formatCatalogPriceCents,
   type CatalogItem,
 } from "../../lib/catalog";
-import { parseExtrasRaw, useLocalExtras } from "../../lib/localExtras";
 import {
   DB_SCHEMA_OUT_OF_SYNC_FIX,
   DB_SCHEMA_OUT_OF_SYNC_MESSAGE,
@@ -511,23 +510,6 @@ export default function ConversationDetails({ onBackToBoard }: ConversationDetai
   const activeFanId = conversation?.isManager ? null : id ?? null;
   const reactionsRaw = useReactions(activeFanId || "");
   const reactionsStore = useMemo(() => parseReactionsRaw(reactionsRaw), [reactionsRaw]);
-  const extrasRaw = useLocalExtras(activeFanId || "");
-  const localExtras = useMemo(() => parseExtrasRaw(extrasRaw), [extrasRaw]);
-  const localExtrasCount = localExtras.length;
-  const localExtrasTotal = useMemo(
-    () => localExtras.reduce((sum, item) => sum + (Number.isFinite(item.amount) ? item.amount : 0), 0),
-    [localExtras]
-  );
-  const localTipsSummary = useMemo(() => {
-    const tips = localExtras.filter((item) => item.kind === "TIP");
-    const total = tips.reduce((sum, item) => sum + (Number.isFinite(item.amount) ? item.amount : 0), 0);
-    return { count: tips.length, total };
-  }, [localExtras]);
-  const localGiftsSummary = useMemo(() => {
-    const gifts = localExtras.filter((item) => item.kind === "GIFT");
-    const total = gifts.reduce((sum, item) => sum + (Number.isFinite(item.amount) ? item.amount : 0), 0);
-    return { count: gifts.length, total };
-  }, [localExtras]);
   const [ messageSend, setMessageSend ] = useState("");
   const [ pendingInsert, setPendingInsert ] = useState<{ text: string; detail?: string } | null>(null);
   const [ isSending, setIsSending ] = useState(false);
@@ -749,6 +731,12 @@ export default function ConversationDetails({ onBackToBoard }: ConversationDetai
     hasAccessHistory: conversation.hasAccessHistory,
     activeGrantTypes: conversation.activeGrantTypes,
   });
+  const subscriptionLabel =
+    accessSummary.state === "NONE"
+      ? "Sin acceso"
+      : accessSummary.state === "EXPIRED"
+      ? "Acceso caducado"
+      : accessSummary.primaryLabel;
   const accessState = conversation.accessState || getAccessState({ membershipStatus, daysLeft });
   const accessLabel = conversation.accessLabel || getAccessLabel({ membershipStatus, daysLeft });
   const packLabel = accessLabel || (selectedPackType ? PACKS[selectedPackType].name : null) || getAccessLabel({ membershipStatus, daysLeft });
@@ -773,27 +761,10 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
   const canOfferMonthly = hasWelcome && !hasMonthly;
   const canOfferSpecial = hasMonthly && !hasSpecial;
   const isRecommended = (id: string) => Boolean(managerSummary?.recommendedButtons?.includes(id));
-  const monetizationSummary = useMemo(() => {
-    if (!managerSummary?.monetization) return null;
-    const base = managerSummary.monetization;
-    const tipsCount = (base.tips?.count ?? 0) + localTipsSummary.count;
-    const tipsTotal = (base.tips?.total ?? 0) + localTipsSummary.total;
-    const giftsCount = (base.gifts?.count ?? 0) + localGiftsSummary.count;
-    const giftsTotal = (base.gifts?.total ?? 0) + localGiftsSummary.total;
-    const lifetimeTotal = (base.lifetimeTotal ?? 0) + localTipsSummary.total;
-    return {
-      ...base,
-      tips: { ...base.tips, count: tipsCount, total: tipsTotal },
-      gifts: { ...base.gifts, count: giftsCount, total: giftsTotal },
-      lifetimeTotal,
-    };
-  }, [
-    managerSummary?.monetization,
-    localTipsSummary.count,
-    localTipsSummary.total,
-    localGiftsSummary.count,
-    localGiftsSummary.total,
-  ]);
+  const monetizationSummary = useMemo(
+    () => managerSummary?.monetization ?? null,
+    [managerSummary?.monetization]
+  );
 
   function parseNextActionValue(value?: string | null) {
     if (!value) return { text: "", date: "", time: "" };
@@ -3555,6 +3526,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
               planSummary={planSummary}
               closedSummary={managerShortSummary}
               monetization={monetizationSummary}
+              subscriptionLabel={subscriptionLabel}
               fanId={conversation.id}
               onManagerSummary={(s) => setManagerSummary(s)}
               onSuggestionClick={handleManagerSuggestion}
@@ -6394,9 +6366,9 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
   const composerActionLabel = isFanTarget ? "Enviar a FAN" : "Enviar al Manager";
   const canAttachContent = isFanTarget && !isChatBlocked && !isInternalPanelOpen;
   const nextActionStatus = getFollowUpStatusFromDate(nextActionDate);
-  const extrasCountDisplay = (conversation.extrasCount ?? 0) + localExtrasCount;
-  const extrasSpentDisplay = Math.round((conversation.extrasSpentTotal ?? 0) + localExtrasTotal);
-  const extrasAmount = (conversation.extrasSpentTotal ?? 0) + localExtrasTotal;
+  const extrasCountDisplay = conversation.extrasCount ?? 0;
+  const extrasSpentDisplay = Math.round(conversation.extrasSpentTotal ?? 0);
+  const extrasAmount = conversation.extrasSpentTotal ?? 0;
   const lifetimeAmount = conversation.lifetimeSpend ?? 0;
   const subsAmount = Math.max(0, lifetimeAmount - extrasAmount);
   const sessionToday = conversation.extraSessionToday ?? {

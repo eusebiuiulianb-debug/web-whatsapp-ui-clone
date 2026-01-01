@@ -23,7 +23,6 @@ import {
 import { useCreatorConfig } from "../../context/CreatorConfigContext";
 import { ManagerInsightsPanel } from "../../components/creator/ManagerInsightsPanel";
 import type { CatalogItem } from "../../lib/catalog";
-import { useLocalExtrasSummary } from "../../lib/localExtras";
 
 type Props = {
   initialSnapshot: CreatorBusinessSnapshot | null;
@@ -328,7 +327,6 @@ function ManagerChatLayout({
   onRefreshCatalog,
 }: ManagerChatLayoutProps) {
   const router = useRouter();
-  const localExtrasSummary = useLocalExtrasSummary();
   const summaryRef = useRef<HTMLDivElement | null>(null);
   const headerMenuRef = useRef<HTMLDivElement | null>(null);
   const [activeTab, setActiveTab] = useState<"strategy" | "content">("strategy");
@@ -450,35 +448,7 @@ function ManagerChatLayout({
       ? ["¿A qué fans priorizo hoy?", "Resúmeme mis números de esta semana", "Dame 1 acción para subir ingresos hoy"]
       : ["Idea de extra para VIP", "CTA a mensual desde contenido", "Plantilla breve para fans en riesgo"];
 
-  const summaryWithLocal = useMemo(() => {
-    if (!summary) return null;
-    const tips = localExtrasSummary.tips;
-    const gifts = localExtrasSummary.gifts;
-    return {
-      ...summary,
-      kpis: {
-        ...summary.kpis,
-        tips: {
-          today: { count: tips.today.count, revenue: tips.today.amount },
-          last7: { count: tips.last7Days.count, revenue: tips.last7Days.amount },
-          last30: { count: tips.last30Days.count, revenue: tips.last30Days.amount },
-        },
-        gifts: {
-          today: { count: gifts.today.count },
-          last7: { count: gifts.last7Days.count },
-          last30: { count: gifts.last30Days.count },
-        },
-        last7: {
-          ...summary.kpis.last7,
-          revenue: summary.kpis.last7.revenue + tips.last7Days.amount,
-        },
-        last30: {
-          ...summary.kpis.last30,
-          revenue: summary.kpis.last30.revenue + tips.last30Days.amount,
-        },
-      },
-    };
-  }, [summary, localExtrasSummary]);
+  const summaryWithLocal = summary;
 
   const queueStats = queueData?.stats;
   const formatNumber = (value: number) => new Intl.NumberFormat("es-ES").format(value);

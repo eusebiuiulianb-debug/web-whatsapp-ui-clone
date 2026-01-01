@@ -24,16 +24,13 @@ export const ManagerSummarySchema = z.object({
 
 const FanMonetizationSummarySchema = z.object({
   subscription: z.object({
-    tierName: z.string().nullable(),
-    price: z.number().nullable(),
-    status: z.enum(["ACTIVE", "EXPIRED", "NONE"]),
-    endsAt: z.string().nullable(),
+    active: z.boolean(),
+    price: z.number(),
     daysLeft: z.number().nullable(),
   }),
   extras: z.object({
     count: z.number(),
     total: z.number(),
-    lastAt: z.string().nullable(),
   }),
   tips: z.object({
     count: z.number(),
@@ -43,7 +40,7 @@ const FanMonetizationSummarySchema = z.object({
     count: z.number(),
     total: z.number(),
   }),
-  lifetimeTotal: z.number(),
+  totalSpent: z.number(),
   lastPurchaseAt: z.string().nullable(),
 });
 
