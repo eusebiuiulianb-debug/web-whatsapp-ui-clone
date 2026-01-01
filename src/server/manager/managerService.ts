@@ -17,6 +17,7 @@ import {
   type NextBestActionId,
 } from "./managerIaConfig";
 import { isVisibleToFan } from "../../lib/messageAudience";
+import { buildFanMonetizationSummaryFromFan, type FanMonetizationSummary } from "../../lib/analytics/revenue";
 
 // Thresholds de segmentación/health
 export const VIP_LTV_THRESHOLD = 200;
@@ -90,6 +91,7 @@ export type FanManagerSummary = {
     opportunity: string;
   };
   aiContext: FanManagerAiContext;
+  monetization: FanMonetizationSummary | null;
 };
 
 export type FanManagerAiContext = {
@@ -753,6 +755,7 @@ export async function buildFanManagerSummary(creatorId: string, fanId: string, p
   const decisionResult = decideNextBestAction(decision);
   const nextBestAction = mapDecisionToAction(decisionResult.id);
   const actionMeta = getActionMeta(nextBestAction);
+  const monetization = buildFanMonetizationSummaryFromFan(fan, now);
   const suggestions: ManagerMessageSuggestion[] = decisionResult.suggestions.map((text, idx) => ({
     id: `${decisionResult.id.toLowerCase()}_${idx + 1}`,
     label: `${decisionResult.label} ${idx + 1}`,
@@ -812,5 +815,6 @@ export async function buildFanManagerSummary(creatorId: string, fanId: string, p
     personalizationHints,
     summary,
     aiContext,
+    monetization,
   };
 }

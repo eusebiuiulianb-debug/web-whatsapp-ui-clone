@@ -65,7 +65,7 @@ input[type="time"]::-webkit-calendar-picker-indicator {
   left: 0;
   right: 0;
   bottom: calc(var(--dock-h, 72px) + var(--dock-gap));
-  padding: 12px;
+  padding: 12px 12px 0;
   pointer-events: none;
   display: flex;
   justify-content: center;
@@ -84,7 +84,7 @@ input[type="time"]::-webkit-calendar-picker-indicator {
   height: auto;
   width: min(980px, 100%);
   border-radius: 18px;
-  max-height: min(50vh, calc(100vh - var(--dock-h, 72px) - var(--dock-gap) - 24px));
+  max-height: min(50vh, calc(100vh - var(--dock-h, 72px) - var(--dock-gap) - 12px));
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -92,20 +92,34 @@ input[type="time"]::-webkit-calendar-picker-indicator {
 
 @media (max-width: 768px) {
   .dockOverlaySheet {
-    max-height: min(56vh, calc(100vh - var(--dock-h, 72px) - var(--dock-gap) - 24px));
+    max-height: min(56vh, calc(100vh - var(--dock-h, 72px) - var(--dock-gap) - 12px));
+  }
+}
+
+@supports (height: 100svh) {
+  .dockOverlaySheet {
+    max-height: min(50svh, calc(100svh - var(--dock-h, 72px) - var(--dock-gap) - 12px));
+  }
+}
+
+@supports (height: 100svh) {
+  @media (max-width: 768px) {
+    .dockOverlaySheet {
+      max-height: min(56svh, calc(100svh - var(--dock-h, 72px) - var(--dock-gap) - 12px));
+    }
   }
 }
 
 @supports (height: 100dvh) {
   .dockOverlaySheet {
-    max-height: min(50dvh, calc(100dvh - var(--dock-h, 72px) - var(--dock-gap) - 24px));
+    max-height: min(50dvh, calc(100dvh - var(--dock-h, 72px) - var(--dock-gap) - 12px));
   }
 }
 
 @supports (height: 100dvh) {
   @media (max-width: 768px) {
     .dockOverlaySheet {
-      max-height: min(56dvh, calc(100dvh - var(--dock-h, 72px) - var(--dock-gap) - 24px));
+      max-height: min(56dvh, calc(100dvh - var(--dock-h, 72px) - var(--dock-gap) - 12px));
     }
   }
 }

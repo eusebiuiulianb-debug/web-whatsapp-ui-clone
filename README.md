@@ -36,10 +36,13 @@ Siguiente prioridad:
 npm install
 npx prisma generate
 npx prisma migrate dev
-
+npm run dev
 ```
 
-La app se levanta en modo desarrollo en `http://localhost:3005`. Para pasos completos y troubleshooting en Windows, revisa el runbook de abajo.
+Por defecto: `npm run dev` (abre en `http://localhost:3005`).
+Si `3005` está ocupado: `npm run dev -- -p 3007` (o `3008` si también está ocupado).
+
+Para pasos completos y troubleshooting en Windows, revisa el runbook de abajo.
 
 En Windows, si ves errores raros de `.next` (p. ej. `__webpack_require__.a is not a function`), usa: `npm run dev:reset`.
 
@@ -57,6 +60,11 @@ En Windows, si ves errores raros de `.next` (p. ej. `__webpack_require__.a is no
 4. `npx prisma migrate dev`
 5. `npm run dev` (http://localhost:3005)
 6. `npm run build` para validar que el build pasa.
+
+### Puerto ocupado (Windows)
+- Detectar proceso: `netstat -ano | findstr :3005`
+- Forzar cierre: `taskkill /PID <pid> /F`
+- Alternativa temporal: `npm run dev -- -p 3007`
 
 ### Contrato de APIs
 - Todas las listas devuelven `{ ok, items }` (ej: `/api/fans`, `/api/messages` devuelve `items` y `messages` para compatibilidad temporal).

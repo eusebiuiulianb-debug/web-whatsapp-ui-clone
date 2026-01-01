@@ -49,6 +49,7 @@ type Props = {
   iaSummary?: string | null;
   planSummary?: string | null;
   closedSummary?: string | null;
+  monetization?: FanManagerSummary["monetization"] | null;
   fanId: string | null | undefined;
   onManagerSummary: (summary: FanManagerSummary | null) => void;
   onSuggestionClick: (text: string) => void;
@@ -78,6 +79,7 @@ export default function FanManagerDrawer({
   iaSummary,
   planSummary,
   closedSummary,
+  monetization,
   fanId,
   onManagerSummary,
   onSuggestionClick,
@@ -140,6 +142,32 @@ export default function FanManagerDrawer({
   const isObjectiveActive = (objective: ManagerObjective) => currentObjective === objective;
   const objectivesLocked = managerDisabled || isAutoPilotLoading;
   const showAutopilotAdjust = autoPilotEnabled && hasAutopilotContext;
+  const monetizationData = monetization ?? null;
+  const formatCount = (value?: number | null) => (typeof value === "number" ? `${value}` : "—");
+  const formatEuro = (value?: number | null) =>
+    typeof value === "number" && Number.isFinite(value) ? `${Math.round(value)}€` : "—";
+  const statusLabel =
+    monetizationData?.subscription?.status === "ACTIVE"
+      ? "Activo"
+      : monetizationData?.subscription?.status === "EXPIRED"
+      ? "Caducado"
+      : monetizationData?.subscription?.status === "NONE"
+      ? "Sin acceso"
+      : "—";
+  const tierLabel = monetizationData?.subscription?.tierName ?? "—";
+  const priceLabel = tierLabel === "—" ? "—" : formatEuro(monetizationData?.subscription?.price ?? null);
+  const daysLeftLabel =
+    typeof monetizationData?.subscription?.daysLeft === "number"
+      ? `${monetizationData.subscription.daysLeft}d`
+      : "—";
+  const lifetimeTotalLabel = formatEuro(monetizationData?.lifetimeTotal ?? null);
+  const extrasLabel = `${formatCount(monetizationData?.extras?.count ?? null)} (${formatEuro(
+    monetizationData?.extras?.total ?? null
+  )})`;
+  const tipsLabel = `${formatCount(monetizationData?.tips?.count ?? null)} (${formatEuro(
+    monetizationData?.tips?.total ?? null
+  )})`;
+  const giftsLabel = formatCount(monetizationData?.gifts?.count ?? null);
 
   return (
     <div className="rounded-2xl border border-slate-800 bg-slate-950/80 px-4 py-3 md:px-6 md:py-4 text-[11px] text-slate-100 space-y-2">
@@ -529,6 +557,27 @@ export default function FanManagerDrawer({
               </p>
             </div>
           )}
+          <div className="mt-5 border-t border-slate-800 pt-4">
+            <p className="text-xs md:text-sm font-semibold text-slate-400 uppercase tracking-wide mb-1.5">
+              Historial del fan
+            </p>
+            <div className="space-y-1 text-xs md:text-sm text-slate-300">
+              <div>
+                Nivel: <span className="text-slate-100">{tierLabel}</span>{" "}
+                <span className="text-slate-400">({priceLabel})</span> ·{" "}
+                <span className="text-slate-100">{statusLabel}</span> ·{" "}
+                <span className="text-slate-100">{daysLeftLabel}</span>
+              </div>
+              <div>
+                Total gastado: <span className="text-slate-100">{lifetimeTotalLabel}</span>
+              </div>
+              <div>
+                Extras: <span className="text-slate-100">{extrasLabel}</span> · Propinas:{" "}
+                <span className="text-slate-100">{tipsLabel}</span> · Regalos:{" "}
+                <span className="text-slate-100">{giftsLabel}</span>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
       <div className="hidden">

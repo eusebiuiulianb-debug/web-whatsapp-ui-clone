@@ -518,6 +518,16 @@ export default function ConversationDetails({ onBackToBoard }: ConversationDetai
     () => localExtras.reduce((sum, item) => sum + (Number.isFinite(item.amount) ? item.amount : 0), 0),
     [localExtras]
   );
+  const localTipsSummary = useMemo(() => {
+    const tips = localExtras.filter((item) => item.kind === "TIP");
+    const total = tips.reduce((sum, item) => sum + (Number.isFinite(item.amount) ? item.amount : 0), 0);
+    return { count: tips.length, total };
+  }, [localExtras]);
+  const localGiftsSummary = useMemo(() => {
+    const gifts = localExtras.filter((item) => item.kind === "GIFT");
+    const total = gifts.reduce((sum, item) => sum + (Number.isFinite(item.amount) ? item.amount : 0), 0);
+    return { count: gifts.length, total };
+  }, [localExtras]);
   const [ messageSend, setMessageSend ] = useState("");
   const [ pendingInsert, setPendingInsert ] = useState<{ text: string; detail?: string } | null>(null);
   const [ isSending, setIsSending ] = useState(false);
@@ -763,6 +773,27 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
   const canOfferMonthly = hasWelcome && !hasMonthly;
   const canOfferSpecial = hasMonthly && !hasSpecial;
   const isRecommended = (id: string) => Boolean(managerSummary?.recommendedButtons?.includes(id));
+  const monetizationSummary = useMemo(() => {
+    if (!managerSummary?.monetization) return null;
+    const base = managerSummary.monetization;
+    const tipsCount = (base.tips?.count ?? 0) + localTipsSummary.count;
+    const tipsTotal = (base.tips?.total ?? 0) + localTipsSummary.total;
+    const giftsCount = (base.gifts?.count ?? 0) + localGiftsSummary.count;
+    const giftsTotal = (base.gifts?.total ?? 0) + localGiftsSummary.total;
+    const lifetimeTotal = (base.lifetimeTotal ?? 0) + localTipsSummary.total;
+    return {
+      ...base,
+      tips: { ...base.tips, count: tipsCount, total: tipsTotal },
+      gifts: { ...base.gifts, count: giftsCount, total: giftsTotal },
+      lifetimeTotal,
+    };
+  }, [
+    managerSummary?.monetization,
+    localTipsSummary.count,
+    localTipsSummary.total,
+    localGiftsSummary.count,
+    localGiftsSummary.total,
+  ]);
 
   function parseNextActionValue(value?: string | null) {
     if (!value) return { text: "", date: "", time: "" };
@@ -3523,6 +3554,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
               iaSummary={iaSummary}
               planSummary={planSummary}
               closedSummary={managerShortSummary}
+              monetization={monetizationSummary}
               fanId={conversation.id}
               onManagerSummary={(s) => setManagerSummary(s)}
               onSuggestionClick={handleManagerSuggestion}

@@ -22,6 +22,31 @@ export const ManagerSummarySchema = z.object({
   opportunity: z.string(),
 });
 
+const FanMonetizationSummarySchema = z.object({
+  subscription: z.object({
+    tierName: z.string().nullable(),
+    price: z.number().nullable(),
+    status: z.enum(["ACTIVE", "EXPIRED", "NONE"]),
+    endsAt: z.string().nullable(),
+    daysLeft: z.number().nullable(),
+  }),
+  extras: z.object({
+    count: z.number(),
+    total: z.number(),
+    lastAt: z.string().nullable(),
+  }),
+  tips: z.object({
+    count: z.number(),
+    total: z.number(),
+  }),
+  gifts: z.object({
+    count: z.number(),
+    total: z.number(),
+  }),
+  lifetimeTotal: z.number(),
+  lastPurchaseAt: z.string().nullable(),
+});
+
 export const FanManagerAiContextSchema = z.object({
   fanId: z.string(),
   displayName: z.string(),
@@ -86,6 +111,7 @@ export const FanManagerSummarySchema = z.object({
   personalizationHints: z.string().nullable().optional(),
   summary: ManagerSummarySchema,
   aiContext: FanManagerAiContextSchema,
+  monetization: FanMonetizationSummarySchema.nullable().optional(),
 });
 
 export type FanManagerSummary = z.infer<typeof FanManagerSummarySchema>;
