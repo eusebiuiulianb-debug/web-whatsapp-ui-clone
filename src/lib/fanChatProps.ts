@@ -1,4 +1,5 @@
 import { getAccessSummary, type AccessSummary } from "./access";
+import { buildAccessStateFromGrants } from "./accessState";
 import type { IncludedContent } from "./fanContent";
 
 export type FanChatSSRProps = {
@@ -24,29 +25,15 @@ export async function buildFanChatProps(fanId: string): Promise<FanChatSSRProps>
     });
 
     if (fan) {
-      hasAccessHistory = fan.accessGrants.length > 0;
-
-      const activeGrants = fan.accessGrants.filter((grant) => grant.expiresAt > now);
-      activeGrantTypes = activeGrants.map((grant) => grant.type);
-
-      const latestExpiry = activeGrants.reduce<Date | null>((acc, grant) => {
-        if (!acc) return grant.expiresAt;
-        return grant.expiresAt > acc ? grant.expiresAt : acc;
-      }, null);
-
-      daysLeft = latestExpiry
-        ? Math.max(0, Math.ceil((latestExpiry.getTime() - now.getTime()) / (1000 * 60 * 60 * 24)))
-        : hasAccessHistory
-        ? 0
-        : null;
-
-      if (activeGrants.length > 0) {
-        membershipStatus = "active";
-      } else if (hasAccessHistory) {
-        membershipStatus = "expired";
-      } else {
-        membershipStatus = "none";
-      }
+      const accessState = buildAccessStateFromGrants({
+        accessGrants: fan.accessGrants,
+        isNew: fan.isNew ?? false,
+        now,
+      });
+      membershipStatus = accessState.membershipStatus;
+      daysLeft = accessState.daysLeft;
+      hasAccessHistory = accessState.hasAccessHistory;
+      activeGrantTypes = accessState.activeGrantTypes;
     }
   }
 

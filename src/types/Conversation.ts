@@ -71,6 +71,8 @@ interface Conversation {
   extrasSpentTotal?: number;
   tipsCount?: number;
   tipsSpentTotal?: number;
+  giftsCount?: number;
+  giftsSpentTotal?: number;
   maxExtraTier?: string | null;
   novsyStatus?: "NOVSY" | null;
   isHighPriority?: boolean;
@@ -156,6 +158,8 @@ interface ConversationListData {
   extrasSpentTotal?: number;
   tipsCount?: number;
   tipsSpentTotal?: number;
+  giftsCount?: number;
+  giftsSpentTotal?: number;
   maxExtraTier?: string | null;
   novsyStatus?: "NOVSY" | null;
   isHighPriority?: boolean;

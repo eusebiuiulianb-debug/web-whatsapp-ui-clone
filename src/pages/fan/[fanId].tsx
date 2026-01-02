@@ -54,6 +54,7 @@ export type FanChatPageProps = {
   initialAccessSummary: AccessSummary;
   fanIdOverride?: string;
   inviteOverride?: boolean;
+  forceAccessRefresh?: boolean;
 };
 
 type PackSummary = {
@@ -68,6 +69,7 @@ export function FanChatPage({
   initialAccessSummary,
   fanIdOverride,
   inviteOverride,
+  forceAccessRefresh,
 }: FanChatPageProps) {
   const router = useRouter();
   const fanId = useMemo(() => {
@@ -244,7 +246,9 @@ export function FanChatPage({
     async (targetFanId: string) => {
       try {
         setAccessLoading(true);
-        const res = await fetch(`/api/fans?fanId=${encodeURIComponent(targetFanId)}`);
+        const res = await fetch(`/api/fans?fanId=${encodeURIComponent(targetFanId)}`, {
+          cache: "no-store",
+        });
         if (!res.ok) throw new Error("error");
         const data = await res.json();
         const fans = Array.isArray(data.items)
@@ -266,8 +270,23 @@ export function FanChatPage({
           typeof target?.hasAccessHistory === "boolean"
             ? target.hasAccessHistory
             : (target?.paidGrantsCount ?? 0) > 0;
+        const fallbackHasActiveAccess =
+          Array.isArray(target?.activeGrantTypes) &&
+          target.activeGrantTypes.length > 0 &&
+          (target?.daysLeft ?? 0) > 0;
+        const hasActiveAccess =
+          typeof target?.hasActiveAccess === "boolean" ? target.hasActiveAccess : fallbackHasActiveAccess;
+        const accessTypeLabel =
+          typeof target?.accessType === "string" && target.accessType.trim().length > 0
+            ? target.accessType
+            : target?.membershipStatus ?? null;
+        const effectiveMembershipStatus = hasActiveAccess
+          ? (accessTypeLabel || "active")
+          : hasHistory
+          ? "expired"
+          : "none";
         const summary = getAccessSummary({
-          membershipStatus: target?.membershipStatus,
+          membershipStatus: effectiveMembershipStatus,
           daysLeft: target?.daysLeft,
           hasAccessHistory: hasHistory,
           activeGrantTypes: Array.isArray(target?.activeGrantTypes) ? target.activeGrantTypes : undefined,
@@ -298,7 +317,12 @@ export function FanChatPage({
   useEffect(() => {
     if (!fanId) return;
     fetchAccessInfo(fanId);
-  }, [fanId, fetchAccessInfo]);
+    if (!forceAccessRefresh) return;
+    const timer = window.setTimeout(() => {
+      fetchAccessInfo(fanId);
+    }, 400);
+    return () => window.clearTimeout(timer);
+  }, [fanId, fetchAccessInfo, forceAccessRefresh]);
 
   useEffect(() => {
     setFanProfile({});

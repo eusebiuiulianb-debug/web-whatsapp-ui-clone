@@ -5,6 +5,7 @@ import { ConversationListData } from "../../types/Conversation"
 import { getFollowUpTag } from "../../utils/followUp";
 import clsx from "clsx";
 import { PACKS } from "../../config/packs";
+import { computeFanTotals } from "../../lib/fanTotals";
 import { normalizePreferredLanguage } from "../../lib/language";
 import { isStickerToken } from "../../lib/stickers";
 
@@ -119,7 +120,6 @@ export default function ConversationList(props: ConversationListProps) {
   const notesCount = data.notesCount ?? 0;
   const segment = (data.segment || "").toUpperCase();
   const customerTier = (data.customerTier ?? "new") as "new" | "regular" | "vip" | "priority";
-  const lifetimeValue = data.lifetimeSpend ?? data.lifetimeValue ?? 0; // usar siempre el gasto total acumulado
   const followUpOpen = data.followUpOpen ?? null;
   const followUpTitle = followUpOpen?.title ?? null;
   const followUpNote = followUpOpen?.note ?? null;
@@ -161,7 +161,12 @@ export default function ConversationList(props: ConversationListProps) {
       ? "Habitual"
       : "Nuevo";
   const isHighPriority = (data as any).isHighPriority === true;
-  const totalSpent = Math.round(lifetimeValue ?? 0);
+  const purchaseTotals = computeFanTotals([
+    { kind: "EXTRA", amount: data.extrasSpentTotal ?? 0 },
+    { kind: "TIP", amount: data.tipsSpentTotal ?? 0 },
+    { kind: "GIFT", amount: data.giftsSpentTotal ?? 0 },
+  ]);
+  const totalSpent = Math.round(purchaseTotals.totalSpent);
   const notesLabel = `${notesCount} nota${notesCount === 1 ? "" : "s"}`;
   const extrasCount = data.extrasCount ?? 0;
   const extrasSpent = Math.round(data.extrasSpentTotal ?? 0);

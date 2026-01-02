@@ -51,6 +51,7 @@ import { getNearDuplicateSimilarity } from "../../lib/text/isNearDuplicate";
 import { getStickerById, type StickerItem as LegacyStickerItem } from "../../lib/emoji/stickers";
 import { buildStickerToken, getStickerByToken, type StickerItem as PickerStickerItem } from "../../lib/stickers";
 import { parseReactionsRaw, useReactions } from "../../lib/emoji/reactions";
+import { computeFanTotals } from "../../lib/fanTotals";
 import {
   buildCatalogPitch,
   formatCatalogIncludesSummary,
@@ -2190,6 +2191,8 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
           extrasSpentTotal: targetFan.extrasSpentTotal ?? prev.extrasSpentTotal,
           tipsCount: targetFan.tipsCount ?? (prev as any).tipsCount,
           tipsSpentTotal: targetFan.tipsSpentTotal ?? (prev as any).tipsSpentTotal,
+          giftsCount: (targetFan as any).giftsCount ?? (prev as any).giftsCount,
+          giftsSpentTotal: (targetFan as any).giftsSpentTotal ?? (prev as any).giftsSpentTotal,
           lifetimeSpend: targetFan.lifetimeSpend ?? (prev as any).lifetimeSpend ?? targetFan.lifetimeValue ?? prev.lifetimeValue,
           lifetimeValue: targetFan.lifetimeValue ?? prev.lifetimeValue,
           totalSpent:
@@ -6393,11 +6396,22 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
   const canAttachContent = isFanTarget && !isChatBlocked && !isInternalPanelOpen;
   const nextActionStatus = getFollowUpStatusFromDate(nextActionDate);
   const extrasCountDisplay = conversation.extrasCount ?? 0;
-  const extrasSpentDisplay = Math.round(conversation.extrasSpentTotal ?? 0);
-  const extrasAmount = conversation.extrasSpentTotal ?? 0;
+  const extrasAmount = typeof conversation.extrasSpentTotal === "number" ? conversation.extrasSpentTotal : 0;
   const tipsCountValue = conversation.tipsCount;
   const tipsSpentValue = conversation.tipsSpentTotal;
   const tipsCountDisplay = typeof tipsCountValue === "number" ? tipsCountValue : null;
+  const tipsAmount = typeof tipsSpentValue === "number" ? tipsSpentValue : 0;
+  const giftsAmount = typeof conversation.giftsSpentTotal === "number" ? conversation.giftsSpentTotal : 0;
+  const summaryTotals = useMemo(
+    () =>
+      computeFanTotals([
+        { kind: "EXTRA", amount: extrasAmount },
+        { kind: "TIP", amount: tipsAmount },
+        { kind: "GIFT", amount: giftsAmount },
+      ]),
+    [extrasAmount, tipsAmount, giftsAmount]
+  );
+  const extrasSpentDisplay = Math.round(summaryTotals.extrasAmount);
   const tipsSpentDisplay = typeof tipsSpentValue === "number" ? Math.round(tipsSpentValue) : null;
   const tipsInlineLabel =
     tipsCountDisplay === null || tipsSpentDisplay === null ? "—" : `${tipsCountDisplay} · ${tipsSpentDisplay} €`;
@@ -6413,19 +6427,13 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
     { id: "tip", label: "Propinas" },
     { id: "gift", label: "Regalos" },
   ] as const;
-  const lifetimeAmount =
-    typeof conversation.totalSpent === "number"
-      ? conversation.totalSpent
-      : typeof conversation.lifetimeSpend === "number"
-      ? conversation.lifetimeSpend
-      : typeof conversation.lifetimeValue === "number"
-      ? conversation.lifetimeValue
-      : 0;
+  const lifetimeAmount = summaryTotals.totalSpent;
   const filteredPurchaseHistory = useMemo(() => {
     if (historyFilter === "all") return purchaseHistory;
     const targetKind = historyFilter.toUpperCase() as "EXTRA" | "TIP" | "GIFT";
     return purchaseHistory.filter((entry) => entry.kind === targetKind);
   }, [historyFilter, purchaseHistory]);
+  const historyTotals = useMemo(() => computeFanTotals(purchaseHistory), [purchaseHistory]);
   const subsAmount = Math.max(0, lifetimeAmount - extrasAmount);
   const sessionToday = conversation.extraSessionToday ?? {
     todayCount: 0,
@@ -7316,20 +7324,24 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
               Cerrar
             </button>
           </div>
-          <div className="grid grid-cols-3 gap-2 rounded-lg border border-slate-800 bg-slate-950/50 px-3 py-2">
+          <div className="grid grid-cols-2 gap-2 rounded-lg border border-slate-800 bg-slate-950/50 px-3 py-2">
             <div className="flex flex-col gap-1">
               <span className="text-[10px] text-slate-400">Total gastado</span>
-              <span className="text-[12px] font-semibold text-slate-50">{Math.round(lifetimeAmount)} €</span>
+              <span className="text-[12px] font-semibold text-slate-50">{Math.round(historyTotals.totalSpent)} €</span>
             </div>
             <div className="flex flex-col gap-1">
               <span className="text-[10px] text-slate-400">Extras</span>
-              <span className="text-[12px] font-semibold text-slate-50">{extrasSpentDisplay} €</span>
+              <span className="text-[12px] font-semibold text-slate-50">{Math.round(historyTotals.extrasAmount)} €</span>
             </div>
             <div className="flex flex-col gap-1">
               <span className="text-[10px] text-slate-400">Propinas</span>
               <span className="text-[12px] font-semibold text-slate-50">
-                {tipsSpentDisplay === null ? "—" : `${tipsSpentDisplay} €`}
+                {Math.round(historyTotals.tipsAmount)} €
               </span>
+            </div>
+            <div className="flex flex-col gap-1">
+              <span className="text-[10px] text-slate-400">Regalos</span>
+              <span className="text-[12px] font-semibold text-slate-50">{Math.round(historyTotals.giftsAmount)} €</span>
             </div>
           </div>
           <div className="flex flex-wrap items-center gap-2 text-[11px]">

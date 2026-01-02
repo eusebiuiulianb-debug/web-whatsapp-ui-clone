@@ -18,6 +18,7 @@ import {
 } from "./managerIaConfig";
 import { isVisibleToFan } from "../../lib/messageAudience";
 import { getFanMonetizationSummary, type FanMonetizationSummary } from "../../lib/analytics/revenue";
+import { buildAccessStateFromGrants } from "../../lib/accessState";
 
 // Thresholds de segmentación/health
 export const VIP_LTV_THRESHOLD = 200;
@@ -683,10 +684,15 @@ export async function buildFanManagerSummary(creatorId: string, fanId: string, p
   const daysSinceLastMessage = daysBetween(now, lastMsg);
   const daysSinceLastPurchase = daysBetween(now, lastPurchase?.createdAt);
 
+  const accessSnapshot = buildAccessStateFromGrants({
+    accessGrants: fan.accessGrants,
+    isNew: fan.isNew ?? false,
+    now,
+  });
   const activeGrants = fan.accessGrants.filter((g) => g.expiresAt > now);
   const activeGrant = activeGrants[0] ?? null;
   const daysToExpiry = daysBetween(activeGrant?.expiresAt, now);
-  const hasActivePack = activeGrants.length > 0;
+  const hasActivePack = accessSnapshot.hasActiveAccess;
   const hasActiveMonthly = activeGrants.some((g) => g.type === "monthly");
   const hasActiveTrial = activeGrants.some((g) => g.type === "trial" || g.type === "welcome");
   const hasActiveSpecialPack = activeGrants.some((g) => g.type === "special");

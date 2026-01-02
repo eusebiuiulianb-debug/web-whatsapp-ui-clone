@@ -59,6 +59,16 @@ export async function createOrResumeFanForHandle(params: FanEntryParams): Promis
   return { fanId, creatorId: match.id, handle: resolvedHandle, isNew: true };
 }
 
+export function setFanCookieForHandle(
+  res: Pick<NextApiResponse, "getHeader" | "setHeader">,
+  handle: string,
+  fanId: string
+) {
+  const resolvedHandle = slugify(handle || "creator");
+  const cookieName = `${FAN_COOKIE_PREFIX}${resolvedHandle}`;
+  setFanCookie(res, cookieName, fanId);
+}
+
 function resolveCreatorByHandle(creators: Array<{ id: string; name: string | null }>, handle: string) {
   if (!creators || creators.length === 0) return null;
   const normalizedHandle = slugify(handle || "");
