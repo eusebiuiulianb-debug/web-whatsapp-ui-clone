@@ -78,6 +78,8 @@ type ManagerActionIntent = "ROMPER_EL_HIELO" | "REACTIVAR_FAN_FRIO" | "OFRECER_U
 type SalesRange = "today" | "7d" | "30d";
 
 type CreatorSalesResponse = {
+  ok: boolean;
+  error?: string;
   totals: { totalAmount: number; count: number; uniqueFans: number };
   breakdown: {
     subscriptionsAmount: number;
@@ -105,6 +107,32 @@ type CreatorSalesResponse = {
   }>;
   topFans: Array<{ fanId: string; displayName: string; amount: number; count: number }>;
   insights: string[];
+};
+
+type CortexSegmentFanPreview = {
+  fanId: string;
+  displayName: string;
+  totalSpent: number;
+  extrasCount: number;
+  giftsCount: number;
+  tipsCount: number;
+  hasActiveSub: boolean;
+  followUpAt: string | null;
+  notesCount: number;
+};
+
+type CortexSegmentEntry = {
+  id: string;
+  title: string;
+  reason: string;
+  fanIds: string[];
+  fanPreview: CortexSegmentFanPreview[];
+  potentialAmount: number;
+  suggestedAction: string;
+};
+
+type CortexSegmentsResponse = {
+  segments: CortexSegmentEntry[];
 };
 
 export type CortexOverviewMetrics = {
@@ -396,6 +424,12 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
   const [salesData, setSalesData] = useState<CreatorSalesResponse | null>(null);
   const [salesLoading, setSalesLoading] = useState(false);
   const [salesError, setSalesError] = useState<string | null>(null);
+  const [salesUpdated, setSalesUpdated] = useState(false);
+  const [salesRetry, setSalesRetry] = useState(0);
+  const [segmentsData, setSegmentsData] = useState<CortexSegmentsResponse | null>(null);
+  const [segmentsLoading, setSegmentsLoading] = useState(false);
+  const [segmentsError, setSegmentsError] = useState<string | null>(null);
+  const [segmentsExpanded, setSegmentsExpanded] = useState<Record<string, boolean>>({});
   const [isEmojiOpen, setIsEmojiOpen] = useState(false);
   const [emojiRecents, setEmojiRecents] = useState<string[]>([]);
   const [isFavoritesEditorOpen, setIsFavoritesEditorOpen] = useState(false);
@@ -424,6 +458,7 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
   const catalogGapsRef = useRef<HTMLDivElement | null>(null);
   const atajosToastTimeoutRef = useRef<number | null>(null);
   const [snapshot, setSnapshot] = useState<CreatorBusinessSnapshot | null>(businessSnapshot ?? null);
+  const salesUpdatedTimeoutRef = useRef<number | null>(null);
   const [localCatalogItems, setLocalCatalogItems] = useState<CatalogItem[]>(() => catalogItems ?? []);
   const [showAllCatalogItems, setShowAllCatalogItems] = useState(false);
   const [catalogToast, setCatalogToast] = useState<string | null>(null);
@@ -670,6 +705,14 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
       }
     };
   }, [catalogToast]);
+
+  useEffect(() => {
+    return () => {
+      if (salesUpdatedTimeoutRef.current && typeof window !== "undefined") {
+        window.clearTimeout(salesUpdatedTimeoutRef.current);
+      }
+    };
+  }, []);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -1279,6 +1322,21 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
   );
   const isSalesTab = scope === "global" && activeTabKey === "ventas";
   const isCatalogTab = scope === "global" && activeTabKey === "catalogo";
+  const handleSalesRetry = useCallback(() => {
+    setSalesError(null);
+    setSalesRetry((value) => value + 1);
+  }, []);
+  const triggerSalesUpdated = useCallback(() => {
+    setSalesUpdated(true);
+    if (typeof window === "undefined") return;
+    if (salesUpdatedTimeoutRef.current) {
+      window.clearTimeout(salesUpdatedTimeoutRef.current);
+    }
+    salesUpdatedTimeoutRef.current = window.setTimeout(() => {
+      setSalesUpdated(false);
+      salesUpdatedTimeoutRef.current = null;
+    }, 1600);
+  }, []);
   useEffect(() => {
     if (!isSalesTab) return;
     const controller = new AbortController();
@@ -1287,18 +1345,29 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
       try {
         setSalesLoading(true);
         setSalesError(null);
-        const res = await fetch(`/api/creator/analytics/sales?range=${salesRange}`, {
+        setSalesUpdated(false);
+        if (typeof window !== "undefined" && salesUpdatedTimeoutRef.current) {
+          window.clearTimeout(salesUpdatedTimeoutRef.current);
+          salesUpdatedTimeoutRef.current = null;
+        }
+        const res = await fetch(`/api/creator/cortex/sales?range=${salesRange}`, {
           cache: "no-store",
           signal: controller.signal,
         });
-        if (!res.ok) throw new Error("sales_fetch_failed");
         const data = (await res.json()) as CreatorSalesResponse;
+        if (!res.ok) throw new Error(data.error ?? "sales_fetch_failed");
         if (!alive) return;
+        if (!data.ok) {
+          setSalesError("Datos no disponibles");
+          setSalesData(null);
+          return;
+        }
         setSalesData(data);
+        triggerSalesUpdated();
       } catch (err) {
         if (!alive) return;
-        console.error("Error loading sales analytics", err);
-        setSalesError("No se pudieron cargar las ventas.");
+        console.error("Error loading sales data", err);
+        setSalesError("Datos no disponibles");
         setSalesData(null);
       } finally {
         if (alive) setSalesLoading(false);
@@ -1309,7 +1378,38 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
       alive = false;
       controller.abort();
     };
-  }, [isSalesTab, salesRange]);
+  }, [isSalesTab, salesRange, salesRetry, triggerSalesUpdated]);
+  useEffect(() => {
+    if (!isSalesTab) return;
+    const controller = new AbortController();
+    let alive = true;
+    const loadSegments = async () => {
+      try {
+        setSegmentsLoading(true);
+        setSegmentsError(null);
+        const res = await fetch("/api/creator/cortex/segments", {
+          cache: "no-store",
+          signal: controller.signal,
+        });
+        if (!res.ok) throw new Error("segments_fetch_failed");
+        const data = (await res.json()) as CortexSegmentsResponse;
+        if (!alive) return;
+        setSegmentsData(data);
+      } catch (err) {
+        if (!alive) return;
+        console.error("Error loading cortex segments", err);
+        setSegmentsError("No se pudieron cargar los segmentos.");
+        setSegmentsData(null);
+      } finally {
+        if (alive) setSegmentsLoading(false);
+      }
+    };
+    void loadSegments();
+    return () => {
+      alive = false;
+      controller.abort();
+    };
+  }, [isSalesTab]);
   const catalogItemsSorted = useMemo(
     () => sortCatalogItems(catalogItemsState),
     [catalogItemsState]
@@ -2020,6 +2120,26 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
     },
     [router]
   );
+  const handleOpenFanChat = useCallback(
+    (fanId: string) => {
+      if (!fanId) return;
+      void router.push(`/?fanId=${encodeURIComponent(fanId)}`);
+    },
+    [router]
+  );
+  const buildSegmentSuggestedAction = useCallback(
+    (segment: CortexSegmentEntry, fan?: CortexSegmentFanPreview) => {
+      const name = fan?.displayName ? getFirstName(fan.displayName) : "";
+      const trimmed = segment.suggestedAction.trim();
+      if (!name) return trimmed;
+      if (!trimmed) return `Hola ${name}`;
+      return `Hola ${name}, ${trimmed}`;
+    },
+    []
+  );
+  const toggleSegmentExpanded = (segmentId: string) => {
+    setSegmentsExpanded((prev) => ({ ...prev, [segmentId]: !prev[segmentId] }));
+  };
   const renderDraftGroups = (drafts: CortexDraftGroup[] | undefined, className?: string) => {
     if (!drafts || drafts.length === 0) return null;
     return (
@@ -2227,6 +2347,7 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
         </button>
       </div>
     );
+    const segmentPreviewLimit = 4;
     const salesPanel = isSalesTab ? (
       <div className="mb-4 space-y-3">
         <div className="rounded-2xl border border-slate-800/80 bg-slate-950/80 px-4 py-3 space-y-3">
@@ -2259,10 +2380,30 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
                   {option.label}
                 </button>
               ))}
+              {(salesLoading || salesUpdated) && (
+                <span className="text-[10px] uppercase tracking-wide text-slate-500">
+                  {salesLoading ? "Actualizando..." : "Actualizado"}
+                </span>
+              )}
             </div>
           </div>
           {salesLoading && <div className="text-[12px] text-slate-400">Cargando ventas...</div>}
-          {salesError && <div className="text-[12px] text-rose-300">{salesError}</div>}
+          {salesError && (
+            <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-amber-500/40 bg-amber-500/10 px-3 py-2">
+              <div className="text-[12px] text-amber-100">{salesError}</div>
+              <button
+                type="button"
+                onPointerDown={(event) => event.stopPropagation()}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  handleSalesRetry();
+                }}
+                className="rounded-full border border-amber-400/60 bg-amber-500/10 px-3 py-1 text-[11px] font-semibold text-amber-100 hover:bg-amber-500/20"
+              >
+                Reintentar
+              </button>
+            </div>
+          )}
           {!salesLoading && !salesError && salesData && (
             <>
               <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
@@ -2369,6 +2510,101 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
                     <div key={`${insight}-${idx}`}>• {insight}</div>
                   ))}
                 </div>
+              </div>
+
+              <div className="rounded-xl border border-slate-800/70 bg-slate-900/60 px-3 py-2">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div className="text-[10px] uppercase tracking-wide text-slate-400">Segmentos accionables</div>
+                  {segmentsLoading && <div className="text-[10px] text-slate-500">Cargando...</div>}
+                </div>
+                {segmentsError && <div className="mt-2 text-[12px] text-rose-300">{segmentsError}</div>}
+                {!segmentsLoading && !segmentsError && segmentsData && segmentsData.segments.length === 0 && (
+                  <div className="mt-2 text-[12px] text-slate-500">Sin segmentos aún.</div>
+                )}
+                {!segmentsLoading && !segmentsError && segmentsData && segmentsData.segments.length > 0 && (
+                  <div className="mt-2 space-y-2">
+                    {segmentsData.segments.map((segment) => {
+                      const isExpanded = Boolean(segmentsExpanded[segment.id]);
+                      const previewFans = isExpanded
+                        ? segment.fanPreview
+                        : segment.fanPreview.slice(0, segmentPreviewLimit);
+                      const hasMore = segment.fanPreview.length > segmentPreviewLimit;
+                      const suggestedFan = segment.fanPreview[0];
+                      return (
+                        <div
+                          key={segment.id}
+                          className="rounded-xl border border-slate-800/70 bg-slate-950/70 px-3 py-3 space-y-2"
+                        >
+                          <div className="flex flex-wrap items-start justify-between gap-2">
+                            <div className="min-w-0">
+                              <div className="text-[12px] font-semibold text-slate-100">{segment.title}</div>
+                              <div className="text-[11px] text-slate-400">{segment.reason}</div>
+                            </div>
+                            <div className="text-right text-[11px] text-slate-400">
+                              <div>{formatCount(segment.fanIds.length)} fans</div>
+                              <div className="text-slate-200">{formatCurrency(segment.potentialAmount)}</div>
+                            </div>
+                          </div>
+
+                          <div className="space-y-2">
+                            {previewFans.length === 0 && (
+                              <div className="text-[12px] text-slate-500">Sin fans en este segmento.</div>
+                            )}
+                            {previewFans.map((fan) => (
+                              <div key={fan.fanId} className="flex items-center justify-between gap-2">
+                                <div className="min-w-0">
+                                  <div className="truncate text-[12px] text-slate-100">{fan.displayName}</div>
+                                  <div className="text-[11px] text-slate-500">
+                                    {formatCurrency(fan.totalSpent)} · {formatCount(fan.extrasCount)} extras ·{" "}
+                                    {formatCount(fan.tipsCount)} propinas · {formatCount(fan.giftsCount)} regalos
+                                  </div>
+                                </div>
+                                <button
+                                  type="button"
+                                  onPointerDown={(event) => event.stopPropagation()}
+                                  onClick={(event) => {
+                                    event.stopPropagation();
+                                    handleOpenFanChat(fan.fanId);
+                                  }}
+                                  className="shrink-0 rounded-full border border-slate-700/70 bg-slate-900/70 px-3 py-1 text-[11px] font-semibold text-slate-200 hover:bg-slate-800/80"
+                                >
+                                  Abrir chat
+                                </button>
+                              </div>
+                            ))}
+                          </div>
+
+                          <div className="flex flex-wrap items-center gap-2 pt-1">
+                            {hasMore && (
+                              <button
+                                type="button"
+                                onPointerDown={(event) => event.stopPropagation()}
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  toggleSegmentExpanded(segment.id);
+                                }}
+                                className="rounded-full border border-slate-700/70 bg-slate-900/60 px-3 py-1 text-[11px] font-semibold text-slate-200 hover:bg-slate-800/80"
+                              >
+                                {isExpanded ? "Ver menos" : "Ver todos"}
+                              </button>
+                            )}
+                            <button
+                              type="button"
+                              onPointerDown={(event) => event.stopPropagation()}
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                insertAndFocus(buildSegmentSuggestedAction(segment, suggestedFan));
+                              }}
+                              className="rounded-full border border-emerald-500/60 bg-emerald-500/10 px-3 py-1 text-[11px] font-semibold text-emerald-100 hover:bg-emerald-500/20"
+                            >
+                              Insertar mensaje sugerido
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
             </>
           )}

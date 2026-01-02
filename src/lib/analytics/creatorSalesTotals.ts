@@ -1,7 +1,7 @@
 export type CreatorSalesPurchase = {
   amount?: number | null;
   kind?: string | null;
-  productType?: "PACK" | "BUNDLE" | "EXTRA" | null;
+  productType?: "PACK" | "BUNDLE" | "EXTRA" | "SUBSCRIPTION" | null;
   productId?: string | null;
 };
 
