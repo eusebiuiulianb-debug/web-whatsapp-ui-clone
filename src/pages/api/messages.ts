@@ -229,7 +229,7 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse<MessageRespo
   try {
     const fan = await prisma.fan.findUnique({
       where: { id: fanId },
-      select: { isBlocked: true, preferredLanguage: true, creatorId: true },
+      select: { isBlocked: true, preferredLanguage: true, creatorId: true, inviteUsedAt: true, inviteToken: true },
     });
     if (!fan) {
       return res.status(404).json({ ok: false, error: "Fan not found" });
@@ -310,6 +310,9 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse<MessageRespo
       if (normalizedFrom === "fan") {
         fanUpdate.isArchived = false;
         fanUpdate.unreadCount = { increment: 1 };
+        if (fan.inviteToken && !fan.inviteUsedAt) {
+          fanUpdate.inviteUsedAt = new Date();
+        }
       } else {
         fanUpdate.lastCreatorMessageAt = new Date();
         fanUpdate.unreadCount = 0;

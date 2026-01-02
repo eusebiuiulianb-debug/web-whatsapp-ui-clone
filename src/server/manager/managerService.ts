@@ -802,6 +802,7 @@ export async function buildFanManagerSummary(creatorId: string, fanId: string, p
     nextBestAction,
     nextBestActionId: decisionResult.id,
   });
+  const inviteUsedAt = fan.inviteUsedAt ? fan.inviteUsedAt.toISOString() : null;
 
   return {
     fanId,
@@ -809,9 +810,11 @@ export async function buildFanManagerSummary(creatorId: string, fanId: string, p
     healthScore,
     riskLevel,
     hasActivePack,
+    hasActiveAccess: hasActivePack,
     daysToExpiry,
     recent30dSpend,
     lifetimeValue,
+    inviteUsedAt,
     priorityRank,
     priorityReason: decisionResult.priorityReason,
     nextBestAction,

@@ -18,6 +18,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       select: {
         id: true,
         handle: true,
+        inviteUsedAt: true,
         creator: { select: { name: true } },
       },
     });
@@ -27,6 +28,13 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         console.warn("[invite] token not found", token);
       }
       return res.status(404).json({ ok: false, error: "not_found" });
+    }
+
+    if (!fan.inviteUsedAt) {
+      await prisma.fan.updateMany({
+        where: { id: fan.id, inviteUsedAt: null },
+        data: { inviteUsedAt: new Date() },
+      });
     }
 
     const creatorHandle = fan.handle && fan.handle.trim().length > 0 ? fan.handle : slugify(fan.creator?.name || "");

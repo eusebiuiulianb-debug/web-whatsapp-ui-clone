@@ -256,8 +256,8 @@ export async function getCreatorRevenueSummary({
   const subsAmount = Object.values(subsByType).reduce((acc, entry) => acc + (entry.amount || 0), 0);
   const subsCount = Object.values(subsByType).reduce((acc, entry) => acc + (entry.count || 0), 0);
 
-  const totalsAmount = subsAmount + extras.amount + tips.amount;
-  const totalCount = subsCount + extras.count + tips.count;
+  const totalsAmount = subsAmount + extras.amount + tips.amount + gifts.amount;
+  const totalCount = subsCount + extras.count + tips.count + gifts.count;
 
   return {
     subs: { amount: subsAmount, count: subsCount, byType: subsByType },

@@ -38,6 +38,7 @@ interface Conversation {
   accessState?: "ACTIVE" | "EXPIRED" | "NONE";
   accessType?: string | null;
   accessLabel?: string | null;
+  hasActiveAccess?: boolean;
   daysLeft?: number;
   unreadCount?: number;
   isNew?: boolean;
@@ -123,6 +124,7 @@ interface ConversationListData {
   accessState?: "ACTIVE" | "EXPIRED" | "NONE";
   accessType?: string | null;
   accessLabel?: string | null;
+  hasActiveAccess?: boolean;
   daysLeft?: number;
   unreadCount?: number;
   isNew?: boolean;

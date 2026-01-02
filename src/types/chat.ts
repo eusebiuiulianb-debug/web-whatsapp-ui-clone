@@ -30,6 +30,7 @@ export interface Fan {
   accessState?: "ACTIVE" | "EXPIRED" | "NONE";
   accessType?: string | null;
   accessLabel?: string | null;
+  hasActiveAccess?: boolean;
   daysLeft?: number;
   lastSeen: string;
   lastSeenAt?: string | null;

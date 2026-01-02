@@ -1,23 +1,7 @@
 import type { NextApiRequest, NextApiResponse } from "next";
 import prisma from "../../../lib/prisma.server";
 import { sendBadRequest, sendServerError } from "../../../lib/apiError";
-
-const DURATION_BY_TYPE = {
-  trial: 7,
-  monthly: 30,
-  special: 30,
-} as const;
-
-type GrantType = keyof typeof DURATION_BY_TYPE;
-
-function isValidGrantType(type: unknown): type is GrantType {
-  return typeof type === "string" && type in DURATION_BY_TYPE;
-}
-
-function getExpiresAtForGrantType(type: GrantType) {
-  const durationDays = DURATION_BY_TYPE[type];
-  return new Date(Date.now() + durationDays * 24 * 60 * 60 * 1000);
-}
+import { isGrantType, upsertAccessGrant } from "../../../lib/accessGrants";
 
 async function getActiveGrantsForFan(fanId: string) {
   const now = new Date();
@@ -43,17 +27,17 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     return sendBadRequest(res, "fanId is required");
   }
 
-  if (!isValidGrantType(type)) {
+  if (!isGrantType(type)) {
     return sendBadRequest(res, "Invalid type");
   }
 
   try {
     // Policy: keep a single active grant per fan and type.
-    await prisma.accessGrant.deleteMany({ where: { fanId, type } });
-
-    const expiresAt = getExpiresAtForGrantType(type);
-    const grant = await prisma.accessGrant.create({
-      data: { fanId, type, expiresAt },
+    const grant = await upsertAccessGrant({
+      fanId,
+      type,
+      prismaClient: prisma,
+      extendIfActive: false,
     });
 
     const activeGrants = await getActiveGrantsForFan(fanId);

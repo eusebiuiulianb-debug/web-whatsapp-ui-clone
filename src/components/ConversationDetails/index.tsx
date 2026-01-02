@@ -524,6 +524,18 @@ export default function ConversationDetails({ onBackToBoard }: ConversationDetai
   const [ accessGrants, setAccessGrants ] = useState<
     { id: string; fanId: string; type: string; createdAt: string; expiresAt: string }[]
   >([]);
+  const [ purchaseHistory, setPurchaseHistory ] = useState<
+    {
+      id: string;
+      kind: "EXTRA" | "TIP" | "GIFT";
+      amount: number;
+      createdAt: string;
+      contentItemId?: string | null;
+      contentTitle?: string | null;
+    }[]
+  >([]);
+  const [ purchaseHistoryLoading, setPurchaseHistoryLoading ] = useState(false);
+  const [ historyFilter, setHistoryFilter ] = useState<"all" | "extra" | "tip" | "gift">("all");
   const [ accessGrantsLoading, setAccessGrantsLoading ] = useState(false);
   const [ openPanel, setOpenPanel ] = useState<"none" | "history" | "extras">("none");
   const [ profileText, setProfileText ] = useState(conversation.profileText ?? "");
@@ -2021,13 +2033,17 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
   async function fetchHistory(fanId: string) {
     try {
       setHistoryError("");
-      const res = await fetch(`/api/fans/history?fanId=${fanId}`);
-      if (!res.ok) throw new Error("error");
-      const data = await res.json();
+      setPurchaseHistoryLoading(true);
+      const res = await fetch(`/api/fans/purchases?fanId=${fanId}`);
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data?.ok) throw new Error("error");
       const history = Array.isArray(data.history) ? data.history : [];
-      setAccessGrants(history);
+      setPurchaseHistory(history);
     } catch (_err) {
       setHistoryError("Error cargando historial");
+      setPurchaseHistory([]);
+    } finally {
+      setPurchaseHistoryLoading(false);
     }
   }
 
@@ -6386,6 +6402,17 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
   const tipsInlineLabel =
     tipsCountDisplay === null || tipsSpentDisplay === null ? "—" : `${tipsCountDisplay} · ${tipsSpentDisplay} €`;
   const showTipsInline = typeof tipsSpentDisplay === "number" && tipsSpentDisplay > 0;
+  const purchaseKindMeta = {
+    EXTRA: { label: "Extra", icon: "💎", tone: "text-emerald-200" },
+    TIP: { label: "Propina", icon: "💛", tone: "text-amber-200" },
+    GIFT: { label: "Regalo", icon: "🎁", tone: "text-sky-200" },
+  };
+  const historyFilters = [
+    { id: "all", label: "Todo" },
+    { id: "extra", label: "Extras" },
+    { id: "tip", label: "Propinas" },
+    { id: "gift", label: "Regalos" },
+  ] as const;
   const lifetimeAmount =
     typeof conversation.totalSpent === "number"
       ? conversation.totalSpent
@@ -6394,6 +6421,11 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
       : typeof conversation.lifetimeValue === "number"
       ? conversation.lifetimeValue
       : 0;
+  const filteredPurchaseHistory = useMemo(() => {
+    if (historyFilter === "all") return purchaseHistory;
+    const targetKind = historyFilter.toUpperCase() as "EXTRA" | "TIP" | "GIFT";
+    return purchaseHistory.filter((entry) => entry.kind === targetKind);
+  }, [historyFilter, purchaseHistory]);
   const subsAmount = Math.max(0, lifetimeAmount - extrasAmount);
   const sessionToday = conversation.extraSessionToday ?? {
     todayCount: 0,
@@ -7272,7 +7304,10 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
       {showHistory && (
         <div className="mb-3 mx-4 rounded-xl border border-slate-700 bg-slate-900/80 px-3 py-3 text-xs text-slate-100 flex flex-col gap-3 max-h-64">
           <div className="flex items-center justify-between gap-2">
-            <span className="font-semibold text-slate-100">Historial de compras</span>
+            <div className="flex items-center gap-2">
+              <span className="font-semibold text-slate-100">Historial de cobros</span>
+              {purchaseHistoryLoading && <span className="text-[11px] text-slate-400">Cargando...</span>}
+            </div>
             <button
               type="button"
               onClick={() => setOpenPanel("none")}
@@ -7281,37 +7316,78 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
               Cerrar
             </button>
           </div>
-          {extrasCountDisplay > 0 && (
-            <div className="text-[11px] text-slate-400">
-              Este fan ha comprado {extrasCountDisplay} extra{extrasCountDisplay !== 1 ? "s" : ""} por un total de {extrasSpentDisplay} € (detalle en la pestaña &quot;Ventas extra&quot;).
+          <div className="grid grid-cols-3 gap-2 rounded-lg border border-slate-800 bg-slate-950/50 px-3 py-2">
+            <div className="flex flex-col gap-1">
+              <span className="text-[10px] text-slate-400">Total gastado</span>
+              <span className="text-[12px] font-semibold text-slate-50">{Math.round(lifetimeAmount)} €</span>
+            </div>
+            <div className="flex flex-col gap-1">
+              <span className="text-[10px] text-slate-400">Extras</span>
+              <span className="text-[12px] font-semibold text-slate-50">{extrasSpentDisplay} €</span>
+            </div>
+            <div className="flex flex-col gap-1">
+              <span className="text-[10px] text-slate-400">Propinas</span>
+              <span className="text-[12px] font-semibold text-slate-50">
+                {tipsSpentDisplay === null ? "—" : `${tipsSpentDisplay} €`}
+              </span>
+            </div>
+          </div>
+          <div className="flex flex-wrap items-center gap-2 text-[11px]">
+            {historyFilters.map((filter) => (
+              <button
+                key={filter.id}
+                type="button"
+                onClick={() => setHistoryFilter(filter.id)}
+                className={clsx(
+                  "rounded-full border px-3 py-1 font-semibold transition",
+                  historyFilter === filter.id
+                    ? "border-emerald-400/80 bg-emerald-500/10 text-emerald-100"
+                    : "border-slate-700 bg-slate-950/50 text-slate-300 hover:border-slate-500/80 hover:text-slate-100"
+                )}
+              >
+                {filter.label}
+              </button>
+            ))}
+          </div>
+          {historyError && <div className="text-[11px] text-rose-300">{historyError}</div>}
+          {!historyError && !purchaseHistoryLoading && filteredPurchaseHistory.length === 0 && (
+            <div className="text-[11px] text-slate-400">Sin movimientos.</div>
+          )}
+          {filteredPurchaseHistory.length > 0 && (
+            <div className="flex-1 min-h-0 overflow-y-auto space-y-2">
+              {filteredPurchaseHistory.map((entry) => {
+                const meta = purchaseKindMeta[entry.kind] ?? {
+                  label: "Compra",
+                  icon: "🧾",
+                  tone: "text-slate-200",
+                };
+                const title =
+                  entry.kind === "EXTRA"
+                    ? entry.contentTitle
+                      ? `Extra · ${entry.contentTitle}`
+                      : "Extra"
+                    : entry.kind === "TIP"
+                    ? "Propina"
+                    : entry.kind === "GIFT"
+                    ? "Regalo"
+                    : meta.label;
+                return (
+                  <div key={entry.id} className="rounded-lg border border-slate-800 bg-slate-950/60 px-2 py-2">
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="flex items-start gap-2 min-w-0">
+                        <span className={clsx("text-base leading-none", meta.tone)}>{meta.icon}</span>
+                        <div className="flex flex-col min-w-0">
+                          <span className="text-[12px] font-semibold text-slate-100 truncate">{title}</span>
+                          <span className="text-[10px] text-slate-400">{formatNoteDate(entry.createdAt)}</span>
+                        </div>
+                      </div>
+                      <span className="text-[12px] font-semibold text-slate-100">{Math.round(entry.amount)} €</span>
+                    </div>
+                  </div>
+                );
+              })}
             </div>
           )}
-          {historyError && <div className="text-[11px] text-rose-300">{historyError}</div>}
-          {!historyError && accessGrants.length === 0 && (
-            <div className="text-[11px] text-slate-400">Sin historial de compras todavía.</div>
-          )}
-          <div className="flex-1 overflow-y-auto space-y-2">
-            {accessGrants.map((grant) => {
-              const mapped = mapGrantType(grant.type);
-              const status = getGrantStatus(grant.expiresAt);
-              return (
-                <div key={grant.id} className="rounded-lg bg-slate-950/60 px-2 py-1.5">
-                  <div className="flex flex-wrap items-center gap-2 text-[11px] text-slate-200">
-                    <span>{formatGrantDate(grant.createdAt)}</span>
-                    <span>·</span>
-                    <span>{mapped.label}</span>
-                    <span>·</span>
-                    <span>{mapped.amount} €</span>
-                    <span>·</span>
-                    <span className={status === "Activo" ? "text-emerald-300" : "text-slate-400"}>{status}</span>
-                  </div>
-                  {grant.expiresAt && (
-                    <div className="text-[10px] text-slate-400">Vence el {formatGrantDate(grant.expiresAt)}</div>
-                  )}
-                </div>
-              );
-            })}
-          </div>
         </div>
       )}
       {iaMessage && (

@@ -222,7 +222,8 @@ export default function ConversationList(props: ConversationListProps) {
   const shouldShowAccessChip = Boolean(accessChipLabel);
 
   const canToggleHighPriority = !isManagerChat && typeof onToggleHighPriority === "function";
-  const isInvitePending = !isManagerChat && !data.inviteUsedAt;
+  const hasActiveAccess = typeof data.hasActiveAccess === "boolean" ? data.hasActiveAccess : normalizedAccessState === "ACTIVE";
+  const isInvitePending = !isManagerChat && !data.inviteUsedAt && !hasActiveAccess;
   const canCopyInvite = isInvitePending && typeof onCopyInvite === "function";
   const inviteCopyLabel =
     inviteCopyState === "copied"

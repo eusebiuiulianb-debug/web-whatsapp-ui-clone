@@ -557,11 +557,12 @@ export function FanChatPage({
         setGiftError(result.error ?? "No se pudo registrar el regalo.");
         return;
       }
+      await fetchAccessInfo(fanId);
       const priceLabel = normalizePriceLabel(pack.price);
       appendSystemMessage(`🎁 Has regalado ${pack.name} (${priceLabel})`);
       closeMoneyModal();
     },
-    [appendSystemMessage, closeMoneyModal, createSupportPurchase, fanId]
+    [appendSystemMessage, closeMoneyModal, createSupportPurchase, fanId, fetchAccessInfo]
   );
 
   const handlePackRequest = useCallback(

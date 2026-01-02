@@ -323,7 +323,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     const lastGrantType = lastGrant?.type ?? null;
     const hasAccessHistory = fan.accessGrants.length > 0;
     const activeGrantTypes = activeGrants.map((grant) => grant.type);
-    const accessState: "ACTIVE" | "EXPIRED" | "NONE" = activeGrant ? "ACTIVE" : hasAccessHistory ? "EXPIRED" : "NONE";
+    const hasActiveAccess = Boolean(activeGrant);
+    const accessState: "ACTIVE" | "EXPIRED" | "NONE" = hasActiveAccess ? "ACTIVE" : hasAccessHistory ? "EXPIRED" : "NONE";
     const accessType = activeGrant?.type ?? lastGrantType ?? null;
 
       // Usamos la expiración más lejana entre los grants activos para el contador de días
@@ -476,6 +477,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         accessState,
         accessType,
         accessLabel,
+        hasActiveAccess,
         membershipStatus,
         daysLeft,
         lastSeen: fan.lastSeen || "",

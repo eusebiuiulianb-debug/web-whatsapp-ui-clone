@@ -1,6 +1,8 @@
 import type { NextApiRequest, NextApiResponse } from "next";
 import prisma from "../../../../lib/prisma.server";
 import { sendBadRequest, sendServerError } from "../../../../lib/apiError";
+import { PACKS } from "../../../../config/packs";
+import { upsertAccessGrant, type GrantType } from "../../../../lib/accessGrants";
 
 type SupportKind = "TIP" | "GIFT";
 
@@ -42,9 +44,13 @@ function buildGiftSessionTag(packId: unknown, packName: unknown): string | null 
   return raw.slice(0, 120);
 }
 
-async function getSupportContentItem(creatorId: string, kind: SupportKind) {
+async function getSupportContentItem(
+  creatorId: string,
+  kind: SupportKind,
+  prismaClient = prisma
+) {
   const content = SUPPORT_CONTENT[kind];
-  return prisma.contentItem.upsert({
+  return prismaClient.contentItem.upsert({
     where: { creatorId_slug: { creatorId, slug: content.slug } },
     update: {},
     create: {
@@ -60,6 +66,29 @@ async function getSupportContentItem(creatorId: string, kind: SupportKind) {
       order: 0,
     },
   });
+}
+
+function normalizePackToken(value: unknown): string {
+  return typeof value === "string" ? value.trim().toLowerCase() : "";
+}
+
+function resolveGiftGrantType(packId: unknown, packName: unknown, amount: number): GrantType | null {
+  const id = normalizePackToken(packId);
+  const name = normalizePackToken(packName);
+  const candidates = [id, name].filter(Boolean);
+
+  for (const candidate of candidates) {
+    if (candidate.includes("monthly") || candidate.includes("mensual")) return "monthly";
+    if (candidate.includes("special") || candidate.includes("especial") || candidate.includes("single") || candidate.includes("individual")) {
+      return "special";
+    }
+    if (candidate.includes("trial") || candidate.includes("welcome") || candidate.includes("bienvenida")) return "trial";
+  }
+
+  if (amount === PACKS.monthly.price) return "monthly";
+  if (amount === PACKS.special.price) return "special";
+  if (amount === PACKS.trial.price) return "trial";
+  return null;
 }
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
@@ -93,18 +122,35 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     });
     if (!fan) return res.status(404).json({ error: "Fan not found" });
 
-    const supportItem = await getSupportContentItem(fan.creatorId, kind);
-    const sessionTag = kind === "GIFT" ? buildGiftSessionTag(packId, packName) : null;
+    const now = new Date();
+    const purchase = await prisma.$transaction(async (tx) => {
+      const supportItem = await getSupportContentItem(fan.creatorId, kind, tx);
+      const sessionTag = kind === "GIFT" ? buildGiftSessionTag(packId, packName) : null;
+      const created = await tx.extraPurchase.create({
+        data: {
+          fanId,
+          contentItemId: supportItem.id,
+          tier: "T0",
+          amount,
+          kind,
+          sessionTag,
+        },
+      });
 
-    const purchase = await prisma.extraPurchase.create({
-      data: {
-        fanId,
-        contentItemId: supportItem.id,
-        tier: "T0",
-        amount,
-        kind,
-        sessionTag,
-      },
+      if (kind === "GIFT") {
+        const grantType = resolveGiftGrantType(packId, packName, amount);
+        if (grantType) {
+          await upsertAccessGrant({
+            fanId,
+            type: grantType,
+            prismaClient: tx,
+            now,
+            extendIfActive: true,
+          });
+        }
+      }
+
+      return created;
     });
 
     return res.status(201).json({ ok: true, purchase: { id: purchase.id, kind: purchase.kind, amount: purchase.amount } });
