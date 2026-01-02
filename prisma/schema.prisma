@@ -208,6 +208,12 @@ enum ExtraTier {
   T4
 }
 
+enum ExtraPurchaseKind {
+  EXTRA
+  TIP
+  GIFT
+}
+
 enum CatalogItemType {
   EXTRA
   BUNDLE
@@ -347,6 +353,7 @@ model ExtraPurchase {
   contentItemId String
   tier          ExtraTier
   amount        Int
+  kind          ExtraPurchaseKind @default(EXTRA)
   sessionTag    String?
   createdAt     DateTime    @default(now())
 }

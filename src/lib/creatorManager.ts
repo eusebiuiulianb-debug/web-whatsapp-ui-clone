@@ -227,7 +227,7 @@ export async function getCreatorManagerSummary(creatorId: string, deps: ManagerD
         inviteUsedAt: true,
         isNew: true,
         accessGrants: { select: { type: true, createdAt: true, expiresAt: true } },
-        extraPurchases: { select: { amount: true, createdAt: true } },
+        extraPurchases: { select: { amount: true, createdAt: true, kind: true } },
         messages: { where: { from: "fan" }, select: { id: true }, take: 1 },
       },
     }),
@@ -262,9 +262,9 @@ export async function getCreatorManagerSummary(creatorId: string, deps: ManagerD
       last30: { count: revenueLast30.tips.count, revenue: revenueLast30.tips.amount },
     },
     gifts: {
-      today: { count: 0 },
-      last7: { count: 0 },
-      last30: { count: 0 },
+      today: { count: revenueToday.gifts.count },
+      last7: { count: revenueLast7.gifts.count },
+      last30: { count: revenueLast30.gifts.count },
     },
   };
 
@@ -283,16 +283,16 @@ export async function getCreatorManagerSummary(creatorId: string, deps: ManagerD
   for (const fan of fans) {
     const displayName = (fan.displayName || fan.name || "").trim() || "Fan";
     const grants = fan.accessGrants ?? [];
-    const extras = fan.extraPurchases ?? [];
+    const purchases = fan.extraPurchases ?? [];
     const firstActivityDate =
-      [...grants.map((g) => g.createdAt), ...extras.map((e) => e.createdAt)].sort(
+      [...grants.map((g) => g.createdAt), ...purchases.map((e) => e.createdAt)].sort(
         (a, b) => a.getTime() - b.getTime()
       )[0] || null;
     const lastActivityDate =
-      [...grants.map((g) => g.createdAt), ...extras.map((e) => e.createdAt)].sort(
+      [...grants.map((g) => g.createdAt), ...purchases.map((e) => e.createdAt)].sort(
         (a, b) => b.getTime() - a.getTime()
       )[0] || null;
-    const lifetimeRevenue = extras.reduce((acc, e) => acc + (e.amount ?? 0), 0) + sumGrantRevenue(grants);
+    const lifetimeRevenue = purchases.reduce((acc, e) => acc + (e.amount ?? 0), 0) + sumGrantRevenue(grants);
 
     if (firstActivityDate && firstActivityDate >= start30) {
       segments.newFans += 1;

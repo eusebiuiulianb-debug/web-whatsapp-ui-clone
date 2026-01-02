@@ -41,6 +41,7 @@ const FanMonetizationSummarySchema = z.object({
     total: z.number(),
   }),
   totalSpent: z.number(),
+  recent30dSpent: z.number(),
   lastPurchaseAt: z.string().nullable(),
 });
 
@@ -51,9 +52,9 @@ export const FanManagerAiContextSchema = z.object({
   stageLabel: z.string(),
   riskLevel: RiskLevelSchema,
   healthScore: z.number().nullable(),
-  lifetimeSpent: z.number(),
-  spentLast30Days: z.number(),
-  extrasCount: z.number(),
+  lifetimeSpent: z.number().nullable(),
+  spentLast30Days: z.number().nullable(),
+  extrasCount: z.number().nullable(),
   daysSinceLastMessage: z.number().nullable(),
   daysToRenewal: z.number().nullable(),
   hasActiveMonthly: z.boolean(),

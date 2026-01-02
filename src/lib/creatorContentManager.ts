@@ -49,7 +49,7 @@ export async function getCreatorContentSnapshot(creatorId: string): Promise<Crea
 
   const [extrasPurchases, extrasCatalog] = await Promise.all([
     prisma.extraPurchase.findMany({
-      where: { fan: { creatorId }, createdAt: { gte: start30 } },
+      where: { fan: { creatorId }, createdAt: { gte: start30 }, kind: "EXTRA" },
       select: { amount: true, tier: true, contentItemId: true, contentItem: { select: { id: true, title: true, extraTier: true } } },
     }),
     prisma.contentItem.findMany({

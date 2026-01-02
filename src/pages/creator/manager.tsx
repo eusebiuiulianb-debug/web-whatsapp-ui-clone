@@ -464,12 +464,12 @@ function ManagerChatLayout({
   const extrasBase = summaryWithLocal?.kpis?.extras;
   const tipsBase = summaryWithLocal?.kpis?.tips;
   const giftsBase = summaryWithLocal?.kpis?.gifts;
-  const extrasRevenueToday = (extrasBase?.today?.revenue ?? 0) + (tipsBase?.today?.revenue ?? 0);
-  const extrasCountToday = (extrasBase?.today?.count ?? 0) + (tipsBase?.today?.count ?? 0);
-  const extrasRevenue7 = (extrasBase?.last7?.revenue ?? 0) + (tipsBase?.last7?.revenue ?? 0);
-  const extrasCount7 = (extrasBase?.last7?.count ?? 0) + (tipsBase?.last7?.count ?? 0);
-  const extrasRevenue30 = (extrasBase?.last30?.revenue ?? 0) + (tipsBase?.last30?.revenue ?? 0);
-  const extrasCount30 = (extrasBase?.last30?.count ?? safeExtras30Count) + (tipsBase?.last30?.count ?? 0);
+  const extrasRevenueToday = extrasBase?.today?.revenue ?? 0;
+  const extrasCountToday = extrasBase?.today?.count ?? 0;
+  const extrasRevenue7 = extrasBase?.last7?.revenue ?? 0;
+  const extrasCount7 = extrasBase?.last7?.count ?? 0;
+  const extrasRevenue30 = extrasBase?.last30?.revenue ?? 0;
+  const extrasCount30 = extrasBase?.last30?.count ?? safeExtras30Count;
   const tipsRevenueToday = tipsBase?.today?.revenue ?? 0;
   const tipsCountToday = tipsBase?.today?.count ?? 0;
   const tipsCount7 = tipsBase?.last7?.count ?? 0;
@@ -669,7 +669,7 @@ function ManagerChatLayout({
           {
             title: "Extras 30d",
             value: formatCurrency(extrasRevenue30),
-            helper: gifted30Count > 0 ? `Ventas + propinas · ${gifted30Count} regalos` : "Ventas + propinas",
+            helper: "Ventas extras",
           },
           { title: "Fans nuevos 30d", value: `${safeNewFans30}`, helper: "Altas recientes" },
         ]
@@ -698,7 +698,7 @@ function ManagerChatLayout({
           {
             title: "Extras 30d",
             value: formatCurrency(extrasRevenue30),
-            helper: gifted30Count > 0 ? `Ventas + propinas · ${gifted30Count} regalos` : "Ventas + propinas",
+            helper: "Ventas extras",
           },
         ]
       : activeFilter === "catalog"
@@ -706,7 +706,7 @@ function ManagerChatLayout({
           {
             title: "Extras 30d",
             value: formatCurrency(extrasRevenue30),
-            helper: gifted30Count > 0 ? `Ventas + propinas · ${gifted30Count} regalos` : "Ventas + propinas",
+            helper: "Ventas extras",
           },
           { title: "VIP activos", value: `${vipCount}`, helper: "Upsell" },
           { title: "Mensual activos", value: `${formatNumber(monthlyActive)}`, helper: "Retención" },

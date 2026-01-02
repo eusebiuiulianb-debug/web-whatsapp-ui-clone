@@ -2172,6 +2172,16 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
           lastGrantType: (targetFan as any).lastGrantType ?? prev.lastGrantType ?? null,
           extrasCount: targetFan.extrasCount ?? prev.extrasCount,
           extrasSpentTotal: targetFan.extrasSpentTotal ?? prev.extrasSpentTotal,
+          tipsCount: targetFan.tipsCount ?? (prev as any).tipsCount,
+          tipsSpentTotal: targetFan.tipsSpentTotal ?? (prev as any).tipsSpentTotal,
+          lifetimeSpend: targetFan.lifetimeSpend ?? (prev as any).lifetimeSpend ?? targetFan.lifetimeValue ?? prev.lifetimeValue,
+          lifetimeValue: targetFan.lifetimeValue ?? prev.lifetimeValue,
+          totalSpent:
+            (targetFan as any).totalSpent ??
+            targetFan.lifetimeSpend ??
+            targetFan.lifetimeValue ??
+            (prev as any).totalSpent,
+          recent30dSpent: (targetFan as any).recent30dSpent ?? (prev as any).recent30dSpent,
           maxExtraTier: (targetFan as any).maxExtraTier ?? prev.maxExtraTier,
           novsyStatus: (targetFan as any).novsyStatus ?? prev.novsyStatus ?? null,
           isHighPriority: (targetFan as any).isHighPriority ?? prev.isHighPriority ?? false,
@@ -6369,7 +6379,21 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
   const extrasCountDisplay = conversation.extrasCount ?? 0;
   const extrasSpentDisplay = Math.round(conversation.extrasSpentTotal ?? 0);
   const extrasAmount = conversation.extrasSpentTotal ?? 0;
-  const lifetimeAmount = conversation.lifetimeSpend ?? 0;
+  const tipsCountValue = conversation.tipsCount;
+  const tipsSpentValue = conversation.tipsSpentTotal;
+  const tipsCountDisplay = typeof tipsCountValue === "number" ? tipsCountValue : null;
+  const tipsSpentDisplay = typeof tipsSpentValue === "number" ? Math.round(tipsSpentValue) : null;
+  const tipsInlineLabel =
+    tipsCountDisplay === null || tipsSpentDisplay === null ? "—" : `${tipsCountDisplay} · ${tipsSpentDisplay} €`;
+  const showTipsInline = typeof tipsSpentDisplay === "number" && tipsSpentDisplay > 0;
+  const lifetimeAmount =
+    typeof conversation.totalSpent === "number"
+      ? conversation.totalSpent
+      : typeof conversation.lifetimeSpend === "number"
+      ? conversation.lifetimeSpend
+      : typeof conversation.lifetimeValue === "number"
+      ? conversation.lifetimeValue
+      : 0;
   const subsAmount = Math.max(0, lifetimeAmount - extrasAmount);
   const sessionToday = conversation.extraSessionToday ?? {
     todayCount: 0,
@@ -7102,6 +7126,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
               <span className="text-slate-400">Extras:</span>
               <span className="truncate">
                 {extrasCountDisplay} · {extrasSpentDisplay} €
+                {showTipsInline ? ` · Propinas: ${tipsInlineLabel}` : ""}
               </span>
             </div>
             <div className="md:col-span-2 flex items-start gap-1 min-w-0">
@@ -8487,6 +8512,14 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
                 <span className="text-slate-400">Extras</span>
                 <span className="font-medium text-slate-50">
                   {extrasCountDisplay} extra{extrasCountDisplay === 1 ? "" : "s"} · {extrasSpentDisplay} €
+                </span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-slate-400">Propinas</span>
+                <span className="font-medium text-slate-50">
+                  {tipsCountDisplay === null || tipsSpentDisplay === null
+                    ? "—"
+                    : `${tipsCountDisplay} propina${tipsCountDisplay === 1 ? "" : "s"} · ${tipsSpentDisplay} €`}
                 </span>
               </div>
               <div className="flex items-center justify-between gap-3">

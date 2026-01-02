@@ -221,20 +221,31 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
     const fanIds = fans.map((fan) => fan.id);
     const creatorId = fans[0]?.creatorId || "creator-1";
-    type ExtraPurchaseRow = { amount: number | null; createdAt: Date; tier: string };
+    type ExtraPurchaseRow = { amount: number | null; createdAt: Date; tier: string; kind?: string | null };
     type ExtraStats = { purchases: ExtraPurchaseRow[]; maxTier: string | null };
     const extrasByFan = new Map<string, ExtraStats>();
+    const purchasesByFan = new Map<string, ExtraPurchaseRow[]>();
 
     if (fanIds.length > 0) {
       try {
-        const extras = await prisma.extraPurchase.findMany({
+        const purchases = await prisma.extraPurchase.findMany({
           where: { fanId: { in: fanIds } },
-          select: { fanId: true, amount: true, tier: true, createdAt: true },
+          select: { fanId: true, amount: true, tier: true, createdAt: true, kind: true },
         });
         const tierPriority: Record<string, number> = { T0: 0, T1: 1, T2: 2, T3: 3, T4: 4 };
-        for (const purchase of extras) {
+        for (const purchase of purchases) {
+          const kind = purchase.kind ?? "EXTRA";
+          const allPurchases = purchasesByFan.get(purchase.fanId) ?? [];
+          allPurchases.push({
+            amount: purchase.amount ?? 0,
+            createdAt: purchase.createdAt,
+            tier: purchase.tier,
+            kind: purchase.kind ?? null,
+          });
+          purchasesByFan.set(purchase.fanId, allPurchases);
+          if (kind !== "EXTRA") continue;
           const current = extrasByFan.get(purchase.fanId) ?? { purchases: [], maxTier: null };
-          current.purchases.push({ amount: purchase.amount ?? 0, createdAt: purchase.createdAt, tier: purchase.tier });
+          current.purchases.push({ amount: purchase.amount ?? 0, createdAt: purchase.createdAt, tier: purchase.tier, kind: purchase.kind ?? null });
           const shouldUpdateTier =
             current.maxTier === null || (tierPriority[purchase.tier] ?? 0) > (tierPriority[current.maxTier] ?? 0);
           const nextTier = shouldUpdateTier ? purchase.tier : current.maxTier;
@@ -351,9 +362,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       const paidGrants = fan.accessGrants.filter((grant) => grant.type === "monthly" || grant.type === "special" || grant.type === "single");
       const paidGrantsCount = paidGrants.length;
       const extrasInfo = extrasByFan.get(fan.id) ?? { purchases: [], maxTier: null };
+      const allPurchases = purchasesByFan.get(fan.id) ?? [];
       const monetization = buildFanMonetizationSummaryFromFan({
         accessGrants: fan.accessGrants,
-        extraPurchases: extrasInfo.purchases,
+        extraPurchases: allPurchases,
       }, now);
       const extrasTotal = monetization.extras.total;
       const totalSpend = monetization.totalSpent;
@@ -473,6 +485,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         paidGrantsCount,
         lifetimeValue: totalSpend, // mantenemos compatibilidad pero usando el gasto total real
         lifetimeSpend: totalSpend,
+        totalSpent: monetization?.totalSpent ?? totalSpend,
+        recent30dSpent: monetization?.recent30dSpent ?? null,
         customerTier,
         profileText: fan.profileText ?? null,
         quickNote: fan.quickNote ?? null,
@@ -489,6 +503,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         nextActionSummary,
         extrasCount: monetization.extras.count,
         extrasSpentTotal: extrasTotal,
+        tipsCount: monetization.tips.count,
+        tipsSpentTotal: monetization.tips.total,
         maxExtraTier: extrasInfo.maxTier,
         novsyStatus,
         isHighPriority,

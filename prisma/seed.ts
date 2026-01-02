@@ -448,6 +448,62 @@ async function main() {
     ],
   });
 
+  if (process.env.NODE_ENV !== "production") {
+    await prisma.contentItem.createMany({
+      data: [
+        {
+          id: "extra-ana-1",
+          creatorId: creator.id,
+          pack: "SPECIAL",
+          slug: "extra-ana-1",
+          type: "IMAGE",
+          title: "Extra demo Ana 1",
+          description: "Extra de prueba para validar monetización.",
+          order: 999,
+          isPreview: false,
+          visibility: "EXTRA",
+          isExtra: true,
+          extraTier: "T2",
+        },
+        {
+          id: "extra-ana-2",
+          creatorId: creator.id,
+          pack: "SPECIAL",
+          slug: "extra-ana-2",
+          type: "IMAGE",
+          title: "Extra demo Ana 2",
+          description: "Extra de prueba para validar monetización.",
+          order: 1000,
+          isPreview: false,
+          visibility: "EXTRA",
+          isExtra: true,
+          extraTier: "T3",
+        },
+      ],
+    });
+
+    await prisma.extraPurchase.createMany({
+      data: [
+        {
+          fanId: "ana",
+          contentItemId: "extra-ana-1",
+          tier: "T2",
+          amount: 29,
+          kind: "EXTRA",
+          createdAt: addDays(new Date(), -5),
+        },
+        {
+          fanId: "ana",
+          contentItemId: "extra-ana-2",
+          tier: "T3",
+          amount: 40,
+          kind: "EXTRA",
+          createdAt: addDays(new Date(), -2),
+        },
+      ],
+    });
+  }
+
   const discoveryProfiles = [
     {
       creatorId: creator.id,

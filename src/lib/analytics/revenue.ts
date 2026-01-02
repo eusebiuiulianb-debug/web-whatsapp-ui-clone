@@ -11,6 +11,7 @@ export type CreatorRevenueSummary = {
   subs: RevenueBucket & { byType: Record<string, RevenueBucket> };
   extras: RevenueBucket;
   tips: RevenueBucket;
+  gifts: RevenueBucket;
   totals: { amount: number };
   counts: { subs: number; extras: number; tips: number; total: number };
 };
@@ -34,6 +35,7 @@ export type FanMonetizationSummary = {
     total: number;
   };
   totalSpent: number;
+  recent30dSpent: number;
   lastPurchaseAt: string | null;
 };
 
@@ -46,7 +48,7 @@ type GetCreatorRevenueSummaryParams = {
 
 type FanMonetizationSource = {
   accessGrants: { type: string; createdAt: Date; expiresAt: Date }[];
-  extraPurchases: { amount: number | null; createdAt: Date }[];
+  extraPurchases: { amount: number | null; createdAt: Date; kind?: string | null }[];
 };
 
 type FanMonetizationQueryParams = {
@@ -55,6 +57,7 @@ type FanMonetizationQueryParams = {
 };
 
 const DEFAULT_SUB_TYPES = ["trial", "welcome", "monthly", "special"] as const;
+type PurchaseKind = "EXTRA" | "TIP" | "GIFT";
 
 function normalizeGrantType(raw: string | null | undefined): string {
   const normalized = (raw ?? "").trim().toLowerCase();
@@ -68,6 +71,12 @@ function getGrantAmount(type: string): number {
   if (type === "trial") return PACKS.trial.price;
   if (type === "welcome") return 0;
   return 0;
+}
+
+function normalizePurchaseKind(raw: string | null | undefined): PurchaseKind {
+  if (raw === "TIP") return "TIP";
+  if (raw === "GIFT") return "GIFT";
+  return "EXTRA";
 }
 
 function toIso(value: Date | null | undefined): string | null {
@@ -93,7 +102,10 @@ export function buildFanMonetizationSummaryFromFan(
   now: Date = new Date()
 ): FanMonetizationSummary {
   const grants = [...(source.accessGrants ?? [])];
-  const extras = [...(source.extraPurchases ?? [])];
+  const purchases = [...(source.extraPurchases ?? [])];
+  const extras = purchases.filter((purchase) => normalizePurchaseKind(purchase.kind) === "EXTRA");
+  const tipPurchases = purchases.filter((purchase) => normalizePurchaseKind(purchase.kind) === "TIP");
+  const giftPurchases = purchases.filter((purchase) => normalizePurchaseKind(purchase.kind) === "GIFT");
   const activeGrants = grants.filter((grant) => grant.expiresAt > now);
   const activeGrant =
     activeGrants.sort((a, b) => b.expiresAt.getTime() - a.expiresAt.getTime())[0] ?? null;
@@ -114,11 +126,36 @@ export function buildFanMonetizationSummaryFromFan(
   const extrasCount = extras.length;
   const lastExtraAt =
     extras.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())[0]?.createdAt ?? null;
-  const lastPurchaseAt = pickLatestDate([lastExtraAt, lastGrant?.createdAt ?? null]);
+  const lastTipAt =
+    tipPurchases.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())[0]?.createdAt ?? null;
+  const lastGiftAt =
+    giftPurchases.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())[0]?.createdAt ?? null;
+  const lastPurchaseAt = pickLatestDate([lastExtraAt, lastTipAt, lastGiftAt, lastGrant?.createdAt ?? null]);
   const subsTotal = grants.reduce((acc, grant) => acc + getGrantAmount(normalizeGrantType(grant.type)), 0);
-  const tips = { count: 0, total: 0 };
-  const gifts = { count: 0, total: 0 };
-  const totalSpent = subsTotal + extrasTotal + tips.total + gifts.total;
+  const tips = {
+    count: tipPurchases.length,
+    total: tipPurchases.reduce((acc, purchase) => acc + (purchase.amount ?? 0), 0),
+  };
+  const gifts = {
+    count: giftPurchases.length,
+    total: giftPurchases.reduce((acc, purchase) => acc + (purchase.amount ?? 0), 0),
+  };
+  const totalSpent = subsTotal + extrasTotal + tips.total;
+  const start30 = new Date(now);
+  start30.setDate(start30.getDate() - 30);
+  const recentExtrasTotal = extras
+    .filter((purchase) => purchase.createdAt >= start30)
+    .reduce((acc, purchase) => acc + (purchase.amount ?? 0), 0);
+  const recentTipsTotal = tipPurchases
+    .filter((purchase) => purchase.createdAt >= start30)
+    .reduce((acc, purchase) => acc + (purchase.amount ?? 0), 0);
+  const recentGiftsTotal = giftPurchases
+    .filter((purchase) => purchase.createdAt >= start30)
+    .reduce((acc, purchase) => acc + (purchase.amount ?? 0), 0);
+  const recentSubsTotal = grants
+    .filter((grant) => grant.createdAt >= start30)
+    .reduce((acc, grant) => acc + getGrantAmount(normalizeGrantType(grant.type)), 0);
+  const recent30dSpent = recentExtrasTotal + recentTipsTotal + recentSubsTotal;
 
   return {
     subscription: {
@@ -133,6 +170,7 @@ export function buildFanMonetizationSummaryFromFan(
     tips,
     gifts,
     totalSpent,
+    recent30dSpent,
     lastPurchaseAt: toIso(lastPurchaseAt),
   };
 }
@@ -150,7 +188,7 @@ export async function getFanMonetizationSummary(
     }),
     client.extraPurchase.findMany({
       where: { fanId },
-      select: { amount: true, createdAt: true },
+      select: { amount: true, createdAt: true, kind: true },
     }),
   ]);
   if (!fan || (creatorId && fan.creatorId !== creatorId)) return null;
@@ -168,8 +206,9 @@ export async function getCreatorRevenueSummary({
 }: GetCreatorRevenueSummaryParams): Promise<CreatorRevenueSummary> {
   const client = prismaClient ?? prisma;
   const rangeEnd = to ?? new Date();
-  const [extrasAgg, grants] = await Promise.all([
-    client.extraPurchase.aggregate({
+  const [purchaseAgg, grants] = await Promise.all([
+    client.extraPurchase.groupBy({
+      by: ["kind"],
       where: { fan: { creatorId }, createdAt: { gte: from, lte: rangeEnd } },
       _count: { _all: true },
       _sum: { amount: true },
@@ -180,10 +219,25 @@ export async function getCreatorRevenueSummary({
     }),
   ]);
 
-  const extras: RevenueBucket = {
-    amount: extrasAgg._sum?.amount ?? 0,
-    count: extrasAgg._count?._all ?? 0,
-  };
+  const extras: RevenueBucket = { amount: 0, count: 0 };
+  const tips: RevenueBucket = { amount: 0, count: 0 };
+  const gifts: RevenueBucket = { amount: 0, count: 0 };
+
+  for (const entry of purchaseAgg) {
+    const bucket = normalizePurchaseKind(entry.kind);
+    const amount = entry._sum?.amount ?? 0;
+    const count = entry._count?._all ?? 0;
+    if (bucket === "TIP") {
+      tips.amount += amount;
+      tips.count += count;
+    } else if (bucket === "GIFT") {
+      gifts.amount += amount;
+      gifts.count += count;
+    } else {
+      extras.amount += amount;
+      extras.count += count;
+    }
+  }
 
   const subsByType: Record<string, RevenueBucket> = {};
   DEFAULT_SUB_TYPES.forEach((type) => {
@@ -202,7 +256,6 @@ export async function getCreatorRevenueSummary({
   const subsAmount = Object.values(subsByType).reduce((acc, entry) => acc + (entry.amount || 0), 0);
   const subsCount = Object.values(subsByType).reduce((acc, entry) => acc + (entry.count || 0), 0);
 
-  const tips: RevenueBucket = { amount: 0, count: 0 };
   const totalsAmount = subsAmount + extras.amount + tips.amount;
   const totalCount = subsCount + extras.count + tips.count;
 
@@ -210,6 +263,7 @@ export async function getCreatorRevenueSummary({
     subs: { amount: subsAmount, count: subsCount, byType: subsByType },
     extras,
     tips,
+    gifts,
     totals: { amount: totalsAmount },
     counts: {
       subs: subsCount,

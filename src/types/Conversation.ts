@@ -64,8 +64,12 @@ interface Conversation {
   lastNoteSummary?: string | null;
   nextActionSummary?: string | null;
   lifetimeSpend?: number;
+  totalSpent?: number;
+  recent30dSpent?: number;
   extrasCount?: number;
   extrasSpentTotal?: number;
+  tipsCount?: number;
+  tipsSpentTotal?: number;
   maxExtraTier?: string | null;
   novsyStatus?: "NOVSY" | null;
   isHighPriority?: boolean;
@@ -144,8 +148,12 @@ interface ConversationListData {
   lastNoteSummary?: string | null;
   nextActionSummary?: string | null;
   lifetimeSpend?: number;
+  totalSpent?: number;
+  recent30dSpent?: number;
   extrasCount?: number;
   extrasSpentTotal?: number;
+  tipsCount?: number;
+  tipsSpentTotal?: number;
   maxExtraTier?: string | null;
   novsyStatus?: "NOVSY" | null;
   isHighPriority?: boolean;

@@ -268,9 +268,14 @@ function SideBarInner() {
       quickNote: fan.quickNote ?? null,
       followUpOpen: fan.followUpOpen ?? null,
       paidGrantsCount: fan.paidGrantsCount ?? 0,
-      lifetimeValue: fan.lifetimeValue ?? 0,
+      lifetimeValue: fan.lifetimeValue ?? fan.lifetimeSpend ?? 0,
+      lifetimeSpend: fan.lifetimeSpend ?? fan.lifetimeValue ?? 0,
+      totalSpent: fan.totalSpent ?? fan.lifetimeSpend ?? fan.lifetimeValue ?? 0,
+      recent30dSpent: typeof fan.recent30dSpent === "number" ? fan.recent30dSpent : undefined,
       extrasCount: fan.extrasCount ?? 0,
       extrasSpentTotal: fan.extrasSpentTotal ?? 0,
+      tipsCount: typeof fan.tipsCount === "number" ? fan.tipsCount : undefined,
+      tipsSpentTotal: typeof fan.tipsSpentTotal === "number" ? fan.tipsSpentTotal : undefined,
       maxExtraTier: (fan as any).maxExtraTier ?? null,
       novsyStatus: fan.novsyStatus ?? null,
       isHighPriority: fan.isHighPriority ?? false,
@@ -977,10 +982,14 @@ function SideBarInner() {
       d.getDate() === now.getDate()
     );
   }).length;
-  const extrasTodayBaseCount = Number.isFinite(extrasSummary?.today?.count)
+  const extrasTodayBaseCount = Number.isFinite(extrasSummary?.extrasToday?.count)
+    ? (extrasSummary?.extrasToday?.count as number)
+    : Number.isFinite(extrasSummary?.today?.count)
     ? (extrasSummary?.today?.count as number)
     : 0;
-  const extrasTodayBaseAmount = Number.isFinite(extrasSummary?.today?.amount)
+  const extrasTodayBaseAmount = Number.isFinite(extrasSummary?.extrasToday?.amount)
+    ? (extrasSummary?.extrasToday?.amount as number)
+    : Number.isFinite(extrasSummary?.today?.amount)
     ? (extrasSummary?.today?.amount as number)
     : 0;
   const extrasLast7BaseCount = Number.isFinite(extrasSummary?.last7Days?.count)
@@ -989,6 +998,19 @@ function SideBarInner() {
   const extrasLast7BaseAmount = Number.isFinite(extrasSummary?.last7Days?.amount)
     ? (extrasSummary?.last7Days?.amount as number)
     : 0;
+  const incomeTodayCount = Number.isFinite(extrasSummary?.incomeToday?.count)
+    ? (extrasSummary?.incomeToday?.count as number)
+    : extrasTodayBaseCount;
+  const incomeTodayAmount = Number.isFinite(extrasSummary?.incomeToday?.amount)
+    ? (extrasSummary?.incomeToday?.amount as number)
+    : extrasTodayBaseAmount;
+  const tipsTodayCount = Number.isFinite(extrasSummary?.tipsToday?.count)
+    ? (extrasSummary?.tipsToday?.count as number)
+    : 0;
+  const showIncomeBreakdown =
+    incomeTodayCount === extrasTodayBaseCount + tipsTodayCount &&
+    (extrasTodayBaseCount > 0 || tipsTodayCount > 0) &&
+    tipsTodayCount > 0;
   const giftedTodayCount = 0;
   const giftedLast7Count = 0;
   const extrasTodayCount = extrasTodayBaseCount;
@@ -1390,10 +1412,16 @@ function SideBarInner() {
                   </span>
                 </div>
                 <div className="flex flex-col rounded-xl bg-slate-950/70 px-3 py-3 shadow-sm">
-                  <span className="text-[12px] text-slate-400">Extras vendidos hoy</span>
-                  <div className={clsx("mt-1 text-lg font-semibold leading-tight", extrasTodayCount > 0 ? "text-emerald-300" : "text-slate-300")}>
-                    {extrasTodayCount} venta{extrasTodayCount === 1 ? "" : "s"} · {formatCurrency(extrasTodayAmount)}
+                  <span className="text-[12px] text-slate-400">Ingresos hoy</span>
+                  <div className={clsx("mt-1 text-lg font-semibold leading-tight", incomeTodayCount > 0 ? "text-emerald-300" : "text-slate-300")}>
+                    {incomeTodayCount} cobro{incomeTodayCount === 1 ? "" : "s"} · {formatCurrency(incomeTodayAmount)}
                   </div>
+                  {showIncomeBreakdown && (
+                    <span className="mt-1 text-[10px] text-slate-500">
+                      {extrasTodayCount} venta{extrasTodayCount === 1 ? "" : "s"} + {tipsTodayCount} propina{tipsTodayCount === 1 ? "" : "s"}
+                    </span>
+                  )}
+                  <span className="mt-1 text-[10px] text-slate-500">suscripciones + ventas + propinas</span>
                   {giftedTodayCount > 0 && (
                     <span className="mt-1 text-[10px] text-slate-500">Regalos: {giftedTodayCount}</span>
                   )}

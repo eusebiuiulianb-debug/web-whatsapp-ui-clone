@@ -810,8 +810,7 @@ function PulsePanel({
   summary: CreatorManagerSummary | null;
   preview?: CreatorAiAdvisorInput["preview"];
 }) {
-  const extrasRevenue30 =
-    (summary?.kpis?.extras?.last30?.revenue ?? 0) + (summary?.kpis?.tips?.last30?.revenue ?? 0);
+  const extrasRevenue30 = summary?.kpis?.extras?.last30?.revenue ?? 0;
   const metrics = summary
     ? [
         { label: "Ingresos 7d", value: formatCurrency(summary.kpis.last7.revenue) },

@@ -20,7 +20,6 @@ import { inferPreferredLanguage, LANGUAGE_LABELS, normalizePreferredLanguage, ty
 import { parseReactionsRaw, useReactions } from "../../lib/emoji/reactions";
 import { getStickerById } from "../../lib/emoji/stickers";
 import { buildFanChatProps } from "../../lib/fanChatProps";
-import { appendExtraEvent } from "../../lib/localExtras";
 import { buildStickerTokenFromItem, getStickerByToken, type StickerItem } from "../../lib/stickers";
 
 type ApiContentItem = {
@@ -134,6 +133,7 @@ export function FanChatPage({
   const [tipAmountPreset, setTipAmountPreset] = useState<number | null>(null);
   const [tipAmountCustom, setTipAmountCustom] = useState("");
   const [tipError, setTipError] = useState("");
+  const [giftError, setGiftError] = useState("");
   const [giftView, setGiftView] = useState<"list" | "details">("list");
   const [selectedGiftPack, setSelectedGiftPack] = useState<PackSummary | null>(null);
 
@@ -461,6 +461,7 @@ export function FanChatPage({
 
   const openGiftModal = useCallback(() => {
     setActionMenuOpen(false);
+    setGiftError("");
     setGiftView("list");
     setSelectedGiftPack(null);
     setMoneyModal("gift");
@@ -476,10 +477,32 @@ export function FanChatPage({
     setTipAmountPreset(null);
     setTipAmountCustom("");
     setTipError("");
+    setGiftError("");
     setGiftView("list");
     setSelectedGiftPack(null);
     requestAnimationFrame(() => focusComposer());
   }, [focusComposer]);
+
+  const createSupportPurchase = useCallback(
+    async (payload: { kind: "TIP" | "GIFT"; amount: number; packId?: string; packName?: string }) => {
+      if (!fanId) return { ok: false, error: "Missing fanId" };
+      try {
+        const res = await fetch(`/api/fans/${fanId}/support`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+        if (!res.ok) {
+          return { ok: false, error: "No se pudo registrar el pago." };
+        }
+        return { ok: true };
+      } catch (err) {
+        console.error("Error recording support purchase", err);
+        return { ok: false, error: "No se pudo registrar el pago." };
+      }
+    },
+    [fanId]
+  );
 
   const appendSystemMessage = useCallback(
     (text: string) => {
@@ -499,41 +522,46 @@ export function FanChatPage({
     [fanId, sortMessages]
   );
 
-  const handleTipConfirm = useCallback(() => {
+  const handleTipConfirm = useCallback(async () => {
     if (!fanId) return;
     const amountValue = tipAmountPreset ?? parseAmountToNumber(tipAmountCustom);
     if (!Number.isFinite(amountValue) || amountValue <= 0 || amountValue > 500) {
       setTipError("Introduce un importe válido.");
       return;
     }
+    const result = await createSupportPurchase({ kind: "TIP", amount: amountValue });
+    if (!result.ok) {
+      setTipError(result.error ?? "No se pudo registrar la propina.");
+      return;
+    }
     const amountLabel = formatAmountLabel(amountValue);
     appendSystemMessage(`🎁 Has apoyado con ${amountLabel}`);
-    appendExtraEvent(fanId, {
-      id: `extra-${Date.now()}`,
-      kind: "TIP",
-      amount: amountValue,
-      createdAt: new Date().toISOString(),
-    });
     closeMoneyModal();
-  }, [appendSystemMessage, closeMoneyModal, fanId, tipAmountCustom, tipAmountPreset]);
+  }, [appendSystemMessage, closeMoneyModal, createSupportPurchase, fanId, tipAmountCustom, tipAmountPreset]);
 
   const handleGiftConfirm = useCallback(
-    (pack: PackSummary) => {
+    async (pack: PackSummary) => {
       if (!fanId) return;
-      const priceLabel = normalizePriceLabel(pack.price);
       const amountValue = parseAmountToNumber(pack.price);
-      appendSystemMessage(`🎁 Has regalado ${pack.name} (${priceLabel})`);
-      appendExtraEvent(fanId, {
-        id: `extra-${Date.now()}`,
+      if (!Number.isFinite(amountValue) || amountValue <= 0 || amountValue > 500) {
+        setGiftError("Introduce un importe válido.");
+        return;
+      }
+      const result = await createSupportPurchase({
         kind: "GIFT",
         amount: amountValue,
-        packRef: pack.id,
+        packId: pack.id,
         packName: pack.name,
-        createdAt: new Date().toISOString(),
       });
+      if (!result.ok) {
+        setGiftError(result.error ?? "No se pudo registrar el regalo.");
+        return;
+      }
+      const priceLabel = normalizePriceLabel(pack.price);
+      appendSystemMessage(`🎁 Has regalado ${pack.name} (${priceLabel})`);
       closeMoneyModal();
     },
-    [appendSystemMessage, closeMoneyModal, fanId]
+    [appendSystemMessage, closeMoneyModal, createSupportPurchase, fanId]
   );
 
   const handlePackRequest = useCallback(
@@ -1073,6 +1101,7 @@ export function FanChatPage({
           <div>
             <h3 className="text-base font-semibold text-slate-100">Regalo</h3>
             <p className="text-xs text-slate-400">Elige qué quieres regalar.</p>
+            {giftError && <p className="mt-1 text-xs text-rose-300">{giftError}</p>}
           </div>
           <button
             type="button"

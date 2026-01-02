@@ -101,9 +101,9 @@ export type FanManagerAiContext = {
   stageLabel: string;
   riskLevel: "LOW" | "MEDIUM" | "HIGH";
   healthScore: number | null;
-  lifetimeSpent: number;
-  spentLast30Days: number;
-  extrasCount: number;
+  lifetimeSpent: number | null;
+  spentLast30Days: number | null;
+  extrasCount: number | null;
   daysSinceLastMessage: number | null;
   daysToRenewal: number | null;
   hasActiveMonthly: boolean;
@@ -343,9 +343,9 @@ function buildAiContext(input: {
   relationshipStage: RelationshipStage;
   riskLevel: "LOW" | "MEDIUM" | "HIGH";
   healthScore: number;
-  lifetimeValue: number;
-  recent30dSpend: number;
-  extrasCount: number;
+  lifetimeValue: number | null;
+  recent30dSpend: number | null;
+  extrasCount: number | null;
   daysSinceLastMessage: number | null;
   daysToExpiry: number | null;
   hasActiveMonthly: boolean;
@@ -394,7 +394,7 @@ export async function buildCreatorAiContext(creatorId: string, prisma: PrismaCli
         lifetimeValue: true,
         isNew: true,
         accessGrants: { select: { type: true, createdAt: true, expiresAt: true } },
-        extraPurchases: { select: { amount: true, createdAt: true, tier: true } },
+        extraPurchases: { where: { kind: "EXTRA" }, select: { amount: true, createdAt: true, tier: true } },
       },
     }),
     prisma.accessGrant.findMany({
@@ -406,11 +406,11 @@ export async function buildCreatorAiContext(creatorId: string, prisma: PrismaCli
       select: { fanId: true, type: true, createdAt: true, expiresAt: true },
     }),
     prisma.extraPurchase.findMany({
-      where: { fan: { creatorId }, createdAt: { gte: start30 } },
+      where: { fan: { creatorId }, createdAt: { gte: start30 }, kind: "EXTRA" },
       select: { amount: true, tier: true, createdAt: true },
     }),
     prisma.extraPurchase.findMany({
-      where: { fan: { creatorId } },
+      where: { fan: { creatorId }, kind: "EXTRA" },
       select: { amount: true, tier: true, createdAt: true },
     }),
   ]);
@@ -560,6 +560,9 @@ export async function buildManagerQueueForCreator(creatorId: string, prisma: Pri
 
   for (const fan of fans) {
     const visibleMessages = (fan.messages ?? []).filter((message) => isVisibleToFan(message));
+    const extraPurchases = (fan.extraPurchases ?? []).filter(
+      (purchase) => !purchase.kind || purchase.kind === "EXTRA"
+    );
     const lastMsg = visibleMessages
       .map((m) => m.time)
       .filter((t): t is string => Boolean(t))
@@ -579,7 +582,7 @@ export async function buildManagerQueueForCreator(creatorId: string, prisma: Pri
     const daysSinceLastPurchase = daysBetween(now, lastPurchaseAt);
     const daysSinceCreated = null;
     const lifetimeValue = fan.lifetimeValue ?? 0;
-    const lifetimeExtraSpend = fan.extraPurchases.reduce((acc, p) => acc + (p.amount ?? 0), 0);
+    const lifetimeExtraSpend = extraPurchases.reduce((acc, p) => acc + (p.amount ?? 0), 0);
 
     const healthScore = calculateHealthScoreForFan({
       daysSinceLastMessage,
@@ -673,6 +676,9 @@ export async function buildFanManagerSummary(creatorId: string, fanId: string, p
     .map((t) => new Date(t))
     .filter((d) => !Number.isNaN(d.getTime()))
     .sort((a, b) => b.getTime() - a.getTime())[0];
+  const extraPurchases = (fan.extraPurchases ?? []).filter(
+    (purchase) => !purchase.kind || purchase.kind === "EXTRA"
+  );
   const lastPurchase = fan.extraPurchases.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())[0];
   const daysSinceLastMessage = daysBetween(now, lastMsg);
   const daysSinceLastPurchase = daysBetween(now, lastPurchase?.createdAt);
@@ -686,15 +692,15 @@ export async function buildFanManagerSummary(creatorId: string, fanId: string, p
   const hasActiveSpecialPack = activeGrants.some((g) => g.type === "special");
 
   const lifetimeValue = fan.lifetimeValue ?? 0;
-  const lifetimeExtraSpend = fan.extraPurchases.reduce((acc, p) => acc + (p.amount ?? 0), 0);
+  const lifetimeExtraSpend = extraPurchases.reduce((acc, p) => acc + (p.amount ?? 0), 0);
   let recent30dSpend = fan.recent30dSpend ?? 0;
   if (!recent30dSpend) {
     const start30 = addDaysFrom(now, -30) ?? now;
-    recent30dSpend = fan.extraPurchases
+    recent30dSpend = extraPurchases
       .filter((p) => p.createdAt >= start30)
       .reduce((acc, p) => acc + (p.amount ?? 0), 0);
   }
-  const extrasCount = fan.extraPurchases.length;
+  const extrasCount = extraPurchases.length;
 
   const healthScore = calculateHealthScoreForFan({
     daysSinceLastMessage,
@@ -756,6 +762,9 @@ export async function buildFanManagerSummary(creatorId: string, fanId: string, p
   const nextBestAction = mapDecisionToAction(decisionResult.id);
   const actionMeta = getActionMeta(nextBestAction);
   const monetization = await getFanMonetizationSummary(fanId, creatorId, { prismaClient: prisma });
+  const aiLifetimeSpent = monetization?.totalSpent ?? null;
+  const aiSpentLast30Days = monetization?.recent30dSpent ?? null;
+  const aiExtrasCount = monetization?.extras?.count ?? null;
   const suggestions: ManagerMessageSuggestion[] = decisionResult.suggestions.map((text, idx) => ({
     id: `${decisionResult.id.toLowerCase()}_${idx + 1}`,
     label: `${decisionResult.label} ${idx + 1}`,
@@ -781,9 +790,9 @@ export async function buildFanManagerSummary(creatorId: string, fanId: string, p
     relationshipStage,
     riskLevel,
     healthScore,
-    lifetimeValue,
-    recent30dSpend,
-    extrasCount,
+    lifetimeValue: aiLifetimeSpent,
+    recent30dSpend: aiSpentLast30Days,
+    extrasCount: aiExtrasCount,
     daysSinceLastMessage,
     daysToExpiry,
     hasActiveMonthly,

@@ -24,8 +24,7 @@ export function ManagerGlobalSidebarCard({
 }: Props) {
   const preview = advisorInput?.preview;
   const planSteps = buildDailyPlan({ summary, queue });
-  const extrasRevenue30 =
-    (summary?.kpis?.extras?.last30?.revenue ?? 0) + (summary?.kpis?.tips?.last30?.revenue ?? 0);
+  const extrasRevenue30 = summary?.kpis?.extras?.last30?.revenue ?? 0;
 
   return (
     <div className="rounded-2xl border border-slate-800 bg-slate-900/80 p-4 lg:p-5 space-y-5 h-full shadow-inner">

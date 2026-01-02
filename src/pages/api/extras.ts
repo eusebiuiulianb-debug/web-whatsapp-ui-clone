@@ -28,7 +28,7 @@ async function handleGet(req: NextApiRequest, res: NextApiResponse) {
 
   try {
     const purchases = await prisma.extraPurchase.findMany({
-      where: { fanId },
+      where: { fanId, kind: "EXTRA" },
       orderBy: { createdAt: "desc" },
       include: { contentItem: true },
     });
@@ -81,6 +81,7 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
         contentItemId,
         tier,
         amount: amountNumber,
+        kind: "EXTRA",
         sessionTag: typeof sessionTag === "string" && sessionTag.trim().length > 0 ? sessionTag.trim() : null,
       },
     });

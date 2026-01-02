@@ -15,16 +15,9 @@ export function ManagerInsightsPane({ open, panelTab, summary, preview, onToggle
   if (!open) {
     return null;
   }
-  const extrasRevenue30 =
-    (summary?.kpis?.extras?.last30?.revenue ?? 0) + (summary?.kpis?.tips?.last30?.revenue ?? 0);
-  const extrasCount30 =
-    (summary?.kpis?.extras?.last30?.count ?? summary?.kpis?.last30?.extras ?? 0) +
-    (summary?.kpis?.tips?.last30?.count ?? 0);
-  const giftsCount30 = summary?.kpis?.gifts?.last30?.count ?? 0;
-  const extrasDetail =
-    giftsCount30 > 0
-      ? `${extrasCount30} ventas · ${giftsCount30} regalos`
-      : `${extrasCount30} ventas`;
+  const extrasRevenue30 = summary?.kpis?.extras?.last30?.revenue ?? 0;
+  const extrasCount30 = summary?.kpis?.extras?.last30?.count ?? summary?.kpis?.last30?.extras ?? 0;
+  const extrasDetail = `${extrasCount30} ventas`;
 
   return (
     <div className="fixed inset-0 z-40 flex items-start justify-end">

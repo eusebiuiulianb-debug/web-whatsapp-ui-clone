@@ -33,6 +33,18 @@ export default async function handler(_req: NextApiRequest, res: NextApiResponse
     ]);
 
     const summary: ExtrasSummary = {
+      incomeToday: {
+        count: todaySummary.counts.total,
+        amount: todaySummary.totals.amount,
+      },
+      extrasToday: {
+        count: todaySummary.extras.count,
+        amount: todaySummary.extras.amount,
+      },
+      tipsToday: {
+        count: todaySummary.tips.count,
+        amount: todaySummary.tips.amount,
+      },
       today: {
         count: todaySummary.extras.count,
         amount: todaySummary.extras.amount,
