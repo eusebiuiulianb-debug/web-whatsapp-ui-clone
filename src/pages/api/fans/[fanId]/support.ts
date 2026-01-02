@@ -72,6 +72,35 @@ function normalizePackToken(value: unknown): string {
   return typeof value === "string" ? value.trim().toLowerCase() : "";
 }
 
+function resolveGiftProductId(packId: unknown, packName: unknown): string | null {
+  const id = typeof packId === "string" ? packId.trim() : "";
+  if (id) return id;
+  const name = typeof packName === "string" ? packName.trim() : "";
+  if (!name) return null;
+  return name.toLowerCase().replace(/[^a-z0-9]+/g, "-");
+}
+
+function resolveGiftProductType(packId: unknown, packName: unknown, amount: number): "SUBSCRIPTION" | "PACK" | "BUNDLE" | null {
+  const id = normalizePackToken(packId);
+  const name = normalizePackToken(packName);
+  const candidates = [id, name].filter(Boolean);
+
+  for (const candidate of candidates) {
+    if (candidate.includes("bundle")) return "BUNDLE";
+    if (candidate.includes("monthly") || candidate.includes("mensual")) return "SUBSCRIPTION";
+    if (candidate.includes("special") || candidate.includes("especial") || candidate.includes("single") || candidate.includes("individual")) {
+      return "SUBSCRIPTION";
+    }
+    if (candidate.includes("trial") || candidate.includes("welcome") || candidate.includes("bienvenida")) return "SUBSCRIPTION";
+    if (candidate.includes("pack")) return "PACK";
+  }
+
+  if (amount === PACKS.monthly.price) return "SUBSCRIPTION";
+  if (amount === PACKS.special.price) return "SUBSCRIPTION";
+  if (amount === PACKS.trial.price) return "SUBSCRIPTION";
+  return null;
+}
+
 function resolveGiftGrantType(packId: unknown, packName: unknown, amount: number): GrantType | null {
   const id = normalizePackToken(packId);
   const name = normalizePackToken(packName);
@@ -126,6 +155,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     const purchase = await prisma.$transaction(async (tx) => {
       const supportItem = await getSupportContentItem(fan.creatorId, kind, tx);
       const sessionTag = kind === "GIFT" ? buildGiftSessionTag(packId, packName) : null;
+      const productId = kind === "GIFT" ? resolveGiftProductId(packId, packName) : null;
+      const productType = kind === "GIFT" ? resolveGiftProductType(packId, packName, amount) : null;
       const created = await tx.extraPurchase.create({
         data: {
           fanId,
@@ -133,6 +164,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           tier: "T0",
           amount,
           kind,
+          productId,
+          productType,
           sessionTag,
         },
       });

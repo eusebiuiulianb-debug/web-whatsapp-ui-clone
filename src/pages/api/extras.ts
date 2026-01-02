@@ -82,6 +82,8 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
         tier,
         amount: amountNumber,
         kind: "EXTRA",
+        productId: contentItemId,
+        productType: "EXTRA",
         sessionTag: typeof sessionTag === "string" && sessionTag.trim().length > 0 ? sessionTag.trim() : null,
       },
     });

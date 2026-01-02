@@ -490,6 +490,8 @@ async function main() {
           tier: "T2",
           amount: 29,
           kind: "EXTRA",
+          productId: "extra-ana-1",
+          productType: "EXTRA",
           createdAt: addDays(new Date(), -5),
         },
         {
@@ -498,6 +500,8 @@ async function main() {
           tier: "T3",
           amount: 40,
           kind: "EXTRA",
+          productId: "extra-ana-2",
+          productType: "EXTRA",
           createdAt: addDays(new Date(), -2),
         },
       ],

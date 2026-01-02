@@ -118,6 +118,8 @@ export default function ConversationList(props: ConversationListProps) {
   const nameTint = normalizedAccessState === "EXPIRED" ? "text-[#7d8a93]" : nameClasses;
   const followUpTag = getFollowUpTag(membershipStatus, daysLeft, data.activeGrantTypes);
   const notesCount = data.notesCount ?? 0;
+  const notePreview = typeof data.notePreview === "string" ? data.notePreview : "";
+  const hasNotePreview = notePreview.trim().length > 0;
   const segment = (data.segment || "").toUpperCase();
   const customerTier = (data.customerTier ?? "new") as "new" | "regular" | "vip" | "priority";
   const followUpOpen = data.followUpOpen ?? null;
@@ -128,7 +130,6 @@ export default function ConversationList(props: ConversationListProps) {
     followUpOpen ||
       (typeof data.nextAction === "string" && data.nextAction.trim().length > 0)
   );
-  const lastNoteSummary = data.lastNoteSummary ?? data.lastNoteSnippet ?? null;
   const nextActionSummary = followUpNote ?? data.nextActionSummary ?? data.nextActionSnippet ?? null;
   const nextActionTooltip = nextActionSummary
     ? shorten(nextActionSummary, 100)
@@ -137,10 +138,19 @@ export default function ConversationList(props: ConversationListProps) {
     : data.nextAction
     ? shorten(data.nextAction, 100)
     : "";
-  const nextActionStatus = getFollowUpStatusFromDate(followUpDueAt) ?? getNextActionStatus(data.nextAction ?? null);
+  const followUpDateLabel = (() => {
+    if (!followUpDueAt) return "";
+    const parsed = followUpDueAt.includes("T") ? new Date(followUpDueAt) : new Date(`${followUpDueAt}T00:00:00`);
+    if (Number.isNaN(parsed.getTime())) return "";
+    return parsed.toISOString().slice(0, 10);
+  })();
+  const followUpTooltip = followUpDateLabel
+    ? `${nextActionTooltip || "Seguimiento"} · ${followUpDateLabel}`
+    : nextActionTooltip || "Seguimiento";
   const novsyStatus = (data as any).novsyStatus ?? null;
   const preferredLanguage = normalizePreferredLanguage(data.preferredLanguage);
   const languageBadgeLabel = !isManagerChat && preferredLanguage ? preferredLanguage.toUpperCase() : null;
+  const hasContextSignals = notesCount > 0 || hasNextAction;
 
   function normalizeTier(tier: string | undefined) {
     const lower = (tier || "").toLowerCase();
@@ -167,10 +177,6 @@ export default function ConversationList(props: ConversationListProps) {
     { kind: "GIFT", amount: data.giftsSpentTotal ?? 0 },
   ]);
   const totalSpent = Math.round(purchaseTotals.totalSpent);
-  const notesLabel = `${notesCount} nota${notesCount === 1 ? "" : "s"}`;
-  const extrasCount = data.extrasCount ?? 0;
-  const extrasSpent = Math.round(data.extrasSpentTotal ?? 0);
-  const hasExtrasPaid = data.extrasSpentTotal !== null && data.extrasSpentTotal !== undefined && data.extrasSpentTotal > 0;
   const tierBadgeClass = clsx(
     "inline-flex items-center rounded-full px-3 py-1 text-[12px] font-semibold whitespace-nowrap shrink-0",
     normalizedTier === "vip"
@@ -185,28 +191,6 @@ export default function ConversationList(props: ConversationListProps) {
     const trimmed = text.trim();
     if (trimmed.length <= max) return trimmed;
     return trimmed.slice(0, max - 1) + "…";
-  }
-
-  function getNextActionStatus(nextAction?: string | null) {
-    if (!nextAction) return null;
-    const match = nextAction.match(/\(para\s+(\d{4}-\d{2}-\d{2})(?:\s+\d{2}:\d{2})?\)/i);
-    const dateStr = match?.[1];
-    if (!dateStr) return null;
-    return getFollowUpStatusFromDate(dateStr);
-  }
-
-  function getFollowUpStatusFromDate(dateStr?: string | null) {
-    if (!dateStr) return null;
-    const target = dateStr.includes("T") ? new Date(dateStr) : new Date(`${dateStr}T00:00:00`);
-    if (Number.isNaN(target.getTime())) return null;
-    const now = new Date();
-    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-    const targetDay = new Date(target.getFullYear(), target.getMonth(), target.getDate());
-    const diffDays = Math.round((targetDay.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
-    if (diffDays < 0) return { label: "Atrasado", tone: "overdue" as const };
-    if (diffDays === 0) return { label: "Hoy", tone: "today" as const };
-    if (diffDays === 1) return { label: "Mañana", tone: "tomorrow" as const };
-    return null;
   }
 
   function getAccessChipLabel() {
@@ -295,55 +279,30 @@ export default function ConversationList(props: ConversationListProps) {
                   {followUpTag === "expired" && "Caducado"}
                 </span>
               )}
-              {nextActionStatus && (
-                <span
-                  className={clsx(
-                    "inline-flex items-center rounded-full px-2.5 py-1 text-[11px] font-semibold whitespace-nowrap shrink-0",
-                    nextActionStatus.tone === "overdue" &&
-                      "border border-rose-400/70 bg-rose-500/15 text-rose-100",
-                    nextActionStatus.tone === "today" &&
-                      "border border-amber-400/70 bg-amber-500/15 text-amber-100",
-                    nextActionStatus.tone === "tomorrow" &&
-                      "border border-sky-400/70 bg-sky-500/15 text-sky-100"
-                  )}
-                  title={nextActionTooltip}
-                >
-                  ⚡ {nextActionStatus.label}
-                </span>
-              )}
             </div>
             {!isCompact && <span className={`truncate ${previewClasses}`}>{previewMessage}</span>}
+            {!isCompact && hasNotePreview && (
+              <span className="truncate text-[11px] text-slate-500/80">{notePreview}</span>
+            )}
             {!isCompact && (
               <div className="flex items-center gap-1 text-[11px] text-slate-500">
                 <span>{`${totalSpent} €`}</span>
-                <span className="w-1 h-1 rounded-full bg-slate-600" />
-                <span>{notesLabel}</span>
-                {hasExtrasPaid ? (
+                {hasContextSignals && (
                   <>
                     <span className="w-1 h-1 rounded-full bg-slate-600" />
-                    <span>{`Extras: ${extrasCount} · ${extrasSpent} €`}</span>
+                    <span className="inline-flex items-center gap-2 text-slate-400">
+                      {notesCount > 0 && (
+                        <span aria-label="Notas" title={notePreview || ""}>
+                          📝 {notesCount}
+                        </span>
+                      )}
+                      {hasNextAction && (
+                        <span aria-label="Seguimiento" title={followUpTooltip}>
+                          ⏰
+                        </span>
+                      )}
+                    </span>
                   </>
-                ) : null}
-                {isHighPriority && (
-                  <span className="inline-flex items-center text-amber-300" aria-label="Alta prioridad">
-                    🔥
-                  </span>
-                )}
-                {notesCount > 0 && (
-                  <span
-                    className="inline-flex items-center gap-1 text-slate-400"
-                    title={lastNoteSummary || ""}
-                  >
-                    <span aria-hidden>📝</span>
-                  </span>
-                )}
-                {hasNextAction && (
-                  <span
-                    className="inline-flex items-center gap-1 text-slate-400"
-                    title={nextActionTooltip}
-                  >
-                    <span aria-hidden>⚡</span>
-                  </span>
                 )}
               </div>
             )}
@@ -396,12 +355,6 @@ export default function ConversationList(props: ConversationListProps) {
                   {daysLabel}
                 </span>
               ) : null}
-              {!isCompact && notesCount > 0 && (
-                <span className="inline-flex items-center gap-1 text-[11px] text-slate-400 whitespace-nowrap shrink-0">
-                  <span className="text-xs">📝</span>
-                  <span>{notesCount}</span>
-                </span>
-              )}
               {!isCompact && (sourceLabel || campaignLabel || contentLabel) && (
                 <div className="flex flex-wrap items-center gap-1">
                   {sourceLabel && (

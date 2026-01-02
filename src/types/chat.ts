@@ -36,6 +36,7 @@ export interface Fan {
   lastSeenAt?: string | null;
   lastCreatorMessageAt?: string | null;
   notesCount?: number;
+  notePreview?: string | null;
   profileText?: string | null;
   quickNote?: string | null;
   followUpOpen?: FanFollowUp | null;

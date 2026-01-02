@@ -264,6 +264,7 @@ function SideBarInner() {
         fan.daysLeft
       ),
       notesCount: fan.notesCount ?? 0,
+      notePreview: fan.notePreview ?? null,
       profileText: fan.profileText ?? null,
       quickNote: fan.quickNote ?? null,
       followUpOpen: fan.followUpOpen ?? null,
@@ -276,6 +277,8 @@ function SideBarInner() {
       extrasSpentTotal: fan.extrasSpentTotal ?? 0,
       tipsCount: typeof fan.tipsCount === "number" ? fan.tipsCount : undefined,
       tipsSpentTotal: typeof fan.tipsSpentTotal === "number" ? fan.tipsSpentTotal : undefined,
+      giftsCount: typeof fan.giftsCount === "number" ? fan.giftsCount : undefined,
+      giftsSpentTotal: typeof fan.giftsSpentTotal === "number" ? fan.giftsSpentTotal : undefined,
       maxExtraTier: (fan as any).maxExtraTier ?? null,
       novsyStatus: fan.novsyStatus ?? null,
       isHighPriority: fan.isHighPriority ?? false,
@@ -322,9 +325,15 @@ function SideBarInner() {
         "isHighPriority",
         "highPriorityAt",
         "inviteUsedAt",
+        "totalSpent",
         "extrasCount",
         "extrasSpentTotal",
+        "tipsCount",
+        "tipsSpentTotal",
+        "giftsCount",
+        "giftsSpentTotal",
         "notesCount",
+        "notePreview",
         "nextAction",
       ];
       const changed = fields.some((field) => (prevFan as any)?.[field] !== (fan as any)?.[field]);
@@ -1074,7 +1083,7 @@ function SideBarInner() {
         params.set("filter", apiFilter);
         if (search.trim()) params.set("q", search.trim());
         if (cursor) params.set("cursor", cursor);
-        const res = await fetch(`/api/fans?${params.toString()}`);
+        const res = await fetch(`/api/fans?${params.toString()}`, { cache: "no-store" });
         if (!res.ok) throw new Error("Error fetching fans");
         const data = await res.json();
         const rawItems = Array.isArray(data.items) ? (data.items as Fan[]) : [];
@@ -1151,7 +1160,10 @@ function SideBarInner() {
       params.set("limit", "30");
       params.set("filter", apiFilter);
       if (search.trim()) params.set("q", search.trim());
-      const res = await fetch(`/api/fans?${params.toString()}`, { signal: controller.signal });
+      const res = await fetch(`/api/fans?${params.toString()}`, {
+        signal: controller.signal,
+        cache: "no-store",
+      });
       if (!res.ok) throw new Error("poll-fans-failed");
       const data = await res.json();
       const rawItems = Array.isArray(data.items) ? (data.items as Fan[]) : [];

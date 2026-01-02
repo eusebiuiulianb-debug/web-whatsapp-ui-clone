@@ -214,6 +214,13 @@ enum ExtraPurchaseKind {
   GIFT
 }
 
+enum ExtraPurchaseProductType {
+  EXTRA
+  PACK
+  BUNDLE
+  SUBSCRIPTION
+}
+
 enum CatalogItemType {
   EXTRA
   BUNDLE
@@ -354,6 +361,8 @@ model ExtraPurchase {
   tier          ExtraTier
   amount        Int
   kind          ExtraPurchaseKind @default(EXTRA)
+  productId     String?
+  productType   ExtraPurchaseProductType?
   sessionTag    String?
   createdAt     DateTime    @default(now())
 }

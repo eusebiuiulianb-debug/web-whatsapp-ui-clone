@@ -1983,7 +1983,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
     try {
       setProfileLoading(true);
       setProfileError("");
-      const res = await fetch(`/api/fans/profile?fanId=${fanId}`);
+      const res = await fetch(`/api/fans/profile?fanId=${fanId}`, { cache: "no-store" });
       const data = await res.json().catch(() => ({}));
       if (!res.ok || !data?.ok) throw new Error("error");
       const nextProfile = typeof data.profileText === "string" ? data.profileText : "";
@@ -2147,7 +2147,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
 
   async function refreshFanData(fanId: string) {
     try {
-      const res = await fetch(`/api/fans?fanId=${encodeURIComponent(fanId)}`);
+      const res = await fetch(`/api/fans?fanId=${encodeURIComponent(fanId)}`, { cache: "no-store" });
       const data = await res.json().catch(() => ({}));
       if (handleSchemaOutOfSync(data)) return;
       if (!res.ok || !data?.ok) throw new Error("error");
@@ -6402,6 +6402,8 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
   const tipsCountDisplay = typeof tipsCountValue === "number" ? tipsCountValue : null;
   const tipsAmount = typeof tipsSpentValue === "number" ? tipsSpentValue : 0;
   const giftsAmount = typeof conversation.giftsSpentTotal === "number" ? conversation.giftsSpentTotal : 0;
+  const giftsCountValue = conversation.giftsCount;
+  const giftsCountDisplay = typeof giftsCountValue === "number" ? giftsCountValue : null;
   const summaryTotals = useMemo(
     () =>
       computeFanTotals([
@@ -6413,6 +6415,8 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
   );
   const extrasSpentDisplay = Math.round(summaryTotals.extrasAmount);
   const tipsSpentDisplay = typeof tipsSpentValue === "number" ? Math.round(tipsSpentValue) : null;
+  const giftsSpentDisplay = Math.round(giftsAmount);
+  const showGiftsRow = giftsAmount > 0;
   const tipsInlineLabel =
     tipsCountDisplay === null || tipsSpentDisplay === null ? "—" : `${tipsCountDisplay} · ${tipsSpentDisplay} €`;
   const showTipsInline = typeof tipsSpentDisplay === "number" && tipsSpentDisplay > 0;
@@ -8610,6 +8614,16 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
                     : `${tipsCountDisplay} propina${tipsCountDisplay === 1 ? "" : "s"} · ${tipsSpentDisplay} €`}
                 </span>
               </div>
+              {showGiftsRow && (
+                <div className="flex items-center justify-between">
+                  <span className="text-slate-400">Regalos</span>
+                  <span className="font-medium text-slate-50">
+                    {giftsCountDisplay === null
+                      ? `${giftsSpentDisplay} €`
+                      : `${giftsCountDisplay} regalo${giftsCountDisplay === 1 ? "" : "s"} · ${giftsSpentDisplay} €`}
+                  </span>
+                </div>
+              )}
               <div className="flex items-center justify-between gap-3">
                 <span className="text-slate-400">Idioma</span>
                 <select

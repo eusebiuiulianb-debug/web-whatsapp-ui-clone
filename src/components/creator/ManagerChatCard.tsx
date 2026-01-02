@@ -75,6 +75,38 @@ type ManagerChatPostResponse = {
 
 type ManagerActionIntent = "ROMPER_EL_HIELO" | "REACTIVAR_FAN_FRIO" | "OFRECER_UN_EXTRA" | "LLEVAR_A_MENSUAL" | "RESUMEN_PULSO_HOY";
 
+type SalesRange = "today" | "7d" | "30d";
+
+type CreatorSalesResponse = {
+  totals: { totalAmount: number; count: number; uniqueFans: number };
+  breakdown: {
+    subscriptionsAmount: number;
+    giftsAmount: number;
+    packsAmount: number;
+    bundlesAmount: number;
+    extrasAmount: number;
+    tipsAmount: number;
+  };
+  counts: {
+    subscriptionsCount: number;
+    giftsCount: number;
+    packsCount: number;
+    bundlesCount: number;
+    extrasCount: number;
+    tipsCount: number;
+  };
+  topProducts: Array<{
+    productId: string;
+    title: string;
+    type: string;
+    amount: number;
+    count: number;
+    isGift?: boolean;
+  }>;
+  topFans: Array<{ fanId: string; displayName: string; amount: number; count: number }>;
+  insights: string[];
+};
+
 export type CortexOverviewMetrics = {
   todayCount?: number;
   queueCount?: number;
@@ -360,6 +392,10 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
   const [settingsStatus, setSettingsStatus] = useState<"ok" | "settings_missing" | null>(null);
   const [globalMode, setGlobalMode] = useState<GlobalMode>("HOY");
   const [growthPlatform, setGrowthPlatform] = useState<CreatorPlatformKey>("tiktok");
+  const [salesRange, setSalesRange] = useState<SalesRange>("7d");
+  const [salesData, setSalesData] = useState<CreatorSalesResponse | null>(null);
+  const [salesLoading, setSalesLoading] = useState(false);
+  const [salesError, setSalesError] = useState<string | null>(null);
   const [isEmojiOpen, setIsEmojiOpen] = useState(false);
   const [emojiRecents, setEmojiRecents] = useState<string[]>([]);
   const [isFavoritesEditorOpen, setIsFavoritesEditorOpen] = useState(false);
@@ -1241,7 +1277,39 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
     }),
     [metricsLine, expiringFansContext, growthContextLine, growthPlatformsLine]
   );
+  const isSalesTab = scope === "global" && activeTabKey === "ventas";
   const isCatalogTab = scope === "global" && activeTabKey === "catalogo";
+  useEffect(() => {
+    if (!isSalesTab) return;
+    const controller = new AbortController();
+    let alive = true;
+    const loadSales = async () => {
+      try {
+        setSalesLoading(true);
+        setSalesError(null);
+        const res = await fetch(`/api/creator/analytics/sales?range=${salesRange}`, {
+          cache: "no-store",
+          signal: controller.signal,
+        });
+        if (!res.ok) throw new Error("sales_fetch_failed");
+        const data = (await res.json()) as CreatorSalesResponse;
+        if (!alive) return;
+        setSalesData(data);
+      } catch (err) {
+        if (!alive) return;
+        console.error("Error loading sales analytics", err);
+        setSalesError("No se pudieron cargar las ventas.");
+        setSalesData(null);
+      } finally {
+        if (alive) setSalesLoading(false);
+      }
+    };
+    void loadSales();
+    return () => {
+      alive = false;
+      controller.abort();
+    };
+  }, [isSalesTab, salesRange]);
   const catalogItemsSorted = useMemo(
     () => sortCatalogItems(catalogItemsState),
     [catalogItemsState]
@@ -2159,6 +2227,154 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
         </button>
       </div>
     );
+    const salesPanel = isSalesTab ? (
+      <div className="mb-4 space-y-3">
+        <div className="rounded-2xl border border-slate-800/80 bg-slate-950/80 px-4 py-3 space-y-3">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <div className="text-[11px] uppercase tracking-wide text-slate-400">Ventas</div>
+              <div className="text-sm font-semibold text-slate-100">De dónde viene el dinero</div>
+            </div>
+            <div className="flex items-center gap-2">
+              {[
+                { id: "today" as const, label: "Hoy" },
+                { id: "7d" as const, label: "7d" },
+                { id: "30d" as const, label: "30d" },
+              ].map((option) => (
+                <button
+                  key={option.id}
+                  type="button"
+                  onPointerDown={(event) => event.stopPropagation()}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    setSalesRange(option.id);
+                  }}
+                  className={clsx(
+                    "rounded-full border px-3 py-1 text-[11px] font-semibold transition",
+                    salesRange === option.id
+                      ? "border-emerald-500/70 bg-emerald-500/15 text-emerald-100"
+                      : "border-slate-700/70 bg-slate-900/60 text-slate-200 hover:bg-slate-800/80"
+                  )}
+                >
+                  {option.label}
+                </button>
+              ))}
+            </div>
+          </div>
+          {salesLoading && <div className="text-[12px] text-slate-400">Cargando ventas...</div>}
+          {salesError && <div className="text-[12px] text-rose-300">{salesError}</div>}
+          {!salesLoading && !salesError && salesData && (
+            <>
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                <div className="rounded-xl border border-slate-800/70 bg-slate-900/60 px-3 py-2">
+                  <div className="text-[10px] uppercase tracking-wide text-slate-400">Total</div>
+                  <div className="text-base font-semibold text-slate-100">
+                    {formatCurrency(salesData.totals.totalAmount)}
+                  </div>
+                  <div className="text-[11px] text-slate-500">
+                    {formatCount(salesData.totals.count)} cobros · {formatCount(salesData.totals.uniqueFans)} fans
+                  </div>
+                </div>
+                {[
+                  {
+                    id: "subscriptions",
+                    label: "Suscripciones",
+                    amount: salesData.breakdown.subscriptionsAmount,
+                    count: salesData.counts.subscriptionsCount,
+                  },
+                  {
+                    id: "extras",
+                    label: "Extras",
+                    amount: salesData.breakdown.extrasAmount,
+                    count: salesData.counts.extrasCount,
+                  },
+                  {
+                    id: "tips",
+                    label: "Propinas",
+                    amount: salesData.breakdown.tipsAmount,
+                    count: salesData.counts.tipsCount,
+                  },
+                  {
+                    id: "gifts",
+                    label: "Regalos",
+                    amount: salesData.breakdown.giftsAmount,
+                    count: salesData.counts.giftsCount,
+                  },
+                  {
+                    id: "packs",
+                    label: "Packs",
+                    amount: salesData.breakdown.packsAmount,
+                    count: salesData.counts.packsCount,
+                  },
+                  {
+                    id: "bundles",
+                    label: "Bundles",
+                    amount: salesData.breakdown.bundlesAmount,
+                    count: salesData.counts.bundlesCount,
+                  },
+                ].map((item) => (
+                  <div key={item.id} className="rounded-xl border border-slate-800/70 bg-slate-900/60 px-3 py-2">
+                    <div className="text-[10px] uppercase tracking-wide text-slate-400">{item.label}</div>
+                    <div className="text-sm font-semibold text-slate-100">{formatCurrency(item.amount)}</div>
+                    <div className="text-[11px] text-slate-500">
+                      {formatCount(item.count)} cobro{item.count === 1 ? "" : "s"}
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              <div className="grid gap-3 md:grid-cols-2">
+                <div className="rounded-xl border border-slate-800/70 bg-slate-900/60 px-3 py-2">
+                  <div className="text-[10px] uppercase tracking-wide text-slate-400">Top productos</div>
+                  <div className="mt-2 space-y-1 text-[12px] text-slate-200">
+                    {salesData.topProducts.length === 0 && <div className="text-slate-500">Sin ventas aún.</div>}
+                    {salesData.topProducts.map((product) => (
+                      <div key={product.productId} className="flex items-center justify-between gap-2">
+                        <span className="flex items-center gap-2 min-w-0">
+                          <span className="truncate">{product.title}</span>
+                          {product.isGift && (
+                            <span className="shrink-0 rounded-full border border-amber-400/60 bg-amber-500/10 px-2 py-0.5 text-[10px] font-semibold text-amber-100">
+                              Regalo
+                            </span>
+                          )}
+                        </span>
+                        <span className="shrink-0 text-slate-400">
+                          {formatCurrency(product.amount)} · {formatCount(product.count)}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+                <div className="rounded-xl border border-slate-800/70 bg-slate-900/60 px-3 py-2">
+                  <div className="text-[10px] uppercase tracking-wide text-slate-400">Top fans</div>
+                  <div className="mt-2 space-y-1 text-[12px] text-slate-200">
+                    {salesData.topFans.length === 0 && <div className="text-slate-500">Sin ventas aún.</div>}
+                    {salesData.topFans.map((fan) => (
+                      <div key={fan.fanId} className="flex items-center justify-between gap-2">
+                        <span className="truncate">{fan.displayName}</span>
+                        <span className="shrink-0 text-slate-400">
+                          {formatCurrency(fan.amount)} · {formatCount(fan.count)}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+              <div className="rounded-xl border border-amber-500/40 bg-amber-500/10 px-3 py-2">
+                <div className="text-[10px] uppercase tracking-wide text-amber-200">Oportunidades</div>
+                <div className="mt-2 space-y-1 text-[12px] text-amber-100">
+                  {salesData.insights.length === 0 && <div className="text-amber-200/70">Sin alertas.</div>}
+                  {salesData.insights.map((insight, idx) => (
+                    <div key={`${insight}-${idx}`}>• {insight}</div>
+                  ))}
+                </div>
+              </div>
+            </>
+          )}
+        </div>
+      </div>
+    ) : null;
     const catalogPanel = isCatalogTab ? (
       <div className="mb-4 space-y-3">
         <div className="rounded-2xl border border-slate-800/80 bg-slate-950/80 px-4 py-3">
@@ -3472,6 +3688,7 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
             <div className="max-w-4xl mx-auto w-full px-4 sm:px-6 lg:px-8 py-5 space-y-3">
               {loading && <div className="text-center text-[#aebac1] text-sm mt-2">Cargando mensajes...</div>}
               {error && !loading && <div className="text-center text-red-400 text-sm mt-2">{error}</div>}
+              {salesPanel}
               {catalogPanel}
               {!loading && !error && messages.length === 0 && (
                 <div className="flex flex-col items-start gap-2">

@@ -14,6 +14,7 @@ import { isVisibleToFan, normalizeFrom } from "../../lib/messageAudience";
 import { normalizePreferredLanguage } from "../../lib/language";
 import { getDbSchemaOutOfSyncPayload, isDbSchemaOutOfSyncError } from "../../lib/dbSchemaGuard";
 import { buildAccessStateFromGrants } from "../../lib/accessState";
+import { computeFanTotals } from "../../lib/fanTotals";
 import { getStickerById } from "../../lib/emoji/stickers";
 import { buildFanMonetizationSummaryFromFan } from "../../lib/analytics/revenue";
 
@@ -32,6 +33,19 @@ function truncateSnippet(text: string | null | undefined, max = 80): string | nu
   const trimmed = text.trim();
   if (trimmed.length <= max) return trimmed;
   return `${trimmed.slice(0, max - 1)}…`;
+}
+
+function normalizeNoteValue(value: string | null | undefined): string | null {
+  if (!value) return null;
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : null;
+}
+
+function getFirstLine(value: string | null | undefined): string | null {
+  const normalized = normalizeNoteValue(value);
+  if (!normalized) return null;
+  const line = normalized.split(/\r?\n/)[0]?.trim();
+  return line && line.length > 0 ? line : null;
 }
 
 function formatNextActionFromFollowUp(followUp?: {
@@ -80,6 +94,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     res.setHeader("Allow", "GET, POST");
     return res.status(405).json({ ok: false, error: "Method not allowed" });
   }
+
+  res.setHeader("Cache-Control", "no-store");
 
   const { limit: limitParam, cursor, filter = "all", q, fanId, source } = req.query;
   const normalizedSource = typeof source === "string" && source.trim() ? source.trim().toLowerCase() : (process.env.FANS_SOURCE ?? "db").toLowerCase();
@@ -326,11 +342,12 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       const paidGrantsCount = paidGrants.length;
       const extrasInfo = extrasByFan.get(fan.id) ?? { purchases: [], maxTier: null };
       const allPurchases = purchasesByFan.get(fan.id) ?? [];
+      const purchaseTotals = computeFanTotals(allPurchases);
       const monetization = buildFanMonetizationSummaryFromFan({
         accessGrants: fan.accessGrants,
         extraPurchases: allPurchases,
       }, now);
-      const extrasTotal = monetization.extras.total;
+      const extrasTotal = purchaseTotals.extrasAmount;
       const totalSpend = monetization.totalSpent;
       // Tiers por gasto total acumulado: <50 nuevo, 50-199 habitual, >=200 vip (alta prioridad)
       let customerTier: "new" | "regular" | "vip";
@@ -407,6 +424,13 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         .sort((a, b) => b.getTime() - a.getTime())[0];
 
       const lastNoteSnippet = truncateSnippet(fan.notes?.[0]?.content);
+      const quickNoteValue = normalizeNoteValue(fan.quickNote);
+      const profileValue = normalizeNoteValue(fan.profileText);
+      const quickNotePreview = truncateSnippet(quickNoteValue);
+      const profilePreview = truncateSnippet(getFirstLine(fan.profileText));
+      const baseNotesCount = fan._count?.notes ?? 0;
+      const notesCount = baseNotesCount + (quickNoteValue ? 1 : 0) + (profileValue ? 1 : 0);
+      const notePreview = quickNotePreview ?? profilePreview ?? lastNoteSnippet ?? null;
       const openFollowUp = fan.followUps?.[0] ?? null;
       const followUpOpen = openFollowUp ? mapFollowUp(openFollowUp) : null;
       const nextActionValue = fan.nextAction || formatNextActionFromFollowUp(openFollowUp);
@@ -444,12 +468,13 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         daysLeft,
         lastSeen: fan.lastSeen || "",
         lastSeenAt: lastFanActivity ? lastFanActivity.toISOString() : null,
-        notesCount: fan._count?.notes ?? 0,
+        notesCount,
+        notePreview,
         lastCreatorMessageAt: lastCreatorMessage ? lastCreatorMessage.toISOString() : null,
         paidGrantsCount,
         lifetimeValue: totalSpend, // mantenemos compatibilidad pero usando el gasto total real
         lifetimeSpend: totalSpend,
-        totalSpent: monetization?.totalSpent ?? totalSpend,
+        totalSpent: purchaseTotals.totalSpent,
         recent30dSpent: monetization?.recent30dSpent ?? null,
         customerTier,
         profileText: fan.profileText ?? null,
@@ -466,11 +491,11 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         lastNoteSummary,
         nextActionSummary,
         extrasCount: monetization.extras.count,
-        extrasSpentTotal: extrasTotal,
+        extrasSpentTotal: purchaseTotals.extrasAmount,
         tipsCount: monetization.tips.count,
-        tipsSpentTotal: monetization.tips.total,
+        tipsSpentTotal: purchaseTotals.tipsAmount,
         giftsCount: monetization.gifts.count,
-        giftsSpentTotal: monetization.gifts.total,
+        giftsSpentTotal: purchaseTotals.giftsAmount,
         maxExtraTier: extrasInfo.maxTier,
         novsyStatus,
         isHighPriority,

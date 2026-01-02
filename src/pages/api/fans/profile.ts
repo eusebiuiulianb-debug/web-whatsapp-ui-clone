@@ -1,6 +1,7 @@
 import type { NextApiRequest, NextApiResponse } from "next";
 import prisma from "../../../lib/prisma.server";
 import { sendBadRequest, sendServerError } from "../../../lib/apiError";
+import { computeFanTotals } from "../../../lib/fanTotals";
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method === "GET") {
@@ -20,13 +21,44 @@ async function handleGet(req: NextApiRequest, res: NextApiResponse) {
     return sendBadRequest(res, "fanId is required");
   }
 
-  try {
-    const fan = await prisma.fan.findUnique({
-      where: { id: fanId },
-      select: { id: true, profileText: true },
-    });
+  res.setHeader("Cache-Control", "no-store");
 
-    return res.status(200).json({ ok: true, profileText: fan?.profileText ?? null });
+  try {
+    const [fan, purchases] = await Promise.all([
+      prisma.fan.findUnique({
+        where: { id: fanId },
+        select: { id: true, profileText: true },
+      }),
+      prisma.extraPurchase.findMany({
+        where: { fanId },
+        select: { amount: true, kind: true },
+      }),
+    ]);
+    const totals = fan ? computeFanTotals(purchases) : null;
+    let extrasCount = 0;
+    let tipsCount = 0;
+    let giftsCount = 0;
+    if (fan) {
+      for (const purchase of purchases) {
+        const normalized = (purchase.kind ?? "EXTRA").toUpperCase();
+        const kind = normalized === "TIP" || normalized === "GIFT" ? normalized : "EXTRA";
+        if (kind === "TIP") tipsCount += 1;
+        else if (kind === "GIFT") giftsCount += 1;
+        else extrasCount += 1;
+      }
+    }
+
+    return res.status(200).json({
+      ok: true,
+      profileText: fan?.profileText ?? null,
+      tipsAmount: totals ? totals.tipsAmount : null,
+      extrasAmount: totals ? totals.extrasAmount : null,
+      giftsAmount: totals ? totals.giftsAmount : null,
+      totalSpent: totals ? totals.totalSpent : null,
+      tipsCount: fan ? tipsCount : null,
+      extrasCount: fan ? extrasCount : null,
+      giftsCount: fan ? giftsCount : null,
+    });
   } catch (err) {
     console.error("Error loading fan profile", err);
     return sendServerError(res);
