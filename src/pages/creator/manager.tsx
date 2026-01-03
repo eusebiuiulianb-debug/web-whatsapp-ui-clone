@@ -23,6 +23,8 @@ import {
 import { useCreatorConfig } from "../../context/CreatorConfigContext";
 import { ManagerInsightsPanel } from "../../components/creator/ManagerInsightsPanel";
 import type { CatalogItem } from "../../lib/catalog";
+import { KpiCard } from "../../components/ui/KpiCard";
+import { SectionCard } from "../../components/ui/SectionCard";
 
 type Props = {
   initialSnapshot: CreatorBusinessSnapshot | null;
@@ -1363,28 +1365,25 @@ function ManagerChatLayout({
             ref={summaryRef}
             aria-hidden={soloChat}
           >
-              <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-                {statTiles.map((item) => (
-                  <button
-                    key={item.id}
-                    type="button"
-                    onClick={() => setActiveFilter((prev) => (prev === item.id ? null : item.id))}
-                    className={clsx(
-                      "rounded-2xl border px-4 py-3 shadow-sm flex flex-col gap-1 text-left transition cursor-pointer",
-                      activeFilter === item.id
-                        ? "border-emerald-500/70 bg-emerald-500/10 ring-1 ring-emerald-500/30"
-                        : "border-slate-800 bg-slate-900/70 hover:border-emerald-500/40 hover:bg-slate-900/80"
-                    )}
-                    aria-pressed={activeFilter === item.id}
-                  >
-                    <div className="text-[11px] uppercase tracking-wide text-slate-400">{item.title}</div>
-                    <div className="text-xl font-semibold text-white leading-tight">{item.value}</div>
-                    <div className="text-xs text-slate-400">{item.helper}</div>
-                  </button>
-                ))}
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+                {statTiles.map((item) => {
+                  const isActive = activeFilter === item.id;
+                  return (
+                    <KpiCard
+                      key={item.id}
+                      title={item.title}
+                      value={item.value}
+                      hint={item.helper}
+                      variant={isActive ? "accent" : "default"}
+                      size="sm"
+                      ariaPressed={isActive}
+                      onClick={() => setActiveFilter((prev) => (prev === item.id ? null : item.id))}
+                    />
+                  );
+                })}
               </div>
 
-              <div className="rounded-2xl border border-slate-800 bg-slate-900/70 p-3 flex flex-col gap-3">
+              <SectionCard bodyClassName="space-y-3">
                 {activeFilter && (
                   <div className="flex flex-wrap items-center gap-2">
                     <span className="rounded-full border border-emerald-500/50 bg-emerald-500/10 px-2 py-0.5 text-[10px] font-semibold text-emerald-100">
@@ -1400,38 +1399,36 @@ function ManagerChatLayout({
                     </button>
                   </div>
                 )}
-                <div className="flex flex-wrap items-center justify-between gap-3">
-                  <div className="inline-flex flex-wrap items-center gap-2 rounded-full border border-slate-800 bg-slate-950/60 px-2 py-1">
-                    {[
-                      { id: "strategy", label: "Estrategia y números" },
-                      { id: "content", label: "Contenido y catálogo" },
-                    ].map((tab) => (
-                      <button
-                        key={tab.id}
-                        type="button"
-                        onClick={() => setActiveTab(tab.id as "strategy" | "content")}
-                        className={clsx(
-                          "rounded-full px-2.5 py-1 text-[11px] font-semibold transition",
-                          activeTab === tab.id
-                            ? "bg-emerald-600/20 text-emerald-100 ring-1 ring-emerald-500/40"
-                            : "text-slate-200 hover:text-emerald-100"
-                        )}
-                      >
-                        {tab.label}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                  {filterHighlights.map((item) => (
-                    <div
-                      key={item.title}
-                      className="rounded-xl border border-slate-800 bg-slate-900/70 px-4 py-3 shadow-sm"
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  {[
+                    { id: "strategy", label: "Estrategia y números" },
+                    { id: "content", label: "Contenido y catálogo" },
+                  ].map((tab) => (
+                    <button
+                      key={tab.id}
+                      type="button"
+                      onClick={() => setActiveTab(tab.id as "strategy" | "content")}
+                      className={clsx(
+                        "rounded-2xl border px-4 py-3 text-left text-sm font-semibold shadow-sm transition",
+                        activeTab === tab.id
+                          ? "border-emerald-500/60 bg-emerald-600/15 text-emerald-100"
+                          : "border-slate-800/80 bg-slate-900/70 text-slate-200 hover:border-emerald-400/70 hover:text-emerald-100"
+                      )}
                     >
-                      <div className="text-[11px] uppercase tracking-wide text-slate-400">{item.title}</div>
-                      <div className="text-lg font-semibold text-white">{item.value}</div>
-                      <div className="text-xs text-slate-400">{item.helper}</div>
-                    </div>
+                      {tab.label}
+                    </button>
+                  ))}
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+                  {filterHighlights.map((item) => (
+                    <KpiCard
+                      key={item.title}
+                      title={item.title}
+                      value={item.value}
+                      hint={item.helper}
+                      variant="muted"
+                      size="sm"
+                    />
                   ))}
                 </div>
 
@@ -1479,7 +1476,7 @@ function ManagerChatLayout({
                     </div>
                   </div>
                 )}
-              </div>
+              </SectionCard>
             </div>
 
           <div className="flex-1 min-h-[560px] px-0 md:px-4 pb-3">

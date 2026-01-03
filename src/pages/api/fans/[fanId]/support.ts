@@ -47,7 +47,7 @@ function buildGiftSessionTag(packId: unknown, packName: unknown): string | null 
 async function getSupportContentItem(
   creatorId: string,
   kind: SupportKind,
-  prismaClient = prisma
+  prismaClient: Pick<typeof prisma, "contentItem"> = prisma
 ) {
   const content = SUPPORT_CONTENT[kind];
   return prismaClient.contentItem.upsert({

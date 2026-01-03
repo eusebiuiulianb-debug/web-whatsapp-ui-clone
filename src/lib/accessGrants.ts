@@ -30,7 +30,7 @@ export async function upsertAccessGrant({
 }: {
   fanId: string;
   type: GrantType;
-  prismaClient?: PrismaClient;
+  prismaClient?: Pick<PrismaClient, "accessGrant">;
   now?: Date;
   extendIfActive?: boolean;
 }) {

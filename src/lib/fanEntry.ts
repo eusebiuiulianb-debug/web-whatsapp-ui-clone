@@ -1,4 +1,5 @@
-import type { NextApiRequest, NextApiResponse } from "next";
+import type { ServerResponse } from "http";
+import type { NextApiRequest } from "next";
 import prisma from "./prisma.server";
 
 type FanEntryMode = "go" | "public";
@@ -6,7 +7,7 @@ type FanEntryMode = "go" | "public";
 type FanEntryParams = {
   handle: string;
   req: Pick<NextApiRequest, "headers">;
-  res: Pick<NextApiResponse, "getHeader" | "setHeader">;
+  res: Pick<ServerResponse, "getHeader" | "setHeader">;
   mode?: FanEntryMode;
 };
 
@@ -60,7 +61,7 @@ export async function createOrResumeFanForHandle(params: FanEntryParams): Promis
 }
 
 export function setFanCookieForHandle(
-  res: Pick<NextApiResponse, "getHeader" | "setHeader">,
+  res: Pick<ServerResponse, "getHeader" | "setHeader">,
   handle: string,
   fanId: string
 ) {
@@ -90,7 +91,7 @@ function parseCookieHeader(cookieHeader: string | undefined): Record<string, str
   }, {});
 }
 
-function setFanCookie(res: Pick<NextApiResponse, "getHeader" | "setHeader">, name: string, value: string) {
+function setFanCookie(res: Pick<ServerResponse, "getHeader" | "setHeader">, name: string, value: string) {
   const secureFlag = process.env.NODE_ENV === "production" ? "; Secure" : "";
   const cookieValue = `${name}=${encodeURIComponent(value)}; Path=/; Max-Age=${FAN_COOKIE_MAX_AGE}; HttpOnly; SameSite=Lax${secureFlag}`;
 

@@ -193,7 +193,9 @@ export default function LibraryPage() {
     };
   };
 
-  const validatePopClipMedia = async (content: PrismaContentItem) => {
+  type PopClipValidation = { ok: true; url: string } | { ok: false; message: string };
+
+  const validatePopClipMedia = async (content: PrismaContentItem): Promise<PopClipValidation> => {
     const mediaUrl = resolveContentMediaUrl(content);
     if (!mediaUrl) {
       return { ok: false, message: "Falta la URL del vídeo." };

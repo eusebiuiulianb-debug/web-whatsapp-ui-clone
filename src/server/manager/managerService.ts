@@ -73,9 +73,11 @@ export type FanManagerSummary = {
   healthScore: number;
   riskLevel: "LOW" | "MEDIUM" | "HIGH";
   hasActivePack: boolean;
+  hasActiveAccess: boolean;
   daysToExpiry: number | null;
   recent30dSpend: number;
   lifetimeValue: number;
+  inviteUsedAt?: string | null;
   priorityRank: number | null;
   priorityReason: string;
   nextBestAction: "RENOVAR_PACK" | "CUIDAR_VIP" | "BIENVENIDA" | "REACTIVAR_DORMIDO" | "OFRECER_EXTRA" | "NEUTRO";

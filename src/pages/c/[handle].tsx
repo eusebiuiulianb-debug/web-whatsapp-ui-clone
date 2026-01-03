@@ -238,28 +238,28 @@ async function getPublicPopClips(creatorId: string, creatorHandle: string): Prom
     select: { packs: true },
   }))?.packs ?? [];
 
-  return clips
-    .map((clip) => {
-      const packMeta = resolvePackMeta({
-        clip,
-        creatorHandle,
-        creatorPacks: packs,
-      });
-      if (!packMeta) return null;
-      const videoUrl = clip.videoUrl || resolveContentMediaUrl(clip.contentItem);
-      if (!videoUrl || !videoUrl.trim()) return null;
-      return {
-        id: clip.id,
-        title: clip.title ?? null,
-        videoUrl,
-        posterUrl: clip.posterUrl ?? null,
-        startAtSec: Number.isFinite(Number(clip.startAtSec)) ? Math.max(0, Number(clip.startAtSec)) : 0,
-        durationSec: clip.durationSec ?? null,
-        sortOrder: clip.sortOrder,
-        pack: packMeta,
-      };
-    })
-    .filter((clip): clip is PublicPopClip => Boolean(clip));
+  const resolved: PublicPopClip[] = [];
+  for (const clip of clips) {
+    const packMeta = resolvePackMeta({
+      clip,
+      creatorHandle,
+      creatorPacks: packs,
+    });
+    if (!packMeta) continue;
+    const videoUrl = clip.videoUrl || resolveContentMediaUrl(clip.contentItem);
+    if (!videoUrl || !videoUrl.trim()) continue;
+    resolved.push({
+      id: clip.id,
+      title: clip.title ?? null,
+      videoUrl,
+      posterUrl: clip.posterUrl ?? null,
+      startAtSec: Number.isFinite(Number(clip.startAtSec)) ? Math.max(0, Number(clip.startAtSec)) : 0,
+      durationSec: clip.durationSec ?? null,
+      sortOrder: clip.sortOrder,
+      pack: packMeta,
+    });
+  }
+  return resolved;
 }
 
 function buildPackRoute(handle: string, packId: string) {

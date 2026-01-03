@@ -32,7 +32,7 @@ export type LocalExtrasSummary = {
 };
 
 export const EMPTY_EXTRAS_RAW = "[]";
-const EMPTY_EXTRAS: ExtraEvent[] = Object.freeze([]);
+const EMPTY_EXTRAS: ExtraEvent[] = [];
 const EMPTY_WINDOW: ExtrasWindowSummary = Object.freeze({ count: 0, amount: 0 });
 const EMPTY_LOCAL_SUMMARY: LocalExtrasSummary = Object.freeze({
   tips: { today: EMPTY_WINDOW, last7Days: EMPTY_WINDOW, last30Days: EMPTY_WINDOW },

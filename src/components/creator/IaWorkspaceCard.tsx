@@ -13,6 +13,8 @@ import type { CreatorAiAdvisorInput } from "../../server/manager/managerSchemas"
 import { ManagerInsightsPanel } from "./ManagerInsightsPanel";
 import { ManagerMobilePanels } from "./ManagerMobilePanels";
 import { IconGlyph } from "../ui/IconGlyph";
+import { KpiCard } from "../ui/KpiCard";
+import { SectionCard } from "../ui/SectionCard";
 
 function useIsDesktop() {
   const [isDesktop, setIsDesktop] = useState(false);
@@ -469,40 +471,21 @@ export function IaWorkspaceCard({
         )}
       </div>
 
-      {focus === "normal" && (
-        <div className="flex w-full flex-nowrap items-center gap-2 overflow-x-auto pb-1">
-          {managerChips.map((tab) => (
-            <button
-              key={tab.id}
-              type="button"
-              className={clsx(
-                "rounded-full border px-4 py-2 text-xs font-semibold transition text-left",
-                panelTab === tab.id
-                  ? "border-emerald-500/60 bg-emerald-600/20 text-emerald-100"
-                  : "border-slate-700 bg-slate-800/70 text-slate-300 hover:border-emerald-400/70 hover:text-emerald-100"
-              )}
-              onClick={() => handleContextShortcut(tab.id as typeof panelTab)}
-            >
-              <span className="block">{tab.label}</span>
-              <span className="text-[11px] text-slate-400 font-normal">{tab.summary}</span>
-            </button>
-          ))}
-        </div>
-      )}
-      {focus === "solo_chat" && (
-        <div className="flex w-full flex-nowrap items-stretch gap-2 overflow-x-auto pb-1">
-          {managerChips.map((tab) => (
-            <div
-              key={tab.id}
-              className="min-w-[160px] flex-1 rounded-xl border border-slate-800 bg-slate-900/70 px-3 py-2 shadow-sm"
-              onClick={() => handleContextShortcut(tab.id as typeof panelTab)}
-              role="button"
-              tabIndex={0}
-            >
-              <div className="text-[11px] uppercase tracking-wide text-slate-400">{tab.label}</div>
-              <div className="text-sm font-semibold text-white">{tab.summary}</div>
-            </div>
-          ))}
+      {(focus === "normal" || focus === "solo_chat") && (
+        <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3">
+          {managerChips.map((tab) => {
+            const isActive = panelTab === tab.id;
+            return (
+              <KpiCard
+                key={tab.id}
+                title={tab.label}
+                value={tab.summary}
+                variant={isActive ? "accent" : "muted"}
+                size="sm"
+                onClick={() => handleContextShortcut(tab.id as typeof panelTab)}
+              />
+            );
+          })}
         </div>
       )}
 
@@ -514,14 +497,14 @@ export function IaWorkspaceCard({
         )}
 
         {focus === "normal" && (
-        <div className="flex flex-wrap items-center gap-2">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
             <button
               type="button"
               className={clsx(
-                "rounded-full border px-4 py-2 text-xs font-semibold transition",
+                "rounded-2xl border px-4 py-3 text-left text-sm font-semibold shadow-sm transition",
                 activeTab === "strategy"
-                  ? "border-emerald-500/60 bg-emerald-600/20 text-emerald-100"
-                  : "border-slate-700 bg-slate-800/70 text-slate-300 hover:border-emerald-400/70 hover:text-emerald-100"
+                  ? "border-emerald-500/60 bg-emerald-600/15 text-emerald-100"
+                  : "border-slate-800/80 bg-slate-900/70 text-slate-200 hover:border-emerald-400/70 hover:text-emerald-100"
               )}
               onClick={() => setActiveTab("strategy")}
             >
@@ -530,10 +513,10 @@ export function IaWorkspaceCard({
             <button
               type="button"
               className={clsx(
-                "rounded-full border px-4 py-2 text-xs font-semibold transition",
+                "rounded-2xl border px-4 py-3 text-left text-sm font-semibold shadow-sm transition",
                 activeTab === "content"
-                  ? "border-emerald-500/60 bg-emerald-600/20 text-emerald-100"
-                  : "border-slate-700 bg-slate-800/70 text-slate-300 hover:border-emerald-400/70 hover:text-emerald-100"
+                  ? "border-emerald-500/60 bg-emerald-600/15 text-emerald-100"
+                  : "border-slate-800/80 bg-slate-900/70 text-slate-200 hover:border-emerald-400/70 hover:text-emerald-100"
               )}
               onClick={() => setActiveTab("content")}
             >
@@ -542,10 +525,10 @@ export function IaWorkspaceCard({
             <button
               type="button"
               className={clsx(
-                "rounded-full border px-4 py-2 text-xs font-semibold transition",
+                "rounded-2xl border px-4 py-3 text-left text-sm font-semibold shadow-sm transition",
                 activeTab === "growth"
-                  ? "border-emerald-500/60 bg-emerald-600/20 text-emerald-100"
-                  : "border-slate-700 bg-slate-800/70 text-slate-300 hover:border-emerald-400/70 hover:text-emerald-100"
+                  ? "border-emerald-500/60 bg-emerald-600/15 text-emerald-100"
+                  : "border-slate-800/80 bg-slate-900/70 text-slate-200 hover:border-emerald-400/70 hover:text-emerald-100"
               )}
               onClick={() => setActiveTab("growth")}
             >
@@ -708,14 +691,12 @@ export function IaWorkspaceCard({
 
 function PlanMini({ steps, onPlanClick }: { steps: DailyPlanStep[]; onPlanClick: (step: DailyPlanStep) => void }) {
   return (
-    <div className="rounded-2xl border border-slate-800 bg-slate-900/80 p-4 space-y-3">
-      <div className="flex items-center justify-between gap-2">
-        <div>
-          <p className="text-[11px] uppercase tracking-wide text-slate-400">Plan de hoy</p>
-          <h4 className="text-lg font-semibold text-white">{steps.length} pasos</h4>
-        </div>
-        <span className="text-xs text-slate-400">{steps.length} tareas</span>
-      </div>
+    <SectionCard
+      eyebrow="Plan de hoy"
+      title={`${steps.length} pasos`}
+      actions={<span className="text-xs text-slate-400">{steps.length} tareas</span>}
+      bodyClassName="space-y-2"
+    >
       <ol className="space-y-2">
         {steps.map((step, idx) => (
           <li key={step.id} className="flex items-start gap-3 rounded-lg border border-slate-800 bg-slate-950/60 px-3 py-2">
@@ -736,7 +717,7 @@ function PlanMini({ steps, onPlanClick }: { steps: DailyPlanStep[]; onPlanClick:
           </li>
         ))}
       </ol>
-    </div>
+    </SectionCard>
   );
 }
 
@@ -750,14 +731,12 @@ function QueueMini({
   onOpenFanChat?: (fanId: string) => void;
 }) {
   return (
-    <div className="rounded-2xl border border-slate-800 bg-slate-900/80 p-4 space-y-3">
-      <div className="flex items-center justify-between gap-2">
-        <div>
-          <p className="text-[11px] uppercase tracking-wide text-slate-400">Fans priorizados</p>
-          <h4 className="text-lg font-semibold text-white">Cola de hoy</h4>
-        </div>
-        <span className="text-xs text-slate-400">{queue.length} fans</span>
-      </div>
+    <SectionCard
+      eyebrow="Fans priorizados"
+      title="Cola de hoy"
+      actions={<span className="text-xs text-slate-400">{queue.length} fans</span>}
+      bodyClassName="space-y-2"
+    >
       {queueError && <div className="text-xs text-amber-200">{queueError}</div>}
       {!queueError && queue.length === 0 && <div className="text-xs text-slate-400">Sin datos todavía.</div>}
       {!queueError && queue.length > 0 && (
@@ -801,7 +780,7 @@ function QueueMini({
           )}
         </div>
       )}
-    </div>
+    </SectionCard>
   );
 }
 
@@ -829,15 +808,18 @@ function PulsePanel({
 
   return (
     <div className="space-y-4">
-      <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-4 space-y-3">
-        <div className="flex items-center gap-2">
-          <h4 className="text-lg font-semibold text-white">Estado de hoy</h4>
-          {preview?.riskLevel && (
+      <SectionCard
+        title="Estado de hoy"
+        variant="muted"
+        actions={
+          preview?.riskLevel ? (
             <span className={clsx("inline-flex items-center rounded-full px-3 py-1 text-[11px] font-semibold uppercase", riskBadge(preview.riskLevel))}>
               {preview.riskLevel}
             </span>
-          )}
-        </div>
+          ) : null
+        }
+        bodyClassName="space-y-2"
+      >
         {preview?.headline && <p className="text-sm text-slate-200">{preview.headline}</p>}
         {preview?.summaryLines && (
           <ul className="list-disc list-inside space-y-1 text-[12px] text-slate-300">
@@ -846,14 +828,17 @@ function PulsePanel({
             ))}
           </ul>
         )}
-      </div>
+      </SectionCard>
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         {metrics.map((metric) => (
-          <div key={metric.label} className="rounded-lg border border-slate-800 bg-slate-950/60 px-3 py-3">
-            <div className="text-lg font-semibold text-emerald-100">{metric.value}</div>
-            <div className="text-[11px] uppercase tracking-wide text-slate-400">{metric.label}</div>
-            {metric.helper && <div className="text-[11px] text-slate-400 mt-1">{metric.helper}</div>}
-          </div>
+          <KpiCard
+            key={metric.label}
+            title={metric.label}
+            value={metric.value}
+            hint={metric.helper}
+            variant="muted"
+            size="sm"
+          />
         ))}
       </div>
     </div>
@@ -864,8 +849,7 @@ function CatalogPanel({ summary }: { summary: CreatorManagerSummary | null }) {
   if (!summary) return null;
   return (
     <div className="space-y-4">
-      <div className="rounded-xl border border-slate-800 bg-slate-950/70 p-4 space-y-3">
-        <h4 className="text-lg font-semibold text-white">Packs</h4>
+      <SectionCard title="Packs" variant="muted" bodyClassName="space-y-3">
         <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
           <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-3 space-y-1">
             <div className="text-sm font-semibold">Bienvenida</div>
@@ -885,24 +869,26 @@ function CatalogPanel({ summary }: { summary: CreatorManagerSummary | null }) {
             <div className="text-xs text-slate-400">Ingresos 30d: {formatCurrency(summary.packs.special.revenue30)}</div>
           </div>
         </div>
-      </div>
+      </SectionCard>
 
-      <div className="rounded-xl border border-slate-800 bg-slate-950/70 p-4 space-y-3">
-        <div className="flex items-center gap-2">
-          <h4 className="text-lg font-semibold text-white">Segmentos</h4>
+      <SectionCard
+        title="Segmentos"
+        variant="muted"
+        actions={
           <Info
             text={
               "Segmentos\nNOVSY clasifica a tus fans según su salud y su historial de compras.\nSirve para saber con quién hablar antes cuando tienes poco tiempo."
             }
           />
-        </div>
+        }
+      >
         <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-sm text-slate-200">
           <span className="flex items-center gap-1">Fans nuevos: {summary.segments.newFans}</span>
           <span className="flex items-center gap-1">Habitual: {summary.segments.habitual}</span>
           <span className="flex items-center gap-1">VIP: {summary.segments.vip}</span>
           <span className="flex items-center gap-1">En riesgo: {summary.segments.atRisk}</span>
         </div>
-      </div>
+      </SectionCard>
     </div>
   );
 }
@@ -915,37 +901,32 @@ function ManagerKpiCards({
   density: "comfortable" | "compact";
 }) {
   return (
-    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
-      {tiles.map((tile) => (
-        <button
-          key={tile.id}
-          type="button"
-          className={clsx(
-            "rounded-xl border border-slate-800 bg-slate-900/70 text-left shadow-sm transition hover:border-emerald-500/50 hover:bg-slate-900",
-            density === "compact" ? "p-3" : "p-4"
-          )}
-          title={
-            tile.id === "pulse"
-              ? "Pulso: ingresos recientes y riesgo en 7 días."
-              : tile.id === "revenue30"
-              ? "Ingresos de los últimos 30 días según tu panel."
-              : tile.id === "vip"
-              ? "VIP activos a cuidar hoy."
-              : tile.id === "risk"
-              ? "Fans en riesgo para priorizar."
-              : undefined
-          }
-          onClick={() => tile.action?.()}
-          >
-            <div className="flex items-center justify-between">
-              <div className="text-[11px] uppercase tracking-wide text-slate-400">{tile.title}</div>
-              <span className="text-slate-500">●</span>
-            </div>
-            <div className={clsx("font-semibold text-white", density === "compact" ? "text-base" : "text-lg")}>{tile.value}</div>
-            {tile.helper && <div className={clsx("text-slate-400", density === "compact" ? "text-[11px]" : "text-sm")}>{tile.helper}</div>}
-            {tile.description && <div className="mt-1 text-xs text-slate-400">{tile.description}</div>}
-        </button>
-      ))}
+    <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3">
+      {tiles.map((tile) => {
+        const tooltip =
+          tile.id === "pulse"
+            ? "Pulso: ingresos recientes y riesgo en 7 días."
+            : tile.id === "revenue30"
+            ? "Ingresos de los últimos 30 días según tu panel."
+            : tile.id === "vip"
+            ? "VIP activos a cuidar hoy."
+            : tile.id === "risk"
+            ? "Fans en riesgo para priorizar."
+            : undefined;
+        return (
+          <KpiCard
+            key={tile.id}
+            title={tile.title}
+            value={tile.value}
+            hint={tile.helper}
+            supporting={tile.description}
+            titleAttr={tooltip}
+            variant={tile.id === "pulse" ? "accent" : "default"}
+            size={density === "compact" ? "sm" : "md"}
+            onClick={() => tile.action?.()}
+          />
+        );
+      })}
     </div>
   );
 }

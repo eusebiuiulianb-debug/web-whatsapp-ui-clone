@@ -203,7 +203,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
       id: string;
       title: string;
       reason: string;
-      filter: (fan: SegmentPreview) => boolean;
+      filter: (fan: InternalPreview) => boolean;
     }> = [
       {
         id: "sub_active_no_extras",

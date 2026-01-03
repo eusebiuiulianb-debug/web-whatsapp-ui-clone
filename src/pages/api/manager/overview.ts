@@ -213,10 +213,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
     let conversationsStarted7d = 0;
     let conversationsStarted30d = 0;
-    for (const firstTimestamp of firstMessageByFan.values()) {
+    firstMessageByFan.forEach((firstTimestamp) => {
       if (firstTimestamp >= start7.getTime()) conversationsStarted7d += 1;
       if (firstTimestamp >= start30.getTime()) conversationsStarted30d += 1;
-    }
+    });
 
     const firstPurchaseByFan = new Map<string, Date>();
     for (const grant of paidGrants) {
@@ -232,9 +232,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       }
     }
     let firstPurchase30d = 0;
-    for (const date of firstPurchaseByFan.values()) {
+    firstPurchaseByFan.forEach((date) => {
       if (date >= start30) firstPurchase30d += 1;
-    }
+    });
 
     const noResponseCutoff = now.getTime() - NO_RESPONSE_DAYS * MS_PER_DAY;
     let noResponseCount = 0;

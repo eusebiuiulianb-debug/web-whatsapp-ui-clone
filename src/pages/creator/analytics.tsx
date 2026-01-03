@@ -4,6 +4,10 @@ import CreatorHeader from "../../components/CreatorHeader";
 import { useCreatorConfig } from "../../context/CreatorConfigContext";
 import clsx from "clsx";
 import { normalizeCreatorPlatforms, CreatorPlatforms, CREATOR_PLATFORM_KEYS, formatPlatformLabel } from "../../lib/creatorPlatforms";
+import { EmptyState } from "../../components/ui/EmptyState";
+import { KpiCard } from "../../components/ui/KpiCard";
+import { SectionCard } from "../../components/ui/SectionCard";
+import { Skeleton } from "../../components/ui/Skeleton";
 
 type FunnelStep = { sessions: number; events: number };
 type TableRow = {
@@ -508,16 +512,19 @@ export default function CreatorAnalyticsPage() {
 
         {toast && <div className="text-sm text-emerald-300">{toast}</div>}
         {error && <div className="text-sm text-rose-300">{error}</div>}
-        {loading && <div className="text-sm text-slate-300">Cargando...</div>}
+        {loading && (
+          <div className="space-y-2">
+            <div className="text-sm text-slate-300">Cargando...</div>
+            <Skeleton className="h-4 w-40" />
+          </div>
+        )}
 
         {data && (
           <div className="space-y-6">
-            <div className="rounded-2xl border border-slate-800 bg-slate-900/70 p-4 sm:p-6 space-y-3">
-              <div className="flex items-center justify-between">
-                <div>
-                  <h2 className="text-lg font-semibold text-white">Redes (manual)</h2>
-                  <p className="text-sm text-slate-300">Configuración de perfiles para ideas de crecimiento. No genera links UTM.</p>
-                </div>
+            <SectionCard
+              title="Redes (manual)"
+              subtitle="Configuración de perfiles para ideas de crecimiento. No genera links UTM."
+              actions={
                 <button
                   type="button"
                   onClick={savePlatforms}
@@ -529,7 +536,9 @@ export default function CreatorAnalyticsPage() {
                 >
                   {savingPlatforms ? "Guardando..." : "Guardar redes"}
                 </button>
-              </div>
+              }
+              bodyClassName="space-y-3"
+            >
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 {CREATOR_PLATFORM_KEYS.map((key) => {
                   const item = platforms?.[key] ?? { enabled: false, handle: "" };
@@ -559,32 +568,27 @@ export default function CreatorAnalyticsPage() {
                   );
                 })}
               </div>
-            </div>
+            </SectionCard>
 
             {funnelRows.every((row) => row.events === 0) ? (
-              <div className="rounded-2xl border border-slate-800 bg-slate-900/70 p-6 text-slate-200">
-                <h2 className="text-lg font-semibold text-white mb-2">Aún no hay eventos registrados</h2>
-                <p className="text-sm text-slate-300">
-                  Crea un link UTM y prueba el flujo completo: visita → click CTA → abrir chat → enviar mensaje.
-                </p>
-              </div>
+              <EmptyState
+                title="Aún no hay eventos registrados"
+                description="Crea un link UTM y prueba el flujo completo: visita → click CTA → abrir chat → enviar mensaje."
+              />
             ) : (
               <>
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
-                  <MetricCard label="Sesiones" value={data.metrics.sessions} helper="Visitas = sesiones únicas (session_id)" />
-                  <MetricCard label="CTR CTA" value={`${data.metrics.ctr}%`} helper="cta_click_enter_chat / bio_link_view" />
-                  <MetricCard label="Chats abiertos" value={data.funnel.openChat.sessions} helper="Fans únicos que abren chat" />
-                  <MetricCard label="Mensajes" value={data.funnel.sendMessage.events} helper="Eventos send_message (conteo total)" />
-                  <MetricCard label="Fans nuevos" value={data.funnelFans.newFans} helper="distinct fanId" />
+                <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3">
+                  <KpiCard title="Sesiones" value={data.metrics.sessions} hint="Visitas = sesiones únicas (session_id)" size="sm" />
+                  <KpiCard title="CTR CTA" value={`${data.metrics.ctr}%`} hint="cta_click_enter_chat / bio_link_view" size="sm" />
+                  <KpiCard title="Chats abiertos" value={data.funnel.openChat.sessions} hint="Fans únicos que abren chat" size="sm" />
+                  <KpiCard title="Mensajes" value={data.funnel.sendMessage.events} hint="Eventos send_message (conteo total)" size="sm" />
+                  <KpiCard title="Fans nuevos" value={data.funnelFans.newFans} hint="distinct fanId" size="sm" />
                 </div>
 
-                <div className="rounded-2xl border border-slate-800 bg-slate-900/70 p-4 sm:p-6">
-                  <div className="flex items-center justify-between mb-3">
-                    <div>
-                      <h2 className="text-lg font-semibold text-white">Embudo</h2>
-                      <p className="text-sm text-slate-300">Sesiones únicas (o fans únicos) y eventos por paso</p>
-                    </div>
-                  </div>
+                <SectionCard
+                  title="Embudo"
+                  subtitle="Sesiones únicas (o fans únicos) y eventos por paso"
+                >
                   <div className="grid grid-cols-1 sm:grid-cols-5 gap-3">
                     {funnelRows.map((row) => (
                       <div key={row.label} className="rounded-xl border border-slate-800 bg-slate-950/60 p-3">
@@ -594,15 +598,12 @@ export default function CreatorAnalyticsPage() {
                       </div>
                     ))}
                   </div>
-                </div>
+                </SectionCard>
 
-                <div className="rounded-2xl border border-slate-800 bg-slate-900/70 p-4 sm:p-6">
-                  <div className="flex items-center justify-between mb-3">
-                    <div>
-                      <h2 className="text-lg font-semibold text-white">Embudo (fans reales)</h2>
-                      <p className="text-sm text-slate-300">Fans únicos por paso (fanId)</p>
-                    </div>
-                  </div>
+                <SectionCard
+                  title="Embudo (fans reales)"
+                  subtitle="Fans únicos por paso (fanId)"
+                >
                   <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                     {fanFunnelRows.map((row) => (
                       <div key={row.label} className="rounded-xl border border-slate-800 bg-slate-950/60 p-3">
@@ -611,16 +612,14 @@ export default function CreatorAnalyticsPage() {
                       </div>
                     ))}
                   </div>
-                </div>
+                </SectionCard>
               </>
             )}
 
-            <div className="rounded-2xl border border-slate-800 bg-slate-900/70 p-4 sm:p-6 space-y-4">
-              <div className="flex items-center justify-between">
-                <div>
-                  <h2 className="text-lg font-semibold text-white">Campañas (UTM)</h2>
-                  <p className="text-sm text-slate-300">Esto mide tráfico hacia BioLink/Chat.</p>
-                </div>
+            <SectionCard
+              title="Campañas (UTM)"
+              subtitle="Esto mide tráfico hacia BioLink/Chat."
+              actions={
                 <button
                   type="button"
                   onClick={openCampaignModal}
@@ -629,7 +628,9 @@ export default function CreatorAnalyticsPage() {
                   <PlusIconInline />
                   Nueva campaña
                 </button>
-              </div>
+              }
+              bodyClassName="space-y-4"
+            >
               {campaignsError && <div className="text-sm text-rose-300">{campaignsError}</div>}
               {campaignsLoading && <div className="text-sm text-slate-300">Cargando campañas...</div>}
               {!campaignsLoading && campaigns.length === 0 && (
@@ -838,7 +839,7 @@ export default function CreatorAnalyticsPage() {
                   </table>
                 </div>
               )}
-            </div>
+            </SectionCard>
 
             {!funnelRows.every((row) => row.events === 0) && (
               <>
@@ -847,13 +848,7 @@ export default function CreatorAnalyticsPage() {
               </>
             )}
 
-            <div className="rounded-2xl border border-slate-800 bg-slate-900/70 p-4 sm:p-6 space-y-3">
-              <div className="flex items-center justify-between">
-                <div>
-                  <h2 className="text-lg font-semibold text-white">Últimos links UTM</h2>
-                  <p className="text-sm text-slate-300">Copiar y usar en tus campañas</p>
-                </div>
-              </div>
+            <SectionCard title="Últimos links UTM" subtitle="Copiar y usar en tus campañas" bodyClassName="space-y-3">
               {data.latestLinks.length === 0 ? (
                 <div className="text-sm text-slate-400">Aún no hay links guardados.</div>
               ) : (
@@ -893,7 +888,7 @@ export default function CreatorAnalyticsPage() {
                   </table>
                 </div>
               )}
-            </div>
+            </SectionCard>
           </div>
         )}
       </div>
@@ -1029,25 +1024,9 @@ export default function CreatorAnalyticsPage() {
   );
 }
 
-function MetricCard({ label, value, helper }: { label: string; value: number | string; helper?: string }) {
-  return (
-    <div className="rounded-2xl border border-slate-800 bg-slate-900/70 p-4 space-y-1">
-      <div className="text-sm text-slate-300">{label}</div>
-      <div className="text-3xl font-semibold text-white">{value}</div>
-      {helper && <div className="text-[11px] uppercase tracking-wide text-slate-500">{helper}</div>}
-    </div>
-  );
-}
-
 function AggregatedTable({ title, subtitle, rows }: { title: string; subtitle: string; rows: TableRow[] }) {
   return (
-    <div className="rounded-2xl border border-slate-800 bg-slate-900/70 p-4 sm:p-6 space-y-3">
-      <div className="flex items-center justify-between">
-        <div>
-          <h2 className="text-lg font-semibold text-white">{title}</h2>
-          <p className="text-sm text-slate-300">{subtitle}</p>
-        </div>
-      </div>
+    <SectionCard title={title} subtitle={subtitle} bodyClassName="space-y-3">
       {rows.length === 0 ? (
         <div className="text-sm text-slate-400">Aún no hay datos.</div>
       ) : (
@@ -1102,7 +1081,7 @@ function AggregatedTable({ title, subtitle, rows }: { title: string; subtitle: s
           </table>
         </div>
       )}
-    </div>
+    </SectionCard>
   );
 }
 
