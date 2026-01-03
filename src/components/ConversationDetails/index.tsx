@@ -1054,12 +1054,12 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
   useEffect(() => {
     if (typeof window === "undefined") return;
     const el = dockRef.current;
+    const pane = rightPaneRef.current;
     if (!el) return;
     const update = () => {
       const raw = el.getBoundingClientRect().height;
       const height = Math.max(48, Math.min(raw, 88));
       setDockHeight(height);
-      const pane = rightPaneRef.current;
       if (pane) {
         pane.style.setProperty("--dock-h", `${height}px`);
       }
@@ -1075,7 +1075,6 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
     return () => {
       window.removeEventListener("resize", handleResize);
       if (observer) observer.disconnect();
-      const pane = rightPaneRef.current;
       if (pane) {
         pane.style.removeProperty("--dock-h");
       }

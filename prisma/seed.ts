@@ -3,6 +3,11 @@ import { PrismaClient } from "@prisma/client";
 
 const prisma = new PrismaClient();
 
+function isSqliteDatabase() {
+  const url = process.env.DATABASE_URL || "";
+  return url.startsWith("file:") || url.includes("sqlite");
+}
+
 function addDays(base: Date, days: number) {
   const result = new Date(base);
   result.setDate(result.getDate() + days);
@@ -10,23 +15,49 @@ function addDays(base: Date, days: number) {
 }
 
 async function main() {
-  await prisma.managerAiMessage.deleteMany();
-  await prisma.aiUsageLog.deleteMany();
-  await prisma.extraPurchase.deleteMany();
-  await prisma.contentManagerMessage.deleteMany();
-  await prisma.contentManagerConversation.deleteMany();
-  await prisma.managerMessage.deleteMany();
-  await prisma.managerConversation.deleteMany();
-  await prisma.message.deleteMany();
-  await prisma.contentItem.deleteMany();
-  await prisma.fanFollowUp.deleteMany();
-  await prisma.fanNote.deleteMany();
-  await prisma.accessGrant.deleteMany();
-  await prisma.creatorAiTemplate.deleteMany();
-  await prisma.creatorAiSettings.deleteMany();
-  await prisma.fan.deleteMany();
-  await prisma.pack.deleteMany();
-  await prisma.creator.deleteMany();
+  const isSqlite = isSqliteDatabase();
+  if (isSqlite) {
+    await prisma.$executeRawUnsafe("PRAGMA foreign_keys = OFF;");
+  }
+  let wipeOk = false;
+  try {
+    await prisma.$transaction([
+      prisma.managerAiMessage.deleteMany(),
+      prisma.managerMessage.deleteMany(),
+      prisma.managerConversation.deleteMany(),
+      prisma.contentManagerMessage.deleteMany(),
+      prisma.contentManagerConversation.deleteMany(),
+      prisma.message.deleteMany(),
+      prisma.fanFollowUp.deleteMany(),
+      prisma.fanNote.deleteMany(),
+      prisma.accessGrant.deleteMany(),
+      prisma.extraPurchase.deleteMany(),
+      prisma.aiUsageLog.deleteMany(),
+      prisma.analyticsEvent.deleteMany(),
+      prisma.campaignLink.deleteMany(),
+      prisma.discoveryFeedback.deleteMany(),
+      prisma.creatorAiTemplate.deleteMany(),
+      prisma.creatorAiSettings.deleteMany(),
+      prisma.generatedAsset.deleteMany(),
+      prisma.popClip.deleteMany(),
+      prisma.catalogItem.deleteMany(),
+      prisma.contentItem.deleteMany(),
+      prisma.campaignMeta.deleteMany(),
+      prisma.creatorDiscoveryProfile.deleteMany(),
+      prisma.creatorProfile.deleteMany(),
+      prisma.fan.deleteMany(),
+      prisma.pack.deleteMany(),
+      prisma.creator.deleteMany(),
+    ]);
+    wipeOk = true;
+  } finally {
+    if (isSqlite) {
+      await prisma.$executeRawUnsafe("PRAGMA foreign_keys = ON;");
+      if (wipeOk) {
+        console.log("Seeding: wiped DB (sqlite FK OFF/ON)");
+      }
+    }
+  }
 
   const creator = await prisma.creator.create({
     data: {

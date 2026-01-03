@@ -7,6 +7,8 @@
     "predev": "node scripts/guard-prisma.js && node scripts/guard-next.js",
     "dev": "next dev -p 3005",
     "dev:reset": "node scripts/dev-reset.mjs",
+    "db:reset": "prisma migrate reset --force",
+    "db:reset:seed": "prisma migrate reset --force && prisma db seed",
     "lint": "next lint",
     "typecheck": "tsc --noEmit",
     "smoke": "node scripts/smoke-api.mjs",

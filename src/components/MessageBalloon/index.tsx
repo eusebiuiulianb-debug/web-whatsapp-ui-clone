@@ -71,7 +71,7 @@ const MessageBalloon = memo(function MessageBalloon(props: MessageBalloonProps) 
     const deduped = favorites.concat(reactionRecents.filter((emoji) => !favorites.includes(emoji)));
     return deduped.slice(0, 6);
   }, [favorites, reactionRecents]);
-  const reactions = reactionsProp ?? [];
+  const reactions = useMemo(() => reactionsProp ?? [], [reactionsProp]);
   const [ isReactionBarOpen, setIsReactionBarOpen ] = useState(false);
   const [ isReactionPickerOpen, setIsReactionPickerOpen ] = useState(false);
   const [ isHovered, setIsHovered ] = useState(false);
