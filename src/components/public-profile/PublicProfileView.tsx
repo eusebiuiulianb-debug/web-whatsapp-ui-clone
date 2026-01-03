@@ -736,7 +736,7 @@ export default function PublicProfileView({
 
         {copy.freebiesSectionVisible !== false && visibleFreebies.length > 0 && (
           <section className="space-y-4">
-            <h2 className="text-2xl font-semibold">Para los que aún estáis curioseando 👀</h2>
+            <h2 className="text-2xl font-semibold">Para los que aún estáis curioseando</h2>
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
               {visibleFreebies.map((resource) => (
                 <div

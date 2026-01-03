@@ -1,4 +1,4 @@
-import { useContext, useState } from "react";
+import { useContext } from "react";
 import { ConversationContext } from "../../context/ConversationContext";
 import Avatar from "../Avatar";
 import { ConversationListData } from "../../types/Conversation"
@@ -9,6 +9,9 @@ import { computeFanTotals } from "../../lib/fanTotals";
 import { formatNextActionTooltip } from "../../lib/nextActionLabel";
 import { normalizePreferredLanguage } from "../../lib/language";
 import { isStickerToken } from "../../lib/stickers";
+import { IconBadge } from "../ui/IconBadge";
+import { Chip } from "../ui/Chip";
+import { ConversationActionsMenu } from "../conversations/ConversationActionsMenu";
 
 interface ConversationListProps {
   isFirstConversation?: boolean;
@@ -44,8 +47,6 @@ export default function ConversationList(props: ConversationListProps) {
     urgencyLevel,
   } = data;
   const borderClass = isFirstConversation ? "border-transparent" : "border-[rgba(134,150,160,0.15)]";
-  const [ isHover, seHover ] = useState(false);
-  const [ inviteCopyState, setInviteCopyState ] = useState<"idle" | "copying" | "copied" | "error">("idle");
   const isManagerChat = data.isManager === true;
   const previewMessage =
     typeof lastMessage === "string" && isStickerToken(lastMessage) ? "Sticker" : lastMessage;
@@ -70,8 +71,6 @@ export default function ConversationList(props: ConversationListProps) {
       <div 
         className={`flex items-center w-full bg-[#111B21] ${rowPadding} hover:bg-[#2A3942] cursor-pointer border-t ${borderClass}`}
         style={{ contentVisibility: "auto" }}
-        onMouseMove={ () => seHover(true) }
-        onMouseLeave={ () => seHover(false) }
         onClick={() => {
           if (onSelect) {
             onSelect(data);
@@ -85,9 +84,9 @@ export default function ConversationList(props: ConversationListProps) {
           <div className="flex flex-col gap-[2px] min-w-0 w-full">
             <div className="flex items-center gap-2 min-w-0">
               <span className={`truncate ${nameClasses}`}>{contactName}</span>
-              <span className="inline-flex items-center rounded-full border border-emerald-400/70 bg-emerald-500/15 px-2.5 py-1 text-[11px] font-semibold text-emerald-100">
+              <Chip variant="emerald" size="xs">
                 IA
-              </span>
+              </Chip>
             </div>
             {hasManagerPreview && <span className={`truncate ${previewClasses}`}>{previewMessage}</span>}
             {hasManagerCaption && (
@@ -116,11 +115,14 @@ export default function ConversationList(props: ConversationListProps) {
   })();
 
   const daysLabel = daysLeft !== undefined && daysLeft !== null ? `${daysLeft} d` : "";
+  const isUrgencyDefault = urgencyLevel !== "high" && urgencyLevel !== "medium";
   const nameTint = normalizedAccessState === "EXPIRED" ? "text-[#7d8a93]" : nameClasses;
   const followUpTag = getFollowUpTag(membershipStatus, daysLeft, data.activeGrantTypes);
   const notesCount = data.notesCount ?? 0;
   const notePreview = typeof data.notePreview === "string" ? data.notePreview : "";
   const hasNotePreview = notePreview.trim().length > 0;
+  const profilePreview = getProfilePreview(data.profileText);
+  const hasProfilePreview = profilePreview.length > 0;
   const segment = (data.segment || "").toUpperCase();
   const customerTier = (data.customerTier ?? "new") as "new" | "regular" | "vip" | "priority";
   const followUpOpen = data.followUpOpen ?? null;
@@ -148,6 +150,7 @@ export default function ConversationList(props: ConversationListProps) {
   const preferredLanguage = normalizePreferredLanguage(data.preferredLanguage);
   const languageBadgeLabel = !isManagerChat && preferredLanguage ? preferredLanguage.toUpperCase() : null;
   const hasContextSignals = notesCount > 0 || hasNextAction;
+  const shouldShowNotePreview = notesCount > 0 && hasNotePreview;
 
   function normalizeTier(tier: string | undefined) {
     const lower = (tier || "").toLowerCase();
@@ -174,14 +177,9 @@ export default function ConversationList(props: ConversationListProps) {
     { kind: "GIFT", amount: data.giftsSpentTotal ?? 0 },
   ]);
   const totalSpent = Math.round(purchaseTotals.totalSpent);
-  const tierBadgeClass = clsx(
-    "inline-flex items-center rounded-full px-3 py-1 text-[12px] font-semibold whitespace-nowrap shrink-0",
-    normalizedTier === "vip"
-      ? "border border-amber-400 text-amber-900 bg-amber-300/80"
-    : normalizedTier === "regular"
-      ? "border border-emerald-400 text-emerald-100 bg-emerald-500/20"
-      : "border border-sky-400 text-sky-100 bg-sky-500/20"
-  );
+  const tierChipVariant = normalizedTier === "vip" ? "amber" : normalizedTier === "regular" ? "emerald" : "neutral";
+  const tierChipClass =
+    normalizedTier === "new" ? "border-sky-400 text-sky-100 bg-sky-500/20" : undefined;
 
   function getAccessChipLabel() {
     if (normalizedAccessState === "NONE") {
@@ -200,23 +198,13 @@ export default function ConversationList(props: ConversationListProps) {
   const accessChipLabel = getAccessChipLabel();
   const shouldShowAccessChip = Boolean(accessChipLabel);
 
-  const canToggleHighPriority = !isManagerChat && typeof onToggleHighPriority === "function";
   const hasActiveAccess = typeof data.hasActiveAccess === "boolean" ? data.hasActiveAccess : normalizedAccessState === "ACTIVE";
   const isInvitePending = !isManagerChat && !data.inviteUsedAt && !hasActiveAccess;
-  const canCopyInvite = isInvitePending && typeof onCopyInvite === "function";
-  const inviteCopyLabel =
-    inviteCopyState === "copied"
-      ? "Copiado"
-      : inviteCopyState === "copying"
-      ? "Copiando..."
-      : "Copiar enlace";
 
   return (
     <div 
       className={`flex items-center w-full bg-[#111B21] ${rowPadding} hover:bg-[#2A3942] cursor-pointer border-t ${borderClass}`}
       style={{ contentVisibility: "auto" }}
-      onMouseMove={ () => seHover(true) }
-      onMouseLeave={ () => seHover(false) }
       onClick={() => {
         if (onSelect) {
           onSelect(data);
@@ -232,47 +220,70 @@ export default function ConversationList(props: ConversationListProps) {
             <div className="flex items-center gap-2 min-w-0">
               <span className={`truncate ${nameTint}`}>{contactName}</span>
               {/* Chip de nivel según el tier del fan, usando la misma paleta que el botón amarillo */}
-              <span className={tierBadgeClass}>
+              <Chip variant={tierChipVariant} size="sm" className={tierChipClass}>
                 {tierLabel}
-              </span>
+              </Chip>
               {languageBadgeLabel && (
-                <span className="inline-flex items-center rounded-full border border-slate-600 bg-slate-900/70 px-2 py-1 text-[10px] font-semibold text-slate-200 whitespace-nowrap shrink-0">
+                <Chip variant="subtle" size="xs">
                   {languageBadgeLabel}
-                </span>
+                </Chip>
               )}
               {novsyStatus === "NOVSY" && (
-                <span className="inline-flex items-center rounded-full border border-emerald-400/80 bg-emerald-500/15 px-2.5 py-1 text-[11px] font-semibold text-emerald-100 whitespace-nowrap shrink-0">
+                <Chip variant="emerald" size="xs">
                   Extras
-                </span>
+                </Chip>
               )}
               {/* Chip de alta prioridad */}
               {isHighPriority && (
-                <span
-                  className="inline-flex items-center justify-center rounded-full bg-amber-300 px-2.5 py-1 text-[12px] font-semibold leading-none text-neutral-950 shadow-sm whitespace-nowrap shrink-0"
-                  aria-label="Alta prioridad"
+                <Chip
+                  variant="amber"
+                  size="xs"
+                  leftGlyph="pin"
+                  ariaLabel="Alta prioridad"
                   title="Alta prioridad"
                 >
-                  <span aria-hidden>🔥</span>
-                </span>
+                  Alta
+                </Chip>
               )}
               {followUpTag !== "none" && (
-                <span
+                <Chip
+                  variant={
+                    followUpTag === "trial_soon"
+                      ? "amber"
+                      : followUpTag === "expired"
+                      ? "danger"
+                      : "neutral"
+                  }
+                  size="xs"
                   className={clsx(
-                    "ml-1 inline-flex items-center rounded-full px-2.5 py-1 text-[11px] font-semibold whitespace-nowrap shrink-0",
-                    followUpTag === "trial_soon" && "border border-amber-400/70 bg-amber-500/15 text-amber-100",
-                    followUpTag === "monthly_soon" && "border border-sky-400/70 bg-sky-500/15 text-sky-100",
-                    followUpTag === "expired" && "border border-rose-400/70 bg-rose-500/15 text-rose-100"
+                    "ml-1",
+                    followUpTag === "monthly_soon" && "border-sky-400/70 bg-sky-500/15 text-sky-100"
                   )}
                 >
                   {followUpTag === "trial_soon" && `Prueba · ${daysLeft ?? ""} d`}
                   {followUpTag === "monthly_soon" && `Renueva en ${daysLeft ?? ""} d`}
                   {followUpTag === "expired" && "Caducado"}
-                </span>
+                </Chip>
               )}
             </div>
             {!isCompact && <span className={`truncate ${previewClasses}`}>{previewMessage}</span>}
-            {!isCompact && hasNotePreview && (
-              <span className="truncate text-[11px] text-slate-500/80">{notePreview}</span>
+            {!isCompact && (hasProfilePreview || shouldShowNotePreview) && (
+              <div className="flex flex-col gap-1 min-w-0">
+                {hasProfilePreview && (
+                  <MetaRow
+                    label="Perfil"
+                    text={profilePreview}
+                    variant="profile"
+                  />
+                )}
+                {shouldShowNotePreview && (
+                  <MetaRow
+                    label="Nota"
+                    text={notePreview}
+                    variant="note"
+                  />
+                )}
+              </div>
             )}
             {!isCompact && (
               <div className="flex items-center gap-1 text-[11px] text-slate-500">
@@ -282,14 +293,23 @@ export default function ConversationList(props: ConversationListProps) {
                     <span className="w-1 h-1 rounded-full bg-slate-600" />
                     <span className="inline-flex items-center gap-2 text-slate-400">
                       {notesCount > 0 && (
-                        <span aria-label="Notas" title={notePreview || ""}>
-                          📝 {notesCount}
+                        <span className="inline-flex items-center gap-1.5">
+                          <IconBadge
+                            label={notePreview || "Notas"}
+                            icon="note"
+                            variant="muted"
+                            size="sm"
+                          />
+                          <span className="text-[11px] text-slate-400">{notesCount}</span>
                         </span>
                       )}
                       {hasNextAction && (
-                        <span aria-label="Seguimiento" title={followUpTooltip}>
-                          ⏰
-                        </span>
+                        <IconBadge
+                          label={followUpTooltip || "Seguimiento"}
+                          icon="clock"
+                          variant="muted"
+                          size="sm"
+                        />
                       )}
                     </span>
                   </>
@@ -298,110 +318,68 @@ export default function ConversationList(props: ConversationListProps) {
             )}
             <div className={clsx("flex flex-wrap items-center gap-2", isCompact ? "mt-0.5" : "mt-1")}>
               {shouldShowAccessChip ? (
-                <span className="inline-flex items-center rounded-full bg-slate-800/80 text-[11px] text-amber-200 px-3 py-1 font-semibold whitespace-nowrap shrink-0 w-auto">
+                <Chip
+                  variant="subtle"
+                  size="xs"
+                  className="bg-slate-800/80 text-amber-200 border-slate-700/70"
+                >
                   {accessChipLabel}
-                </span>
+                </Chip>
               ) : null}
               {!isCompact && isInvitePending && (
-                <span
-                  className="inline-flex items-center rounded-full border border-amber-400/70 bg-amber-500/10 px-2.5 py-1 text-[11px] font-semibold text-amber-100 whitespace-nowrap shrink-0"
+                <Chip
+                  variant="amber"
+                  size="xs"
                   title="Invitación privada /i/token pendiente de entrar"
                 >
                   Pendiente
-                </span>
-              )}
-              {!isCompact && canCopyInvite && (
-                <button
-                  type="button"
-                  className="inline-flex items-center rounded-full border border-slate-700 bg-slate-900/70 px-2.5 py-1 text-[11px] font-semibold text-slate-200 hover:border-emerald-400 hover:text-emerald-100 whitespace-nowrap shrink-0 w-auto"
-                  onClick={async (event) => {
-                    event.stopPropagation();
-                    if (!onCopyInvite) return;
-                    try {
-                      setInviteCopyState("copying");
-                      const ok = await onCopyInvite(data);
-                      setInviteCopyState(ok ? "copied" : "error");
-                      setTimeout(() => setInviteCopyState("idle"), 1500);
-                    } catch (_err) {
-                      setInviteCopyState("error");
-                      setTimeout(() => setInviteCopyState("idle"), 1500);
-                    }
-                  }}
-                  aria-live="polite"
-                >
-                  {inviteCopyState === "error" ? "Error" : inviteCopyLabel}
-                </button>
+                </Chip>
               )}
               {daysLabel ? (
-                <span
-                  className={
-                    urgencyLevel === "high"
-                      ? "inline-flex items-center rounded-full border px-3 py-1 text-[11px] font-semibold border-red-500 text-red-200 bg-red-500/10 whitespace-nowrap shrink-0"
-                    : urgencyLevel === "medium"
-                      ? "inline-flex items-center rounded-full border px-3 py-1 text-[11px] font-semibold border-amber-400 text-amber-200 bg-amber-500/10 whitespace-nowrap shrink-0"
-                      : "inline-flex items-center rounded-full border px-3 py-1 text-[11px] font-semibold border-slate-600 text-slate-300 bg-slate-800/80 whitespace-nowrap shrink-0"
-                  }
+                <Chip
+                  variant={urgencyLevel === "high" ? "danger" : urgencyLevel === "medium" ? "amber" : "neutral"}
+                  size="xs"
+                  className={clsx(isUrgencyDefault && "border-slate-600 bg-slate-800/80 text-slate-300")}
                 >
                   {daysLabel}
-                </span>
+                </Chip>
               ) : null}
               {!isCompact && (sourceLabel || campaignLabel || contentLabel) && (
                 <div className="flex flex-wrap items-center gap-1">
                   {sourceLabel && (
-                    <span className="inline-flex items-center rounded-full border border-slate-700 bg-slate-900/70 px-2.5 py-0.5 text-[11px] font-semibold text-slate-200 whitespace-nowrap shrink-0">
+                    <Chip variant="subtle" size="xs">
                       {sourceLabel}
-                    </span>
+                    </Chip>
                   )}
                   {campaignLabel && (
-                    <span className="inline-flex items-center rounded-full border border-slate-700 bg-slate-900/70 px-2.5 py-0.5 text-[11px] font-semibold text-slate-300 whitespace-nowrap shrink-0">
+                    <Chip variant="subtle" size="xs" className="text-slate-300">
                       {campaignLabel}
-                    </span>
+                    </Chip>
                   )}
                   {contentLabel && (
-                    <span className="inline-flex items-center rounded-full border border-slate-700 bg-slate-900/70 px-2.5 py-0.5 text-[11px] font-semibold text-slate-300 whitespace-nowrap shrink-0">
+                    <Chip variant="subtle" size="xs" className="text-slate-300">
                       {contentLabel}
-                    </span>
+                    </Chip>
                   )}
                 </div>
               )}
             </div>
           </div>
-          <div className="flex flex-col items-end gap-1 w-auto text-[#aebac1]">
+          <div className="flex flex-col items-end gap-1 w-auto text-[#aebac1] relative">
             <div className="flex items-center gap-2">
-              {canToggleHighPriority && (
-                <button
-                  type="button"
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    onToggleHighPriority?.(data);
-                  }}
-                  className={clsx(
-                    "inline-flex h-7 w-7 items-center justify-center rounded-full border text-xs transition",
-                    isHighPriority
-                      ? "border-amber-300 bg-amber-500/15 text-amber-100 hover:bg-amber-500/25"
-                      : "border-slate-700 bg-slate-900/70 text-slate-300 hover:border-amber-300 hover:text-amber-100"
-                  )}
-                  aria-pressed={isHighPriority}
-                  aria-label={isHighPriority ? "Quitar alta prioridad" : "Marcar alta prioridad"}
-                  title={isHighPriority ? "Quitar alta prioridad" : "Marcar alta prioridad"}
-                >
-                  📌
-                </button>
-              )}
               <h1 className="text-[10px] text-slate-500">{lastTime}</h1>
+              <ConversationActionsMenu
+                conversation={data}
+                variant="row"
+                onToggleHighPriority={onToggleHighPriority}
+                onCopyInvite={onCopyInvite}
+              />
             </div>
             {hasUnread && (
               <span className="self-end min-w-[20px] h-5 px-2 rounded-full bg-[#53bdeb] text-[#0b141a] text-xs font-semibold flex items-center justify-center">
                 {unreadCount}
               </span>
             )}
-            {isHover ? (
-              <span className="flex cursor-pointer h-full items-center justify-center">
-                <svg viewBox="0 0 19 20" width="19" height="20" className="">
-                  <path fill="currentColor" d="m3.8 6.7 5.7 5.7 5.7-5.7 1.6 1.6-7.3 7.2-7.3-7.2 1.6-1.6z"></path>
-                </svg>
-              </span>
-            ) : null}
           </div>
         </div>
       </div>
@@ -416,4 +394,40 @@ function formatSourceLabel(raw?: string | null) {
   if (value.includes("instagram") || value === "ig") return "IG";
   if (value.includes("discover") || value.includes("discovery")) return "Discovery";
   return value.charAt(0).toUpperCase() + value.slice(1);
+}
+
+function getProfilePreview(value?: string | null, max = 90): string {
+  if (!value) return "";
+  const trimmed = value.trim();
+  if (!trimmed) return "";
+  const line = trimmed.split(/\r?\n/)[0]?.trim() ?? "";
+  if (!line) return "";
+  if (line.length <= max) return line;
+  const sliceEnd = Math.max(0, max - 3);
+  return `${line.slice(0, sliceEnd)}...`;
+}
+
+type MetaRowProps = {
+  label: string;
+  text: string;
+  variant: "profile" | "note";
+};
+
+function MetaRow({ label, text, variant }: MetaRowProps) {
+  const icon = variant === "profile" ? "user" : "note";
+  const toneClass = variant === "profile" ? "text-slate-300/80" : "text-slate-300/70";
+  return (
+    <div className="flex items-center gap-2 min-w-0 text-[11px] text-slate-400/80 leading-tight">
+      <IconBadge
+        label={label}
+        icon={icon}
+        variant="subtle"
+        size="md"
+        className={toneClass}
+      />
+      <span className="truncate min-w-0 text-[11px] text-slate-400/80" title={text}>
+        {text}
+      </span>
+    </div>
+  );
 }

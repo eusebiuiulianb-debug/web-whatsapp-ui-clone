@@ -159,7 +159,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
     });
 
     const previews: InternalPreview[] = fans.map((fan) => {
-      const notesCount = (fan._count?.notes ?? 0) + (normalizeNoteValue(fan.quickNote) ? 1 : 0) + (normalizeNoteValue(fan.profileText) ? 1 : 0);
+      const notesCount = (fan._count?.notes ?? 0) + (normalizeNoteValue(fan.quickNote) ? 1 : 0);
       let extrasCount = 0;
       let tipsCount = 0;
       let giftsCount = 0;

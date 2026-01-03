@@ -3,6 +3,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import OrbitalExplorer from "../components/discovery/OrbitalExplorer";
 import StoryViewerModal from "../components/discovery/StoryViewerModal";
+import { IconGlyph } from "../components/ui/IconGlyph";
 import type { DiscoveryRecommendation } from "../types/discovery";
 
 type StepId = "intention" | "style" | "budget" | "responseSpeed" | "useLocation";
@@ -364,7 +365,7 @@ export default function DiscoverPage() {
                           }`}
                           onClick={() => handleFeedback(rec.creatorId, "up")}
                         >
-                          👍
+                          <IconGlyph name="thumbsUp" className="h-4 w-4" />
                         </button>
                         <button
                           type="button"
@@ -376,7 +377,7 @@ export default function DiscoverPage() {
                           }`}
                           onClick={() => handleFeedback(rec.creatorId, "down")}
                         >
-                          👎
+                          <IconGlyph name="thumbsDown" className="h-4 w-4" />
                         </button>
                       </div>
                     </div>

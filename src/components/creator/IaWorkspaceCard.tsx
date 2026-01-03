@@ -12,6 +12,7 @@ import type { FanManagerRow } from "../../server/manager/managerService";
 import type { CreatorAiAdvisorInput } from "../../server/manager/managerSchemas";
 import { ManagerInsightsPanel } from "./ManagerInsightsPanel";
 import { ManagerMobilePanels } from "./ManagerMobilePanels";
+import { IconGlyph } from "../ui/IconGlyph";
 
 function useIsDesktop() {
   const [isDesktop, setIsDesktop] = useState(false);
@@ -120,17 +121,17 @@ export function IaWorkspaceCard({
 
   const sidebarItems = useMemo(
     () => [
-      { id: "today", label: `Hoy · ${planSteps.length} pasos`, icon: "🗓️" },
-      { id: "queue", label: `Cola · ${queue.length}`, icon: "📥" },
-    {
-      id: "pulse",
-      label: `Pulso · ${formatCurrency(summary?.kpis?.last7?.revenue ?? 0)}`,
-      icon: "📊",
-    },
-    { id: "catalog", label: "Catálogo · 3 packs", icon: "🗂️" },
-  ],
-  [planSteps.length, queue.length, summary?.kpis?.last7?.revenue]
-);
+      { id: "today", label: `Hoy · ${planSteps.length} pasos`, icon: "calendar" },
+      { id: "queue", label: `Cola · ${queue.length}`, icon: "inbox" },
+      {
+        id: "pulse",
+        label: `Pulso · ${formatCurrency(summary?.kpis?.last7?.revenue ?? 0)}`,
+        icon: "chart",
+      },
+      { id: "catalog", label: "Catálogo · 3 packs", icon: "folder" },
+    ],
+    [planSteps.length, queue.length, summary?.kpis?.last7?.revenue]
+  );
 
   const quickPromptsByTab: Record<typeof panelTab, string[]> = {
     today: ["¿A quién escribo hoy?", "Dame 3 pasos", "Mensaje para reactivar…"],
@@ -207,7 +208,7 @@ export function IaWorkspaceCard({
       { id: "today", label: "Pack top" },
       { id: "queue", label: "Extra top" },
       { id: "pulse", label: "Tiempo resp. medio" },
-      { id: "catalog", label: "Satisfacción 👍" },
+      { id: "catalog", label: "Satisfacción" },
     ],
     "pulse:growth": [
       { id: "today", label: "Retención (7d)" },
@@ -431,11 +432,12 @@ export function IaWorkspaceCard({
             </button>
             <button
               type="button"
-              className="rounded-full border border-slate-700 bg-slate-800/70 px-3 py-1 text-xs font-semibold text-slate-100 hover:border-emerald-500/60"
+              className="inline-flex items-center gap-1 rounded-full border border-slate-700 bg-slate-800/70 px-3 py-1 text-xs font-semibold text-slate-100 hover:border-emerald-500/60"
               title="Configura cómo trabaja tu Manager IA."
               onClick={() => setShowSettings((prev) => !prev)}
             >
-              ⚙ Ajustes
+              <IconGlyph name="settings" className="h-3.5 w-3.5" />
+              <span>Ajustes</span>
             </button>
           </div>
         </div>
@@ -688,7 +690,7 @@ export function IaWorkspaceCard({
               }
             }}
           >
-            <span className="text-emerald-300">⚡</span>
+            <IconGlyph name="pin" className="h-4 w-4 text-emerald-300" />
             Prioridad ({queue.length})
           </button>
         </div>

@@ -1,6 +1,7 @@
 import { useState } from "react";
 import clsx from "clsx";
 import FanManagerPanel from "../chat/FanManagerPanel";
+import { IconGlyph } from "../ui/IconGlyph";
 import type { FanManagerSummary } from "../../server/manager/managerService";
 import type { FanManagerChip, FanManagerState, FanTone, ManagerObjective } from "../../types/manager";
 
@@ -253,7 +254,8 @@ export default function FanManagerDrawer({
                   )}
                   title="Genera borradores sugeridos según el estado del fan."
                 >
-                  ⚡ Auto-sugerir (solo borradores)
+                  <IconGlyph name="spark" className="h-3.5 w-3.5" />
+                  <span>Auto-sugerir (solo borradores)</span>
                 </button>
                 <div className="flex w-full flex-col items-end gap-1 text-[10px] leading-snug min-h-[32px]">
                   <div className="text-slate-400">Nunca envía nada automáticamente. Tú decides qué se envía.</div>
@@ -305,18 +307,16 @@ export default function FanManagerDrawer({
               onClick={() => setShowMore((prev) => !prev)}
               className="self-start inline-flex items-center gap-1.5 rounded-full border border-slate-700 bg-slate-800/80 px-3 py-1.5 text-[11px] font-semibold text-slate-100 hover:bg-slate-700"
               aria-expanded={showMore}
-            >
-              <span>{showMore ? "Ocultar" : "Opciones"}</span>
-              <span
-                className={clsx(
-                  "inline-flex items-center transition-transform duration-200",
-                  showMore ? "rotate-180" : "rotate-0"
-                )}
-                aria-hidden="true"
               >
-                ▾
-              </span>
-            </button>
+                <span>{showMore ? "Ocultar" : "Opciones"}</span>
+                <IconGlyph
+                  name="chevronDown"
+                  className={clsx(
+                    "h-3.5 w-3.5 transition-transform duration-200",
+                    showMore ? "rotate-180" : "rotate-0"
+                  )}
+                />
+              </button>
           </div>
         </div>
         {managerDisabled && (
@@ -325,7 +325,10 @@ export default function FanManagerDrawer({
           </div>
         )}
         {isAutoPilotLoading && (
-          <div className="text-[11px] text-emerald-200">⚡ Generando borrador…</div>
+          <div className="inline-flex items-center gap-1 text-[11px] text-emerald-200">
+            <IconGlyph name="spark" className="h-3.5 w-3.5" />
+            <span>Generando borrador…</span>
+          </div>
         )}
         <div className="mt-3 flex flex-wrap items-center gap-3">
           {isCriticalExpiry && onSendLink && (

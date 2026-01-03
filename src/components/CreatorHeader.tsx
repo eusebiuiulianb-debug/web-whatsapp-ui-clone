@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { useRouter } from "next/router";
-import { useState } from "react";
+import { ContextMenu, type ContextMenuItem } from "./ui/ContextMenu";
+import { IconButton } from "./ui/IconButton";
 
 interface CreatorHeaderProps {
   name: string;
@@ -12,7 +13,6 @@ interface CreatorHeaderProps {
 }
 
 export default function CreatorHeader({ name, role, subtitle, initial, avatarUrl, onOpenSettings }: CreatorHeaderProps) {
-  const [ menuOpen, setMenuOpen ] = useState(false);
   const router = useRouter();
 
   const pathname = router.pathname;
@@ -37,12 +37,49 @@ export default function CreatorHeader({ name, role, subtitle, initial, avatarUrl
     { label: "Analítica", href: "/creator/analytics", active: isAnalytics, className: "" },
   ];
 
-  const menuLinks = [
-    { label: "Ajustes de IA", href: "/creator/ai-settings", external: false },
-    { label: "Ver perfil público", href: "/creator", external: true },
-    { label: "Plantillas de IA", href: "/creator/ai-templates", external: false },
-    { label: "Biblioteca", href: "/library", external: false },
-    { label: "Editar perfil", href: "/creator/edit", external: false },
+  const menuItems: ContextMenuItem[] = [
+    {
+      label: "Ajustes del creador",
+      icon: "settings",
+      onClick: () => onOpenSettings(),
+    },
+    {
+      label: "Ajustes de IA",
+      icon: "spark",
+      onClick: () => {
+        void router.push("/creator/ai-settings");
+      },
+    },
+    {
+      label: "Ver perfil público",
+      icon: "globe",
+      onClick: () => {
+        if (typeof window !== "undefined") {
+          window.open("/creator", "_blank", "noopener,noreferrer");
+        }
+      },
+    },
+    {
+      label: "Plantillas de IA",
+      icon: "file",
+      onClick: () => {
+        void router.push("/creator/ai-templates");
+      },
+    },
+    {
+      label: "Biblioteca",
+      icon: "folder",
+      onClick: () => {
+        void router.push("/library");
+      },
+    },
+    {
+      label: "Editar perfil",
+      icon: "edit",
+      onClick: () => {
+        void router.push("/creator/edit");
+      },
+    },
   ];
 
   return (
@@ -77,46 +114,25 @@ export default function CreatorHeader({ name, role, subtitle, initial, avatarUrl
               </a>
             </Link>
           ))}
-          <div className="relative">
-            <button
-              type="button"
-              aria-label="Más opciones"
-              onClick={() => setMenuOpen((prev) => !prev)}
-              className="inline-flex items-center justify-center rounded-full border border-slate-700 bg-slate-800/80 p-2 text-slate-200 hover:bg-slate-700"
-            >
-              <svg viewBox="0 0 24 24" width="20" height="20" className="text-[#AEBAC1]">
-                <path fill="currentColor" d="M12 7a2 2 0 1 0-.001-4.001A2 2 0 0 0 12 7zm0 2a2 2 0 1 0-.001 3.999A2 2 0 0 0 12 9zm0 6a2 2 0 1 0-.001 3.999A2 2 0 0 0 12 15z"></path>
-              </svg>
-            </button>
-            {menuOpen && (
-              <div className="absolute right-0 mt-2 w-52 bg-[#0f1f26] border border-[rgba(134,150,160,0.2)] rounded-lg shadow-xl z-30">
-                <button
-                  type="button"
-                  className="w-full text-left px-4 py-3 text-white hover:bg-[#2a3942] rounded-lg"
-                  onClick={() => {
-                    onOpenSettings();
-                    setMenuOpen(false);
-                  }}
-                >
-                  Ajustes del creador
-                </button>
-                {menuLinks.map((link) => (
-                  <Link key={link.label} href={link.href} legacyBehavior>
-                    <a
-                    className="block w-full px-4 py-3 text-slate-200 hover:bg-[#2a3942] rounded-lg text-sm"
-                    onClick={() => {
-                      setMenuOpen(false);
-                    }}
-                    target={link.external ? "_blank" : undefined}
-                    rel={link.external ? "noreferrer" : undefined}
-                  >
-                    {link.label}
-                    </a>
-                  </Link>
-                ))}
-              </div>
+          <ContextMenu
+            buttonAriaLabel="Más opciones"
+            items={menuItems}
+            align="right"
+            renderButton={({ ref, open, onClick, ariaLabel, ariaExpanded, ariaHaspopup, title }) => (
+              <IconButton
+                ref={ref}
+                icon="dots"
+                size="md"
+                tone="neutral"
+                active={open}
+                ariaLabel={ariaLabel}
+                ariaExpanded={ariaExpanded}
+                ariaHaspopup={ariaHaspopup}
+                title={title}
+                onClick={onClick}
+              />
             )}
-          </div>
+          />
         </div>
       </div>
     </div>

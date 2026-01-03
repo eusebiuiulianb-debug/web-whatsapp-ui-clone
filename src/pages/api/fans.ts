@@ -41,13 +41,6 @@ function normalizeNoteValue(value: string | null | undefined): string | null {
   return trimmed.length > 0 ? trimmed : null;
 }
 
-function getFirstLine(value: string | null | undefined): string | null {
-  const normalized = normalizeNoteValue(value);
-  if (!normalized) return null;
-  const line = normalized.split(/\r?\n/)[0]?.trim();
-  return line && line.length > 0 ? line : null;
-}
-
 function formatNextActionFromFollowUp(followUp?: {
   title: string;
   dueAt: Date | null;
@@ -150,7 +143,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
     if (!isArchivedFilter) {
       if (filter === "notes") {
-        where.notes = { some: {} };
+        where.OR = [{ notes: { some: {} } }, { quickNote: { not: null } }];
+        const existingNot = Array.isArray(where.NOT) ? where.NOT : where.NOT ? [where.NOT] : [];
+        where.NOT = [...existingNot, { quickNote: "" }];
       } else if (filter === "nextAction") {
         where.OR = [
           { nextAction: { not: null } },
@@ -446,12 +441,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
       const lastNoteSnippet = truncateSnippet(fan.notes?.[0]?.content);
       const quickNoteValue = normalizeNoteValue(fan.quickNote);
-      const profileValue = normalizeNoteValue(fan.profileText);
       const quickNotePreview = truncateSnippet(quickNoteValue);
-      const profilePreview = truncateSnippet(getFirstLine(fan.profileText));
       const baseNotesCount = fan._count?.notes ?? 0;
-      const notesCount = baseNotesCount + (quickNoteValue ? 1 : 0) + (profileValue ? 1 : 0);
-      const notePreview = quickNotePreview ?? profilePreview ?? lastNoteSnippet ?? null;
+      const notesCount = baseNotesCount + (quickNoteValue ? 1 : 0);
+      const notePreview = quickNotePreview ?? lastNoteSnippet ?? null;
       const openFollowUp = fan.followUps?.[0] ?? null;
       const followUpOpen = openFollowUp ? mapFollowUp(openFollowUp) : null;
       const nextActionAt = fan.nextActionAt ? fan.nextActionAt.toISOString() : null;

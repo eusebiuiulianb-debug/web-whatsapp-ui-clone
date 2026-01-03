@@ -3,6 +3,7 @@ import clsx from "clsx";
 import Image from "next/image";
 import { useEmojiFavorites } from "../../hooks/useEmojiFavorites";
 import { EmojiPicker } from "../EmojiPicker";
+import { IconGlyph } from "../ui/IconGlyph";
 import { readEmojiRecents, recordEmojiRecent } from "../../lib/emoji/recents";
 import {
   getActorReaction,
@@ -237,7 +238,7 @@ const MessageBalloon = memo(function MessageBalloon(props: MessageBalloonProps) 
               )}
               aria-label="Reaccionar"
             >
-              🙂
+              <IconGlyph name="smile" className="h-3.5 w-3.5" />
             </button>
           )}
           {canShowReactions && isReactionBarOpen && (
@@ -353,7 +354,15 @@ const MessageBalloon = memo(function MessageBalloon(props: MessageBalloonProps) 
         )}
         {status === "sending" && <div className="mt-1 text-[10px] text-slate-400 text-right">Enviando...</div>}
         {status === "failed" && <div className="mt-1 text-[10px] text-rose-300 text-right">Fallo al enviar</div>}
-        {me && seen ? <div className="mt-1 text-[10px] text-[#8edafc] text-right">✔✔ Visto</div> : null}
+        {me && seen ? (
+          <div className="mt-1 flex items-center justify-end gap-1 text-[10px] text-[#8edafc]">
+            <span className="inline-flex -space-x-1">
+              <IconGlyph name="check" className="h-3 w-3" />
+              <IconGlyph name="check" className="h-3 w-3" />
+            </span>
+            <span>Visto</span>
+          </div>
+        ) : null}
       </div>
     </div>
   );

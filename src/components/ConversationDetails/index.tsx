@@ -71,6 +71,7 @@ import { useRouter } from "next/router";
 import { useIsomorphicLayoutEffect } from "../../hooks/useIsomorphicLayoutEffect";
 import Image from "next/image";
 import { IconGlyph, type IconName } from "../ui/IconGlyph";
+import { Chip } from "../ui/Chip";
 import { ConversationActionsMenu } from "../conversations/ConversationActionsMenu";
 
 type ManagerQuickIntent = ManagerObjective;
@@ -3575,7 +3576,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
                       "border-slate-800/70 bg-slate-950/40 text-slate-200 hover:border-slate-600/80 hover:bg-slate-900/60"
                     )}
                   >
-                    <IconGlyph name={action.icon} className="h-4 w-4" />
+                    <IconGlyph name={action.icon as IconName} className="h-4 w-4" />
                     <span>{action.label}</span>
                   </button>
                 ))}
@@ -6597,11 +6598,12 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
   const tipsInlineLabel =
     tipsCountDisplay === null || tipsSpentDisplay === null ? "—" : `${tipsCountDisplay} · ${tipsSpentDisplay} €`;
   const showTipsInline = typeof tipsSpentDisplay === "number" && tipsSpentDisplay > 0;
-  const purchaseKindMeta = {
-    EXTRA: { label: "Extra", icon: "gem", tone: "text-emerald-200" },
-    TIP: { label: "Propina", icon: "coin", tone: "text-amber-200" },
-    GIFT: { label: "Regalo", icon: "gift", tone: "text-sky-200" },
-  };
+  const purchaseKindMeta: Record<"EXTRA" | "TIP" | "GIFT", { label: string; icon: IconName; tone: string }> =
+    {
+      EXTRA: { label: "Extra", icon: "gem", tone: "text-emerald-200" },
+      TIP: { label: "Propina", icon: "coin", tone: "text-amber-200" },
+      GIFT: { label: "Regalo", icon: "gift", tone: "text-sky-200" },
+    };
   const historyFilters = [
     { id: "all", label: "Todo" },
     { id: "extra", label: "Extras" },
@@ -7089,7 +7091,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
   const quickExtraDisabled = iaBlocked || aiStatus?.limitReached;
   const messageListBottomPadding = Math.max(144, dockHeight + 48);
   const inlineActionTone = inlineAction
-    ? {
+    ? ({
         ok: {
           icon: "check",
           iconClass: "border-emerald-400/50 bg-emerald-500/10 text-emerald-200",
@@ -7102,7 +7104,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
           icon: "alert",
           iconClass: "border-amber-400/60 bg-amber-500/10 text-amber-200",
         },
-      }[inlineAction.kind]
+      } as const)[inlineAction.kind]
     : null;
   const composerDock = renderComposerDock();
   const showHistory = openPanel === "history";
@@ -7148,39 +7150,39 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
           <div className="flex items-center gap-2 min-w-0 flex-1 justify-center">
             <span className="truncate text-sm font-medium text-slate-50">{contactName}</span>
             {languageBadgeLabel && (
-              <span className="inline-flex items-center rounded-full border border-slate-600 bg-slate-900/70 px-2 py-0.5 text-[10px] font-semibold text-slate-200">
+              <Chip variant="subtle" size="xs">
                 {languageBadgeLabel}
-              </span>
+              </Chip>
             )}
             {(conversation.isHighPriority || (conversation.extrasCount ?? 0) > 0) && (
-              <span className="inline-flex items-center rounded-full border border-amber-400/60 bg-amber-500/10 px-2 py-0.5 text-[11px] font-medium text-amber-300">
-                {conversation.isHighPriority ? (
-                  <span className="inline-flex items-center gap-1">
-                    <IconGlyph name="pin" className="h-3.5 w-3.5" />
-                    <span>Alta</span>
-                  </span>
-                ) : (
-                  "Extras"
-                )}
-              </span>
+              conversation.isHighPriority ? (
+                <Chip variant="amber" size="xs" leftGlyph="pin">
+                  Alta
+                </Chip>
+              ) : (
+                <Chip variant="emerald" size="xs">
+                  Extras
+                </Chip>
+              )
             )}
             {nextActionStatus && (
-              <span
+              <Chip
+                variant={
+                  nextActionStatus.tone === "overdue"
+                    ? "danger"
+                    : nextActionStatus.tone === "today"
+                    ? "amber"
+                    : "neutral"
+                }
+                size="xs"
+                leftGlyph="clock"
                 className={clsx(
-                  "inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-semibold",
-                  nextActionStatus.tone === "overdue" &&
-                    "border-rose-400/70 bg-rose-500/15 text-rose-100",
-                  nextActionStatus.tone === "today" &&
-                    "border-amber-400/70 bg-amber-500/15 text-amber-100",
                   nextActionStatus.tone === "tomorrow" &&
                     "border-sky-400/70 bg-sky-500/15 text-sky-100"
                 )}
               >
-                <span className="inline-flex items-center gap-1">
-                  <IconGlyph name="clock" className="h-3.5 w-3.5" />
-                  <span>{nextActionStatus.label}</span>
-                </span>
-              </span>
+                {nextActionStatus.label}
+              </Chip>
             )}
           </div>
         </header>
@@ -7197,17 +7199,14 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
                 <div className="flex items-center gap-2 min-w-0">
                   <h1 className="text-base font-semibold text-slate-50 truncate">{contactName}</h1>
                   {languageBadgeLabel && (
-                    <span className="inline-flex items-center rounded-full border border-slate-600 bg-slate-900/70 px-2 py-0.5 text-[10px] font-semibold text-slate-200">
+                    <Chip variant="subtle" size="xs">
                       {languageBadgeLabel}
-                    </span>
+                    </Chip>
                   )}
                   {conversation.isHighPriority && (
-                    <span className="inline-flex items-center rounded-full border border-amber-400/70 bg-amber-500/15 px-2 py-0.5 text-[11px] font-semibold text-amber-100 whitespace-nowrap">
-                      <span className="inline-flex items-center gap-1">
-                        <IconGlyph name="pin" className="h-3.5 w-3.5" />
-                        <span>Alta</span>
-                      </span>
-                    </span>
+                    <Chip variant="amber" size="xs" leftGlyph="pin">
+                      Alta
+                    </Chip>
                   )}
                   <span
                     className={`inline-block h-2 w-2 rounded-full ${presenceDotClass}`}
@@ -7222,7 +7221,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
             </div>
             <div className="order-2 ml-auto sm:order-3 sm:ml-0">
               <ConversationActionsMenu
-                conversation={conversation}
+                conversation={conversation as ConversationListData}
                 variant="header"
                 align="right"
                 onEditName={() => handleOpenEditName()}
@@ -7250,42 +7249,40 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
 
           {/* Piso 2 */}
           <div className="flex flex-wrap items-center gap-2 text-xs min-w-0">
-            <span className="inline-flex items-center rounded-full border border-slate-700 bg-slate-900/70 px-3 py-1 text-[11px] font-semibold text-amber-200 whitespace-nowrap">
+            <Chip variant="subtle" size="sm" className="text-amber-200">
               {packLabel}
-            </span>
-            <span className="inline-flex items-center rounded-full border border-slate-700 bg-slate-900/70 px-3 py-1 text-[11px] font-semibold text-slate-200 whitespace-nowrap">
+            </Chip>
+            <Chip variant="subtle" size="sm" className="text-slate-200">
               {formatTier(conversation.customerTier)}
-            </span>
+            </Chip>
             {conversation.isHighPriority && (
-              <span className="inline-flex items-center rounded-full border border-amber-400/70 bg-amber-500/15 px-3 py-1 text-[11px] font-semibold text-amber-100 whitespace-nowrap">
-                <span className="inline-flex items-center gap-1">
-                  <IconGlyph name="pin" className="h-3.5 w-3.5" />
-                  <span>Alta prioridad</span>
-                </span>
-              </span>
+              <Chip variant="amber" size="sm" leftGlyph="pin">
+                Alta prioridad
+              </Chip>
             )}
             {extrasCountDisplay > 0 && (
-              <span className="inline-flex items-center rounded-full border border-emerald-400/70 bg-emerald-500/15 px-3 py-1 text-[11px] font-semibold text-emerald-100 whitespace-nowrap">
+              <Chip variant="emerald" size="sm">
                 Extras
-              </span>
+              </Chip>
             )}
             {nextActionStatus && (
-              <span
+              <Chip
+                variant={
+                  nextActionStatus.tone === "overdue"
+                    ? "danger"
+                    : nextActionStatus.tone === "today"
+                    ? "amber"
+                    : "neutral"
+                }
+                size="sm"
+                leftGlyph="clock"
                 className={clsx(
-                  "inline-flex items-center rounded-full border px-3 py-1 text-[11px] font-semibold whitespace-nowrap",
-                  nextActionStatus.tone === "overdue" &&
-                    "border-rose-400/70 bg-rose-500/15 text-rose-100",
-                  nextActionStatus.tone === "today" &&
-                    "border-amber-400/70 bg-amber-500/15 text-amber-100",
                   nextActionStatus.tone === "tomorrow" &&
                     "border-sky-400/70 bg-sky-500/15 text-sky-100"
                 )}
               >
-                <span className="inline-flex items-center gap-1">
-                  <IconGlyph name="clock" className="h-3.5 w-3.5" />
-                  <span>{nextActionStatus.label}</span>
-                </span>
-              </span>
+                {nextActionStatus.label}
+              </Chip>
             )}
           </div>
 

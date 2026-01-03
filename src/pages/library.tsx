@@ -708,12 +708,6 @@ export default function LibraryPage() {
   );
 }
 
-function getEmojiForType(type: ContentType) {
-  if (type === "VIDEO") return "🎥";
-  if (type === "AUDIO") return "🎧";
-  return "📷";
-}
-
 function formatDate(dateString: string) {
   const date = new Date(dateString);
   if (Number.isNaN(date.getTime())) return dateString;

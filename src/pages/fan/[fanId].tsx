@@ -21,6 +21,7 @@ import { parseReactionsRaw, useReactions } from "../../lib/emoji/reactions";
 import { getStickerById } from "../../lib/emoji/stickers";
 import { buildFanChatProps } from "../../lib/fanChatProps";
 import { buildStickerTokenFromItem, getStickerByToken, type StickerItem } from "../../lib/stickers";
+import { IconGlyph, type IconName } from "../../components/ui/IconGlyph";
 
 type ApiContentItem = {
   id: string;
@@ -1214,7 +1215,7 @@ function ContentCard({ message }: { message: ApiMessage }) {
   const title = content?.title || "Contenido adjunto";
   const visibilityLabel = content ? getContentVisibilityLabel(content.visibility) : "";
   const typeLabel = content ? getContentTypeLabel(content.type) : "Contenido";
-  const emoji = getContentEmoji(content?.type);
+  const iconName = getContentIconName(content?.type);
   const alignItems = message.from === "fan" ? "items-end" : "items-start";
   const mediaUrl = (content?.mediaPath || content?.externalUrl || "").trim();
 
@@ -1229,7 +1230,7 @@ function ContentCard({ message }: { message: ApiMessage }) {
     <div className={`flex flex-col ${alignItems} w-full h-max`}>
       <div className="flex flex-col min-w-[5%] max-w-[70%] bg-[#202c33] border border-slate-800 p-3 text-white rounded-lg mb-3 shadow-sm">
         <div className="flex items-center gap-2 text-sm font-semibold">
-          <span className="text-lg">{emoji}</span>
+          <IconGlyph name={iconName} className="h-4 w-4 text-slate-200" />
           <span className="truncate">{title}</span>
         </div>
         <div className="flex items-center gap-2 text-[11px] text-slate-300 mt-1">
@@ -1251,7 +1252,13 @@ function ContentCard({ message }: { message: ApiMessage }) {
         <div className="flex justify-end items-center gap-2 text-[hsla(0,0%,100%,0.6)] text-xs mt-2">
           <span>{message.time || ""}</span>
           {message.from === "fan" && message.isLastFromCreator ? (
-            <span className="text-[#8edafc] text-[11px]">✔✔ Visto</span>
+            <span className="inline-flex items-center gap-1 text-[#8edafc] text-[11px]">
+              <span className="inline-flex -space-x-1">
+                <IconGlyph name="check" className="h-3 w-3" />
+                <IconGlyph name="check" className="h-3 w-3" />
+              </span>
+              <span>Visto</span>
+            </span>
           ) : null}
         </div>
       </div>
@@ -1259,11 +1266,11 @@ function ContentCard({ message }: { message: ApiMessage }) {
   );
 }
 
-function getContentEmoji(type?: ContentType) {
-  if (type === "VIDEO") return "🎥";
-  if (type === "AUDIO") return "🎧";
-  if (type === "TEXT") return "📝";
-  return "📷";
+function getContentIconName(type?: ContentType): IconName {
+  if (type === "VIDEO") return "video";
+  if (type === "AUDIO") return "audio";
+  if (type === "TEXT") return "note";
+  return "image";
 }
 
 function safeDecodeQueryParam(value: string) {
@@ -1292,7 +1299,7 @@ function IncludedContentSection({ items }: { items: IncludedContent[] }) {
           const badgeClass = visibilityLabel.toLowerCase().includes("incluido")
             ? "border-emerald-400/70 text-emerald-200"
             : "border-slate-600 text-slate-200";
-          const emoji = getContentEmoji(item.type as ContentType);
+          const iconName = getContentIconName(item.type as ContentType);
           const mediaUrl = (item.mediaPath || item.externalUrl || "").trim();
           return (
             <div
@@ -1300,7 +1307,7 @@ function IncludedContentSection({ items }: { items: IncludedContent[] }) {
               className="rounded-xl border border-slate-800 bg-[#202c33] p-3 text-white flex flex-col gap-2 shadow-sm"
             >
               <div className="flex items-center gap-2 text-sm font-semibold">
-                <span className="text-lg">{emoji}</span>
+                <IconGlyph name={iconName} className="h-4 w-4 text-slate-200" />
                 <span className="truncate">{item.title}</span>
               </div>
               {item.description && (

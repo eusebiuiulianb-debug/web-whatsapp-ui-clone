@@ -15,6 +15,8 @@ import { ConversationContext, QueueFilter } from "../../context/ConversationCont
 import { EXTRAS_UPDATED_EVENT } from "../../constants/events";
 import { HIGH_PRIORITY_LIMIT } from "../../config/customers";
 import { normalizePreferredLanguage } from "../../lib/language";
+import { IconGlyph } from "../ui/IconGlyph";
+import { Chip } from "../ui/Chip";
 
 class SideBarBoundary extends Component<{ children: React.ReactNode }, { hasError: boolean }> {
   constructor(props: { children: React.ReactNode }) {
@@ -1590,9 +1592,21 @@ function SideBarInner() {
               </div>
               <ul className="space-y-1 text-slate-300">
                 <li><span className="font-semibold">VIP</span> → Ha gastado más de {HIGH_PRIORITY_LIMIT} € en total contigo.</li>
-                <li><span className="font-semibold">🔥 Alta prioridad</span> → Marcados por ti para atender primero.</li>
+                <li>
+                  <span className="inline-flex items-center gap-1 font-semibold">
+                    <IconGlyph name="pin" className="h-3.5 w-3.5 text-amber-200" />
+                    <span>Alta prioridad</span>
+                  </span>{" "}
+                  → Marcados por ti para atender primero.
+                </li>
                 <li><span className="font-semibold">Extras</span> → Ya te han comprado contenido extra (PPV).</li>
-                <li><span className="font-semibold">⚡ Próxima acción</span> → Le debes un mensaje o seguimiento hoy.</li>
+                <li>
+                  <span className="inline-flex items-center gap-1 font-semibold">
+                    <IconGlyph name="clock" className="h-3.5 w-3.5 text-amber-200" />
+                    <span>Próxima acción</span>
+                  </span>{" "}
+                  → Le debes un mensaje o seguimiento hoy.
+                </li>
                 <li><span className="font-semibold">Seguimiento hoy</span> → Suscripción a punto de renovarse o tarea marcada para hoy.</li>
                 <li><span className="font-semibold">Cola</span> → Lista de chats importantes para hoy, ordenados por prioridad.</li>
               </ul>
@@ -1714,7 +1728,10 @@ function SideBarInner() {
             className="flex justify-between text-left"
           >
             <span className={clsx(onlyWithFollowUp && "font-semibold text-amber-300")}>
-              ⚡ Con próxima acción
+              <span className="inline-flex items-center gap-1">
+                <IconGlyph name="clock" className="h-3.5 w-3.5 text-amber-200" />
+                <span>Con próxima acción</span>
+              </span>
               <span
                 className="ml-1 inline-flex h-4 w-4 items-center justify-center rounded-full border border-slate-500 text-[9px] text-slate-300"
                 title="Tienes una tarea anotada para este fan (nota con rayo)."
@@ -1745,8 +1762,10 @@ function SideBarInner() {
                 className="flex justify-between text-left"
               >
                 <span className={clsx(onlyWithExtras && "font-semibold text-amber-300")}>
-                  <span aria-hidden className="mr-1">💰</span>
-                  Con extras
+                  <span className="inline-flex items-center gap-1">
+                    <IconGlyph name="coin" className="h-3.5 w-3.5 text-amber-200" />
+                    <span>Con extras</span>
+                  </span>
                   <span
                     className="ml-1 inline-flex h-4 w-4 items-center justify-center rounded-full border border-slate-500 text-[9px] text-slate-300"
                     title="Este fan ya te ha comprado contenido extra (PPV)."
@@ -1777,7 +1796,10 @@ function SideBarInner() {
                 className="flex justify-between text-left"
               >
                 <span className={clsx(followUpMode === "priority" && "font-semibold text-amber-300")}>
-                  🔥 Alta prioridad
+                  <span className="inline-flex items-center gap-1">
+                    <IconGlyph name="pin" className="h-3.5 w-3.5 text-amber-200" />
+                    <span>Alta prioridad</span>
+                  </span>
                   <span
                     className="ml-1 inline-flex h-4 w-4 items-center justify-center rounded-full border border-slate-500 text-[9px] text-slate-300"
                     title="Marcados por ti para atender primero."
@@ -1881,76 +1903,66 @@ function SideBarInner() {
               >
                 {listSegment === "all" && (
                   <>
-                    <button
-                      type="button"
+                    <Chip
+                      variant={followUpMode === "today" ? "amber" : "subtle"}
+                      size="sm"
                       onClick={() => toggleFollowUpMode("today")}
                       className={clsx(
-                        "rounded-full border px-3 py-1 shrink-0",
-                        followUpMode === "today"
-                          ? "border-amber-400 bg-amber-500/10 text-amber-100"
-                          : "border-amber-700 bg-slate-800/60 text-amber-200/80"
+                        "shrink-0",
+                        followUpMode !== "today" &&
+                          "border-amber-700 bg-slate-800/60 text-amber-200/80"
                       )}
                     >
                       Seguimiento hoy{followUpTodayCount > 0 ? ` (${followUpTodayCount})` : ""}
-                    </button>
-                    <button
-                      type="button"
+                    </Chip>
+                    <Chip
+                      variant={followUpMode === "expired" ? "danger" : "subtle"}
+                      size="sm"
                       onClick={() => toggleFollowUpMode("expired")}
                       className={clsx(
-                        "rounded-full border px-3 py-1 shrink-0",
-                        followUpMode === "expired"
-                          ? "border-rose-400 bg-rose-500/10 text-rose-100"
-                          : "border-rose-800 bg-slate-800/60 text-rose-200/80"
+                        "shrink-0",
+                        followUpMode !== "expired" &&
+                          "border-rose-800 bg-slate-800/60 text-rose-200/80"
                       )}
                     >
                       Caducados{expiredCount > 0 ? ` (${expiredCount})` : ""}
-                    </button>
-                    <button
-                      type="button"
+                    </Chip>
+                    <Chip
+                      variant={followUpMode === "priority" ? "amber" : "subtle"}
+                      size="sm"
                       onClick={() => toggleFollowUpMode("priority")}
                       className={clsx(
-                        "rounded-full border px-3 py-1 shrink-0",
-                        followUpMode === "priority"
-                          ? "border-amber-400 bg-amber-500/10 text-amber-100"
-                          : "border-amber-700 bg-slate-800/60 text-amber-200/80"
+                        "shrink-0",
+                        followUpMode !== "priority" &&
+                          "border-amber-700 bg-slate-800/60 text-amber-200/80"
                       )}
                     >
                       Alta prioridad{priorityCount > 0 ? ` (${priorityCount})` : ""}
-                    </button>
+                    </Chip>
                   </>
                 )}
                 <div
                   className={clsx(
-                    "inline-flex rounded-full border border-slate-700 bg-slate-900/70 p-1 text-[11px] text-slate-200 shrink-0",
+                    "inline-flex items-center gap-2 shrink-0",
                     listSegment === "all" && "ml-auto"
                   )}
                 >
-                  <button
-                    type="button"
-                    onClick={() => {
-                      handleSegmentChange("all");
-                    }}
-                    className={clsx(
-                      "rounded-full px-3 py-1 font-semibold transition",
-                      listSegment === "all"
-                        ? "bg-emerald-500/20 text-emerald-100"
-                        : "text-slate-300 hover:text-slate-100"
-                    )}
+                  <Chip
+                    variant={listSegment === "all" ? "emerald" : "subtle"}
+                    size="sm"
+                    onClick={() => handleSegmentChange("all")}
+                    className={clsx(listSegment !== "all" && "text-slate-300")}
                   >
                     Todos ({totalCount})
-                  </button>
-                  <button
-                    type="button"
+                  </Chip>
+                  <Chip
+                    variant={listSegment === "queue" ? "amber" : "subtle"}
+                    size="sm"
                     onClick={() => handleSegmentChange("queue")}
-                    className={clsx(
-                      "rounded-full px-3 py-1 font-semibold transition",
-                      listSegment === "queue"
-                        ? "bg-amber-500/20 text-amber-100"
-                        : "text-slate-300 hover:text-slate-100"
-                    )}
+                    className={clsx(listSegment !== "queue" && "text-slate-300")}
                   >
                     Cola ({queueCount})
-                  </button>
+                  </Chip>
                 </div>
               </div>
             </div>
@@ -2050,10 +2062,36 @@ function SideBarInner() {
               <div className="text-center text-[#aebac1] py-4 text-sm px-4 whitespace-pre-line">
                 {(() => {
                   if (followUpMode === "today") {
-                    return "Hoy no tienes seguimientos pendientes.\nVerás personas aquí cuando su suscripción esté cerca de renovarse o les marques «Próxima acción» ⚡ en el chat.";
+                    return (
+                      <>
+                        <span>Hoy no tienes seguimientos pendientes.</span>
+                        {"\n"}
+                        <span>
+                          Verás personas aquí cuando su suscripción esté cerca de renovarse o les marques «Próxima acción»{" "}
+                          <IconGlyph
+                            name="clock"
+                            className="inline-block h-3.5 w-3.5 align-text-bottom text-amber-200"
+                          />{" "}
+                          en el chat.
+                        </span>
+                      </>
+                    );
                   }
                   if (followUpMode === "priority") {
-                    return "Aún no tienes chats de alta prioridad.\nSe marcan 🔥 cuando los señalas manualmente para atender primero.";
+                    return (
+                      <>
+                        <span>Aún no tienes chats de alta prioridad.</span>
+                        {"\n"}
+                        <span>
+                          Se marcan{" "}
+                          <IconGlyph
+                            name="pin"
+                            className="inline-block h-3.5 w-3.5 align-text-bottom text-amber-200"
+                          />{" "}
+                          cuando los señalas manualmente para atender primero.
+                        </span>
+                      </>
+                    );
                   }
                   if (activeQueueFilter === "ventas_hoy") {
                     return "No hay cola.\nTip: revisa el filtro «Con extras» y ofrece un nuevo pack o contenido extra.";

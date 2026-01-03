@@ -97,6 +97,15 @@ export function formatIsoDate(value?: Date | string | null): string {
   return target.toISOString().slice(0, 10);
 }
 
+export function formatDateEsDMY(value?: Date | string | null): string {
+  const target = parseDateInput(value);
+  if (!target) return "";
+  const day = target.getDate();
+  const month = target.getMonth() + 1;
+  const year = target.getFullYear();
+  return `${day} de ${month} de ${year}`;
+}
+
 export function formatNextActionTooltip(
   value?: Date | string | null,
   note?: string | null

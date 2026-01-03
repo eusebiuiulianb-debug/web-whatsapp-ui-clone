@@ -44,6 +44,7 @@ import MessageBalloon from "../MessageBalloon";
 import { ChatComposerBar } from "../ChatComposerBar";
 import { EmojiPicker } from "../EmojiPicker";
 import { PillButton } from "../ui/PillButton";
+import { IconGlyph } from "../ui/IconGlyph";
 import {
   CreatorPlatformKey,
   CreatorPlatforms,
@@ -52,8 +53,7 @@ import {
   normalizeCreatorPlatforms,
 } from "../../lib/creatorPlatforms";
 import {
-  formatIsoDate,
-  formatWhen,
+  formatDateEsDMY,
   getNextActionNoteLabel,
   isGenericNextActionNote,
 } from "../../lib/nextActionLabel";
@@ -2499,17 +2499,20 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
             <div className="mt-2 space-y-2">
               {followUpItems.slice(0, followUpPreviewLimit).map((item) => {
                 const noteLabel = getNextActionNoteLabel(item.nextActionNote, true);
-                const dateLabel = formatIsoDate(item.nextActionAt);
+                const dateLabel = formatDateEsDMY(item.nextActionAt);
                 const isOverdue = item.statusLabel === "Vencido";
                 const isTodayLabel = item.statusLabel === "Hoy";
                 const needsNote = isGenericNextActionNote(item.nextActionNote);
                 return (
                   <div key={`${item.fanId}-${item.nextActionAt}`} className="flex items-center justify-between gap-2">
-                    <div className="min-w-0">
-                      <div className="truncate text-[12px] text-slate-100">{item.fanName}</div>
-                      <div className="text-[11px] text-slate-400 truncate">
-                        ⏰ {noteLabel}
-                        {dateLabel ? ` · ${dateLabel}` : ""}
+                      <div className="min-w-0">
+                        <div className="truncate text-[12px] text-slate-100">{item.fanName}</div>
+                      <div className="flex items-center gap-1 text-[11px] text-slate-400 min-w-0">
+                        <IconGlyph name="clock" className="h-3.5 w-3.5 text-slate-400" />
+                        <span className="truncate">
+                          {noteLabel}
+                          {dateLabel ? ` · ${dateLabel}` : ""}
+                        </span>
                       </div>
                     </div>
                     <div className="flex items-center gap-2 shrink-0">
@@ -2775,7 +2778,7 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
                                     {formatCount(fan.tipsCount)} propinas · {formatCount(fan.giftsCount)} regalos
                                   </div>
                                   {fan.followUpAt && (() => {
-                                    const followUpWhen = formatWhen(fan.followUpAt);
+                                    const followUpWhen = formatDateEsDMY(fan.followUpAt);
                                     const followUpLabel = getNextActionNoteLabel(fan.followUpNote, true);
                                     const isOverdue = new Date(fan.followUpAt).getTime() <= Date.now();
                                     return (
@@ -2787,7 +2790,7 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
                                             : "border-slate-700/70 bg-slate-900/60 text-slate-300"
                                         )}
                                       >
-                                        <span aria-hidden>⏰</span>
+                                        <IconGlyph name="clock" className="h-3.5 w-3.5" />
                                         <span className="truncate">{followUpLabel}</span>
                                         {followUpWhen && <span className="shrink-0">· {followUpWhen}</span>}
                                       </div>
@@ -3023,9 +3026,36 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
         >
           <div className="text-[11px] uppercase tracking-wide text-slate-400">Huecos del catálogo</div>
           <div className="mt-2 space-y-1 text-[12px] text-slate-200">
-            <div>{catalogGaps.extrasOk ? "✅" : "⚠️"} Extras activos (mínimo 3)</div>
-            <div>{catalogGaps.bundlesOk ? "✅" : "⚠️"} Bundles activos (mínimo 1)</div>
-            <div>{catalogGaps.packsOk ? "✅" : "⚠️"} Packs activos (mínimo 1)</div>
+            <div className="inline-flex items-center gap-1">
+              <IconGlyph
+                name={catalogGaps.extrasOk ? "check" : "alert"}
+                className={clsx(
+                  "h-3.5 w-3.5",
+                  catalogGaps.extrasOk ? "text-emerald-300" : "text-amber-300"
+                )}
+              />
+              <span>Extras activos (mínimo 3)</span>
+            </div>
+            <div className="inline-flex items-center gap-1">
+              <IconGlyph
+                name={catalogGaps.bundlesOk ? "check" : "alert"}
+                className={clsx(
+                  "h-3.5 w-3.5",
+                  catalogGaps.bundlesOk ? "text-emerald-300" : "text-amber-300"
+                )}
+              />
+              <span>Bundles activos (mínimo 1)</span>
+            </div>
+            <div className="inline-flex items-center gap-1">
+              <IconGlyph
+                name={catalogGaps.packsOk ? "check" : "alert"}
+                className={clsx(
+                  "h-3.5 w-3.5",
+                  catalogGaps.packsOk ? "text-emerald-300" : "text-amber-300"
+                )}
+              />
+              <span>Packs activos (mínimo 1)</span>
+            </div>
           </div>
           <div className="mt-3 grid gap-2 sm:grid-cols-3">
             {!catalogGaps.extrasOk && (
@@ -4329,7 +4359,7 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
                   )}
                   <div className="grid grid-cols-[auto,1fr,auto] items-center gap-3 min-w-0 [@media(max-width:480px)]:grid-cols-[auto,1fr] [@media(max-width:480px)]:grid-rows-[auto,auto] [@media(max-width:480px)]:gap-2">
                     <span className="text-[11px] font-semibold text-slate-300 shrink-0 [@media(max-width:480px)]:col-start-1 [@media(max-width:480px)]:row-start-1">
-                      <span className="mr-1">⚡</span>
+                      <IconGlyph name="spark" className="mr-1 h-3.5 w-3.5 text-emerald-300 inline-block" />
                       {quickAccessLabel}
                     </span>
                     <div className="relative flex items-center gap-2 min-w-0 [@media(max-width:480px)]:col-span-2 [@media(max-width:480px)]:row-start-2">
@@ -4476,7 +4506,7 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
                         title="Insertar emoji"
                         aria-label="Insertar emoji"
                       >
-                        <span className="text-lg leading-none">🙂</span>
+                        <IconGlyph name="smile" className="h-5 w-5" />
                       </button>
                       <EmojiPicker
                         isOpen={isEmojiOpen}

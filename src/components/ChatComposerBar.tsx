@@ -4,6 +4,7 @@ import dynamic from "next/dynamic";
 import { readEmojiRecents, recordEmojiRecent } from "../lib/emoji/recents";
 import { useEmojiFavorites } from "../hooks/useEmojiFavorites";
 import { EmojiPicker } from "./EmojiPicker";
+import { IconGlyph } from "./ui/IconGlyph";
 import type { StickerItem } from "../lib/stickers";
 
 type EmojiSelectPayload = {
@@ -418,7 +419,7 @@ export function ChatComposerBar({
                 title="Insertar emoji"
                 aria-label="Insertar emoji"
               >
-                <span className="text-lg leading-none">🙂</span>
+                <IconGlyph name="smile" className="h-5 w-5" />
               </button>
               <EmojiPicker
                 isOpen={isEmojiOpen}

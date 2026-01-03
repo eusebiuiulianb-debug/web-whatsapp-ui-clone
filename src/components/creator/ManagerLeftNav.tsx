@@ -1,10 +1,11 @@
 import clsx from "clsx";
 import { useEffect, useState } from "react";
+import { IconGlyph, type IconName } from "../ui/IconGlyph";
 
 type NavItem = {
   id: string;
   label: string;
-  icon: string;
+  icon: IconName;
 };
 
 type Props = {
@@ -43,10 +44,13 @@ export function ManagerLeftNav({ items, activeId, onSelect, density }: Props) {
     >
       <button
         type="button"
-        className="rounded-lg border border-slate-700 bg-slate-800/60 px-2 py-1 text-xs text-slate-200 hover:border-emerald-400/60"
+        className="inline-flex items-center justify-center rounded-lg border border-slate-700 bg-slate-800/60 px-2 py-1 text-xs text-slate-200 hover:border-emerald-400/60"
         onClick={() => setCollapsed((prev) => (prev === "collapsed" ? "open" : "collapsed"))}
       >
-        {collapsed === "collapsed" ? "➡️" : "⬅️"}
+        <IconGlyph
+          name={collapsed === "collapsed" ? "chevronRight" : "chevronLeft"}
+          className="h-4 w-4"
+        />
       </button>
       <nav className="flex flex-col gap-1 overflow-y-auto">
         {items.map((item) => (
@@ -60,7 +64,9 @@ export function ManagerLeftNav({ items, activeId, onSelect, density }: Props) {
             )}
             onClick={() => onSelect(item.id)}
           >
-            <span aria-hidden>{item.icon}</span>
+            <span aria-hidden>
+              <IconGlyph name={item.icon} className="h-4 w-4" />
+            </span>
             {collapsed === "open" && <span className="truncate text-xs md:text-sm leading-tight">{item.label}</span>}
           </button>
         ))}
