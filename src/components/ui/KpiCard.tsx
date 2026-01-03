@@ -43,6 +43,10 @@ export function KpiCard({
   const interactive = typeof onClick === "function";
   const iconNode =
     typeof icon === "string" ? <IconGlyph name={icon as IconName} size="sm" /> : icon;
+  const interactiveRingClass =
+    variant === "accent"
+      ? "focus-visible:ring-1 focus-visible:ring-emerald-400/45"
+      : "focus-visible:ring-1 focus-visible:ring-slate-400/40";
 
   const content = (
     <>
@@ -71,7 +75,8 @@ export function KpiCard({
     "group w-full rounded-2xl border px-4 py-3 text-left shadow-sm transition",
     "min-h-[108px]",
     VARIANT_STYLES[variant],
-    interactive && "hover:-translate-y-[1px]",
+    interactive && "cursor-pointer hover:-translate-y-[1px] focus-visible:outline-none",
+    interactive && interactiveRingClass,
     size === "sm" ? "min-h-[96px]" : "min-h-[108px]",
     className
   );

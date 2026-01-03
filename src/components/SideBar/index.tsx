@@ -51,6 +51,58 @@ class SideBarBoundary extends Component<{ children: React.ReactNode }, { hasErro
   }
 }
 
+type LeftSectionCardProps = {
+  children: React.ReactNode;
+  className?: string;
+};
+
+function LeftSectionCard({ children, className }: LeftSectionCardProps) {
+  return (
+    <div
+      className={clsx(
+        "rounded-2xl border border-slate-800/70 bg-slate-900/70 px-3 py-3 shadow-sm",
+        className
+      )}
+    >
+      {children}
+    </div>
+  );
+}
+
+type LeftKpiCardTone = "default" | "accent";
+
+type LeftKpiCardProps = {
+  label: React.ReactNode;
+  value: React.ReactNode;
+  tone?: LeftKpiCardTone;
+  hint?: React.ReactNode;
+  supporting?: React.ReactNode;
+  className?: string;
+  valueClassName?: string;
+};
+
+function LeftKpiCard({
+  label,
+  value,
+  tone = "default",
+  hint,
+  supporting,
+  className,
+  valueClassName,
+}: LeftKpiCardProps) {
+  const toneClass = tone === "accent" ? "text-emerald-200" : "text-slate-300";
+  return (
+    <div className={clsx("rounded-xl bg-slate-950/40 px-3 py-3", className)}>
+      <div className="text-[11px] text-slate-400">{label}</div>
+      <div className={clsx("mt-1 text-xl font-semibold tracking-tight tabular-nums", toneClass, valueClassName)}>
+        {value}
+      </div>
+      {hint ? <div className="mt-1 text-[10px] text-slate-500">{hint}</div> : null}
+      {supporting ? <div className="mt-1 text-[10px] text-slate-500">{supporting}</div> : null}
+    </div>
+  );
+}
+
 type FanData = ConversationListData & { priorityScore?: number };
 type RecommendationMeta = {
   fan: FanData;
@@ -1426,6 +1478,10 @@ function SideBarInner() {
 
   const isLoading = loadingFans;
   const isError = Boolean(fansError);
+  const filterRowClass =
+    "flex items-center justify-between gap-3 rounded-lg px-2 py-1.5 text-left transition hover:bg-slate-800/40 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-slate-400/40";
+  const countPillClass =
+    "inline-flex items-center rounded-full px-2.5 py-1 text-[11px] font-semibold tabular-nums tracking-tight";
   return (
     <div className="flex flex-col w-full md:w-[480px] lg:min-w-[420px] shrink-0 bg-[#202c33] min-h-[320px] md:h-full" style={{borderRight: "1px solid rgba(134,150,160,0.15)"}}>
       <CreatorSettingsPanel isOpen={isSettingsOpen} onClose={() => setIsSettingsOpen(false)} />
@@ -1453,7 +1509,7 @@ function SideBarInner() {
           </div>
         )}
         {isLoading ? (
-          <div className="mb-2 rounded-xl border border-slate-700 bg-slate-900/80 px-3 py-2">
+          <LeftSectionCard className="mb-2">
             <div className="animate-pulse space-y-3">
               <div className="flex justify-between">
                 <div className="h-3 w-28 rounded bg-slate-700" />
@@ -1465,401 +1521,416 @@ function SideBarInner() {
                 ))}
               </div>
             </div>
-          </div>
+          </LeftSectionCard>
         ) : (
           <>
-            <div className="mb-2 rounded-xl border border-slate-700 bg-slate-900/80 px-3 py-2 text-[11px] text-slate-300">
-              <div className="flex justify-between">
-                <span className="font-semibold text-slate-100">Resumen de hoy</span>
-                <span className="text-slate-400">Ventas y actividad</span>
-              </div>
-              <div className="mt-3 grid grid-cols-2 gap-2 text-[11px]">
-                <div className="flex flex-col rounded-xl bg-slate-950/70 px-3 py-3 shadow-sm">
-                  <span className="text-[12px] text-slate-400">Chats atendidos</span>
-                  <span className={clsx("mt-1 text-2xl font-semibold", attendedTodayCount > 0 ? "text-emerald-300" : "text-slate-300")}>
-                    {attendedTodayCount}
-                  </span>
-                </div>
-                <div className="flex flex-col rounded-xl bg-slate-950/70 px-3 py-3 shadow-sm">
-                  <span className="text-[12px] text-slate-400">Cola</span>
-                  <span className={clsx("mt-1 text-2xl font-semibold", colaHoyCount > 0 ? "text-emerald-300" : "text-slate-300")}>
-                    {colaHoyCount}
-                  </span>
-                </div>
-                <div className="flex flex-col rounded-xl bg-slate-950/70 px-3 py-3 shadow-sm">
-                  <span className="text-[12px] text-slate-400">VIP en cola</span>
-                  <span className={clsx("mt-1 text-2xl font-semibold", vipInQueue > 0 ? "text-emerald-300" : "text-slate-300")}>
-                    {vipInQueue}
-                  </span>
-                </div>
-                <div className="flex flex-col rounded-xl bg-slate-950/70 px-3 py-3 shadow-sm">
-                  <span className="text-[12px] text-slate-400">Ingresos hoy</span>
-                  <div className={clsx("mt-1 text-lg font-semibold leading-tight", incomeTodayCount > 0 ? "text-emerald-300" : "text-slate-300")}>
-                    {incomeTodayCount} cobro{incomeTodayCount === 1 ? "" : "s"} · {formatCurrency(incomeTodayAmount)}
-                  </div>
-                  {showIncomeBreakdown && (
-                    <span className="mt-1 text-[10px] text-slate-500">
-                      {extrasTodayCount} venta{extrasTodayCount === 1 ? "" : "s"} + {tipsTodayCount} propina{tipsTodayCount === 1 ? "" : "s"}
-                    </span>
-                  )}
-                  <span className="mt-1 text-[10px] text-slate-500">suscripciones + ventas + propinas</span>
-                  {giftedTodayCount > 0 && (
-                    <span className="mt-1 text-[10px] text-slate-500">Regalos: {giftedTodayCount}</span>
-                  )}
+            <LeftSectionCard className="mb-2">
+              <div className="flex items-center justify-between">
+                <div>
+                  <div className="text-[12px] font-semibold text-slate-100">Resumen de hoy</div>
+                  <div className="text-[11px] text-slate-400">Ventas y actividad</div>
                 </div>
               </div>
-            </div>
+              <div className="mt-3 grid grid-cols-2 gap-2">
+                <LeftKpiCard
+                  label="Chats atendidos"
+                  value={attendedTodayCount}
+                  tone={attendedTodayCount > 0 ? "accent" : "default"}
+                />
+                <LeftKpiCard
+                  label="Cola"
+                  value={colaHoyCount}
+                  tone={colaHoyCount > 0 ? "accent" : "default"}
+                />
+                <LeftKpiCard
+                  label="VIP en cola"
+                  value={vipInQueue}
+                  tone={vipInQueue > 0 ? "accent" : "default"}
+                />
+                <LeftKpiCard
+                  label="Ingresos hoy"
+                  value={`${incomeTodayCount} cobro${incomeTodayCount === 1 ? "" : "s"} · ${formatCurrency(incomeTodayAmount)}`}
+                  tone={incomeTodayCount > 0 ? "accent" : "default"}
+                  valueClassName="text-base leading-tight"
+                  supporting={
+                    <div className="space-y-1">
+                      {showIncomeBreakdown && (
+                        <div>
+                          {extrasTodayCount} venta{extrasTodayCount === 1 ? "" : "s"} + {tipsTodayCount} propina{tipsTodayCount === 1 ? "" : "s"}
+                        </div>
+                      )}
+                      <div>suscripciones + ventas + propinas</div>
+                      {giftedTodayCount > 0 && <div>Regalos: {giftedTodayCount}</div>}
+                    </div>
+                  }
+                />
+              </div>
+            </LeftSectionCard>
             {extrasSummary && (
-              <div className="mb-2 rounded-xl border border-slate-700 bg-slate-900/80 px-3 py-3 text-[12px] text-slate-300">
-                <div className="flex justify-between">
-                  <span>Extras hoy</span>
-                  <span className={clsx("font-semibold text-2xl leading-tight", extrasTodayCount > 0 ? "text-emerald-300" : "text-slate-300")}>
+              <LeftSectionCard className="mb-2">
+                <div className="flex items-center justify-between gap-2">
+                  <div className="text-[12px] font-semibold text-slate-100">Extras hoy</div>
+                  <div
+                    className={clsx(
+                      "text-base font-semibold tracking-tight tabular-nums",
+                      extrasTodayCount > 0 ? "text-emerald-200" : "text-slate-300"
+                    )}
+                  >
                     {extrasTodayCount} venta{extrasTodayCount === 1 ? "" : "s"} · {formatCurrency(extrasTodayAmount)}
-                  </span>
+                  </div>
                 </div>
                 {giftedTodayCount > 0 && (
                   <div className="mt-1 text-[10px] text-slate-500">Regalos hoy: {giftedTodayCount}</div>
                 )}
-                <div className="mt-2 flex justify-between text-slate-400">
+                <div className="mt-3 flex items-center justify-between text-[11px] text-slate-400">
                   <span>Últimos 7 días</span>
-                  <span className={clsx("font-semibold text-lg", extrasLast7Count > 0 ? "text-emerald-200" : "text-slate-300")}>
+                  <span
+                    className={clsx(
+                      "text-sm font-semibold tracking-tight tabular-nums",
+                      extrasLast7Count > 0 ? "text-emerald-200" : "text-slate-300"
+                    )}
+                  >
                     {extrasLast7Count} venta{extrasLast7Count === 1 ? "" : "s"} · {formatCurrency(extrasLast7Amount)}
                   </span>
                 </div>
                 {giftedLast7Count > 0 && (
                   <div className="mt-1 text-[10px] text-slate-500">Regalos 7d: {giftedLast7Count}</div>
                 )}
-              </div>
+              </LeftSectionCard>
             )}
           </>
         )}
-          <div className="flex flex-col gap-2 rounded-xl border border-slate-700 bg-slate-900/80 px-3 py-3 text-[12px] text-slate-300">
-          <div className="flex items-center justify-between">
+        <LeftSectionCard className="mb-2">
+          <div className="flex flex-col gap-2 text-[12px] text-slate-300">
+            <div className="flex items-center justify-between">
+              <button
+                type="button"
+                onClick={() => {
+                  applyFilter("all", false);
+                }}
+                className={clsx(filterRowClass, "flex-1")}
+              >
+                <span className={clsx("text-slate-400", followUpMode === "all" && !showOnlyWithNotes && "font-semibold text-amber-300")}>
+                  Hoy
+                </span>
+                <span
+                  className={clsx(
+                    countPillClass,
+                    totalCount > 0 ? "bg-slate-800 text-slate-50" : "bg-slate-800/70 text-slate-300"
+                  )}
+                >
+                  {totalCount} fan{totalCount === 1 ? "" : "s"}
+                </span>
+              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  aria-label="Qué significa cada etiqueta"
+                  onClick={() => setShowLegend((prev) => !prev)}
+                  className={clsx(
+                    "inline-flex h-6 w-6 items-center justify-center rounded-full border text-xs font-bold transition focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-emerald-400/40",
+                    showLegend
+                      ? "border-emerald-400 bg-emerald-500/20 text-emerald-100"
+                      : "border-slate-600 bg-slate-800/60 text-slate-200 hover:border-emerald-400/70 hover:text-emerald-100"
+                  )}
+                >
+                  i
+                </button>
+                <button
+                  type="button"
+                  className="text-[11px] text-emerald-200 hover:text-emerald-100 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-emerald-400/40 rounded-md px-1"
+                  onClick={() => setShowAllTodayMetrics((prev) => !prev)}
+                >
+                  {showAllTodayMetrics ? "Ver menos" : "Ver más"}
+                </button>
+              </div>
+            </div>
+            {showLegend && (
+              <div
+                ref={legendRef}
+                className="mt-2 rounded-xl border border-slate-700 bg-slate-900/90 px-3 py-3 text-[11px] text-slate-200 shadow-lg"
+              >
+                <div className="flex items-center justify-between mb-1">
+                  <span className="text-[12px] font-semibold text-slate-100">Qué significa cada etiqueta</span>
+                  <button
+                    type="button"
+                    className="text-[11px] text-slate-400 hover:text-slate-100"
+                    onClick={() => setShowLegend(false)}
+                  >
+                    Cerrar
+                  </button>
+                </div>
+                <ul className="space-y-1 text-slate-300">
+                  <li><span className="font-semibold">VIP</span> → Ha gastado más de {HIGH_PRIORITY_LIMIT} € en total contigo.</li>
+                  <li>
+                    <span className="inline-flex items-center gap-1 font-semibold">
+                      <IconGlyph name="pin" className="h-3.5 w-3.5 text-amber-200" />
+                      <span>Alta prioridad</span>
+                    </span>{" "}
+                    → Marcados por ti para atender primero.
+                  </li>
+                  <li><span className="font-semibold">Extras</span> → Ya te han comprado contenido extra (PPV).</li>
+                  <li>
+                    <span className="inline-flex items-center gap-1 font-semibold">
+                      <IconGlyph name="clock" className="h-3.5 w-3.5 text-amber-200" />
+                      <span>Próxima acción</span>
+                    </span>{" "}
+                    → Le debes un mensaje o seguimiento hoy.
+                  </li>
+                  <li><span className="font-semibold">Seguimiento hoy</span> → Suscripción a punto de renovarse o tarea marcada para hoy.</li>
+                  <li><span className="font-semibold">Cola</span> → Lista de chats importantes para hoy, ordenados por prioridad.</li>
+                </ul>
+                <div className="mt-3 border-t border-slate-700 pt-2">
+                  <div className="text-[12px] font-semibold text-slate-100 mb-1">Cómo usarlo hoy</div>
+                  <ol className="list-decimal list-inside space-y-1 text-slate-300">
+                    <li>Abre «Cola» para ver tu cola del día.</li>
+                    <li>Usa «Siguiente venta» hasta vaciar la cola.</li>
+                    <li>Revisa «Alta prioridad» y «Con extras» para cerrar el día.</li>
+                  </ol>
+                </div>
+              </div>
+            )}
             <button
               type="button"
               onClick={() => {
-                applyFilter("all", false);
+                toggleFollowUpMode("today");
               }}
-              className="flex flex-1 justify-between text-left pr-2"
+              className={clsx(filterRowClass, "w-full")}
             >
-              <span className={clsx("text-slate-400", followUpMode === "all" && !showOnlyWithNotes && "font-semibold text-amber-300")}>Hoy</span>
+              <span className={clsx(followUpMode === "today" && !showOnlyWithNotes && "font-semibold text-amber-300")}>
+                Seguimiento hoy
+                <span
+                  className="ml-1 inline-flex h-4 w-4 items-center justify-center rounded-full border border-slate-500 text-[9px] text-slate-300"
+                  title="Chats con renovación o tarea marcada para hoy."
+                >
+                  i
+                </span>
+              </span>
               <span
                 className={clsx(
-                  "inline-flex items-center rounded-full px-3 py-1 text-[12px] font-semibold",
-                  totalCount > 0 ? "bg-slate-800 text-slate-50" : "bg-slate-800/70 text-slate-300"
+                  countPillClass,
+                  followUpTodayCount > 0 ? "bg-emerald-500/20 text-emerald-100" : "bg-slate-800 text-slate-300",
+                  followUpMode === "today" && !showOnlyWithNotes && "ring-1 ring-amber-300/60"
                 )}
               >
-                {totalCount} fan{totalCount === 1 ? "" : "s"}
+                {followUpTodayCount}
               </span>
             </button>
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                aria-label="Qué significa cada etiqueta"
-                onClick={() => setShowLegend((prev) => !prev)}
-                className={clsx(
-                  "inline-flex h-6 w-6 items-center justify-center rounded-full border text-xs font-bold transition",
-                  showLegend
-                    ? "border-emerald-400 bg-emerald-500/20 text-emerald-100"
-                    : "border-slate-600 bg-slate-800/60 text-slate-200 hover:border-emerald-400/70 hover:text-emerald-100"
-                )}
-              >
-                i
-              </button>
-              <button
-                type="button"
-                className="text-[11px] text-emerald-200 hover:text-emerald-100"
-                onClick={() => setShowAllTodayMetrics((prev) => !prev)}
-              >
-                {showAllTodayMetrics ? "Ver menos" : "Ver más"}
-              </button>
-            </div>
-          </div>
-          {showLegend && (
-            <div
-              ref={legendRef}
-              className="mt-2 rounded-xl border border-slate-700 bg-slate-900/90 px-3 py-3 text-[11px] text-slate-200 shadow-lg"
-            >
-              <div className="flex items-center justify-between mb-1">
-                <span className="text-[12px] font-semibold text-slate-100">Qué significa cada etiqueta</span>
+            {showAllTodayMetrics && (
+              <>
                 <button
                   type="button"
-                  className="text-[11px] text-slate-400 hover:text-slate-100"
-                  onClick={() => setShowLegend(false)}
+                  onClick={() => {
+                    toggleFollowUpMode("expired");
+                  }}
+                  className={clsx(filterRowClass, "w-full")}
                 >
-                  Cerrar
-                </button>
-              </div>
-              <ul className="space-y-1 text-slate-300">
-                <li><span className="font-semibold">VIP</span> → Ha gastado más de {HIGH_PRIORITY_LIMIT} € en total contigo.</li>
-                <li>
-                  <span className="inline-flex items-center gap-1 font-semibold">
-                    <IconGlyph name="pin" className="h-3.5 w-3.5 text-amber-200" />
-                    <span>Alta prioridad</span>
-                  </span>{" "}
-                  → Marcados por ti para atender primero.
-                </li>
-                <li><span className="font-semibold">Extras</span> → Ya te han comprado contenido extra (PPV).</li>
-                <li>
-                  <span className="inline-flex items-center gap-1 font-semibold">
-                    <IconGlyph name="clock" className="h-3.5 w-3.5 text-amber-200" />
-                    <span>Próxima acción</span>
-                  </span>{" "}
-                  → Le debes un mensaje o seguimiento hoy.
-                </li>
-                <li><span className="font-semibold">Seguimiento hoy</span> → Suscripción a punto de renovarse o tarea marcada para hoy.</li>
-                <li><span className="font-semibold">Cola</span> → Lista de chats importantes para hoy, ordenados por prioridad.</li>
-              </ul>
-              <div className="mt-3 border-t border-slate-700 pt-2">
-                <div className="text-[12px] font-semibold text-slate-100 mb-1">Cómo usarlo hoy</div>
-                <ol className="list-decimal list-inside space-y-1 text-slate-300">
-                  <li>Abre «Cola» para ver tu cola del día.</li>
-                  <li>Usa «Siguiente venta» hasta vaciar la cola.</li>
-                  <li>Revisa «Alta prioridad» y «Con extras» para cerrar el día.</li>
-                </ol>
-              </div>
-            </div>
-          )}
-          <button
-            type="button"
-            onClick={() => {
-              toggleFollowUpMode("today");
-            }}
-            className="flex justify-between text-left"
-          >
-            <span className={clsx(followUpMode === "today" && !showOnlyWithNotes && "font-semibold text-amber-300")}>
-              Seguimiento hoy
-              <span
-                className="ml-1 inline-flex h-4 w-4 items-center justify-center rounded-full border border-slate-500 text-[9px] text-slate-300"
-                title="Chats con renovación o tarea marcada para hoy."
-              >
-                i
-              </span>
-            </span>
-            <span
-              className={clsx(
-                "inline-flex items-center rounded-full px-2.5 py-1 text-xs font-semibold",
-                followUpTodayCount > 0 ? "bg-emerald-500/20 text-emerald-100" : "bg-slate-800 text-slate-300",
-                followUpMode === "today" && !showOnlyWithNotes && "ring-1 ring-amber-300/60"
-              )}
-            >
-              {followUpTodayCount}
-            </span>
-          </button>
-          {showAllTodayMetrics && (
-            <>
-              <button
-                type="button"
-                onClick={() => {
-                  toggleFollowUpMode("expired");
-                }}
-                className="flex justify-between text-left"
-              >
-                <span className={clsx(followUpMode === "expired" && !showOnlyWithNotes && "font-semibold text-amber-300")}>Caducados</span>
-                <span
-                  className={clsx(
-                    "inline-flex items-center rounded-full px-2.5 py-1 text-xs font-semibold",
-                    expiredCount > 0 ? "bg-rose-500/20 text-rose-100" : "bg-slate-800 text-slate-300",
-                    followUpMode === "expired" && !showOnlyWithNotes && "ring-1 ring-amber-300/60"
-                  )}
-                >
-                  {expiredCount}
-                </span>
-              </button>
-              <button
-                type="button"
-                onClick={() => applyFilter("all", true)}
-                className="flex justify-between text-left"
-              >
-                <span className={clsx(showOnlyWithNotes && "font-semibold text-amber-300")}>Con notas</span>
-                <span
-                  className={clsx(
-                    "inline-flex items-center rounded-full px-2.5 py-1 text-xs font-semibold",
-                    withNotesCount > 0 ? "bg-slate-800 text-slate-50" : "bg-slate-800/80 text-slate-300",
-                    showOnlyWithNotes && "ring-1 ring-amber-300/60"
-                  )}
-                >
-                  {withNotesCount}
-                </span>
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  selectStatusFilter("archived");
-                  setShowAllTodayMetrics(false);
-                }}
-                className="flex justify-between text-left"
-              >
-                <span className={clsx(statusFilter === "archived" && "font-semibold text-amber-300")}>Archivados</span>
-                <span
-                  className={clsx(
-                    "inline-flex items-center rounded-full px-2.5 py-1 text-xs font-semibold",
-                    archivedCount > 0 ? "bg-slate-800 text-slate-50" : "bg-slate-800/80 text-slate-300",
-                    statusFilter === "archived" && "ring-1 ring-amber-300/60"
-                  )}
-                >
-                  {archivedCount}
-                </span>
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  selectStatusFilter("blocked");
-                  setShowAllTodayMetrics(false);
-                }}
-                className="flex justify-between text-left"
-              >
-                <span className={clsx(statusFilter === "blocked" && "font-semibold text-amber-300")}>Bloqueados</span>
-                <span
-                  className={clsx(
-                    "inline-flex items-center rounded-full px-2.5 py-1 text-xs font-semibold",
-                    blockedCount > 0 ? "bg-rose-500/20 text-rose-100" : "bg-slate-800 text-slate-300",
-                    statusFilter === "blocked" && "ring-1 ring-amber-300/60"
-                  )}
-                >
-                  {blockedCount}
-                </span>
-              </button>
-            </>
-          )}
-          <button
-            type="button"
-            onClick={() => applyFilter(followUpMode, showOnlyWithNotes, tierFilter, !onlyWithFollowUp)}
-            className="flex justify-between text-left"
-          >
-            <span className={clsx(onlyWithFollowUp && "font-semibold text-amber-300")}>
-              <span className="inline-flex items-center gap-1">
-                <IconGlyph name="clock" className="h-3.5 w-3.5 text-amber-200" />
-                <span>Con próxima acción</span>
-              </span>
-              <span
-                className="ml-1 inline-flex h-4 w-4 items-center justify-center rounded-full border border-slate-500 text-[9px] text-slate-300"
-                title="Tienes una tarea anotada para este fan (nota con rayo)."
-              >
-                i
-              </span>
-            </span>
-            <span
-              className={clsx(
-                "inline-flex items-center rounded-full px-2.5 py-1 text-xs font-semibold",
-                withFollowUpCount > 0 ? "bg-amber-500/20 text-amber-100" : "bg-slate-800 text-slate-300",
-                onlyWithFollowUp && "ring-1 ring-amber-300/60"
-              )}
-            >
-              {withFollowUpCount}
-            </span>
-          </button>
-          {showAllTodayMetrics && (
-            <>
-              <button
-                type="button"
-                onClick={() => {
-                  setOnlyWithExtras((prev) => !prev);
-                  setListSegment("all");
-                  setActiveQueueFilter(null);
-                  scrollListToTop();
-                }}
-                className="flex justify-between text-left"
-              >
-                <span className={clsx(onlyWithExtras && "font-semibold text-amber-300")}>
-                  <span className="inline-flex items-center gap-1">
-                    <IconGlyph name="coin" className="h-3.5 w-3.5 text-amber-200" />
-                    <span>Con extras</span>
-                  </span>
-                  <span
-                    className="ml-1 inline-flex h-4 w-4 items-center justify-center rounded-full border border-slate-500 text-[9px] text-slate-300"
-                    title="Este fan ya te ha comprado contenido extra (PPV)."
-                  >
-                    i
-                  </span>
-                </span>
-                <span
-                  className={clsx(
-                    "inline-flex items-center rounded-full px-2.5 py-1 text-xs font-semibold",
-                    withExtrasCount > 0 ? "bg-amber-500/20 text-amber-100" : "bg-slate-800 text-slate-300",
-                    onlyWithExtras && "ring-1 ring-amber-300/60"
-                  )}
-                >
-                  {withExtrasCount}
-                </span>
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  const next = followUpMode === "priority" ? "all" : "priority";
-                  setFollowUpMode(next);
-                  setTierFilter("all");
-                  setListSegment("all");
-                  setActiveQueueFilter(null);
-                  scrollListToTop();
-                }}
-                className="flex justify-between text-left"
-              >
-                <span className={clsx(followUpMode === "priority" && "font-semibold text-amber-300")}>
-                  <span className="inline-flex items-center gap-1">
-                    <IconGlyph name="pin" className="h-3.5 w-3.5 text-amber-200" />
-                    <span>Alta prioridad</span>
-                  </span>
-                  <span
-                    className="ml-1 inline-flex h-4 w-4 items-center justify-center rounded-full border border-slate-500 text-[9px] text-slate-300"
-                    title="Marcados por ti para atender primero."
-                  >
-                    i
-                  </span>
-                </span>
+                  <span className={clsx(followUpMode === "expired" && !showOnlyWithNotes && "font-semibold text-amber-300")}>Caducados</span>
                   <span
                     className={clsx(
-                      "inline-flex items-center rounded-full px-2.5 py-1 text-xs font-semibold",
-                    priorityCount > 0 ? "bg-amber-500/20 text-amber-100" : "bg-slate-800 text-slate-300",
-                    followUpMode === "priority" && "ring-1 ring-amber-300/60"
-                  )}
+                      countPillClass,
+                      expiredCount > 0 ? "bg-rose-500/20 text-rose-100" : "bg-slate-800 text-slate-300",
+                      followUpMode === "expired" && !showOnlyWithNotes && "ring-1 ring-amber-300/60"
+                    )}
+                  >
+                    {expiredCount}
+                  </span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => applyFilter("all", true)}
+                  className={clsx(filterRowClass, "w-full")}
                 >
-                  {priorityCount}
+                  <span className={clsx(showOnlyWithNotes && "font-semibold text-amber-300")}>Con notas</span>
+                  <span
+                    className={clsx(
+                      countPillClass,
+                      withNotesCount > 0 ? "bg-slate-800 text-slate-50" : "bg-slate-800/80 text-slate-300",
+                      showOnlyWithNotes && "ring-1 ring-amber-300/60"
+                    )}
+                  >
+                    {withNotesCount}
+                  </span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    selectStatusFilter("archived");
+                    setShowAllTodayMetrics(false);
+                  }}
+                  className={clsx(filterRowClass, "w-full")}
+                >
+                  <span className={clsx(statusFilter === "archived" && "font-semibold text-amber-300")}>Archivados</span>
+                  <span
+                    className={clsx(
+                      countPillClass,
+                      archivedCount > 0 ? "bg-slate-800 text-slate-50" : "bg-slate-800/80 text-slate-300",
+                      statusFilter === "archived" && "ring-1 ring-amber-300/60"
+                    )}
+                  >
+                    {archivedCount}
+                  </span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    selectStatusFilter("blocked");
+                    setShowAllTodayMetrics(false);
+                  }}
+                  className={clsx(filterRowClass, "w-full")}
+                >
+                  <span className={clsx(statusFilter === "blocked" && "font-semibold text-amber-300")}>Bloqueados</span>
+                  <span
+                    className={clsx(
+                      countPillClass,
+                      blockedCount > 0 ? "bg-rose-500/20 text-rose-100" : "bg-slate-800 text-slate-300",
+                      statusFilter === "blocked" && "ring-1 ring-amber-300/60"
+                    )}
+                  >
+                    {blockedCount}
+                  </span>
+                </button>
+              </>
+            )}
+            <button
+              type="button"
+              onClick={() => applyFilter(followUpMode, showOnlyWithNotes, tierFilter, !onlyWithFollowUp)}
+              className={clsx(filterRowClass, "w-full")}
+            >
+              <span className={clsx(onlyWithFollowUp && "font-semibold text-amber-300")}>
+                <span className="inline-flex items-center gap-1">
+                  <IconGlyph name="clock" className="h-3.5 w-3.5 text-amber-200" />
+                  <span>Con próxima acción</span>
                 </span>
-              </button>
-              <button
-                type="button"
-            onClick={() => applyFilter(followUpMode, showOnlyWithNotes, tierFilter === "regular" ? "all" : "regular")}
-                className="flex justify-between text-left"
-              >
-                <span className={clsx(tierFilter === "regular" && "font-semibold text-amber-300")}>Habituales</span>
                 <span
-                  className={clsx(
-                    "inline-flex items-center rounded-full px-2.5 py-1 text-xs font-semibold",
-                    regularCount > 0 ? "bg-slate-800 text-slate-50" : "bg-slate-800/80 text-slate-300",
-                    tierFilter === "regular" && "ring-1 ring-amber-300/60"
-                  )}
+                  className="ml-1 inline-flex h-4 w-4 items-center justify-center rounded-full border border-slate-500 text-[9px] text-slate-300"
+                  title="Tienes una tarea anotada para este fan (nota con rayo)."
                 >
-                  {regularCount}
+                  i
                 </span>
-              </button>
-              <button
-                type="button"
-            onClick={() => applyFilter(followUpMode, showOnlyWithNotes, tierFilter === "new" ? "all" : "new")}
-                className="flex justify-between text-left"
+              </span>
+              <span
+                className={clsx(
+                  countPillClass,
+                  withFollowUpCount > 0 ? "bg-amber-500/20 text-amber-100" : "bg-slate-800 text-slate-300",
+                  onlyWithFollowUp && "ring-1 ring-amber-300/60"
+                )}
               >
-                <span className={clsx(tierFilter === "new" && "font-semibold text-amber-300")}>Nuevos</span>
-                <span
-                  className={clsx(
-                    "inline-flex items-center rounded-full px-2.5 py-1 text-xs font-semibold",
-                    newCount > 0 ? "bg-slate-800 text-slate-50" : "bg-slate-800/80 text-slate-300",
-                    tierFilter === "new" && "ring-1 ring-amber-300/60"
-                  )}
+                {withFollowUpCount}
+              </span>
+            </button>
+            {showAllTodayMetrics && (
+              <>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setOnlyWithExtras((prev) => !prev);
+                    setListSegment("all");
+                    setActiveQueueFilter(null);
+                    scrollListToTop();
+                  }}
+                  className={clsx(filterRowClass, "w-full")}
                 >
-                  {newCount}
-                </span>
-              </button>
-              <button
-                type="button"
-                onClick={() => setShowPacksPanel((prev) => !prev)}
-                className="flex justify-between text-left"
-              >
-                <span className={clsx(showPacksPanel && "font-semibold text-amber-300")}>Packs disponibles ({packsCount})</span>
-                <span className={clsx(showPacksPanel && "font-semibold text-amber-300")}>⋯</span>
-              </button>
-            </>
-          )}
-        </div>
+                  <span className={clsx(onlyWithExtras && "font-semibold text-amber-300")}>
+                    <span className="inline-flex items-center gap-1">
+                      <IconGlyph name="coin" className="h-3.5 w-3.5 text-amber-200" />
+                      <span>Con extras</span>
+                    </span>
+                    <span
+                      className="ml-1 inline-flex h-4 w-4 items-center justify-center rounded-full border border-slate-500 text-[9px] text-slate-300"
+                      title="Este fan ya te ha comprado contenido extra (PPV)."
+                    >
+                      i
+                    </span>
+                  </span>
+                  <span
+                    className={clsx(
+                      countPillClass,
+                      withExtrasCount > 0 ? "bg-amber-500/20 text-amber-100" : "bg-slate-800 text-slate-300",
+                      onlyWithExtras && "ring-1 ring-amber-300/60"
+                    )}
+                  >
+                    {withExtrasCount}
+                  </span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const next = followUpMode === "priority" ? "all" : "priority";
+                    setFollowUpMode(next);
+                    setTierFilter("all");
+                    setListSegment("all");
+                    setActiveQueueFilter(null);
+                    scrollListToTop();
+                  }}
+                  className={clsx(filterRowClass, "w-full")}
+                >
+                  <span className={clsx(followUpMode === "priority" && "font-semibold text-amber-300")}>
+                    <span className="inline-flex items-center gap-1">
+                      <IconGlyph name="pin" className="h-3.5 w-3.5 text-amber-200" />
+                      <span>Alta prioridad</span>
+                    </span>
+                    <span
+                      className="ml-1 inline-flex h-4 w-4 items-center justify-center rounded-full border border-slate-500 text-[9px] text-slate-300"
+                      title="Marcados por ti para atender primero."
+                    >
+                      i
+                    </span>
+                  </span>
+                  <span
+                    className={clsx(
+                      countPillClass,
+                      priorityCount > 0 ? "bg-amber-500/20 text-amber-100" : "bg-slate-800 text-slate-300",
+                      followUpMode === "priority" && "ring-1 ring-amber-300/60"
+                    )}
+                  >
+                    {priorityCount}
+                  </span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => applyFilter(followUpMode, showOnlyWithNotes, tierFilter === "regular" ? "all" : "regular")}
+                  className={clsx(filterRowClass, "w-full")}
+                >
+                  <span className={clsx(tierFilter === "regular" && "font-semibold text-amber-300")}>Habituales</span>
+                  <span
+                    className={clsx(
+                      countPillClass,
+                      regularCount > 0 ? "bg-slate-800 text-slate-50" : "bg-slate-800/80 text-slate-300",
+                      tierFilter === "regular" && "ring-1 ring-amber-300/60"
+                    )}
+                  >
+                    {regularCount}
+                  </span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => applyFilter(followUpMode, showOnlyWithNotes, tierFilter === "new" ? "all" : "new")}
+                  className={clsx(filterRowClass, "w-full")}
+                >
+                  <span className={clsx(tierFilter === "new" && "font-semibold text-amber-300")}>Nuevos</span>
+                  <span
+                    className={clsx(
+                      countPillClass,
+                      newCount > 0 ? "bg-slate-800 text-slate-50" : "bg-slate-800/80 text-slate-300",
+                      tierFilter === "new" && "ring-1 ring-amber-300/60"
+                    )}
+                  >
+                    {newCount}
+                  </span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowPacksPanel((prev) => !prev)}
+                  className={clsx(filterRowClass, "w-full")}
+                >
+                  <span className={clsx(showPacksPanel && "font-semibold text-amber-300")}>Packs disponibles ({packsCount})</span>
+                  <span className={clsx(showPacksPanel && "font-semibold text-amber-300")}>⋯</span>
+                </button>
+              </>
+            )}
+          </div>
+        </LeftSectionCard>
       </div>
       {showPacksPanel && (
         <div className="mb-2 px-3">

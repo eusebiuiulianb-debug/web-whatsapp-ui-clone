@@ -178,7 +178,9 @@ export default function ConversationList(props: ConversationListProps) {
   const totalSpent = Math.round(purchaseTotals.totalSpent);
   const tierChipTone = normalizedTier === "vip" ? "amber" : normalizedTier === "regular" ? "emerald" : "sky";
   const isRiskTier = tierLabel === "En riesgo";
-  const isStrongPriority = isHighPriority && !isRiskTier;
+  const strongChip = isRiskTier ? "risk" : isHighPriority ? "priority" : null;
+  const tierVariant = strongChip === "risk" ? "accent" : "subtle";
+  const priorityVariant = strongChip === "priority" ? "accent" : "subtle";
   const followUpTone =
     followUpTag === "trial_soon" ? "amber" : followUpTag === "expired" ? "danger" : "sky";
   const urgencyTone = urgencyLevel === "high" ? "danger" : urgencyLevel === "medium" ? "amber" : "neutral";
@@ -222,7 +224,7 @@ export default function ConversationList(props: ConversationListProps) {
             <div className="flex items-center gap-1.5 min-w-0">
               <span className={`truncate ${nameTint}`}>{contactName}</span>
               {/* Chip de nivel según el tier del fan, usando la misma paleta que el botón amarillo */}
-              <Chip variant={isRiskTier ? "accent" : "subtle"} tone={isRiskTier ? "danger" : tierChipTone} size="xs">
+              <Chip variant={tierVariant} tone={isRiskTier ? "danger" : tierChipTone} size="xs">
                 {tierLabel}
               </Chip>
               {languageBadgeLabel && (
@@ -238,7 +240,7 @@ export default function ConversationList(props: ConversationListProps) {
               {/* Chip de alta prioridad */}
               {isHighPriority && (
                 <Chip
-                  variant={isStrongPriority ? "accent" : "subtle"}
+                  variant={priorityVariant}
                   tone="amber"
                   size="xs"
                   leftGlyph="pin"
