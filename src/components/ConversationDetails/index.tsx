@@ -70,6 +70,8 @@ import clsx from "clsx";
 import { useRouter } from "next/router";
 import { useIsomorphicLayoutEffect } from "../../hooks/useIsomorphicLayoutEffect";
 import Image from "next/image";
+import { IconGlyph, type IconName } from "../ui/IconGlyph";
+import { ConversationActionsMenu } from "../conversations/ConversationActionsMenu";
 
 type ManagerQuickIntent = ManagerObjective;
 type ManagerSuggestionIntent = "romper_hielo" | "pregunta_simple" | "cierre_suave" | "upsell_mensual_suave";
@@ -655,12 +657,10 @@ export default function ConversationDetails({ onBackToBoard }: ConversationDetai
   const [ extraAmount, setExtraAmount ] = useState<number | "">("");
   const [ extraError, setExtraError ] = useState<string | null>(null);
   const [ showManualExtraForm, setShowManualExtraForm ] = useState(false);
-  const [ isActionsMenuOpen, setIsActionsMenuOpen ] = useState(false);
   const [ isChatBlocked, setIsChatBlocked ] = useState(conversation.isBlocked ?? false);
   const [ isChatArchived, setIsChatArchived ] = useState(conversation.isArchived ?? false);
   const [ isChatActionLoading, setIsChatActionLoading ] = useState(false);
   const router = useRouter();
-  const actionsMenuRef = useRef<HTMLDivElement | null>(null);
   const selectionToolbarRef = useRef<HTMLDivElement | null>(null);
   const isPointerDownRef = useRef(false);
   const templatePanelOpenRef = useRef(false);
@@ -1035,17 +1035,6 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
     setIsChatArchived(conversation.isArchived ?? false);
     resetMessageInputHeight();
   }, [conversation.id, conversation.isBlocked, conversation.isArchived, resetMessageInputHeight]);
-
-  useEffect(() => {
-    function handleClickOutside(event: globalThis.MouseEvent) {
-      const target = event.target as Node | null;
-      if (actionsMenuRef.current && target && !actionsMenuRef.current.contains(target)) {
-        setIsActionsMenuOpen(false);
-      }
-    }
-    document.addEventListener("mousedown", handleClickOutside);
-    return () => document.removeEventListener("mousedown", handleClickOutside);
-  }, []);
 
   useIsomorphicLayoutEffect(() => {
     autoGrowTextarea(messageInputRef.current, MAX_MAIN_COMPOSER_HEIGHT);
@@ -1977,7 +1966,6 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
   function handleOpenExtrasPanel() {
     const nextFilter = timeOfDay === "NIGHT" ? "night" : "day";
     setTimeOfDayFilter(nextFilter as TimeOfDayFilter);
-    setIsActionsMenuOpen(false);
     openContentModal({ mode: "extras", tier: null, defaultRegisterExtras: false, registerSource: null });
   }
 
@@ -3363,12 +3351,12 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
       title,
       subtitle,
     }: {
-      icon: string;
+      icon: IconName;
       title: string;
       subtitle?: string;
     }) => (
       <div className="flex items-center gap-3 rounded-xl border border-slate-800/70 bg-slate-950/40 px-3 py-3 text-xs text-slate-400">
-        <span className="text-base">{icon}</span>
+        <IconGlyph name={icon} className="h-4 w-4 text-slate-200" />
         <div>
           <div className="text-[11px] font-semibold text-slate-200">{title}</div>
           {subtitle && <div className="text-[10px] text-slate-500">{subtitle}</div>}
@@ -3431,7 +3419,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
                 )}
               >
                 <span className="flex items-center gap-2">
-                  <span className="text-base leading-none">📎</span>
+                  <IconGlyph name="paperclip" className="h-4 w-4" />
                   <span>Adjuntar contenido</span>
                 </span>
                 {toolsDisabled && (
@@ -3452,7 +3440,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
                   )}
                 >
                   <span className="flex items-center gap-2">
-                    <span className="text-base leading-none">🌐</span>
+                    <IconGlyph name="globe" className="h-4 w-4" />
                     <span>Traducir</span>
                   </span>
                   <div className="flex items-center gap-2">
@@ -3494,7 +3482,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
               ) : (
                 <div className="flex w-full items-center justify-between rounded-xl border border-slate-800/70 bg-slate-950/40 px-3 py-2 text-[12px] font-semibold text-slate-500">
                   <span className="flex items-center gap-2">
-                    <span className="text-base leading-none">🌐</span>
+                    <IconGlyph name="globe" className="h-4 w-4" />
                     <span>Traducir</span>
                   </span>
                   <span className="rounded-full border border-slate-700/70 bg-slate-900/60 px-2 py-0.5 text-[9px] uppercase tracking-[0.2em] text-slate-400">
@@ -3539,7 +3527,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
                 {[
                   {
                     label: "Copiar enlace",
-                    icon: "🔗",
+                    icon: "link",
                     onClick: async () => {
                       if (!id) {
                         showInlineAction({ kind: "warn", title: "Selecciona un fan primero" });
@@ -3554,7 +3542,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
                   },
                   {
                     label: "Abrir ficha",
-                    icon: "🗂️",
+                    icon: "folder",
                     onClick: () => {
                       if (!id) {
                         showInlineAction({ kind: "warn", title: "Selecciona un fan" });
@@ -3567,7 +3555,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
                   },
                   {
                     label: "Marcar seguimiento",
-                    icon: "⏰",
+                    icon: "clock",
                     onClick: () => {
                       if (!id) {
                         showInlineAction({ kind: "warn", title: "Selecciona un fan" });
@@ -3587,7 +3575,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
                       "border-slate-800/70 bg-slate-950/40 text-slate-200 hover:border-slate-600/80 hover:bg-slate-900/60"
                     )}
                   >
-                    <span className="text-base leading-none">{action.icon}</span>
+                    <IconGlyph name={action.icon} className="h-4 w-4" />
                     <span>{action.label}</span>
                   </button>
                 ))}
@@ -3595,7 +3583,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
             </div>
           ) : (
             <InlineEmptyState
-              icon="🛠️"
+              icon="settings"
               title="Sin herramientas disponibles"
               subtitle="Solo disponibles en chats con fans."
             />
@@ -4335,7 +4323,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
                     </div>
                   </div>
                 ) : (
-                  <InlineEmptyState icon="🗂️" title="Sin plantillas para el fan" />
+                  <InlineEmptyState icon="folder" title="Sin plantillas para el fan" />
                 )
               ) : managerPromptTemplate ? (
                 <div className="rounded-xl border border-slate-800/60 bg-slate-950/40 p-3 space-y-2">
@@ -4350,7 +4338,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
                   </button>
                 </div>
               ) : (
-                <InlineEmptyState icon="🗂️" title="Sin plantillas para el Manager" />
+                <InlineEmptyState icon="folder" title="Sin plantillas para el Manager" />
               )}
             </div>
           </InlinePanelShell>
@@ -6268,7 +6256,17 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
     const title = nextActionDraft.trim();
     const date = nextActionDate.trim();
     const time = nextActionTime.trim();
+    const hasExistingFollowUp = Boolean(
+      followUpOpen ||
+        conversation.nextActionAt ||
+        (typeof conversation.nextActionNote === "string" && conversation.nextActionNote.trim()) ||
+        (typeof conversation.nextAction === "string" && conversation.nextAction.trim())
+    );
     if (!title) {
+      if (hasExistingFollowUp) {
+        await handleClearNextAction();
+        return;
+      }
       setFollowUpError("Escribe el seguimiento antes de guardar.");
       nextActionInputRef.current?.focus();
       return;
@@ -6600,9 +6598,9 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
     tipsCountDisplay === null || tipsSpentDisplay === null ? "—" : `${tipsCountDisplay} · ${tipsSpentDisplay} €`;
   const showTipsInline = typeof tipsSpentDisplay === "number" && tipsSpentDisplay > 0;
   const purchaseKindMeta = {
-    EXTRA: { label: "Extra", icon: "💎", tone: "text-emerald-200" },
-    TIP: { label: "Propina", icon: "💛", tone: "text-amber-200" },
-    GIFT: { label: "Regalo", icon: "🎁", tone: "text-sky-200" },
+    EXTRA: { label: "Extra", icon: "gem", tone: "text-emerald-200" },
+    TIP: { label: "Propina", icon: "coin", tone: "text-amber-200" },
+    GIFT: { label: "Regalo", icon: "gift", tone: "text-sky-200" },
   };
   const historyFilters = [
     { id: "all", label: "Todo" },
@@ -6671,7 +6669,6 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
   }, [openInternalPanelTab]);
 
   const handleOpenEditName = () => {
-    setIsActionsMenuOpen(false);
     setShowQuickSheet(false);
     setEditNameValue(conversation.creatorLabel ?? conversation.displayName ?? "");
     setEditNameError(null);
@@ -6788,13 +6785,11 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
   };
   const handleOpenNotesPanel = () => {
     setOpenPanel("none");
-    setIsActionsMenuOpen(false);
     openInternalPanelTab("note");
   };
 
   const handleOpenHistoryPanel = () => {
     setOpenPanel("history");
-    setIsActionsMenuOpen(false);
     if (id) fetchHistory(id);
   };
 
@@ -6815,7 +6810,6 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
     } catch (err) {
       console.error("Error blocking chat", err);
     } finally {
-      setIsActionsMenuOpen(false);
       setIsChatActionLoading(false);
     }
   };
@@ -6831,7 +6825,6 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
     } catch (err) {
       console.error("Error unblocking chat", err);
     } finally {
-      setIsActionsMenuOpen(false);
       setIsChatActionLoading(false);
     }
   };
@@ -6847,7 +6840,6 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
     } catch (err) {
       console.error("Error archiving chat", err);
     } finally {
-      setIsActionsMenuOpen(false);
       setIsChatActionLoading(false);
     }
   };
@@ -6871,7 +6863,6 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
     } catch (err) {
       console.error("Error updating high priority", err);
     } finally {
-      setIsActionsMenuOpen(false);
       setIsChatActionLoading(false);
     }
   };
@@ -7100,15 +7091,15 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
   const inlineActionTone = inlineAction
     ? {
         ok: {
-          icon: "✅",
+          icon: "check",
           iconClass: "border-emerald-400/50 bg-emerald-500/10 text-emerald-200",
         },
         info: {
-          icon: "ℹ️",
+          icon: "info",
           iconClass: "border-sky-400/50 bg-sky-500/10 text-sky-200",
         },
         warn: {
-          icon: "⚠️",
+          icon: "alert",
           iconClass: "border-amber-400/60 bg-amber-500/10 text-amber-200",
         },
       }[inlineAction.kind]
@@ -7163,7 +7154,14 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
             )}
             {(conversation.isHighPriority || (conversation.extrasCount ?? 0) > 0) && (
               <span className="inline-flex items-center rounded-full border border-amber-400/60 bg-amber-500/10 px-2 py-0.5 text-[11px] font-medium text-amber-300">
-                {conversation.isHighPriority ? "📌 Alta" : "Extras"}
+                {conversation.isHighPriority ? (
+                  <span className="inline-flex items-center gap-1">
+                    <IconGlyph name="pin" className="h-3.5 w-3.5" />
+                    <span>Alta</span>
+                  </span>
+                ) : (
+                  "Extras"
+                )}
               </span>
             )}
             {nextActionStatus && (
@@ -7178,7 +7176,10 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
                     "border-sky-400/70 bg-sky-500/15 text-sky-100"
                 )}
               >
-                ⚡ {nextActionStatus.label}
+                <span className="inline-flex items-center gap-1">
+                  <IconGlyph name="clock" className="h-3.5 w-3.5" />
+                  <span>{nextActionStatus.label}</span>
+                </span>
               </span>
             )}
           </div>
@@ -7189,7 +7190,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
           <header ref={fanHeaderRef} className="sticky top-0 z-20 backdrop-blur">
             <div className="max-w-4xl mx-auto w-full bg-slate-950/70 border-b border-slate-800 px-4 py-3 md:px-6 md:py-4 flex flex-col gap-3">
           {/* Piso 1 */}
-          <div className="flex flex-wrap items-center gap-3 sm:flex-nowrap" ref={actionsMenuRef}>
+          <div className="flex flex-wrap items-center gap-3 sm:flex-nowrap">
             <div className="flex items-center gap-3 min-w-0 flex-1 order-1">
               <Avatar width="w-10" height="h-10" image={image} />
               <div className="flex flex-col min-w-0">
@@ -7202,7 +7203,10 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
                   )}
                   {conversation.isHighPriority && (
                     <span className="inline-flex items-center rounded-full border border-amber-400/70 bg-amber-500/15 px-2 py-0.5 text-[11px] font-semibold text-amber-100 whitespace-nowrap">
-                      📌 Alta
+                      <span className="inline-flex items-center gap-1">
+                        <IconGlyph name="pin" className="h-3.5 w-3.5" />
+                        <span>Alta</span>
+                      </span>
                     </span>
                   )}
                   <span
@@ -7217,87 +7221,20 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
               </div>
             </div>
             <div className="order-2 ml-auto sm:order-3 sm:ml-0">
-              <div className="relative">
-                <button
-                  type="button"
-                  onClick={() => setIsActionsMenuOpen((prev) => !prev)}
-                  aria-label="Más opciones del chat"
-                  className="inline-flex items-center justify-center rounded-full border border-slate-700 bg-slate-900/70 p-2 text-slate-300 hover:border-amber-300 hover:text-amber-100"
-                >
-                  <svg viewBox="0 0 24 24" width="24" height="24" className="pointer-events-none">
-                    <path fill="currentColor" d="M12 7a2 2 0 1 0-.001-4.001A2 2 0 0 0 12 7zm0 2a2 2 0 1 0-.001 3.999A2 2 0 0 0 12 9zm0 6a2 2 0 1 0-.001 3.999A2 2 0 0 0 12 15z"></path>
-                  </svg>
-                </button>
-                {isActionsMenuOpen && (
-                  <div className="absolute right-0 mt-2 w-48 rounded-xl border border-slate-700 bg-slate-900/95 shadow-xl z-30">
-                    <button
-                      type="button"
-                      className="flex w-full items-center px-3 py-2 text-sm text-slate-100 hover:bg-slate-800 transition"
-                      onClick={handleOpenEditName}
-                    >
-                      Editar nombre
-                    </button>
-                    <button
-                      type="button"
-                      className="flex w-full items-center px-3 py-2 text-sm text-slate-100 hover:bg-slate-800 transition disabled:opacity-60"
-                      onClick={handleToggleHighPriority}
-                      disabled={isChatActionLoading}
-                    >
-                      {conversation.isHighPriority ? "Quitar alta prioridad" : "Marcar alta prioridad"}
-                    </button>
-                    <button
-                      type="button"
-                      className="flex w-full items-center px-3 py-2 text-sm text-slate-100 hover:bg-slate-800 transition"
-                      onClick={handleOpenNotesPanel}
-                    >
-                      Perfil + seguimiento
-                    </button>
-                    <button
-                      type="button"
-                      className="flex w-full items-center px-3 py-2 text-sm text-slate-100 hover:bg-slate-800 transition"
-                      onClick={handleOpenHistoryPanel}
-                    >
-                      Historial
-                    </button>
-                    <button
-                      type="button"
-                      className="flex w-full items-center px-3 py-2 text-sm text-slate-100 hover:bg-slate-800 transition"
-                      onClick={handleOpenExtrasPanel}
-                    >
-                      Ventas extra
-                    </button>
-                    <div className="my-1 h-px bg-slate-800" />
-                    {!isChatBlocked && (
-                      <button
-                        type="button"
-                        className="flex w-full items-center px-3 py-2 text-sm text-rose-100 hover:bg-rose-500/10 transition disabled:opacity-60"
-                        onClick={handleBlockChat}
-                        disabled={isChatActionLoading}
-                      >
-                        Bloquear chat
-                      </button>
-                    )}
-                    {isChatBlocked && (
-                      <button
-                        type="button"
-                        className="flex w-full items-center px-3 py-2 text-sm text-emerald-100 hover:bg-emerald-500/10 transition disabled:opacity-60"
-                        onClick={handleUnblockChat}
-                        disabled={isChatActionLoading}
-                      >
-                        Desbloquear chat
-                      </button>
-                    )}
-                    <button
-                      type="button"
-                      className="flex w-full items-center px-3 py-2 text-sm text-slate-100 hover:bg-slate-800 transition disabled:opacity-60"
-                      onClick={handleArchiveChat}
-                      disabled={isChatActionLoading}
-                    >
-                      Archivar chat
-                    </button>
-                  </div>
-                )}
-              </div>
+              <ConversationActionsMenu
+                conversation={conversation}
+                variant="header"
+                align="right"
+                onEditName={() => handleOpenEditName()}
+                onToggleHighPriority={() => handleToggleHighPriority()}
+                onOpenProfileFollowup={() => handleOpenNotesPanel()}
+                onOpenHistory={() => handleOpenHistoryPanel()}
+                onOpenSalesExtra={() => handleOpenExtrasPanel()}
+                onBlockChat={() => handleBlockChat()}
+                onUnblockChat={() => handleUnblockChat()}
+                onArchiveChat={() => handleArchiveChat()}
+                actionDisabled={isChatActionLoading}
+              />
             </div>
             <div className="flex flex-wrap items-center gap-2 order-3 w-full sm:order-2 sm:w-auto sm:ml-auto sm:justify-end">
               <button
@@ -7321,7 +7258,10 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
             </span>
             {conversation.isHighPriority && (
               <span className="inline-flex items-center rounded-full border border-amber-400/70 bg-amber-500/15 px-3 py-1 text-[11px] font-semibold text-amber-100 whitespace-nowrap">
-                🔥 Alta prioridad
+                <span className="inline-flex items-center gap-1">
+                  <IconGlyph name="pin" className="h-3.5 w-3.5" />
+                  <span>Alta prioridad</span>
+                </span>
               </span>
             )}
             {extrasCountDisplay > 0 && (
@@ -7341,7 +7281,10 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
                     "border-sky-400/70 bg-sky-500/15 text-sky-100"
                 )}
               >
-                ⚡ {nextActionStatus.label}
+                <span className="inline-flex items-center gap-1">
+                  <IconGlyph name="clock" className="h-3.5 w-3.5" />
+                  <span>{nextActionStatus.label}</span>
+                </span>
               </span>
             )}
           </div>
@@ -7433,9 +7376,13 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
         <div className="mt-2 mb-3 flex items-center justify-between rounded-xl border border-amber-500/60 bg-slate-900/70 px-3 py-2 text-xs">
           <div className="flex flex-col gap-1 truncate">
             <span className="font-semibold text-amber-300 flex items-center gap-1">
-              ⚡ Siguiente recomendado
+              <IconGlyph name="spark" className="h-3.5 w-3.5" />
+              <span>Siguiente recomendado</span>
               {recommendedFan && (recommendedFan.customerTier === "priority" || recommendedFan.customerTier === "vip") && (
-                <span className="text-[10px] rounded-full bg-amber-500/20 px-2 text-amber-200">🔥 Alta prioridad</span>
+                <span className="inline-flex items-center gap-1 text-[10px] rounded-full bg-amber-500/20 px-2 text-amber-200">
+                  <IconGlyph name="pin" className="h-3 w-3" />
+                  <span>Alta prioridad</span>
+                </span>
               )}
             </span>
             <div className="flex flex-wrap items-center gap-2 text-[11px] text-amber-200">
@@ -7590,7 +7537,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
               {filteredPurchaseHistory.map((entry) => {
                 const meta = purchaseKindMeta[entry.kind] ?? {
                   label: "Compra",
-                  icon: "🧾",
+                  icon: "receipt",
                   tone: "text-slate-200",
                 };
                 const title =
@@ -7607,7 +7554,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
                   <div key={entry.id} className="rounded-lg border border-slate-800 bg-slate-950/60 px-2 py-2">
                     <div className="flex items-start justify-between gap-2">
                       <div className="flex items-start gap-2 min-w-0">
-                        <span className={clsx("text-base leading-none", meta.tone)}>{meta.icon}</span>
+                        <IconGlyph name={meta.icon} className={clsx("h-4 w-4", meta.tone)} />
                         <div className="flex flex-col min-w-0">
                           <span className="text-[12px] font-semibold text-slate-100 truncate">{title}</span>
                           <span className="text-[10px] text-slate-400">{formatNoteDate(entry.createdAt)}</span>
@@ -7770,7 +7717,9 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
                       inlineActionTone?.iconClass
                     )}
                   >
-                    {inlineActionTone?.icon}
+                    {inlineActionTone?.icon ? (
+                      <IconGlyph name={inlineActionTone.icon} className="h-4 w-4" />
+                    ) : null}
                   </span>
                   <div className="flex min-w-0 flex-1 flex-col gap-0.5 pr-6">
                     <div className="text-[12px] font-semibold text-slate-100">{inlineAction.title}</div>
@@ -8378,8 +8327,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
                         {packItems.map((item) => {
                           const locked = !isUnlocked;
                           const selected = selectedContentIds.includes(item.id);
-                          const typeEmoji =
-                            item.type === "IMAGE" ? "🖼️" : item.type === "VIDEO" ? "🎬" : item.type === "AUDIO" ? "🎧" : "📄";
+                          const typeIcon = getContentIconName(item.type);
                           return (
                             <label
                               key={item.id}
@@ -8393,7 +8341,11 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
                               )}
                             >
                               <div className="flex items-center gap-2">
-                                <span className="text-base">{locked ? "🔒" : typeEmoji}</span>
+                                {locked ? (
+                                  <IconGlyph name="lock" className="h-4 w-4" />
+                                ) : (
+                                  <IconGlyph name={typeIcon} className="h-4 w-4" />
+                                )}
                                 <span>{item.title}</span>
                                 {item.hasBeenSentToFan && (
                                   <span className="text-[10px] text-emerald-300 border border-emerald-400/60 rounded-full px-2 py-[1px]">
@@ -8442,8 +8394,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
                       })
                       .map((item) => {
                         const selected = selectedContentIds.includes(item.id);
-                        const typeEmoji =
-                          item.type === "IMAGE" ? "🖼️" : item.type === "VIDEO" ? "🎬" : item.type === "AUDIO" ? "🎧" : "📄";
+                        const typeIcon = getContentIconName(item.type);
                         return (
                           <label
                             key={item.id}
@@ -8456,7 +8407,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
                           >
                             <div className="flex flex-col gap-1">
                               <div className="flex items-center gap-2">
-                                <span className="text-base">{typeEmoji}</span>
+                                <IconGlyph name={typeIcon} className="h-4 w-4" />
                                 <span>{item.title}</span>
                                 {item.hasBeenSentToFan && (
                                   <span className="text-[10px] text-emerald-300 border border-emerald-400/60 rounded-full px-2 py-[1px]">
@@ -8785,9 +8736,10 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
                   <button
                     type="button"
                     onClick={handleOpenEditName}
-                    className="inline-flex items-center rounded-full border border-slate-700 bg-slate-800/70 px-2 py-0.5 text-[11px] text-slate-200 hover:border-emerald-400 hover:text-emerald-100"
+                    className="inline-flex items-center gap-1 rounded-full border border-slate-700 bg-slate-800/70 px-2 py-0.5 text-[11px] text-slate-200 hover:border-emerald-400 hover:text-emerald-100"
                   >
-                    ✎ Editar
+                    <IconGlyph name="edit" className="h-3.5 w-3.5" />
+                    <span>Editar</span>
                   </button>
                 </div>
                 <div className="flex flex-wrap gap-2 text-[11px]">
@@ -8799,7 +8751,10 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
                   </span>
                   {conversation.isHighPriority && (
                     <span className="inline-flex items-center rounded-full bg-amber-500/20 text-amber-200 px-2 py-[1px]">
-                      🔥 Alta prioridad
+                      <span className="inline-flex items-center gap-1">
+                        <IconGlyph name="pin" className="h-3 w-3" />
+                        <span>Alta prioridad</span>
+                      </span>
                     </span>
                   )}
                   {extrasCountDisplay > 0 && (
@@ -8983,7 +8938,7 @@ function ContentAttachmentCard({ message }: { message: ConversationMessage }) {
   const title = content?.title || message.message || "Contenido adjunto";
   const visibilityLabel = content ? getContentVisibilityLabel(content.visibility) : "";
   const typeLabel = content ? getContentTypeLabel(content.type) : "Contenido";
-  const emoji = getContentEmoji(content?.type);
+  const iconName = getContentIconName(content?.type);
   const alignItems = message.me ? "items-end" : "items-start";
   const externalUrl = content?.externalUrl;
   const isInternal = message.audience === "INTERNAL";
@@ -9017,7 +8972,7 @@ function ContentAttachmentCard({ message }: { message: ConversationMessage }) {
           </span>
         )}
         <div className="flex items-center gap-2 text-sm font-semibold">
-          <span className="text-lg">{emoji}</span>
+          <IconGlyph name={iconName} className="h-4 w-4 text-slate-200" />
           <span className="truncate">{title}</span>
         </div>
         <div className="flex items-center gap-2 text-[11px] text-slate-300 mt-1">
@@ -9038,17 +8993,27 @@ function ContentAttachmentCard({ message }: { message: ConversationMessage }) {
         </button>
         <div className="flex justify-end items-center gap-2 text-[hsla(0,0%,100%,0.6)] text-xs mt-2">
           <span>{message.time}</span>
-          {message.me && message.seen ? <span className="text-[#8edafc] text-[11px]">✔✔ Visto</span> : null}
+          {message.me && message.seen ? (
+            <span className="inline-flex items-center gap-1 text-[#8edafc] text-[11px]">
+              <span className="inline-flex -space-x-1">
+                <IconGlyph name="check" className="h-3 w-3" />
+                <IconGlyph name="check" className="h-3 w-3" />
+              </span>
+              <span>Visto</span>
+            </span>
+          ) : null}
         </div>
       </div>
     </div>
   );
 }
 
-function getContentEmoji(type?: string) {
-  if (type === "VIDEO") return "🎥";
-  if (type === "AUDIO") return "🎧";
-  return "📷";
+function getContentIconName(type?: string): IconName {
+  if (type === "IMAGE") return "image";
+  if (type === "VIDEO") return "video";
+  if (type === "AUDIO") return "audio";
+  if (type === "TEXT") return "note";
+  return "file";
 }
 
 function mapTypeToLabel(type?: string): string {
