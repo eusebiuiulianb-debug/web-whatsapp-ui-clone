@@ -6574,7 +6574,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
   const tierLabel = formatTier(conversation.customerTier);
   const isPriorityTier = tierLabel === "Alta prioridad";
   const tierChipTone = isPriorityTier ? "amber" : "neutral";
-  const tierChipVariant = isPriorityTier ? "accent" : "subtle";
+  const tierChipVariant = isPriorityTier && !conversation.isHighPriority ? "accent" : "subtle";
   const nextActionNoteValue =
     typeof conversation.nextActionNote === "string" ? conversation.nextActionNote.trim() : "";
   const followUpNoteRaw =
@@ -7606,7 +7606,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
         <div
           ref={messagesContainerRef}
           className="flex flex-col w-full flex-1 min-h-0 overflow-y-auto"
-          style={{ backgroundImage: "url('/assets/images/background.jpg')" }}
+          style={{ backgroundImage: "var(--chat-pattern)" }}
         >
           <div
             className="max-w-4xl mx-auto w-full px-4 sm:px-6 lg:px-8 py-6"

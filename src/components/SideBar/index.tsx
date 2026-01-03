@@ -60,7 +60,7 @@ function LeftSectionCard({ children, className }: LeftSectionCardProps) {
   return (
     <div
       className={clsx(
-        "rounded-2xl border border-[color:var(--surface-border)] bg-[var(--surface-1)] px-3 py-3 transition",
+        "rounded-2xl border border-[color:var(--surface-border)] bg-[var(--surface-1)] p-4 transition",
         "hover:border-[color:var(--surface-border-hover)] hover:ring-1 hover:ring-[color:var(--surface-ring)]",
         className
       )}
@@ -93,9 +93,15 @@ function LeftKpiCard({
 }: LeftKpiCardProps) {
   const toneClass = tone === "accent" ? "text-emerald-200" : "text-slate-300";
   return (
-    <div className={clsx("rounded-xl bg-[var(--surface-2)] px-3 py-3", className)}>
-      <div className="text-[11px] text-slate-400">{label}</div>
-      <div className={clsx("mt-1 text-xl font-semibold tracking-tight tabular-nums", toneClass, valueClassName)}>
+    <div className={clsx("rounded-xl bg-[var(--surface-2)] p-3", className)}>
+      <div className="text-[10px] text-slate-500">{label}</div>
+      <div
+        className={clsx(
+          "mt-1 text-2xl font-semibold tracking-tight tabular-nums leading-tight",
+          toneClass,
+          valueClassName
+        )}
+      >
         {value}
       </div>
       {hint ? <div className="mt-1 text-[10px] text-slate-500">{hint}</div> : null}
@@ -1527,9 +1533,9 @@ function SideBarInner() {
           <>
             <LeftSectionCard className="mb-2">
               <div className="flex items-center justify-between">
-                <div>
-                  <div className="text-[12px] font-semibold text-slate-100">Resumen de hoy</div>
-                  <div className="text-[11px] text-slate-400">Ventas y actividad</div>
+                <div className="space-y-1">
+                  <div className="text-sm font-semibold text-slate-100">Resumen de hoy</div>
+                  <div className="text-[11px] text-slate-500">Ventas y actividad</div>
                 </div>
               </div>
               <div className="mt-3 grid grid-cols-2 gap-2">
@@ -1552,7 +1558,7 @@ function SideBarInner() {
                   label="Ingresos hoy"
                   value={`${incomeTodayCount} cobro${incomeTodayCount === 1 ? "" : "s"} · ${formatCurrency(incomeTodayAmount)}`}
                   tone={incomeTodayCount > 0 ? "accent" : "default"}
-                  valueClassName="text-lg leading-tight"
+                  valueClassName="text-xl leading-tight"
                   supporting={
                     <div className="space-y-1">
                       {showIncomeBreakdown && (
@@ -1570,10 +1576,10 @@ function SideBarInner() {
             {extrasSummary && (
               <LeftSectionCard className="mb-2">
                 <div className="flex items-center justify-between gap-2">
-                  <div className="text-[12px] font-semibold text-slate-100">Extras hoy</div>
+                  <div className="text-sm font-semibold text-slate-100">Extras hoy</div>
                   <div
                     className={clsx(
-                      "text-lg font-semibold tracking-tight tabular-nums",
+                      "text-xl font-semibold tracking-tight tabular-nums leading-tight",
                       extrasTodayCount > 0 ? "text-emerald-200" : "text-slate-300"
                     )}
                   >
@@ -1583,11 +1589,11 @@ function SideBarInner() {
                 {giftedTodayCount > 0 && (
                   <div className="mt-1 text-[10px] text-slate-500">Regalos hoy: {giftedTodayCount}</div>
                 )}
-                <div className="mt-3 flex items-center justify-between text-[11px] text-slate-400">
+                <div className="mt-3 flex items-center justify-between text-[10px] text-slate-500">
                   <span>Últimos 7 días</span>
                   <span
                     className={clsx(
-                      "text-sm font-semibold tracking-tight tabular-nums",
+                      "text-base font-semibold tracking-tight tabular-nums leading-tight",
                       extrasLast7Count > 0 ? "text-emerald-200" : "text-slate-300"
                     )}
                   >
@@ -1602,7 +1608,7 @@ function SideBarInner() {
           </>
         )}
         <LeftSectionCard className="mb-2">
-          <div className="flex flex-col gap-2 text-[12px] text-slate-300">
+          <div className="flex flex-col gap-2 text-[11px] text-slate-400">
             <div className="flex items-center justify-between">
               <button
                 type="button"

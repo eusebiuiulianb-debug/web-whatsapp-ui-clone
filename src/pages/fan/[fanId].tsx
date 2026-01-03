@@ -755,7 +755,7 @@ export function FanChatPage({
         <div ref={messagesContainerRef} className="flex-1 min-h-0 overflow-y-auto">
           <div
             className="px-4 sm:px-6 py-4"
-            style={{ backgroundImage: "url('/assets/images/background.jpg')" }}
+            style={{ backgroundImage: "var(--chat-pattern)" }}
           >
             <div className="min-h-full flex flex-col justify-end gap-2">
               {loading && <div className="text-center text-[#aebac1] text-sm mt-2">Cargando mensajes...</div>}

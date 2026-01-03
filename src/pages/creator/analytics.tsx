@@ -543,8 +543,11 @@ export default function CreatorAnalyticsPage() {
                 {CREATOR_PLATFORM_KEYS.map((key) => {
                   const item = platforms?.[key] ?? { enabled: false, handle: "" };
                   return (
-                    <div key={key} className="rounded-xl border border-slate-800 bg-slate-950/60 p-3 flex flex-col gap-2">
-                      <label className="flex items-center gap-2 text-sm text-slate-200">
+                    <div
+                      key={key}
+                      className="rounded-xl border border-[color:var(--surface-border)] bg-[var(--surface-2)] p-3 flex flex-col gap-2"
+                    >
+                      <label className="flex items-center gap-2 text-[13px] text-slate-200">
                         <input
                           type="checkbox"
                           checked={item.enabled}
@@ -561,7 +564,7 @@ export default function CreatorAnalyticsPage() {
                         disabled={!item.enabled}
                         className="w-full rounded-lg bg-slate-900/80 border border-slate-700 px-3 py-2 text-sm text-white placeholder:text-slate-500 disabled:opacity-60 focus:border-emerald-400"
                       />
-                      <p className="text-[11px] text-slate-500">
+                      <p className="text-[10px] text-slate-500">
                         {item.enabled ? "Se usa para personalizar ideas de crecimiento." : "Activa la casilla para usar esta red."}
                       </p>
                     </div>
@@ -591,10 +594,10 @@ export default function CreatorAnalyticsPage() {
                 >
                   <div className="grid grid-cols-1 sm:grid-cols-5 gap-3">
                     {funnelRows.map((row) => (
-                      <div key={row.label} className="rounded-xl border border-slate-800 bg-slate-950/60 p-3">
-                        <div className="text-xs text-slate-400">{row.label}</div>
-                        <div className="text-xl font-semibold text-white">{row.sessions}</div>
-                        <div className="text-[11px] text-slate-500">{row.events} eventos</div>
+                      <div key={row.label} className="rounded-xl border border-[color:var(--surface-border)] bg-[var(--surface-2)] p-3">
+                        <div className="text-[10px] text-slate-500">{row.label}</div>
+                        <div className="text-2xl font-semibold text-slate-100 tracking-tight tabular-nums leading-tight">{row.sessions}</div>
+                        <div className="text-[10px] text-slate-500">{row.events} eventos</div>
                       </div>
                     ))}
                   </div>
@@ -606,9 +609,9 @@ export default function CreatorAnalyticsPage() {
                 >
                   <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                     {fanFunnelRows.map((row) => (
-                      <div key={row.label} className="rounded-xl border border-slate-800 bg-slate-950/60 p-3">
-                        <div className="text-xs text-slate-400">{row.label}</div>
-                        <div className="text-xl font-semibold text-white">{row.value}</div>
+                      <div key={row.label} className="rounded-xl border border-[color:var(--surface-border)] bg-[var(--surface-2)] p-3">
+                        <div className="text-[10px] text-slate-500">{row.label}</div>
+                        <div className="text-2xl font-semibold text-slate-100 tracking-tight tabular-nums leading-tight">{row.value}</div>
                       </div>
                     ))}
                   </div>
@@ -638,22 +641,22 @@ export default function CreatorAnalyticsPage() {
               )}
               {!campaignsLoading && campaigns.length > 0 && (
                 <div className="overflow-x-auto">
-                  <table className="min-w-full text-sm">
+                  <table className="min-w-full text-[13px]">
                     <thead>
-                      <tr className="text-left text-slate-400 border-b border-slate-800">
-                        <th className="py-2 pr-4">Título</th>
-                        <th className="py-2 pr-4">utm_campaign</th>
-                        <th className="py-2 pr-4">Plataforma</th>
-                        <th className="py-2 pr-4">Estado</th>
-                        <th className="py-2 pr-4">Objetivo</th>
-                        <th className="py-2 pr-4">Visitas</th>
-                        <th className="py-2 pr-4">CTA</th>
-                        <th className="py-2 pr-4">Chats</th>
-                        <th className="py-2 pr-4">Mensajes</th>
-                        <th className="py-2 pr-4">Fans nuevos</th>
-                        <th className="py-2 pr-4">Compras</th>
-                        <th className="py-2 pr-4">Último link</th>
-                        <th className="py-2 pr-4">Acciones</th>
+                      <tr className="text-left text-[10px] uppercase tracking-[0.12em] text-slate-500 bg-[var(--surface-2)] border-b border-[color:var(--surface-border)]">
+                        <th className="px-3 py-2.5">Título</th>
+                        <th className="px-3 py-2.5">utm_campaign</th>
+                        <th className="px-3 py-2.5">Plataforma</th>
+                        <th className="px-3 py-2.5">Estado</th>
+                        <th className="px-3 py-2.5">Objetivo</th>
+                        <th className="px-3 py-2.5 text-right">Visitas</th>
+                        <th className="px-3 py-2.5 text-right">CTA</th>
+                        <th className="px-3 py-2.5 text-right">Chats</th>
+                        <th className="px-3 py-2.5 text-right">Mensajes</th>
+                        <th className="px-3 py-2.5 text-right">Fans nuevos</th>
+                        <th className="px-3 py-2.5 text-right">Compras</th>
+                        <th className="px-3 py-2.5">Último link</th>
+                        <th className="px-3 py-2.5">Acciones</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -674,30 +677,30 @@ export default function CreatorAnalyticsPage() {
                         const isActiveLinkBuilder = activeLinkCampaignId === campaign.id;
                         return (
                           <Fragment key={campaign.id}>
-                            <tr className="border-b border-slate-800/60 align-top">
-                              <td className="py-2 pr-4 text-white font-semibold">{campaign.title}</td>
-                              <td className="py-2 pr-4 text-slate-200">{campaign.utmCampaign}</td>
-                              <td className="py-2 pr-4">
+                            <tr className="border-b border-[color:var(--surface-border)] align-top transition hover:bg-slate-900/40">
+                              <td className="px-3 py-2.5 text-white font-semibold">{campaign.title}</td>
+                              <td className="px-3 py-2.5 text-slate-200">{campaign.utmCampaign}</td>
+                              <td className="px-3 py-2.5">
                                 <span className="inline-flex items-center rounded-full border border-slate-700 bg-slate-900/70 px-2.5 py-1 text-[11px] font-semibold text-slate-200">
                                   {formatCampaignPlatform(campaign.platform)}
                                 </span>
                               </td>
-                              <td className="py-2 pr-4">
+                              <td className="px-3 py-2.5">
                                 <span className={clsx("inline-flex items-center rounded-full px-2.5 py-1 text-[11px] font-semibold", statusBadgeClass(campaign.status))}>
                                   {formatStatusLabel(campaign.status)}
                                 </span>
                               </td>
-                              <td className="py-2 pr-4 text-slate-200 min-w-[200px]">
+                              <td className="px-3 py-2.5 text-slate-200 min-w-[200px]">
                                 <div>{campaign.objective}</div>
                                 {campaign.notes && <div className="text-xs text-slate-400">{campaign.notes}</div>}
                               </td>
-                              <td className="py-2 pr-4 text-emerald-200 font-semibold">{metrics.viewSessions}</td>
-                              <td className="py-2 pr-4 text-slate-200">{metrics.ctaSessions}</td>
-                              <td className="py-2 pr-4 text-slate-200">{metrics.openChatSessions}</td>
-                              <td className="py-2 pr-4 text-slate-200">{metrics.sendMessageSessions}</td>
-                              <td className="py-2 pr-4 text-slate-200">{metrics.fansNew}</td>
-                            <td className="py-2 pr-4 text-slate-200">{metrics.purchaseSessions}</td>
-                            <td className="py-2 pr-4 text-slate-200 min-w-[180px]">
+                              <td className="px-3 py-2.5 text-right text-emerald-200 font-semibold tabular-nums">{metrics.viewSessions}</td>
+                              <td className="px-3 py-2.5 text-right text-slate-200 tabular-nums">{metrics.ctaSessions}</td>
+                              <td className="px-3 py-2.5 text-right text-slate-200 tabular-nums">{metrics.openChatSessions}</td>
+                              <td className="px-3 py-2.5 text-right text-slate-200 tabular-nums">{metrics.sendMessageSessions}</td>
+                              <td className="px-3 py-2.5 text-right text-slate-200 tabular-nums">{metrics.fansNew}</td>
+                            <td className="px-3 py-2.5 text-right text-slate-200 tabular-nums">{metrics.purchaseSessions}</td>
+                            <td className="px-3 py-2.5 text-slate-200 min-w-[180px]">
                               {lastLink ? (
                                 <div className="flex flex-col gap-2">
                                   <span className="text-xs text-slate-300">{truncateLink(lastLinkUrl, 38)}</span>
@@ -714,7 +717,7 @@ export default function CreatorAnalyticsPage() {
                                 <span className="text-xs text-slate-500">Sin link</span>
                               )}
                             </td>
-                            <td className="py-2 pr-4">
+                            <td className="px-3 py-2.5">
                               <div className="flex flex-wrap items-center gap-2">
                                 <button
                                   type="button"
@@ -742,13 +745,13 @@ export default function CreatorAnalyticsPage() {
                               </td>
                             </tr>
                             {isActiveLinkBuilder && (
-                              <tr className="border-b border-slate-800/60">
-                                <td colSpan={13} className="py-3 pr-4">
-                                  <div className="rounded-xl border border-slate-800 bg-slate-950/70 p-4 space-y-3">
+                              <tr className="border-b border-[color:var(--surface-border)]">
+                                <td colSpan={13} className="px-3 py-3">
+                                  <div className="rounded-2xl border border-[color:var(--surface-border)] bg-[var(--surface-2)] p-4 space-y-3">
                                     <div className="flex items-center justify-between gap-3">
                                       <div>
-                                        <div className="text-sm font-semibold text-white">Link UTM (campaña)</div>
-                                        <div className="text-xs text-slate-400">Esto mide tráfico hacia BioLink/Chat.</div>
+                                        <div className="text-sm font-semibold text-slate-100">Link UTM (campaña)</div>
+                                        <div className="text-xs text-slate-500">Esto mide tráfico hacia BioLink/Chat.</div>
                                       </div>
                                       <button
                                         type="button"
@@ -760,7 +763,7 @@ export default function CreatorAnalyticsPage() {
                                     </div>
                                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                                       <div className="flex flex-col gap-1">
-                                        <label className="text-[11px] text-slate-400">utm_source</label>
+                                        <label className="text-[10px] text-slate-500">utm_source</label>
                                         <input
                                           value={utmSource}
                                           readOnly
@@ -768,7 +771,7 @@ export default function CreatorAnalyticsPage() {
                                         />
                                       </div>
                                       <div className="flex flex-col gap-1">
-                                        <label className="text-[11px] text-slate-400">utm_medium</label>
+                                        <label className="text-[10px] text-slate-500">utm_medium</label>
                                         <input
                                           value={builder.utmMedium}
                                           onChange={(e) => setBuilder((prev) => ({ ...prev, utmMedium: e.target.value }))}
@@ -777,7 +780,7 @@ export default function CreatorAnalyticsPage() {
                                         />
                                       </div>
                                       <div className="flex flex-col gap-1">
-                                        <label className="text-[11px] text-slate-400">utm_campaign</label>
+                                        <label className="text-[10px] text-slate-500">utm_campaign</label>
                                         <input
                                           value={builder.utmCampaign}
                                           readOnly
@@ -785,7 +788,7 @@ export default function CreatorAnalyticsPage() {
                                         />
                                       </div>
                                       <div className="flex flex-col gap-1">
-                                        <label className="text-[11px] text-slate-400">utm_content *</label>
+                                        <label className="text-[10px] text-slate-500">utm_content *</label>
                                         <input
                                           value={builder.utmContent}
                                           onChange={(e) => setBuilder((prev) => ({ ...prev, utmContent: e.target.value }))}
@@ -794,7 +797,7 @@ export default function CreatorAnalyticsPage() {
                                         />
                                       </div>
                                       <div className="flex flex-col gap-1">
-                                        <label className="text-[11px] text-slate-400">utm_term (opcional)</label>
+                                        <label className="text-[10px] text-slate-500">utm_term (opcional)</label>
                                         <input
                                           value={builder.utmTerm}
                                           onChange={(e) => setBuilder((prev) => ({ ...prev, utmTerm: e.target.value }))}
@@ -853,26 +856,26 @@ export default function CreatorAnalyticsPage() {
                 <div className="text-sm text-slate-400">Aún no hay links guardados.</div>
               ) : (
                 <div className="overflow-x-auto">
-                  <table className="min-w-full text-sm">
+                  <table className="min-w-full text-[13px]">
                     <thead>
-                      <tr className="text-left text-slate-400 border-b border-slate-800">
-                        <th className="py-2 pr-4">Plataforma</th>
-                        <th className="py-2 pr-4">Campaña</th>
-                        <th className="py-2 pr-4">Contenido</th>
-                        <th className="py-2 pr-4">Medium</th>
-                        <th className="py-2 pr-4">Term</th>
-                        <th className="py-2 pr-4">Acciones</th>
+                      <tr className="text-left text-[10px] uppercase tracking-[0.12em] text-slate-500 bg-[var(--surface-2)] border-b border-[color:var(--surface-border)]">
+                        <th className="px-3 py-2.5">Plataforma</th>
+                        <th className="px-3 py-2.5">Campaña</th>
+                        <th className="px-3 py-2.5">Contenido</th>
+                        <th className="px-3 py-2.5">Medium</th>
+                        <th className="px-3 py-2.5">Term</th>
+                        <th className="px-3 py-2.5">Acciones</th>
                       </tr>
                     </thead>
                     <tbody>
                       {data.latestLinks.map((row) => (
-                        <tr key={row.id} className="border-b border-slate-800/60">
-                          <td className="py-2 pr-4 text-white capitalize">{row.platform}</td>
-                          <td className="py-2 pr-4 text-slate-200">{row.utmCampaign}</td>
-                          <td className="py-2 pr-4 text-slate-200">{row.utmContent}</td>
-                          <td className="py-2 pr-4 text-slate-200">{row.utmMedium}</td>
-                          <td className="py-2 pr-4 text-slate-400">{row.utmTerm || "—"}</td>
-                          <td className="py-2 pr-4">
+                        <tr key={row.id} className="border-b border-[color:var(--surface-border)] transition hover:bg-slate-900/40">
+                          <td className="px-3 py-2.5 text-white capitalize">{row.platform}</td>
+                          <td className="px-3 py-2.5 text-slate-200">{row.utmCampaign}</td>
+                          <td className="px-3 py-2.5 text-slate-200">{row.utmContent}</td>
+                          <td className="px-3 py-2.5 text-slate-200">{row.utmMedium}</td>
+                          <td className="px-3 py-2.5 text-slate-400">{row.utmTerm || "—"}</td>
+                          <td className="px-3 py-2.5">
                             <button
                               type="button"
                               onClick={() => handleCopy(buildLinkFromRow(row, handle))}
@@ -1031,48 +1034,48 @@ function AggregatedTable({ title, subtitle, rows }: { title: string; subtitle: s
         <div className="text-sm text-slate-400">Aún no hay datos.</div>
       ) : (
         <div className="overflow-x-auto">
-          <table className="min-w-full text-sm">
+          <table className="min-w-full text-[13px]">
             <thead>
-              <tr className="text-left text-slate-400 border-b border-slate-800">
+              <tr className="text-left text-[10px] uppercase tracking-[0.12em] text-slate-500 bg-[var(--surface-2)] border-b border-[color:var(--surface-border)]">
                 {subtitle.includes("campaign") ? (
                   <>
-                    <th className="py-2 pr-4">Campaña</th>
-                    <th className="py-2 pr-4">Fuente</th>
+                    <th className="px-3 py-2.5">Campaña</th>
+                    <th className="px-3 py-2.5">Fuente</th>
                   </>
                 ) : (
-                  <th className="py-2 pr-4">Contenido</th>
+                  <th className="px-3 py-2.5">Contenido</th>
                 )}
-                <th className="py-2 pr-4">Visitas</th>
-                <th className="py-2 pr-4">CTA</th>
-                <th className="py-2 pr-4">Chats</th>
-                <th className="py-2 pr-4">Mensajes</th>
-                <th className="py-2 pr-4">Fans nuevos</th>
-                <th className="py-2 pr-4">Compras</th>
-                <th className="py-2 pr-4">Conv. a mensaje</th>
-                <th className="py-2 pr-4">Conv. a compra</th>
+                <th className="px-3 py-2.5 text-right">Visitas</th>
+                <th className="px-3 py-2.5 text-right">CTA</th>
+                <th className="px-3 py-2.5 text-right">Chats</th>
+                <th className="px-3 py-2.5 text-right">Mensajes</th>
+                <th className="px-3 py-2.5 text-right">Fans nuevos</th>
+                <th className="px-3 py-2.5 text-right">Compras</th>
+                <th className="px-3 py-2.5 text-right">Conv. a mensaje</th>
+                <th className="px-3 py-2.5 text-right">Conv. a compra</th>
               </tr>
             </thead>
             <tbody>
               {rows.map((row) => (
-                <tr key={row.key} className="border-b border-slate-800/60">
+                <tr key={row.key} className="border-b border-[color:var(--surface-border)] transition hover:bg-slate-900/40">
                   {subtitle.includes("campaign") ? (
                     <>
-                      <td className="py-2 pr-4 text-white">{row.utmCampaign}</td>
-                      <td className="py-2 pr-4 text-slate-200">{row.utmSource}</td>
+                      <td className="px-3 py-2.5 text-white">{row.utmCampaign}</td>
+                      <td className="px-3 py-2.5 text-slate-200">{row.utmSource}</td>
                     </>
                   ) : (
-                    <td className="py-2 pr-4 text-white">{row.utmContent}</td>
+                    <td className="px-3 py-2.5 text-white">{row.utmContent}</td>
                   )}
-                  <td className="py-2 pr-4 text-emerald-200 font-semibold">{row.viewSessions}</td>
-                  <td className="py-2 pr-4 text-slate-200">{row.ctaSessions}</td>
-                  <td className="py-2 pr-4 text-slate-200">{row.openChatSessions}</td>
-                  <td className="py-2 pr-4 text-slate-200">{row.sendMessageSessions}</td>
-                  <td className="py-2 pr-4 text-slate-200">{row.fansNew}</td>
-                  <td className="py-2 pr-4 text-slate-200">{row.purchaseSessions}</td>
-                  <td className="py-2 pr-4 text-slate-200">
+                  <td className="px-3 py-2.5 text-right text-emerald-200 font-semibold tabular-nums">{row.viewSessions}</td>
+                  <td className="px-3 py-2.5 text-right text-slate-200 tabular-nums">{row.ctaSessions}</td>
+                  <td className="px-3 py-2.5 text-right text-slate-200 tabular-nums">{row.openChatSessions}</td>
+                  <td className="px-3 py-2.5 text-right text-slate-200 tabular-nums">{row.sendMessageSessions}</td>
+                  <td className="px-3 py-2.5 text-right text-slate-200 tabular-nums">{row.fansNew}</td>
+                  <td className="px-3 py-2.5 text-right text-slate-200 tabular-nums">{row.purchaseSessions}</td>
+                  <td className="px-3 py-2.5 text-right text-slate-200 tabular-nums">
                     {row.openChatSessions ? `${((row.sendMessageSessions / row.openChatSessions) * 100).toFixed(1)}%` : "—"}
                   </td>
-                  <td className="py-2 pr-4 text-slate-200">
+                  <td className="px-3 py-2.5 text-right text-slate-200 tabular-nums">
                     {row.openChatSessions ? `${((row.purchaseSessions / row.openChatSessions) * 100).toFixed(1)}%` : "—"}
                   </td>
                 </tr>
@@ -1087,9 +1090,9 @@ function AggregatedTable({ title, subtitle, rows }: { title: string; subtitle: s
 
 function CampaignMetric({ label, value }: { label: string; value: number }) {
   return (
-    <div className="rounded-lg border border-slate-800 bg-slate-900/80 px-2.5 py-2">
-      <div className="text-[11px] text-slate-400">{label}</div>
-      <div className="text-sm font-semibold text-white">{value}</div>
+    <div className="rounded-xl border border-[color:var(--surface-border)] bg-[var(--surface-2)] p-3">
+      <div className="text-[10px] text-slate-500">{label}</div>
+      <div className="text-lg font-semibold text-slate-100 tracking-tight tabular-nums leading-tight">{value}</div>
     </div>
   );
 }

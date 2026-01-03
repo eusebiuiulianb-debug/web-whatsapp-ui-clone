@@ -38,25 +38,27 @@ export function SectionCard({
   return (
     <div
       className={clsx(
-        "rounded-2xl border p-4 sm:p-6 transition hover:border-[color:var(--surface-border-hover)] hover:ring-1 hover:ring-[color:var(--surface-ring)]",
+        "rounded-2xl border p-4 transition hover:border-[color:var(--surface-border-hover)] hover:ring-1 hover:ring-[color:var(--surface-ring)]",
         VARIANT_STYLES[variant],
         className
       )}
     >
       {hasHeader && (
-        <div className={clsx("flex flex-wrap items-center justify-between gap-3", headerClassName)}>
-          <div>
+        <div className={clsx("flex flex-wrap items-start justify-between gap-3", headerClassName)}>
+          <div className="space-y-1">
             {eyebrow ? (
-              <div className="text-[11px] uppercase tracking-wide text-slate-400">{eyebrow}</div>
+              <div className="text-[10px] uppercase tracking-[0.16em] text-slate-500">{eyebrow}</div>
             ) : null}
-            {title ? <div className="text-lg font-semibold text-white">{title}</div> : null}
-            {subtitle ? <div className="text-sm text-slate-300">{subtitle}</div> : null}
+            {title ? <div className="text-base font-semibold text-slate-100">{title}</div> : null}
+            {subtitle ? <div className="text-[13px] text-slate-400">{subtitle}</div> : null}
           </div>
           {actions ? <div className="flex items-center gap-2">{actions}</div> : null}
         </div>
       )}
-      <div className={clsx(hasHeader && "mt-4", bodyClassName)}>{children}</div>
-      {footer ? <div className="mt-4 border-t border-slate-800/80 pt-3">{footer}</div> : null}
+      <div className={clsx(hasHeader && "mt-3", bodyClassName)}>{children}</div>
+      {footer ? (
+        <div className="mt-4 border-t border-[color:var(--surface-border)] pt-3">{footer}</div>
+      ) : null}
     </div>
   );
 }

@@ -53,14 +53,19 @@ export function KpiCard({
   const content = (
     <>
       <div className="flex items-center justify-between gap-3">
-        <div className="text-[11px] uppercase tracking-wide text-slate-400">{title}</div>
+        <div className="text-[10px] uppercase tracking-[0.16em] text-slate-500">{title}</div>
         {iconNode ? <span className="text-slate-500">{iconNode}</span> : null}
       </div>
-      <div className={clsx("mt-2 font-semibold text-white", size === "sm" ? "text-lg" : "text-2xl")}>
+      <div
+        className={clsx(
+          "mt-2 font-semibold text-white tracking-tight tabular-nums leading-tight",
+          size === "sm" ? "text-2xl" : "text-3xl"
+        )}
+      >
         {value}
       </div>
       {(hint || delta) && (
-        <div className="mt-1 flex items-center justify-between gap-2 text-[11px] text-slate-400">
+        <div className="mt-1 flex items-center justify-between gap-2 text-[10px] text-slate-500">
           <span>{hint}</span>
           {delta ? (
             <span className="inline-flex items-center rounded-full border border-emerald-500/40 bg-emerald-500/10 px-2 py-0.5 text-[10px] font-semibold text-emerald-100">
@@ -69,17 +74,16 @@ export function KpiCard({
           ) : null}
         </div>
       )}
-      {supporting ? <div className="mt-1 text-[11px] text-slate-400">{supporting}</div> : null}
+      {supporting ? <div className="mt-1 text-[10px] text-slate-500">{supporting}</div> : null}
     </>
   );
 
   const baseClass = clsx(
-    "group w-full rounded-2xl border px-4 py-3 text-left transition",
-    "min-h-[108px]",
+    "group w-full rounded-2xl border p-4 text-left transition",
     VARIANT_STYLES[variant],
     interactive && "cursor-pointer hover:-translate-y-[1px] focus-visible:outline-none",
     interactive && interactiveRingClass,
-    size === "sm" ? "min-h-[96px]" : "min-h-[108px]",
+    size === "sm" ? "min-h-[104px]" : "min-h-[116px]",
     className
   );
 

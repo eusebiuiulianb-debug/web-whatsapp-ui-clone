@@ -33,45 +33,45 @@ const TONE_STYLES: Record<
   }
 > = {
   neutral: {
-    accent: "border-slate-700 bg-slate-900/70 text-slate-200",
-    accentHover: "hover:bg-slate-800/70 hover:border-slate-600/70",
-    subtle: "border-slate-700/50 bg-slate-900/20 text-slate-300/70",
-    subtleHover: "hover:bg-slate-800/35 hover:border-slate-600/60",
+    accent: "border-slate-600/60 bg-slate-800/45 text-slate-100",
+    accentHover: "hover:bg-slate-800/60 hover:border-slate-500/70",
+    subtle: "border-slate-700/30 bg-slate-900/10 text-slate-400/80",
+    subtleHover: "hover:bg-slate-800/20 hover:border-slate-600/40",
     ring: focusRing,
   },
   emerald: {
-    accent: "border-emerald-400/70 bg-emerald-500/15 text-emerald-100",
+    accent: "border-emerald-400/60 bg-emerald-500/18 text-emerald-100",
     accentHover: "hover:bg-emerald-500/25 hover:border-emerald-300/70",
-    subtle: "border-emerald-400/35 bg-emerald-500/8 text-emerald-200/80",
-    subtleHover: "hover:bg-emerald-500/16 hover:border-emerald-300/50",
+    subtle: "border-emerald-400/25 bg-emerald-500/8 text-emerald-200/75",
+    subtleHover: "hover:bg-emerald-500/14 hover:border-emerald-300/45",
     ring: focusRingEmerald,
   },
   amber: {
-    accent: "border-amber-400/70 bg-amber-500/15 text-amber-100",
+    accent: "border-amber-400/60 bg-amber-500/18 text-amber-100",
     accentHover: "hover:bg-amber-500/25 hover:border-amber-300/70",
-    subtle: "border-amber-400/35 bg-amber-500/8 text-amber-200/80",
-    subtleHover: "hover:bg-amber-500/16 hover:border-amber-300/50",
+    subtle: "border-amber-400/25 bg-amber-500/8 text-amber-200/75",
+    subtleHover: "hover:bg-amber-500/14 hover:border-amber-300/45",
     ring: focusRingAmber,
   },
   danger: {
-    accent: "border-rose-400/70 bg-rose-500/15 text-rose-100",
+    accent: "border-rose-400/60 bg-rose-500/18 text-rose-100",
     accentHover: "hover:bg-rose-500/25 hover:border-rose-300/70",
-    subtle: "border-rose-400/35 bg-rose-500/8 text-rose-200/80",
-    subtleHover: "hover:bg-rose-500/16 hover:border-rose-300/50",
+    subtle: "border-rose-400/25 bg-rose-500/8 text-rose-200/75",
+    subtleHover: "hover:bg-rose-500/14 hover:border-rose-300/45",
     ring: focusRing,
   },
   sky: {
-    accent: "border-sky-400/70 bg-sky-500/15 text-sky-100",
+    accent: "border-sky-400/60 bg-sky-500/18 text-sky-100",
     accentHover: "hover:bg-sky-500/25 hover:border-sky-300/70",
-    subtle: "border-sky-400/35 bg-sky-500/8 text-sky-200/80",
-    subtleHover: "hover:bg-sky-500/16 hover:border-sky-300/50",
+    subtle: "border-sky-400/25 bg-sky-500/8 text-sky-200/75",
+    subtleHover: "hover:bg-sky-500/14 hover:border-sky-300/45",
     ring: focusRing,
   },
 };
 
 const MUTED_STYLES = {
-  base: "border-slate-700/50 bg-slate-900/30 text-slate-300/70",
-  hover: "hover:bg-slate-900/45 hover:border-slate-600/60",
+  base: "border-slate-700/30 bg-slate-900/20 text-slate-400/70",
+  hover: "hover:bg-slate-900/30 hover:border-slate-600/40",
 };
 
 export function Chip({
@@ -117,7 +117,7 @@ export function Chip({
   const ringClass = toneStyles.ring;
   const iconSize = size === "md" ? "md" : "sm";
   const chipTitle = title ?? ariaLabel;
-  const activeClass = resolvedActive ? "shadow-[0_0_0_1px_rgba(255,255,255,0.12)]" : "";
+  const activeClass = resolvedActive ? "ring-1 ring-[color:var(--surface-border-hover)]" : "";
   const content = (
     <>
       {leftGlyph ? (

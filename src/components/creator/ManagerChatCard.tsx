@@ -4237,11 +4237,8 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
           ) : null}
           <div
             ref={listRef}
-            className="flex-1 min-h-0 overflow-y-auto bg-slate-950/90 bg-cover bg-center"
-            style={{
-              backgroundImage:
-                "linear-gradient(rgba(8, 14, 20, 0.85), rgba(8, 14, 20, 0.85)), url('/assets/images/background.jpg')",
-            }}
+            className="flex-1 min-h-0 overflow-y-auto"
+            style={{ backgroundImage: "var(--chat-pattern)" }}
           >
             <div className="max-w-4xl mx-auto w-full px-4 sm:px-6 lg:px-8 py-5 space-y-3">
               {loading && <div className="text-center text-[#aebac1] text-sm mt-2">Cargando mensajes...</div>}
