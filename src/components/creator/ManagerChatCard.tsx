@@ -142,6 +142,7 @@ export type CortexOverviewMetrics = {
   atRiskCount?: number;
   revenue7d?: number;
   revenue30d?: number;
+  newFans7d?: number;
   extras30d?: number;
   extrasRevenueToday?: number;
   extrasCountToday?: number;
@@ -158,6 +159,11 @@ export type CortexOverviewMetrics = {
   giftedCountToday?: number;
   giftedCount30d?: number;
   newFans30d?: number;
+  conversationsStarted7d?: number;
+  conversationsStarted30d?: number;
+  firstPurchase30d?: number;
+  noResponseCount?: number;
+  noResponseDays?: number;
 };
 
 export type CortexOverviewFan = {
@@ -1311,6 +1317,43 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
   const growthPlatformLabel = formatPlatformLabel(activeGrowthPlatform);
   const growthContextLine = `Plataforma foco: ${growthPlatformLabel}.`;
   const growthPlatformsLine = growthActiveList ? `Plataformas activas: ${growthActiveList}.` : "";
+  const growthSuggestions = useMemo(() => {
+    const metrics = overviewData?.metrics;
+    const suggestions: string[] = [];
+    const newFans7d = isFiniteNumber(metrics?.newFans7d) ? metrics?.newFans7d : null;
+    const newFans30d = isFiniteNumber(metrics?.newFans30d) ? metrics?.newFans30d : null;
+    const conv7d = isFiniteNumber(metrics?.conversationsStarted7d) ? metrics?.conversationsStarted7d : null;
+    const firstPurchase30d = isFiniteNumber(metrics?.firstPurchase30d) ? metrics?.firstPurchase30d : null;
+    const noResponseCount = isFiniteNumber(metrics?.noResponseCount) ? metrics?.noResponseCount : null;
+    const noResponseDays = isFiniteNumber(metrics?.noResponseDays) ? metrics?.noResponseDays : 3;
+
+    if (noResponseCount !== null && noResponseCount > 0) {
+      suggestions.push(`Responde a ${formatCount(noResponseCount)} fans sin respuesta > ${noResponseDays}d con un ping corto + CTA suave.`);
+    }
+    if (firstPurchase30d !== null && firstPurchase30d < 3) {
+      suggestions.push("Mejora el onboarding: bienvenida + oferta base en las primeras 24h.");
+    }
+    if (newFans7d !== null && newFans7d < 3) {
+      suggestions.push("Activa adquisición: 2 teasers y 1 CTA a DM esta semana.");
+    } else if (newFans30d !== null && newFans30d < 5) {
+      suggestions.push("Refuerza captación: publica 1 pieza viral + CTA claro en bio.");
+    }
+    if (conv7d !== null && newFans7d !== null && conv7d < newFans7d) {
+      suggestions.push("Convierte nuevos fans a chat: abre con una pregunta cerrada.");
+    }
+
+    const fallback = [
+      "Optimiza tu CTA para convertir visitas en chat y venta.",
+      "Revisa tu primer mensaje para acelerar la primera compra.",
+      "Define 1 objetivo semanal de captación y mide respuestas.",
+    ];
+    for (const item of fallback) {
+      if (suggestions.length >= 3) break;
+      if (!suggestions.includes(item)) suggestions.push(item);
+    }
+
+    return suggestions.slice(0, 3);
+  }, [overviewData?.metrics]);
   const promptContext = useMemo<CortexAtajoPromptContext>(
     () => ({
       metricsLine,
@@ -1320,8 +1363,11 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
     }),
     [metricsLine, expiringFansContext, growthContextLine, growthPlatformsLine]
   );
+  const isTodayTab = scope === "global" && activeTabKey === "hoy";
   const isSalesTab = scope === "global" && activeTabKey === "ventas";
   const isCatalogTab = scope === "global" && activeTabKey === "catalogo";
+  const isGrowthTab = scope === "global" && activeTabKey === "crecimiento";
+  const shouldLoadSegments = isSalesTab || isTodayTab;
   const handleSalesRetry = useCallback(() => {
     setSalesError(null);
     setSalesRetry((value) => value + 1);
@@ -1380,7 +1426,7 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
     };
   }, [isSalesTab, salesRange, salesRetry, triggerSalesUpdated]);
   useEffect(() => {
-    if (!isSalesTab) return;
+    if (!shouldLoadSegments) return;
     const controller = new AbortController();
     let alive = true;
     const loadSegments = async () => {
@@ -1409,7 +1455,7 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
       alive = false;
       controller.abort();
     };
-  }, [isSalesTab]);
+  }, [shouldLoadSegments]);
   const catalogItemsSorted = useMemo(
     () => sortCatalogItems(catalogItemsState),
     [catalogItemsState]
@@ -2348,6 +2394,58 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
       </div>
     );
     const segmentPreviewLimit = 4;
+    const followUpPreviewLimit = 7;
+    const followUpSegment = segmentsData?.segments.find((segment) => segment.id === "followup_due") ?? null;
+    const followUpPreview = followUpSegment?.fanPreview ?? [];
+    const todayPanel = isTodayTab ? (
+      <div className="mb-4 space-y-3">
+        <div className="rounded-2xl border border-slate-800/80 bg-slate-950/80 px-4 py-3">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <div className="text-[11px] uppercase tracking-wide text-slate-400">Seguimiento</div>
+              <div className="text-sm font-semibold text-slate-100">Seguimiento vencido / hoy</div>
+              <div className="text-[11px] text-slate-400">{followUpSegment?.reason ?? "Tareas que no pueden esperar."}</div>
+            </div>
+            {segmentsLoading && <div className="text-[10px] text-slate-500">Cargando…</div>}
+          </div>
+          {segmentsError && <div className="mt-2 text-[12px] text-rose-300">{segmentsError}</div>}
+          {!segmentsLoading && !segmentsError && followUpPreview.length === 0 && (
+            <div className="mt-2 text-[12px] text-slate-500">Sin seguimientos pendientes.</div>
+          )}
+          {!segmentsLoading && !segmentsError && followUpPreview.length > 0 && (
+            <div className="mt-2 space-y-2">
+              {followUpPreview.slice(0, followUpPreviewLimit).map((fan) => (
+                <div key={fan.fanId} className="flex items-center justify-between gap-2">
+                  <div className="min-w-0">
+                    <div className="truncate text-[12px] text-slate-100">{fan.displayName}</div>
+                    <div className="text-[11px] text-slate-500">
+                      {formatCurrency(fan.totalSpent)} · {formatCount(fan.extrasCount)} extras ·{" "}
+                      {formatCount(fan.tipsCount)} propinas · {formatCount(fan.giftsCount)} regalos
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onPointerDown={(event) => event.stopPropagation()}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      handleOpenFanChat(fan.fanId);
+                    }}
+                    className="shrink-0 rounded-full border border-slate-700/70 bg-slate-900/70 px-3 py-1 text-[11px] font-semibold text-slate-200 hover:bg-slate-800/80"
+                  >
+                    Abrir chat
+                  </button>
+                </div>
+              ))}
+              {followUpPreview.length > followUpPreviewLimit && (
+                <div className="text-[11px] text-slate-500">
+                  +{formatCount(followUpPreview.length - followUpPreviewLimit)} más en seguimiento
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+    ) : null;
     const salesPanel = isSalesTab ? (
       <div className="mb-4 space-y-3">
         <div className="rounded-2xl border border-slate-800/80 bg-slate-950/80 px-4 py-3 space-y-3">
@@ -3670,6 +3768,63 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
             document.body
           )
         : null;
+    const growthPanel = isGrowthTab ? (() => {
+      const metrics = overviewData?.metrics;
+      const newFans7d = isFiniteNumber(metrics?.newFans7d) ? metrics?.newFans7d : 0;
+      const newFans30d = isFiniteNumber(metrics?.newFans30d) ? metrics?.newFans30d : 0;
+      const conv7d = isFiniteNumber(metrics?.conversationsStarted7d) ? metrics?.conversationsStarted7d : 0;
+      const conv30d = isFiniteNumber(metrics?.conversationsStarted30d) ? metrics?.conversationsStarted30d : 0;
+      const firstPurchase30d = isFiniteNumber(metrics?.firstPurchase30d) ? metrics?.firstPurchase30d : 0;
+      const noResponseCount = isFiniteNumber(metrics?.noResponseCount) ? metrics?.noResponseCount : 0;
+      const noResponseDays = isFiniteNumber(metrics?.noResponseDays) ? metrics?.noResponseDays : 3;
+      return (
+        <div className="mb-4 space-y-3">
+          <div className="rounded-2xl border border-slate-800/80 bg-slate-950/80 px-4 py-3 space-y-3">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <div className="text-[11px] uppercase tracking-wide text-slate-400">Crecimiento</div>
+                <div className="text-sm font-semibold text-slate-100">Tracción y conversión</div>
+              </div>
+              <div className="text-[10px] uppercase tracking-wide text-slate-500">Radar</div>
+            </div>
+
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+              <div className="rounded-xl border border-slate-800/70 bg-slate-900/60 px-3 py-2">
+                <div className="text-[10px] uppercase tracking-wide text-slate-400">Fans nuevos 7d</div>
+                <div className="text-base font-semibold text-slate-100">{formatCount(newFans7d)}</div>
+                <div className="text-[11px] text-slate-500">30d: {formatCount(newFans30d)}</div>
+              </div>
+              <div className="rounded-xl border border-slate-800/70 bg-slate-900/60 px-3 py-2">
+                <div className="text-[10px] uppercase tracking-wide text-slate-400">Convs iniciadas 7d</div>
+                <div className="text-base font-semibold text-slate-100">{formatCount(conv7d)}</div>
+                <div className="text-[11px] text-slate-500">30d: {formatCount(conv30d)}</div>
+              </div>
+              <div className="rounded-xl border border-slate-800/70 bg-slate-900/60 px-3 py-2">
+                <div className="text-[10px] uppercase tracking-wide text-slate-400">Primera compra 30d</div>
+                <div className="text-base font-semibold text-slate-100">{formatCount(firstPurchase30d)}</div>
+                <div className="text-[11px] text-slate-500">Fans que convierten</div>
+              </div>
+              <div className="rounded-xl border border-slate-800/70 bg-slate-900/60 px-3 py-2">
+                <div className="text-[10px] uppercase tracking-wide text-slate-400">
+                  Sin respuesta &gt; {noResponseDays}d
+                </div>
+                <div className="text-base font-semibold text-slate-100">{formatCount(noResponseCount)}</div>
+                <div className="text-[11px] text-slate-500">Reenganche rápido</div>
+              </div>
+            </div>
+
+            <div className="rounded-xl border border-slate-800/70 bg-slate-900/60 px-3 py-2">
+              <div className="text-[10px] uppercase tracking-wide text-slate-400">Sugerencias Manager IA</div>
+              <div className="mt-2 space-y-1 text-[12px] text-slate-200">
+                {growthSuggestions.map((item, idx) => (
+                  <div key={`${item}-${idx}`}>• {item}</div>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+      );
+    })() : null;
     const overflowPanel =
       overflowOpen && typeof document !== "undefined"
         ? createPortal(
@@ -3924,8 +4079,10 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
             <div className="max-w-4xl mx-auto w-full px-4 sm:px-6 lg:px-8 py-5 space-y-3">
               {loading && <div className="text-center text-[#aebac1] text-sm mt-2">Cargando mensajes...</div>}
               {error && !loading && <div className="text-center text-red-400 text-sm mt-2">{error}</div>}
+              {todayPanel}
               {salesPanel}
               {catalogPanel}
+              {growthPanel}
               {!loading && !error && messages.length === 0 && (
                 <div className="flex flex-col items-start gap-2">
                   <MessageBalloon

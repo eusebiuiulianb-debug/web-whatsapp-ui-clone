@@ -7,6 +7,7 @@ export function getRecommendedFan(list: ConversationListData[]): ConversationLis
       membershipStatus: fan.membershipStatus,
       daysLeft: fan.daysLeft,
       followUpTag: fan.followUpTag ?? getFollowUpTag(fan.membershipStatus, fan.daysLeft, fan.activeGrantTypes),
+      nextActionAt: fan.nextActionAt ?? null,
     })
   );
 

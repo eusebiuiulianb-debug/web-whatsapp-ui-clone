@@ -46,6 +46,8 @@ export interface Fan {
   lifetimeValue?: number;
   customerTier?: "new" | "regular" | "vip" | "priority";
   nextAction?: string | null;
+  nextActionAt?: string | null;
+  nextActionNote?: string | null;
   activeGrantTypes?: string[];
   hasAccessHistory?: boolean;
   priorityScore?: number;

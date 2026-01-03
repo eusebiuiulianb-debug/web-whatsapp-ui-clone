@@ -126,21 +126,33 @@ export default function ConversationList(props: ConversationListProps) {
   const followUpTitle = followUpOpen?.title ?? null;
   const followUpNote = followUpOpen?.note ?? null;
   const followUpDueAt = followUpOpen?.dueAt ?? null;
+  const nextActionNote = typeof data.nextActionNote === "string" ? data.nextActionNote : null;
+  const nextActionAt = data.nextActionAt ?? null;
   const hasNextAction = Boolean(
     followUpOpen ||
+      Boolean(nextActionAt) ||
+      Boolean(nextActionNote?.trim()) ||
       (typeof data.nextAction === "string" && data.nextAction.trim().length > 0)
   );
-  const nextActionSummary = followUpNote ?? data.nextActionSummary ?? data.nextActionSnippet ?? null;
+  const nextActionSummary =
+    followUpNote ??
+    nextActionNote ??
+    data.nextActionSummary ??
+    data.nextActionSnippet ??
+    null;
   const nextActionTooltip = nextActionSummary
     ? shorten(nextActionSummary, 100)
     : followUpTitle
     ? shorten(followUpTitle, 100)
+    : nextActionNote
+    ? shorten(nextActionNote, 100)
     : data.nextAction
     ? shorten(data.nextAction, 100)
     : "";
   const followUpDateLabel = (() => {
-    if (!followUpDueAt) return "";
-    const parsed = followUpDueAt.includes("T") ? new Date(followUpDueAt) : new Date(`${followUpDueAt}T00:00:00`);
+    const source = followUpDueAt || nextActionAt;
+    if (!source) return "";
+    const parsed = source.includes("T") ? new Date(source) : new Date(`${source}T00:00:00`);
     if (Number.isNaN(parsed.getTime())) return "";
     return parsed.toISOString().slice(0, 10);
   })();

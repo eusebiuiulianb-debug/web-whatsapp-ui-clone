@@ -111,10 +111,20 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
     const nextAction = formatNextAction(title, parsedDueAt.date, parsedDueAt.time);
     await prisma.fan.update({
       where: { id: fanId },
-      data: { nextAction },
+      data: {
+        nextAction,
+        nextActionAt: parsedDueAt.dueAt,
+        nextActionNote: note ?? title,
+      },
     });
 
-    return res.status(200).json({ ok: true, followUp: mapFollowUp(followUp), nextAction });
+    return res.status(200).json({
+      ok: true,
+      followUp: mapFollowUp(followUp),
+      nextAction,
+      nextActionAt: parsedDueAt.dueAt ? parsedDueAt.dueAt.toISOString() : null,
+      nextActionNote: note ?? title,
+    });
   } catch (err) {
     console.error("Error saving fan follow-up", err);
     return sendServerError(res);

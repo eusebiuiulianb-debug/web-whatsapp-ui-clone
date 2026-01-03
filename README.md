@@ -8,7 +8,7 @@ Chat tipo WhatsApp para creadores y fans (versión preliminar).
 - Ahora `/creator` resuelve el handle real desde `/api/creator` y lo pasa a `PublicProfileView`.
 - `PublicProfileView`: fetch `/api/public/popclips?handle=...` + estados loading/empty/error con retry visible.
 - PopClips feed ya renderiza el clip y “Ver pack” navega a landing pública del pack.
-- Migrations SQLite: squash a una única migración `init` generada desde el schema actual; historial previo movido a `prisma/migrations_legacy/2025_12_29_pre_squash`.
+- Migrations SQLite: `init` refleja el schema actual; historial previo movido a `prisma/migrations_legacy/2025_12_29_pre_squash` (incluye la antigua `20250309120000_add_extra_purchase_product_fields`).
 
 Checklist verificación (migrations):
 - [ ] `npx prisma migrate reset` completa sin errores.
@@ -75,6 +75,9 @@ En Windows, si ves errores raros de `.next` (p. ej. `__webpack_require__.a is no
 ### Base de datos (SQLite)
 - La base local vive en `./prisma/dev.db` y no se commitea.
 - Para regenerarla desde cero: borra `prisma/dev.db` (solo local), ejecuta `npx prisma migrate dev` y, si hay seed disponible, `npx prisma db seed`.
+- Si `npx prisma migrate dev` falla por shadow DB (P3006) o por historia desalineada, en dev usa uno de estos flujos:
+  - `npx prisma migrate reset` (borra y re-aplica migraciones).
+  - `npx prisma db push --force-reset` (solo dev, ignora historial).
 
 ### Watchpack EINVAL en Windows
 - Síntoma: al arrancar `npm run dev`, error `Watchpack Error (initial scan) EINVAL lstat C:\\hiberfil.sys` (o `pagefile.sys`/`swapfile.sys`).

@@ -206,6 +206,7 @@ function SideBarInner() {
   const [ isLoadingMore, setIsLoadingMore ] = useState(false);
   const pollAbortRef = useRef<AbortController | null>(null);
   const pollIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const openFanFetchRef = useRef<string | null>(null);
   const fansRef = useRef<ConversationListData[]>([]);
   const didInitialFetchRef = useRef(false);
   const didMountFetchRef = useRef(false);
@@ -289,6 +290,8 @@ function SideBarInner() {
       healthScore: (fan as any).healthScore ?? 0,
       customerTier: normalizeTier(fan.customerTier),
       nextAction: fan.nextAction ?? null,
+      nextActionAt: fan.nextActionAt ?? null,
+      nextActionNote: fan.nextActionNote ?? null,
       priorityScore: fan.priorityScore,
       lastNoteSnippet: fan.lastNoteSnippet ?? null,
       nextActionSnippet: fan.nextActionSnippet ?? null,
@@ -335,6 +338,8 @@ function SideBarInner() {
         "notesCount",
         "notePreview",
         "nextAction",
+        "nextActionAt",
+        "nextActionNote",
       ];
       const changed = fields.some((field) => (prevFan as any)?.[field] !== (fan as any)?.[field]);
       if (changed) return true;
@@ -452,12 +457,16 @@ function SideBarInner() {
       membershipStatus: fan.membershipStatus,
       daysLeft: daysLeftValue,
       followUpTag,
+      nextActionAt: fan.nextActionAt ?? null,
     });
     const isHighPriority = fan.isHighPriority === true;
     const hasUnread = (fan.unreadCount ?? 0) > 0;
     const extrasSignal = hasExtrasSignal(fan);
     const hasNextAction = Boolean(
-      fan.followUpOpen || (fan.nextAction && fan.nextAction.trim().length > 0)
+      fan.followUpOpen ||
+        Boolean(fan.nextActionAt) ||
+        Boolean(fan.nextActionNote?.trim()) ||
+        Boolean(fan.nextAction?.trim())
     );
 
     return {
@@ -657,6 +666,7 @@ function SideBarInner() {
       membershipStatus: fan.membershipStatus,
       daysLeft: fan.daysLeft,
       followUpTag: fan.followUpTag ?? getFollowUpTag(fan.membershipStatus, fan.daysLeft, fan.activeGrantTypes),
+      nextActionAt: fan.nextActionAt ?? null,
     })
   ).length;
   const expiredCount = fans.filter((fan) =>
@@ -669,7 +679,13 @@ function SideBarInner() {
   const withNotesCount = fans.filter((fan) => (fan.notesCount ?? 0) > 0).length;
   const withFollowUpCount = fans.filter((fan) => {
     const tag = fan.followUpTag ?? getFollowUpTag(fan.membershipStatus, fan.daysLeft, fan.activeGrantTypes);
-    return tag && tag !== "none";
+    const hasTag = tag && tag !== "none";
+    const hasNextAction =
+      Boolean(fan.followUpOpen) ||
+      Boolean(fan.nextActionAt) ||
+      Boolean(fan.nextActionNote?.trim()) ||
+      Boolean(fan.nextAction?.trim());
+    return hasTag || hasNextAction;
   }).length;
   const archivedCount = fans.filter((fan) => fan.isArchived === true).length;
   const blockedCount = fans.filter((fan) => fan.isBlocked === true).length;
@@ -897,7 +913,10 @@ function SideBarInner() {
         .filter((fan) => {
           if (!onlyWithFollowUp) return true;
           return Boolean(
-            fan.followUpOpen || (fan.nextAction && fan.nextAction.trim().length > 0)
+            fan.followUpOpen ||
+              Boolean(fan.nextActionAt) ||
+              Boolean(fan.nextActionNote?.trim()) ||
+              Boolean(fan.nextAction?.trim())
           );
         })
         .filter((fan) => {
@@ -911,6 +930,7 @@ function SideBarInner() {
               membershipStatus: fan.membershipStatus,
               daysLeft: fan.daysLeft,
               followUpTag: tag,
+              nextActionAt: fan.nextActionAt ?? null,
             });
           }
           return true;
@@ -1101,6 +1121,34 @@ function SideBarInner() {
       }
     },
     [apiFilter, mapFans, search]
+  );
+
+  const fetchFanById = useCallback(
+    async (fanId: string, options?: { signal?: AbortSignal }) => {
+      if (!fanId) return null;
+      try {
+        const res = await fetch(`/api/fans?fanId=${encodeURIComponent(fanId)}`, {
+          cache: "no-store",
+          signal: options?.signal,
+        });
+        const data = await res.json().catch(() => ({}));
+        const rawItems = Array.isArray(data.items)
+          ? (data.items as Fan[])
+          : Array.isArray(data.fans)
+          ? (data.fans as Fan[])
+          : [];
+        const mapped = mapFans(rawItems);
+        const target = mapped.find((fan) => fan.id === fanId) ?? null;
+        if (!target) return null;
+        setFans((prev) => mergeFansById(prev, [target]));
+        return target;
+      } catch (err) {
+        if ((err as any)?.name === "AbortError") return null;
+        console.error("Error loading fan", err);
+        return null;
+      }
+    },
+    [mapFans, mergeFansById]
   );
 
   const handleToggleHighPriority = useCallback(
@@ -1309,12 +1357,31 @@ function SideBarInner() {
   useEffect(() => {
     const fanIdFromQuery = typeof router.query.fanId === "string" ? router.query.fanId : null;
     if (!fanIdFromQuery) return;
-    if (fans.length === 0) return;
     const target = fans.find((fan) => fan.id === fanIdFromQuery);
     if (target) {
       setConversation(target as any);
+      openFanFetchRef.current = null;
+      return;
     }
-  }, [fans, router.query.fanId, setConversation]);
+    if (openFanFetchRef.current === fanIdFromQuery) return;
+    openFanFetchRef.current = fanIdFromQuery;
+    const controller = new AbortController();
+    let cancelled = false;
+    void fetchFanById(fanIdFromQuery, { signal: controller.signal }).then((fetched) => {
+      if (cancelled || !fetched) return;
+      const currentFanId = typeof router.query.fanId === "string" ? router.query.fanId : null;
+      if (currentFanId !== fanIdFromQuery) return;
+      setConversation(fetched as any);
+    }).finally(() => {
+      if (!cancelled && openFanFetchRef.current === fanIdFromQuery) {
+        openFanFetchRef.current = null;
+      }
+    });
+    return () => {
+      cancelled = true;
+      controller.abort();
+    };
+  }, [fans, router.query.fanId, fetchFanById, setConversation]);
 
 
   useEffect(() => {

@@ -76,6 +76,8 @@ model Fan {
   daysLeft         Int?
   lastSeen         String?
   nextAction       String?
+  nextActionAt     DateTime?
+  nextActionNote   String?
   profileText      String?
   quickNote        String?
   attendedAt       DateTime?

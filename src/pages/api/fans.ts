@@ -61,6 +61,20 @@ function formatNextActionFromFollowUp(followUp?: {
   return `${followUp.title} (para ${date}${suffix})`;
 }
 
+function formatNextActionFromSchedule(note?: string | null, dueAt?: string | null): string | null {
+  const normalizedNote = normalizeNoteValue(note);
+  if (!normalizedNote && !dueAt) return null;
+  const safeNote = normalizedNote || "Seguimiento";
+  if (!dueAt) return safeNote;
+  const parsed = new Date(dueAt);
+  if (Number.isNaN(parsed.getTime())) return safeNote;
+  const iso = parsed.toISOString();
+  const date = iso.slice(0, 10);
+  const time = iso.slice(11, 16);
+  const suffix = time ? ` ${time}` : "";
+  return `${safeNote} (para ${date}${suffix})`;
+}
+
 function mapFollowUp(followUp: {
   id: string;
   title: string;
@@ -138,9 +152,13 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       if (filter === "notes") {
         where.notes = { some: {} };
       } else if (filter === "nextAction") {
-        where.nextAction = { not: null };
+        where.OR = [
+          { nextAction: { not: null } },
+          { nextActionNote: { not: null } },
+          { nextActionAt: { not: null } },
+        ];
         const existingNot = Array.isArray(where.NOT) ? where.NOT : where.NOT ? [where.NOT] : [];
-        where.NOT = [...existingNot, { nextAction: "" }];
+        where.NOT = [...existingNot, { nextAction: "" }, { nextActionNote: "" }];
       } else if (filter === "expired") {
         where.accessGrants = { some: { expiresAt: { lte: new Date() } } };
       }
@@ -153,6 +171,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         { displayName: { contains: search } },
         { creatorLabel: { contains: search } },
         { nextAction: { contains: search } },
+        { nextActionNote: { contains: search } },
         { notes: { some: { content: { contains: search } } } },
       ];
     }
@@ -178,6 +197,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         daysLeft: true,
         lastSeen: true,
         nextAction: true,
+        nextActionAt: true,
+        nextActionNote: true,
         profileText: true,
         quickNote: true,
         creatorId: true,
@@ -433,8 +454,13 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       const notePreview = quickNotePreview ?? profilePreview ?? lastNoteSnippet ?? null;
       const openFollowUp = fan.followUps?.[0] ?? null;
       const followUpOpen = openFollowUp ? mapFollowUp(openFollowUp) : null;
-      const nextActionValue = fan.nextAction || formatNextActionFromFollowUp(openFollowUp);
-      const nextActionSnippet = truncateSnippet(nextActionValue);
+      const nextActionAt = fan.nextActionAt ? fan.nextActionAt.toISOString() : null;
+      const nextActionNote = normalizeNoteValue(fan.nextActionNote);
+      const nextActionValue =
+        formatNextActionFromSchedule(nextActionNote, nextActionAt) ||
+        fan.nextAction ||
+        formatNextActionFromFollowUp(openFollowUp);
+      const nextActionSnippet = truncateSnippet(nextActionNote ?? nextActionValue);
       const lastNoteSummary = lastNoteSnippet;
       const nextActionSummary = nextActionSnippet;
       const hasMonthly = activeGrantTypes.includes("monthly");
@@ -481,6 +507,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         quickNote: fan.quickNote ?? null,
         followUpOpen,
         nextAction: nextActionValue || null,
+        nextActionAt,
+        nextActionNote,
         activeGrantTypes,
         hasAccessHistory,
         lastGrantType,
@@ -528,12 +556,21 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           membershipStatus: fan.membershipStatus,
           daysLeft: fan.daysLeft,
           followUpTag: fan.followUpTag ?? getFollowUpTag(fan.membershipStatus, fan.daysLeft, fan.activeGrantTypes),
+          nextActionAt: fan.nextActionAt,
         })
       );
     }
 
     if (!isArchivedFilter && filter === "followup") {
-      mappedFans = mappedFans.filter((fan) => fan.followUpTag && fan.followUpTag !== "none");
+      mappedFans = mappedFans.filter((fan) => {
+        const hasTag = fan.followUpTag && fan.followUpTag !== "none";
+        const hasNextAction =
+          Boolean(fan.followUpOpen) ||
+          Boolean(fan.nextActionAt) ||
+          Boolean(fan.nextActionNote?.trim()) ||
+          Boolean(fan.nextAction?.trim());
+        return hasTag || hasNextAction;
+      });
     }
 
     if (!isArchivedFilter && filter === "new") {

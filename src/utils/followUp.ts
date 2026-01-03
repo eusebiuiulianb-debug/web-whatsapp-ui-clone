@@ -71,18 +71,32 @@ export function getUrgencyLevel(
   return "low";
 }
 
+function isOnOrBeforeToday(value?: string | null, now: Date = new Date()): boolean {
+  if (!value) return false;
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return false;
+  const endOfToday = new Date(now);
+  endOfToday.setHours(23, 59, 59, 999);
+  return parsed.getTime() <= endOfToday.getTime();
+}
+
 export function shouldFollowUpToday({
   membershipStatus,
   daysLeft,
   followUpTag,
+  nextActionAt,
+  now = new Date(),
 }: {
   membershipStatus?: string | null;
   daysLeft?: number | null;
   followUpTag?: FollowUpTag | null;
+  nextActionAt?: string | null;
+  now?: Date;
 }): boolean {
   const status = (membershipStatus || "").toLowerCase();
   if (status === "active" && typeof daysLeft === "number" && daysLeft <= 1) return true;
   if (followUpTag === "today") return true;
+  if (isOnOrBeforeToday(nextActionAt, now)) return true;
   return false;
 }
 

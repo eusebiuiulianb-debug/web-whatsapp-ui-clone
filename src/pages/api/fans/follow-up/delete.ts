@@ -39,7 +39,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     });
 
     if (!openFollowUp) {
-      await prisma.fan.update({ where: { id: fanId }, data: { nextAction: null } });
+      await prisma.fan.update({
+        where: { id: fanId },
+        data: { nextAction: null, nextActionAt: null, nextActionNote: null },
+      });
       return res.status(200).json({ ok: true, followUp: null });
     }
 
@@ -48,7 +51,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       data: { status: "DELETED", doneAt: null },
     });
 
-    await prisma.fan.update({ where: { id: fanId }, data: { nextAction: null } });
+    await prisma.fan.update({
+      where: { id: fanId },
+      data: { nextAction: null, nextActionAt: null, nextActionNote: null },
+    });
 
     return res.status(200).json({ ok: true, followUp: mapFollowUp(followUp) });
   } catch (err) {

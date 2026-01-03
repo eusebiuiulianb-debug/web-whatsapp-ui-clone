@@ -100,6 +100,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
         profileText: true,
         inviteUsedAt: true,
         isNew: true,
+        nextActionAt: true,
         accessGrants: { select: { type: true, expiresAt: true } },
         extraPurchases: { select: { amount: true, kind: true } },
         followUps: {
@@ -124,7 +125,11 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
         else extrasCount += 1;
       }
       const totals = computeFanTotals(fan.extraPurchases ?? []);
-      const followUpAt = fan.followUps?.[0]?.dueAt ?? null;
+      const followUpCandidates = [fan.nextActionAt, fan.followUps?.[0]?.dueAt].filter(Boolean) as Date[];
+      const followUpAt =
+        followUpCandidates.length > 0
+          ? followUpCandidates.sort((a, b) => a.getTime() - b.getTime())[0]
+          : null;
       return {
         fanId: fan.id,
         displayName: pickDisplayName(fan),

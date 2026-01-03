@@ -797,6 +797,16 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
     return { date, time };
   }
 
+  function addDays(base: Date, days: number) {
+    const next = new Date(base);
+    next.setDate(next.getDate() + days);
+    return next;
+  }
+
+  function formatDateInput(value: Date) {
+    return value.toLocaleDateString("en-CA");
+  }
+
   function derivePackFromLabel(label?: string | null) {
     const lower = (label || "").toLowerCase();
     if (lower.includes("prueba")) return "trial";
@@ -955,11 +965,28 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
       setNextActionTime(parsedDue.time);
       return;
     }
+    const note = typeof conversation.nextActionNote === "string" ? conversation.nextActionNote.trim() : "";
+    const scheduledAt = conversation.nextActionAt ?? null;
+    if (note || scheduledAt) {
+      const parsedDue = splitDueAt(scheduledAt);
+      const legacyParsed = parseNextActionValue(conversation.nextAction);
+      setNextActionDraft(note || legacyParsed.text);
+      setNextActionDate(parsedDue.date || legacyParsed.date);
+      setNextActionTime(parsedDue.time || legacyParsed.time);
+      return;
+    }
     const parsed = parseNextActionValue(conversation.nextAction);
     setNextActionDraft(parsed.text);
     setNextActionDate(parsed.date);
     setNextActionTime(parsed.time);
-  }, [conversation.id, conversation.nextAction, conversation.followUpOpen, followUpOpen]);
+  }, [
+    conversation.id,
+    conversation.nextAction,
+    conversation.nextActionAt,
+    conversation.nextActionNote,
+    conversation.followUpOpen,
+    followUpOpen,
+  ]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -2186,6 +2213,8 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
           quickNote: targetFan.quickNote ?? prev.quickNote ?? null,
           followUpOpen: targetFan.followUpOpen ?? prev.followUpOpen ?? null,
           nextAction: targetFan.nextAction ?? prev.nextAction,
+          nextActionAt: targetFan.nextActionAt ?? prev.nextActionAt ?? null,
+          nextActionNote: targetFan.nextActionNote ?? prev.nextActionNote ?? null,
           lastGrantType: (targetFan as any).lastGrantType ?? prev.lastGrantType ?? null,
           extrasCount: targetFan.extrasCount ?? prev.extrasCount,
           extrasSpentTotal: targetFan.extrasSpentTotal ?? prev.extrasSpentTotal,
@@ -3997,6 +4026,23 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
               </div>
             </div>
             <div className="flex flex-wrap items-center gap-2">
+              {[
+                { label: "Seguimiento mañana", days: 1 },
+                { label: "+3d", days: 3 },
+                { label: "+7d", days: 7 },
+              ].map((item) => (
+                <button
+                  key={item.label}
+                  type="button"
+                  onClick={() => handleQuickFollowUp(item.days, "Seguimiento")}
+                  disabled={followUpLoading}
+                  className="rounded-full border border-slate-700/70 bg-slate-900/60 px-3 py-1 text-[10px] font-semibold text-slate-200 hover:bg-slate-800/80 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {item.label}
+                </button>
+              ))}
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
               <button
                 type="button"
                 onClick={handleSaveNextAction}
@@ -5119,6 +5165,13 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
           const note = followUpOpen.note ? ` · ${followUpOpen.note}` : "";
           return `${followUpOpen.title}${dueLabel}${note}`.trim();
         }
+        const scheduledNote = typeof conversation.nextActionNote === "string" ? conversation.nextActionNote.trim() : "";
+        const scheduledAt = conversation.nextActionAt ?? null;
+        if (scheduledNote || scheduledAt) {
+          const due = splitDueAt(scheduledAt);
+          const dueLabel = due.date ? ` (para ${due.date}${due.time ? ` ${due.time}` : ""})` : "";
+          return `${scheduledNote || "Seguimiento"}${dueLabel}`.trim();
+        }
         if (conversation.nextAction && conversation.nextAction.trim()) {
           return conversation.nextAction.trim();
         }
@@ -5149,6 +5202,8 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
     [
       contactName,
       conversation.nextAction,
+      conversation.nextActionAt,
+      conversation.nextActionNote,
       followUpOpen,
       includeInternalContext,
       messageSend,
@@ -6156,6 +6211,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
       return;
     }
     try {
+      setFollowUpLoading(true);
       const followUp = await upsertFollowUp({ title, date, time });
       if (!followUp) {
         setFollowUpError("Error guardando seguimiento");
@@ -6168,11 +6224,41 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
     } catch (err) {
       console.error("Error guardando seguimiento", err);
       setFollowUpError("Error guardando seguimiento");
+    } finally {
+      setFollowUpLoading(false);
+    }
+  }
+
+  async function handleQuickFollowUp(days: number, fallbackLabel: string) {
+    if (!id) return;
+    const title = nextActionDraft.trim() || fallbackLabel;
+    const date = formatDateInput(addDays(new Date(), days));
+    const time = nextActionTime.trim();
+    try {
+      setFollowUpLoading(true);
+      setFollowUpError("");
+      const followUp = await upsertFollowUp({ title, date, time });
+      if (!followUp) {
+        setFollowUpError("Error guardando seguimiento");
+        return;
+      }
+      setFollowUpOpen(followUp);
+      setNextActionDraft(title);
+      setNextActionDate(date);
+      setNextActionTime(time);
+      showComposerToast("Seguimiento guardado");
+      await refreshFanData(id);
+    } catch (err) {
+      console.error("Error guardando seguimiento rápido", err);
+      setFollowUpError("Error guardando seguimiento");
+    } finally {
+      setFollowUpLoading(false);
     }
   }
 
   async function handleClearNextAction() {
     try {
+      setFollowUpLoading(true);
       const ok = await clearFollowUp();
       if (!ok) {
         setFollowUpError("Error borrando seguimiento");
@@ -6191,6 +6277,8 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
     } catch (err) {
       console.error("Error borrando seguimiento", err);
       setFollowUpError("Error borrando seguimiento");
+    } finally {
+      setFollowUpLoading(false);
     }
   }
 
@@ -6198,6 +6286,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
     if (!id) return;
     if (!nextActionDraft.trim() && !nextActionDate.trim() && !nextActionTime.trim() && !followUpOpen) return;
     try {
+      setFollowUpLoading(true);
       const ok = await completeFollowUp();
       if (!ok) {
         setFollowUpError("Error archivando seguimiento");
@@ -6214,6 +6303,8 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
     } catch (err) {
       console.error("Error archivando seguimiento", err);
       setFollowUpError("Error archivando seguimiento");
+    } finally {
+      setFollowUpLoading(false);
     }
   }
 
@@ -6395,6 +6486,10 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
   const composerActionLabel = isFanTarget ? "Enviar a FAN" : "Enviar al Manager";
   const canAttachContent = isFanTarget && !isChatBlocked && !isInternalPanelOpen;
   const nextActionStatus = getFollowUpStatusFromDate(nextActionDate);
+  const followUpLabel =
+    followUpOpen?.title ||
+    (typeof conversation.nextActionNote === "string" ? conversation.nextActionNote.trim() : "") ||
+    (conversation.nextAction?.trim() || "");
   const extrasCountDisplay = conversation.extrasCount ?? 0;
   const extrasAmount = typeof conversation.extrasSpentTotal === "number" ? conversation.extrasSpentTotal : 0;
   const tipsCountValue = conversation.tipsCount;
@@ -6804,9 +6899,16 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
   if (!conversation.isHighPriority) {
     statusTags.push(`${Math.round(lifetimeAmount)} €`);
   }
-  if (followUpOpen?.title || conversation.nextAction) {
-    const baseText = followUpOpen?.title ?? conversation.nextAction ?? "";
-    const shortNext = baseText.length > 60 ? `${baseText.slice(0, 57)}…` : baseText;
+  const nextActionNoteValue =
+    typeof conversation.nextActionNote === "string" ? conversation.nextActionNote.trim() : "";
+  const nextActionLabelRaw =
+    followUpOpen?.title ||
+    nextActionNoteValue ||
+    conversation.nextAction ||
+    "";
+  if (nextActionLabelRaw.trim()) {
+    const shortNext =
+      nextActionLabelRaw.length > 60 ? `${nextActionLabelRaw.slice(0, 57)}…` : nextActionLabelRaw;
     statusTags.push(`Seguimiento: ${shortNext}`);
   }
   const statusLine = statusTags.join(" · ");
@@ -7176,7 +7278,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
             <div className="md:col-span-2 flex items-start gap-1 min-w-0">
               <span className="text-slate-400">Seguimiento:</span>
               <span className="min-w-0 line-clamp-1 md:line-clamp-2 text-slate-200">
-                {followUpOpen?.title || conversation.nextAction || "Sin seguimiento definido"}
+                {followUpLabel || "Sin seguimiento definido"}
               </span>
             </div>
           </div>
@@ -7264,11 +7366,21 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
                   · {Math.round(recommendedFan.lifetimeValue ?? 0)} € · {recommendedFan.notesCount ?? 0} nota
                   {(recommendedFan.notesCount ?? 0) === 1 ? "" : "s"}
                 </span>
-                {(recommendedFan.followUpOpen?.title || recommendedFan.nextAction) && (
-                  <span className="text-[11px] text-slate-400 truncate">
-                    Seguimiento: {recommendedFan.followUpOpen?.title || recommendedFan.nextAction}
-                  </span>
-                )}
+                {(() => {
+                  const nextLabel =
+                    recommendedFan.followUpOpen?.title ||
+                    (typeof recommendedFan.nextActionNote === "string"
+                      ? recommendedFan.nextActionNote.trim()
+                      : "") ||
+                    recommendedFan.nextAction ||
+                    "";
+                  if (!nextLabel.trim()) return null;
+                  return (
+                    <span className="text-[11px] text-slate-400 truncate">
+                      Seguimiento: {nextLabel}
+                    </span>
+                  );
+                })()}
               </>
             )}
           </div>
@@ -8650,7 +8762,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
               <div className="flex flex-col gap-1 rounded-xl border border-slate-800 bg-slate-900/70 px-3 py-2">
                 <span className="text-slate-400 text-xs">Seguimiento</span>
                 <span className="text-slate-50 text-sm leading-snug">
-                  {followUpOpen?.title || conversation.nextAction || "Sin seguimiento definido"}
+                  {followUpLabel || "Sin seguimiento definido"}
                 </span>
               </div>
             </div>

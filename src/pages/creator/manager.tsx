@@ -78,10 +78,16 @@ type ManagerQueueStats = {
   activeExtrasCount?: number;
   revenue7d?: number;
   revenue30d?: number;
+  newFans7d?: number;
   newFans30d?: number;
   fansNew30d?: number;
   archivedCount?: number;
   blockedCount?: number;
+  conversationsStarted7d?: number;
+  conversationsStarted30d?: number;
+  firstPurchase30d?: number;
+  noResponseCount?: number;
+  noResponseDays?: number;
 };
 
 type ManagerQueueNextAction = {
@@ -478,13 +484,33 @@ function ManagerChatLayout({
   const tipsCount30 = tipsBase?.last30?.count ?? 0;
   const giftedTodayCount = giftsBase?.today?.count ?? 0;
   const gifted30Count = giftsBase?.last30?.count ?? 0;
-  const safeNewFans30 = Number.isFinite(queueStats?.newFans30d)
+  const safeNewFans30 = Number.isFinite(summaryWithLocal?.kpis?.last30?.newFans)
+    ? summaryWithLocal?.kpis?.last30?.newFans ?? 0
+    : Number.isFinite(queueStats?.newFans30d)
     ? queueStats?.newFans30d ?? 0
     : Number.isFinite(queueStats?.fansNew30d)
     ? queueStats?.fansNew30d ?? 0
-    : Number.isFinite(summaryWithLocal?.kpis?.last30?.newFans)
-    ? summaryWithLocal?.kpis?.last30?.newFans ?? 0
     : 0;
+  const safeNewFans7 = Number.isFinite(summaryWithLocal?.kpis?.last7?.newFans)
+    ? summaryWithLocal?.kpis?.last7?.newFans ?? 0
+    : Number.isFinite(queueStats?.newFans7d)
+    ? queueStats?.newFans7d ?? 0
+    : 0;
+  const safeConversations7 = Number.isFinite(queueStats?.conversationsStarted7d)
+    ? queueStats?.conversationsStarted7d ?? 0
+    : 0;
+  const safeConversations30 = Number.isFinite(queueStats?.conversationsStarted30d)
+    ? queueStats?.conversationsStarted30d ?? 0
+    : 0;
+  const safeFirstPurchase30 = Number.isFinite(queueStats?.firstPurchase30d)
+    ? queueStats?.firstPurchase30d ?? 0
+    : 0;
+  const safeNoResponseCount = Number.isFinite(queueStats?.noResponseCount)
+    ? queueStats?.noResponseCount ?? 0
+    : 0;
+  const safeNoResponseDays = Number.isFinite(queueStats?.noResponseDays)
+    ? queueStats?.noResponseDays ?? 3
+    : 3;
   const safeRiskRevenue = Number.isFinite(summaryWithLocal?.revenueAtRisk7d)
     ? summaryWithLocal?.revenueAtRisk7d ?? 0
     : 0;
@@ -548,7 +574,13 @@ function ManagerChatLayout({
         tipsCount30d: tipsCount30,
         giftedCountToday: giftedTodayCount,
         giftedCount30d: gifted30Count,
+        newFans7d: safeNewFans7,
         newFans30d: safeNewFans30,
+        conversationsStarted7d: safeConversations7,
+        conversationsStarted30d: safeConversations30,
+        firstPurchase30d: safeFirstPurchase30,
+        noResponseCount: safeNoResponseCount,
+        noResponseDays: safeNoResponseDays,
       },
       expiringFans,
     };
@@ -576,7 +608,13 @@ function ManagerChatLayout({
     tipsCount30,
     giftedTodayCount,
     gifted30Count,
+    safeNewFans7,
     safeNewFans30,
+    safeConversations7,
+    safeConversations30,
+    safeFirstPurchase30,
+    safeNoResponseCount,
+    safeNoResponseDays,
     expiringFans,
   ]);
 

@@ -1,0 +1,2 @@
+ALTER TABLE "Fan" ADD COLUMN "nextActionAt" DATETIME;
+ALTER TABLE "Fan" ADD COLUMN "nextActionNote" TEXT;
