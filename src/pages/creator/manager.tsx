@@ -1302,7 +1302,7 @@ function ManagerChatLayout({
               {!soloChat && (
                 <button
                   type="button"
-                  className="h-8 rounded-full border border-slate-700/70 bg-slate-800/60 px-3 text-[11px] font-semibold text-slate-200 hover:border-emerald-500/60"
+                  className="h-8 rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-3 text-[11px] font-semibold text-[color:var(--text)] transition hover:border-[color:var(--surface-border-hover)] hover:bg-[color:var(--surface-1)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--ring)]"
                   onClick={() => summaryRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })}
                 >
                   Ver panel
@@ -1311,10 +1311,10 @@ function ManagerChatLayout({
               <button
                 type="button"
                 className={clsx(
-                  "h-8 rounded-full border px-3 text-[11px] font-semibold transition",
+                  "h-8 rounded-full border px-3 text-[11px] font-semibold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--ring)]",
                   soloChat
-                    ? "border-slate-700/70 bg-slate-900/60 text-slate-300 hover:text-slate-100"
-                    : "border-emerald-500/60 bg-emerald-600/15 text-emerald-100 hover:bg-emerald-600/25"
+                    ? "border-[color:var(--surface-border)] bg-[color:var(--surface-2)] text-[color:var(--muted)] hover:text-[color:var(--text)] hover:border-[color:var(--surface-border-hover)]"
+                    : "border-[color:var(--brand)] bg-[color:rgba(var(--brand-rgb),0.12)] text-[color:var(--text)] hover:bg-[color:rgba(var(--brand-rgb),0.2)]"
                 )}
                 onClick={() => setSoloChat((prev) => !prev)}
               >

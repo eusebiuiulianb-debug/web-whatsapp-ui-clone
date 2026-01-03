@@ -7153,16 +7153,16 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
   return (
     <div className="relative flex flex-col w-full h-[100dvh] max-h-[100dvh]">
       {onBackToBoard && (
-        <header className="md:hidden sticky top-0 z-30 flex items-center justify-between gap-3 px-4 py-3 bg-slate-950/95 border-b border-slate-800 backdrop-blur">
+        <header className="md:hidden sticky top-0 z-30 flex items-center justify-between gap-3 px-4 py-3 bg-[color:var(--surface-2)] border-b border-[color:var(--border)] backdrop-blur">
           <button
             type="button"
             onClick={onBackToBoard}
-            className="inline-flex items-center gap-1 rounded-full bg-slate-900 px-3 py-1.5 text-xs font-medium text-slate-100 hover:bg-slate-800"
+            className="inline-flex items-center gap-1 rounded-full border border-[color:var(--border)] bg-[color:var(--surface-1)] px-3 py-1.5 text-xs font-medium text-[color:var(--text)] transition hover:border-[color:var(--border-a)] hover:bg-[color:var(--surface-2)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--ring)]"
           >
             ← Volver
           </button>
           <div className="flex items-center gap-2 min-w-0 flex-1 justify-center">
-            <span className="truncate text-sm font-medium text-slate-50">{contactName}</span>
+            <span className="truncate text-sm font-medium text-[color:var(--text)]">{contactName}</span>
             {languageBadgeLabel && (
               <Chip variant="subtle" size="sm">
                 {languageBadgeLabel}
@@ -7195,14 +7195,14 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
       <div className="flex flex-1 min-h-0 min-w-0">
         <div ref={rightPaneRef} className="relative flex flex-col flex-1 min-h-0 min-w-0 h-full">
           <header ref={fanHeaderRef} className="sticky top-0 z-20 backdrop-blur">
-            <div className="max-w-4xl mx-auto w-full bg-slate-950/70 border-b border-slate-800 px-4 py-3 md:px-6 md:py-4 flex flex-col gap-3">
+            <div className="max-w-4xl mx-auto w-full bg-[color:var(--surface-2)] border-b border-[color:var(--border)] px-4 py-3 md:px-6 md:py-4 flex flex-col gap-3">
           {/* Piso 1 */}
           <div className="flex flex-wrap items-center gap-3 sm:flex-nowrap">
             <div className="flex items-center gap-3 min-w-0 flex-1 order-1">
               <Avatar width="w-10" height="h-10" image={image} />
               <div className="flex flex-col min-w-0">
                 <div className="flex items-center gap-2 min-w-0">
-                  <h1 className="text-base font-semibold text-slate-50 truncate">{contactName}</h1>
+                  <h1 className="text-base font-semibold text-[color:var(--text)] truncate">{contactName}</h1>
                   {languageBadgeLabel && (
                     <Chip variant="subtle" size="sm">
                       {languageBadgeLabel}
@@ -7219,7 +7219,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
                     title={presenceStatus.label}
                   />
                 </div>
-                <p className="text-xs text-slate-400 truncate">
+                <p className="text-xs text-[color:var(--muted)] truncate">
                   {membershipDetails || packLabel || "Suscripción"}
                 </p>
               </div>
@@ -7245,7 +7245,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
                 type="button"
                 onClick={handleViewProfile}
                 aria-label="Ver ficha del fan"
-                className="inline-flex items-center rounded-full border border-[color:var(--brand)] px-3 py-1.5 text-xs font-medium text-[color:var(--brand)] hover:bg-[color:rgba(var(--brand-rgb),0.1)]"
+                className="inline-flex items-center rounded-full border border-[color:var(--border)] bg-[color:var(--surface-1)] px-3 py-1.5 text-xs font-medium text-[color:var(--text)] transition hover:border-[color:var(--border-a)] hover:bg-[color:var(--surface-2)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--ring)]"
               >
                 Ver ficha
               </button>
@@ -7283,22 +7283,22 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
           </div>
 
           {/* Piso 3 */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-y-1 md:gap-x-6 text-xs text-slate-300 min-w-0">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-y-1 md:gap-x-6 text-xs text-[color:var(--text)] min-w-0">
             <div className="flex items-center gap-1 min-w-0">
-              <span className="text-slate-400">Última conexión:</span>
+              <span className="text-[color:var(--muted)]">Última conexión:</span>
               <span className="truncate">{presenceStatus.label || "Sin actividad reciente"}</span>
             </div>
             <div className="flex items-center gap-1 min-w-0">
-              <span className="text-slate-400">Extras:</span>
+              <span className="text-[color:var(--muted)]">Extras:</span>
               <span className="truncate">
                 {extrasCountDisplay} · {extrasSpentDisplay} €
                 {showTipsInline ? ` · Propinas: ${tipsInlineLabel}` : ""}
               </span>
             </div>
             <div className="md:col-span-2 flex items-start gap-2 min-w-0">
-              <span className="text-slate-400">Seguimiento:</span>
+              <span className="text-[color:var(--muted)]">Seguimiento:</span>
               <span
-                className="min-w-0 line-clamp-1 md:line-clamp-2 text-slate-200"
+                className="min-w-0 line-clamp-1 md:line-clamp-2 text-[color:var(--text)]"
                 title={followUpLabel || ""}
               >
                 {followUpLabel || "Sin seguimiento definido"}

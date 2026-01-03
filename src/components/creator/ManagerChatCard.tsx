@@ -2461,12 +2461,12 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
       : [];
     const todayPanel = isTodayTab ? (
       <div className="mb-4 space-y-3">
-        <div className="rounded-2xl border border-slate-800/80 bg-slate-950/80 px-4 py-3">
+        <div className="rounded-2xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-4 py-3">
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
-              <div className="text-[11px] uppercase tracking-wide text-slate-400">Seguimientos</div>
-              <div className="text-sm font-semibold text-slate-100">Vencidos, hoy y próximos</div>
-              <div className="text-[11px] text-slate-400">Rango próximos: {followUpRangeDays}d</div>
+              <div className="text-[11px] uppercase tracking-wide text-[color:var(--muted)]">Seguimientos</div>
+              <div className="text-sm font-semibold text-[color:var(--text)]">Vencidos, hoy y próximos</div>
+              <div className="text-[11px] text-[color:var(--muted)]">Rango próximos: {followUpRangeDays}d</div>
             </div>
             <div className="flex flex-wrap items-center gap-2">
               {[1, 3, 7, 30].map((range) => (
@@ -2479,21 +2479,21 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
                     setFollowUpRangeDays(range as FollowUpRangeDays);
                   }}
                   className={clsx(
-                    "rounded-full border px-3 py-1 text-[10px] font-semibold transition",
+                    "rounded-full border px-3 py-1 text-[10px] font-semibold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--ring)]",
                     followUpRangeDays === range
                       ? "border-amber-400/70 bg-amber-500/15 text-amber-100"
-                      : "border-slate-700/70 bg-slate-900/60 text-slate-200 hover:bg-slate-800/80"
+                      : "border-[color:var(--surface-border)] bg-[color:var(--surface-2)] text-[color:var(--text)] hover:border-[color:var(--surface-border-hover)] hover:bg-[color:var(--surface-1)]"
                   )}
                 >
                   {range}d
                 </button>
               ))}
-              {segmentsLoading && <div className="text-[10px] text-slate-500">Cargando…</div>}
+              {segmentsLoading && <div className="text-[10px] text-[color:var(--muted)]">Cargando…</div>}
             </div>
           </div>
           {segmentsError && <div className="mt-2 text-[12px] text-rose-300">{segmentsError}</div>}
           {!segmentsLoading && !segmentsError && followUpItems.length === 0 && (
-            <div className="mt-2 text-[12px] text-slate-500">Sin seguimientos en este rango.</div>
+            <div className="mt-2 text-[12px] text-[color:var(--muted)]">Sin seguimientos en este rango.</div>
           )}
           {!segmentsLoading && !segmentsError && followUpItems.length > 0 && (
             <div className="mt-2 space-y-2">
@@ -2506,9 +2506,9 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
                 return (
                   <div key={`${item.fanId}-${item.nextActionAt}`} className="flex items-center justify-between gap-2">
                       <div className="min-w-0">
-                        <div className="truncate text-[12px] text-slate-100">{item.fanName}</div>
-                      <div className="flex items-center gap-1 text-[11px] text-slate-400 min-w-0">
-                        <IconGlyph name="clock" className="h-3.5 w-3.5 text-slate-400" />
+                        <div className="truncate text-[12px] text-[color:var(--text)]">{item.fanName}</div>
+                      <div className="flex items-center gap-1 text-[11px] text-[color:var(--muted)] min-w-0">
+                        <IconGlyph name="clock" className="h-3.5 w-3.5 text-[color:var(--muted)]" />
                         <span className="truncate">
                           {noteLabel}
                           {dateLabel ? ` · ${dateLabel}` : ""}
@@ -2523,7 +2523,7 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
                             ? "border-rose-400/70 bg-rose-500/10 text-rose-100"
                             : isTodayLabel
                             ? "border-amber-400/70 bg-amber-500/10 text-amber-100"
-                            : "border-slate-700/70 bg-slate-900/60 text-slate-200"
+                            : "border-[color:var(--surface-border)] bg-[color:var(--surface-2)] text-[color:var(--text)]"
                         )}
                       >
                         {item.statusLabel}
@@ -2536,7 +2536,7 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
                             event.stopPropagation();
                             handleOpenFanFollowUpPanel(item.fanId);
                           }}
-                          className="rounded-full border border-amber-400/70 bg-amber-500/10 px-3 py-1 text-[10px] font-semibold text-amber-100 hover:bg-amber-500/20"
+                          className="rounded-full border border-amber-400/70 bg-amber-500/10 px-3 py-1 text-[10px] font-semibold text-amber-100 hover:bg-amber-500/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--ring)]"
                         >
                           Añadir nota
                         </button>
@@ -2548,7 +2548,7 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
                           event.stopPropagation();
                           handleOpenFanChat(item.fanId);
                         }}
-                        className="shrink-0 rounded-full border border-slate-700/70 bg-slate-900/70 px-3 py-1 text-[10px] font-semibold text-slate-200 hover:bg-slate-800/80"
+                        className="shrink-0 rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-3 py-1 text-[10px] font-semibold text-[color:var(--text)] transition hover:border-[color:var(--surface-border-hover)] hover:bg-[color:var(--surface-2)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--ring)]"
                       >
                         Abrir chat
                       </button>
@@ -2557,7 +2557,7 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
                 );
               })}
               {followUpItems.length > followUpPreviewLimit && (
-                <div className="text-[11px] text-slate-500">
+                <div className="text-[11px] text-[color:var(--muted)]">
                   +{formatCount(followUpItems.length - followUpPreviewLimit)} más en seguimiento
                 </div>
               )}
@@ -2568,11 +2568,11 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
     ) : null;
     const salesPanel = isSalesTab ? (
       <div className="mb-4 space-y-3">
-        <div className="rounded-2xl border border-slate-800/80 bg-slate-950/80 px-4 py-3 space-y-3">
+        <div className="rounded-2xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-4 py-3 space-y-3">
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
-              <div className="text-[11px] uppercase tracking-wide text-slate-400">Ventas</div>
-              <div className="text-sm font-semibold text-slate-100">De dónde viene el dinero</div>
+              <div className="text-[11px] uppercase tracking-wide text-[color:var(--muted)]">Ventas</div>
+              <div className="text-sm font-semibold text-[color:var(--text)]">De dónde viene el dinero</div>
             </div>
             <div className="flex items-center gap-2">
               {[
@@ -2589,23 +2589,23 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
                     setSalesRange(option.id);
                   }}
                   className={clsx(
-                    "rounded-full border px-3 py-1 text-[11px] font-semibold transition",
+                    "rounded-full border px-3 py-1 text-[11px] font-semibold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--ring)]",
                     salesRange === option.id
-                      ? "border-emerald-500/70 bg-emerald-500/15 text-emerald-100"
-                      : "border-slate-700/70 bg-slate-900/60 text-slate-200 hover:bg-slate-800/80"
+                      ? "border-[color:var(--brand)] bg-[color:rgba(var(--brand-rgb),0.12)] text-[color:var(--text)]"
+                      : "border-[color:var(--surface-border)] bg-[color:var(--surface-2)] text-[color:var(--text)] hover:border-[color:var(--surface-border-hover)] hover:bg-[color:var(--surface-1)]"
                   )}
                 >
                   {option.label}
                 </button>
               ))}
               {(salesLoading || salesUpdated) && (
-                <span className="text-[10px] uppercase tracking-wide text-slate-500">
+                <span className="text-[10px] uppercase tracking-wide text-[color:var(--muted)]">
                   {salesLoading ? "Actualizando..." : "Actualizado"}
                 </span>
               )}
             </div>
           </div>
-          {salesLoading && <div className="text-[12px] text-slate-400">Cargando ventas...</div>}
+          {salesLoading && <div className="text-[12px] text-[color:var(--muted)]">Cargando ventas...</div>}
           {salesError && (
             <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-amber-500/40 bg-amber-500/10 px-3 py-2">
               <div className="text-[12px] text-amber-100">{salesError}</div>
@@ -2625,12 +2625,12 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
           {!salesLoading && !salesError && salesData && (
             <>
               <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-                <div className="rounded-xl border border-slate-800/70 bg-slate-900/60 px-3 py-2">
-                  <div className="text-[10px] uppercase tracking-wide text-slate-400">Total</div>
-                  <div className="text-base font-semibold text-slate-100">
+                <div className="rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-3 py-2">
+                  <div className="text-[10px] uppercase tracking-wide text-[color:var(--muted)]">Total</div>
+                  <div className="text-base font-semibold text-[color:var(--text)]">
                     {formatCurrency(salesData.totals.totalAmount)}
                   </div>
-                  <div className="text-[11px] text-slate-500">
+                  <div className="text-[11px] text-[color:var(--muted)]">
                     {formatCount(salesData.totals.count)} cobros · {formatCount(salesData.totals.uniqueFans)} fans
                   </div>
                 </div>
@@ -2672,10 +2672,10 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
                     count: salesData.counts.bundlesCount,
                   },
                 ].map((item) => (
-                  <div key={item.id} className="rounded-xl border border-slate-800/70 bg-slate-900/60 px-3 py-2">
-                    <div className="text-[10px] uppercase tracking-wide text-slate-400">{item.label}</div>
-                    <div className="text-sm font-semibold text-slate-100">{formatCurrency(item.amount)}</div>
-                    <div className="text-[11px] text-slate-500">
+                  <div key={item.id} className="rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-3 py-2">
+                    <div className="text-[10px] uppercase tracking-wide text-[color:var(--muted)]">{item.label}</div>
+                    <div className="text-sm font-semibold text-[color:var(--text)]">{formatCurrency(item.amount)}</div>
+                    <div className="text-[11px] text-[color:var(--muted)]">
                       {formatCount(item.count)} cobro{item.count === 1 ? "" : "s"}
                     </div>
                   </div>
@@ -2683,10 +2683,10 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
               </div>
 
               <div className="grid gap-3 md:grid-cols-2">
-                <div className="rounded-xl border border-slate-800/70 bg-slate-900/60 px-3 py-2">
-                  <div className="text-[10px] uppercase tracking-wide text-slate-400">Top productos</div>
-                  <div className="mt-2 space-y-1 text-[12px] text-slate-200">
-                    {salesData.topProducts.length === 0 && <div className="text-slate-500">Sin ventas aún.</div>}
+                <div className="rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-3 py-2">
+                  <div className="text-[10px] uppercase tracking-wide text-[color:var(--muted)]">Top productos</div>
+                  <div className="mt-2 space-y-1 text-[12px] text-[color:var(--text)]">
+                    {salesData.topProducts.length === 0 && <div className="text-[color:var(--muted)]">Sin ventas aún.</div>}
                     {salesData.topProducts.map((product) => (
                       <div key={product.productId} className="flex items-center justify-between gap-2">
                         <span className="flex items-center gap-2 min-w-0">
@@ -2697,21 +2697,21 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
                             </span>
                           )}
                         </span>
-                        <span className="shrink-0 text-slate-400">
+                        <span className="shrink-0 text-[color:var(--muted)]">
                           {formatCurrency(product.amount)} · {formatCount(product.count)}
                         </span>
                       </div>
                     ))}
                   </div>
                 </div>
-                <div className="rounded-xl border border-slate-800/70 bg-slate-900/60 px-3 py-2">
-                  <div className="text-[10px] uppercase tracking-wide text-slate-400">Top fans</div>
-                  <div className="mt-2 space-y-1 text-[12px] text-slate-200">
-                    {salesData.topFans.length === 0 && <div className="text-slate-500">Sin ventas aún.</div>}
+                <div className="rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-3 py-2">
+                  <div className="text-[10px] uppercase tracking-wide text-[color:var(--muted)]">Top fans</div>
+                  <div className="mt-2 space-y-1 text-[12px] text-[color:var(--text)]">
+                    {salesData.topFans.length === 0 && <div className="text-[color:var(--muted)]">Sin ventas aún.</div>}
                     {salesData.topFans.map((fan) => (
                       <div key={fan.fanId} className="flex items-center justify-between gap-2">
                         <span className="truncate">{fan.displayName}</span>
-                        <span className="shrink-0 text-slate-400">
+                        <span className="shrink-0 text-[color:var(--muted)]">
                           {formatCurrency(fan.amount)} · {formatCount(fan.count)}
                         </span>
                       </div>
@@ -2730,14 +2730,14 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
                 </div>
               </div>
 
-              <div className="rounded-xl border border-slate-800/70 bg-slate-900/60 px-3 py-2">
+              <div className="rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-3 py-2">
                 <div className="flex flex-wrap items-center justify-between gap-2">
-                  <div className="text-[10px] uppercase tracking-wide text-slate-400">Segmentos accionables</div>
-                  {segmentsLoading && <div className="text-[10px] text-slate-500">Cargando...</div>}
+                  <div className="text-[10px] uppercase tracking-wide text-[color:var(--muted)]">Segmentos accionables</div>
+                  {segmentsLoading && <div className="text-[10px] text-[color:var(--muted)]">Cargando...</div>}
                 </div>
                 {segmentsError && <div className="mt-2 text-[12px] text-rose-300">{segmentsError}</div>}
                 {!segmentsLoading && !segmentsError && segmentsData && segmentsData.segments.length === 0 && (
-                  <div className="mt-2 text-[12px] text-slate-500">Sin segmentos aún.</div>
+                  <div className="mt-2 text-[12px] text-[color:var(--muted)]">Sin segmentos aún.</div>
                 )}
                 {!segmentsLoading && !segmentsError && segmentsData && segmentsData.segments.length > 0 && (
                   <div className="mt-2 space-y-2">
@@ -2752,28 +2752,28 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
                       return (
                         <div
                           key={segment.id}
-                          className="rounded-xl border border-slate-800/70 bg-slate-950/70 px-3 py-3 space-y-2"
+                          className="rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-3 py-3 space-y-2"
                         >
                           <div className="flex flex-wrap items-start justify-between gap-2">
                             <div className="min-w-0">
-                              <div className="text-[12px] font-semibold text-slate-100">{segment.title}</div>
-                              <div className="text-[11px] text-slate-400">{segment.reason}</div>
+                              <div className="text-[12px] font-semibold text-[color:var(--text)]">{segment.title}</div>
+                              <div className="text-[11px] text-[color:var(--muted)]">{segment.reason}</div>
                             </div>
-                            <div className="text-right text-[11px] text-slate-400">
+                            <div className="text-right text-[11px] text-[color:var(--muted)]">
                               <div>{formatCount(segment.fanIds.length)} fans</div>
-                              <div className="text-slate-200">{formatCurrency(segment.potentialAmount)}</div>
+                              <div className="text-[color:var(--text)]">{formatCurrency(segment.potentialAmount)}</div>
                             </div>
                           </div>
 
                           <div className="space-y-2">
                             {previewFans.length === 0 && (
-                              <div className="text-[12px] text-slate-500">Sin fans en este segmento.</div>
+                              <div className="text-[12px] text-[color:var(--muted)]">Sin fans en este segmento.</div>
                             )}
                             {previewFans.map((fan) => (
                               <div key={fan.fanId} className="flex items-center justify-between gap-2">
                                 <div className="min-w-0">
-                                  <div className="truncate text-[12px] text-slate-100">{fan.displayName}</div>
-                                  <div className="text-[11px] text-slate-500">
+                                  <div className="truncate text-[12px] text-[color:var(--text)]">{fan.displayName}</div>
+                                  <div className="text-[11px] text-[color:var(--muted)]">
                                     {formatCurrency(fan.totalSpent)} · {formatCount(fan.extrasCount)} extras ·{" "}
                                     {formatCount(fan.tipsCount)} propinas · {formatCount(fan.giftsCount)} regalos
                                   </div>
@@ -2787,7 +2787,7 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
                                           "mt-1 inline-flex max-w-full items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-semibold",
                                           isOverdue
                                             ? "border-rose-400/70 bg-rose-500/10 text-rose-100"
-                                            : "border-slate-700/70 bg-slate-900/60 text-slate-300"
+                                            : "border-[color:var(--surface-border)] bg-[color:var(--surface-2)] text-[color:var(--muted)]"
                                         )}
                                       >
                                         <IconGlyph name="clock" className="h-3.5 w-3.5" />
@@ -2804,7 +2804,7 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
                                     event.stopPropagation();
                                     handleOpenFanChat(fan.fanId, segmentNote);
                                   }}
-                                  className="shrink-0 rounded-full border border-slate-700/70 bg-slate-900/70 px-3 py-1 text-[11px] font-semibold text-slate-200 hover:bg-slate-800/80"
+                                  className="shrink-0 rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-3 py-1 text-[11px] font-semibold text-[color:var(--text)] transition hover:border-[color:var(--surface-border-hover)] hover:bg-[color:var(--surface-2)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--ring)]"
                                 >
                                   Abrir chat
                                 </button>
@@ -2821,7 +2821,7 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
                                   event.stopPropagation();
                                   toggleSegmentExpanded(segment.id);
                                 }}
-                                className="rounded-full border border-slate-700/70 bg-slate-900/60 px-3 py-1 text-[11px] font-semibold text-slate-200 hover:bg-slate-800/80"
+                                className="rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-3 py-1 text-[11px] font-semibold text-[color:var(--text)] transition hover:border-[color:var(--surface-border-hover)] hover:bg-[color:var(--surface-1)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--ring)]"
                               >
                                 {isExpanded ? "Ver menos" : "Ver todos"}
                               </button>
@@ -2833,7 +2833,7 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
                                 event.stopPropagation();
                                 insertAndFocus(buildSegmentSuggestedAction(segment, suggestedFan));
                               }}
-                              className="rounded-full border border-emerald-500/60 bg-emerald-500/10 px-3 py-1 text-[11px] font-semibold text-emerald-100 hover:bg-emerald-500/20"
+                              className="rounded-full border border-[color:var(--brand)] bg-[color:rgba(var(--brand-rgb),0.12)] px-3 py-1 text-[11px] font-semibold text-[color:var(--text)] transition hover:bg-[color:rgba(var(--brand-rgb),0.2)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--ring)]"
                             >
                               Insertar mensaje sugerido
                             </button>
@@ -2851,11 +2851,11 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
     ) : null;
     const catalogPanel = isCatalogTab ? (
       <div className="mb-4 space-y-3">
-        <div className="rounded-2xl border border-slate-800/80 bg-slate-950/80 px-4 py-3">
+        <div className="rounded-2xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-4 py-3">
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
-              <div className="text-[11px] uppercase tracking-wide text-slate-400">Tu catálogo</div>
-              <div className="text-sm font-semibold text-slate-100">Extras, bundles y packs activos</div>
+              <div className="text-[11px] uppercase tracking-wide text-[color:var(--muted)]">Tu catálogo</div>
+              <div className="text-sm font-semibold text-[color:var(--text)]">Extras, bundles y packs activos</div>
             </div>
             <div className="flex flex-wrap items-center gap-2">
               <button
@@ -2865,7 +2865,7 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
                   event.stopPropagation();
                   openNewCatalogEditor("EXTRA");
                 }}
-                className="rounded-full border border-emerald-500/60 bg-emerald-500/15 px-3 py-1 text-[11px] font-semibold text-emerald-100 hover:bg-emerald-500/25"
+                className="rounded-full border border-[color:var(--brand)] bg-[color:rgba(var(--brand-rgb),0.12)] px-3 py-1 text-[11px] font-semibold text-[color:var(--text)] transition hover:bg-[color:rgba(var(--brand-rgb),0.2)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--ring)]"
               >
                 + Extra
               </button>
@@ -2876,7 +2876,7 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
                   event.stopPropagation();
                   openNewCatalogEditor("BUNDLE");
                 }}
-                className="rounded-full border border-slate-700/70 bg-slate-900/70 px-3 py-1 text-[11px] font-semibold text-slate-200 hover:bg-slate-800/80"
+                className="rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-3 py-1 text-[11px] font-semibold text-[color:var(--text)] transition hover:border-[color:var(--surface-border-hover)] hover:bg-[color:var(--surface-1)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--ring)]"
               >
                 + Bundle
               </button>
@@ -2887,18 +2887,18 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
                   event.stopPropagation();
                   openNewCatalogEditor("PACK");
                 }}
-                className="rounded-full border border-slate-700/70 bg-slate-900/70 px-3 py-1 text-[11px] font-semibold text-slate-200 hover:bg-slate-800/80"
+                className="rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-3 py-1 text-[11px] font-semibold text-[color:var(--text)] transition hover:border-[color:var(--surface-border-hover)] hover:bg-[color:var(--surface-1)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--ring)]"
               >
                 + Pack
               </button>
             </div>
           </div>
-          {catalogLoading && <div className="mt-3 text-[12px] text-slate-400">Cargando catálogo...</div>}
+          {catalogLoading && <div className="mt-3 text-[12px] text-[color:var(--muted)]">Cargando catálogo...</div>}
           {catalogError && <div className="mt-3 text-[12px] text-rose-300">{catalogError}</div>}
-          {popClipsLoading && <div className="mt-2 text-[12px] text-slate-500">Cargando PopClips...</div>}
+          {popClipsLoading && <div className="mt-2 text-[12px] text-[color:var(--muted)]">Cargando PopClips...</div>}
           {popClipsError && <div className="mt-2 text-[12px] text-rose-300">{popClipsError}</div>}
           {!catalogLoading && visibleCatalogItems.length === 0 && (
-            <div className="mt-3 text-[12px] text-slate-400">Aún no tienes ítems en el catálogo.</div>
+            <div className="mt-3 text-[12px] text-[color:var(--muted)]">Aún no tienes ítems en el catálogo.</div>
           )}
           <div className="mt-3 space-y-2">
             {visibleCatalogItems.map((item) => {
@@ -2909,39 +2909,39 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
               return (
                 <div
                   key={item.id}
-                  className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-800/70 bg-slate-900/60 px-3 py-2"
+                  className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-3 py-2"
                 >
                   <div className="flex items-center gap-3 min-w-0">
-                  <span className="rounded-full border border-slate-700/70 bg-slate-950/70 px-2 py-0.5 text-[10px] font-semibold text-slate-200">
+                  <span className="rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-2 py-0.5 text-[10px] font-semibold text-[color:var(--text)]">
                     {CATALOG_ITEM_TYPE_LABELS[item.type]}
                   </span>
                   <span
                     className={clsx(
                       "rounded-full border px-2 py-0.5 text-[10px] font-semibold",
                       item.isPublic
-                        ? "border-emerald-500/50 bg-emerald-500/10 text-emerald-100"
-                        : "border-slate-700/70 bg-slate-950/60 text-slate-300"
+                        ? "border-[color:var(--brand)] bg-[color:rgba(var(--brand-rgb),0.12)] text-[color:var(--text)]"
+                        : "border-[color:var(--surface-border)] bg-[color:var(--surface-1)] text-[color:var(--muted)]"
                     )}
                   >
                     {item.isPublic ? "Público" : "Oculto"}
                   </span>
                   {item.type === "PACK" && hasActivePopClip && (
-                    <span className="rounded-full border border-emerald-400/60 bg-emerald-500/10 px-2 py-0.5 text-[10px] font-semibold text-emerald-100">
+                    <span className="rounded-full border border-[color:var(--brand)] bg-[color:rgba(var(--brand-rgb),0.12)] px-2 py-0.5 text-[10px] font-semibold text-[color:var(--text)]">
                       PopClips público
                     </span>
                   )}
                     <div className="min-w-0">
-                      <div className="text-[13px] font-semibold text-slate-100 truncate">{item.title}</div>
+                      <div className="text-[13px] font-semibold text-[color:var(--text)] truncate">{item.title}</div>
                       {item.description && (
-                        <div className="text-[11px] text-slate-400 truncate">{item.description}</div>
+                        <div className="text-[11px] text-[color:var(--muted)] truncate">{item.description}</div>
                       )}
                       {includesPreview && (
-                        <div className="text-[11px] text-slate-500 truncate">{includesPreview}</div>
+                        <div className="text-[11px] text-[color:var(--muted)] truncate">{includesPreview}</div>
                       )}
                     </div>
                   </div>
                 <div className="flex flex-wrap items-center gap-2">
-                  <span className="text-[12px] font-semibold text-slate-100">
+                  <span className="text-[12px] font-semibold text-[color:var(--text)]">
                     {formatPriceCents(item.priceCents, item.currency)}
                   </span>
                   <button
@@ -2952,10 +2952,10 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
                       void handleCatalogToggle(item);
                     }}
                     className={clsx(
-                      "rounded-full border px-2.5 py-1 text-[10px] font-semibold transition",
+                      "rounded-full border px-2.5 py-1 text-[10px] font-semibold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--ring)]",
                       item.isActive
-                        ? "border-emerald-500/60 bg-emerald-500/15 text-emerald-100"
-                        : "border-slate-700/70 bg-slate-950/60 text-slate-300 hover:text-slate-100"
+                        ? "border-[color:var(--brand)] bg-[color:rgba(var(--brand-rgb),0.12)] text-[color:var(--text)]"
+                        : "border-[color:var(--surface-border)] bg-[color:var(--surface-1)] text-[color:var(--muted)] hover:text-[color:var(--text)]"
                     )}
                   >
                     {item.isActive ? "Activo" : "Inactivo"}
@@ -2967,7 +2967,7 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
                       event.stopPropagation();
                       openCatalogEditorForItem(item);
                     }}
-                    className="rounded-full border border-slate-700/70 bg-slate-950/60 px-2.5 py-1 text-[10px] font-semibold text-slate-200 hover:bg-slate-800/80"
+                    className="rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-2.5 py-1 text-[10px] font-semibold text-[color:var(--text)] transition hover:border-[color:var(--surface-border-hover)] hover:bg-[color:var(--surface-2)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--ring)]"
                   >
                     Editar
                   </button>
@@ -2979,7 +2979,7 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
                         event.stopPropagation();
                         openPopClipEditor(item);
                       }}
-                      className="rounded-full border border-slate-700/70 bg-slate-950/60 px-2.5 py-1 text-[10px] font-semibold text-slate-200 hover:bg-slate-800/80"
+                      className="rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-2.5 py-1 text-[10px] font-semibold text-[color:var(--text)] transition hover:border-[color:var(--surface-border-hover)] hover:bg-[color:var(--surface-2)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--ring)]"
                     >
                       {hasPopClip ? "Editar clip" : "Añadir clip"}
                     </button>
@@ -2991,7 +2991,7 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
                       event.stopPropagation();
                       handleCatalogDraftStart(item);
                     }}
-                    className="inline-flex items-center gap-1 rounded-full border border-slate-700/70 bg-slate-950/60 px-2.5 py-1 text-[10px] font-semibold text-slate-200 hover:bg-slate-800/80"
+                    className="inline-flex items-center gap-1 rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-2.5 py-1 text-[10px] font-semibold text-[color:var(--text)] transition hover:border-[color:var(--surface-border-hover)] hover:bg-[color:var(--surface-2)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--ring)]"
                   >
                     <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="2">
                       <path d="M3 11l18-8-8 18-2-7-8-3z" />
@@ -3011,7 +3011,7 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
                 event.stopPropagation();
                 setShowAllCatalogItems((prev) => !prev);
               }}
-              className="mt-3 text-[11px] font-semibold text-emerald-200 hover:text-emerald-100"
+              className="mt-3 text-[11px] font-semibold text-[color:var(--brand)] hover:text-[color:var(--brand-strong)]"
             >
               {showAllCatalogItems ? "Ver menos" : `Ver todos (${catalogItemsSorted.length})`}
             </button>
@@ -3022,10 +3022,10 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
         </div>
         <div
           ref={catalogGapsRef}
-          className="rounded-2xl border border-slate-800/80 bg-slate-950/80 px-4 py-3"
+          className="rounded-2xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-4 py-3"
         >
-          <div className="text-[11px] uppercase tracking-wide text-slate-400">Huecos del catálogo</div>
-          <div className="mt-2 space-y-1 text-[12px] text-slate-200">
+          <div className="text-[11px] uppercase tracking-wide text-[color:var(--muted)]">Huecos del catálogo</div>
+          <div className="mt-2 space-y-1 text-[12px] text-[color:var(--text)]">
             <div className="inline-flex items-center gap-1">
               <IconGlyph
                 name={catalogGaps.extrasOk ? "check" : "alert"}
@@ -3066,7 +3066,7 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
                   event.stopPropagation();
                   void createCatalogItemAndEdit("EXTRA");
                 }}
-                className="rounded-xl border border-slate-800/70 bg-slate-900/60 px-3 py-2 text-left text-[12px] font-semibold text-slate-100 hover:bg-slate-800/70"
+                className="rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-3 py-2 text-left text-[12px] font-semibold text-[color:var(--text)] transition hover:border-[color:var(--surface-border-hover)] hover:bg-[color:var(--surface-1)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--ring)]"
               >
                 Crear extra
               </button>
@@ -3079,7 +3079,7 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
                   event.stopPropagation();
                   void createCatalogItemAndEdit("BUNDLE");
                 }}
-                className="rounded-xl border border-slate-800/70 bg-slate-900/60 px-3 py-2 text-left text-[12px] font-semibold text-slate-100 hover:bg-slate-800/70"
+                className="rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-3 py-2 text-left text-[12px] font-semibold text-[color:var(--text)] transition hover:border-[color:var(--surface-border-hover)] hover:bg-[color:var(--surface-1)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--ring)]"
               >
                 Crear bundle
               </button>
@@ -3092,7 +3092,7 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
                   event.stopPropagation();
                   void createCatalogItemAndEdit("PACK");
                 }}
-                className="rounded-xl border border-slate-800/70 bg-slate-900/60 px-3 py-2 text-left text-[12px] font-semibold text-slate-100 hover:bg-slate-800/70"
+                className="rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-3 py-2 text-left text-[12px] font-semibold text-[color:var(--text)] transition hover:border-[color:var(--surface-border-hover)] hover:bg-[color:var(--surface-1)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--ring)]"
               >
                 Crear pack
               </button>
@@ -3946,43 +3946,43 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
       const noResponseDays = isFiniteNumber(metrics?.noResponseDays) ? metrics?.noResponseDays : 3;
       return (
         <div className="mb-4 space-y-3">
-          <div className="rounded-2xl border border-slate-800/80 bg-slate-950/80 px-4 py-3 space-y-3">
+          <div className="rounded-2xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-4 py-3 space-y-3">
             <div className="flex flex-wrap items-start justify-between gap-3">
               <div>
-                <div className="text-[11px] uppercase tracking-wide text-slate-400">Crecimiento</div>
-                <div className="text-sm font-semibold text-slate-100">Tracción y conversión</div>
+                <div className="text-[11px] uppercase tracking-wide text-[color:var(--muted)]">Crecimiento</div>
+                <div className="text-sm font-semibold text-[color:var(--text)]">Tracción y conversión</div>
               </div>
-              <div className="text-[10px] uppercase tracking-wide text-slate-500">Radar</div>
+              <div className="text-[10px] uppercase tracking-wide text-[color:var(--muted)]">Radar</div>
             </div>
 
             <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
-              <div className="rounded-xl border border-slate-800/70 bg-slate-900/60 px-3 py-2">
-                <div className="text-[10px] uppercase tracking-wide text-slate-400">Fans nuevos 7d</div>
-                <div className="text-base font-semibold text-slate-100">{formatCount(newFans7d)}</div>
-                <div className="text-[11px] text-slate-500">30d: {formatCount(newFans30d)}</div>
+              <div className="rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-3 py-2">
+                <div className="text-[10px] uppercase tracking-wide text-[color:var(--muted)]">Fans nuevos 7d</div>
+                <div className="text-base font-semibold text-[color:var(--text)]">{formatCount(newFans7d)}</div>
+                <div className="text-[11px] text-[color:var(--muted)]">30d: {formatCount(newFans30d)}</div>
               </div>
-              <div className="rounded-xl border border-slate-800/70 bg-slate-900/60 px-3 py-2">
-                <div className="text-[10px] uppercase tracking-wide text-slate-400">Convs iniciadas 7d</div>
-                <div className="text-base font-semibold text-slate-100">{formatCount(conv7d)}</div>
-                <div className="text-[11px] text-slate-500">30d: {formatCount(conv30d)}</div>
+              <div className="rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-3 py-2">
+                <div className="text-[10px] uppercase tracking-wide text-[color:var(--muted)]">Convs iniciadas 7d</div>
+                <div className="text-base font-semibold text-[color:var(--text)]">{formatCount(conv7d)}</div>
+                <div className="text-[11px] text-[color:var(--muted)]">30d: {formatCount(conv30d)}</div>
               </div>
-              <div className="rounded-xl border border-slate-800/70 bg-slate-900/60 px-3 py-2">
-                <div className="text-[10px] uppercase tracking-wide text-slate-400">Primera compra 30d</div>
-                <div className="text-base font-semibold text-slate-100">{formatCount(firstPurchase30d)}</div>
-                <div className="text-[11px] text-slate-500">Fans que convierten</div>
+              <div className="rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-3 py-2">
+                <div className="text-[10px] uppercase tracking-wide text-[color:var(--muted)]">Primera compra 30d</div>
+                <div className="text-base font-semibold text-[color:var(--text)]">{formatCount(firstPurchase30d)}</div>
+                <div className="text-[11px] text-[color:var(--muted)]">Fans que convierten</div>
               </div>
-              <div className="rounded-xl border border-slate-800/70 bg-slate-900/60 px-3 py-2">
-                <div className="text-[10px] uppercase tracking-wide text-slate-400">
+              <div className="rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-3 py-2">
+                <div className="text-[10px] uppercase tracking-wide text-[color:var(--muted)]">
                   Sin respuesta &gt; {noResponseDays}d
                 </div>
-                <div className="text-base font-semibold text-slate-100">{formatCount(noResponseCount)}</div>
-                <div className="text-[11px] text-slate-500">Reenganche rápido</div>
+                <div className="text-base font-semibold text-[color:var(--text)]">{formatCount(noResponseCount)}</div>
+                <div className="text-[11px] text-[color:var(--muted)]">Reenganche rápido</div>
               </div>
             </div>
 
-            <div className="rounded-xl border border-slate-800/70 bg-slate-900/60 px-3 py-2">
-              <div className="text-[10px] uppercase tracking-wide text-slate-400">Sugerencias Manager IA</div>
-              <div className="mt-2 space-y-1 text-[12px] text-slate-200">
+            <div className="rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-3 py-2">
+              <div className="text-[10px] uppercase tracking-wide text-[color:var(--muted)]">Sugerencias Manager IA</div>
+              <div className="mt-2 space-y-1 text-[12px] text-[color:var(--text)]">
                 {growthSuggestions.map((item, idx) => (
                   <div key={`${item}-${idx}`}>• {item}</div>
                 ))}
