@@ -319,7 +319,7 @@ function InlinePanelShell({
           <button
             type="button"
             onClick={onClose}
-            className="inline-flex h-6 w-6 items-center justify-center rounded-full text-slate-300 transition hover:bg-slate-800/80 hover:text-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/60"
+            className="inline-flex h-6 w-6 items-center justify-center rounded-full text-slate-300 transition hover:bg-slate-800/80 hover:text-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--ring)]"
             aria-label="Cerrar panel"
           >
             ✕
@@ -2680,9 +2680,9 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
     const target = document.querySelector<HTMLElement>(`[data-draft-id="${highlightDraftId}"]`);
     if (target) {
       target.scrollIntoView({ behavior: "smooth", block: "start" });
-      target.classList.add("ring-2", "ring-emerald-400/60", "ring-offset-2", "ring-offset-slate-900");
+      target.classList.add("ring-2", "ring-[color:var(--ring)]", "ring-offset-2", "ring-offset-slate-900");
       setTimeout(() => {
-        target.classList.remove("ring-2", "ring-emerald-400/60", "ring-offset-2", "ring-offset-slate-900");
+        target.classList.remove("ring-2", "ring-[color:var(--ring)]", "ring-offset-2", "ring-offset-slate-900");
       }, 1600);
     }
     const timer = setTimeout(() => setHighlightDraftId(null), 1800);
@@ -3324,7 +3324,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
             "rounded-full border px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-[0.12em]",
             managerAlert
               ? "border-rose-400/60 bg-rose-500/10 text-rose-200"
-              : "border-emerald-400/40 bg-emerald-500/10 text-emerald-100"
+              : "border-[color:rgba(var(--brand-rgb),0.35)] bg-[color:rgba(var(--brand-rgb),0.12)] text-[color:var(--text)]"
           )}
         >
           {managerChipStatus}
@@ -3344,7 +3344,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
     const chipInactiveClass =
       "border-slate-800/70 bg-slate-900/50 text-slate-200 hover:border-slate-600/70 hover:bg-slate-800/60";
     const chipActiveClass = isFanMode
-      ? "border-emerald-400/70 bg-emerald-500/12 text-emerald-100 ring-1 ring-emerald-400/20"
+      ? "border-[color:var(--brand)] bg-[color:rgba(var(--brand-rgb),0.14)] text-[color:var(--text)] ring-1 ring-[color:var(--ring)]"
       : "border-amber-400/70 bg-amber-500/12 text-amber-100 ring-1 ring-amber-400/20";
 
     const InlineEmptyState = ({
@@ -3368,7 +3368,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
     const inlineActionButtonClass = clsx(
       "inline-flex h-7 items-center justify-center rounded-full border px-3.5 text-[11px] font-semibold transition focus-visible:outline-none focus-visible:ring-2",
       isFanMode
-        ? "border-emerald-500/60 bg-emerald-500/10 text-emerald-100 hover:bg-emerald-500/20 focus-visible:ring-emerald-400/50"
+        ? "border-[color:var(--brand)] bg-[color:rgba(var(--brand-rgb),0.12)] text-[color:var(--text)] hover:bg-[color:rgba(var(--brand-rgb),0.2)] focus-visible:ring-[color:var(--ring)]"
         : "border-amber-400/70 bg-amber-500/10 text-amber-100 hover:bg-amber-500/20 focus-visible:ring-amber-400/40"
     );
     const managerActionButtonClass = clsx(
@@ -3413,7 +3413,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
                 onClick={() => handleAttachContentClick()}
                 disabled={!canAttachContent}
                 className={clsx(
-                  "flex w-full items-center justify-between rounded-xl border px-3 py-2 text-[12px] font-semibold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/50",
+                  "flex w-full items-center justify-between rounded-xl border px-3 py-2 text-[12px] font-semibold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--ring)]",
                   !canAttachContent
                     ? "cursor-not-allowed border-slate-800 bg-slate-900/40 text-slate-500"
                     : "border-slate-800/70 bg-slate-950/40 text-slate-200 hover:border-slate-600/80 hover:bg-slate-900/60"
@@ -3435,7 +3435,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
                   className={clsx(
                     "flex w-full items-center justify-between rounded-xl border px-3 py-2 text-[12px] font-semibold transition",
                     translationPreviewOpen
-                      ? "border-emerald-400/60 bg-emerald-500/10 text-emerald-100"
+                      ? "border-[color:rgba(var(--brand-rgb),0.5)] bg-[color:rgba(var(--brand-rgb),0.12)] text-[color:var(--text)]"
                       : "border-slate-800/70 bg-slate-950/40 text-slate-200",
                     translationDisabled && "opacity-60"
                   )}
@@ -3463,9 +3463,9 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
                       }}
                       disabled={translationDisabled}
                       className={clsx(
-                        "relative inline-flex h-5 w-10 items-center rounded-full border transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/60",
+                        "relative inline-flex h-5 w-10 items-center rounded-full border transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--ring)]",
                         translationPreviewOpen
-                          ? "border-emerald-400/70 bg-emerald-500/20"
+                          ? "border-[color:var(--brand)] bg-[color:rgba(var(--brand-rgb),0.2)]"
                           : "border-slate-600 bg-slate-900/70",
                         translationDisabled && "cursor-not-allowed"
                       )}
@@ -3474,7 +3474,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
                       <span
                         className={clsx(
                           "inline-block h-4 w-4 rounded-full transition",
-                          translationPreviewOpen ? "translate-x-5 bg-emerald-200" : "translate-x-1 bg-slate-400"
+                          translationPreviewOpen ? "translate-x-5 bg-[color:var(--brand)]" : "translate-x-1 bg-slate-400"
                         )}
                       />
                     </button>
@@ -3504,7 +3504,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
                         handlePreferredLanguageChange(value as SupportedLanguage);
                       }}
                       disabled={preferredLanguageSaving}
-                      className="flex-1 rounded-lg border border-slate-700 bg-slate-900 px-2 py-1 text-[11px] font-semibold text-slate-100 focus:border-emerald-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/60"
+                      className="flex-1 rounded-lg border border-slate-700 bg-slate-900 px-2 py-1 text-[11px] font-semibold text-slate-100 focus:border-[color:var(--border-a)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--ring)]"
                     >
                       <option value="auto" disabled>
                         Auto (EN por defecto)
@@ -3672,7 +3672,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
                   "rounded-2xl px-4 py-2.5 text-xs leading-relaxed whitespace-pre-wrap break-words [overflow-wrap:anywhere]",
                   "[&_a]:underline [&_a]:underline-offset-2",
                   isCreator
-                    ? "bg-emerald-600/80 text-white"
+                    ? "bg-[color:var(--brand-weak)] text-[color:var(--text)] border border-[color:rgba(var(--brand-rgb),0.24)]"
                     : isManager
                     ? "bg-slate-800/80 text-slate-100"
                     : "bg-slate-900/70 text-slate-300"
@@ -3727,7 +3727,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
               type="checkbox"
               checked={includeInternalContext}
               onChange={toggleIncludeInternalContext}
-              className="h-3 w-3 rounded border-slate-600 bg-slate-900 text-emerald-400 focus:ring-2 focus:ring-emerald-400/40"
+              className="h-3 w-3 rounded border-slate-600 bg-slate-900 text-[color:var(--brand)] focus:ring-2 focus:ring-[color:var(--ring)]"
             />
             <span>Incluir borradores ({internalDraftCount})</span>
           </label>
@@ -3791,7 +3791,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
                   >
                     <div className="flex flex-wrap items-center gap-2 text-[10px] uppercase tracking-wide text-slate-500">
                       <span>{formatNoteDate(draft.createdAt)}</span>
-                      <span className="text-emerald-200">{sourceLabel}</span>
+                      <span className="text-[color:var(--brand)]">{sourceLabel}</span>
                       {showLabel && <span className="text-slate-300">{showLabel}</span>}
                       {toneLabel && <span className="text-slate-300">Tono {toneLabel}</span>}
                     </div>
@@ -3849,7 +3849,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
                         isCreatorNote
                           ? "bg-amber-500/20 text-amber-50"
                           : "bg-slate-800/80 text-slate-100",
-                        highlightDraftId === msg.id && "ring-2 ring-emerald-400/60 ring-offset-2 ring-offset-slate-900"
+                        highlightDraftId === msg.id && "ring-2 ring-[color:var(--ring)] ring-offset-2 ring-offset-slate-900"
                       )}
                     >
                       {isCreatorNote && (
@@ -4099,7 +4099,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
                 type="button"
                 onClick={handleSaveNextAction}
                 disabled={!hasNextActionDraft}
-                className="rounded-lg border border-emerald-400/80 bg-emerald-500/10 px-3 py-1 text-xs font-medium text-emerald-100 disabled:cursor-not-allowed disabled:opacity-50 hover:bg-emerald-500/20"
+                className="rounded-lg border border-[color:var(--brand)] bg-[color:rgba(var(--brand-rgb),0.12)] px-3 py-1 text-xs font-medium text-[color:var(--text)] disabled:cursor-not-allowed disabled:opacity-50 hover:bg-[color:rgba(var(--brand-rgb),0.2)]"
               >
                 Guardar seguimiento
               </button>
@@ -4220,7 +4220,8 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
           "inline-flex items-center rounded-full border px-3 py-1 text-[11px] font-semibold transition";
         const templateTabInactive =
           "border-slate-700 bg-slate-900/60 text-slate-300 hover:border-slate-500/80";
-        const templateTabFanActive = "border-emerald-400/70 bg-emerald-500/15 text-emerald-100";
+        const templateTabFanActive =
+          "border-[color:var(--brand)] bg-[color:rgba(var(--brand-rgb),0.16)] text-[color:var(--text)]";
         const templateTabManagerActive = "border-amber-400/70 bg-amber-500/15 text-amber-100";
         return (
           <InlinePanelShell
@@ -4455,7 +4456,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
                 event.stopPropagation();
                 handleManagerPanelTabClick("tools");
               }}
-              className="inline-flex items-center gap-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/40"
+              className="inline-flex items-center gap-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--ring)]"
               aria-expanded={managerPanelOpen && managerPanelTab === "tools"}
               aria-controls={panelId}
             >
@@ -6612,7 +6613,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
   const showTipsInline = typeof tipsSpentDisplay === "number" && tipsSpentDisplay > 0;
   const purchaseKindMeta: Record<"EXTRA" | "TIP" | "GIFT", { label: string; icon: IconName; tone: string }> =
     {
-      EXTRA: { label: "Extra", icon: "gem", tone: "text-emerald-200" },
+      EXTRA: { label: "Extra", icon: "gem", tone: "text-[color:var(--brand)]" },
       TIP: { label: "Propina", icon: "coin", tone: "text-amber-200" },
       GIFT: { label: "Regalo", icon: "gift", tone: "text-sky-200" },
     };
@@ -7106,7 +7107,8 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
     ? ({
         ok: {
           icon: "check",
-          iconClass: "border-emerald-400/50 bg-emerald-500/10 text-emerald-200",
+          iconClass:
+            "border-[color:rgba(var(--brand-rgb),0.45)] bg-[color:rgba(var(--brand-rgb),0.12)] text-[color:var(--brand)]",
         },
         info: {
           icon: "info",
@@ -7243,7 +7245,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
                 type="button"
                 onClick={handleViewProfile}
                 aria-label="Ver ficha del fan"
-                className="inline-flex items-center rounded-full border border-emerald-500/70 px-3 py-1.5 text-xs font-medium text-emerald-300 hover:bg-emerald-500/10"
+                className="inline-flex items-center rounded-full border border-[color:var(--brand)] px-3 py-1.5 text-xs font-medium text-[color:var(--brand)] hover:bg-[color:rgba(var(--brand-rgb),0.1)]"
               >
                 Ver ficha
               </button>
@@ -7511,7 +7513,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
                 className={clsx(
                   "rounded-full border px-3 py-1 font-semibold transition",
                   historyFilter === filter.id
-                    ? "border-emerald-400/80 bg-emerald-500/10 text-emerald-100"
+                    ? "border-[color:var(--brand)] bg-[color:rgba(var(--brand-rgb),0.12)] text-[color:var(--text)]"
                     : "border-slate-700 bg-slate-950/50 text-slate-300 hover:border-slate-500/80 hover:text-slate-100"
                 )}
               >
@@ -7748,7 +7750,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
             fanId={id || "none"} | loading={String(isLoadingMessages)} | msgs={messages.length} | error={messagesError || "none"}
           </div>
         )}
-        <div className="flex flex-col bg-[#202c33] w-full h-auto py-3 px-4 text-[#8696a0] gap-3 flex-shrink-0 overflow-visible">
+        <div className="flex flex-col bg-[color:var(--surface-1)] w-full h-auto py-3 px-4 text-[color:var(--muted)] gap-3 flex-shrink-0 overflow-visible">
           {showExtraTemplates && (
             <div className="flex flex-col gap-3 bg-slate-800/60 border border-slate-700 rounded-lg p-3 w-full">
               <div className="mb-1 flex items-center justify-between">
@@ -7899,7 +7901,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
                         />
                         <button
                           type="button"
-                          className="rounded-lg border border-emerald-400 bg-emerald-500/10 px-3 py-2 text-xs font-semibold text-emerald-100 hover:bg-emerald-500/20"
+                          className="rounded-lg border border-[color:var(--brand)] bg-[color:rgba(var(--brand-rgb),0.12)] px-3 py-2 text-xs font-semibold text-[color:var(--text)] hover:bg-[color:rgba(var(--brand-rgb),0.2)]"
                           onClick={async () => {
                             if (!id || !selectedExtraId) {
                               setExtraError("Selecciona fan y extra.");
@@ -7998,7 +8000,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
           )}
           <div className="sticky bottom-0 z-30 border-t border-slate-800/60 bg-gradient-to-b from-slate-950/90 via-slate-950/80 to-slate-950/70 backdrop-blur-xl">
             <div className="max-w-4xl mx-auto w-full px-4 sm:px-6 lg:px-8 py-2.5">
-              {internalToast && <div className="mb-2 text-[11px] text-emerald-300">{internalToast}</div>}
+              {internalToast && <div className="mb-2 text-[11px] text-[color:var(--brand)]">{internalToast}</div>}
               {composerDock?.chips}
               <ChatComposerBar
                 value={messageSend}
@@ -8095,7 +8097,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
                 type="button"
                 onClick={handleSelectionCreateFollowUp}
                 onPointerDown={handleToolbarPointerDown}
-                className="inline-flex items-center gap-1 rounded-full border border-emerald-400/70 bg-emerald-500/10 px-3 py-1 text-[11px] font-semibold text-emerald-100 hover:bg-emerald-500/20"
+                className="inline-flex items-center gap-1 rounded-full border border-[color:var(--brand)] bg-[color:rgba(var(--brand-rgb),0.12)] px-3 py-1 text-[11px] font-semibold text-[color:var(--text)] hover:bg-[color:rgba(var(--brand-rgb),0.2)]"
               >
                 Crear seguimiento
               </button>
@@ -8117,7 +8119,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
                   applyComposerInsert(pendingInsert.text, "append", pendingInsert.detail);
                   setPendingInsert(null);
                 }}
-                className="inline-flex w-full items-center justify-center rounded-full border border-emerald-500/70 bg-emerald-500/15 px-4 py-2 text-[12px] font-semibold text-emerald-100 hover:bg-emerald-500/25"
+                className="inline-flex w-full items-center justify-center rounded-full border border-[color:var(--brand)] bg-[color:rgba(var(--brand-rgb),0.16)] px-4 py-2 text-[12px] font-semibold text-[color:var(--text)] hover:bg-[color:rgba(var(--brand-rgb),0.25)]"
               >
                 Añadir abajo
               </button>
@@ -8175,7 +8177,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
                         className={clsx(
                           "px-3 py-1 text-[11px] font-semibold rounded-full transition",
                           isActive
-                            ? "bg-emerald-500/20 text-emerald-200 border border-emerald-400/70"
+                            ? "bg-[color:rgba(var(--brand-rgb),0.18)] text-[color:var(--text)] border border-[color:var(--brand)]"
                             : "text-slate-200"
                         )}
                         onClick={() => setContentModalMode(mode)}
@@ -8215,7 +8217,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
                         className={clsx(
                           "px-2 py-1 rounded-full",
                           timeOfDayFilter === val
-                            ? "bg-emerald-500/20 text-emerald-200 border border-emerald-400/70"
+                            ? "bg-[color:rgba(var(--brand-rgb),0.18)] text-[color:var(--text)] border border-[color:var(--brand)]"
                             : "text-slate-200"
                         )}
                       >
@@ -8228,7 +8230,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
                       className={clsx(
                         "px-2 py-1 rounded-full",
                         timeOfDayFilter === "all"
-                          ? "bg-emerald-500/20 text-emerald-200 border border-emerald-400/70"
+                          ? "bg-[color:rgba(var(--brand-rgb),0.18)] text-[color:var(--text)] border border-[color:var(--brand)]"
                           : "text-slate-200"
                       )}
                     >
@@ -8272,7 +8274,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
                     ? "Pack superior (requiere suscripción mensual)"
                     : "Pack superior (no incluido)";
                   const badgeClass = isUnlocked
-                    ? "border-emerald-400 text-emerald-200 bg-emerald-500/10"
+                    ? "border-[color:var(--brand)] text-[color:var(--brand)] bg-[color:rgba(var(--brand-rgb),0.1)]"
                     : "border-slate-600 text-slate-300";
                   const packItems = contentItems.filter((item) => item.pack === packMeta.code);
                   return (
@@ -8339,7 +8341,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
                                 )}
                                 <span>{item.title}</span>
                                 {item.hasBeenSentToFan && (
-                                  <span className="text-[10px] text-emerald-300 border border-emerald-400/60 rounded-full px-2 py-[1px]">
+                                  <span className="text-[10px] text-[color:var(--brand)] border border-[color:rgba(var(--brand-rgb),0.5)] rounded-full px-2 py-[1px]">
                                     Enviado
                                   </span>
                                 )}
@@ -8401,7 +8403,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
                                 <IconGlyph name={typeIcon} className="h-4 w-4" />
                                 <span>{item.title}</span>
                                 {item.hasBeenSentToFan && (
-                                  <span className="text-[10px] text-emerald-300 border border-emerald-400/60 rounded-full px-2 py-[1px]">
+                                  <span className="text-[10px] text-[color:var(--brand)] border border-[color:rgba(var(--brand-rgb),0.5)] rounded-full px-2 py-[1px]">
                                     Enviado
                                   </span>
                                 )}
@@ -8490,7 +8492,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
                             className={clsx(
                               "px-3 py-1 rounded-full transition",
                               isActive
-                                ? "bg-emerald-500/20 text-emerald-200 border border-emerald-400/70"
+                                ? "bg-[color:rgba(var(--brand-rgb),0.18)] text-[color:var(--text)] border border-[color:var(--brand)]"
                                 : "text-slate-200"
                             )}
                           >
@@ -8510,7 +8512,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
                         onClick={() => {
                           void router.push("/creator/manager");
                         }}
-                        className="inline-flex items-center justify-center rounded-full border border-emerald-500/60 bg-emerald-500/15 px-3 py-1 text-[11px] font-semibold text-emerald-100 hover:bg-emerald-500/25"
+                        className="inline-flex items-center justify-center rounded-full border border-[color:var(--brand)] bg-[color:rgba(var(--brand-rgb),0.16)] px-3 py-1 text-[11px] font-semibold text-[color:var(--text)] hover:bg-[color:rgba(var(--brand-rgb),0.25)]"
                       >
                         Abrir Cortex
                       </button>
@@ -8535,7 +8537,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
                                     className={clsx(
                                       "rounded-full border px-2 py-0.5 text-[10px] font-semibold",
                                       item.isActive
-                                        ? "border-emerald-500/50 bg-emerald-500/10 text-emerald-100"
+                                        ? "border-[color:rgba(var(--brand-rgb),0.5)] bg-[color:rgba(var(--brand-rgb),0.12)] text-[color:var(--text)]"
                                         : "border-slate-700/70 bg-slate-950/60 text-slate-300"
                                     )}
                                   >
@@ -8545,7 +8547,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
                                     className={clsx(
                                       "rounded-full border px-2 py-0.5 text-[10px] font-semibold",
                                       item.isPublic
-                                        ? "border-emerald-500/50 bg-emerald-500/10 text-emerald-100"
+                                        ? "border-[color:rgba(var(--brand-rgb),0.5)] bg-[color:rgba(var(--brand-rgb),0.12)] text-[color:var(--text)]"
                                         : "border-slate-700/70 bg-slate-950/60 text-slate-300"
                                     )}
                                   >
@@ -8567,7 +8569,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
                                 <button
                                   type="button"
                                   onClick={() => handleCatalogInsert(item)}
-                                  className="inline-flex items-center justify-center rounded-full border border-emerald-500/60 bg-emerald-500/15 px-3 py-1 text-[11px] font-semibold text-emerald-100 hover:bg-emerald-500/25"
+                                  className="inline-flex items-center justify-center rounded-full border border-[color:var(--brand)] bg-[color:rgba(var(--brand-rgb),0.16)] px-3 py-1 text-[11px] font-semibold text-[color:var(--text)] hover:bg-[color:rgba(var(--brand-rgb),0.25)]"
                                 >
                                   Insertar
                                 </button>
@@ -8696,7 +8698,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
               <button
                 type="button"
                 onClick={handleConfirmDuplicateSend}
-                className="rounded-full border border-emerald-500/60 bg-emerald-600/20 px-4 py-2 text-sm font-semibold text-emerald-100 hover:bg-emerald-600/30"
+                className="rounded-full border border-[color:var(--brand)] bg-[color:rgba(var(--brand-rgb),0.2)] px-4 py-2 text-sm font-semibold text-[color:var(--text)] hover:bg-[color:rgba(var(--brand-rgb),0.3)]"
               >
                 Enviar igual
               </button>
@@ -8727,7 +8729,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
                   <button
                     type="button"
                     onClick={handleOpenEditName}
-                    className="inline-flex items-center gap-1 rounded-full border border-slate-700 bg-slate-800/70 px-2 py-0.5 text-[11px] text-slate-200 hover:border-emerald-400 hover:text-emerald-100"
+                    className="inline-flex items-center gap-1 rounded-full border border-slate-700 bg-slate-800/70 px-2 py-0.5 text-[11px] text-slate-200 hover:border-[color:var(--brand)] hover:text-[color:var(--text)]"
                   >
                     <IconGlyph name="edit" className="h-3.5 w-3.5" />
                     <span>Editar</span>
@@ -8749,7 +8751,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
                     </span>
                   )}
                   {extrasCountDisplay > 0 && (
-                    <span className="inline-flex items-center rounded-full bg-emerald-500/15 text-emerald-100 px-2 py-[1px]">
+                    <span className="inline-flex items-center rounded-full bg-[color:var(--brand-weak)] text-[color:var(--text)] px-2 py-[1px]">
                       Extras
                     </span>
                   )}
@@ -8796,7 +8798,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
                     handlePreferredLanguageChange(value as SupportedLanguage);
                   }}
                   disabled={preferredLanguageSaving}
-                  className="rounded-full border border-slate-700 bg-slate-800/70 px-3 py-1 text-[11px] font-semibold text-slate-100 focus:border-emerald-400"
+                  className="rounded-full border border-slate-700 bg-slate-800/70 px-3 py-1 text-[11px] font-semibold text-slate-100 focus:border-[color:var(--border-a)]"
                 >
                   <option value="auto" disabled>
                     Auto (EN por defecto)
@@ -8837,7 +8839,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
               <button
                 type="button"
                 onClick={handleOpenHistoryFromSheet}
-                className="rounded-full bg-emerald-500 px-4 py-2 text-sm font-semibold text-slate-950 hover:bg-emerald-400"
+                className="rounded-full bg-[color:var(--brand-strong)] px-4 py-2 text-sm font-semibold text-slate-950 hover:bg-[color:var(--brand)]"
               >
                 Ver historial
               </button>
@@ -8865,7 +8867,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
                   {inviteCopyUrl}
                 </div>
               )}
-              {inviteCopyToast && <p className="text-xs text-emerald-300">{inviteCopyToast}</p>}
+              {inviteCopyToast && <p className="text-xs text-[color:var(--brand)]">{inviteCopyToast}</p>}
               {inviteCopyError && <p className="text-xs text-rose-300">{inviteCopyError}</p>}
             </div>
           </div>
@@ -8888,7 +8890,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
             <label className="flex flex-col gap-1 text-sm text-slate-300">
               <span>Nombre o alias</span>
               <input
-                className="w-full rounded-lg bg-slate-800/70 border border-slate-700 px-3 py-2 text-sm text-white focus:border-emerald-400"
+                className="w-full rounded-lg bg-slate-800/70 border border-slate-700 px-3 py-2 text-sm text-white focus:border-[color:var(--border-a)]"
                 value={editNameValue}
                 onChange={(e) => setEditNameValue(e.target.value)}
                 placeholder="Ej: Ana"
@@ -8910,7 +8912,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
                   "rounded-full border px-4 py-2 text-sm font-semibold transition",
                   editNameSaving
                     ? "border-slate-700 bg-slate-800/60 text-slate-400 cursor-not-allowed"
-                    : "border-emerald-400 bg-emerald-500/15 text-emerald-100 hover:bg-emerald-500/25"
+                    : "border-[color:var(--brand)] bg-[color:rgba(var(--brand-rgb),0.16)] text-[color:var(--text)] hover:bg-[color:rgba(var(--brand-rgb),0.25)]"
                 )}
                 onClick={() => void handleSaveEditName()}
               >
@@ -8937,7 +8939,8 @@ function ContentAttachmentCard({ message }: { message: ConversationMessage }) {
   const badgeClass = (() => {
     if (visibilityLabel.toLowerCase().includes("vip")) return "border-amber-400/80 text-amber-200";
     if (visibilityLabel.toLowerCase().includes("extra")) return "border-sky-400/70 text-sky-200";
-    if (visibilityLabel.toLowerCase().includes("incluido")) return "border-emerald-400/70 text-emerald-200";
+    if (visibilityLabel.toLowerCase().includes("incluido"))
+      return "border-[color:var(--brand)] text-[color:var(--brand)]";
     return "border-slate-600 text-slate-200";
   })();
 
@@ -8954,7 +8957,7 @@ function ContentAttachmentCard({ message }: { message: ConversationMessage }) {
       <div
         className={clsx(
           "flex flex-col min-w-[5%] max-w-[65%] p-3 text-white rounded-lg mb-3 shadow-sm border",
-          isInternal ? "bg-amber-500/10 border-amber-400/50" : "bg-[#202c33] border-slate-800"
+          isInternal ? "bg-amber-500/10 border-amber-400/50" : "bg-[color:var(--surface-2)] border-[color:var(--border)]"
         )}
       >
         {isInternal && (

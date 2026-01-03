@@ -60,10 +60,10 @@ const MessageBalloon = memo(function MessageBalloon(props: MessageBalloonProps) 
     variant === "internal"
       ? "bg-amber-500/15 text-amber-50 border border-amber-400/60"
       : me
-      ? "bg-emerald-600 text-white"
-      : "bg-slate-800 text-slate-50";
+      ? "bg-[color:var(--brand-weak)] text-[color:var(--text)] border border-[color:rgba(var(--brand-rgb),0.28)]"
+      : "bg-[color:var(--surface-2)] text-[color:var(--text)] border border-[color:var(--border)]";
   const bubblePadding = isSticker ? "p-2" : "px-4 py-2";
-  const bubbleTone = isSticker ? "bg-slate-900/70 border border-slate-800/60" : bubbleClass;
+  const bubbleTone = isSticker ? "bg-[color:var(--surface-2)] border border-[color:var(--border)]" : bubbleClass;
   const reactionAlign = me ? "right-0" : "left-0";
   const canShowReactions = enableReactions && Boolean(messageId) && Boolean(reactionFanId) && !isSticker;
   const { favorites } = useEmojiFavorites();
@@ -214,7 +214,7 @@ const MessageBalloon = memo(function MessageBalloon(props: MessageBalloonProps) 
     >
       <div className="max-w-[75%]">
         <p
-          className={`mb-1 text-[10px] uppercase tracking-wide text-slate-400 ${me ? "text-right" : ""}`}
+          className={`mb-1 text-[10px] uppercase tracking-wide text-[color:var(--muted)] ${me ? "text-right" : ""}`}
         >
           <span>{me ? meLabel || "Tú" : fromLabel || "Fan"} • {time}</span>
           {badge && (
@@ -257,7 +257,7 @@ const MessageBalloon = memo(function MessageBalloon(props: MessageBalloonProps) 
                   className={clsx(
                     "flex h-7 w-7 items-center justify-center rounded-full border text-sm",
                     actorReaction === emoji
-                      ? "border-emerald-400/70 bg-emerald-500/15 text-emerald-100"
+                      ? "border-[color:var(--brand)] bg-[color:rgba(var(--brand-rgb),0.14)] text-[color:var(--text)]"
                       : "border-slate-700/70 bg-slate-900/70 text-slate-100 hover:bg-slate-800/80"
                   )}
                 >
@@ -341,7 +341,7 @@ const MessageBalloon = memo(function MessageBalloon(props: MessageBalloonProps) 
                 className={clsx(
                   "inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] transition",
                   actorReaction === entry.emoji
-                    ? "border-emerald-400/70 bg-emerald-500/15 text-emerald-100"
+                    ? "border-[color:var(--brand)] bg-[color:rgba(var(--brand-rgb),0.14)] text-[color:var(--text)]"
                     : "border-slate-700/70 bg-slate-900/70 text-slate-100 hover:bg-slate-800/80"
                 )}
                 aria-label={`Reacción ${entry.emoji}`}
@@ -352,10 +352,10 @@ const MessageBalloon = memo(function MessageBalloon(props: MessageBalloonProps) 
             ))}
           </div>
         )}
-        {status === "sending" && <div className="mt-1 text-[10px] text-slate-400 text-right">Enviando...</div>}
+        {status === "sending" && <div className="mt-1 text-[10px] text-[color:var(--muted)] text-right">Enviando...</div>}
         {status === "failed" && <div className="mt-1 text-[10px] text-rose-300 text-right">Fallo al enviar</div>}
         {me && seen ? (
-          <div className="mt-1 flex items-center justify-end gap-1 text-[10px] text-[#8edafc]">
+          <div className="mt-1 flex items-center justify-end gap-1 text-[10px] text-[color:var(--muted)]">
             <span className="inline-flex -space-x-1">
               <IconGlyph name="check" className="h-3 w-3" />
               <IconGlyph name="check" className="h-3 w-3" />

@@ -69,7 +69,7 @@ export default function FanManagerPanel({
       : tone === "warning"
       ? "border-amber-400/70 bg-amber-500/10 text-amber-100"
       : tone === "success"
-      ? "border-emerald-400/70 bg-emerald-500/10 text-emerald-100"
+      ? "border-[color:var(--brand)] bg-[color:var(--brand-weak)] text-[color:var(--text)]"
       : tone === "info"
       ? "border-sky-400/70 bg-sky-500/10 text-sky-100"
       : "border-slate-700 bg-slate-900/60 text-slate-100";
@@ -94,14 +94,15 @@ export default function FanManagerPanel({
       ? "border-rose-400/70 bg-rose-500/10 text-rose-100"
       : data.riskLevel === "MEDIUM"
       ? "border-amber-400/70 bg-amber-500/10 text-amber-100"
-      : "border-emerald-400/70 bg-emerald-500/10 text-emerald-100"
+      : "border-[color:rgba(var(--brand-rgb),0.55)] bg-[color:rgba(var(--brand-rgb),0.1)] text-[color:rgba(var(--brand-rgb),0.9)]"
     : "border-slate-700 bg-slate-900/60 text-slate-100";
 
   const dataChips: { label: string; className: string }[] = [];
   if (scoreLabel) {
     dataChips.push({
       label: scoreLabel,
-      className: "inline-flex items-center rounded-full border border-emerald-500/60 bg-emerald-500/5 px-3 py-0.5 text-xs md:text-sm font-medium text-emerald-300",
+      className:
+        "inline-flex items-center rounded-full border border-[color:rgba(var(--brand-rgb),0.5)] bg-[color:rgba(var(--brand-rgb),0.08)] px-3 py-0.5 text-xs md:text-sm font-medium text-[color:rgba(var(--brand-rgb),0.95)]",
     });
   }
   if (stageLabel) {
@@ -150,7 +151,7 @@ export default function FanManagerPanel({
         </div>
         {headline && <div className="text-xs md:text-sm text-slate-300">{headline}</div>}
         {suggestedObjective && (
-          <div className="text-[11px] text-emerald-200">
+          <div className="text-[11px] text-[color:var(--brand)]">
             Objetivo sugerido: {formatObjectiveLabel(suggestedObjective)}
           </div>
         )}
@@ -166,8 +167,8 @@ export default function FanManagerPanel({
               className={clsx(
                 "rounded-full px-3 py-1 text-xs border transition",
                 tone === "suave"
-                  ? "bg-emerald-600 text-white border-emerald-500"
-                  : "bg-slate-800 text-slate-200 border-slate-600 hover:border-emerald-400"
+                  ? "bg-[color:var(--brand-strong)] text-white border-[color:var(--brand)]"
+                  : "bg-slate-800 text-slate-200 border-slate-600 hover:border-[color:var(--brand)]"
               )}
             >
               Suave
@@ -178,8 +179,8 @@ export default function FanManagerPanel({
               className={clsx(
                 "rounded-full px-3 py-1 text-xs border transition",
                 tone === "intimo"
-                  ? "bg-emerald-600 text-white border-emerald-500"
-                  : "bg-slate-800 text-slate-200 border-slate-600 hover:border-emerald-400"
+                  ? "bg-[color:var(--brand-strong)] text-white border-[color:var(--brand)]"
+                  : "bg-slate-800 text-slate-200 border-slate-600 hover:border-[color:var(--brand)]"
               )}
             >
               Íntimo
@@ -190,8 +191,8 @@ export default function FanManagerPanel({
               className={clsx(
                 "rounded-full px-3 py-1 text-xs border transition",
                 tone === "picante"
-                  ? "bg-emerald-600 text-white border-emerald-500"
-                  : "bg-slate-800 text-slate-200 border-slate-600 hover:border-emerald-400"
+                  ? "bg-[color:var(--brand-strong)] text-white border-[color:var(--brand)]"
+                  : "bg-slate-800 text-slate-200 border-slate-600 hover:border-[color:var(--brand)]"
               )}
             >
               Picante
@@ -241,7 +242,7 @@ export default function FanManagerPanel({
                   <button
                     key={s.id}
                     type="button"
-                    className="w-full md:w-auto inline-flex items-center justify-center rounded-full border border-emerald-500/70 bg-transparent px-5 md:px-6 py-2.5 text-sm md:text-base font-medium text-emerald-300 hover:bg-emerald-500/10 transition"
+                    className="w-full md:w-auto inline-flex items-center justify-center rounded-full border border-[color:var(--brand)] bg-transparent px-5 md:px-6 py-2.5 text-sm md:text-base font-medium text-[color:var(--brand)] hover:bg-[color:rgba(var(--brand-rgb),0.1)] transition"
                     onClick={() => {
                       if (onSuggestionClick) onSuggestionClick(s.text);
                     }}

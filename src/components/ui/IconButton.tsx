@@ -41,19 +41,19 @@ export const IconButton = forwardRef<HTMLButtonElement, IconButtonProps>(functio
   const toneClass =
     tone === "amber"
       ? "hover:border-amber-300 hover:text-amber-100"
-      : tone === "emerald"
-      ? "hover:border-emerald-400/60 hover:text-emerald-100"
-      : "hover:border-slate-500 hover:text-slate-200";
+    : tone === "emerald"
+      ? "hover:border-[color:var(--brand)] hover:text-[color:var(--text)]"
+      : "hover:border-[color:var(--border-a)] hover:text-[color:var(--text)]";
   const ringClass =
     tone === "amber" ? focusRingAmber : tone === "emerald" ? focusRingEmerald : focusRing;
   const activeClass =
     active && tone === "amber"
       ? "border-amber-400/70 text-amber-100"
-      : active && tone === "emerald"
-      ? "border-emerald-400/70 text-emerald-100"
-      : active
-      ? "border-slate-500 text-slate-200"
-      : "border-slate-700 text-slate-300";
+    : active && tone === "emerald"
+      ? "border-[color:var(--brand)] text-[color:var(--text)]"
+    : active
+      ? "border-[color:var(--border-a)] text-[color:var(--text)]"
+      : "border-[color:var(--border)] text-slate-300";
   const iconNode =
     typeof icon === "string" ? <IconGlyph name={icon as IconName} size={iconSize} /> : icon;
 

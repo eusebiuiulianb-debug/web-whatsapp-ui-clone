@@ -199,7 +199,7 @@ export function StickerPicker({ isOpen, anchorRef, onClose, onSelect }: StickerP
                 "rounded-full border px-2 py-0.5 text-[10px] font-semibold",
                 isActive
                   ? isSuave
-                    ? "border-emerald-400/70 bg-emerald-500/10 text-emerald-100"
+                    ? "border-[color:var(--brand)] bg-[color:var(--brand-weak)] text-[color:var(--text)]"
                     : "border-amber-400/70 bg-amber-500/10 text-amber-100"
                   : "border-slate-700/70 bg-slate-900/60 text-slate-300 hover:text-slate-100"
               )}

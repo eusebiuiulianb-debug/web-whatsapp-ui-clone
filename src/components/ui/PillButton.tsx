@@ -22,7 +22,7 @@ export function PillButton({
 }: PillButtonProps) {
   const intentClass = (() => {
     if (intent === "primary") {
-      return "border-emerald-500/60 bg-emerald-600 text-white hover:bg-emerald-500";
+      return "border-[color:var(--brand)] bg-[color:var(--brand-strong)] text-white hover:bg-[color:var(--brand)]";
     }
     if (intent === "ghost") {
       return "border-slate-700 bg-transparent text-slate-200 hover:bg-slate-800/60";
@@ -38,7 +38,7 @@ export function PillButton({
       onClick={onClick}
       disabled={disabled}
       className={clsx(
-        "inline-flex items-center justify-center rounded-full border transition whitespace-nowrap focus:outline-none focus:ring-1 focus:ring-emerald-500/50 disabled:opacity-60 disabled:cursor-not-allowed",
+        "inline-flex items-center justify-center rounded-full border transition whitespace-nowrap focus:outline-none focus:ring-1 focus:ring-[color:var(--ring)] disabled:opacity-60 disabled:cursor-not-allowed",
         intentClass,
         sizeClass,
         className

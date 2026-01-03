@@ -40,10 +40,13 @@ const TONE_STYLES: Record<
     ring: focusRing,
   },
   emerald: {
-    accent: "border-emerald-400/60 bg-emerald-500/18 text-emerald-100",
-    accentHover: "hover:bg-emerald-500/25 hover:border-emerald-300/70",
-    subtle: "border-emerald-400/25 bg-emerald-500/8 text-emerald-200/75",
-    subtleHover: "hover:bg-emerald-500/14 hover:border-emerald-300/45",
+    accent: "border-[color:var(--brand)] bg-[color:rgba(var(--brand-rgb),0.18)] text-[color:var(--text)]",
+    accentHover:
+      "hover:bg-[color:rgba(var(--brand-rgb),0.24)] hover:border-[color:var(--brand-strong)]",
+    subtle:
+      "border-[color:rgba(var(--brand-rgb),0.22)] bg-[color:rgba(var(--brand-rgb),0.08)] text-[color:rgba(var(--brand-rgb),0.85)]",
+    subtleHover:
+      "hover:bg-[color:rgba(var(--brand-rgb),0.12)] hover:border-[color:rgba(var(--brand-rgb),0.4)]",
     ring: focusRingEmerald,
   },
   amber: {
@@ -117,7 +120,7 @@ export function Chip({
   const ringClass = toneStyles.ring;
   const iconSize = size === "md" ? "md" : "sm";
   const chipTitle = title ?? ariaLabel;
-  const activeClass = resolvedActive ? "ring-1 ring-[color:var(--surface-border-hover)]" : "";
+  const activeClass = resolvedActive ? "ring-1 ring-[color:var(--ring)]" : "";
   const content = (
     <>
       {leftGlyph ? (

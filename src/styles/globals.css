@@ -11,21 +11,33 @@
 body {
   font-family: Segoe UI,Helvetica Neue,Helvetica,Lucida Grande,Arial,Ubuntu,Cantarell,Fira Sans,sans-serif;
   font-size: 16px;
-  background: #0a1014;
+  background: var(--surface-0);
 }
 
 :root {
   --dock-gap: 8px;
+  --brand-rgb: 52, 211, 153;
+  --brand: rgb(var(--brand-rgb));
+  --brand-strong: #10b981;
+  --brand-weak: rgba(var(--brand-rgb), 0.12);
+  --text: #e5edf3;
+  --muted: rgba(148, 163, 184, 0.82);
+  --surface-0: #0a1014;
   --surface-1: rgba(17, 27, 33, 0.92);
   --surface-2: rgba(12, 18, 22, 0.75);
-  --surface-border: rgba(148, 163, 184, 0.14);
-  --surface-border-hover: rgba(148, 163, 184, 0.22);
-  --surface-ring: rgba(148, 163, 184, 0.18);
+  --border: rgba(148, 163, 184, 0.14);
+  --border-a: rgba(148, 163, 184, 0.22);
+  --ring: rgba(148, 163, 184, 0.22);
+  --warning: #f59e0b;
+  --danger: #f43f5e;
+  --surface-border: var(--border);
+  --surface-border-hover: var(--border-a);
+  --surface-ring: var(--ring);
   --chat-pattern:
     linear-gradient(180deg, rgba(8, 13, 18, 0.94), rgba(8, 13, 18, 0.94)),
-    radial-gradient(circle at 12% 20%, rgba(16, 185, 129, 0.05), transparent 45%),
-    radial-gradient(circle at 85% 75%, rgba(16, 185, 129, 0.04), transparent 50%),
-    repeating-linear-gradient(135deg, rgba(148, 163, 184, 0.035) 0, rgba(148, 163, 184, 0.035) 1px, transparent 1px, transparent 18px);
+    radial-gradient(circle at 12% 20%, rgba(var(--brand-rgb), 0.045), transparent 46%),
+    radial-gradient(circle at 85% 75%, rgba(var(--brand-rgb), 0.04), transparent 52%),
+    repeating-linear-gradient(135deg, rgba(148, 163, 184, 0.025) 0, rgba(148, 163, 184, 0.025) 1px, transparent 1px, transparent 20px);
 }
 
 @media (max-width: 768px) {

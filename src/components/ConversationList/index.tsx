@@ -46,7 +46,7 @@ export default function ConversationList(props: ConversationListProps) {
     daysLeft,
     urgencyLevel,
   } = data;
-  const borderClass = isFirstConversation ? "border-transparent" : "border-[rgba(134,150,160,0.15)]";
+  const borderClass = isFirstConversation ? "border-transparent" : "border-[color:var(--border)]";
   const isManagerChat = data.isManager === true;
   const previewMessage =
     typeof lastMessage === "string" && isStickerToken(lastMessage) ? "Sticker" : lastMessage;
@@ -69,7 +69,7 @@ export default function ConversationList(props: ConversationListProps) {
     const hasManagerPreview = typeof previewMessage === "string" && previewMessage.trim().length > 0;
     return (
       <div 
-        className={`flex items-center w-full bg-[#111B21] ${rowPadding} hover:bg-[#2A3942] cursor-pointer border-t ${borderClass}`}
+        className={`flex items-center w-full bg-[color:var(--surface-1)] ${rowPadding} hover:bg-[color:var(--surface-2)] cursor-pointer border-t ${borderClass}`}
         style={{ contentVisibility: "auto" }}
         onClick={() => {
           if (onSelect) {
@@ -207,7 +207,7 @@ export default function ConversationList(props: ConversationListProps) {
 
   return (
     <div 
-      className={`flex items-center w-full bg-[#111B21] ${rowPadding} hover:bg-[#2A3942] cursor-pointer border-t ${borderClass}`}
+      className={`flex items-center w-full bg-[color:var(--surface-1)] ${rowPadding} hover:bg-[color:var(--surface-2)] cursor-pointer border-t ${borderClass}`}
       style={{ contentVisibility: "auto" }}
       onClick={() => {
         if (onSelect) {

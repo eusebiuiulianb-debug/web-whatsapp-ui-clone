@@ -260,7 +260,7 @@ export function ChatComposerBar({
   const emojiPickerTopContent = (
     <>
       {emojiPickerMode === "favorite" && (
-        <div className="mb-2 rounded-lg border border-emerald-500/40 bg-emerald-500/10 px-2 py-1 text-[11px] text-emerald-100">
+        <div className="mb-2 rounded-lg border border-[color:rgba(var(--brand-rgb),0.4)] bg-[color:rgba(var(--brand-rgb),0.12)] px-2 py-1 text-[11px] text-[color:var(--text)]">
           {isAtMax ? "Límite de favoritos alcanzado." : "Selecciona un emoji para favoritos."}
         </div>
       )}
@@ -278,7 +278,7 @@ export function ChatComposerBar({
           : "bg-gradient-to-r from-slate-900/55 via-slate-900/75 to-slate-900/55 border-slate-700/70",
         isInternalMode
           ? "focus-within:border-amber-400/70 focus-within:ring-1 focus-within:ring-amber-400/25"
-          : "focus-within:border-emerald-400/70 focus-within:ring-1 focus-within:ring-emerald-400/25",
+          : "focus-within:border-[color:var(--border-a)] focus-within:ring-1 focus-within:ring-[color:var(--ring)]",
         isChatBlocked && !isInternalMode && "opacity-70"
       )}
     >
@@ -370,7 +370,7 @@ export function ChatComposerBar({
           "w-full min-h-[48px] resize-none overflow-y-auto bg-transparent border-0 outline-none ring-0",
           "px-1 pt-3 pb-2 text-sm leading-6 text-slate-50 whitespace-pre-wrap break-words",
           "placeholder:text-slate-300/95",
-          isInternalMode ? "caret-amber-300" : "caret-emerald-400",
+          isInternalMode ? "caret-amber-300" : "caret-[color:var(--brand)]",
           isInputDisabled && "cursor-not-allowed"
         )}
         placeholder={placeholder}
@@ -390,7 +390,7 @@ export function ChatComposerBar({
               className={clsx(
                 "flex h-9 w-9 items-center justify-center rounded-full border transition focus-visible:outline-none focus-visible:ring-2",
                 canAttach
-                  ? "border-slate-800/70 bg-slate-900/50 text-slate-200 hover:border-slate-600/80 hover:bg-slate-800/70 focus-visible:ring-emerald-400/30"
+                  ? "border-slate-800/70 bg-slate-900/50 text-slate-200 hover:border-[color:var(--border-a)] hover:bg-slate-800/70 focus-visible:ring-[color:var(--ring)]"
                   : "border-slate-800/50 bg-slate-900/30 text-slate-500 cursor-not-allowed"
               )}
               title={canAttach ? "Adjuntar contenido" : "Solo disponible cuando escribes al fan."}
@@ -413,7 +413,7 @@ export function ChatComposerBar({
                 className={clsx(
                   "flex h-9 w-9 items-center justify-center rounded-full border transition focus-visible:outline-none focus-visible:ring-2",
                   !isInputDisabled && onEmojiSelect
-                    ? "border-slate-800/70 bg-slate-900/50 text-slate-200 hover:border-slate-600/80 hover:bg-slate-800/70 focus-visible:ring-emerald-400/30"
+                    ? "border-slate-800/70 bg-slate-900/50 text-slate-200 hover:border-[color:var(--border-a)] hover:bg-slate-800/70 focus-visible:ring-[color:var(--ring)]"
                     : "border-slate-800/50 bg-slate-900/30 text-slate-500 cursor-not-allowed"
                 )}
                 title="Insertar emoji"
@@ -442,7 +442,7 @@ export function ChatComposerBar({
                 className={clsx(
                   "h-9 px-3 rounded-full border text-[11px] font-semibold transition focus-visible:outline-none focus-visible:ring-2",
                   !isInputDisabled && onStickerSelect
-                    ? "border-slate-800/70 bg-slate-900/50 text-slate-200 hover:border-slate-600/80 hover:bg-slate-800/70 focus-visible:ring-emerald-400/30"
+                    ? "border-slate-800/70 bg-slate-900/50 text-slate-200 hover:border-[color:var(--border-a)] hover:bg-slate-800/70 focus-visible:ring-[color:var(--ring)]"
                     : "border-slate-800/50 bg-slate-900/30 text-slate-500 cursor-not-allowed"
                 )}
                 title="Stickers"
@@ -473,9 +473,9 @@ export function ChatComposerBar({
                 type="button"
                 onClick={() => onAudienceChange("CREATOR")}
                 className={clsx(
-                  "h-7 rounded-full px-2.5 text-[11px] font-semibold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/30",
+                  "h-7 rounded-full px-2.5 text-[11px] font-semibold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--ring)]",
                   audience === "CREATOR"
-                    ? "bg-emerald-500/20 text-emerald-100"
+                    ? "bg-[color:var(--brand-weak)] text-[color:var(--text)]"
                     : "text-slate-300 hover:text-slate-100"
                 )}
               >
@@ -506,7 +506,7 @@ export function ChatComposerBar({
             "h-9 px-4 rounded-full text-sm font-semibold shrink-0 transition-colors focus-visible:outline-none focus-visible:ring-2",
             isInternalMode
               ? "bg-amber-400 text-slate-950 hover:bg-amber-300 focus-visible:ring-amber-400/40"
-              : "bg-emerald-600 text-white hover:bg-emerald-500 focus-visible:ring-emerald-400/40",
+              : "bg-[color:var(--brand-strong)] text-white hover:bg-[color:var(--brand)] focus-visible:ring-[color:var(--ring)]",
             "disabled:opacity-50 disabled:cursor-not-allowed"
           )}
         >

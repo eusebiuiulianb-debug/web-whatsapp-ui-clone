@@ -91,7 +91,7 @@ function LeftKpiCard({
   className,
   valueClassName,
 }: LeftKpiCardProps) {
-  const toneClass = tone === "accent" ? "text-emerald-200" : "text-slate-300";
+  const toneClass = tone === "accent" ? "text-[color:var(--brand)]" : "text-slate-300";
   return (
     <div className={clsx("rounded-xl bg-[var(--surface-2)] p-3", className)}>
       <div className="text-[10px] text-slate-500">{label}</div>
@@ -1490,7 +1490,10 @@ function SideBarInner() {
   const countPillClass =
     "inline-flex items-center rounded-full px-2.5 py-1 text-[11px] font-semibold tabular-nums tracking-tight";
   return (
-    <div className="flex flex-col w-full md:w-[480px] lg:min-w-[420px] shrink-0 bg-[#202c33] min-h-[320px] md:h-full" style={{borderRight: "1px solid rgba(134,150,160,0.15)"}}>
+    <div
+      className="flex flex-col w-full md:w-[480px] lg:min-w-[420px] shrink-0 bg-[color:var(--surface-1)] min-h-[320px] md:h-full"
+      style={{ borderRight: "1px solid var(--border)" }}
+    >
       <CreatorSettingsPanel isOpen={isSettingsOpen} onClose={() => setIsSettingsOpen(false)} />
       <CreatorHeader
         name={config.creatorName}
@@ -1580,7 +1583,7 @@ function SideBarInner() {
                   <div
                     className={clsx(
                       "text-xl font-semibold tracking-tight tabular-nums leading-tight",
-                      extrasTodayCount > 0 ? "text-emerald-200" : "text-slate-300"
+                      extrasTodayCount > 0 ? "text-[color:var(--brand)]" : "text-slate-300"
                     )}
                   >
                     {extrasTodayCount} venta{extrasTodayCount === 1 ? "" : "s"} · {formatCurrency(extrasTodayAmount)}
@@ -1594,7 +1597,7 @@ function SideBarInner() {
                   <span
                     className={clsx(
                       "text-base font-semibold tracking-tight tabular-nums leading-tight",
-                      extrasLast7Count > 0 ? "text-emerald-200" : "text-slate-300"
+                      extrasLast7Count > 0 ? "text-[color:var(--brand)]" : "text-slate-300"
                     )}
                   >
                     {extrasLast7Count} venta{extrasLast7Count === 1 ? "" : "s"} · {formatCurrency(extrasLast7Amount)}
@@ -1635,17 +1638,17 @@ function SideBarInner() {
                   aria-label="Qué significa cada etiqueta"
                   onClick={() => setShowLegend((prev) => !prev)}
                   className={clsx(
-                    "inline-flex h-6 w-6 items-center justify-center rounded-full border text-xs font-bold transition focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-emerald-400/40",
+                    "inline-flex h-6 w-6 items-center justify-center rounded-full border text-xs font-bold transition focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[color:var(--ring)]",
                     showLegend
-                      ? "border-emerald-400 bg-emerald-500/20 text-emerald-100"
-                      : "border-slate-600 bg-slate-800/60 text-slate-200 hover:border-emerald-400/70 hover:text-emerald-100"
+                      ? "border-[color:var(--brand)] bg-[color:rgba(var(--brand-rgb),0.18)] text-[color:var(--text)]"
+                      : "border-slate-600 bg-slate-800/60 text-slate-200 hover:border-[color:var(--brand)] hover:text-[color:var(--text)]"
                   )}
                 >
                   i
                 </button>
                 <button
                   type="button"
-                  className="rounded-md border border-emerald-400/40 bg-emerald-500/10 px-2 py-1 text-[10px] font-semibold text-emerald-100 hover:bg-emerald-500/20 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-emerald-400/40"
+                  className="rounded-md border border-[color:rgba(var(--brand-rgb),0.4)] bg-[color:rgba(var(--brand-rgb),0.1)] px-2 py-1 text-[10px] font-semibold text-[color:var(--text)] hover:bg-[color:rgba(var(--brand-rgb),0.2)] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[color:var(--ring)]"
                   onClick={() => setShowAllTodayMetrics((prev) => !prev)}
                 >
                   {showAllTodayMetrics ? "Ver menos" : "Ver más"}
@@ -1716,7 +1719,9 @@ function SideBarInner() {
               <span
                 className={clsx(
                   countPillClass,
-                  followUpTodayCount > 0 ? "bg-emerald-500/20 text-emerald-100" : "bg-slate-800 text-slate-300",
+                  followUpTodayCount > 0
+                    ? "bg-[color:rgba(var(--brand-rgb),0.18)] text-[color:var(--text)]"
+                    : "bg-slate-800 text-slate-300",
                   followUpMode === "today" && !showOnlyWithNotes && "ring-1 ring-amber-300/60"
                 )}
               >
@@ -1970,7 +1975,7 @@ function SideBarInner() {
         className="relative flex flex-col w-full flex-1 min-h-0 overflow-y-auto"
         id="conversation"
       >
-        <div className="sticky top-0 z-30 bg-[#202c33] pb-2">
+        <div className="sticky top-0 z-30 bg-[color:var(--surface-1)] pb-2">
           <div className="relative">
             <div className="px-3 pt-2">
               <div
@@ -2041,7 +2046,7 @@ function SideBarInner() {
               </div>
             </div>
             <div className="mt-2 px-3 w-full">
-              <div className="flex items-center gap-3 w-full rounded-full bg-slate-900/80 border border-slate-800/70 px-3 py-2 shadow-sm transition focus-within:border-emerald-400/70 focus-within:ring-1 focus-within:ring-emerald-400/25">
+              <div className="flex items-center gap-3 w-full rounded-full bg-slate-900/80 border border-slate-800/70 px-3 py-2 shadow-sm transition focus-within:border-[color:var(--border-a)] focus-within:ring-1 focus-within:ring-[color:var(--ring)]">
                 <svg viewBox="0 0 24 24" width="20" height="20" className="text-slate-400/80">
                   <path fill="currentColor" d="M15.009 13.805h-.636l-.22-.219a5.184 5.184 0 0 0 1.256-3.386 5.207 5.207 0 1 0-5.207 5.208 5.183 5.183 0 0 0 3.385-1.255l.221.22v.635l4.004 3.999 1.194-1.195-3.997-4.007zm-4.808 0a3.605 3.605 0 1 1 0-7.21 3.605 3.605 0 0 1 0 7.21z" />
                 </svg>
@@ -2057,7 +2062,7 @@ function SideBarInner() {
                 {listSegment === "all" && (
                   <button
                     type="button"
-                    className="inline-flex items-center gap-2 rounded-full border border-emerald-500/70 bg-emerald-500/10 px-3 py-2 text-xs font-semibold text-emerald-100 hover:bg-emerald-500/20 shrink-0"
+                    className="inline-flex items-center gap-2 rounded-full border border-[color:var(--brand)] bg-[color:rgba(var(--brand-rgb),0.12)] px-3 py-2 text-xs font-semibold text-[color:var(--text)] hover:bg-[color:rgba(var(--brand-rgb),0.2)] shrink-0"
                     aria-label="Crear invitación"
                     onClick={() => {
                       setIsNewFanOpen(true);
@@ -2078,7 +2083,7 @@ function SideBarInner() {
                   className={clsx(
                     "inline-flex h-10 w-10 items-center justify-center rounded-full border transition shrink-0",
                     focusMode
-                      ? "border-emerald-400 bg-emerald-500/25 text-emerald-50 shadow-[0_0_0_1px_rgba(16,185,129,0.25)]"
+                      ? "border-[color:var(--brand)] bg-[color:rgba(var(--brand-rgb),0.22)] text-[color:var(--text)] shadow-[0_0_0_1px_rgba(var(--brand-rgb),0.25)]"
                       : "border-slate-700 bg-slate-800/70 text-slate-300 hover:bg-slate-700"
                   )}
                   aria-pressed={focusMode}
@@ -2235,7 +2240,7 @@ function SideBarInner() {
             <label className="flex flex-col gap-1 text-sm text-slate-300">
               <span>Nombre o alias</span>
               <input
-                className="w-full rounded-lg bg-slate-800/70 border border-slate-700 px-3 py-2 text-sm text-white focus:border-emerald-400"
+                className="w-full rounded-lg bg-slate-800/70 border border-slate-700 px-3 py-2 text-sm text-white focus:border-[color:var(--border-a)]"
                 value={newFanName}
                 onChange={(e) => setNewFanName(e.target.value)}
                 placeholder="Ej: Ana"
@@ -2245,7 +2250,7 @@ function SideBarInner() {
             <label className="flex flex-col gap-1 text-sm text-slate-300">
               <span>Nota inicial (opcional)</span>
               <textarea
-                className="w-full rounded-lg bg-slate-800/70 border border-slate-700 px-3 py-2 text-sm text-white focus:border-emerald-400 h-20"
+                className="w-full rounded-lg bg-slate-800/70 border border-slate-700 px-3 py-2 text-sm text-white focus:border-[color:var(--border-a)] h-20"
                 value={newFanNote}
                 onChange={(e) => setNewFanNote(e.target.value)}
                 placeholder="Contexto rápido para este fan..."
@@ -2294,7 +2299,7 @@ function SideBarInner() {
                       "rounded-full border px-4 py-2 text-sm font-semibold transition",
                       newFanInviteState === "loading"
                         ? "border-slate-700 bg-slate-800/60 text-slate-400 cursor-not-allowed"
-                        : "border-emerald-400 bg-emerald-500/15 text-emerald-100 hover:bg-emerald-500/25"
+                        : "border-[color:var(--brand)] bg-[color:rgba(var(--brand-rgb),0.16)] text-[color:var(--text)] hover:bg-[color:rgba(var(--brand-rgb),0.25)]"
                     )}
                     onClick={() => void handleCopyInviteForNewFan()}
                   >
@@ -2321,7 +2326,7 @@ function SideBarInner() {
                       "rounded-full border px-4 py-2 text-sm font-semibold transition",
                       newFanSaving
                         ? "border-slate-700 bg-slate-800/60 text-slate-400 cursor-not-allowed"
-                        : "border-emerald-400 bg-emerald-500/15 text-emerald-100 hover:bg-emerald-500/25"
+                        : "border-[color:var(--brand)] bg-[color:rgba(var(--brand-rgb),0.16)] text-[color:var(--text)] hover:bg-[color:rgba(var(--brand-rgb),0.25)]"
                     )}
                     onClick={() => void handleCreateNewFan()}
                   >
