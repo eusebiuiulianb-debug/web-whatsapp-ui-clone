@@ -40,6 +40,10 @@ body {
     repeating-linear-gradient(135deg, rgba(148, 163, 184, 0.025) 0, rgba(148, 163, 184, 0.025) 1px, transparent 1px, transparent 20px);
 }
 
+.composer-surface {
+  background: linear-gradient(180deg, rgba(var(--brand-rgb), 0.04), rgba(var(--brand-rgb), 0.01)), var(--surface-1);
+}
+
 @media (max-width: 768px) {
   :root {
     --dock-gap: 6px;

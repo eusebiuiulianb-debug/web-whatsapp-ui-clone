@@ -54,19 +54,19 @@ export function KpiCard({
   const content = (
     <>
       <div className="flex items-center justify-between gap-3">
-        <div className="text-[10px] uppercase tracking-[0.16em] text-slate-500">{title}</div>
-        {iconNode ? <span className="text-slate-500">{iconNode}</span> : null}
+        <div className="text-[10px] uppercase tracking-[0.16em] text-[color:var(--muted)]">{title}</div>
+        {iconNode ? <span className="text-[color:var(--muted)]">{iconNode}</span> : null}
       </div>
       <div
         className={clsx(
-          "mt-2 font-semibold text-white tracking-tight tabular-nums leading-tight",
+          "mt-2 font-semibold text-[color:var(--text)] tracking-tight tabular-nums leading-tight",
           size === "sm" ? "text-2xl" : "text-3xl"
         )}
       >
         {value}
       </div>
       {(hint || delta) && (
-        <div className="mt-1 flex items-center justify-between gap-2 text-[10px] text-slate-500">
+        <div className="mt-1 flex items-center justify-between gap-2 text-[10px] text-[color:var(--muted)]">
           <span>{hint}</span>
           {delta ? (
             <span className="inline-flex items-center rounded-full border border-[color:rgba(var(--brand-rgb),0.4)] bg-[color:rgba(var(--brand-rgb),0.12)] px-2 py-0.5 text-[10px] font-semibold text-[color:var(--text)]">
@@ -75,7 +75,7 @@ export function KpiCard({
           ) : null}
         </div>
       )}
-      {supporting ? <div className="mt-1 text-[10px] text-slate-500">{supporting}</div> : null}
+      {supporting ? <div className="mt-1 text-[10px] text-[color:var(--muted)]">{supporting}</div> : null}
     </>
   );
 

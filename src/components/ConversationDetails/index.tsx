@@ -4413,7 +4413,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
                 event.stopPropagation();
                 handleManagerPanelTabClick("templates");
               }}
-              className="inline-flex items-center gap-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400/40"
+              className="inline-flex items-center gap-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--ring)]"
               aria-expanded={managerPanelOpen && managerPanelTab === "templates"}
               aria-controls={panelId}
             >
@@ -7998,7 +7998,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
 
             </div>
           )}
-          <div className="sticky bottom-0 z-30 border-t border-slate-800/60 bg-gradient-to-b from-slate-950/90 via-slate-950/80 to-slate-950/70 backdrop-blur-xl">
+          <div className="sticky bottom-0 z-30 border-t border-[color:var(--border)] bg-[color:var(--surface-1)] backdrop-blur-xl">
             <div className="max-w-4xl mx-auto w-full px-4 sm:px-6 lg:px-8 py-2.5">
               {internalToast && <div className="mb-2 text-[11px] text-[color:var(--brand)]">{internalToast}</div>}
               {composerDock?.chips}

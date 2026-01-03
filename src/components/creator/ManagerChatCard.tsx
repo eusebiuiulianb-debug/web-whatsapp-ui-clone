@@ -2333,14 +2333,14 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
     const overflowChipItems = quickAccessItems.slice(visibleCountCapped);
     const overflowCount = overflowChipItems.length;
     const emojiPickerTopContent = emojiRecents.length ? (
-      <div className="mb-2 flex flex-wrap items-center gap-1 rounded-xl border border-slate-800/70 bg-slate-900/60 px-2 py-1">
-        <span className="text-[10px] uppercase tracking-wide text-slate-400">Recientes</span>
+      <div className="mb-2 flex flex-wrap items-center gap-1 rounded-xl border border-[color:var(--border)] bg-[color:var(--surface-2)] px-2 py-1">
+        <span className="text-[10px] uppercase tracking-wide text-[color:var(--muted)]">Recientes</span>
         {emojiRecents.map((emoji, idx) => (
           <button
             key={`${emoji}-${idx}`}
             type="button"
             onClick={() => handleRecentEmojiInsert(emoji)}
-            className="flex h-7 w-7 items-center justify-center rounded-full border border-slate-700/70 bg-slate-900/70 text-sm text-slate-100 hover:bg-slate-800/80"
+            className="flex h-7 w-7 items-center justify-center rounded-full border border-[color:var(--border)] bg-[color:var(--surface-2)] text-sm text-[color:var(--text)] hover:bg-[color:var(--surface-1)] hover:border-[color:var(--border-a)]"
             aria-label={`Emoji reciente ${emoji}`}
           >
             {emoji}
@@ -2447,7 +2447,7 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
         <button
           type="button"
           onClick={handleFavoritesEditorClose}
-          className="h-9 px-4 rounded-full text-sm font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 bg-emerald-600 text-white hover:bg-emerald-500 focus-visible:ring-emerald-400/40"
+          className="h-9 px-4 rounded-full text-sm font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 bg-[color:var(--brand-strong)] text-white hover:bg-[color:var(--brand)] focus-visible:ring-[color:var(--ring)]"
         >
           Cerrar
         </button>
@@ -3280,7 +3280,7 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
                       type="button"
                       onClick={handleCatalogSave}
                       disabled={catalogSaving}
-                      className="h-9 px-4 rounded-full text-sm font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 bg-emerald-600 text-white hover:bg-emerald-500 focus-visible:ring-emerald-400/40 disabled:opacity-60"
+                      className="h-9 px-4 rounded-full text-sm font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 bg-[color:var(--brand-strong)] text-white hover:bg-[color:var(--brand)] focus-visible:ring-[color:var(--ring)] disabled:opacity-60"
                     >
                       {catalogSaving ? "Guardando..." : "Guardar"}
                     </button>
@@ -3457,7 +3457,7 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
                       type="button"
                       onClick={handleCatalogSave}
                       disabled={catalogSaving}
-                      className="h-9 px-4 rounded-full text-sm font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 bg-emerald-600 text-white hover:bg-emerald-500 focus-visible:ring-emerald-400/40 disabled:opacity-60"
+                      className="h-9 px-4 rounded-full text-sm font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 bg-[color:var(--brand-strong)] text-white hover:bg-[color:var(--brand)] focus-visible:ring-[color:var(--ring)] disabled:opacity-60"
                     >
                       {catalogSaving ? "Guardando..." : "Guardar"}
                     </button>
@@ -3619,7 +3619,7 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
                         type="button"
                         onClick={handlePopClipSave}
                         disabled={popClipSaving || popClipDeleting}
-                        className="h-9 px-4 rounded-full text-sm font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 bg-emerald-600 text-white hover:bg-emerald-500 focus-visible:ring-emerald-400/40 disabled:opacity-60"
+                        className="h-9 px-4 rounded-full text-sm font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 bg-[color:var(--brand-strong)] text-white hover:bg-[color:var(--brand)] focus-visible:ring-[color:var(--ring)] disabled:opacity-60"
                       >
                         {popClipSaving ? "Guardando..." : "Guardar"}
                       </button>
@@ -3774,7 +3774,7 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
                         type="button"
                         onClick={handlePopClipSave}
                         disabled={popClipSaving || popClipDeleting}
-                        className="h-9 px-4 rounded-full text-sm font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 bg-emerald-600 text-white hover:bg-emerald-500 focus-visible:ring-emerald-400/40 disabled:opacity-60"
+                        className="h-9 px-4 rounded-full text-sm font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 bg-[color:var(--brand-strong)] text-white hover:bg-[color:var(--brand)] focus-visible:ring-[color:var(--ring)] disabled:opacity-60"
                       >
                         {popClipSaving ? "Guardando..." : "Guardar"}
                       </button>
@@ -4287,14 +4287,14 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
               {fallbackBanner}
             </div>
           )}
-          <div className="sticky bottom-0 z-20 border-t border-slate-800/60 bg-gradient-to-b from-slate-950/90 via-slate-950/80 to-slate-950/70 backdrop-blur-xl">
+          <div className="sticky bottom-0 z-20 border-t border-[color:var(--border)] bg-[color:var(--surface-1)] backdrop-blur-xl">
             <div className="px-4 sm:px-6 lg:px-8 py-3">
               <div
                 className={clsx(
-                  "mt-1.5 flex flex-col gap-2 rounded-2xl border px-3 py-2.5 transition backdrop-blur",
+                  "mt-1.5 flex flex-col gap-2 rounded-2xl border px-3 py-2.5 transition backdrop-blur composer-surface",
                   "shadow-[0_-12px_22px_-16px_rgba(0,0,0,0.55)]",
-                  "bg-gradient-to-r from-slate-900/55 via-slate-900/75 to-slate-900/55 border-slate-700/70",
-                  "focus-within:border-emerald-400/70 focus-within:ring-1 focus-within:ring-emerald-400/25"
+                  "border-[color:var(--border)]",
+                  "focus-within:border-[color:var(--border-a)] focus-within:ring-1 focus-within:ring-[color:var(--ring)]"
                 )}
               >
                 <div className="flex flex-col gap-2 px-1 pt-1">
@@ -4328,7 +4328,7 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
                       </div>
                       {globalMode === "CRECIMIENTO" && (
                         <div className="flex flex-wrap items-center gap-2">
-                          <span className="text-[10px] uppercase tracking-wide text-slate-500">Plataforma</span>
+                          <span className="text-[10px] uppercase tracking-wide text-[color:var(--muted)]">Plataforma</span>
                           {(enabledPlatforms.length > 1
                             ? enabledPlatforms
                             : enabledPlatforms.length === 1
@@ -4349,14 +4349,14 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
                               {formatPlatformLabel(platform)}
                             </PillButton>
                           ))}
-                          <span className="text-[10px] text-slate-500">Activas: {growthActiveList}</span>
+                          <span className="text-[10px] text-[color:var(--muted)]">Activas: {growthActiveList}</span>
                         </div>
                       )}
                     </div>
                   )}
                   <div className="grid grid-cols-[auto,1fr,auto] items-center gap-3 min-w-0 [@media(max-width:480px)]:grid-cols-[auto,1fr] [@media(max-width:480px)]:grid-rows-[auto,auto] [@media(max-width:480px)]:gap-2">
-                    <span className="text-[11px] font-semibold text-slate-300 shrink-0 [@media(max-width:480px)]:col-start-1 [@media(max-width:480px)]:row-start-1">
-                      <IconGlyph name="spark" className="mr-1 h-3.5 w-3.5 text-emerald-300 inline-block" />
+                    <span className="text-[11px] font-semibold text-[color:var(--muted)] shrink-0 [@media(max-width:480px)]:col-start-1 [@media(max-width:480px)]:row-start-1">
+                      <IconGlyph name="spark" className="mr-1 h-3.5 w-3.5 text-[color:var(--brand)] inline-block" />
                       {quickAccessLabel}
                     </span>
                     <div className="relative flex items-center gap-2 min-w-0 [@media(max-width:480px)]:col-span-2 [@media(max-width:480px)]:row-start-2">
@@ -4381,15 +4381,15 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
                             className={clsx(
                               "shrink-0 max-w-[160px] truncate rounded-full border px-2 py-1 text-[11px] font-semibold transition",
                               idx === 0
-                                ? "border-emerald-500/60 bg-emerald-500/15 text-emerald-100"
-                                : "border-slate-700/70 bg-slate-900/60 text-slate-200 hover:text-slate-100"
+                                ? "border-[color:var(--brand)] bg-[color:rgba(var(--brand-rgb),0.16)] text-[color:var(--text)]"
+                                : "border-[color:var(--border)] bg-[color:var(--surface-2)] text-[color:var(--muted)] hover:text-[color:var(--text)] hover:border-[color:var(--border-a)]"
                             )}
                           >
                             {item.label}
                           </button>
                         ))}
                         {quickAccessItems.length === 0 && (
-                          <span className="text-[11px] text-slate-500 whitespace-nowrap">
+                          <span className="text-[11px] text-[color:var(--muted)] whitespace-nowrap">
                             {canEditAtajos ? "Sin atajos. Pulsa Editar." : "Sin atajos."}
                           </span>
                         )}
@@ -4425,10 +4425,10 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
                           }}
                           title="Ver atajos"
                           aria-label="Más atajos"
-                          className="shrink-0 inline-flex items-center gap-1 rounded-full border border-dashed border-slate-600/70 bg-slate-900/40 px-2.5 py-1 text-[11px] font-semibold text-slate-200 hover:bg-slate-800/70"
+                          className="shrink-0 inline-flex items-center gap-1 rounded-full border border-dashed border-[color:var(--border)] bg-[color:var(--surface-2)] px-2.5 py-1 text-[11px] font-semibold text-[color:var(--text)] hover:bg-[color:var(--surface-1)]"
                         >
                           <span>Más</span>
-                          <span className="inline-flex min-w-[16px] items-center justify-center rounded-full bg-slate-800 px-1 text-[10px] text-slate-200">
+                          <span className="inline-flex min-w-[16px] items-center justify-center rounded-full bg-[color:var(--surface-2)] px-1 text-[10px] text-[color:var(--muted)]">
                             +{overflowCount}
                           </span>
                         </button>
@@ -4443,7 +4443,7 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
                             setOverflowOpen(false);
                             setIsFavoritesEditorOpen(true);
                           }}
-                          className="inline-flex shrink-0 items-center gap-1 rounded-full border border-slate-700/70 bg-slate-900/70 px-2.5 py-1 text-[11px] font-semibold text-slate-200 hover:bg-slate-800/90"
+                          className="inline-flex shrink-0 items-center gap-1 rounded-full border border-[color:var(--border)] bg-[color:var(--surface-2)] px-2.5 py-1 text-[11px] font-semibold text-[color:var(--text)] hover:bg-[color:var(--surface-1)]"
                         >
                           Editar
                         </button>
@@ -4451,7 +4451,7 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
                     </div>
                   </div>
                   {!hasUsedQuickAccess && visibleChipItems.length > 0 && (
-                    <div className="pl-1 text-[11px] text-slate-500">
+                    <div className="pl-1 text-[11px] text-[color:var(--muted)]">
                       Pulsa un atajo para insertarlo en el mensaje.
                     </div>
                   )}
@@ -4467,7 +4467,7 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
                   className={clsx(
                     "w-full min-h-[44px] resize-none overflow-y-auto bg-transparent border-0 outline-none ring-0",
                     "px-1 pt-2 pb-1 text-sm leading-6 text-slate-50 whitespace-pre-wrap break-words",
-                    "placeholder:text-slate-300/95 caret-emerald-400"
+                    "placeholder:text-[color:var(--muted)] caret-[color:var(--brand)]"
                   )}
                   placeholder="Mensaje a Cortex..."
                   onKeyDown={handleComposerKeyDown}
@@ -4484,7 +4484,7 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
                     <button
                       type="button"
                       disabled
-                      className="flex h-9 w-9 items-center justify-center rounded-full border border-slate-800/50 bg-slate-900/30 text-slate-500 cursor-not-allowed"
+                      className="flex h-9 w-9 items-center justify-center rounded-full border border-[color:var(--border)] bg-[color:var(--surface-2)] text-[color:var(--muted)] cursor-not-allowed"
                       title="Adjuntar"
                       aria-label="Adjuntar"
                     >
@@ -4499,7 +4499,7 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
                         ref={emojiButtonRef}
                         onPointerDown={handleEmojiPointerDown}
                         onClick={handleEmojiToggle}
-                        className="flex h-9 w-9 items-center justify-center rounded-full border border-slate-800/70 bg-slate-900/50 text-slate-200 transition hover:border-slate-600/80 hover:bg-slate-800/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/30"
+                        className="flex h-9 w-9 items-center justify-center rounded-full border border-[color:var(--border)] bg-[color:var(--surface-2)] text-slate-200 transition hover:border-[color:var(--border-a)] hover:bg-[color:var(--surface-1)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--ring)]"
                         title="Insertar emoji"
                         aria-label="Insertar emoji"
                       >
@@ -4518,7 +4518,7 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
                     <button
                       type="button"
                       disabled
-                      className="h-9 px-3 rounded-full border text-[11px] font-semibold transition border-slate-800/50 bg-slate-900/30 text-slate-500 cursor-not-allowed"
+                      className="h-9 px-3 rounded-full border text-[11px] font-semibold transition border-[color:var(--border)] bg-[color:var(--surface-2)] text-[color:var(--muted)] cursor-not-allowed"
                       title="Stickers"
                       aria-label="Stickers"
                     >
@@ -4534,7 +4534,7 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
                     aria-label="Enviar"
                     className={clsx(
                       "h-9 px-4 rounded-full text-sm font-semibold shrink-0 transition-colors focus-visible:outline-none focus-visible:ring-2",
-                      "bg-emerald-600 text-white hover:bg-emerald-500 focus-visible:ring-emerald-400/40",
+                      "bg-[color:var(--brand-strong)] text-white hover:bg-[color:var(--brand)] focus-visible:ring-[color:var(--ring)]",
                       "disabled:opacity-50 disabled:cursor-not-allowed"
                     )}
                   >

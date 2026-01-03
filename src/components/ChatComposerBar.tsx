@@ -240,14 +240,14 @@ export function ChatComposerBar({
   const renderEmojiRecents = () => {
     if (!emojiRecents.length) return null;
     return (
-      <div className="mb-2 flex flex-wrap items-center gap-1 rounded-xl border border-slate-800/70 bg-slate-900/60 px-2 py-1">
-        <span className="text-[10px] uppercase tracking-wide text-slate-400">Recientes</span>
+      <div className="mb-2 flex flex-wrap items-center gap-1 rounded-xl border border-[color:var(--border)] bg-[color:var(--surface-2)] px-2 py-1">
+        <span className="text-[10px] uppercase tracking-wide text-[color:var(--muted)]">Recientes</span>
         {emojiRecents.map((emoji, idx) => (
           <button
             key={`${emoji}-${idx}`}
             type="button"
             onClick={() => handleRecentEmojiInsert(emoji)}
-            className="flex h-7 w-7 items-center justify-center rounded-full border border-slate-700/70 bg-slate-900/70 text-sm text-slate-100 hover:bg-slate-800/80"
+            className="flex h-7 w-7 items-center justify-center rounded-full border border-[color:var(--border)] bg-[color:var(--surface-2)] text-sm text-[color:var(--text)] hover:bg-[color:var(--surface-1)] hover:border-[color:var(--border-a)]"
             aria-label={`Emoji reciente ${emoji}`}
           >
             {emoji}
@@ -271,14 +271,10 @@ export function ChatComposerBar({
   return (
     <div
       className={clsx(
-        "mt-1.5 flex flex-col gap-2 rounded-2xl border px-3 py-2.5 transition backdrop-blur",
+        "mt-1.5 flex flex-col gap-2 rounded-2xl border px-3 py-2.5 transition backdrop-blur composer-surface",
         "shadow-[0_-12px_22px_-16px_rgba(0,0,0,0.55)]",
-        isInternalMode
-          ? "bg-gradient-to-r from-amber-500/12 via-slate-900/75 to-amber-500/12 border-amber-400/50"
-          : "bg-gradient-to-r from-slate-900/55 via-slate-900/75 to-slate-900/55 border-slate-700/70",
-        isInternalMode
-          ? "focus-within:border-amber-400/70 focus-within:ring-1 focus-within:ring-amber-400/25"
-          : "focus-within:border-[color:var(--border-a)] focus-within:ring-1 focus-within:ring-[color:var(--ring)]",
+        "border-[color:var(--border)]",
+        "focus-within:border-[color:var(--border-a)] focus-within:ring-1 focus-within:ring-[color:var(--ring)]",
         isChatBlocked && !isInternalMode && "opacity-70"
       )}
     >
@@ -286,7 +282,7 @@ export function ChatComposerBar({
         <div className="flex flex-col gap-2 px-1 pt-1">
           <div className="flex items-center justify-between gap-2">
             <div className="flex items-center gap-2">
-              <span className="text-[10px] uppercase tracking-wide text-slate-500">Favoritos</span>
+              <span className="text-[10px] uppercase tracking-wide text-[color:var(--muted)]">Favoritos</span>
             </div>
             <button
               type="button"
@@ -299,14 +295,14 @@ export function ChatComposerBar({
                   return !prev;
                 });
               }}
-              className="text-[10px] font-semibold text-slate-400 hover:text-slate-200"
+              className="text-[10px] font-semibold text-[color:var(--muted)] hover:text-[color:var(--text)]"
             >
               {isEditingFavorites ? "Listo" : "Editar"}
             </button>
           </div>
           <div className="flex flex-wrap items-center gap-1" onDragOver={handleFavoriteDragOver}>
             {favorites.length === 0 && (
-              <span className="text-[11px] text-slate-500">Sin favoritos todavía.</span>
+              <span className="text-[11px] text-[color:var(--muted)]">Sin favoritos todavía.</span>
             )}
             {favorites.map((emoji) => (
               <div
@@ -324,8 +320,8 @@ export function ChatComposerBar({
                   className={clsx(
                     "flex h-7 w-7 items-center justify-center rounded-full border text-sm",
                     isInputDisabled
-                      ? "border-slate-800/60 bg-slate-900/30 text-slate-500 cursor-not-allowed"
-                      : "border-slate-700/70 bg-slate-900/60 text-slate-100 hover:bg-slate-800/80"
+                      ? "border-[color:var(--border)] bg-[color:var(--surface-2)] text-[color:var(--muted)] cursor-not-allowed"
+                      : "border-[color:var(--border)] bg-[color:var(--surface-2)] text-[color:var(--text)] hover:bg-[color:var(--surface-1)] hover:border-[color:var(--border-a)]"
                   )}
                   aria-label={`Emoji favorito ${emoji}`}
                 >
@@ -335,7 +331,7 @@ export function ChatComposerBar({
                   <button
                     type="button"
                     onClick={() => handleRemoveFavorite(emoji)}
-                    className="absolute -top-1.5 -right-1.5 flex h-4 w-4 items-center justify-center rounded-full border border-slate-700 bg-slate-950 text-[9px] text-slate-200 hover:bg-slate-800"
+                    className="absolute -top-1.5 -right-1.5 flex h-4 w-4 items-center justify-center rounded-full border border-[color:var(--border)] bg-[color:var(--surface-1)] text-[9px] text-[color:var(--text)] hover:bg-[color:var(--surface-2)]"
                     aria-label={`Eliminar favorito ${emoji}`}
                   >
                     ✕
@@ -352,8 +348,8 @@ export function ChatComposerBar({
                 className={clsx(
                   "flex h-7 w-7 items-center justify-center rounded-full border text-[12px] font-semibold",
                   isInputDisabled || isAtMax
-                    ? "border-slate-800/60 bg-slate-900/30 text-slate-500 cursor-not-allowed"
-                    : "border-dashed border-slate-600/70 bg-slate-900/40 text-slate-200 hover:bg-slate-800/80"
+                    ? "border-[color:var(--border)] bg-[color:var(--surface-2)] text-[color:var(--muted)] cursor-not-allowed"
+                    : "border-dashed border-[color:var(--border)] bg-[color:var(--surface-2)] text-[color:var(--text)] hover:bg-[color:var(--surface-1)]"
                 )}
                 aria-label="Añadir favorito"
               >
@@ -369,8 +365,8 @@ export function ChatComposerBar({
         className={clsx(
           "w-full min-h-[48px] resize-none overflow-y-auto bg-transparent border-0 outline-none ring-0",
           "px-1 pt-3 pb-2 text-sm leading-6 text-slate-50 whitespace-pre-wrap break-words",
-          "placeholder:text-slate-300/95",
-          isInternalMode ? "caret-amber-300" : "caret-[color:var(--brand)]",
+          "placeholder:text-[color:var(--muted)]",
+          "caret-[color:var(--brand)]",
           isInputDisabled && "cursor-not-allowed"
         )}
         placeholder={placeholder}
@@ -388,10 +384,10 @@ export function ChatComposerBar({
               onClick={onAttach}
               disabled={!canAttach}
               className={clsx(
-                "flex h-9 w-9 items-center justify-center rounded-full border transition focus-visible:outline-none focus-visible:ring-2",
+                  "flex h-9 w-9 items-center justify-center rounded-full border transition focus-visible:outline-none focus-visible:ring-2",
                 canAttach
-                  ? "border-slate-800/70 bg-slate-900/50 text-slate-200 hover:border-[color:var(--border-a)] hover:bg-slate-800/70 focus-visible:ring-[color:var(--ring)]"
-                  : "border-slate-800/50 bg-slate-900/30 text-slate-500 cursor-not-allowed"
+                  ? "border-[color:var(--border)] bg-[color:var(--surface-2)] text-slate-200 hover:border-[color:var(--border-a)] hover:bg-[color:var(--surface-1)] focus-visible:ring-[color:var(--ring)]"
+                  : "border-[color:var(--border)] bg-[color:var(--surface-2)] text-[color:var(--muted)] cursor-not-allowed"
               )}
               title={canAttach ? "Adjuntar contenido" : "Solo disponible cuando escribes al fan."}
               aria-label="Adjuntar contenido"
@@ -413,8 +409,8 @@ export function ChatComposerBar({
                 className={clsx(
                   "flex h-9 w-9 items-center justify-center rounded-full border transition focus-visible:outline-none focus-visible:ring-2",
                   !isInputDisabled && onEmojiSelect
-                    ? "border-slate-800/70 bg-slate-900/50 text-slate-200 hover:border-[color:var(--border-a)] hover:bg-slate-800/70 focus-visible:ring-[color:var(--ring)]"
-                    : "border-slate-800/50 bg-slate-900/30 text-slate-500 cursor-not-allowed"
+                    ? "border-[color:var(--border)] bg-[color:var(--surface-2)] text-slate-200 hover:border-[color:var(--border-a)] hover:bg-[color:var(--surface-1)] focus-visible:ring-[color:var(--ring)]"
+                    : "border-[color:var(--border)] bg-[color:var(--surface-2)] text-[color:var(--muted)] cursor-not-allowed"
                 )}
                 title="Insertar emoji"
                 aria-label="Insertar emoji"
@@ -442,8 +438,8 @@ export function ChatComposerBar({
                 className={clsx(
                   "h-9 px-3 rounded-full border text-[11px] font-semibold transition focus-visible:outline-none focus-visible:ring-2",
                   !isInputDisabled && onStickerSelect
-                    ? "border-slate-800/70 bg-slate-900/50 text-slate-200 hover:border-[color:var(--border-a)] hover:bg-slate-800/70 focus-visible:ring-[color:var(--ring)]"
-                    : "border-slate-800/50 bg-slate-900/30 text-slate-500 cursor-not-allowed"
+                    ? "border-[color:var(--border)] bg-[color:var(--surface-2)] text-slate-200 hover:border-[color:var(--border-a)] hover:bg-[color:var(--surface-1)] focus-visible:ring-[color:var(--ring)]"
+                    : "border-[color:var(--border)] bg-[color:var(--surface-2)] text-[color:var(--muted)] cursor-not-allowed"
                 )}
                 title="Stickers"
                 aria-label="Stickers"
@@ -464,9 +460,7 @@ export function ChatComposerBar({
             <div
               className={clsx(
                 "inline-flex h-8 items-center rounded-full border p-0.5 shrink-0",
-                isInternalMode
-                  ? "border-amber-400/60 bg-amber-500/12"
-                  : "border-slate-800/70 bg-slate-900/50"
+                "border-[color:var(--border)] bg-[color:var(--surface-2)]"
               )}
             >
               <button
@@ -485,9 +479,9 @@ export function ChatComposerBar({
                 type="button"
                 onClick={() => onAudienceChange("INTERNAL")}
                 className={clsx(
-                  "h-7 rounded-full px-2.5 text-[11px] font-semibold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/30",
+                  "h-7 rounded-full px-2.5 text-[11px] font-semibold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--ring)]",
                   audience === "INTERNAL"
-                    ? "bg-amber-500/20 text-amber-100"
+                    ? "bg-[color:var(--brand-weak)] text-[color:var(--text)]"
                     : "text-slate-300 hover:text-slate-100"
                 )}
                 title="No se envía al fan. Se prepara en el Manager interno."
@@ -504,9 +498,7 @@ export function ChatComposerBar({
           aria-label={actionLabel}
           className={clsx(
             "h-9 px-4 rounded-full text-sm font-semibold shrink-0 transition-colors focus-visible:outline-none focus-visible:ring-2",
-            isInternalMode
-              ? "bg-amber-400 text-slate-950 hover:bg-amber-300 focus-visible:ring-amber-400/40"
-              : "bg-[color:var(--brand-strong)] text-white hover:bg-[color:var(--brand)] focus-visible:ring-[color:var(--ring)]",
+            "bg-[color:var(--brand-strong)] text-white hover:bg-[color:var(--brand)] focus-visible:ring-[color:var(--ring)]",
             "disabled:opacity-50 disabled:cursor-not-allowed"
           )}
         >
