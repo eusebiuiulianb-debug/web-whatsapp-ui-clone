@@ -21,9 +21,11 @@ type KpiCardProps = {
 };
 
 const VARIANT_STYLES: Record<KpiCardVariant, string> = {
-  default: "border-slate-800/80 bg-slate-900/70 text-slate-100 hover:border-slate-700/80 hover:bg-slate-900/80",
+  default:
+    "border-[color:var(--surface-border)] bg-[var(--surface-1)] text-slate-100 hover:border-[color:var(--surface-border-hover)]",
   accent: "border-emerald-500/50 bg-emerald-500/10 text-emerald-100 hover:border-emerald-400/70 hover:bg-emerald-500/15",
-  muted: "border-slate-800/60 bg-slate-950/60 text-slate-200 hover:border-slate-700/70 hover:bg-slate-950/70",
+  muted:
+    "border-[color:var(--surface-border)] bg-[var(--surface-2)] text-slate-200 hover:border-[color:var(--surface-border-hover)]",
 };
 
 export function KpiCard({
@@ -45,8 +47,8 @@ export function KpiCard({
     typeof icon === "string" ? <IconGlyph name={icon as IconName} size="sm" /> : icon;
   const interactiveRingClass =
     variant === "accent"
-      ? "focus-visible:ring-1 focus-visible:ring-emerald-400/45"
-      : "focus-visible:ring-1 focus-visible:ring-slate-400/40";
+      ? "hover:ring-1 hover:ring-emerald-400/25 focus-visible:ring-1 focus-visible:ring-emerald-400/45"
+      : "hover:ring-1 hover:ring-[color:var(--surface-ring)] focus-visible:ring-1 focus-visible:ring-[color:var(--surface-ring)]";
 
   const content = (
     <>
@@ -72,7 +74,7 @@ export function KpiCard({
   );
 
   const baseClass = clsx(
-    "group w-full rounded-2xl border px-4 py-3 text-left shadow-sm transition",
+    "group w-full rounded-2xl border px-4 py-3 text-left transition",
     "min-h-[108px]",
     VARIANT_STYLES[variant],
     interactive && "cursor-pointer hover:-translate-y-[1px] focus-visible:outline-none",

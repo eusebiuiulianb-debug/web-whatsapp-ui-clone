@@ -17,8 +17,8 @@ type SectionCardProps = {
 };
 
 const VARIANT_STYLES: Record<SectionCardVariant, string> = {
-  default: "border-slate-800/80 bg-slate-900/70",
-  muted: "border-slate-800/60 bg-slate-950/60",
+  default: "border-[color:var(--surface-border)] bg-[var(--surface-1)]",
+  muted: "border-[color:var(--surface-border)] bg-[var(--surface-2)]",
 };
 
 export function SectionCard({
@@ -38,7 +38,7 @@ export function SectionCard({
   return (
     <div
       className={clsx(
-        "rounded-2xl border p-4 shadow-sm sm:p-6",
+        "rounded-2xl border p-4 sm:p-6 transition hover:border-[color:var(--surface-border-hover)] hover:ring-1 hover:ring-[color:var(--surface-ring)]",
         VARIANT_STYLES[variant],
         className
       )}

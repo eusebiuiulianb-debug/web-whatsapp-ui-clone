@@ -16,6 +16,11 @@ body {
 
 :root {
   --dock-gap: 8px;
+  --surface-1: rgba(17, 27, 33, 0.92);
+  --surface-2: rgba(12, 18, 22, 0.75);
+  --surface-border: rgba(148, 163, 184, 0.14);
+  --surface-border-hover: rgba(148, 163, 184, 0.22);
+  --surface-ring: rgba(148, 163, 184, 0.18);
 }
 
 @media (max-width: 768px) {

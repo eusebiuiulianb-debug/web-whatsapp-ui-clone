@@ -60,7 +60,8 @@ function LeftSectionCard({ children, className }: LeftSectionCardProps) {
   return (
     <div
       className={clsx(
-        "rounded-2xl border border-slate-800/70 bg-slate-900/70 px-3 py-3 shadow-sm",
+        "rounded-2xl border border-[color:var(--surface-border)] bg-[var(--surface-1)] px-3 py-3 transition",
+        "hover:border-[color:var(--surface-border-hover)] hover:ring-1 hover:ring-[color:var(--surface-ring)]",
         className
       )}
     >
@@ -92,7 +93,7 @@ function LeftKpiCard({
 }: LeftKpiCardProps) {
   const toneClass = tone === "accent" ? "text-emerald-200" : "text-slate-300";
   return (
-    <div className={clsx("rounded-xl bg-slate-950/40 px-3 py-3", className)}>
+    <div className={clsx("rounded-xl bg-[var(--surface-2)] px-3 py-3", className)}>
       <div className="text-[11px] text-slate-400">{label}</div>
       <div className={clsx("mt-1 text-xl font-semibold tracking-tight tabular-nums", toneClass, valueClassName)}>
         {value}
@@ -1551,7 +1552,7 @@ function SideBarInner() {
                   label="Ingresos hoy"
                   value={`${incomeTodayCount} cobro${incomeTodayCount === 1 ? "" : "s"} · ${formatCurrency(incomeTodayAmount)}`}
                   tone={incomeTodayCount > 0 ? "accent" : "default"}
-                  valueClassName="text-base leading-tight"
+                  valueClassName="text-lg leading-tight"
                   supporting={
                     <div className="space-y-1">
                       {showIncomeBreakdown && (
@@ -1572,7 +1573,7 @@ function SideBarInner() {
                   <div className="text-[12px] font-semibold text-slate-100">Extras hoy</div>
                   <div
                     className={clsx(
-                      "text-base font-semibold tracking-tight tabular-nums",
+                      "text-lg font-semibold tracking-tight tabular-nums",
                       extrasTodayCount > 0 ? "text-emerald-200" : "text-slate-300"
                     )}
                   >
@@ -1638,7 +1639,7 @@ function SideBarInner() {
                 </button>
                 <button
                   type="button"
-                  className="text-[11px] text-emerald-200 hover:text-emerald-100 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-emerald-400/40 rounded-md px-1"
+                  className="rounded-md border border-emerald-400/40 bg-emerald-500/10 px-2 py-1 text-[10px] font-semibold text-emerald-100 hover:bg-emerald-500/20 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-emerald-400/40"
                   onClick={() => setShowAllTodayMetrics((prev) => !prev)}
                 >
                   {showAllTodayMetrics ? "Ver menos" : "Ver más"}
