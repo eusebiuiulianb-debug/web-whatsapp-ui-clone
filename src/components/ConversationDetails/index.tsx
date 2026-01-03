@@ -6571,6 +6571,10 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
       : nextActionStatus?.tone === "tomorrow"
       ? "sky"
       : "neutral";
+  const tierLabel = formatTier(conversation.customerTier);
+  const isPriorityTier = tierLabel === "Alta prioridad";
+  const tierChipTone = isPriorityTier ? "amber" : "neutral";
+  const tierChipVariant = isPriorityTier ? "accent" : "subtle";
   const nextActionNoteValue =
     typeof conversation.nextActionNote === "string" ? conversation.nextActionNote.trim() : "";
   const followUpNoteRaw =
@@ -7158,26 +7162,26 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
           <div className="flex items-center gap-2 min-w-0 flex-1 justify-center">
             <span className="truncate text-sm font-medium text-slate-50">{contactName}</span>
             {languageBadgeLabel && (
-              <Chip variant="subtle" size="xs">
+              <Chip variant="subtle" size="sm">
                 {languageBadgeLabel}
               </Chip>
             )}
             {(conversation.isHighPriority || (conversation.extrasCount ?? 0) > 0) && (
               conversation.isHighPriority ? (
-                <Chip variant="accent" tone="amber" size="xs" leftGlyph="pin">
+                <Chip variant="accent" tone="amber" size="sm" leftGlyph="pin">
                   Alta
                 </Chip>
               ) : (
-                <Chip variant="accent" tone="emerald" size="xs">
+                <Chip variant="subtle" tone="emerald" size="sm">
                   Extras
                 </Chip>
               )
             )}
             {nextActionStatus && (
               <Chip
-                variant="accent"
+                variant="subtle"
                 tone={nextActionTone}
-                size="xs"
+                size="sm"
                 leftGlyph="clock"
               >
                 {nextActionStatus.label}
@@ -7198,12 +7202,12 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
                 <div className="flex items-center gap-2 min-w-0">
                   <h1 className="text-base font-semibold text-slate-50 truncate">{contactName}</h1>
                   {languageBadgeLabel && (
-                    <Chip variant="subtle" size="xs">
+                    <Chip variant="subtle" size="sm">
                       {languageBadgeLabel}
                     </Chip>
                   )}
                   {conversation.isHighPriority && (
-                    <Chip variant="accent" tone="amber" size="xs" leftGlyph="pin">
+                    <Chip variant="accent" tone="amber" size="sm" leftGlyph="pin">
                       Alta
                     </Chip>
                   )}
@@ -7248,11 +7252,11 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
 
           {/* Piso 2 */}
           <div className="flex flex-wrap items-center gap-2 text-xs min-w-0">
-            <Chip variant="subtle" size="sm" className="text-amber-200">
+            <Chip variant="subtle" tone="amber" size="sm">
               {packLabel}
             </Chip>
-            <Chip variant="subtle" size="sm" className="text-slate-200">
-              {formatTier(conversation.customerTier)}
+            <Chip variant={tierChipVariant} tone={tierChipTone} size="sm">
+              {tierLabel}
             </Chip>
             {conversation.isHighPriority && (
               <Chip variant="accent" tone="amber" size="sm" leftGlyph="pin">
@@ -7260,13 +7264,13 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
               </Chip>
             )}
             {extrasCountDisplay > 0 && (
-              <Chip variant="accent" tone="emerald" size="sm">
+              <Chip variant="subtle" tone="emerald" size="sm">
                 Extras
               </Chip>
             )}
             {nextActionStatus && (
               <Chip
-                variant="accent"
+                variant="subtle"
                 tone={nextActionTone}
                 size="sm"
                 leftGlyph="clock"

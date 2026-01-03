@@ -115,7 +115,6 @@ export default function ConversationList(props: ConversationListProps) {
   })();
 
   const daysLabel = daysLeft !== undefined && daysLeft !== null ? `${daysLeft} d` : "";
-  const isUrgencyDefault = urgencyLevel !== "high" && urgencyLevel !== "medium";
   const nameTint = normalizedAccessState === "EXPIRED" ? "text-[#7d8a93]" : nameClasses;
   const followUpTag = getFollowUpTag(membershipStatus, daysLeft, data.activeGrantTypes);
   const notesCount = data.notesCount ?? 0;
@@ -178,6 +177,8 @@ export default function ConversationList(props: ConversationListProps) {
   ]);
   const totalSpent = Math.round(purchaseTotals.totalSpent);
   const tierChipTone = normalizedTier === "vip" ? "amber" : normalizedTier === "regular" ? "emerald" : "sky";
+  const isRiskTier = tierLabel === "En riesgo";
+  const isStrongPriority = isHighPriority && !isRiskTier;
   const followUpTone =
     followUpTag === "trial_soon" ? "amber" : followUpTag === "expired" ? "danger" : "sky";
   const urgencyTone = urgencyLevel === "high" ? "danger" : urgencyLevel === "medium" ? "amber" : "neutral";
@@ -218,10 +219,10 @@ export default function ConversationList(props: ConversationListProps) {
         <Avatar width={avatarSize.width} height={avatarSize.height} image={image} />
         <div className="flex w-full items-start gap-3 min-w-0">
           <div className="flex flex-col gap-[2px] min-w-0 w-full">
-            <div className="flex items-center gap-2 min-w-0">
+            <div className="flex items-center gap-1.5 min-w-0">
               <span className={`truncate ${nameTint}`}>{contactName}</span>
               {/* Chip de nivel según el tier del fan, usando la misma paleta que el botón amarillo */}
-              <Chip variant="accent" tone={tierChipTone} size="sm">
+              <Chip variant={isRiskTier ? "accent" : "subtle"} tone={isRiskTier ? "danger" : tierChipTone} size="xs">
                 {tierLabel}
               </Chip>
               {languageBadgeLabel && (
@@ -230,14 +231,14 @@ export default function ConversationList(props: ConversationListProps) {
                 </Chip>
               )}
               {novsyStatus === "NOVSY" && (
-                <Chip variant="accent" tone="emerald" size="xs">
+                <Chip variant="subtle" tone="emerald" size="xs">
                   Extras
                 </Chip>
               )}
               {/* Chip de alta prioridad */}
               {isHighPriority && (
                 <Chip
-                  variant="accent"
+                  variant={isStrongPriority ? "accent" : "subtle"}
                   tone="amber"
                   size="xs"
                   leftGlyph="pin"
@@ -249,10 +250,9 @@ export default function ConversationList(props: ConversationListProps) {
               )}
               {followUpTag !== "none" && (
                 <Chip
-                  variant="accent"
+                  variant="subtle"
                   tone={followUpTone}
                   size="xs"
-                  className="ml-1"
                 >
                   {followUpTag === "trial_soon" && `Prueba · ${daysLeft ?? ""} d`}
                   {followUpTag === "monthly_soon" && `Renueva en ${daysLeft ?? ""} d`}
@@ -310,24 +310,27 @@ export default function ConversationList(props: ConversationListProps) {
                 )}
               </div>
             )}
-            <div className={clsx("flex flex-wrap items-center gap-2", isCompact ? "mt-0.5" : "mt-1")}>
+            <div className={clsx(
+              "flex items-center gap-1.5 flex-nowrap min-h-[18px] overflow-hidden",
+              isCompact ? "mt-0.5" : "mt-1"
+            )}>
               {shouldShowAccessChip ? (
                 <Chip
                   variant="subtle"
+                  tone="amber"
                   size="xs"
-                  className="bg-slate-800/80 text-amber-200 border-slate-700/70"
                 >
                   {accessChipLabel}
                 </Chip>
               ) : null}
               {!isCompact && isInvitePending && (
-                <Chip variant="accent" tone="amber" size="xs" title="Invitación privada /i/token pendiente de entrar">
+                <Chip variant="subtle" tone="amber" size="xs" title="Invitación privada /i/token pendiente de entrar">
                   Pendiente
                 </Chip>
               )}
               {daysLabel ? (
                 <Chip
-                  variant={isUrgencyDefault ? "muted" : "accent"}
+                  variant="subtle"
                   tone={urgencyTone}
                   size="xs"
                 >
@@ -335,19 +338,19 @@ export default function ConversationList(props: ConversationListProps) {
                 </Chip>
               ) : null}
               {!isCompact && (sourceLabel || campaignLabel || contentLabel) && (
-                <div className="flex flex-wrap items-center gap-1">
+                <div className="flex items-center gap-1.5 flex-nowrap shrink-0">
                   {sourceLabel && (
-                    <Chip variant="subtle" size="xs">
+                    <Chip variant="muted" size="xs">
                       {sourceLabel}
                     </Chip>
                   )}
                   {campaignLabel && (
-                    <Chip variant="subtle" size="xs" className="text-slate-300">
+                    <Chip variant="muted" size="xs">
                       {campaignLabel}
                     </Chip>
                   )}
                   {contentLabel && (
-                    <Chip variant="subtle" size="xs" className="text-slate-300">
+                    <Chip variant="muted" size="xs">
                       {contentLabel}
                     </Chip>
                   )}

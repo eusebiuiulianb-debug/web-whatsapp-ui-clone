@@ -1909,11 +1909,7 @@ function SideBarInner() {
                       size="sm"
                       active={followUpMode === "today"}
                       onClick={() => toggleFollowUpMode("today")}
-                      className={clsx(
-                        "shrink-0",
-                        followUpMode !== "today" &&
-                          "border-amber-700 bg-slate-800/60 text-amber-200/80"
-                      )}
+                      className="shrink-0"
                     >
                       Seguimiento hoy{followUpTodayCount > 0 ? ` (${followUpTodayCount})` : ""}
                     </Chip>
@@ -1923,11 +1919,7 @@ function SideBarInner() {
                       size="sm"
                       active={followUpMode === "expired"}
                       onClick={() => toggleFollowUpMode("expired")}
-                      className={clsx(
-                        "shrink-0",
-                        followUpMode !== "expired" &&
-                          "border-rose-800 bg-slate-800/60 text-rose-200/80"
-                      )}
+                      className="shrink-0"
                     >
                       Caducados{expiredCount > 0 ? ` (${expiredCount})` : ""}
                     </Chip>
@@ -1937,11 +1929,7 @@ function SideBarInner() {
                       size="sm"
                       active={followUpMode === "priority"}
                       onClick={() => toggleFollowUpMode("priority")}
-                      className={clsx(
-                        "shrink-0",
-                        followUpMode !== "priority" &&
-                          "border-amber-700 bg-slate-800/60 text-amber-200/80"
-                      )}
+                      className="shrink-0"
                     >
                       Alta prioridad{priorityCount > 0 ? ` (${priorityCount})` : ""}
                     </Chip>
@@ -1959,7 +1947,6 @@ function SideBarInner() {
                     size="sm"
                     active={listSegment === "all"}
                     onClick={() => handleSegmentChange("all")}
-                    className={clsx(listSegment !== "all" && "text-slate-300")}
                   >
                     Todos ({totalCount})
                   </Chip>
@@ -1969,7 +1956,6 @@ function SideBarInner() {
                     size="sm"
                     active={listSegment === "queue"}
                     onClick={() => handleSegmentChange("queue")}
-                    className={clsx(listSegment !== "queue" && "text-slate-300")}
                   >
                     Cola ({queueCount})
                   </Chip>
