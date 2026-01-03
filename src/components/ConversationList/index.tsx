@@ -6,6 +6,7 @@ import { getFollowUpTag } from "../../utils/followUp";
 import clsx from "clsx";
 import { PACKS } from "../../config/packs";
 import { computeFanTotals } from "../../lib/fanTotals";
+import { formatNextActionTooltip } from "../../lib/nextActionLabel";
 import { normalizePreferredLanguage } from "../../lib/language";
 import { isStickerToken } from "../../lib/stickers";
 
@@ -134,31 +135,15 @@ export default function ConversationList(props: ConversationListProps) {
       Boolean(nextActionNote?.trim()) ||
       (typeof data.nextAction === "string" && data.nextAction.trim().length > 0)
   );
-  const nextActionSummary =
-    followUpNote ??
-    nextActionNote ??
-    data.nextActionSummary ??
-    data.nextActionSnippet ??
-    null;
-  const nextActionTooltip = nextActionSummary
-    ? shorten(nextActionSummary, 100)
-    : followUpTitle
-    ? shorten(followUpTitle, 100)
-    : nextActionNote
-    ? shorten(nextActionNote, 100)
-    : data.nextAction
-    ? shorten(data.nextAction, 100)
-    : "";
-  const followUpDateLabel = (() => {
-    const source = followUpDueAt || nextActionAt;
-    if (!source) return "";
-    const parsed = source.includes("T") ? new Date(source) : new Date(`${source}T00:00:00`);
-    if (Number.isNaN(parsed.getTime())) return "";
-    return parsed.toISOString().slice(0, 10);
-  })();
-  const followUpTooltip = followUpDateLabel
-    ? `${nextActionTooltip || "Seguimiento"} · ${followUpDateLabel}`
-    : nextActionTooltip || "Seguimiento";
+  const nextActionNoteValue =
+    (typeof data.nextActionNote === "string" ? data.nextActionNote.trim() : "") ||
+    (typeof followUpTitle === "string" ? followUpTitle.trim() : "") ||
+    (typeof followUpNote === "string" ? followUpNote.trim() : "") ||
+    (typeof data.nextAction === "string" ? data.nextAction.trim() : "") ||
+    (typeof data.nextActionSummary === "string" ? data.nextActionSummary.trim() : "") ||
+    (typeof data.nextActionSnippet === "string" ? data.nextActionSnippet.trim() : "") ||
+    "";
+  const followUpTooltip = formatNextActionTooltip(followUpDueAt || nextActionAt, nextActionNoteValue);
   const novsyStatus = (data as any).novsyStatus ?? null;
   const preferredLanguage = normalizePreferredLanguage(data.preferredLanguage);
   const languageBadgeLabel = !isManagerChat && preferredLanguage ? preferredLanguage.toUpperCase() : null;
@@ -197,13 +182,6 @@ export default function ConversationList(props: ConversationListProps) {
       ? "border border-emerald-400 text-emerald-100 bg-emerald-500/20"
       : "border border-sky-400 text-sky-100 bg-sky-500/20"
   );
-
-  function shorten(text: string, max = 70) {
-    if (!text) return "";
-    const trimmed = text.trim();
-    if (trimmed.length <= max) return trimmed;
-    return trimmed.slice(0, max - 1) + "…";
-  }
 
   function getAccessChipLabel() {
     if (normalizedAccessState === "NONE") {

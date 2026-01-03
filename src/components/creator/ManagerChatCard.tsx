@@ -51,6 +51,12 @@ import {
   getEnabledPlatforms,
   normalizeCreatorPlatforms,
 } from "../../lib/creatorPlatforms";
+import {
+  formatIsoDate,
+  formatWhen,
+  getNextActionNoteLabel,
+  isGenericNextActionNote,
+} from "../../lib/nextActionLabel";
 
 type ManagerChatMessage = {
   id: string;
@@ -76,6 +82,7 @@ type ManagerChatPostResponse = {
 type ManagerActionIntent = "ROMPER_EL_HIELO" | "REACTIVAR_FAN_FRIO" | "OFRECER_UN_EXTRA" | "LLEVAR_A_MENSUAL" | "RESUMEN_PULSO_HOY";
 
 type SalesRange = "today" | "7d" | "30d";
+type FollowUpRangeDays = 1 | 3 | 7 | 30;
 
 type CreatorSalesResponse = {
   ok: boolean;
@@ -118,6 +125,7 @@ type CortexSegmentFanPreview = {
   tipsCount: number;
   hasActiveSub: boolean;
   followUpAt: string | null;
+  followUpNote: string | null;
   notesCount: number;
 };
 
@@ -133,6 +141,30 @@ type CortexSegmentEntry = {
 
 type CortexSegmentsResponse = {
   segments: CortexSegmentEntry[];
+  followUps?: {
+    rangeDays: number;
+    overdue: Array<{
+      fanId: string;
+      fanName: string;
+      nextActionAt: string;
+      nextActionNote: string | null;
+      statusLabel: string;
+    }>;
+    dueToday: Array<{
+      fanId: string;
+      fanName: string;
+      nextActionAt: string;
+      nextActionNote: string | null;
+      statusLabel: string;
+    }>;
+    upcoming: Array<{
+      fanId: string;
+      fanName: string;
+      nextActionAt: string;
+      nextActionNote: string | null;
+      statusLabel: string;
+    }>;
+  };
 };
 
 export type CortexOverviewMetrics = {
@@ -427,6 +459,7 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
   const [globalMode, setGlobalMode] = useState<GlobalMode>("HOY");
   const [growthPlatform, setGrowthPlatform] = useState<CreatorPlatformKey>("tiktok");
   const [salesRange, setSalesRange] = useState<SalesRange>("7d");
+  const [followUpRangeDays, setFollowUpRangeDays] = useState<FollowUpRangeDays>(7);
   const [salesData, setSalesData] = useState<CreatorSalesResponse | null>(null);
   const [salesLoading, setSalesLoading] = useState(false);
   const [salesError, setSalesError] = useState<string | null>(null);
@@ -1433,7 +1466,7 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
       try {
         setSegmentsLoading(true);
         setSegmentsError(null);
-        const res = await fetch("/api/creator/cortex/segments", {
+        const res = await fetch(`/api/creator/cortex/segments?rangeDays=${followUpRangeDays}`, {
           cache: "no-store",
           signal: controller.signal,
         });
@@ -1455,7 +1488,7 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
       alive = false;
       controller.abort();
     };
-  }, [shouldLoadSegments]);
+  }, [shouldLoadSegments, followUpRangeDays]);
   const catalogItemsSorted = useMemo(
     () => sortCatalogItems(catalogItemsState),
     [catalogItemsState]
@@ -2167,9 +2200,20 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
     [router]
   );
   const handleOpenFanChat = useCallback(
+    (fanId: string, segmentNote?: string) => {
+      if (!fanId) return;
+      const note = segmentNote?.trim();
+      const url = note
+        ? `/?fanId=${encodeURIComponent(fanId)}&segmentNote=${encodeURIComponent(note)}`
+        : `/?fanId=${encodeURIComponent(fanId)}`;
+      void router.push(url);
+    },
+    [router]
+  );
+  const handleOpenFanFollowUpPanel = useCallback(
     (fanId: string) => {
       if (!fanId) return;
-      void router.push(`/?fanId=${encodeURIComponent(fanId)}`);
+      void router.push(`/?fanId=${encodeURIComponent(fanId)}&panel=followup`);
     },
     [router]
   );
@@ -2183,6 +2227,22 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
     },
     []
   );
+  const buildSegmentFollowUpNote = useCallback((segment: CortexSegmentEntry) => {
+    switch (segment.id) {
+      case "sub_active_no_extras":
+        return "Proponer extra a suscripción activa";
+      case "gifters":
+        return "Proponer pack para regalos";
+      case "tipsters":
+        return "Proponer extra tras propina";
+      case "no_access_or_onboarding":
+        return "Activar acceso y guiar onboarding";
+      case "followup_due":
+        return "Seguimiento pendiente";
+      default:
+        return segment.title || "Seguimiento pendiente";
+    }
+  }, []);
   const toggleSegmentExpanded = (segmentId: string) => {
     setSegmentsExpanded((prev) => ({ ...prev, [segmentId]: !prev[segmentId] }));
   };
@@ -2394,51 +2454,108 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
       </div>
     );
     const segmentPreviewLimit = 4;
-    const followUpPreviewLimit = 7;
-    const followUpSegment = segmentsData?.segments.find((segment) => segment.id === "followup_due") ?? null;
-    const followUpPreview = followUpSegment?.fanPreview ?? [];
+    const followUpPreviewLimit = 8;
+    const followUps = segmentsData?.followUps ?? null;
+    const followUpItems = followUps
+      ? [...followUps.overdue, ...followUps.dueToday, ...followUps.upcoming]
+      : [];
     const todayPanel = isTodayTab ? (
       <div className="mb-4 space-y-3">
         <div className="rounded-2xl border border-slate-800/80 bg-slate-950/80 px-4 py-3">
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
-              <div className="text-[11px] uppercase tracking-wide text-slate-400">Seguimiento</div>
-              <div className="text-sm font-semibold text-slate-100">Seguimiento vencido / hoy</div>
-              <div className="text-[11px] text-slate-400">{followUpSegment?.reason ?? "Tareas que no pueden esperar."}</div>
+              <div className="text-[11px] uppercase tracking-wide text-slate-400">Seguimientos</div>
+              <div className="text-sm font-semibold text-slate-100">Vencidos, hoy y próximos</div>
+              <div className="text-[11px] text-slate-400">Rango próximos: {followUpRangeDays}d</div>
             </div>
-            {segmentsLoading && <div className="text-[10px] text-slate-500">Cargando…</div>}
+            <div className="flex flex-wrap items-center gap-2">
+              {[1, 3, 7, 30].map((range) => (
+                <button
+                  key={`followup-range-${range}`}
+                  type="button"
+                  onPointerDown={(event) => event.stopPropagation()}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    setFollowUpRangeDays(range as FollowUpRangeDays);
+                  }}
+                  className={clsx(
+                    "rounded-full border px-3 py-1 text-[10px] font-semibold transition",
+                    followUpRangeDays === range
+                      ? "border-amber-400/70 bg-amber-500/15 text-amber-100"
+                      : "border-slate-700/70 bg-slate-900/60 text-slate-200 hover:bg-slate-800/80"
+                  )}
+                >
+                  {range}d
+                </button>
+              ))}
+              {segmentsLoading && <div className="text-[10px] text-slate-500">Cargando…</div>}
+            </div>
           </div>
           {segmentsError && <div className="mt-2 text-[12px] text-rose-300">{segmentsError}</div>}
-          {!segmentsLoading && !segmentsError && followUpPreview.length === 0 && (
-            <div className="mt-2 text-[12px] text-slate-500">Sin seguimientos pendientes.</div>
+          {!segmentsLoading && !segmentsError && followUpItems.length === 0 && (
+            <div className="mt-2 text-[12px] text-slate-500">Sin seguimientos en este rango.</div>
           )}
-          {!segmentsLoading && !segmentsError && followUpPreview.length > 0 && (
+          {!segmentsLoading && !segmentsError && followUpItems.length > 0 && (
             <div className="mt-2 space-y-2">
-              {followUpPreview.slice(0, followUpPreviewLimit).map((fan) => (
-                <div key={fan.fanId} className="flex items-center justify-between gap-2">
-                  <div className="min-w-0">
-                    <div className="truncate text-[12px] text-slate-100">{fan.displayName}</div>
-                    <div className="text-[11px] text-slate-500">
-                      {formatCurrency(fan.totalSpent)} · {formatCount(fan.extrasCount)} extras ·{" "}
-                      {formatCount(fan.tipsCount)} propinas · {formatCount(fan.giftsCount)} regalos
+              {followUpItems.slice(0, followUpPreviewLimit).map((item) => {
+                const noteLabel = getNextActionNoteLabel(item.nextActionNote, true);
+                const dateLabel = formatIsoDate(item.nextActionAt);
+                const isOverdue = item.statusLabel === "Vencido";
+                const isTodayLabel = item.statusLabel === "Hoy";
+                const needsNote = isGenericNextActionNote(item.nextActionNote);
+                return (
+                  <div key={`${item.fanId}-${item.nextActionAt}`} className="flex items-center justify-between gap-2">
+                    <div className="min-w-0">
+                      <div className="truncate text-[12px] text-slate-100">{item.fanName}</div>
+                      <div className="text-[11px] text-slate-400 truncate">
+                        ⏰ {noteLabel}
+                        {dateLabel ? ` · ${dateLabel}` : ""}
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2 shrink-0">
+                      <span
+                        className={clsx(
+                          "rounded-full border px-2 py-0.5 text-[10px] font-semibold",
+                          isOverdue
+                            ? "border-rose-400/70 bg-rose-500/10 text-rose-100"
+                            : isTodayLabel
+                            ? "border-amber-400/70 bg-amber-500/10 text-amber-100"
+                            : "border-slate-700/70 bg-slate-900/60 text-slate-200"
+                        )}
+                      >
+                        {item.statusLabel}
+                      </span>
+                      {needsNote && (
+                        <button
+                          type="button"
+                          onPointerDown={(event) => event.stopPropagation()}
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            handleOpenFanFollowUpPanel(item.fanId);
+                          }}
+                          className="rounded-full border border-amber-400/70 bg-amber-500/10 px-3 py-1 text-[10px] font-semibold text-amber-100 hover:bg-amber-500/20"
+                        >
+                          Añadir nota
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        onPointerDown={(event) => event.stopPropagation()}
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          handleOpenFanChat(item.fanId);
+                        }}
+                        className="shrink-0 rounded-full border border-slate-700/70 bg-slate-900/70 px-3 py-1 text-[10px] font-semibold text-slate-200 hover:bg-slate-800/80"
+                      >
+                        Abrir chat
+                      </button>
                     </div>
                   </div>
-                  <button
-                    type="button"
-                    onPointerDown={(event) => event.stopPropagation()}
-                    onClick={(event) => {
-                      event.stopPropagation();
-                      handleOpenFanChat(fan.fanId);
-                    }}
-                    className="shrink-0 rounded-full border border-slate-700/70 bg-slate-900/70 px-3 py-1 text-[11px] font-semibold text-slate-200 hover:bg-slate-800/80"
-                  >
-                    Abrir chat
-                  </button>
-                </div>
-              ))}
-              {followUpPreview.length > followUpPreviewLimit && (
+                );
+              })}
+              {followUpItems.length > followUpPreviewLimit && (
                 <div className="text-[11px] text-slate-500">
-                  +{formatCount(followUpPreview.length - followUpPreviewLimit)} más en seguimiento
+                  +{formatCount(followUpItems.length - followUpPreviewLimit)} más en seguimiento
                 </div>
               )}
             </div>
@@ -2628,6 +2745,7 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
                         : segment.fanPreview.slice(0, segmentPreviewLimit);
                       const hasMore = segment.fanPreview.length > segmentPreviewLimit;
                       const suggestedFan = segment.fanPreview[0];
+                      const segmentNote = buildSegmentFollowUpNote(segment);
                       return (
                         <div
                           key={segment.id}
@@ -2656,13 +2774,32 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
                                     {formatCurrency(fan.totalSpent)} · {formatCount(fan.extrasCount)} extras ·{" "}
                                     {formatCount(fan.tipsCount)} propinas · {formatCount(fan.giftsCount)} regalos
                                   </div>
+                                  {fan.followUpAt && (() => {
+                                    const followUpWhen = formatWhen(fan.followUpAt);
+                                    const followUpLabel = getNextActionNoteLabel(fan.followUpNote, true);
+                                    const isOverdue = new Date(fan.followUpAt).getTime() <= Date.now();
+                                    return (
+                                      <div
+                                        className={clsx(
+                                          "mt-1 inline-flex max-w-full items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-semibold",
+                                          isOverdue
+                                            ? "border-rose-400/70 bg-rose-500/10 text-rose-100"
+                                            : "border-slate-700/70 bg-slate-900/60 text-slate-300"
+                                        )}
+                                      >
+                                        <span aria-hidden>⏰</span>
+                                        <span className="truncate">{followUpLabel}</span>
+                                        {followUpWhen && <span className="shrink-0">· {followUpWhen}</span>}
+                                      </div>
+                                    );
+                                  })()}
                                 </div>
                                 <button
                                   type="button"
                                   onPointerDown={(event) => event.stopPropagation()}
                                   onClick={(event) => {
                                     event.stopPropagation();
-                                    handleOpenFanChat(fan.fanId);
+                                    handleOpenFanChat(fan.fanId, segmentNote);
                                   }}
                                   className="shrink-0 rounded-full border border-slate-700/70 bg-slate-900/70 px-3 py-1 text-[11px] font-semibold text-slate-200 hover:bg-slate-800/80"
                                 >

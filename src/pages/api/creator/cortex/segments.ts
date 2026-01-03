@@ -12,6 +12,7 @@ type SegmentPreview = {
   tipsCount: number;
   hasActiveSub: boolean;
   followUpAt: string | null;
+  followUpNote: string | null;
   notesCount: number;
 };
 
@@ -32,14 +33,47 @@ type SegmentEntry = {
 
 type SegmentsResponse = {
   segments: SegmentEntry[];
+  followUps: {
+    rangeDays: number;
+    overdue: Array<{
+      fanId: string;
+      fanName: string;
+      nextActionAt: string;
+      nextActionNote: string | null;
+      statusLabel: string;
+    }>;
+    dueToday: Array<{
+      fanId: string;
+      fanName: string;
+      nextActionAt: string;
+      nextActionNote: string | null;
+      statusLabel: string;
+    }>;
+    upcoming: Array<{
+      fanId: string;
+      fanName: string;
+      nextActionAt: string;
+      nextActionNote: string | null;
+      statusLabel: string;
+    }>;
+  };
 };
 
 const FALLBACK_EXTRA_PRICE = 15;
+const LEGACY_SCHEDULE_RE = /\s*\(para\s+\d{4}-\d{2}-\d{2}(?:\s+\d{2}:\d{2})?\)\s*$/i;
+const MS_PER_DAY = 24 * 60 * 60 * 1000;
 
 function normalizeNoteValue(value: string | null | undefined): string | null {
   if (!value) return null;
   const trimmed = value.trim();
   return trimmed.length > 0 ? trimmed : null;
+}
+
+function normalizeLegacyNextAction(value: string | null | undefined): string | null {
+  const normalized = normalizeNoteValue(value);
+  if (!normalized) return null;
+  const cleaned = normalized.replace(LEGACY_SCHEDULE_RE, "").trim();
+  return cleaned.length > 0 ? cleaned : null;
 }
 
 function normalizePurchaseKind(kind: string | null | undefined): "EXTRA" | "TIP" | "GIFT" {
@@ -88,6 +122,15 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
 
   const creatorId = process.env.CREATOR_ID ?? "creator-1";
   const now = new Date();
+  const rawRange = Array.isArray(req.query.rangeDays) ? req.query.rangeDays[0] : req.query.rangeDays;
+  const parsedRange = Number(rawRange);
+  const rangeDays = parsedRange === 1 || parsedRange === 3 || parsedRange === 7 || parsedRange === 30 ? parsedRange : 7;
+  const startOfToday = new Date(now);
+  startOfToday.setHours(0, 0, 0, 0);
+  const endOfToday = new Date(now);
+  endOfToday.setHours(23, 59, 59, 999);
+  const rangeEnd = new Date(endOfToday);
+  rangeEnd.setDate(rangeEnd.getDate() + rangeDays);
 
   try {
     const fans = await prisma.fan.findMany({
@@ -100,14 +143,16 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
         profileText: true,
         inviteUsedAt: true,
         isNew: true,
+        nextAction: true,
         nextActionAt: true,
+        nextActionNote: true,
         accessGrants: { select: { type: true, expiresAt: true } },
         extraPurchases: { select: { amount: true, kind: true } },
         followUps: {
           where: { status: "OPEN" },
           orderBy: { dueAt: "asc" },
           take: 1,
-          select: { dueAt: true },
+          select: { dueAt: true, title: true, note: true },
         },
         _count: { select: { notes: true } },
       },
@@ -130,6 +175,12 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
         followUpCandidates.length > 0
           ? followUpCandidates.sort((a, b) => a.getTime() - b.getTime())[0]
           : null;
+      const followUpNote =
+        normalizeNoteValue(fan.nextActionNote) ||
+        normalizeNoteValue(fan.followUps?.[0]?.note) ||
+        normalizeNoteValue(fan.followUps?.[0]?.title) ||
+        normalizeLegacyNextAction(fan.nextAction) ||
+        null;
       return {
         fanId: fan.id,
         displayName: pickDisplayName(fan),
@@ -139,6 +190,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
         tipsCount,
         hasActiveSub: hasActiveSubscription(fan.accessGrants ?? [], now),
         followUpAt: followUpAt ? followUpAt.toISOString() : null,
+        followUpNote,
         notesCount,
         inviteUsedAt: fan.inviteUsedAt ? fan.inviteUsedAt.toISOString() : null,
         isNew: fan.isNew ?? false,
@@ -199,7 +251,83 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
       };
     });
 
-    return res.status(200).json({ segments });
+    const followUpItems = previews
+      .map((fan) => {
+        if (!fan.followUpAt) return null;
+        const followUpDate = new Date(fan.followUpAt);
+        if (Number.isNaN(followUpDate.getTime())) return null;
+        return {
+          fanId: fan.fanId,
+          fanName: fan.displayName,
+          nextActionAt: followUpDate.toISOString(),
+          nextActionNote: fan.followUpNote ?? null,
+          followUpDate,
+        };
+      })
+      .filter(Boolean) as Array<{
+      fanId: string;
+      fanName: string;
+      nextActionAt: string;
+      nextActionNote: string | null;
+      followUpDate: Date;
+    }>;
+
+    const overdue = followUpItems
+      .filter((item) => item.followUpDate.getTime() < startOfToday.getTime())
+      .sort((a, b) => a.followUpDate.getTime() - b.followUpDate.getTime())
+      .map((item) => ({
+        fanId: item.fanId,
+        fanName: item.fanName,
+        nextActionAt: item.nextActionAt,
+        nextActionNote: item.nextActionNote,
+        statusLabel: "Vencido",
+      }));
+
+    const dueToday = followUpItems
+      .filter(
+        (item) =>
+          item.followUpDate.getTime() >= startOfToday.getTime() &&
+          item.followUpDate.getTime() <= endOfToday.getTime()
+      )
+      .sort((a, b) => a.followUpDate.getTime() - b.followUpDate.getTime())
+      .map((item) => ({
+        fanId: item.fanId,
+        fanName: item.fanName,
+        nextActionAt: item.nextActionAt,
+        nextActionNote: item.nextActionNote,
+        statusLabel: "Hoy",
+      }));
+
+    const upcoming = followUpItems
+      .filter(
+        (item) =>
+          item.followUpDate.getTime() > endOfToday.getTime() &&
+          item.followUpDate.getTime() <= rangeEnd.getTime()
+      )
+      .sort((a, b) => a.followUpDate.getTime() - b.followUpDate.getTime())
+      .map((item) => {
+        const diffDays = Math.max(
+          1,
+          Math.ceil((item.followUpDate.getTime() - startOfToday.getTime()) / MS_PER_DAY)
+        );
+        return {
+          fanId: item.fanId,
+          fanName: item.fanName,
+          nextActionAt: item.nextActionAt,
+          nextActionNote: item.nextActionNote,
+          statusLabel: `En ${diffDays}d`,
+        };
+      });
+
+    return res.status(200).json({
+      segments,
+      followUps: {
+        rangeDays,
+        overdue,
+        dueToday,
+        upcoming,
+      },
+    });
   } catch (error) {
     console.error("Error loading cortex segments", error);
     return sendServerError(res, "Failed to load segments");

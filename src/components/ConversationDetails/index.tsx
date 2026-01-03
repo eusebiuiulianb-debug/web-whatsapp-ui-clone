@@ -52,6 +52,7 @@ import { getStickerById, type StickerItem as LegacyStickerItem } from "../../lib
 import { buildStickerToken, getStickerByToken, type StickerItem as PickerStickerItem } from "../../lib/stickers";
 import { parseReactionsRaw, useReactions } from "../../lib/emoji/reactions";
 import { computeFanTotals } from "../../lib/fanTotals";
+import { formatNextActionLabel, formatWhen, isGenericNextActionNote } from "../../lib/nextActionLabel";
 import {
   buildCatalogPitch,
   formatCatalogIncludesSummary,
@@ -673,6 +674,8 @@ export default function ConversationDetails({ onBackToBoard }: ConversationDetai
   const overlayBodyRef = useRef<HTMLDivElement | null>(null);
   const profileInputRef = useRef<HTMLTextAreaElement | null>(null);
   const nextActionInputRef = useRef<HTMLInputElement | null>(null);
+  const segmentNoteByFanRef = useRef<Record<string, string>>({});
+  const pendingFollowUpPanelRef = useRef<string | null>(null);
   type ManagerChatMessage = {
     id: string;
     role: "creator" | "manager" | "system";
@@ -931,20 +934,51 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
 
   useEffect(() => {
     if (!router.isReady) return;
-    const rawDraft = router.query.draft;
-    if (typeof rawDraft === "undefined") return;
-    const draftValue = Array.isArray(rawDraft) ? rawDraft[0] : rawDraft;
-    if (process.env.NODE_ENV !== "production") {
-    }
-    if (typeof draftValue !== "string") return;
-    const decodedDraft = safeDecodeQueryParam(draftValue);
-    pendingComposerDraftRef.current = decodedDraft;
     const rawFanId = router.query.fanId;
     const fanIdValue = Array.isArray(rawFanId) ? rawFanId[0] : rawFanId;
-    pendingComposerDraftFanIdRef.current = typeof fanIdValue === "string" ? fanIdValue : null;
     const nextQuery = { ...router.query };
-    delete nextQuery.draft;
-    void router.replace({ pathname: router.pathname, query: nextQuery }, undefined, { shallow: true });
+    let shouldReplace = false;
+
+    const rawDraft = router.query.draft;
+    if (typeof rawDraft !== "undefined") {
+      const draftValue = Array.isArray(rawDraft) ? rawDraft[0] : rawDraft;
+      if (process.env.NODE_ENV !== "production") {
+      }
+      if (typeof draftValue === "string") {
+        const decodedDraft = safeDecodeQueryParam(draftValue);
+        pendingComposerDraftRef.current = decodedDraft;
+        pendingComposerDraftFanIdRef.current = typeof fanIdValue === "string" ? fanIdValue : null;
+      }
+      delete nextQuery.draft;
+      shouldReplace = true;
+    }
+
+    const rawSegmentNote = router.query.segmentNote;
+    if (typeof rawSegmentNote !== "undefined") {
+      const noteValue = Array.isArray(rawSegmentNote) ? rawSegmentNote[0] : rawSegmentNote;
+      if (typeof noteValue === "string" && typeof fanIdValue === "string" && fanIdValue.trim()) {
+        const decodedNote = safeDecodeQueryParam(noteValue).trim();
+        if (decodedNote) {
+          segmentNoteByFanRef.current[fanIdValue] = decodedNote;
+        }
+      }
+      delete nextQuery.segmentNote;
+      shouldReplace = true;
+    }
+
+    const rawPanel = router.query.panel;
+    if (typeof rawPanel !== "undefined") {
+      const panelValue = Array.isArray(rawPanel) ? rawPanel[0] : rawPanel;
+      if (panelValue === "followup" && typeof fanIdValue === "string" && fanIdValue.trim()) {
+        pendingFollowUpPanelRef.current = fanIdValue;
+      }
+      delete nextQuery.panel;
+      shouldReplace = true;
+    }
+
+    if (shouldReplace) {
+      void router.replace({ pathname: router.pathname, query: nextQuery }, undefined, { shallow: true });
+    }
   }, [router]);
 
   const firstName = (contactName || "").split(" ")[0] || contactName || "";
@@ -1444,6 +1478,24 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
         return "Llevar a mensual";
       case "renovacion":
         return "Renovación";
+      default:
+        return null;
+    }
+  }
+
+  function getObjectiveFollowUpNote(objective?: ManagerObjective | null) {
+    switch (objective) {
+      case "bienvenida":
+      case "romper_hielo":
+        return "Romper el hielo";
+      case "reactivar_fan_frio":
+        return "Reactivar fan frío";
+      case "ofrecer_extra":
+        return "Ofrecer un extra";
+      case "llevar_a_mensual":
+        return "Proponer pack especial";
+      case "renovacion":
+        return "Cerrar renovación";
       default:
         return null;
     }
@@ -2876,6 +2928,17 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
     [openInternalPanel]
   );
 
+  useEffect(() => {
+    const pendingFanId = pendingFollowUpPanelRef.current;
+    if (!pendingFanId || !conversation?.id) return;
+    if (pendingFanId !== conversation.id) return;
+    pendingFollowUpPanelRef.current = null;
+    openInternalPanelTab("note", { scrollToTop: true });
+    setTimeout(() => {
+      nextActionInputRef.current?.focus();
+    }, 150);
+  }, [conversation?.id, openInternalPanelTab]);
+
   const openInternalThread = useCallback(
     (options?: { forceScroll?: boolean }) => {
       openInternalPanel("drafts", options);
@@ -3893,6 +3956,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
         const statusLabel = item.status === "DONE" ? "Seguimiento hecho" : "Seguimiento borrado";
         const statusTone = item.status === "DONE" ? "text-amber-200" : "text-rose-200";
         const due = splitDueAt(item.dueAt ?? null);
+        const dueLabel = formatWhen(item.dueAt ?? null);
         return (
           <div key={item.id} className="rounded-lg bg-slate-950/60 px-2 py-1.5">
             <div className="flex items-center justify-between gap-2 text-[10px] text-slate-500">
@@ -3901,9 +3965,9 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
             </div>
             <div className="text-[11px] whitespace-pre-wrap">{item.title}</div>
             {item.note && <div className="text-[11px] whitespace-pre-wrap text-slate-300">{item.note}</div>}
-            {due.date && (
+            {dueLabel && (
               <div className="text-[10px] text-slate-500">
-                Para {due.date}
+                Para {dueLabel}
                 {due.time ? ` · ${due.time}` : ""}
               </div>
             )}
@@ -6229,9 +6293,24 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
     }
   }
 
+  function getSegmentFollowUpNote(fanId?: string | null) {
+    if (!fanId) return "";
+    return segmentNoteByFanRef.current[fanId] ?? "";
+  }
+
+  function getAutoFollowUpNote() {
+    const objectiveNote = getObjectiveFollowUpNote(currentObjective ?? fanManagerAnalysis.defaultObjective);
+    if (objectiveNote) return objectiveNote;
+    const segmentNote = getSegmentFollowUpNote(conversation?.id ?? null);
+    if (segmentNote) return segmentNote;
+    return "Seguimiento: revisar y responder";
+  }
+
   async function handleQuickFollowUp(days: number, fallbackLabel: string) {
     if (!id) return;
-    const title = nextActionDraft.trim() || fallbackLabel;
+    const existingTitle = nextActionDraft.trim();
+    const shouldAutofill = isGenericNextActionNote(existingTitle);
+    const title = shouldAutofill ? getAutoFollowUpNote() : existingTitle || fallbackLabel;
     const date = formatDateInput(addDays(new Date(), days));
     const time = nextActionTime.trim();
     try {
@@ -6486,10 +6565,16 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
   const composerActionLabel = isFanTarget ? "Enviar a FAN" : "Enviar al Manager";
   const canAttachContent = isFanTarget && !isChatBlocked && !isInternalPanelOpen;
   const nextActionStatus = getFollowUpStatusFromDate(nextActionDate);
-  const followUpLabel =
-    followUpOpen?.title ||
-    (typeof conversation.nextActionNote === "string" ? conversation.nextActionNote.trim() : "") ||
+  const nextActionNoteValue =
+    typeof conversation.nextActionNote === "string" ? conversation.nextActionNote.trim() : "";
+  const followUpNoteRaw =
+    nextActionNoteValue ||
+    (typeof followUpOpen?.title === "string" ? followUpOpen.title.trim() : "") ||
+    (typeof followUpOpen?.note === "string" ? followUpOpen.note.trim() : "") ||
     (conversation.nextAction?.trim() || "");
+  const followUpDueAt = followUpOpen?.dueAt ?? conversation.nextActionAt ?? null;
+  const followUpLabel = formatNextActionLabel(followUpDueAt, followUpNoteRaw);
+  const isFollowUpNoteMissing = Boolean(followUpDueAt) && isGenericNextActionNote(followUpNoteRaw);
   const extrasCountDisplay = conversation.extrasCount ?? 0;
   const extrasAmount = typeof conversation.extrasSpentTotal === "number" ? conversation.extrasSpentTotal : 0;
   const tipsCountValue = conversation.tipsCount;
@@ -6578,6 +6663,13 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
   const handleViewProfile = () => {
     setShowQuickSheet(true);
   };
+
+  const handleAddFollowUpNote = useCallback(() => {
+    openInternalPanelTab("note", { scrollToTop: true });
+    setTimeout(() => {
+      nextActionInputRef.current?.focus();
+    }, 150);
+  }, [openInternalPanelTab]);
 
   const handleOpenEditName = () => {
     setIsActionsMenuOpen(false);
@@ -6899,17 +6991,10 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
   if (!conversation.isHighPriority) {
     statusTags.push(`${Math.round(lifetimeAmount)} €`);
   }
-  const nextActionNoteValue =
-    typeof conversation.nextActionNote === "string" ? conversation.nextActionNote.trim() : "";
-  const nextActionLabelRaw =
-    followUpOpen?.title ||
-    nextActionNoteValue ||
-    conversation.nextAction ||
-    "";
-  if (nextActionLabelRaw.trim()) {
+  if (followUpLabel) {
     const shortNext =
-      nextActionLabelRaw.length > 60 ? `${nextActionLabelRaw.slice(0, 57)}…` : nextActionLabelRaw;
-    statusTags.push(`Seguimiento: ${shortNext}`);
+      followUpLabel.length > 60 ? `${followUpLabel.slice(0, 57)}…` : followUpLabel;
+    statusTags.push(shortNext);
   }
   const statusLine = statusTags.join(" · ");
   const tierLabels: Record<number, string> = {
@@ -7275,11 +7360,23 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
                 {showTipsInline ? ` · Propinas: ${tipsInlineLabel}` : ""}
               </span>
             </div>
-            <div className="md:col-span-2 flex items-start gap-1 min-w-0">
+            <div className="md:col-span-2 flex items-start gap-2 min-w-0">
               <span className="text-slate-400">Seguimiento:</span>
-              <span className="min-w-0 line-clamp-1 md:line-clamp-2 text-slate-200">
+              <span
+                className="min-w-0 line-clamp-1 md:line-clamp-2 text-slate-200"
+                title={followUpLabel || ""}
+              >
                 {followUpLabel || "Sin seguimiento definido"}
               </span>
+              {isFollowUpNoteMissing && (
+                <button
+                  type="button"
+                  onClick={handleAddFollowUpNote}
+                  className="shrink-0 rounded-full border border-amber-400/70 bg-amber-500/10 px-2.5 py-0.5 text-[10px] font-semibold text-amber-100 hover:bg-amber-500/20"
+                >
+                  Añadir nota
+                </button>
+              )}
             </div>
           </div>
         </div>
@@ -7367,17 +7464,25 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
                   {(recommendedFan.notesCount ?? 0) === 1 ? "" : "s"}
                 </span>
                 {(() => {
-                  const nextLabel =
-                    recommendedFan.followUpOpen?.title ||
+                  const nextNote =
                     (typeof recommendedFan.nextActionNote === "string"
                       ? recommendedFan.nextActionNote.trim()
                       : "") ||
-                    recommendedFan.nextAction ||
-                    "";
-                  if (!nextLabel.trim()) return null;
+                    (typeof recommendedFan.followUpOpen?.title === "string"
+                      ? recommendedFan.followUpOpen.title.trim()
+                      : "") ||
+                    (typeof recommendedFan.followUpOpen?.note === "string"
+                      ? recommendedFan.followUpOpen.note.trim()
+                      : "") ||
+                    (recommendedFan.nextAction?.trim() || "");
+                  const nextLabel = formatNextActionLabel(
+                    recommendedFan.followUpOpen?.dueAt ?? recommendedFan.nextActionAt ?? null,
+                    nextNote
+                  );
+                  if (!nextLabel) return null;
                   return (
-                    <span className="text-[11px] text-slate-400 truncate">
-                      Seguimiento: {nextLabel}
+                    <span className="text-[11px] text-slate-400 truncate" title={nextLabel}>
+                      {nextLabel}
                     </span>
                   );
                 })()}
@@ -8761,9 +8866,18 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
               {preferredLanguageError && <p className="text-xs text-rose-300">{preferredLanguageError}</p>}
               <div className="flex flex-col gap-1 rounded-xl border border-slate-800 bg-slate-900/70 px-3 py-2">
                 <span className="text-slate-400 text-xs">Seguimiento</span>
-                <span className="text-slate-50 text-sm leading-snug">
+                <span className="text-slate-50 text-sm leading-snug" title={followUpLabel || ""}>
                   {followUpLabel || "Sin seguimiento definido"}
                 </span>
+                {isFollowUpNoteMissing && (
+                  <button
+                    type="button"
+                    onClick={handleAddFollowUpNote}
+                    className="self-start rounded-full border border-amber-400/70 bg-amber-500/10 px-2.5 py-0.5 text-[10px] font-semibold text-amber-100 hover:bg-amber-500/20"
+                  >
+                    Añadir nota
+                  </button>
+                )}
               </div>
             </div>
 
