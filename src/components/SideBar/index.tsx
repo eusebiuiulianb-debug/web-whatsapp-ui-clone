@@ -1904,8 +1904,10 @@ function SideBarInner() {
                 {listSegment === "all" && (
                   <>
                     <Chip
-                      variant={followUpMode === "today" ? "amber" : "subtle"}
+                      variant={followUpMode === "today" ? "accent" : "subtle"}
+                      tone="amber"
                       size="sm"
+                      active={followUpMode === "today"}
                       onClick={() => toggleFollowUpMode("today")}
                       className={clsx(
                         "shrink-0",
@@ -1916,8 +1918,10 @@ function SideBarInner() {
                       Seguimiento hoy{followUpTodayCount > 0 ? ` (${followUpTodayCount})` : ""}
                     </Chip>
                     <Chip
-                      variant={followUpMode === "expired" ? "danger" : "subtle"}
+                      variant={followUpMode === "expired" ? "accent" : "subtle"}
+                      tone="danger"
                       size="sm"
+                      active={followUpMode === "expired"}
                       onClick={() => toggleFollowUpMode("expired")}
                       className={clsx(
                         "shrink-0",
@@ -1928,8 +1932,10 @@ function SideBarInner() {
                       Caducados{expiredCount > 0 ? ` (${expiredCount})` : ""}
                     </Chip>
                     <Chip
-                      variant={followUpMode === "priority" ? "amber" : "subtle"}
+                      variant={followUpMode === "priority" ? "accent" : "subtle"}
+                      tone="amber"
                       size="sm"
+                      active={followUpMode === "priority"}
                       onClick={() => toggleFollowUpMode("priority")}
                       className={clsx(
                         "shrink-0",
@@ -1948,16 +1954,20 @@ function SideBarInner() {
                   )}
                 >
                   <Chip
-                    variant={listSegment === "all" ? "emerald" : "subtle"}
+                    variant={listSegment === "all" ? "accent" : "subtle"}
+                    tone={listSegment === "all" ? "emerald" : "neutral"}
                     size="sm"
+                    active={listSegment === "all"}
                     onClick={() => handleSegmentChange("all")}
                     className={clsx(listSegment !== "all" && "text-slate-300")}
                   >
                     Todos ({totalCount})
                   </Chip>
                   <Chip
-                    variant={listSegment === "queue" ? "amber" : "subtle"}
+                    variant={listSegment === "queue" ? "accent" : "subtle"}
+                    tone={listSegment === "queue" ? "amber" : "neutral"}
                     size="sm"
+                    active={listSegment === "queue"}
                     onClick={() => handleSegmentChange("queue")}
                     className={clsx(listSegment !== "queue" && "text-slate-300")}
                   >

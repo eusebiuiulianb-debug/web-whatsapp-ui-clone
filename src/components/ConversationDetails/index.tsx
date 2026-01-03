@@ -6563,6 +6563,14 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
   const composerActionLabel = isFanTarget ? "Enviar a FAN" : "Enviar al Manager";
   const canAttachContent = isFanTarget && !isChatBlocked && !isInternalPanelOpen;
   const nextActionStatus = getFollowUpStatusFromDate(nextActionDate);
+  const nextActionTone =
+    nextActionStatus?.tone === "overdue"
+      ? "danger"
+      : nextActionStatus?.tone === "today"
+      ? "amber"
+      : nextActionStatus?.tone === "tomorrow"
+      ? "sky"
+      : "neutral";
   const nextActionNoteValue =
     typeof conversation.nextActionNote === "string" ? conversation.nextActionNote.trim() : "";
   const followUpNoteRaw =
@@ -7156,30 +7164,21 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
             )}
             {(conversation.isHighPriority || (conversation.extrasCount ?? 0) > 0) && (
               conversation.isHighPriority ? (
-                <Chip variant="amber" size="xs" leftGlyph="pin">
+                <Chip variant="accent" tone="amber" size="xs" leftGlyph="pin">
                   Alta
                 </Chip>
               ) : (
-                <Chip variant="emerald" size="xs">
+                <Chip variant="accent" tone="emerald" size="xs">
                   Extras
                 </Chip>
               )
             )}
             {nextActionStatus && (
               <Chip
-                variant={
-                  nextActionStatus.tone === "overdue"
-                    ? "danger"
-                    : nextActionStatus.tone === "today"
-                    ? "amber"
-                    : "neutral"
-                }
+                variant="accent"
+                tone={nextActionTone}
                 size="xs"
                 leftGlyph="clock"
-                className={clsx(
-                  nextActionStatus.tone === "tomorrow" &&
-                    "border-sky-400/70 bg-sky-500/15 text-sky-100"
-                )}
               >
                 {nextActionStatus.label}
               </Chip>
@@ -7204,7 +7203,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
                     </Chip>
                   )}
                   {conversation.isHighPriority && (
-                    <Chip variant="amber" size="xs" leftGlyph="pin">
+                    <Chip variant="accent" tone="amber" size="xs" leftGlyph="pin">
                       Alta
                     </Chip>
                   )}
@@ -7256,30 +7255,21 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
               {formatTier(conversation.customerTier)}
             </Chip>
             {conversation.isHighPriority && (
-              <Chip variant="amber" size="sm" leftGlyph="pin">
+              <Chip variant="accent" tone="amber" size="sm" leftGlyph="pin">
                 Alta prioridad
               </Chip>
             )}
             {extrasCountDisplay > 0 && (
-              <Chip variant="emerald" size="sm">
+              <Chip variant="accent" tone="emerald" size="sm">
                 Extras
               </Chip>
             )}
             {nextActionStatus && (
               <Chip
-                variant={
-                  nextActionStatus.tone === "overdue"
-                    ? "danger"
-                    : nextActionStatus.tone === "today"
-                    ? "amber"
-                    : "neutral"
-                }
+                variant="accent"
+                tone={nextActionTone}
                 size="sm"
                 leftGlyph="clock"
-                className={clsx(
-                  nextActionStatus.tone === "tomorrow" &&
-                    "border-sky-400/70 bg-sky-500/15 text-sky-100"
-                )}
               >
                 {nextActionStatus.label}
               </Chip>

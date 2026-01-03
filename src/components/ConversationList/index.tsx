@@ -84,7 +84,7 @@ export default function ConversationList(props: ConversationListProps) {
           <div className="flex flex-col gap-[2px] min-w-0 w-full">
             <div className="flex items-center gap-2 min-w-0">
               <span className={`truncate ${nameClasses}`}>{contactName}</span>
-              <Chip variant="emerald" size="xs">
+              <Chip variant="accent" tone="emerald" size="xs">
                 IA
               </Chip>
             </div>
@@ -177,9 +177,10 @@ export default function ConversationList(props: ConversationListProps) {
     { kind: "GIFT", amount: data.giftsSpentTotal ?? 0 },
   ]);
   const totalSpent = Math.round(purchaseTotals.totalSpent);
-  const tierChipVariant = normalizedTier === "vip" ? "amber" : normalizedTier === "regular" ? "emerald" : "neutral";
-  const tierChipClass =
-    normalizedTier === "new" ? "border-sky-400 text-sky-100 bg-sky-500/20" : undefined;
+  const tierChipTone = normalizedTier === "vip" ? "amber" : normalizedTier === "regular" ? "emerald" : "sky";
+  const followUpTone =
+    followUpTag === "trial_soon" ? "amber" : followUpTag === "expired" ? "danger" : "sky";
+  const urgencyTone = urgencyLevel === "high" ? "danger" : urgencyLevel === "medium" ? "amber" : "neutral";
 
   function getAccessChipLabel() {
     if (normalizedAccessState === "NONE") {
@@ -220,7 +221,7 @@ export default function ConversationList(props: ConversationListProps) {
             <div className="flex items-center gap-2 min-w-0">
               <span className={`truncate ${nameTint}`}>{contactName}</span>
               {/* Chip de nivel según el tier del fan, usando la misma paleta que el botón amarillo */}
-              <Chip variant={tierChipVariant} size="sm" className={tierChipClass}>
+              <Chip variant="accent" tone={tierChipTone} size="sm">
                 {tierLabel}
               </Chip>
               {languageBadgeLabel && (
@@ -229,14 +230,15 @@ export default function ConversationList(props: ConversationListProps) {
                 </Chip>
               )}
               {novsyStatus === "NOVSY" && (
-                <Chip variant="emerald" size="xs">
+                <Chip variant="accent" tone="emerald" size="xs">
                   Extras
                 </Chip>
               )}
               {/* Chip de alta prioridad */}
               {isHighPriority && (
                 <Chip
-                  variant="amber"
+                  variant="accent"
+                  tone="amber"
                   size="xs"
                   leftGlyph="pin"
                   ariaLabel="Alta prioridad"
@@ -247,18 +249,10 @@ export default function ConversationList(props: ConversationListProps) {
               )}
               {followUpTag !== "none" && (
                 <Chip
-                  variant={
-                    followUpTag === "trial_soon"
-                      ? "amber"
-                      : followUpTag === "expired"
-                      ? "danger"
-                      : "neutral"
-                  }
+                  variant="accent"
+                  tone={followUpTone}
                   size="xs"
-                  className={clsx(
-                    "ml-1",
-                    followUpTag === "monthly_soon" && "border-sky-400/70 bg-sky-500/15 text-sky-100"
-                  )}
+                  className="ml-1"
                 >
                   {followUpTag === "trial_soon" && `Prueba · ${daysLeft ?? ""} d`}
                   {followUpTag === "monthly_soon" && `Renueva en ${daysLeft ?? ""} d`}
@@ -327,19 +321,15 @@ export default function ConversationList(props: ConversationListProps) {
                 </Chip>
               ) : null}
               {!isCompact && isInvitePending && (
-                <Chip
-                  variant="amber"
-                  size="xs"
-                  title="Invitación privada /i/token pendiente de entrar"
-                >
+                <Chip variant="accent" tone="amber" size="xs" title="Invitación privada /i/token pendiente de entrar">
                   Pendiente
                 </Chip>
               )}
               {daysLabel ? (
                 <Chip
-                  variant={urgencyLevel === "high" ? "danger" : urgencyLevel === "medium" ? "amber" : "neutral"}
+                  variant={isUrgencyDefault ? "muted" : "accent"}
+                  tone={urgencyTone}
                   size="xs"
-                  className={clsx(isUrgencyDefault && "border-slate-600 bg-slate-800/80 text-slate-300")}
                 >
                   {daysLabel}
                 </Chip>
