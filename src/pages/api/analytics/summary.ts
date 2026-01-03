@@ -79,7 +79,7 @@ type AnalyticsSummaryResponse = {
   campaignRollups: CampaignRollup[];
   campaignLastLinks: CampaignLinkRow[];
   topCampaigns: AggregatedRow[];
-  topCreatives: Omit<AggregatedRow, "utmCampaign" | "utmSource"> & { utmContent: string };
+  topCreatives: Array<Omit<AggregatedRow, "utmCampaign" | "utmSource"> & { utmContent: string }>;
   latestLinks: Array<{
     id: string;
     platform: string;
@@ -94,15 +94,55 @@ type AnalyticsSummaryResponse = {
   }>;
 };
 
-export default async function handler(req: NextApiRequest, res: NextApiResponse) {
-  try {
-    const rangeParam = Array.isArray(req.query.range) ? req.query.range[0] : req.query.range;
-    const rangeDays = Number(rangeParam) === 30 ? 30 : Number(rangeParam) === 90 ? 90 : 7;
-    const creatorId = process.env.CREATOR_ID ?? "creator-1";
-    const since = new Date();
-    since.setDate(since.getDate() - rangeDays + 1);
+type SummaryParams = {
+  rangeDays: number;
+  creatorId: string;
+  since: Date;
+};
 
-    const [events, latestLinks, campaigns] = await Promise.all([
+type SummaryStrategy = (params: SummaryParams) => Promise<AnalyticsSummaryResponse>;
+
+function buildEmptySummary(rangeDays: number): AnalyticsSummaryResponse {
+  return {
+    rangeDays,
+    funnel: {
+      view: { sessions: 0, events: 0 },
+      cta: { sessions: 0, events: 0 },
+      openChat: { sessions: 0, events: 0 },
+      sendMessage: { sessions: 0, events: 0 },
+      purchase: { sessions: 0, events: 0 },
+    },
+    funnelFans: {
+      newFans: 0,
+      openChatFans: 0,
+      sendMessageFans: 0,
+    },
+    metrics: {
+      sessions: 0,
+      ctr: 0,
+    },
+    campaigns: [],
+    campaignRollups: [],
+    campaignLastLinks: [],
+    topCampaigns: [],
+    topCreatives: [],
+    latestLinks: [],
+  };
+}
+
+function hasAnalyticsModels(client: typeof prisma): boolean {
+  const anyClient = client as any;
+  return Boolean(anyClient?.analyticsEvent?.findMany) &&
+    Boolean(anyClient?.campaignLink?.findMany) &&
+    Boolean(anyClient?.campaignMeta?.findMany);
+}
+
+async function buildPrismaSummary({ rangeDays, creatorId, since }: SummaryParams): Promise<AnalyticsSummaryResponse> {
+  if (!hasAnalyticsModels(prisma) || !creatorId) {
+    return buildEmptySummary(rangeDays);
+  }
+
+  const [events, latestLinks, campaigns] = await Promise.all([
       prisma.analyticsEvent.findMany({
         where: { creatorId, createdAt: { gte: since } },
         select: { sessionId: true, eventName: true, fanId: true, utmCampaign: true, utmSource: true, utmContent: true },
@@ -417,7 +457,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       }));
     }
 
-    const payload: AnalyticsSummaryResponse = {
+  const payload: AnalyticsSummaryResponse = {
       rangeDays,
       funnel,
       funnelFans,
@@ -436,9 +476,32 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       })),
     };
 
+  return payload;
+}
+
+const SUMMARY_STRATEGIES: Record<string, SummaryStrategy> = {
+  prisma: buildPrismaSummary,
+  empty: async ({ rangeDays }) => buildEmptySummary(rangeDays),
+};
+
+export default async function handler(req: NextApiRequest, res: NextApiResponse) {
+  const rangeParam = Array.isArray(req.query.range) ? req.query.range[0] : req.query.range;
+  const rangeDays = Number(rangeParam) === 30 ? 30 : Number(rangeParam) === 90 ? 90 : 7;
+  const creatorId = process.env.CREATOR_ID?.trim() || "creator-1";
+  const since = new Date();
+  since.setDate(since.getDate() - rangeDays + 1);
+
+  const strategyKey = process.env.ANALYTICS_SUMMARY_STRATEGY?.trim() || "prisma";
+  const strategy = SUMMARY_STRATEGIES[strategyKey] ?? SUMMARY_STRATEGIES.empty;
+
+  try {
+    if (!creatorId || Number.isNaN(since.getTime())) {
+      return res.status(200).json(buildEmptySummary(rangeDays));
+    }
+    const payload = await strategy({ rangeDays, creatorId, since });
     return res.status(200).json(payload);
   } catch (err) {
     console.error("Error loading analytics summary", err);
-    return res.status(500).json({ error: "INTERNAL_ERROR" });
+    return res.status(200).json(buildEmptySummary(rangeDays));
   }
 }
