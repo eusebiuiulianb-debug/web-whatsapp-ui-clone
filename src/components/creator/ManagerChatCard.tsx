@@ -2811,7 +2811,6 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
                         ? segment.fanPreview
                         : segment.fanPreview.slice(0, segmentPreviewLimit);
                       const hasMore = segment.fanPreview.length > segmentPreviewLimit;
-                      const suggestedFan = segment.fanPreview[0];
                       const segmentNote = buildSegmentFollowUpNote(segment);
                       return (
                         <div
@@ -2861,17 +2860,31 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
                                     );
                                   })()}
                                 </div>
-                                <button
-                                  type="button"
-                                  onPointerDown={(event) => event.stopPropagation()}
-                                  onClick={(event) => {
-                                    event.stopPropagation();
-                                    handleOpenFanChat(fan.fanId, segmentNote);
-                                  }}
-                                  className="shrink-0 rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-3 py-1 text-[11px] font-semibold text-[color:var(--text)] transition hover:border-[color:var(--surface-border-hover)] hover:bg-[color:var(--surface-2)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--ring)]"
-                                >
-                                  Abrir chat
-                                </button>
+                                <div className="shrink-0 flex items-center gap-2">
+                                  <button
+                                    type="button"
+                                    onPointerDown={(event) => event.stopPropagation()}
+                                    onClick={(event) => {
+                                      event.stopPropagation();
+                                      handleOpenFanChat(fan.fanId, segmentNote);
+                                    }}
+                                    className="rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-3 py-1 text-[11px] font-semibold text-[color:var(--text)] transition hover:border-[color:var(--surface-border-hover)] hover:bg-[color:var(--surface-2)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--ring)]"
+                                  >
+                                    Abrir chat
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onPointerDown={(event) => event.stopPropagation()}
+                                    onClick={(event) => {
+                                      event.stopPropagation();
+                                      const draft = buildSegmentSuggestedAction(segment, fan);
+                                      handleSendDraftToFan(fan.fanId, draft);
+                                    }}
+                                    className="rounded-full border border-[color:var(--brand)] bg-[color:rgba(var(--brand-rgb),0.12)] px-3 py-1 text-[11px] font-semibold text-[color:var(--text)] transition hover:bg-[color:rgba(var(--brand-rgb),0.2)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--ring)]"
+                                  >
+                                    Insertar
+                                  </button>
+                                </div>
                               </div>
                             ))}
                           </div>
@@ -2890,19 +2903,6 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
                                 {isExpanded ? "Ver menos" : "Ver todos"}
                               </button>
                             )}
-                            <button
-                              type="button"
-                              onPointerDown={(event) => event.stopPropagation()}
-                              onClick={(event) => {
-                                event.stopPropagation();
-                                if (!suggestedFan?.fanId) return;
-                                const draft = buildSegmentSuggestedAction(segment, suggestedFan);
-                                handleSendDraftToFan(suggestedFan.fanId, draft);
-                              }}
-                              className="rounded-full border border-[color:var(--brand)] bg-[color:rgba(var(--brand-rgb),0.12)] px-3 py-1 text-[11px] font-semibold text-[color:var(--text)] transition hover:bg-[color:rgba(var(--brand-rgb),0.2)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--ring)]"
-                            >
-                              Insertar mensaje sugerido
-                            </button>
                           </div>
                         </div>
                       );
