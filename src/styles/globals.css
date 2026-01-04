@@ -153,6 +153,30 @@ body {
     --badge-fg: var(--badge-danger-fg);
     --badge-bd: var(--badge-danger-bd);
   }
+
+  .ui-badge.ui-badge--muted {
+    background: var(--badge-muted-bg);
+    color: var(--badge-muted-fg);
+    border-color: var(--badge-muted-bd);
+  }
+
+  .ui-badge.ui-badge--accent {
+    background: var(--badge-accent-bg);
+    color: var(--badge-accent-fg);
+    border-color: var(--badge-accent-bd);
+  }
+
+  .ui-badge.ui-badge--warn {
+    background: var(--badge-warn-bg);
+    color: var(--badge-warn-fg);
+    border-color: var(--badge-warn-bd);
+  }
+
+  .ui-badge.ui-badge--danger {
+    background: var(--badge-danger-bg);
+    color: var(--badge-danger-fg);
+    border-color: var(--badge-danger-bd);
+  }
 }
 
 @media (max-width: 768px) {

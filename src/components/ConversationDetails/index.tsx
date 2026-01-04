@@ -73,7 +73,7 @@ import Image from "next/image";
 import { IconGlyph, type IconName } from "../ui/IconGlyph";
 import { Badge, type BadgeTone } from "../ui/Badge";
 import { ConversationActionsMenu } from "../conversations/ConversationActionsMenu";
-import { toneForLabel } from "../../lib/badgeTone";
+import { badgeToneForLabel } from "../../lib/badgeTone";
 
 type ManagerQuickIntent = ManagerObjective;
 type ManagerSuggestionIntent = "romper_hielo" | "pregunta_simple" | "cierre_suave" | "upsell_mensual_suave";
@@ -6575,8 +6575,8 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
       ? "warn"
       : "muted";
   const tierLabel = formatTier(conversation.customerTier);
-  const tierBadgeTone: BadgeTone = toneForLabel(tierLabel);
-  const packBadgeTone: BadgeTone = toneForLabel(packLabel);
+  const tierBadgeTone: BadgeTone = badgeToneForLabel(tierLabel);
+  const packBadgeTone: BadgeTone = badgeToneForLabel(packLabel);
   const nextActionNoteValue =
     typeof conversation.nextActionNote === "string" ? conversation.nextActionNote.trim() : "";
   const followUpNoteRaw =
@@ -7165,17 +7165,17 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
           <div className="flex items-center gap-2 min-w-0 flex-1 justify-center">
             <span className="truncate text-sm font-medium text-[color:var(--text)]">{contactName}</span>
             {languageBadgeLabel && (
-              <Badge tone={toneForLabel(languageBadgeLabel)} size="md">
+              <Badge tone={badgeToneForLabel(languageBadgeLabel)} size="md">
                 {languageBadgeLabel}
               </Badge>
             )}
             {(conversation.isHighPriority || (conversation.extrasCount ?? 0) > 0) && (
               conversation.isHighPriority ? (
-                <Badge tone={toneForLabel("Alta")} size="md" leftGlyph="pin">
+                <Badge tone={badgeToneForLabel("Alta")} size="md" leftGlyph="pin">
                   Alta
                 </Badge>
               ) : (
-                <Badge tone={toneForLabel("Extras")} size="md">
+                <Badge tone={badgeToneForLabel("Extras")} size="md">
                   Extras
                 </Badge>
               )
@@ -7200,12 +7200,12 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
                 <div className="flex items-center gap-2 min-w-0">
                   <h1 className="text-base font-semibold text-[color:var(--text)] truncate">{contactName}</h1>
                   {languageBadgeLabel && (
-                    <Badge tone={toneForLabel(languageBadgeLabel)} size="md">
+                    <Badge tone={badgeToneForLabel(languageBadgeLabel)} size="md">
                       {languageBadgeLabel}
                     </Badge>
                   )}
                   {conversation.isHighPriority && (
-                    <Badge tone={toneForLabel("Alta")} size="md" leftGlyph="pin">
+                    <Badge tone={badgeToneForLabel("Alta")} size="md" leftGlyph="pin">
                       Alta
                     </Badge>
                   )}
@@ -7257,12 +7257,12 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
               {tierLabel}
             </Badge>
             {conversation.isHighPriority && (
-              <Badge tone={toneForLabel("Alta prioridad")} size="md" leftGlyph="pin">
+              <Badge tone={badgeToneForLabel("Alta prioridad")} size="md" leftGlyph="pin">
                 Alta prioridad
               </Badge>
             )}
             {extrasCountDisplay > 0 && (
-              <Badge tone={toneForLabel("Extras")} size="md">
+              <Badge tone={badgeToneForLabel("Extras")} size="md">
                 Extras
               </Badge>
             )}

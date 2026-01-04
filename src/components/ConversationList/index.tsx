@@ -9,7 +9,7 @@ import { computeFanTotals } from "../../lib/fanTotals";
 import { formatNextActionTooltip } from "../../lib/nextActionLabel";
 import { normalizePreferredLanguage } from "../../lib/language";
 import { isStickerToken } from "../../lib/stickers";
-import { toneForLabel } from "../../lib/badgeTone";
+import { badgeToneForLabel } from "../../lib/badgeTone";
 import { IconBadge } from "../ui/IconBadge";
 import { Badge, type BadgeTone } from "../ui/Badge";
 import { ConversationActionsMenu } from "../conversations/ConversationActionsMenu";
@@ -186,8 +186,8 @@ export default function ConversationList(props: ConversationListProps) {
       : followUpTag === "expired"
       ? "Caducado"
       : "Seguimiento";
-  const tierBadgeTone: BadgeTone = isRiskTier ? "danger" : toneForLabel(tierLabel);
-  const followUpTone: BadgeTone = toneForLabel(followUpBadgeLabel);
+  const tierBadgeTone: BadgeTone = isRiskTier ? "danger" : badgeToneForLabel(tierLabel);
+  const followUpTone: BadgeTone = badgeToneForLabel(followUpBadgeLabel);
   const urgencyTone: BadgeTone =
     urgencyLevel === "high" ? "danger" : urgencyLevel === "medium" ? "warn" : "muted";
 
@@ -210,7 +210,7 @@ export default function ConversationList(props: ConversationListProps) {
 
   const hasActiveAccess = typeof data.hasActiveAccess === "boolean" ? data.hasActiveAccess : normalizedAccessState === "ACTIVE";
   const isInvitePending = !isManagerChat && !data.inviteUsedAt && !hasActiveAccess;
-  const accessBadgeTone: BadgeTone = toneForLabel(accessChipLabel);
+  const accessBadgeTone: BadgeTone = badgeToneForLabel(accessChipLabel);
 
   return (
     <div 
@@ -235,19 +235,19 @@ export default function ConversationList(props: ConversationListProps) {
                 {tierLabel}
               </Badge>
               {languageBadgeLabel && (
-                <Badge tone={toneForLabel(languageBadgeLabel)} size="sm">
+                <Badge tone={badgeToneForLabel(languageBadgeLabel)} size="sm">
                   {languageBadgeLabel}
                 </Badge>
               )}
               {novsyStatus === "NOVSY" && (
-                <Badge tone={toneForLabel("Extras")} size="sm">
+                <Badge tone={badgeToneForLabel("Extras")} size="sm">
                   Extras
                 </Badge>
               )}
               {/* Badge de alta prioridad */}
               {isHighPriority && (
                 <Badge
-                  tone={toneForLabel("Alta prioridad")}
+                  tone={badgeToneForLabel("Alta prioridad")}
                   size="sm"
                   leftGlyph="pin"
                   ariaLabel="Alta prioridad"
