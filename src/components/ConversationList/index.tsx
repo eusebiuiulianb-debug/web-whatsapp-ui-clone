@@ -251,7 +251,7 @@ export default function ConversationList(props: ConversationListProps) {
               {/* Badge de alta prioridad */}
               {isHighPriority && (
                 <Badge
-                  tone="danger"
+                  tone="warn"
                   size="sm"
                   leftGlyph="pin"
                   ariaLabel="Alta prioridad"

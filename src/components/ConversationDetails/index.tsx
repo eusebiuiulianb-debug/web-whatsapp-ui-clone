@@ -6576,7 +6576,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
   const tierLabel = formatTier(conversation.customerTier);
   const isPriorityTier = tierLabel === "Alta prioridad";
   const tierBadgeTone: BadgeTone = isPriorityTier
-    ? "danger"
+    ? "warn"
     : tierLabel === "Habitual"
     ? "muted"
     : "accent";
@@ -7174,7 +7174,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
             )}
             {(conversation.isHighPriority || (conversation.extrasCount ?? 0) > 0) && (
               conversation.isHighPriority ? (
-                <Badge tone="danger" size="md" leftGlyph="pin">
+                <Badge tone="warn" size="md" leftGlyph="pin">
                   Alta
                 </Badge>
               ) : (
@@ -7208,7 +7208,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
                     </Badge>
                   )}
                   {conversation.isHighPriority && (
-                    <Badge tone="danger" size="md" leftGlyph="pin">
+                    <Badge tone="warn" size="md" leftGlyph="pin">
                       Alta
                     </Badge>
                   )}
@@ -7260,7 +7260,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
               {tierLabel}
             </Badge>
             {conversation.isHighPriority && (
-              <Badge tone="danger" size="md" leftGlyph="pin">
+              <Badge tone="warn" size="md" leftGlyph="pin">
                 Alta prioridad
               </Badge>
             )}
