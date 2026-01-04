@@ -39,15 +39,15 @@ export default function Home() {
         </path>
       </svg>
       <div className="flex flex-col items-center mt-10 w-full">
-        <h1 className="text-[#e9edef] text-3xl font-light text-center">Selecciona un fan para iniciar el chat</h1>
-        <div className="flex flex-col mt-4 w-full md:w-10/12 text-center text-[#8696a0] text-base font-light gap-2">
+        <h1 className="text-[color:var(--text)] text-3xl font-light text-center">Selecciona un fan para iniciar el chat</h1>
+        <div className="flex flex-col mt-4 w-full md:w-10/12 text-center ui-muted text-base font-light gap-2">
           <p>Aquí verás los mensajes privados y podrás responder con texto, audio y enlaces a tu contenido.</p>
           <p>Activa a tu comunidad en NOVSY sin depender del móvil.</p>
         </div>
-        <div className="my-6 border-b-[1px] border-[rgba(134,150,160,0.15)] w-full">
+        <div className="my-6 border-b-[1px] border-[color:var(--border)] w-full">
         </div>
 
-        <div className="flex gap-2 text-[#8696a0] text-sm font-light text-center">
+        <div className="flex gap-2 ui-muted text-sm font-light text-center">
           <span>Gestiona tu comunidad desde escritorio y mantén la conversación activa con tus fans.</span>
         </div>
       </div>

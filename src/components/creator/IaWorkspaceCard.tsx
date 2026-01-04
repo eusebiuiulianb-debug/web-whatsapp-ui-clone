@@ -1102,9 +1102,9 @@ function riskBadge(level: string) {
 
 function healthColor(level: FanManagerRow["riskLevel"]) {
   const normalized = String(level).toUpperCase();
-  if (normalized === "HIGH" || normalized === "ALTO") return "#fca5a5";
-  if (normalized === "MEDIUM" || normalized === "MEDIO") return "#fcd34d";
-  return "#86efac";
+  if (normalized === "HIGH" || normalized === "ALTO") return "var(--danger)";
+  if (normalized === "MEDIUM" || normalized === "MEDIO") return "var(--warning)";
+  return "var(--brand)";
 }
 
 function formatCurrency(amount: number) {

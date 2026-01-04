@@ -21,7 +21,7 @@ export function ManagerInsightsPane({ open, panelTab, summary, preview, onToggle
 
   return (
     <div className="fixed inset-0 z-40 flex items-start justify-end">
-      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onToggle} />
+      <div className="absolute inset-0 bg-[color:var(--surface-overlay)] backdrop-blur-sm" onClick={onToggle} />
       <aside
         className={clsx(
           "relative z-10 h-full overflow-y-auto border-l border-[color:var(--surface-border)] bg-[color:var(--surface-1)]/95 shadow-2xl flex flex-col gap-3",

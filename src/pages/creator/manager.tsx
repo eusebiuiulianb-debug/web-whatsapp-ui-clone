@@ -1539,7 +1539,7 @@ function ManagerChatLayout({
               {fanPanelOpen && (
                 <div className="absolute inset-0 z-20 hidden lg:flex">
                   <div
-                    className="absolute inset-0 bg-black/50 backdrop-blur-sm"
+                    className="absolute inset-0 bg-[color:var(--surface-overlay-soft)] backdrop-blur-sm"
                     onClick={() => setFanPanelOpen(false)}
                   />
                   <div className="relative ml-auto h-full w-full max-w-[380px] border-l border-[color:var(--surface-border)] bg-[color:var(--surface-1)] shadow-2xl">
@@ -1553,7 +1553,7 @@ function ManagerChatLayout({
       </div>
       {fanPanelOpen && (
         <div className="fixed inset-0 z-50 flex items-end justify-center lg:hidden">
-          <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => setFanPanelOpen(false)} />
+          <div className="absolute inset-0 bg-[color:var(--surface-overlay)] backdrop-blur-sm" onClick={() => setFanPanelOpen(false)} />
           <div className="relative w-full max-w-3xl">
             <div className="rounded-t-3xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] shadow-2xl max-h-[85dvh] overflow-hidden">
               {fanPanelContent}

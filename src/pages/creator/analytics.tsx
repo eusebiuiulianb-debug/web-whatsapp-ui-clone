@@ -903,7 +903,7 @@ export default function CreatorAnalyticsPage() {
       </div>
 
       {campaignModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-4">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-[color:var(--surface-overlay)] px-4">
           <div className="w-full max-w-lg rounded-2xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] p-5 shadow-xl space-y-4">
             <div className="flex items-center justify-between">
               <div>

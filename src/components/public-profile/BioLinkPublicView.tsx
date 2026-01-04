@@ -31,7 +31,7 @@ export function BioLinkPublicView({ config }: Props) {
   }, [config.creatorId, config.handle]);
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 text-[color:var(--text)] flex flex-col items-center px-4 pt-16 pb-24 md:pt-20">
+    <div className="min-h-screen bg-gradient-to-br from-[color:var(--surface-0)] via-[color:var(--surface-1)] to-[color:var(--surface-0)] text-[color:var(--text)] flex flex-col items-center px-4 pt-16 pb-24 md:pt-20">
       <div className="w-full max-w-md mb-6">
         <div className="rounded-3xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)]/85 shadow-2xl shadow-black/40 px-6 py-8 flex flex-col gap-6 items-center">
           <div className="flex flex-col items-center gap-3 w-full">

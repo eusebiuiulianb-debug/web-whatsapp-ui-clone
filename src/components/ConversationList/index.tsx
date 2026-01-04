@@ -10,7 +10,7 @@ import { formatNextActionTooltip } from "../../lib/nextActionLabel";
 import { normalizePreferredLanguage } from "../../lib/language";
 import { isStickerToken } from "../../lib/stickers";
 import { IconBadge } from "../ui/IconBadge";
-import { Chip } from "../ui/Chip";
+import { Badge, type BadgeVariant } from "../ui/Badge";
 import { ConversationActionsMenu } from "../conversations/ConversationActionsMenu";
 
 interface ConversationListProps {
@@ -84,9 +84,9 @@ export default function ConversationList(props: ConversationListProps) {
           <div className="flex flex-col gap-[2px] min-w-0 w-full">
             <div className="flex items-center gap-2 min-w-0">
               <span className={`truncate ${nameClasses}`}>{contactName}</span>
-              <Chip variant="accent" tone="emerald" size="xs">
+              <Badge variant="brand" size="sm">
                 IA
-              </Chip>
+              </Badge>
             </div>
             {hasManagerPreview && <span className={`truncate ${previewClasses}`}>{previewMessage}</span>}
             {hasManagerCaption && (
@@ -115,7 +115,7 @@ export default function ConversationList(props: ConversationListProps) {
   })();
 
   const daysLabel = daysLeft !== undefined && daysLeft !== null ? `${daysLeft} d` : "";
-  const nameTint = normalizedAccessState === "EXPIRED" ? "text-[#7d8a93]" : nameClasses;
+  const nameTint = normalizedAccessState === "EXPIRED" ? "text-[color:var(--muted)]" : nameClasses;
   const followUpTag = getFollowUpTag(membershipStatus, daysLeft, data.activeGrantTypes);
   const notesCount = data.notesCount ?? 0;
   const notePreview = typeof data.notePreview === "string" ? data.notePreview : "";
@@ -176,14 +176,18 @@ export default function ConversationList(props: ConversationListProps) {
     { kind: "GIFT", amount: data.giftsSpentTotal ?? 0 },
   ]);
   const totalSpent = Math.round(purchaseTotals.totalSpent);
-  const tierChipTone = normalizedTier === "vip" ? "amber" : normalizedTier === "regular" ? "emerald" : "sky";
   const isRiskTier = tierLabel === "En riesgo";
-  const strongChip = isRiskTier ? "risk" : isHighPriority ? "priority" : null;
-  const tierVariant = strongChip === "risk" ? "accent" : "subtle";
-  const priorityVariant = strongChip === "priority" ? "accent" : "subtle";
-  const followUpTone =
-    followUpTag === "trial_soon" ? "amber" : followUpTag === "expired" ? "danger" : "sky";
-  const urgencyTone = urgencyLevel === "high" ? "danger" : urgencyLevel === "medium" ? "amber" : "neutral";
+  const tierBadgeVariant: BadgeVariant = isRiskTier
+    ? "danger"
+    : normalizedTier === "vip"
+    ? "warn"
+    : normalizedTier === "regular"
+    ? "success"
+    : "info";
+  const followUpVariant: BadgeVariant =
+    followUpTag === "trial_soon" ? "warn" : followUpTag === "expired" ? "danger" : "info";
+  const urgencyVariant: BadgeVariant =
+    urgencyLevel === "high" ? "danger" : urgencyLevel === "medium" ? "warn" : "neutral";
 
   function getAccessChipLabel() {
     if (normalizedAccessState === "NONE") {
@@ -204,6 +208,14 @@ export default function ConversationList(props: ConversationListProps) {
 
   const hasActiveAccess = typeof data.hasActiveAccess === "boolean" ? data.hasActiveAccess : normalizedAccessState === "ACTIVE";
   const isInvitePending = !isManagerChat && !data.inviteUsedAt && !hasActiveAccess;
+  const accessBadgeVariant: BadgeVariant =
+    normalizedAccessState === "ACTIVE"
+      ? "brand"
+      : normalizedAccessState === "EXPIRED"
+      ? "danger"
+      : isNew
+      ? "info"
+      : "neutral";
 
   return (
     <div 
@@ -223,43 +235,38 @@ export default function ConversationList(props: ConversationListProps) {
           <div className="flex flex-col gap-[2px] min-w-0 w-full">
             <div className="flex items-center gap-1.5 min-w-0">
               <span className={`truncate ${nameTint}`}>{contactName}</span>
-              {/* Chip de nivel según el tier del fan, usando la misma paleta que el botón amarillo */}
-              <Chip variant={tierVariant} tone={isRiskTier ? "danger" : tierChipTone} size="xs">
+              {/* Badge de nivel según el tier del fan, usando la misma paleta que el botón amarillo */}
+              <Badge variant={tierBadgeVariant} size="sm">
                 {tierLabel}
-              </Chip>
+              </Badge>
               {languageBadgeLabel && (
-                <Chip variant="subtle" size="xs">
+                <Badge variant="neutral" size="sm">
                   {languageBadgeLabel}
-                </Chip>
+                </Badge>
               )}
               {novsyStatus === "NOVSY" && (
-                <Chip variant="subtle" tone="emerald" size="xs">
+                <Badge variant="brand" size="sm">
                   Extras
-                </Chip>
+                </Badge>
               )}
-              {/* Chip de alta prioridad */}
+              {/* Badge de alta prioridad */}
               {isHighPriority && (
-                <Chip
-                  variant={priorityVariant}
-                  tone="amber"
-                  size="xs"
+                <Badge
+                  variant="warn"
+                  size="sm"
                   leftGlyph="pin"
                   ariaLabel="Alta prioridad"
                   title="Alta prioridad"
                 >
                   Alta
-                </Chip>
+                </Badge>
               )}
               {followUpTag !== "none" && (
-                <Chip
-                  variant="subtle"
-                  tone={followUpTone}
-                  size="xs"
-                >
+                <Badge variant={followUpVariant} size="sm">
                   {followUpTag === "trial_soon" && `Prueba · ${daysLeft ?? ""} d`}
                   {followUpTag === "monthly_soon" && `Renueva en ${daysLeft ?? ""} d`}
                   {followUpTag === "expired" && "Caducado"}
-                </Chip>
+                </Badge>
               )}
             </div>
             {!isCompact && <span className={`truncate ${previewClasses}`}>{previewMessage}</span>}
@@ -317,50 +324,42 @@ export default function ConversationList(props: ConversationListProps) {
               isCompact ? "mt-0.5" : "mt-1"
             )}>
               {shouldShowAccessChip ? (
-                <Chip
-                  variant="subtle"
-                  tone="amber"
-                  size="xs"
-                >
+                <Badge variant={accessBadgeVariant} size="sm">
                   {accessChipLabel}
-                </Chip>
+                </Badge>
               ) : null}
               {!isCompact && isInvitePending && (
-                <Chip variant="subtle" tone="amber" size="xs" title="Invitación privada /i/token pendiente de entrar">
+                <Badge variant="warn" size="sm" title="Invitación privada /i/token pendiente de entrar">
                   Pendiente
-                </Chip>
+                </Badge>
               )}
               {daysLabel ? (
-                <Chip
-                  variant="subtle"
-                  tone={urgencyTone}
-                  size="xs"
-                >
+                <Badge variant={urgencyVariant} size="sm">
                   {daysLabel}
-                </Chip>
+                </Badge>
               ) : null}
               {!isCompact && (sourceLabel || campaignLabel || contentLabel) && (
                 <div className="flex items-center gap-1.5 flex-nowrap shrink-0">
                   {sourceLabel && (
-                    <Chip variant="muted" size="xs">
+                    <Badge variant="neutral" size="sm">
                       {sourceLabel}
-                    </Chip>
+                    </Badge>
                   )}
                   {campaignLabel && (
-                    <Chip variant="muted" size="xs">
+                    <Badge variant="neutral" size="sm">
                       {campaignLabel}
-                    </Chip>
+                    </Badge>
                   )}
                   {contentLabel && (
-                    <Chip variant="muted" size="xs">
+                    <Badge variant="neutral" size="sm">
                       {contentLabel}
-                    </Chip>
+                    </Badge>
                   )}
                 </div>
               )}
             </div>
           </div>
-          <div className="flex flex-col items-end gap-1 w-auto text-[#aebac1] relative">
+          <div className="flex flex-col items-end gap-1 w-auto text-[color:var(--muted)] relative">
             <div className="flex items-center gap-2">
               <h1 className="text-[10px] ui-muted">{lastTime}</h1>
               <ConversationActionsMenu
@@ -371,7 +370,7 @@ export default function ConversationList(props: ConversationListProps) {
               />
             </div>
             {hasUnread && (
-              <span className="self-end min-w-[20px] h-5 px-2 rounded-full bg-[#53bdeb] text-[#0b141a] text-xs font-semibold flex items-center justify-center">
+              <span className="self-end min-w-[20px] h-5 px-2 rounded-full bg-[color:var(--brand)] text-[color:var(--surface-0)] text-xs font-semibold flex items-center justify-center">
                 {unreadCount}
               </span>
             )}

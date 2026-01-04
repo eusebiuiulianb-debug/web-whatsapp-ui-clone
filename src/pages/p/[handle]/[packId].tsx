@@ -38,7 +38,7 @@ export default function PublicPackLanding({ notFound, creatorName, creatorHandle
       <Head>
         <title>{`${pack.title} · ${creatorName || "Pack"}`}</title>
       </Head>
-      <div className="min-h-screen bg-[#0b141a] text-[color:var(--text)]">
+      <div className="min-h-screen bg-[color:var(--surface-0)] text-[color:var(--text)]">
         <div className="max-w-3xl mx-auto px-4 py-10 space-y-6">
           <header className="relative overflow-hidden rounded-3xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)]">
             <div

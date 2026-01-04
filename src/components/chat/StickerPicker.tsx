@@ -277,7 +277,7 @@ export function StickerPicker({ isOpen, anchorRef, onClose, onSelect }: StickerP
         </div>
       )}
       {isCentered && (
-        <div className="hidden sm:flex fixed inset-0 z-[9999] items-center justify-center bg-black/60 px-3 py-4">
+        <div className="hidden sm:flex fixed inset-0 z-[9999] items-center justify-center bg-[color:var(--surface-overlay)] px-3 py-4">
           <div ref={popoverRef} data-sticker-picker="true">
             <div
               ref={desktopContentRef}
@@ -292,7 +292,7 @@ export function StickerPicker({ isOpen, anchorRef, onClose, onSelect }: StickerP
           </div>
         </div>
       )}
-      <div className="sm:hidden fixed inset-0 z-50 flex items-end justify-center bg-black/60">
+      <div className="sm:hidden fixed inset-0 z-50 flex items-end justify-center bg-[color:var(--surface-overlay)]">
         <div
           ref={sheetRef}
           className="w-full max-w-lg rounded-t-2xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] p-3 shadow-2xl max-h-[75vh] overflow-y-auto"

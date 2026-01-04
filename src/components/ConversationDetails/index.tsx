@@ -71,7 +71,7 @@ import { useRouter } from "next/router";
 import { useIsomorphicLayoutEffect } from "../../hooks/useIsomorphicLayoutEffect";
 import Image from "next/image";
 import { IconGlyph, type IconName } from "../ui/IconGlyph";
-import { Chip } from "../ui/Chip";
+import { Badge, type BadgeVariant } from "../ui/Badge";
 import { ConversationActionsMenu } from "../conversations/ConversationActionsMenu";
 
 type ManagerQuickIntent = ManagerObjective;
@@ -6531,10 +6531,10 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
   const presenceStatus = getPresenceStatus(lastSeenAt, lastSeen);
   const presenceDotClass =
     presenceStatus.color === "online"
-      ? "bg-[#25d366]"
+      ? "bg-[color:var(--brand)]"
       : presenceStatus.color === "recent"
-      ? "bg-[#f5c065]"
-      : "bg-[#7d8a93]";
+      ? "bg-[color:var(--warning)]"
+      : "bg-[color:var(--muted)]";
   const languageBadgeLabel =
     !conversation.isManager && preferredLanguage ? preferredLanguage.toUpperCase() : null;
   const languageSelectValue = preferredLanguage ?? "auto";
@@ -6567,18 +6567,17 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
   const composerActionLabel = isFanTarget ? "Enviar a FAN" : "Enviar al Manager";
   const canAttachContent = isFanTarget && !isChatBlocked && !isInternalPanelOpen;
   const nextActionStatus = getFollowUpStatusFromDate(nextActionDate);
-  const nextActionTone =
+  const nextActionVariant: BadgeVariant =
     nextActionStatus?.tone === "overdue"
       ? "danger"
       : nextActionStatus?.tone === "today"
-      ? "amber"
+      ? "warn"
       : nextActionStatus?.tone === "tomorrow"
-      ? "sky"
+      ? "info"
       : "neutral";
   const tierLabel = formatTier(conversation.customerTier);
   const isPriorityTier = tierLabel === "Alta prioridad";
-  const tierChipTone = isPriorityTier ? "amber" : "neutral";
-  const tierChipVariant = isPriorityTier && !conversation.isHighPriority ? "accent" : "subtle";
+  const tierBadgeVariant: BadgeVariant = isPriorityTier ? "warn" : tierLabel === "Habitual" ? "success" : "info";
   const nextActionNoteValue =
     typeof conversation.nextActionNote === "string" ? conversation.nextActionNote.trim() : "";
   const followUpNoteRaw =
@@ -7167,30 +7166,25 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
           <div className="flex items-center gap-2 min-w-0 flex-1 justify-center">
             <span className="truncate text-sm font-medium text-[color:var(--text)]">{contactName}</span>
             {languageBadgeLabel && (
-              <Chip variant="subtle" size="sm">
+              <Badge variant="neutral" size="md">
                 {languageBadgeLabel}
-              </Chip>
+              </Badge>
             )}
             {(conversation.isHighPriority || (conversation.extrasCount ?? 0) > 0) && (
               conversation.isHighPriority ? (
-                <Chip variant="accent" tone="amber" size="sm" leftGlyph="pin">
+                <Badge variant="warn" size="md" leftGlyph="pin">
                   Alta
-                </Chip>
+                </Badge>
               ) : (
-                <Chip variant="subtle" tone="emerald" size="sm">
+                <Badge variant="brand" size="md">
                   Extras
-                </Chip>
+                </Badge>
               )
             )}
             {nextActionStatus && (
-              <Chip
-                variant="subtle"
-                tone={nextActionTone}
-                size="sm"
-                leftGlyph="clock"
-              >
+              <Badge variant={nextActionVariant} size="md" leftGlyph="clock">
                 {nextActionStatus.label}
-              </Chip>
+              </Badge>
             )}
           </div>
         </header>
@@ -7207,14 +7201,14 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
                 <div className="flex items-center gap-2 min-w-0">
                   <h1 className="text-base font-semibold text-[color:var(--text)] truncate">{contactName}</h1>
                   {languageBadgeLabel && (
-                    <Chip variant="subtle" size="sm">
+                    <Badge variant="neutral" size="md">
                       {languageBadgeLabel}
-                    </Chip>
+                    </Badge>
                   )}
                   {conversation.isHighPriority && (
-                    <Chip variant="accent" tone="amber" size="sm" leftGlyph="pin">
+                    <Badge variant="warn" size="md" leftGlyph="pin">
                       Alta
-                    </Chip>
+                    </Badge>
                   )}
                   <span
                     className={`inline-block h-2 w-2 rounded-full ${presenceDotClass}`}
@@ -7257,31 +7251,26 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
 
           {/* Piso 2 */}
           <div className="flex flex-wrap items-center gap-2 text-xs min-w-0">
-            <Chip variant="subtle" tone="amber" size="sm">
+            <Badge variant="brand" size="md">
               {packLabel}
-            </Chip>
-            <Chip variant={tierChipVariant} tone={tierChipTone} size="sm">
+            </Badge>
+            <Badge variant={tierBadgeVariant} size="md">
               {tierLabel}
-            </Chip>
+            </Badge>
             {conversation.isHighPriority && (
-              <Chip variant="accent" tone="amber" size="sm" leftGlyph="pin">
+              <Badge variant="warn" size="md" leftGlyph="pin">
                 Alta prioridad
-              </Chip>
+              </Badge>
             )}
             {extrasCountDisplay > 0 && (
-              <Chip variant="subtle" tone="emerald" size="sm">
+              <Badge variant="brand" size="md">
                 Extras
-              </Chip>
+              </Badge>
             )}
             {nextActionStatus && (
-              <Chip
-                variant="subtle"
-                tone={nextActionTone}
-                size="sm"
-                leftGlyph="clock"
-              >
+              <Badge variant={nextActionVariant} size="md" leftGlyph="clock">
                 {nextActionStatus.label}
-              </Chip>
+              </Badge>
             )}
           </div>
 
@@ -7699,7 +7688,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
               );
             })}
             {isLoadingMessages && (
-              <div className="text-center text-[#aebac1] text-sm mt-2">Cargando mensajes...</div>
+              <div className="text-center ui-muted text-sm mt-2">Cargando mensajes...</div>
             )}
             {messagesError && !isLoadingMessages && (
               <div className="text-center text-[color:var(--danger)] text-sm mt-2">{messagesError}</div>
@@ -8109,7 +8098,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
         </div>
       )}
       {pendingInsert && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-[color:var(--surface-overlay)] px-4">
           <div className="w-full max-w-sm rounded-2xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] p-4 shadow-2xl">
             <div className="text-sm font-semibold text-[color:var(--text)]">Ya tienes un mensaje escrito</div>
             <div className="mt-1 text-[11px] text-[color:var(--muted)]">
@@ -8158,7 +8147,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
         </div>
       )}
       {showContentModal && (
-        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 px-4">
+        <div className="fixed inset-0 bg-[color:var(--surface-overlay)] flex items-center justify-center z-50 px-4">
           <div className="w-full max-w-lg rounded-2xl bg-[color:var(--surface-1)] p-6 border border-[color:var(--surface-border)] shadow-xl">
             <div className="flex items-center justify-between mb-2">
               <div>
@@ -8677,7 +8666,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
         </div>
       )}
       {duplicateConfirm && (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 px-4">
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-[color:var(--surface-overlay)] px-4">
           <div className="w-full max-w-sm rounded-2xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] p-6 shadow-xl">
             <h3 className="text-lg font-semibold text-[color:var(--text)]">Este mensaje se parece mucho al anterior</h3>
             <p className="mt-2 text-sm text-[color:var(--muted)]">

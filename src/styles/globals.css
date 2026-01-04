@@ -20,6 +20,8 @@ body {
   --brand: rgb(var(--brand-rgb));
   --brand-strong: #10b981;
   --brand-weak: rgba(var(--brand-rgb), 0.12);
+  --warning-rgb: 245, 158, 11;
+  --danger-rgb: 244, 63, 94;
   --text: #e5edf3;
   --muted: rgba(176, 192, 208, 0.9);
   --surface-0: #0a1014;
@@ -27,11 +29,30 @@ body {
   --surface-2: rgba(12, 18, 22, 0.75);
   --surface-3: rgba(20, 31, 37, 0.95);
   --surface-overlay: rgba(8, 12, 16, 0.72);
+  --surface-overlay-soft: rgba(8, 12, 16, 0.45);
   --border: rgba(148, 163, 184, 0.14);
   --border-a: rgba(148, 163, 184, 0.22);
   --ring: rgba(148, 163, 184, 0.22);
   --warning: #f59e0b;
   --danger: #f43f5e;
+  --badge-success-bg: rgba(var(--brand-rgb), 0.12);
+  --badge-success-fg: var(--brand);
+  --badge-success-bd: rgba(var(--brand-rgb), 0.35);
+  --badge-info-bg: rgba(var(--brand-rgb), 0.08);
+  --badge-info-fg: rgba(var(--brand-rgb), 0.85);
+  --badge-info-bd: rgba(var(--brand-rgb), 0.25);
+  --badge-warn-bg: rgba(var(--warning-rgb), 0.12);
+  --badge-warn-fg: var(--warning);
+  --badge-warn-bd: rgba(var(--warning-rgb), 0.35);
+  --badge-danger-bg: rgba(var(--danger-rgb), 0.12);
+  --badge-danger-fg: var(--danger);
+  --badge-danger-bd: rgba(var(--danger-rgb), 0.35);
+  --badge-neutral-bg: var(--surface-2);
+  --badge-neutral-fg: var(--muted);
+  --badge-neutral-bd: var(--border);
+  --badge-brand-bg: rgba(var(--brand-rgb), 0.18);
+  --badge-brand-fg: var(--text);
+  --badge-brand-bd: rgba(var(--brand-rgb), 0.5);
   --surface-border: var(--border);
   --surface-border-hover: var(--border-a);
   --surface-ring: var(--ring);
@@ -69,6 +90,68 @@ body {
   .ui-muted {
     color: var(--muted);
   }
+
+  .ui-icon-muted {
+    color: var(--muted);
+  }
+
+  .ui-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    border-radius: 999px;
+    border: 1px solid transparent;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    line-height: 1.1;
+    white-space: nowrap;
+  }
+
+  .ui-badge--sm {
+    padding: 2px 8px;
+    font-size: 10px;
+  }
+
+  .ui-badge--md {
+    padding: 4px 10px;
+    font-size: 12px;
+  }
+
+  .ui-badge--success {
+    background: var(--badge-success-bg);
+    color: var(--badge-success-fg);
+    border-color: var(--badge-success-bd);
+  }
+
+  .ui-badge--info {
+    background: var(--badge-info-bg);
+    color: var(--badge-info-fg);
+    border-color: var(--badge-info-bd);
+  }
+
+  .ui-badge--warn {
+    background: var(--badge-warn-bg);
+    color: var(--badge-warn-fg);
+    border-color: var(--badge-warn-bd);
+  }
+
+  .ui-badge--danger {
+    background: var(--badge-danger-bg);
+    color: var(--badge-danger-fg);
+    border-color: var(--badge-danger-bd);
+  }
+
+  .ui-badge--neutral {
+    background: var(--badge-neutral-bg);
+    color: var(--badge-neutral-fg);
+    border-color: var(--badge-neutral-bd);
+  }
+
+  .ui-badge--brand {
+    background: var(--badge-brand-bg);
+    color: var(--badge-brand-fg);
+    border-color: var(--badge-brand-bd);
+  }
 }
 
 @media (max-width: 768px) {
@@ -86,15 +169,15 @@ input:focus{
 }
 
 ::-webkit-scrollbar-track {
-  background: #111B21;
+  background: var(--surface-1);
 }
  
 ::-webkit-scrollbar-thumb {
-  background: #374045;
+  background: var(--surface-2);
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: #555; 
+  background: var(--surface-1);
 }
 
 /* Mejora la visibilidad de los iconos nativos de fecha/hora en inputs sobre fondo oscuro */

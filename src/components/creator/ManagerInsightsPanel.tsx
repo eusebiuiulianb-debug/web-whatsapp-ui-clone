@@ -563,7 +563,7 @@ export function ManagerInsightsPanel({ open, onClose, summary, priorityItems, pr
 
   return (
     <div className="fixed inset-0 z-40 flex items-stretch justify-end">
-      <div className="absolute inset-0 bg-black/60" onClick={onClose} />
+      <div className="absolute inset-0 bg-[color:var(--surface-overlay)]" onClick={onClose} />
       <div className="relative h-full w-full max-w-full lg:w-[520px] overflow-hidden">
         {panel}
       </div>

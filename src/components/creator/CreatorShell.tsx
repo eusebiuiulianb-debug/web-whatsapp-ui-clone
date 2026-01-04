@@ -33,7 +33,7 @@ export function CreatorShell({
           <div
             ref={innerRef}
             className={clsx(
-              "relative flex flex-col w-full md:w-[70%] bg-[#222E35] flex-1 min-h-0 overflow-hidden",
+              "relative flex flex-col w-full md:w-[70%] bg-[color:var(--surface-1)] flex-1 min-h-0 overflow-hidden",
               mobileView === "board" ? "hidden lg:flex" : "flex"
             )}
           >

@@ -379,7 +379,7 @@ export default function PublicProfileView({
     activePack?.pack.route || (activePack && creatorHandle ? `/p/${creatorHandle}/${activePack.pack.id}` : "/");
   const packCoverUrl = activePack?.pack.coverUrl || activePack?.posterUrl || null;
   const packModal = activePack ? (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-4 py-6">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-[color:var(--surface-overlay)] px-4 py-6">
       <div className="w-full max-w-md rounded-2xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)]/95 p-5 shadow-2xl">
         <div className="flex items-start justify-between gap-3">
           <div>
@@ -435,20 +435,18 @@ export default function PublicProfileView({
   ) : null;
 
   return (
-    <div className="min-h-screen bg-[#0b141a] text-[color:var(--text)]">
+    <div className="min-h-screen bg-[color:var(--surface-0)] text-[color:var(--text)]">
       <div className="max-w-5xl mx-auto px-4 py-10 space-y-10">
         <header
           className="relative overflow-hidden rounded-3xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] p-6 md:p-8"
           style={heroBackgroundStyle}
         >
-          <div
-            className="absolute inset-0 bg-gradient-to-r from-black/70 via-black/40 to-black/20 pointer-events-none"
-          />
+          <div className="absolute inset-0 bg-[color:var(--surface-overlay)] pointer-events-none" />
           <div
             className="absolute inset-0 opacity-25"
             style={{
               backgroundImage:
-                "radial-gradient(circle at 20% 20%, #34d39922, transparent 40%), radial-gradient(circle at 80% 10%, #38bdf833, transparent 35%), linear-gradient(135deg, #0b141a 0%, #0f172a 60%)",
+                "radial-gradient(circle at 20% 20%, rgba(var(--brand-rgb), 0.12), transparent 40%), radial-gradient(circle at 80% 10%, rgba(var(--brand-rgb), 0.08), transparent 35%), linear-gradient(135deg, var(--surface-0) 0%, var(--surface-1) 60%)",
             }}
           />
           <div className="relative flex flex-col gap-6 md:flex-row md:items-start">
@@ -622,7 +620,7 @@ export default function PublicProfileView({
                           clipRefs.current[clip.id] = node;
                         }}
                         data-clip-id={clip.id}
-                        className="relative h-[75vh] md:h-[70vh] snap-start overflow-hidden rounded-2xl border border-[color:var(--surface-border)] bg-black/80"
+                        className="relative h-[75vh] md:h-[70vh] snap-start overflow-hidden rounded-2xl border border-[color:var(--surface-border)] bg-[color:var(--surface-0)]"
                       >
                         <video
                           ref={(node) => {
@@ -645,7 +643,7 @@ export default function PublicProfileView({
                           onTimeUpdate={() => handleTimeUpdate(clip.id, startAtSec, durationSec)}
                           className="absolute inset-0 h-full w-full object-cover"
                         />
-                        <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/20 to-transparent" />
+                        <div className="absolute inset-0 bg-[color:var(--surface-overlay)]" />
                         <div className="absolute bottom-4 left-4 right-4 flex items-end justify-between gap-4">
                           <div className="space-y-1">
                             <p className="text-[11px] uppercase tracking-wide text-[color:var(--brand)]">PopClip</p>
@@ -662,12 +660,12 @@ export default function PublicProfileView({
                           </button>
                         </div>
                         {isLoading && (
-                          <div className="absolute inset-0 flex items-center justify-center bg-black/30 text-xs font-semibold text-[color:var(--text)]">
+                          <div className="absolute inset-0 flex items-center justify-center bg-[color:var(--surface-overlay)] text-xs font-semibold text-[color:var(--text)]">
                             Cargando...
                           </div>
                         )}
                         {isError && (
-                          <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-black/60 text-center">
+                          <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-[color:var(--surface-overlay)] text-center">
                             <p className="text-sm font-semibold text-[color:var(--text)]">
                               No se pudo cargar el clip. Revisa la URL o el archivo local.
                             </p>
@@ -690,7 +688,7 @@ export default function PublicProfileView({
                           <button
                             type="button"
                             onClick={() => handleManualPlay(clip.id)}
-                            className="absolute inset-0 flex items-center justify-center bg-black/40 text-sm font-semibold text-[color:var(--text)]"
+                            className="absolute inset-0 flex items-center justify-center bg-[color:var(--surface-overlay-soft)] text-sm font-semibold text-[color:var(--text)]"
                           >
                             Toca para reproducir
                           </button>

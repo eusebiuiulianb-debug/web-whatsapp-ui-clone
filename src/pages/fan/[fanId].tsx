@@ -22,6 +22,7 @@ import { getStickerById } from "../../lib/emoji/stickers";
 import { buildFanChatProps } from "../../lib/fanChatProps";
 import { buildStickerTokenFromItem, getStickerByToken, type StickerItem } from "../../lib/stickers";
 import { IconGlyph, type IconName } from "../../components/ui/IconGlyph";
+import { Badge, type BadgeVariant } from "../../components/ui/Badge";
 
 type ApiContentItem = {
   id: string;
@@ -710,18 +711,18 @@ export function FanChatPage({
   }, [fanId, fetchMessages]);
 
   return (
-    <div className="flex flex-col h-[100dvh] max-h-[100dvh] overflow-hidden bg-[#0b141a] text-[color:var(--text)]">
+    <div className="flex flex-col h-[100dvh] max-h-[100dvh] overflow-hidden bg-[color:var(--surface-0)] text-[color:var(--text)]">
       <Head>
         <title>{`Chat con ${creatorName} · NOVSY`}</title>
       </Head>
 
-      <header className="flex items-center gap-3 px-4 py-3 bg-[#111b21] border-b border-[rgba(134,150,160,0.15)]">
-        <div className="flex items-center justify-center w-10 h-10 rounded-full bg-[#2a3942] text-[color:var(--text)] font-semibold">
+      <header className="flex items-center gap-3 px-4 py-3 bg-[color:var(--surface-1)] border-b border-[color:var(--border)]">
+        <div className="flex items-center justify-center w-10 h-10 rounded-full bg-[color:var(--surface-2)] text-[color:var(--text)] font-semibold">
           {creatorInitial}
         </div>
         <div className="flex flex-col leading-tight">
           <span className="text-[color:var(--text)] font-medium text-sm">{creatorName}</span>
-          <span className="text-[#8696a0] text-sm">{headerSubtitle}</span>
+          <span className="ui-muted text-sm">{headerSubtitle}</span>
         </div>
       </header>
 
@@ -741,7 +742,7 @@ export function FanChatPage({
       <main className="flex flex-col flex-1 min-h-0 overflow-hidden">
         <div className="px-4 sm:px-6 pt-3 space-y-3 shrink-0">
           {accessLoading && !accessSummary ? (
-            <div className="rounded-xl border border-[color:var(--surface-border)] bg-[#0f1f26] px-4 py-3 text-sm text-[color:var(--text)]">
+            <div className="rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-4 py-3 text-sm text-[color:var(--text)]">
               Cargando acceso...
             </div>
           ) : accessSummary ? (
@@ -758,10 +759,10 @@ export function FanChatPage({
             style={{ backgroundImage: "var(--chat-pattern)" }}
           >
             <div className="min-h-full flex flex-col justify-end gap-2">
-              {loading && <div className="text-center text-[#aebac1] text-sm mt-2">Cargando mensajes...</div>}
+              {loading && <div className="text-center ui-muted text-sm mt-2">Cargando mensajes...</div>}
               {error && !loading && <div className="text-center text-[color:var(--danger)] text-sm mt-2">{error}</div>}
               {!loading && !error && visibleMessages.length === 0 && (
-                <div className="text-center text-[#aebac1] text-sm mt-2">Aún no hay mensajes.</div>
+                <div className="text-center ui-muted text-sm mt-2">Aún no hay mensajes.</div>
               )}
               {visibleMessages.map((msg, idx) => {
                 const messageId = msg.id || `message-${idx}`;
@@ -809,7 +810,7 @@ export function FanChatPage({
 
         {isOnboardingVisible && (
           <div className="px-4 pb-3">
-            <div className="rounded-xl border border-[color:var(--surface-border)] bg-[#162028] px-4 py-3 space-y-3">
+            <div className="rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-4 py-3 space-y-3">
               <div>
                 <p className="text-sm font-semibold text-[color:var(--text)]">Una cosa rápida</p>
                 <p className="text-xs text-[color:var(--muted)]">Así el creador puede dirigirse a ti por tu nombre.</p>
@@ -875,7 +876,7 @@ export function FanChatPage({
           </div>
         )}
         {!isOnboardingVisible && (
-          <div className="shrink-0 border-t border-[color:var(--surface-border)] bg-gradient-to-b from-slate-950/90 via-slate-950/80 to-slate-950/70 backdrop-blur-xl">
+          <div className="shrink-0 border-t border-[color:var(--surface-border)] bg-[color:var(--surface-0)] backdrop-blur-xl">
             <div className="px-4 sm:px-6 py-3">
               <div
                 className="flex flex-col gap-2 rounded-2xl border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-3 py-2.5 shadow-[0_-12px_22px_-16px_rgba(0,0,0,0.55)] focus-within:border-[color:rgba(var(--brand-rgb),0.45)] focus-within:ring-1 focus-within:ring-[color:var(--ring)]"
@@ -1219,16 +1220,11 @@ function ContentCard({ message }: { message: ApiMessage }) {
   const alignItems = message.from === "fan" ? "items-end" : "items-start";
   const mediaUrl = (content?.mediaPath || content?.externalUrl || "").trim();
 
-  const badgeClass = (() => {
-    if (visibilityLabel.toLowerCase().includes("vip")) return "border-[color:rgba(245,158,11,0.8)] text-[color:var(--warning)]";
-    if (visibilityLabel.toLowerCase().includes("extra")) return "border-[color:rgba(var(--brand-rgb),0.7)] text-[color:var(--brand)]";
-    if (visibilityLabel.toLowerCase().includes("incluido")) return "border-[color:rgba(var(--brand-rgb),0.45)] text-[color:var(--brand)]";
-    return "border-[color:var(--surface-border)] text-[color:var(--text)]";
-  })();
+  const visibilityVariant = visibilityLabel ? getVisibilityBadgeVariant(visibilityLabel) : "neutral";
 
   return (
     <div className={`flex flex-col ${alignItems} w-full h-max`}>
-      <div className="flex flex-col min-w-[5%] max-w-[70%] bg-[#202c33] border border-[color:var(--surface-border)] p-3 text-[color:var(--text)] rounded-lg mb-3 shadow-sm">
+      <div className="flex flex-col min-w-[5%] max-w-[70%] bg-[color:var(--surface-2)] border border-[color:var(--surface-border)] p-3 text-[color:var(--text)] rounded-lg mb-3 shadow-sm">
         <div className="flex items-center gap-2 text-sm font-semibold">
           <IconGlyph name={iconName} className="h-4 w-4 text-[color:var(--text)]" />
           <span className="truncate">{title}</span>
@@ -1237,9 +1233,9 @@ function ContentCard({ message }: { message: ApiMessage }) {
           <span>{typeLabel}</span>
           {visibilityLabel && <span className="w-1 h-1 rounded-full bg-[color:var(--muted)]" />}
           {visibilityLabel && (
-            <span className={`inline-flex items-center rounded-full px-2 py-0.5 border text-[11px] ${badgeClass}`}>
+            <Badge variant={visibilityVariant} size="sm">
               {visibilityLabel}
-            </span>
+            </Badge>
           )}
         </div>
         <button
@@ -1249,10 +1245,10 @@ function ContentCard({ message }: { message: ApiMessage }) {
         >
           Ver contenido
         </button>
-        <div className="flex justify-end items-center gap-2 text-[hsla(0,0%,100%,0.6)] text-xs mt-2">
+        <div className="flex justify-end items-center gap-2 ui-muted text-xs mt-2">
           <span>{message.time || ""}</span>
           {message.from === "fan" && message.isLastFromCreator ? (
-            <span className="inline-flex items-center gap-1 text-[#8edafc] text-[11px]">
+            <span className="inline-flex items-center gap-1 text-[color:var(--brand)] text-[11px]">
               <span className="inline-flex -space-x-1">
                 <IconGlyph name="check" className="h-3 w-3" />
                 <IconGlyph name="check" className="h-3 w-3" />
@@ -1273,6 +1269,14 @@ function getContentIconName(type?: ContentType): IconName {
   return "image";
 }
 
+function getVisibilityBadgeVariant(label: string): BadgeVariant {
+  const value = label.toLowerCase();
+  if (value.includes("vip")) return "warn";
+  if (value.includes("extra")) return "brand";
+  if (value.includes("incluido")) return "success";
+  return "neutral";
+}
+
 function safeDecodeQueryParam(value: string) {
   try {
     return decodeURIComponent(value);
@@ -1284,27 +1288,25 @@ function safeDecodeQueryParam(value: string) {
 function IncludedContentSection({ items }: { items: IncludedContent[] }) {
   if (!items || items.length === 0) {
     return (
-      <div className="rounded-xl border border-[color:var(--surface-border)] bg-[#111b21] px-4 py-3 text-sm text-[color:var(--muted)]">
+      <div className="rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-4 py-3 text-sm text-[color:var(--muted)]">
         Todavía no tienes contenido incluido en tu suscripción.
       </div>
     );
   }
 
   return (
-    <div className="rounded-xl border border-[color:var(--surface-border)] bg-[#0f1f26] px-4 py-4">
+    <div className="rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-4 py-4">
       <div className="text-sm font-semibold text-[color:var(--text)] mb-3">Tu contenido incluido</div>
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         {items.map((item) => {
           const visibilityLabel = getContentVisibilityLabel(item.visibility as ContentVisibility);
-          const badgeClass = visibilityLabel.toLowerCase().includes("incluido")
-            ? "border-[color:rgba(var(--brand-rgb),0.45)] text-[color:var(--brand)]"
-            : "border-[color:var(--surface-border)] text-[color:var(--text)]";
+          const visibilityVariant = getVisibilityBadgeVariant(visibilityLabel);
           const iconName = getContentIconName(item.type as ContentType);
           const mediaUrl = (item.mediaPath || item.externalUrl || "").trim();
           return (
             <div
               key={item.id}
-              className="rounded-xl border border-[color:var(--surface-border)] bg-[#202c33] p-3 text-[color:var(--text)] flex flex-col gap-2 shadow-sm"
+              className="rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] p-3 text-[color:var(--text)] flex flex-col gap-2 shadow-sm"
             >
               <div className="flex items-center gap-2 text-sm font-semibold">
                 <IconGlyph name={iconName} className="h-4 w-4 text-[color:var(--text)]" />
@@ -1316,9 +1318,9 @@ function IncludedContentSection({ items }: { items: IncludedContent[] }) {
               <div className="flex items-center gap-2 text-[11px] text-[color:var(--muted)]">
                 <span>{getContentTypeLabel(item.type as ContentType)}</span>
                 <span className="w-1 h-1 rounded-full bg-[color:var(--muted)]" />
-                <span className={`inline-flex items-center rounded-full px-2 py-0.5 border text-[11px] ${badgeClass}`}>
+                <Badge variant={visibilityVariant} size="sm">
                   {visibilityLabel}
-                </span>
+                </Badge>
               </div>
               <button
                 type="button"
@@ -1367,8 +1369,8 @@ function BottomSheet({
   if (!open) return null;
   return (
     <div className="fixed inset-0 z-50">
-      <div className="absolute inset-0 bg-black/60" onClick={onClose} />
-      <div className="absolute inset-x-0 bottom-0 max-h-[85vh] overflow-y-auto rounded-t-3xl border border-[color:var(--surface-border)] bg-[#0f1720] px-4 pb-6 pt-4">
+      <div className="absolute inset-0 bg-[color:var(--surface-overlay)]" onClick={onClose} />
+      <div className="absolute inset-x-0 bottom-0 max-h-[85vh] overflow-y-auto rounded-t-3xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-4 pb-6 pt-4">
         <div className="mx-auto mb-3 h-1.5 w-12 rounded-full bg-[color:var(--surface-2)]/80" />
         {children}
       </div>
@@ -1452,15 +1454,15 @@ function AccessBanner({
   let subtitleClass = "text-xs mt-1";
 
   if (summary.state === "ACTIVE") {
-    containerClass += " border-[color:var(--surface-border)] bg-[#0f1f26]";
+    containerClass += " border-[color:var(--surface-border)] bg-[color:var(--surface-1)]";
     titleClass += " text-[color:var(--text)]";
     subtitleClass += " text-[color:var(--muted)]";
   } else if (summary.state === "EXPIRED") {
-    containerClass += " border-[color:rgba(245,158,11,0.4)] bg-[#2a1f1a]";
+    containerClass += " border-[color:var(--badge-warn-bd)] bg-[color:var(--badge-warn-bg)]";
     titleClass += " text-[color:var(--text)]";
     subtitleClass += " text-[color:var(--warning)]/80";
   } else {
-    containerClass += " border-[color:var(--surface-border)] bg-[#111b21]";
+    containerClass += " border-[color:var(--surface-border)] bg-[color:var(--surface-1)]";
     titleClass += " text-[color:var(--text)]";
     subtitleClass += " text-[color:var(--muted)]";
   }

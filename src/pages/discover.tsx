@@ -202,7 +202,7 @@ export default function DiscoverPage() {
   }
 
   return (
-    <div className="min-h-screen bg-[#0b141a] text-[color:var(--text)]">
+    <div className="min-h-screen bg-[color:var(--surface-0)] text-[color:var(--text)]">
       <Head>
         <title>Discovery · Asistente para fans</title>
       </Head>

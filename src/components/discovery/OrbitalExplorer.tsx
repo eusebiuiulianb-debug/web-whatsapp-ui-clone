@@ -54,7 +54,7 @@ export function OrbitalExplorer({ recommendations, onOpen, reducedMotion }: Orbi
 
   return (
     <div className="relative h-[480px] rounded-2xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] overflow-hidden">
-      <div className="absolute inset-0 pointer-events-none bg-[radial-gradient(circle_at_center,#0f172a_0,#0b141a_60%)]" />
+      <div className="absolute inset-0 pointer-events-none bg-[radial-gradient(circle_at_center,var(--surface-1)_0,var(--surface-0)_60%)]" />
       <div className="relative h-full flex items-center justify-center">
         {positioned.map((rec) => {
           const translate = `translate(${rec.x}px, ${rec.y}px)`;

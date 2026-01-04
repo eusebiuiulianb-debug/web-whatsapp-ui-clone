@@ -3579,7 +3579,7 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
                           loop
                           playsInline
                           controls
-                          className="mt-2 w-full rounded-lg border border-[color:var(--surface-border)] bg-black/40"
+                          className="mt-2 w-full rounded-lg border border-[color:var(--surface-border)] bg-[color:var(--surface-overlay-soft)]"
                         />
                       ) : (
                         <div className="mt-2 text-[11px] ui-muted">Añade un video URL para previsualizar.</div>
@@ -3734,7 +3734,7 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
                           loop
                           playsInline
                           controls
-                          className="mt-2 w-full rounded-lg border border-[color:var(--surface-border)] bg-black/40"
+                          className="mt-2 w-full rounded-lg border border-[color:var(--surface-border)] bg-[color:var(--surface-overlay-soft)]"
                         />
                       ) : (
                         <div className="mt-2 text-[11px] ui-muted">Añade un video URL para previsualizar.</div>

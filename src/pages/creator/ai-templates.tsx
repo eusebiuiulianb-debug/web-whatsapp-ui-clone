@@ -150,7 +150,7 @@ export default function CreatorAiTemplatesPage() {
   }
 
   return (
-    <div className="min-h-screen bg-[#0b141a] text-[color:var(--text)]">
+    <div className="min-h-screen bg-[color:var(--surface-0)] text-[color:var(--text)]">
       <Head>
         <title>Plantillas de IA – NOVSY</title>
       </Head>
