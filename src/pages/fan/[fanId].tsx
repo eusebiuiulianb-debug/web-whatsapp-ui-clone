@@ -1271,9 +1271,9 @@ function getContentIconName(type?: ContentType): IconName {
 
 function getVisibilityBadgeTone(label: string): BadgeTone {
   const value = label.toLowerCase();
-  if (value.includes("vip")) return "amber";
-  if (value.includes("extra")) return "brand";
-  if (value.includes("incluido")) return "brand";
+  if (value.includes("vip")) return "warn";
+  if (value.includes("extra")) return "accent";
+  if (value.includes("incluido")) return "accent";
   return "muted";
 }
 

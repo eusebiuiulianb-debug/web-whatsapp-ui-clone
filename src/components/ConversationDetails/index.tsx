@@ -6570,18 +6570,16 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
   const nextActionTone: BadgeTone =
     nextActionStatus?.tone === "overdue"
       ? "danger"
-      : nextActionStatus?.tone === "today"
-      ? "amber"
+      : nextActionStatus
+      ? "warn"
       : "muted";
   const tierLabel = formatTier(conversation.customerTier);
   const isPriorityTier = tierLabel === "Alta prioridad";
   const tierBadgeTone: BadgeTone = isPriorityTier
-    ? "amber"
+    ? "danger"
     : tierLabel === "Habitual"
     ? "muted"
-    : tierLabel === "Nuevo"
-    ? "brand"
-    : "amber";
+    : "accent";
   const nextActionNoteValue =
     typeof conversation.nextActionNote === "string" ? conversation.nextActionNote.trim() : "";
   const followUpNoteRaw =
@@ -7176,11 +7174,11 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
             )}
             {(conversation.isHighPriority || (conversation.extrasCount ?? 0) > 0) && (
               conversation.isHighPriority ? (
-                <Badge tone="amber" size="md" leftGlyph="pin">
+                <Badge tone="danger" size="md" leftGlyph="pin">
                   Alta
                 </Badge>
               ) : (
-                <Badge tone="brand" size="md">
+                <Badge tone="accent" size="md">
                   Extras
                 </Badge>
               )
@@ -7210,7 +7208,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
                     </Badge>
                   )}
                   {conversation.isHighPriority && (
-                    <Badge tone="amber" size="md" leftGlyph="pin">
+                    <Badge tone="danger" size="md" leftGlyph="pin">
                       Alta
                     </Badge>
                   )}
@@ -7255,19 +7253,19 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
 
           {/* Piso 2 */}
           <div className="flex flex-wrap items-center gap-2 text-xs min-w-0">
-            <Badge tone="amber" size="md">
+            <Badge tone="warn" size="md">
               {packLabel}
             </Badge>
             <Badge tone={tierBadgeTone} size="md">
               {tierLabel}
             </Badge>
             {conversation.isHighPriority && (
-              <Badge tone="amber" size="md" leftGlyph="pin">
+              <Badge tone="danger" size="md" leftGlyph="pin">
                 Alta prioridad
               </Badge>
             )}
             {extrasCountDisplay > 0 && (
-              <Badge tone="brand" size="md">
+              <Badge tone="accent" size="md">
                 Extras
               </Badge>
             )}

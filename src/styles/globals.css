@@ -22,6 +22,12 @@ body {
   --brand-weak: rgba(var(--brand-rgb), 0.12);
   --warning-rgb: 245, 158, 11;
   --danger-rgb: 244, 63, 94;
+  --ui-accent: var(--brand);
+  --ui-accent-foreground: var(--brand);
+  --ui-warn: var(--warning);
+  --ui-warn-foreground: var(--warning);
+  --ui-danger: var(--danger);
+  --ui-danger-foreground: var(--danger);
   --foreground: var(--text);
   --muted-foreground: var(--muted);
   --text: #e5edf3;
@@ -39,16 +45,16 @@ body {
   --danger: #f43f5e;
   --badge-muted-bg: var(--surface-2);
   --badge-muted-fg: var(--muted-foreground);
-  --badge-muted-bd: var(--border);
-  --badge-brand-bg: rgba(var(--brand-rgb), 0.16);
-  --badge-brand-fg: var(--brand);
-  --badge-brand-bd: rgba(var(--brand-rgb), 0.45);
-  --badge-amber-bg: rgba(var(--warning-rgb), 0.16);
-  --badge-amber-fg: var(--warning);
-  --badge-amber-bd: rgba(var(--warning-rgb), 0.45);
+  --badge-muted-border: var(--border);
+  --badge-accent-bg: rgba(var(--brand-rgb), 0.16);
+  --badge-accent-fg: var(--ui-accent-foreground);
+  --badge-accent-border: rgba(var(--brand-rgb), 0.45);
+  --badge-warn-bg: rgba(var(--warning-rgb), 0.16);
+  --badge-warn-fg: var(--ui-warn-foreground);
+  --badge-warn-border: rgba(var(--warning-rgb), 0.45);
   --badge-danger-bg: rgba(var(--danger-rgb), 0.16);
-  --badge-danger-fg: var(--danger);
-  --badge-danger-bd: rgba(var(--danger-rgb), 0.45);
+  --badge-danger-fg: var(--ui-danger-foreground);
+  --badge-danger-border: rgba(var(--danger-rgb), 0.45);
   --surface-border: var(--border);
   --surface-border-hover: var(--border-a);
   --surface-ring: var(--ring);
@@ -123,25 +129,25 @@ body {
   .ui-badge--muted {
     --badge-bg: var(--badge-muted-bg);
     --badge-fg: var(--badge-muted-fg);
-    --badge-border: var(--badge-muted-bd);
+    --badge-border: var(--badge-muted-border);
   }
 
-  .ui-badge--brand {
-    --badge-bg: var(--badge-brand-bg);
-    --badge-fg: var(--badge-brand-fg);
-    --badge-border: var(--badge-brand-bd);
+  .ui-badge--accent {
+    --badge-bg: var(--badge-accent-bg);
+    --badge-fg: var(--badge-accent-fg);
+    --badge-border: var(--badge-accent-border);
   }
 
-  .ui-badge--amber {
-    --badge-bg: var(--badge-amber-bg);
-    --badge-fg: var(--badge-amber-fg);
-    --badge-border: var(--badge-amber-bd);
+  .ui-badge--warn {
+    --badge-bg: var(--badge-warn-bg);
+    --badge-fg: var(--badge-warn-fg);
+    --badge-border: var(--badge-warn-border);
   }
 
   .ui-badge--danger {
     --badge-bg: var(--badge-danger-bg);
     --badge-fg: var(--badge-danger-fg);
-    --badge-border: var(--badge-danger-bd);
+    --badge-border: var(--badge-danger-border);
   }
 }
 

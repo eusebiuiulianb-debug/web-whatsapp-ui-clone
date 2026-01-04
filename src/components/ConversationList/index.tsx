@@ -84,7 +84,7 @@ export default function ConversationList(props: ConversationListProps) {
           <div className="flex flex-col gap-[2px] min-w-0 w-full">
             <div className="flex items-center gap-2 min-w-0">
               <span className={`truncate ${nameClasses}`}>{contactName}</span>
-              <Badge tone="brand" size="sm">
+              <Badge tone="accent" size="sm">
                 IA
               </Badge>
             </div>
@@ -180,13 +180,13 @@ export default function ConversationList(props: ConversationListProps) {
   const tierBadgeTone: BadgeTone = isRiskTier
     ? "danger"
     : tierLabel === "VIP"
-    ? "amber"
+    ? "warn"
     : tierLabel === "Habitual"
     ? "muted"
-    : "brand";
-  const followUpTone: BadgeTone = followUpTag === "expired" ? "danger" : "amber";
+    : "accent";
+  const followUpTone: BadgeTone = followUpTag === "expired" ? "danger" : "warn";
   const urgencyTone: BadgeTone =
-    urgencyLevel === "high" ? "danger" : urgencyLevel === "medium" ? "amber" : "muted";
+    urgencyLevel === "high" ? "danger" : urgencyLevel === "medium" ? "warn" : "muted";
 
   function getAccessChipLabel() {
     if (normalizedAccessState === "NONE") {
@@ -209,11 +209,11 @@ export default function ConversationList(props: ConversationListProps) {
   const isInvitePending = !isManagerChat && !data.inviteUsedAt && !hasActiveAccess;
   const accessBadgeTone: BadgeTone =
     normalizedAccessState === "ACTIVE"
-      ? "amber"
+      ? "warn"
       : normalizedAccessState === "EXPIRED"
       ? "danger"
       : isNew
-      ? "brand"
+      ? "accent"
       : "muted";
 
   return (
@@ -244,14 +244,14 @@ export default function ConversationList(props: ConversationListProps) {
                 </Badge>
               )}
               {novsyStatus === "NOVSY" && (
-                <Badge tone="brand" size="sm">
+                <Badge tone="accent" size="sm">
                   Extras
                 </Badge>
               )}
               {/* Badge de alta prioridad */}
               {isHighPriority && (
                 <Badge
-                  tone="amber"
+                  tone="danger"
                   size="sm"
                   leftGlyph="pin"
                   ariaLabel="Alta prioridad"
@@ -328,7 +328,7 @@ export default function ConversationList(props: ConversationListProps) {
                 </Badge>
               ) : null}
               {!isCompact && isInvitePending && (
-                <Badge tone="amber" size="sm" title="Invitación privada /i/token pendiente de entrar">
+                <Badge tone="warn" size="sm" title="Invitación privada /i/token pendiente de entrar">
                   Pendiente
                 </Badge>
               )}

@@ -2,13 +2,12 @@ import { type ReactNode } from "react";
 import clsx from "clsx";
 import { IconGlyph, type IconName } from "./IconGlyph";
 
-export type BadgeTone = "muted" | "brand" | "amber" | "danger";
+export type BadgeTone = "muted" | "accent" | "warn" | "danger";
 export type BadgeSize = "sm" | "md";
 
 type BadgeProps = {
   children?: ReactNode;
   tone?: BadgeTone;
-  variant?: BadgeTone;
   size?: BadgeSize;
   leftGlyph?: IconName;
   title?: string;
@@ -18,17 +17,15 @@ type BadgeProps = {
 
 export function Badge({
   children,
-  tone,
-  variant,
+  tone = "muted",
   size = "sm",
   leftGlyph,
   title,
   ariaLabel,
   className,
 }: BadgeProps) {
-  const resolvedTone = tone ?? variant ?? "muted";
   const sizeClass = size === "md" ? "ui-badge--md" : "ui-badge--sm";
-  const variantClass = `ui-badge--${resolvedTone}`;
+  const variantClass = `ui-badge--${tone}`;
   const label = title ?? ariaLabel;
 
   return (
