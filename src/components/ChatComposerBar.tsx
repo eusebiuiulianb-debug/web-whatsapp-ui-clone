@@ -18,6 +18,7 @@ const StickerPicker = dynamic(
 );
 
 type ComposerAudience = "CREATOR" | "INTERNAL";
+type ComposerMode = "fan" | "internal" | "manager";
 
 type ChatComposerBarProps = {
   value: string;
@@ -27,8 +28,15 @@ type ChatComposerBarProps = {
   sendDisabled: boolean;
   placeholder: string;
   actionLabel: string;
+  sendingLabel?: string;
+  isSending?: boolean;
+  actionMinWidth?: number;
   audience: ComposerAudience;
   onAudienceChange: (mode: ComposerAudience) => void;
+  mode?: ComposerMode;
+  onModeChange?: (mode: ComposerMode) => void;
+  modeDisabled?: boolean;
+  modeHelpText?: string;
   canAttach: boolean;
   onAttach: () => void;
   inputRef?: React.Ref<HTMLTextAreaElement>;
@@ -51,8 +59,15 @@ export function ChatComposerBar({
   sendDisabled,
   placeholder,
   actionLabel,
+  sendingLabel,
+  isSending = false,
+  actionMinWidth,
   audience,
   onAudienceChange,
+  mode,
+  onModeChange,
+  modeDisabled = false,
+  modeHelpText,
   canAttach,
   onAttach,
   inputRef,
@@ -199,6 +214,9 @@ export function ChatComposerBar({
     setIsStickerOpen(false);
     setIsEmojiOpen(true);
   };
+
+  const hasModeToggle = showAudienceToggle && mode && onModeChange;
+  const isToggleDisabled = modeDisabled || isInputDisabled;
 
   const handleRemoveFavorite = (emoji: string) => {
     removeFavorite(emoji);
@@ -376,6 +394,9 @@ export function ChatComposerBar({
         disabled={isInputDisabled}
         style={{ maxHeight: `${maxHeight}px` }}
       />
+      {modeHelpText && (
+        <div className="px-1 text-[11px] text-[color:var(--muted)]">{modeHelpText}</div>
+      )}
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="flex items-center gap-2">
           {showAttach && (
@@ -456,39 +477,76 @@ export function ChatComposerBar({
               )}
             </div>
           )}
-          {showAudienceToggle && (
+          {hasModeToggle ? (
             <div
               className={clsx(
-                "inline-flex h-8 items-center rounded-full border p-0.5 shrink-0",
-                "border-[color:var(--border)] bg-[color:var(--surface-2)]"
+                "inline-flex items-center rounded-full border p-1 shrink-0 transition",
+                "border-[color:var(--border)] bg-[color:var(--surface-2)]",
+                isToggleDisabled && "opacity-60"
               )}
+              aria-label="Selector de modo"
             >
-              <button
-                type="button"
-                onClick={() => onAudienceChange("CREATOR")}
-                className={clsx(
-                  "h-7 rounded-full px-2.5 text-[11px] font-semibold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--ring)]",
-                  audience === "CREATOR"
-                    ? "bg-[color:var(--brand-weak)] text-[color:var(--text)]"
-                    : "text-[color:var(--muted)] hover:text-[color:var(--text)]"
-                )}
-              >
-                Al fan
-              </button>
-              <button
-                type="button"
-                onClick={() => onAudienceChange("INTERNAL")}
-                className={clsx(
-                  "h-7 rounded-full px-2.5 text-[11px] font-semibold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--ring)]",
-                  audience === "INTERNAL"
-                    ? "bg-[color:var(--brand-weak)] text-[color:var(--text)]"
-                    : "text-[color:var(--muted)] hover:text-[color:var(--text)]"
-                )}
-                title="No se envía al fan. Se prepara en el Manager interno."
-              >
-                Interno/Manager
-              </button>
+              {([
+                { id: "fan", label: "Al fan" },
+                { id: "internal", label: "Interno" },
+                { id: "manager", label: "Manager" },
+              ] as const).map((item) => {
+                const isActive = mode === item.id;
+                return (
+                  <button
+                    key={item.id}
+                    type="button"
+                    disabled={isToggleDisabled}
+                    onClick={() => onModeChange?.(item.id)}
+                    className={clsx(
+                      "h-7 rounded-full px-2.5 text-[11px] font-semibold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--ring)]",
+                      isActive
+                        ? "border border-[color:var(--border-a)] bg-[color:var(--surface-1)] text-[color:var(--text)]"
+                        : "text-[color:var(--muted)] hover:text-[color:var(--text)]",
+                      isToggleDisabled && "cursor-not-allowed"
+                    )}
+                    aria-pressed={isActive}
+                  >
+                    {item.label}
+                  </button>
+                );
+              })}
             </div>
+          ) : (
+            showAudienceToggle && (
+              <div
+                className={clsx(
+                  "inline-flex h-8 items-center rounded-full border p-0.5 shrink-0",
+                  "border-[color:var(--border)] bg-[color:var(--surface-2)]"
+                )}
+              >
+                <button
+                  type="button"
+                  onClick={() => onAudienceChange("CREATOR")}
+                  className={clsx(
+                    "h-7 rounded-full px-2.5 text-[11px] font-semibold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--ring)]",
+                    audience === "CREATOR"
+                      ? "bg-[color:var(--brand-weak)] text-[color:var(--text)]"
+                      : "text-[color:var(--muted)] hover:text-[color:var(--text)]"
+                  )}
+                >
+                  Al fan
+                </button>
+                <button
+                  type="button"
+                  onClick={() => onAudienceChange("INTERNAL")}
+                  className={clsx(
+                    "h-7 rounded-full px-2.5 text-[11px] font-semibold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--ring)]",
+                    audience === "INTERNAL"
+                      ? "bg-[color:var(--brand-weak)] text-[color:var(--text)]"
+                      : "text-[color:var(--muted)] hover:text-[color:var(--text)]"
+                  )}
+                  title="No se envía al fan. Se prepara en el Manager interno."
+                >
+                  Interno/Manager
+                </button>
+              </div>
+            )
           )}
         </div>
         <button
@@ -501,8 +559,9 @@ export function ChatComposerBar({
             "bg-[color:var(--brand-strong)] text-[color:var(--text)] hover:bg-[color:var(--brand)] focus-visible:ring-[color:var(--ring)]",
             "disabled:opacity-50 disabled:cursor-not-allowed"
           )}
+          style={actionMinWidth ? { minWidth: `${actionMinWidth}px` } : undefined}
         >
-          {actionLabel}
+          {isSending ? (sendingLabel || "Enviando...") : actionLabel}
         </button>
       </div>
     </div>

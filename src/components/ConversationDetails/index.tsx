@@ -102,7 +102,7 @@ type FanTemplateItem = {
 };
 type FanTemplatePools = Record<FanTemplateCategory, FanTemplateItem[]>;
 type FanTemplateSelection = Record<FanTemplateCategory, string | null>;
-type ComposerTarget = "fan" | "manager";
+type ComposerTarget = "fan" | "internal" | "manager";
 type MessageAudienceMode = "CREATOR" | "INTERNAL";
 type InlineTab = "templates" | "tools" | "manager";
 type InternalPanelTab = "manager" | "internal" | "note";
@@ -520,6 +520,9 @@ export default function ConversationDetails({ onBackToBoard }: ConversationDetai
   const [ messageSend, setMessageSend ] = useState("");
   const [ pendingInsert, setPendingInsert ] = useState<{ text: string; detail?: string } | null>(null);
   const [ isSending, setIsSending ] = useState(false);
+  const [ isInternalSending, setIsInternalSending ] = useState(false);
+  const [ isManagerSending, setIsManagerSending ] = useState(false);
+  const [ composerError, setComposerError ] = useState<string | null>(null);
   const [ composerTarget, setComposerTarget ] = useState<ComposerTarget>("fan");
   const [ showPackSelector, setShowPackSelector ] = useState(false);
   const [ isLoadingMessages, setIsLoadingMessages ] = useState(false);
@@ -2853,6 +2856,8 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
     !!id && !conversation.isManager && effectiveLanguage !== "es";
   const hasComposerText = messageSend.trim().length > 0;
   const isFanTarget = composerTarget === "fan";
+  const isInternalTarget = composerTarget === "internal";
+  const isManagerTarget = composerTarget === "manager";
   const composerAudience = isFanTarget ? "CREATOR" : "INTERNAL";
   const translateEnabled = translationPreviewOpen && !conversation.isManager && isFanTarget;
   const isFanMode = !conversation.isManager;
@@ -5726,7 +5731,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
     if (isInternalPanelOpen) return;
     if (key === "Enter" && !evt.shiftKey) {
       evt.preventDefault();
-      if (isSendingRef.current) return;
+      if (isSendingRef.current || isInternalSending || isManagerSending) return;
       if (messageSend.trim()) handleSendMessage();
     }
   }
@@ -5780,15 +5785,15 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
     text: string,
     audienceMode: MessageAudienceMode = "CREATOR",
     options?: { preserveComposer?: boolean }
-  ) {
-    if (!id) return;
+  ): Promise<boolean> {
+    if (!id) return false;
     const isInternal = audienceMode === "INTERNAL";
     if (isChatBlocked && !isInternal) {
       setMessagesError("Chat bloqueado. Desbloquéalo para escribir.");
-      return;
+      return false;
     }
     const trimmedMessage = text.trim();
-    if (!trimmedMessage) return;
+    if (!trimmedMessage) return false;
     const tokenSticker = getStickerByToken(trimmedMessage);
     const isTokenSticker = Boolean(tokenSticker);
 
@@ -5838,12 +5843,12 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
             (prev || []).map((m) => (m.id === tempId ? { ...m, status: "failed" as const } : m))
           );
         }
-        return;
+        return false;
       }
       if (!res.ok || !data?.ok) {
         console.error("Error enviando mensaje");
         setMessagesError(isInternal ? "Error guardando mensaje interno" : "Error enviando mensaje");
-        return;
+        return false;
       }
       const apiMessages: ApiMessage[] = Array.isArray(data.messages)
         ? (data.messages as ApiMessage[])
@@ -5862,7 +5867,6 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
           scrollToTop: true,
           highlightDraftId: newestInternalId ?? undefined,
         });
-        setComposerTarget("fan");
       } else {
         const mapped = mapApiMessagesToState(apiMessages);
         if (mapped.length > 0) {
@@ -5880,6 +5884,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
         resetMessageInputHeight();
         requestAnimationFrame(() => messageInputRef.current?.focus());
       }
+      return true;
     } catch (err) {
       console.error("Error enviando mensaje", err);
       setMessagesError(isInternal ? "Error guardando mensaje interno" : "Error enviando mensaje");
@@ -5888,6 +5893,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
           (prev || []).map((m) => (m.id === tempId ? { ...m, status: "failed" as const } : m))
         );
       }
+      return false;
     }
   }
 
@@ -5988,8 +5994,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
     isSendingRef.current = true;
     setIsSending(true);
     try {
-      await sendMessageText(trimmed, "CREATOR");
-      return true;
+      return await sendMessageText(trimmed, "CREATOR");
     } finally {
       isSendingRef.current = false;
       setIsSending(false);
@@ -6006,23 +6011,42 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
       }
       return;
     }
-    if (!isFanTarget) {
-      setManagerChatInput(trimmed);
-      setManagerSelectedText(null);
+    setComposerError(null);
+    if (messagesError) {
+      setMessagesError("");
+    }
+    if (isInternalTarget) {
+      if (isInternalSending) return;
+      setIsInternalSending(true);
+      const ok = await sendMessageText(trimmed, "INTERNAL");
+      setIsInternalSending(false);
+      if (!ok) {
+        setComposerError("No se pudo guardar la nota.");
+      }
+      return;
+    }
+    if (isManagerTarget) {
+      if (isManagerSending) return;
+      setIsManagerSending(true);
+      askInternalManager(trimmed, undefined, undefined, { selectedText: null });
       setMessageSend("");
       adjustMessageInputHeight();
-      openInternalPanelTab("manager");
-      focusManagerComposer(true);
+      requestAnimationFrame(() => messageInputRef.current?.focus());
       showInlineAction({
         kind: "info",
-        title: "Texto listo en Manager IA",
+        title: "Enviado a Manager IA",
         detail: "No se envía al fan.",
         ttlMs: 2000,
       });
+      setTimeout(() => {
+        setIsManagerSending(false);
+      }, 700);
       return;
     }
     const sentText = await sendFanMessage(trimmed);
-    if (!sentText) return;
+    if (!sentText && messagesError) {
+      setComposerError(messagesError || "No se pudo enviar el mensaje.");
+    }
   }
 
   async function handleConfirmDuplicateSend() {
@@ -6544,21 +6568,48 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
     };
   }, [isInternalPanelOpen]);
 
+  const composerCopy = useMemo(() => {
+    switch (composerTarget) {
+      case "internal":
+        return {
+          placeholder: "Nota interna…",
+          actionLabel: "Guardar nota",
+          helpText: "Nota interna. No se envía.",
+          sendingLabel: "Guardando...",
+        };
+      case "manager":
+        return {
+          placeholder: "Pide ayuda al Manager IA…",
+          actionLabel: "Enviar a IA",
+          helpText: "Mensaje para Manager IA. No se envía al fan.",
+          sendingLabel: "Enviando...",
+        };
+      default:
+        return {
+          placeholder: "Mensaje al fan…",
+          actionLabel: "Enviar a FAN",
+          helpText: "Se enviará al fan.",
+          sendingLabel: "Enviando...",
+        };
+    }
+  }, [composerTarget]);
+
   const hasComposerPayload = messageSend.trim().length > 0;
+  const isComposerSubmitting = isSending || isInternalSending || isManagerSending;
   const sendDisabled =
-    isSending ||
+    isComposerSubmitting ||
     !hasComposerPayload ||
     isInternalPanelOpen ||
     (isFanTarget && isChatBlocked);
   const composerPlaceholder = isChatBlocked && isFanTarget
     ? "Has bloqueado este chat. Desbloquéalo para volver a escribir."
-    : isFanTarget
-    ? "Mensaje al fan..."
-    : "Pregúntale al Manager…";
+    : composerCopy.placeholder;
   const mainComposerPlaceholder = isInternalPanelOpen
     ? "Panel interno abierto. Usa el chat interno…"
     : composerPlaceholder;
-  const composerActionLabel = isFanTarget ? "Enviar a FAN" : "Enviar al Manager";
+  const composerActionLabel = composerCopy.actionLabel;
+  const composerHelpText = composerCopy.helpText;
+  const composerSendingLabel = composerCopy.sendingLabel;
   const canAttachContent = isFanTarget && !isChatBlocked && !isInternalPanelOpen;
   const nextActionStatus = getFollowUpStatusFromDate(nextActionDate);
   const nextActionTone: BadgeTone =
@@ -7975,11 +8026,13 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
           <div className="sticky bottom-0 z-30 border-t border-[color:var(--border)] bg-[color:var(--surface-1)] backdrop-blur-xl">
             <div className="max-w-4xl mx-auto w-full px-4 sm:px-6 lg:px-8 py-2.5">
               {internalToast && <div className="mb-2 text-[11px] text-[color:var(--brand)]">{internalToast}</div>}
+              {composerError && <div className="mb-2 text-[11px] text-[color:var(--danger)]">{composerError}</div>}
               {composerDock?.chips}
               <ChatComposerBar
                 value={messageSend}
                 onChange={(evt) => {
                   setMessageSend(evt.target.value);
+                  if (composerError) setComposerError(null);
                   autoGrowTextarea(evt.currentTarget, MAX_MAIN_COMPOSER_HEIGHT);
                 }}
                 onKeyDown={(evt) => changeHandler(evt)}
@@ -7987,10 +8040,18 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
                 sendDisabled={sendDisabled}
                 placeholder={mainComposerPlaceholder}
                 actionLabel={composerActionLabel}
+                sendingLabel={composerSendingLabel}
+                isSending={isComposerSubmitting}
+                actionMinWidth={140}
                 audience={composerAudience}
-                onAudienceChange={(mode) => {
-                  setComposerTarget(mode === "CREATOR" ? "fan" : "manager");
+                onAudienceChange={() => {}}
+                mode={composerTarget}
+                onModeChange={(mode) => {
+                  setComposerTarget(mode);
+                  if (composerError) setComposerError(null);
                 }}
+                modeDisabled={isComposerSubmitting || isInternalPanelOpen}
+                modeHelpText={composerHelpText}
                 canAttach={canAttachContent}
                 onAttach={() => {
                   if (!canAttachContent) return;
