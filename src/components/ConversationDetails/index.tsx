@@ -74,7 +74,14 @@ import { IconGlyph, type IconName } from "../ui/IconGlyph";
 import { Badge, type BadgeTone } from "../ui/Badge";
 import { ConversationActionsMenu } from "../conversations/ConversationActionsMenu";
 import { badgeToneForLabel } from "../../lib/badgeTone";
-import { consumeComposerDraft, getFanIdFromQuery, openFanChat } from "../../lib/navigation/openCreatorChat";
+import {
+  COMPOSER_DRAFT_EVENT,
+  appendDraftText,
+  consumeDraft,
+  getFanIdFromQuery,
+  insertIntoCurrentComposer,
+  openFanChat,
+} from "../../lib/navigation/openCreatorChat";
 
 type ManagerQuickIntent = ManagerObjective;
 type ManagerSuggestionIntent = "romper_hielo" | "pregunta_simple" | "cierre_suave" | "upsell_mensual_suave";
@@ -943,28 +950,32 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
       if (!id) return false;
       const trimmed = draftText.trim();
       if (!trimmed) return false;
+      const nextText = appendDraftText(messageSend, draftText);
+      if (!nextText.trim()) return false;
       setComposerTarget("fan");
-      setMessageSend(draftText);
+      setMessageSend(nextText);
       draftAppliedFanIdRef.current = id;
       requestAnimationFrame(() => {
         const input = messageInputRef.current;
         if (!input) return;
         input.focus();
-        const len = draftText.length;
+        const len = nextText.length;
         input.setSelectionRange(len, len);
         autoGrowTextarea(input, MAX_MAIN_COMPOSER_HEIGHT);
       });
       return true;
     },
-    [autoGrowTextarea, id]
+    [autoGrowTextarea, id, messageSend]
   );
 
   useEffect(() => {
     if (typeof window === "undefined") return;
     const handleComposerDraft = (event: Event) => {
-      const detail = (event as CustomEvent)?.detail as { fanId?: string; text?: string } | undefined;
+      const detail = (event as CustomEvent)?.detail as { target?: string; fanId?: string; text?: string } | undefined;
+      const target = detail?.target === "cortex" ? "cortex" : "fan";
+      if (target !== "fan") return;
       if (!id || !detail?.fanId || detail.fanId !== id) return;
-      const stored = consumeComposerDraft(id);
+      const stored = consumeDraft({ target: "fan", fanId: id });
       if (stored?.text) {
         applyComposerDraft(stored.text);
         return;
@@ -973,9 +984,9 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
         applyComposerDraft(detail.text);
       }
     };
-    window.addEventListener("novsy:composerDraft", handleComposerDraft as EventListener);
+    window.addEventListener(COMPOSER_DRAFT_EVENT, handleComposerDraft as EventListener);
     return () => {
-      window.removeEventListener("novsy:composerDraft", handleComposerDraft as EventListener);
+      window.removeEventListener(COMPOSER_DRAFT_EVENT, handleComposerDraft as EventListener);
     };
   }, [applyComposerDraft, id]);
 
@@ -1409,10 +1420,8 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
     options: { title: string; detail?: string; forceFan?: boolean }
   ) => {
     const previousText = messageSend;
-    if (options.forceFan) {
-      setComposerTarget("fan");
-    }
-    focusMainMessageInput(nextText);
+    if (!id || !nextText.trim()) return;
+    insertIntoCurrentComposer({ target: "fan", fanId: id, mode: "fan", text: nextText });
     showInlineAction({
       kind: "ok",
       title: options.title,
@@ -1473,11 +1482,15 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
 
   function handleUseManagerReplyAsMainMessage(text: string, detail?: string) {
     const nextText = text || "";
-    if (messageSend.trim()) {
-      setPendingInsert({ text: nextText, detail });
-      return;
-    }
-    applyComposerInsert(nextText, "replace", detail);
+    if (!id || !nextText.trim()) return;
+    insertIntoCurrentComposer({ target: "fan", fanId: id, mode: "fan", text: nextText });
+    closeInlinePanel({ focus: true });
+    showInlineAction({
+      kind: "ok",
+      title: "Sugerencia insertada",
+      detail: detail ?? "Manager IA",
+      ttlMs: 1600,
+    });
   }
 
   const handleChangeFanTone = useCallback(
@@ -2584,7 +2597,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
         if (applyComposerDraft(pendingDraft)) return;
       }
     }
-    const storedDraft = consumeComposerDraft(id);
+    const storedDraft = consumeDraft({ target: "fan", fanId: id });
     if (storedDraft?.text) {
       applyComposerDraft(storedDraft.text);
     }
@@ -3014,17 +3027,61 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
     });
   }, [openInternalPanel, nextActionDate, id, fetchFollowUpHistory]);
 
-  const handleAskManagerFromDraft = useCallback(
-    (text: string, options?: { selectedText?: string | null }) => {
-      const trimmed = text.trim();
-      if (!trimmed) return;
-      setManagerChatInput(trimmed);
-      setManagerSelectedText(options?.selectedText ?? null);
+  const applyCortexDraft = useCallback(
+    (draftText: string) => {
+      const trimmed = draftText.trim();
+      if (!trimmed) return false;
+      setManagerChatInput((prev) => appendDraftText(prev, draftText));
+      setManagerSelectedText(null);
       openInternalPanel("manager");
       focusManagerComposer(true);
+      return true;
     },
-    [openInternalPanel, focusManagerComposer]
+    [focusManagerComposer, openInternalPanel]
   );
+
+  const handleAskManagerFromDraft = useCallback(
+    (text: string, _options?: { selectedText?: string | null }) => {
+      const trimmed = text.trim();
+      if (!trimmed) return;
+      insertIntoCurrentComposer({
+        target: "cortex",
+        fanId: id ?? undefined,
+        mode: "manager",
+        text: trimmed,
+      });
+    },
+    [id]
+  );
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const handleComposerDraft = (event: Event) => {
+      const detail = (event as CustomEvent)?.detail as { target?: string; fanId?: string; text?: string } | undefined;
+      if (detail?.target !== "cortex") return;
+      if (!id || !detail?.fanId || detail.fanId !== id) return;
+      const stored = consumeDraft({ target: "cortex", fanId: id });
+      if (stored?.text) {
+        applyCortexDraft(stored.text);
+        return;
+      }
+      if (typeof detail.text === "string" && detail.text.trim()) {
+        applyCortexDraft(detail.text);
+      }
+    };
+    window.addEventListener(COMPOSER_DRAFT_EVENT, handleComposerDraft as EventListener);
+    return () => {
+      window.removeEventListener(COMPOSER_DRAFT_EVENT, handleComposerDraft as EventListener);
+    };
+  }, [applyCortexDraft, id]);
+
+  useEffect(() => {
+    if (!id) return;
+    const storedDraft = consumeDraft({ target: "cortex", fanId: id });
+    if (storedDraft?.text) {
+      applyCortexDraft(storedDraft.text);
+    }
+  }, [applyCortexDraft, id]);
 
   const clampToolbarPosition = useCallback(
     (x: number, y: number, options?: { containerRect?: DOMRect | null; maxWidth?: number }) => {
@@ -5661,7 +5718,9 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
       });
       setLastAutopilotObjective(objective);
       setLastAutopilotTone(toneForDraft);
-      focusMainMessageInput(draft);
+      if (id) {
+        insertIntoCurrentComposer({ target: "fan", fanId: id, mode: "fan", text: draft });
+      }
       addGeneratedDraft(
         buildDraftCard(draft, {
           source: "autosuggest",
@@ -6547,11 +6606,14 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
     setRegisterExtrasChecked(false);
     setRegisterExtrasSource(null);
     setTransactionPrices({});
-    if (messageSend.trim()) {
-      setPendingInsert({ text: draft, detail: "Catalogo" });
-      return;
-    }
-    applyComposerInsert(draft, "replace", "Catalogo");
+    if (!id || !draft.trim()) return;
+    insertIntoCurrentComposer({ target: "fan", fanId: id, mode: "fan", text: draft });
+    showInlineAction({
+      kind: "ok",
+      title: "Sugerencia insertada",
+      detail: "Catalogo",
+      ttlMs: 1600,
+    });
   };
 
   function getPresenceStatus(sourceLastSeenAt?: string | null, fallbackLabel?: string | null) {

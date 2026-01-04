@@ -11,17 +11,21 @@ type OpenFanChatOptions = {
   pathname?: string;
 };
 
-type ComposerDraftMode = "fan";
+export type ComposerDraftTarget = "fan" | "cortex";
+export type ComposerDraftMode = "fan" | "internal" | "manager";
 
-type ComposerDraftPayload = {
-  fanId: string;
-  mode: ComposerDraftMode;
+export type ComposerDraftPayload = {
+  target: ComposerDraftTarget;
+  fanId?: string;
+  mode?: ComposerDraftMode;
   text: string;
+  source?: string;
 };
 
 const DEFAULT_CHAT_PATH = "/creator";
 const PENDING_COMPOSER_DRAFT_KEY = "novsy:pendingComposerDraft";
-const COMPOSER_DRAFT_EVENT = "novsy:composerDraft";
+const PENDING_CORTEX_DRAFT_KEY = "novsy:pendingComposerDraft:cortex";
+export const COMPOSER_DRAFT_EVENT = "novsy:composerDraft";
 
 export function buildFanChatHref(fanId: string, options: Omit<OpenFanChatOptions, "pathname"> = {}) {
   if (!fanId) return DEFAULT_CHAT_PATH;
@@ -62,48 +66,134 @@ export function openCreatorChat(router: NextRouter, fanId: string) {
   openFanChat(router, fanId);
 }
 
-export function queueComposerDraft(payload: ComposerDraftPayload) {
+const getDraftStorageKey = (target: ComposerDraftTarget) =>
+  target === "cortex" ? PENDING_CORTEX_DRAFT_KEY : PENDING_COMPOSER_DRAFT_KEY;
+
+const normalizeDraftTarget = (target?: string): ComposerDraftTarget => (target === "cortex" ? "cortex" : "fan");
+
+export function appendDraftText(existing: string, incoming: string) {
+  const trimmedExisting = existing.trim();
+  const trimmedIncoming = incoming.trim();
+  if (!trimmedExisting) return trimmedIncoming;
+  if (!trimmedIncoming) return trimmedExisting;
+  return `${trimmedExisting}\n\n${trimmedIncoming}`;
+}
+
+export function queueDraft(payload: ComposerDraftPayload) {
   if (typeof window === "undefined") return;
-  const fanId = payload?.fanId?.trim();
-  const text = typeof payload?.text === "string" ? payload.text.trim() : "";
-  if (!fanId || !text) return;
+  const target = normalizeDraftTarget(payload?.target);
+  const text = typeof payload?.text === "string" ? payload.text : "";
+  const fanId = typeof payload?.fanId === "string" ? payload.fanId.trim() : "";
+  if (!text.trim()) return;
+  if (target === "fan" && !fanId) return;
+  const normalizedPayload: ComposerDraftPayload = {
+    target,
+    fanId: fanId || undefined,
+    mode: payload.mode,
+    text: payload.text,
+    source: payload.source,
+  };
   try {
-    sessionStorage.setItem(
-      PENDING_COMPOSER_DRAFT_KEY,
-      JSON.stringify({ fanId, mode: payload.mode, text: payload.text })
-    );
+    sessionStorage.setItem(getDraftStorageKey(target), JSON.stringify(normalizedPayload));
   } catch (_err) {
     // ignore storage errors
   }
   try {
-    window.dispatchEvent(new CustomEvent(COMPOSER_DRAFT_EVENT, { detail: { fanId, mode: payload.mode, text: payload.text } }));
+    window.dispatchEvent(new CustomEvent(COMPOSER_DRAFT_EVENT, { detail: normalizedPayload }));
   } catch (_err) {
     // ignore event errors
   }
 }
 
-export function consumeComposerDraft(fanId: string): ComposerDraftPayload | null {
-  if (typeof window === "undefined") return null;
-  const targetFanId = fanId?.trim();
-  if (!targetFanId) return null;
+export function insertIntoCurrentComposer(payload: ComposerDraftPayload) {
+  if (typeof window === "undefined") return false;
+  const target = normalizeDraftTarget(payload?.target);
+  const text = typeof payload?.text === "string" ? payload.text : "";
+  const fanId = typeof payload?.fanId === "string" ? payload.fanId.trim() : "";
+  if (!text.trim()) return false;
+  if (target === "fan" && !fanId) return false;
   try {
-    const raw = sessionStorage.getItem(PENDING_COMPOSER_DRAFT_KEY);
+    const detail: ComposerDraftPayload = {
+      target,
+      fanId: fanId || undefined,
+      mode: payload.mode,
+      text: payload.text,
+      source: payload.source,
+    };
+    window.dispatchEvent(new CustomEvent(COMPOSER_DRAFT_EVENT, { detail }));
+    return true;
+  } catch (_err) {
+    return false;
+  }
+}
+
+export function consumeDraft(options: { target: ComposerDraftTarget; fanId?: string }): ComposerDraftPayload | null {
+  if (typeof window === "undefined") return null;
+  const target = normalizeDraftTarget(options?.target);
+  const targetFanId = typeof options?.fanId === "string" ? options.fanId.trim() : "";
+  if (target === "fan" && !targetFanId) return null;
+  const storageKey = getDraftStorageKey(target);
+  try {
+    const raw = sessionStorage.getItem(storageKey);
     if (!raw) return null;
     const parsed = JSON.parse(raw) as Partial<ComposerDraftPayload> | null;
     if (!parsed || typeof parsed !== "object") {
-      sessionStorage.removeItem(PENDING_COMPOSER_DRAFT_KEY);
+      sessionStorage.removeItem(storageKey);
       return null;
     }
-    if (parsed.fanId !== targetFanId) return null;
+    const parsedTarget = normalizeDraftTarget(parsed.target);
+    if (parsedTarget !== target) return null;
+    const parsedFanId = typeof parsed.fanId === "string" ? parsed.fanId.trim() : "";
+    if (target === "fan") {
+      if (!parsedFanId || parsedFanId !== targetFanId) return null;
+    } else if (targetFanId) {
+      if (!parsedFanId || parsedFanId !== targetFanId) return null;
+    } else if (parsedFanId) {
+      return null;
+    }
     const text = typeof parsed.text === "string" ? parsed.text : "";
     if (!text.trim()) {
-      sessionStorage.removeItem(PENDING_COMPOSER_DRAFT_KEY);
+      sessionStorage.removeItem(storageKey);
       return null;
     }
-    sessionStorage.removeItem(PENDING_COMPOSER_DRAFT_KEY);
-    return { fanId: targetFanId, mode: parsed.mode === "fan" ? "fan" : "fan", text };
+    sessionStorage.removeItem(storageKey);
+    return {
+      target,
+      fanId: parsedFanId || (target === "fan" ? targetFanId : undefined),
+      mode: parsed.mode,
+      text,
+      source: parsed.source,
+    };
   } catch (_err) {
-    sessionStorage.removeItem(PENDING_COMPOSER_DRAFT_KEY);
+    sessionStorage.removeItem(storageKey);
     return null;
   }
+}
+
+export function openFanChatAndPrefill(
+  router: NextRouter,
+  options: { fanId: string; text: string; mode?: ComposerDraftMode; source?: string; pathname?: string; shallow?: boolean; scroll?: boolean }
+) {
+  const fanId = options.fanId?.trim();
+  const text = typeof options.text === "string" ? options.text : "";
+  if (!fanId || !text.trim()) return;
+  queueDraft({ target: "fan", fanId, mode: options.mode ?? "fan", text: options.text, source: options.source });
+  const activeFanId = getFanIdFromQuery(router.query);
+  const isChatRoute = router.pathname === "/" || router.pathname === DEFAULT_CHAT_PATH;
+  if (isChatRoute && activeFanId === fanId) return;
+  openFanChat(router, fanId, {
+    pathname: options.pathname,
+    shallow: options.shallow,
+    scroll: options.scroll,
+  });
+}
+
+type LegacyComposerDraftPayload = Omit<ComposerDraftPayload, "target"> & { target?: ComposerDraftTarget };
+
+export function queueComposerDraft(payload: LegacyComposerDraftPayload) {
+  queueDraft({ ...payload, target: normalizeDraftTarget(payload?.target) });
+}
+
+export function consumeComposerDraft(fanId: string): ComposerDraftPayload | null {
+  return consumeDraft({ target: "fan", fanId });
 }

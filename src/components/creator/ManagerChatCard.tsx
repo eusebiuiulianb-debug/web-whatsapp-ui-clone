@@ -57,7 +57,15 @@ import {
   getNextActionNoteLabel,
   isGenericNextActionNote,
 } from "../../lib/nextActionLabel";
-import { getFanIdFromQuery, openFanChat, queueComposerDraft } from "../../lib/navigation/openCreatorChat";
+import {
+  COMPOSER_DRAFT_EVENT,
+  appendDraftText,
+  consumeDraft,
+  getFanIdFromQuery,
+  insertIntoCurrentComposer,
+  openFanChat,
+  openFanChatAndPrefill,
+} from "../../lib/navigation/openCreatorChat";
 
 type ManagerChatMessage = {
   id: string;
@@ -1303,9 +1311,7 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
     },
     setDraft: (message: string) => {
       lastQuickPromptRef.current = null;
-      setInput(message);
-      requestAnimationFrame(() => resizeComposer(inputRef.current));
-      inputRef.current?.focus();
+      applyCortexDraft(message);
     },
   }));
 
@@ -1610,24 +1616,80 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
   const chipRowClass = clsx("flex flex-wrap items-center gap-2 pb-1", scope === "fan" ? "px-3 py-2" : "");
   const modeRowClass =
     "flex flex-nowrap items-center gap-2 overflow-x-auto overscroll-x-contain px-3 py-2 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden";
+  const applyCortexDraft = useCallback(
+    (draftText: string) => {
+      const trimmed = draftText.trim();
+      if (!trimmed) return false;
+      setInput((prev) => appendDraftText(prev, draftText));
+      requestAnimationFrame(() => {
+        const inputEl = inputRef.current;
+        if (!inputEl) return;
+        inputEl.focus();
+      const len = inputEl.value.length;
+      inputEl.setSelectionRange(len, len);
+      resizeComposer(inputEl);
+      inputEl.scrollIntoView({ behavior: "smooth", block: "nearest" });
+    });
+    return true;
+  },
+    [resizeComposer]
+  );
   const insertAndFocus = (prompt: string, autoSend = false, sourceActionId?: string) => {
     const trimmedPrompt = prompt.trim();
     if (!trimmedPrompt) return;
-    setInput((prev) => {
-      if (!prev || !prev.trim()) return trimmedPrompt;
-      return `${prev.trim()}\n\n${trimmedPrompt}`;
-    });
-    lastQuickPromptRef.current = sourceActionId ?? null;
-    requestAnimationFrame(() => {
-      const inputEl = inputRef.current;
-      inputEl?.focus();
-      resizeComposer(inputEl);
-      inputEl?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+    const activeFanId = getFanIdFromQuery(router.query);
+    insertIntoCurrentComposer({
+      target: "cortex",
+      fanId: activeFanId ?? undefined,
+      text: prompt,
+      source: sourceActionId,
     });
     if (autoSend) {
       void handleSend(trimmedPrompt);
     }
   };
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const handleComposerDraft = (event: Event) => {
+      const detail = (event as CustomEvent)?.detail as { target?: string; fanId?: string; text?: string; source?: string } | undefined;
+      if (detail?.target !== "cortex") return;
+      const activeFanId = getFanIdFromQuery(router.query);
+      if (detail?.fanId) {
+        if (!activeFanId || detail.fanId !== activeFanId) return;
+      } else if (activeFanId) {
+        return;
+      }
+      const stored = consumeDraft({ target: "cortex", fanId: detail?.fanId ?? undefined });
+      const source =
+        typeof stored?.source === "string"
+          ? stored.source
+          : typeof detail?.source === "string"
+          ? detail.source
+          : null;
+      lastQuickPromptRef.current = source;
+      if (stored?.text) {
+        applyCortexDraft(stored.text);
+        return;
+      }
+      if (typeof detail.text === "string" && detail.text.trim()) {
+        applyCortexDraft(detail.text);
+      }
+    };
+    window.addEventListener(COMPOSER_DRAFT_EVENT, handleComposerDraft as EventListener);
+    return () => {
+      window.removeEventListener(COMPOSER_DRAFT_EVENT, handleComposerDraft as EventListener);
+    };
+  }, [applyCortexDraft, router.query]);
+
+  useEffect(() => {
+    if (!router.isReady) return;
+    const activeFanId = getFanIdFromQuery(router.query);
+    const storedDraft = consumeDraft({ target: "cortex", fanId: activeFanId ?? undefined });
+    if (storedDraft?.text) {
+      lastQuickPromptRef.current = typeof storedDraft.source === "string" ? storedDraft.source : null;
+      applyCortexDraft(storedDraft.text);
+    }
+  }, [applyCortexDraft, router.isReady, router.query]);
   const sendDisabled = sending || !input.trim();
   const recommendationActions = buildRecommendationActions(activeTabKey);
   const recommendationMessage = buildRecommendationMessage(recommendationActions, activeTabKey);
@@ -2194,13 +2256,7 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
   const handleSendDraftToFan = useCallback(
     (fanId: string, draft: string) => {
       if (!fanId || !draft) return;
-      const trimmed = draft.trim();
-      if (!trimmed) return;
-      queueComposerDraft({ fanId, mode: "fan", text: draft });
-      const activeFanId = getFanIdFromQuery(router.query);
-      const isChatRoute = router.pathname === "/" || router.pathname === "/creator";
-      if (isChatRoute && activeFanId === fanId) return;
-      openFanChat(router, fanId);
+      openFanChatAndPrefill(router, { fanId, text: draft, mode: "fan" });
     },
     [router]
   );
