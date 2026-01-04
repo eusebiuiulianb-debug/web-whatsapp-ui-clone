@@ -62,7 +62,7 @@ import {
   appendDraftText,
   consumeDraft,
   getFanIdFromQuery,
-  insertIntoCurrentComposer,
+  openCortexAndPrefill,
   openFanChat,
   openFanChatAndPrefill,
 } from "../../lib/navigation/openCreatorChat";
@@ -1638,12 +1638,7 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
     const trimmedPrompt = prompt.trim();
     if (!trimmedPrompt) return;
     const activeFanId = getFanIdFromQuery(router.query);
-    insertIntoCurrentComposer({
-      target: "cortex",
-      fanId: activeFanId ?? undefined,
-      text: prompt,
-      source: sourceActionId,
-    });
+    openCortexAndPrefill(router, { text: prompt, fanId: activeFanId ?? undefined, source: sourceActionId });
     if (autoSend) {
       void handleSend(trimmedPrompt);
     }

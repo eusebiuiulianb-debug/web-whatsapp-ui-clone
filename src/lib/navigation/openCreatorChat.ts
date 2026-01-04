@@ -23,6 +23,7 @@ export type ComposerDraftPayload = {
 };
 
 const DEFAULT_CHAT_PATH = "/creator";
+const DEFAULT_CORTEX_PATH = "/creator/manager";
 const PENDING_COMPOSER_DRAFT_KEY = "novsy:pendingComposerDraft";
 const PENDING_CORTEX_DRAFT_KEY = "novsy:pendingComposerDraft:cortex";
 export const COMPOSER_DRAFT_EVENT = "novsy:composerDraft";
@@ -186,6 +187,31 @@ export function openFanChatAndPrefill(
     shallow: options.shallow,
     scroll: options.scroll,
   });
+}
+
+export function openCortexAndPrefill(
+  router: NextRouter,
+  options: { text: string; fanId?: string; mode?: ComposerDraftMode; source?: string; pathname?: string; shallow?: boolean; scroll?: boolean }
+) {
+  const text = typeof options.text === "string" ? options.text : "";
+  const fanId = typeof options.fanId === "string" ? options.fanId.trim() : "";
+  if (!text.trim()) return;
+  queueDraft({
+    target: "cortex",
+    fanId: fanId || undefined,
+    text: options.text,
+    mode: options.mode,
+    source: options.source,
+  });
+  const targetPath = options.pathname ?? DEFAULT_CORTEX_PATH;
+  if (router.pathname === targetPath) return;
+  void router.push(
+    {
+      pathname: targetPath,
+    },
+    undefined,
+    { shallow: options.shallow, scroll: options.scroll }
+  );
 }
 
 type LegacyComposerDraftPayload = Omit<ComposerDraftPayload, "target"> & { target?: ComposerDraftTarget };
