@@ -472,7 +472,7 @@ export default function CreatorAnalyticsPage() {
       : [];
 
   return (
-    <div className="min-h-screen bg-[#0b141a] text-white">
+    <div className="min-h-screen bg-[color:var(--surface-0)] text-[color:var(--text)]">
       <Head>
         <title>Analítica – NOVSY</title>
       </Head>
@@ -489,10 +489,10 @@ export default function CreatorAnalyticsPage() {
         <div className="flex items-center justify-between">
           <div>
             <h1 className="text-2xl font-semibold">Analítica interna</h1>
-            <p className="text-sm text-slate-300">Atribución de bio-link y embudo al chat.</p>
+            <p className="text-sm text-[color:var(--muted)]">Atribución de bio-link y embudo al chat.</p>
           </div>
           <div className="flex items-center gap-3">
-            <div className="inline-flex rounded-full border border-slate-700 bg-slate-900/70 p-1">
+            <div className="inline-flex rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] p-1">
               {[7, 30, 90].map((value) => (
                 <button
                   key={value}
@@ -500,7 +500,9 @@ export default function CreatorAnalyticsPage() {
                   onClick={() => setRange(value as 7 | 30 | 90)}
                   className={clsx(
                     "px-3 py-1.5 text-sm font-semibold rounded-full",
-                    range === value ? "bg-emerald-600 text-white" : "text-slate-200 hover:text-white"
+                    range === value
+                      ? "bg-[color:var(--brand-strong)] text-[color:var(--text)]"
+                      : "text-[color:var(--text)] hover:text-[color:var(--text)]"
                   )}
                 >
                   Últimos {value} días
@@ -510,11 +512,11 @@ export default function CreatorAnalyticsPage() {
           </div>
         </div>
 
-        {toast && <div className="text-sm text-emerald-300">{toast}</div>}
-        {error && <div className="text-sm text-rose-300">{error}</div>}
+        {toast && <div className="text-sm text-[color:var(--brand)]">{toast}</div>}
+        {error && <div className="text-sm text-[color:var(--danger)]">{error}</div>}
         {loading && (
           <div className="space-y-2">
-            <div className="text-sm text-slate-300">Cargando...</div>
+            <div className="text-sm text-[color:var(--muted)]">Cargando...</div>
             <Skeleton className="h-4 w-40" />
           </div>
         )}
@@ -531,7 +533,9 @@ export default function CreatorAnalyticsPage() {
                   disabled={savingPlatforms}
                   className={clsx(
                     "rounded-full px-3 py-2 text-sm font-semibold",
-                    savingPlatforms ? "bg-slate-700 text-slate-300" : "bg-emerald-600 text-white hover:bg-emerald-500"
+                    savingPlatforms
+                      ? "bg-[color:var(--surface-2)] text-[color:var(--muted)]"
+                      : "bg-[color:var(--brand-strong)] text-[color:var(--text)] hover:bg-[color:var(--brand)]"
                   )}
                 >
                   {savingPlatforms ? "Guardando..." : "Guardar redes"}
@@ -547,12 +551,12 @@ export default function CreatorAnalyticsPage() {
                       key={key}
                       className="rounded-xl border border-[color:var(--surface-border)] bg-[var(--surface-2)] p-3 flex flex-col gap-2"
                     >
-                      <label className="flex items-center gap-2 text-[13px] text-slate-200">
+                      <label className="flex items-center gap-2 text-[13px] text-[color:var(--text)]">
                         <input
                           type="checkbox"
                           checked={item.enabled}
                           onChange={(e) => updatePlatform(key, { enabled: e.target.checked })}
-                          className="h-5 w-5 rounded border-slate-600 bg-slate-800 text-emerald-400 focus:ring-emerald-400"
+                          className="h-5 w-5 rounded border-[color:var(--surface-border)] bg-[color:var(--surface-2)] accent-[color:var(--brand)] focus:ring-2 focus:ring-[color:var(--ring)]"
                         />
                         {formatPlatformLabel(key)}
                       </label>
@@ -562,9 +566,9 @@ export default function CreatorAnalyticsPage() {
                         onChange={(e) => updatePlatform(key, { handle: e.target.value })}
                         placeholder="@usuario"
                         disabled={!item.enabled}
-                        className="w-full rounded-lg bg-slate-900/80 border border-slate-700 px-3 py-2 text-sm text-white placeholder:text-slate-500 disabled:opacity-60 focus:border-emerald-400"
+                        className="w-full rounded-lg bg-[color:var(--surface-1)] border border-[color:var(--surface-border)] px-3 py-2 text-sm text-[color:var(--text)] placeholder:text-[color:var(--muted)] disabled:opacity-60 focus:border-[color:var(--surface-border-hover)] focus:ring-2 focus:ring-[color:var(--ring)]"
                       />
-                      <p className="text-[10px] text-slate-500">
+                      <p className="text-[10px] text-[color:var(--muted)]">
                         {item.enabled ? "Se usa para personalizar ideas de crecimiento." : "Activa la casilla para usar esta red."}
                       </p>
                     </div>
@@ -595,9 +599,9 @@ export default function CreatorAnalyticsPage() {
                   <div className="grid grid-cols-1 sm:grid-cols-5 gap-3">
                     {funnelRows.map((row) => (
                       <div key={row.label} className="rounded-xl border border-[color:var(--surface-border)] bg-[var(--surface-2)] p-3">
-                        <div className="text-[10px] text-slate-500">{row.label}</div>
-                        <div className="text-2xl font-semibold text-slate-100 tracking-tight tabular-nums leading-tight">{row.sessions}</div>
-                        <div className="text-[10px] text-slate-500">{row.events} eventos</div>
+                        <div className="text-[10px] text-[color:var(--muted)]">{row.label}</div>
+                        <div className="text-2xl font-semibold text-[color:var(--text)] tracking-tight tabular-nums leading-tight">{row.sessions}</div>
+                        <div className="text-[10px] text-[color:var(--muted)]">{row.events} eventos</div>
                       </div>
                     ))}
                   </div>
@@ -610,8 +614,8 @@ export default function CreatorAnalyticsPage() {
                   <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                     {fanFunnelRows.map((row) => (
                       <div key={row.label} className="rounded-xl border border-[color:var(--surface-border)] bg-[var(--surface-2)] p-3">
-                        <div className="text-[10px] text-slate-500">{row.label}</div>
-                        <div className="text-2xl font-semibold text-slate-100 tracking-tight tabular-nums leading-tight">{row.value}</div>
+                        <div className="text-[10px] text-[color:var(--muted)]">{row.label}</div>
+                        <div className="text-2xl font-semibold text-[color:var(--text)] tracking-tight tabular-nums leading-tight">{row.value}</div>
                       </div>
                     ))}
                   </div>
@@ -626,7 +630,7 @@ export default function CreatorAnalyticsPage() {
                 <button
                   type="button"
                   onClick={openCampaignModal}
-                  className="inline-flex items-center gap-2 rounded-full border border-emerald-400/70 bg-emerald-500/15 px-3 py-2 text-sm font-semibold text-emerald-100 hover:bg-emerald-500/25"
+                  className="inline-flex items-center gap-2 rounded-full border border-[color:rgba(var(--brand-rgb),0.45)] bg-[color:rgba(var(--brand-rgb),0.16)] px-3 py-2 text-sm font-semibold text-[color:var(--text)] hover:bg-[color:rgba(var(--brand-rgb),0.24)]"
                 >
                   <PlusIconInline />
                   Nueva campaña
@@ -634,16 +638,16 @@ export default function CreatorAnalyticsPage() {
               }
               bodyClassName="space-y-4"
             >
-              {campaignsError && <div className="text-sm text-rose-300">{campaignsError}</div>}
-              {campaignsLoading && <div className="text-sm text-slate-300">Cargando campañas...</div>}
+              {campaignsError && <div className="text-sm text-[color:var(--danger)]">{campaignsError}</div>}
+              {campaignsLoading && <div className="text-sm text-[color:var(--muted)]">Cargando campañas...</div>}
               {!campaignsLoading && campaigns.length === 0 && (
-                <div className="text-sm text-slate-400">Crea tu primera campaña para ver métricas aquí.</div>
+                <div className="text-sm text-[color:var(--muted)]">Crea tu primera campaña para ver métricas aquí.</div>
               )}
               {!campaignsLoading && campaigns.length > 0 && (
                 <div className="overflow-x-auto">
                   <table className="min-w-full text-[13px]">
                     <thead>
-                      <tr className="text-left text-[10px] uppercase tracking-[0.12em] text-slate-500 bg-[var(--surface-2)] border-b border-[color:var(--surface-border)]">
+                      <tr className="text-left text-[10px] uppercase tracking-[0.12em] text-[color:var(--muted)] bg-[var(--surface-2)] border-b border-[color:var(--surface-border)]">
                         <th className="px-3 py-2.5">Título</th>
                         <th className="px-3 py-2.5">utm_campaign</th>
                         <th className="px-3 py-2.5">Plataforma</th>
@@ -677,11 +681,11 @@ export default function CreatorAnalyticsPage() {
                         const isActiveLinkBuilder = activeLinkCampaignId === campaign.id;
                         return (
                           <Fragment key={campaign.id}>
-                            <tr className="border-b border-[color:var(--surface-border)] align-top transition hover:bg-slate-900/40">
-                              <td className="px-3 py-2.5 text-white font-semibold">{campaign.title}</td>
-                              <td className="px-3 py-2.5 text-slate-200">{campaign.utmCampaign}</td>
+                            <tr className="border-b border-[color:var(--surface-border)] align-top transition hover:bg-[color:var(--surface-2)]">
+                              <td className="px-3 py-2.5 text-[color:var(--text)] font-semibold">{campaign.title}</td>
+                              <td className="px-3 py-2.5 text-[color:var(--text)]">{campaign.utmCampaign}</td>
                               <td className="px-3 py-2.5">
-                                <span className="inline-flex items-center rounded-full border border-slate-700 bg-slate-900/70 px-2.5 py-1 text-[11px] font-semibold text-slate-200">
+                                <span className="inline-flex items-center rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-2.5 py-1 text-[11px] font-semibold text-[color:var(--text)]">
                                   {formatCampaignPlatform(campaign.platform)}
                                 </span>
                               </td>
@@ -690,31 +694,31 @@ export default function CreatorAnalyticsPage() {
                                   {formatStatusLabel(campaign.status)}
                                 </span>
                               </td>
-                              <td className="px-3 py-2.5 text-slate-200 min-w-[200px]">
+                              <td className="px-3 py-2.5 text-[color:var(--text)] min-w-[200px]">
                                 <div>{campaign.objective}</div>
-                                {campaign.notes && <div className="text-xs text-slate-400">{campaign.notes}</div>}
+                                {campaign.notes && <div className="text-xs text-[color:var(--muted)]">{campaign.notes}</div>}
                               </td>
-                              <td className="px-3 py-2.5 text-right text-emerald-200 font-semibold tabular-nums">{metrics.viewSessions}</td>
-                              <td className="px-3 py-2.5 text-right text-slate-200 tabular-nums">{metrics.ctaSessions}</td>
-                              <td className="px-3 py-2.5 text-right text-slate-200 tabular-nums">{metrics.openChatSessions}</td>
-                              <td className="px-3 py-2.5 text-right text-slate-200 tabular-nums">{metrics.sendMessageSessions}</td>
-                              <td className="px-3 py-2.5 text-right text-slate-200 tabular-nums">{metrics.fansNew}</td>
-                            <td className="px-3 py-2.5 text-right text-slate-200 tabular-nums">{metrics.purchaseSessions}</td>
-                            <td className="px-3 py-2.5 text-slate-200 min-w-[180px]">
+                              <td className="px-3 py-2.5 text-right text-[color:var(--brand)] font-semibold tabular-nums">{metrics.viewSessions}</td>
+                              <td className="px-3 py-2.5 text-right text-[color:var(--text)] tabular-nums">{metrics.ctaSessions}</td>
+                              <td className="px-3 py-2.5 text-right text-[color:var(--text)] tabular-nums">{metrics.openChatSessions}</td>
+                              <td className="px-3 py-2.5 text-right text-[color:var(--text)] tabular-nums">{metrics.sendMessageSessions}</td>
+                              <td className="px-3 py-2.5 text-right text-[color:var(--text)] tabular-nums">{metrics.fansNew}</td>
+                            <td className="px-3 py-2.5 text-right text-[color:var(--text)] tabular-nums">{metrics.purchaseSessions}</td>
+                            <td className="px-3 py-2.5 text-[color:var(--text)] min-w-[180px]">
                               {lastLink ? (
                                 <div className="flex flex-col gap-2">
-                                  <span className="text-xs text-slate-300">{truncateLink(lastLinkUrl, 38)}</span>
+                                  <span className="text-xs text-[color:var(--muted)]">{truncateLink(lastLinkUrl, 38)}</span>
                                   <button
                                     type="button"
                                     onClick={() => handleCopy(lastLinkUrl)}
-                                    className="inline-flex items-center gap-1 rounded-full border border-slate-700 px-3 py-1 text-xs font-semibold text-slate-100 hover:border-emerald-500 w-fit"
+                                    className="inline-flex items-center gap-1 rounded-full border border-[color:var(--surface-border)] px-3 py-1 text-xs font-semibold text-[color:var(--text)] hover:border-[color:var(--brand)] w-fit"
                                   >
                                     <ClipboardCopyIconInline />
                                     Copiar link
                                   </button>
                                 </div>
                               ) : (
-                                <span className="text-xs text-slate-500">Sin link</span>
+                                <span className="text-xs text-[color:var(--muted)]">Sin link</span>
                               )}
                             </td>
                             <td className="px-3 py-2.5">
@@ -722,7 +726,7 @@ export default function CreatorAnalyticsPage() {
                                 <button
                                   type="button"
                                   onClick={() => openBuilderForCampaign(campaign)}
-                                    className="inline-flex items-center gap-1 rounded-full border border-slate-700 px-3 py-1.5 text-xs font-semibold text-slate-100 hover:border-emerald-500"
+                                    className="inline-flex items-center gap-1 rounded-full border border-[color:var(--surface-border)] px-3 py-1.5 text-xs font-semibold text-[color:var(--text)] hover:border-[color:var(--brand)]"
                                 >
                                   <LinkIconInline />
                                   Generar link
@@ -730,14 +734,14 @@ export default function CreatorAnalyticsPage() {
                                 <button
                                   type="button"
                                   onClick={() => openCampaignEditor(campaign)}
-                                  className="inline-flex items-center gap-1 rounded-full border border-slate-700 px-3 py-1.5 text-xs font-semibold text-slate-100 hover:border-emerald-500"
+                                  className="inline-flex items-center gap-1 rounded-full border border-[color:var(--surface-border)] px-3 py-1.5 text-xs font-semibold text-[color:var(--text)] hover:border-[color:var(--brand)]"
                                   >
                                     Editar
                                   </button>
                                   <button
                                     type="button"
                                     onClick={() => handleDeleteCampaignRow(campaign)}
-                                    className="inline-flex items-center gap-1 rounded-full border border-rose-500/70 px-3 py-1.5 text-xs font-semibold text-rose-100 hover:bg-rose-500/20"
+                                    className="inline-flex items-center gap-1 rounded-full border border-[color:var(--danger)] px-3 py-1.5 text-xs font-semibold text-[color:var(--danger)] hover:bg-[color:rgba(244,63,94,0.18)]"
                                   >
                                     Borrar
                                   </button>
@@ -750,12 +754,12 @@ export default function CreatorAnalyticsPage() {
                                   <div className="rounded-2xl border border-[color:var(--surface-border)] bg-[var(--surface-2)] p-4 space-y-3">
                                     <div className="flex items-center justify-between gap-3">
                                       <div>
-                                        <div className="text-sm font-semibold text-slate-100">Link UTM (campaña)</div>
-                                        <div className="text-xs text-slate-500">Esto mide tráfico hacia BioLink/Chat.</div>
+                                        <div className="text-sm font-semibold text-[color:var(--text)]">Link UTM (campaña)</div>
+                                        <div className="text-xs text-[color:var(--muted)]">Esto mide tráfico hacia BioLink/Chat.</div>
                                       </div>
                                       <button
                                         type="button"
-                                        className="text-xs text-slate-400 hover:text-slate-200"
+                                        className="text-xs text-[color:var(--muted)] hover:text-[color:var(--text)]"
                                         onClick={() => setActiveLinkCampaignId(null)}
                                       >
                                         Cerrar
@@ -763,50 +767,50 @@ export default function CreatorAnalyticsPage() {
                                     </div>
                                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                                       <div className="flex flex-col gap-1">
-                                        <label className="text-[10px] text-slate-500">utm_source</label>
+                                        <label className="text-[10px] text-[color:var(--muted)]">utm_source</label>
                                         <input
                                           value={utmSource}
                                           readOnly
-                                          className="rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-xs text-slate-200"
+                                          className="rounded-lg border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-3 py-2 text-xs text-[color:var(--text)]"
                                         />
                                       </div>
                                       <div className="flex flex-col gap-1">
-                                        <label className="text-[10px] text-slate-500">utm_medium</label>
+                                        <label className="text-[10px] text-[color:var(--muted)]">utm_medium</label>
                                         <input
                                           value={builder.utmMedium}
                                           onChange={(e) => setBuilder((prev) => ({ ...prev, utmMedium: e.target.value }))}
-                                          className="rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-xs text-white"
+                                          className="rounded-lg border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-3 py-2 text-xs text-[color:var(--text)]"
                                           placeholder="social"
                                         />
                                       </div>
                                       <div className="flex flex-col gap-1">
-                                        <label className="text-[10px] text-slate-500">utm_campaign</label>
+                                        <label className="text-[10px] text-[color:var(--muted)]">utm_campaign</label>
                                         <input
                                           value={builder.utmCampaign}
                                           readOnly
-                                          className="rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-xs text-slate-200"
+                                          className="rounded-lg border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-3 py-2 text-xs text-[color:var(--text)]"
                                         />
                                       </div>
                                       <div className="flex flex-col gap-1">
-                                        <label className="text-[10px] text-slate-500">utm_content *</label>
+                                        <label className="text-[10px] text-[color:var(--muted)]">utm_content *</label>
                                         <input
                                           value={builder.utmContent}
                                           onChange={(e) => setBuilder((prev) => ({ ...prev, utmContent: e.target.value }))}
-                                          className="rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-xs text-white"
+                                          className="rounded-lg border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-3 py-2 text-xs text-[color:var(--text)]"
                                           placeholder="video_023"
                                         />
                                       </div>
                                       <div className="flex flex-col gap-1">
-                                        <label className="text-[10px] text-slate-500">utm_term (opcional)</label>
+                                        <label className="text-[10px] text-[color:var(--muted)]">utm_term (opcional)</label>
                                         <input
                                           value={builder.utmTerm}
                                           onChange={(e) => setBuilder((prev) => ({ ...prev, utmTerm: e.target.value }))}
-                                          className="rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-xs text-white"
+                                          className="rounded-lg border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-3 py-2 text-xs text-[color:var(--text)]"
                                           placeholder="vip"
                                         />
                                       </div>
                                     </div>
-                                    <div className="rounded-lg border border-slate-800 bg-slate-900/70 px-3 py-2 text-xs text-slate-200 break-all flex items-center gap-2">
+                                    <div className="rounded-lg border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-3 py-2 text-xs text-[color:var(--text)] break-all flex items-center gap-2">
                                       <LinkIconInline />
                                       <span>{linkPreview}</span>
                                     </div>
@@ -814,7 +818,7 @@ export default function CreatorAnalyticsPage() {
                                       <button
                                         type="button"
                                         onClick={() => handleCopy(linkPreview)}
-                                        className="inline-flex items-center gap-2 rounded-full border border-slate-700 px-3 py-1.5 text-xs text-slate-100 hover:border-emerald-500"
+                                        className="inline-flex items-center gap-2 rounded-full border border-[color:var(--surface-border)] px-3 py-1.5 text-xs text-[color:var(--text)] hover:border-[color:var(--brand)]"
                                       >
                                         <ClipboardCopyIconInline />
                                         Copiar link
@@ -825,7 +829,9 @@ export default function CreatorAnalyticsPage() {
                                         onClick={handleSaveLink}
                                         className={clsx(
                                           "inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-xs font-semibold",
-                                          builderValid ? "bg-emerald-600 text-white hover:bg-emerald-500" : "bg-slate-700 text-slate-300"
+                                          builderValid
+                                            ? "bg-[color:var(--brand-strong)] text-[color:var(--text)] hover:bg-[color:var(--brand)]"
+                                            : "bg-[color:var(--surface-2)] text-[color:var(--muted)]"
                                         )}
                                       >
                                         {savingLink ? "Guardando..." : "Guardar link"}
@@ -853,12 +859,12 @@ export default function CreatorAnalyticsPage() {
 
             <SectionCard title="Últimos links UTM" subtitle="Copiar y usar en tus campañas" bodyClassName="space-y-3">
               {data.latestLinks.length === 0 ? (
-                <div className="text-sm text-slate-400">Aún no hay links guardados.</div>
+                <div className="text-sm text-[color:var(--muted)]">Aún no hay links guardados.</div>
               ) : (
                 <div className="overflow-x-auto">
                   <table className="min-w-full text-[13px]">
                     <thead>
-                      <tr className="text-left text-[10px] uppercase tracking-[0.12em] text-slate-500 bg-[var(--surface-2)] border-b border-[color:var(--surface-border)]">
+                      <tr className="text-left text-[10px] uppercase tracking-[0.12em] text-[color:var(--muted)] bg-[var(--surface-2)] border-b border-[color:var(--surface-border)]">
                         <th className="px-3 py-2.5">Plataforma</th>
                         <th className="px-3 py-2.5">Campaña</th>
                         <th className="px-3 py-2.5">Contenido</th>
@@ -869,17 +875,17 @@ export default function CreatorAnalyticsPage() {
                     </thead>
                     <tbody>
                       {data.latestLinks.map((row) => (
-                        <tr key={row.id} className="border-b border-[color:var(--surface-border)] transition hover:bg-slate-900/40">
-                          <td className="px-3 py-2.5 text-white capitalize">{row.platform}</td>
-                          <td className="px-3 py-2.5 text-slate-200">{row.utmCampaign}</td>
-                          <td className="px-3 py-2.5 text-slate-200">{row.utmContent}</td>
-                          <td className="px-3 py-2.5 text-slate-200">{row.utmMedium}</td>
-                          <td className="px-3 py-2.5 text-slate-400">{row.utmTerm || "—"}</td>
+                        <tr key={row.id} className="border-b border-[color:var(--surface-border)] transition hover:bg-[color:var(--surface-2)]">
+                          <td className="px-3 py-2.5 text-[color:var(--text)] capitalize">{row.platform}</td>
+                          <td className="px-3 py-2.5 text-[color:var(--text)]">{row.utmCampaign}</td>
+                          <td className="px-3 py-2.5 text-[color:var(--text)]">{row.utmContent}</td>
+                          <td className="px-3 py-2.5 text-[color:var(--text)]">{row.utmMedium}</td>
+                          <td className="px-3 py-2.5 text-[color:var(--muted)]">{row.utmTerm || "—"}</td>
                           <td className="px-3 py-2.5">
                             <button
                               type="button"
                               onClick={() => handleCopy(buildLinkFromRow(row, handle))}
-                              className="inline-flex items-center gap-1 rounded-full border border-slate-700 px-3 py-1 text-xs text-slate-200 hover:border-emerald-500"
+                              className="inline-flex items-center gap-1 rounded-full border border-[color:var(--surface-border)] px-3 py-1 text-xs text-[color:var(--text)] hover:border-[color:var(--brand)]"
                             >
                               <ClipboardCopyIconInline />
                               Copiar
@@ -898,44 +904,44 @@ export default function CreatorAnalyticsPage() {
 
       {campaignModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-4">
-          <div className="w-full max-w-lg rounded-2xl border border-slate-800 bg-slate-900/90 p-5 shadow-xl space-y-4">
+          <div className="w-full max-w-lg rounded-2xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] p-5 shadow-xl space-y-4">
             <div className="flex items-center justify-between">
               <div>
-                <h2 className="text-lg font-semibold text-white">
+                <h2 className="text-lg font-semibold text-[color:var(--text)]">
                   {editingCampaignId ? "Editar campaña" : "Nueva campaña"}
                 </h2>
-                <p className="text-sm text-slate-400">Guarda el utm_campaign para comparar resultados.</p>
+                <p className="text-sm text-[color:var(--muted)]">Guarda el utm_campaign para comparar resultados.</p>
               </div>
-              <button className="text-sm text-slate-300 hover:text-white" onClick={() => setCampaignModalOpen(false)}>
+              <button className="text-sm text-[color:var(--muted)] hover:text-[color:var(--text)]" onClick={() => setCampaignModalOpen(false)}>
                 Cerrar
               </button>
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div className="flex flex-col gap-1 sm:col-span-2">
-                <label className="text-xs text-slate-400">Título *</label>
+                <label className="text-xs text-[color:var(--muted)]">Título *</label>
                 <input
                   value={campaignForm.title}
                   onChange={(e) => handleCampaignTitleChange(e.target.value)}
-                  className="rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-white"
+                  className="rounded-lg border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-3 py-2 text-sm text-[color:var(--text)]"
                   placeholder="Lanzamiento septiembre"
                 />
               </div>
               <div className="flex flex-col gap-1 sm:col-span-2">
-                <label className="text-xs text-slate-400">utm_campaign *</label>
+                <label className="text-xs text-[color:var(--muted)]">utm_campaign *</label>
                 <input
                   value={campaignForm.utmCampaign}
                   onChange={(e) => handleCampaignUtmChange(e.target.value)}
-                  className="rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-white"
+                  className="rounded-lg border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-3 py-2 text-sm text-[color:var(--text)]"
                   placeholder="lanzamiento_sep"
                 />
               </div>
               <div className="flex flex-col gap-1">
-                <label className="text-xs text-slate-400">Plataforma *</label>
+                <label className="text-xs text-[color:var(--muted)]">Plataforma *</label>
                 <select
                   value={campaignForm.platform}
                   onChange={(e) => setCampaignForm((prev) => ({ ...prev, platform: e.target.value }))}
-                  className="rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-white"
+                  className="rounded-lg border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-3 py-2 text-sm text-[color:var(--text)]"
                 >
                   {["tiktok", "instagram", "youtube", "x", "other"].map((p) => (
                     <option key={p} value={p}>
@@ -945,11 +951,11 @@ export default function CreatorAnalyticsPage() {
                 </select>
               </div>
               <div className="flex flex-col gap-1">
-                <label className="text-xs text-slate-400">Estado *</label>
+                <label className="text-xs text-[color:var(--muted)]">Estado *</label>
                 <select
                   value={campaignForm.status}
                   onChange={(e) => setCampaignForm((prev) => ({ ...prev, status: e.target.value }))}
-                  className="rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-white"
+                  className="rounded-lg border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-3 py-2 text-sm text-[color:var(--text)]"
                 >
                   {["draft", "active", "paused", "ended"].map((s) => (
                     <option key={s} value={s}>
@@ -959,27 +965,27 @@ export default function CreatorAnalyticsPage() {
                 </select>
               </div>
               <div className="flex flex-col gap-1 sm:col-span-2">
-                <label className="text-xs text-slate-400">Objetivo *</label>
+                <label className="text-xs text-[color:var(--muted)]">Objetivo *</label>
                 <input
                   value={campaignForm.objective}
                   onChange={(e) => setCampaignForm((prev) => ({ ...prev, objective: e.target.value }))}
-                  className="rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-white"
+                  className="rounded-lg border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-3 py-2 text-sm text-[color:var(--text)]"
                   placeholder="Llevar tráfico al CTA de chat"
                 />
               </div>
               <div className="flex flex-col gap-1 sm:col-span-2">
-                <label className="text-xs text-slate-400">Notas (opcional)</label>
+                <label className="text-xs text-[color:var(--muted)]">Notas (opcional)</label>
                 <textarea
                   value={campaignForm.notes}
                   onChange={(e) => setCampaignForm((prev) => ({ ...prev, notes: e.target.value }))}
-                  className="rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-white"
+                  className="rounded-lg border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-3 py-2 text-sm text-[color:var(--text)]"
                   placeholder="Notas internas para esta campaña"
                   rows={3}
                 />
               </div>
             </div>
 
-            {campaignFormError && <div className="text-sm text-rose-300">{campaignFormError}</div>}
+            {campaignFormError && <div className="text-sm text-[color:var(--danger)]">{campaignFormError}</div>}
 
             <div className="flex items-center justify-between gap-3">
               {editingCampaignId ? (
@@ -990,8 +996,8 @@ export default function CreatorAnalyticsPage() {
                   className={clsx(
                     "rounded-full border px-3 py-2 text-sm font-semibold",
                     campaignDeleting
-                      ? "border-slate-700 bg-slate-800/60 text-slate-400 cursor-not-allowed"
-                      : "border-rose-500/70 bg-rose-500/15 text-rose-100 hover:bg-rose-500/25"
+                      ? "border-[color:var(--surface-border)] bg-[color:var(--surface-2)] text-[color:var(--muted)] cursor-not-allowed"
+                      : "border-[color:var(--danger)] bg-[color:rgba(244,63,94,0.16)] text-[color:var(--danger)] hover:bg-[color:rgba(244,63,94,0.24)]"
                   )}
                 >
                   {campaignDeleting ? "Eliminando..." : "Eliminar"}
@@ -1003,7 +1009,7 @@ export default function CreatorAnalyticsPage() {
                 <button
                   type="button"
                   onClick={() => setCampaignModalOpen(false)}
-                  className="rounded-full border border-slate-700 px-3 py-2 text-sm font-semibold text-slate-100 hover:border-emerald-500"
+                  className="rounded-full border border-[color:var(--surface-border)] px-3 py-2 text-sm font-semibold text-[color:var(--text)] hover:border-[color:var(--brand)]"
                 >
                   Cancelar
                 </button>
@@ -1013,7 +1019,9 @@ export default function CreatorAnalyticsPage() {
                   onClick={handleSaveCampaign}
                   className={clsx(
                     "rounded-full px-3 py-2 text-sm font-semibold",
-                    campaignSaving ? "bg-slate-700 text-slate-300" : "bg-emerald-600 text-white hover:bg-emerald-500"
+                    campaignSaving
+                      ? "bg-[color:var(--surface-2)] text-[color:var(--muted)]"
+                      : "bg-[color:var(--brand-strong)] text-[color:var(--text)] hover:bg-[color:var(--brand)]"
                   )}
                 >
                   {campaignSaving ? "Guardando..." : "Guardar"}
@@ -1031,12 +1039,12 @@ function AggregatedTable({ title, subtitle, rows }: { title: string; subtitle: s
   return (
     <SectionCard title={title} subtitle={subtitle} bodyClassName="space-y-3">
       {rows.length === 0 ? (
-        <div className="text-sm text-slate-400">Aún no hay datos.</div>
+        <div className="text-sm text-[color:var(--muted)]">Aún no hay datos.</div>
       ) : (
         <div className="overflow-x-auto">
           <table className="min-w-full text-[13px]">
             <thead>
-              <tr className="text-left text-[10px] uppercase tracking-[0.12em] text-slate-500 bg-[var(--surface-2)] border-b border-[color:var(--surface-border)]">
+              <tr className="text-left text-[10px] uppercase tracking-[0.12em] text-[color:var(--muted)] bg-[var(--surface-2)] border-b border-[color:var(--surface-border)]">
                 {subtitle.includes("campaign") ? (
                   <>
                     <th className="px-3 py-2.5">Campaña</th>
@@ -1057,25 +1065,25 @@ function AggregatedTable({ title, subtitle, rows }: { title: string; subtitle: s
             </thead>
             <tbody>
               {rows.map((row) => (
-                <tr key={row.key} className="border-b border-[color:var(--surface-border)] transition hover:bg-slate-900/40">
+                <tr key={row.key} className="border-b border-[color:var(--surface-border)] transition hover:bg-[color:var(--surface-2)]">
                   {subtitle.includes("campaign") ? (
                     <>
-                      <td className="px-3 py-2.5 text-white">{row.utmCampaign}</td>
-                      <td className="px-3 py-2.5 text-slate-200">{row.utmSource}</td>
+                      <td className="px-3 py-2.5 text-[color:var(--text)]">{row.utmCampaign}</td>
+                      <td className="px-3 py-2.5 text-[color:var(--text)]">{row.utmSource}</td>
                     </>
                   ) : (
-                    <td className="px-3 py-2.5 text-white">{row.utmContent}</td>
+                    <td className="px-3 py-2.5 text-[color:var(--text)]">{row.utmContent}</td>
                   )}
-                  <td className="px-3 py-2.5 text-right text-emerald-200 font-semibold tabular-nums">{row.viewSessions}</td>
-                  <td className="px-3 py-2.5 text-right text-slate-200 tabular-nums">{row.ctaSessions}</td>
-                  <td className="px-3 py-2.5 text-right text-slate-200 tabular-nums">{row.openChatSessions}</td>
-                  <td className="px-3 py-2.5 text-right text-slate-200 tabular-nums">{row.sendMessageSessions}</td>
-                  <td className="px-3 py-2.5 text-right text-slate-200 tabular-nums">{row.fansNew}</td>
-                  <td className="px-3 py-2.5 text-right text-slate-200 tabular-nums">{row.purchaseSessions}</td>
-                  <td className="px-3 py-2.5 text-right text-slate-200 tabular-nums">
+                  <td className="px-3 py-2.5 text-right text-[color:var(--brand)] font-semibold tabular-nums">{row.viewSessions}</td>
+                  <td className="px-3 py-2.5 text-right text-[color:var(--text)] tabular-nums">{row.ctaSessions}</td>
+                  <td className="px-3 py-2.5 text-right text-[color:var(--text)] tabular-nums">{row.openChatSessions}</td>
+                  <td className="px-3 py-2.5 text-right text-[color:var(--text)] tabular-nums">{row.sendMessageSessions}</td>
+                  <td className="px-3 py-2.5 text-right text-[color:var(--text)] tabular-nums">{row.fansNew}</td>
+                  <td className="px-3 py-2.5 text-right text-[color:var(--text)] tabular-nums">{row.purchaseSessions}</td>
+                  <td className="px-3 py-2.5 text-right text-[color:var(--text)] tabular-nums">
                     {row.openChatSessions ? `${((row.sendMessageSessions / row.openChatSessions) * 100).toFixed(1)}%` : "—"}
                   </td>
-                  <td className="px-3 py-2.5 text-right text-slate-200 tabular-nums">
+                  <td className="px-3 py-2.5 text-right text-[color:var(--text)] tabular-nums">
                     {row.openChatSessions ? `${((row.purchaseSessions / row.openChatSessions) * 100).toFixed(1)}%` : "—"}
                   </td>
                 </tr>
@@ -1091,8 +1099,8 @@ function AggregatedTable({ title, subtitle, rows }: { title: string; subtitle: s
 function CampaignMetric({ label, value }: { label: string; value: number }) {
   return (
     <div className="rounded-xl border border-[color:var(--surface-border)] bg-[var(--surface-2)] p-3">
-      <div className="text-[10px] text-slate-500">{label}</div>
-      <div className="text-lg font-semibold text-slate-100 tracking-tight tabular-nums leading-tight">{value}</div>
+      <div className="text-[10px] text-[color:var(--muted)]">{label}</div>
+      <div className="text-lg font-semibold text-[color:var(--text)] tracking-tight tabular-nums leading-tight">{value}</div>
     </div>
   );
 }
@@ -1107,7 +1115,7 @@ function PlusIconInline() {
 
 function LinkIconInline() {
   return (
-    <svg className="h-4 w-4 text-emerald-400" viewBox="0 0 24 24" fill="currentColor">
+    <svg className="h-4 w-4 text-[color:var(--brand)]" viewBox="0 0 24 24" fill="currentColor">
       <path d="M10.59 13.41a1 1 0 0 0 1.41 0l3-3a3 3 0 0 0-4.24-4.24l-1.82 1.82a1 1 0 1 0 1.42 1.42l1.82-1.82a1 1 0 0 1 1.42 1.42l-3 3a1 1 0 0 0 0 1.4ZM13.41 10.59a1 1 0 0 0-1.41 0l-3 3a3 3 0 1 0 4.24 4.24l1.82-1.82a1 1 0 1 0-1.42-1.42l-1.82 1.82a1 1 0 0 1-1.42-1.42l3-3a1 1 0 0 0 0-1.4Z" />
     </svg>
   );
@@ -1190,8 +1198,9 @@ function formatStatusLabel(value: string): string {
 
 function statusBadgeClass(value: string): string {
   const key = normalizeStatusKey(value);
-  if (key === "active") return "border border-emerald-400/70 bg-emerald-500/15 text-emerald-100";
-  if (key === "paused") return "border border-amber-400/70 bg-amber-500/15 text-amber-100";
-  if (key === "ended") return "border border-slate-700 bg-slate-800/70 text-slate-300";
-  return "border border-slate-700 bg-slate-900/70 text-slate-200";
+  if (key === "active")
+    return "border border-[color:rgba(var(--brand-rgb),0.45)] bg-[color:rgba(var(--brand-rgb),0.16)] text-[color:var(--text)]";
+  if (key === "paused") return "border border-[color:rgba(245,158,11,0.7)] bg-[color:rgba(245,158,11,0.12)] text-[color:var(--text)]";
+  if (key === "ended") return "border border-[color:var(--surface-border)] bg-[color:var(--surface-2)]/70 text-[color:var(--muted)]";
+  return "border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] text-[color:var(--text)]";
 }

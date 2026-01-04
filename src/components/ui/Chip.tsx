@@ -33,10 +33,10 @@ const TONE_STYLES: Record<
   }
 > = {
   neutral: {
-    accent: "border-slate-600/60 bg-slate-800/45 text-slate-100",
-    accentHover: "hover:bg-slate-800/60 hover:border-slate-500/70",
-    subtle: "border-slate-700/30 bg-slate-900/10 text-slate-400/80",
-    subtleHover: "hover:bg-slate-800/20 hover:border-slate-600/40",
+    accent: "border-[color:var(--surface-border)] bg-[color:var(--surface-2)] text-[color:var(--text)]",
+    accentHover: "hover:bg-[color:var(--surface-1)] hover:border-[color:var(--surface-border-hover)]",
+    subtle: "border-[color:var(--surface-border)] bg-[color:var(--surface-1)] text-[color:var(--muted)]",
+    subtleHover: "hover:bg-[color:var(--surface-2)] hover:border-[color:var(--surface-border-hover)]",
     ring: focusRing,
   },
   emerald: {
@@ -50,31 +50,42 @@ const TONE_STYLES: Record<
     ring: focusRingEmerald,
   },
   amber: {
-    accent: "border-amber-400/60 bg-amber-500/18 text-amber-100",
-    accentHover: "hover:bg-amber-500/25 hover:border-amber-300/70",
-    subtle: "border-amber-400/25 bg-amber-500/8 text-amber-200/75",
-    subtleHover: "hover:bg-amber-500/14 hover:border-amber-300/45",
+    accent:
+      "border-[color:rgba(245,158,11,0.6)] bg-[color:rgba(245,158,11,0.18)] text-[color:var(--text)]",
+    accentHover:
+      "hover:bg-[color:rgba(245,158,11,0.26)] hover:border-[color:rgba(245,158,11,0.75)]",
+    subtle:
+      "border-[color:rgba(245,158,11,0.3)] bg-[color:rgba(245,158,11,0.08)] text-[color:var(--warning)]",
+    subtleHover:
+      "hover:bg-[color:rgba(245,158,11,0.14)] hover:border-[color:rgba(245,158,11,0.45)]",
     ring: focusRingAmber,
   },
   danger: {
-    accent: "border-rose-400/60 bg-rose-500/18 text-rose-100",
-    accentHover: "hover:bg-rose-500/25 hover:border-rose-300/70",
-    subtle: "border-rose-400/25 bg-rose-500/8 text-rose-200/75",
-    subtleHover: "hover:bg-rose-500/14 hover:border-rose-300/45",
+    accent:
+      "border-[color:rgba(244,63,94,0.6)] bg-[color:rgba(244,63,94,0.18)] text-[color:var(--text)]",
+    accentHover:
+      "hover:bg-[color:rgba(244,63,94,0.26)] hover:border-[color:rgba(244,63,94,0.75)]",
+    subtle:
+      "border-[color:rgba(244,63,94,0.3)] bg-[color:rgba(244,63,94,0.08)] text-[color:var(--danger)]",
+    subtleHover:
+      "hover:bg-[color:rgba(244,63,94,0.14)] hover:border-[color:rgba(244,63,94,0.45)]",
     ring: focusRing,
   },
   sky: {
-    accent: "border-sky-400/60 bg-sky-500/18 text-sky-100",
-    accentHover: "hover:bg-sky-500/25 hover:border-sky-300/70",
-    subtle: "border-sky-400/25 bg-sky-500/8 text-sky-200/75",
-    subtleHover: "hover:bg-sky-500/14 hover:border-sky-300/45",
-    ring: focusRing,
+    accent: "border-[color:var(--brand)] bg-[color:rgba(var(--brand-rgb),0.18)] text-[color:var(--text)]",
+    accentHover:
+      "hover:bg-[color:rgba(var(--brand-rgb),0.24)] hover:border-[color:var(--brand-strong)]",
+    subtle:
+      "border-[color:rgba(var(--brand-rgb),0.22)] bg-[color:rgba(var(--brand-rgb),0.08)] text-[color:rgba(var(--brand-rgb),0.85)]",
+    subtleHover:
+      "hover:bg-[color:rgba(var(--brand-rgb),0.12)] hover:border-[color:rgba(var(--brand-rgb),0.4)]",
+    ring: focusRingEmerald,
   },
 };
 
 const MUTED_STYLES = {
-  base: "border-slate-700/30 bg-slate-900/20 text-slate-400/70",
-  hover: "hover:bg-slate-900/30 hover:border-slate-600/40",
+  base: "border-[color:var(--surface-border)] bg-[color:var(--surface-2)] text-[color:var(--muted)]",
+  hover: "hover:bg-[color:var(--surface-1)] hover:border-[color:var(--surface-border-hover)]",
 };
 
 export function Chip({
@@ -163,7 +174,8 @@ export function Chip({
         microInteractionSoft,
         ringClass,
         interactiveClass,
-        disabled && "cursor-not-allowed opacity-60 hover:border-slate-700/60 hover:bg-slate-900/40"
+        disabled &&
+          "cursor-not-allowed opacity-60 hover:border-[color:var(--surface-border)] hover:bg-[color:var(--surface-2)]"
       )}
     >
       {content}

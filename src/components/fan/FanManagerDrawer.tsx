@@ -127,14 +127,14 @@ export default function FanManagerDrawer({
     clsx(
       "inline-flex items-center rounded-full border px-3 py-0.5 text-xs md:text-sm font-medium",
       tone === "danger"
-        ? "border-rose-400/70 bg-rose-500/10 text-rose-100"
+        ? "border-[color:rgba(244,63,94,0.7)] bg-[color:rgba(244,63,94,0.08)] text-[color:var(--text)]"
         : tone === "warning"
-        ? "border-amber-400/70 bg-amber-500/10 text-amber-100"
+        ? "border-[color:rgba(245,158,11,0.7)] bg-[color:rgba(245,158,11,0.08)] text-[color:var(--text)]"
         : tone === "success"
         ? "border-[color:var(--brand)] bg-[color:var(--brand-weak)] text-[color:var(--text)]"
         : tone === "info"
-        ? "border-sky-400/70 bg-sky-500/10 text-sky-100"
-        : "border-slate-700 bg-slate-900/60 text-slate-100"
+        ? "border-[color:var(--brand)] bg-[color:rgba(var(--brand-rgb),0.12)] text-[color:var(--text)]"
+        : "border-[color:var(--surface-border)] bg-[color:var(--surface-2)] text-[color:var(--text)]"
     );
   const isCriticalExpiry = typeof daysLeft === "number" && daysLeft <= 0;
   const suggestedObjectiveLabel =
@@ -174,11 +174,11 @@ export default function FanManagerDrawer({
   const giftsLabel = formatCount(monetizationData?.gifts?.count ?? null);
 
   return (
-    <div className="rounded-2xl border border-slate-800 bg-slate-950/80 px-4 py-3 md:px-6 md:py-4 text-[11px] text-slate-100 space-y-2">
+    <div className="rounded-2xl border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-4 py-3 md:px-6 md:py-4 text-[11px] text-[color:var(--text)] space-y-2">
       <div className="flex flex-col gap-2">
         <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
           <div className="flex-1 min-w-0 space-y-1.5">
-            <div className="text-sm md:text-base font-semibold text-slate-100">Manager IA</div>
+            <div className="text-sm md:text-base font-semibold text-[color:var(--text)]">Manager IA</div>
             {stateChips.length > 0 && (
               <div className="flex flex-wrap items-center gap-2">
                 {stateChips.map((chip, idx) => (
@@ -190,15 +190,15 @@ export default function FanManagerDrawer({
             )}
             {tone && onChangeTone && (
               <div className="flex flex-wrap items-center gap-2">
-                <span className="text-[11px] text-slate-400">Tono</span>
+                <span className="text-[11px] text-[color:var(--muted)]">Tono</span>
                 <button
                   type="button"
                   onClick={() => onChangeTone("suave")}
                   className={clsx(
                     "rounded-full px-3 py-1 text-[11px] border transition",
                     tone === "suave"
-                      ? "bg-[color:var(--brand-strong)] text-white border-[color:var(--brand)]"
-                      : "bg-slate-800/90 text-slate-200 border-slate-600 hover:border-[color:var(--brand)]"
+                      ? "bg-[color:var(--brand-strong)] text-[color:var(--text)] border-[color:var(--brand)]"
+                      : "bg-[color:var(--surface-2)] text-[color:var(--text)] border-[color:var(--surface-border)] hover:border-[color:var(--brand)]"
                   )}
                 >
                   Suave
@@ -209,8 +209,8 @@ export default function FanManagerDrawer({
                   className={clsx(
                     "rounded-full px-3 py-1 text-[11px] border transition",
                     tone === "intimo"
-                      ? "bg-[color:var(--brand-strong)] text-white border-[color:var(--brand)]"
-                      : "bg-slate-800/90 text-slate-200 border-slate-600 hover:border-[color:var(--brand)]"
+                      ? "bg-[color:var(--brand-strong)] text-[color:var(--text)] border-[color:var(--brand)]"
+                      : "bg-[color:var(--surface-2)] text-[color:var(--text)] border-[color:var(--surface-border)] hover:border-[color:var(--brand)]"
                   )}
                 >
                   Íntimo
@@ -221,22 +221,22 @@ export default function FanManagerDrawer({
                   className={clsx(
                     "rounded-full px-3 py-1 text-[11px] border transition",
                     tone === "picante"
-                      ? "bg-[color:var(--brand-strong)] text-white border-[color:var(--brand)]"
-                      : "bg-slate-800/90 text-slate-200 border-slate-600 hover:border-[color:var(--brand)]"
+                      ? "bg-[color:var(--brand-strong)] text-[color:var(--text)] border-[color:var(--brand)]"
+                      : "bg-[color:var(--surface-2)] text-[color:var(--text)] border-[color:var(--surface-border)] hover:border-[color:var(--brand)]"
                   )}
                 >
                   Picante
                 </button>
               </div>
             )}
-            <div className="text-xs md:text-sm leading-relaxed text-slate-300">{managerHeadlineText}</div>
-            <div className="text-[11px] md:text-xs text-slate-400">Tú decides qué se envía.</div>
+            <div className="text-xs md:text-sm leading-relaxed text-[color:var(--muted)]">{managerHeadlineText}</div>
+            <div className="text-[11px] md:text-xs text-[color:var(--muted)]">Tú decides qué se envía.</div>
             {suggestedObjectiveLabel && (
               <div className="text-[11px] md:text-xs text-[color:var(--brand)]">
                 Objetivo sugerido: {suggestedObjectiveLabel}
               </div>
             )}
-            {summaryLine && <div className="text-[11px] md:text-xs text-slate-300 truncate">{summaryLine}</div>}
+            {summaryLine && <div className="text-[11px] md:text-xs text-[color:var(--muted)] truncate">{summaryLine}</div>}
           </div>
           <div className="flex flex-col items-end gap-2 w-full md:w-[280px] shrink-0">
             {onToggleAutoPilot && (
@@ -249,7 +249,7 @@ export default function FanManagerDrawer({
                     "inline-flex items-center gap-1 rounded-full border px-3 py-1.5 text-[11px] font-semibold transition",
                     autoPilotEnabled
                       ? "border-[color:var(--brand)] bg-[color:rgba(var(--brand-rgb),0.18)] text-[color:var(--text)]"
-                      : "border-slate-600 bg-slate-800/80 text-slate-100 hover:border-[color:var(--brand)] hover:text-[color:var(--text)]",
+                      : "border-[color:var(--surface-border)] bg-[color:var(--surface-2)] text-[color:var(--text)] hover:border-[color:var(--brand)] hover:text-[color:var(--text)]",
                     managerDisabled && "opacity-60 cursor-not-allowed"
                   )}
                   title="Genera borradores sugeridos según el estado del fan."
@@ -258,8 +258,8 @@ export default function FanManagerDrawer({
                   <span>Auto-sugerir (solo borradores)</span>
                 </button>
                 <div className="flex w-full flex-col items-end gap-1 text-[10px] leading-snug min-h-[32px]">
-                  <div className="text-slate-400">Nunca envía nada automáticamente. Tú decides qué se envía.</div>
-                  <div className={clsx(autoPilotEnabled ? "text-[color:var(--brand)]" : "text-slate-400")}>
+                  <div className="text-[color:var(--muted)]">Nunca envía nada automáticamente. Tú decides qué se envía.</div>
+                  <div className={clsx(autoPilotEnabled ? "text-[color:var(--brand)]" : "text-[color:var(--muted)]")}>
                     {autoPilotEnabled
                       ? "ON · Genera borradores sugeridos según el estado del fan (riesgo, caducidad, silencio…)."
                       : "OFF · No genera sugerencias por su cuenta."}
@@ -269,7 +269,7 @@ export default function FanManagerDrawer({
             )}
             <div
               className={clsx(
-                "flex w-full flex-col items-end gap-1 text-[11px] text-slate-300 min-h-[64px]",
+                "flex w-full flex-col items-end gap-1 text-[11px] text-[color:var(--muted)] min-h-[64px]",
                 showAutopilotAdjust ? "visible" : "invisible"
               )}
               aria-hidden={!showAutopilotAdjust}
@@ -282,7 +282,7 @@ export default function FanManagerDrawer({
                   onClick={onAutopilotSoften}
                   className={clsx(
                     "rounded-full border px-3 py-1 transition",
-                    "border-slate-600 bg-slate-800/80 text-slate-100 hover:border-[color:var(--brand)] hover:text-[color:var(--text)]",
+                    "border-[color:var(--surface-border)] bg-[color:var(--surface-2)] text-[color:var(--text)] hover:border-[color:var(--brand)] hover:text-[color:var(--text)]",
                     (isAutoPilotLoading || managerDisabled || !showAutopilotAdjust) && "opacity-60 cursor-not-allowed"
                   )}
                 >
@@ -294,7 +294,7 @@ export default function FanManagerDrawer({
                   onClick={onAutopilotMakeBolder}
                   className={clsx(
                     "rounded-full border px-3 py-1 transition",
-                    "border-slate-600 bg-slate-800/80 text-slate-100 hover:border-[color:var(--brand)] hover:text-[color:var(--text)]",
+                    "border-[color:var(--surface-border)] bg-[color:var(--surface-2)] text-[color:var(--text)] hover:border-[color:var(--brand)] hover:text-[color:var(--text)]",
                     (isAutoPilotLoading || managerDisabled || !showAutopilotAdjust) && "opacity-60 cursor-not-allowed"
                   )}
                 >
@@ -305,7 +305,7 @@ export default function FanManagerDrawer({
             <button
               type="button"
               onClick={() => setShowMore((prev) => !prev)}
-              className="self-start inline-flex items-center gap-1.5 rounded-full border border-slate-700 bg-slate-800/80 px-3 py-1.5 text-[11px] font-semibold text-slate-100 hover:bg-slate-700"
+              className="self-start inline-flex items-center gap-1.5 rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-3 py-1.5 text-[11px] font-semibold text-[color:var(--text)] hover:bg-[color:var(--surface-1)]"
               aria-expanded={showMore}
               >
                 <span>{showMore ? "Ocultar" : "Opciones"}</span>
@@ -320,7 +320,7 @@ export default function FanManagerDrawer({
           </div>
         </div>
         {managerDisabled && (
-          <div className="rounded-lg border border-amber-400/50 bg-amber-500/10 px-3 py-2 text-[11px] text-amber-100">
+          <div className="rounded-lg border border-[color:var(--warning)]/50 bg-[color:rgba(245,158,11,0.08)] px-3 py-2 text-[11px] text-[color:var(--text)]">
             Manager IA está desactivado en este chat bloqueado.
           </div>
         )}
@@ -336,7 +336,7 @@ export default function FanManagerDrawer({
               type="button"
               className={clsx(
                 "inline-flex items-center justify-center whitespace-nowrap rounded-full border px-6 py-2 text-sm font-semibold transition",
-                "border-sky-400 bg-sky-500/20 text-sky-100 hover:bg-sky-500/30",
+                "border-[color:var(--brand)] bg-[color:rgba(var(--brand-rgb),0.18)] text-[color:var(--text)] hover:bg-[color:rgba(var(--brand-rgb),0.25)]",
                 objectivesLocked && "opacity-60 cursor-not-allowed"
               )}
               onClick={() => {
@@ -355,7 +355,7 @@ export default function FanManagerDrawer({
               "inline-flex items-center justify-center whitespace-nowrap rounded-full border px-6 py-2 text-sm font-medium transition",
               isObjectiveActive("bienvenida") || isObjectiveActive("romper_hielo") || isRecommended("saludo_rapido")
                 ? "border-[color:var(--brand)] bg-[color:rgba(var(--brand-rgb),0.18)] text-[color:var(--text)]"
-                : "border-slate-600 bg-slate-800/70 text-slate-100 hover:border-[color:var(--brand)] hover:text-[color:var(--text)]",
+                : "border-[color:var(--surface-border)] bg-[color:var(--surface-2)] text-[color:var(--text)] hover:border-[color:var(--brand)] hover:text-[color:var(--text)]",
               objectivesLocked && "opacity-60 cursor-not-allowed"
             )}
             onClick={() => {
@@ -374,7 +374,7 @@ export default function FanManagerDrawer({
               "inline-flex items-center justify-center whitespace-nowrap rounded-full border px-6 py-2 text-sm font-medium transition",
               isObjectiveActive("reactivar_fan_frio") || isRecommended("renenganche")
                   ? "border-[color:var(--brand)] bg-[color:rgba(var(--brand-rgb),0.18)] text-[color:var(--text)]"
-                  : "border-slate-600 bg-slate-800/70 text-slate-100 hover:border-[color:var(--brand)] hover:text-[color:var(--text)]",
+                  : "border-[color:var(--surface-border)] bg-[color:var(--surface-2)] text-[color:var(--text)] hover:border-[color:var(--brand)] hover:text-[color:var(--text)]",
                 objectivesLocked && "opacity-60 cursor-not-allowed"
               )}
               onClick={() => {
@@ -393,7 +393,7 @@ export default function FanManagerDrawer({
                 "inline-flex items-center justify-center whitespace-nowrap rounded-full border px-6 py-2 text-sm font-medium transition",
                 isObjectiveActive("ofrecer_extra") || isRecommended("extra_rapido")
                   ? "border-[color:var(--brand)] bg-[color:rgba(var(--brand-rgb),0.18)] text-[color:var(--text)]"
-                  : "border-slate-600 bg-slate-800/70 text-slate-100 hover:border-[color:var(--brand)] hover:text-[color:var(--text)]",
+                  : "border-[color:var(--surface-border)] bg-[color:var(--surface-2)] text-[color:var(--text)] hover:border-[color:var(--brand)] hover:text-[color:var(--text)]",
               quickExtraDisabled || objectivesLocked ? "opacity-60 cursor-not-allowed" : ""
             )}
             onClick={() => {
@@ -411,7 +411,7 @@ export default function FanManagerDrawer({
                 "inline-flex items-center justify-center whitespace-nowrap rounded-full border px-6 py-2 text-sm font-medium transition",
                 isObjectiveActive("llevar_a_mensual") || isObjectiveActive("renovacion") || isRecommended("elegir_pack")
                   ? "border-[color:var(--brand)] bg-[color:rgba(var(--brand-rgb),0.18)] text-[color:var(--text)]"
-                  : "border-slate-600 bg-slate-800/70 text-slate-100 hover:border-[color:var(--brand)] hover:text-[color:var(--text)]",
+                  : "border-[color:var(--surface-border)] bg-[color:var(--surface-2)] text-[color:var(--text)] hover:border-[color:var(--brand)] hover:text-[color:var(--text)]",
               objectivesLocked && "opacity-60 cursor-not-allowed"
               )}
             onClick={() => {
@@ -434,10 +434,10 @@ export default function FanManagerDrawer({
             {draftCards.map((draft) => (
               <div
                 key={draft.id}
-                className="rounded-xl border border-slate-800/70 bg-slate-900/70 px-3 py-2 space-y-2"
+                className="rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-3 py-2 space-y-2"
               >
-                <div className="text-[10px] uppercase tracking-wide text-slate-400">{draft.label}</div>
-                <div className="text-[12px] text-slate-100">{draft.text}</div>
+                <div className="text-[10px] uppercase tracking-wide text-[color:var(--muted)]">{draft.label}</div>
+                <div className="text-[12px] text-[color:var(--text)]">{draft.text}</div>
                 <div className="flex flex-wrap items-center gap-2">
                   <button
                     type="button"
@@ -449,28 +449,28 @@ export default function FanManagerDrawer({
                   <button
                     type="button"
                     onClick={() => onDraftAction?.(draft.id, "alternate")}
-                    className="inline-flex items-center rounded-full border border-slate-700/70 bg-slate-900/40 px-2.5 py-1 text-[10px] font-semibold text-slate-200 hover:border-slate-500/70"
+                    className="inline-flex items-center rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-2.5 py-1 text-[10px] font-semibold text-[color:var(--text)] hover:border-[color:var(--surface-border-hover)]"
                   >
                     Otra versión
                   </button>
                   <button
                     type="button"
                     onClick={() => onDraftAction?.(draft.id, "shorter")}
-                    className="inline-flex items-center rounded-full border border-slate-700/70 bg-slate-900/40 px-2.5 py-1 text-[10px] font-semibold text-slate-200 hover:border-slate-500/70"
+                    className="inline-flex items-center rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-2.5 py-1 text-[10px] font-semibold text-[color:var(--text)] hover:border-[color:var(--surface-border-hover)]"
                   >
                     Más corta
                   </button>
                   <button
                     type="button"
                     onClick={() => onDraftAction?.(draft.id, "softer")}
-                    className="inline-flex items-center rounded-full border border-slate-700/70 bg-slate-900/40 px-2.5 py-1 text-[10px] font-semibold text-slate-200 hover:border-slate-500/70"
+                    className="inline-flex items-center rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-2.5 py-1 text-[10px] font-semibold text-[color:var(--text)] hover:border-[color:var(--surface-border-hover)]"
                   >
                     Suavizar
                   </button>
                   <button
                     type="button"
                     onClick={() => onDraftAction?.(draft.id, "bolder")}
-                    className="inline-flex items-center rounded-full border border-slate-700/70 bg-slate-900/40 px-2.5 py-1 text-[10px] font-semibold text-slate-200 hover:border-slate-500/70"
+                    className="inline-flex items-center rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-2.5 py-1 text-[10px] font-semibold text-[color:var(--text)] hover:border-[color:var(--surface-border-hover)]"
                   >
                     Más directo
                   </button>
@@ -489,12 +489,12 @@ export default function FanManagerDrawer({
             {managerSuggestions.slice(0, 3).map((suggestion) => (
               <div
                 key={suggestion.id}
-                className="rounded-xl border border-slate-800/70 bg-slate-900/70 px-3 py-2 space-y-2"
+                className="rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-3 py-2 space-y-2"
               >
-                <div className="text-[10px] uppercase tracking-wide text-slate-400">
+                <div className="text-[10px] uppercase tracking-wide text-[color:var(--muted)]">
                   {suggestion.label}
                 </div>
-                <div className="text-[12px] text-slate-100">{suggestion.message}</div>
+                <div className="text-[12px] text-[color:var(--text)]">{suggestion.message}</div>
                 <div className="flex flex-wrap items-center gap-2">
                 <button
                   type="button"
@@ -506,14 +506,14 @@ export default function FanManagerDrawer({
                   <button
                     type="button"
                     onClick={() => onRequestSuggestionAlt?.(suggestion.message)}
-                    className="inline-flex items-center rounded-full border border-slate-700/70 bg-slate-900/40 px-2.5 py-1 text-[10px] font-semibold text-slate-200 hover:border-slate-500/70"
+                    className="inline-flex items-center rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-2.5 py-1 text-[10px] font-semibold text-[color:var(--text)] hover:border-[color:var(--surface-border-hover)]"
                   >
                     Otra versión
                   </button>
                   <button
                     type="button"
                     onClick={() => onRequestSuggestionShorter?.(suggestion.message)}
-                    className="inline-flex items-center rounded-full border border-slate-700/70 bg-slate-900/40 px-2.5 py-1 text-[10px] font-semibold text-slate-200 hover:border-slate-500/70"
+                    className="inline-flex items-center rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-2.5 py-1 text-[10px] font-semibold text-[color:var(--text)] hover:border-[color:var(--surface-border-hover)]"
                   >
                     Más corta
                   </button>
@@ -532,54 +532,54 @@ export default function FanManagerDrawer({
       >
         <div
           className={clsx(
-            "space-y-3 text-[11px] text-slate-200",
-            showMore ? "border-t border-slate-800 pt-3" : "pt-0"
+            "space-y-3 text-[11px] text-[color:var(--text)]",
+            showMore ? "border-t border-[color:var(--surface-border)] pt-3" : "pt-0"
           )}
         >
           {(statusLine || sessionSummary || iaSummary) && (
-            <div className="flex flex-col gap-1 text-sm md:text-base text-slate-200">
-              {statusLine && <div className="font-semibold text-slate-100">{statusLine}</div>}
-              {sessionSummary && <div className="text-slate-200">{sessionSummary}</div>}
-              {iaSummary && <div className="text-slate-200">{iaSummary}</div>}
+            <div className="flex flex-col gap-1 text-sm md:text-base text-[color:var(--text)]">
+              {statusLine && <div className="font-semibold text-[color:var(--text)]">{statusLine}</div>}
+              {sessionSummary && <div className="text-[color:var(--text)]">{sessionSummary}</div>}
+              {iaSummary && <div className="text-[color:var(--text)]">{iaSummary}</div>}
             </div>
           )}
           {suggestedObjectiveLabel && (
-            <div className="text-xs md:text-sm text-slate-300">
-              Objetivo actual del Manager: <span className="text-slate-100">{suggestedObjectiveLabel}</span>
+            <div className="text-xs md:text-sm text-[color:var(--muted)]">
+              Objetivo actual del Manager: <span className="text-[color:var(--text)]">{suggestedObjectiveLabel}</span>
             </div>
           )}
           {toneLabel && (
-            <div className="text-xs md:text-sm text-slate-300">
-              Tono IA actual: <span className="text-slate-100">{toneLabel}</span>
+            <div className="text-xs md:text-sm text-[color:var(--muted)]">
+              Tono IA actual: <span className="text-[color:var(--text)]">{toneLabel}</span>
             </div>
           )}
           {planSummaryText && (
-            <div className="mt-5 border-t border-slate-800 pt-4">
-              <p className="text-xs md:text-sm font-semibold text-slate-400 uppercase tracking-wide mb-1.5">
+            <div className="mt-5 border-t border-[color:var(--surface-border)] pt-4">
+              <p className="text-xs md:text-sm font-semibold text-[color:var(--muted)] uppercase tracking-wide mb-1.5">
                 Plan de hoy
               </p>
-              <p className="text-sm md:text-base text-slate-100 leading-relaxed max-w-3xl">
+              <p className="text-sm md:text-base text-[color:var(--text)] leading-relaxed max-w-3xl">
                 {planSummaryText}
               </p>
             </div>
           )}
-          <div className="mt-5 border-t border-slate-800 pt-4">
-            <p className="text-xs md:text-sm font-semibold text-slate-400 uppercase tracking-wide mb-1.5">
+          <div className="mt-5 border-t border-[color:var(--surface-border)] pt-4">
+            <p className="text-xs md:text-sm font-semibold text-[color:var(--muted)] uppercase tracking-wide mb-1.5">
               Historial del fan
             </p>
-            <div className="space-y-1 text-xs md:text-sm text-slate-300">
+            <div className="space-y-1 text-xs md:text-sm text-[color:var(--muted)]">
               <div>
-                Nivel: <span className="text-slate-100">{tierLabel}</span>
-                {priceLabel ? <span className="text-slate-400"> ({priceLabel})</span> : null} ·{" "}
-                <span className="text-slate-100">{daysLeftLabel}</span>
+                Nivel: <span className="text-[color:var(--text)]">{tierLabel}</span>
+                {priceLabel ? <span className="text-[color:var(--muted)]"> ({priceLabel})</span> : null} ·{" "}
+                <span className="text-[color:var(--text)]">{daysLeftLabel}</span>
               </div>
               <div>
-                Total gastado: <span className="text-slate-100">{lifetimeTotalLabel}</span>
+                Total gastado: <span className="text-[color:var(--text)]">{lifetimeTotalLabel}</span>
               </div>
               <div>
-                Extras: <span className="text-slate-100">{extrasLabel}</span> · Propinas:{" "}
-                <span className="text-slate-100">{tipsLabel}</span> · Regalos:{" "}
-                <span className="text-slate-100">{giftsLabel}</span>
+                Extras: <span className="text-[color:var(--text)]">{extrasLabel}</span> · Propinas:{" "}
+                <span className="text-[color:var(--text)]">{tipsLabel}</span> · Regalos:{" "}
+                <span className="text-[color:var(--text)]">{giftsLabel}</span>
               </div>
             </div>
           </div>

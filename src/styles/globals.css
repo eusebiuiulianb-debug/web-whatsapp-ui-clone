@@ -25,6 +25,7 @@ body {
   --surface-0: #0a1014;
   --surface-1: rgba(17, 27, 33, 0.92);
   --surface-2: rgba(12, 18, 22, 0.75);
+  --surface-overlay: rgba(8, 12, 16, 0.72);
   --border: rgba(148, 163, 184, 0.14);
   --border-a: rgba(148, 163, 184, 0.22);
   --ring: rgba(148, 163, 184, 0.22);

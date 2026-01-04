@@ -62,11 +62,11 @@ export function StoryViewerModal({ open, recommendation, onClose }: StoryViewerM
           title: "Encaje",
           body: (
             <div className="space-y-3">
-              <p className="text-slate-300">Coincidencias principales:</p>
+              <p className="text-[color:var(--muted)]">Coincidencias principales:</p>
               <ul className="space-y-2">
                 {recommendation.reasons.slice(0, 3).map((reason, idx) => (
-                  <li key={`reason-${idx}`} className="flex gap-2 text-sm text-slate-100">
-                    <span className="text-emerald-300">•</span>
+                  <li key={`reason-${idx}`} className="flex gap-2 text-sm text-[color:var(--text)]">
+                    <span className="text-[color:var(--brand)]">•</span>
                     <span>{reason}</span>
                   </li>
                 ))}
@@ -78,16 +78,16 @@ export function StoryViewerModal({ open, recommendation, onClose }: StoryViewerM
         return {
           title: "Precio y respuesta",
           body: (
-            <div className="space-y-3 text-sm text-slate-200">
-              <div className="flex items-center justify-between rounded-xl border border-slate-800 bg-slate-900/60 p-3">
-                <span className="text-slate-400">Precio</span>
-                <span className="font-semibold text-emerald-200">
+            <div className="space-y-3 text-sm text-[color:var(--text)]">
+              <div className="flex items-center justify-between rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] p-3">
+                <span className="text-[color:var(--muted)]">Precio</span>
+                <span className="font-semibold text-[color:var(--brand)]">
                   {recommendation.priceRange || "Rango privado"}
                 </span>
               </div>
-              <div className="flex items-center justify-between rounded-xl border border-slate-800 bg-slate-900/60 p-3">
-                <span className="text-slate-400">Tiempo de respuesta</span>
-                <span className="font-semibold text-sky-200">
+              <div className="flex items-center justify-between rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] p-3">
+                <span className="text-[color:var(--muted)]">Tiempo de respuesta</span>
+                <span className="font-semibold text-[color:var(--brand)]">
                   {recommendation.responseHours ? `~${recommendation.responseHours}h` : "Estándar"}
                 </span>
               </div>
@@ -99,21 +99,21 @@ export function StoryViewerModal({ open, recommendation, onClose }: StoryViewerM
         return {
           title: "Privacidad y límites",
           body: (
-            <div className="space-y-3 text-sm text-slate-200">
+            <div className="space-y-3 text-sm text-[color:var(--text)]">
               {recommendation.country ? (
-                <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-3">
-                  <div className="text-slate-400">Ubicación aproximada</div>
-                  <div className="font-semibold text-slate-100">
+                <div className="rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] p-3">
+                  <div className="text-[color:var(--muted)]">Ubicación aproximada</div>
+                  <div className="font-semibold text-[color:var(--text)]">
                     {recommendation.country}
                     {recommendation.cityApprox ? ` · ${recommendation.cityApprox}` : ""}
                   </div>
                 </div>
               ) : (
-                <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-3 text-slate-400">
+                <div className="rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] p-3 text-[color:var(--muted)]">
                   No comparte ubicación. Respeta tus preferencias de privacidad.
                 </div>
               )}
-              <p className="text-slate-400 text-xs">
+              <p className="text-[color:var(--muted)] text-xs">
                 El creador controla qué datos se muestran y cómo se usan. Tú decides si seguir adelante.
               </p>
             </div>
@@ -131,18 +131,18 @@ export function StoryViewerModal({ open, recommendation, onClose }: StoryViewerM
       aria-modal="true"
       aria-label={`Detalles de ${recommendation.displayName}`}
     >
-      <div className="relative w-full max-w-3xl rounded-2xl border border-slate-800 bg-slate-900/90 shadow-2xl shadow-black/40 overflow-hidden">
+      <div className="relative w-full max-w-3xl rounded-2xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] shadow-2xl shadow-black/40 overflow-hidden">
         <button
           type="button"
           aria-label="Cerrar"
-          className="absolute top-3 right-3 rounded-full border border-slate-700 bg-slate-800/80 px-3 py-1 text-xs text-slate-200 hover:border-emerald-500/60"
+          className="absolute top-3 right-3 rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-3 py-1 text-xs text-[color:var(--text)] hover:border-[color:var(--brand)]/60"
           onClick={onClose}
         >
           Esc
         </button>
         <div className="flex flex-col md:flex-row gap-6 p-6">
           <div className="flex flex-col items-center gap-3 md:w-1/3">
-            <div className="h-20 w-20 rounded-full overflow-hidden border border-emerald-500/50 bg-emerald-700/30 flex items-center justify-center text-xl font-semibold">
+            <div className="h-20 w-20 rounded-full overflow-hidden border border-[color:rgba(var(--brand-rgb),0.5)] bg-[color:rgba(var(--brand-rgb),0.2)] flex items-center justify-center text-xl font-semibold">
               {recommendation.avatarUrl ? (
                 // eslint-disable-next-line @next/next/no-img-element
                 <img src={recommendation.avatarUrl} alt={recommendation.displayName} className="h-full w-full object-cover" />
@@ -152,16 +152,16 @@ export function StoryViewerModal({ open, recommendation, onClose }: StoryViewerM
             </div>
             <div className="text-center">
               <div className="text-lg font-semibold">{recommendation.displayName}</div>
-              <div className="text-xs text-slate-400">{recommendation.priceRange || "Rango privado"}</div>
+              <div className="text-xs text-[color:var(--muted)]">{recommendation.priceRange || "Rango privado"}</div>
             </div>
             <div className="flex items-center gap-2">
               <Link href={`/link/${recommendation.handle}`} passHref>
-                <a className="rounded-full border border-slate-700 bg-slate-800/80 px-3 py-1 text-sm font-semibold text-slate-100 hover:border-emerald-500/60">
+                <a className="rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-3 py-1 text-sm font-semibold text-[color:var(--text)] hover:border-[color:var(--brand)]/60">
                   Ver perfil
                 </a>
               </Link>
               <Link href={`/c/${recommendation.handle}`} passHref>
-                <a className="rounded-full border border-emerald-500/70 bg-emerald-600/20 px-3 py-1 text-sm font-semibold text-emerald-100 hover:bg-emerald-600/30">
+                <a className="rounded-full border border-[color:var(--brand)]/70 bg-[color:var(--brand-strong)]/20 px-3 py-1 text-sm font-semibold text-[color:var(--text)] hover:bg-[color:var(--brand-strong)]/30">
                   Abrir chat
                 </a>
               </Link>
@@ -169,7 +169,7 @@ export function StoryViewerModal({ open, recommendation, onClose }: StoryViewerM
           </div>
           <div className="flex-1 space-y-4">
             <div className="flex items-center justify-between">
-              <div className="text-sm uppercase tracking-wide text-emerald-300/80">Vista Orbital</div>
+              <div className="text-sm uppercase tracking-wide text-[color:var(--brand)]/80">Vista Orbital</div>
               <div className="flex items-center gap-2">
                 {slideOrder.map((id) => (
                   <button
@@ -177,8 +177,8 @@ export function StoryViewerModal({ open, recommendation, onClose }: StoryViewerM
                     type="button"
                     className={`rounded-full px-3 py-1 text-xs font-semibold transition ${
                       currentSlide === id
-                        ? "bg-emerald-600/20 text-emerald-100 border border-emerald-500/60"
-                        : "bg-slate-800/70 text-slate-200 border border-slate-700 hover:border-emerald-500/50"
+                        ? "bg-[color:var(--brand-strong)]/20 text-[color:var(--text)] border border-[color:var(--brand)]/60"
+                        : "bg-[color:var(--surface-2)] text-[color:var(--text)] border border-[color:var(--surface-border)] hover:border-[color:rgba(var(--brand-rgb),0.5)]"
                     }`}
                     onClick={() => setCurrentSlide(id)}
                   >
@@ -187,11 +187,11 @@ export function StoryViewerModal({ open, recommendation, onClose }: StoryViewerM
                 ))}
               </div>
             </div>
-            <div className="rounded-2xl border border-slate-800 bg-slate-900/70 p-4 min-h-[180px]">
+            <div className="rounded-2xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] p-4 min-h-[180px]">
               <h4 className="text-xl font-semibold mb-3">{slideContent.title}</h4>
               {slideContent.body}
             </div>
-            <div className="flex items-center justify-between text-xs text-slate-500">
+            <div className="flex items-center justify-between text-xs text-[color:var(--text)]0">
               <span>Usa ← → para cambiar de slide</span>
               <span>Enter en burbuja · Esc para cerrar</span>
             </div>

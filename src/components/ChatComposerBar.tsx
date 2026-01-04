@@ -364,7 +364,7 @@ export function ChatComposerBar({
         rows={1}
         className={clsx(
           "w-full min-h-[48px] resize-none overflow-y-auto bg-transparent border-0 outline-none ring-0",
-          "px-1 pt-3 pb-2 text-sm leading-6 text-slate-50 whitespace-pre-wrap break-words",
+          "px-1 pt-3 pb-2 text-sm leading-6 text-[color:var(--text)] whitespace-pre-wrap break-words",
           "placeholder:text-[color:var(--muted)]",
           "caret-[color:var(--brand)]",
           isInputDisabled && "cursor-not-allowed"
@@ -386,7 +386,7 @@ export function ChatComposerBar({
               className={clsx(
                   "flex h-9 w-9 items-center justify-center rounded-full border transition focus-visible:outline-none focus-visible:ring-2",
                 canAttach
-                  ? "border-[color:var(--border)] bg-[color:var(--surface-2)] text-slate-200 hover:border-[color:var(--border-a)] hover:bg-[color:var(--surface-1)] focus-visible:ring-[color:var(--ring)]"
+                  ? "border-[color:var(--border)] bg-[color:var(--surface-2)] text-[color:var(--text)] hover:border-[color:var(--border-a)] hover:bg-[color:var(--surface-1)] focus-visible:ring-[color:var(--ring)]"
                   : "border-[color:var(--border)] bg-[color:var(--surface-2)] text-[color:var(--muted)] cursor-not-allowed"
               )}
               title={canAttach ? "Adjuntar contenido" : "Solo disponible cuando escribes al fan."}
@@ -409,7 +409,7 @@ export function ChatComposerBar({
                 className={clsx(
                   "flex h-9 w-9 items-center justify-center rounded-full border transition focus-visible:outline-none focus-visible:ring-2",
                   !isInputDisabled && onEmojiSelect
-                    ? "border-[color:var(--border)] bg-[color:var(--surface-2)] text-slate-200 hover:border-[color:var(--border-a)] hover:bg-[color:var(--surface-1)] focus-visible:ring-[color:var(--ring)]"
+                    ? "border-[color:var(--border)] bg-[color:var(--surface-2)] text-[color:var(--text)] hover:border-[color:var(--border-a)] hover:bg-[color:var(--surface-1)] focus-visible:ring-[color:var(--ring)]"
                     : "border-[color:var(--border)] bg-[color:var(--surface-2)] text-[color:var(--muted)] cursor-not-allowed"
                 )}
                 title="Insertar emoji"
@@ -438,7 +438,7 @@ export function ChatComposerBar({
                 className={clsx(
                   "h-9 px-3 rounded-full border text-[11px] font-semibold transition focus-visible:outline-none focus-visible:ring-2",
                   !isInputDisabled && onStickerSelect
-                    ? "border-[color:var(--border)] bg-[color:var(--surface-2)] text-slate-200 hover:border-[color:var(--border-a)] hover:bg-[color:var(--surface-1)] focus-visible:ring-[color:var(--ring)]"
+                    ? "border-[color:var(--border)] bg-[color:var(--surface-2)] text-[color:var(--text)] hover:border-[color:var(--border-a)] hover:bg-[color:var(--surface-1)] focus-visible:ring-[color:var(--ring)]"
                     : "border-[color:var(--border)] bg-[color:var(--surface-2)] text-[color:var(--muted)] cursor-not-allowed"
                 )}
                 title="Stickers"
@@ -470,7 +470,7 @@ export function ChatComposerBar({
                   "h-7 rounded-full px-2.5 text-[11px] font-semibold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--ring)]",
                   audience === "CREATOR"
                     ? "bg-[color:var(--brand-weak)] text-[color:var(--text)]"
-                    : "text-slate-300 hover:text-slate-100"
+                    : "text-[color:var(--muted)] hover:text-[color:var(--text)]"
                 )}
               >
                 Al fan
@@ -482,7 +482,7 @@ export function ChatComposerBar({
                   "h-7 rounded-full px-2.5 text-[11px] font-semibold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--ring)]",
                   audience === "INTERNAL"
                     ? "bg-[color:var(--brand-weak)] text-[color:var(--text)]"
-                    : "text-slate-300 hover:text-slate-100"
+                    : "text-[color:var(--muted)] hover:text-[color:var(--text)]"
                 )}
                 title="No se envía al fan. Se prepara en el Manager interno."
               >
@@ -498,7 +498,7 @@ export function ChatComposerBar({
           aria-label={actionLabel}
           className={clsx(
             "h-9 px-4 rounded-full text-sm font-semibold shrink-0 transition-colors focus-visible:outline-none focus-visible:ring-2",
-            "bg-[color:var(--brand-strong)] text-white hover:bg-[color:var(--brand)] focus-visible:ring-[color:var(--ring)]",
+            "bg-[color:var(--brand-strong)] text-[color:var(--text)] hover:bg-[color:var(--brand)] focus-visible:ring-[color:var(--ring)]",
             "disabled:opacity-50 disabled:cursor-not-allowed"
           )}
         >

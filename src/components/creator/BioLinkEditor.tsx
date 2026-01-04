@@ -249,15 +249,15 @@ export function BioLinkEditor({ handle, onOpenSettings }: { handle: string; onOp
 
   return (
     <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-      <div className="rounded-2xl border border-slate-800 bg-slate-900/60 p-4 flex items-center justify-center">
+      <div className="rounded-2xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] p-4 flex items-center justify-center">
         <div className="w-full max-w-xl">
           <BioLinkPublicView config={previewConfig} />
         </div>
       </div>
-        <div className="rounded-2xl border border-slate-800 bg-slate-900/70 p-4 flex flex-col gap-4">
+        <div className="rounded-2xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] p-4 flex flex-col gap-4">
         <div className="flex items-center justify-between">
           <h2 className="text-lg font-semibold">Configurar bio-link</h2>
-          <label className="flex items-center gap-2 text-sm text-slate-200">
+          <label className="flex items-center gap-2 text-sm text-[color:var(--text)]">
             <input
               type="checkbox"
               checked={config.enabled}
@@ -267,7 +267,7 @@ export function BioLinkEditor({ handle, onOpenSettings }: { handle: string; onOp
           </label>
         </div>
         <div className="space-y-2">
-          <p className="text-sm font-semibold text-slate-200">Identidad</p>
+          <p className="text-sm font-semibold text-[color:var(--text)]">Identidad</p>
           <LabeledInput
             label="Título"
             value={config.title}
@@ -292,12 +292,12 @@ export function BioLinkEditor({ handle, onOpenSettings }: { handle: string; onOp
             onChange={(val) => setConfig((prev) => ({ ...prev, avatarUrl: val }))}
             helper="Si no empieza por http(s) o /, añadiremos / al guardar."
           />
-          <div className="text-[12px] text-slate-400">
+          <div className="text-[12px] text-[color:var(--muted)]">
             El título se gestiona en ajustes. Tagline y descripción se pueden editar aquí.
             {onOpenSettings && (
               <button
                 type="button"
-                className="ml-2 text-emerald-200 hover:text-emerald-100 underline"
+                className="ml-2 text-[color:var(--brand)] hover:text-[color:var(--text)] underline"
                 onClick={onOpenSettings}
               >
                 Abrir ajustes
@@ -305,16 +305,16 @@ export function BioLinkEditor({ handle, onOpenSettings }: { handle: string; onOp
             )}
           </div>
         </div>
-        <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-3 space-y-3">
+        <div className="rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] p-3 space-y-3">
           <div className="flex items-center justify-between">
             <p className="text-sm font-semibold">Asistente de copy</p>
-            <span className="text-[11px] text-slate-400">Texto breve</span>
+            <span className="text-[11px] text-[color:var(--muted)]">Texto breve</span>
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-            <label className="flex flex-col gap-1 text-xs text-slate-300">
+            <label className="flex flex-col gap-1 text-xs text-[color:var(--muted)]">
               <span>Qué generar</span>
               <select
-                className="rounded-lg bg-slate-800/70 border border-slate-700 px-3 py-2 text-sm text-white focus:border-emerald-400"
+                className="rounded-lg bg-[color:var(--surface-2)] border border-[color:var(--surface-border)] px-3 py-2 text-sm text-[color:var(--text)] focus:border-[color:var(--surface-border-hover)] focus:ring-2 focus:ring-[color:var(--ring)]"
                 value={assistantTarget}
                 onChange={(e) => setAssistantTarget(e.target.value as CopyTarget)}
               >
@@ -325,10 +325,10 @@ export function BioLinkEditor({ handle, onOpenSettings }: { handle: string; onOp
                 ))}
               </select>
             </label>
-            <label className="flex flex-col gap-1 text-xs text-slate-300">
+            <label className="flex flex-col gap-1 text-xs text-[color:var(--muted)]">
               <span>Estilo/tono (opcional)</span>
               <input
-                className="rounded-lg bg-slate-800/70 border border-slate-700 px-3 py-2 text-sm text-white focus:border-emerald-400"
+                className="rounded-lg bg-[color:var(--surface-2)] border border-[color:var(--surface-border)] px-3 py-2 text-sm text-[color:var(--text)] focus:border-[color:var(--surface-border-hover)] focus:ring-2 focus:ring-[color:var(--ring)]"
                 value={assistantTone}
                 onChange={(e) => setAssistantTone(e.target.value)}
                 placeholder="Directo, cálido, premium..."
@@ -337,7 +337,7 @@ export function BioLinkEditor({ handle, onOpenSettings }: { handle: string; onOp
             <div className="flex items-end">
               <button
                 type="button"
-                className="w-full rounded-lg bg-slate-800 px-3 py-2 text-sm font-semibold text-white hover:bg-slate-700 disabled:opacity-60"
+                className="w-full rounded-lg bg-[color:var(--surface-2)] px-3 py-2 text-sm font-semibold text-[color:var(--text)] hover:bg-[color:var(--surface-2)] disabled:opacity-60"
                 onClick={() => void handleSuggestCopy()}
                 disabled={assistantLoading}
               >
@@ -345,28 +345,28 @@ export function BioLinkEditor({ handle, onOpenSettings }: { handle: string; onOp
               </button>
             </div>
           </div>
-          {assistantError && <p className="text-xs text-rose-300">{assistantError}</p>}
+          {assistantError && <p className="text-xs text-[color:var(--danger)]">{assistantError}</p>}
           {assistantOptions.length > 0 && (
             <div className="space-y-2">
               {assistantOptions.map((option, index) => {
                 const faqItems = parseFaqOption(option);
                 return (
-                  <div key={`${assistantTarget}-${index}`} className="rounded-lg border border-slate-800 bg-slate-900 p-3 space-y-2">
+                  <div key={`${assistantTarget}-${index}`} className="rounded-lg border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] p-3 space-y-2">
                     {assistantTarget === "FAQ" && faqItems.length > 0 ? (
-                      <ul className="space-y-1 text-xs text-slate-200">
+                      <ul className="space-y-1 text-xs text-[color:var(--text)]">
                         {faqItems.map((item, idx) => (
                           <li key={`${index}-${idx}`} className="flex gap-2">
-                            <span className="text-amber-200">-</span>
+                            <span className="text-[color:var(--warning)]">-</span>
                             <span>{item}</span>
                           </li>
                         ))}
                       </ul>
                     ) : (
-                      <p className="text-sm text-slate-100">{option}</p>
+                      <p className="text-sm text-[color:var(--text)]">{option}</p>
                     )}
                     <button
                       type="button"
-                      className="inline-flex items-center justify-center rounded-lg border border-emerald-400/70 bg-emerald-500/10 px-3 py-1.5 text-xs font-semibold text-emerald-100 hover:bg-emerald-500/20"
+                      className="inline-flex items-center justify-center rounded-lg border border-[color:rgba(var(--brand-rgb),0.45)] bg-[color:rgba(var(--brand-rgb),0.12)] px-3 py-1.5 text-xs font-semibold text-[color:var(--text)] hover:bg-[color:rgba(var(--brand-rgb),0.16)]"
                       onClick={() => applyCopyOption(option)}
                     >
                       Usar
@@ -377,10 +377,10 @@ export function BioLinkEditor({ handle, onOpenSettings }: { handle: string; onOp
             </div>
           )}
         </div>
-        <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-3 space-y-2">
+        <div className="rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] p-3 space-y-2">
           <p className="text-sm font-semibold">Botón principal</p>
           <div className="flex flex-col sm:flex-row gap-3">
-            <label className="inline-flex items-center gap-2 text-sm text-slate-200">
+            <label className="inline-flex items-center gap-2 text-sm text-[color:var(--text)]">
               <input
                 type="radio"
                 checked={ctaMode === "chat"}
@@ -392,7 +392,7 @@ export function BioLinkEditor({ handle, onOpenSettings }: { handle: string; onOp
               />
               Abrir chat (recomendado)
             </label>
-            <label className="inline-flex items-center gap-2 text-sm text-slate-200">
+            <label className="inline-flex items-center gap-2 text-sm text-[color:var(--text)]">
               <input
                 type="radio"
                 checked={ctaMode === "custom"}
@@ -417,12 +417,12 @@ export function BioLinkEditor({ handle, onOpenSettings }: { handle: string; onOp
               helper="Solo https:// o rutas públicas /c/tu-handle."
             />
           ) : (
-            <p className="text-xs text-slate-400">Abrirá tu chat privado en NOVSY ({defaultCtaUrl}).</p>
+            <p className="text-xs text-[color:var(--muted)]">Abrirá tu chat privado en NOVSY ({defaultCtaUrl}).</p>
           )}
-          {ctaError && <p className="text-xs text-rose-300">{ctaError}</p>}
+          {ctaError && <p className="text-xs text-[color:var(--danger)]">{ctaError}</p>}
         </div>
 
-        <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-3 space-y-2">
+        <div className="rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] p-3 space-y-2">
           <p className="text-sm font-semibold">FAQ (3 respuestas)</p>
           <div className="space-y-2">
             {faqEntries.map((entry, index) => (
@@ -436,13 +436,13 @@ export function BioLinkEditor({ handle, onOpenSettings }: { handle: string; onOp
           </div>
         </div>
 
-        <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-3 space-y-2">
+        <div className="rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] p-3 space-y-2">
           <div className="flex items-center justify-between">
             <p className="text-sm font-semibold">Enlaces secundarios</p>
             {config.secondaryLinks.length < MAX_LINKS && (
               <button
                 type="button"
-                className="text-xs rounded-lg border border-slate-700 bg-slate-800 px-2 py-1 hover:border-emerald-400 hover:text-emerald-100"
+                className="text-xs rounded-lg border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-2 py-1 hover:border-[color:var(--brand)] hover:text-[color:var(--text)]"
                 onClick={() =>
                   setConfig((prev) => ({
                     ...prev,
@@ -456,12 +456,12 @@ export function BioLinkEditor({ handle, onOpenSettings }: { handle: string; onOp
           </div>
           <div className="space-y-3">
             {config.secondaryLinks.map((link, idx) => (
-              <div key={idx} className="rounded-lg border border-slate-800 bg-slate-900 p-3 space-y-2">
-                <div className="flex items-center justify-between text-xs text-slate-400">
+              <div key={idx} className="rounded-lg border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] p-3 space-y-2">
+                <div className="flex items-center justify-between text-xs text-[color:var(--muted)]">
                   <span>Enlace #{idx + 1}</span>
                   <button
                     type="button"
-                    className="text-rose-300 hover:text-rose-200"
+                    className="text-[color:var(--danger)] hover:text-[color:var(--danger)]"
                     onClick={() => {
                       setConfig((prev) => ({
                         ...prev,
@@ -494,10 +494,10 @@ export function BioLinkEditor({ handle, onOpenSettings }: { handle: string; onOp
                   error={linkErrors[idx]}
                   helper="Debe empezar por http:// o https://"
                 />
-                <label className="flex flex-col gap-1 text-sm text-slate-300">
+                <label className="flex flex-col gap-1 text-sm text-[color:var(--muted)]">
                   <span>Icono</span>
                   <select
-                    className="rounded-lg bg-slate-800/70 border border-slate-700 px-3 py-2 text-sm text-white focus:border-emerald-400"
+                    className="rounded-lg bg-[color:var(--surface-2)] border border-[color:var(--surface-border)] px-3 py-2 text-sm text-[color:var(--text)] focus:border-[color:var(--surface-border-hover)] focus:ring-2 focus:ring-[color:var(--ring)]"
                     value={link.iconKey || "custom"}
                     onChange={(e) => updateLink(idx, { iconKey: e.target.value as BioLinkSecondaryLink["iconKey"] })}
                   >
@@ -514,44 +514,44 @@ export function BioLinkEditor({ handle, onOpenSettings }: { handle: string; onOp
 
       <div className="space-y-4">
         <div className="space-y-2">
-          <p className="text-sm text-slate-300">URL del bio-link</p>
+          <p className="text-sm text-[color:var(--muted)]">URL del bio-link</p>
           <div className="flex gap-2">
             <input
               readOnly
               value={linkUrl}
-              className="w-full rounded-lg bg-slate-800/70 border border-slate-700 px-3 py-2 text-sm text-white"
+              className="w-full rounded-lg bg-[color:var(--surface-2)] border border-[color:var(--surface-border)] px-3 py-2 text-sm text-[color:var(--text)]"
             />
             <button
               type="button"
-              className="rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-sm text-white hover:border-emerald-400"
+              className="rounded-lg border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-3 py-2 text-sm text-[color:var(--text)] hover:border-[color:var(--brand)]"
               onClick={() => void copyToClipboard(linkUrl, "link")}
             >
               Copiar
             </button>
           </div>
-          {copyState.link === "copied" && <p className="text-xs text-emerald-200">Copiado</p>}
-          {copyState.link === "error" && <p className="text-xs text-rose-300">No se pudo copiar</p>}
+          {copyState.link === "copied" && <p className="text-xs text-[color:var(--brand)]">Copiado</p>}
+          {copyState.link === "error" && <p className="text-xs text-[color:var(--danger)]">No se pudo copiar</p>}
         </div>
         <div className="space-y-2">
-          <p className="text-sm text-slate-300">URL chat directo</p>
+          <p className="text-sm text-[color:var(--muted)]">URL chat directo</p>
           <div className="flex gap-2">
             <input
               readOnly
               value={directChatUrl}
-              className="w-full rounded-lg bg-slate-800/70 border border-slate-700 px-3 py-2 text-sm text-white"
+              className="w-full rounded-lg bg-[color:var(--surface-2)] border border-[color:var(--surface-border)] px-3 py-2 text-sm text-[color:var(--text)]"
             />
             <button
               type="button"
-              className="rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-sm text-white hover:border-emerald-400"
+              className="rounded-lg border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-3 py-2 text-sm text-[color:var(--text)] hover:border-[color:var(--brand)]"
               onClick={() => void copyToClipboard(directChatUrl, "direct")}
             >
               Copiar
             </button>
           </div>
-          {copyState.direct === "copied" && <p className="text-xs text-emerald-200">Copiado</p>}
-          {copyState.direct === "error" && <p className="text-xs text-rose-300">No se pudo copiar</p>}
+          {copyState.direct === "copied" && <p className="text-xs text-[color:var(--brand)]">Copiado</p>}
+          {copyState.direct === "error" && <p className="text-xs text-[color:var(--danger)]">No se pudo copiar</p>}
         </div>
-        {linkErrors.general && <p className="text-xs text-rose-300">{linkErrors.general}</p>}
+        {linkErrors.general && <p className="text-xs text-[color:var(--danger)]">{linkErrors.general}</p>}
       </div>
 
         <div className="flex items-center gap-2">
@@ -559,11 +559,11 @@ export function BioLinkEditor({ handle, onOpenSettings }: { handle: string; onOp
             type="button"
             onClick={() => void handleSave()}
             disabled={saving}
-            className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-500 disabled:opacity-60"
+            className="rounded-lg bg-[color:var(--brand-strong)] px-4 py-2 text-sm font-semibold text-[color:var(--text)] hover:bg-[color:var(--brand-strong)] disabled:opacity-60"
           >
             {saving ? "Guardando..." : "Guardar cambios"}
           </button>
-          {loading && <span className="text-xs text-slate-400">Cargando...</span>}
+          {loading && <span className="text-xs text-[color:var(--muted)]">Cargando...</span>}
         </div>
       </div>
     </div>
@@ -634,17 +634,17 @@ function LabeledInput({
   error?: string;
 }) {
   return (
-    <label className="flex flex-col gap-1 text-sm text-slate-300">
+    <label className="flex flex-col gap-1 text-sm text-[color:var(--muted)]">
       <span>{label}</span>
       <input
-        className="w-full rounded-lg bg-slate-800/70 border border-slate-700 px-3 py-2 text-sm text-white focus:border-emerald-400"
+        className="w-full rounded-lg bg-[color:var(--surface-2)] border border-[color:var(--surface-border)] px-3 py-2 text-sm text-[color:var(--text)] focus:border-[color:var(--surface-border-hover)] focus:ring-2 focus:ring-[color:var(--ring)]"
         value={value}
         onChange={(e) => onChange(e.target.value)}
         readOnly={readOnly}
         disabled={readOnly}
       />
-      {helper && <span className="text-[11px] text-slate-500">{helper}</span>}
-      {error && <span className="text-[11px] text-rose-300">{error}</span>}
+      {helper && <span className="text-[11px] text-[color:var(--text)]0">{helper}</span>}
+      {error && <span className="text-[11px] text-[color:var(--danger)]">{error}</span>}
     </label>
   );
 }
@@ -661,14 +661,14 @@ function LabeledTextArea({
   helper?: string;
 }) {
   return (
-    <label className="flex flex-col gap-1 text-sm text-slate-300">
+    <label className="flex flex-col gap-1 text-sm text-[color:var(--muted)]">
       <span>{label}</span>
       <textarea
-        className="w-full rounded-lg bg-slate-800/70 border border-slate-700 px-3 py-2 text-sm text-white focus:border-emerald-400 h-20"
+        className="w-full rounded-lg bg-[color:var(--surface-2)] border border-[color:var(--surface-border)] px-3 py-2 text-sm text-[color:var(--text)] focus:border-[color:var(--surface-border-hover)] focus:ring-2 focus:ring-[color:var(--ring)] h-20"
         value={value}
         onChange={(e) => onChange(e.target.value)}
       />
-      {helper && <span className="text-[11px] text-slate-500">{helper}</span>}
+      {helper && <span className="text-[11px] text-[color:var(--text)]0">{helper}</span>}
     </label>
   );
 }

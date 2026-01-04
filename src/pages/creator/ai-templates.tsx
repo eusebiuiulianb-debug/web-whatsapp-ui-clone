@@ -150,7 +150,7 @@ export default function CreatorAiTemplatesPage() {
   }
 
   return (
-    <div className="min-h-screen bg-[#0b141a] text-white">
+    <div className="min-h-screen bg-[#0b141a] text-[color:var(--text)]">
       <Head>
         <title>Plantillas de IA – NOVSY</title>
       </Head>
@@ -168,19 +168,19 @@ export default function CreatorAiTemplatesPage() {
         <div className="flex items-center justify-between">
           <div>
             <h1 className="text-2xl font-semibold">Plantillas de IA</h1>
-            <p className="text-sm text-slate-300">Define tus propios mensajes para el botón Extra rápido.</p>
+            <p className="text-sm text-[color:var(--muted)]">Define tus propios mensajes para el botón Extra rápido.</p>
           </div>
           <button
             type="button"
             onClick={addTemplate}
-            className="rounded-lg border border-emerald-400 bg-emerald-500/10 px-3 py-2 text-sm font-semibold text-emerald-100 hover:bg-emerald-500/20"
+            className="rounded-lg border border-[color:var(--brand)] bg-[color:rgba(var(--brand-rgb),0.12)] px-3 py-2 text-sm font-semibold text-[color:var(--text)] hover:bg-[color:rgba(var(--brand-rgb),0.2)]"
           >
             Añadir plantilla
           </button>
         </div>
 
-        {error && <div className="text-sm text-rose-300">{error}</div>}
-        {loading && <div className="text-sm text-slate-300">Cargando plantillas...</div>}
+        {error && <div className="text-sm text-[color:var(--danger)]">{error}</div>}
+        {loading && <div className="text-sm text-[color:var(--muted)]">Cargando plantillas...</div>}
 
         <div className="flex flex-col gap-4">
           {templates.map((tpl, idx) => {
@@ -190,20 +190,20 @@ export default function CreatorAiTemplatesPage() {
             const rowError = anyTpl.error as string | undefined;
 
             return (
-              <div key={tpl.id || `new-${idx}`} className="rounded-2xl border border-slate-800 bg-slate-900/70 p-4 flex flex-col gap-3">
+              <div key={tpl.id || `new-${idx}`} className="rounded-2xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] p-4 flex flex-col gap-3">
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-3">
                   <div className="flex flex-col gap-1">
-                    <label className="text-xs text-slate-300">Nombre</label>
+                    <label className="text-xs text-[color:var(--muted)]">Nombre</label>
                     <input
-                      className="rounded-lg bg-slate-800/70 border border-slate-700 px-3 py-2 text-sm text-white focus:border-emerald-400"
+                      className="rounded-lg bg-[color:var(--surface-2)] border border-[color:var(--surface-border)] px-3 py-2 text-sm text-[color:var(--text)] focus:border-[color:var(--border-a)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--ring)]"
                       value={tpl.name}
                       onChange={(e) => updateTemplate(idx, (t) => ({ ...t, name: e.target.value }))}
                     />
                   </div>
                   <div className="flex flex-col gap-1">
-                    <label className="text-xs text-slate-300">Uso</label>
+                    <label className="text-xs text-[color:var(--muted)]">Uso</label>
                     <select
-                      className="rounded-lg bg-slate-800/70 border border-slate-700 px-3 py-2 text-sm text-white"
+                      className="rounded-lg bg-[color:var(--surface-2)] border border-[color:var(--surface-border)] px-3 py-2 text-sm text-[color:var(--text)]"
                       value={tpl.category}
                       onChange={(e) => updateTemplate(idx, (t) => ({ ...t, category: e.target.value as AiTemplateUsage }))}
                     >
@@ -215,9 +215,9 @@ export default function CreatorAiTemplatesPage() {
                     </select>
                   </div>
                   <div className="flex flex-col gap-1">
-                    <label className="text-xs text-slate-300">Tono preferente</label>
+                    <label className="text-xs text-[color:var(--muted)]">Tono preferente</label>
                     <select
-                    className="rounded-lg bg-slate-800/70 border border-slate-700 px-3 py-2 text-sm text-white"
+                    className="rounded-lg bg-[color:var(--surface-2)] border border-[color:var(--surface-border)] px-3 py-2 text-sm text-[color:var(--text)]"
                     value={tpl.tone}
                     onChange={(e) =>
                       updateTemplate(idx, (t) => ({ ...t, tone: e.target.value as TemplateTone }))
@@ -230,9 +230,9 @@ export default function CreatorAiTemplatesPage() {
                     </select>
                   </div>
                   <div className="flex flex-col gap-1">
-                    <label className="text-xs text-slate-300">Modo de turno</label>
+                    <label className="text-xs text-[color:var(--muted)]">Modo de turno</label>
                     <select
-                      className="rounded-lg bg-slate-800/70 border border-slate-700 px-3 py-2 text-sm text-white"
+                      className="rounded-lg bg-[color:var(--surface-2)] border border-[color:var(--surface-border)] px-3 py-2 text-sm text-[color:var(--text)]"
                       value={tpl.mode}
                       onChange={(e) =>
                         updateTemplate(idx, (t) => ({ ...t, mode: e.target.value as TemplateMode }))
@@ -246,9 +246,9 @@ export default function CreatorAiTemplatesPage() {
                     </select>
                   </div>
                   <div className="flex flex-col gap-1">
-                    <label className="text-xs text-slate-300">Escalón sugerido (opcional)</label>
+                    <label className="text-xs text-[color:var(--muted)]">Escalón sugerido (opcional)</label>
                     <select
-                      className="rounded-lg bg-slate-800/70 border border-slate-700 px-3 py-2 text-sm text-white"
+                      className="rounded-lg bg-[color:var(--surface-2)] border border-[color:var(--surface-border)] px-3 py-2 text-sm text-[color:var(--text)]"
                       value={tpl.tier || ""}
                       onChange={(e) =>
                         updateTemplate(idx, (t) => ({ ...t, tier: e.target.value === "" ? null : (e.target.value as any) }))
@@ -261,43 +261,44 @@ export default function CreatorAiTemplatesPage() {
                       <option value="T3">T3 – alto valor</option>
                       <option value="T4">T4 – techo / pack caro</option>
                     </select>
-                    <span className="text-[11px] text-slate-400">
+                    <span className="text-[11px] text-[color:var(--muted)]">
                       Útil para usos de extras (extra rápido, pack especial). Para otros usos puedes dejarlo vacío.
                     </span>
                   </div>
                 </div>
 
                 <div className="flex flex-col gap-1">
-                  <label className="text-xs text-slate-300">Contenido</label>
+                  <label className="text-xs text-[color:var(--muted)]">Contenido</label>
                   <textarea
-                    className="rounded-lg bg-slate-800/70 border border-slate-700 px-3 py-2 text-sm text-white focus:border-emerald-400"
+                    className="rounded-lg bg-[color:var(--surface-2)] border border-[color:var(--surface-border)] px-3 py-2 text-sm text-[color:var(--text)] focus:border-[color:var(--border-a)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--ring)]"
                     rows={3}
                     value={tpl.content}
                     onChange={(e) => updateTemplate(idx, (t) => ({ ...t, content: e.target.value }))}
                   />
-                  <span className="text-[11px] text-slate-400">
+                  <span className="text-[11px] text-[color:var(--muted)]">
                     Puedes usar variables básicas como {"{nombre_fan}"} y {"{precio_extra}"} (no procesamos variables todavía).
                   </span>
                 </div>
 
                 <div className="flex items-center justify-between gap-3">
-                  <label className="flex items-center gap-2 text-sm text-slate-200">
+                  <label className="flex items-center gap-2 text-sm text-[color:var(--text)]">
                     <input
                       type="checkbox"
                       checked={tpl.isActive}
                       onChange={(e) => updateTemplate(idx, (t) => ({ ...t, isActive: e.target.checked }))}
+                      className="h-4 w-4 accent-[color:var(--brand)]"
                     />
                     Activa
                   </label>
 
                   <div className="flex items-center gap-3">
-                    {rowError && <span className="text-xs text-rose-300">{rowError}</span>}
-                    {isSaved && <span className="text-xs text-emerald-300">Guardado</span>}
+                    {rowError && <span className="text-xs text-[color:var(--danger)]">{rowError}</span>}
+                    {isSaved && <span className="text-xs text-[color:var(--brand)]">Guardado</span>}
                     <button
                       type="button"
                       onClick={() => saveTemplate(idx)}
                       disabled={isSaving}
-                      className="rounded-lg border border-emerald-400 bg-emerald-500/10 px-3 py-2 text-sm font-semibold text-emerald-100 hover:bg-emerald-500/20 disabled:opacity-60 disabled:cursor-not-allowed"
+                      className="rounded-lg border border-[color:var(--brand)] bg-[color:rgba(var(--brand-rgb),0.12)] px-3 py-2 text-sm font-semibold text-[color:var(--text)] hover:bg-[color:rgba(var(--brand-rgb),0.2)] disabled:opacity-60 disabled:cursor-not-allowed"
                     >
                       {isSaving ? "Guardando..." : "Guardar"}
                     </button>
@@ -307,7 +308,7 @@ export default function CreatorAiTemplatesPage() {
             );
           })}
 
-          {!loading && templates.length === 0 && <div className="text-sm text-slate-300">Aún no tienes plantillas.</div>}
+          {!loading && templates.length === 0 && <div className="text-sm text-[color:var(--muted)]">Aún no tienes plantillas.</div>}
         </div>
       </div>
     </div>

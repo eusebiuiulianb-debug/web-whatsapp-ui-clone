@@ -236,14 +236,14 @@ export function EmojiPicker({
     return (
       <div className="mb-2 flex flex-col gap-2">
         {favoriteItems.length > 0 && (
-          <div className="flex flex-wrap items-center gap-1 rounded-xl border border-slate-800/70 bg-slate-900/60 px-2 py-1">
-            <span className="text-[10px] uppercase tracking-wide text-slate-400">Favoritos</span>
+          <div className="flex flex-wrap items-center gap-1 rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-2 py-1">
+            <span className="text-[10px] uppercase tracking-wide text-[color:var(--muted)]">Favoritos</span>
             {favoriteItems.map((emoji, idx) => (
               <button
                 key={`${emoji}-${idx}`}
                 type="button"
                 onClick={() => handleEmojiSelect(emoji)}
-                className="flex h-7 w-7 items-center justify-center rounded-full border border-slate-700/70 bg-slate-900/70 text-sm text-slate-100 hover:bg-slate-800/80"
+                className="flex h-7 w-7 items-center justify-center rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] text-sm text-[color:var(--text)] hover:bg-[color:var(--surface-2)]"
                 aria-label={`Emoji favorito ${emoji}`}
               >
                 {emoji}
@@ -252,14 +252,14 @@ export function EmojiPicker({
           </div>
         )}
         {recentItems.length > 0 && (
-          <div className="flex flex-wrap items-center gap-1 rounded-xl border border-slate-800/70 bg-slate-900/60 px-2 py-1">
-            <span className="text-[10px] uppercase tracking-wide text-slate-400">Recientes</span>
+          <div className="flex flex-wrap items-center gap-1 rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-2 py-1">
+            <span className="text-[10px] uppercase tracking-wide text-[color:var(--muted)]">Recientes</span>
             {recentItems.map((emoji, idx) => (
               <button
                 key={`${emoji}-${idx}`}
                 type="button"
                 onClick={() => handleEmojiSelect(emoji)}
-                className="flex h-7 w-7 items-center justify-center rounded-full border border-slate-700/70 bg-slate-900/70 text-sm text-slate-100 hover:bg-slate-800/80"
+                className="flex h-7 w-7 items-center justify-center rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] text-sm text-[color:var(--text)] hover:bg-[color:var(--surface-2)]"
                 aria-label={`Emoji reciente ${emoji}`}
               >
                 {emoji}
@@ -282,8 +282,8 @@ export function EmojiPicker({
   }, [reactionTopContent, topContent]);
 
   const loadingContent = (
-    <div className="flex items-center gap-2 px-3 py-4 text-[11px] text-slate-300">
-      <span className="h-4 w-4 animate-spin rounded-full border-2 border-slate-500 border-t-transparent" />
+    <div className="flex items-center gap-2 px-3 py-4 text-[11px] text-[color:var(--muted)]">
+      <span className="h-4 w-4 animate-spin rounded-full border-2 border-[color:var(--surface-border-hover)] border-t-transparent" />
       <span>Cargando emojis…</span>
     </div>
   );
@@ -323,7 +323,7 @@ export function EmojiPicker({
           <div
             ref={desktopContentRef}
             className={clsx(
-              "rounded-2xl border border-slate-800/80 bg-slate-950/95 p-2 shadow-2xl overflow-y-auto",
+              "rounded-2xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] p-2 shadow-2xl overflow-y-auto",
               isReactionMode
                 ? "w-[260px] max-w-[calc(100vw-16px)]"
                 : "min-w-[360px] w-[360px] max-w-[calc(100vw-16px)]"
@@ -344,7 +344,7 @@ export function EmojiPicker({
             <div
               ref={desktopContentRef}
               className={clsx(
-                "rounded-2xl border border-slate-800/80 bg-slate-950/95 p-3 shadow-2xl overflow-y-auto",
+                "rounded-2xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] p-3 shadow-2xl overflow-y-auto",
                 isReactionMode
                   ? "w-[260px] max-w-[calc(100vw-16px)]"
                   : "min-w-[360px] w-[360px] max-w-[calc(100vw-16px)]"
@@ -360,7 +360,7 @@ export function EmojiPicker({
       <div className="sm:hidden fixed inset-0 z-50 flex items-end justify-center bg-black/60">
         <div
           ref={sheetRef}
-          className="w-full max-w-lg rounded-t-2xl border border-slate-800/80 bg-slate-950/95 p-3 shadow-2xl max-h-[75vh] overflow-y-auto"
+          className="w-full max-w-lg rounded-t-2xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] p-3 shadow-2xl max-h-[75vh] overflow-y-auto"
           data-emoji-picker="true"
         >
           {mergedTopContent}

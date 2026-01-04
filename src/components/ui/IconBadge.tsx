@@ -32,10 +32,10 @@ export function IconBadge({
   const paddingClass = size === "md" ? "p-1" : "p-0.5";
   const variantClass =
     variant === "accent"
-      ? "border border-amber-400/70 bg-amber-500/15 text-amber-100"
+      ? "border border-[color:rgba(245,158,11,0.7)] bg-[color:rgba(245,158,11,0.16)] text-[color:var(--text)]"
     : variant === "subtle"
-      ? "border border-slate-700/60 bg-slate-900/40 text-slate-300/80"
-      : "border border-transparent bg-transparent text-slate-400/70";
+      ? "border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] text-[color:var(--muted)]"
+      : "border border-transparent bg-transparent text-[color:var(--muted)]";
   const iconNode =
     typeof icon === "string" ? <IconGlyph name={icon as IconName} size={size} /> : icon;
 

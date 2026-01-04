@@ -175,7 +175,7 @@ export const ContentManagerChatCard = forwardRef<ContentManagerChatCardHandle, P
       : "Crecimiento semanal: pega métricas de YouTube/TikTok/Instagram y te doy diagnóstico + 3 movimientos.";
 
   const containerClass = clsx(
-    "rounded-2xl border border-slate-800 bg-slate-900/80",
+    "rounded-2xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)]",
     "flex flex-col h-full min-h-0",
     embedded ? "p-3 lg:p-4 gap-3" : "p-4 gap-3"
   );
@@ -185,7 +185,7 @@ export const ContentManagerChatCard = forwardRef<ContentManagerChatCardHandle, P
       <span>
         Revisar ajustes: falta `OPENAI_API_KEY` o no se pudo descifrar.{" "}
         <Link href="/creator/ai-settings">
-          <a className="underline hover:text-amber-100">Abrir ajustes</a>
+          <a className="underline hover:text-[color:var(--text)]">Abrir ajustes</a>
         </Link>
       </span>
     ) : (
@@ -197,7 +197,7 @@ export const ContentManagerChatCard = forwardRef<ContentManagerChatCardHandle, P
       {!hideTitle && (
         <div className="space-y-1">
           <h2 className="text-lg font-semibold">{mode === "CONTENT" ? "Manager IA de contenido" : "Manager IA de crecimiento"}</h2>
-          <p className="text-xs text-slate-400">
+          <p className="text-xs text-[color:var(--muted)]">
             {mode === "CONTENT"
               ? "Diagnóstico rápido de tus packs y qué contenido crear o empujar a continuación."
               : "Pega tus métricas semanales y recibe 3 movimientos para crecer tus canales."}
@@ -205,19 +205,19 @@ export const ContentManagerChatCard = forwardRef<ContentManagerChatCardHandle, P
         </div>
       )}
 
-      <div className="rounded-xl border border-slate-800 bg-slate-900/70 px-3 py-2 text-xs text-slate-100 space-y-2">
-        <div className="text-[12px] text-slate-100">{summaryText}</div>
+      <div className="rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-3 py-2 text-xs text-[color:var(--text)] space-y-2">
+        <div className="text-[12px] text-[color:var(--text)]">{summaryText}</div>
         {usedFallback && (
-          <div className="text-[11px] text-amber-200">
+          <div className="text-[11px] text-[color:var(--warning)]">
             {fallbackBanner}
           </div>
         )}
       </div>
 
-      <div className="flex min-h-[260px] flex-1 flex-col rounded-xl border border-slate-900 bg-slate-950/50 px-3 py-3">
+      <div className="flex min-h-[260px] flex-1 flex-col rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-3 py-3">
         <div ref={listRef} className="flex-1 space-y-3 overflow-y-auto pr-1 min-h-[200px]">
-          {loading && <div className="text-[12px] text-slate-400">Cargando chat…</div>}
-          {!loading && messages.length === 0 && <div className="text-[12px] text-slate-400">Aún no hay mensajes.</div>}
+          {loading && <div className="text-[12px] text-[color:var(--muted)]">Cargando chat…</div>}
+          {!loading && messages.length === 0 && <div className="text-[12px] text-[color:var(--muted)]">Aún no hay mensajes.</div>}
           {!loading &&
             messages.map((msg) => {
               const isCreator = msg.role === "CREATOR";
@@ -227,7 +227,7 @@ export const ContentManagerChatCard = forwardRef<ContentManagerChatCardHandle, P
                   <div className="max-w-[75%]">
                     <p
                       className={clsx(
-                        "mb-1 text-[10px] uppercase tracking-wide text-slate-400",
+                        "mb-1 text-[10px] uppercase tracking-wide text-[color:var(--muted)]",
                         isCreator ? "text-right" : undefined
                       )}
                     >
@@ -236,7 +236,7 @@ export const ContentManagerChatCard = forwardRef<ContentManagerChatCardHandle, P
                     <div
                       className={clsx(
                         "rounded-2xl px-4 py-2 text-sm shadow whitespace-pre-wrap",
-                        isCreator ? "bg-emerald-600 text-white" : "bg-slate-800 text-slate-50"
+                        isCreator ? "bg-[color:var(--brand-strong)] text-[color:var(--text)]" : "bg-[color:var(--surface-2)] text-[color:var(--text)]"
                       )}
                     >
                       {msg.content}
@@ -248,15 +248,15 @@ export const ContentManagerChatCard = forwardRef<ContentManagerChatCardHandle, P
         </div>
       </div>
 
-      {error && <div className="text-[11px] text-rose-300">{error}</div>}
-      <div className="text-[11px] text-slate-500">Solo tú ves este chat.</div>
+      {error && <div className="text-[11px] text-[color:var(--danger)]">{error}</div>}
+      <div className="text-[11px] text-[color:var(--text)]0">Solo tú ves este chat.</div>
 
       <div className="flex flex-nowrap items-center gap-2 overflow-x-auto pb-1">
         {(mode === "CONTENT" ? contentSuggestions : growthSuggestions).map((sugg) => (
           <button
             key={sugg}
             type="button"
-            className="rounded-full border border-slate-700 bg-slate-900/60 px-3 py-1 text-xs text-slate-100 hover:bg-slate-800"
+            className="rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-3 py-1 text-xs text-[color:var(--text)] hover:bg-[color:var(--surface-2)]"
             onClick={() => {
               setInput(sugg);
               inputRef.current?.focus();
@@ -296,13 +296,13 @@ export const ContentManagerChatCard = forwardRef<ContentManagerChatCardHandle, P
               ? "Pregúntale al Manager IA de catálogo."
               : "Pega aquí tus métricas de la semana (seguidores, visitas, ingresos, etc.) o cuéntame qué ha pasado…"
           }
-          className="flex-1 resize-none rounded-xl border border-slate-700 bg-slate-950/70 px-3 py-2 text-sm text-slate-100 focus:outline-none focus:ring-2 focus:ring-emerald-500/70 disabled:cursor-not-allowed disabled:opacity-70"
+          className="flex-1 resize-none rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-3 py-2 text-sm text-[color:var(--text)] focus:outline-none focus:ring-2 focus:ring-[color:var(--ring)] disabled:cursor-not-allowed disabled:opacity-70"
           rows={2}
         />
         <button
           type="submit"
           disabled={sending || !input.trim()}
-          className="self-end rounded-xl bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-500 disabled:opacity-50"
+          className="self-end rounded-xl bg-[color:var(--brand-strong)] px-4 py-2 text-sm font-semibold text-[color:var(--text)] hover:bg-[color:var(--brand-strong)] disabled:opacity-50"
         >
           {sending ? "Enviando..." : "Enviar"}
         </button>

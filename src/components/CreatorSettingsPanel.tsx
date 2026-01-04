@@ -72,47 +72,47 @@ export default function CreatorSettingsPanel({ isOpen, onClose }: CreatorSetting
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-[rgba(0,0,0,0.55)] px-4">
-      <div className="w-full max-w-3xl bg-[#111b21] text-white rounded-lg shadow-xl border border-[rgba(134,150,160,0.2)] max-h-[90vh] overflow-y-auto">
-        <div className="flex items-center justify-between px-6 py-4 border-b border-[rgba(134,150,160,0.2)]">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-[color:var(--surface-overlay)] px-4">
+      <div className="w-full max-w-3xl bg-[color:var(--surface-1)] text-[color:var(--text)] rounded-lg shadow-xl border border-[color:var(--surface-border)] max-h-[90vh] overflow-y-auto">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-[color:var(--surface-border)]">
           <h2 className="text-lg font-semibold">Ajustes del creador</h2>
-          <button onClick={onClose} className="text-[#aebac1] hover:text-white">
+          <button onClick={onClose} className="text-[color:var(--muted)] hover:text-[color:var(--text)]">
             ✕
           </button>
         </div>
         <div className="flex flex-col gap-6 px-6 py-4">
-          {error && <div className="text-sm text-amber-300">{error}</div>}
+          {error && <div className="text-sm text-[color:var(--danger)]">{error}</div>}
           <section className="flex flex-col gap-3">
             <div>
-              <label className="block text-sm text-[#aebac1] mb-1">Nombre del creador</label>
+              <label className="block text-sm text-[color:var(--muted)] mb-1">Nombre del creador</label>
               <input
-                className="w-full bg-[#1f2c33] border border-[rgba(134,150,160,0.3)] rounded-md px-3 py-2 text-white"
+                className="w-full bg-[color:var(--surface-2)] border border-[color:var(--surface-border)] rounded-md px-3 py-2 text-[color:var(--text)]"
                 value={formData.creatorName}
                 onChange={e => setFormData(prev => ({ ...prev, creatorName: e.target.value }))}
               />
             </div>
             <div>
-              <label className="block text-sm text-[#aebac1] mb-1">Subtítulo corto (header)</label>
+              <label className="block text-sm text-[color:var(--muted)] mb-1">Subtítulo corto (header)</label>
               <input
-                className="w-full bg-[#1f2c33] border border-[rgba(134,150,160,0.3)] rounded-md px-3 py-2 text-white"
+                className="w-full bg-[color:var(--surface-2)] border border-[color:var(--surface-border)] rounded-md px-3 py-2 text-[color:var(--text)]"
                 value={formData.creatorSubtitle}
                 onChange={e => setFormData(prev => ({ ...prev, creatorSubtitle: e.target.value }))}
               />
             </div>
             <div>
-              <label className="block text-sm text-[#aebac1] mb-1">Avatar (URL)</label>
+              <label className="block text-sm text-[color:var(--muted)] mb-1">Avatar (URL)</label>
               <input
-                className="w-full bg-[#1f2c33] border border-[rgba(134,150,160,0.3)] rounded-md px-3 py-2 text-white"
+                className="w-full bg-[color:var(--surface-2)] border border-[color:var(--surface-border)] rounded-md px-3 py-2 text-[color:var(--text)]"
                 value={formData.avatarUrl || ""}
                 placeholder="https://..."
                 onChange={e => setFormData(prev => ({ ...prev, avatarUrl: e.target.value }))}
               />
-              <p className="text-[12px] text-slate-400 mt-1">Se usa en el header, bio-link y perfil público.</p>
+              <p className="text-[12px] text-[color:var(--muted)] mt-1">Se usa en el header, bio-link y perfil público.</p>
             </div>
             <div>
-              <label className="block text-sm text-[#aebac1] mb-1">Descripción larga (página pública)</label>
+              <label className="block text-sm text-[color:var(--muted)] mb-1">Descripción larga (página pública)</label>
               <textarea
-                className="w-full bg-[#1f2c33] border border-[rgba(134,150,160,0.3)] rounded-md px-3 py-2 text-white h-24"
+                className="w-full bg-[color:var(--surface-2)] border border-[color:var(--surface-border)] rounded-md px-3 py-2 text-[color:var(--text)] h-24"
                 value={formData.creatorDescription}
                 onChange={e => setFormData(prev => ({ ...prev, creatorDescription: e.target.value }))}
               />
@@ -122,25 +122,25 @@ export default function CreatorSettingsPanel({ isOpen, onClose }: CreatorSetting
           <section className="flex flex-col gap-3">
             <h3 className="text-md font-semibold">Respuestas rápidas</h3>
             <div>
-              <label className="block text-sm text-[#aebac1] mb-1">Saludo rápido</label>
+              <label className="block text-sm text-[color:var(--muted)] mb-1">Saludo rápido</label>
               <textarea
-                className="w-full bg-[#1f2c33] border border-[rgba(134,150,160,0.3)] rounded-md px-3 py-2 text-white h-20"
+                className="w-full bg-[color:var(--surface-2)] border border-[color:var(--surface-border)] rounded-md px-3 py-2 text-[color:var(--text)] h-20"
                 value={formData.quickReplies.saludoRapido}
                 onChange={e => updateQuickReply("saludoRapido", e.target.value)}
               />
             </div>
             <div>
-              <label className="block text-sm text-[#aebac1] mb-1">Pack bienvenida</label>
+              <label className="block text-sm text-[color:var(--muted)] mb-1">Pack bienvenida</label>
               <textarea
-                className="w-full bg-[#1f2c33] border border-[rgba(134,150,160,0.3)] rounded-md px-3 py-2 text-white h-20"
+                className="w-full bg-[color:var(--surface-2)] border border-[color:var(--surface-border)] rounded-md px-3 py-2 text-[color:var(--text)] h-20"
                 value={formData.quickReplies.packBienvenida}
                 onChange={e => updateQuickReply("packBienvenida", e.target.value)}
               />
             </div>
             <div>
-              <label className="block text-sm text-[#aebac1] mb-1">Enlace suscripción</label>
+              <label className="block text-sm text-[color:var(--muted)] mb-1">Enlace suscripción</label>
               <textarea
-                className="w-full bg-[#1f2c33] border border-[rgba(134,150,160,0.3)] rounded-md px-3 py-2 text-white h-20"
+                className="w-full bg-[color:var(--surface-2)] border border-[color:var(--surface-border)] rounded-md px-3 py-2 text-[color:var(--text)] h-20"
                 value={formData.quickReplies.enlaceSuscripcion}
                 onChange={e => updateQuickReply("enlaceSuscripcion", e.target.value)}
               />
@@ -152,28 +152,28 @@ export default function CreatorSettingsPanel({ isOpen, onClose }: CreatorSetting
             {formData.packs.map((pack, index) => (
               <div
                 key={pack.id}
-                className="flex flex-col gap-2 bg-[#0c1317] border border-[rgba(134,150,160,0.2)] rounded-lg p-3"
+                className="flex flex-col gap-2 bg-[color:var(--surface-2)] border border-[color:var(--surface-border)] rounded-lg p-3"
               >
                 <div className="flex flex-col gap-1">
-                  <label className="text-sm text-[#aebac1]">Nombre</label>
+                  <label className="text-sm text-[color:var(--muted)]">Nombre</label>
                   <input
-                    className="w-full bg-[#1f2c33] border border-[rgba(134,150,160,0.3)] rounded-md px-3 py-2 text-white"
+                    className="w-full bg-[color:var(--surface-2)] border border-[color:var(--surface-border)] rounded-md px-3 py-2 text-[color:var(--text)]"
                     value={pack.name}
                     onChange={e => updatePack(index, "name", e.target.value)}
                   />
                 </div>
                 <div className="flex flex-col gap-1">
-                  <label className="text-sm text-[#aebac1]">Precio</label>
+                  <label className="text-sm text-[color:var(--muted)]">Precio</label>
                   <input
-                    className="w-full bg-[#1f2c33] border border-[rgba(134,150,160,0.3)] rounded-md px-3 py-2 text-white"
+                    className="w-full bg-[color:var(--surface-2)] border border-[color:var(--surface-border)] rounded-md px-3 py-2 text-[color:var(--text)]"
                     value={pack.price}
                     onChange={e => updatePack(index, "price", e.target.value)}
                   />
                 </div>
                 <div className="flex flex-col gap-1">
-                  <label className="text-sm text-[#aebac1]">Descripción</label>
+                  <label className="text-sm text-[color:var(--muted)]">Descripción</label>
                   <textarea
-                    className="w-full bg-[#1f2c33] border border-[rgba(134,150,160,0.3)] rounded-md px-3 py-2 text-white h-20"
+                    className="w-full bg-[color:var(--surface-2)] border border-[color:var(--surface-border)] rounded-md px-3 py-2 text-[color:var(--text)] h-20"
                     value={pack.description}
                     onChange={e => updatePack(index, "description", e.target.value)}
                   />
@@ -182,17 +182,17 @@ export default function CreatorSettingsPanel({ isOpen, onClose }: CreatorSetting
             ))}
           </section>
         </div>
-        <div className="flex items-center justify-end gap-3 px-6 py-4 border-t border-[rgba(134,150,160,0.2)]">
+        <div className="flex items-center justify-end gap-3 px-6 py-4 border-t border-[color:var(--surface-border)]">
           <button
             type="button"
-            className="px-3 py-2 rounded-md border border-[rgba(134,150,160,0.3)] text-[#aebac1] hover:text-white"
+            className="px-3 py-2 rounded-md border border-[color:var(--surface-border)] text-[color:var(--muted)] hover:text-[color:var(--text)]"
             onClick={handleReset}
           >
             Restablecer valores por defecto
           </button>
           <button
             type="button"
-            className="px-3 py-2 rounded-md bg-[#2a3942] text-white hover:bg-[#3b4a54]"
+            className="px-3 py-2 rounded-md bg-[color:var(--surface-2)] text-[color:var(--text)] hover:bg-[color:var(--surface-1)]"
             onClick={handleSave}
             disabled={saving}
           >
@@ -200,7 +200,7 @@ export default function CreatorSettingsPanel({ isOpen, onClose }: CreatorSetting
           </button>
           <button
             type="button"
-            className="px-3 py-2 rounded-md bg-[#53bdeb] text-[#0b141a] font-semibold hover:bg-[#5ec7f5]"
+            className="px-3 py-2 rounded-md bg-[color:var(--brand-strong)] text-[color:var(--text)] font-semibold hover:bg-[color:var(--brand)]"
             onClick={onClose}
           >
             Cerrar

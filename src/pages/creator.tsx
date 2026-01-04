@@ -34,7 +34,7 @@ export default function CreatorPublicPage({ stats }: Props) {
       <Head>
         <title>NOVSY - Perfil público</title>
       </Head>
-      <div className="min-h-screen bg-slate-950 text-white">
+      <div className="min-h-screen bg-[color:var(--surface-0)] text-[color:var(--text)]">
         <PublicProfileView
           copy={resolvedCopy}
           creatorName={config.creatorName}

@@ -44,13 +44,13 @@ export function EditExtraPresetsModal({ presets, onSave, onClose }: Props) {
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
-      <div className="w-full max-w-3xl rounded-xl bg-neutral-900 p-6 shadow-xl">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-[color:var(--surface-overlay)]">
+      <div className="w-full max-w-3xl rounded-xl bg-[color:var(--surface-1)] p-6 shadow-xl">
         <div className="mb-4 flex items-center justify-between">
-          <h2 className="text-lg font-semibold text-neutral-50">Editar textos de contenido extra</h2>
+          <h2 className="text-lg font-semibold text-[color:var(--text)]">Editar textos de contenido extra</h2>
           <button
             type="button"
-            className="text-sm text-neutral-400 hover:text-neutral-200"
+            className="text-sm text-[color:var(--muted)] hover:text-[color:var(--text)]"
             onClick={onClose}
             disabled={saving}
           >
@@ -58,7 +58,7 @@ export function EditExtraPresetsModal({ presets, onSave, onClose }: Props) {
           </button>
         </div>
 
-        <div className="mb-2 text-[11px] text-neutral-400">
+        <div className="mb-2 text-[11px] text-[color:var(--muted)]">
           Puedes usar el placeholder {"{precio}"} en cada texto; se sustituirá por el importe sugerido del tier.
         </div>
 
@@ -66,11 +66,11 @@ export function EditExtraPresetsModal({ presets, onSave, onClose }: Props) {
           {order.map((key) => (
             <section
               key={key}
-              className="rounded-lg bg-neutral-950/40 p-4 ring-1 ring-neutral-800"
+              className="rounded-lg bg-[color:var(--surface-2)] p-4 ring-1 ring-[color:var(--surface-border)]"
             >
-              <h3 className="mb-2 text-sm font-semibold text-neutral-50">{labels[key]}</h3>
+              <h3 className="mb-2 text-sm font-semibold text-[color:var(--text)]">{labels[key]}</h3>
               <textarea
-                className="w-full rounded-md bg-neutral-800 px-3 py-2 text-sm text-neutral-50 outline-none ring-1 ring-neutral-700 focus:ring-emerald-500"
+                className="w-full rounded-md bg-[color:var(--surface-2)] px-3 py-2 text-sm text-[color:var(--text)] outline-none ring-1 ring-[color:var(--surface-border)] focus:ring-[color:var(--ring)]"
                 rows={4}
                 value={local[key]}
                 onChange={(e) => updateField(key, e.target.value)}
@@ -82,7 +82,7 @@ export function EditExtraPresetsModal({ presets, onSave, onClose }: Props) {
         <div className="mt-4 flex justify-end gap-2">
           <button
             type="button"
-            className="rounded-md px-3 py-2 text-sm text-neutral-300 hover:bg-neutral-800"
+            className="rounded-md px-3 py-2 text-sm text-[color:var(--muted)] hover:bg-[color:var(--surface-2)]"
             onClick={() => setLocal(DEFAULT_EXTRA_PRESETS)}
             disabled={saving}
           >
@@ -90,7 +90,7 @@ export function EditExtraPresetsModal({ presets, onSave, onClose }: Props) {
           </button>
           <button
             type="button"
-            className="rounded-md px-3 py-2 text-sm text-neutral-300 hover:bg-neutral-800"
+            className="rounded-md px-3 py-2 text-sm text-[color:var(--muted)] hover:bg-[color:var(--surface-2)]"
             onClick={onClose}
             disabled={saving}
           >
@@ -98,7 +98,7 @@ export function EditExtraPresetsModal({ presets, onSave, onClose }: Props) {
           </button>
           <button
             type="button"
-            className="rounded-md bg-emerald-500 px-4 py-2 text-sm font-medium text-neutral-950 hover:bg-emerald-400 disabled:opacity-60"
+            className="rounded-md bg-[color:var(--brand-strong)] px-4 py-2 text-sm font-medium text-[color:var(--surface-0)] hover:bg-[color:var(--brand)] disabled:opacity-60"
             onClick={handleSave}
             disabled={saving}
           >

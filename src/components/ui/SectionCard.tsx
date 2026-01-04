@@ -17,8 +17,8 @@ type SectionCardProps = {
 };
 
 const VARIANT_STYLES: Record<SectionCardVariant, string> = {
-  default: "border-[color:var(--surface-border)] bg-[var(--surface-1)]",
-  muted: "border-[color:var(--surface-border)] bg-[var(--surface-2)]",
+  default: "border-[color:var(--surface-border)] bg-[color:var(--surface-1)]",
+  muted: "border-[color:var(--surface-border)] bg-[color:var(--surface-2)]",
 };
 
 export function SectionCard({
@@ -47,10 +47,10 @@ export function SectionCard({
         <div className={clsx("flex flex-wrap items-start justify-between gap-3", headerClassName)}>
           <div className="space-y-1">
             {eyebrow ? (
-              <div className="text-[10px] uppercase tracking-[0.16em] text-slate-500">{eyebrow}</div>
+              <div className="text-[10px] uppercase tracking-[0.16em] text-[color:var(--muted)]">{eyebrow}</div>
             ) : null}
-            {title ? <div className="text-base font-semibold text-slate-100">{title}</div> : null}
-            {subtitle ? <div className="text-[13px] text-slate-400">{subtitle}</div> : null}
+            {title ? <div className="text-base font-semibold text-[color:var(--text)]">{title}</div> : null}
+            {subtitle ? <div className="text-[13px] text-[color:var(--muted)]">{subtitle}</div> : null}
           </div>
           {actions ? <div className="flex items-center gap-2">{actions}</div> : null}
         </div>

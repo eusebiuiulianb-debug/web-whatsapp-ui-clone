@@ -99,15 +99,15 @@ export function NewContentModal({ onClose, mode, initialContent, createDefaults 
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
-      <div className="w-full max-w-lg rounded-xl bg-neutral-900 p-6 shadow-xl">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-[color:var(--surface-overlay)]">
+      <div className="w-full max-w-lg rounded-xl bg-[color:var(--surface-1)] p-6 shadow-xl">
         <div className="mb-4 flex items-center justify-between">
-          <h2 className="text-lg font-semibold text-neutral-50">
+          <h2 className="text-lg font-semibold text-[color:var(--text)]">
             {mode === "edit" ? "Editar contenido" : "Nuevo contenido"}
           </h2>
           <button
             type="button"
-            className="text-sm text-neutral-400 hover:text-neutral-200"
+            className="text-sm text-[color:var(--muted)] hover:text-[color:var(--text)]"
             onClick={onClose}
             disabled={loading}
           >
@@ -117,9 +117,9 @@ export function NewContentModal({ onClose, mode, initialContent, createDefaults 
 
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
-            <label className="mb-1 block text-sm text-neutral-300">Título*</label>
+            <label className="mb-1 block text-sm text-[color:var(--muted)]">Título*</label>
             <input
-              className="w-full rounded-md bg-neutral-800 px-3 py-2 text-sm text-neutral-50 outline-none ring-1 ring-neutral-700 focus:ring-emerald-500"
+              className="w-full rounded-md bg-[color:var(--surface-2)] px-3 py-2 text-sm text-[color:var(--text)] outline-none ring-1 ring-[color:var(--surface-border)] focus:ring-[color:var(--ring)]"
               value={title}
               onChange={(e) => setTitle(e.target.value)}
               required
@@ -127,9 +127,9 @@ export function NewContentModal({ onClose, mode, initialContent, createDefaults 
           </div>
 
           <div>
-            <label className="mb-1 block text-sm text-neutral-300">Descripción</label>
+            <label className="mb-1 block text-sm text-[color:var(--muted)]">Descripción</label>
             <textarea
-              className="w-full resize-none rounded-md bg-neutral-800 px-3 py-2 text-sm text-neutral-50 outline-none ring-1 ring-neutral-700 focus:ring-emerald-500"
+              className="w-full resize-none rounded-md bg-[color:var(--surface-2)] px-3 py-2 text-sm text-[color:var(--text)] outline-none ring-1 ring-[color:var(--surface-border)] focus:ring-[color:var(--ring)]"
               rows={3}
               value={description}
               onChange={(e) => setDescription(e.target.value)}
@@ -138,9 +138,9 @@ export function NewContentModal({ onClose, mode, initialContent, createDefaults 
 
           <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
             <div>
-              <label className="mb-1 block text-xs text-neutral-300">Tipo*</label>
+              <label className="mb-1 block text-xs text-[color:var(--muted)]">Tipo*</label>
               <select
-                className="w-full rounded-md bg-neutral-800 px-2 py-2 text-sm text-neutral-50 outline-none ring-1 ring-neutral-700 focus:ring-emerald-500"
+                className="w-full rounded-md bg-[color:var(--surface-2)] px-2 py-2 text-sm text-[color:var(--text)] outline-none ring-1 ring-[color:var(--surface-border)] focus:ring-[color:var(--ring)]"
                 value={type}
                 onChange={(e) => setType(e.target.value as ContentType)}
               >
@@ -153,9 +153,9 @@ export function NewContentModal({ onClose, mode, initialContent, createDefaults 
             </div>
 
             <div>
-              <label className="mb-1 block text-xs text-neutral-300">Pack*</label>
+              <label className="mb-1 block text-xs text-[color:var(--muted)]">Pack*</label>
               <select
-                className="w-full rounded-md bg-neutral-800 px-2 py-2 text-sm text-neutral-50 outline-none ring-1 ring-neutral-700 focus:ring-emerald-500"
+                className="w-full rounded-md bg-[color:var(--surface-2)] px-2 py-2 text-sm text-[color:var(--text)] outline-none ring-1 ring-[color:var(--surface-border)] focus:ring-[color:var(--ring)]"
                 value={pack}
                 onChange={(e) => setPack(e.target.value as ContentPack)}
               >
@@ -168,9 +168,9 @@ export function NewContentModal({ onClose, mode, initialContent, createDefaults 
             </div>
 
             <div>
-              <label className="mb-1 block text-xs text-neutral-300">Visibilidad*</label>
+              <label className="mb-1 block text-xs text-[color:var(--muted)]">Visibilidad*</label>
               <select
-                className="w-full rounded-md bg-neutral-800 px-2 py-2 text-sm text-neutral-50 outline-none ring-1 ring-neutral-700 focus:ring-emerald-500"
+                className="w-full rounded-md bg-[color:var(--surface-2)] px-2 py-2 text-sm text-[color:var(--text)] outline-none ring-1 ring-[color:var(--surface-border)] focus:ring-[color:var(--ring)]"
                 value={visibility}
                 onChange={(e) => {
                   const nextVisibility = e.target.value as ContentVisibility;
@@ -191,11 +191,11 @@ export function NewContentModal({ onClose, mode, initialContent, createDefaults 
           </div>
 
           <div>
-            <label className="mb-1 block text-sm text-neutral-300">
+            <label className="mb-1 block text-sm text-[color:var(--muted)]">
               Media path* (ej. <code>/media/welcome/foto_x.jpg</code>)
             </label>
             <input
-              className="w-full rounded-md bg-neutral-800 px-3 py-2 text-sm text-neutral-50 outline-none ring-1 ring-neutral-700 focus:ring-emerald-500"
+              className="w-full rounded-md bg-[color:var(--surface-2)] px-3 py-2 text-sm text-[color:var(--text)] outline-none ring-1 ring-[color:var(--surface-border)] focus:ring-[color:var(--ring)]"
               value={mediaPath}
               onChange={(e) => setMediaPath(e.target.value)}
               required
@@ -205,9 +205,9 @@ export function NewContentModal({ onClose, mode, initialContent, createDefaults 
           {visibility === "EXTRA" && (
             <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
               <div>
-                <label className="mb-1 block text-xs text-neutral-300">Tier del extra</label>
+                <label className="mb-1 block text-xs text-[color:var(--muted)]">Tier del extra</label>
                 <select
-                  className="w-full rounded-md bg-neutral-800 px-2 py-2 text-sm text-neutral-50 outline-none ring-1 ring-neutral-700 focus:ring-emerald-500"
+                  className="w-full rounded-md bg-[color:var(--surface-2)] px-2 py-2 text-sm text-[color:var(--text)] outline-none ring-1 ring-[color:var(--surface-border)] focus:ring-[color:var(--ring)]"
                   value={extraTier}
                   onChange={(e) => setExtraTier(e.target.value as ExtraTier)}
                 >
@@ -222,9 +222,9 @@ export function NewContentModal({ onClose, mode, initialContent, createDefaults 
                 </select>
               </div>
               <div>
-                <label className="mb-1 block text-xs text-neutral-300">Momento del día</label>
+                <label className="mb-1 block text-xs text-[color:var(--muted)]">Momento del día</label>
                 <select
-                  className="w-full rounded-md bg-neutral-800 px-2 py-2 text-sm text-neutral-50 outline-none ring-1 ring-neutral-700 focus:ring-emerald-500"
+                  className="w-full rounded-md bg-[color:var(--surface-2)] px-2 py-2 text-sm text-[color:var(--text)] outline-none ring-1 ring-[color:var(--surface-border)] focus:ring-[color:var(--ring)]"
                   value={timeOfDay}
                   onChange={(e) => setTimeOfDay(e.target.value as TimeOfDay)}
                 >
@@ -240,12 +240,12 @@ export function NewContentModal({ onClose, mode, initialContent, createDefaults 
             </div>
           )}
 
-          {errorMsg && <p className="text-sm text-red-400">{errorMsg}</p>}
+          {errorMsg && <p className="text-sm text-[color:var(--danger)]">{errorMsg}</p>}
 
           <div className="mt-2 flex justify-end gap-2">
             <button
               type="button"
-              className="rounded-md px-3 py-2 text-sm text-neutral-300 hover:bg-neutral-800"
+              className="rounded-md px-3 py-2 text-sm text-[color:var(--muted)] hover:bg-[color:var(--surface-2)]"
               onClick={onClose}
               disabled={loading}
             >
@@ -253,7 +253,7 @@ export function NewContentModal({ onClose, mode, initialContent, createDefaults 
             </button>
             <button
               type="submit"
-              className="rounded-md bg-emerald-500 px-4 py-2 text-sm font-medium text-neutral-950 hover:bg-emerald-400 disabled:opacity-60"
+              className="rounded-md bg-[color:var(--brand-strong)] px-4 py-2 text-sm font-medium text-[color:var(--surface-0)] hover:bg-[color:var(--brand)] disabled:opacity-60"
               disabled={loading}
             >
               {loading

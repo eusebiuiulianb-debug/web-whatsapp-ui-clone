@@ -304,7 +304,7 @@ export default function CreatorAiSettingsPage() {
   function AiUsageChart({ data }: { data: { date: string; count: number }[] }) {
     if (!data || data.length === 0 || data.every((d) => !d.count)) {
       return (
-        <div className="flex h-40 items-center justify-center text-[11px] text-slate-400">
+        <div className="flex h-40 items-center justify-center text-[11px] text-[color:var(--muted)]">
           Aún no hay actividad suficiente para mostrar el uso diario.
         </div>
       );
@@ -323,7 +323,7 @@ export default function CreatorAiSettingsPage() {
               return (
                 <div key={point.date} className="flex-1 flex flex-col items-center">
                   <div
-                    className="w-full rounded-t-md bg-emerald-500/80"
+                    className="w-full rounded-t-md bg-[color:rgba(var(--brand-rgb),0.8)]"
                     style={{ height: `${heightPx}px` }}
                     title={`${label}: ${point.count} sugerencias`}
                     aria-label={`${label}: ${point.count} sugerencias`}
@@ -332,7 +332,7 @@ export default function CreatorAiSettingsPage() {
               );
             })}
           </div>
-          <div className="flex justify-between text-[10px] text-slate-400 px-1">
+          <div className="flex justify-between text-[10px] text-[color:var(--muted)] px-1">
             {data.map((point, idx) => {
               const shouldShow = data.length <= 7 || idx === 0 || idx === data.length - 1 || idx % 5 === 0;
               return (
@@ -347,7 +347,7 @@ export default function CreatorAiSettingsPage() {
     );
   }
   return (
-    <div className="min-h-screen bg-[#0b141a] text-white">
+    <div className="min-h-screen bg-[color:var(--surface-0)] text-[color:var(--text)]">
       <Head>
         <title>Ajustes de IA – NOVSY</title>
       </Head>
@@ -364,21 +364,21 @@ export default function CreatorAiSettingsPage() {
 
         <div className="flex flex-col gap-1">
           <h1 className="text-2xl font-semibold">Ajustes de IA</h1>
-          <p className="text-sm text-slate-300">
+          <p className="text-sm text-[color:var(--muted)]">
             Configura cómo y cuánto puede responder la IA por ti a lo largo del día.
           </p>
         </div>
 
-        <div className="rounded-2xl border border-slate-800 bg-slate-900/70 p-4 sm:p-6">
-          {loading && <div className="text-sm text-slate-300">Cargando...</div>}
-          {error && <div className="text-sm text-rose-300 mb-3">{error}</div>}
-          {success && <div className="text-sm text-emerald-300 mb-3">{success}</div>}
+        <div className="rounded-2xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] p-4 sm:p-6">
+          {loading && <div className="text-sm text-[color:var(--muted)]">Cargando...</div>}
+          {error && <div className="text-sm text-[color:var(--danger)] mb-3">{error}</div>}
+          {success && <div className="text-sm text-[color:var(--brand)] mb-3">{success}</div>}
 
           {form && (
             <form onSubmit={handleSubmit} className="flex flex-col gap-4">
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <div className="flex flex-col gap-2">
-                  <label className="text-sm text-slate-200 font-medium">Tono base de la IA</label>
+                  <label className="text-sm text-[color:var(--text)] font-medium">Tono base de la IA</label>
                   <select
                     value={form.tone}
                     onChange={(e) =>
@@ -386,7 +386,7 @@ export default function CreatorAiSettingsPage() {
                         prev ? { ...prev, tone: normalizeAiBaseTone(e.target.value) } : prev
                       )
                     }
-                    className="w-full rounded-lg bg-slate-800/70 border border-slate-700 px-3 py-2 text-sm text-white focus:border-emerald-400"
+                    className="w-full rounded-lg bg-[color:var(--surface-2)] border border-[color:var(--surface-border)] px-3 py-2 text-sm text-[color:var(--text)] focus:border-[color:var(--border-a)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--ring)]"
                   >
                     {[
                       { value: "auto", label: "Automático (según fan)" },
@@ -399,18 +399,18 @@ export default function CreatorAiSettingsPage() {
                       </option>
                     ))}
                   </select>
-                  <p className="text-xs text-slate-400">
+                  <p className="text-xs text-[color:var(--muted)]">
                     La IA usará este tono como base cuando no haya contexto claro. El Manager IA puede ajustar el tono fan a fan.
                   </p>
                 </div>
                 <div className="flex flex-col gap-2">
-                  <label className="text-sm text-slate-200 font-medium">Modo de turno de la IA</label>
+                  <label className="text-sm text-[color:var(--text)] font-medium">Modo de turno de la IA</label>
                   <select
                     value={form.turnMode}
                     onChange={(e) =>
                       setForm((prev) => (prev ? { ...prev, turnMode: e.target.value as AiTurnMode } : prev))
                     }
-                    className="w-full rounded-lg bg-slate-800/70 border border-slate-700 px-3 py-2 text-sm text-white focus:border-emerald-400"
+                    className="w-full rounded-lg bg-[color:var(--surface-2)] border border-[color:var(--surface-border)] px-3 py-2 text-sm text-[color:var(--text)] focus:border-[color:var(--border-a)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--ring)]"
                   >
                     {turnModeOptions.map((option) => (
                       <option key={option.value} value={option.value}>
@@ -418,13 +418,13 @@ export default function CreatorAiSettingsPage() {
                       </option>
                     ))}
                   </select>
-                  <p className="text-xs text-slate-400">
+                  <p className="text-xs text-[color:var(--muted)]">
                     Define la estrategia general de la IA. El Manager IA sigue usando el objetivo de cada fan; esto solo orienta la priorización cuando haya varias opciones válidas.
                   </p>
                 </div>
 
                 <div className="flex flex-col gap-2">
-                  <label className="text-sm text-slate-200 font-medium">Créditos disponibles</label>
+                  <label className="text-sm text-[color:var(--text)] font-medium">Créditos disponibles</label>
                   <input
                     type="number"
                     min={0}
@@ -437,14 +437,14 @@ export default function CreatorAiSettingsPage() {
                           : prev
                       );
                     }}
-                    className="w-full rounded-lg bg-slate-800/70 border border-slate-700 px-3 py-2 text-sm text-white focus:border-emerald-400"
+                    className="w-full rounded-lg bg-[color:var(--surface-2)] border border-[color:var(--surface-border)] px-3 py-2 text-sm text-[color:var(--text)] focus:border-[color:var(--border-a)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--ring)]"
                   />
                 </div>
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="flex flex-col gap-2">
-                  <label className="text-sm text-slate-200 font-medium">Límite diario de créditos (opcional)</label>
+                  <label className="text-sm text-[color:var(--text)] font-medium">Límite diario de créditos (opcional)</label>
                   <input
                     type="number"
                     min={0}
@@ -461,14 +461,14 @@ export default function CreatorAiSettingsPage() {
                           : prev
                       );
                     }}
-                    className="w-full rounded-lg bg-slate-800/70 border border-slate-700 px-3 py-2 text-sm text-white focus:border-emerald-400"
+                    className="w-full rounded-lg bg-[color:var(--surface-2)] border border-[color:var(--surface-border)] px-3 py-2 text-sm text-[color:var(--text)] focus:border-[color:var(--border-a)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--ring)]"
                   />
-                  <p className="text-xs text-slate-400">
+                  <p className="text-xs text-[color:var(--muted)]">
                     Déjalo vacío si no quieres un límite diario.
                   </p>
                 </div>
 
-                <div className="flex items-center gap-3 border border-slate-800 rounded-xl px-4 py-3 bg-slate-900/70">
+                <div className="flex items-center gap-3 border border-[color:var(--surface-border)] rounded-xl px-4 py-3 bg-[color:var(--surface-1)]">
                   <input
                     id="allowAutoLowPriority"
                     type="checkbox"
@@ -476,13 +476,13 @@ export default function CreatorAiSettingsPage() {
                     onChange={(e) =>
                       setForm((prev) => (prev ? { ...prev, allowAutoLowPriority: e.target.checked } : prev))
                     }
-                    className="h-5 w-5 rounded border-slate-600 bg-slate-800 text-emerald-400 focus:ring-emerald-400"
+                    className="h-5 w-5 rounded border-[color:var(--surface-border)] bg-[color:var(--surface-2)] text-[color:var(--brand)] focus:ring-[color:var(--ring)]"
                   />
                   <div className="flex flex-col">
-                    <label htmlFor="allowAutoLowPriority" className="text-sm font-medium text-slate-200">
+                    <label htmlFor="allowAutoLowPriority" className="text-sm font-medium text-[color:var(--text)]">
                       Permitir respuestas automáticas para fans de baja prioridad
                     </label>
-                    <p className="text-xs text-slate-400">
+                    <p className="text-xs text-[color:var(--muted)]">
                       Si está activado, la IA puede contestar por ti cuando la cola esté muy llena. Solo se usa con fans marcados como baja prioridad.
                     </p>
                   </div>
@@ -493,13 +493,13 @@ export default function CreatorAiSettingsPage() {
                 <button
                   type="submit"
                   disabled={saving}
-                  className="inline-flex items-center justify-center rounded-lg bg-emerald-500 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-400 disabled:opacity-60 disabled:cursor-not-allowed"
+                  className="inline-flex items-center justify-center rounded-lg bg-[color:var(--brand-strong)] px-4 py-2 text-sm font-semibold text-[color:var(--text)] hover:bg-[color:var(--brand)] disabled:opacity-60 disabled:cursor-not-allowed"
                 >
                   {saving ? "Guardando..." : "Guardar ajustes"}
                 </button>
               </div>
 
-              <div className="text-xs text-slate-300">
+              <div className="text-xs text-[color:var(--muted)]">
                 Usados hoy:{" "}
                 {status ? `${status.usedToday}/${status.hardLimitPerDay ?? "∞"}` : "—"} · Créditos restantes:{" "}
                 {status ? status.creditsAvailable : "—"}
@@ -508,74 +508,74 @@ export default function CreatorAiSettingsPage() {
           )}
 
           {!loading && !form && (
-            <div className="text-sm text-slate-300">No hay datos de ajustes disponibles en este momento.</div>
+            <div className="text-sm text-[color:var(--muted)]">No hay datos de ajustes disponibles en este momento.</div>
           )}
         </div>
 
-              <div className="rounded-2xl border border-slate-800 bg-slate-900/70 p-4 sm:p-6">
+              <div className="rounded-2xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] p-4 sm:p-6">
                 <div className="flex items-center justify-between mb-3">
                   <div>
-                    <h2 className="text-lg font-semibold text-white">Uso de IA</h2>
-                    <p className="text-sm text-slate-300">Sugerencias y créditos recientes.</p>
+                    <h2 className="text-lg font-semibold text-[color:var(--text)]">Uso de IA</h2>
+                    <p className="text-sm text-[color:var(--muted)]">Sugerencias y créditos recientes.</p>
             </div>
             <button
               type="button"
               onClick={fetchUsageSummary}
-              className="rounded-lg border border-slate-700 bg-slate-800/70 px-3 py-1.5 text-xs text-slate-100 hover:border-emerald-400"
+              className="rounded-lg border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-3 py-1.5 text-xs text-[color:var(--text)] hover:border-[color:var(--brand)]"
             >
               Refrescar
             </button>
           </div>
-          {usageError && <div className="text-sm text-rose-300 mb-2">{usageError}</div>}
-          {usageLoading && <div className="text-sm text-slate-300">Cargando actividad...</div>}
+          {usageError && <div className="text-sm text-[color:var(--danger)] mb-2">{usageError}</div>}
+          {usageLoading && <div className="text-sm text-[color:var(--muted)]">Cargando actividad...</div>}
 
           {usageSummary && (
             <div className="flex flex-col gap-4">
               <div className="space-y-2">
-                <div className="text-sm font-semibold text-white">Resumen rápido</div>
+                <div className="text-sm font-semibold text-[color:var(--text)]">Resumen rápido</div>
                 <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3">
-                  <div className="rounded-lg border border-slate-800 bg-slate-900/80 p-3">
-                    <div className="text-xs text-slate-400">Sugerencias hoy</div>
-                    <div className="text-2xl font-semibold text-white">{usageSummary.summary.totalToday}</div>
-                    <div className="text-[11px] text-slate-400 mt-1">Peticiones al Manager IA hoy</div>
+                  <div className="rounded-lg border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] p-3">
+                    <div className="text-xs text-[color:var(--muted)]">Sugerencias hoy</div>
+                    <div className="text-2xl font-semibold text-[color:var(--text)]">{usageSummary.summary.totalToday}</div>
+                    <div className="text-[11px] text-[color:var(--muted)] mt-1">Peticiones al Manager IA hoy</div>
                   </div>
-                  <div className="rounded-lg border border-slate-800 bg-slate-900/80 p-3">
-                    <div className="text-xs text-slate-400">Sugerencias últimos 7 días</div>
-                    <div className="text-2xl font-semibold text-white">{usageSummary.summary.totalLast7Days}</div>
-                    <div className="text-[11px] text-slate-400 mt-1">Peticiones de los últimos 7 días</div>
+                  <div className="rounded-lg border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] p-3">
+                    <div className="text-xs text-[color:var(--muted)]">Sugerencias últimos 7 días</div>
+                    <div className="text-2xl font-semibold text-[color:var(--text)]">{usageSummary.summary.totalLast7Days}</div>
+                    <div className="text-[11px] text-[color:var(--muted)] mt-1">Peticiones de los últimos 7 días</div>
                   </div>
-                  <div className="rounded-lg border border-slate-800 bg-slate-900/80 p-3">
-                    <div className="text-xs text-slate-400">Créditos usados hoy</div>
-                    <div className="text-2xl font-semibold text-white">{usageSummary.summary.creditsToday}</div>
-                    <div className="text-[11px] text-slate-400 mt-1">Créditos consumidos hoy</div>
+                  <div className="rounded-lg border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] p-3">
+                    <div className="text-xs text-[color:var(--muted)]">Créditos usados hoy</div>
+                    <div className="text-2xl font-semibold text-[color:var(--text)]">{usageSummary.summary.creditsToday}</div>
+                    <div className="text-[11px] text-[color:var(--muted)] mt-1">Créditos consumidos hoy</div>
                   </div>
-                  <div className="rounded-lg border border-slate-800 bg-slate-900/80 p-3">
-                    <div className="text-xs text-slate-400">Créditos disponibles</div>
-                    <div className="text-2xl font-semibold text-white">
+                  <div className="rounded-lg border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] p-3">
+                    <div className="text-xs text-[color:var(--muted)]">Créditos disponibles</div>
+                    <div className="text-2xl font-semibold text-[color:var(--text)]">
                       {usageSummary.settings?.creditsAvailable ?? "—"}
                     </div>
-                    <div className="text-[11px] text-slate-400 mt-1">Saldo disponible de la IA</div>
+                    <div className="text-[11px] text-[color:var(--muted)] mt-1">Saldo disponible de la IA</div>
                   </div>
                 </div>
               </div>
 
-              <div className="rounded-lg border border-slate-800 bg-slate-900/80 p-3">
-                <div className="text-xs font-semibold text-white mb-2">Por tipo (últimos 7 días)</div>
-                <div className="flex flex-wrap gap-2 text-[11px] text-slate-200">
-                  {usageSummary.summary.byActionTypeLast7Days.length === 0 && <span className="text-slate-400">Sin datos</span>}
+              <div className="rounded-lg border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] p-3">
+                <div className="text-xs font-semibold text-[color:var(--text)] mb-2">Por tipo (últimos 7 días)</div>
+                <div className="flex flex-wrap gap-2 text-[11px] text-[color:var(--text)]">
+                  {usageSummary.summary.byActionTypeLast7Days.length === 0 && <span className="text-[color:var(--muted)]">Sin datos</span>}
                   {usageSummary.summary.byActionTypeLast7Days.map((item) => (
-                    <span key={item.actionType} className="rounded-full border border-slate-700 px-2 py-1">
+                    <span key={item.actionType} className="rounded-full border border-[color:var(--surface-border)] px-2 py-1">
                       {mapActionType(item.actionType)}: {item.count}
                     </span>
                   ))}
                 </div>
               </div>
 
-              <div className="rounded-lg border border-slate-800 bg-slate-900/80 p-3">
+              <div className="rounded-lg border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] p-3">
                 <div className="flex items-center justify-between">
                   <div>
-                    <div className="text-xs font-semibold text-white">Uso de IA (30 días)</div>
-                    <div className="text-[11px] text-slate-400">Sugerencias por día</div>
+                    <div className="text-xs font-semibold text-[color:var(--text)]">Uso de IA (30 días)</div>
+                    <div className="text-[11px] text-[color:var(--muted)]">Sugerencias por día</div>
                   </div>
                 </div>
                 <div className="mt-3">
@@ -583,14 +583,14 @@ export default function CreatorAiSettingsPage() {
                 </div>
               </div>
 
-              <div className="rounded-lg border border-slate-800 bg-slate-900/80 p-3">
+              <div className="rounded-lg border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] p-3">
                 <div className="flex items-center justify-between mb-2">
-                  <div className="text-xs font-semibold text-white">Historial de IA (últimos 30 días)</div>
+                  <div className="text-xs font-semibold text-[color:var(--text)]">Historial de IA (últimos 30 días)</div>
                 </div>
                 <div className="overflow-x-auto">
-                  <table className="min-w-full text-left text-sm text-slate-100">
+                  <table className="min-w-full text-left text-sm text-[color:var(--text)]">
                     <thead>
-                      <tr className="text-xs text-slate-400 border-b border-slate-800">
+                      <tr className="text-xs text-[color:var(--muted)] border-b border-[color:var(--surface-border)]">
                         <th className="py-2 pr-3">Fecha</th>
                         <th className="py-2 pr-3">Fan</th>
                         <th className="py-2 pr-3">Acción</th>
@@ -601,25 +601,25 @@ export default function CreatorAiSettingsPage() {
                     <tbody>
                       {pageRows.length === 0 && (
                         <tr>
-                          <td colSpan={5} className="py-2 text-slate-400">
+                          <td colSpan={5} className="py-2 text-[color:var(--muted)]">
                             Sin actividad reciente.
                           </td>
                         </tr>
                       )}
                       {pageRows.map((log) => (
-                        <tr key={log.id} className="border-b border-slate-800/60">
+                        <tr key={log.id} className="border-b border-[color:var(--surface-border)]/60">
                           <td className="py-2 pr-3">{formatDate(log.createdAt)}</td>
                           <td className="py-2 pr-3">{log.fanId ?? "-"}</td>
                           <td className="py-2 pr-3">{mapActionType(log.actionType)}</td>
                           <td className="py-2 pr-3">{log.creditsUsed}</td>
-                          <td className="py-2 pr-3 text-slate-400">{log.outcome ?? "-"}</td>
+                          <td className="py-2 pr-3 text-[color:var(--muted)]">{log.outcome ?? "-"}</td>
                         </tr>
                       ))}
                     </tbody>
                   </table>
                 </div>
                 {totalRows > 0 && (
-                  <div className="mt-3 flex items-center justify-between text-[11px] text-slate-300">
+                  <div className="mt-3 flex items-center justify-between text-[11px] text-[color:var(--muted)]">
                     <span>
                       Mostrando {startIndex + 1}-{Math.min(endIndex, totalRows)} de {totalRows}
                     </span>
@@ -628,16 +628,16 @@ export default function CreatorAiSettingsPage() {
                         type="button"
                         onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
                         disabled={safePage === 1}
-                        className="rounded-full border border-slate-700 px-3 py-1 text-[11px] font-semibold text-slate-100 hover:border-emerald-400 disabled:opacity-50 disabled:cursor-not-allowed"
+                      className="rounded-full border border-[color:var(--surface-border)] px-3 py-1 text-[11px] font-semibold text-[color:var(--text)] hover:border-[color:var(--brand)] disabled:opacity-50 disabled:cursor-not-allowed"
                       >
                         Anterior
                       </button>
-                      <span className="text-slate-400">Página {safePage} de {totalPages}</span>
+                      <span className="text-[color:var(--muted)]">Página {safePage} de {totalPages}</span>
                       <button
                         type="button"
                         onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
                         disabled={safePage === totalPages}
-                        className="rounded-full border border-slate-700 px-3 py-1 text-[11px] font-semibold text-slate-100 hover:border-emerald-400 disabled:opacity-50 disabled:cursor-not-allowed"
+                      className="rounded-full border border-[color:var(--surface-border)] px-3 py-1 text-[11px] font-semibold text-[color:var(--text)] hover:border-[color:var(--brand)] disabled:opacity-50 disabled:cursor-not-allowed"
                       >
                         Siguiente
                       </button>

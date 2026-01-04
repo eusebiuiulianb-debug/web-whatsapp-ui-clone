@@ -65,14 +65,14 @@ export default function FanManagerPanel({
   const isLoading = !data && !error;
   const toneClass = (tone?: FanManagerChip["tone"]) =>
     tone === "danger"
-      ? "border-rose-400/70 bg-rose-500/10 text-rose-100"
+      ? "border-[color:rgba(244,63,94,0.7)] bg-[color:rgba(244,63,94,0.08)] text-[color:var(--text)]"
       : tone === "warning"
-      ? "border-amber-400/70 bg-amber-500/10 text-amber-100"
+      ? "border-[color:rgba(245,158,11,0.7)] bg-[color:rgba(245,158,11,0.08)] text-[color:var(--text)]"
       : tone === "success"
       ? "border-[color:var(--brand)] bg-[color:var(--brand-weak)] text-[color:var(--text)]"
       : tone === "info"
-      ? "border-sky-400/70 bg-sky-500/10 text-sky-100"
-      : "border-slate-700 bg-slate-900/60 text-slate-100";
+      ? "border-[color:rgba(var(--brand-rgb),0.7)] bg-[color:rgba(var(--brand-rgb),0.12)] text-[color:var(--text)]"
+      : "border-[color:var(--surface-border)] bg-[color:var(--surface-1)] text-[color:var(--text)]";
 
   const scoreLabel = data?.healthScore ? `${data.segment} · ${data.healthScore}` : data?.segment;
   const stageLabel = data?.relationshipStage;
@@ -91,11 +91,11 @@ export default function FanManagerPanel({
     : null;
   const riskChipClass = data
     ? data.riskLevel === "HIGH"
-      ? "border-rose-400/70 bg-rose-500/10 text-rose-100"
+      ? "border-[color:rgba(244,63,94,0.7)] bg-[color:rgba(244,63,94,0.08)] text-[color:var(--text)]"
       : data.riskLevel === "MEDIUM"
-      ? "border-amber-400/70 bg-amber-500/10 text-amber-100"
+      ? "border-[color:rgba(245,158,11,0.7)] bg-[color:rgba(245,158,11,0.08)] text-[color:var(--text)]"
       : "border-[color:rgba(var(--brand-rgb),0.55)] bg-[color:rgba(var(--brand-rgb),0.1)] text-[color:rgba(var(--brand-rgb),0.9)]"
-    : "border-slate-700 bg-slate-900/60 text-slate-100";
+    : "border-[color:var(--surface-border)] bg-[color:var(--surface-1)] text-[color:var(--text)]";
 
   const dataChips: { label: string; className: string }[] = [];
   if (scoreLabel) {
@@ -108,7 +108,7 @@ export default function FanManagerPanel({
   if (stageLabel) {
     dataChips.push({
       label: stageLabel,
-      className: "inline-flex items-center rounded-full border border-slate-700 bg-slate-900/60 px-3 py-0.5 text-xs md:text-sm text-slate-100",
+      className: "inline-flex items-center rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-3 py-0.5 text-xs md:text-sm text-[color:var(--text)]",
     });
   }
   if (riskLabel) {
@@ -120,13 +120,13 @@ export default function FanManagerPanel({
   if (styleLabel) {
     dataChips.push({
       label: styleLabel,
-      className: "inline-flex items-center rounded-full border border-sky-500/60 bg-sky-500/5 px-3 py-0.5 text-xs md:text-sm text-sky-200",
+      className: "inline-flex items-center rounded-full border border-[color:rgba(var(--brand-rgb),0.6)] bg-[color:rgba(var(--brand-rgb),0.05)] px-3 py-0.5 text-xs md:text-sm text-[color:var(--brand)]",
     });
   }
   if (daysLeftLabel) {
     dataChips.push({
       label: daysLeftLabel,
-      className: "inline-flex items-center rounded-full border border-slate-700 bg-slate-900/60 px-3 py-0.5 text-xs md:text-sm text-slate-200",
+      className: "inline-flex items-center rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-3 py-0.5 text-xs md:text-sm text-[color:var(--text)]",
     });
   }
 
@@ -139,36 +139,36 @@ export default function FanManagerPanel({
   ];
 
   return (
-    <div className="rounded-2xl bg-slate-950/60 border border-slate-800 px-4 py-3 md:px-5 md:py-4 flex flex-col gap-4">
+    <div className="rounded-2xl bg-[color:var(--surface-2)] border border-[color:var(--surface-border)] px-4 py-3 md:px-5 md:py-4 flex flex-col gap-4">
       <div className="flex flex-col gap-2">
         <div className="flex flex-wrap items-center gap-2 md:gap-3">
-          <span className="text-sm md:text-base font-semibold text-slate-50">Manager IA</span>
+          <span className="text-sm md:text-base font-semibold text-[color:var(--text)]">Manager IA</span>
           {displayChips.map((chip, idx) => (
             <span key={`${chip.label}-${idx}`} className={chip.className}>
               {chip.label}
             </span>
           ))}
         </div>
-        {headline && <div className="text-xs md:text-sm text-slate-300">{headline}</div>}
+        {headline && <div className="text-xs md:text-sm text-[color:var(--muted)]">{headline}</div>}
         {suggestedObjective && (
           <div className="text-[11px] text-[color:var(--brand)]">
             Objetivo sugerido: {formatObjectiveLabel(suggestedObjective)}
           </div>
         )}
         {fanManagerState && !headline && (
-          <div className="text-xs md:text-sm text-slate-400">Estado: {fanManagerState.replace(/_/g, " ")}</div>
+          <div className="text-xs md:text-sm text-[color:var(--muted)]">Estado: {fanManagerState.replace(/_/g, " ")}</div>
         )}
         {tone && onChangeTone && (
           <div className="mt-1.5 flex flex-wrap items-center gap-2">
-            <span className="text-xs text-slate-400">Tono</span>
+            <span className="text-xs text-[color:var(--muted)]">Tono</span>
             <button
               type="button"
               onClick={() => onChangeTone("suave")}
               className={clsx(
                 "rounded-full px-3 py-1 text-xs border transition",
                 tone === "suave"
-                  ? "bg-[color:var(--brand-strong)] text-white border-[color:var(--brand)]"
-                  : "bg-slate-800 text-slate-200 border-slate-600 hover:border-[color:var(--brand)]"
+                  ? "bg-[color:var(--brand-strong)] text-[color:var(--text)] border-[color:var(--brand)]"
+                  : "bg-[color:var(--surface-2)] text-[color:var(--text)] border-[color:var(--surface-border)] hover:border-[color:var(--brand)]"
               )}
             >
               Suave
@@ -179,8 +179,8 @@ export default function FanManagerPanel({
               className={clsx(
                 "rounded-full px-3 py-1 text-xs border transition",
                 tone === "intimo"
-                  ? "bg-[color:var(--brand-strong)] text-white border-[color:var(--brand)]"
-                  : "bg-slate-800 text-slate-200 border-slate-600 hover:border-[color:var(--brand)]"
+                  ? "bg-[color:var(--brand-strong)] text-[color:var(--text)] border-[color:var(--brand)]"
+                  : "bg-[color:var(--surface-2)] text-[color:var(--text)] border-[color:var(--surface-border)] hover:border-[color:var(--brand)]"
               )}
             >
               Íntimo
@@ -191,8 +191,8 @@ export default function FanManagerPanel({
               className={clsx(
                 "rounded-full px-3 py-1 text-xs border transition",
                 tone === "picante"
-                  ? "bg-[color:var(--brand-strong)] text-white border-[color:var(--brand)]"
-                  : "bg-slate-800 text-slate-200 border-slate-600 hover:border-[color:var(--brand)]"
+                  ? "bg-[color:var(--brand-strong)] text-[color:var(--text)] border-[color:var(--brand)]"
+                  : "bg-[color:var(--surface-2)] text-[color:var(--text)] border-[color:var(--surface-border)] hover:border-[color:var(--brand)]"
               )}
             >
               Picante
@@ -200,32 +200,32 @@ export default function FanManagerPanel({
           </div>
         )}
         {error && !data && (
-          <div className="rounded-md border border-amber-400/40 bg-amber-500/10 px-3 py-2 text-[11px] text-amber-100">
+          <div className="rounded-md border border-[color:var(--warning)]/40 bg-[color:rgba(245,158,11,0.08)] px-3 py-2 text-[11px] text-[color:var(--text)]">
             No se pudo cargar el contexto adicional. Mostrando estado calculado con datos del fan.
           </div>
         )}
-        {isLoading && <div className="text-[11px] text-slate-300">Cargando contexto…</div>}
+        {isLoading && <div className="text-[11px] text-[color:var(--muted)]">Cargando contexto…</div>}
       </div>
 
       {data && (
         <>
-          <div className="space-y-2 text-sm md:text-base text-slate-200">
-            {data.priorityReason && <div className="text-slate-200/90">{data.priorityReason}</div>}
+          <div className="space-y-2 text-sm md:text-base text-[color:var(--text)]">
+            {data.priorityReason && <div className="text-[color:var(--text)]/90">{data.priorityReason}</div>}
             {data.objectiveToday && (
-              <div className="font-medium text-slate-100">
-                <span className="text-slate-300">Objetivo hoy: </span>
+              <div className="font-medium text-[color:var(--text)]">
+                <span className="text-[color:var(--muted)]">Objetivo hoy: </span>
                 {data.objectiveToday}
               </div>
             )}
-            {data.lastTopic && <div className="text-slate-300">Último tema: {data.lastTopic}</div>}
+            {data.lastTopic && <div className="text-[color:var(--muted)]">Último tema: {data.lastTopic}</div>}
             {data.personalizationHints && (
-              <div className="text-xs md:text-sm text-amber-200">{data.personalizationHints}</div>
+              <div className="text-xs md:text-sm text-[color:var(--warning)]">{data.personalizationHints}</div>
             )}
           </div>
 
           {data.summary && (
-            <div className="mt-1 space-y-1.5 text-sm md:text-base text-slate-200">
-              <div className="font-semibold text-slate-100">Resumen del vínculo</div>
+            <div className="mt-1 space-y-1.5 text-sm md:text-base text-[color:var(--text)]">
+              <div className="font-semibold text-[color:var(--text)]">Resumen del vínculo</div>
               {data.summary.profile && <div>• {data.summary.profile}</div>}
               {data.summary.recent && <div>• {data.summary.recent}</div>}
               {data.summary.opportunity && <div>• {data.summary.opportunity}</div>}
@@ -234,7 +234,7 @@ export default function FanManagerPanel({
 
           {!hideSuggestions && data.messageSuggestions && data.messageSuggestions.length > 0 && (
             <div className="space-y-2">
-              <div className="text-xs md:text-sm font-semibold text-slate-200 uppercase tracking-wide">
+              <div className="text-xs md:text-sm font-semibold text-[color:var(--text)] uppercase tracking-wide">
                 Sugerencias del Manager
               </div>
               <div className="mt-1 flex flex-wrap gap-3">

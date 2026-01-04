@@ -20,10 +20,10 @@ type PackLandingProps = {
 export default function PublicPackLanding({ notFound, creatorName, creatorHandle, pack }: PackLandingProps) {
   if (notFound || !pack || !creatorHandle) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-slate-950 text-slate-300 px-4">
+      <div className="min-h-screen flex items-center justify-center bg-[color:var(--surface-0)] text-[color:var(--muted)] px-4">
         <div className="text-center space-y-2">
           <h1 className="text-2xl font-semibold">Pack no disponible</h1>
-          <p className="text-sm text-slate-400">Este pack aún no está publicado.</p>
+          <p className="text-sm text-[color:var(--muted)]">Este pack aún no está publicado.</p>
         </div>
       </div>
     );
@@ -38,11 +38,11 @@ export default function PublicPackLanding({ notFound, creatorName, creatorHandle
       <Head>
         <title>{`${pack.title} · ${creatorName || "Pack"}`}</title>
       </Head>
-      <div className="min-h-screen bg-[#0b141a] text-white">
+      <div className="min-h-screen bg-[#0b141a] text-[color:var(--text)]">
         <div className="max-w-3xl mx-auto px-4 py-10 space-y-6">
-          <header className="relative overflow-hidden rounded-3xl border border-slate-800 bg-slate-900/80">
+          <header className="relative overflow-hidden rounded-3xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)]">
             <div
-              className="h-56 w-full bg-slate-950/80"
+              className="h-56 w-full bg-[color:var(--surface-2)]"
               style={
                 pack.coverUrl
                   ? {
@@ -54,23 +54,23 @@ export default function PublicPackLanding({ notFound, creatorName, creatorHandle
               }
             />
             <div className="px-6 py-5 space-y-2">
-              <p className="text-[11px] uppercase tracking-wide text-emerald-200">Pack público</p>
+              <p className="text-[11px] uppercase tracking-wide text-[color:var(--brand)]">Pack público</p>
               <h1 className="text-2xl md:text-3xl font-semibold">{pack.title}</h1>
-              <p className="text-lg font-semibold text-amber-300">{priceLabel}</p>
-              {pack.description && <p className="text-sm text-slate-300 leading-relaxed">{pack.description}</p>}
+              <p className="text-lg font-semibold text-[color:var(--warning)]">{priceLabel}</p>
+              {pack.description && <p className="text-sm text-[color:var(--muted)] leading-relaxed">{pack.description}</p>}
             </div>
           </header>
 
           <div className="flex flex-col sm:flex-row gap-3">
             <Link
               href={chatHref}
-              className="inline-flex w-full sm:w-auto items-center justify-center rounded-xl bg-emerald-500 px-5 py-3 text-sm font-semibold text-slate-950 shadow-lg shadow-emerald-900/30 transition hover:bg-emerald-400"
+              className="inline-flex w-full sm:w-auto items-center justify-center rounded-xl bg-[color:var(--brand-strong)] px-5 py-3 text-sm font-semibold text-[color:var(--surface-0)] shadow-lg shadow-emerald-900/30 transition hover:bg-[color:var(--brand)]"
             >
               Pedir
             </Link>
             <Link
               href={`/c/${creatorHandle}`}
-              className="inline-flex w-full sm:w-auto items-center justify-center rounded-xl border border-slate-700 bg-slate-900/60 px-5 py-3 text-sm font-semibold text-slate-100 hover:bg-slate-800/80"
+              className="inline-flex w-full sm:w-auto items-center justify-center rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-5 py-3 text-sm font-semibold text-[color:var(--text)] hover:bg-[color:var(--surface-2)]"
             >
               Volver al perfil
             </Link>

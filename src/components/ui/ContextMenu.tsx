@@ -112,7 +112,7 @@ export function ContextMenu({
           aria-haspopup="menu"
           onClick={handleButtonClick}
           className={clsx(
-            "inline-flex h-7 w-7 items-center justify-center rounded-full border border-slate-700 bg-slate-900/70 text-slate-300 hover:border-slate-500 hover:text-slate-200",
+            "inline-flex h-7 w-7 items-center justify-center rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] text-[color:var(--muted)] hover:border-[color:var(--surface-border-hover)] hover:text-[color:var(--text)]",
             microInteractionSoft,
             focusRing,
             buttonClassName
@@ -127,7 +127,7 @@ export function ContextMenu({
           ref={menuRef}
           role="menu"
           className={clsx(
-            "absolute z-50 min-w-[190px] rounded-xl border border-slate-700/70 bg-slate-950/95 p-1 shadow-lg",
+            "absolute z-50 min-w-[190px] rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] p-1 shadow-lg",
             align === "right" ? "right-0 top-7" : "left-0 top-7",
             menuClassName
           )}
@@ -135,7 +135,7 @@ export function ContextMenu({
         >
           {items.map((item, idx) => {
             if (item.divider) {
-              return <div key={`divider-${idx}`} className="my-1 h-px bg-slate-800" />;
+              return <div key={`divider-${idx}`} className="my-1 h-px bg-[color:var(--surface-border)]" />;
             }
             const iconNode =
               typeof item.icon === "string" ? (
@@ -161,10 +161,12 @@ export function ContextMenu({
                   "flex w-full items-center gap-2 rounded-lg px-3 py-2 text-[11px] font-medium",
                   microInteractionSoft,
                   focusRing,
-                  item.danger ? "text-rose-200 hover:bg-rose-500/10" : "text-slate-200",
+                  item.danger
+                    ? "text-[color:var(--danger)] hover:bg-[color:rgba(244,63,94,0.12)]"
+                    : "text-[color:var(--text)]",
                   item.disabled
                     ? "cursor-not-allowed opacity-60"
-                    : "hover:bg-slate-800/80"
+                    : "hover:bg-[color:var(--surface-2)]"
                 )}
               >
                 {iconNode ? <span aria-hidden="true">{iconNode}</span> : null}

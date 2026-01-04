@@ -219,19 +219,19 @@ export function ManagerInsightsPanel({ open, onClose, summary, priorityItems, pr
   const panel = (
     <div
       className={clsx(
-        "relative z-50 h-full overflow-y-auto border-l border-slate-800 bg-slate-950 shadow-2xl flex flex-col gap-4",
+        "relative z-50 h-full overflow-y-auto border-l border-[color:var(--surface-border)] bg-[color:var(--surface-0)] shadow-2xl flex flex-col gap-4",
         "p-4",
         "w-screen max-w-full lg:w-[520px]"
       )}
     >
       <div className="flex items-center justify-between">
         <div>
-          <p className="text-[11px] uppercase tracking-wide text-slate-400">Insights</p>
-          <h3 className="text-xl font-semibold text-white">Ventas · Catálogo · Crecimiento</h3>
+          <p className="text-[11px] uppercase tracking-wide text-[color:var(--muted)]">Insights</p>
+          <h3 className="text-xl font-semibold text-[color:var(--text)]">Ventas · Catálogo · Crecimiento</h3>
         </div>
         <button
           type="button"
-          className="rounded-full border border-slate-700 bg-slate-800/70 px-3 py-1 text-xs text-slate-100 hover:border-emerald-500/60"
+          className="rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-3 py-1 text-xs text-[color:var(--text)] hover:border-[color:var(--brand)]/60"
           onClick={onClose}
         >
           Cerrar
@@ -250,8 +250,8 @@ export function ManagerInsightsPanel({ open, onClose, summary, priorityItems, pr
             className={clsx(
               "rounded-full border px-3 py-1 text-xs font-semibold",
               tab === item.id
-                ? "border-emerald-500/60 bg-emerald-600/20 text-emerald-100"
-                : "border-slate-700 bg-slate-800/70 text-slate-200 hover:border-emerald-400/60 hover:text-emerald-100"
+                ? "border-[color:var(--brand)]/60 bg-[color:var(--brand-strong)]/20 text-[color:var(--text)]"
+                : "border-[color:var(--surface-border)] bg-[color:var(--surface-2)] text-[color:var(--text)] hover:border-[color:rgba(var(--brand-rgb),0.6)] hover:text-[color:var(--text)]"
             )}
             onClick={() => setTab(item.id as TabId)}
           >
@@ -273,7 +273,7 @@ export function ManagerInsightsPanel({ open, onClose, summary, priorityItems, pr
             )}
           </div>
           <div className="space-y-2">
-            <div className="text-sm font-semibold text-white">Top packs</div>
+            <div className="text-sm font-semibold text-[color:var(--text)]">Top packs</div>
             <div className="space-y-2">
               <InsightRow title="Mensual" value={formatCurrency(summary?.packs?.monthly?.revenue30 ?? 0)} detail={`Fans ${summary?.packs?.monthly?.activeFans ?? 0}`} />
               <InsightRow title="Bienvenida" value={formatCurrency(summary?.packs?.welcome?.revenue30 ?? 0)} detail={`Fans ${summary?.packs?.welcome?.activeFans ?? 0}`} />
@@ -281,8 +281,8 @@ export function ManagerInsightsPanel({ open, onClose, summary, priorityItems, pr
             </div>
           </div>
           <div className="space-y-2">
-            <div className="text-sm font-semibold text-white">Top extras (placeholder)</div>
-            <p className="text-xs text-slate-400">Aún no conectado. Cuando conectes tu data, verás el top 5 extras aquí.</p>
+            <div className="text-sm font-semibold text-[color:var(--text)]">Top extras (placeholder)</div>
+            <p className="text-xs text-[color:var(--muted)]">Aún no conectado. Cuando conectes tu data, verás el top 5 extras aquí.</p>
           </div>
         </div>
       )}
@@ -296,11 +296,11 @@ export function ManagerInsightsPanel({ open, onClose, summary, priorityItems, pr
             <InsightCard title="Huecos" value="2" helper="Upsell VIP · Reactivar riesgo" tone="muted" />
           </div>
           {!hasExtras && (
-            <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-slate-800 bg-slate-900/70 px-3 py-2">
-              <span className="text-xs text-slate-300">Aún no tienes extras activos</span>
+            <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-3 py-2">
+              <span className="text-xs text-[color:var(--muted)]">Aún no tienes extras activos</span>
               <button
                 type="button"
-                className="rounded-full border border-emerald-500/60 bg-emerald-600/10 px-3 py-1 text-[11px] font-semibold text-emerald-100 hover:bg-emerald-600/20"
+                className="rounded-full border border-[color:var(--brand)]/60 bg-[color:var(--brand-strong)]/10 px-3 py-1 text-[11px] font-semibold text-[color:var(--text)] hover:bg-[color:var(--brand-strong)]/20"
                 onClick={() => handlePrompt("content", "Crea un extra…")}
               >
                 Crea un extra…
@@ -308,10 +308,10 @@ export function ManagerInsightsPanel({ open, onClose, summary, priorityItems, pr
             </div>
           )}
           <div className="space-y-2">
-            <div className="text-sm font-semibold text-white">Huecos sugeridos</div>
-            <ul className="space-y-2 text-sm text-slate-200">
+            <div className="text-sm font-semibold text-[color:var(--text)]">Huecos sugeridos</div>
+            <ul className="space-y-2 text-sm text-[color:var(--text)]">
               <li
-                className="rounded-lg border border-slate-800 bg-slate-900/70 px-3 py-2"
+                className="rounded-lg border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-3 py-2"
                 onClick={() =>
                   handlePrompt(
                     "content",
@@ -322,7 +322,7 @@ export function ManagerInsightsPanel({ open, onClose, summary, priorityItems, pr
                 Upsell VIP mensual con bonus limitado.
               </li>
               <li
-                className="rounded-lg border border-slate-800 bg-slate-900/70 px-3 py-2"
+                className="rounded-lg border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-3 py-2"
                 onClick={() =>
                   handlePrompt(
                     "content",
@@ -333,7 +333,7 @@ export function ManagerInsightsPanel({ open, onClose, summary, priorityItems, pr
                 Upsell VIP mensual con bonus limitado.
               </li>
               <li
-                className="rounded-lg border border-slate-800 bg-slate-900/70 px-3 py-2"
+                className="rounded-lg border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-3 py-2"
                 onClick={() =>
                   handlePrompt(
                     "content",
@@ -344,7 +344,7 @@ export function ManagerInsightsPanel({ open, onClose, summary, priorityItems, pr
                 Extra “check-in” para fans en riesgo (7€).
               </li>
               <li
-                className="rounded-lg border border-slate-800 bg-slate-900/70 px-3 py-2"
+                className="rounded-lg border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-3 py-2"
                 onClick={() =>
                   handlePrompt(
                     "content",
@@ -357,10 +357,10 @@ export function ManagerInsightsPanel({ open, onClose, summary, priorityItems, pr
             </ul>
           </div>
           <div className="space-y-2">
-            <div className="text-sm font-semibold text-white">Acción</div>
+            <div className="text-sm font-semibold text-[color:var(--text)]">Acción</div>
             <button
               type="button"
-              className="rounded-lg border border-emerald-500/60 bg-emerald-600/15 px-3 py-2 text-sm font-semibold text-emerald-100 hover:bg-emerald-600/25"
+              className="rounded-lg border border-[color:var(--brand)]/60 bg-[color:var(--brand-strong)]/15 px-3 py-2 text-sm font-semibold text-[color:var(--text)] hover:bg-[color:var(--brand-strong)]/25"
               onClick={() =>
                 handlePrompt(
                   "content",
@@ -376,28 +376,28 @@ export function ManagerInsightsPanel({ open, onClose, summary, priorityItems, pr
 
       {tab === "growth" && (
         <div className="space-y-4">
-          <div className="rounded-lg border border-slate-800 bg-slate-900/70 px-3 py-3 space-y-3">
+          <div className="rounded-lg border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-3 py-3 space-y-3">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm font-semibold text-white">Top 3 prioridades (hoy)</p>
-                <p className="text-xs text-slate-400">Acciones rápidas para ir al chat.</p>
+                <p className="text-sm font-semibold text-[color:var(--text)]">Top 3 prioridades (hoy)</p>
+                <p className="text-xs text-[color:var(--muted)]">Acciones rápidas para ir al chat.</p>
               </div>
             </div>
-            {priorityToast && <p className="text-xs text-emerald-200">{priorityToast}</p>}
-            {topPriorities.length === 0 && <p className="text-xs text-slate-400">Sin prioridades por ahora.</p>}
+            {priorityToast && <p className="text-xs text-[color:var(--brand)]">{priorityToast}</p>}
+            {topPriorities.length === 0 && <p className="text-xs text-[color:var(--muted)]">Sin prioridades por ahora.</p>}
             {topPriorities.length > 0 && (
-              <div className="space-y-2 text-sm text-slate-200">
+              <div className="space-y-2 text-sm text-[color:var(--text)]">
                 {topPriorities.map((item) => (
-                  <div key={item.id} className="flex items-center justify-between gap-3 rounded-lg border border-slate-800 bg-slate-950/70 px-3 py-2">
+                  <div key={item.id} className="flex items-center justify-between gap-3 rounded-lg border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-3 py-2">
                     <div className="min-w-0">
-                      <div className="text-sm font-semibold text-white truncate">{item.title}</div>
-                      {item.subtitle && <div className="text-[11px] text-slate-400 line-clamp-2">{item.subtitle}</div>}
+                      <div className="text-sm font-semibold text-[color:var(--text)] truncate">{item.title}</div>
+                      {item.subtitle && <div className="text-[11px] text-[color:var(--muted)] line-clamp-2">{item.subtitle}</div>}
                     </div>
                     <div className="flex items-center gap-2 shrink-0">
                       {item.kind === "INVITE_PENDING" ? (
                         <button
                           type="button"
-                          className="rounded-md border border-slate-700 bg-slate-900/70 px-2 py-1 text-[11px] text-slate-200 hover:border-emerald-500/60 whitespace-nowrap"
+                          className="rounded-md border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-2 py-1 text-[11px] text-[color:var(--text)] hover:border-[color:var(--brand)]/60 whitespace-nowrap"
                           onClick={() => handlePriorityCopy(item)}
                         >
                           Copiar invitación
@@ -405,7 +405,7 @@ export function ManagerInsightsPanel({ open, onClose, summary, priorityItems, pr
                       ) : (
                         <button
                           type="button"
-                          className="rounded-md border border-slate-700 bg-slate-900/70 px-2 py-1 text-[11px] text-slate-200 hover:border-emerald-500/60 whitespace-nowrap"
+                          className="rounded-md border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-2 py-1 text-[11px] text-[color:var(--text)] hover:border-[color:var(--brand)]/60 whitespace-nowrap"
                           onClick={() => handlePriorityOpen(item)}
                         >
                           Abrir chat
@@ -417,15 +417,15 @@ export function ManagerInsightsPanel({ open, onClose, summary, priorityItems, pr
               </div>
             )}
           </div>
-          <div className="rounded-lg border border-slate-800 bg-slate-900/70 px-3 py-3 space-y-3">
+          <div className="rounded-lg border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-3 py-3 space-y-3">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm font-semibold text-white">Campañas (UTM)</p>
-                <p className="text-xs text-slate-400">Top campañas por chats y mensajes.</p>
+                <p className="text-sm font-semibold text-[color:var(--text)]">Campañas (UTM)</p>
+                <p className="text-xs text-[color:var(--muted)]">Top campañas por chats y mensajes.</p>
               </div>
               <button
                 type="button"
-                className="rounded-full border border-slate-700 bg-slate-900/70 px-3 py-1 text-xs text-slate-200 hover:border-emerald-500/60"
+                className="rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-3 py-1 text-xs text-[color:var(--text)] hover:border-[color:var(--brand)]/60"
                 onClick={() => {
                   onClose?.();
                   void router.push("/creator/analytics");
@@ -434,23 +434,23 @@ export function ManagerInsightsPanel({ open, onClose, summary, priorityItems, pr
                 Ver campañas
               </button>
             </div>
-            {campaignsLoading && <p className="text-xs text-slate-400">Cargando campañas...</p>}
-            {campaignsError && <p className="text-xs text-rose-300">{campaignsError}</p>}
+            {campaignsLoading && <p className="text-xs text-[color:var(--muted)]">Cargando campañas...</p>}
+            {campaignsError && <p className="text-xs text-[color:var(--danger)]">{campaignsError}</p>}
             {!campaignsLoading && !campaignsError && !hasCampaigns && (
-              <p className="text-xs text-slate-400">Sin campañas todavía</p>
+              <p className="text-xs text-[color:var(--muted)]">Sin campañas todavía</p>
             )}
             {!campaignsLoading && !campaignsError && hasCampaigns && campaignInsights.topByChats.length === 0 && (
-              <p className="text-xs text-slate-400">Aún no hay campañas con datos.</p>
+              <p className="text-xs text-[color:var(--muted)]">Aún no hay campañas con datos.</p>
             )}
             {!campaignsLoading && !campaignsError && campaignInsights.topByChats.length > 0 && (
-              <div className="space-y-2 text-sm text-slate-200">
+              <div className="space-y-2 text-sm text-[color:var(--text)]">
                 {campaignInsights.topByChats.map((campaign) => (
-                  <div key={campaign.id} className="flex items-center justify-between rounded-lg border border-slate-800 bg-slate-950/70 px-3 py-2">
+                  <div key={campaign.id} className="flex items-center justify-between rounded-lg border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-3 py-2">
                     <div className="flex flex-col">
-                      <span className="font-semibold text-white">{campaign.title}</span>
-                      <span className="text-[11px] text-slate-400">{campaign.utmCampaign}</span>
+                      <span className="font-semibold text-[color:var(--text)]">{campaign.title}</span>
+                      <span className="text-[11px] text-[color:var(--muted)]">{campaign.utmCampaign}</span>
                     </div>
-                    <div className="text-xs text-slate-300">
+                    <div className="text-xs text-[color:var(--muted)]">
                       Chats {campaign.openChatSessions} · Mensajes {campaign.sendMessageSessions}
                     </div>
                   </div>
@@ -458,12 +458,12 @@ export function ManagerInsightsPanel({ open, onClose, summary, priorityItems, pr
               </div>
             )}
             {!campaignsLoading && !campaignsError && hasCampaigns && campaignInsights.activeCampaigns.length === 0 && (
-              <div className="rounded-lg border border-slate-800 bg-slate-950/70 px-3 py-2 text-xs text-slate-200">
+              <div className="rounded-lg border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-3 py-2 text-xs text-[color:var(--text)]">
                 No hay campañas activas. Crea una campaña en Analítica → Campañas.
               </div>
             )}
             {!campaignsLoading && !campaignsError && hasCampaigns && campaignInsights.campaignsMissingLink.length > 0 && (
-              <div className="rounded-lg border border-slate-800 bg-slate-950/70 px-3 py-2 text-xs text-slate-200">
+              <div className="rounded-lg border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-3 py-2 text-xs text-[color:var(--text)]">
                 Genera un link para:{" "}
                 {campaignInsights.campaignsMissingLink
                   .slice(0, 3)
@@ -473,16 +473,16 @@ export function ManagerInsightsPanel({ open, onClose, summary, priorityItems, pr
               </div>
             )}
           </div>
-          <div className="rounded-lg border border-slate-800 bg-slate-900/70 px-3 py-3">
-            <p className="text-sm font-semibold text-white">Crecimiento</p>
-            <p className="text-xs text-slate-400">Conecta YouTube / TikTok / Instagram para ver métricas aquí.</p>
+          <div className="rounded-lg border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-3 py-3">
+            <p className="text-sm font-semibold text-[color:var(--text)]">Crecimiento</p>
+            <p className="text-xs text-[color:var(--muted)]">Conecta YouTube / TikTok / Instagram para ver métricas aquí.</p>
           </div>
           <div className="space-y-2">
-            <div className="text-sm font-semibold text-white">Acciones demo</div>
-            <div className="space-y-2 text-sm text-slate-200">
+            <div className="text-sm font-semibold text-[color:var(--text)]">Acciones demo</div>
+            <div className="space-y-2 text-sm text-[color:var(--text)]">
               <button
                 type="button"
-                className="w-full text-left rounded-lg border border-slate-800 bg-slate-900/70 px-3 py-2"
+                className="w-full text-left rounded-lg border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-3 py-2"
                 onClick={() =>
                   handlePrompt(
                     "growth",
@@ -494,7 +494,7 @@ export function ManagerInsightsPanel({ open, onClose, summary, priorityItems, pr
               </button>
               <button
                 type="button"
-                className="w-full text-left rounded-lg border border-slate-800 bg-slate-900/70 px-3 py-2"
+                className="w-full text-left rounded-lg border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-3 py-2"
                 onClick={() =>
                   handlePrompt(
                     "growth",
@@ -506,7 +506,7 @@ export function ManagerInsightsPanel({ open, onClose, summary, priorityItems, pr
               </button>
               <button
                 type="button"
-                className="w-full text-left rounded-lg border border-slate-800 bg-slate-900/70 px-3 py-2"
+                className="w-full text-left rounded-lg border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-3 py-2"
                 onClick={() =>
                   handlePrompt(
                     "growth",
@@ -519,17 +519,17 @@ export function ManagerInsightsPanel({ open, onClose, summary, priorityItems, pr
             </div>
           </div>
           <div className="space-y-2">
-            <div className="text-sm font-semibold text-white">Pega métricas de la semana</div>
+            <div className="text-sm font-semibold text-[color:var(--text)]">Pega métricas de la semana</div>
             <textarea
               value={growthInput}
               onChange={(e) => setGrowthInput(e.target.value)}
-              className="w-full rounded-lg border border-slate-700 bg-slate-950/70 px-3 py-2 text-sm text-slate-100 focus:outline-none focus:ring-2 focus:ring-emerald-500/60"
+              className="w-full rounded-lg border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-3 py-2 text-sm text-[color:var(--text)] focus:outline-none focus:ring-2 focus:ring-[color:var(--ring)]"
               rows={4}
               placeholder="Ej: Seguidores +120, Visitas 15k, CPM 8€, Leads 45..."
             />
             <button
               type="button"
-              className="rounded-lg border border-emerald-500/60 bg-emerald-600/20 px-3 py-2 text-sm font-semibold text-emerald-100 hover:bg-emerald-600/30"
+              className="rounded-lg border border-[color:var(--brand)]/60 bg-[color:var(--brand-strong)]/20 px-3 py-2 text-sm font-semibold text-[color:var(--text)] hover:bg-[color:var(--brand-strong)]/30"
               disabled={growthLoading}
               onClick={() => {
                 const metricsText = growthInput.trim() || "Sin métricas pegadas. Genera un plan genérico basado en buenas prácticas.";
@@ -539,11 +539,11 @@ export function ManagerInsightsPanel({ open, onClose, summary, priorityItems, pr
             >
               {growthLoading ? "Generando..." : "Generar acciones"}
             </button>
-            {growthError && <p className="text-xs text-rose-300">{growthError}</p>}
+            {growthError && <p className="text-xs text-[color:var(--danger)]">{growthError}</p>}
             {growthActions && (
-              <ul className="space-y-2 text-sm text-slate-200">
+              <ul className="space-y-2 text-sm text-[color:var(--text)]">
                 {growthActions.map((act, idx) => (
-                  <li key={idx} className="rounded-lg border border-slate-800 bg-slate-900/70 px-3 py-2">
+                  <li key={idx} className="rounded-lg border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-3 py-2">
                     {act}
                   </li>
                 ))}
@@ -551,9 +551,9 @@ export function ManagerInsightsPanel({ open, onClose, summary, priorityItems, pr
             )}
           </div>
           {preview?.headline && (
-            <div className="space-y-1 rounded-lg border border-slate-800 bg-slate-900/70 px-3 py-2">
-              <div className="text-sm font-semibold text-white">Estado rápido</div>
-              <p className="text-sm text-slate-200">{preview.headline}</p>
+            <div className="space-y-1 rounded-lg border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-3 py-2">
+              <div className="text-sm font-semibold text-[color:var(--text)]">Estado rápido</div>
+              <p className="text-sm text-[color:var(--text)]">{preview.headline}</p>
             </div>
           )}
         </div>
@@ -577,27 +577,27 @@ function InsightCard({ title, value, helper, tone }: { title: string; value: str
       className={clsx(
         "rounded-lg border px-3 py-2",
         tone === "warning"
-          ? "border-amber-500/60 bg-amber-500/10 text-amber-50"
+          ? "border-[color:rgba(245,158,11,0.6)] bg-[color:rgba(245,158,11,0.08)] text-[color:var(--text)]"
           : tone === "muted"
-            ? "border-slate-700 bg-slate-800/60 text-slate-200"
-            : "border-slate-800 bg-slate-900/70 text-slate-100"
+            ? "border-[color:var(--surface-border)] bg-[color:var(--surface-2)] text-[color:var(--text)]"
+            : "border-[color:var(--surface-border)] bg-[color:var(--surface-1)] text-[color:var(--text)]"
       )}
     >
-      <div className="text-[11px] uppercase tracking-wide text-slate-400">{title}</div>
+      <div className="text-[11px] uppercase tracking-wide text-[color:var(--muted)]">{title}</div>
       <div className="text-lg font-semibold">{value}</div>
-      {helper && <div className="text-[11px] text-slate-400">{helper}</div>}
+      {helper && <div className="text-[11px] text-[color:var(--muted)]">{helper}</div>}
     </div>
   );
 }
 
 function InsightRow({ title, value, detail }: { title: string; value: string | number; detail?: string }) {
   return (
-    <div className="flex items-center justify-between rounded-lg border border-slate-800 bg-slate-900/70 px-3 py-2">
+    <div className="flex items-center justify-between rounded-lg border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-3 py-2">
       <div>
-        <div className="text-sm font-semibold text-white">{title}</div>
-        {detail && <div className="text-[11px] text-slate-400">{detail}</div>}
+        <div className="text-sm font-semibold text-[color:var(--text)]">{title}</div>
+        {detail && <div className="text-[11px] text-[color:var(--muted)]">{detail}</div>}
       </div>
-      <div className="text-sm font-semibold text-emerald-100">{value}</div>
+      <div className="text-sm font-semibold text-[color:var(--text)]">{value}</div>
     </div>
   );
 }

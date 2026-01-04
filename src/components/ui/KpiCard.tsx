@@ -22,11 +22,11 @@ type KpiCardProps = {
 
 const VARIANT_STYLES: Record<KpiCardVariant, string> = {
   default:
-    "border-[color:var(--surface-border)] bg-[var(--surface-1)] text-slate-100 hover:border-[color:var(--surface-border-hover)]",
+    "border-[color:var(--surface-border)] bg-[color:var(--surface-1)] text-[color:var(--text)] hover:border-[color:var(--surface-border-hover)]",
   accent:
     "border-[color:var(--brand)] bg-[color:rgba(var(--brand-rgb),0.12)] text-[color:var(--text)] hover:border-[color:var(--brand-strong)] hover:bg-[color:rgba(var(--brand-rgb),0.18)]",
   muted:
-    "border-[color:var(--surface-border)] bg-[var(--surface-2)] text-slate-200 hover:border-[color:var(--surface-border-hover)]",
+    "border-[color:var(--surface-border)] bg-[color:var(--surface-2)] text-[color:var(--text)] hover:border-[color:var(--surface-border-hover)]",
 };
 
 export function KpiCard({

@@ -16,13 +16,13 @@ export function EmptyState({ title, description, icon, action, className }: Empt
   return (
     <div
       className={clsx(
-        "rounded-2xl border border-dashed border-slate-800/80 bg-slate-950/60 px-4 py-6 text-center",
+        "rounded-2xl border border-dashed border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-4 py-6 text-center",
         className
       )}
     >
-      {iconNode ? <div className="mx-auto mb-3 w-fit text-slate-500">{iconNode}</div> : null}
-      <div className="text-base font-semibold text-white">{title}</div>
-      {description ? <div className="mt-1 text-sm text-slate-400">{description}</div> : null}
+      {iconNode ? <div className="mx-auto mb-3 w-fit text-[color:var(--muted)]">{iconNode}</div> : null}
+      <div className="text-base font-semibold text-[color:var(--text)]">{title}</div>
+      {description ? <div className="mt-1 text-sm text-[color:var(--muted)]">{description}</div> : null}
       {action ? <div className="mt-4 flex justify-center">{action}</div> : null}
     </div>
   );

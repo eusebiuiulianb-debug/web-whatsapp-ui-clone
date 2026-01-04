@@ -32,11 +32,11 @@ class SideBarBoundary extends Component<{ children: React.ReactNode }, { hasErro
   render() {
     if (this.state.hasError) {
       return (
-        <div className="p-4 text-sm text-red-100 bg-red-900/40 border border-red-700 rounded-lg space-y-2">
+        <div className="p-4 text-sm text-[color:var(--text)] bg-[color:rgba(244,63,94,0.12)] border border-[color:rgba(244,63,94,0.6)] rounded-lg space-y-2">
           <div className="font-semibold">Algo falló al cargar la barra lateral.</div>
           <button
             type="button"
-            className="rounded-md bg-red-700/50 px-3 py-1 text-xs font-semibold text-red-50 hover:bg-red-700"
+            className="rounded-md bg-[color:rgba(244,63,94,0.2)] px-3 py-1 text-xs font-semibold text-[color:var(--text)] hover:bg-[color:rgba(244,63,94,0.28)]"
             onClick={() => {
               this.setState({ hasError: false });
               if (typeof window !== "undefined") window.location.reload();
@@ -91,10 +91,10 @@ function LeftKpiCard({
   className,
   valueClassName,
 }: LeftKpiCardProps) {
-  const toneClass = tone === "accent" ? "text-[color:var(--brand)]" : "text-slate-300";
+  const toneClass = tone === "accent" ? "text-[color:var(--brand)]" : "text-[color:var(--muted)]";
   return (
     <div className={clsx("rounded-xl bg-[var(--surface-2)] p-3", className)}>
-      <div className="text-[10px] text-slate-500">{label}</div>
+      <div className="text-[10px] text-[color:var(--text)]0">{label}</div>
       <div
         className={clsx(
           "mt-1 text-2xl font-semibold tracking-tight tabular-nums leading-tight",
@@ -104,8 +104,8 @@ function LeftKpiCard({
       >
         {value}
       </div>
-      {hint ? <div className="mt-1 text-[10px] text-slate-500">{hint}</div> : null}
-      {supporting ? <div className="mt-1 text-[10px] text-slate-500">{supporting}</div> : null}
+      {hint ? <div className="mt-1 text-[10px] text-[color:var(--text)]0">{hint}</div> : null}
+      {supporting ? <div className="mt-1 text-[10px] text-[color:var(--text)]0">{supporting}</div> : null}
     </div>
   );
 }
@@ -1486,7 +1486,7 @@ function SideBarInner() {
   const isLoading = loadingFans;
   const isError = Boolean(fansError);
   const filterRowClass =
-    "flex items-center justify-between gap-3 rounded-lg px-2 py-1.5 text-left transition hover:bg-slate-800/40 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-slate-400/40";
+    "flex items-center justify-between gap-3 rounded-lg px-2 py-1.5 text-left transition hover:bg-[color:var(--surface-2)] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[color:var(--ring)]";
   const countPillClass =
     "inline-flex items-center rounded-full px-2.5 py-1 text-[11px] font-semibold tabular-nums tracking-tight";
   return (
@@ -1505,12 +1505,12 @@ function SideBarInner() {
       />
       <div className="mb-2 px-3">
         {isError && (
-          <div className="mb-2 rounded-xl border border-rose-500/50 bg-rose-900/40 px-3 py-2 text-[12px] text-rose-50">
+          <div className="mb-2 rounded-xl border border-[color:rgba(244,63,94,0.5)] bg-[color:rgba(244,63,94,0.12)] px-3 py-2 text-[12px] text-[color:var(--text)]">
             <div className="flex items-center justify-between">
               <span>{fansError || "No se pudo cargar la lista de fans."}</span>
               <button
                 type="button"
-                className="rounded-md border border-rose-300/50 bg-rose-700/50 px-2 py-1 text-[11px] font-semibold hover:bg-rose-700"
+                className="rounded-md border border-[color:rgba(244,63,94,0.4)] bg-[color:rgba(244,63,94,0.2)] px-2 py-1 text-[11px] font-semibold hover:bg-[color:rgba(244,63,94,0.28)]"
                 onClick={() => fetchFansPage()}
               >
                 Reintentar
@@ -1522,12 +1522,12 @@ function SideBarInner() {
           <LeftSectionCard className="mb-2">
             <div className="animate-pulse space-y-3">
               <div className="flex justify-between">
-                <div className="h-3 w-28 rounded bg-slate-700" />
-                <div className="h-3 w-20 rounded bg-slate-800" />
+                <div className="h-3 w-28 rounded bg-[color:var(--surface-2)]" />
+                <div className="h-3 w-20 rounded bg-[color:var(--surface-2)]" />
               </div>
               <div className="grid grid-cols-2 gap-2">
                 {[1, 2, 3, 4].map((n) => (
-                  <div key={`skeleton-${n}`} className="h-16 rounded-xl bg-slate-800" />
+                  <div key={`skeleton-${n}`} className="h-16 rounded-xl bg-[color:var(--surface-2)]" />
                 ))}
               </div>
             </div>
@@ -1537,8 +1537,8 @@ function SideBarInner() {
             <LeftSectionCard className="mb-2">
               <div className="flex items-center justify-between">
                 <div className="space-y-1">
-                  <div className="text-sm font-semibold text-slate-100">Resumen de hoy</div>
-                  <div className="text-[11px] text-slate-500">Ventas y actividad</div>
+                  <div className="text-sm font-semibold text-[color:var(--text)]">Resumen de hoy</div>
+                  <div className="text-[11px] text-[color:var(--text)]0">Ventas y actividad</div>
                 </div>
               </div>
               <div className="mt-3 grid grid-cols-2 gap-2">
@@ -1579,39 +1579,39 @@ function SideBarInner() {
             {extrasSummary && (
               <LeftSectionCard className="mb-2">
                 <div className="flex items-center justify-between gap-2">
-                  <div className="text-sm font-semibold text-slate-100">Extras hoy</div>
+                  <div className="text-sm font-semibold text-[color:var(--text)]">Extras hoy</div>
                   <div
                     className={clsx(
                       "text-xl font-semibold tracking-tight tabular-nums leading-tight",
-                      extrasTodayCount > 0 ? "text-[color:var(--brand)]" : "text-slate-300"
+                      extrasTodayCount > 0 ? "text-[color:var(--brand)]" : "text-[color:var(--muted)]"
                     )}
                   >
                     {extrasTodayCount} venta{extrasTodayCount === 1 ? "" : "s"} · {formatCurrency(extrasTodayAmount)}
                   </div>
                 </div>
                 {giftedTodayCount > 0 && (
-                  <div className="mt-1 text-[10px] text-slate-500">Regalos hoy: {giftedTodayCount}</div>
+                  <div className="mt-1 text-[10px] text-[color:var(--text)]0">Regalos hoy: {giftedTodayCount}</div>
                 )}
-                <div className="mt-3 flex items-center justify-between text-[10px] text-slate-500">
+                <div className="mt-3 flex items-center justify-between text-[10px] text-[color:var(--text)]0">
                   <span>Últimos 7 días</span>
                   <span
                     className={clsx(
                       "text-base font-semibold tracking-tight tabular-nums leading-tight",
-                      extrasLast7Count > 0 ? "text-[color:var(--brand)]" : "text-slate-300"
+                      extrasLast7Count > 0 ? "text-[color:var(--brand)]" : "text-[color:var(--muted)]"
                     )}
                   >
                     {extrasLast7Count} venta{extrasLast7Count === 1 ? "" : "s"} · {formatCurrency(extrasLast7Amount)}
                   </span>
                 </div>
                 {giftedLast7Count > 0 && (
-                  <div className="mt-1 text-[10px] text-slate-500">Regalos 7d: {giftedLast7Count}</div>
+                  <div className="mt-1 text-[10px] text-[color:var(--text)]0">Regalos 7d: {giftedLast7Count}</div>
                 )}
               </LeftSectionCard>
             )}
           </>
         )}
         <LeftSectionCard className="mb-2">
-          <div className="flex flex-col gap-2 text-[11px] text-slate-400">
+          <div className="flex flex-col gap-2 text-[11px] text-[color:var(--muted)]">
             <div className="flex items-center justify-between">
               <button
                 type="button"
@@ -1620,13 +1620,13 @@ function SideBarInner() {
                 }}
                 className={clsx(filterRowClass, "flex-1")}
               >
-                <span className={clsx("text-slate-400", followUpMode === "all" && !showOnlyWithNotes && "font-semibold text-amber-300")}>
+                <span className={clsx("text-[color:var(--muted)]", followUpMode === "all" && !showOnlyWithNotes && "font-semibold text-[color:var(--warning)]")}>
                   Hoy
                 </span>
                 <span
                   className={clsx(
                     countPillClass,
-                    totalCount > 0 ? "bg-slate-800 text-slate-50" : "bg-slate-800/70 text-slate-300"
+                    totalCount > 0 ? "bg-[color:var(--surface-2)] text-[color:var(--text)]" : "bg-[color:var(--surface-2)] text-[color:var(--muted)]"
                   )}
                 >
                   {totalCount} fan{totalCount === 1 ? "" : "s"}
@@ -1641,7 +1641,7 @@ function SideBarInner() {
                     "inline-flex h-6 w-6 items-center justify-center rounded-full border text-xs font-bold transition focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[color:var(--ring)]",
                     showLegend
                       ? "border-[color:var(--brand)] bg-[color:rgba(var(--brand-rgb),0.18)] text-[color:var(--text)]"
-                      : "border-slate-600 bg-slate-800/60 text-slate-200 hover:border-[color:var(--brand)] hover:text-[color:var(--text)]"
+                      : "border-[color:var(--surface-border)] bg-[color:var(--surface-2)] text-[color:var(--text)] hover:border-[color:var(--brand)] hover:text-[color:var(--text)]"
                   )}
                 >
                   i
@@ -1658,23 +1658,23 @@ function SideBarInner() {
             {showLegend && (
               <div
                 ref={legendRef}
-                className="mt-2 rounded-xl border border-slate-700 bg-slate-900/90 px-3 py-3 text-[11px] text-slate-200 shadow-lg"
+                className="mt-2 rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-3 py-3 text-[11px] text-[color:var(--text)] shadow-lg"
               >
                 <div className="flex items-center justify-between mb-1">
-                  <span className="text-[12px] font-semibold text-slate-100">Qué significa cada etiqueta</span>
+                  <span className="text-[12px] font-semibold text-[color:var(--text)]">Qué significa cada etiqueta</span>
                   <button
                     type="button"
-                    className="text-[11px] text-slate-400 hover:text-slate-100"
+                    className="text-[11px] text-[color:var(--muted)] hover:text-[color:var(--text)]"
                     onClick={() => setShowLegend(false)}
                   >
                     Cerrar
                   </button>
                 </div>
-                <ul className="space-y-1 text-slate-300">
+                <ul className="space-y-1 text-[color:var(--muted)]">
                   <li><span className="font-semibold">VIP</span> → Ha gastado más de {HIGH_PRIORITY_LIMIT} € en total contigo.</li>
                   <li>
                     <span className="inline-flex items-center gap-1 font-semibold">
-                      <IconGlyph name="pin" className="h-3.5 w-3.5 text-amber-200" />
+                      <IconGlyph name="pin" className="h-3.5 w-3.5 text-[color:var(--warning)]" />
                       <span>Alta prioridad</span>
                     </span>{" "}
                     → Marcados por ti para atender primero.
@@ -1682,7 +1682,7 @@ function SideBarInner() {
                   <li><span className="font-semibold">Extras</span> → Ya te han comprado contenido extra (PPV).</li>
                   <li>
                     <span className="inline-flex items-center gap-1 font-semibold">
-                      <IconGlyph name="clock" className="h-3.5 w-3.5 text-amber-200" />
+                      <IconGlyph name="clock" className="h-3.5 w-3.5 text-[color:var(--warning)]" />
                       <span>Próxima acción</span>
                     </span>{" "}
                     → Le debes un mensaje o seguimiento hoy.
@@ -1690,9 +1690,9 @@ function SideBarInner() {
                   <li><span className="font-semibold">Seguimiento hoy</span> → Suscripción a punto de renovarse o tarea marcada para hoy.</li>
                   <li><span className="font-semibold">Cola</span> → Lista de chats importantes para hoy, ordenados por prioridad.</li>
                 </ul>
-                <div className="mt-3 border-t border-slate-700 pt-2">
-                  <div className="text-[12px] font-semibold text-slate-100 mb-1">Cómo usarlo hoy</div>
-                  <ol className="list-decimal list-inside space-y-1 text-slate-300">
+                <div className="mt-3 border-t border-[color:var(--surface-border)] pt-2">
+                  <div className="text-[12px] font-semibold text-[color:var(--text)] mb-1">Cómo usarlo hoy</div>
+                  <ol className="list-decimal list-inside space-y-1 text-[color:var(--muted)]">
                     <li>Abre «Cola» para ver tu cola del día.</li>
                     <li>Usa «Siguiente venta» hasta vaciar la cola.</li>
                     <li>Revisa «Alta prioridad» y «Con extras» para cerrar el día.</li>
@@ -1707,10 +1707,10 @@ function SideBarInner() {
               }}
               className={clsx(filterRowClass, "w-full")}
             >
-              <span className={clsx(followUpMode === "today" && !showOnlyWithNotes && "font-semibold text-amber-300")}>
+              <span className={clsx(followUpMode === "today" && !showOnlyWithNotes && "font-semibold text-[color:var(--warning)]")}>
                 Seguimiento hoy
                 <span
-                  className="ml-1 inline-flex h-4 w-4 items-center justify-center rounded-full border border-slate-500 text-[9px] text-slate-300"
+                  className="ml-1 inline-flex h-4 w-4 items-center justify-center rounded-full border border-[color:var(--surface-border-hover)] text-[9px] text-[color:var(--muted)]"
                   title="Chats con renovación o tarea marcada para hoy."
                 >
                   i
@@ -1721,8 +1721,8 @@ function SideBarInner() {
                   countPillClass,
                   followUpTodayCount > 0
                     ? "bg-[color:rgba(var(--brand-rgb),0.18)] text-[color:var(--text)]"
-                    : "bg-slate-800 text-slate-300",
-                  followUpMode === "today" && !showOnlyWithNotes && "ring-1 ring-amber-300/60"
+                    : "bg-[color:var(--surface-2)] text-[color:var(--muted)]",
+                  followUpMode === "today" && !showOnlyWithNotes && "ring-1 ring-[color:var(--ring)]"
                 )}
               >
                 {followUpTodayCount}
@@ -1737,12 +1737,12 @@ function SideBarInner() {
                   }}
                   className={clsx(filterRowClass, "w-full")}
                 >
-                  <span className={clsx(followUpMode === "expired" && !showOnlyWithNotes && "font-semibold text-amber-300")}>Caducados</span>
+                  <span className={clsx(followUpMode === "expired" && !showOnlyWithNotes && "font-semibold text-[color:var(--warning)]")}>Caducados</span>
                   <span
                     className={clsx(
                       countPillClass,
-                      expiredCount > 0 ? "bg-rose-500/20 text-rose-100" : "bg-slate-800 text-slate-300",
-                      followUpMode === "expired" && !showOnlyWithNotes && "ring-1 ring-amber-300/60"
+                      expiredCount > 0 ? "bg-[color:rgba(244,63,94,0.16)] text-[color:var(--text)]" : "bg-[color:var(--surface-2)] text-[color:var(--muted)]",
+                      followUpMode === "expired" && !showOnlyWithNotes && "ring-1 ring-[color:var(--ring)]"
                     )}
                   >
                     {expiredCount}
@@ -1753,12 +1753,12 @@ function SideBarInner() {
                   onClick={() => applyFilter("all", true)}
                   className={clsx(filterRowClass, "w-full")}
                 >
-                  <span className={clsx(showOnlyWithNotes && "font-semibold text-amber-300")}>Con notas</span>
+                  <span className={clsx(showOnlyWithNotes && "font-semibold text-[color:var(--warning)]")}>Con notas</span>
                   <span
                     className={clsx(
                       countPillClass,
-                      withNotesCount > 0 ? "bg-slate-800 text-slate-50" : "bg-slate-800/80 text-slate-300",
-                      showOnlyWithNotes && "ring-1 ring-amber-300/60"
+                      withNotesCount > 0 ? "bg-[color:var(--surface-2)] text-[color:var(--text)]" : "bg-[color:var(--surface-2)] text-[color:var(--muted)]",
+                      showOnlyWithNotes && "ring-1 ring-[color:var(--ring)]"
                     )}
                   >
                     {withNotesCount}
@@ -1772,12 +1772,12 @@ function SideBarInner() {
                   }}
                   className={clsx(filterRowClass, "w-full")}
                 >
-                  <span className={clsx(statusFilter === "archived" && "font-semibold text-amber-300")}>Archivados</span>
+                  <span className={clsx(statusFilter === "archived" && "font-semibold text-[color:var(--warning)]")}>Archivados</span>
                   <span
                     className={clsx(
                       countPillClass,
-                      archivedCount > 0 ? "bg-slate-800 text-slate-50" : "bg-slate-800/80 text-slate-300",
-                      statusFilter === "archived" && "ring-1 ring-amber-300/60"
+                      archivedCount > 0 ? "bg-[color:var(--surface-2)] text-[color:var(--text)]" : "bg-[color:var(--surface-2)] text-[color:var(--muted)]",
+                      statusFilter === "archived" && "ring-1 ring-[color:var(--ring)]"
                     )}
                   >
                     {archivedCount}
@@ -1791,12 +1791,12 @@ function SideBarInner() {
                   }}
                   className={clsx(filterRowClass, "w-full")}
                 >
-                  <span className={clsx(statusFilter === "blocked" && "font-semibold text-amber-300")}>Bloqueados</span>
+                  <span className={clsx(statusFilter === "blocked" && "font-semibold text-[color:var(--warning)]")}>Bloqueados</span>
                   <span
                     className={clsx(
                       countPillClass,
-                      blockedCount > 0 ? "bg-rose-500/20 text-rose-100" : "bg-slate-800 text-slate-300",
-                      statusFilter === "blocked" && "ring-1 ring-amber-300/60"
+                      blockedCount > 0 ? "bg-[color:rgba(244,63,94,0.16)] text-[color:var(--text)]" : "bg-[color:var(--surface-2)] text-[color:var(--muted)]",
+                      statusFilter === "blocked" && "ring-1 ring-[color:var(--ring)]"
                     )}
                   >
                     {blockedCount}
@@ -1809,13 +1809,13 @@ function SideBarInner() {
               onClick={() => applyFilter(followUpMode, showOnlyWithNotes, tierFilter, !onlyWithFollowUp)}
               className={clsx(filterRowClass, "w-full")}
             >
-              <span className={clsx(onlyWithFollowUp && "font-semibold text-amber-300")}>
+              <span className={clsx(onlyWithFollowUp && "font-semibold text-[color:var(--warning)]")}>
                 <span className="inline-flex items-center gap-1">
-                  <IconGlyph name="clock" className="h-3.5 w-3.5 text-amber-200" />
+                  <IconGlyph name="clock" className="h-3.5 w-3.5 text-[color:var(--warning)]" />
                   <span>Con próxima acción</span>
                 </span>
                 <span
-                  className="ml-1 inline-flex h-4 w-4 items-center justify-center rounded-full border border-slate-500 text-[9px] text-slate-300"
+                  className="ml-1 inline-flex h-4 w-4 items-center justify-center rounded-full border border-[color:var(--surface-border-hover)] text-[9px] text-[color:var(--muted)]"
                   title="Tienes una tarea anotada para este fan (nota con rayo)."
                 >
                   i
@@ -1824,8 +1824,8 @@ function SideBarInner() {
               <span
                 className={clsx(
                   countPillClass,
-                  withFollowUpCount > 0 ? "bg-amber-500/20 text-amber-100" : "bg-slate-800 text-slate-300",
-                  onlyWithFollowUp && "ring-1 ring-amber-300/60"
+                  withFollowUpCount > 0 ? "bg-[color:rgba(245,158,11,0.16)] text-[color:var(--text)]" : "bg-[color:var(--surface-2)] text-[color:var(--muted)]",
+                  onlyWithFollowUp && "ring-1 ring-[color:var(--ring)]"
                 )}
               >
                 {withFollowUpCount}
@@ -1843,13 +1843,13 @@ function SideBarInner() {
                   }}
                   className={clsx(filterRowClass, "w-full")}
                 >
-                  <span className={clsx(onlyWithExtras && "font-semibold text-amber-300")}>
+                  <span className={clsx(onlyWithExtras && "font-semibold text-[color:var(--warning)]")}>
                     <span className="inline-flex items-center gap-1">
-                      <IconGlyph name="coin" className="h-3.5 w-3.5 text-amber-200" />
+                      <IconGlyph name="coin" className="h-3.5 w-3.5 text-[color:var(--warning)]" />
                       <span>Con extras</span>
                     </span>
                     <span
-                      className="ml-1 inline-flex h-4 w-4 items-center justify-center rounded-full border border-slate-500 text-[9px] text-slate-300"
+                      className="ml-1 inline-flex h-4 w-4 items-center justify-center rounded-full border border-[color:var(--surface-border-hover)] text-[9px] text-[color:var(--muted)]"
                       title="Este fan ya te ha comprado contenido extra (PPV)."
                     >
                       i
@@ -1858,8 +1858,8 @@ function SideBarInner() {
                   <span
                     className={clsx(
                       countPillClass,
-                      withExtrasCount > 0 ? "bg-amber-500/20 text-amber-100" : "bg-slate-800 text-slate-300",
-                      onlyWithExtras && "ring-1 ring-amber-300/60"
+                      withExtrasCount > 0 ? "bg-[color:rgba(245,158,11,0.16)] text-[color:var(--text)]" : "bg-[color:var(--surface-2)] text-[color:var(--muted)]",
+                      onlyWithExtras && "ring-1 ring-[color:var(--ring)]"
                     )}
                   >
                     {withExtrasCount}
@@ -1877,13 +1877,13 @@ function SideBarInner() {
                   }}
                   className={clsx(filterRowClass, "w-full")}
                 >
-                  <span className={clsx(followUpMode === "priority" && "font-semibold text-amber-300")}>
+                  <span className={clsx(followUpMode === "priority" && "font-semibold text-[color:var(--warning)]")}>
                     <span className="inline-flex items-center gap-1">
-                      <IconGlyph name="pin" className="h-3.5 w-3.5 text-amber-200" />
+                      <IconGlyph name="pin" className="h-3.5 w-3.5 text-[color:var(--warning)]" />
                       <span>Alta prioridad</span>
                     </span>
                     <span
-                      className="ml-1 inline-flex h-4 w-4 items-center justify-center rounded-full border border-slate-500 text-[9px] text-slate-300"
+                      className="ml-1 inline-flex h-4 w-4 items-center justify-center rounded-full border border-[color:var(--surface-border-hover)] text-[9px] text-[color:var(--muted)]"
                       title="Marcados por ti para atender primero."
                     >
                       i
@@ -1892,8 +1892,8 @@ function SideBarInner() {
                   <span
                     className={clsx(
                       countPillClass,
-                      priorityCount > 0 ? "bg-amber-500/20 text-amber-100" : "bg-slate-800 text-slate-300",
-                      followUpMode === "priority" && "ring-1 ring-amber-300/60"
+                      priorityCount > 0 ? "bg-[color:rgba(245,158,11,0.16)] text-[color:var(--text)]" : "bg-[color:var(--surface-2)] text-[color:var(--muted)]",
+                      followUpMode === "priority" && "ring-1 ring-[color:var(--ring)]"
                     )}
                   >
                     {priorityCount}
@@ -1904,12 +1904,12 @@ function SideBarInner() {
                   onClick={() => applyFilter(followUpMode, showOnlyWithNotes, tierFilter === "regular" ? "all" : "regular")}
                   className={clsx(filterRowClass, "w-full")}
                 >
-                  <span className={clsx(tierFilter === "regular" && "font-semibold text-amber-300")}>Habituales</span>
+                  <span className={clsx(tierFilter === "regular" && "font-semibold text-[color:var(--warning)]")}>Habituales</span>
                   <span
                     className={clsx(
                       countPillClass,
-                      regularCount > 0 ? "bg-slate-800 text-slate-50" : "bg-slate-800/80 text-slate-300",
-                      tierFilter === "regular" && "ring-1 ring-amber-300/60"
+                      regularCount > 0 ? "bg-[color:var(--surface-2)] text-[color:var(--text)]" : "bg-[color:var(--surface-2)] text-[color:var(--muted)]",
+                      tierFilter === "regular" && "ring-1 ring-[color:var(--ring)]"
                     )}
                   >
                     {regularCount}
@@ -1920,12 +1920,12 @@ function SideBarInner() {
                   onClick={() => applyFilter(followUpMode, showOnlyWithNotes, tierFilter === "new" ? "all" : "new")}
                   className={clsx(filterRowClass, "w-full")}
                 >
-                  <span className={clsx(tierFilter === "new" && "font-semibold text-amber-300")}>Nuevos</span>
+                  <span className={clsx(tierFilter === "new" && "font-semibold text-[color:var(--warning)]")}>Nuevos</span>
                   <span
                     className={clsx(
                       countPillClass,
-                      newCount > 0 ? "bg-slate-800 text-slate-50" : "bg-slate-800/80 text-slate-300",
-                      tierFilter === "new" && "ring-1 ring-amber-300/60"
+                      newCount > 0 ? "bg-[color:var(--surface-2)] text-[color:var(--text)]" : "bg-[color:var(--surface-2)] text-[color:var(--muted)]",
+                      tierFilter === "new" && "ring-1 ring-[color:var(--ring)]"
                     )}
                   >
                     {newCount}
@@ -1936,8 +1936,8 @@ function SideBarInner() {
                   onClick={() => setShowPacksPanel((prev) => !prev)}
                   className={clsx(filterRowClass, "w-full")}
                 >
-                  <span className={clsx(showPacksPanel && "font-semibold text-amber-300")}>Packs disponibles ({packsCount})</span>
-                  <span className={clsx(showPacksPanel && "font-semibold text-amber-300")}>⋯</span>
+                  <span className={clsx(showPacksPanel && "font-semibold text-[color:var(--warning)]")}>Packs disponibles ({packsCount})</span>
+                  <span className={clsx(showPacksPanel && "font-semibold text-[color:var(--warning)]")}>⋯</span>
                 </button>
               </>
             )}
@@ -1946,25 +1946,25 @@ function SideBarInner() {
       </div>
       {showPacksPanel && (
         <div className="mb-2 px-3">
-          <div className="flex flex-col gap-2 rounded-xl border border-slate-700 bg-slate-900/80 px-3 py-3 text-[11px] text-slate-200">
+          <div className="flex flex-col gap-2 rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-3 py-3 text-[11px] text-[color:var(--text)]">
             <div className="flex items-center justify-between">
-              <span className="font-semibold text-slate-100">Packs disponibles</span>
+              <span className="font-semibold text-[color:var(--text)]">Packs disponibles</span>
               <button
                 type="button"
-                className="text-slate-400 hover:text-slate-200 text-xs"
+                className="text-[color:var(--muted)] hover:text-[color:var(--text)] text-xs"
                 onClick={() => setShowPacksPanel(false)}
               >
                 Cerrar
               </button>
             </div>
             {Object.values(PACKS).map((pack) => (
-              <div key={pack.code} className="rounded-lg bg-slate-950/60 px-3 py-2 border border-slate-800">
-                <div className="flex items-center justify-between text-[12px] text-slate-100">
+              <div key={pack.code} className="rounded-lg bg-[color:var(--surface-2)] px-3 py-2 border border-[color:var(--surface-border)]">
+                <div className="flex items-center justify-between text-[12px] text-[color:var(--text)]">
                   <span className="font-semibold">{pack.name}</span>
-                  <span className="text-amber-200">{pack.price} €</span>
+                  <span className="text-[color:var(--warning)]">{pack.price} €</span>
                 </div>
-                <div className="text-[11px] text-slate-400">{pack.durationDays} días</div>
-                <p className="text-[11px] text-slate-300 mt-1">{pack.description}</p>
+                <div className="text-[11px] text-[color:var(--muted)]">{pack.durationDays} días</div>
+                <p className="text-[11px] text-[color:var(--muted)] mt-1">{pack.description}</p>
               </div>
             ))}
           </div>
@@ -2046,12 +2046,12 @@ function SideBarInner() {
               </div>
             </div>
             <div className="mt-2 px-3 w-full">
-              <div className="flex items-center gap-3 w-full rounded-full bg-slate-900/80 border border-slate-800/70 px-3 py-2 shadow-sm transition focus-within:border-[color:var(--border-a)] focus-within:ring-1 focus-within:ring-[color:var(--ring)]">
-                <svg viewBox="0 0 24 24" width="20" height="20" className="text-slate-400/80">
+              <div className="flex items-center gap-3 w-full rounded-full bg-[color:var(--surface-1)] border border-[color:var(--surface-border)] px-3 py-2 shadow-sm transition focus-within:border-[color:var(--border-a)] focus-within:ring-1 focus-within:ring-[color:var(--ring)]">
+                <svg viewBox="0 0 24 24" width="20" height="20" className="text-[color:var(--muted)]">
                   <path fill="currentColor" d="M15.009 13.805h-.636l-.22-.219a5.184 5.184 0 0 0 1.256-3.386 5.207 5.207 0 1 0-5.207 5.208 5.183 5.183 0 0 0 3.385-1.255l.221.22v.635l4.004 3.999 1.194-1.195-3.997-4.007zm-4.808 0a3.605 3.605 0 1 1 0-7.21 3.605 3.605 0 0 1 0 7.21z" />
                 </svg>
                 <input
-                  className="flex-1 min-w-0 bg-transparent border-none outline-none text-sm text-slate-100 placeholder:text-slate-400"
+                  className="flex-1 min-w-0 bg-transparent border-none outline-none text-sm text-[color:var(--text)] placeholder:text-[color:var(--muted)]"
                   placeholder="Buscar o iniciar un nuevo chat"
                   value={search}
                   onChange={(e) => {
@@ -2084,7 +2084,7 @@ function SideBarInner() {
                     "inline-flex h-10 w-10 items-center justify-center rounded-full border transition shrink-0",
                     focusMode
                       ? "border-[color:var(--brand)] bg-[color:rgba(var(--brand-rgb),0.22)] text-[color:var(--text)] shadow-[0_0_0_1px_rgba(var(--brand-rgb),0.25)]"
-                      : "border-slate-700 bg-slate-800/70 text-slate-300 hover:bg-slate-700"
+                      : "border-[color:var(--surface-border)] bg-[color:var(--surface-2)] text-[color:var(--muted)] hover:bg-[color:var(--surface-1)]"
                   )}
                   aria-pressed={focusMode}
                   title={focusMode ? "Salir de modo enfoque" : "Activar modo enfoque"}
@@ -2105,15 +2105,15 @@ function SideBarInner() {
           variant="compact"
         />
         {loadingFans && (
-          <div className="text-center text-[#aebac1] py-4 text-sm">Cargando fans...</div>
+          <div className="text-center text-[color:var(--muted)] py-4 text-sm">Cargando fans...</div>
         )}
         {fansError && !loadingFans && (
-          <div className="text-center text-red-400 py-4 text-sm">{fansError}</div>
+          <div className="text-center text-[color:var(--danger)] py-4 text-sm">{fansError}</div>
         )}
         {!loadingFans && !fansError && listSegment === "queue" && !focusMode && (
           <>
             {queueCount === 0 ? (
-              <div className="px-4 py-3 text-xs text-slate-400">
+              <div className="px-4 py-3 text-xs text-[color:var(--muted)]">
                 No hay chats en cola.
               </div>
             ) : (
@@ -2133,12 +2133,12 @@ function SideBarInner() {
         {!loadingFans && !fansError && listSegment === "all" && !focusMode && (
           <>
             {followUpMode === "priority" && safeFilteredConversationsList.length === 0 && (
-              <div className="px-4 py-3 text-xs text-slate-400">
+              <div className="px-4 py-3 text-xs text-[color:var(--muted)]">
                 No hay chats prioritarios por ahora.
               </div>
             )}
             {safeFilteredConversationsList.length === 0 && (
-              <div className="text-center text-[#aebac1] py-4 text-sm px-4 whitespace-pre-line">
+              <div className="text-center text-[color:var(--muted)] py-4 text-sm px-4 whitespace-pre-line">
                 {(() => {
                   if (followUpMode === "today") {
                     return (
@@ -2149,7 +2149,7 @@ function SideBarInner() {
                           Verás personas aquí cuando su suscripción esté cerca de renovarse o les marques «Próxima acción»{" "}
                           <IconGlyph
                             name="clock"
-                            className="inline-block h-3.5 w-3.5 align-text-bottom text-amber-200"
+                            className="inline-block h-3.5 w-3.5 align-text-bottom text-[color:var(--warning)]"
                           />{" "}
                           en el chat.
                         </span>
@@ -2165,7 +2165,7 @@ function SideBarInner() {
                           Se marcan{" "}
                           <IconGlyph
                             name="pin"
-                            className="inline-block h-3.5 w-3.5 align-text-bottom text-amber-200"
+                            className="inline-block h-3.5 w-3.5 align-text-bottom text-[color:var(--warning)]"
                           />{" "}
                           cuando los señalas manualmente para atender primero.
                         </span>
@@ -2211,8 +2211,8 @@ function SideBarInner() {
               className={clsx(
                 "w-full rounded-lg border px-3 py-2 text-sm font-semibold",
                 isLoadingMore
-                  ? "border-slate-700 bg-slate-800/60 text-slate-400 cursor-not-allowed"
-                  : "border-amber-400 bg-amber-500/10 text-amber-100 hover:bg-amber-500/20"
+                  ? "border-[color:var(--surface-border)] bg-[color:var(--surface-2)] text-[color:var(--muted)] cursor-not-allowed"
+                  : "border-[color:var(--warning)] bg-[color:rgba(245,158,11,0.08)] text-[color:var(--text)] hover:bg-[color:rgba(245,158,11,0.16)]"
               )}
             >
               {isLoadingMore ? "Cargando..." : "Cargar más"}
@@ -2221,60 +2221,60 @@ function SideBarInner() {
         )}
       </div>
       {isNewFanOpen && (
-        <div className="fixed inset-0 z-40 flex items-end justify-center bg-slate-950/60 backdrop-blur-sm">
-          <div className="w-full max-w-md rounded-t-3xl bg-slate-900 border border-slate-700 shadow-xl p-5 space-y-4">
+        <div className="fixed inset-0 z-40 flex items-end justify-center bg-[color:var(--surface-2)] backdrop-blur-sm">
+          <div className="w-full max-w-md rounded-t-3xl bg-[color:var(--surface-1)] border border-[color:var(--surface-border)] shadow-xl p-5 space-y-4">
             <div className="flex items-center justify-between gap-3">
-              <h2 className="text-sm font-semibold text-slate-200">Crear invitación</h2>
+              <h2 className="text-sm font-semibold text-[color:var(--text)]">Crear invitación</h2>
               <button
                 type="button"
                 onClick={closeNewFanModal}
-                className="inline-flex items-center justify-center rounded-full p-1.5 hover:bg-slate-800 text-slate-200"
+                className="inline-flex items-center justify-center rounded-full p-1.5 hover:bg-[color:var(--surface-2)] text-[color:var(--text)]"
               >
                 <span className="sr-only">Cerrar</span>
                 ✕
               </button>
             </div>
-            <p className="text-xs text-slate-400">
+            <p className="text-xs text-[color:var(--muted)]">
               Crea un link privado /i/token y un fan queda en Pendiente hasta que entra.
             </p>
-            <label className="flex flex-col gap-1 text-sm text-slate-300">
+            <label className="flex flex-col gap-1 text-sm text-[color:var(--muted)]">
               <span>Nombre o alias</span>
               <input
-                className="w-full rounded-lg bg-slate-800/70 border border-slate-700 px-3 py-2 text-sm text-white focus:border-[color:var(--border-a)]"
+                className="w-full rounded-lg bg-[color:var(--surface-2)] border border-[color:var(--surface-border)] px-3 py-2 text-sm text-[color:var(--text)] focus:border-[color:var(--border-a)]"
                 value={newFanName}
                 onChange={(e) => setNewFanName(e.target.value)}
                 placeholder="Ej: Ana"
                 disabled={newFanSaving || !!newFanId}
               />
             </label>
-            <label className="flex flex-col gap-1 text-sm text-slate-300">
+            <label className="flex flex-col gap-1 text-sm text-[color:var(--muted)]">
               <span>Nota inicial (opcional)</span>
               <textarea
-                className="w-full rounded-lg bg-slate-800/70 border border-slate-700 px-3 py-2 text-sm text-white focus:border-[color:var(--border-a)] h-20"
+                className="w-full rounded-lg bg-[color:var(--surface-2)] border border-[color:var(--surface-border)] px-3 py-2 text-sm text-[color:var(--text)] focus:border-[color:var(--border-a)] h-20"
                 value={newFanNote}
                 onChange={(e) => setNewFanNote(e.target.value)}
                 placeholder="Contexto rápido para este fan..."
                 disabled={newFanSaving || !!newFanId}
               />
             </label>
-            {newFanError && <p className="text-xs text-rose-300">{newFanError}</p>}
+            {newFanError && <p className="text-xs text-[color:var(--danger)]">{newFanError}</p>}
             {newFanId && (
-              <div className="rounded-lg border border-slate-800 bg-slate-950/60 px-3 py-2 text-xs text-slate-200">
+              <div className="rounded-lg border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-3 py-2 text-xs text-[color:var(--text)]">
                 Invitación creada.{newFanInviteUrl ? " Enlace listo para compartir." : " Genera el enlace para invitar."}
               </div>
             )}
             {newFanInviteUrl && (
-              <div className="rounded-lg border border-slate-800 bg-slate-950/60 px-3 py-2 text-xs text-slate-300 break-all">
+              <div className="rounded-lg border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-3 py-2 text-xs text-[color:var(--muted)] break-all">
                 {newFanInviteUrl}
               </div>
             )}
-            {newFanInviteError && <p className="text-xs text-rose-300">{newFanInviteError}</p>}
+            {newFanInviteError && <p className="text-xs text-[color:var(--danger)]">{newFanInviteError}</p>}
             <div className="flex items-center justify-end gap-2">
               {newFanId ? (
                 <>
                   <button
                     type="button"
-                    className="rounded-full border border-slate-700 bg-slate-800 px-4 py-2 text-sm font-semibold text-slate-100 hover:bg-slate-700"
+                    className="rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-4 py-2 text-sm font-semibold text-[color:var(--text)] hover:bg-[color:var(--surface-2)]"
                     onClick={closeNewFanModal}
                   >
                     Cerrar
@@ -2282,7 +2282,7 @@ function SideBarInner() {
                   {newFanInviteUrl && process.env.NODE_ENV !== "production" && (
                     <button
                       type="button"
-                      className="rounded-full border border-slate-700 bg-slate-800 px-4 py-2 text-sm font-semibold text-slate-100 hover:bg-slate-700"
+                      className="rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-4 py-2 text-sm font-semibold text-[color:var(--text)] hover:bg-[color:var(--surface-2)]"
                       onClick={() => {
                         if (newFanInviteUrl) {
                           window.open(newFanInviteUrl, "_blank", "noopener,noreferrer");
@@ -2298,7 +2298,7 @@ function SideBarInner() {
                     className={clsx(
                       "rounded-full border px-4 py-2 text-sm font-semibold transition",
                       newFanInviteState === "loading"
-                        ? "border-slate-700 bg-slate-800/60 text-slate-400 cursor-not-allowed"
+                        ? "border-[color:var(--surface-border)] bg-[color:var(--surface-2)] text-[color:var(--muted)] cursor-not-allowed"
                         : "border-[color:var(--brand)] bg-[color:rgba(var(--brand-rgb),0.16)] text-[color:var(--text)] hover:bg-[color:rgba(var(--brand-rgb),0.25)]"
                     )}
                     onClick={() => void handleCopyInviteForNewFan()}
@@ -2314,7 +2314,7 @@ function SideBarInner() {
                 <>
                   <button
                     type="button"
-                    className="rounded-full border border-slate-700 bg-slate-800 px-4 py-2 text-sm font-semibold text-slate-100 hover:bg-slate-700"
+                    className="rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-4 py-2 text-sm font-semibold text-[color:var(--text)] hover:bg-[color:var(--surface-2)]"
                     onClick={closeNewFanModal}
                   >
                     Cancelar
@@ -2325,7 +2325,7 @@ function SideBarInner() {
                     className={clsx(
                       "rounded-full border px-4 py-2 text-sm font-semibold transition",
                       newFanSaving
-                        ? "border-slate-700 bg-slate-800/60 text-slate-400 cursor-not-allowed"
+                        ? "border-[color:var(--surface-border)] bg-[color:var(--surface-2)] text-[color:var(--muted)] cursor-not-allowed"
                         : "border-[color:var(--brand)] bg-[color:rgba(var(--brand-rgb),0.16)] text-[color:var(--text)] hover:bg-[color:rgba(var(--brand-rgb),0.25)]"
                     )}
                     onClick={() => void handleCreateNewFan()}

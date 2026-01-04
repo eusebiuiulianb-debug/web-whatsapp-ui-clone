@@ -177,11 +177,11 @@ export function StickerPicker({ isOpen, anchorRef, onClose, onSelect }: StickerP
   const content = (
     <div className="flex flex-col gap-2">
       <div className="flex items-center justify-between">
-        <div className="text-[11px] font-semibold text-slate-300">Stickers</div>
+        <div className="text-[11px] font-semibold text-[color:var(--muted)]">Stickers</div>
         <button
           type="button"
           onClick={onClose}
-          className="rounded-full border border-slate-700/70 bg-slate-900/60 px-2 py-0.5 text-[10px] font-semibold text-slate-200 hover:bg-slate-800/80"
+          className="rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-2 py-0.5 text-[10px] font-semibold text-[color:var(--text)] hover:bg-[color:var(--surface-2)]"
         >
           Cerrar
         </button>
@@ -200,8 +200,8 @@ export function StickerPicker({ isOpen, anchorRef, onClose, onSelect }: StickerP
                 isActive
                   ? isSuave
                     ? "border-[color:var(--brand)] bg-[color:var(--brand-weak)] text-[color:var(--text)]"
-                    : "border-amber-400/70 bg-amber-500/10 text-amber-100"
-                  : "border-slate-700/70 bg-slate-900/60 text-slate-300 hover:text-slate-100"
+                    : "border-[color:rgba(245,158,11,0.7)] bg-[color:rgba(245,158,11,0.08)] text-[color:var(--text)]"
+                  : "border-[color:var(--surface-border)] bg-[color:var(--surface-1)] text-[color:var(--muted)] hover:text-[color:var(--text)]"
               )}
             >
               {collection.label}
@@ -220,8 +220,8 @@ export function StickerPicker({ isOpen, anchorRef, onClose, onSelect }: StickerP
               className={clsx(
                 "rounded-full border px-2 py-0.5 text-[10px] font-semibold",
                 isActive
-                  ? "border-slate-500/80 bg-slate-800/70 text-slate-100"
-                  : "border-slate-700/70 bg-slate-900/60 text-slate-300 hover:text-slate-100"
+                  ? "border-[color:var(--surface-border-hover)]/80 bg-[color:var(--surface-2)] text-[color:var(--text)]"
+                  : "border-[color:var(--surface-border)] bg-[color:var(--surface-1)] text-[color:var(--muted)] hover:text-[color:var(--text)]"
               )}
             >
               {pack.label}
@@ -235,7 +235,7 @@ export function StickerPicker({ isOpen, anchorRef, onClose, onSelect }: StickerP
             key={`${sticker.collectionId}-${sticker.packId}-${sticker.id}`}
             type="button"
             onClick={() => handleSelect(sticker)}
-            className="group flex flex-col items-center justify-center gap-1 rounded-xl border border-slate-800/70 bg-slate-900/60 p-2 hover:bg-slate-800/80"
+            className="group flex flex-col items-center justify-center gap-1 rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] p-2 hover:bg-[color:var(--surface-2)]"
           >
             <Image
               src={sticker.src}
@@ -246,7 +246,7 @@ export function StickerPicker({ isOpen, anchorRef, onClose, onSelect }: StickerP
               unoptimized
               className="h-16 w-16 object-contain transition-transform group-hover:scale-105"
             />
-            <span className="text-[10px] text-slate-300">{sticker.label}</span>
+            <span className="text-[10px] text-[color:var(--muted)]">{sticker.label}</span>
           </button>
         ))}
       </div>
@@ -267,7 +267,7 @@ export function StickerPicker({ isOpen, anchorRef, onClose, onSelect }: StickerP
           <div
             ref={desktopContentRef}
             className={clsx(
-              "rounded-2xl border border-slate-800/80 bg-slate-950/95 p-3 shadow-2xl overflow-y-auto",
+              "rounded-2xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] p-3 shadow-2xl overflow-y-auto",
               "w-[320px] max-w-[calc(100vw-16px)]"
             )}
             style={panelStyle}
@@ -282,7 +282,7 @@ export function StickerPicker({ isOpen, anchorRef, onClose, onSelect }: StickerP
             <div
               ref={desktopContentRef}
               className={clsx(
-                "rounded-2xl border border-slate-800/80 bg-slate-950/95 p-3 shadow-2xl overflow-y-auto",
+                "rounded-2xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] p-3 shadow-2xl overflow-y-auto",
                 "w-[320px] max-w-[calc(100vw-16px)]"
               )}
               style={panelStyle}
@@ -295,7 +295,7 @@ export function StickerPicker({ isOpen, anchorRef, onClose, onSelect }: StickerP
       <div className="sm:hidden fixed inset-0 z-50 flex items-end justify-center bg-black/60">
         <div
           ref={sheetRef}
-          className="w-full max-w-lg rounded-t-2xl border border-slate-800/80 bg-slate-950/95 p-3 shadow-2xl max-h-[75vh] overflow-y-auto"
+          className="w-full max-w-lg rounded-t-2xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] p-3 shadow-2xl max-h-[75vh] overflow-y-auto"
           data-sticker-picker="true"
         >
           {content}

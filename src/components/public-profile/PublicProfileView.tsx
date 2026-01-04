@@ -380,25 +380,25 @@ export default function PublicProfileView({
   const packCoverUrl = activePack?.pack.coverUrl || activePack?.posterUrl || null;
   const packModal = activePack ? (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-4 py-6">
-      <div className="w-full max-w-md rounded-2xl border border-slate-800 bg-slate-900/95 p-5 shadow-2xl">
+      <div className="w-full max-w-md rounded-2xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)]/95 p-5 shadow-2xl">
         <div className="flex items-start justify-between gap-3">
           <div>
-            <h3 className="text-lg font-semibold text-white">{activePack.pack.title}</h3>
-            <p className="text-sm text-amber-300">
+            <h3 className="text-lg font-semibold text-[color:var(--text)]">{activePack.pack.title}</h3>
+            <p className="text-sm text-[color:var(--warning)]">
               {formatPriceCents(activePack.pack.priceCents, activePack.pack.currency)}
             </p>
           </div>
           <button
             type="button"
             onClick={() => setActivePack(null)}
-            className="text-[12px] font-semibold text-slate-300 hover:text-slate-100"
+            className="text-[12px] font-semibold text-[color:var(--muted)] hover:text-[color:var(--text)]"
           >
             Cerrar
           </button>
         </div>
         {packCoverUrl && (
           <div
-            className="mt-4 h-40 w-full overflow-hidden rounded-xl border border-slate-800 bg-slate-950/80"
+            className="mt-4 h-40 w-full overflow-hidden rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-2)]"
             style={{
               backgroundImage: `linear-gradient(135deg, rgba(11,20,26,0.85), rgba(11,20,26,0.55)), url('${packCoverUrl}')`,
               backgroundSize: "cover",
@@ -407,25 +407,25 @@ export default function PublicProfileView({
           />
         )}
         {activePack.pack.description && (
-          <p className="mt-3 text-sm text-slate-300 leading-relaxed">{activePack.pack.description}</p>
+          <p className="mt-3 text-sm text-[color:var(--muted)] leading-relaxed">{activePack.pack.description}</p>
         )}
         <div className="mt-4 flex items-center justify-end gap-2">
           <button
             type="button"
             onClick={() => setActivePack(null)}
-            className="rounded-full border border-slate-700/70 bg-slate-900/60 px-3 py-1.5 text-[11px] font-semibold text-slate-200 hover:bg-slate-800/80"
+            className="rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-3 py-1.5 text-[11px] font-semibold text-[color:var(--text)] hover:bg-[color:var(--surface-2)]"
           >
             Volver
           </button>
           <Link
             href={packLandingHref}
-            className="inline-flex items-center justify-center rounded-full border border-slate-700/70 bg-slate-900/60 px-4 py-2 text-xs font-semibold text-slate-100 hover:bg-slate-800/80"
+            className="inline-flex items-center justify-center rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-4 py-2 text-xs font-semibold text-[color:var(--text)] hover:bg-[color:var(--surface-2)]"
           >
             Ver pack
           </Link>
           <Link
             href={packChatHref}
-            className="inline-flex items-center justify-center rounded-full bg-emerald-500 px-4 py-2 text-xs font-semibold text-slate-950 hover:bg-emerald-400"
+            className="inline-flex items-center justify-center rounded-full bg-[color:var(--brand-strong)] px-4 py-2 text-xs font-semibold text-[color:var(--surface-0)] hover:bg-[color:var(--brand)]"
           >
             Pedir
           </Link>
@@ -435,10 +435,10 @@ export default function PublicProfileView({
   ) : null;
 
   return (
-    <div className="min-h-screen bg-[#0b141a] text-white">
+    <div className="min-h-screen bg-[#0b141a] text-[color:var(--text)]">
       <div className="max-w-5xl mx-auto px-4 py-10 space-y-10">
         <header
-          className="relative overflow-hidden rounded-3xl border border-slate-800 bg-slate-900/80 p-6 md:p-8"
+          className="relative overflow-hidden rounded-3xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] p-6 md:p-8"
           style={heroBackgroundStyle}
         >
           <div
@@ -456,28 +456,28 @@ export default function PublicProfileView({
               <div className="flex items-start gap-4">
                 <div className="flex-shrink-0">
                   {avatarUrl ? (
-                    <div className="flex items-center justify-center w-16 h-16 md:w-20 md:h-20 rounded-full border border-white/20 bg-slate-900 overflow-hidden shadow-lg shadow-black/50">
+                    <div className="flex items-center justify-center w-16 h-16 md:w-20 md:h-20 rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] overflow-hidden shadow-lg shadow-black/50">
                       {/* eslint-disable-next-line @next/next/no-img-element */}
                       <img src={avatarUrl} alt={creatorName} className="w-full h-full object-cover" />
                     </div>
                   ) : (
-                    <div className="flex items-center justify-center w-16 h-16 md:w-20 md:h-20 rounded-full border border-white/20 bg-gradient-to-br from-emerald-500/90 to-sky-500/90 text-white text-3xl font-semibold shadow-lg shadow-black/50">
+                    <div className="flex items-center justify-center w-16 h-16 md:w-20 md:h-20 rounded-full border border-[color:var(--surface-border)] bg-gradient-to-br from-[color:rgba(var(--brand-rgb),0.9)] to-[color:rgba(var(--brand-rgb),0.45)] text-[color:var(--text)] text-3xl font-semibold shadow-lg shadow-black/50">
                       {creatorInitial}
                     </div>
                   )}
                 </div>
                 <div className="flex flex-col gap-1">
                   <h1 className="text-3xl md:text-4xl font-semibold leading-tight">{creatorName}</h1>
-                  <p className="text-sm text-slate-200">{copy.hero.tagline || subtitle}</p>
-                  {statsLine && <div className="text-xs text-slate-200">{statsLine}</div>}
+                  <p className="text-sm text-[color:var(--text)]">{copy.hero.tagline || subtitle}</p>
+                  {statsLine && <div className="text-xs text-[color:var(--text)]">{statsLine}</div>}
                 </div>
               </div>
-              <p className="text-slate-200 text-base leading-relaxed whitespace-pre-line">{copy.hero.description}</p>
+              <p className="text-[color:var(--text)] text-base leading-relaxed whitespace-pre-line">{copy.hero.description}</p>
               <div className="flex flex-wrap gap-2">
                 {visibleChips.map((chip, idx) => (
                   <span
                     key={`${chip.label}-${idx}`}
-                    className="inline-flex items-center rounded-full border border-slate-700 bg-slate-800/70 px-3 py-1 text-xs text-slate-100"
+                    className="inline-flex items-center rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-3 py-1 text-xs text-[color:var(--text)]"
                   >
                     {chip.label}
                   </span>
@@ -486,13 +486,13 @@ export default function PublicProfileView({
               <div className="flex flex-col sm:flex-row gap-3">
                 <Link
                   href="/"
-                  className="inline-flex w-full sm:w-auto items-center justify-center rounded-xl bg-emerald-500 px-5 py-3 text-sm font-semibold text-slate-950 shadow-lg shadow-emerald-900/30 transition hover:bg-emerald-400"
+                  className="inline-flex w-full sm:w-auto items-center justify-center rounded-xl bg-[color:var(--brand-strong)] px-5 py-3 text-sm font-semibold text-[color:var(--surface-0)] shadow-lg transition hover:bg-[color:var(--brand)]"
                 >
                   {copy.hero.primaryCtaLabel || "Entrar al chat privado"}
                 </Link>
                 <Link
                   href="/"
-                  className="inline-flex w-full sm:w-auto items-center justify-center rounded-xl border border-amber-400/70 bg-amber-500/10 px-5 py-3 text-sm font-semibold text-amber-100 transition hover:bg-amber-500/20"
+                  className="inline-flex w-full sm:w-auto items-center justify-center rounded-xl border border-[color:rgba(245,158,11,0.7)] bg-[color:rgba(245,158,11,0.08)] px-5 py-3 text-sm font-semibold text-[color:var(--text)] transition hover:bg-[color:rgba(245,158,11,0.16)]"
                 >
                   {copy.hero.secondaryCtaLabel || "Seguir gratis"}
                 </Link>
@@ -501,12 +501,12 @@ export default function PublicProfileView({
 
             {hasWhatInside && (
               <div className="md:w-5/12 w-full">
-                <div className="rounded-2xl border border-slate-800 bg-slate-950/70 p-5 shadow-xl shadow-black/30 backdrop-blur-sm">
-                  <p className="text-sm font-semibold text-slate-100 mb-3">{copy.hero.whatInsideTitle || "Qué hay dentro"}</p>
-                  <ul className="space-y-2 text-sm text-slate-300">
+                <div className="rounded-2xl border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] p-5 shadow-xl shadow-black/30 backdrop-blur-sm">
+                  <p className="text-sm font-semibold text-[color:var(--text)] mb-3">{copy.hero.whatInsideTitle || "Qué hay dentro"}</p>
+                  <ul className="space-y-2 text-sm text-[color:var(--muted)]">
                     {(copy.hero.whatInsideBullets || []).slice(0, 4).map((item, idx) => (
                       <li key={`${item}-${idx}`} className="flex items-start gap-2">
-                        <span className="mt-0.5 h-2 w-2 rounded-full bg-emerald-400" />
+                        <span className="mt-0.5 h-2 w-2 rounded-full bg-[color:var(--brand)]" />
                         <span>{item}</span>
                       </li>
                     ))}
@@ -531,7 +531,7 @@ export default function PublicProfileView({
             {visiblePacks.map((pack) => (
               <div
                 key={pack.id}
-                className={`rounded-2xl bg-slate-900/70 border px-5 py-4 flex flex-col gap-3 shadow-lg shadow-black/20 ${
+                className={`rounded-2xl bg-[color:var(--surface-1)] border px-5 py-4 flex flex-col gap-3 shadow-lg shadow-black/20 ${
                   visiblePacks.length === 1 ? "max-w-xl mx-auto w-full" : ""
                 }`}
                 style={pack.id === recommended?.id ? { borderColor: "rgba(52,211,153,0.6)", boxShadow: "0 10px 30px rgba(16,185,129,0.15)" } : {}}
@@ -539,27 +539,27 @@ export default function PublicProfileView({
                 <div className="flex items-center gap-2 flex-wrap">
                   <h3 className="text-lg font-semibold">{pack.title}</h3>
                   {pack.badge && (
-                    <span className="inline-flex items-center rounded-full bg-amber-500/10 text-amber-300 text-[11px] px-2 py-0.5">
+                    <span className="inline-flex items-center rounded-full bg-[color:rgba(245,158,11,0.08)] text-[color:var(--warning)] text-[11px] px-2 py-0.5">
                       {pack.badge}
                     </span>
                   )}
                   {pack.id === recommended?.id && (
-                    <span className="inline-flex items-center rounded-full bg-emerald-500/10 text-emerald-200 text-[11px] px-2 py-0.5">
+                    <span className="inline-flex items-center rounded-full bg-[color:rgba(var(--brand-rgb),0.12)] text-[color:var(--brand)] text-[11px] px-2 py-0.5">
                       Recomendado
                     </span>
                   )}
                 </div>
-                <p className="text-slate-300 text-sm leading-relaxed">{pack.bullets.slice(0, 1).join(" ")}</p>
+                <p className="text-[color:var(--muted)] text-sm leading-relaxed">{pack.bullets.slice(0, 1).join(" ")}</p>
                 {pack.bullets.slice(1).length > 0 && (
-                  <ul className="text-sm text-slate-300 space-y-1 list-disc list-inside">
+                  <ul className="text-sm text-[color:var(--muted)] space-y-1 list-disc list-inside">
                     {pack.bullets.slice(1).map((b) => (
                       <li key={b}>{b}</li>
                     ))}
                   </ul>
                 )}
                 <div className="flex items-center justify-between pt-2">
-                  <span className="text-2xl font-semibold text-amber-300">{pack.price}</span>
-                  <button className="inline-flex items-center justify-center rounded-lg border border-amber-400/70 text-amber-200 bg-transparent hover:bg-amber-400/10 px-3 py-2 text-sm font-semibold transition">
+                  <span className="text-2xl font-semibold text-[color:var(--warning)]">{pack.price}</span>
+                  <button className="inline-flex items-center justify-center rounded-lg border border-[color:rgba(245,158,11,0.7)] text-[color:var(--warning)] bg-transparent hover:bg-[color:rgba(245,158,11,0.08)] px-3 py-2 text-sm font-semibold transition">
                     {pack.ctaLabel}
                   </button>
                 </div>
@@ -572,17 +572,17 @@ export default function PublicProfileView({
           <section className="space-y-4">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <h2 className="text-2xl font-semibold">PopClips</h2>
-              {hasPopClips && <span className="text-xs text-slate-400">Desliza para ver más</span>}
+              {hasPopClips && <span className="text-xs text-[color:var(--muted)]">Desliza para ver más</span>}
             </div>
-            <div className="rounded-3xl border border-slate-800 bg-slate-900/60 p-3">
+            <div className="rounded-3xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] p-3">
               {showPopClipsError && (
-                <div className="flex h-[45vh] items-center justify-center rounded-2xl border border-rose-500/30 bg-rose-500/10 px-4 text-center">
+                <div className="flex h-[45vh] items-center justify-center rounded-2xl border border-[color:rgba(244,63,94,0.3)] bg-[color:rgba(244,63,94,0.08)] px-4 text-center">
                   <div className="space-y-3">
-                    <p className="text-sm font-semibold text-rose-100">{popClipsError}</p>
+                    <p className="text-sm font-semibold text-[color:var(--text)]">{popClipsError}</p>
                     <button
                       type="button"
                       onClick={handlePopClipsRetry}
-                      className="rounded-full border border-rose-400/70 bg-rose-500/10 px-4 py-1.5 text-xs font-semibold text-rose-100 hover:bg-rose-500/20"
+                      className="rounded-full border border-[color:rgba(244,63,94,0.7)] bg-[color:rgba(244,63,94,0.08)] px-4 py-1.5 text-xs font-semibold text-[color:var(--text)] hover:bg-[color:rgba(244,63,94,0.16)]"
                     >
                       Reintentar
                     </button>
@@ -594,14 +594,14 @@ export default function PublicProfileView({
                   {Array.from({ length: 4 }).map((_, idx) => (
                     <div
                       key={`popclip-skeleton-${idx}`}
-                      className="h-[75vh] md:h-[70vh] rounded-2xl border border-slate-800 bg-slate-950/80 animate-pulse"
+                      className="h-[75vh] md:h-[70vh] rounded-2xl border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] animate-pulse"
                     />
                   ))}
                 </div>
               )}
               {!isPopClipsLoading && !showPopClipsError && !hasPopClips && (
-                <div className="flex h-[45vh] items-center justify-center rounded-2xl border border-dashed border-slate-800 bg-slate-950/40">
-                  <p className="text-sm text-slate-300">Este creador aún no tiene PopClips.</p>
+                <div className="flex h-[45vh] items-center justify-center rounded-2xl border border-dashed border-[color:var(--surface-border)] bg-[color:var(--surface-2)]">
+                  <p className="text-sm text-[color:var(--muted)]">Este creador aún no tiene PopClips.</p>
                 </div>
               )}
               {!showPopClipsError && hasPopClips && (
@@ -622,7 +622,7 @@ export default function PublicProfileView({
                           clipRefs.current[clip.id] = node;
                         }}
                         data-clip-id={clip.id}
-                        className="relative h-[75vh] md:h-[70vh] snap-start overflow-hidden rounded-2xl border border-slate-800 bg-black/80"
+                        className="relative h-[75vh] md:h-[70vh] snap-start overflow-hidden rounded-2xl border border-[color:var(--surface-border)] bg-black/80"
                       >
                         <video
                           ref={(node) => {
@@ -648,31 +648,31 @@ export default function PublicProfileView({
                         <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/20 to-transparent" />
                         <div className="absolute bottom-4 left-4 right-4 flex items-end justify-between gap-4">
                           <div className="space-y-1">
-                            <p className="text-[11px] uppercase tracking-wide text-emerald-200">PopClip</p>
-                            <h3 className="text-lg font-semibold text-white">{clipTitle}</h3>
-                            <p className="text-xs text-slate-300">Disponible en: {clip.pack.title}</p>
-                            <p className="text-sm text-amber-300">{priceLabel}</p>
+                            <p className="text-[11px] uppercase tracking-wide text-[color:var(--brand)]">PopClip</p>
+                            <h3 className="text-lg font-semibold text-[color:var(--text)]">{clipTitle}</h3>
+                            <p className="text-xs text-[color:var(--muted)]">Disponible en: {clip.pack.title}</p>
+                            <p className="text-sm text-[color:var(--warning)]">{priceLabel}</p>
                           </div>
                           <button
                             type="button"
                             onClick={() => setActivePack(clip)}
-                            className="rounded-full bg-emerald-500 px-4 py-2 text-xs font-semibold text-slate-950 hover:bg-emerald-400"
+                            className="rounded-full bg-[color:var(--brand-strong)] px-4 py-2 text-xs font-semibold text-[color:var(--surface-0)] hover:bg-[color:var(--brand)]"
                           >
                             Ver pack
                           </button>
                         </div>
                         {isLoading && (
-                          <div className="absolute inset-0 flex items-center justify-center bg-black/30 text-xs font-semibold text-slate-100">
+                          <div className="absolute inset-0 flex items-center justify-center bg-black/30 text-xs font-semibold text-[color:var(--text)]">
                             Cargando...
                           </div>
                         )}
                         {isError && (
                           <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-black/60 text-center">
-                            <p className="text-sm font-semibold text-slate-100">
+                            <p className="text-sm font-semibold text-[color:var(--text)]">
                               No se pudo cargar el clip. Revisa la URL o el archivo local.
                             </p>
                             {isDev && clipErrorDetails[clip.id] && (
-                              <p className="text-[11px] text-slate-300">
+                              <p className="text-[11px] text-[color:var(--muted)]">
                                 URL: {clipErrorDetails[clip.id].url} (
                                 {clipErrorDetails[clip.id].status ?? "error"})
                               </p>
@@ -680,7 +680,7 @@ export default function PublicProfileView({
                             <button
                               type="button"
                               onClick={() => retryClip(clip.id)}
-                              className="rounded-full border border-emerald-400/70 bg-emerald-500/10 px-4 py-1.5 text-xs font-semibold text-emerald-100 hover:bg-emerald-500/20"
+                              className="rounded-full border border-[color:rgba(var(--brand-rgb),0.45)] bg-[color:rgba(var(--brand-rgb),0.12)] px-4 py-1.5 text-xs font-semibold text-[color:var(--text)] hover:bg-[color:rgba(var(--brand-rgb),0.16)]"
                             >
                               Reintentar
                             </button>
@@ -690,7 +690,7 @@ export default function PublicProfileView({
                           <button
                             type="button"
                             onClick={() => handleManualPlay(clip.id)}
-                            className="absolute inset-0 flex items-center justify-center bg-black/40 text-sm font-semibold text-white"
+                            className="absolute inset-0 flex items-center justify-center bg-black/40 text-sm font-semibold text-[color:var(--text)]"
                           >
                             Toca para reproducir
                           </button>
@@ -708,7 +708,7 @@ export default function PublicProfileView({
           <section className="space-y-4">
             <h2 className="text-2xl font-semibold">Catálogo</h2>
             {!hasCatalog && (
-              <div className="rounded-2xl border border-slate-800 bg-slate-900/60 p-6 text-slate-300">
+              <div className="rounded-2xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] p-6 text-[color:var(--muted)]">
                 Aún no hay catálogo público.
               </div>
             )}
@@ -741,13 +741,13 @@ export default function PublicProfileView({
               {visibleFreebies.map((resource) => (
                 <div
                   key={resource.id}
-                  className="rounded-2xl bg-slate-900/60 border border-slate-800 p-4 flex flex-col gap-3 shadow-lg shadow-black/10"
+                  className="rounded-2xl bg-[color:var(--surface-1)] border border-[color:var(--surface-border)] p-4 flex flex-col gap-3 shadow-lg shadow-black/10"
                 >
                   <div className="flex flex-col gap-1">
-                    <p className="font-semibold text-slate-50">{resource.title}</p>
-                    <p className="text-slate-300 text-sm leading-relaxed">{resource.description}</p>
+                    <p className="font-semibold text-[color:var(--text)]">{resource.title}</p>
+                    <p className="text-[color:var(--muted)] text-sm leading-relaxed">{resource.description}</p>
                   </div>
-                  <button className="inline-flex w-full items-center justify-center rounded-lg border border-amber-400 text-amber-200 bg-transparent hover:bg-amber-400/10 px-3 py-2 text-sm font-semibold transition-colors">
+                  <button className="inline-flex w-full items-center justify-center rounded-lg border border-[color:var(--warning)] text-[color:var(--warning)] bg-transparent hover:bg-[color:rgba(245,158,11,0.08)] px-3 py-2 text-sm font-semibold transition-colors">
                     {resource.ctaLabel}
                   </button>
                 </div>
@@ -763,17 +763,17 @@ export default function PublicProfileView({
               {copy.faq.map((item) => {
                 const isOpen = openFaqId === item.id;
                 return (
-                  <div key={item.id} className="rounded-2xl bg-slate-900/60 border border-slate-800">
+                  <div key={item.id} className="rounded-2xl bg-[color:var(--surface-1)] border border-[color:var(--surface-border)]">
                     <button
                       type="button"
                       className="w-full px-4 py-3 flex items-center justify-between text-left"
                       onClick={() => setOpenFaqId(isOpen ? null : item.id)}
                     >
-                      <span className="font-semibold text-slate-100">{item.question}</span>
-                      <span className="text-slate-400">{isOpen ? "−" : "+"}</span>
+                      <span className="font-semibold text-[color:var(--text)]">{item.question}</span>
+                      <span className="text-[color:var(--muted)]">{isOpen ? "−" : "+"}</span>
                     </button>
                     {isOpen && (
-                      <div className="px-4 pb-4 text-sm text-slate-300 leading-relaxed">{item.answer}</div>
+                      <div className="px-4 pb-4 text-sm text-[color:var(--muted)] leading-relaxed">{item.answer}</div>
                     )}
                   </div>
                 );
@@ -854,7 +854,7 @@ function renderCatalogGroup({
   if (!items || items.length === 0) return null;
   return (
     <div className="space-y-3">
-      <h3 className="text-lg font-semibold text-slate-100">{title}</h3>
+      <h3 className="text-lg font-semibold text-[color:var(--text)]">{title}</h3>
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         {items.map((item, index) => {
           const includesLine = item.type === "BUNDLE" ? formatIncludesPreview(item.includes) : "";
@@ -866,23 +866,23 @@ function renderCatalogGroup({
           return (
             <div
               key={`${item.type}-${item.title}-${index}`}
-              className="rounded-2xl border border-slate-800 bg-slate-900/60 p-4 flex flex-col gap-3 shadow-lg shadow-black/20"
+              className="rounded-2xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] p-4 flex flex-col gap-3 shadow-lg shadow-black/20"
             >
               <div className="flex flex-col gap-1">
                 <div className="flex items-center justify-between gap-3">
-                  <h4 className="text-base font-semibold text-slate-100">{item.title}</h4>
-                  <span className="text-lg font-semibold text-amber-300">
+                  <h4 className="text-base font-semibold text-[color:var(--text)]">{item.title}</h4>
+                  <span className="text-lg font-semibold text-[color:var(--warning)]">
                     {formatPriceCents(item.priceCents, item.currency)}
                   </span>
                 </div>
                 {item.description && (
-                  <p className="text-sm text-slate-300 leading-relaxed">{item.description}</p>
+                  <p className="text-sm text-[color:var(--muted)] leading-relaxed">{item.description}</p>
                 )}
-                {includesLine && <p className="text-xs text-slate-400">{includesLine}</p>}
+                {includesLine && <p className="text-xs text-[color:var(--muted)]">{includesLine}</p>}
               </div>
               <Link
                 href={href}
-                className="inline-flex w-full items-center justify-center rounded-lg border border-emerald-400/70 bg-emerald-500/10 px-3 py-2 text-sm font-semibold text-emerald-100 hover:bg-emerald-500/20 transition"
+                className="inline-flex w-full items-center justify-center rounded-lg border border-[color:rgba(var(--brand-rgb),0.45)] bg-[color:rgba(var(--brand-rgb),0.12)] px-3 py-2 text-sm font-semibold text-[color:var(--text)] hover:bg-[color:rgba(var(--brand-rgb),0.16)] transition"
               >
                 Pedir
               </Link>

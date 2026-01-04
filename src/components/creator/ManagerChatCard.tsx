@@ -1329,7 +1329,7 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
         <span>
           Revisar ajustes: falta `OPENAI_API_KEY` o no se pudo descifrar.{" "}
           <Link href="/creator/ai-settings">
-            <a className="underline hover:text-amber-100">Abrir ajustes</a>
+            <a className="underline hover:text-[color:var(--text)]">Abrir ajustes</a>
           </Link>
         </span>
       )
@@ -2253,18 +2253,18 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
         {drafts.map((group) => (
           <div
             key={`${group.fanId}-${group.fanName}`}
-            className="rounded-xl border border-slate-800/70 bg-slate-900/60 px-3 py-3"
+            className="rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-3 py-3"
           >
-            <div className="text-[11px] uppercase tracking-wide text-slate-400">
+            <div className="text-[11px] uppercase tracking-wide text-[color:var(--muted)]">
               Borradores · {group.fanName}
             </div>
             <div className="mt-2 space-y-2">
               {group.drafts.map((draft, index) => (
                 <div
                   key={`${group.fanId}-draft-${index}`}
-                  className="rounded-lg border border-slate-800/70 bg-slate-950/70 px-3 py-2"
+                  className="rounded-lg border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-3 py-2"
                 >
-                  <p className="text-[12px] text-slate-100 whitespace-pre-wrap">{draft}</p>
+                  <p className="text-[12px] text-[color:var(--text)] whitespace-pre-wrap">{draft}</p>
                   <div className="mt-2 flex justify-end">
                     <button
                       type="button"
@@ -2273,7 +2273,7 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
                         event.stopPropagation();
                         handleSendDraftToFan(group.fanId, draft);
                       }}
-                      className="inline-flex items-center rounded-full border border-emerald-500/50 bg-emerald-500/10 px-3 py-1 text-[11px] font-semibold text-emerald-100 hover:bg-emerald-500/20"
+                      className="inline-flex items-center rounded-full border border-[color:rgba(var(--brand-rgb),0.5)] bg-[color:rgba(var(--brand-rgb),0.12)] px-3 py-1 text-[11px] font-semibold text-[color:var(--text)] hover:bg-[color:rgba(var(--brand-rgb),0.16)]"
                     >
                       Enviar borrador
                     </button>
@@ -2293,13 +2293,13 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
         {actions.map((action) => (
           <div
             key={action.id}
-            className="rounded-xl border border-slate-800/70 bg-slate-900/60 px-3 py-2"
+            className="rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-3 py-2"
           >
             <div className="flex items-center justify-between gap-3">
               <div>
-                <div className="text-[12px] font-semibold text-slate-100">{action.label}</div>
+                <div className="text-[12px] font-semibold text-[color:var(--text)]">{action.label}</div>
                 {action.description && (
-                  <div className="text-[11px] text-slate-400">{action.description}</div>
+                  <div className="text-[11px] text-[color:var(--muted)]">{action.description}</div>
                 )}
               </div>
               <button
@@ -2310,7 +2310,7 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
                   handleCatalogQuickAction(action.actionId);
                   insertAndFocus(buildPrompt(action.actionId), false, action.actionId);
                 }}
-                className="shrink-0 inline-flex items-center rounded-full border border-emerald-500/50 bg-emerald-500/10 px-3 py-1 text-[11px] font-semibold text-emerald-100 hover:bg-emerald-500/20"
+                className="shrink-0 inline-flex items-center rounded-full border border-[color:rgba(var(--brand-rgb),0.5)] bg-[color:rgba(var(--brand-rgb),0.12)] px-3 py-1 text-[11px] font-semibold text-[color:var(--text)] hover:bg-[color:rgba(var(--brand-rgb),0.16)]"
               >
                 Insertar
               </button>
@@ -2351,7 +2351,7 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
     const editorListContent = (
       <div className="mt-4 space-y-2 max-h-none sm:max-h-[60vh] overflow-y-auto pr-1">
         {editorList.length === 0 && (
-          <div className="text-[12px] text-slate-400">No hay atajos disponibles.</div>
+          <div className="text-[12px] text-[color:var(--muted)]">No hay atajos disponibles.</div>
         )}
         {editorList.map((item) => {
           const isPinned = pinnedIdsForTab.includes(item.id);
@@ -2361,11 +2361,11 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
           return (
             <div
               key={item.id}
-              className="flex items-center justify-between gap-3 rounded-xl border border-slate-800/70 bg-slate-900/50 px-3 py-2"
+              className="flex items-center justify-between gap-3 rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-3 py-2"
             >
               <div>
-                <div className="text-[13px] text-slate-100">{item.label}</div>
-                {item.description && <div className="text-[11px] text-slate-400">{item.description}</div>}
+                <div className="text-[13px] text-[color:var(--text)]">{item.label}</div>
+                {item.description && <div className="text-[11px] text-[color:var(--muted)]">{item.description}</div>}
               </div>
               <div className="flex items-center gap-1">
                 <button
@@ -2379,8 +2379,8 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
                   className={clsx(
                     "inline-flex h-7 items-center justify-center rounded-full border px-2 text-[10px] font-semibold transition",
                     !isPinned || isFirst
-                      ? "border-slate-700/60 text-slate-500 cursor-not-allowed"
-                      : "border-slate-700/70 text-slate-200 hover:bg-slate-800/80"
+                      ? "border-[color:var(--surface-border)] text-[color:var(--text)]0 cursor-not-allowed"
+                      : "border-[color:var(--surface-border)] text-[color:var(--text)] hover:bg-[color:var(--surface-2)]"
                   )}
                   aria-label="Subir atajo"
                 >
@@ -2397,8 +2397,8 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
                   className={clsx(
                     "inline-flex h-7 items-center justify-center rounded-full border px-2 text-[10px] font-semibold transition",
                     !isPinned || isLast
-                      ? "border-slate-700/60 text-slate-500 cursor-not-allowed"
-                      : "border-slate-700/70 text-slate-200 hover:bg-slate-800/80"
+                      ? "border-[color:var(--surface-border)] text-[color:var(--text)]0 cursor-not-allowed"
+                      : "border-[color:var(--surface-border)] text-[color:var(--text)] hover:bg-[color:var(--surface-2)]"
                   )}
                   aria-label="Bajar atajo"
                 >
@@ -2414,8 +2414,8 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
                   className={clsx(
                     "rounded-full px-3 py-1 text-[11px] font-semibold transition",
                     isPinned
-                      ? "bg-emerald-500/20 text-emerald-100 hover:bg-emerald-500/30"
-                      : "bg-slate-800/70 text-slate-200 hover:bg-slate-800"
+                      ? "bg-[color:rgba(var(--brand-rgb),0.16)] text-[color:var(--text)] hover:bg-[color:rgba(var(--brand-rgb),0.24)]"
+                      : "bg-[color:var(--surface-2)] text-[color:var(--text)] hover:bg-[color:var(--surface-2)]"
                   )}
                 >
                   {isPinned ? "Quitar" : "Fijar"}
@@ -2432,14 +2432,14 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
           <button
             type="button"
             onClick={restoreDefaultsForTab}
-            className="rounded-full border border-slate-700/70 bg-slate-900/60 px-3 py-1.5 text-[11px] font-semibold text-slate-200 hover:bg-slate-800/80"
+            className="rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-3 py-1.5 text-[11px] font-semibold text-[color:var(--text)] hover:bg-[color:var(--surface-2)]"
           >
             Restaurar {tabLabel}
           </button>
           <button
             type="button"
             onClick={restoreAllAtajos}
-            className="rounded-full border border-slate-700/70 bg-slate-900/60 px-3 py-1.5 text-[11px] font-semibold text-slate-200 hover:bg-slate-800/80"
+            className="rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-3 py-1.5 text-[11px] font-semibold text-[color:var(--text)] hover:bg-[color:var(--surface-2)]"
           >
             Restaurar todo
           </button>
@@ -2447,7 +2447,7 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
         <button
           type="button"
           onClick={handleFavoritesEditorClose}
-          className="h-9 px-4 rounded-full text-sm font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 bg-[color:var(--brand-strong)] text-white hover:bg-[color:var(--brand)] focus-visible:ring-[color:var(--ring)]"
+          className="h-9 px-4 rounded-full text-sm font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 bg-[color:var(--brand-strong)] text-[color:var(--text)] hover:bg-[color:var(--brand)] focus-visible:ring-[color:var(--ring)]"
         >
           Cerrar
         </button>
@@ -2481,7 +2481,7 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
                   className={clsx(
                     "rounded-full border px-3 py-1 text-[10px] font-semibold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--ring)]",
                     followUpRangeDays === range
-                      ? "border-amber-400/70 bg-amber-500/15 text-amber-100"
+                      ? "border-[color:rgba(245,158,11,0.7)] bg-[color:rgba(245,158,11,0.12)] text-[color:var(--text)]"
                       : "border-[color:var(--surface-border)] bg-[color:var(--surface-2)] text-[color:var(--text)] hover:border-[color:var(--surface-border-hover)] hover:bg-[color:var(--surface-1)]"
                   )}
                 >
@@ -2491,7 +2491,7 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
               {segmentsLoading && <div className="text-[10px] text-[color:var(--muted)]">Cargando…</div>}
             </div>
           </div>
-          {segmentsError && <div className="mt-2 text-[12px] text-rose-300">{segmentsError}</div>}
+          {segmentsError && <div className="mt-2 text-[12px] text-[color:var(--danger)]">{segmentsError}</div>}
           {!segmentsLoading && !segmentsError && followUpItems.length === 0 && (
             <div className="mt-2 text-[12px] text-[color:var(--muted)]">Sin seguimientos en este rango.</div>
           )}
@@ -2520,9 +2520,9 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
                         className={clsx(
                           "rounded-full border px-2 py-0.5 text-[10px] font-semibold",
                           isOverdue
-                            ? "border-rose-400/70 bg-rose-500/10 text-rose-100"
+                            ? "border-[color:rgba(244,63,94,0.7)] bg-[color:rgba(244,63,94,0.08)] text-[color:var(--text)]"
                             : isTodayLabel
-                            ? "border-amber-400/70 bg-amber-500/10 text-amber-100"
+                            ? "border-[color:rgba(245,158,11,0.7)] bg-[color:rgba(245,158,11,0.08)] text-[color:var(--text)]"
                             : "border-[color:var(--surface-border)] bg-[color:var(--surface-2)] text-[color:var(--text)]"
                         )}
                       >
@@ -2536,7 +2536,7 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
                             event.stopPropagation();
                             handleOpenFanFollowUpPanel(item.fanId);
                           }}
-                          className="rounded-full border border-amber-400/70 bg-amber-500/10 px-3 py-1 text-[10px] font-semibold text-amber-100 hover:bg-amber-500/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--ring)]"
+                          className="rounded-full border border-[color:rgba(245,158,11,0.7)] bg-[color:rgba(245,158,11,0.08)] px-3 py-1 text-[10px] font-semibold text-[color:var(--text)] hover:bg-[color:rgba(245,158,11,0.16)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--ring)]"
                         >
                           Añadir nota
                         </button>
@@ -2607,8 +2607,8 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
           </div>
           {salesLoading && <div className="text-[12px] text-[color:var(--muted)]">Cargando ventas...</div>}
           {salesError && (
-            <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-amber-500/40 bg-amber-500/10 px-3 py-2">
-              <div className="text-[12px] text-amber-100">{salesError}</div>
+            <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-[color:rgba(245,158,11,0.4)] bg-[color:rgba(245,158,11,0.08)] px-3 py-2">
+              <div className="text-[12px] text-[color:var(--text)]">{salesError}</div>
               <button
                 type="button"
                 onPointerDown={(event) => event.stopPropagation()}
@@ -2616,7 +2616,7 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
                   event.stopPropagation();
                   handleSalesRetry();
                 }}
-                className="rounded-full border border-amber-400/60 bg-amber-500/10 px-3 py-1 text-[11px] font-semibold text-amber-100 hover:bg-amber-500/20"
+                className="rounded-full border border-[color:rgba(245,158,11,0.6)] bg-[color:rgba(245,158,11,0.08)] px-3 py-1 text-[11px] font-semibold text-[color:var(--text)] hover:bg-[color:rgba(245,158,11,0.16)]"
               >
                 Reintentar
               </button>
@@ -2692,7 +2692,7 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
                         <span className="flex items-center gap-2 min-w-0">
                           <span className="truncate">{product.title}</span>
                           {product.isGift && (
-                            <span className="shrink-0 rounded-full border border-amber-400/60 bg-amber-500/10 px-2 py-0.5 text-[10px] font-semibold text-amber-100">
+                            <span className="shrink-0 rounded-full border border-[color:rgba(245,158,11,0.6)] bg-[color:rgba(245,158,11,0.08)] px-2 py-0.5 text-[10px] font-semibold text-[color:var(--text)]">
                               Regalo
                             </span>
                           )}
@@ -2720,10 +2720,10 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
                 </div>
               </div>
 
-              <div className="rounded-xl border border-amber-500/40 bg-amber-500/10 px-3 py-2">
-                <div className="text-[10px] uppercase tracking-wide text-amber-200">Oportunidades</div>
-                <div className="mt-2 space-y-1 text-[12px] text-amber-100">
-                  {salesData.insights.length === 0 && <div className="text-amber-200/70">Sin alertas.</div>}
+              <div className="rounded-xl border border-[color:rgba(245,158,11,0.4)] bg-[color:rgba(245,158,11,0.08)] px-3 py-2">
+                <div className="text-[10px] uppercase tracking-wide text-[color:var(--warning)]">Oportunidades</div>
+                <div className="mt-2 space-y-1 text-[12px] text-[color:var(--text)]">
+                  {salesData.insights.length === 0 && <div className="text-[color:var(--warning)]">Sin alertas.</div>}
                   {salesData.insights.map((insight, idx) => (
                     <div key={`${insight}-${idx}`}>• {insight}</div>
                   ))}
@@ -2735,7 +2735,7 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
                   <div className="text-[10px] uppercase tracking-wide text-[color:var(--muted)]">Segmentos accionables</div>
                   {segmentsLoading && <div className="text-[10px] text-[color:var(--muted)]">Cargando...</div>}
                 </div>
-                {segmentsError && <div className="mt-2 text-[12px] text-rose-300">{segmentsError}</div>}
+                {segmentsError && <div className="mt-2 text-[12px] text-[color:var(--danger)]">{segmentsError}</div>}
                 {!segmentsLoading && !segmentsError && segmentsData && segmentsData.segments.length === 0 && (
                   <div className="mt-2 text-[12px] text-[color:var(--muted)]">Sin segmentos aún.</div>
                 )}
@@ -2786,7 +2786,7 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
                                         className={clsx(
                                           "mt-1 inline-flex max-w-full items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-semibold",
                                           isOverdue
-                                            ? "border-rose-400/70 bg-rose-500/10 text-rose-100"
+                                            ? "border-[color:rgba(244,63,94,0.7)] bg-[color:rgba(244,63,94,0.08)] text-[color:var(--text)]"
                                             : "border-[color:var(--surface-border)] bg-[color:var(--surface-2)] text-[color:var(--muted)]"
                                         )}
                                       >
@@ -2894,9 +2894,9 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
             </div>
           </div>
           {catalogLoading && <div className="mt-3 text-[12px] text-[color:var(--muted)]">Cargando catálogo...</div>}
-          {catalogError && <div className="mt-3 text-[12px] text-rose-300">{catalogError}</div>}
+          {catalogError && <div className="mt-3 text-[12px] text-[color:var(--danger)]">{catalogError}</div>}
           {popClipsLoading && <div className="mt-2 text-[12px] text-[color:var(--muted)]">Cargando PopClips...</div>}
-          {popClipsError && <div className="mt-2 text-[12px] text-rose-300">{popClipsError}</div>}
+          {popClipsError && <div className="mt-2 text-[12px] text-[color:var(--danger)]">{popClipsError}</div>}
           {!catalogLoading && visibleCatalogItems.length === 0 && (
             <div className="mt-3 text-[12px] text-[color:var(--muted)]">Aún no tienes ítems en el catálogo.</div>
           )}
@@ -3017,7 +3017,7 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
             </button>
           )}
           {catalogToast && (
-            <div className="mt-2 text-[11px] text-amber-300">{catalogToast}</div>
+            <div className="mt-2 text-[11px] text-[color:var(--warning)]">{catalogToast}</div>
           )}
         </div>
         <div
@@ -3031,7 +3031,7 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
                 name={catalogGaps.extrasOk ? "check" : "alert"}
                 className={clsx(
                   "h-3.5 w-3.5",
-                  catalogGaps.extrasOk ? "text-emerald-300" : "text-amber-300"
+                  catalogGaps.extrasOk ? "text-[color:var(--brand)]" : "text-[color:var(--warning)]"
                 )}
               />
               <span>Extras activos (mínimo 3)</span>
@@ -3041,7 +3041,7 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
                 name={catalogGaps.bundlesOk ? "check" : "alert"}
                 className={clsx(
                   "h-3.5 w-3.5",
-                  catalogGaps.bundlesOk ? "text-emerald-300" : "text-amber-300"
+                  catalogGaps.bundlesOk ? "text-[color:var(--brand)]" : "text-[color:var(--warning)]"
                 )}
               />
               <span>Bundles activos (mínimo 1)</span>
@@ -3051,7 +3051,7 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
                 name={catalogGaps.packsOk ? "check" : "alert"}
                 className={clsx(
                   "h-3.5 w-3.5",
-                  catalogGaps.packsOk ? "text-emerald-300" : "text-amber-300"
+                  catalogGaps.packsOk ? "text-[color:var(--brand)]" : "text-[color:var(--warning)]"
                 )}
               />
               <span>Packs activos (mínimo 1)</span>
@@ -3098,7 +3098,7 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
               </button>
             )}
             {catalogGaps.extrasOk && catalogGaps.bundlesOk && catalogGaps.packsOk && (
-              <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-[12px] text-emerald-100">
+              <div className="rounded-xl border border-[color:rgba(var(--brand-rgb),0.3)] bg-[color:rgba(var(--brand-rgb),0.12)] px-3 py-2 text-[12px] text-[color:var(--text)]">
                 Catálogo completo por ahora.
               </div>
             )}
@@ -3113,28 +3113,28 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
               <div className="hidden sm:flex fixed inset-0 z-[9999] items-center justify-center bg-black/60 px-4 py-6">
                 <div
                   ref={catalogEditorModalRef}
-                  className="w-full max-w-lg rounded-2xl border border-slate-800/80 bg-slate-950/95 p-4 shadow-2xl"
+                  className="w-full max-w-lg rounded-2xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] p-4 shadow-2xl"
                   role="dialog"
                   aria-modal="true"
                   aria-label="Editor de catálogo"
                 >
                   <div className="flex items-start justify-between gap-3">
                     <div>
-                      <h3 className="text-sm font-semibold text-slate-100">
+                      <h3 className="text-sm font-semibold text-[color:var(--text)]">
                         {catalogEditorMode === "create" ? "Crear ítem" : "Editar ítem"}
                       </h3>
-                      <p className="text-[11px] text-slate-400">Ajusta título, precio y estado.</p>
+                      <p className="text-[11px] text-[color:var(--muted)]">Ajusta título, precio y estado.</p>
                     </div>
                     <button
                       type="button"
                       onClick={() => setIsCatalogEditorOpen(false)}
-                      className="text-[12px] font-semibold text-slate-300 hover:text-slate-100"
+                      className="text-[12px] font-semibold text-[color:var(--muted)] hover:text-[color:var(--text)]"
                     >
                       Cerrar
                     </button>
                   </div>
                   <div className="mt-4 space-y-3">
-                    <label className="block text-[11px] text-slate-400">
+                    <label className="block text-[11px] text-[color:var(--muted)]">
                       Tipo
                       <select
                         value={catalogDraft.type}
@@ -3150,7 +3150,7 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
                               : prev
                           );
                         }}
-                        className="mt-1 w-full rounded-lg border border-slate-800 bg-slate-950/70 px-3 py-2 text-sm text-slate-100"
+                        className="mt-1 w-full rounded-lg border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-3 py-2 text-sm text-[color:var(--text)]"
                       >
                         {CATALOG_ITEM_TYPES.map((type) => (
                           <option key={type} value={type}>
@@ -3159,7 +3159,7 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
                         ))}
                       </select>
                     </label>
-                    <label className="block text-[11px] text-slate-400">
+                    <label className="block text-[11px] text-[color:var(--muted)]">
                       Título
                       <input
                         ref={catalogEditorTitleRef}
@@ -3167,41 +3167,41 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
                         onChange={(event) =>
                           setCatalogDraft((prev) => (prev ? { ...prev, title: event.target.value } : prev))
                         }
-                        className="mt-1 w-full rounded-lg border border-slate-800 bg-slate-950/70 px-3 py-2 text-sm text-slate-100"
+                        className="mt-1 w-full rounded-lg border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-3 py-2 text-sm text-[color:var(--text)]"
                         placeholder="Nombre del ítem"
                       />
                     </label>
-                    <label className="block text-[11px] text-slate-400">
+                    <label className="block text-[11px] text-[color:var(--muted)]">
                       Precio (€)
                       <input
                         value={catalogDraft.price}
                         onChange={(event) =>
                           setCatalogDraft((prev) => (prev ? { ...prev, price: event.target.value } : prev))
                         }
-                        className="mt-1 w-full rounded-lg border border-slate-800 bg-slate-950/70 px-3 py-2 text-sm text-slate-100"
+                        className="mt-1 w-full rounded-lg border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-3 py-2 text-sm text-[color:var(--text)]"
                         placeholder="15"
                         inputMode="decimal"
                       />
                     </label>
-                    <label className="block text-[11px] text-slate-400">
+                    <label className="block text-[11px] text-[color:var(--muted)]">
                       Descripción
                       <textarea
                         value={catalogDraft.description}
                         onChange={(event) =>
                           setCatalogDraft((prev) => (prev ? { ...prev, description: event.target.value } : prev))
                         }
-                        className="mt-1 w-full rounded-lg border border-slate-800 bg-slate-950/70 px-3 py-2 text-sm text-slate-100"
+                        className="mt-1 w-full rounded-lg border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-3 py-2 text-sm text-[color:var(--text)]"
                         rows={3}
                         placeholder="Texto corto para el ítem"
                       />
                     </label>
                     {catalogDraft.type === "BUNDLE" && (
-                      <div className="rounded-lg border border-slate-800 bg-slate-950/70 px-3 py-2">
-                        <div className="text-[10px] uppercase tracking-wide text-slate-500">Incluye</div>
+                      <div className="rounded-lg border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-3 py-2">
+                        <div className="text-[10px] uppercase tracking-wide text-[color:var(--text)]0">Incluye</div>
                         <input
                           value={bundleSearch}
                           onChange={(event) => setBundleSearch(event.target.value)}
-                          className="mt-2 w-full rounded-md border border-slate-800 bg-slate-950/70 px-2 py-1.5 text-[12px] text-slate-100"
+                          className="mt-2 w-full rounded-md border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-2 py-1.5 text-[12px] text-[color:var(--text)]"
                           placeholder="Buscar extras..."
                         />
                         <div className="mt-2 space-y-2 max-h-32 overflow-y-auto pr-1">
@@ -3211,7 +3211,7 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
                               return (
                                 <label
                                   key={extra.id}
-                                  className="flex items-center justify-between gap-3 rounded-lg border border-slate-800/70 bg-slate-900/60 px-2 py-1.5 text-[12px] text-slate-100"
+                                  className="flex items-center justify-between gap-3 rounded-lg border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-2 py-1.5 text-[12px] text-[color:var(--text)]"
                                 >
                                   <span className="flex items-center gap-2 min-w-0">
                                     <input
@@ -3226,26 +3226,26 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
                                           return { ...prev, includes: next };
                                         })
                                       }
-                                      className="h-4 w-4 accent-emerald-500"
+                                      className="h-4 w-4 accent-[color:var(--brand)]"
                                     />
                                     <span className="truncate">{extra.title}</span>
                                   </span>
-                                  <span className="text-[10px] text-slate-400">
+                                  <span className="text-[10px] text-[color:var(--muted)]">
                                     {formatPriceCents(extra.priceCents, extra.currency)}
                                   </span>
                                 </label>
                               );
                             })
                           ) : (
-                            <div className="text-[11px] text-slate-500">No hay extras disponibles.</div>
+                            <div className="text-[11px] text-[color:var(--text)]0">No hay extras disponibles.</div>
                           )}
                         </div>
                         {bundleSummaryLine && (
-                          <div className="mt-2 text-[11px] text-slate-400">{bundleSummaryLine}</div>
+                          <div className="mt-2 text-[11px] text-[color:var(--muted)]">{bundleSummaryLine}</div>
                         )}
                       </div>
                     )}
-                    <label className="flex items-center justify-between rounded-lg border border-slate-800 bg-slate-950/70 px-3 py-2 text-[11px] text-slate-200">
+                    <label className="flex items-center justify-between rounded-lg border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-3 py-2 text-[11px] text-[color:var(--text)]">
                       Activo
                       <input
                         type="checkbox"
@@ -3253,10 +3253,10 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
                         onChange={(event) =>
                           setCatalogDraft((prev) => (prev ? { ...prev, isActive: event.target.checked } : prev))
                         }
-                        className="h-4 w-4 accent-emerald-500"
+                        className="h-4 w-4 accent-[color:var(--brand)]"
                       />
                     </label>
-                    <label className="flex items-center justify-between rounded-lg border border-slate-800 bg-slate-950/70 px-3 py-2 text-[11px] text-slate-200">
+                    <label className="flex items-center justify-between rounded-lg border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-3 py-2 text-[11px] text-[color:var(--text)]">
                       Visible en perfil público
                       <input
                         type="checkbox"
@@ -3264,7 +3264,7 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
                         onChange={(event) =>
                           setCatalogDraft((prev) => (prev ? { ...prev, isPublic: event.target.checked } : prev))
                         }
-                        className="h-4 w-4 accent-emerald-500"
+                        className="h-4 w-4 accent-[color:var(--brand)]"
                       />
                     </label>
                   </div>
@@ -3272,7 +3272,7 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
                     <button
                       type="button"
                       onClick={() => setIsCatalogEditorOpen(false)}
-                      className="rounded-full border border-slate-700/70 bg-slate-900/60 px-3 py-1.5 text-[11px] font-semibold text-slate-200 hover:bg-slate-800/80"
+                      className="rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-3 py-1.5 text-[11px] font-semibold text-[color:var(--text)] hover:bg-[color:var(--surface-2)]"
                     >
                       Cancelar
                     </button>
@@ -3280,7 +3280,7 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
                       type="button"
                       onClick={handleCatalogSave}
                       disabled={catalogSaving}
-                      className="h-9 px-4 rounded-full text-sm font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 bg-[color:var(--brand-strong)] text-white hover:bg-[color:var(--brand)] focus-visible:ring-[color:var(--ring)] disabled:opacity-60"
+                      className="h-9 px-4 rounded-full text-sm font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 bg-[color:var(--brand-strong)] text-[color:var(--text)] hover:bg-[color:var(--brand)] focus-visible:ring-[color:var(--ring)] disabled:opacity-60"
                     >
                       {catalogSaving ? "Guardando..." : "Guardar"}
                     </button>
@@ -3290,28 +3290,28 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
               <div className="sm:hidden fixed inset-0 z-[9999] flex items-end justify-center bg-black/60">
                 <div
                   ref={catalogEditorSheetRef}
-                  className="w-full max-w-lg rounded-t-2xl border border-slate-800/80 bg-slate-950/95 p-4 shadow-2xl max-h-[85vh] overflow-y-auto"
+                  className="w-full max-w-lg rounded-t-2xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] p-4 shadow-2xl max-h-[85vh] overflow-y-auto"
                   role="dialog"
                   aria-modal="true"
                   aria-label="Editor de catálogo"
                 >
                   <div className="flex items-center justify-between gap-3">
                     <div>
-                      <h3 className="text-sm font-semibold text-slate-100">
+                      <h3 className="text-sm font-semibold text-[color:var(--text)]">
                         {catalogEditorMode === "create" ? "Crear ítem" : "Editar ítem"}
                       </h3>
-                      <p className="text-[11px] text-slate-400">Ajusta título, precio y estado.</p>
+                      <p className="text-[11px] text-[color:var(--muted)]">Ajusta título, precio y estado.</p>
                     </div>
                     <button
                       type="button"
                       onClick={() => setIsCatalogEditorOpen(false)}
-                      className="text-[12px] font-semibold text-slate-300 hover:text-slate-100"
+                      className="text-[12px] font-semibold text-[color:var(--muted)] hover:text-[color:var(--text)]"
                     >
                       Cerrar
                     </button>
                   </div>
                   <div className="mt-4 space-y-3">
-                    <label className="block text-[11px] text-slate-400">
+                    <label className="block text-[11px] text-[color:var(--muted)]">
                       Tipo
                       <select
                         value={catalogDraft.type}
@@ -3327,7 +3327,7 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
                               : prev
                           );
                         }}
-                        className="mt-1 w-full rounded-lg border border-slate-800 bg-slate-950/70 px-3 py-2 text-sm text-slate-100"
+                        className="mt-1 w-full rounded-lg border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-3 py-2 text-sm text-[color:var(--text)]"
                       >
                         {CATALOG_ITEM_TYPES.map((type) => (
                           <option key={type} value={type}>
@@ -3336,7 +3336,7 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
                         ))}
                       </select>
                     </label>
-                    <label className="block text-[11px] text-slate-400">
+                    <label className="block text-[11px] text-[color:var(--muted)]">
                       Título
                       <input
                         ref={catalogEditorTitleRef}
@@ -3344,41 +3344,41 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
                         onChange={(event) =>
                           setCatalogDraft((prev) => (prev ? { ...prev, title: event.target.value } : prev))
                         }
-                        className="mt-1 w-full rounded-lg border border-slate-800 bg-slate-950/70 px-3 py-2 text-sm text-slate-100"
+                        className="mt-1 w-full rounded-lg border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-3 py-2 text-sm text-[color:var(--text)]"
                         placeholder="Nombre del ítem"
                       />
                     </label>
-                    <label className="block text-[11px] text-slate-400">
+                    <label className="block text-[11px] text-[color:var(--muted)]">
                       Precio (€)
                       <input
                         value={catalogDraft.price}
                         onChange={(event) =>
                           setCatalogDraft((prev) => (prev ? { ...prev, price: event.target.value } : prev))
                         }
-                        className="mt-1 w-full rounded-lg border border-slate-800 bg-slate-950/70 px-3 py-2 text-sm text-slate-100"
+                        className="mt-1 w-full rounded-lg border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-3 py-2 text-sm text-[color:var(--text)]"
                         placeholder="15"
                         inputMode="decimal"
                       />
                     </label>
-                    <label className="block text-[11px] text-slate-400">
+                    <label className="block text-[11px] text-[color:var(--muted)]">
                       Descripción
                       <textarea
                         value={catalogDraft.description}
                         onChange={(event) =>
                           setCatalogDraft((prev) => (prev ? { ...prev, description: event.target.value } : prev))
                         }
-                        className="mt-1 w-full rounded-lg border border-slate-800 bg-slate-950/70 px-3 py-2 text-sm text-slate-100"
+                        className="mt-1 w-full rounded-lg border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-3 py-2 text-sm text-[color:var(--text)]"
                         rows={3}
                         placeholder="Texto corto para el ítem"
                       />
                     </label>
                     {catalogDraft.type === "BUNDLE" && (
-                      <div className="rounded-lg border border-slate-800 bg-slate-950/70 px-3 py-2">
-                        <div className="text-[10px] uppercase tracking-wide text-slate-500">Incluye</div>
+                      <div className="rounded-lg border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-3 py-2">
+                        <div className="text-[10px] uppercase tracking-wide text-[color:var(--text)]0">Incluye</div>
                         <input
                           value={bundleSearch}
                           onChange={(event) => setBundleSearch(event.target.value)}
-                          className="mt-2 w-full rounded-md border border-slate-800 bg-slate-950/70 px-2 py-1.5 text-[12px] text-slate-100"
+                          className="mt-2 w-full rounded-md border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-2 py-1.5 text-[12px] text-[color:var(--text)]"
                           placeholder="Buscar extras..."
                         />
                         <div className="mt-2 space-y-2 max-h-32 overflow-y-auto pr-1">
@@ -3388,7 +3388,7 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
                               return (
                                 <label
                                   key={extra.id}
-                                  className="flex items-center justify-between gap-3 rounded-lg border border-slate-800/70 bg-slate-900/60 px-2 py-1.5 text-[12px] text-slate-100"
+                                  className="flex items-center justify-between gap-3 rounded-lg border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-2 py-1.5 text-[12px] text-[color:var(--text)]"
                                 >
                                   <span className="flex items-center gap-2 min-w-0">
                                     <input
@@ -3403,26 +3403,26 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
                                           return { ...prev, includes: next };
                                         })
                                       }
-                                      className="h-4 w-4 accent-emerald-500"
+                                      className="h-4 w-4 accent-[color:var(--brand)]"
                                     />
                                     <span className="truncate">{extra.title}</span>
                                   </span>
-                                  <span className="text-[10px] text-slate-400">
+                                  <span className="text-[10px] text-[color:var(--muted)]">
                                     {formatPriceCents(extra.priceCents, extra.currency)}
                                   </span>
                                 </label>
                               );
                             })
                           ) : (
-                            <div className="text-[11px] text-slate-500">No hay extras disponibles.</div>
+                            <div className="text-[11px] text-[color:var(--text)]0">No hay extras disponibles.</div>
                           )}
                         </div>
                         {bundleSummaryLine && (
-                          <div className="mt-2 text-[11px] text-slate-400">{bundleSummaryLine}</div>
+                          <div className="mt-2 text-[11px] text-[color:var(--muted)]">{bundleSummaryLine}</div>
                         )}
                       </div>
                     )}
-                    <label className="flex items-center justify-between rounded-lg border border-slate-800 bg-slate-950/70 px-3 py-2 text-[11px] text-slate-200">
+                    <label className="flex items-center justify-between rounded-lg border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-3 py-2 text-[11px] text-[color:var(--text)]">
                       Activo
                       <input
                         type="checkbox"
@@ -3430,10 +3430,10 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
                         onChange={(event) =>
                           setCatalogDraft((prev) => (prev ? { ...prev, isActive: event.target.checked } : prev))
                         }
-                        className="h-4 w-4 accent-emerald-500"
+                        className="h-4 w-4 accent-[color:var(--brand)]"
                       />
                     </label>
-                    <label className="flex items-center justify-between rounded-lg border border-slate-800 bg-slate-950/70 px-3 py-2 text-[11px] text-slate-200">
+                    <label className="flex items-center justify-between rounded-lg border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-3 py-2 text-[11px] text-[color:var(--text)]">
                       Visible en perfil público
                       <input
                         type="checkbox"
@@ -3441,7 +3441,7 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
                         onChange={(event) =>
                           setCatalogDraft((prev) => (prev ? { ...prev, isPublic: event.target.checked } : prev))
                         }
-                        className="h-4 w-4 accent-emerald-500"
+                        className="h-4 w-4 accent-[color:var(--brand)]"
                       />
                     </label>
                   </div>
@@ -3449,7 +3449,7 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
                     <button
                       type="button"
                       onClick={() => setIsCatalogEditorOpen(false)}
-                      className="rounded-full border border-slate-700/70 bg-slate-900/60 px-3 py-1.5 text-[11px] font-semibold text-slate-200 hover:bg-slate-800/80"
+                      className="rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-3 py-1.5 text-[11px] font-semibold text-[color:var(--text)] hover:bg-[color:var(--surface-2)]"
                     >
                       Cancelar
                     </button>
@@ -3457,7 +3457,7 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
                       type="button"
                       onClick={handleCatalogSave}
                       disabled={catalogSaving}
-                      className="h-9 px-4 rounded-full text-sm font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 bg-[color:var(--brand-strong)] text-white hover:bg-[color:var(--brand)] focus-visible:ring-[color:var(--ring)] disabled:opacity-60"
+                      className="h-9 px-4 rounded-full text-sm font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 bg-[color:var(--brand-strong)] text-[color:var(--text)] hover:bg-[color:var(--brand)] focus-visible:ring-[color:var(--ring)] disabled:opacity-60"
                     >
                       {catalogSaving ? "Guardando..." : "Guardar"}
                     </button>
@@ -3475,52 +3475,52 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
               <div className="hidden sm:flex fixed inset-0 z-[9999] items-center justify-center bg-black/60 px-4 py-6">
                 <div
                   ref={popClipEditorModalRef}
-                  className="w-full max-w-lg rounded-2xl border border-slate-800/80 bg-slate-950/95 p-4 shadow-2xl"
+                  className="w-full max-w-lg rounded-2xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] p-4 shadow-2xl"
                   role="dialog"
                   aria-modal="true"
                   aria-label="Editor PopClips"
                 >
                   <div className="flex items-start justify-between gap-3">
                     <div>
-                      <h3 className="text-sm font-semibold text-slate-100">
+                      <h3 className="text-sm font-semibold text-[color:var(--text)]">
                         {popClipDraft.id ? "Editar PopClip" : "Añadir PopClip"}
                       </h3>
-                      <p className="text-[11px] text-slate-400">Clip público para este pack.</p>
+                      <p className="text-[11px] text-[color:var(--muted)]">Clip público para este pack.</p>
                     </div>
                     <button
                       type="button"
                       onClick={closePopClipEditor}
-                      className="text-[12px] font-semibold text-slate-300 hover:text-slate-100"
+                      className="text-[12px] font-semibold text-[color:var(--muted)] hover:text-[color:var(--text)]"
                     >
                       Cerrar
                     </button>
                   </div>
                   <div className="mt-4 space-y-3">
-                    <div className="rounded-lg border border-slate-800 bg-slate-950/70 px-3 py-2">
-                      <div className="text-[10px] uppercase tracking-wide text-slate-500">Pack</div>
-                      <div className="mt-1 text-[12px] font-semibold text-slate-100">{popClipDraftItem.title}</div>
-                      <div className="text-[11px] text-slate-400">
+                    <div className="rounded-lg border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-3 py-2">
+                      <div className="text-[10px] uppercase tracking-wide text-[color:var(--text)]0">Pack</div>
+                      <div className="mt-1 text-[12px] font-semibold text-[color:var(--text)]">{popClipDraftItem.title}</div>
+                      <div className="text-[11px] text-[color:var(--muted)]">
                         {formatPriceCents(popClipDraftItem.priceCents, popClipDraftItem.currency)}
                       </div>
                     </div>
                     {!popClipDraftItem.isPublic && (
-                      <div className="rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-[11px] text-amber-200">
+                      <div className="rounded-lg border border-[color:rgba(245,158,11,0.4)] bg-[color:rgba(245,158,11,0.08)] px-3 py-2 text-[11px] text-[color:var(--warning)]">
                         Este pack está oculto en el perfil. PopClips es público: actívalo en “Visible en perfil público” o el
                         clip no se mostrará.
                       </div>
                     )}
-                    <label className="block text-[11px] text-slate-400">
+                    <label className="block text-[11px] text-[color:var(--muted)]">
                       Título (opcional)
                       <input
                         value={popClipDraft.title}
                         onChange={(event) =>
                           setPopClipDraft((prev) => (prev ? { ...prev, title: event.target.value } : prev))
                         }
-                        className="mt-1 w-full rounded-lg border border-slate-800 bg-slate-950/70 px-3 py-2 text-sm text-slate-100"
+                        className="mt-1 w-full rounded-lg border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-3 py-2 text-sm text-[color:var(--text)]"
                         placeholder="Título del clip"
                       />
                     </label>
-                    <label className="block text-[11px] text-slate-400">
+                    <label className="block text-[11px] text-[color:var(--muted)]">
                       Video URL
                       <input
                         ref={popClipEditorVideoRef}
@@ -3528,36 +3528,36 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
                         onChange={(event) =>
                           setPopClipDraft((prev) => (prev ? { ...prev, videoUrl: event.target.value } : prev))
                         }
-                        className="mt-1 w-full rounded-lg border border-slate-800 bg-slate-950/70 px-3 py-2 text-sm text-slate-100"
+                        className="mt-1 w-full rounded-lg border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-3 py-2 text-sm text-[color:var(--text)]"
                         placeholder="https://..."
                         inputMode="url"
                       />
                     </label>
-                    <label className="block text-[11px] text-slate-400">
+                    <label className="block text-[11px] text-[color:var(--muted)]">
                       Poster URL (opcional)
                       <input
                         value={popClipDraft.posterUrl}
                         onChange={(event) =>
                           setPopClipDraft((prev) => (prev ? { ...prev, posterUrl: event.target.value } : prev))
                         }
-                        className="mt-1 w-full rounded-lg border border-slate-800 bg-slate-950/70 px-3 py-2 text-sm text-slate-100"
+                        className="mt-1 w-full rounded-lg border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-3 py-2 text-sm text-[color:var(--text)]"
                         placeholder="https://..."
                         inputMode="url"
                       />
                     </label>
-                    <label className="block text-[11px] text-slate-400">
+                    <label className="block text-[11px] text-[color:var(--muted)]">
                       Duración (segundos)
                       <input
                         value={popClipDraft.durationSec}
                         onChange={(event) =>
                           setPopClipDraft((prev) => (prev ? { ...prev, durationSec: event.target.value } : prev))
                         }
-                        className="mt-1 w-full rounded-lg border border-slate-800 bg-slate-950/70 px-3 py-2 text-sm text-slate-100"
+                        className="mt-1 w-full rounded-lg border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-3 py-2 text-sm text-[color:var(--text)]"
                         placeholder="8"
                         inputMode="numeric"
                       />
                     </label>
-                    <label className="flex items-center justify-between rounded-lg border border-slate-800 bg-slate-950/70 px-3 py-2 text-[11px] text-slate-200">
+                    <label className="flex items-center justify-between rounded-lg border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-3 py-2 text-[11px] text-[color:var(--text)]">
                       Activo
                       <input
                         type="checkbox"
@@ -3565,12 +3565,12 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
                         onChange={(event) =>
                           setPopClipDraft((prev) => (prev ? { ...prev, isActive: event.target.checked } : prev))
                         }
-                        className="h-4 w-4 accent-emerald-500"
+                        className="h-4 w-4 accent-[color:var(--brand)]"
                       />
                     </label>
-                    {popClipEditorError && <div className="text-[11px] text-rose-300">{popClipEditorError}</div>}
-                    <div className="rounded-lg border border-slate-800 bg-slate-950/70 px-3 py-2">
-                      <div className="text-[10px] uppercase tracking-wide text-slate-500">Preview</div>
+                    {popClipEditorError && <div className="text-[11px] text-[color:var(--danger)]">{popClipEditorError}</div>}
+                    <div className="rounded-lg border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-3 py-2">
+                      <div className="text-[10px] uppercase tracking-wide text-[color:var(--text)]0">Preview</div>
                       {popClipDraft.videoUrl.trim() ? (
                         <video
                           src={popClipDraft.videoUrl.trim()}
@@ -3579,10 +3579,10 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
                           loop
                           playsInline
                           controls
-                          className="mt-2 w-full rounded-lg border border-slate-800/70 bg-black/40"
+                          className="mt-2 w-full rounded-lg border border-[color:var(--surface-border)] bg-black/40"
                         />
                       ) : (
-                        <div className="mt-2 text-[11px] text-slate-500">Añade un video URL para previsualizar.</div>
+                        <div className="mt-2 text-[11px] text-[color:var(--text)]0">Añade un video URL para previsualizar.</div>
                       )}
                     </div>
                   </div>
@@ -3592,7 +3592,7 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
                         type="button"
                         onClick={handlePopClipDelete}
                         disabled={popClipDeleting || popClipSaving}
-                        className="rounded-full border border-rose-500/60 bg-rose-500/10 px-3 py-1.5 text-[11px] font-semibold text-rose-200 hover:bg-rose-500/20 disabled:opacity-60"
+                        className="rounded-full border border-[color:rgba(244,63,94,0.6)] bg-[color:rgba(244,63,94,0.08)] px-3 py-1.5 text-[11px] font-semibold text-[color:var(--danger)] hover:bg-[color:rgba(244,63,94,0.16)] disabled:opacity-60"
                       >
                         {popClipDeleting ? "Eliminando..." : "Eliminar"}
                       </button>
@@ -3600,7 +3600,7 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
                       <button
                         type="button"
                         onClick={closePopClipEditor}
-                        className="rounded-full border border-slate-700/70 bg-slate-900/60 px-3 py-1.5 text-[11px] font-semibold text-slate-200 hover:bg-slate-800/80"
+                        className="rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-3 py-1.5 text-[11px] font-semibold text-[color:var(--text)] hover:bg-[color:var(--surface-2)]"
                       >
                         Cancelar
                       </button>
@@ -3610,7 +3610,7 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
                         <button
                           type="button"
                           onClick={closePopClipEditor}
-                          className="rounded-full border border-slate-700/70 bg-slate-900/60 px-3 py-1.5 text-[11px] font-semibold text-slate-200 hover:bg-slate-800/80"
+                          className="rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-3 py-1.5 text-[11px] font-semibold text-[color:var(--text)] hover:bg-[color:var(--surface-2)]"
                         >
                           Cancelar
                         </button>
@@ -3619,7 +3619,7 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
                         type="button"
                         onClick={handlePopClipSave}
                         disabled={popClipSaving || popClipDeleting}
-                        className="h-9 px-4 rounded-full text-sm font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 bg-[color:var(--brand-strong)] text-white hover:bg-[color:var(--brand)] focus-visible:ring-[color:var(--ring)] disabled:opacity-60"
+                        className="h-9 px-4 rounded-full text-sm font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 bg-[color:var(--brand-strong)] text-[color:var(--text)] hover:bg-[color:var(--brand)] focus-visible:ring-[color:var(--ring)] disabled:opacity-60"
                       >
                         {popClipSaving ? "Guardando..." : "Guardar"}
                       </button>
@@ -3630,52 +3630,52 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
               <div className="sm:hidden fixed inset-0 z-[9999] flex items-end justify-center bg-black/60">
                 <div
                   ref={popClipEditorSheetRef}
-                  className="w-full max-w-lg rounded-t-2xl border border-slate-800/80 bg-slate-950/95 p-4 shadow-2xl max-h-[85vh] overflow-y-auto"
+                  className="w-full max-w-lg rounded-t-2xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] p-4 shadow-2xl max-h-[85vh] overflow-y-auto"
                   role="dialog"
                   aria-modal="true"
                   aria-label="Editor PopClips"
                 >
                   <div className="flex items-center justify-between gap-3">
                     <div>
-                      <h3 className="text-sm font-semibold text-slate-100">
+                      <h3 className="text-sm font-semibold text-[color:var(--text)]">
                         {popClipDraft.id ? "Editar PopClip" : "Añadir PopClip"}
                       </h3>
-                      <p className="text-[11px] text-slate-400">Clip público para este pack.</p>
+                      <p className="text-[11px] text-[color:var(--muted)]">Clip público para este pack.</p>
                     </div>
                     <button
                       type="button"
                       onClick={closePopClipEditor}
-                      className="text-[12px] font-semibold text-slate-300 hover:text-slate-100"
+                      className="text-[12px] font-semibold text-[color:var(--muted)] hover:text-[color:var(--text)]"
                     >
                       Cerrar
                     </button>
                   </div>
                   <div className="mt-4 space-y-3">
-                    <div className="rounded-lg border border-slate-800 bg-slate-950/70 px-3 py-2">
-                      <div className="text-[10px] uppercase tracking-wide text-slate-500">Pack</div>
-                      <div className="mt-1 text-[12px] font-semibold text-slate-100">{popClipDraftItem.title}</div>
-                      <div className="text-[11px] text-slate-400">
+                    <div className="rounded-lg border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-3 py-2">
+                      <div className="text-[10px] uppercase tracking-wide text-[color:var(--text)]0">Pack</div>
+                      <div className="mt-1 text-[12px] font-semibold text-[color:var(--text)]">{popClipDraftItem.title}</div>
+                      <div className="text-[11px] text-[color:var(--muted)]">
                         {formatPriceCents(popClipDraftItem.priceCents, popClipDraftItem.currency)}
                       </div>
                     </div>
                     {!popClipDraftItem.isPublic && (
-                      <div className="rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-[11px] text-amber-200">
+                      <div className="rounded-lg border border-[color:rgba(245,158,11,0.4)] bg-[color:rgba(245,158,11,0.08)] px-3 py-2 text-[11px] text-[color:var(--warning)]">
                         Este pack está oculto en el perfil. PopClips es público: actívalo en “Visible en perfil público” o el
                         clip no se mostrará.
                       </div>
                     )}
-                    <label className="block text-[11px] text-slate-400">
+                    <label className="block text-[11px] text-[color:var(--muted)]">
                       Título (opcional)
                       <input
                         value={popClipDraft.title}
                         onChange={(event) =>
                           setPopClipDraft((prev) => (prev ? { ...prev, title: event.target.value } : prev))
                         }
-                        className="mt-1 w-full rounded-lg border border-slate-800 bg-slate-950/70 px-3 py-2 text-sm text-slate-100"
+                        className="mt-1 w-full rounded-lg border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-3 py-2 text-sm text-[color:var(--text)]"
                         placeholder="Título del clip"
                       />
                     </label>
-                    <label className="block text-[11px] text-slate-400">
+                    <label className="block text-[11px] text-[color:var(--muted)]">
                       Video URL
                       <input
                         ref={popClipEditorVideoRef}
@@ -3683,36 +3683,36 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
                         onChange={(event) =>
                           setPopClipDraft((prev) => (prev ? { ...prev, videoUrl: event.target.value } : prev))
                         }
-                        className="mt-1 w-full rounded-lg border border-slate-800 bg-slate-950/70 px-3 py-2 text-sm text-slate-100"
+                        className="mt-1 w-full rounded-lg border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-3 py-2 text-sm text-[color:var(--text)]"
                         placeholder="https://..."
                         inputMode="url"
                       />
                     </label>
-                    <label className="block text-[11px] text-slate-400">
+                    <label className="block text-[11px] text-[color:var(--muted)]">
                       Poster URL (opcional)
                       <input
                         value={popClipDraft.posterUrl}
                         onChange={(event) =>
                           setPopClipDraft((prev) => (prev ? { ...prev, posterUrl: event.target.value } : prev))
                         }
-                        className="mt-1 w-full rounded-lg border border-slate-800 bg-slate-950/70 px-3 py-2 text-sm text-slate-100"
+                        className="mt-1 w-full rounded-lg border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-3 py-2 text-sm text-[color:var(--text)]"
                         placeholder="https://..."
                         inputMode="url"
                       />
                     </label>
-                    <label className="block text-[11px] text-slate-400">
+                    <label className="block text-[11px] text-[color:var(--muted)]">
                       Duración (segundos)
                       <input
                         value={popClipDraft.durationSec}
                         onChange={(event) =>
                           setPopClipDraft((prev) => (prev ? { ...prev, durationSec: event.target.value } : prev))
                         }
-                        className="mt-1 w-full rounded-lg border border-slate-800 bg-slate-950/70 px-3 py-2 text-sm text-slate-100"
+                        className="mt-1 w-full rounded-lg border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-3 py-2 text-sm text-[color:var(--text)]"
                         placeholder="8"
                         inputMode="numeric"
                       />
                     </label>
-                    <label className="flex items-center justify-between rounded-lg border border-slate-800 bg-slate-950/70 px-3 py-2 text-[11px] text-slate-200">
+                    <label className="flex items-center justify-between rounded-lg border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-3 py-2 text-[11px] text-[color:var(--text)]">
                       Activo
                       <input
                         type="checkbox"
@@ -3720,12 +3720,12 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
                         onChange={(event) =>
                           setPopClipDraft((prev) => (prev ? { ...prev, isActive: event.target.checked } : prev))
                         }
-                        className="h-4 w-4 accent-emerald-500"
+                        className="h-4 w-4 accent-[color:var(--brand)]"
                       />
                     </label>
-                    {popClipEditorError && <div className="text-[11px] text-rose-300">{popClipEditorError}</div>}
-                    <div className="rounded-lg border border-slate-800 bg-slate-950/70 px-3 py-2">
-                      <div className="text-[10px] uppercase tracking-wide text-slate-500">Preview</div>
+                    {popClipEditorError && <div className="text-[11px] text-[color:var(--danger)]">{popClipEditorError}</div>}
+                    <div className="rounded-lg border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-3 py-2">
+                      <div className="text-[10px] uppercase tracking-wide text-[color:var(--text)]0">Preview</div>
                       {popClipDraft.videoUrl.trim() ? (
                         <video
                           src={popClipDraft.videoUrl.trim()}
@@ -3734,10 +3734,10 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
                           loop
                           playsInline
                           controls
-                          className="mt-2 w-full rounded-lg border border-slate-800/70 bg-black/40"
+                          className="mt-2 w-full rounded-lg border border-[color:var(--surface-border)] bg-black/40"
                         />
                       ) : (
-                        <div className="mt-2 text-[11px] text-slate-500">Añade un video URL para previsualizar.</div>
+                        <div className="mt-2 text-[11px] text-[color:var(--text)]0">Añade un video URL para previsualizar.</div>
                       )}
                     </div>
                   </div>
@@ -3747,7 +3747,7 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
                         type="button"
                         onClick={handlePopClipDelete}
                         disabled={popClipDeleting || popClipSaving}
-                        className="rounded-full border border-rose-500/60 bg-rose-500/10 px-3 py-1.5 text-[11px] font-semibold text-rose-200 hover:bg-rose-500/20 disabled:opacity-60"
+                        className="rounded-full border border-[color:rgba(244,63,94,0.6)] bg-[color:rgba(244,63,94,0.08)] px-3 py-1.5 text-[11px] font-semibold text-[color:var(--danger)] hover:bg-[color:rgba(244,63,94,0.16)] disabled:opacity-60"
                       >
                         {popClipDeleting ? "Eliminando..." : "Eliminar"}
                       </button>
@@ -3755,7 +3755,7 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
                       <button
                         type="button"
                         onClick={closePopClipEditor}
-                        className="rounded-full border border-slate-700/70 bg-slate-900/60 px-3 py-1.5 text-[11px] font-semibold text-slate-200 hover:bg-slate-800/80"
+                        className="rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-3 py-1.5 text-[11px] font-semibold text-[color:var(--text)] hover:bg-[color:var(--surface-2)]"
                       >
                         Cancelar
                       </button>
@@ -3765,7 +3765,7 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
                         <button
                           type="button"
                           onClick={closePopClipEditor}
-                          className="rounded-full border border-slate-700/70 bg-slate-900/60 px-3 py-1.5 text-[11px] font-semibold text-slate-200 hover:bg-slate-800/80"
+                          className="rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-3 py-1.5 text-[11px] font-semibold text-[color:var(--text)] hover:bg-[color:var(--surface-2)]"
                         >
                           Cancelar
                         </button>
@@ -3774,7 +3774,7 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
                         type="button"
                         onClick={handlePopClipSave}
                         disabled={popClipSaving || popClipDeleting}
-                        className="h-9 px-4 rounded-full text-sm font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 bg-[color:var(--brand-strong)] text-white hover:bg-[color:var(--brand)] focus-visible:ring-[color:var(--ring)] disabled:opacity-60"
+                        className="h-9 px-4 rounded-full text-sm font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 bg-[color:var(--brand-strong)] text-[color:var(--text)] hover:bg-[color:var(--brand)] focus-visible:ring-[color:var(--ring)] disabled:opacity-60"
                       >
                         {popClipSaving ? "Guardando..." : "Guardar"}
                       </button>
@@ -3794,22 +3794,22 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
               <div className="hidden sm:flex fixed inset-0 z-[9999] items-center justify-center bg-black/60 px-4 py-6">
                 <div
                   ref={catalogFanPickerModalRef}
-                  className="w-full max-w-md rounded-2xl border border-slate-800/80 bg-slate-950/95 p-4 shadow-2xl"
+                  className="w-full max-w-md rounded-2xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] p-4 shadow-2xl"
                   role="dialog"
                   aria-modal="true"
                   aria-label="Elegir fan"
                 >
                   <div className="flex items-start justify-between gap-3">
                     <div>
-                      <h3 className="text-sm font-semibold text-slate-100">Enviar borrador</h3>
-                      <p className="text-[11px] text-slate-400">
+                      <h3 className="text-sm font-semibold text-[color:var(--text)]">Enviar borrador</h3>
+                      <p className="text-[11px] text-[color:var(--muted)]">
                         {catalogDraftItem.title} · {formatPriceCents(catalogDraftItem.priceCents, catalogDraftItem.currency)}
                       </p>
                     </div>
                     <button
                       type="button"
                       onClick={closeCatalogFanPicker}
-                      className="text-[12px] font-semibold text-slate-300 hover:text-slate-100"
+                      className="text-[12px] font-semibold text-[color:var(--muted)] hover:text-[color:var(--text)]"
                     >
                       Cerrar
                     </button>
@@ -3817,18 +3817,18 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
                   <div className="mt-4 space-y-3 max-h-[50vh] overflow-y-auto pr-1">
                     {fanCandidates.priority.length > 0 && (
                       <div>
-                        <div className="text-[10px] uppercase tracking-wide text-slate-500">Prioridad</div>
+                        <div className="text-[10px] uppercase tracking-wide text-[color:var(--text)]0">Prioridad</div>
                         <div className="mt-2 space-y-2">
                           {fanCandidates.priority.map((fan) => (
                             <button
                               key={fan.fanId}
                               type="button"
                               onClick={() => handleCatalogDraftFanSelect(fan)}
-                              className="w-full text-left rounded-xl border border-slate-800/70 bg-slate-900/50 px-3 py-2 text-[12px] text-slate-100 hover:bg-slate-800/70"
+                              className="w-full text-left rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-3 py-2 text-[12px] text-[color:var(--text)] hover:bg-[color:var(--surface-2)]"
                             >
                               <div className="flex items-center justify-between gap-2">
                                 <span>{fan.displayName}</span>
-                                <span className="text-[10px] text-slate-400">{formatExpireBadge(fan)}</span>
+                                <span className="text-[10px] text-[color:var(--muted)]">{formatExpireBadge(fan)}</span>
                               </div>
                             </button>
                           ))}
@@ -3837,18 +3837,18 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
                     )}
                     {fanCandidates.rest.length > 0 && (
                       <div>
-                        <div className="text-[10px] uppercase tracking-wide text-slate-500">Cola</div>
+                        <div className="text-[10px] uppercase tracking-wide text-[color:var(--text)]0">Cola</div>
                         <div className="mt-2 space-y-2">
                           {fanCandidates.rest.map((fan) => (
                             <button
                               key={fan.fanId}
                               type="button"
                               onClick={() => handleCatalogDraftFanSelect(fan)}
-                              className="w-full text-left rounded-xl border border-slate-800/70 bg-slate-900/50 px-3 py-2 text-[12px] text-slate-100 hover:bg-slate-800/70"
+                              className="w-full text-left rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-3 py-2 text-[12px] text-[color:var(--text)] hover:bg-[color:var(--surface-2)]"
                             >
                               <div className="flex items-center justify-between gap-2">
                                 <span>{fan.displayName}</span>
-                                <span className="text-[10px] text-slate-400">{formatExpireBadge(fan)}</span>
+                                <span className="text-[10px] text-[color:var(--muted)]">{formatExpireBadge(fan)}</span>
                               </div>
                             </button>
                           ))}
@@ -3856,7 +3856,7 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
                       </div>
                     )}
                     {fanCandidates.priority.length === 0 && fanCandidates.rest.length === 0 && (
-                      <div className="text-[12px] text-slate-400">No hay fans disponibles.</div>
+                      <div className="text-[12px] text-[color:var(--muted)]">No hay fans disponibles.</div>
                     )}
                   </div>
                 </div>
@@ -3864,22 +3864,22 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
               <div className="sm:hidden fixed inset-0 z-[9999] flex items-end justify-center bg-black/60">
                 <div
                   ref={catalogFanPickerSheetRef}
-                  className="w-full max-w-lg rounded-t-2xl border border-slate-800/80 bg-slate-950/95 p-4 shadow-2xl max-h-[85vh] overflow-y-auto"
+                  className="w-full max-w-lg rounded-t-2xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] p-4 shadow-2xl max-h-[85vh] overflow-y-auto"
                   role="dialog"
                   aria-modal="true"
                   aria-label="Elegir fan"
                 >
                   <div className="flex items-center justify-between gap-3">
                     <div>
-                      <h3 className="text-sm font-semibold text-slate-100">Enviar borrador</h3>
-                      <p className="text-[11px] text-slate-400">
+                      <h3 className="text-sm font-semibold text-[color:var(--text)]">Enviar borrador</h3>
+                      <p className="text-[11px] text-[color:var(--muted)]">
                         {catalogDraftItem.title} · {formatPriceCents(catalogDraftItem.priceCents, catalogDraftItem.currency)}
                       </p>
                     </div>
                     <button
                       type="button"
                       onClick={closeCatalogFanPicker}
-                      className="text-[12px] font-semibold text-slate-300 hover:text-slate-100"
+                      className="text-[12px] font-semibold text-[color:var(--muted)] hover:text-[color:var(--text)]"
                     >
                       Cerrar
                     </button>
@@ -3887,18 +3887,18 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
                   <div className="mt-4 space-y-3">
                     {fanCandidates.priority.length > 0 && (
                       <div>
-                        <div className="text-[10px] uppercase tracking-wide text-slate-500">Prioridad</div>
+                        <div className="text-[10px] uppercase tracking-wide text-[color:var(--text)]0">Prioridad</div>
                         <div className="mt-2 space-y-2">
                           {fanCandidates.priority.map((fan) => (
                             <button
                               key={fan.fanId}
                               type="button"
                               onClick={() => handleCatalogDraftFanSelect(fan)}
-                              className="w-full text-left rounded-xl border border-slate-800/70 bg-slate-900/50 px-3 py-2 text-[12px] text-slate-100 hover:bg-slate-800/70"
+                              className="w-full text-left rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-3 py-2 text-[12px] text-[color:var(--text)] hover:bg-[color:var(--surface-2)]"
                             >
                               <div className="flex items-center justify-between gap-2">
                                 <span>{fan.displayName}</span>
-                                <span className="text-[10px] text-slate-400">{formatExpireBadge(fan)}</span>
+                                <span className="text-[10px] text-[color:var(--muted)]">{formatExpireBadge(fan)}</span>
                               </div>
                             </button>
                           ))}
@@ -3907,18 +3907,18 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
                     )}
                     {fanCandidates.rest.length > 0 && (
                       <div>
-                        <div className="text-[10px] uppercase tracking-wide text-slate-500">Cola</div>
+                        <div className="text-[10px] uppercase tracking-wide text-[color:var(--text)]0">Cola</div>
                         <div className="mt-2 space-y-2">
                           {fanCandidates.rest.map((fan) => (
                             <button
                               key={fan.fanId}
                               type="button"
                               onClick={() => handleCatalogDraftFanSelect(fan)}
-                              className="w-full text-left rounded-xl border border-slate-800/70 bg-slate-900/50 px-3 py-2 text-[12px] text-slate-100 hover:bg-slate-800/70"
+                              className="w-full text-left rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-3 py-2 text-[12px] text-[color:var(--text)] hover:bg-[color:var(--surface-2)]"
                             >
                               <div className="flex items-center justify-between gap-2">
                                 <span>{fan.displayName}</span>
-                                <span className="text-[10px] text-slate-400">{formatExpireBadge(fan)}</span>
+                                <span className="text-[10px] text-[color:var(--muted)]">{formatExpireBadge(fan)}</span>
                               </div>
                             </button>
                           ))}
@@ -3926,7 +3926,7 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
                       </div>
                     )}
                     {fanCandidates.priority.length === 0 && fanCandidates.rest.length === 0 && (
-                      <div className="text-[12px] text-slate-400">No hay fans disponibles.</div>
+                      <div className="text-[12px] text-[color:var(--muted)]">No hay fans disponibles.</div>
                     )}
                   </div>
                 </div>
@@ -3999,29 +3999,29 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
               <div className="hidden sm:flex fixed inset-0 z-[9999] items-center justify-center bg-black/60 px-4 py-6">
                 <div
                   ref={overflowModalRef}
-                  className="w-full max-w-md rounded-2xl border border-slate-800/80 bg-slate-950/95 p-4 shadow-2xl"
+                  className="w-full max-w-md rounded-2xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] p-4 shadow-2xl"
                   role="dialog"
                   aria-modal="true"
                   aria-label="Atajos ocultos"
                 >
                   <div className="flex items-start justify-between gap-3">
                     <div>
-                      <h3 className="text-sm font-semibold text-slate-100">Atajos · {tabLabel}</h3>
-                      <p className="text-[11px] text-slate-400">
+                      <h3 className="text-sm font-semibold text-[color:var(--text)]">Atajos · {tabLabel}</h3>
+                      <p className="text-[11px] text-[color:var(--muted)]">
                         Toca uno para insertarlo. No cambia tus atajos.
                       </p>
                     </div>
                     <button
                       type="button"
                       onClick={() => setOverflowOpen(false)}
-                      className="text-[12px] font-semibold text-slate-300 hover:text-slate-100"
+                      className="text-[12px] font-semibold text-[color:var(--muted)] hover:text-[color:var(--text)]"
                     >
                       Cerrar
                     </button>
                   </div>
                   <div className="mt-4 space-y-2 max-h-[50vh] overflow-y-auto pr-1">
                     {overflowChipItems.length === 0 && (
-                      <div className="text-[12px] text-slate-400">No hay atajos ocultos.</div>
+                      <div className="text-[12px] text-[color:var(--muted)]">No hay atajos ocultos.</div>
                     )}
                     {overflowChipItems.map((item) => (
                       <button
@@ -4034,7 +4034,7 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
                           insertAndFocus(prompt, false, item.actionId);
                           setOverflowOpen(false);
                         }}
-                        className="w-full text-left rounded-xl border border-slate-800/70 bg-slate-900/50 px-3 py-2 text-[13px] text-slate-100 hover:bg-slate-800/70"
+                        className="w-full text-left rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-3 py-2 text-[13px] text-[color:var(--text)] hover:bg-[color:var(--surface-2)]"
                       >
                         {item.label}
                       </button>
@@ -4049,7 +4049,7 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
                           setIsEmojiOpen(false);
                           setIsFavoritesEditorOpen(true);
                         }}
-                        className="rounded-full border border-slate-700/70 bg-slate-900/60 px-3 py-1.5 text-[11px] font-semibold text-slate-200 hover:bg-slate-800/80"
+                        className="rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-3 py-1.5 text-[11px] font-semibold text-[color:var(--text)] hover:bg-[color:var(--surface-2)]"
                       >
                         Editar atajos
                       </button>
@@ -4060,29 +4060,29 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
               <div className="sm:hidden fixed inset-0 z-[9999] flex items-end justify-center bg-black/60">
                 <div
                   ref={overflowSheetRef}
-                  className="w-full max-w-lg rounded-t-2xl border border-slate-800/80 bg-slate-950/95 p-4 shadow-2xl max-h-[80vh] overflow-y-auto"
+                  className="w-full max-w-lg rounded-t-2xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] p-4 shadow-2xl max-h-[80vh] overflow-y-auto"
                   role="dialog"
                   aria-modal="true"
                   aria-label="Atajos ocultos"
                 >
                   <div className="flex items-center justify-between gap-3">
                     <div>
-                      <h3 className="text-sm font-semibold text-slate-100">Atajos · {tabLabel}</h3>
-                      <p className="text-[11px] text-slate-400">
+                      <h3 className="text-sm font-semibold text-[color:var(--text)]">Atajos · {tabLabel}</h3>
+                      <p className="text-[11px] text-[color:var(--muted)]">
                         Toca uno para insertarlo. No cambia tus atajos.
                       </p>
                     </div>
                     <button
                       type="button"
                       onClick={() => setOverflowOpen(false)}
-                      className="text-[12px] font-semibold text-slate-300 hover:text-slate-100"
+                      className="text-[12px] font-semibold text-[color:var(--muted)] hover:text-[color:var(--text)]"
                     >
                       Cerrar
                     </button>
                   </div>
                   <div className="mt-4 space-y-2">
                     {overflowChipItems.length === 0 && (
-                      <div className="text-[12px] text-slate-400">No hay atajos ocultos.</div>
+                      <div className="text-[12px] text-[color:var(--muted)]">No hay atajos ocultos.</div>
                     )}
                     {overflowChipItems.map((item) => (
                       <button
@@ -4095,7 +4095,7 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
                           insertAndFocus(prompt, false, item.actionId);
                           setOverflowOpen(false);
                         }}
-                        className="w-full text-left rounded-xl border border-slate-800/70 bg-slate-900/50 px-3 py-2 text-[13px] text-slate-100 hover:bg-slate-800/70"
+                        className="w-full text-left rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-3 py-2 text-[13px] text-[color:var(--text)] hover:bg-[color:var(--surface-2)]"
                       >
                         {item.label}
                       </button>
@@ -4110,7 +4110,7 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
                           setIsEmojiOpen(false);
                           setIsFavoritesEditorOpen(true);
                         }}
-                        className="rounded-full border border-slate-700/70 bg-slate-900/60 px-3 py-1.5 text-[11px] font-semibold text-slate-200 hover:bg-slate-800/80"
+                        className="rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-3 py-1.5 text-[11px] font-semibold text-[color:var(--text)] hover:bg-[color:var(--surface-2)]"
                       >
                         Editar atajos
                       </button>
@@ -4129,23 +4129,23 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
               <div className="hidden sm:flex fixed inset-0 z-[9999] items-center justify-center bg-black/60 px-4 py-6">
                 <div
                   ref={favoritesModalRef}
-                  className="w-full max-w-lg rounded-2xl border border-slate-800/80 bg-slate-950/95 p-4 shadow-2xl"
+                  className="w-full max-w-lg rounded-2xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] p-4 shadow-2xl"
                   role="dialog"
                   aria-modal="true"
                   aria-label="Editar favoritos"
                 >
                   <div className="flex items-start justify-between gap-3">
                     <div>
-                      <h3 className="text-sm font-semibold text-slate-100">{editorTitle}</h3>
-                      <p className="text-[11px] text-slate-400">
+                      <h3 className="text-sm font-semibold text-[color:var(--text)]">{editorTitle}</h3>
+                      <p className="text-[11px] text-[color:var(--muted)]">
                         Elige qué botones aparecen abajo.{" "}
-                        <span className="text-slate-500">(máx recomendado 6)</span>
+                        <span className="text-[color:var(--text)]0">(máx recomendado 6)</span>
                       </p>
                     </div>
                     <button
                       type="button"
                       onClick={handleFavoritesEditorClose}
-                      className="text-[12px] font-semibold text-slate-300 hover:text-slate-100"
+                      className="text-[12px] font-semibold text-[color:var(--muted)] hover:text-[color:var(--text)]"
                     >
                       Cerrar
                     </button>
@@ -4157,23 +4157,23 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
               <div className="sm:hidden fixed inset-0 z-[9999] flex items-end justify-center bg-black/60">
                 <div
                   ref={favoritesSheetRef}
-                  className="w-full max-w-lg rounded-t-2xl border border-slate-800/80 bg-slate-950/95 p-4 shadow-2xl max-h-[80vh] overflow-y-auto"
+                  className="w-full max-w-lg rounded-t-2xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] p-4 shadow-2xl max-h-[80vh] overflow-y-auto"
                   role="dialog"
                   aria-modal="true"
                   aria-label="Editar favoritos"
                 >
                   <div className="flex items-center justify-between gap-3">
                     <div>
-                      <h3 className="text-sm font-semibold text-slate-100">{editorTitle}</h3>
-                      <p className="text-[11px] text-slate-400">
+                      <h3 className="text-sm font-semibold text-[color:var(--text)]">{editorTitle}</h3>
+                      <p className="text-[11px] text-[color:var(--muted)]">
                         Elige qué botones aparecen abajo.{" "}
-                        <span className="text-slate-500">(máx recomendado 6)</span>
+                        <span className="text-[color:var(--text)]0">(máx recomendado 6)</span>
                       </p>
                     </div>
                     <button
                       type="button"
                       onClick={handleFavoritesEditorClose}
-                      className="text-[12px] font-semibold text-slate-300 hover:text-slate-100"
+                      className="text-[12px] font-semibold text-[color:var(--muted)] hover:text-[color:var(--text)]"
                     >
                       Cerrar
                     </button>
@@ -4187,24 +4187,24 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
           )
         : null;
     const desktopHeaderClass = clsx(
-      "hidden md:flex items-center gap-3 bg-slate-950/70 border-b border-slate-800 px-4 md:px-6",
+      "hidden md:flex items-center gap-3 bg-[color:var(--surface-2)] border-b border-[color:var(--surface-border)] px-4 md:px-6",
       hideTitle ? "py-2 justify-end" : "py-3 md:py-4 justify-between"
     );
     return (
       <div className="flex flex-col w-full h-full min-h-0">
         {onBackToBoard && (
-          <header className="md:hidden sticky top-0 z-10 flex items-center justify-between gap-2 px-4 py-3 bg-slate-950/90 border-b border-slate-800 backdrop-blur">
+          <header className="md:hidden sticky top-0 z-10 flex items-center justify-between gap-2 px-4 py-3 bg-[color:var(--surface-2)] border-b border-[color:var(--surface-border)] backdrop-blur">
             <button
               type="button"
               onClick={onBackToBoard}
-              className="inline-flex items-center gap-1 rounded-full bg-slate-900 px-3 py-1.5 text-xs font-medium text-slate-100 hover:bg-slate-800"
+              className="inline-flex items-center gap-1 rounded-full bg-[color:var(--surface-1)] px-3 py-1.5 text-xs font-medium text-[color:var(--text)] hover:bg-[color:var(--surface-2)]"
             >
               ← Volver
             </button>
             {!hideTitle && (
               <div className="flex items-center gap-2 min-w-0 flex-1 justify-center">
-                <span className="truncate text-sm font-semibold text-slate-50">{headerLabel}</span>
-                <span className="inline-flex items-center rounded-full border border-emerald-400/70 bg-emerald-500/20 px-2 py-0.5 text-[11px] font-semibold text-emerald-100">
+                <span className="truncate text-sm font-semibold text-[color:var(--text)]">{headerLabel}</span>
+                <span className="inline-flex items-center rounded-full border border-[color:rgba(var(--brand-rgb),0.45)] bg-[color:rgba(var(--brand-rgb),0.16)] px-2 py-0.5 text-[11px] font-semibold text-[color:var(--text)]">
                   IA
                 </span>
               </div>
@@ -4215,25 +4215,25 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
           {!hideTitle && (
             <div className="flex items-center gap-3 min-w-0">
               {avatarUrl ? (
-                <div className="w-12 h-12 rounded-full overflow-hidden border border-[rgba(134,150,160,0.2)] bg-[#2a3942] shadow-md">
+                <div className="w-12 h-12 rounded-full overflow-hidden border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] shadow-md">
                   {/* eslint-disable-next-line @next/next/no-img-element */}
                   <img src={avatarUrl} alt={headerLabel} className="w-full h-full object-cover" />
                 </div>
               ) : (
-                <div className="flex items-center justify-center w-12 h-12 rounded-full bg-[#2a3942] text-white font-semibold shadow-md">
+                <div className="flex items-center justify-center w-12 h-12 rounded-full bg-[color:var(--surface-2)] text-[color:var(--text)] font-semibold shadow-md">
                   {headerLabel.trim().charAt(0)}
                 </div>
               )}
               <div className="flex flex-col">
-                <h1 className="text-base font-semibold text-slate-50">{headerLabel}</h1>
-                <p className="text-sm text-slate-300">{statusText || "Chat interno. No se envía nada a tus fans."}</p>
+                <h1 className="text-base font-semibold text-[color:var(--text)]">{headerLabel}</h1>
+                <p className="text-sm text-[color:var(--muted)]">{statusText || "Chat interno. No se envía nada a tus fans."}</p>
               </div>
             </div>
           )}
         </div>
         <div className="flex flex-col flex-1 min-h-0 overflow-hidden">
           {contextContent ? (
-            <div className="bg-slate-950/80 border-b border-slate-800 px-4 py-2.5">{contextContent}</div>
+            <div className="bg-[color:var(--surface-2)] border-b border-[color:var(--surface-border)] px-4 py-2.5">{contextContent}</div>
           ) : null}
           <div
             ref={listRef}
@@ -4241,8 +4241,8 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
             style={{ backgroundImage: "var(--chat-pattern)" }}
           >
             <div className="max-w-4xl mx-auto w-full px-4 sm:px-6 lg:px-8 py-5 space-y-3">
-              {loading && <div className="text-center text-[#aebac1] text-sm mt-2">Cargando mensajes...</div>}
-              {error && !loading && <div className="text-center text-red-400 text-sm mt-2">{error}</div>}
+              {loading && <div className="text-center text-[color:var(--muted)] text-sm mt-2">Cargando mensajes...</div>}
+              {error && !loading && <div className="text-center text-[color:var(--danger)] text-sm mt-2">{error}</div>}
               {todayPanel}
               {salesPanel}
               {catalogPanel}
@@ -4283,7 +4283,7 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
             </div>
           </div>
           {usedFallback && (
-            <div className="px-4 pt-2 text-[12px] text-amber-200 bg-amber-500/10 border-t border-amber-500/30">
+            <div className="px-4 pt-2 text-[12px] text-[color:var(--warning)] bg-[color:rgba(245,158,11,0.08)] border-t border-[color:rgba(245,158,11,0.3)]">
               {fallbackBanner}
             </div>
           )}
@@ -4456,7 +4456,7 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
                     </div>
                   )}
                   {atajosToast && (
-                    <div className="pl-1 text-[11px] text-amber-300">
+                    <div className="pl-1 text-[11px] text-[color:var(--warning)]">
                       {atajosToast}
                     </div>
                   )}
@@ -4466,7 +4466,7 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
                   rows={1}
                   className={clsx(
                     "w-full min-h-[44px] resize-none overflow-y-auto bg-transparent border-0 outline-none ring-0",
-                    "px-1 pt-2 pb-1 text-sm leading-6 text-slate-50 whitespace-pre-wrap break-words",
+                    "px-1 pt-2 pb-1 text-sm leading-6 text-[color:var(--text)] whitespace-pre-wrap break-words",
                     "placeholder:text-[color:var(--muted)] caret-[color:var(--brand)]"
                   )}
                   placeholder="Mensaje a Cortex..."
@@ -4499,7 +4499,7 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
                         ref={emojiButtonRef}
                         onPointerDown={handleEmojiPointerDown}
                         onClick={handleEmojiToggle}
-                        className="flex h-9 w-9 items-center justify-center rounded-full border border-[color:var(--border)] bg-[color:var(--surface-2)] text-slate-200 transition hover:border-[color:var(--border-a)] hover:bg-[color:var(--surface-1)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--ring)]"
+                        className="flex h-9 w-9 items-center justify-center rounded-full border border-[color:var(--border)] bg-[color:var(--surface-2)] text-[color:var(--text)] transition hover:border-[color:var(--border-a)] hover:bg-[color:var(--surface-1)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--ring)]"
                         title="Insertar emoji"
                         aria-label="Insertar emoji"
                       >
@@ -4534,7 +4534,7 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
                     aria-label="Enviar"
                     className={clsx(
                       "h-9 px-4 rounded-full text-sm font-semibold shrink-0 transition-colors focus-visible:outline-none focus-visible:ring-2",
-                      "bg-[color:var(--brand-strong)] text-white hover:bg-[color:var(--brand)] focus-visible:ring-[color:var(--ring)]",
+                      "bg-[color:var(--brand-strong)] text-[color:var(--text)] hover:bg-[color:var(--brand)] focus-visible:ring-[color:var(--ring)]",
                       "disabled:opacity-50 disabled:cursor-not-allowed"
                     )}
                   >
@@ -4547,7 +4547,7 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
               {catalogEditor}
               {popClipEditor}
               {catalogFanPicker}
-              {error && <div className="text-sm text-rose-300 mt-2">{error}</div>}
+              {error && <div className="text-sm text-[color:var(--danger)] mt-2">{error}</div>}
             </div>
           </div>
         </div>
@@ -4556,7 +4556,7 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
   }
 
   const containerClass = clsx(
-    "rounded-2xl border border-slate-800 bg-slate-900/80",
+    "rounded-2xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)]",
     density === "compact" ? "p-3" : "p-4",
     "flex flex-col h-full min-h-0",
     density === "compact" ? "space-y-2.5" : "space-y-3"
@@ -4568,28 +4568,28 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
             <div className="flex items-center justify-between">
               <div>
                 <h2 className="text-lg font-semibold">Manager IA – Estrategia y números</h2>
-                <p className="text-xs text-slate-400">
+                <p className="text-xs text-[color:var(--muted)]">
                   Dime qué quieres conseguir hoy y te digo con quién hablar y qué hacer para no perder dinero.
                 </p>
-                <p className="text-[11px] text-slate-500">Chat interno entre tú y tu manager IA (no visible para fans).</p>
+                <p className="text-[11px] text-[color:var(--text)]0">Chat interno entre tú y tu manager IA (no visible para fans).</p>
               </div>
             </div>
           )}
-          <div className="rounded-xl border border-slate-800 bg-slate-900/70 px-4 py-3 text-xs text-slate-100 space-y-2">
+          <div className="rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-4 py-3 text-xs text-[color:var(--text)] space-y-2">
             <div>
               {snapshot ? (
                 <p className="space-x-1">
-                  <strong className="text-emerald-100">{snapshot.newFansLast30Days}</strong> fans nuevos ·{" "}
-                  <strong className="text-emerald-100">{snapshot.fansAtRisk}</strong> en riesgo ·{" "}
-                  <strong className="text-emerald-100">{snapshot.vipActiveCount}</strong> VIP activos ·{" "}
-                  <strong className="text-emerald-100">{formatCurrency(snapshot.ingresosUltimos30Dias)}</strong> en 30 días
+                  <strong className="text-[color:var(--text)]">{snapshot.newFansLast30Days}</strong> fans nuevos ·{" "}
+                  <strong className="text-[color:var(--text)]">{snapshot.fansAtRisk}</strong> en riesgo ·{" "}
+                  <strong className="text-[color:var(--text)]">{snapshot.vipActiveCount}</strong> VIP activos ·{" "}
+                  <strong className="text-[color:var(--text)]">{formatCurrency(snapshot.ingresosUltimos30Dias)}</strong> en 30 días
                 </p>
               ) : (
-                <span className="text-slate-500">Preparando resumen del negocio...</span>
+                <span className="text-[color:var(--text)]0">Preparando resumen del negocio...</span>
               )}
             </div>
             {usedFallback && (
-              <div className="text-[11px] text-amber-200">
+              <div className="text-[11px] text-[color:var(--warning)]">
                 {fallbackBanner}
               </div>
             )}
@@ -4598,7 +4598,7 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
 
       <div
         className={clsx(
-          "mt-3 flex flex-col rounded-xl border border-slate-900 bg-slate-950/50 flex-1 min-h-0",
+          "mt-3 flex flex-col rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] flex-1 min-h-0",
           density === "compact" ? "gap-2.5 px-3 py-2.5" : "gap-3 px-4 py-3"
         )}
       >
@@ -4610,8 +4610,8 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
           )}
           ref={listRef}
         >
-          {loading && <div className="text-[12px] text-slate-400">Cargando chat…</div>}
-          {!loading && messages.length === 0 && <div className="text-[12px] text-slate-400">Aún no hay mensajes.</div>}
+          {loading && <div className="text-[12px] text-[color:var(--muted)]">Cargando chat…</div>}
+          {!loading && messages.length === 0 && <div className="text-[12px] text-[color:var(--muted)]">Aún no hay mensajes.</div>}
           {!loading &&
             messages.map((msg) => {
               const isCreator = msg.role === "CREATOR";
@@ -4620,8 +4620,8 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
                 return (
                   <div key={msg.id} className="flex justify-end">
                     <div className="max-w-[75%]">
-                      <p className="mb-1 text-[10px] uppercase tracking-wide text-slate-400 text-right">Tú • {time}</p>
-                      <div className="rounded-2xl bg-emerald-600 px-4 py-2 text-sm text-white shadow">{msg.content}</div>
+                      <p className="mb-1 text-[10px] uppercase tracking-wide text-[color:var(--muted)] text-right">Tú • {time}</p>
+                      <div className="rounded-2xl bg-[color:var(--brand-strong)] px-4 py-2 text-sm text-[color:var(--text)] shadow">{msg.content}</div>
                     </div>
                   </div>
                 );
@@ -4629,8 +4629,8 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
               return (
                 <div key={msg.id} className="flex justify-start">
                   <div className="max-w-[75%]">
-                    <p className="mb-1 text-[10px] uppercase tracking-wide text-slate-400">Manager • {time}</p>
-                    <div className="rounded-2xl bg-slate-800 px-4 py-2 text-sm text-slate-50 shadow">{msg.content}</div>
+                    <p className="mb-1 text-[10px] uppercase tracking-wide text-[color:var(--muted)]">Manager • {time}</p>
+                    <div className="rounded-2xl bg-[color:var(--surface-2)] px-4 py-2 text-sm text-[color:var(--text)] shadow">{msg.content}</div>
                     {renderActionCards(msg.actions)}
                     {renderDraftGroups(msg.drafts)}
                   </div>
@@ -4638,7 +4638,7 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
               );
             })}
         </div>
-        {error && <div className="text-[11px] text-rose-300 mt-2">{error}</div>}
+        {error && <div className="text-[11px] text-[color:var(--danger)] mt-2">{error}</div>}
         {scope === "global" && (
           <div className={modeRowClass}>
             {globalModes.map((mode) => {
@@ -4685,7 +4685,7 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
             );
           })}
         </div>
-        <div className="pt-2 border-t border-slate-800">
+        <div className="pt-2 border-t border-[color:var(--surface-border)]">
           <ChatComposerBar
             value={input}
             onChange={(event) => {

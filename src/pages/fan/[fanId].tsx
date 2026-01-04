@@ -710,27 +710,27 @@ export function FanChatPage({
   }, [fanId, fetchMessages]);
 
   return (
-    <div className="flex flex-col h-[100dvh] max-h-[100dvh] overflow-hidden bg-[#0b141a] text-white">
+    <div className="flex flex-col h-[100dvh] max-h-[100dvh] overflow-hidden bg-[#0b141a] text-[color:var(--text)]">
       <Head>
         <title>{`Chat con ${creatorName} · NOVSY`}</title>
       </Head>
 
       <header className="flex items-center gap-3 px-4 py-3 bg-[#111b21] border-b border-[rgba(134,150,160,0.15)]">
-        <div className="flex items-center justify-center w-10 h-10 rounded-full bg-[#2a3942] text-white font-semibold">
+        <div className="flex items-center justify-center w-10 h-10 rounded-full bg-[#2a3942] text-[color:var(--text)] font-semibold">
           {creatorInitial}
         </div>
         <div className="flex flex-col leading-tight">
-          <span className="text-white font-medium text-sm">{creatorName}</span>
+          <span className="text-[color:var(--text)] font-medium text-sm">{creatorName}</span>
           <span className="text-[#8696a0] text-sm">{headerSubtitle}</span>
         </div>
       </header>
 
       {error && (
-        <div className="px-4 py-2 text-sm text-rose-200 bg-rose-900/30 border-b border-rose-700/50 flex items-center justify-between">
+        <div className="px-4 py-2 text-sm text-[color:var(--danger)] bg-[color:rgba(244,63,94,0.12)] border-b border-[color:rgba(244,63,94,0.5)] flex items-center justify-between">
           <span>{error}</span>
           <button
             type="button"
-            className="rounded-full border border-rose-300/70 px-3 py-1 text-xs font-semibold hover:bg-rose-800/30"
+            className="rounded-full border border-[color:rgba(244,63,94,0.7)] px-3 py-1 text-xs font-semibold hover:bg-[color:rgba(244,63,94,0.12)]"
             onClick={() => fanId && fetchMessages(fanId, { showLoading: true })}
           >
             Reintentar
@@ -741,7 +741,7 @@ export function FanChatPage({
       <main className="flex flex-col flex-1 min-h-0 overflow-hidden">
         <div className="px-4 sm:px-6 pt-3 space-y-3 shrink-0">
           {accessLoading && !accessSummary ? (
-            <div className="rounded-xl border border-slate-800 bg-[#0f1f26] px-4 py-3 text-sm text-slate-200">
+            <div className="rounded-xl border border-[color:var(--surface-border)] bg-[#0f1f26] px-4 py-3 text-sm text-[color:var(--text)]">
               Cargando acceso...
             </div>
           ) : accessSummary ? (
@@ -759,7 +759,7 @@ export function FanChatPage({
           >
             <div className="min-h-full flex flex-col justify-end gap-2">
               {loading && <div className="text-center text-[#aebac1] text-sm mt-2">Cargando mensajes...</div>}
-              {error && !loading && <div className="text-center text-red-400 text-sm mt-2">{error}</div>}
+              {error && !loading && <div className="text-center text-[color:var(--danger)] text-sm mt-2">{error}</div>}
               {!loading && !error && visibleMessages.length === 0 && (
                 <div className="text-center text-[#aebac1] text-sm mt-2">Aún no hay mensajes.</div>
               )}
@@ -809,25 +809,25 @@ export function FanChatPage({
 
         {isOnboardingVisible && (
           <div className="px-4 pb-3">
-            <div className="rounded-xl border border-slate-700 bg-[#162028] px-4 py-3 space-y-3">
+            <div className="rounded-xl border border-[color:var(--surface-border)] bg-[#162028] px-4 py-3 space-y-3">
               <div>
-                <p className="text-sm font-semibold text-slate-100">Una cosa rápida</p>
-                <p className="text-xs text-slate-300">Así el creador puede dirigirse a ti por tu nombre.</p>
+                <p className="text-sm font-semibold text-[color:var(--text)]">Una cosa rápida</p>
+                <p className="text-xs text-[color:var(--muted)]">Así el creador puede dirigirse a ti por tu nombre.</p>
               </div>
-              <label className="flex flex-col gap-1 text-sm text-slate-200">
+              <label className="flex flex-col gap-1 text-sm text-[color:var(--text)]">
                 <span>¿Cómo te llamas?</span>
                 <input
-                  className="w-full rounded-lg bg-slate-900/70 border border-slate-700 px-3 py-2 text-sm text-white focus:border-emerald-400"
+                  className="w-full rounded-lg bg-[color:var(--surface-1)] border border-[color:var(--surface-border)] px-3 py-2 text-sm text-[color:var(--text)] focus:border-[color:var(--brand)]"
                   value={onboardingName}
                   onChange={(evt) => setOnboardingName(evt.target.value)}
                   placeholder="Tu nombre"
                   disabled={onboardingSaving}
                 />
               </label>
-              <label className="flex flex-col gap-1 text-sm text-slate-200">
+              <label className="flex flex-col gap-1 text-sm text-[color:var(--text)]">
                 <span>Idioma</span>
                 <select
-                  className="w-full rounded-lg bg-slate-900/70 border border-slate-700 px-3 py-2 text-sm text-white focus:border-emerald-400"
+                  className="w-full rounded-lg bg-[color:var(--surface-1)] border border-[color:var(--surface-border)] px-3 py-2 text-sm text-[color:var(--text)] focus:border-[color:var(--brand)]"
                   value={onboardingLanguage}
                   onChange={(evt) => {
                     const next = normalizePreferredLanguage(evt.target.value) ?? "en";
@@ -842,21 +842,21 @@ export function FanChatPage({
                   ))}
                 </select>
               </label>
-              <label className="flex flex-col gap-1 text-sm text-slate-200">
+              <label className="flex flex-col gap-1 text-sm text-[color:var(--text)]">
                 <span>Tu primer mensaje</span>
                 <textarea
-                  className="w-full rounded-lg bg-slate-900/70 border border-slate-700 px-3 py-2 text-sm text-white focus:border-emerald-400 h-20"
+                  className="w-full rounded-lg bg-[color:var(--surface-1)] border border-[color:var(--surface-border)] px-3 py-2 text-sm text-[color:var(--text)] focus:border-[color:var(--brand)] h-20"
                   value={onboardingMessage}
                   onChange={(evt) => setOnboardingMessage(evt.target.value)}
                   placeholder="Ej: Hola, quería preguntarte..."
                   disabled={onboardingSaving}
                 />
               </label>
-              {onboardingError && <p className="text-xs text-rose-300">{onboardingError}</p>}
+              {onboardingError && <p className="text-xs text-[color:var(--danger)]">{onboardingError}</p>}
               <div className="flex items-center justify-end gap-2">
                 <button
                   type="button"
-                  className="rounded-lg border border-slate-600 bg-slate-800/80 px-3 py-2 text-xs font-semibold text-slate-100 hover:bg-slate-700 disabled:opacity-60"
+                  className="rounded-lg border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-3 py-2 text-xs font-semibold text-[color:var(--text)] hover:bg-[color:var(--surface-2)] disabled:opacity-60"
                   onClick={handleOnboardingSkip}
                   disabled={onboardingSaving}
                 >
@@ -864,7 +864,7 @@ export function FanChatPage({
                 </button>
                 <button
                   type="button"
-                  className="rounded-lg border border-emerald-400/70 bg-emerald-500/15 px-3 py-2 text-xs font-semibold text-emerald-100 hover:bg-emerald-500/25 disabled:opacity-60"
+                  className="rounded-lg border border-[color:rgba(var(--brand-rgb),0.45)] bg-[color:var(--brand-strong)]/15 px-3 py-2 text-xs font-semibold text-[color:var(--text)] hover:bg-[color:var(--brand-strong)]/25 disabled:opacity-60"
                   onClick={() => void handleOnboardingEnter()}
                   disabled={onboardingSaving}
                 >
@@ -875,10 +875,10 @@ export function FanChatPage({
           </div>
         )}
         {!isOnboardingVisible && (
-          <div className="shrink-0 border-t border-slate-800/60 bg-gradient-to-b from-slate-950/90 via-slate-950/80 to-slate-950/70 backdrop-blur-xl">
+          <div className="shrink-0 border-t border-[color:var(--surface-border)] bg-gradient-to-b from-slate-950/90 via-slate-950/80 to-slate-950/70 backdrop-blur-xl">
             <div className="px-4 sm:px-6 py-3">
               <div
-                className="flex flex-col gap-2 rounded-2xl border border-slate-700/70 bg-slate-950/60 px-3 py-2.5 shadow-[0_-12px_22px_-16px_rgba(0,0,0,0.55)] focus-within:border-emerald-400/70 focus-within:ring-1 focus-within:ring-emerald-400/25"
+                className="flex flex-col gap-2 rounded-2xl border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-3 py-2.5 shadow-[0_-12px_22px_-16px_rgba(0,0,0,0.55)] focus-within:border-[color:rgba(var(--brand-rgb),0.45)] focus-within:ring-1 focus-within:ring-[color:var(--ring)]"
               >
                 <ChatComposerBar
                   value={draft}
@@ -904,7 +904,7 @@ export function FanChatPage({
                   onStickerSelect={handleStickerSelect}
                 />
               </div>
-              {sendError && <div className="pt-2 text-sm text-rose-300">{sendError}</div>}
+              {sendError && <div className="pt-2 text-sm text-[color:var(--danger)]">{sendError}</div>}
             </div>
           </div>
         )}
@@ -912,33 +912,33 @@ export function FanChatPage({
       <BottomSheet open={actionMenuOpen} onClose={closeActionMenu}>
         <div className="space-y-4">
           <div>
-            <h3 className="text-base font-semibold text-slate-100">Acciones rápidas</h3>
-            <p className="text-xs text-slate-400">Elige una acción para continuar.</p>
+            <h3 className="text-base font-semibold text-[color:var(--text)]">Acciones rápidas</h3>
+            <p className="text-xs text-[color:var(--muted)]">Elige una acción para continuar.</p>
           </div>
           <div className="grid gap-2">
             <button
               type="button"
               onClick={openTipModal}
-              className="flex items-center justify-between rounded-xl border border-slate-800 bg-slate-900/60 px-4 py-3 text-sm text-slate-100 hover:bg-slate-800/70"
+              className="flex items-center justify-between rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-4 py-3 text-sm text-[color:var(--text)] hover:bg-[color:var(--surface-2)]"
             >
               <span>Apoyar / Propina</span>
-              <span className="text-xs text-slate-400">Simulación</span>
+              <span className="text-xs text-[color:var(--muted)]">Simulación</span>
             </button>
             <button
               type="button"
               onClick={openPacksSheet}
-              className="flex items-center justify-between rounded-xl border border-slate-800 bg-slate-900/60 px-4 py-3 text-sm text-slate-100 hover:bg-slate-800/70"
+              className="flex items-center justify-between rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-4 py-3 text-sm text-[color:var(--text)] hover:bg-[color:var(--surface-2)]"
             >
               <span>Ver packs</span>
-              <span className="text-xs text-slate-400">{availablePacks.length}</span>
+              <span className="text-xs text-[color:var(--muted)]">{availablePacks.length}</span>
             </button>
             <button
               type="button"
               onClick={openGiftModal}
-              className="flex items-center justify-between rounded-xl border border-slate-800 bg-slate-900/60 px-4 py-3 text-sm text-slate-100 hover:bg-slate-800/70"
+              className="flex items-center justify-between rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-4 py-3 text-sm text-[color:var(--text)] hover:bg-[color:var(--surface-2)]"
             >
               <span>Regalo</span>
-              <span className="text-xs text-slate-400">Simulación</span>
+              <span className="text-xs text-[color:var(--muted)]">Simulación</span>
             </button>
           </div>
         </div>
@@ -946,13 +946,13 @@ export function FanChatPage({
       <BottomSheet open={contentSheetOpen} onClose={closeContentSheet}>
         <div className="flex items-center justify-between gap-3">
           <div>
-            <h3 className="text-base font-semibold text-slate-100">Contenido y packs</h3>
-            <p className="text-xs text-slate-400">Todo dentro del chat.</p>
+            <h3 className="text-base font-semibold text-[color:var(--text)]">Contenido y packs</h3>
+            <p className="text-xs text-[color:var(--muted)]">Todo dentro del chat.</p>
           </div>
           <button
             type="button"
             onClick={closeContentSheet}
-            className="rounded-full border border-slate-700 px-3 py-1 text-xs text-slate-200 hover:bg-slate-800/70"
+            className="rounded-full border border-[color:var(--surface-border)] px-3 py-1 text-xs text-[color:var(--text)] hover:bg-[color:var(--surface-2)]"
           >
             Cerrar
           </button>
@@ -971,8 +971,8 @@ export function FanChatPage({
               }}
               className={`rounded-full px-4 py-1.5 text-xs font-semibold ${
                 contentSheetTab === tab
-                  ? "bg-emerald-500/20 text-emerald-100 border border-emerald-400/70"
-                  : "border border-slate-800 text-slate-300 hover:text-slate-100"
+                  ? "bg-[color:rgba(var(--brand-rgb),0.16)] text-[color:var(--text)] border border-[color:rgba(var(--brand-rgb),0.45)]"
+                  : "border border-[color:var(--surface-border)] text-[color:var(--muted)] hover:text-[color:var(--text)]"
               }`}
             >
               {tab === "content" ? "Contenido" : "Packs"}
@@ -984,7 +984,7 @@ export function FanChatPage({
             {included?.length ? (
               <IncludedContentSection items={included} />
             ) : (
-              <div className="rounded-xl border border-slate-800 bg-slate-900/60 px-4 py-4 text-sm text-slate-300">
+              <div className="rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-4 py-4 text-sm text-[color:var(--muted)]">
                 Todavía no tienes contenido incluido.
               </div>
             )}
@@ -992,25 +992,25 @@ export function FanChatPage({
         ) : (
           <div className="mt-4 space-y-3">
             {availablePacks.length === 0 && (
-              <div className="rounded-xl border border-slate-800 bg-slate-900/60 px-4 py-4 text-sm text-slate-300">
+              <div className="rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-4 py-4 text-sm text-[color:var(--muted)]">
                 No hay packs públicos todavía.
               </div>
             )}
             {packView === "list" &&
               availablePacks.map((pack) => (
-                <div key={pack.id} className="rounded-xl border border-slate-800 bg-slate-900/60 px-4 py-3 space-y-2">
+                <div key={pack.id} className="rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-4 py-3 space-y-2">
                   <div className="flex items-start justify-between gap-3">
                     <div>
-                      <p className="text-sm font-semibold text-slate-100">{pack.name}</p>
-                      <p className="text-xs text-slate-400">{pack.description}</p>
+                      <p className="text-sm font-semibold text-[color:var(--text)]">{pack.name}</p>
+                      <p className="text-xs text-[color:var(--muted)]">{pack.description}</p>
                     </div>
-                    <span className="text-sm font-semibold text-amber-300">{normalizePriceLabel(pack.price)}</span>
+                    <span className="text-sm font-semibold text-[color:var(--warning)]">{normalizePriceLabel(pack.price)}</span>
                   </div>
                   <div className="flex flex-wrap items-center gap-2">
                     <button
                       type="button"
                       onClick={() => handlePackRequest(pack)}
-                      className="rounded-full bg-emerald-500/20 px-4 py-1.5 text-xs font-semibold text-emerald-100 hover:bg-emerald-500/30"
+                      className="rounded-full bg-[color:rgba(var(--brand-rgb),0.16)] px-4 py-1.5 text-xs font-semibold text-[color:var(--text)] hover:bg-[color:rgba(var(--brand-rgb),0.24)]"
                     >
                       Pedir
                     </button>
@@ -1020,7 +1020,7 @@ export function FanChatPage({
                         setSelectedPack(pack);
                         setPackView("details");
                       }}
-                      className="rounded-full border border-slate-700 px-4 py-1.5 text-xs text-slate-200 hover:bg-slate-800/70"
+                      className="rounded-full border border-[color:var(--surface-border)] px-4 py-1.5 text-xs text-[color:var(--text)] hover:bg-[color:var(--surface-2)]"
                     >
                       Ver pack
                     </button>
@@ -1028,19 +1028,19 @@ export function FanChatPage({
                 </div>
               ))}
             {packView === "details" && selectedPack && (
-              <div className="rounded-xl border border-slate-800 bg-slate-900/60 px-4 py-4 space-y-3">
+              <div className="rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-4 py-4 space-y-3">
                 <div className="flex items-start justify-between gap-3">
                   <div>
-                    <p className="text-sm font-semibold text-slate-100">{selectedPack.name}</p>
-                    <p className="text-xs text-slate-400">{selectedPack.description}</p>
+                    <p className="text-sm font-semibold text-[color:var(--text)]">{selectedPack.name}</p>
+                    <p className="text-xs text-[color:var(--muted)]">{selectedPack.description}</p>
                   </div>
-                  <span className="text-sm font-semibold text-amber-300">{normalizePriceLabel(selectedPack.price)}</span>
+                  <span className="text-sm font-semibold text-[color:var(--warning)]">{normalizePriceLabel(selectedPack.price)}</span>
                 </div>
                 <div className="flex flex-wrap items-center gap-2">
                   <button
                     type="button"
                     onClick={() => handlePackRequest(selectedPack)}
-                    className="rounded-full bg-emerald-500/20 px-4 py-1.5 text-xs font-semibold text-emerald-100 hover:bg-emerald-500/30"
+                    className="rounded-full bg-[color:rgba(var(--brand-rgb),0.16)] px-4 py-1.5 text-xs font-semibold text-[color:var(--text)] hover:bg-[color:rgba(var(--brand-rgb),0.24)]"
                   >
                     Pedir
                   </button>
@@ -1050,7 +1050,7 @@ export function FanChatPage({
                       setPackView("list");
                       setSelectedPack(null);
                     }}
-                    className="rounded-full border border-slate-700 px-4 py-1.5 text-xs text-slate-200 hover:bg-slate-800/70"
+                    className="rounded-full border border-[color:var(--surface-border)] px-4 py-1.5 text-xs text-[color:var(--text)] hover:bg-[color:var(--surface-2)]"
                   >
                     Volver
                   </button>
@@ -1063,8 +1063,8 @@ export function FanChatPage({
       <BottomSheet open={moneyModal === "tip"} onClose={closeMoneyModal}>
         <div className="space-y-4">
           <div>
-            <h3 className="text-base font-semibold text-slate-100">Apoyar / Propina</h3>
-            <p className="text-xs text-slate-400">Elige un importe.</p>
+            <h3 className="text-base font-semibold text-[color:var(--text)]">Apoyar / Propina</h3>
+            <p className="text-xs text-[color:var(--muted)]">Elige un importe.</p>
           </div>
           <div className="flex flex-wrap gap-2">
             {[3, 5, 10, 20].map((amount) => (
@@ -1078,8 +1078,8 @@ export function FanChatPage({
               }}
                 className={`rounded-full px-4 py-1.5 text-xs font-semibold border ${
                   tipAmountPreset === amount
-                    ? "border-emerald-400/70 bg-emerald-500/20 text-emerald-100"
-                    : "border-slate-700 text-slate-200 hover:bg-slate-800/70"
+                    ? "border-[color:rgba(var(--brand-rgb),0.45)] bg-[color:rgba(var(--brand-rgb),0.16)] text-[color:var(--text)]"
+                    : "border-[color:var(--surface-border)] text-[color:var(--text)] hover:bg-[color:var(--surface-2)]"
                 }`}
               >
                 {amount} €
@@ -1087,13 +1087,13 @@ export function FanChatPage({
             ))}
           </div>
           <div className="space-y-2">
-            <label className="text-xs text-slate-300">Otro importe</label>
+            <label className="text-xs text-[color:var(--muted)]">Otro importe</label>
             <input
               type="number"
               min={1}
               max={500}
               inputMode="decimal"
-              className="w-full rounded-lg bg-slate-900/70 border border-slate-700 px-3 py-2 text-sm text-white focus:border-emerald-400"
+              className="w-full rounded-lg bg-[color:var(--surface-1)] border border-[color:var(--surface-border)] px-3 py-2 text-sm text-[color:var(--text)] focus:border-[color:var(--brand)]"
               placeholder="Otro importe"
               value={tipAmountCustom}
               onChange={(event) => {
@@ -1103,19 +1103,19 @@ export function FanChatPage({
               }}
             />
           </div>
-          {tipError && <p className="text-xs text-rose-300">{tipError}</p>}
+          {tipError && <p className="text-xs text-[color:var(--danger)]">{tipError}</p>}
           <div className="flex items-center justify-end gap-2">
             <button
               type="button"
               onClick={closeMoneyModal}
-              className="rounded-full border border-slate-700 px-4 py-1.5 text-xs text-slate-200 hover:bg-slate-800/70"
+              className="rounded-full border border-[color:var(--surface-border)] px-4 py-1.5 text-xs text-[color:var(--text)] hover:bg-[color:var(--surface-2)]"
             >
               Cancelar
             </button>
             <button
               type="button"
               onClick={handleTipConfirm}
-              className="rounded-full bg-emerald-500/20 px-4 py-1.5 text-xs font-semibold text-emerald-100 hover:bg-emerald-500/30"
+              className="rounded-full bg-[color:rgba(var(--brand-rgb),0.16)] px-4 py-1.5 text-xs font-semibold text-[color:var(--text)] hover:bg-[color:rgba(var(--brand-rgb),0.24)]"
             >
               Enviar propina
             </button>
@@ -1125,39 +1125,39 @@ export function FanChatPage({
       <BottomSheet open={moneyModal === "gift"} onClose={closeMoneyModal}>
         <div className="flex items-center justify-between gap-3">
           <div>
-            <h3 className="text-base font-semibold text-slate-100">Regalo</h3>
-            <p className="text-xs text-slate-400">Elige qué quieres regalar.</p>
-            {giftError && <p className="mt-1 text-xs text-rose-300">{giftError}</p>}
+            <h3 className="text-base font-semibold text-[color:var(--text)]">Regalo</h3>
+            <p className="text-xs text-[color:var(--muted)]">Elige qué quieres regalar.</p>
+            {giftError && <p className="mt-1 text-xs text-[color:var(--danger)]">{giftError}</p>}
           </div>
           <button
             type="button"
             onClick={closeMoneyModal}
-            className="rounded-full border border-slate-700 px-3 py-1 text-xs text-slate-200 hover:bg-slate-800/70"
+            className="rounded-full border border-[color:var(--surface-border)] px-3 py-1 text-xs text-[color:var(--text)] hover:bg-[color:var(--surface-2)]"
           >
             Cerrar
           </button>
         </div>
         <div className="mt-4 space-y-3">
           {giftView === "list" && availablePacks.length === 0 && (
-            <div className="rounded-xl border border-slate-800 bg-slate-900/60 px-4 py-4 text-sm text-slate-300">
+            <div className="rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-4 py-4 text-sm text-[color:var(--muted)]">
               No hay packs disponibles para regalar.
             </div>
           )}
           {giftView === "list" &&
             availablePacks.map((pack) => (
-              <div key={`gift-${pack.id}`} className="rounded-xl border border-slate-800 bg-slate-900/60 px-4 py-3 space-y-2">
+              <div key={`gift-${pack.id}`} className="rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-4 py-3 space-y-2">
                 <div className="flex items-start justify-between gap-3">
                   <div>
-                    <p className="text-sm font-semibold text-slate-100">{pack.name}</p>
-                    <p className="text-xs text-slate-400">{pack.description}</p>
+                    <p className="text-sm font-semibold text-[color:var(--text)]">{pack.name}</p>
+                    <p className="text-xs text-[color:var(--muted)]">{pack.description}</p>
                   </div>
-                  <span className="text-sm font-semibold text-amber-300">{normalizePriceLabel(pack.price)}</span>
+                  <span className="text-sm font-semibold text-[color:var(--warning)]">{normalizePriceLabel(pack.price)}</span>
                 </div>
                 <div className="flex flex-wrap items-center gap-2">
                   <button
                     type="button"
                     onClick={() => handleGiftConfirm(pack)}
-                    className="rounded-full bg-emerald-500/20 px-4 py-1.5 text-xs font-semibold text-emerald-100 hover:bg-emerald-500/30"
+                    className="rounded-full bg-[color:rgba(var(--brand-rgb),0.16)] px-4 py-1.5 text-xs font-semibold text-[color:var(--text)] hover:bg-[color:rgba(var(--brand-rgb),0.24)]"
                   >
                     Regalar
                   </button>
@@ -1167,7 +1167,7 @@ export function FanChatPage({
                       setSelectedGiftPack(pack);
                       setGiftView("details");
                     }}
-                    className="rounded-full border border-slate-700 px-4 py-1.5 text-xs text-slate-200 hover:bg-slate-800/70"
+                    className="rounded-full border border-[color:var(--surface-border)] px-4 py-1.5 text-xs text-[color:var(--text)] hover:bg-[color:var(--surface-2)]"
                   >
                     Ver pack
                   </button>
@@ -1175,19 +1175,19 @@ export function FanChatPage({
               </div>
             ))}
           {giftView === "details" && selectedGiftPack && (
-            <div className="rounded-xl border border-slate-800 bg-slate-900/60 px-4 py-4 space-y-3">
+            <div className="rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-4 py-4 space-y-3">
               <div className="flex items-start justify-between gap-3">
                 <div>
-                  <p className="text-sm font-semibold text-slate-100">{selectedGiftPack.name}</p>
-                  <p className="text-xs text-slate-400">{selectedGiftPack.description}</p>
+                  <p className="text-sm font-semibold text-[color:var(--text)]">{selectedGiftPack.name}</p>
+                  <p className="text-xs text-[color:var(--muted)]">{selectedGiftPack.description}</p>
                 </div>
-                <span className="text-sm font-semibold text-amber-300">{normalizePriceLabel(selectedGiftPack.price)}</span>
+                <span className="text-sm font-semibold text-[color:var(--warning)]">{normalizePriceLabel(selectedGiftPack.price)}</span>
               </div>
               <div className="flex flex-wrap items-center gap-2">
                 <button
                   type="button"
                   onClick={() => handleGiftConfirm(selectedGiftPack)}
-                  className="rounded-full bg-emerald-500/20 px-4 py-1.5 text-xs font-semibold text-emerald-100 hover:bg-emerald-500/30"
+                  className="rounded-full bg-[color:rgba(var(--brand-rgb),0.16)] px-4 py-1.5 text-xs font-semibold text-[color:var(--text)] hover:bg-[color:rgba(var(--brand-rgb),0.24)]"
                 >
                   Regalar
                 </button>
@@ -1197,7 +1197,7 @@ export function FanChatPage({
                     setGiftView("list");
                     setSelectedGiftPack(null);
                   }}
-                  className="rounded-full border border-slate-700 px-4 py-1.5 text-xs text-slate-200 hover:bg-slate-800/70"
+                  className="rounded-full border border-[color:var(--surface-border)] px-4 py-1.5 text-xs text-[color:var(--text)] hover:bg-[color:var(--surface-2)]"
                 >
                   Volver
                 </button>
@@ -1220,22 +1220,22 @@ function ContentCard({ message }: { message: ApiMessage }) {
   const mediaUrl = (content?.mediaPath || content?.externalUrl || "").trim();
 
   const badgeClass = (() => {
-    if (visibilityLabel.toLowerCase().includes("vip")) return "border-amber-400/80 text-amber-200";
-    if (visibilityLabel.toLowerCase().includes("extra")) return "border-sky-400/70 text-sky-200";
-    if (visibilityLabel.toLowerCase().includes("incluido")) return "border-emerald-400/70 text-emerald-200";
-    return "border-slate-600 text-slate-200";
+    if (visibilityLabel.toLowerCase().includes("vip")) return "border-[color:rgba(245,158,11,0.8)] text-[color:var(--warning)]";
+    if (visibilityLabel.toLowerCase().includes("extra")) return "border-[color:rgba(var(--brand-rgb),0.7)] text-[color:var(--brand)]";
+    if (visibilityLabel.toLowerCase().includes("incluido")) return "border-[color:rgba(var(--brand-rgb),0.45)] text-[color:var(--brand)]";
+    return "border-[color:var(--surface-border)] text-[color:var(--text)]";
   })();
 
   return (
     <div className={`flex flex-col ${alignItems} w-full h-max`}>
-      <div className="flex flex-col min-w-[5%] max-w-[70%] bg-[#202c33] border border-slate-800 p-3 text-white rounded-lg mb-3 shadow-sm">
+      <div className="flex flex-col min-w-[5%] max-w-[70%] bg-[#202c33] border border-[color:var(--surface-border)] p-3 text-[color:var(--text)] rounded-lg mb-3 shadow-sm">
         <div className="flex items-center gap-2 text-sm font-semibold">
-          <IconGlyph name={iconName} className="h-4 w-4 text-slate-200" />
+          <IconGlyph name={iconName} className="h-4 w-4 text-[color:var(--text)]" />
           <span className="truncate">{title}</span>
         </div>
-        <div className="flex items-center gap-2 text-[11px] text-slate-300 mt-1">
+        <div className="flex items-center gap-2 text-[11px] text-[color:var(--muted)] mt-1">
           <span>{typeLabel}</span>
-          {visibilityLabel && <span className="w-1 h-1 rounded-full bg-slate-600" />}
+          {visibilityLabel && <span className="w-1 h-1 rounded-full bg-[color:var(--muted)]" />}
           {visibilityLabel && (
             <span className={`inline-flex items-center rounded-full px-2 py-0.5 border text-[11px] ${badgeClass}`}>
               {visibilityLabel}
@@ -1244,7 +1244,7 @@ function ContentCard({ message }: { message: ApiMessage }) {
         </div>
         <button
           type="button"
-          className="mt-2 inline-flex w-fit items-center rounded-md border border-slate-700 bg-slate-800/80 px-3 py-1 text-xs font-semibold text-amber-200 hover:border-amber-400/70 hover:text-amber-100 transition"
+          className="mt-2 inline-flex w-fit items-center rounded-md border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-3 py-1 text-xs font-semibold text-[color:var(--warning)] hover:border-[color:rgba(245,158,11,0.7)] hover:text-[color:var(--text)] transition"
           onClick={() => openContentLink(mediaUrl)}
         >
           Ver contenido
@@ -1284,45 +1284,45 @@ function safeDecodeQueryParam(value: string) {
 function IncludedContentSection({ items }: { items: IncludedContent[] }) {
   if (!items || items.length === 0) {
     return (
-      <div className="rounded-xl border border-slate-800 bg-[#111b21] px-4 py-3 text-sm text-slate-300">
+      <div className="rounded-xl border border-[color:var(--surface-border)] bg-[#111b21] px-4 py-3 text-sm text-[color:var(--muted)]">
         Todavía no tienes contenido incluido en tu suscripción.
       </div>
     );
   }
 
   return (
-    <div className="rounded-xl border border-slate-800 bg-[#0f1f26] px-4 py-4">
-      <div className="text-sm font-semibold text-white mb-3">Tu contenido incluido</div>
+    <div className="rounded-xl border border-[color:var(--surface-border)] bg-[#0f1f26] px-4 py-4">
+      <div className="text-sm font-semibold text-[color:var(--text)] mb-3">Tu contenido incluido</div>
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         {items.map((item) => {
           const visibilityLabel = getContentVisibilityLabel(item.visibility as ContentVisibility);
           const badgeClass = visibilityLabel.toLowerCase().includes("incluido")
-            ? "border-emerald-400/70 text-emerald-200"
-            : "border-slate-600 text-slate-200";
+            ? "border-[color:rgba(var(--brand-rgb),0.45)] text-[color:var(--brand)]"
+            : "border-[color:var(--surface-border)] text-[color:var(--text)]";
           const iconName = getContentIconName(item.type as ContentType);
           const mediaUrl = (item.mediaPath || item.externalUrl || "").trim();
           return (
             <div
               key={item.id}
-              className="rounded-xl border border-slate-800 bg-[#202c33] p-3 text-white flex flex-col gap-2 shadow-sm"
+              className="rounded-xl border border-[color:var(--surface-border)] bg-[#202c33] p-3 text-[color:var(--text)] flex flex-col gap-2 shadow-sm"
             >
               <div className="flex items-center gap-2 text-sm font-semibold">
-                <IconGlyph name={iconName} className="h-4 w-4 text-slate-200" />
+                <IconGlyph name={iconName} className="h-4 w-4 text-[color:var(--text)]" />
                 <span className="truncate">{item.title}</span>
               </div>
               {item.description && (
-                <p className="text-xs text-slate-300 line-clamp-3">{item.description}</p>
+                <p className="text-xs text-[color:var(--muted)] line-clamp-3">{item.description}</p>
               )}
-              <div className="flex items-center gap-2 text-[11px] text-slate-300">
+              <div className="flex items-center gap-2 text-[11px] text-[color:var(--muted)]">
                 <span>{getContentTypeLabel(item.type as ContentType)}</span>
-                <span className="w-1 h-1 rounded-full bg-slate-600" />
+                <span className="w-1 h-1 rounded-full bg-[color:var(--muted)]" />
                 <span className={`inline-flex items-center rounded-full px-2 py-0.5 border text-[11px] ${badgeClass}`}>
                   {visibilityLabel}
                 </span>
               </div>
               <button
                 type="button"
-                className="mt-1 inline-flex w-fit items-center rounded-md border border-slate-700 bg-slate-800/80 px-3 py-1 text-xs font-semibold text-amber-200 hover:border-amber-400/70 hover:text-amber-100 transition"
+                className="mt-1 inline-flex w-fit items-center rounded-md border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-3 py-1 text-xs font-semibold text-[color:var(--warning)] hover:border-[color:rgba(245,158,11,0.7)] hover:text-[color:var(--text)] transition"
                 onClick={() => openContentLink(mediaUrl)}
               >
                 Ver contenido
@@ -1348,7 +1348,7 @@ function SystemMessage({ text }: { text: string }) {
   if (!text) return null;
   return (
     <div className="flex justify-center">
-      <div className="rounded-full border border-slate-700/70 bg-slate-900/70 px-3 py-1 text-[11px] text-slate-200">
+      <div className="rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-3 py-1 text-[11px] text-[color:var(--text)]">
         {text}
       </div>
     </div>
@@ -1368,8 +1368,8 @@ function BottomSheet({
   return (
     <div className="fixed inset-0 z-50">
       <div className="absolute inset-0 bg-black/60" onClick={onClose} />
-      <div className="absolute inset-x-0 bottom-0 max-h-[85vh] overflow-y-auto rounded-t-3xl border border-slate-800 bg-[#0f1720] px-4 pb-6 pt-4">
-        <div className="mx-auto mb-3 h-1.5 w-12 rounded-full bg-slate-700/80" />
+      <div className="absolute inset-x-0 bottom-0 max-h-[85vh] overflow-y-auto rounded-t-3xl border border-[color:var(--surface-border)] bg-[#0f1720] px-4 pb-6 pt-4">
+        <div className="mx-auto mb-3 h-1.5 w-12 rounded-full bg-[color:var(--surface-2)]/80" />
         {children}
       </div>
     </div>
@@ -1452,17 +1452,17 @@ function AccessBanner({
   let subtitleClass = "text-xs mt-1";
 
   if (summary.state === "ACTIVE") {
-    containerClass += " border-slate-800 bg-[#0f1f26]";
-    titleClass += " text-white";
-    subtitleClass += " text-slate-300";
+    containerClass += " border-[color:var(--surface-border)] bg-[#0f1f26]";
+    titleClass += " text-[color:var(--text)]";
+    subtitleClass += " text-[color:var(--muted)]";
   } else if (summary.state === "EXPIRED") {
-    containerClass += " border-amber-500/40 bg-[#2a1f1a]";
-    titleClass += " text-amber-100";
-    subtitleClass += " text-amber-200/80";
+    containerClass += " border-[color:rgba(245,158,11,0.4)] bg-[#2a1f1a]";
+    titleClass += " text-[color:var(--text)]";
+    subtitleClass += " text-[color:var(--warning)]/80";
   } else {
-    containerClass += " border-slate-800 bg-[#111b21]";
-    titleClass += " text-white";
-    subtitleClass += " text-slate-300";
+    containerClass += " border-[color:var(--surface-border)] bg-[#111b21]";
+    titleClass += " text-[color:var(--text)]";
+    subtitleClass += " text-[color:var(--muted)]";
   }
 
   return (
@@ -1475,7 +1475,7 @@ function AccessBanner({
         <button
           type="button"
           onClick={onOpenContent}
-          className="rounded-full border border-slate-700 bg-slate-900/70 px-3 py-1 text-[11px] font-semibold text-slate-100 hover:bg-slate-800/80"
+          className="rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-3 py-1 text-[11px] font-semibold text-[color:var(--text)] hover:bg-[color:var(--surface-2)]"
         >
           Contenido ({contentCount})
         </button>

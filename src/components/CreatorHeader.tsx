@@ -26,8 +26,8 @@ export default function CreatorHeader({ name, role, subtitle, initial, avatarUrl
   const linkClass = (isActive: boolean, extraClasses: string) =>
     `inline-flex items-center rounded-full px-3 py-1.5 text-sm font-medium whitespace-nowrap transition border ${extraClasses} ${
       isActive
-        ? "bg-emerald-400 text-slate-900 border-emerald-300 shadow-md"
-        : "bg-slate-800/70 text-slate-200 border-slate-700 hover:bg-slate-700"
+        ? "bg-[color:var(--brand)] text-[color:var(--surface-0)] border-[color:var(--brand-strong)] shadow-md"
+        : "bg-[color:var(--surface-2)] text-[color:var(--text)] border-[color:var(--surface-border)] hover:bg-[color:var(--surface-1)]"
     }`;
 
   const navTabs = [
@@ -83,24 +83,24 @@ export default function CreatorHeader({ name, role, subtitle, initial, avatarUrl
   ];
 
   return (
-    <div className="sticky top-0 z-20 bg-[#0d1720]/90 border-b border-[rgba(134,150,160,0.15)] backdrop-blur">
+    <div className="sticky top-0 z-20 bg-[color:var(--surface-1)] border-b border-[color:var(--surface-border)] backdrop-blur">
       <div className="max-w-6xl mx-auto flex flex-col gap-4 px-4 py-4 md:py-5">
         <div className="flex items-center gap-3">
           {avatarUrl ? (
-            <div className="w-12 h-12 rounded-full overflow-hidden border border-[rgba(134,150,160,0.2)] bg-[#2a3942] shadow-md">
+            <div className="w-12 h-12 rounded-full overflow-hidden border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] shadow-md">
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img src={avatarUrl} alt={name} className="w-full h-full object-cover" />
             </div>
           ) : (
-            <div className="flex items-center justify-center w-12 h-12 rounded-full bg-[#2a3942] text-white font-semibold shadow-md">
+            <div className="flex items-center justify-center w-12 h-12 rounded-full bg-[color:var(--surface-2)] text-[color:var(--text)] font-semibold shadow-md">
               {initial}
             </div>
           )}
           <div className="flex flex-col leading-tight min-w-0">
-            <span className="text-lg font-semibold text-white truncate">{name}</span>
-            <span className="text-sm text-slate-300">{role}</span>
-            <span className="flex items-center gap-1 text-xs text-slate-400">
-              <span className="w-2 h-2 rounded-full bg-emerald-400/80" />
+            <span className="text-lg font-semibold text-[color:var(--text)] truncate">{name}</span>
+            <span className="text-sm text-[color:var(--muted)]">{role}</span>
+            <span className="flex items-center gap-1 text-xs text-[color:var(--muted)]">
+              <span className="w-2 h-2 rounded-full bg-[color:rgba(var(--brand-rgb),0.8)]" />
               {subtitle}
             </span>
           </div>

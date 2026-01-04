@@ -93,7 +93,7 @@ export default function CreatorEditPage({ stats }: Props) {
   }
 
   return (
-    <div className="min-h-screen bg-slate-950 text-white">
+    <div className="min-h-screen bg-[color:var(--surface-0)] text-[color:var(--text)]">
       <Head>
         <title>Editar perfil público - NOVSY</title>
       </Head>
@@ -101,29 +101,29 @@ export default function CreatorEditPage({ stats }: Props) {
         <div className="flex items-center justify-between">
           <div>
             <h1 className="text-2xl font-semibold">Editar perfil público</h1>
-            <p className="text-sm text-slate-300">Ajusta los textos visibles en /creator. Se guardan en este navegador.</p>
+            <p className="text-sm text-[color:var(--muted)]">Ajusta los textos visibles en /creator. Se guardan en este navegador.</p>
           </div>
           <div className="flex gap-2">
             <button
               type="button"
               onClick={handleReset}
-              className="rounded-lg border border-slate-700 bg-slate-800/70 px-3 py-2 text-sm font-semibold text-slate-100 hover:border-amber-400/70 hover:text-amber-100"
+              className="rounded-lg border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-3 py-2 text-sm font-semibold text-[color:var(--text)] hover:border-[color:rgba(245,158,11,0.7)] hover:text-[color:var(--text)]"
             >
               Restaurar texto por defecto
             </button>
             <button
               type="button"
               onClick={handleSave}
-              className="rounded-lg border border-emerald-400 bg-emerald-500/10 px-3 py-2 text-sm font-semibold text-emerald-100 hover:bg-emerald-500/20"
+              className="rounded-lg border border-[color:var(--brand)] bg-[color:rgba(var(--brand-rgb),0.12)] px-3 py-2 text-sm font-semibold text-[color:var(--text)] hover:bg-[color:rgba(var(--brand-rgb),0.16)]"
             >
               Guardar cambios
             </button>
           </div>
         </div>
-        {toast && <div className="text-sm text-emerald-200">{toast}</div>}
+        {toast && <div className="text-sm text-[color:var(--brand)]">{toast}</div>}
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          <div className="border border-slate-800 rounded-2xl overflow-hidden">
+          <div className="border border-[color:var(--surface-border)] rounded-2xl overflow-hidden">
             <PublicProfileView
               copy={draft}
               creatorName={config.creatorName}
@@ -138,7 +138,7 @@ export default function CreatorEditPage({ stats }: Props) {
               }
             />
           </div>
-          <div className="border border-slate-800 rounded-2xl bg-slate-900/60 p-4 flex flex-col gap-4">
+          <div className="border border-[color:var(--surface-border)] rounded-2xl bg-[color:var(--surface-1)] p-4 flex flex-col gap-4">
             <Block title="Identidad y modo">
               <div className="flex gap-3 text-sm">
                 <label className="flex items-center gap-2">
@@ -180,11 +180,11 @@ export default function CreatorEditPage({ stats }: Props) {
                 onChange={(val) => updateDraft((prev) => ({ ...prev, hero: { ...prev.hero, coverImageUrl: val } }))}
               />
               <div className="flex flex-col gap-2">
-                <span className="text-sm text-slate-300">Chips (hasta 3)</span>
+                <span className="text-sm text-[color:var(--muted)]">Chips (hasta 3)</span>
                 {draft.hero.chips.map((chip, idx) => (
                   <div key={idx} className="flex items-center gap-3">
                     <input
-                      className="flex-1 rounded-lg bg-slate-800/70 border border-slate-700 px-3 py-2 text-sm text-white focus:border-amber-400"
+                      className="flex-1 rounded-lg bg-[color:var(--surface-2)] border border-[color:var(--surface-border)] px-3 py-2 text-sm text-[color:var(--text)] focus:border-[color:var(--warning)]"
                       value={chip.label}
                       onChange={(e) =>
                         updateDraft((prev) => {
@@ -194,7 +194,7 @@ export default function CreatorEditPage({ stats }: Props) {
                         })
                       }
                     />
-                    <label className="flex items-center gap-1 text-xs text-slate-300">
+                    <label className="flex items-center gap-1 text-xs text-[color:var(--muted)]">
                       <input
                         type="checkbox"
                         checked={chip.visible}
@@ -211,7 +211,7 @@ export default function CreatorEditPage({ stats }: Props) {
                   </div>
                 ))}
               </div>
-              <label className="flex items-center gap-2 text-sm text-slate-200">
+              <label className="flex items-center gap-2 text-sm text-[color:var(--text)]">
                 <input
                   type="checkbox"
                   checked={draft.hero.showStats !== false}
@@ -233,8 +233,8 @@ export default function CreatorEditPage({ stats }: Props) {
                   }
                 />
               </div>
-              <div className="flex flex-col gap-2 rounded-lg border border-slate-800 bg-slate-900/60 p-3">
-                <label className="flex items-center gap-2 text-sm text-slate-200">
+              <div className="flex flex-col gap-2 rounded-lg border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] p-3">
+                <label className="flex items-center gap-2 text-sm text-[color:var(--text)]">
                   <input
                     type="checkbox"
                     checked={draft.hero.showWhatInside}
@@ -276,8 +276,8 @@ export default function CreatorEditPage({ stats }: Props) {
                 ))}
               </div>
               {draft.packs.map((pack, idx) => (
-                <div key={pack.id} className="rounded-xl border border-slate-800 bg-slate-900/80 p-3 flex flex-col gap-2">
-                  <label className="flex items-center gap-2 text-sm text-slate-200">
+                <div key={pack.id} className="rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] p-3 flex flex-col gap-2">
+                  <label className="flex items-center gap-2 text-sm text-[color:var(--text)]">
                     <input
                       type="checkbox"
                       checked={pack.visible}
@@ -316,8 +316,8 @@ export default function CreatorEditPage({ stats }: Props) {
             </Block>
 
             <Block title="Freebies + FAQ">
-              <div className="flex flex-col gap-3 rounded-xl border border-slate-800 bg-slate-900/70 p-3">
-                <label className="flex items-center gap-2 text-sm text-slate-200">
+              <div className="flex flex-col gap-3 rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] p-3">
+                <label className="flex items-center gap-2 text-sm text-[color:var(--text)]">
                   <input
                     type="checkbox"
                     checked={draft.freebiesSectionVisible}
@@ -326,8 +326,8 @@ export default function CreatorEditPage({ stats }: Props) {
                   Mostrar sección “Para los que aún estáis curioseando”
                 </label>
                 {draft.freebies.map((freebie, idx) => (
-                  <div key={freebie.id} className="rounded-lg border border-slate-800 bg-slate-900/80 p-3 flex flex-col gap-2">
-                    <label className="flex items-center gap-2 text-xs text-slate-300">
+                  <div key={freebie.id} className="rounded-lg border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] p-3 flex flex-col gap-2">
+                    <label className="flex items-center gap-2 text-xs text-[color:var(--muted)]">
                       <input
                         type="checkbox"
                         checked={freebie.visible}
@@ -358,8 +358,8 @@ export default function CreatorEditPage({ stats }: Props) {
                   </div>
                 ))}
               </div>
-              <div className="flex flex-col gap-3 rounded-xl border border-slate-800 bg-slate-900/70 p-3">
-                <label className="flex items-center gap-2 text-sm text-slate-200">
+              <div className="flex flex-col gap-3 rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] p-3">
+                <label className="flex items-center gap-2 text-sm text-[color:var(--text)]">
                   <input
                     type="checkbox"
                     checked={draft.faqSectionVisible}
@@ -368,7 +368,7 @@ export default function CreatorEditPage({ stats }: Props) {
                   Mostrar sección de dudas / FAQ
                 </label>
                 {draft.faq.map((item, idx) => (
-                  <div key={item.id} className="rounded-lg border border-slate-800 bg-slate-900/80 p-3 flex flex-col gap-2">
+                  <div key={item.id} className="rounded-lg border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] p-3 flex flex-col gap-2">
                     <LabeledInput
                       label={`FAQ ${idx + 1} pregunta`}
                       value={item.question}
@@ -426,7 +426,7 @@ export const getServerSideProps: GetServerSideProps<Props> = async () => {
 
 function Block({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <div className="rounded-2xl border border-slate-800 bg-slate-900/70 p-4 flex flex-col gap-3">
+    <div className="rounded-2xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] p-4 flex flex-col gap-3">
       <h2 className="text-lg font-semibold">{title}</h2>
       {children}
     </div>
@@ -443,10 +443,10 @@ function slugifyHandle(value?: string) {
 
 function LabeledInput({ label, value, onChange }: { label: string; value: string; onChange: (v: string) => void }) {
   return (
-    <label className="flex flex-col gap-1 text-sm text-slate-300">
+    <label className="flex flex-col gap-1 text-sm text-[color:var(--muted)]">
       <span>{label}</span>
       <input
-        className="w-full rounded-lg bg-slate-800/70 border border-slate-700 px-3 py-2 text-sm text-white focus:border-amber-400"
+        className="w-full rounded-lg bg-[color:var(--surface-2)] border border-[color:var(--surface-border)] px-3 py-2 text-sm text-[color:var(--text)] focus:border-[color:var(--warning)]"
         value={value}
         onChange={(e) => onChange(e.target.value)}
       />
@@ -456,10 +456,10 @@ function LabeledInput({ label, value, onChange }: { label: string; value: string
 
 function LabeledTextarea({ label, value, onChange }: { label: string; value: string; onChange: (v: string) => void }) {
   return (
-    <label className="flex flex-col gap-1 text-sm text-slate-300">
+    <label className="flex flex-col gap-1 text-sm text-[color:var(--muted)]">
       <span>{label}</span>
       <textarea
-        className="w-full rounded-lg bg-slate-800/70 border border-slate-700 px-3 py-2 text-sm text-white focus:border-amber-400 min-h-[80px]"
+        className="w-full rounded-lg bg-[color:var(--surface-2)] border border-[color:var(--surface-border)] px-3 py-2 text-sm text-[color:var(--text)] focus:border-[color:var(--warning)] min-h-[80px]"
         value={value}
         onChange={(e) => onChange(e.target.value)}
       />

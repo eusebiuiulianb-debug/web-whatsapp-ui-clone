@@ -367,7 +367,7 @@ export default function LibraryPage() {
       : "Aquí organizas lo que vendes aparte por chat (extras PPV).";
 
   return (
-    <div className="min-h-screen bg-[#0b141a] text-white">
+    <div className="min-h-screen bg-[color:var(--surface-0)] text-[color:var(--text)]">
       <Head>
         <title>Biblioteca de contenido – NOVSY</title>
       </Head>
@@ -384,11 +384,11 @@ export default function LibraryPage() {
         <div className="flex items-start justify-between gap-3">
           <div>
             <h1 className="text-2xl font-semibold">Biblioteca de contenido</h1>
-            <p className="text-sm text-slate-300 mt-1">
+            <p className="text-sm text-[color:var(--muted)] mt-1">
               Fotos, vídeos y audios que podrás adjuntar en tus chats privados.
             </p>
             <div className="mt-3 flex flex-col gap-2">
-              <div className="inline-flex rounded-full border border-slate-700 bg-slate-900/60 p-1">
+              <div className="inline-flex rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] p-1">
                 {(["packs", "extras"] as const).map((value) => {
                   const isActive = mode === value;
                   return (
@@ -397,8 +397,8 @@ export default function LibraryPage() {
                       type="button"
                       className={`px-3 py-1 text-xs font-semibold rounded-full transition ${
                         isActive
-                          ? "bg-emerald-500/20 text-emerald-200 border border-emerald-400/70"
-                          : "text-slate-200"
+                          ? "bg-[color:rgba(var(--brand-rgb),0.16)] text-[color:var(--text)] border border-[color:rgba(var(--brand-rgb),0.45)]"
+                          : "text-[color:var(--text)]"
                       }`}
                       onClick={() => {
                         setMode(value);
@@ -410,7 +410,7 @@ export default function LibraryPage() {
                   );
                 })}
               </div>
-              <p className="text-[12px] text-slate-400">{modeHelperText}</p>
+              <p className="text-[12px] text-[color:var(--muted)]">{modeHelperText}</p>
             </div>
         </div>
         <button
@@ -420,7 +420,7 @@ export default function LibraryPage() {
             setModalMode("create");
             setShowModal(true);
           }}
-          className="inline-flex items-center rounded-lg border border-slate-700 bg-slate-800/70 px-3 py-2 text-sm font-semibold text-slate-100 hover:border-amber-400/70 hover:text-amber-100 transition"
+          className="inline-flex items-center rounded-lg border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-3 py-2 text-sm font-semibold text-[color:var(--text)] hover:border-[color:var(--brand)] hover:text-[color:var(--text)] transition"
         >
           Nuevo contenido
         </button>
@@ -450,22 +450,24 @@ export default function LibraryPage() {
                       setActivePack((prev) => (prev === summary.key ? null : summary.key));
                     }
                   }}
-                  className={`rounded-2xl border p-4 bg-slate-900/70 transition cursor-pointer ${
-                    isActive ? "border-emerald-500 bg-slate-900" : "border-slate-800 hover:border-slate-700"
+                  className={`rounded-2xl border p-4 bg-[color:var(--surface-1)] transition cursor-pointer ${
+                    isActive
+                      ? "border-[color:var(--brand)] bg-[color:var(--surface-1)]"
+                      : "border-[color:var(--surface-border)] hover:border-[color:var(--surface-border-hover)]"
                   }`}
                 >
-                  <div className="text-sm font-semibold text-white">{summary.label}</div>
-                  <div className="text-xs text-slate-300 mt-1">{description}</div>
+                  <div className="text-sm font-semibold text-[color:var(--text)]">{summary.label}</div>
+                  <div className="text-xs text-[color:var(--muted)] mt-1">{description}</div>
                 </div>
               );
             })}
           </div>
         )}
 
-        {error && <div className="text-sm text-rose-300">{error}</div>}
-        {loading && <div className="text-sm text-slate-300">Cargando contenidos...</div>}
-        {popClipsLoading && <div className="text-xs text-slate-400">Cargando PopClips...</div>}
-        {popClipsError && <div className="text-xs text-rose-300">{popClipsError}</div>}
+        {error && <div className="text-sm text-[color:var(--danger)]">{error}</div>}
+        {loading && <div className="text-sm text-[color:var(--muted)]">Cargando contenidos...</div>}
+        {popClipsLoading && <div className="text-xs text-[color:var(--muted)]">Cargando PopClips...</div>}
+        {popClipsError && <div className="text-xs text-[color:var(--danger)]">{popClipsError}</div>}
 
         {mode === "packs" && (
           <div className="mt-6 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
@@ -525,7 +527,7 @@ export default function LibraryPage() {
                 const registerOnlyItems = group.filter((item) => (item.title || "").startsWith("[REG]"));
                 return (
                   <div className="space-y-2">
-                    <p className="text-xs text-slate-300 uppercase tracking-wide">{label}</p>
+                    <p className="text-xs text-[color:var(--muted)] uppercase tracking-wide">{label}</p>
                     <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
                       {regularItems.map((item) => {
                         const popClipMeta = getPopClipMeta(item);
@@ -598,10 +600,10 @@ export default function LibraryPage() {
               };
 
               return (
-                <section key={tierKey} className="rounded-2xl border border-slate-800 bg-slate-900/60 p-4 space-y-3">
+                <section key={tierKey} className="rounded-2xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] p-4 space-y-3">
                   <div className="flex items-center justify-between">
-                    <h3 className="text-lg font-semibold text-white">{tierTitles[tierKey]}</h3>
-                    <span className="text-xs text-slate-400">{tierItems.length} ítem{tierItems.length === 1 ? "" : "s"}</span>
+                    <h3 className="text-lg font-semibold text-[color:var(--text)]">{tierTitles[tierKey]}</h3>
+                    <span className="text-xs text-[color:var(--muted)]">{tierItems.length} ítem{tierItems.length === 1 ? "" : "s"}</span>
                   </div>
                   {renderGroup(dayItems, "Día")}
                   {renderGroup(nightItems, "Noche")}
@@ -613,25 +615,25 @@ export default function LibraryPage() {
       </div>
 
       {popClipEditor && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-4 py-6">
-          <div className="w-full max-w-md rounded-2xl border border-slate-800 bg-slate-900/95 p-5 shadow-2xl">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-[color:var(--surface-overlay)] px-4 py-6">
+          <div className="w-full max-w-md rounded-2xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] p-5 shadow-2xl">
             <div className="flex items-start justify-between gap-3">
               <div>
-                <h3 className="text-lg font-semibold text-white">PopClip público</h3>
-                <p className="text-xs text-slate-400">
+                <h3 className="text-lg font-semibold text-[color:var(--text)]">PopClip público</h3>
+                <p className="text-xs text-[color:var(--muted)]">
                   {mapTypeToLabel(popClipEditor.content.type as PrismaContentType)} · {popClipEditor.content.title}
                 </p>
               </div>
               <button
                 type="button"
                 onClick={handleClosePopClipEditor}
-                className="text-[12px] font-semibold text-slate-300 hover:text-slate-100"
+                className="text-[12px] font-semibold text-[color:var(--muted)] hover:text-[color:var(--text)]"
               >
                 Cerrar
               </button>
             </div>
             <div className="mt-4 space-y-3">
-              <label className="block text-xs text-slate-300">
+              <label className="block text-xs text-[color:var(--muted)]">
                 Inicio (seg)
                 <input
                   type="number"
@@ -640,10 +642,10 @@ export default function LibraryPage() {
                   onChange={(event) =>
                     setPopClipEditor((prev) => (prev ? { ...prev, startAtSec: event.target.value } : prev))
                   }
-                  className="mt-1 w-full rounded-lg border border-slate-700 bg-slate-950/70 px-3 py-2 text-sm text-white"
+                  className="mt-1 w-full rounded-lg border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-3 py-2 text-sm text-[color:var(--text)]"
                 />
               </label>
-              <label className="block text-xs text-slate-300">
+              <label className="block text-xs text-[color:var(--muted)]">
                 Duración (seg)
                 <input
                   type="number"
@@ -652,10 +654,10 @@ export default function LibraryPage() {
                   onChange={(event) =>
                     setPopClipEditor((prev) => (prev ? { ...prev, durationSec: event.target.value } : prev))
                   }
-                  className="mt-1 w-full rounded-lg border border-slate-700 bg-slate-950/70 px-3 py-2 text-sm text-white"
+                  className="mt-1 w-full rounded-lg border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-3 py-2 text-sm text-[color:var(--text)]"
                 />
               </label>
-              <label className="block text-xs text-slate-300">
+              <label className="block text-xs text-[color:var(--muted)]">
                 Poster (opcional)
                 <input
                   type="text"
@@ -664,17 +666,17 @@ export default function LibraryPage() {
                   onChange={(event) =>
                     setPopClipEditor((prev) => (prev ? { ...prev, posterUrl: event.target.value } : prev))
                   }
-                  className="mt-1 w-full rounded-lg border border-slate-700 bg-slate-950/70 px-3 py-2 text-sm text-white"
+                  className="mt-1 w-full rounded-lg border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-3 py-2 text-sm text-[color:var(--text)]"
                 />
               </label>
-              <p className="text-[11px] text-slate-400">Recomendado: 8-12 segundos de teaser.</p>
-              {popClipEditorError && <p className="text-xs text-rose-300">{popClipEditorError}</p>}
+              <p className="text-[11px] text-[color:var(--muted)]">Recomendado: 8-12 segundos de teaser.</p>
+              {popClipEditorError && <p className="text-xs text-[color:var(--danger)]">{popClipEditorError}</p>}
             </div>
             <div className="mt-4 flex items-center justify-end gap-2">
               <button
                 type="button"
                 onClick={handleClosePopClipEditor}
-                className="rounded-full border border-slate-700/70 bg-slate-900/60 px-3 py-1.5 text-[11px] font-semibold text-slate-200 hover:bg-slate-800/80"
+                className="rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-3 py-1.5 text-[11px] font-semibold text-[color:var(--text)] hover:bg-[color:var(--surface-2)]"
               >
                 Cancelar
               </button>
@@ -682,7 +684,7 @@ export default function LibraryPage() {
                 type="button"
                 onClick={handleSavePopClip}
                 disabled={popClipEditorSaving}
-                className="rounded-full bg-emerald-500 px-4 py-2 text-xs font-semibold text-slate-950 hover:bg-emerald-400 disabled:opacity-60"
+                className="rounded-full bg-[color:var(--brand-strong)] px-4 py-2 text-xs font-semibold text-[color:var(--surface-0)] hover:bg-[color:var(--brand)] disabled:opacity-60"
               >
                 {popClipEditorSaving
                   ? "Guardando..."
@@ -827,31 +829,31 @@ function ContentCard({
     typeof popClip?.durationSec === "number" ? `${popClip.durationSec}s` : "10s";
 
   return (
-    <div className="flex h-full flex-col justify-between rounded-xl bg-slate-900/60 p-4 shadow-sm border border-slate-800">
+    <div className="flex h-full flex-col justify-between rounded-xl bg-[color:var(--surface-1)] p-4 shadow-sm border border-[color:var(--surface-border)]">
       <div className="space-y-2">
         <div className="flex items-start justify-between gap-3">
           <div className="space-y-1">
-            <p className="text-sm font-semibold text-white">{content.title}</p>
-            <p className="text-xs text-slate-300">
+            <p className="text-sm font-semibold text-[color:var(--text)]">{content.title}</p>
+            <p className="text-xs text-[color:var(--muted)]">
               {isExtra ? `${typeLabel} · Extra por chat` : `${typeLabel} · ${packLabel}`}
             </p>
           </div>
-          <div className="flex flex-col items-end gap-1 text-[11px] text-slate-400">
+          <div className="flex flex-col items-end gap-1 text-[11px] text-[color:var(--muted)]">
             {badge && (
-              <span className="inline-flex items-center rounded-full border border-amber-400/60 bg-amber-500/10 px-2 py-[2px] text-amber-100">
+              <span className="inline-flex items-center rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-2 py-[2px] text-[color:var(--muted)]">
                 {badge}
               </span>
             )}
             <button
               type="button"
-              className="text-slate-300 hover:text-white"
+              className="text-[color:var(--muted)] hover:text-[color:var(--text)]"
               onClick={() => onEdit?.(content)}
             >
               Editar
             </button>
             <button
               type="button"
-              className="text-rose-300 hover:text-rose-200"
+              className="text-[color:var(--danger)] hover:text-[color:var(--danger)]"
               onClick={() => onDelete?.(content)}
             >
               Eliminar
@@ -860,7 +862,9 @@ function ContentCard({
         </div>
         <span
           className={`inline-flex items-center rounded-full px-2 py-0.5 text-[11px] ${
-            isExtra ? "border border-amber-400/70 text-amber-300" : "bg-emerald-500/10 text-emerald-300"
+            isExtra
+              ? "border border-[color:rgba(var(--brand-rgb),0.45)] bg-[color:rgba(var(--brand-rgb),0.12)] text-[color:var(--text)]"
+              : "bg-[color:var(--surface-2)] text-[color:var(--muted)]"
           }`}
         >
           {visibilityLabel}
@@ -869,9 +873,9 @@ function ContentCard({
           <div className="mt-2 space-y-1">
             <div className="flex items-center justify-between gap-3">
               <div>
-                <p className="text-[11px] text-slate-400">PopClips público</p>
+                <p className="text-[11px] text-[color:var(--muted)]">PopClips público</p>
                 {isPopClipActive && (
-                  <p className="text-[11px] text-slate-500">
+                  <p className="text-[11px] text-[color:var(--muted)]">
                     Teaser: {startAtLabel} · {durationLabel}
                   </p>
                 )}
@@ -881,7 +885,7 @@ function ContentCard({
                   <button
                     type="button"
                     onClick={onEditPopClip}
-                    className="text-[11px] font-semibold text-emerald-200 hover:text-emerald-100"
+                    className="text-[11px] font-semibold text-[color:var(--brand)] hover:text-[color:var(--text)]"
                   >
                     Editar
                   </button>
@@ -894,26 +898,26 @@ function ContentCard({
                   disabled={isToggleDisabled}
                   className={`relative h-5 w-9 rounded-full border transition ${
                     isPopClipActive
-                      ? "border-emerald-400/70 bg-emerald-500/30"
-                      : "border-slate-700 bg-slate-800"
+                      ? "border-[color:rgba(var(--brand-rgb),0.45)] bg-[color:rgba(var(--brand-rgb),0.24)]"
+                      : "border-[color:var(--surface-border)] bg-[color:var(--surface-2)]"
                   } ${isToggleDisabled ? "cursor-not-allowed opacity-60" : ""}`}
                 >
                   <span
-                    className={`absolute top-0.5 h-4 w-4 rounded-full bg-white transition ${
+                    className={`absolute top-0.5 h-4 w-4 rounded-full bg-[color:var(--text)] transition ${
                       isPopClipActive ? "translate-x-4" : "translate-x-0.5"
                     }`}
                   />
                 </button>
               </div>
             </div>
-            {popClipMessage && <p className="text-[11px] text-rose-300">{popClipMessage}</p>}
+            {popClipMessage && <p className="text-[11px] text-[color:var(--danger)]">{popClipMessage}</p>}
             {!canEnablePopClip && !isPopClipActive && !popClipMessage && (
-              <p className="text-[11px] text-slate-500">Solo vídeos .mp4/.webm (http/https o /media/, sin YouTube).</p>
+              <p className="text-[11px] text-[color:var(--muted)]">Solo vídeos .mp4/.webm (http/https o /media/, sin YouTube).</p>
             )}
           </div>
         )}
       </div>
-      <p className="mt-3 text-[11px] text-slate-400">Añadido el {formattedDate}</p>
+      <p className="mt-3 text-[11px] text-[color:var(--muted)]">Añadido el {formattedDate}</p>
     </div>
   );
 }

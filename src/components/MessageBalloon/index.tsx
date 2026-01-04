@@ -58,7 +58,7 @@ const MessageBalloon = memo(function MessageBalloon(props: MessageBalloonProps) 
   const isSticker = Boolean(stickerSrc);
   const bubbleClass =
     variant === "internal"
-      ? "bg-amber-500/15 text-amber-50 border border-amber-400/60"
+      ? "bg-[color:rgba(245,158,11,0.12)] text-[color:var(--text)] border border-[color:rgba(245,158,11,0.6)]"
       : me
       ? "bg-[color:var(--brand-weak)] text-[color:var(--text)] border border-[color:rgba(var(--brand-rgb),0.28)]"
       : "bg-[color:var(--surface-2)] text-[color:var(--text)] border border-[color:var(--border)]";
@@ -218,7 +218,7 @@ const MessageBalloon = memo(function MessageBalloon(props: MessageBalloonProps) 
         >
           <span>{me ? meLabel || "Tú" : fromLabel || "Fan"} • {time}</span>
           {badge && (
-            <span className="ml-2 inline-flex items-center rounded-full border border-amber-400/70 bg-amber-500/10 px-2 py-0.5 text-[9px] font-semibold text-amber-200">
+            <span className="ml-2 inline-flex items-center rounded-full border border-[color:rgba(245,158,11,0.7)] bg-[color:rgba(245,158,11,0.08)] px-2 py-0.5 text-[9px] font-semibold text-[color:var(--warning)]">
               {badge}
             </span>
           )}
@@ -232,7 +232,7 @@ const MessageBalloon = memo(function MessageBalloon(props: MessageBalloonProps) 
                 setIsReactionPickerOpen(false);
               }}
               className={clsx(
-                "absolute -top-3 flex h-6 w-6 items-center justify-center rounded-full border border-slate-700 bg-slate-950 text-xs text-slate-200 shadow transition",
+                "absolute -top-3 flex h-6 w-6 items-center justify-center rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-0)] text-xs text-[color:var(--text)] shadow transition",
                 reactionAlign,
                 isHovered || isReactionBarOpen ? "opacity-100" : "opacity-0 pointer-events-none"
               )}
@@ -245,7 +245,7 @@ const MessageBalloon = memo(function MessageBalloon(props: MessageBalloonProps) 
             <div
               ref={reactionBarRef}
               className={clsx(
-                "absolute z-20 -top-12 flex items-center gap-1 rounded-full border border-slate-800/80 bg-slate-950/95 px-2 py-1 shadow-xl",
+                "absolute z-20 -top-12 flex items-center gap-1 rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-2 py-1 shadow-xl",
                 reactionAlign
               )}
             >
@@ -258,7 +258,7 @@ const MessageBalloon = memo(function MessageBalloon(props: MessageBalloonProps) 
                     "flex h-7 w-7 items-center justify-center rounded-full border text-sm",
                     actorReaction === emoji
                       ? "border-[color:var(--brand)] bg-[color:rgba(var(--brand-rgb),0.14)] text-[color:var(--text)]"
-                      : "border-slate-700/70 bg-slate-900/70 text-slate-100 hover:bg-slate-800/80"
+                      : "border-[color:var(--surface-border)] bg-[color:var(--surface-1)] text-[color:var(--text)] hover:bg-[color:var(--surface-2)]"
                   )}
                 >
                   {emoji}
@@ -268,7 +268,7 @@ const MessageBalloon = memo(function MessageBalloon(props: MessageBalloonProps) 
                 <button
                   type="button"
                   onClick={handleClearReaction}
-                  className="flex h-7 w-7 items-center justify-center rounded-full border border-slate-700/70 bg-slate-900/70 text-[11px] font-semibold text-slate-200 hover:bg-slate-800/80"
+                  className="flex h-7 w-7 items-center justify-center rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] text-[11px] font-semibold text-[color:var(--text)] hover:bg-[color:var(--surface-2)]"
                   aria-label="Quitar reacción"
                 >
                   ✕
@@ -277,7 +277,7 @@ const MessageBalloon = memo(function MessageBalloon(props: MessageBalloonProps) 
               <button
                 type="button"
                 onClick={() => setIsReactionPickerOpen((prev) => !prev)}
-                className="flex h-7 w-7 items-center justify-center rounded-full border border-slate-700/70 bg-slate-900/70 text-[12px] font-semibold text-slate-100 hover:bg-slate-800/80"
+                className="flex h-7 w-7 items-center justify-center rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] text-[12px] font-semibold text-[color:var(--text)] hover:bg-[color:var(--surface-2)]"
                 aria-label="Más reacciones"
                 ref={reactionPickerAnchorRef}
               >
@@ -316,11 +316,11 @@ const MessageBalloon = memo(function MessageBalloon(props: MessageBalloonProps) 
           </div>
         </div>
         {translatedText ? (
-          <div className={`mt-1 text-[11px] text-slate-300 ${me ? "text-right" : ""}`}>
+          <div className={`mt-1 text-[11px] text-[color:var(--muted)] ${me ? "text-right" : ""}`}>
             <button
               type="button"
               onClick={() => setIsTranslationOpen((prev) => !prev)}
-              className="text-[11px] text-slate-400 hover:text-slate-200 underline"
+              className="text-[11px] text-[color:var(--muted)] hover:text-[color:var(--text)] underline"
             >
               {isTranslationOpen ? "Ocultar traducción" : "Ver traducción"}
             </button>
@@ -342,18 +342,18 @@ const MessageBalloon = memo(function MessageBalloon(props: MessageBalloonProps) 
                   "inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] transition",
                   actorReaction === entry.emoji
                     ? "border-[color:var(--brand)] bg-[color:rgba(var(--brand-rgb),0.14)] text-[color:var(--text)]"
-                    : "border-slate-700/70 bg-slate-900/70 text-slate-100 hover:bg-slate-800/80"
+                    : "border-[color:var(--surface-border)] bg-[color:var(--surface-1)] text-[color:var(--text)] hover:bg-[color:var(--surface-2)]"
                 )}
                 aria-label={`Reacción ${entry.emoji}`}
               >
                 <span>{entry.emoji}</span>
-                <span className="text-[10px] text-slate-300">{entry.count}</span>
+                <span className="text-[10px] text-[color:var(--muted)]">{entry.count}</span>
               </button>
             ))}
           </div>
         )}
         {status === "sending" && <div className="mt-1 text-[10px] text-[color:var(--muted)] text-right">Enviando...</div>}
-        {status === "failed" && <div className="mt-1 text-[10px] text-rose-300 text-right">Fallo al enviar</div>}
+        {status === "failed" && <div className="mt-1 text-[10px] text-[color:var(--danger)] text-right">Fallo al enviar</div>}
         {me && seen ? (
           <div className="mt-1 flex items-center justify-end gap-1 text-[10px] text-[color:var(--muted)]">
             <span className="inline-flex -space-x-1">

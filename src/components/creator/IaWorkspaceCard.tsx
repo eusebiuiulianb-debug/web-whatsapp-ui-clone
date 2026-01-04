@@ -393,20 +393,20 @@ export function IaWorkspaceCard({
   return (
     <section
       className={clsx(
-        "rounded-2xl border border-slate-800 bg-slate-950/90 shadow-sm flex flex-col gap-4 h-full min-h-0 w-full flex-1",
+        "rounded-2xl border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] shadow-sm flex flex-col gap-4 h-full min-h-0 w-full flex-1",
         density === "compact" ? "p-4 pb-16 md:pb-4" : "p-5 lg:p-6 pb-16 lg:pb-6",
         className
       )}
     >
-      <div className="space-y-2 lg:sticky lg:top-0 lg:z-10 lg:bg-slate-950/95 lg:backdrop-blur">
+      <div className="space-y-2 lg:sticky lg:top-0 lg:z-10 lg:bg-[color:var(--surface-1)] lg:backdrop-blur">
         <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
           <div className="space-y-1">
-            <p className="text-[11px] uppercase tracking-wide text-slate-400">Manager IA</p>
-            <h2 className={clsx("font-semibold text-white leading-tight", density === "compact" ? "text-xl" : "text-2xl md:text-3xl")}>
+            <p className="text-[11px] uppercase tracking-wide text-[color:var(--muted)]">Manager IA</p>
+            <h2 className={clsx("font-semibold text-[color:var(--text)] leading-tight", density === "compact" ? "text-xl" : "text-2xl md:text-3xl")}>
               Chat con tu Manager IA
             </h2>
-            <p className={clsx("text-slate-300", density === "compact" ? "text-xs" : "text-sm")}>Resumen de hoy y acciones rápidas.</p>
-            <p className={clsx("text-[12px] text-slate-400", density === "compact" ? "leading-tight" : "")}>
+            <p className={clsx("text-[color:var(--muted)]", density === "compact" ? "text-xs" : "text-sm")}>Resumen de hoy y acciones rápidas.</p>
+            <p className={clsx("text-[12px] text-[color:var(--muted)]", density === "compact" ? "leading-tight" : "")}>
               {activeTab === "strategy" && "Pregúntale al Manager IA sobre tus fans y tus ingresos."}
               {activeTab === "content" && "Habla con el Manager IA sobre tus packs, extras y huecos de catálogo."}
               {activeTab === "growth" && "Pega métricas de YouTube/TikTok/Instagram y el Manager IA te propone 3 movimientos."}
@@ -417,7 +417,7 @@ export function IaWorkspaceCard({
               type="button"
               className={clsx(
                 "rounded-full border px-3 py-1 text-xs font-semibold transition",
-                focus === "solo_chat" ? "border-emerald-500/60 bg-emerald-600/20 text-emerald-100" : "border-slate-700 bg-slate-800/70 text-slate-100"
+                focus === "solo_chat" ? "border-[color:var(--brand)]/60 bg-[color:var(--brand-strong)]/20 text-[color:var(--text)]" : "border-[color:var(--surface-border)] bg-[color:var(--surface-2)] text-[color:var(--text)]"
               )}
               title="Oculta panel lateral y usa solo el chat del Manager IA."
               onClick={() => setFocus((prev) => (prev === "solo_chat" ? "normal" : "solo_chat"))}
@@ -426,7 +426,7 @@ export function IaWorkspaceCard({
             </button>
             <button
               type="button"
-              className="rounded-full border border-emerald-500/60 bg-emerald-600/15 px-3 py-1 text-xs font-semibold text-emerald-100 hover:bg-emerald-600/25"
+              className="rounded-full border border-[color:var(--brand)]/60 bg-[color:var(--brand-strong)]/15 px-3 py-1 text-xs font-semibold text-[color:var(--text)] hover:bg-[color:var(--brand-strong)]/25"
               title="Abre el panel lateral con ventas, catálogo y crecimiento."
               onClick={() => setInsightsOpen(true)}
             >
@@ -434,7 +434,7 @@ export function IaWorkspaceCard({
             </button>
             <button
               type="button"
-              className="inline-flex items-center gap-1 rounded-full border border-slate-700 bg-slate-800/70 px-3 py-1 text-xs font-semibold text-slate-100 hover:border-emerald-500/60"
+              className="inline-flex items-center gap-1 rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-3 py-1 text-xs font-semibold text-[color:var(--text)] hover:border-[color:var(--brand)]/60"
               title="Configura cómo trabaja tu Manager IA."
               onClick={() => setShowSettings((prev) => !prev)}
             >
@@ -444,21 +444,21 @@ export function IaWorkspaceCard({
           </div>
         </div>
         {isDemo && !demoDismissed && (
-          <div className="rounded-lg border border-amber-500/40 bg-amber-900/30 px-3 py-2 text-amber-100 flex items-start justify-between gap-2">
+          <div className="rounded-lg border border-[color:rgba(245,158,11,0.4)] bg-[color:rgba(245,158,11,0.12)] px-3 py-2 text-[color:var(--text)] flex items-start justify-between gap-2">
             <div>
               <p className="text-sm font-semibold">Modo demo activo</p>
-              <p className="text-[12px] text-amber-100/90">Conecta tu OPENAI_API_KEY para respuestas con tus datos reales.</p>
+              <p className="text-[12px] text-[color:var(--text)]/90">Conecta tu OPENAI_API_KEY para respuestas con tus datos reales.</p>
             </div>
             <div className="flex items-center gap-2">
               <Link
                 href="/creator/ai-settings"
-                className="rounded-full bg-amber-500/20 px-3 py-1 text-[12px] font-semibold text-amber-50 hover:bg-amber-500/30 border border-amber-400/50"
+                className="rounded-full bg-[color:rgba(245,158,11,0.16)] px-3 py-1 text-[12px] font-semibold text-[color:var(--text)] hover:bg-[color:rgba(245,158,11,0.24)] border border-[color:rgba(245,158,11,0.5)]"
               >
                 Conectar
               </Link>
               <button
                 type="button"
-                className="text-[12px] text-amber-100 hover:text-amber-50"
+                className="text-[12px] text-[color:var(--text)] hover:text-[color:var(--text)]"
                 onClick={() => {
                   setDemoDismissed(true);
                   if (typeof window !== "undefined") window.localStorage.setItem("novsy_manager_demo_banner_dismissed", "1");
@@ -503,8 +503,8 @@ export function IaWorkspaceCard({
               className={clsx(
                 "rounded-2xl border px-4 py-3 text-left text-sm font-semibold shadow-sm transition",
                 activeTab === "strategy"
-                  ? "border-emerald-500/60 bg-emerald-600/15 text-emerald-100"
-                  : "border-slate-800/80 bg-slate-900/70 text-slate-200 hover:border-emerald-400/70 hover:text-emerald-100"
+                  ? "border-[color:var(--brand)]/60 bg-[color:var(--brand-strong)]/15 text-[color:var(--text)]"
+                  : "border-[color:var(--surface-border)] bg-[color:var(--surface-1)] text-[color:var(--text)] hover:border-[color:rgba(var(--brand-rgb),0.45)] hover:text-[color:var(--text)]"
               )}
               onClick={() => setActiveTab("strategy")}
             >
@@ -515,8 +515,8 @@ export function IaWorkspaceCard({
               className={clsx(
                 "rounded-2xl border px-4 py-3 text-left text-sm font-semibold shadow-sm transition",
                 activeTab === "content"
-                  ? "border-emerald-500/60 bg-emerald-600/15 text-emerald-100"
-                  : "border-slate-800/80 bg-slate-900/70 text-slate-200 hover:border-emerald-400/70 hover:text-emerald-100"
+                  ? "border-[color:var(--brand)]/60 bg-[color:var(--brand-strong)]/15 text-[color:var(--text)]"
+                  : "border-[color:var(--surface-border)] bg-[color:var(--surface-1)] text-[color:var(--text)] hover:border-[color:rgba(var(--brand-rgb),0.45)] hover:text-[color:var(--text)]"
               )}
               onClick={() => setActiveTab("content")}
             >
@@ -527,8 +527,8 @@ export function IaWorkspaceCard({
               className={clsx(
                 "rounded-2xl border px-4 py-3 text-left text-sm font-semibold shadow-sm transition",
                 activeTab === "growth"
-                  ? "border-emerald-500/60 bg-emerald-600/15 text-emerald-100"
-                  : "border-slate-800/80 bg-slate-900/70 text-slate-200 hover:border-emerald-400/70 hover:text-emerald-100"
+                  ? "border-[color:var(--brand)]/60 bg-[color:var(--brand-strong)]/15 text-[color:var(--text)]"
+                  : "border-[color:var(--surface-border)] bg-[color:var(--surface-1)] text-[color:var(--text)] hover:border-[color:rgba(var(--brand-rgb),0.45)] hover:text-[color:var(--text)]"
               )}
               onClick={() => setActiveTab("growth")}
             >
@@ -543,17 +543,17 @@ export function IaWorkspaceCard({
               <div className="flex min-h-0 min-w-0 flex-col gap-3">
                 <div
                   className={clsx(
-                    "rounded-2xl border border-slate-800 bg-slate-950/85 shadow-inner flex flex-col flex-1 min-h-0 min-w-0",
+                    "rounded-2xl border border-[color:var(--surface-border)] bg-[color:var(--surface-0)]/85 shadow-inner flex flex-col flex-1 min-h-0 min-w-0",
                     density === "compact" ? "p-3 gap-3" : "p-4 lg:p-5 gap-4"
                   )}
                 >
                 <div className="flex items-center gap-3">
                   <div>
-                    <p className="text-[11px] uppercase tracking-wide text-slate-400">Chat interno</p>
-                    <h3 className={clsx("font-semibold text-white", density === "compact" ? "text-base" : "text-lg")}>Manager IA</h3>
+                    <p className="text-[11px] uppercase tracking-wide text-[color:var(--muted)]">Chat interno</p>
+                    <h3 className={clsx("font-semibold text-[color:var(--text)]", density === "compact" ? "text-base" : "text-lg")}>Manager IA</h3>
                   </div>
                 </div>
-                  <div className="flex-1 overflow-hidden rounded-xl border border-slate-800 bg-slate-950/60 min-h-[360px]">
+                  <div className="flex-1 overflow-hidden rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] min-h-[360px]">
                     {activeTab === "strategy" ? (
                       <ManagerChatCard
                         ref={chatRef}
@@ -590,22 +590,22 @@ export function IaWorkspaceCard({
 
       {showSettings && (
         <div className="relative">
-          <div className="absolute right-0 top-0 z-30 w-64 rounded-xl border border-slate-800 bg-slate-900 p-3 shadow-lg space-y-3">
+          <div className="absolute right-0 top-0 z-30 w-64 rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] p-3 shadow-lg space-y-3">
             <div className="flex items-center justify-between">
-              <span className="text-xs text-slate-200">Ajustes rápidos</span>
-              <button className="text-[11px] text-slate-400 hover:text-slate-200" onClick={() => setShowSettings(false)}>
+              <span className="text-xs text-[color:var(--text)]">Ajustes rápidos</span>
+              <button className="text-[11px] text-[color:var(--muted)] hover:text-[color:var(--text)]" onClick={() => setShowSettings(false)}>
                 Cerrar
               </button>
             </div>
             <div className="space-y-1">
-              <div className="text-[11px] uppercase tracking-wide text-slate-400">Densidad</div>
+              <div className="text-[11px] uppercase tracking-wide text-[color:var(--muted)]">Densidad</div>
               <div className="flex gap-2">
                 <button
                   type="button"
                   onClick={() => setDensity("comfortable")}
                   className={clsx(
                     "flex-1 rounded-full border px-2 py-1 text-xs",
-                    density === "comfortable" ? "border-emerald-500 bg-emerald-600/20 text-emerald-100" : "border-slate-700 bg-slate-800 text-slate-200"
+                    density === "comfortable" ? "border-[color:var(--brand)] bg-[color:var(--brand-strong)]/20 text-[color:var(--text)]" : "border-[color:var(--surface-border)] bg-[color:var(--surface-2)] text-[color:var(--text)]"
                   )}
                 >
                   Cómodo
@@ -615,7 +615,7 @@ export function IaWorkspaceCard({
                   onClick={() => setDensity("compact")}
                   className={clsx(
                     "flex-1 rounded-full border px-2 py-1 text-xs",
-                    density === "compact" ? "border-emerald-500 bg-emerald-600/20 text-emerald-100" : "border-slate-700 bg-slate-800 text-slate-200"
+                    density === "compact" ? "border-[color:var(--brand)] bg-[color:var(--brand-strong)]/20 text-[color:var(--text)]" : "border-[color:var(--surface-border)] bg-[color:var(--surface-2)] text-[color:var(--text)]"
                   )}
                 >
                   Compacto
@@ -623,14 +623,14 @@ export function IaWorkspaceCard({
               </div>
             </div>
             <div className="space-y-1">
-              <div className="text-[11px] uppercase tracking-wide text-slate-400">Focus</div>
+              <div className="text-[11px] uppercase tracking-wide text-[color:var(--muted)]">Focus</div>
               <div className="flex gap-2">
                 <button
                   type="button"
                   onClick={() => setFocus("normal")}
                   className={clsx(
                     "flex-1 rounded-full border px-2 py-1 text-xs",
-                    focus === "normal" ? "border-emerald-500 bg-emerald-600/20 text-emerald-100" : "border-slate-700 bg-slate-800 text-slate-200"
+                    focus === "normal" ? "border-[color:var(--brand)] bg-[color:var(--brand-strong)]/20 text-[color:var(--text)]" : "border-[color:var(--surface-border)] bg-[color:var(--surface-2)] text-[color:var(--text)]"
                   )}
                 >
                   Normal
@@ -642,7 +642,7 @@ export function IaWorkspaceCard({
                   }}
                   className={clsx(
                     "flex-1 rounded-full border px-2 py-1 text-xs",
-                    focus === "solo_chat" ? "border-emerald-500 bg-emerald-600/20 text-emerald-100" : "border-slate-700 bg-slate-800 text-slate-200"
+                    focus === "solo_chat" ? "border-[color:var(--brand)] bg-[color:var(--brand-strong)]/20 text-[color:var(--text)]" : "border-[color:var(--surface-border)] bg-[color:var(--surface-2)] text-[color:var(--text)]"
                   )}
                 >
                   Solo chat
@@ -664,7 +664,7 @@ export function IaWorkspaceCard({
         <div className="fixed bottom-3 left-0 right-0 z-30 px-4 lg:hidden">
           <button
             type="button"
-            className="mx-auto flex max-w-3xl flex-1 items-center justify-center gap-2 rounded-full border border-slate-800 bg-slate-950/95 px-4 py-2 text-xs font-semibold text-slate-100 shadow-lg hover:border-emerald-500/60"
+            className="mx-auto flex max-w-3xl flex-1 items-center justify-center gap-2 rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-4 py-2 text-xs font-semibold text-[color:var(--text)] shadow-lg hover:border-[color:var(--brand)]/60"
             onClick={() => {
               if (isDesktop && topFansRef.current) {
                 topFansRef.current.scrollIntoView({ behavior: "smooth" });
@@ -673,7 +673,7 @@ export function IaWorkspaceCard({
               }
             }}
           >
-            <IconGlyph name="pin" className="h-4 w-4 text-emerald-300" />
+            <IconGlyph name="pin" className="h-4 w-4 text-[color:var(--brand)]" />
             Prioridad ({queue.length})
           </button>
         </div>
@@ -694,22 +694,22 @@ function PlanMini({ steps, onPlanClick }: { steps: DailyPlanStep[]; onPlanClick:
     <SectionCard
       eyebrow="Plan de hoy"
       title={`${steps.length} pasos`}
-      actions={<span className="text-xs text-slate-400">{steps.length} tareas</span>}
+      actions={<span className="text-xs text-[color:var(--muted)]">{steps.length} tareas</span>}
       bodyClassName="space-y-2"
     >
       <ol className="space-y-2">
         {steps.map((step, idx) => (
-          <li key={step.id} className="flex items-start gap-3 rounded-lg border border-slate-800 bg-slate-950/60 px-3 py-2">
-            <div className="mt-0.5 flex h-6 w-6 items-center justify-center rounded-full bg-slate-800 text-[11px] font-semibold text-slate-100">
+          <li key={step.id} className="flex items-start gap-3 rounded-lg border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-3 py-2">
+            <div className="mt-0.5 flex h-6 w-6 items-center justify-center rounded-full bg-[color:var(--surface-2)] text-[11px] font-semibold text-[color:var(--text)]">
               {idx + 1}
             </div>
             <div className="flex-1">
-              <p className="text-sm font-semibold text-slate-50">{step.label}</p>
-              {step.description && <p className="text-[12px] text-slate-400">{step.description}</p>}
+              <p className="text-sm font-semibold text-[color:var(--text)]">{step.label}</p>
+              {step.description && <p className="text-[12px] text-[color:var(--muted)]">{step.description}</p>}
             </div>
             <button
               type="button"
-              className="rounded-full bg-emerald-600 px-3 py-1 text-[11px] font-semibold text-white hover:bg-emerald-500"
+              className="rounded-full bg-[color:var(--brand-strong)] px-3 py-1 text-[11px] font-semibold text-[color:var(--text)] hover:bg-[color:var(--brand-strong)]"
               onClick={() => onPlanClick(step)}
             >
               Ir al chat
@@ -734,15 +734,15 @@ function QueueMini({
     <SectionCard
       eyebrow="Fans priorizados"
       title="Cola de hoy"
-      actions={<span className="text-xs text-slate-400">{queue.length} fans</span>}
+      actions={<span className="text-xs text-[color:var(--muted)]">{queue.length} fans</span>}
       bodyClassName="space-y-2"
     >
-      {queueError && <div className="text-xs text-amber-200">{queueError}</div>}
-      {!queueError && queue.length === 0 && <div className="text-xs text-slate-400">Sin datos todavía.</div>}
+      {queueError && <div className="text-xs text-[color:var(--warning)]">{queueError}</div>}
+      {!queueError && queue.length === 0 && <div className="text-xs text-[color:var(--muted)]">Sin datos todavía.</div>}
       {!queueError && queue.length > 0 && (
-        <div className="max-h-[220px] overflow-y-auto rounded-xl border border-slate-800">
-          <table className="min-w-full text-xs text-slate-200">
-            <thead className="bg-slate-900/80 text-slate-400 uppercase tracking-wide text-[10px]">
+        <div className="max-h-[220px] overflow-y-auto rounded-xl border border-[color:var(--surface-border)]">
+          <table className="min-w-full text-xs text-[color:var(--text)]">
+            <thead className="bg-[color:var(--surface-1)] text-[color:var(--muted)] uppercase tracking-wide text-[10px]">
               <tr>
                 <th className="px-3 py-2 text-left">Fan</th>
                 <th className="px-3 py-2 text-left">Segmento</th>
@@ -752,31 +752,31 @@ function QueueMini({
             </thead>
             <tbody>
               {queue.slice(0, 6).map((row) => (
-                <tr key={row.id} className="border-t border-slate-800">
+                <tr key={row.id} className="border-t border-[color:var(--surface-border)]">
                   <td className="px-3 py-2">
                     <button
                       type="button"
                       onClick={() => onOpenFanChat?.(row.id)}
-                      className="text-left text-slate-50 hover:underline"
+                      className="text-left text-[color:var(--text)] hover:underline"
                     >
                       {row.displayName}
                     </button>
                   </td>
                   <td className="px-3 py-2">
-                    <span className="inline-flex rounded-full border border-slate-700 px-2 py-[2px] text-[11px] uppercase tracking-wide">
+                    <span className="inline-flex rounded-full border border-[color:var(--surface-border)] px-2 py-[2px] text-[11px] uppercase tracking-wide">
                       {row.segment}
                     </span>
                   </td>
                   <td className="px-3 py-2 font-semibold" style={{ color: healthColor(row.riskLevel) }}>
                     {row.healthScore}
                   </td>
-                  <td className="px-3 py-2 text-slate-200">{formatExpireShort(row.daysToExpiry)}</td>
+                  <td className="px-3 py-2 text-[color:var(--text)]">{formatExpireShort(row.daysToExpiry)}</td>
                 </tr>
               ))}
             </tbody>
           </table>
           {queue.length > 6 && (
-            <div className="px-3 py-2 text-[11px] text-slate-400">Mostrando top {Math.min(queue.length, 6)} de {queue.length}.</div>
+            <div className="px-3 py-2 text-[11px] text-[color:var(--muted)]">Mostrando top {Math.min(queue.length, 6)} de {queue.length}.</div>
           )}
         </div>
       )}
@@ -820,9 +820,9 @@ function PulsePanel({
         }
         bodyClassName="space-y-2"
       >
-        {preview?.headline && <p className="text-sm text-slate-200">{preview.headline}</p>}
+        {preview?.headline && <p className="text-sm text-[color:var(--text)]">{preview.headline}</p>}
         {preview?.summaryLines && (
-          <ul className="list-disc list-inside space-y-1 text-[12px] text-slate-300">
+          <ul className="list-disc list-inside space-y-1 text-[12px] text-[color:var(--muted)]">
             {preview.summaryLines.slice(0, 3).map((line, idx) => (
               <li key={`pulse-line-${idx}`}>{line}</li>
             ))}
@@ -851,22 +851,22 @@ function CatalogPanel({ summary }: { summary: CreatorManagerSummary | null }) {
     <div className="space-y-4">
       <SectionCard title="Packs" variant="muted" bodyClassName="space-y-3">
         <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-          <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-3 space-y-1">
+          <div className="rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] p-3 space-y-1">
             <div className="text-sm font-semibold">Bienvenida</div>
-            <div className="text-xs text-slate-400">Fans activos: {summary.packs.welcome.activeFans}</div>
-            <div className="text-xs text-slate-400">Ingresos 30d: {formatCurrency(summary.packs.welcome.revenue30)}</div>
+            <div className="text-xs text-[color:var(--muted)]">Fans activos: {summary.packs.welcome.activeFans}</div>
+            <div className="text-xs text-[color:var(--muted)]">Ingresos 30d: {formatCurrency(summary.packs.welcome.revenue30)}</div>
           </div>
-          <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-3 space-y-1">
+          <div className="rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] p-3 space-y-1">
             <div className="text-sm font-semibold">Mensual</div>
-            <div className="text-xs text-slate-400">Fans activos: {summary.packs.monthly.activeFans}</div>
-            <div className="text-xs text-slate-400">Renovaciones ≤7d: {summary.packs.monthly.renewalsIn7Days}</div>
-            <div className="text-xs text-slate-400">Churn 30d: {summary.packs.monthly.churn30}</div>
-            <div className="text-xs text-slate-400">Ingresos 30d: {formatCurrency(summary.packs.monthly.revenue30)}</div>
+            <div className="text-xs text-[color:var(--muted)]">Fans activos: {summary.packs.monthly.activeFans}</div>
+            <div className="text-xs text-[color:var(--muted)]">Renovaciones ≤7d: {summary.packs.monthly.renewalsIn7Days}</div>
+            <div className="text-xs text-[color:var(--muted)]">Churn 30d: {summary.packs.monthly.churn30}</div>
+            <div className="text-xs text-[color:var(--muted)]">Ingresos 30d: {formatCurrency(summary.packs.monthly.revenue30)}</div>
           </div>
-          <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-3 space-y-1">
+          <div className="rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] p-3 space-y-1">
             <div className="text-sm font-semibold">Especial</div>
-            <div className="text-xs text-slate-400">Fans activos: {summary.packs.special.activeFans}</div>
-            <div className="text-xs text-slate-400">Ingresos 30d: {formatCurrency(summary.packs.special.revenue30)}</div>
+            <div className="text-xs text-[color:var(--muted)]">Fans activos: {summary.packs.special.activeFans}</div>
+            <div className="text-xs text-[color:var(--muted)]">Ingresos 30d: {formatCurrency(summary.packs.special.revenue30)}</div>
           </div>
         </div>
       </SectionCard>
@@ -882,7 +882,7 @@ function CatalogPanel({ summary }: { summary: CreatorManagerSummary | null }) {
           />
         }
       >
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-sm text-slate-200">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-sm text-[color:var(--text)]">
           <span className="flex items-center gap-1">Fans nuevos: {summary.segments.newFans}</span>
           <span className="flex items-center gap-1">Habitual: {summary.segments.habitual}</span>
           <span className="flex items-center gap-1">VIP: {summary.segments.vip}</span>
@@ -947,12 +947,12 @@ function TodayPriorityList({
   const renderChip = (label: string, tone: "muted" | "info" | "warning" | "success" = "muted") => {
     const toneClass =
       tone === "info"
-        ? "border-emerald-500/60 bg-emerald-500/10 text-emerald-100"
+        ? "border-[color:var(--brand)]/60 bg-[color:rgba(var(--brand-rgb),0.12)] text-[color:var(--text)]"
         : tone === "warning"
-        ? "border-amber-500/60 bg-amber-500/10 text-amber-100"
+        ? "border-[color:rgba(245,158,11,0.6)] bg-[color:rgba(245,158,11,0.08)] text-[color:var(--text)]"
         : tone === "success"
-        ? "border-emerald-400/60 bg-emerald-400/10 text-emerald-50"
-        : "border-slate-700 bg-slate-800/70 text-slate-200";
+        ? "border-[color:rgba(var(--brand-rgb),0.6)] bg-[color:rgba(var(--brand-rgb),0.1)] text-[color:var(--text)]"
+        : "border-[color:var(--surface-border)] bg-[color:var(--surface-2)] text-[color:var(--text)]";
     return (
       <span className={clsx("rounded-full px-2 py-[2px] text-[11px] uppercase tracking-wide border", toneClass)}>
         {label}
@@ -961,29 +961,29 @@ function TodayPriorityList({
   };
 
   return (
-    <div className="rounded-2xl border border-slate-800 bg-slate-900/85 p-4 space-y-3">
+    <div className="rounded-2xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)]/85 p-4 space-y-3">
       <div className="flex items-center justify-between">
         <div>
-          <p className="text-[11px] uppercase tracking-wide text-slate-400">Prioridad de hoy</p>
-          <h4 className="text-lg font-semibold text-white">Top fans</h4>
+          <p className="text-[11px] uppercase tracking-wide text-[color:var(--muted)]">Prioridad de hoy</p>
+          <h4 className="text-lg font-semibold text-[color:var(--text)]">Top fans</h4>
         </div>
-        <span className="text-[11px] text-slate-400">{queue.length} en cola</span>
+        <span className="text-[11px] text-[color:var(--muted)]">{queue.length} en cola</span>
       </div>
-      {queueError && <div className="text-xs text-amber-200">{queueError}</div>}
-      {!queueError && !next && <div className="text-sm text-slate-400">Sin fans priorizados por ahora.</div>}
+      {queueError && <div className="text-xs text-[color:var(--warning)]">{queueError}</div>}
+      {!queueError && !next && <div className="text-sm text-[color:var(--muted)]">Sin fans priorizados por ahora.</div>}
 
       {!queueError && next && (
-        <div className="rounded-xl border border-slate-700 bg-slate-900/95 px-3 py-3 space-y-2 shadow-inner">
+        <div className="rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)]/95 px-3 py-3 space-y-2 shadow-inner">
           <div className="flex items-center justify-between gap-2">
             <div>
-              <p className="text-xs uppercase tracking-wide text-emerald-200/80">Siguiente recomendado</p>
+              <p className="text-xs uppercase tracking-wide text-[color:var(--brand)]/80">Siguiente recomendado</p>
               <div className="flex items-center gap-2">
-                <span className="text-base font-semibold text-white">{next.displayName}</span>
+                <span className="text-base font-semibold text-[color:var(--text)]">{next.displayName}</span>
               </div>
             </div>
             <button
               type="button"
-              className="rounded-full bg-emerald-600 px-3 py-1.5 text-[12px] font-semibold text-white shadow hover:bg-emerald-500"
+              className="rounded-full bg-[color:var(--brand-strong)] px-3 py-1.5 text-[12px] font-semibold text-[color:var(--text)] shadow hover:bg-[color:var(--brand-strong)]"
               onClick={() => onOpenFanChat?.(next.id)}
             >
               Abrir chat
@@ -994,7 +994,7 @@ function TodayPriorityList({
             {renderChip(`Salud ${next.healthScore}`, next.healthScore <= 40 ? "warning" : "info")}
             {renderChip(`Caduca ${formatExpireShort(next.daysToExpiry)}`, next.daysToExpiry !== null && next.daysToExpiry <= 2 ? "warning" : "muted")}
           </div>
-          <p className="text-[12px] text-slate-300">
+          <p className="text-[12px] text-[color:var(--muted)]">
             Prioridad alta · {next.segment} · {formatExpireShort(next.daysToExpiry)}
           </p>
         </div>
@@ -1004,10 +1004,10 @@ function TodayPriorityList({
         rest.map((fan) => (
           <div
             key={fan.id}
-            className="flex items-center justify-between gap-3 rounded-xl border border-slate-800 bg-slate-950/70 px-3 py-2"
+            className="flex items-center justify-between gap-3 rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-3 py-2"
           >
             <div className="flex flex-col gap-1">
-              <span className="text-sm font-semibold text-white">{fan.displayName}</span>
+              <span className="text-sm font-semibold text-[color:var(--text)]">{fan.displayName}</span>
               <div className="flex flex-wrap items-center gap-1.5">
                 {renderChip(fan.segment, fan.segment === "VIP" ? "info" : fan.segment === "EN_RIESGO" ? "warning" : "muted")}
                 {renderChip(`Salud ${fan.healthScore}`, fan.healthScore <= 40 ? "warning" : "muted")}
@@ -1017,14 +1017,14 @@ function TodayPriorityList({
             <div className="flex flex-col gap-1.5">
               <button
                 type="button"
-                className="rounded-full border border-emerald-500/60 bg-emerald-600/10 px-3 py-1 text-[11px] text-emerald-100 hover:border-emerald-400/60"
+                className="rounded-full border border-[color:var(--brand)]/60 bg-[color:var(--brand-strong)]/10 px-3 py-1 text-[11px] text-[color:var(--text)] hover:border-[color:rgba(var(--brand-rgb),0.6)]"
                 onClick={() => onOpenFanChat?.(fan.id)}
               >
                 Abrir
               </button>
               <button
                 type="button"
-                className="rounded-full border border-slate-700 bg-slate-800/70 px-3 py-1 text-[11px] text-slate-100 hover:border-emerald-500/60"
+                className="rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-3 py-1 text-[11px] text-[color:var(--text)] hover:border-[color:var(--brand)]/60"
                 onClick={() => onSendTemplate(`Dame una plantilla breve para ${fan.displayName}`)}
               >
                 Plantilla
@@ -1039,7 +1039,7 @@ function TodayPriorityList({
 function Info({ text }: { text: string }) {
   return (
     <span
-      className="inline-flex h-4 w-4 items-center justify-center rounded-full border border-slate-600 text-[10px] text-slate-300"
+      className="inline-flex h-4 w-4 items-center justify-center rounded-full border border-[color:var(--surface-border)] text-[10px] text-[color:var(--muted)]"
       title={text}
     >
       i
@@ -1095,9 +1095,9 @@ function buildDailyPlan(args: { summary: CreatorManagerSummary | null; queue: Fa
 }
 
 function riskBadge(level: string) {
-  if (level === "ALTO" || level === "HIGH") return "border border-rose-500/60 bg-rose-500/10 text-rose-200";
-  if (level === "MEDIO" || level === "MEDIUM") return "border border-amber-500/60 bg-amber-500/10 text-amber-100";
-  return "border border-emerald-500/60 bg-emerald-500/10 text-emerald-100";
+  if (level === "ALTO" || level === "HIGH") return "border border-[color:rgba(244,63,94,0.6)] bg-[color:rgba(244,63,94,0.08)] text-[color:var(--danger)]";
+  if (level === "MEDIO" || level === "MEDIUM") return "border border-[color:rgba(245,158,11,0.6)] bg-[color:rgba(245,158,11,0.08)] text-[color:var(--text)]";
+  return "border border-[color:var(--brand)]/60 bg-[color:rgba(var(--brand-rgb),0.12)] text-[color:var(--text)]";
 }
 
 function healthColor(level: FanManagerRow["riskLevel"]) {

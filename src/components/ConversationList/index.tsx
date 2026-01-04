@@ -54,9 +54,9 @@ export default function ConversationList(props: ConversationListProps) {
   const isCompact = variant === "compact";
   const nameSizeClass = isCompact ? "text-[13px]" : "text-sm";
   const nameClasses = hasUnread
-    ? `text-slate-50 ${nameSizeClass} font-semibold`
-    : `text-slate-50 ${nameSizeClass} font-medium`;
-  const previewClasses = hasUnread ? "text-slate-50 text-xs font-medium" : "text-slate-400 text-xs";
+    ? `text-[color:var(--text)] ${nameSizeClass} font-semibold`
+    : `text-[color:var(--text)] ${nameSizeClass} font-medium`;
+  const previewClasses = hasUnread ? "text-[color:var(--text)] text-xs font-medium" : "text-[color:var(--muted)] text-xs";
   const rowPadding = isCompact ? "px-3 py-2.5" : "px-3 py-3.5";
   const avatarSize = isCompact ? { width: "w-9", height: "h-9" } : { width: "w-12", height: "h-12" };
   const sourceLabelRaw = typeof data.firstUtmSource === "string" ? data.firstUtmSource : null;
@@ -90,11 +90,11 @@ export default function ConversationList(props: ConversationListProps) {
             </div>
             {hasManagerPreview && <span className={`truncate ${previewClasses}`}>{previewMessage}</span>}
             {hasManagerCaption && (
-              <div className="flex items-center gap-2 text-[11px] text-slate-500">
+              <div className="flex items-center gap-2 text-[11px] text-[color:var(--text)]0">
                 <span>{managerCaption}</span>
                 {lastTime ? (
                   <>
-                    <span className="w-1 h-1 rounded-full bg-slate-600" />
+                    <span className="w-1 h-1 rounded-full bg-[color:var(--muted)]" />
                     <span>{lastTime}</span>
                   </>
                 ) : null}
@@ -282,12 +282,12 @@ export default function ConversationList(props: ConversationListProps) {
               </div>
             )}
             {!isCompact && (
-              <div className="flex items-center gap-1 text-[11px] text-slate-500">
+              <div className="flex items-center gap-1 text-[11px] text-[color:var(--text)]0">
                 <span>{`${totalSpent} €`}</span>
                 {hasContextSignals && (
                   <>
-                    <span className="w-1 h-1 rounded-full bg-slate-600" />
-                    <span className="inline-flex items-center gap-2 text-slate-400">
+                    <span className="w-1 h-1 rounded-full bg-[color:var(--muted)]" />
+                    <span className="inline-flex items-center gap-2 text-[color:var(--muted)]">
                       {notesCount > 0 && (
                         <span className="inline-flex items-center gap-1.5">
                           <IconBadge
@@ -296,7 +296,7 @@ export default function ConversationList(props: ConversationListProps) {
                             variant="muted"
                             size="sm"
                           />
-                          <span className="text-[11px] text-slate-400">{notesCount}</span>
+                          <span className="text-[11px] text-[color:var(--muted)]">{notesCount}</span>
                         </span>
                       )}
                       {hasNextAction && (
@@ -362,7 +362,7 @@ export default function ConversationList(props: ConversationListProps) {
           </div>
           <div className="flex flex-col items-end gap-1 w-auto text-[#aebac1] relative">
             <div className="flex items-center gap-2">
-              <h1 className="text-[10px] text-slate-500">{lastTime}</h1>
+              <h1 className="text-[10px] text-[color:var(--text)]0">{lastTime}</h1>
               <ConversationActionsMenu
                 conversation={data}
                 variant="row"
@@ -410,9 +410,9 @@ type MetaRowProps = {
 
 function MetaRow({ label, text, variant }: MetaRowProps) {
   const icon = variant === "profile" ? "user" : "note";
-  const toneClass = variant === "profile" ? "text-slate-300/80" : "text-slate-300/70";
+  const toneClass = variant === "profile" ? "text-[color:var(--muted)]/80" : "text-[color:var(--muted)]/70";
   return (
-    <div className="flex items-center gap-2 min-w-0 text-[11px] text-slate-400/80 leading-tight">
+    <div className="flex items-center gap-2 min-w-0 text-[11px] text-[color:var(--muted)]/80 leading-tight">
       <IconBadge
         label={label}
         icon={icon}
@@ -420,7 +420,7 @@ function MetaRow({ label, text, variant }: MetaRowProps) {
         size="md"
         className={toneClass}
       />
-      <span className="truncate min-w-0 text-[11px] text-slate-400/80" title={text}>
+      <span className="truncate min-w-0 text-[11px] text-[color:var(--muted)]/80" title={text}>
         {text}
       </span>
     </div>

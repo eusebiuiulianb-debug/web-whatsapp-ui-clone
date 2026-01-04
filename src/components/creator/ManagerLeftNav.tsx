@@ -38,13 +38,13 @@ export function ManagerLeftNav({ items, activeId, onSelect, density }: Props) {
   return (
     <aside
       className={clsx(
-        "flex h-full min-h-0 flex-col gap-2 rounded-xl border border-slate-800 bg-slate-900/70",
+        "flex h-full min-h-0 flex-col gap-2 rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)]",
         collapsed === "collapsed" ? "w-[64px] p-2" : "w-[240px] p-3"
       )}
     >
       <button
         type="button"
-        className="inline-flex items-center justify-center rounded-lg border border-slate-700 bg-slate-800/60 px-2 py-1 text-xs text-slate-200 hover:border-emerald-400/60"
+        className="inline-flex items-center justify-center rounded-lg border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-2 py-1 text-xs text-[color:var(--text)] hover:border-[color:rgba(var(--brand-rgb),0.6)]"
         onClick={() => setCollapsed((prev) => (prev === "collapsed" ? "open" : "collapsed"))}
       >
         <IconGlyph
@@ -58,8 +58,8 @@ export function ManagerLeftNav({ items, activeId, onSelect, density }: Props) {
             key={item.id}
             type="button"
             className={clsx(
-              "flex items-center gap-2 rounded-lg px-2 py-2 text-sm text-slate-200 transition hover:bg-slate-800",
-              activeId === item.id ? "border border-emerald-500/60 bg-emerald-500/10 text-emerald-100" : "border border-transparent",
+              "flex items-center gap-2 rounded-lg px-2 py-2 text-sm text-[color:var(--text)] transition hover:bg-[color:var(--surface-2)]",
+              activeId === item.id ? "border border-[color:var(--brand)]/60 bg-[color:rgba(var(--brand-rgb),0.12)] text-[color:var(--text)]" : "border border-transparent",
               collapsed === "collapsed" ? "justify-center px-0" : "justify-start"
             )}
             onClick={() => onSelect(item.id)}

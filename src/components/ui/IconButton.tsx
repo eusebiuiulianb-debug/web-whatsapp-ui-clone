@@ -40,7 +40,7 @@ export const IconButton = forwardRef<HTMLButtonElement, IconButtonProps>(functio
   const iconSize = size === "md" ? "md" : "sm";
   const toneClass =
     tone === "amber"
-      ? "hover:border-amber-300 hover:text-amber-100"
+      ? "hover:border-[color:rgba(245,158,11,0.7)] hover:text-[color:var(--text)]"
     : tone === "emerald"
       ? "hover:border-[color:var(--brand)] hover:text-[color:var(--text)]"
       : "hover:border-[color:var(--border-a)] hover:text-[color:var(--text)]";
@@ -48,12 +48,12 @@ export const IconButton = forwardRef<HTMLButtonElement, IconButtonProps>(functio
     tone === "amber" ? focusRingAmber : tone === "emerald" ? focusRingEmerald : focusRing;
   const activeClass =
     active && tone === "amber"
-      ? "border-amber-400/70 text-amber-100"
+      ? "border-[color:rgba(245,158,11,0.7)] text-[color:var(--text)]"
     : active && tone === "emerald"
       ? "border-[color:var(--brand)] text-[color:var(--text)]"
     : active
       ? "border-[color:var(--border-a)] text-[color:var(--text)]"
-      : "border-[color:var(--border)] text-slate-300";
+      : "border-[color:var(--border)] text-[color:var(--muted)]";
   const iconNode =
     typeof icon === "string" ? <IconGlyph name={icon as IconName} size={iconSize} /> : icon;
 
@@ -68,13 +68,13 @@ export const IconButton = forwardRef<HTMLButtonElement, IconButtonProps>(functio
       onClick={onClick}
       disabled={disabled}
       className={clsx(
-        "inline-flex items-center justify-center rounded-full border bg-slate-900/70",
+        "inline-flex items-center justify-center rounded-full border bg-[color:var(--surface-2)]",
         microInteraction,
         ringClass,
         sizeClass,
         toneClass,
         activeClass,
-        disabled && "cursor-not-allowed opacity-60 hover:border-slate-700 hover:text-slate-300",
+        disabled && "cursor-not-allowed opacity-60 hover:border-[color:var(--border)] hover:text-[color:var(--muted)]",
         className
       )}
     >

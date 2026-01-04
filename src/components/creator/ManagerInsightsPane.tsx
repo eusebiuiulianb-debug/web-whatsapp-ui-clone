@@ -24,23 +24,23 @@ export function ManagerInsightsPane({ open, panelTab, summary, preview, onToggle
       <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onToggle} />
       <aside
         className={clsx(
-          "relative z-10 h-full overflow-y-auto border-l border-slate-800 bg-slate-900/95 shadow-2xl flex flex-col gap-3",
+          "relative z-10 h-full overflow-y-auto border-l border-[color:var(--surface-border)] bg-[color:var(--surface-1)]/95 shadow-2xl flex flex-col gap-3",
           density === "compact" ? "p-3 w-[320px]" : "p-4 w-[360px]"
         )}
       >
         <div className="flex items-center justify-between">
-          <div className="text-sm font-semibold text-slate-100">Insights</div>
-          <button type="button" className="text-[12px] text-emerald-200 hover:text-emerald-100" onClick={onToggle}>
+          <div className="text-sm font-semibold text-[color:var(--text)]">Insights</div>
+          <button type="button" className="text-[12px] text-[color:var(--brand)] hover:text-[color:var(--text)]" onClick={onToggle}>
             Cerrar
           </button>
         </div>
 
         {panelTab === "today" && preview?.headline && (
-          <div className="space-y-2 text-sm text-slate-200">
-            <div className="font-semibold text-slate-100">Estado de hoy</div>
+          <div className="space-y-2 text-sm text-[color:var(--text)]">
+            <div className="font-semibold text-[color:var(--text)]">Estado de hoy</div>
             <p className={clsx("leading-snug", density === "compact" ? "text-xs" : "text-sm")}>{preview.headline}</p>
             {preview.summaryLines && (
-              <ul className="list-disc list-inside text-[12px] text-slate-300 space-y-1">
+              <ul className="list-disc list-inside text-[12px] text-[color:var(--muted)] space-y-1">
                 {preview.summaryLines.slice(0, 3).map((line, idx) => (
                   <li key={idx}>{line}</li>
                 ))}
@@ -51,7 +51,7 @@ export function ManagerInsightsPane({ open, panelTab, summary, preview, onToggle
 
         {panelTab === "pulse" && summary && (
           <div className="space-y-2">
-            <div className="text-sm font-semibold text-slate-100">Pulso</div>
+            <div className="text-sm font-semibold text-[color:var(--text)]">Pulso</div>
             <div className="grid grid-cols-2 gap-2">
               <CatalogRow title="Ingresos 30d" value={formatCurrency(summary.kpis.last30.revenue)} detail="Últimos 30 días" />
               <CatalogRow title="Extras 30d" value={formatCurrency(extrasRevenue30)} detail={extrasDetail} />
@@ -63,7 +63,7 @@ export function ManagerInsightsPane({ open, panelTab, summary, preview, onToggle
 
         {panelTab === "catalog" && summary && (
           <div className="space-y-2">
-            <div className="text-sm font-semibold text-slate-100">Top packs</div>
+            <div className="text-sm font-semibold text-[color:var(--text)]">Top packs</div>
             <div className="space-y-2">
               <CatalogRow title="Mensual" value={formatCurrency(summary.packs.monthly.revenue30)} detail={`Fans ${summary.packs.monthly.activeFans}`} />
               <CatalogRow title="Bienvenida" value={formatCurrency(summary.packs.welcome.revenue30)} detail={`Fans ${summary.packs.welcome.activeFans}`} />
@@ -74,7 +74,7 @@ export function ManagerInsightsPane({ open, panelTab, summary, preview, onToggle
 
         {panelTab === "today" && (
           <div className="space-y-2">
-            <div className="text-sm font-semibold text-slate-100">Plan de hoy</div>
+            <div className="text-sm font-semibold text-[color:var(--text)]">Plan de hoy</div>
             {summary?.kpis?.last30 && (
               <CatalogRow title="Ingresos 7d" value={formatCurrency(summary.kpis.last7.revenue)} detail="Últimos 7 días" />
             )}
@@ -87,12 +87,12 @@ export function ManagerInsightsPane({ open, panelTab, summary, preview, onToggle
 
 function CatalogRow({ title, value, detail }: { title: string; value: string | number; detail: string }) {
   return (
-    <div className="flex items-center justify-between rounded-lg border border-slate-800 bg-slate-950/60 px-3 py-2">
+    <div className="flex items-center justify-between rounded-lg border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-3 py-2">
       <div>
-        <div className="text-sm font-semibold text-slate-100">{title}</div>
-        <div className="text-[11px] text-slate-400">{detail}</div>
+        <div className="text-sm font-semibold text-[color:var(--text)]">{title}</div>
+        <div className="text-[11px] text-[color:var(--muted)]">{detail}</div>
       </div>
-      <div className="text-sm font-semibold text-emerald-100">{value}</div>
+      <div className="text-sm font-semibold text-[color:var(--text)]">{value}</div>
     </div>
   );
 }

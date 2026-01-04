@@ -70,10 +70,10 @@ export default function PublicCreatorByHandle({
 }: Props) {
   if (notFound || !copy || !creatorName) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-slate-950 text-slate-300 px-4">
+      <div className="min-h-screen flex items-center justify-center bg-[color:var(--surface-0)] text-[color:var(--muted)] px-4">
         <div className="text-center space-y-2">
           <h1 className="text-2xl font-semibold">Perfil no disponible</h1>
-          <p className="text-sm text-slate-400">El creador aún no ha activado su perfil público.</p>
+          <p className="text-sm text-[color:var(--muted)]">El creador aún no ha activado su perfil público.</p>
         </div>
       </div>
     );
@@ -84,7 +84,7 @@ export default function PublicCreatorByHandle({
       <Head>
         <title>{String(creatorName || "Perfil público")}</title>
       </Head>
-      <div className="min-h-screen bg-slate-950 text-white">
+      <div className="min-h-screen bg-[color:var(--surface-0)] text-[color:var(--text)]">
         <PublicProfileView
           copy={copy}
           creatorName={creatorName}

@@ -304,22 +304,22 @@ function InlinePanelShell({
     <div
       ref={containerRef}
       className={clsx(
-        "w-full rounded-2xl border border-slate-800/60 bg-gradient-to-b from-slate-950/70 via-slate-900/80 to-slate-900/70 backdrop-blur-xl shadow-[0_12px_30px_rgba(0,0,0,0.25)] ring-1 ring-white/5",
+        "w-full rounded-2xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] backdrop-blur-xl shadow-[0_12px_30px_rgba(0,0,0,0.2)] ring-1 ring-[color:var(--surface-ring)]",
         containerClassName
       )}
     >
       <div
         className={clsx(
-          "shrink-0 border-b border-slate-800/50",
+          "shrink-0 border-b border-[color:var(--surface-border)]",
           stickyHeader && "dockOverlayHeader backdrop-blur"
         )}
       >
         <div className="flex items-center justify-between px-4 py-2">
-          <span className="text-[11px] font-semibold text-slate-300">{title}</span>
+          <span className="text-[11px] font-semibold text-[color:var(--muted)]">{title}</span>
           <button
             type="button"
             onClick={onClose}
-            className="inline-flex h-6 w-6 items-center justify-center rounded-full text-slate-300 transition hover:bg-slate-800/80 hover:text-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--ring)]"
+            className="inline-flex h-6 w-6 items-center justify-center rounded-full text-[color:var(--muted)] transition hover:bg-[color:var(--surface-2)] hover:text-[color:var(--text)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--ring)]"
             aria-label="Cerrar panel"
           >
             ✕
@@ -333,7 +333,7 @@ function InlinePanelShell({
         onWheelCapture={onBodyWheel}
         onTouchMoveCapture={onBodyTouchMove}
         className={clsx(
-          "px-4 py-3 text-[12px] text-slate-200",
+          "px-4 py-3 text-[12px] text-[color:var(--text)]",
           scrollClassName,
           bodyClassName
         )}
@@ -2680,9 +2680,9 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
     const target = document.querySelector<HTMLElement>(`[data-draft-id="${highlightDraftId}"]`);
     if (target) {
       target.scrollIntoView({ behavior: "smooth", block: "start" });
-      target.classList.add("ring-2", "ring-[color:var(--ring)]", "ring-offset-2", "ring-offset-slate-900");
+      target.classList.add("ring-2", "ring-[color:var(--ring)]", "ring-offset-2", "ring-offset-[color:var(--surface-1)]");
       setTimeout(() => {
-        target.classList.remove("ring-2", "ring-[color:var(--ring)]", "ring-offset-2", "ring-offset-slate-900");
+        target.classList.remove("ring-2", "ring-[color:var(--ring)]", "ring-offset-2", "ring-offset-[color:var(--surface-1)]");
       }, 1600);
     }
     const timer = setTimeout(() => setHighlightDraftId(null), 1800);
@@ -3323,13 +3323,13 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
           className={clsx(
             "rounded-full border px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-[0.12em]",
             managerAlert
-              ? "border-rose-400/60 bg-rose-500/10 text-rose-200"
+              ? "border-[color:rgba(244,63,94,0.6)] bg-[color:rgba(244,63,94,0.08)] text-[color:var(--danger)]"
               : "border-[color:rgba(var(--brand-rgb),0.35)] bg-[color:rgba(var(--brand-rgb),0.12)] text-[color:var(--text)]"
           )}
         >
           {managerChipStatus}
         </span>
-        {managerChipCount > 0 && <span className="text-[10px] text-slate-400">· {managerChipCount}</span>}
+        {managerChipCount > 0 && <span className="text-[10px] text-[color:var(--muted)]">· {managerChipCount}</span>}
       </span>
     ) : (
       "Manager IA"
@@ -3342,10 +3342,10 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
     const chipBase =
       "inline-flex h-8 items-center gap-2 rounded-full border px-3 text-sm font-medium whitespace-nowrap transition-colors duration-150 active:scale-[0.98]";
     const chipInactiveClass =
-      "border-slate-800/70 bg-slate-900/50 text-slate-200 hover:border-slate-600/70 hover:bg-slate-800/60";
+      "border-[color:var(--surface-border)] bg-[color:var(--surface-2)] text-[color:var(--text)] hover:border-[color:var(--surface-border-hover)] hover:bg-[color:var(--surface-1)]";
     const chipActiveClass = isFanMode
       ? "border-[color:var(--brand)] bg-[color:rgba(var(--brand-rgb),0.14)] text-[color:var(--text)] ring-1 ring-[color:var(--ring)]"
-      : "border-amber-400/70 bg-amber-500/12 text-amber-100 ring-1 ring-amber-400/20";
+      : "border-[color:rgba(245,158,11,0.7)] bg-[color:rgba(245,158,11,0.1)] text-[color:var(--text)] ring-1 ring-[color:var(--ring)]";
 
     const InlineEmptyState = ({
       icon,
@@ -3356,11 +3356,11 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
       title: string;
       subtitle?: string;
     }) => (
-      <div className="flex items-center gap-3 rounded-xl border border-slate-800/70 bg-slate-950/40 px-3 py-3 text-xs text-slate-400">
-        <IconGlyph name={icon} className="h-4 w-4 text-slate-200" />
+      <div className="flex items-center gap-3 rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-3 py-3 text-xs text-[color:var(--muted)]">
+        <IconGlyph name={icon} className="h-4 w-4 text-[color:var(--text)]" />
         <div>
-          <div className="text-[11px] font-semibold text-slate-200">{title}</div>
-          {subtitle && <div className="text-[10px] text-slate-500">{subtitle}</div>}
+          <div className="text-[11px] font-semibold text-[color:var(--text)]">{title}</div>
+          {subtitle && <div className="text-[10px] text-[color:var(--muted)]">{subtitle}</div>}
         </div>
       </div>
     );
@@ -3369,11 +3369,11 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
       "inline-flex h-7 items-center justify-center rounded-full border px-3.5 text-[11px] font-semibold transition focus-visible:outline-none focus-visible:ring-2",
       isFanMode
         ? "border-[color:var(--brand)] bg-[color:rgba(var(--brand-rgb),0.12)] text-[color:var(--text)] hover:bg-[color:rgba(var(--brand-rgb),0.2)] focus-visible:ring-[color:var(--ring)]"
-        : "border-amber-400/70 bg-amber-500/10 text-amber-100 hover:bg-amber-500/20 focus-visible:ring-amber-400/40"
+        : "border-[color:rgba(245,158,11,0.7)] bg-[color:rgba(245,158,11,0.08)] text-[color:var(--text)] hover:bg-[color:rgba(245,158,11,0.16)] focus-visible:ring-[color:var(--ring)]"
     );
     const managerActionButtonClass = clsx(
       "inline-flex h-7 items-center justify-center rounded-full border px-3.5 text-[11px] font-semibold transition focus-visible:outline-none focus-visible:ring-2",
-      "border-amber-400/70 bg-amber-500/10 text-amber-100 hover:bg-amber-500/20 focus-visible:ring-amber-400/40"
+      "border-[color:rgba(245,158,11,0.7)] bg-[color:rgba(245,158,11,0.08)] text-[color:var(--text)] hover:bg-[color:rgba(245,158,11,0.16)] focus-visible:ring-[color:var(--ring)]"
     );
 
     const closeDockPanel = () => {
@@ -3407,7 +3407,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
         >
           {!conversation.isManager ? (
             <div className="space-y-3">
-              <div className="text-[11px] font-semibold text-slate-400">Acciones</div>
+              <div className="text-[11px] font-semibold text-[color:var(--muted)]">Acciones</div>
               <button
                 type="button"
                 onClick={() => handleAttachContentClick()}
@@ -3415,8 +3415,8 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
                 className={clsx(
                   "flex w-full items-center justify-between rounded-xl border px-3 py-2 text-[12px] font-semibold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--ring)]",
                   !canAttachContent
-                    ? "cursor-not-allowed border-slate-800 bg-slate-900/40 text-slate-500"
-                    : "border-slate-800/70 bg-slate-950/40 text-slate-200 hover:border-slate-600/80 hover:bg-slate-900/60"
+                    ? "cursor-not-allowed border-[color:var(--surface-border)] bg-[color:var(--surface-2)] text-[color:var(--muted)]"
+                    : "border-[color:var(--surface-border)] bg-[color:var(--surface-2)] text-[color:var(--text)] hover:border-[color:var(--surface-border-hover)] hover:bg-[color:var(--surface-1)]"
                 )}
               >
                 <span className="flex items-center gap-2">
@@ -3424,19 +3424,19 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
                   <span>Adjuntar contenido</span>
                 </span>
                 {toolsDisabled && (
-                  <span className="rounded-full border border-slate-700/70 bg-slate-900/60 px-2 py-0.5 text-[9px] uppercase tracking-[0.18em] text-slate-500">
+                  <span className="rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-2 py-0.5 text-[9px] uppercase tracking-[0.18em] text-[color:var(--muted)]">
                     Solo fan
                   </span>
                 )}
               </button>
-              <div className="text-[11px] font-semibold text-slate-400">Traducción</div>
+              <div className="text-[11px] font-semibold text-[color:var(--muted)]">Traducción</div>
               {isTranslationPreviewAvailable ? (
                 <div
                   className={clsx(
                     "flex w-full items-center justify-between rounded-xl border px-3 py-2 text-[12px] font-semibold transition",
                     translationPreviewOpen
                       ? "border-[color:rgba(var(--brand-rgb),0.5)] bg-[color:rgba(var(--brand-rgb),0.12)] text-[color:var(--text)]"
-                      : "border-slate-800/70 bg-slate-950/40 text-slate-200",
+                      : "border-[color:var(--surface-border)] bg-[color:var(--surface-2)] text-[color:var(--text)]",
                     translationDisabled && "opacity-60"
                   )}
                 >
@@ -3446,7 +3446,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
                   </span>
                   <div className="flex items-center gap-2">
                     {translationDisabled && (
-                      <span className="rounded-full border border-slate-700/70 bg-slate-900/60 px-2 py-0.5 text-[9px] uppercase tracking-[0.18em] text-slate-500">
+                      <span className="rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-2 py-0.5 text-[9px] uppercase tracking-[0.18em] text-[color:var(--muted)]">
                         Solo fan
                       </span>
                     )}
@@ -3466,7 +3466,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
                         "relative inline-flex h-5 w-10 items-center rounded-full border transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--ring)]",
                         translationPreviewOpen
                           ? "border-[color:var(--brand)] bg-[color:rgba(var(--brand-rgb),0.2)]"
-                          : "border-slate-600 bg-slate-900/70",
+                          : "border-[color:var(--surface-border)] bg-[color:var(--surface-2)]",
                         translationDisabled && "cursor-not-allowed"
                       )}
                       aria-pressed={translationPreviewOpen}
@@ -3474,28 +3474,30 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
                       <span
                         className={clsx(
                           "inline-block h-4 w-4 rounded-full transition",
-                          translationPreviewOpen ? "translate-x-5 bg-[color:var(--brand)]" : "translate-x-1 bg-slate-400"
+                          translationPreviewOpen
+                            ? "translate-x-5 bg-[color:var(--brand)]"
+                            : "translate-x-1 bg-[color:var(--muted)]"
                         )}
                       />
                     </button>
                   </div>
                 </div>
               ) : (
-                <div className="flex w-full items-center justify-between rounded-xl border border-slate-800/70 bg-slate-950/40 px-3 py-2 text-[12px] font-semibold text-slate-500">
+                <div className="flex w-full items-center justify-between rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-3 py-2 text-[12px] font-semibold text-[color:var(--muted)]">
                   <span className="flex items-center gap-2">
                     <IconGlyph name="globe" className="h-4 w-4" />
                     <span>Traducir</span>
                   </span>
-                  <span className="rounded-full border border-slate-700/70 bg-slate-900/60 px-2 py-0.5 text-[9px] uppercase tracking-[0.2em] text-slate-400">
+                  <span className="rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-2 py-0.5 text-[9px] uppercase tracking-[0.2em] text-[color:var(--muted)]">
                     Próximamente
                   </span>
                 </div>
               )}
               {isTranslationPreviewAvailable && translationPreviewOpen && isFanTarget && (
-                <div className="space-y-2 rounded-xl border border-slate-800 bg-slate-950/60 px-3 py-2">
-                  <div className="text-[11px] font-semibold text-slate-400">Traducción automática</div>
-                  <div className="flex items-center gap-2 text-[11px] text-slate-200">
-                    <span className="text-slate-400">Idioma</span>
+                <div className="space-y-2 rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-3 py-2">
+                  <div className="text-[11px] font-semibold text-[color:var(--muted)]">Traducción automática</div>
+                  <div className="flex items-center gap-2 text-[11px] text-[color:var(--text)]">
+                    <span className="text-[color:var(--muted)]">Idioma</span>
                     <select
                       value={languageSelectValue}
                       onChange={(event) => {
@@ -3504,7 +3506,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
                         handlePreferredLanguageChange(value as SupportedLanguage);
                       }}
                       disabled={preferredLanguageSaving}
-                      className="flex-1 rounded-lg border border-slate-700 bg-slate-900 px-2 py-1 text-[11px] font-semibold text-slate-100 focus:border-[color:var(--border-a)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--ring)]"
+                      className="flex-1 rounded-lg border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-2 py-1 text-[11px] font-semibold text-[color:var(--text)] focus:border-[color:var(--border-a)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--ring)]"
                     >
                       <option value="auto" disabled>
                         Auto (EN por defecto)
@@ -3517,13 +3519,13 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
                     </select>
                   </div>
                   {!isTranslationPreviewAvailable && (
-                    <div className="text-[10px] text-slate-500">
+                    <div className="text-[10px] text-[color:var(--muted)]">
                       Selecciona un idioma distinto de ES para activar preview.
                     </div>
                   )}
                 </div>
               )}
-              <div className="text-[11px] font-semibold text-slate-400">Acciones rápidas</div>
+              <div className="text-[11px] font-semibold text-[color:var(--muted)]">Acciones rápidas</div>
               <div className="grid gap-2 sm:grid-cols-3">
                 {[
                   {
@@ -3573,7 +3575,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
                     onClick={action.onClick}
                     className={clsx(
                       "flex items-center gap-2 rounded-xl border px-3 py-2 text-[11px] font-semibold transition",
-                      "border-slate-800/70 bg-slate-950/40 text-slate-200 hover:border-slate-600/80 hover:bg-slate-900/60"
+                      "border-[color:var(--surface-border)] bg-[color:var(--surface-2)] text-[color:var(--text)] hover:border-[color:var(--surface-border-hover)] hover:bg-[color:var(--surface-1)]"
                     )}
                   >
                     <IconGlyph name={action.icon as IconName} className="h-4 w-4" />
@@ -3596,25 +3598,25 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
     const renderInternalManagerContent = () => (
       <div className="space-y-3">
         <div className="px-4 py-3 space-y-3">
-          <div className="text-[11px] font-semibold text-slate-400">Insights y control</div>
+          <div className="text-[11px] font-semibold text-[color:var(--muted)]">Insights y control</div>
           {normalizedProfileText && (
-            <div className="rounded-xl border border-slate-800/60 bg-slate-950/40 p-3">
-              <div className="flex items-center justify-between gap-2 text-[10px] font-semibold text-slate-400">
+            <div className="rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] p-3">
+              <div className="flex items-center justify-between gap-2 text-[10px] font-semibold text-[color:var(--muted)]">
                 <span>Perfil del fan (resumen)</span>
                 <button
                   type="button"
                   onClick={() => openInternalPanelTab("note")}
-                  className="rounded-full border border-amber-400/70 bg-amber-500/10 px-2.5 py-0.5 text-[10px] font-semibold text-amber-100 hover:bg-amber-500/20"
+                  className="rounded-full border border-[color:rgba(245,158,11,0.7)] bg-[color:rgba(245,158,11,0.08)] px-2.5 py-0.5 text-[10px] font-semibold text-[color:var(--text)] hover:bg-[color:rgba(245,158,11,0.16)]"
                 >
                   Editar
                 </button>
               </div>
-              <div className="mt-2 text-[11px] text-slate-200 whitespace-pre-wrap line-clamp-3">
+              <div className="mt-2 text-[11px] text-[color:var(--text)] whitespace-pre-wrap line-clamp-3">
                 {normalizedProfileText}
               </div>
             </div>
           )}
-          <div className="rounded-xl border border-slate-800/60 bg-slate-950/40 p-3">
+          <div className="rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] p-3">
             <FanManagerDrawer
               managerSuggestions={managerSuggestions}
               onApplySuggestion={handleApplyManagerSuggestion}
@@ -3659,10 +3661,10 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
             />
           </div>
           <div className="space-y-3">
-            <div className="text-[11px] font-semibold text-slate-400">Conversación con Manager IA</div>
-            <div className="rounded-2xl border border-slate-800/60 bg-slate-950/40 p-3 space-y-4">
+            <div className="text-[11px] font-semibold text-[color:var(--muted)]">Conversación con Manager IA</div>
+            <div className="rounded-2xl border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] p-3 space-y-4">
               {managerChatMessages.length === 0 && (
-                <div className="text-[11px] text-slate-500">Aún no has preguntado al Manager IA.</div>
+                <div className="text-[11px] text-[color:var(--muted)]">Aún no has preguntado al Manager IA.</div>
               )}
               {managerChatMessages.map((msg) => {
                 const isCreator = msg.role === "creator";
@@ -3674,8 +3676,8 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
                   isCreator
                     ? "bg-[color:var(--brand-weak)] text-[color:var(--text)] border border-[color:rgba(var(--brand-rgb),0.24)]"
                     : isManager
-                    ? "bg-slate-800/80 text-slate-100"
-                    : "bg-slate-900/70 text-slate-300"
+                    ? "bg-[color:var(--surface-1)] text-[color:var(--text)] border border-[color:var(--surface-border)]"
+                    : "bg-[color:var(--surface-2)] text-[color:var(--muted)] border border-[color:var(--surface-border)]"
                 );
                 return (
                   <div
@@ -3693,12 +3695,12 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
                       )}
                     >
                       {!isSystem && (
-                        <span className="text-[10px] uppercase tracking-wide text-slate-500">
+                        <span className="text-[10px] uppercase tracking-wide text-[color:var(--muted)]">
                           {isCreator ? "Tú" : "Manager IA"}
                         </span>
                       )}
                       {isSystem ? (
-                        <div className="rounded-full border border-slate-700 bg-slate-900/60 px-3 py-1 text-[10px] uppercase tracking-wide text-slate-400 text-center">
+                        <div className="rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-3 py-1 text-[10px] uppercase tracking-wide text-[color:var(--muted)] text-center">
                           {msg.text}
                         </div>
                       ) : (
@@ -3721,13 +3723,13 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
             <div ref={managerChatEndRef} />
           </div>
         </div>
-        <div className="border-t border-slate-800/70 bg-slate-950/80 px-4 py-3">
-          <label className="mb-2 flex items-center gap-2 text-[11px] text-slate-400">
+        <div className="border-t border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-4 py-3">
+          <label className="mb-2 flex items-center gap-2 text-[11px] text-[color:var(--muted)]">
             <input
               type="checkbox"
               checked={includeInternalContext}
               onChange={toggleIncludeInternalContext}
-              className="h-3 w-3 rounded border-slate-600 bg-slate-900 text-[color:var(--brand)] focus:ring-2 focus:ring-[color:var(--ring)]"
+              className="h-3 w-3 rounded border-[color:var(--surface-border)] bg-[color:var(--surface-2)] text-[color:var(--brand)] focus:ring-2 focus:ring-[color:var(--ring)]"
             />
             <span>Incluir borradores ({internalDraftCount})</span>
           </label>
@@ -3762,24 +3764,24 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
 
     const renderInternalChatContent = () => (
       <div className="space-y-3">
-        <div className="px-4 pt-3 text-[11px] text-slate-400">
+        <div className="px-4 pt-3 text-[11px] text-[color:var(--muted)]">
           Borradores tuyos. No se envía al fan.
         </div>
         <div className="px-4 pb-3 space-y-2">
           {isLoadingInternalMessages && (
-            <div className="text-[11px] text-slate-500">Cargando mensajes internos...</div>
+            <div className="text-[11px] text-[color:var(--muted)]">Cargando mensajes internos...</div>
           )}
           {internalMessagesError && !isLoadingInternalMessages && (
-            <div className="text-[11px] text-rose-300">{internalMessagesError}</div>
+            <div className="text-[11px] text-[color:var(--danger)]">{internalMessagesError}</div>
           )}
           {!internalNotes.length && displayGeneratedDrafts.length === 0 && !isLoadingInternalMessages && !internalMessagesError && (
-            <div className="text-[11px] text-slate-500">
+            <div className="text-[11px] text-[color:var(--muted)]">
               Aún no hay borradores internos.
             </div>
           )}
           {displayGeneratedDrafts.length > 0 && (
             <div className="space-y-2">
-              <div className="text-[11px] font-semibold text-slate-400">Borradores IA</div>
+              <div className="text-[11px] font-semibold text-[color:var(--muted)]">Borradores IA</div>
               {displayGeneratedDrafts.map((draft) => {
                 const toneLabel = draft.tone ? formatToneLabel(draft.tone) : null;
                 const sourceLabel = draftSourceLabel(draft.source);
@@ -3787,15 +3789,15 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
                 return (
                   <div
                     key={draft.id}
-                    className="flex w-full max-w-none flex-col items-start rounded-2xl border border-slate-800/70 bg-slate-900/70 px-4 py-3 text-xs leading-relaxed"
+                    className="flex w-full max-w-none flex-col items-start rounded-2xl border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-4 py-3 text-xs leading-relaxed"
                   >
-                    <div className="flex flex-wrap items-center gap-2 text-[10px] uppercase tracking-wide text-slate-500">
+                    <div className="flex flex-wrap items-center gap-2 text-[10px] uppercase tracking-wide text-[color:var(--muted)]">
                       <span>{formatNoteDate(draft.createdAt)}</span>
                       <span className="text-[color:var(--brand)]">{sourceLabel}</span>
-                      {showLabel && <span className="text-slate-300">{showLabel}</span>}
-                      {toneLabel && <span className="text-slate-300">Tono {toneLabel}</span>}
+                      {showLabel && <span className="text-[color:var(--text)]">{showLabel}</span>}
+                      {toneLabel && <span className="text-[color:var(--text)]">Tono {toneLabel}</span>}
                     </div>
-                    <div className="mt-2 text-[12px] text-slate-100 whitespace-pre-wrap">{draft.text}</div>
+                    <div className="mt-2 text-[12px] text-[color:var(--text)] whitespace-pre-wrap">{draft.text}</div>
                     <div className="mt-3 flex flex-wrap gap-2">
                       <button
                         type="button"
@@ -3807,7 +3809,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
                       <button
                         type="button"
                         onClick={() => handleDeleteGeneratedDraft(draft.id)}
-                        className="inline-flex items-center rounded-full border border-rose-400/60 bg-rose-500/10 px-3 py-1 text-[11px] font-semibold text-rose-100 hover:bg-rose-500/20"
+                        className="inline-flex items-center rounded-full border border-[color:rgba(244,63,94,0.6)] bg-[color:rgba(244,63,94,0.08)] px-3 py-1 text-[11px] font-semibold text-[color:var(--text)] hover:bg-[color:rgba(244,63,94,0.16)]"
                       >
                         Eliminar
                       </button>
@@ -3819,7 +3821,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
           )}
           {displayInternalNotes.length > 0 && (
             <div className="space-y-2">
-              <div className="text-[11px] font-semibold text-slate-400">Borradores</div>
+              <div className="text-[11px] font-semibold text-[color:var(--muted)]">Borradores</div>
               {displayInternalNotes.map((msg) => {
                 const origin = normalizeFrom(msg.from);
                 const isCreatorNote = origin === "creator";
@@ -3842,18 +3844,19 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
                     )}
                     data-draft-id={msg.id}
                   >
-                    <span className="text-[10px] uppercase tracking-wide text-slate-500">{label}</span>
+                    <span className="text-[10px] uppercase tracking-wide text-[color:var(--muted)]">{label}</span>
                     <div
                       className={clsx(
                         "w-full rounded-2xl px-4 py-3 text-xs leading-relaxed",
                         isCreatorNote
-                          ? "bg-amber-500/20 text-amber-50"
-                          : "bg-slate-800/80 text-slate-100",
-                        highlightDraftId === msg.id && "ring-2 ring-[color:var(--ring)] ring-offset-2 ring-offset-slate-900"
+                          ? "bg-[color:rgba(245,158,11,0.16)] text-[color:var(--text)]"
+                          : "bg-[color:var(--surface-1)] text-[color:var(--text)] border border-[color:var(--surface-border)]",
+                        highlightDraftId === msg.id &&
+                          "ring-2 ring-[color:var(--ring)] ring-offset-2 ring-offset-[color:var(--surface-1)]"
                       )}
                     >
                       {isCreatorNote && (
-                        <span className="mb-1 inline-flex items-center rounded-full border border-amber-400/70 px-2 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-amber-200">
+                        <span className="mb-1 inline-flex items-center rounded-full border border-[color:rgba(245,158,11,0.7)] px-2 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-[color:var(--warning)]">
                           INTERNO
                         </span>
                       )}
@@ -3869,7 +3872,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
                               className="h-24 w-24 object-contain"
                             />
                           ) : (
-                            <span className="text-[11px] text-slate-300">Sticker</span>
+                            <span className="text-[11px] text-[color:var(--muted)]">Sticker</span>
                           )}
                         </div>
                       ) : (
@@ -3900,12 +3903,12 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
             </div>
           )}
         </div>
-        <div className="border-t border-slate-800/70 bg-slate-950/80 px-4 py-3">
-          <div className="text-[11px] font-semibold text-slate-400">Nuevo borrador</div>
+        <div className="border-t border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-4 py-3">
+          <div className="text-[11px] font-semibold text-[color:var(--muted)]">Nuevo borrador</div>
           <div className="mt-2 flex items-end gap-2">
             <textarea
               rows={1}
-              className="flex-1 w-full rounded-xl bg-slate-900/80 px-4 py-3 text-xs leading-6 text-slate-100 placeholder:text-slate-400 resize-none overflow-y-auto whitespace-pre-wrap break-words focus:outline-none focus:ring-2 focus:ring-amber-400/60"
+              className="flex-1 w-full rounded-xl bg-[color:var(--surface-2)] px-4 py-3 text-xs leading-6 text-[color:var(--text)] placeholder:text-[color:var(--muted)] resize-none overflow-y-auto whitespace-pre-wrap break-words focus:outline-none focus:ring-2 focus:ring-[color:var(--ring)]"
               placeholder="Guarda un borrador interno…"
               ref={internalDraftInputRef}
               value={internalDraftInput}
@@ -3918,7 +3921,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
             <button
               type="button"
               onClick={handleSendInternalDraft}
-              className="h-8 px-3 rounded-2xl border border-amber-400/70 bg-amber-500/10 text-[11px] font-semibold text-amber-100 transition hover:bg-amber-500/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/50 disabled:opacity-50 disabled:cursor-not-allowed"
+              className="h-8 px-3 rounded-2xl border border-[color:rgba(245,158,11,0.7)] bg-[color:rgba(245,158,11,0.08)] text-[11px] font-semibold text-[color:var(--text)] transition hover:bg-[color:rgba(245,158,11,0.16)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--ring)] disabled:opacity-50 disabled:cursor-not-allowed"
               disabled={!internalDraftInput.trim()}
             >
               Guardar
@@ -3942,19 +3945,19 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
       const renderHistoryItem = (item: FanFollowUp) => {
         const timestamp = item.doneAt || item.updatedAt || item.createdAt || "";
         const statusLabel = item.status === "DONE" ? "Seguimiento hecho" : "Seguimiento borrado";
-        const statusTone = item.status === "DONE" ? "text-amber-200" : "text-rose-200";
+        const statusTone = item.status === "DONE" ? "text-[color:var(--warning)]" : "text-[color:var(--danger)]";
         const due = splitDueAt(item.dueAt ?? null);
         const dueLabel = formatWhen(item.dueAt ?? null);
         return (
-          <div key={item.id} className="rounded-lg bg-slate-950/60 px-2 py-1.5">
-            <div className="flex items-center justify-between gap-2 text-[10px] text-slate-500">
+          <div key={item.id} className="rounded-lg border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-2 py-1.5">
+            <div className="flex items-center justify-between gap-2 text-[10px] text-[color:var(--muted)]">
               <span>{timestamp ? formatNoteDate(timestamp) : ""}</span>
               <span className={statusTone}>{statusLabel}</span>
             </div>
             <div className="text-[11px] whitespace-pre-wrap">{item.title}</div>
-            {item.note && <div className="text-[11px] whitespace-pre-wrap text-slate-300">{item.note}</div>}
+            {item.note && <div className="text-[11px] whitespace-pre-wrap text-[color:var(--muted)]">{item.note}</div>}
             {dueLabel && (
-              <div className="text-[10px] text-slate-500">
+              <div className="text-[10px] text-[color:var(--muted)]">
                 Para {dueLabel}
                 {due.time ? ` · ${due.time}` : ""}
               </div>
@@ -3965,12 +3968,12 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
 
       return (
         <div className="px-4 py-3 space-y-4">
-          <div className="text-[11px] text-slate-400">
+          <div className="text-[11px] text-[color:var(--muted)]">
             Perfil del fan + seguimiento. Se usa como contexto del Manager IA.
           </div>
           <div className="space-y-2">
             <div className="flex items-center justify-between gap-2">
-              <div className="text-[11px] font-semibold text-slate-400">Perfil del fan</div>
+              <div className="text-[11px] font-semibold text-[color:var(--muted)]">Perfil del fan</div>
             </div>
             <textarea
               ref={profileInputRef}
@@ -3980,34 +3983,34 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
                 setProfileDraft(e.target.value);
               }}
               rows={3}
-              className="w-full resize-none rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-xs text-slate-100 placeholder:text-slate-500 outline-none focus:border-amber-400"
+              className="w-full resize-none rounded-lg border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-3 py-2 text-xs text-[color:var(--text)] placeholder:text-[color:var(--muted)] outline-none focus:border-[color:var(--border-a)] focus-visible:ring-2 focus-visible:ring-[color:var(--ring)]"
               placeholder="Perfil del fan: contexto, límites, preferencias, tono, etc."
             />
-            <div className="flex flex-wrap items-center gap-2 text-[10px] text-slate-500">
+            <div className="flex flex-wrap items-center gap-2 text-[10px] text-[color:var(--muted)]">
               <button
                 type="button"
                 onClick={handleSaveProfile}
                 disabled={!canSaveProfile}
-                className="rounded-lg border border-amber-400/80 bg-amber-500/10 px-3 py-1 text-xs font-medium text-amber-100 disabled:cursor-not-allowed disabled:opacity-50 hover:bg-amber-500/20"
+                className="rounded-lg border border-[color:rgba(245,158,11,0.8)] bg-[color:rgba(245,158,11,0.08)] px-3 py-1 text-xs font-medium text-[color:var(--text)] disabled:cursor-not-allowed disabled:opacity-50 hover:bg-[color:rgba(245,158,11,0.16)]"
               >
                 Guardar perfil
               </button>
               {!canSaveProfile && trimmedProfile.length > 0 && (
                 <span>Sin cambios</span>
               )}
-              {profileError && <span className="text-rose-300">{profileError}</span>}
+              {profileError && <span className="text-[color:var(--danger)]">{profileError}</span>}
               {profileLoading && <span>Actualizando...</span>}
             </div>
           </div>
 
           <div className="space-y-2">
             <div className="flex items-center justify-between gap-2">
-              <div className="text-[11px] font-semibold text-slate-400">Nota rápida</div>
+              <div className="text-[11px] font-semibold text-[color:var(--muted)]">Nota rápida</div>
               {!quickNoteEditing && (
                 <button
                   type="button"
                   onClick={openQuickNoteEditor}
-                  className="rounded-lg border border-slate-600/80 bg-slate-900/60 px-2.5 py-1 text-[10px] font-semibold text-slate-200 hover:border-amber-400/70 hover:text-amber-100"
+                  className="rounded-lg border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-2.5 py-1 text-[10px] font-semibold text-[color:var(--text)] hover:border-[color:rgba(245,158,11,0.7)] hover:text-[color:var(--text)]"
                 >
                   Editar
                 </button>
@@ -4019,47 +4022,47 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
                   value={quickNoteDraft}
                   onChange={(e) => setQuickNoteDraft(e.target.value)}
                   rows={3}
-                  className="w-full resize-none rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-xs text-slate-100 placeholder:text-slate-500 outline-none focus:border-amber-400"
+                  className="w-full resize-none rounded-lg border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-3 py-2 text-xs text-[color:var(--text)] placeholder:text-[color:var(--muted)] outline-none focus:border-[color:var(--border-a)] focus-visible:ring-2 focus-visible:ring-[color:var(--ring)]"
                   placeholder="Nota rápida..."
                 />
-                <div className="flex flex-wrap items-center gap-2 text-[10px] text-slate-500">
+                <div className="flex flex-wrap items-center gap-2 text-[10px] text-[color:var(--muted)]">
                   <button
                     type="button"
                     onClick={handleSaveQuickNote}
                     disabled={quickNoteLoading}
-                    className="rounded-lg border border-amber-400/80 bg-amber-500/10 px-3 py-1 text-xs font-medium text-amber-100 disabled:cursor-not-allowed disabled:opacity-50 hover:bg-amber-500/20"
+                    className="rounded-lg border border-[color:rgba(245,158,11,0.8)] bg-[color:rgba(245,158,11,0.08)] px-3 py-1 text-xs font-medium text-[color:var(--text)] disabled:cursor-not-allowed disabled:opacity-50 hover:bg-[color:rgba(245,158,11,0.16)]"
                   >
                     Guardar
                   </button>
                   <button
                     type="button"
                     onClick={cancelQuickNoteEditor}
-                    className="rounded-lg border border-slate-600/80 bg-slate-900/60 px-3 py-1 text-xs font-medium text-slate-200 hover:bg-slate-800/80"
+                    className="rounded-lg border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-3 py-1 text-xs font-medium text-[color:var(--text)] hover:bg-[color:var(--surface-1)]"
                   >
                     Cancelar
                   </button>
                   {quickNoteLoading && <span>Guardando...</span>}
-                  {quickNoteError && <span className="text-rose-300">{quickNoteError}</span>}
+                  {quickNoteError && <span className="text-[color:var(--danger)]">{quickNoteError}</span>}
                 </div>
               </div>
             ) : quickNote.trim() ? (
-              <div className="rounded-lg border border-slate-800 bg-slate-950/60 px-3 py-2 text-xs text-slate-200 whitespace-pre-wrap">
+              <div className="rounded-lg border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-3 py-2 text-xs text-[color:var(--text)] whitespace-pre-wrap">
                 {quickNote}
               </div>
             ) : (
-              <div className="text-[11px] text-slate-500">Sin nota rápida.</div>
+              <div className="text-[11px] text-[color:var(--muted)]">Sin nota rápida.</div>
             )}
           </div>
 
           <div className="space-y-2">
-            <div className="text-[11px] font-semibold text-slate-400">Seguimiento</div>
+            <div className="text-[11px] font-semibold text-[color:var(--muted)]">Seguimiento</div>
             <div className="grid grid-cols-1 gap-2 md:grid-cols-3">
               <input
                 ref={nextActionInputRef}
                 type="text"
                 value={nextActionDraft}
                 onChange={(e) => setNextActionDraft(e.target.value)}
-                className="md:col-span-2 rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-xs text-slate-100 placeholder:text-slate-500 outline-none focus:border-amber-400"
+                className="md:col-span-2 rounded-lg border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-3 py-2 text-xs text-[color:var(--text)] placeholder:text-[color:var(--muted)] outline-none focus:border-[color:var(--border-a)] focus-visible:ring-2 focus-visible:ring-[color:var(--ring)]"
                 placeholder="Ej: Proponer pack especial cuando cobre"
               />
               <div className="flex gap-2">
@@ -4067,13 +4070,13 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
                   type="date"
                   value={nextActionDate}
                   onChange={(e) => setNextActionDate(e.target.value)}
-                  className="flex-1 rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-xs text-slate-100 outline-none focus:border-amber-400 focus:text-amber-300"
+                  className="flex-1 rounded-lg border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-3 py-2 text-xs text-[color:var(--text)] outline-none focus:border-[color:var(--border-a)] focus-visible:ring-2 focus-visible:ring-[color:var(--ring)]"
                 />
                 <input
                   type="time"
                   value={nextActionTime}
                   onChange={(e) => setNextActionTime(e.target.value)}
-                  className="flex-1 rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-xs text-slate-100 outline-none focus:border-amber-400 focus:text-amber-300"
+                  className="flex-1 rounded-lg border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-3 py-2 text-xs text-[color:var(--text)] outline-none focus:border-[color:var(--border-a)] focus-visible:ring-2 focus-visible:ring-[color:var(--ring)]"
                 />
               </div>
             </div>
@@ -4088,7 +4091,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
                   type="button"
                   onClick={() => handleQuickFollowUp(item.days, "Seguimiento")}
                   disabled={followUpLoading}
-                  className="rounded-full border border-slate-700/70 bg-slate-900/60 px-3 py-1 text-[10px] font-semibold text-slate-200 hover:bg-slate-800/80 disabled:cursor-not-allowed disabled:opacity-50"
+                  className="rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-3 py-1 text-[10px] font-semibold text-[color:var(--text)] hover:border-[color:var(--surface-border-hover)] hover:bg-[color:var(--surface-1)] disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   {item.label}
                 </button>
@@ -4107,7 +4110,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
                 type="button"
                 onClick={handleClearNextAction}
                 disabled={!canClearNextAction}
-                className="rounded-lg border border-slate-600/80 bg-slate-900/60 px-3 py-1 text-xs font-medium text-slate-200 disabled:cursor-not-allowed disabled:opacity-50 hover:bg-slate-800/80"
+                className="rounded-lg border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-3 py-1 text-xs font-medium text-[color:var(--text)] disabled:cursor-not-allowed disabled:opacity-50 hover:bg-[color:var(--surface-1)]"
               >
                 Borrar seguimiento
               </button>
@@ -4115,23 +4118,23 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
                 type="button"
                 onClick={handleArchiveNextAction}
                 disabled={!canArchiveNextAction}
-                className="rounded-lg border border-amber-400/80 bg-amber-500/10 px-3 py-1 text-xs font-medium text-amber-100 disabled:cursor-not-allowed disabled:opacity-50 hover:bg-amber-500/20"
+                className="rounded-lg border border-[color:rgba(245,158,11,0.8)] bg-[color:rgba(245,158,11,0.08)] px-3 py-1 text-xs font-medium text-[color:var(--text)] disabled:cursor-not-allowed disabled:opacity-50 hover:bg-[color:rgba(245,158,11,0.16)]"
               >
                 Marcar como hecho
               </button>
-              {followUpError && <span className="text-[10px] text-rose-300">{followUpError}</span>}
-              {followUpLoading && <span className="text-[10px] text-slate-400">Actualizando...</span>}
+              {followUpError && <span className="text-[10px] text-[color:var(--danger)]">{followUpError}</span>}
+              {followUpLoading && <span className="text-[10px] text-[color:var(--muted)]">Actualizando...</span>}
             </div>
           </div>
 
           <div className="space-y-2">
-            <div className="text-[11px] font-semibold text-slate-400">Historial</div>
-            {followUpHistoryLoading && <div className="text-[11px] text-slate-400">Cargando historial…</div>}
+            <div className="text-[11px] font-semibold text-[color:var(--muted)]">Historial</div>
+            {followUpHistoryLoading && <div className="text-[11px] text-[color:var(--muted)]">Cargando historial…</div>}
             {followUpHistoryError && !followUpHistoryLoading && (
-              <div className="text-[11px] text-rose-300">{followUpHistoryError}</div>
+              <div className="text-[11px] text-[color:var(--danger)]">{followUpHistoryError}</div>
             )}
             {!followUpHistoryLoading && followUpHistory.length === 0 && (
-              <div className="text-[11px] text-slate-500">Aún no hay entradas de historial.</div>
+              <div className="text-[11px] text-[color:var(--muted)]">Aún no hay entradas de historial.</div>
             )}
             {followUpHistory.map((item) => renderHistoryItem(item))}
           </div>
@@ -4190,8 +4193,8 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
                       className={clsx(
                         "inline-flex items-center rounded-full border px-3 py-1 text-[11px] font-semibold transition",
                         isActive
-                          ? "border-amber-400/70 bg-amber-500/15 text-amber-100"
-                          : "border-slate-700 bg-slate-900/60 text-slate-300 hover:border-slate-500/80"
+                          ? "border-[color:rgba(245,158,11,0.7)] bg-[color:rgba(245,158,11,0.12)] text-[color:var(--text)]"
+                          : "border-[color:var(--surface-border)] bg-[color:var(--surface-2)] text-[color:var(--muted)] hover:border-[color:var(--surface-border-hover)] hover:text-[color:var(--text)]"
                       )}
                     >
                       {tabItem.label}
@@ -4219,10 +4222,10 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
         const templateTabBase =
           "inline-flex items-center rounded-full border px-3 py-1 text-[11px] font-semibold transition";
         const templateTabInactive =
-          "border-slate-700 bg-slate-900/60 text-slate-300 hover:border-slate-500/80";
+          "border-[color:var(--surface-border)] bg-[color:var(--surface-2)] text-[color:var(--muted)] hover:border-[color:var(--surface-border-hover)] hover:text-[color:var(--text)]";
         const templateTabFanActive =
           "border-[color:var(--brand)] bg-[color:rgba(var(--brand-rgb),0.16)] text-[color:var(--text)]";
-        const templateTabManagerActive = "border-amber-400/70 bg-amber-500/15 text-amber-100";
+        const templateTabManagerActive = "border-[color:rgba(245,158,11,0.7)] bg-[color:rgba(245,158,11,0.12)] text-[color:var(--text)]";
         return (
           <InlinePanelShell
             title="Plantillas"
@@ -4269,7 +4272,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
                       <button
                         type="button"
                         onClick={() => syncFanTemplateSelection(true)}
-                        className="inline-flex items-center rounded-full border border-slate-700/70 bg-slate-900/50 px-3 py-1 text-[11px] font-semibold text-slate-200 hover:border-slate-500/80"
+                        className="inline-flex items-center rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-3 py-1 text-[11px] font-semibold text-[color:var(--text)] hover:border-[color:var(--surface-border-hover)] hover:bg-[color:var(--surface-1)]"
                       >
                         Barajar todo
                       </button>
@@ -4283,20 +4286,20 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
                           return (
                             <div
                               key={category.id}
-                              className="flex flex-col gap-2 rounded-xl border border-slate-800/60 bg-slate-950/40 px-3 py-2"
+                              className="flex flex-col gap-2 rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-3 py-2"
                             >
-                              <div className="text-[12px] font-semibold text-slate-100">{category.label}</div>
-                              <p className="text-[11px] text-slate-500">Sin opciones disponibles.</p>
+                              <div className="text-[12px] font-semibold text-[color:var(--text)]">{category.label}</div>
+                              <p className="text-[11px] text-[color:var(--muted)]">Sin opciones disponibles.</p>
                             </div>
                           );
                         }
                         return (
                           <div
                             key={selected.id}
-                            className="flex flex-col gap-2 rounded-xl border border-slate-800/60 bg-slate-950/40 px-3 py-2"
+                            className="flex flex-col gap-2 rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-3 py-2"
                           >
-                            <div className="text-[12px] font-semibold text-slate-100">{selected.title}</div>
-                            <p className="text-[11px] text-slate-400 line-clamp-2">{selected.text}</p>
+                            <div className="text-[12px] font-semibold text-[color:var(--text)]">{selected.title}</div>
+                            <p className="text-[11px] text-[color:var(--muted)] line-clamp-2">{selected.text}</p>
                             <div className="flex flex-wrap items-center gap-2">
                               <button
                                 type="button"
@@ -4314,7 +4317,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
                               <button
                                 type="button"
                                 onClick={() => handleFanTemplateRotate(category.id)}
-                                className="inline-flex items-center rounded-full border border-slate-700/70 bg-slate-900/50 px-3 py-1 text-[11px] font-semibold text-slate-200 hover:border-slate-500/80"
+                                className="inline-flex items-center rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-3 py-1 text-[11px] font-semibold text-[color:var(--text)] hover:border-[color:var(--surface-border-hover)] hover:bg-[color:var(--surface-1)]"
                               >
                                 Otra opción
                               </button>
@@ -4328,9 +4331,9 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
                   <InlineEmptyState icon="folder" title="Sin plantillas para el fan" />
                 )
               ) : managerPromptTemplate ? (
-                <div className="rounded-xl border border-slate-800/60 bg-slate-950/40 p-3 space-y-2">
-                  <div className="text-[11px] font-semibold text-slate-400">Plantilla sugerida</div>
-                  <p className="text-[11px] text-slate-200 line-clamp-2">{managerPromptTemplate}</p>
+                <div className="rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] p-3 space-y-2">
+                  <div className="text-[11px] font-semibold text-[color:var(--muted)]">Plantilla sugerida</div>
+                  <p className="text-[11px] text-[color:var(--text)] line-clamp-2">{managerPromptTemplate}</p>
                   <button
                     type="button"
                     onClick={() => handleAskManagerFromDraft(managerPromptTemplate)}
@@ -4377,7 +4380,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
                 event.stopPropagation();
                 handleManagerPanelTabClick("manager");
               }}
-              className="inline-flex items-center gap-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400/40"
+              className="inline-flex items-center gap-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--ring)]"
               aria-expanded={managerPanelOpen && managerPanelTab === "manager"}
               aria-controls={panelId}
             >
@@ -4391,7 +4394,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
                   event.stopPropagation();
                   closeDockPanel();
                 }}
-                className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-slate-900/60 text-[9px] leading-none text-slate-300 ring-1 ring-slate-700/60 transition hover:bg-slate-800/80 hover:text-slate-100"
+                className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-[color:var(--surface-2)] text-[9px] leading-none text-[color:var(--muted)] ring-1 ring-[color:var(--surface-ring)] transition hover:bg-[color:var(--surface-1)] hover:text-[color:var(--text)]"
                 aria-label="Cerrar panel"
               >
                 ✕
@@ -4420,7 +4423,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
               <span className="flex items-center gap-1.5">
                 <span>Plantillas</span>
                 {templatesCount > 0 && (
-                  <span className="rounded-full border border-slate-600/80 bg-slate-900/70 px-1.5 py-0.5 text-[10px] text-slate-300">
+                  <span className="rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-1.5 py-0.5 text-[10px] text-[color:var(--muted)]">
                     {templatesCount}
                   </span>
                 )}
@@ -4434,7 +4437,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
                   event.stopPropagation();
                   closeDockPanel();
                 }}
-                className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-slate-900/60 text-[9px] leading-none text-slate-300 ring-1 ring-slate-700/60 transition hover:bg-slate-800/80 hover:text-slate-100"
+                className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-[color:var(--surface-2)] text-[9px] leading-none text-[color:var(--muted)] ring-1 ring-[color:var(--surface-ring)] transition hover:bg-[color:var(--surface-1)] hover:text-[color:var(--text)]"
                 aria-label="Cerrar panel"
               >
                 ✕
@@ -4470,7 +4473,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
                   event.stopPropagation();
                   closeDockPanel();
                 }}
-                className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-slate-900/60 text-[9px] leading-none text-slate-300 ring-1 ring-slate-700/60 transition hover:bg-slate-800/80 hover:text-slate-100"
+                className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-[color:var(--surface-2)] text-[9px] leading-none text-[color:var(--muted)] ring-1 ring-[color:var(--surface-ring)] transition hover:bg-[color:var(--surface-1)] hover:text-[color:var(--text)]"
                 aria-label="Cerrar panel"
               >
                 ✕
@@ -4492,7 +4495,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
           {isDockOverlay ? (
             <>
               <div
-                className="dockOverlayBackdrop bg-slate-950/70"
+                className="dockOverlayBackdrop bg-[color:var(--surface-overlay)]"
               />
               <div className={dockOverlayPanelClassName}>{panelContent}</div>
             </>
@@ -6614,8 +6617,8 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
   const purchaseKindMeta: Record<"EXTRA" | "TIP" | "GIFT", { label: string; icon: IconName; tone: string }> =
     {
       EXTRA: { label: "Extra", icon: "gem", tone: "text-[color:var(--brand)]" },
-      TIP: { label: "Propina", icon: "coin", tone: "text-amber-200" },
-      GIFT: { label: "Regalo", icon: "gift", tone: "text-sky-200" },
+      TIP: { label: "Propina", icon: "coin", tone: "text-[color:var(--warning)]" },
+      GIFT: { label: "Regalo", icon: "gift", tone: "text-[color:var(--brand)]" },
     };
   const historyFilters = [
     { id: "all", label: "Todo" },
@@ -7112,11 +7115,11 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
         },
         info: {
           icon: "info",
-          iconClass: "border-sky-400/50 bg-sky-500/10 text-sky-200",
+          iconClass: "border-[color:rgba(var(--brand-rgb),0.4)] bg-[color:rgba(var(--brand-rgb),0.12)] text-[color:var(--brand)]",
         },
         warn: {
           icon: "alert",
-          iconClass: "border-amber-400/60 bg-amber-500/10 text-amber-200",
+          iconClass: "border-[color:rgba(245,158,11,0.6)] bg-[color:rgba(245,158,11,0.08)] text-[color:var(--warning)]",
         },
       } as const)[inlineAction.kind]
     : null;
@@ -7307,7 +7310,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
                 <button
                   type="button"
                   onClick={handleAddFollowUpNote}
-                  className="shrink-0 rounded-full border border-amber-400/70 bg-amber-500/10 px-2.5 py-0.5 text-[10px] font-semibold text-amber-100 hover:bg-amber-500/20"
+                  className="shrink-0 rounded-full border border-[color:rgba(245,158,11,0.7)] bg-[color:rgba(245,158,11,0.08)] px-2.5 py-0.5 text-[10px] font-semibold text-[color:var(--text)] hover:bg-[color:rgba(245,158,11,0.16)]"
                 >
                   Añadir nota
                 </button>
@@ -7317,24 +7320,24 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
         </div>
       </header>
       {isChatBlocked && (
-        <div className="mx-4 mt-2 rounded-xl border border-red-500/40 bg-red-500/10 px-3 py-2 text-xs md:text-sm text-red-200 flex items-center gap-2">
-          <span className="inline-block h-2 w-2 rounded-full bg-red-400" />
+        <div className="mx-4 mt-2 rounded-xl border border-[color:rgba(244,63,94,0.4)] bg-[color:rgba(244,63,94,0.08)] px-3 py-2 text-xs md:text-sm text-[color:var(--danger)] flex items-center gap-2">
+          <span className="inline-block h-2 w-2 rounded-full bg-[color:var(--danger)]" />
           <span>Chat bloqueado. No puedes enviar mensajes nuevos a este fan.</span>
         </div>
       )}
       {/* Avisos de acceso caducado o a punto de caducar */}
       {isAccessExpired && (
-        <div className="mx-4 mb-3 flex flex-col md:flex-row md:items-center md:justify-between gap-3 rounded-xl border border-amber-500/50 bg-amber-500/10 px-4 py-3 text-xs text-amber-100">
+        <div className="mx-4 mb-3 flex flex-col md:flex-row md:items-center md:justify-between gap-3 rounded-xl border border-[color:rgba(245,158,11,0.5)] bg-[color:rgba(245,158,11,0.08)] px-4 py-3 text-xs text-[color:var(--text)]">
           <div className="flex flex-col gap-1">
-            <span className="font-semibold text-amber-200">Acceso caducado · sin pack activo</span>
-            <span className="text-[11px] text-amber-100/90">
+            <span className="font-semibold text-[color:var(--warning)]">Acceso caducado · sin pack activo</span>
+            <span className="text-[11px] text-[color:var(--text)]">
               Puedes enviarle un mensaje de reenganche y decidir después si le das acceso a nuevos contenidos.
             </span>
           </div>
           <div className="flex items-center gap-2">
             <button
               type="button"
-              className="rounded-full border border-amber-400 bg-amber-500/10 px-3 py-1.5 text-[11px] font-semibold text-amber-100 hover:bg-amber-500/20"
+              className="rounded-full border border-[color:var(--warning)] bg-[color:rgba(245,158,11,0.08)] px-3 py-1.5 text-[11px] font-semibold text-[color:var(--text)] hover:bg-[color:rgba(245,158,11,0.16)]"
               onClick={handleRenewAction}
             >
               Mensaje de reenganche
@@ -7343,56 +7346,56 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
         </div>
       )}
       {conversation.membershipStatus === "active" && typeof effectiveDaysLeft === "number" && effectiveDaysLeft <= 1 && (
-        <div className="mx-4 mb-3 flex items-center justify-between rounded-xl border border-amber-400/50 bg-amber-500/10 px-4 py-2 text-[11px] text-amber-100">
+        <div className="mx-4 mb-3 flex items-center justify-between rounded-xl border border-[color:rgba(245,158,11,0.5)] bg-[color:rgba(245,158,11,0.08)] px-4 py-2 text-[11px] text-[color:var(--text)]">
           {effectiveDaysLeft <= 0 ? (
             <div className="flex flex-col gap-1">
               <div className="flex flex-wrap items-center gap-2">
-                <span className="inline-flex items-center rounded-full border border-amber-400/70 bg-amber-500/20 px-2 py-0.5 text-[10px] font-semibold text-amber-100">
+                <span className="inline-flex items-center rounded-full border border-[color:rgba(245,158,11,0.7)] bg-[color:rgba(245,158,11,0.16)] px-2 py-0.5 text-[10px] font-semibold text-[color:var(--text)]">
                   CADUCA HOY
                 </span>
-                <span className="inline-flex items-center rounded-full border border-rose-400/70 bg-rose-500/20 px-2 py-0.5 text-[10px] font-semibold text-rose-100">
+                <span className="inline-flex items-center rounded-full border border-[color:rgba(244,63,94,0.7)] bg-[color:rgba(244,63,94,0.16)] px-2 py-0.5 text-[10px] font-semibold text-[color:var(--text)]">
                   Crítico
                 </span>
               </div>
-              <span className="text-[11px] text-amber-100/90">
+              <span className="text-[11px] text-[color:var(--text)]">
                 Es el momento de renovar hoy mismo para mantener el acceso.
               </span>
             </div>
           ) : (
-            <span className="font-medium text-amber-100">
+            <span className="font-medium text-[color:var(--text)]">
               Le queda {effectiveDaysLeft === 1 ? "1 día" : `${effectiveDaysLeft} días`} de acceso. Buen momento para proponer el siguiente paso.
             </span>
           )}
         </div>
       )}
       {isQueueActive && (
-        <div className="mt-2 mb-3 flex items-center justify-between rounded-xl border border-amber-500/60 bg-slate-900/70 px-3 py-2 text-xs">
+        <div className="mt-2 mb-3 flex items-center justify-between rounded-xl border border-[color:rgba(245,158,11,0.6)] bg-[color:var(--surface-1)] px-3 py-2 text-xs">
           <div className="flex flex-col gap-1 truncate">
-            <span className="font-semibold text-amber-300 flex items-center gap-1">
+            <span className="font-semibold text-[color:var(--warning)] flex items-center gap-1">
               <IconGlyph name="spark" className="h-3.5 w-3.5" />
               <span>Siguiente recomendado</span>
               {recommendedFan && (recommendedFan.customerTier === "priority" || recommendedFan.customerTier === "vip") && (
-                <span className="inline-flex items-center gap-1 text-[10px] rounded-full bg-amber-500/20 px-2 text-amber-200">
+                <span className="inline-flex items-center gap-1 text-[10px] rounded-full bg-[color:rgba(245,158,11,0.16)] px-2 text-[color:var(--warning)]">
                   <IconGlyph name="pin" className="h-3 w-3" />
                   <span>Alta prioridad</span>
                 </span>
               )}
             </span>
-            <div className="flex flex-wrap items-center gap-2 text-[11px] text-amber-200">
+            <div className="flex flex-wrap items-center gap-2 text-[11px] text-[color:var(--warning)]">
               <span>Atendidos: {attendedInQueueToday}/{queueTotal}</span>
               {queueTotal > 0 && currentQueuePosition > 0 && (
                 <span>Actual: {currentQueuePosition}/{queueTotal}</span>
               )}
             </div>
             {queueFans.length === 0 && (
-              <span className="text-slate-400">No hay cola activa.</span>
+              <span className="text-[color:var(--muted)]">No hay cola activa.</span>
             )}
             {queueFans.length > 0 && !recommendedFan && (
-              <span className="text-slate-400">Cola terminada · Atendidos {attendedInQueueToday}/{queueTotal}</span>
+              <span className="text-[color:var(--muted)]">Cola terminada · Atendidos {attendedInQueueToday}/{queueTotal}</span>
             )}
             {recommendedFan && recommendedFan.id !== id && (
               <>
-                <span className="truncate text-slate-200">
+                <span className="truncate text-[color:var(--text)]">
                   {recommendedFan.contactName} ·{" "}
                   {recommendedFan.customerTier === "priority" || recommendedFan.customerTier === "vip"
                     ? "Alta prioridad"
@@ -7420,7 +7423,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
                   );
                   if (!nextLabel) return null;
                   return (
-                    <span className="text-[11px] text-slate-400 truncate" title={nextLabel}>
+                    <span className="text-[11px] text-[color:var(--muted)] truncate" title={nextLabel}>
                       {nextLabel}
                     </span>
                   );
@@ -7432,7 +7435,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
             {hasPrevInQueue && (
               <button
                 type="button"
-                className="rounded-full border border-slate-600 bg-slate-800/80 px-3 py-1 text-[11px] font-semibold text-slate-200 hover:bg-slate-700"
+                className="rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-3 py-1 text-[11px] font-semibold text-[color:var(--text)] hover:bg-[color:var(--surface-2)]"
                 onClick={handlePrevInQueue}
               >
                 Anterior
@@ -7440,7 +7443,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
             )}
             <button
               type="button"
-              className="rounded-full border border-amber-400 bg-amber-500/10 px-3 py-1 text-[11px] font-semibold text-amber-300 hover:bg-amber-400/20 disabled:opacity-60"
+              className="rounded-full border border-[color:var(--warning)] bg-[color:rgba(245,158,11,0.08)] px-3 py-1 text-[11px] font-semibold text-[color:var(--warning)] hover:bg-[color:rgba(245,158,11,0.16)] disabled:opacity-60"
               onClick={handleNextInQueue}
               disabled={!isQueueActive || queueFans.length === 0 || !recommendedFan}
             >
@@ -7449,7 +7452,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
             {recommendedFan && recommendedFan.id !== id && (
               <button
                 type="button"
-                className="rounded-full border border-amber-400 bg-amber-500/10 px-3 py-1 text-[11px] font-semibold text-amber-300 hover:bg-amber-400/20"
+                className="rounded-full border border-[color:var(--warning)] bg-[color:rgba(245,158,11,0.08)] px-3 py-1 text-[11px] font-semibold text-[color:var(--warning)] hover:bg-[color:rgba(245,158,11,0.16)]"
                 onClick={() => handleSelectFanFromBanner(recommendedFan)}
               >
                 Abrir
@@ -7458,7 +7461,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
             {!recommendedFan && queueFans.length > 0 && (
               <button
                 type="button"
-                className="rounded-full border border-slate-600 bg-slate-800/70 px-3 py-1 text-[11px] font-semibold text-slate-200 hover:bg-slate-700"
+                className="rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-3 py-1 text-[11px] font-semibold text-[color:var(--text)] hover:bg-[color:var(--surface-2)]"
                 onClick={() => {
                   setActiveQueueFilter?.(null);
                 }}
@@ -7470,38 +7473,38 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
         </div>
       )}
       {showHistory && (
-        <div className="mb-3 mx-4 rounded-xl border border-slate-700 bg-slate-900/80 px-3 py-3 text-xs text-slate-100 flex flex-col gap-3 max-h-64">
+        <div className="mb-3 mx-4 rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-3 py-3 text-xs text-[color:var(--text)] flex flex-col gap-3 max-h-64">
           <div className="flex items-center justify-between gap-2">
             <div className="flex items-center gap-2">
-              <span className="font-semibold text-slate-100">Historial de cobros</span>
-              {purchaseHistoryLoading && <span className="text-[11px] text-slate-400">Cargando...</span>}
+              <span className="font-semibold text-[color:var(--text)]">Historial de cobros</span>
+              {purchaseHistoryLoading && <span className="text-[11px] text-[color:var(--muted)]">Cargando...</span>}
             </div>
             <button
               type="button"
               onClick={() => setOpenPanel("none")}
-              className="rounded-full border border-slate-600 bg-slate-800/80 px-2 py-1 text-[11px] font-semibold text-slate-100 hover:bg-slate-700"
+              className="rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-2 py-1 text-[11px] font-semibold text-[color:var(--text)] hover:bg-[color:var(--surface-2)]"
             >
               Cerrar
             </button>
           </div>
-          <div className="grid grid-cols-2 gap-2 rounded-lg border border-slate-800 bg-slate-950/50 px-3 py-2">
+          <div className="grid grid-cols-2 gap-2 rounded-lg border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-3 py-2">
             <div className="flex flex-col gap-1">
-              <span className="text-[10px] text-slate-400">Total gastado</span>
-              <span className="text-[12px] font-semibold text-slate-50">{Math.round(historyTotals.totalSpent)} €</span>
+              <span className="text-[10px] text-[color:var(--muted)]">Total gastado</span>
+              <span className="text-[12px] font-semibold text-[color:var(--text)]">{Math.round(historyTotals.totalSpent)} €</span>
             </div>
             <div className="flex flex-col gap-1">
-              <span className="text-[10px] text-slate-400">Extras</span>
-              <span className="text-[12px] font-semibold text-slate-50">{Math.round(historyTotals.extrasAmount)} €</span>
+              <span className="text-[10px] text-[color:var(--muted)]">Extras</span>
+              <span className="text-[12px] font-semibold text-[color:var(--text)]">{Math.round(historyTotals.extrasAmount)} €</span>
             </div>
             <div className="flex flex-col gap-1">
-              <span className="text-[10px] text-slate-400">Propinas</span>
-              <span className="text-[12px] font-semibold text-slate-50">
+              <span className="text-[10px] text-[color:var(--muted)]">Propinas</span>
+              <span className="text-[12px] font-semibold text-[color:var(--text)]">
                 {Math.round(historyTotals.tipsAmount)} €
               </span>
             </div>
             <div className="flex flex-col gap-1">
-              <span className="text-[10px] text-slate-400">Regalos</span>
-              <span className="text-[12px] font-semibold text-slate-50">{Math.round(historyTotals.giftsAmount)} €</span>
+              <span className="text-[10px] text-[color:var(--muted)]">Regalos</span>
+              <span className="text-[12px] font-semibold text-[color:var(--text)]">{Math.round(historyTotals.giftsAmount)} €</span>
             </div>
           </div>
           <div className="flex flex-wrap items-center gap-2 text-[11px]">
@@ -7514,16 +7517,16 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
                   "rounded-full border px-3 py-1 font-semibold transition",
                   historyFilter === filter.id
                     ? "border-[color:var(--brand)] bg-[color:rgba(var(--brand-rgb),0.12)] text-[color:var(--text)]"
-                    : "border-slate-700 bg-slate-950/50 text-slate-300 hover:border-slate-500/80 hover:text-slate-100"
+                    : "border-[color:var(--surface-border)] bg-[color:var(--surface-2)] text-[color:var(--muted)] hover:border-[color:var(--surface-border-hover)] hover:text-[color:var(--text)]"
                 )}
               >
                 {filter.label}
               </button>
             ))}
           </div>
-          {historyError && <div className="text-[11px] text-rose-300">{historyError}</div>}
+          {historyError && <div className="text-[11px] text-[color:var(--danger)]">{historyError}</div>}
           {!historyError && !purchaseHistoryLoading && filteredPurchaseHistory.length === 0 && (
-            <div className="text-[11px] text-slate-400">Sin movimientos.</div>
+            <div className="text-[11px] text-[color:var(--muted)]">Sin movimientos.</div>
           )}
           {filteredPurchaseHistory.length > 0 && (
             <div className="flex-1 min-h-0 overflow-y-auto space-y-2">
@@ -7531,7 +7534,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
                 const meta = purchaseKindMeta[entry.kind] ?? {
                   label: "Compra",
                   icon: "receipt",
-                  tone: "text-slate-200",
+                  tone: "text-[color:var(--text)]",
                 };
                 const title =
                   entry.kind === "EXTRA"
@@ -7544,16 +7547,16 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
                     ? "Regalo"
                     : meta.label;
                 return (
-                  <div key={entry.id} className="rounded-lg border border-slate-800 bg-slate-950/60 px-2 py-2">
+                  <div key={entry.id} className="rounded-lg border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-2 py-2">
                     <div className="flex items-start justify-between gap-2">
                       <div className="flex items-start gap-2 min-w-0">
                         <IconGlyph name={meta.icon} className={clsx("h-4 w-4", meta.tone)} />
                         <div className="flex flex-col min-w-0">
-                          <span className="text-[12px] font-semibold text-slate-100 truncate">{title}</span>
-                          <span className="text-[10px] text-slate-400">{formatNoteDate(entry.createdAt)}</span>
+                          <span className="text-[12px] font-semibold text-[color:var(--text)] truncate">{title}</span>
+                          <span className="text-[10px] text-[color:var(--muted)]">{formatNoteDate(entry.createdAt)}</span>
                         </div>
                       </div>
-                      <span className="text-[12px] font-semibold text-slate-100">{Math.round(entry.amount)} €</span>
+                      <span className="text-[12px] font-semibold text-[color:var(--text)]">{Math.round(entry.amount)} €</span>
                     </div>
                   </div>
                 );
@@ -7563,7 +7566,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
         </div>
       )}
       {iaMessage && (
-        <div className="mx-4 mb-2 rounded-lg border border-amber-500/60 bg-amber-500/10 px-3 py-2 text-xs text-amber-100">
+        <div className="mx-4 mb-2 rounded-lg border border-[color:rgba(245,158,11,0.6)] bg-[color:rgba(245,158,11,0.08)] px-3 py-2 text-xs text-[color:var(--text)]">
           {iaMessage} {iaBlocked ? "Mañana se reiniciarán tus créditos diarios." : ""}
         </div>
       )}
@@ -7577,7 +7580,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
           });
           if (!followUpTemplates.length) return null;
           return (
-            <div className="mb-3 mx-4 rounded-xl border border-slate-700 bg-slate-900/70 px-3 py-2 text-xs text-slate-200 flex flex-col gap-2">
+            <div className="mb-3 mx-4 rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-3 py-2 text-xs text-[color:var(--text)] flex flex-col gap-2">
               <div className="flex items-center justify-between gap-2">
                 <span className="font-semibold">
                   {followUpTag === "trial_soon" &&
@@ -7586,7 +7589,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
                     `Próxima acción · Suscripción · ${effectiveDaysLeft ?? daysLeft ?? ""} días`}
                   {followUpTag === "expired" && "Próxima acción · Acceso caducado"}
                 </span>
-                {accessGrantsLoading && <span className="text-[10px] text-slate-400">Actualizando...</span>}
+                {accessGrantsLoading && <span className="text-[10px] text-[color:var(--muted)]">Actualizando...</span>}
               </div>
               <div className="flex flex-wrap gap-2">
                 {followUpTemplates.map((tpl) => (
@@ -7594,7 +7597,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
                     key={tpl.id}
                     type="button"
                     onClick={() => fillMessage(tpl.text)}
-                    className="inline-flex items-center rounded-full border border-amber-400/80 bg-amber-500/10 px-3 py-1 text-[11px] font-medium text-amber-100 hover:bg-amber-500/20 transition"
+                    className="inline-flex items-center rounded-full border border-[color:rgba(245,158,11,0.8)] bg-[color:rgba(245,158,11,0.08)] px-3 py-1 text-[11px] font-medium text-[color:var(--text)] hover:bg-[color:rgba(245,158,11,0.16)] transition"
                   >
                     {tpl.label}
                   </button>
@@ -7615,23 +7618,23 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
             style={{ paddingBottom: messageListBottomPadding }}
           >
             {schemaError && (
-              <div className="mb-4 rounded-xl border border-rose-500/60 bg-rose-500/10 px-4 py-3 text-rose-100">
+              <div className="mb-4 rounded-xl border border-[color:rgba(244,63,94,0.6)] bg-[color:rgba(244,63,94,0.08)] px-4 py-3 text-[color:var(--text)]">
                 <div className="flex items-start justify-between gap-3">
                   <div>
                     <div className="text-sm font-semibold">DB fuera de sync</div>
-                    <p className="text-xs text-rose-100/80">{schemaError.message}</p>
+                    <p className="text-xs text-[color:var(--text)]">{schemaError.message}</p>
                   </div>
                   <button
                     type="button"
                     onClick={handleCopySchemaFix}
-                    className="rounded-full border border-rose-400/70 bg-rose-500/15 px-3 py-1 text-[11px] font-semibold text-rose-100 hover:bg-rose-500/30 transition"
+                    className="rounded-full border border-[color:rgba(244,63,94,0.7)] bg-[color:rgba(244,63,94,0.12)] px-3 py-1 text-[11px] font-semibold text-[color:var(--text)] hover:bg-[color:rgba(244,63,94,0.22)] transition"
                   >
                     {schemaCopyLabel}
                   </button>
                 </div>
-                <div className="mt-2 grid gap-1 text-[11px] text-rose-100/90">
+                <div className="mt-2 grid gap-1 text-[11px] text-[color:var(--text)]">
                   {schemaFixCommands.map((cmd) => (
-                    <code key={cmd} className="rounded-md bg-rose-950/50 px-2 py-1 font-mono">
+                    <code key={cmd} className="rounded-md bg-[color:rgba(244,63,94,0.08)] px-2 py-1 font-mono">
                       {cmd}
                     </code>
                   ))}
@@ -7679,7 +7682,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
                     <div className="flex justify-end">
                       <button
                         type="button"
-                        className="text-[11px] text-rose-300 hover:text-rose-200 underline"
+                        className="text-[11px] text-[color:var(--danger)] hover:text-[color:var(--danger)] underline"
                         onClick={() => {
                           if (retrySticker) {
                             void sendStickerMessage(retrySticker);
@@ -7699,11 +7702,11 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
               <div className="text-center text-[#aebac1] text-sm mt-2">Cargando mensajes...</div>
             )}
             {messagesError && !isLoadingMessages && (
-              <div className="text-center text-red-400 text-sm mt-2">{messagesError}</div>
+              <div className="text-center text-[color:var(--danger)] text-sm mt-2">{messagesError}</div>
             )}
             {inlineAction && (
               <div className="mt-3">
-                <div className="relative flex items-start gap-3 rounded-2xl border border-slate-800/60 bg-slate-950/70 px-4 py-3 text-xs text-slate-100 shadow-[0_8px_20px_rgba(0,0,0,0.25)] ring-1 ring-white/5 backdrop-blur">
+                <div className="relative flex items-start gap-3 rounded-2xl border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-4 py-3 text-xs text-[color:var(--text)] shadow-[0_8px_20px_rgba(0,0,0,0.25)] ring-1 ring-white/5 backdrop-blur">
                   <span
                     className={clsx(
                       "flex h-8 w-8 items-center justify-center rounded-full border text-base",
@@ -7715,9 +7718,9 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
                     ) : null}
                   </span>
                   <div className="flex min-w-0 flex-1 flex-col gap-0.5 pr-6">
-                    <div className="text-[12px] font-semibold text-slate-100">{inlineAction.title}</div>
+                    <div className="text-[12px] font-semibold text-[color:var(--text)]">{inlineAction.title}</div>
                     {inlineAction.detail && (
-                      <div className="text-[11px] text-slate-400 line-clamp-1">{inlineAction.detail}</div>
+                      <div className="text-[11px] text-[color:var(--muted)] line-clamp-1">{inlineAction.detail}</div>
                     )}
                   </div>
                   {inlineAction.undoLabel && (
@@ -7727,7 +7730,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
                         inlineAction.onUndo?.();
                         clearInlineAction();
                       }}
-                      className="inline-flex h-7 items-center justify-center rounded-full border border-slate-700 bg-slate-900/60 px-3 text-[11px] font-semibold text-slate-100 transition hover:border-slate-500/80 hover:bg-slate-800/80"
+                      className="inline-flex h-7 items-center justify-center rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-3 text-[11px] font-semibold text-[color:var(--text)] transition hover:border-[color:var(--surface-border-hover)] hover:bg-[color:var(--surface-2)]"
                     >
                       {inlineAction.undoLabel}
                     </button>
@@ -7735,7 +7738,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
                   <button
                     type="button"
                     onClick={clearInlineAction}
-                    className="absolute right-3 top-3 inline-flex h-6 w-6 items-center justify-center rounded-full text-slate-400 transition hover:bg-slate-800/80 hover:text-slate-100"
+                    className="absolute right-3 top-3 inline-flex h-6 w-6 items-center justify-center rounded-full text-[color:var(--muted)] transition hover:bg-[color:var(--surface-2)] hover:text-[color:var(--text)]"
                     aria-label="Cerrar aviso"
                   >
                     ✕
@@ -7746,28 +7749,28 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
           </div>
         </div>
         {process.env.NEXT_PUBLIC_DEBUG_CHAT === "1" && (
-          <div className="fixed bottom-2 right-2 text-[11px] text-slate-200 bg-slate-900/80 border border-slate-700 px-2 py-1 rounded">
+          <div className="fixed bottom-2 right-2 text-[11px] text-[color:var(--text)] bg-[color:var(--surface-1)] border border-[color:var(--surface-border)] px-2 py-1 rounded">
             fanId={id || "none"} | loading={String(isLoadingMessages)} | msgs={messages.length} | error={messagesError || "none"}
           </div>
         )}
         <div className="flex flex-col bg-[color:var(--surface-1)] w-full h-auto py-3 px-4 text-[color:var(--muted)] gap-3 flex-shrink-0 overflow-visible">
           {showExtraTemplates && (
-            <div className="flex flex-col gap-3 bg-slate-800/60 border border-slate-700 rounded-lg p-3 w-full">
+            <div className="flex flex-col gap-3 bg-[color:var(--surface-2)] border border-[color:var(--surface-border)] rounded-lg p-3 w-full">
               <div className="mb-1 flex items-center justify-between">
                 <div className="flex items-center justify-between gap-2">
                   <div className="flex flex-col">
-                    <h3 className="text-sm font-semibold text-white">Historial de ventas extra</h3>
-                    <p className="text-[11px] text-slate-400">Registra las ventas desde el modal de Extras PPV. Aquí solo ajustes manuales.</p>
+                    <h3 className="text-sm font-semibold text-[color:var(--text)]">Historial de ventas extra</h3>
+                    <p className="text-[11px] text-[color:var(--muted)]">Registra las ventas desde el modal de Extras PPV. Aquí solo ajustes manuales.</p>
                   </div>
                   <div className="flex items-center justify-between gap-2">
                     <div className="flex flex-col">
-                      <h3 className="text-sm font-semibold text-white">Historial de ventas extra</h3>
-                      <p className="text-[11px] text-slate-400">Registra las ventas desde el modal de Extras PPV. Aquí solo ajustes manuales.</p>
+                      <h3 className="text-sm font-semibold text-[color:var(--text)]">Historial de ventas extra</h3>
+                      <p className="text-[11px] text-[color:var(--muted)]">Registra las ventas desde el modal de Extras PPV. Aquí solo ajustes manuales.</p>
                     </div>
                     <div className="flex items-center gap-2">
-                      <div className="flex items-center gap-1 text-[11px] text-slate-300">
+                      <div className="flex items-center gap-1 text-[11px] text-[color:var(--muted)]">
                         <span>Modo</span>
-                        <div className="inline-flex rounded-full border border-slate-600 bg-slate-900">
+                        <div className="inline-flex rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-1)]">
                           {(["DAY", "NIGHT"] as TimeOfDayValue[]).map((val) => (
                             <button
                               key={val}
@@ -7776,8 +7779,8 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
                               className={clsx(
                                 "px-2 py-0.5 text-[11px] font-semibold rounded-full",
                                 timeOfDay === val
-                                  ? "bg-amber-500/20 text-amber-100 border border-amber-400/70"
-                                  : "text-slate-200"
+                                  ? "bg-[color:rgba(245,158,11,0.16)] text-[color:var(--text)] border border-[color:rgba(245,158,11,0.7)]"
+                                  : "text-[color:var(--text)]"
                               )}
                             >
                               {val === "DAY" ? "Día" : "Noche"}
@@ -7787,7 +7790,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
                       </div>
                       <button
                         type="button"
-                        className="rounded-full border border-slate-600 bg-slate-800/80 px-2 py-1 text-[11px] font-semibold text-slate-100 hover:bg-slate-700"
+                        className="rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-2 py-1 text-[11px] font-semibold text-[color:var(--text)] hover:bg-[color:var(--surface-2)]"
                         onClick={() => setOpenPanel("none")}
                       >
                         Cerrar
@@ -7797,12 +7800,12 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
                 </div>
               </div>
 
-              <div className="rounded-lg border border-slate-700 bg-slate-900/70 p-3 space-y-2">
+              <div className="rounded-lg border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] p-3 space-y-2">
                 <div className="flex items-center justify-between">
-                  <h4 className="text-sm font-semibold text-white">Historial de extras</h4>
-                  {isLoadingExtraHistory && <span className="text-[11px] text-slate-400">Cargando...</span>}
+                  <h4 className="text-sm font-semibold text-[color:var(--text)]">Historial de extras</h4>
+                  {isLoadingExtraHistory && <span className="text-[11px] text-[color:var(--muted)]">Cargando...</span>}
                 </div>
-                <div className="text-[11px] text-slate-400">
+                <div className="text-[11px] text-[color:var(--muted)]">
                   {(conversation.extrasCount ?? 0) > 0 ? (
                     <span>
                       {`Este fan te ha comprado ${conversation.extrasCount} extra${(conversation.extrasCount ?? 0) !== 1 ? "s" : ""} por un total de ${Math.round(conversation.extrasSpentTotal ?? 0)} €.`}
@@ -7811,9 +7814,9 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
                     <span>Todavía no has vendido extras a este fan.</span>
                   )}
                 </div>
-                {extraHistoryError && <div className="text-xs text-rose-300">{extraHistoryError}</div>}
+                {extraHistoryError && <div className="text-xs text-[color:var(--danger)]">{extraHistoryError}</div>}
                 {!extraHistoryError && extraHistory.length === 0 && (
-                  <div className="text-xs text-slate-400">Todavía no hay extras registrados para este fan.</div>
+                  <div className="text-xs text-[color:var(--muted)]">Todavía no hay extras registrados para este fan.</div>
                 )}
                 {!extraHistoryError && extraHistory.length > 0 && (
                   <div className="flex flex-col gap-2 max-h-64 overflow-y-auto">
@@ -7827,13 +7830,13 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
                       return (
                         <div
                           key={entry.id}
-                          className="rounded-md border border-slate-700 bg-slate-900/80 px-2 py-2 text-xs text-slate-200"
+                          className="rounded-md border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-2 py-2 text-xs text-[color:var(--text)]"
                         >
                           <div className="flex items-center justify-between">
                             <span className="font-semibold">{entry.contentItem?.title || "Extra"}</span>
-                            <span className="text-slate-400">{dateStr}</span>
+                            <span className="text-[color:var(--muted)]">{dateStr}</span>
                           </div>
-                          <div className="flex items-center gap-2 text-[11px] text-slate-300">
+                          <div className="flex items-center gap-2 text-[11px] text-[color:var(--muted)]">
                             <span>{session === "DAY" ? "Día" : session === "NIGHT" ? "Noche" : "Cualquiera"}</span>
                             <span>·</span>
                             <span>{`Tier ${tier}`}</span>
@@ -7845,25 +7848,25 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
                     })}
                   </div>
                 )}
-                <div className="pt-2 border-t border-slate-800 text-[11px] text-slate-400">
+                <div className="pt-2 border-t border-[color:var(--surface-border)] text-[11px] text-[color:var(--muted)]">
                   <div className="flex items-center justify-between">
                     <span>Ventas manuales</span>
                     <button
                       type="button"
-                      className="rounded-full border border-slate-600 bg-slate-800/80 px-3 py-1 text-[11px] font-semibold text-slate-100 hover:bg-slate-700"
+                      className="rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-3 py-1 text-[11px] font-semibold text-[color:var(--text)] hover:bg-[color:var(--surface-2)]"
                       onClick={() => setShowManualExtraForm((prev) => !prev)}
                     >
                       {showManualExtraForm ? "Cerrar" : "Añadir venta manual"}
                     </button>
                   </div>
-                  <p className="mt-1 text-[11px] text-slate-400">
+                  <p className="mt-1 text-[11px] text-[color:var(--muted)]">
                     Uso avanzado: registra ventas que no pasaron por el flujo de Manager IA.
                   </p>
                   {showManualExtraForm && (
-                    <div className="mt-2 space-y-2 rounded-lg border border-slate-700 bg-slate-900/70 p-3">
+                    <div className="mt-2 space-y-2 rounded-lg border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] p-3">
                       <div className="flex flex-col md:flex-row gap-2">
                         <select
-                          className="flex-1 rounded-lg bg-slate-900 border border-slate-700 px-3 py-2 text-xs text-slate-100"
+                          className="flex-1 rounded-lg bg-[color:var(--surface-1)] border border-[color:var(--surface-border)] px-3 py-2 text-xs text-[color:var(--text)]"
                           value={selectedExtraId}
                           onChange={(e) => {
                             const val = e.target.value;
@@ -7894,7 +7897,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
                         </select>
                         <input
                           type="number"
-                          className="w-32 rounded-lg bg-slate-900 border border-slate-700 px-3 py-2 text-xs text-slate-100"
+                          className="w-32 rounded-lg bg-[color:var(--surface-1)] border border-[color:var(--surface-border)] px-3 py-2 text-xs text-[color:var(--text)]"
                           value={extraAmount}
                           onChange={(e) => setExtraAmount(e.target.value === "" ? "" : Number(e.target.value))}
                           placeholder="Importe"
@@ -7940,18 +7943,18 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
                           Registrar extra
                         </button>
                       </div>
-                      {extraError && <div className="text-[11px] text-rose-300">{extraError}</div>}
+                      {extraError && <div className="text-[11px] text-[color:var(--danger)]">{extraError}</div>}
                     </div>
                   )}
                 </div>
               </div>
 
-              <div className="rounded-lg border border-slate-700 bg-slate-900/70 p-3 space-y-2">
+              <div className="rounded-lg border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] p-3 space-y-2">
                 <div className="flex items-center justify-between">
-                  <h4 className="text-sm font-semibold text-white">Historial de extras</h4>
-                  {isLoadingExtraHistory && <span className="text-[11px] text-slate-400">Cargando...</span>}
+                  <h4 className="text-sm font-semibold text-[color:var(--text)]">Historial de extras</h4>
+                  {isLoadingExtraHistory && <span className="text-[11px] text-[color:var(--muted)]">Cargando...</span>}
                 </div>
-                <div className="text-[11px] text-slate-400">
+                <div className="text-[11px] text-[color:var(--muted)]">
                   {(conversation.extrasCount ?? 0) > 0 ? (
                     <span>
                       {`Este fan te ha comprado ${conversation.extrasCount} extra${(conversation.extrasCount ?? 0) !== 1 ? "s" : ""} por un total de ${Math.round(conversation.extrasSpentTotal ?? 0)} €.`}
@@ -7960,9 +7963,9 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
                     <span>Todavía no has vendido extras a este fan.</span>
                   )}
                 </div>
-                {extraHistoryError && <div className="text-xs text-rose-300">{extraHistoryError}</div>}
+                {extraHistoryError && <div className="text-xs text-[color:var(--danger)]">{extraHistoryError}</div>}
                 {!extraHistoryError && extraHistory.length === 0 && (
-                  <div className="text-xs text-slate-400">Todavía no hay extras registrados para este fan.</div>
+                  <div className="text-xs text-[color:var(--muted)]">Todavía no hay extras registrados para este fan.</div>
                 )}
                 {!extraHistoryError && extraHistory.length > 0 && (
                   <div className="flex flex-col gap-2 max-h-64 overflow-y-auto">
@@ -7976,13 +7979,13 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
                       return (
                         <div
                           key={entry.id}
-                          className="rounded-md border border-slate-700 bg-slate-900/80 px-2 py-2 text-xs text-slate-200"
+                          className="rounded-md border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-2 py-2 text-xs text-[color:var(--text)]"
                         >
                           <div className="flex items-center justify-between">
                             <span className="font-semibold">{entry.contentItem?.title || "Extra"}</span>
-                            <span className="text-slate-400">{dateStr}</span>
+                            <span className="text-[color:var(--muted)]">{dateStr}</span>
                           </div>
-                          <div className="flex items-center gap-2 text-[11px] text-slate-300">
+                          <div className="flex items-center gap-2 text-[11px] text-[color:var(--muted)]">
                             <span>{session === "DAY" ? "Día" : session === "NIGHT" ? "Noche" : "Cualquiera"}</span>
                             <span>·</span>
                             <span>{`Tier ${tier}`}</span>
@@ -8056,7 +8059,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
           >
             <div
               className={clsx(
-                "flex items-center gap-2 rounded-full border border-slate-800/80 bg-slate-950/95 px-3 py-2 shadow-xl",
+                "flex items-center gap-2 rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-3 py-2 shadow-xl",
                 "whitespace-nowrap overflow-x-auto",
                 "[-ms-overflow-style:'none'] [scrollbar-width:'none'] [&::-webkit-scrollbar]:hidden"
               )}
@@ -8065,7 +8068,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
                 type="button"
                 onClick={handleSelectionQuote}
                 onPointerDown={handleToolbarPointerDown}
-                className="inline-flex items-center gap-1 rounded-full border border-slate-700/80 bg-slate-900/70 px-3 py-1 text-[11px] font-semibold text-slate-100 hover:bg-slate-800/70"
+                className="inline-flex items-center gap-1 rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-3 py-1 text-[11px] font-semibold text-[color:var(--text)] hover:bg-[color:var(--surface-2)]"
               >
                 Citar al Manager
               </button>
@@ -8073,7 +8076,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
                 type="button"
                 onClick={handleSelectionRephrase}
                 onPointerDown={handleToolbarPointerDown}
-                className="inline-flex items-center gap-1 rounded-full border border-slate-700/80 bg-slate-900/70 px-3 py-1 text-[11px] font-semibold text-slate-100 hover:bg-slate-800/70"
+                className="inline-flex items-center gap-1 rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-3 py-1 text-[11px] font-semibold text-[color:var(--text)] hover:bg-[color:var(--surface-2)]"
               >
                 Reformular
               </button>
@@ -8081,7 +8084,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
                 type="button"
                 onClick={handleSelectionCopy}
                 onPointerDown={handleToolbarPointerDown}
-                className="inline-flex items-center gap-1 rounded-full border border-slate-700/80 bg-slate-900/70 px-3 py-1 text-[11px] font-semibold text-slate-100 hover:bg-slate-800/70"
+                className="inline-flex items-center gap-1 rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-3 py-1 text-[11px] font-semibold text-[color:var(--text)] hover:bg-[color:var(--surface-2)]"
               >
                 Copiar
               </button>
@@ -8089,7 +8092,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
                 type="button"
                 onClick={handleSelectionSaveProfile}
                 onPointerDown={handleToolbarPointerDown}
-                className="inline-flex items-center gap-1 rounded-full border border-amber-400/70 bg-amber-500/10 px-3 py-1 text-[11px] font-semibold text-amber-100 hover:bg-amber-500/20"
+                className="inline-flex items-center gap-1 rounded-full border border-[color:rgba(245,158,11,0.7)] bg-[color:rgba(245,158,11,0.08)] px-3 py-1 text-[11px] font-semibold text-[color:var(--text)] hover:bg-[color:rgba(245,158,11,0.16)]"
               >
                 Guardar en Perfil
               </button>
@@ -8107,9 +8110,9 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
       )}
       {pendingInsert && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4">
-          <div className="w-full max-w-sm rounded-2xl border border-slate-800/80 bg-slate-950/95 p-4 shadow-2xl">
-            <div className="text-sm font-semibold text-slate-100">Ya tienes un mensaje escrito</div>
-            <div className="mt-1 text-[11px] text-slate-400">
+          <div className="w-full max-w-sm rounded-2xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] p-4 shadow-2xl">
+            <div className="text-sm font-semibold text-[color:var(--text)]">Ya tienes un mensaje escrito</div>
+            <div className="mt-1 text-[11px] text-[color:var(--muted)]">
               ¿Cómo quieres insertar esta sugerencia?
             </div>
             <div className="mt-4 flex flex-col gap-2">
@@ -8129,7 +8132,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
                   applyComposerInsert(pendingInsert.text, "prepend", pendingInsert.detail);
                   setPendingInsert(null);
                 }}
-                className="inline-flex w-full items-center justify-center rounded-full border border-slate-700/70 bg-slate-900/60 px-4 py-2 text-[12px] font-semibold text-slate-100 hover:bg-slate-800/70"
+                className="inline-flex w-full items-center justify-center rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-4 py-2 text-[12px] font-semibold text-[color:var(--text)] hover:bg-[color:var(--surface-2)]"
               >
                 Añadir arriba
               </button>
@@ -8139,14 +8142,14 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
                   applyComposerInsert(pendingInsert.text, "replace", pendingInsert.detail);
                   setPendingInsert(null);
                 }}
-                className="inline-flex w-full items-center justify-center rounded-full border border-amber-400/70 bg-amber-500/10 px-4 py-2 text-[12px] font-semibold text-amber-100 hover:bg-amber-500/20"
+                className="inline-flex w-full items-center justify-center rounded-full border border-[color:rgba(245,158,11,0.7)] bg-[color:rgba(245,158,11,0.08)] px-4 py-2 text-[12px] font-semibold text-[color:var(--text)] hover:bg-[color:rgba(245,158,11,0.16)]"
               >
                 Reemplazar
               </button>
               <button
                 type="button"
                 onClick={() => setPendingInsert(null)}
-                className="mt-1 inline-flex w-full items-center justify-center rounded-full border border-slate-700/70 bg-transparent px-4 py-2 text-[12px] font-semibold text-slate-300 hover:bg-slate-900/40"
+                className="mt-1 inline-flex w-full items-center justify-center rounded-full border border-[color:var(--surface-border)] bg-transparent px-4 py-2 text-[12px] font-semibold text-[color:var(--muted)] hover:bg-[color:var(--surface-2)]"
               >
                 Cancelar
               </button>
@@ -8156,18 +8159,18 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
       )}
       {showContentModal && (
         <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 px-4">
-          <div className="w-full max-w-lg rounded-2xl bg-slate-900 p-6 border border-slate-800 shadow-xl">
+          <div className="w-full max-w-lg rounded-2xl bg-[color:var(--surface-1)] p-6 border border-[color:var(--surface-border)] shadow-xl">
             <div className="flex items-center justify-between mb-2">
               <div>
-                <h3 className="text-lg font-semibold text-white">Adjuntar contenido</h3>
-                <p className="text-sm text-slate-300">
+                <h3 className="text-lg font-semibold text-[color:var(--text)]">Adjuntar contenido</h3>
+                <p className="text-sm text-[color:var(--muted)]">
                   {contentModalMode === "catalog"
                     ? "Elige un item del catalogo para insertar en el mensaje."
                     : "Elige que quieres enviar a este fan segun sus packs."}
                 </p>
               </div>
               <div className="flex items-center gap-2">
-                <div className="inline-flex rounded-full border border-slate-700 bg-slate-800/60 p-1">
+                <div className="inline-flex rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] p-1">
                   {(["packs", "extras", "catalog"] as const).map((mode) => {
                     const isActive = contentModalMode === mode;
                     return (
@@ -8178,7 +8181,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
                           "px-3 py-1 text-[11px] font-semibold rounded-full transition",
                           isActive
                             ? "bg-[color:rgba(var(--brand-rgb),0.18)] text-[color:var(--text)] border border-[color:var(--brand)]"
-                            : "text-slate-200"
+                            : "text-[color:var(--text)]"
                         )}
                         onClick={() => setContentModalMode(mode)}
                       >
@@ -8198,17 +8201,17 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
                   setRegisterExtrasSource(null);
                   setTransactionPrices({});
                 }}
-                className="text-slate-400 hover:text-white"
+                className="text-[color:var(--muted)] hover:text-[color:var(--text)]"
               >
                 ✕
               </button>
               </div>
             </div>
             {contentModalMode === "extras" && (
-              <div className="flex flex-wrap items-center gap-3 mb-2 text-[11px] text-slate-300">
+              <div className="flex flex-wrap items-center gap-3 mb-2 text-[11px] text-[color:var(--muted)]">
                 <div className="flex items-center gap-1">
                   <span>Momento</span>
-                  <div className="inline-flex rounded-full border border-slate-600 bg-slate-900">
+                  <div className="inline-flex rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-1)]">
                     {(["day", "night"] as TimeOfDayFilter[]).map((val) => (
                       <button
                         key={val}
@@ -8218,7 +8221,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
                           "px-2 py-1 rounded-full",
                           timeOfDayFilter === val
                             ? "bg-[color:rgba(var(--brand-rgb),0.18)] text-[color:var(--text)] border border-[color:var(--brand)]"
-                            : "text-slate-200"
+                            : "text-[color:var(--text)]"
                         )}
                       >
                         {val === "day" ? "Día" : "Noche"}
@@ -8231,7 +8234,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
                         "px-2 py-1 rounded-full",
                         timeOfDayFilter === "all"
                           ? "bg-[color:rgba(var(--brand-rgb),0.18)] text-[color:var(--text)] border border-[color:var(--brand)]"
-                          : "text-slate-200"
+                          : "text-[color:var(--text)]"
                       )}
                     >
                       Todos
@@ -8241,7 +8244,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
                 <label className="flex items-center gap-1">
                   <span>Tier</span>
                   <select
-                    className="rounded-md bg-slate-800 border border-slate-700 px-2 py-1 text-xs text-white"
+                    className="rounded-md bg-[color:var(--surface-2)] border border-[color:var(--surface-border)] px-2 py-1 text-xs text-[color:var(--text)]"
                     value={extraTierFilter ?? ""}
                     onChange={(e) =>
                       setExtraTierFilter(e.target.value === "" ? null : (e.target.value as any))
@@ -8259,7 +8262,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
             )}
             <div className="mt-3 flex flex-col gap-3 max-h-[60vh] overflow-y-auto">
               {contentError && contentModalMode !== "catalog" && (
-                <div className="text-sm text-rose-300">No se ha podido cargar la informacion de packs.</div>
+                <div className="text-sm text-[color:var(--danger)]">No se ha podido cargar la informacion de packs.</div>
               )}
               {!contentError && contentModalMode === "packs" && CONTENT_PACKS.map((packMeta) => {
                   const isUnlocked =
@@ -8275,12 +8278,12 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
                     : "Pack superior (no incluido)";
                   const badgeClass = isUnlocked
                     ? "border-[color:var(--brand)] text-[color:var(--brand)] bg-[color:rgba(var(--brand-rgb),0.1)]"
-                    : "border-slate-600 text-slate-300";
+                    : "border-[color:var(--surface-border)] text-[color:var(--muted)]";
                   const packItems = contentItems.filter((item) => item.pack === packMeta.code);
                   return (
                     <div
                       key={packMeta.code}
-                      className="rounded-xl border border-slate-800 bg-slate-900/70 p-3"
+                      className="rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] p-3"
                       ref={contentModalPackFocus === packMeta.code ? (el) => {
                         if (el && showContentModal && contentModalMode === "packs") {
                           el.scrollIntoView({ behavior: "smooth", block: "start" });
@@ -8288,7 +8291,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
                       } : undefined}
                     >
                       <div className="flex flex-wrap items-center justify-between gap-2">
-                        <div className="text-sm font-semibold text-white">{packMeta.label}</div>
+                        <div className="text-sm font-semibold text-[color:var(--text)]">{packMeta.label}</div>
                         <div className="flex items-center gap-2">
                           <span className={clsx("inline-flex items-center rounded-full px-2 py-0.5 text-[11px] border", badgeClass)}>
                             {badgeText}
@@ -8296,7 +8299,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
                           {!isUnlocked && packMeta.code === "MONTHLY" && canOfferMonthly && (
                             <button
                               type="button"
-                              className="text-[11px] font-semibold text-amber-200 underline-offset-2 hover:underline"
+                              className="text-[11px] font-semibold text-[color:var(--warning)] underline-offset-2 hover:underline"
                               onClick={() => handleOfferPack("monthly")}
                             >
                               Ofrecer suscripción mensual
@@ -8305,7 +8308,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
                           {!isUnlocked && packMeta.code === "SPECIAL" && canOfferSpecial && (
                             <button
                               type="button"
-                              className="text-[11px] font-semibold text-amber-200 underline-offset-2 hover:underline"
+                              className="text-[11px] font-semibold text-[color:var(--warning)] underline-offset-2 hover:underline"
                               onClick={() => handleOfferPack("special")}
                             >
                               Ofrecer Pack especial
@@ -8314,7 +8317,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
                         </div>
                       </div>
                       {contentLoading && packItems.length === 0 && (
-                        <div className="text-xs text-slate-400 mt-2">Cargando contenidos…</div>
+                        <div className="text-xs text-[color:var(--muted)] mt-2">Cargando contenidos…</div>
                       )}
                       <div className="mt-2 flex flex-col gap-2">
                         {packItems.map((item) => {
@@ -8327,10 +8330,10 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
                               className={clsx(
                                 "flex items-center justify-between rounded-lg border px-3 py-2 text-sm",
                                 locked
-                                  ? "border-slate-800 bg-slate-900/40 text-slate-500 cursor-not-allowed opacity-60"
+                                  ? "border-[color:var(--surface-border)] bg-[color:var(--surface-2)] text-[color:var(--text)]0 cursor-not-allowed opacity-60"
                                   : selected
-                                  ? "border-amber-400 bg-amber-500/10 text-amber-100"
-                                  : "border-slate-800 bg-slate-900/80 text-slate-100 hover:border-amber-400/60"
+                                  ? "border-[color:var(--warning)] bg-[color:rgba(245,158,11,0.08)] text-[color:var(--text)]"
+                                  : "border-[color:var(--surface-border)] bg-[color:var(--surface-1)] text-[color:var(--text)] hover:border-[color:rgba(245,158,11,0.6)]"
                               )}
                             >
                               <div className="flex items-center gap-2">
@@ -8355,22 +8358,22 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
                                       prev.includes(item.id) ? prev.filter((id) => id !== item.id) : [...prev, item.id]
                                     );
                                   }}
-                                  className="h-4 w-4 accent-amber-400"
+                                  className="h-4 w-4 accent-[color:var(--warning)]"
                                 />
                               )}
                             </label>
                           );
                         })}
                         {!contentLoading && packItems.length === 0 && (
-                          <div className="text-xs text-slate-500">No hay contenidos en este pack.</div>
+                          <div className="text-xs text-[color:var(--text)]0">No hay contenidos en este pack.</div>
                         )}
                       </div>
                     </div>
                   );
                 })}
               {!contentError && contentModalMode === "extras" && (
-                <div className="rounded-xl border border-slate-800 bg-slate-900/70 p-3 space-y-2">
-                  <div className="text-sm font-semibold text-white">Extras PPV</div>
+                <div className="rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] p-3 space-y-2">
+                  <div className="text-sm font-semibold text-[color:var(--text)]">Extras PPV</div>
                   <div className="mt-2 flex flex-col gap-2">
                     {contentItems
                       .filter((item) => {
@@ -8394,8 +8397,8 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
                             className={clsx(
                               "flex items-center justify-between rounded-lg border px-3 py-2 text-sm",
                               selected
-                                ? "border-amber-400 bg-amber-500/10 text-amber-100"
-                                : "border-slate-800 bg-slate-900/80 text-slate-100 hover:border-amber-400/60"
+                                ? "border-[color:var(--warning)] bg-[color:rgba(245,158,11,0.08)] text-[color:var(--text)]"
+                                : "border-[color:var(--surface-border)] bg-[color:var(--surface-1)] text-[color:var(--text)] hover:border-[color:rgba(245,158,11,0.6)]"
                             )}
                           >
                             <div className="flex flex-col gap-1">
@@ -8408,7 +8411,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
                                   </span>
                                 )}
                               </div>
-                              <div className="text-[11px] text-slate-400 flex items-center gap-2">
+                              <div className="text-[11px] text-[color:var(--muted)] flex items-center gap-2">
                                 <span>{item.extraTier ?? "T?"}</span>
                                 <span>·</span>
                                 <span>
@@ -8429,10 +8432,10 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
                                     setTransactionPrices((prev) => ({ ...prev, [item.id]: defaultPrice }));
                                   }
                                 }}
-                                className="h-4 w-4 accent-amber-400"
+                                className="h-4 w-4 accent-[color:var(--warning)]"
                               />
                               {selected && (
-                                <div className="mt-1 flex items-center gap-1 text-xs text-slate-200">
+                                <div className="mt-1 flex items-center gap-1 text-xs text-[color:var(--text)]">
                                   <span>Precio:</span>
                                   <input
                                     type="number"
@@ -8451,7 +8454,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
                                         setTransactionPrices((prev) => ({ ...prev, [item.id]: val }));
                                       }
                                     }}
-                                    className="w-20 rounded bg-slate-800 border border-slate-700 px-2 py-1 text-right text-xs text-white"
+                                    className="w-20 rounded bg-[color:var(--surface-2)] border border-[color:var(--surface-border)] px-2 py-1 text-right text-xs text-[color:var(--text)]"
                                   />
                                   <span>€</span>
                                 </div>
@@ -8462,21 +8465,21 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
                       })}
                     {!contentLoading &&
                       contentItems.filter((item) => item.isExtra === true || item.visibility === "EXTRA").length === 0 && (
-                        <div className="text-xs text-slate-500">No hay extras PPV todavía.</div>
+                        <div className="text-xs text-[color:var(--text)]0">No hay extras PPV todavía.</div>
                       )}
                   </div>
                 </div>
               )}
               {contentModalMode === "catalog" && (
-                <div className="rounded-xl border border-slate-800 bg-slate-900/70 p-3 space-y-3">
+                <div className="rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] p-3 space-y-3">
                   <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                     <input
                       value={catalogSearch}
                       onChange={(event) => setCatalogSearch(event.target.value)}
                       placeholder="Buscar..."
-                      className="w-full sm:max-w-[240px] rounded-md border border-slate-700 bg-slate-900 px-3 py-2 text-xs text-white placeholder:text-slate-500"
+                      className="w-full sm:max-w-[240px] rounded-md border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-3 py-2 text-xs text-[color:var(--text)] placeholder:text-[color:var(--text)]0"
                     />
-                    <div className="inline-flex rounded-full border border-slate-700 bg-slate-800/60 p-1 text-[10px] font-semibold">
+                    <div className="inline-flex rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] p-1 text-[10px] font-semibold">
                       {([
                         { id: "all", label: "Todos" },
                         { id: "EXTRA", label: "Extras" },
@@ -8493,7 +8496,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
                               "px-3 py-1 rounded-full transition",
                               isActive
                                 ? "bg-[color:rgba(var(--brand-rgb),0.18)] text-[color:var(--text)] border border-[color:var(--brand)]"
-                                : "text-slate-200"
+                                : "text-[color:var(--text)]"
                             )}
                           >
                             {entry.label}
@@ -8502,10 +8505,10 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
                       })}
                     </div>
                   </div>
-                  {catalogLoading && <div className="text-xs text-slate-400">Cargando catalogo...</div>}
-                  {catalogError && <div className="text-xs text-rose-300">{catalogError}</div>}
+                  {catalogLoading && <div className="text-xs text-[color:var(--muted)]">Cargando catalogo...</div>}
+                  {catalogError && <div className="text-xs text-[color:var(--danger)]">{catalogError}</div>}
                   {!catalogLoading && !catalogError && filteredCatalogItems.length === 0 && (
-                    <div className="rounded-lg border border-slate-800/70 bg-slate-950/60 px-3 py-3 text-xs text-slate-400 space-y-2">
+                    <div className="rounded-lg border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-3 py-3 text-xs text-[color:var(--muted)] space-y-2">
                       <div>No tienes catalogo aun. Ve a Cortex → Catalogo para crear items.</div>
                       <button
                         type="button"
@@ -8525,12 +8528,12 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
                         return (
                           <div
                             key={item.id}
-                            className="rounded-lg border border-slate-800 bg-slate-900/80 px-3 py-2 text-sm text-slate-100"
+                            className="rounded-lg border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-3 py-2 text-sm text-[color:var(--text)]"
                           >
                             <div className="flex items-start justify-between gap-3">
                               <div className="min-w-0">
                                 <div className="flex flex-wrap items-center gap-2">
-                                  <span className="rounded-full border border-slate-700/70 bg-slate-950/70 px-2 py-0.5 text-[10px] font-semibold text-slate-200">
+                                  <span className="rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-2 py-0.5 text-[10px] font-semibold text-[color:var(--text)]">
                                     {item.type}
                                   </span>
                                   <span
@@ -8538,7 +8541,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
                                       "rounded-full border px-2 py-0.5 text-[10px] font-semibold",
                                       item.isActive
                                         ? "border-[color:rgba(var(--brand-rgb),0.5)] bg-[color:rgba(var(--brand-rgb),0.12)] text-[color:var(--text)]"
-                                        : "border-slate-700/70 bg-slate-950/60 text-slate-300"
+                                        : "border-[color:var(--surface-border)] bg-[color:var(--surface-2)] text-[color:var(--muted)]"
                                     )}
                                   >
                                     {item.isActive ? "Activo" : "Inactivo"}
@@ -8548,22 +8551,22 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
                                       "rounded-full border px-2 py-0.5 text-[10px] font-semibold",
                                       item.isPublic
                                         ? "border-[color:rgba(var(--brand-rgb),0.5)] bg-[color:rgba(var(--brand-rgb),0.12)] text-[color:var(--text)]"
-                                        : "border-slate-700/70 bg-slate-950/60 text-slate-300"
+                                        : "border-[color:var(--surface-border)] bg-[color:var(--surface-2)] text-[color:var(--muted)]"
                                     )}
                                   >
                                     {item.isPublic ? "Publico" : "Oculto"}
                                   </span>
                                 </div>
-                                <div className="mt-1 text-[13px] font-semibold text-slate-100 truncate">{item.title}</div>
+                                <div className="mt-1 text-[13px] font-semibold text-[color:var(--text)] truncate">{item.title}</div>
                                 {item.description && (
-                                  <div className="text-[11px] text-slate-400 truncate">{item.description}</div>
+                                  <div className="text-[11px] text-[color:var(--muted)] truncate">{item.description}</div>
                                 )}
                                 {includesPreview && (
-                                  <div className="text-[11px] text-slate-500 truncate">{includesPreview}</div>
+                                  <div className="text-[11px] text-[color:var(--text)]0 truncate">{includesPreview}</div>
                                 )}
                               </div>
                               <div className="flex flex-col items-end gap-2">
-                                <span className="text-[12px] font-semibold text-slate-100">
+                                <span className="text-[12px] font-semibold text-[color:var(--text)]">
                                   {formatCatalogPriceCents(item.priceCents, item.currency)}
                                 </span>
                                 <button
@@ -8584,23 +8587,23 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
               )}
             </div>
             {contentModalMode === "extras" && selectedContentIds.length > 0 && (
-              <div className="mt-3 flex items-center justify-between gap-2 rounded-lg border border-slate-800 bg-slate-900/70 px-3 py-2">
-                <label className="flex items-center gap-2 text-xs text-slate-100">
+              <div className="mt-3 flex items-center justify-between gap-2 rounded-lg border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-3 py-2">
+                <label className="flex items-center gap-2 text-xs text-[color:var(--text)]">
                   <input
                     type="checkbox"
-                    className="h-4 w-4 accent-amber-400"
+                    className="h-4 w-4 accent-[color:var(--warning)]"
                     checked={registerExtrasChecked}
                     onChange={(e) => setRegisterExtrasChecked(e.target.checked)}
                   />
                   <span>Registrar esta venta en &quot;Ventas extra&quot;</span>
                 </label>
-                <span className="text-[11px] text-slate-400">Total: {Math.round(selectedExtrasTotal)} €</span>
+                <span className="text-[11px] text-[color:var(--muted)]">Total: {Math.round(selectedExtrasTotal)} €</span>
               </div>
             )}
             <div className="mt-3 flex items-center justify-end gap-2">
               <button
                 type="button"
-                className="rounded-full border border-slate-600 bg-slate-800/80 px-3 py-1 text-xs font-semibold text-slate-100 hover:bg-slate-700"
+                className="rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-3 py-1 text-xs font-semibold text-[color:var(--text)] hover:bg-[color:var(--surface-2)]"
                 onClick={() => {
                   setShowContentModal(false);
                   setSelectedContentIds([]);
@@ -8619,8 +8622,8 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
                   className={clsx(
                     "rounded-full border px-3 py-1.5 text-xs font-semibold transition",
                     selectedContentIds.length === 0 || !!contentError
-                      ? "border-slate-700 bg-slate-800/60 text-slate-500 cursor-not-allowed"
-                      : "border-amber-400 bg-amber-500/10 text-amber-100 hover:bg-amber-500/20"
+                      ? "border-[color:var(--surface-border)] bg-[color:var(--surface-2)] text-[color:var(--text)]0 cursor-not-allowed"
+                      : "border-[color:var(--warning)] bg-[color:rgba(245,158,11,0.08)] text-[color:var(--text)] hover:bg-[color:rgba(245,158,11,0.16)]"
                   )}
                   onClick={async () => {
                     if (selectedContentIds.length === 0) return;
@@ -8675,23 +8678,23 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
       )}
       {duplicateConfirm && (
         <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 px-4">
-          <div className="w-full max-w-sm rounded-2xl border border-slate-800 bg-slate-900 p-6 shadow-xl">
-            <h3 className="text-lg font-semibold text-white">Este mensaje se parece mucho al anterior</h3>
-            <p className="mt-2 text-sm text-slate-300">
+          <div className="w-full max-w-sm rounded-2xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] p-6 shadow-xl">
+            <h3 className="text-lg font-semibold text-[color:var(--text)]">Este mensaje se parece mucho al anterior</h3>
+            <p className="mt-2 text-sm text-[color:var(--muted)]">
               Puede sonar repetido. ¿Quieres enviarlo igualmente?
             </p>
             <div className="mt-4 flex items-center justify-end gap-2">
               <button
                 type="button"
                 onClick={() => setDuplicateConfirm(null)}
-                className="rounded-full border border-slate-700 bg-slate-900/60 px-4 py-2 text-sm font-semibold text-slate-200 hover:border-slate-500/80 hover:bg-slate-800/70"
+                className="rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-4 py-2 text-sm font-semibold text-[color:var(--text)] hover:border-[color:var(--surface-border-hover)] hover:bg-[color:var(--surface-1)]"
               >
                 Cancelar
               </button>
               <button
                 type="button"
                 onClick={handleDuplicateRephrase}
-                className="rounded-full border border-amber-400/70 bg-amber-500/10 px-4 py-2 text-sm font-semibold text-amber-100 hover:bg-amber-500/20"
+                className="rounded-full border border-[color:rgba(245,158,11,0.7)] bg-[color:rgba(245,158,11,0.08)] px-4 py-2 text-sm font-semibold text-[color:var(--text)] hover:bg-[color:rgba(245,158,11,0.16)]"
               >
                 Reformular para variar
               </button>
@@ -8707,14 +8710,14 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
         </div>
       )}
       {showQuickSheet && (
-        <div className="fixed inset-0 z-40 flex items-end justify-center bg-slate-950/60 backdrop-blur-sm">
-          <div className="w-full max-w-md rounded-t-3xl bg-slate-900 border border-slate-700 shadow-xl p-5 space-y-5">
+        <div className="fixed inset-0 z-40 flex items-end justify-center bg-[color:var(--surface-overlay)] backdrop-blur-sm">
+          <div className="w-full max-w-md rounded-t-3xl bg-[color:var(--surface-1)] border border-[color:var(--surface-border)] shadow-xl p-5 space-y-5">
             <div className="flex items-center justify-between gap-3">
-              <h2 className="text-sm font-semibold text-slate-300">Ficha rápida</h2>
+              <h2 className="text-sm font-semibold text-[color:var(--muted)]">Ficha rápida</h2>
               <button
                 type="button"
                 onClick={() => setShowQuickSheet(false)}
-                className="inline-flex items-center justify-center rounded-full p-1.5 hover:bg-slate-800 text-slate-200"
+                className="inline-flex items-center justify-center rounded-full p-1.5 hover:bg-[color:var(--surface-2)] text-[color:var(--text)]"
               >
                 <span className="sr-only">Cerrar</span>
                 ✕
@@ -8725,25 +8728,25 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
               <Avatar width="w-10" height="h-10" image={image} />
               <div className="flex flex-col gap-1 min-w-0">
                 <div className="flex items-center gap-2 min-w-0">
-                  <div className="text-base font-semibold text-slate-50 truncate">{contactName}</div>
+                  <div className="text-base font-semibold text-[color:var(--text)] truncate">{contactName}</div>
                   <button
                     type="button"
                     onClick={handleOpenEditName}
-                    className="inline-flex items-center gap-1 rounded-full border border-slate-700 bg-slate-800/70 px-2 py-0.5 text-[11px] text-slate-200 hover:border-[color:var(--brand)] hover:text-[color:var(--text)]"
+                    className="inline-flex items-center gap-1 rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-2 py-0.5 text-[11px] text-[color:var(--text)] hover:border-[color:var(--brand)]"
                   >
                     <IconGlyph name="edit" className="h-3.5 w-3.5" />
                     <span>Editar</span>
                   </button>
                 </div>
                 <div className="flex flex-wrap gap-2 text-[11px]">
-                  <span className="inline-flex items-center rounded-full bg-slate-800/80 text-amber-200 px-2 py-[1px]">
+                  <span className="inline-flex items-center rounded-full bg-[color:var(--surface-2)] text-[color:var(--warning)] px-2 py-[1px]">
                     {packLabel}
                   </span>
-                  <span className="inline-flex items-center rounded-full bg-slate-800/80 text-slate-200 px-2 py-[1px]">
+                  <span className="inline-flex items-center rounded-full bg-[color:var(--surface-2)] text-[color:var(--text)] px-2 py-[1px]">
                     {formatTier(conversation.customerTier)}
                   </span>
                   {conversation.isHighPriority && (
-                    <span className="inline-flex items-center rounded-full bg-amber-500/20 text-amber-200 px-2 py-[1px]">
+                    <span className="inline-flex items-center rounded-full bg-[color:rgba(245,158,11,0.16)] text-[color:var(--warning)] px-2 py-[1px]">
                       <span className="inline-flex items-center gap-1">
                         <IconGlyph name="pin" className="h-3 w-3" />
                         <span>Alta prioridad</span>
@@ -8761,18 +8764,18 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
 
             <div className="space-y-3 text-sm">
               <div className="flex items-center justify-between">
-                <span className="text-slate-400">Total gastado</span>
-                <span className="font-semibold text-slate-50">{Math.round(lifetimeAmount)} €</span>
+                <span className="text-[color:var(--muted)]">Total gastado</span>
+                <span className="font-semibold text-[color:var(--text)]">{Math.round(lifetimeAmount)} €</span>
               </div>
               <div className="flex items-center justify-between">
-                <span className="text-slate-400">Extras</span>
-                <span className="font-medium text-slate-50">
+                <span className="text-[color:var(--muted)]">Extras</span>
+                <span className="font-medium text-[color:var(--text)]">
                   {extrasCountDisplay} extra{extrasCountDisplay === 1 ? "" : "s"} · {extrasSpentDisplay} €
                 </span>
               </div>
               <div className="flex items-center justify-between">
-                <span className="text-slate-400">Propinas</span>
-                <span className="font-medium text-slate-50">
+                <span className="text-[color:var(--muted)]">Propinas</span>
+                <span className="font-medium text-[color:var(--text)]">
                   {tipsCountDisplay === null || tipsSpentDisplay === null
                     ? "—"
                     : `${tipsCountDisplay} propina${tipsCountDisplay === 1 ? "" : "s"} · ${tipsSpentDisplay} €`}
@@ -8780,8 +8783,8 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
               </div>
               {showGiftsRow && (
                 <div className="flex items-center justify-between">
-                  <span className="text-slate-400">Regalos</span>
-                  <span className="font-medium text-slate-50">
+                  <span className="text-[color:var(--muted)]">Regalos</span>
+                  <span className="font-medium text-[color:var(--text)]">
                     {giftsCountDisplay === null
                       ? `${giftsSpentDisplay} €`
                       : `${giftsCountDisplay} regalo${giftsCountDisplay === 1 ? "" : "s"} · ${giftsSpentDisplay} €`}
@@ -8789,7 +8792,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
                 </div>
               )}
               <div className="flex items-center justify-between gap-3">
-                <span className="text-slate-400">Idioma</span>
+                <span className="text-[color:var(--muted)]">Idioma</span>
                 <select
                   value={languageSelectValue}
                   onChange={(event) => {
@@ -8798,7 +8801,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
                     handlePreferredLanguageChange(value as SupportedLanguage);
                   }}
                   disabled={preferredLanguageSaving}
-                  className="rounded-full border border-slate-700 bg-slate-800/70 px-3 py-1 text-[11px] font-semibold text-slate-100 focus:border-[color:var(--border-a)]"
+                  className="rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-3 py-1 text-[11px] font-semibold text-[color:var(--text)] focus:border-[color:var(--border-a)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--ring)]"
                 >
                   <option value="auto" disabled>
                     Auto (EN por defecto)
@@ -8810,17 +8813,17 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
                   ))}
                 </select>
               </div>
-              {preferredLanguageError && <p className="text-xs text-rose-300">{preferredLanguageError}</p>}
-              <div className="flex flex-col gap-1 rounded-xl border border-slate-800 bg-slate-900/70 px-3 py-2">
-                <span className="text-slate-400 text-xs">Seguimiento</span>
-                <span className="text-slate-50 text-sm leading-snug" title={followUpLabel || ""}>
+              {preferredLanguageError && <p className="text-xs text-[color:var(--danger)]">{preferredLanguageError}</p>}
+              <div className="flex flex-col gap-1 rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-3 py-2">
+                <span className="text-[color:var(--muted)] text-xs">Seguimiento</span>
+                <span className="text-[color:var(--text)] text-sm leading-snug" title={followUpLabel || ""}>
                   {followUpLabel || "Sin seguimiento definido"}
                 </span>
                 {isFollowUpNoteMissing && (
                   <button
                     type="button"
                     onClick={handleAddFollowUpNote}
-                    className="self-start rounded-full border border-amber-400/70 bg-amber-500/10 px-2.5 py-0.5 text-[10px] font-semibold text-amber-100 hover:bg-amber-500/20"
+                    className="self-start rounded-full border border-[color:rgba(245,158,11,0.7)] bg-[color:rgba(245,158,11,0.08)] px-2.5 py-0.5 text-[10px] font-semibold text-[color:var(--text)] hover:bg-[color:rgba(245,158,11,0.16)]"
                   >
                     Añadir nota
                   </button>
@@ -8832,14 +8835,14 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
               <button
                 type="button"
                 onClick={handleOpenNotesFromSheet}
-                className="rounded-full border border-slate-600 bg-slate-900 px-4 py-2 text-sm font-medium text-slate-50 hover:bg-slate-800"
+                className="rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-4 py-2 text-sm font-medium text-[color:var(--text)] hover:bg-[color:var(--surface-2)]"
               >
                 Perfil + seguimiento
               </button>
               <button
                 type="button"
                 onClick={handleOpenHistoryFromSheet}
-                className="rounded-full bg-[color:var(--brand-strong)] px-4 py-2 text-sm font-semibold text-slate-950 hover:bg-[color:var(--brand)]"
+                className="rounded-full bg-[color:var(--brand-strong)] px-4 py-2 text-sm font-semibold text-[color:var(--surface-0)] hover:bg-[color:var(--brand)]"
               >
                 Ver historial
               </button>
@@ -8852,8 +8855,8 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
                 className={clsx(
                   "rounded-full border px-4 py-2 text-sm font-semibold transition",
                   inviteCopyState === "loading"
-                    ? "border-slate-700 bg-slate-800/60 text-slate-400 cursor-not-allowed"
-                    : "border-slate-600 bg-slate-900 text-slate-100 hover:bg-slate-800"
+                    ? "border-[color:var(--surface-border)] bg-[color:var(--surface-2)] text-[color:var(--muted)] cursor-not-allowed"
+                    : "border-[color:var(--surface-border)] bg-[color:var(--surface-1)] text-[color:var(--text)] hover:bg-[color:var(--surface-2)]"
                 )}
               >
                 {inviteCopyState === "copied"
@@ -8863,44 +8866,44 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
                   : "Copiar enlace de invitación"}
               </button>
               {inviteCopyUrl && (
-                <div className="rounded-lg border border-slate-800 bg-slate-950/60 px-3 py-2 text-[11px] text-slate-300 break-all">
+                <div className="rounded-lg border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-3 py-2 text-[11px] text-[color:var(--muted)] break-all">
                   {inviteCopyUrl}
                 </div>
               )}
               {inviteCopyToast && <p className="text-xs text-[color:var(--brand)]">{inviteCopyToast}</p>}
-              {inviteCopyError && <p className="text-xs text-rose-300">{inviteCopyError}</p>}
+              {inviteCopyError && <p className="text-xs text-[color:var(--danger)]">{inviteCopyError}</p>}
             </div>
           </div>
         </div>
       )}
       {isEditNameOpen && (
-        <div className="fixed inset-0 z-40 flex items-end justify-center bg-slate-950/60 backdrop-blur-sm">
-          <div className="w-full max-w-md rounded-t-3xl bg-slate-900 border border-slate-700 shadow-xl p-5 space-y-4">
+        <div className="fixed inset-0 z-40 flex items-end justify-center bg-[color:var(--surface-overlay)] backdrop-blur-sm">
+          <div className="w-full max-w-md rounded-t-3xl bg-[color:var(--surface-1)] border border-[color:var(--surface-border)] shadow-xl p-5 space-y-4">
             <div className="flex items-center justify-between gap-3">
-              <h2 className="text-sm font-semibold text-slate-200">Editar nombre del fan</h2>
+              <h2 className="text-sm font-semibold text-[color:var(--text)]">Editar nombre del fan</h2>
               <button
                 type="button"
                 onClick={closeEditNameModal}
-                className="inline-flex items-center justify-center rounded-full p-1.5 hover:bg-slate-800 text-slate-200"
+                className="inline-flex items-center justify-center rounded-full p-1.5 hover:bg-[color:var(--surface-2)] text-[color:var(--text)]"
               >
                 <span className="sr-only">Cerrar</span>
                 ✕
               </button>
             </div>
-            <label className="flex flex-col gap-1 text-sm text-slate-300">
+            <label className="flex flex-col gap-1 text-sm text-[color:var(--muted)]">
               <span>Nombre o alias</span>
               <input
-                className="w-full rounded-lg bg-slate-800/70 border border-slate-700 px-3 py-2 text-sm text-white focus:border-[color:var(--border-a)]"
+                className="w-full rounded-lg bg-[color:var(--surface-2)] border border-[color:var(--surface-border)] px-3 py-2 text-sm text-[color:var(--text)] focus:border-[color:var(--border-a)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--ring)]"
                 value={editNameValue}
                 onChange={(e) => setEditNameValue(e.target.value)}
                 placeholder="Ej: Ana"
               />
             </label>
-            {editNameError && <p className="text-xs text-rose-300">{editNameError}</p>}
+            {editNameError && <p className="text-xs text-[color:var(--danger)]">{editNameError}</p>}
             <div className="flex items-center justify-end gap-2">
               <button
                 type="button"
-                className="rounded-full border border-slate-700 bg-slate-800 px-4 py-2 text-sm font-semibold text-slate-100 hover:bg-slate-700"
+                className="rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-4 py-2 text-sm font-semibold text-[color:var(--text)] hover:bg-[color:var(--surface-1)]"
                 onClick={closeEditNameModal}
               >
                 Cancelar
@@ -8911,7 +8914,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
                 className={clsx(
                   "rounded-full border px-4 py-2 text-sm font-semibold transition",
                   editNameSaving
-                    ? "border-slate-700 bg-slate-800/60 text-slate-400 cursor-not-allowed"
+                    ? "border-[color:var(--surface-border)] bg-[color:var(--surface-2)] text-[color:var(--muted)] cursor-not-allowed"
                     : "border-[color:var(--brand)] bg-[color:rgba(var(--brand-rgb),0.16)] text-[color:var(--text)] hover:bg-[color:rgba(var(--brand-rgb),0.25)]"
                 )}
                 onClick={() => void handleSaveEditName()}
@@ -8937,11 +8940,12 @@ function ContentAttachmentCard({ message }: { message: ConversationMessage }) {
   const isInternal = message.audience === "INTERNAL";
 
   const badgeClass = (() => {
-    if (visibilityLabel.toLowerCase().includes("vip")) return "border-amber-400/80 text-amber-200";
-    if (visibilityLabel.toLowerCase().includes("extra")) return "border-sky-400/70 text-sky-200";
+    if (visibilityLabel.toLowerCase().includes("vip")) return "border-[color:rgba(245,158,11,0.8)] text-[color:var(--warning)]";
+    if (visibilityLabel.toLowerCase().includes("extra"))
+      return "border-[color:var(--brand)] text-[color:var(--brand)]";
     if (visibilityLabel.toLowerCase().includes("incluido"))
       return "border-[color:var(--brand)] text-[color:var(--brand)]";
-    return "border-slate-600 text-slate-200";
+    return "border-[color:var(--surface-border)] text-[color:var(--text)]";
   })();
 
   function openContent() {
@@ -8956,22 +8960,22 @@ function ContentAttachmentCard({ message }: { message: ConversationMessage }) {
     <div className={`flex flex-col ${alignItems} w-full h-max`}>
       <div
         className={clsx(
-          "flex flex-col min-w-[5%] max-w-[65%] p-3 text-white rounded-lg mb-3 shadow-sm border",
-          isInternal ? "bg-amber-500/10 border-amber-400/50" : "bg-[color:var(--surface-2)] border-[color:var(--border)]"
+          "flex flex-col min-w-[5%] max-w-[65%] p-3 text-[color:var(--text)] rounded-lg mb-3 shadow-sm border",
+          isInternal ? "bg-[color:rgba(245,158,11,0.08)] border-[color:rgba(245,158,11,0.5)]" : "bg-[color:var(--surface-2)] border-[color:var(--border)]"
         )}
       >
         {isInternal && (
-          <span className="mb-2 inline-flex w-fit items-center rounded-full border border-amber-400/70 px-2 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-amber-200">
+          <span className="mb-2 inline-flex w-fit items-center rounded-full border border-[color:rgba(245,158,11,0.7)] px-2 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-[color:var(--warning)]">
             INTERNO
           </span>
         )}
         <div className="flex items-center gap-2 text-sm font-semibold">
-          <IconGlyph name={iconName} className="h-4 w-4 text-slate-200" />
+          <IconGlyph name={iconName} className="h-4 w-4 text-[color:var(--text)]" />
           <span className="truncate">{title}</span>
         </div>
-        <div className="flex items-center gap-2 text-[11px] text-slate-300 mt-1">
+        <div className="flex items-center gap-2 text-[11px] text-[color:var(--muted)] mt-1">
           <span>{typeLabel}</span>
-          {visibilityLabel && <span className="w-1 h-1 rounded-full bg-slate-600" />}
+          {visibilityLabel && <span className="w-1 h-1 rounded-full bg-[color:var(--muted)]" />}
           {visibilityLabel && (
             <span className={`inline-flex items-center rounded-full px-2 py-0.5 border text-[11px] ${badgeClass}`}>
               {visibilityLabel}
@@ -8980,7 +8984,7 @@ function ContentAttachmentCard({ message }: { message: ConversationMessage }) {
         </div>
         <button
           type="button"
-          className="mt-2 inline-flex w-fit items-center rounded-md border border-slate-700 bg-slate-800/80 px-3 py-1 text-xs font-semibold text-amber-200 hover:border-amber-400/70 hover:text-amber-100 transition"
+          className="mt-2 inline-flex w-fit items-center rounded-md border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-3 py-1 text-xs font-semibold text-[color:var(--warning)] hover:border-[color:rgba(245,158,11,0.7)] hover:text-[color:var(--text)] transition"
           onClick={openContent}
         >
           Ver contenido
@@ -8988,7 +8992,7 @@ function ContentAttachmentCard({ message }: { message: ConversationMessage }) {
         <div className="flex justify-end items-center gap-2 text-[hsla(0,0%,100%,0.6)] text-xs mt-2">
           <span>{message.time}</span>
           {message.me && message.seen ? (
-            <span className="inline-flex items-center gap-1 text-[#8edafc] text-[11px]">
+            <span className="inline-flex items-center gap-1 text-[color:var(--brand)] text-[11px]">
               <span className="inline-flex -space-x-1">
                 <IconGlyph name="check" className="h-3 w-3" />
                 <IconGlyph name="check" className="h-3 w-3" />

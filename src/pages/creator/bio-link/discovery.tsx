@@ -138,7 +138,7 @@ export default function CreatorDiscoveryPage() {
   );
 
   return (
-    <div className="min-h-screen bg-[#0b141a] text-white">
+    <div className="min-h-screen bg-[color:var(--surface-0)] text-[color:var(--text)]">
       <Head>
         <title>Discovery del creador - NOVSY</title>
       </Head>
@@ -153,30 +153,30 @@ export default function CreatorDiscoveryPage() {
       />
       <main className="max-w-6xl mx-auto px-4 sm:px-6 py-8 space-y-6">
         <div className="space-y-1">
-          <p className="text-[11px] uppercase tracking-wide text-slate-400">Bio-link</p>
+          <p className="text-[11px] uppercase tracking-wide text-[color:var(--muted)]">Bio-link</p>
           <h1 className="text-2xl font-semibold">Ficha Discovery</h1>
-          <p className="text-sm text-slate-300">
+          <p className="text-sm text-[color:var(--muted)]">
             Ajusta la ficha que usa el asistente para mostrarte a fans nuevos.
           </p>
         </div>
 
-        <section className="rounded-2xl border border-slate-800 bg-slate-900/70 p-4 space-y-4">
+        <section className="rounded-2xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] p-4 space-y-4">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
-              <p className="text-[11px] uppercase tracking-wide text-emerald-300/80">Discovery</p>
-              <h2 className="text-lg font-semibold text-white">Ficha para el asistente de fans</h2>
-              <p className="text-sm text-slate-400">
+              <p className="text-[11px] uppercase tracking-wide text-[color:rgba(var(--brand-rgb),0.8)]">Discovery</p>
+              <h2 className="text-lg font-semibold text-[color:var(--text)]">Ficha para el asistente de fans</h2>
+              <p className="text-sm text-[color:var(--muted)]">
                 Activa o desactiva tu visibilidad. Solo se muestra en el asistente guiado, no hay muro publico.
               </p>
             </div>
             <div className="flex items-center gap-2">
-              <span className="text-xs text-slate-400">Visibilidad</span>
+              <span className="text-xs text-[color:var(--muted)]">Visibilidad</span>
               <button
                 type="button"
                 className={`rounded-full border px-3 py-1 text-xs font-semibold ${
                   discoveryProfile.isDiscoverable
-                    ? "border-emerald-500/70 bg-emerald-600/20 text-emerald-100"
-                    : "border-slate-700 bg-slate-800/70 text-slate-200"
+                    ? "border-[color:rgba(var(--brand-rgb),0.45)] bg-[color:rgba(var(--brand-rgb),0.16)] text-[color:var(--text)]"
+                    : "border-[color:var(--surface-border)] bg-[color:var(--surface-2)] text-[color:var(--text)]"
                 }`}
                 onClick={() => updateDiscoveryField("isDiscoverable", !discoveryProfile.isDiscoverable)}
               >
@@ -185,12 +185,12 @@ export default function CreatorDiscoveryPage() {
             </div>
           </div>
 
-          {discoveryError && <div className="text-sm text-rose-300">{discoveryError}</div>}
-          {discoveryMessage && <div className="text-sm text-emerald-300">{discoveryMessage}</div>}
+          {discoveryError && <div className="text-sm text-[color:var(--danger)]">{discoveryError}</div>}
+          {discoveryMessage && <div className="text-sm text-[color:var(--brand)]">{discoveryMessage}</div>}
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div className="space-y-3">
-              <label className="space-y-1 text-sm text-slate-200">
+              <label className="space-y-1 text-sm text-[color:var(--text)]">
                 <span>Tags / nichos (separados por coma)</span>
                 <input
                   type="text"
@@ -205,16 +205,16 @@ export default function CreatorDiscoveryPage() {
                     )
                   }
                   placeholder="compania, conversacion, contenido"
-                  className="w-full rounded-lg bg-slate-900 border border-slate-800 px-3 py-2 text-sm text-white focus:border-emerald-400"
+                  className="w-full rounded-lg bg-[color:var(--surface-1)] border border-[color:var(--surface-border)] px-3 py-2 text-sm text-[color:var(--text)] focus:border-[color:var(--surface-border-hover)] focus:ring-2 focus:ring-[color:var(--ring)]"
                 />
               </label>
 
-              <label className="space-y-1 text-sm text-slate-200">
+              <label className="space-y-1 text-sm text-[color:var(--text)]">
                 <span>Estilo de trato</span>
                 <select
                   value={discoveryProfile.communicationStyle}
                   onChange={(e) => updateDiscoveryField("communicationStyle", e.target.value)}
-                  className="w-full rounded-lg bg-slate-900 border border-slate-800 px-3 py-2 text-sm text-white focus:border-emerald-400"
+                  className="w-full rounded-lg bg-[color:var(--surface-1)] border border-[color:var(--surface-border)] px-3 py-2 text-sm text-[color:var(--text)] focus:border-[color:var(--surface-border-hover)] focus:ring-2 focus:ring-[color:var(--ring)]"
                 >
                   {["calido", "directo", "divertido", "elegante"].map((opt) => (
                     <option key={opt} value={opt}>
@@ -224,19 +224,19 @@ export default function CreatorDiscoveryPage() {
                 </select>
               </label>
 
-              <label className="space-y-1 text-sm text-slate-200">
+              <label className="space-y-1 text-sm text-[color:var(--text)]">
                 <span>Limites</span>
                 <textarea
                   value={discoveryProfile.limits}
                   onChange={(e) => updateDiscoveryField("limits", e.target.value)}
                   rows={2}
                   placeholder="Ej: sin contenido explicito, foco en audio y conversacion."
-                  className="w-full rounded-lg bg-slate-900 border border-slate-800 px-3 py-2 text-sm text-white focus:border-emerald-400"
+                  className="w-full rounded-lg bg-[color:var(--surface-1)] border border-[color:var(--surface-border)] px-3 py-2 text-sm text-[color:var(--text)] focus:border-[color:var(--surface-border-hover)] focus:ring-2 focus:ring-[color:var(--ring)]"
                 />
               </label>
 
               <div className="grid grid-cols-2 gap-3">
-                <label className="space-y-1 text-sm text-slate-200">
+                <label className="space-y-1 text-sm text-[color:var(--text)]">
                   <span>Precio minimo (EUR)</span>
                   <input
                     type="number"
@@ -244,10 +244,10 @@ export default function CreatorDiscoveryPage() {
                     onChange={(e) =>
                       updateDiscoveryField("priceMin", e.target.value === "" ? null : Number(e.target.value))
                     }
-                    className="w-full rounded-lg bg-slate-900 border border-slate-800 px-3 py-2 text-sm text-white focus:border-emerald-400"
+                    className="w-full rounded-lg bg-[color:var(--surface-1)] border border-[color:var(--surface-border)] px-3 py-2 text-sm text-[color:var(--text)] focus:border-[color:var(--surface-border-hover)] focus:ring-2 focus:ring-[color:var(--ring)]"
                   />
                 </label>
-                <label className="space-y-1 text-sm text-slate-200">
+                <label className="space-y-1 text-sm text-[color:var(--text)]">
                   <span>Precio maximo (EUR)</span>
                   <input
                     type="number"
@@ -255,19 +255,19 @@ export default function CreatorDiscoveryPage() {
                     onChange={(e) =>
                       updateDiscoveryField("priceMax", e.target.value === "" ? null : Number(e.target.value))
                     }
-                    className="w-full rounded-lg bg-slate-900 border border-slate-800 px-3 py-2 text-sm text-white focus:border-emerald-400"
+                    className="w-full rounded-lg bg-[color:var(--surface-1)] border border-[color:var(--surface-border)] px-3 py-2 text-sm text-[color:var(--text)] focus:border-[color:var(--surface-border-hover)] focus:ring-2 focus:ring-[color:var(--ring)]"
                   />
                 </label>
               </div>
 
-              <label className="space-y-1 text-sm text-slate-200">
+              <label className="space-y-1 text-sm text-[color:var(--text)]">
                 <span>Tiempo de respuesta (horas)</span>
                 <select
                   value={discoveryProfile.responseHours ?? ""}
                   onChange={(e) =>
                     updateDiscoveryField("responseHours", e.target.value === "" ? null : Number(e.target.value))
                   }
-                  className="w-full rounded-lg bg-slate-900 border border-slate-800 px-3 py-2 text-sm text-white focus:border-emerald-400"
+                  className="w-full rounded-lg bg-[color:var(--surface-1)] border border-[color:var(--surface-border)] px-3 py-2 text-sm text-[color:var(--text)] focus:border-[color:var(--surface-border-hover)] focus:ring-2 focus:ring-[color:var(--ring)]"
                 >
                   <option value="">Estandar</option>
                   {[1, 3, 6, 12, 24, 48].map((opt) => (
@@ -281,8 +281,8 @@ export default function CreatorDiscoveryPage() {
 
             <div className="space-y-3">
               <div className="space-y-1">
-                <p className="text-sm font-semibold text-white">Privacidad y ubicacion</p>
-                <p className="text-xs text-slate-400">
+                <p className="text-sm font-semibold text-[color:var(--text)]">Privacidad y ubicacion</p>
+                <p className="text-xs text-[color:var(--muted)]">
                   Solo se muestra pais/ciudad si lo permites. El asistente filtra solo a creadores descubribles.
                 </p>
               </div>
@@ -313,7 +313,7 @@ export default function CreatorDiscoveryPage() {
                       value={discoveryProfile.country || ""}
                       onChange={(e) => updateDiscoveryField("country", e.target.value)}
                       placeholder="Pais (opcional)"
-                      className="w-full rounded-lg bg-slate-900 border border-slate-800 px-3 py-2 text-sm text-white focus:border-emerald-400"
+                      className="w-full rounded-lg bg-[color:var(--surface-1)] border border-[color:var(--surface-border)] px-3 py-2 text-sm text-[color:var(--text)] focus:border-[color:var(--surface-border-hover)] focus:ring-2 focus:ring-[color:var(--ring)]"
                     />
                     {discoveryProfile.showCityApprox && (
                       <input
@@ -321,17 +321,17 @@ export default function CreatorDiscoveryPage() {
                         value={discoveryProfile.cityApprox || ""}
                         onChange={(e) => updateDiscoveryField("cityApprox", e.target.value)}
                         placeholder="Ciudad aproximada (opcional)"
-                        className="w-full rounded-lg bg-slate-900 border border-slate-800 px-3 py-2 text-sm text-white focus:border-emerald-400"
+                        className="w-full rounded-lg bg-[color:var(--surface-1)] border border-[color:var(--surface-border)] px-3 py-2 text-sm text-[color:var(--text)] focus:border-[color:var(--surface-border-hover)] focus:ring-2 focus:ring-[color:var(--ring)]"
                       />
                     )}
                   </>
                 )}
               </div>
 
-              <div className="space-y-2 rounded-xl border border-slate-800 bg-slate-900/60 p-3">
-                <p className="text-sm font-semibold text-white">Vista previa /discover</p>
+              <div className="space-y-2 rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] p-3">
+                <p className="text-sm font-semibold text-[color:var(--text)]">Vista previa /discover</p>
                 <div className="flex items-center gap-3">
-                  <div className="h-12 w-12 rounded-full overflow-hidden bg-emerald-600/20 border border-emerald-500/30 flex items-center justify-center text-lg font-semibold">
+                  <div className="h-12 w-12 rounded-full overflow-hidden bg-[color:rgba(var(--brand-rgb),0.16)] border border-[color:rgba(var(--brand-rgb),0.3)] flex items-center justify-center text-lg font-semibold">
                     {discoveryPreview.avatar ? (
                       // eslint-disable-next-line @next/next/no-img-element
                       <img src={discoveryPreview.avatar} alt={discoveryPreview.name} className="h-full w-full object-cover" />
@@ -341,17 +341,17 @@ export default function CreatorDiscoveryPage() {
                   </div>
                   <div className="flex flex-col">
                     <div className="text-sm font-semibold">{discoveryPreview.name}</div>
-                    <div className="text-xs text-slate-400">
+                    <div className="text-xs text-[color:var(--muted)]">
                       {discoveryPreview.priceRange} - {discoveryPreview.response}
                     </div>
                     {discoveryPreview.location && (
-                      <div className="text-xs text-slate-500">{discoveryPreview.location}</div>
+                      <div className="text-xs text-[color:var(--muted)]">{discoveryPreview.location}</div>
                     )}
                   </div>
                 </div>
-                <div className="text-xs text-slate-400">
-                  CTA en /discover -&gt; perfil: <span className="text-emerald-200">/link/{discoveryPreview.handle}</span> - chat:{" "}
-                  <span className="text-emerald-200">/c/{discoveryPreview.handle}</span>
+                <div className="text-xs text-[color:var(--muted)]">
+                  CTA en /discover -&gt; perfil: <span className="text-[color:var(--brand)]">/link/{discoveryPreview.handle}</span> - chat:{" "}
+                  <span className="text-[color:var(--brand)]">/c/{discoveryPreview.handle}</span>
                 </div>
               </div>
 
@@ -359,7 +359,7 @@ export default function CreatorDiscoveryPage() {
                 type="button"
                 disabled={discoverySaving || discoveryLoading}
                 onClick={handleSaveDiscovery}
-                className="inline-flex items-center justify-center rounded-lg bg-emerald-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-emerald-500 disabled:opacity-50"
+                className="inline-flex items-center justify-center rounded-lg bg-[color:var(--brand-strong)] px-4 py-2.5 text-sm font-semibold text-[color:var(--text)] hover:bg-[color:var(--brand)] disabled:opacity-50"
               >
                 {discoverySaving ? "Guardando..." : "Guardar ficha Discovery"}
               </button>
@@ -385,7 +385,7 @@ function ToggleRow({
   return (
     <label
       className={`flex items-center justify-between rounded-lg border px-3 py-2 text-sm ${
-        disabled ? "border-slate-800 text-slate-500" : "border-slate-800 text-slate-200"
+        disabled ? "border-[color:var(--surface-border)] text-[color:var(--muted)]" : "border-[color:var(--surface-border)] text-[color:var(--text)]"
       }`}
     >
       <span className="pr-2">{label}</span>
@@ -395,8 +395,8 @@ function ToggleRow({
         onClick={() => onChange(!value)}
         className={`rounded-full px-3 py-1 text-xs font-semibold ${
           value
-            ? "bg-emerald-600/20 border border-emerald-500/60 text-emerald-100"
-            : "bg-slate-800 border border-slate-700 text-slate-200"
+            ? "bg-[color:rgba(var(--brand-rgb),0.16)] border border-[color:rgba(var(--brand-rgb),0.45)] text-[color:var(--text)]"
+            : "bg-[color:var(--surface-2)] border border-[color:var(--surface-border)] text-[color:var(--text)]"
         } ${disabled ? "opacity-60" : ""}`}
       >
         {value ? "Si" : "No"}

@@ -22,12 +22,12 @@ export function PillButton({
 }: PillButtonProps) {
   const intentClass = (() => {
     if (intent === "primary") {
-      return "border-[color:var(--brand)] bg-[color:var(--brand-strong)] text-white hover:bg-[color:var(--brand)]";
+      return "border-[color:var(--brand)] bg-[color:var(--brand-strong)] text-[color:var(--text)] hover:bg-[color:var(--brand)]";
     }
     if (intent === "ghost") {
-      return "border-slate-700 bg-transparent text-slate-200 hover:bg-slate-800/60";
+      return "border-[color:var(--surface-border)] bg-transparent text-[color:var(--text)] hover:bg-[color:var(--surface-2)]";
     }
-    return "border-slate-700 bg-slate-900/60 text-slate-100 hover:bg-slate-800";
+    return "border-[color:var(--surface-border)] bg-[color:var(--surface-1)] text-[color:var(--text)] hover:bg-[color:var(--surface-2)]";
   })();
 
   const sizeClass = size === "md" ? "px-4 py-2 text-sm h-10" : "px-3 py-1.5 text-xs h-9";

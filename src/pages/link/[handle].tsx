@@ -12,10 +12,10 @@ type Props = { config: BioLinkConfig | null };
 export default function PublicBioLinkPage({ config }: Props) {
   if (!config) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-slate-950 text-slate-300 px-4">
+      <div className="min-h-screen flex items-center justify-center bg-[color:var(--surface-0)] text-[color:var(--muted)] px-4">
         <div className="text-center space-y-2">
           <h1 className="text-2xl font-semibold">Enlace no disponible</h1>
-          <p className="text-sm text-slate-400">El creador aún no ha activado su bio-link.</p>
+          <p className="text-sm text-[color:var(--muted)]">El creador aún no ha activado su bio-link.</p>
         </div>
       </div>
     );

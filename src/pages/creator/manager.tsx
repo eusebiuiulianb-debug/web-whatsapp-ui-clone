@@ -970,12 +970,12 @@ function ManagerChatLayout({
   const fanPanelContent = (
     <div className="flex h-full flex-col">
       <div className="lg:hidden flex justify-center py-2">
-        <div className="h-1 w-12 rounded-full bg-slate-700/80" />
+        <div className="h-1 w-12 rounded-full bg-[color:var(--surface-border)]" />
       </div>
-      <div className="sticky top-0 z-10 flex items-center justify-between border-b border-slate-800/80 bg-slate-950/90 px-4 py-3 backdrop-blur">
+      <div className="sticky top-0 z-10 flex items-center justify-between border-b border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-4 py-3 backdrop-blur">
         <div>
-          <p className="text-[11px] uppercase tracking-wide text-slate-400">Fans · {panelTitle}</p>
-          <p className="text-xs text-slate-400">
+          <p className="text-[11px] uppercase tracking-wide text-[color:var(--muted)]">Fans · {panelTitle}</p>
+          <p className="text-xs text-[color:var(--muted)]">
             {isQueueLoading
               ? "Cargando..."
               : `${visibleQueue.length} ${hasSearch ? "coincidencias" : "resultados"}`}
@@ -984,26 +984,26 @@ function ManagerChatLayout({
         <button
           type="button"
           onClick={() => setFanPanelOpen(false)}
-          className="inline-flex items-center gap-1 rounded-full border border-slate-700 bg-slate-900/70 px-2.5 py-1 text-[11px] font-semibold text-slate-100 hover:border-emerald-500/60"
+          className="inline-flex items-center gap-1 rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-2.5 py-1 text-[11px] font-semibold text-[color:var(--text)] hover:border-[color:var(--brand)]"
         >
           ✕
           <span>Cerrar</span>
         </button>
       </div>
-      <div className="border-b border-slate-900/70 bg-slate-950/80 px-4 py-3">
+      <div className="border-b border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-4 py-3">
         <div className="relative">
           <input
             value={searchQuery}
             onChange={(event) => setSearchQuery(event.target.value)}
             placeholder="Buscar fan..."
-            className="w-full rounded-full border border-slate-800 bg-slate-900/70 py-2 pl-3 pr-9 text-xs text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/40"
+            className="w-full rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] py-2 pl-3 pr-9 text-xs text-[color:var(--text)] placeholder:text-[color:var(--muted)] focus:outline-none focus:ring-2 focus:ring-[color:var(--ring)]"
             aria-label="Buscar fan"
           />
           {searchQuery && (
             <button
               type="button"
               onClick={() => setSearchQuery("")}
-              className="absolute right-2 top-1/2 -translate-y-1/2 rounded-full border border-slate-700/70 bg-slate-900/60 px-2 py-0.5 text-[10px] text-slate-300 hover:text-slate-100"
+              className="absolute right-2 top-1/2 -translate-y-1/2 rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-2 py-0.5 text-[10px] text-[color:var(--muted)] hover:text-[color:var(--text)]"
               aria-label="Limpiar búsqueda"
               title="Limpiar"
             >
@@ -1013,19 +1013,19 @@ function ManagerChatLayout({
         </div>
       </div>
       {noteToast && (
-        <div className="border-b border-slate-900/70 bg-slate-950/80 px-4 py-2 text-[11px] text-emerald-200">
+        <div className="border-b border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-4 py-2 text-[11px] text-[color:var(--brand)]">
           {noteToast}
         </div>
       )}
       <div className="flex-1 overflow-y-auto p-4 space-y-3">
         {isQueueLoading ? (
-          <div className="rounded-xl border border-slate-800 bg-slate-900/70 p-4 text-sm text-slate-300">
+          <div className="rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] p-4 text-sm text-[color:var(--muted)]">
             Cargando lista de fans…
           </div>
         ) : visibleQueue.length === 0 ? (
-          <div className="rounded-xl border border-dashed border-slate-800 bg-slate-900/50 p-4 text-sm text-slate-300">
-            <div className="text-sm font-semibold text-slate-100">{panelMeta.title}</div>
-            <div className="text-xs text-slate-400">{panelMeta.detail}</div>
+          <div className="rounded-xl border border-dashed border-[color:var(--surface-border)] bg-[color:var(--surface-2)] p-4 text-sm text-[color:var(--muted)]">
+            <div className="text-sm font-semibold text-[color:var(--text)]">{panelMeta.title}</div>
+            <div className="text-xs text-[color:var(--muted)]">{panelMeta.detail}</div>
           </div>
         ) : (
           visibleQueue.map((fan) => {
@@ -1039,7 +1039,7 @@ function ManagerChatLayout({
               { key: "new", label: "Nuevo", show: fan.flags.isNew30d, tone: "emerald" },
               { key: "risk", label: "En riesgo", show: fan.flags.atRisk7d, tone: "rose" },
               { key: "expiring", label: expiringLabel, show: fan.flags.expiredSoon || fan.flags.expired, tone: "amber" },
-              { key: "today", label: "Hoy", show: fan.flags.followUpToday, tone: "sky" },
+              { key: "today", label: "Hoy", show: fan.flags.followUpToday, tone: "brand" },
             ].filter((badge) => badge.show);
             const primaryBadges = badgeCandidates.slice(0, 3);
             const extraBadges = badgeCandidates.slice(3);
@@ -1049,12 +1049,12 @@ function ManagerChatLayout({
             const hasNote = Boolean(noteValue.trim()) || noteEditingId === fan.fanId;
             const badgeToneClass = (tone: string) =>
               tone === "emerald"
-                ? "border-emerald-500/50 bg-emerald-500/10 text-emerald-100"
+                ? "border-[color:var(--brand)] bg-[color:rgba(var(--brand-rgb),0.12)] text-[color:var(--text)]"
                 : tone === "rose"
-                ? "border-rose-500/50 bg-rose-500/10 text-rose-100"
+                ? "border-[color:rgba(244,63,94,0.5)] bg-[color:rgba(244,63,94,0.08)] text-[color:var(--text)]"
                 : tone === "amber"
-                ? "border-amber-500/50 bg-amber-500/10 text-amber-100"
-                : "border-sky-500/50 bg-sky-500/10 text-sky-100";
+                ? "border-[color:rgba(245,158,11,0.5)] bg-[color:rgba(245,158,11,0.08)] text-[color:var(--text)]"
+                : "border-[color:var(--brand)] bg-[color:rgba(var(--brand-rgb),0.12)] text-[color:var(--text)]";
             return (
               <div
                 key={fan.fanId}
@@ -1068,8 +1068,8 @@ function ManagerChatLayout({
                   }
                 }}
                 className={clsx(
-                  "group rounded-xl border border-slate-800 bg-slate-900/70 p-3 transition",
-                  "hover:border-slate-700/80 hover:bg-slate-900/80 cursor-pointer",
+                  "group rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] p-3 transition",
+                  "hover:border-[color:var(--surface-border-hover)] hover:bg-[color:var(--surface-1)] cursor-pointer",
                   isAttended && "opacity-70"
                 )}
               >
@@ -1077,16 +1077,21 @@ function ManagerChatLayout({
                   <div className="min-w-0 flex-1 space-y-1">
                     <div className="flex items-center gap-2">
                       <div className="min-w-0 flex-1 flex items-center gap-2">
-                        <span className={clsx("truncate text-sm font-semibold text-white", isAttended && "line-through")}>
+                        <span
+                          className={clsx(
+                            "truncate text-sm font-semibold text-[color:var(--text)]",
+                            isAttended && "line-through"
+                          )}
+                        >
                           {fan.displayName}
                         </span>
-                        {fan.handle && <span className="truncate text-[10px] text-slate-500">@{fan.handle}</span>}
+                        {fan.handle && <span className="truncate text-[10px] text-[color:var(--muted)]">@{fan.handle}</span>}
                       </div>
-                      <span className="shrink-0 text-[10px] text-slate-500 whitespace-nowrap">
+                      <span className="shrink-0 text-[10px] text-[color:var(--muted)] whitespace-nowrap">
                         Últ. act. {formatLastActivity(fan.lastActivityAt)}
                       </span>
                     </div>
-                    <div className="text-xs text-slate-400">{fan.nextReason}</div>
+                    <div className="text-xs text-[color:var(--muted)]">{fan.nextReason}</div>
                     {(primaryBadges.length > 0 || extraBadges.length > 0) && (
                       <div className="flex flex-wrap gap-1 pt-1">
                         {primaryBadges.map((badge) => (
@@ -1103,7 +1108,7 @@ function ManagerChatLayout({
                         {extraBadges.length > 0 && (
                           <span
                             title={extraBadgeLabel}
-                            className="rounded-full border border-slate-700/70 bg-slate-950/70 px-2 py-0.5 text-[10px] text-slate-300"
+                            className="rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-2 py-0.5 text-[10px] text-[color:var(--muted)]"
                           >
                             +{extraBadges.length}
                           </span>
@@ -1118,7 +1123,7 @@ function ManagerChatLayout({
                         event.stopPropagation();
                         handleOpenChat(fan.fanId);
                       }}
-                      className="inline-flex h-8 items-center rounded-full border border-emerald-500/60 bg-emerald-600/15 px-3 text-[11px] font-semibold text-emerald-100 hover:bg-emerald-600/25"
+                      className="inline-flex h-8 items-center rounded-full border border-[color:var(--brand)] bg-[color:rgba(var(--brand-rgb),0.12)] px-3 text-[11px] font-semibold text-[color:var(--text)] hover:bg-[color:rgba(var(--brand-rgb),0.2)]"
                     >
                       Abrir chat
                     </button>
@@ -1134,8 +1139,8 @@ function ManagerChatLayout({
                         className={clsx(
                           "flex h-8 w-8 items-center justify-center rounded-full border transition",
                           isAttended
-                            ? "border-emerald-500/60 bg-emerald-500/15 text-emerald-100"
-                            : "border-slate-700/70 bg-slate-950/60 text-slate-200 hover:border-slate-500/70 hover:text-white"
+                            ? "border-[color:var(--brand)] bg-[color:rgba(var(--brand-rgb),0.12)] text-[color:var(--text)]"
+                            : "border-[color:var(--surface-border)] bg-[color:var(--surface-2)] text-[color:var(--text)] hover:border-[color:var(--surface-border-hover)]"
                         )}
                       >
                         <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2">
@@ -1151,13 +1156,13 @@ function ManagerChatLayout({
                           }}
                           title={copiedFanId === fan.fanId ? "Copiado" : "Copiar enlace"}
                           aria-label="Copiar enlace"
-                          className={clsx(
-                            "flex h-8 w-8 items-center justify-center rounded-full border transition",
-                            copiedFanId === fan.fanId
-                              ? "border-emerald-500/60 bg-emerald-500/15 text-emerald-100"
-                              : "border-slate-700/70 bg-slate-950/60 text-slate-200 hover:border-slate-500/70 hover:text-white"
-                          )}
-                        >
+                        className={clsx(
+                          "flex h-8 w-8 items-center justify-center rounded-full border transition",
+                          copiedFanId === fan.fanId
+                            ? "border-[color:var(--brand)] bg-[color:rgba(var(--brand-rgb),0.12)] text-[color:var(--text)]"
+                            : "border-[color:var(--surface-border)] bg-[color:var(--surface-1)] text-[color:var(--text)] hover:border-[color:var(--surface-border-hover)] hover:text-[color:var(--text)]"
+                        )}
+                      >
                           <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2">
                             <rect x="9" y="9" width="10" height="10" rx="2" />
                             <rect x="5" y="5" width="10" height="10" rx="2" />
@@ -1172,7 +1177,7 @@ function ManagerChatLayout({
                         }}
                         title="Enviar borrador"
                         aria-label="Enviar borrador"
-                        className="flex h-8 w-8 items-center justify-center rounded-full border border-slate-700/70 bg-slate-950/60 text-slate-200 transition hover:border-slate-500/70 hover:text-white"
+                        className="flex h-8 w-8 items-center justify-center rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] text-[color:var(--text)] transition hover:border-[color:var(--surface-border-hover)] hover:text-[color:var(--text)]"
                       >
                         <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2">
                           <path d="M3 11l18-8-8 18-2-7-8-3z" />
@@ -1189,8 +1194,8 @@ function ManagerChatLayout({
                         className={clsx(
                           "flex h-8 w-8 items-center justify-center rounded-full border transition",
                           hasNote
-                            ? "border-amber-500/60 bg-amber-500/15 text-amber-100"
-                            : "border-slate-700/70 bg-slate-950/60 text-slate-200 hover:border-slate-500/70 hover:text-white"
+                            ? "border-[color:rgba(245,158,11,0.6)] bg-[color:rgba(245,158,11,0.12)] text-[color:var(--text)]"
+                            : "border-[color:var(--surface-border)] bg-[color:var(--surface-1)] text-[color:var(--text)] hover:border-[color:var(--surface-border-hover)] hover:text-[color:var(--text)]"
                         )}
                       >
                         <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2">
@@ -1208,7 +1213,7 @@ function ManagerChatLayout({
                       onChange={(event) => setNoteDraft(event.target.value)}
                       onKeyDown={(event) => event.stopPropagation()}
                       placeholder="Nota rápida..."
-                      className="w-full rounded-lg border border-slate-700 bg-slate-950/70 px-3 py-2 text-xs text-slate-100 focus:outline-none focus:ring-2 focus:ring-emerald-500/50"
+                      className="w-full rounded-lg border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-3 py-2 text-xs text-[color:var(--text)] focus:outline-none focus:ring-2 focus:ring-[color:var(--ring)]"
                       rows={3}
                     />
                     <div className="flex items-center gap-2">
@@ -1219,7 +1224,7 @@ function ManagerChatLayout({
                           void saveNote(fan.fanId);
                         }}
                         disabled={noteSavingId === fan.fanId}
-                        className="rounded-full border border-emerald-500/60 bg-emerald-600/20 px-3 py-1 text-[11px] font-semibold text-emerald-100 hover:bg-emerald-600/30"
+                        className="rounded-full border border-[color:var(--brand)] bg-[color:rgba(var(--brand-rgb),0.2)] px-3 py-1 text-[11px] font-semibold text-[color:var(--text)] hover:bg-[color:rgba(var(--brand-rgb),0.28)]"
                       >
                         {noteSavingId === fan.fanId ? "Guardando..." : "Guardar"}
                       </button>
@@ -1229,7 +1234,7 @@ function ManagerChatLayout({
                           event.stopPropagation();
                           cancelNote();
                         }}
-                        className="rounded-full border border-slate-700/70 bg-slate-950/60 px-3 py-1 text-[11px] text-slate-300 hover:text-white"
+                        className="rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-3 py-1 text-[11px] text-[color:var(--muted)] hover:text-[color:var(--text)]"
                       >
                         Cancelar
                       </button>
@@ -1237,7 +1242,7 @@ function ManagerChatLayout({
                   </div>
                 ) : noteValue.trim() ? (
                   <div
-                    className="mt-2 rounded-lg border border-slate-800 bg-slate-950/60 px-3 py-2 text-[11px] text-slate-200"
+                    className="mt-2 rounded-lg border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-3 py-2 text-[11px] text-[color:var(--text)]"
                     onClick={(event) => event.stopPropagation()}
                   >
                     {noteValue}
@@ -1278,16 +1283,16 @@ function ManagerChatLayout({
   }, [discoveryProfile]);
 
   return (
-    <div className="flex flex-col flex-1 min-h-0 text-white">
+    <div className="flex flex-col flex-1 min-h-0 text-[color:var(--text)]">
       <div className="flex-1 min-h-0 px-0 md:px-4 md:pb-3">
         <div className="h-full w-full flex flex-col gap-3 md:gap-4">
           <div className="flex flex-wrap items-center justify-between gap-2 px-4 pt-1.5">
             <div className="space-y-0">
-              <p className="text-[10px] uppercase tracking-wide text-slate-400">Cortex</p>
-              <h1 className="flex items-center gap-2 text-lg font-semibold text-white">
+              <p className="text-[10px] uppercase tracking-wide text-[color:var(--muted)]">Cortex</p>
+              <h1 className="flex items-center gap-2 text-lg font-semibold text-[color:var(--text)]">
                 <svg
                   viewBox="0 0 24 24"
-                  className="h-4 w-4 text-slate-400/70"
+                  className="h-4 w-4 text-[color:var(--muted)]/70"
                   aria-hidden="true"
                 >
                   <circle cx="12" cy="12" r="8" fill="none" stroke="currentColor" strokeWidth="1.6" />
@@ -1296,7 +1301,7 @@ function ManagerChatLayout({
                 </svg>
                 <span>Cortex</span>
               </h1>
-              <p className="text-xs text-slate-400">Centro de mando del creador</p>
+              <p className="text-xs text-[color:var(--muted)]">Centro de mando del creador</p>
             </div>
             <div className="flex items-center gap-2 flex-wrap">
               {!soloChat && (
@@ -1325,15 +1330,15 @@ function ManagerChatLayout({
                   type="button"
                   aria-label="Opciones"
                   onClick={() => setHeaderMenuOpen((prev) => !prev)}
-                  className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-slate-700 bg-slate-800/70 text-[10px] font-semibold text-slate-100 hover:border-emerald-500/60"
+                  className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] text-[10px] font-semibold text-[color:var(--text)] hover:border-[color:var(--brand)]"
                 >
                   ⋮
                 </button>
                 {headerMenuOpen && (
-                  <div className="absolute right-0 mt-2 w-40 rounded-lg border border-slate-700 bg-slate-900 shadow-lg z-20">
+                  <div className="absolute right-0 mt-2 w-40 rounded-lg border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] shadow-lg z-20">
                     <button
                       type="button"
-                      className="w-full text-left px-3 py-2 text-xs text-slate-100 hover:bg-slate-800"
+                      className="w-full text-left px-3 py-2 text-xs text-[color:var(--text)] hover:bg-[color:var(--surface-2)]"
                       onClick={() => {
                         setHeaderMenuOpen(false);
                         onOpenInsights("sales");
@@ -1343,7 +1348,7 @@ function ManagerChatLayout({
                     </button>
                     <button
                       type="button"
-                      className="w-full text-left px-3 py-2 text-xs text-slate-100 hover:bg-slate-800"
+                      className="w-full text-left px-3 py-2 text-xs text-[color:var(--text)] hover:bg-[color:var(--surface-2)]"
                       onClick={() => {
                         setHeaderMenuOpen(false);
                         onOpenSettings();
@@ -1386,13 +1391,13 @@ function ManagerChatLayout({
               <SectionCard bodyClassName="space-y-3">
                 {activeFilter && (
                   <div className="flex flex-wrap items-center gap-2">
-                    <span className="rounded-full border border-emerald-500/50 bg-emerald-500/10 px-2 py-0.5 text-[10px] font-semibold text-emerald-100">
+                    <span className="rounded-full border border-[color:var(--brand)] bg-[color:rgba(var(--brand-rgb),0.12)] px-2 py-0.5 text-[10px] font-semibold text-[color:var(--text)]">
                       Filtro: {filterLabels[activeFilter]}
                     </span>
                     <button
                       type="button"
                       onClick={() => setActiveFilter(null)}
-                      className="inline-flex items-center gap-1 rounded-full border border-slate-700/70 bg-slate-950/60 px-2 py-0.5 text-[10px] text-slate-300 hover:text-slate-100"
+                      className="inline-flex items-center gap-1 rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-2 py-0.5 text-[10px] text-[color:var(--muted)] hover:text-[color:var(--text)]"
                     >
                       ✕
                       Quitar
@@ -1411,8 +1416,8 @@ function ManagerChatLayout({
                       className={clsx(
                         "rounded-2xl border px-4 py-3 text-left text-sm font-semibold shadow-sm transition",
                         activeTab === tab.id
-                          ? "border-emerald-500/60 bg-emerald-600/15 text-emerald-100"
-                          : "border-slate-800/80 bg-slate-900/70 text-slate-200 hover:border-emerald-400/70 hover:text-emerald-100"
+                          ? "border-[color:var(--brand)] bg-[color:rgba(var(--brand-rgb),0.12)] text-[color:var(--text)]"
+                          : "border-[color:var(--surface-border)] bg-[color:var(--surface-2)] text-[color:var(--text)] hover:border-[color:var(--brand)] hover:text-[color:var(--text)]"
                       )}
                     >
                       {tab.label}
@@ -1433,43 +1438,43 @@ function ManagerChatLayout({
                 </div>
 
                 {activeTab === "content" && !soloChat && (
-                  <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-3">
+                  <div className="rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] p-3">
                     <div className="flex flex-wrap items-center justify-between gap-2">
                       <div>
-                        <p className="text-[10px] uppercase tracking-wide text-emerald-300/80">Discovery</p>
-                        <p className="text-xs text-slate-400">Ficha del asistente · resumen rápido.</p>
+                        <p className="text-[10px] uppercase tracking-wide text-[color:var(--brand)]">Discovery</p>
+                        <p className="text-xs text-[color:var(--muted)]">Ficha del asistente · resumen rápido.</p>
                       </div>
                       <Link href="/creator/bio-link/discovery" legacyBehavior>
-                        <a className="inline-flex items-center justify-center rounded-full border border-emerald-500/60 bg-emerald-600/15 px-3 py-1 text-xs font-semibold text-emerald-100 hover:bg-emerald-600/25">
+                        <a className="inline-flex items-center justify-center rounded-full border border-[color:var(--brand)] bg-[color:rgba(var(--brand-rgb),0.12)] px-3 py-1 text-xs font-semibold text-[color:var(--text)] hover:bg-[color:rgba(var(--brand-rgb),0.2)]">
                           Editar ficha
                         </a>
                       </Link>
                     </div>
 
-                    {discoveryError && <div className="mt-2 text-xs text-rose-300">{discoveryError}</div>}
+                    {discoveryError && <div className="mt-2 text-xs text-[color:var(--danger)]">{discoveryError}</div>}
 
                     <div className="mt-2 grid grid-cols-2 md:grid-cols-4 gap-2">
-                      <div className="rounded-lg border border-slate-800 bg-slate-900/60 px-3 py-2">
-                        <div className="text-[10px] uppercase tracking-wide text-slate-400">Visibilidad</div>
-                        <div className="text-xs font-semibold text-white">
+                      <div className="rounded-lg border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-3 py-2">
+                        <div className="text-[10px] uppercase tracking-wide text-[color:var(--muted)]">Visibilidad</div>
+                        <div className="text-xs font-semibold text-[color:var(--text)]">
                           {discoveryLoading ? "Cargando..." : discoverySummary.visibility}
                         </div>
                       </div>
-                      <div className="rounded-lg border border-slate-800 bg-slate-900/60 px-3 py-2">
-                        <div className="text-[10px] uppercase tracking-wide text-slate-400">Tags</div>
-                        <div className="text-xs text-slate-200">
+                      <div className="rounded-lg border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-3 py-2">
+                        <div className="text-[10px] uppercase tracking-wide text-[color:var(--muted)]">Tags</div>
+                        <div className="text-xs text-[color:var(--text)]">
                           {discoveryLoading ? "Cargando..." : discoverySummary.tags}
                         </div>
                       </div>
-                      <div className="rounded-lg border border-slate-800 bg-slate-900/60 px-3 py-2">
-                        <div className="text-[10px] uppercase tracking-wide text-slate-400">Precio</div>
-                        <div className="text-xs text-slate-200">
+                      <div className="rounded-lg border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-3 py-2">
+                        <div className="text-[10px] uppercase tracking-wide text-[color:var(--muted)]">Precio</div>
+                        <div className="text-xs text-[color:var(--text)]">
                           {discoveryLoading ? "Cargando..." : discoverySummary.priceRange}
                         </div>
                       </div>
-                      <div className="rounded-lg border border-slate-800 bg-slate-900/60 px-3 py-2">
-                        <div className="text-[10px] uppercase tracking-wide text-slate-400">Respuesta</div>
-                        <div className="text-xs text-slate-200">
+                      <div className="rounded-lg border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-3 py-2">
+                        <div className="text-[10px] uppercase tracking-wide text-[color:var(--muted)]">Respuesta</div>
+                        <div className="text-xs text-[color:var(--text)]">
                           {discoveryLoading ? "Cargando..." : discoverySummary.response}
                         </div>
                       </div>
@@ -1480,7 +1485,7 @@ function ManagerChatLayout({
             </div>
 
           <div className="flex-1 min-h-[560px] px-0 md:px-4 pb-3">
-            <div className="relative h-full rounded-2xl border border-slate-800 bg-slate-900/60 shadow-xl overflow-hidden">
+            <div className="relative h-full rounded-2xl border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] shadow-xl overflow-hidden">
               <ManagerChatCard
                 ref={chatRef}
                 variant="chat"
@@ -1510,19 +1515,19 @@ function ManagerChatLayout({
                         className={clsx(
                           "flex h-7 items-center justify-between rounded-full border px-2 text-[11px] transition",
                           activeFilter === item.id
-                            ? "border-emerald-500/70 bg-emerald-500/10 text-emerald-100 ring-1 ring-emerald-500/40"
-                            : "border-slate-800 bg-slate-900/70 text-slate-200 hover:border-emerald-500/40"
+                            ? "border-[color:var(--brand)] bg-[color:rgba(var(--brand-rgb),0.12)] text-[color:var(--text)] ring-1 ring-[color:var(--ring)]"
+                            : "border-[color:var(--surface-border)] bg-[color:var(--surface-2)] text-[color:var(--text)] hover:border-[color:var(--brand)]"
                         )}
                       >
-                        <span className="text-[10px] uppercase tracking-wide text-slate-400">{item.label}</span>
-                        <span className="font-semibold text-slate-100">{formatNumber(item.value)}</span>
+                        <span className="text-[10px] uppercase tracking-wide text-[color:var(--muted)]">{item.label}</span>
+                        <span className="font-semibold text-[color:var(--text)]">{formatNumber(item.value)}</span>
                       </button>
                       ))}
                     </div>
                     <button
                       type="button"
                       onClick={() => setFanPanelOpen(true)}
-                      className="inline-flex h-8 items-center rounded-full border border-slate-700 bg-slate-800/70 px-3 text-xs font-semibold text-slate-100 hover:border-emerald-500/60"
+                      className="inline-flex h-8 items-center rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-3 text-xs font-semibold text-[color:var(--text)] hover:border-[color:var(--brand)]"
                     >
                       Ver más
                     </button>
@@ -1537,7 +1542,7 @@ function ManagerChatLayout({
                     className="absolute inset-0 bg-black/50 backdrop-blur-sm"
                     onClick={() => setFanPanelOpen(false)}
                   />
-                  <div className="relative ml-auto h-full w-full max-w-[380px] border-l border-slate-700/80 bg-slate-950/95 shadow-2xl">
+                  <div className="relative ml-auto h-full w-full max-w-[380px] border-l border-[color:var(--surface-border)] bg-[color:var(--surface-1)] shadow-2xl">
                     {fanPanelContent}
                   </div>
                 </div>
@@ -1550,7 +1555,7 @@ function ManagerChatLayout({
         <div className="fixed inset-0 z-50 flex items-end justify-center lg:hidden">
           <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => setFanPanelOpen(false)} />
           <div className="relative w-full max-w-3xl">
-            <div className="rounded-t-3xl border border-slate-800 bg-slate-950 shadow-2xl max-h-[85dvh] overflow-hidden">
+            <div className="rounded-t-3xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] shadow-2xl max-h-[85dvh] overflow-hidden">
               {fanPanelContent}
             </div>
           </div>

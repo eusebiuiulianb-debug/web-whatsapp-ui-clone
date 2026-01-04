@@ -15,7 +15,7 @@ export default function CreatorBioLinkPage() {
   const creatorInitial = config.creatorName?.trim().charAt(0) || "E";
 
   return (
-    <div className="min-h-screen bg-[#0b141a] text-white">
+    <div className="min-h-screen bg-[color:var(--surface-0)] text-[color:var(--text)]">
       <Head>
         <title>Bio-link del creador · NOVSY</title>
       </Head>
@@ -32,7 +32,7 @@ export default function CreatorBioLinkPage() {
         <div className="flex items-center justify-between">
           <div>
             <h1 className="text-2xl font-semibold">Bio-link seguro</h1>
-            <p className="text-sm text-slate-300">Comparte este enlace en redes para llevar tráfico a tu espacio en NOVSY.</p>
+            <p className="text-sm text-[color:var(--muted)]">Comparte este enlace en redes para llevar tráfico a tu espacio en NOVSY.</p>
           </div>
         </div>
         <BioLinkEditor handle={handle} onOpenSettings={() => setIsSettingsOpen(true)} />
