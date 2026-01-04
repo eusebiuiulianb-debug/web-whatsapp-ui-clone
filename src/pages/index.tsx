@@ -7,12 +7,15 @@ import { useRouter } from "next/router";
 import { CreatorShell } from "../components/creator/CreatorShell";
 import { track } from "../lib/analyticsClient";
 import { ANALYTICS_EVENTS } from "../lib/analyticsEvents";
+import { getFanIdFromQuery } from "../lib/navigation/openCreatorChat";
 
 export default function Home() {
   const { conversation, openManagerPanel } = useContext(ConversationContext);
   const hasConversation = Boolean(conversation?.id);
   const hasContactName = Boolean(conversation?.contactName);
   const router = useRouter();
+  const queryFan = router.query.fan;
+  const queryFanId = router.query.fanId;
   const [ mobileView, setMobileView ] = useState<"board" | "chat">("board");
   const conversationSectionRef = useRef<HTMLDivElement>(null!);
   const lastTrackedFanRef = useRef<string | null>(null);
@@ -97,13 +100,13 @@ export default function Home() {
 
   useEffect(() => {
     if (typeof window === "undefined") return;
-    const fanIdFromQuery = typeof router.query.fanId === "string" ? router.query.fanId : null;
+    const fanIdFromQuery = getFanIdFromQuery({ fan: queryFan, fanId: queryFanId });
     if (!fanIdFromQuery) return;
     if (window.innerWidth < 1024) {
       setMobileView("chat");
       conversationSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
     }
-  }, [router.query.fanId]);
+  }, [queryFan, queryFanId]);
 
   useEffect(() => {
     if (hasConversation) return;

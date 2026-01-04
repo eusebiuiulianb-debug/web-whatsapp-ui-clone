@@ -74,6 +74,7 @@ import { IconGlyph, type IconName } from "../ui/IconGlyph";
 import { Badge, type BadgeTone } from "../ui/Badge";
 import { ConversationActionsMenu } from "../conversations/ConversationActionsMenu";
 import { badgeToneForLabel } from "../../lib/badgeTone";
+import { getFanIdFromQuery, openFanChat } from "../../lib/navigation/openCreatorChat";
 
 type ManagerQuickIntent = ManagerObjective;
 type ManagerSuggestionIntent = "romper_hielo" | "pregunta_simple" | "cierre_suave" | "upsell_mensual_suave";
@@ -936,8 +937,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
 
   useEffect(() => {
     if (!router.isReady) return;
-    const rawFanId = router.query.fanId;
-    const fanIdValue = Array.isArray(rawFanId) ? rawFanId[0] : rawFanId;
+    const fanIdValue = getFanIdFromQuery(router.query);
     const nextQuery = { ...router.query };
     let shouldReplace = false;
 
@@ -949,7 +949,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
       if (typeof draftValue === "string") {
         const decodedDraft = safeDecodeQueryParam(draftValue);
         pendingComposerDraftRef.current = decodedDraft;
-        pendingComposerDraftFanIdRef.current = typeof fanIdValue === "string" ? fanIdValue : null;
+        pendingComposerDraftFanIdRef.current = fanIdValue;
       }
       delete nextQuery.draft;
       shouldReplace = true;
@@ -958,7 +958,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
     const rawSegmentNote = router.query.segmentNote;
     if (typeof rawSegmentNote !== "undefined") {
       const noteValue = Array.isArray(rawSegmentNote) ? rawSegmentNote[0] : rawSegmentNote;
-      if (typeof noteValue === "string" && typeof fanIdValue === "string" && fanIdValue.trim()) {
+      if (typeof noteValue === "string" && fanIdValue) {
         const decodedNote = safeDecodeQueryParam(noteValue).trim();
         if (decodedNote) {
           segmentNoteByFanRef.current[fanIdValue] = decodedNote;
@@ -971,7 +971,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
     const rawPanel = router.query.panel;
     if (typeof rawPanel !== "undefined") {
       const panelValue = Array.isArray(rawPanel) ? rawPanel[0] : rawPanel;
-      if (panelValue === "followup" && typeof fanIdValue === "string" && fanIdValue.trim()) {
+      if (panelValue === "followup" && fanIdValue) {
         pendingFollowUpPanelRef.current = fanIdValue;
       }
       delete nextQuery.panel;
@@ -1385,14 +1385,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
   const handleSelectFanFromBanner = useCallback(
     (fan: ConversationListData | null) => {
       if (!fan?.id) return;
-      void router.push(
-        {
-          pathname: router.pathname || "/",
-          query: { fanId: fan.id },
-        },
-        undefined,
-        { shallow: true }
-      );
+      openFanChat(router, fan.id, { shallow: true, pathname: router.pathname || "/creator" });
       setConversation(fan as any);
     },
     [router, setConversation]
@@ -6692,12 +6685,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
   };
 
   const handleSaveEditName = async () => {
-    const fanId =
-      typeof id === "string" && id.trim()
-        ? id
-        : typeof router.query.fanId === "string"
-        ? router.query.fanId
-        : "";
+    const fanId = typeof id === "string" && id.trim() ? id : getFanIdFromQuery(router.query) ?? "";
     if (!fanId) {
       console.error("Edit name failed: fanId is missing");
       setEditNameError("No se pudo identificar el fan.");
@@ -6740,12 +6728,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
   };
 
   const handlePreferredLanguageChange = async (nextLanguage: SupportedLanguage) => {
-    const fanId =
-      typeof id === "string" && id.trim()
-        ? id
-        : typeof router.query.fanId === "string"
-        ? router.query.fanId
-        : "";
+    const fanId = typeof id === "string" && id.trim() ? id : getFanIdFromQuery(router.query) ?? "";
     if (!fanId) {
       setPreferredLanguageError("No se pudo identificar el fan.");
       return;

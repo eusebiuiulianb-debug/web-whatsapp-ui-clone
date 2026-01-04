@@ -3,6 +3,7 @@ import { useRouter } from "next/router";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { CreatorManagerSummary, PriorityItem } from "../../lib/creatorManager";
 import type { CreatorAiAdvisorInput } from "../../server/manager/managerSchemas";
+import { openFanChat } from "../../lib/navigation/openCreatorChat";
 
 type Props = {
   open: boolean;
@@ -68,10 +69,8 @@ export function ManagerInsightsPanel({ open, onClose, summary, priorityItems, pr
 
   const extractFanIdFromHref = (href?: string) => {
     if (!href) return "";
-    const queryMatch = href.match(/[?&]fanId=([^&#]+)/i);
-    if (queryMatch?.[1]) {
-      return safeDecode(queryMatch[1]);
-    }
+    const queryMatch = href.match(/[?&]fan=([^&#]+)/i) || href.match(/[?&]fanId=([^&#]+)/i);
+    if (queryMatch?.[1]) return safeDecode(queryMatch[1]);
     const pathMatch = href.match(/\/fan\/([^/?#]+)/i);
     if (pathMatch?.[1]) {
       return safeDecode(pathMatch[1]);
@@ -79,20 +78,18 @@ export function ManagerInsightsPanel({ open, onClose, summary, priorityItems, pr
     return "";
   };
 
-  const buildCreatorChatHref = (fanKey: string) => `/?fanId=${encodeURIComponent(fanKey)}`;
-
-  const resolveChatHref = (item: (typeof topPriorities)[number]) => {
+  const resolveFanId = (item: (typeof topPriorities)[number]) => {
     const fanKey = item.fanId || extractFanIdFromHref(item.href) || extractFanIdFromHref(item.primaryAction?.href);
     if (!fanKey) return "";
-    return buildCreatorChatHref(fanKey);
+    return fanKey;
   };
 
   const handlePriorityOpen = (item: (typeof topPriorities)[number]) => {
     if (item.kind === "INVITE_PENDING") return;
-    const href = resolveChatHref(item);
-    if (!href) return;
+    const fanKey = resolveFanId(item);
+    if (!fanKey) return;
     onClose?.();
-    void router.push(href);
+    openFanChat(router, fanKey);
   };
 
   const resolveInviteUrl = (value?: string) => {

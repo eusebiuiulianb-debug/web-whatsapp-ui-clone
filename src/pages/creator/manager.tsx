@@ -25,6 +25,7 @@ import { ManagerInsightsPanel } from "../../components/creator/ManagerInsightsPa
 import type { CatalogItem } from "../../lib/catalog";
 import { KpiCard } from "../../components/ui/KpiCard";
 import { SectionCard } from "../../components/ui/SectionCard";
+import { buildFanChatHref, openFanChat } from "../../lib/navigation/openCreatorChat";
 
 type Props = {
   initialSnapshot: CreatorBusinessSnapshot | null;
@@ -861,7 +862,7 @@ function ManagerChatLayout({
   const handleOpenChat = (fanId: string) => {
     if (!fanId) return;
     setFanPanelOpen(false);
-    void router.push(`/?fanId=${encodeURIComponent(fanId)}`);
+    openFanChat(router, fanId);
   };
   const getFirstName = (name: string) => {
     const trimmed = name.trim();
@@ -890,9 +891,7 @@ function ManagerChatLayout({
       return;
     }
     setFanPanelOpen(false);
-    const fanParam = encodeURIComponent(fan.fanId);
-    const draftParam = encodeURIComponent(draft);
-    void router.push(`/?fanId=${fanParam}&draft=${draftParam}`);
+    openFanChat(router, fan.fanId, { draft });
   };
   const toggleAttended = async (fanId: string) => {
     if (!fanId) return;
@@ -914,7 +913,7 @@ function ManagerChatLayout({
   const handleCopyLink = async (fanId: string) => {
     if (!fanId || typeof window === "undefined") return;
     const base = window.location.origin;
-    const link = `${base}/?fanId=${encodeURIComponent(fanId)}`;
+    const link = `${base}${buildFanChatHref(fanId)}`;
     try {
       await navigator.clipboard.writeText(link);
       setCopiedFanId(fanId);

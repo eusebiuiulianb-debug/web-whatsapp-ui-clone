@@ -15,6 +15,7 @@ import { ConversationContext, QueueFilter } from "../../context/ConversationCont
 import { EXTRAS_UPDATED_EVENT } from "../../constants/events";
 import { HIGH_PRIORITY_LIMIT } from "../../config/customers";
 import { normalizePreferredLanguage } from "../../lib/language";
+import { getFanIdFromQuery, openFanChat } from "../../lib/navigation/openCreatorChat";
 import { IconGlyph } from "../ui/IconGlyph";
 import { Chip } from "../ui/Chip";
 
@@ -247,6 +248,8 @@ export default function SideBar() {
 
 function SideBarInner() {
   const router = useRouter();
+  const queryFan = router.query.fan;
+  const queryFanId = router.query.fanId;
   const [ search, setSearch ] = useState("");
   const [ isSettingsOpen, setIsSettingsOpen ] = useState(false);
   const [ fans, setFans ] = useState<ConversationListData[]>([]);
@@ -294,6 +297,9 @@ function SideBarInner() {
   const [ newFanInviteUrl, setNewFanInviteUrl ] = useState<string | null>(null);
   const [ newFanInviteState, setNewFanInviteState ] = useState<"idle" | "loading" | "copied" | "error">("idle");
   const [ newFanInviteError, setNewFanInviteError ] = useState<string | null>(null);
+  const [ openFanToast, setOpenFanToast ] = useState("");
+  const openFanToastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const openFanNotFoundRef = useRef<string | null>(null);
 
 
   const mapFans = useCallback((rawFans: Fan[]): ConversationListData[] => {
@@ -370,6 +376,14 @@ function SideBarInner() {
     }));
   }, []);
 
+  const showOpenFanToast = useCallback((message: string) => {
+    setOpenFanToast(message);
+    if (openFanToastTimerRef.current) {
+      clearTimeout(openFanToastTimerRef.current);
+    }
+    openFanToastTimerRef.current = setTimeout(() => setOpenFanToast(""), 2200);
+  }, []);
+
   const hasFanListChanged = useCallback((prev: ConversationListData[], next: ConversationListData[]): boolean => {
     if (prev.length !== next.length) return true;
     const prevMap = new Map<string, ConversationListData>();
@@ -437,6 +451,14 @@ function SideBarInner() {
     fansRef.current = fans;
   }, [fans]);
 
+  useEffect(() => {
+    return () => {
+      if (openFanToastTimerRef.current) {
+        clearTimeout(openFanToastTimerRef.current);
+      }
+    };
+  }, []);
+
   const fansWithScore: FanData[] = useMemo(
     () =>
       fans.map((fan) => ({
@@ -456,15 +478,8 @@ function SideBarInner() {
         return;
       }
       if (item?.id) {
-        const targetPath = router.pathname.startsWith("/creator/manager") ? "/" : router.pathname || "/";
-        void router.push(
-          {
-            pathname: targetPath,
-            query: { fanId: item.id },
-          },
-          undefined,
-          { shallow: true, scroll: false }
-        );
+        const targetPath = router.pathname.startsWith("/creator/manager") ? "/creator" : router.pathname || "/creator";
+        openFanChat(router, item.id, { shallow: true, scroll: false, pathname: targetPath });
       }
       setConversation(item as any);
     },
@@ -877,15 +892,8 @@ function SideBarInner() {
         return [newConversation, ...prev];
       });
       setConversation(newConversation as any);
-      const targetPath = router.pathname.startsWith("/creator/manager") ? "/" : router.pathname || "/";
-      void router.push(
-        {
-          pathname: targetPath,
-          query: { fanId },
-        },
-        undefined,
-        { shallow: true }
-      );
+      const targetPath = router.pathname.startsWith("/creator/manager") ? "/creator" : router.pathname || "/creator";
+      openFanChat(router, fanId, { shallow: true, pathname: targetPath });
       if (typeof window !== "undefined") {
         window.dispatchEvent(new Event("fanDataUpdated"));
       }
@@ -1416,12 +1424,13 @@ function SideBarInner() {
   }, [applyFilter, fetchFansPage, mapFans, refreshExtrasSummary]);
 
   useEffect(() => {
-    const fanIdFromQuery = typeof router.query.fanId === "string" ? router.query.fanId : null;
+    const fanIdFromQuery = getFanIdFromQuery({ fan: queryFan, fanId: queryFanId });
     if (!fanIdFromQuery) return;
     const target = fans.find((fan) => fan.id === fanIdFromQuery);
     if (target) {
       setConversation(target as any);
       openFanFetchRef.current = null;
+      openFanNotFoundRef.current = null;
       return;
     }
     if (openFanFetchRef.current === fanIdFromQuery) return;
@@ -1429,10 +1438,23 @@ function SideBarInner() {
     const controller = new AbortController();
     let cancelled = false;
     void fetchFanById(fanIdFromQuery, { signal: controller.signal }).then((fetched) => {
-      if (cancelled || !fetched) return;
-      const currentFanId = typeof router.query.fanId === "string" ? router.query.fanId : null;
+      if (cancelled) return;
+      const currentFanId = getFanIdFromQuery({ fan: queryFan, fanId: queryFanId });
       if (currentFanId !== fanIdFromQuery) return;
+      if (!fetched) {
+        if (openFanNotFoundRef.current !== fanIdFromQuery) {
+          showOpenFanToast("Fan no encontrado");
+          openFanNotFoundRef.current = fanIdFromQuery;
+        }
+        return;
+      }
       setConversation(fetched as any);
+      openFanNotFoundRef.current = null;
+    }).catch(() => {
+      if (!cancelled && openFanNotFoundRef.current !== fanIdFromQuery) {
+        showOpenFanToast("Fan no encontrado");
+        openFanNotFoundRef.current = fanIdFromQuery;
+      }
     }).finally(() => {
       if (!cancelled && openFanFetchRef.current === fanIdFromQuery) {
         openFanFetchRef.current = null;
@@ -1442,7 +1464,7 @@ function SideBarInner() {
       cancelled = true;
       controller.abort();
     };
-  }, [fans, router.query.fanId, fetchFanById, setConversation]);
+  }, [fans, queryFan, queryFanId, fetchFanById, setConversation, showOpenFanToast]);
 
 
   useEffect(() => {
@@ -1516,6 +1538,11 @@ function SideBarInner() {
                 Reintentar
               </button>
             </div>
+          </div>
+        )}
+        {openFanToast && (
+          <div className="mb-2 rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-3 py-2 text-[11px] text-[color:var(--muted)]">
+            {openFanToast}
           </div>
         )}
         {isLoading ? (

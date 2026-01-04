@@ -148,7 +148,7 @@ function getUniqueFanCount(grants: { fanId: string }[]): number {
 }
 
 function buildCreatorChatHref(fanId: string): string {
-  return `/?fanId=${encodeURIComponent(fanId)}`;
+  return `/creator?fan=${encodeURIComponent(fanId)}`;
 }
 
 function buildOpenChatAction(fanId: string): PriorityItemAction {

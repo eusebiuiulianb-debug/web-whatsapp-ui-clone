@@ -1,21 +1,26 @@
 import Head from "next/head";
 import { useEffect, useMemo, useState } from "react";
 import type { GetServerSideProps } from "next";
+import { useRouter } from "next/router";
 import PublicProfileView from "../components/public-profile/PublicProfileView";
+import ChatPrivatePage from "./index";
 import { useCreatorConfig } from "../context/CreatorConfigContext";
 import { PublicProfileCopy, PublicProfileMode, PublicProfileStats } from "../types/publicProfile";
 import { getPublicProfileOverrides } from "../lib/publicProfileStorage";
 import { PROFILE_COPY, mapToPublicProfileCopy } from "../lib/publicProfileCopy";
 import { getPublicProfileStats } from "../lib/publicProfileStats";
+import { getFanIdFromQuery } from "../lib/navigation/openCreatorChat";
 
 const CREATOR_ID = "creator-1";
 
-type Props = { stats: PublicProfileStats };
+type Props = { stats: PublicProfileStats; fanQuery?: string | null };
 
-export default function CreatorPublicPage({ stats }: Props) {
+export default function CreatorPublicPage({ stats, fanQuery }: Props) {
+  const router = useRouter();
   const profileMode: PublicProfileMode = "fanclub";
   const { config } = useCreatorConfig();
   const creatorInitial = config.creatorName?.trim().charAt(0) || "E";
+  const fanIdFromQuery = fanQuery ?? getFanIdFromQuery(router.query);
 
   const baseCopy = useMemo(
     () => mapToPublicProfileCopy(PROFILE_COPY[profileMode], profileMode, config),
@@ -28,6 +33,10 @@ export default function CreatorPublicPage({ stats }: Props) {
     const overrides = getPublicProfileOverrides(CREATOR_ID);
     setResolvedCopy(overrides ?? baseCopy);
   }, [baseCopy]);
+
+  if (fanIdFromQuery) {
+    return <ChatPrivatePage />;
+  }
 
   return (
     <>
@@ -53,15 +62,21 @@ export default function CreatorPublicPage({ stats }: Props) {
   );
 }
 
-export const getServerSideProps: GetServerSideProps<Props> = async () => {
+export const getServerSideProps: GetServerSideProps<Props> = async (context) => {
   const creatorId = CREATOR_ID;
   let stats: PublicProfileStats = { activeMembers: 0, images: 0, videos: 0, audios: 0 };
+  const fanQuery =
+    typeof context.query.fan === "string"
+      ? context.query.fan
+      : typeof context.query.fanId === "string"
+      ? context.query.fanId
+      : null;
   try {
     stats = await getPublicProfileStats(creatorId);
   } catch (err) {
     console.error("Error fetching public profile stats", err);
   }
-  return { props: { stats } };
+  return { props: { stats, fanQuery } };
 };
 
 function slugifyHandle(value?: string) {

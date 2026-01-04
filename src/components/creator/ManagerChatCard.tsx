@@ -57,6 +57,7 @@ import {
   getNextActionNoteLabel,
   isGenericNextActionNote,
 } from "../../lib/nextActionLabel";
+import { openFanChat } from "../../lib/navigation/openCreatorChat";
 
 type ManagerChatMessage = {
   id: string;
@@ -2193,9 +2194,7 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
   const handleSendDraftToFan = useCallback(
     (fanId: string, draft: string) => {
       if (!fanId || !draft) return;
-      const fanParam = encodeURIComponent(fanId);
-      const draftParam = encodeURIComponent(draft);
-      void router.push(`/?fanId=${fanParam}&draft=${draftParam}`);
+      openFanChat(router, fanId, { draft });
     },
     [router]
   );
@@ -2203,17 +2202,14 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
     (fanId: string, segmentNote?: string) => {
       if (!fanId) return;
       const note = segmentNote?.trim();
-      const url = note
-        ? `/?fanId=${encodeURIComponent(fanId)}&segmentNote=${encodeURIComponent(note)}`
-        : `/?fanId=${encodeURIComponent(fanId)}`;
-      void router.push(url);
+      openFanChat(router, fanId, { segmentNote: note || undefined });
     },
     [router]
   );
   const handleOpenFanFollowUpPanel = useCallback(
     (fanId: string) => {
       if (!fanId) return;
-      void router.push(`/?fanId=${encodeURIComponent(fanId)}&panel=followup`);
+      openFanChat(router, fanId, { panel: "followup" });
     },
     [router]
   );
