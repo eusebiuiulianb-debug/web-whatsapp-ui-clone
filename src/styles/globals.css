@@ -22,6 +22,8 @@ body {
   --brand-weak: rgba(var(--brand-rgb), 0.12);
   --warning-rgb: 245, 158, 11;
   --danger-rgb: 244, 63, 94;
+  --foreground: var(--text);
+  --muted-foreground: var(--muted);
   --text: #e5edf3;
   --muted: rgba(176, 192, 208, 0.9);
   --surface-0: #0a1014;
@@ -47,8 +49,8 @@ body {
   --badge-danger-bg: rgba(var(--danger-rgb), 0.12);
   --badge-danger-fg: var(--danger);
   --badge-danger-bd: rgba(var(--danger-rgb), 0.35);
-  --badge-neutral-bg: var(--surface-2);
-  --badge-neutral-fg: var(--muted);
+  --badge-neutral-bg: var(--surface-overlay-soft);
+  --badge-neutral-fg: var(--foreground);
   --badge-neutral-bd: var(--border);
   --badge-brand-bg: rgba(var(--brand-rgb), 0.18);
   --badge-brand-fg: var(--text);
@@ -100,11 +102,17 @@ body {
     align-items: center;
     gap: 4px;
     border-radius: 999px;
-    border: 1px solid transparent;
+    border: 1px solid var(--border);
     font-weight: 600;
     letter-spacing: 0.02em;
     line-height: 1.1;
     white-space: nowrap;
+    background: var(--surface-overlay-soft);
+    color: var(--foreground);
+  }
+
+  .ui-badge svg {
+    color: currentColor;
   }
 
   .ui-badge--sm {
@@ -139,6 +147,12 @@ body {
     background: var(--badge-danger-bg);
     color: var(--badge-danger-fg);
     border-color: var(--badge-danger-bd);
+  }
+
+  .ui-badge--muted {
+    background: var(--surface-2);
+    color: var(--muted-foreground);
+    border-color: var(--border);
   }
 
   .ui-badge--neutral {

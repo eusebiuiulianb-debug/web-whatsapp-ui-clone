@@ -240,7 +240,7 @@ export default function ConversationList(props: ConversationListProps) {
                 {tierLabel}
               </Badge>
               {languageBadgeLabel && (
-                <Badge variant="neutral" size="sm">
+                <Badge variant="muted" size="sm">
                   {languageBadgeLabel}
                 </Badge>
               )}
@@ -341,17 +341,17 @@ export default function ConversationList(props: ConversationListProps) {
               {!isCompact && (sourceLabel || campaignLabel || contentLabel) && (
                 <div className="flex items-center gap-1.5 flex-nowrap shrink-0">
                   {sourceLabel && (
-                    <Badge variant="neutral" size="sm">
+                    <Badge variant="muted" size="sm">
                       {sourceLabel}
                     </Badge>
                   )}
                   {campaignLabel && (
-                    <Badge variant="neutral" size="sm">
+                    <Badge variant="muted" size="sm">
                       {campaignLabel}
                     </Badge>
                   )}
                   {contentLabel && (
-                    <Badge variant="neutral" size="sm">
+                    <Badge variant="muted" size="sm">
                       {contentLabel}
                     </Badge>
                   )}

@@ -2,7 +2,7 @@ import { type ReactNode } from "react";
 import clsx from "clsx";
 import { IconGlyph, type IconName } from "./IconGlyph";
 
-export type BadgeVariant = "success" | "info" | "warn" | "danger" | "neutral" | "brand";
+export type BadgeVariant = "success" | "info" | "warn" | "danger" | "neutral" | "brand" | "muted";
 export type BadgeSize = "sm" | "md";
 
 type BadgeProps = {
