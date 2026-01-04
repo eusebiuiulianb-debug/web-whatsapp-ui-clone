@@ -113,19 +113,14 @@ export function insertIntoCurrentComposer(payload: ComposerDraftPayload) {
   const fanId = typeof payload?.fanId === "string" ? payload.fanId.trim() : "";
   if (!text.trim()) return false;
   if (target === "fan" && !fanId) return false;
-  try {
-    const detail: ComposerDraftPayload = {
-      target,
-      fanId: fanId || undefined,
-      mode: payload.mode,
-      text: payload.text,
-      source: payload.source,
-    };
-    window.dispatchEvent(new CustomEvent(COMPOSER_DRAFT_EVENT, { detail }));
-    return true;
-  } catch (_err) {
-    return false;
-  }
+  queueDraft({
+    target,
+    fanId: fanId || undefined,
+    mode: payload.mode,
+    text: payload.text,
+    source: payload.source,
+  });
+  return true;
 }
 
 export function consumeDraft(options: { target: ComposerDraftTarget; fanId?: string }): ComposerDraftPayload | null {
