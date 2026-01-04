@@ -2293,7 +2293,7 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
         {actions.map((action) => (
           <div
             key={action.id}
-            className="rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-3 py-2"
+            className="ui-card px-3 py-2"
           >
             <div className="flex items-center justify-between gap-3">
               <div>
@@ -2379,7 +2379,7 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
                   className={clsx(
                     "inline-flex h-7 items-center justify-center rounded-full border px-2 text-[10px] font-semibold transition",
                     !isPinned || isFirst
-                      ? "border-[color:var(--surface-border)] text-[color:var(--text)]0 cursor-not-allowed"
+                      ? "border-[color:var(--surface-border)] ui-muted cursor-not-allowed"
                       : "border-[color:var(--surface-border)] text-[color:var(--text)] hover:bg-[color:var(--surface-2)]"
                   )}
                   aria-label="Subir atajo"
@@ -2397,7 +2397,7 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
                   className={clsx(
                     "inline-flex h-7 items-center justify-center rounded-full border px-2 text-[10px] font-semibold transition",
                     !isPinned || isLast
-                      ? "border-[color:var(--surface-border)] text-[color:var(--text)]0 cursor-not-allowed"
+                      ? "border-[color:var(--surface-border)] ui-muted cursor-not-allowed"
                       : "border-[color:var(--surface-border)] text-[color:var(--text)] hover:bg-[color:var(--surface-2)]"
                   )}
                   aria-label="Bajar atajo"
@@ -2461,7 +2461,7 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
       : [];
     const todayPanel = isTodayTab ? (
       <div className="mb-4 space-y-3">
-        <div className="rounded-2xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-4 py-3">
+        <div className="ui-panel px-4 py-3">
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
               <div className="text-[11px] uppercase tracking-wide text-[color:var(--muted)]">Seguimientos</div>
@@ -3110,10 +3110,10 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
       isCatalogEditorOpen && catalogDraft && typeof document !== "undefined"
         ? createPortal(
             <>
-              <div className="hidden sm:flex fixed inset-0 z-[9999] items-center justify-center bg-black/60 px-4 py-6">
+              <div className="hidden sm:flex fixed inset-0 z-[9999] items-center justify-center bg-[color:var(--surface-overlay)] px-4 py-6">
                 <div
                   ref={catalogEditorModalRef}
-                  className="w-full max-w-lg rounded-2xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] p-4 shadow-2xl"
+                  className="w-full max-w-lg ui-overlay p-4"
                   role="dialog"
                   aria-modal="true"
                   aria-label="Editor de catálogo"
@@ -3197,7 +3197,7 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
                     </label>
                     {catalogDraft.type === "BUNDLE" && (
                       <div className="rounded-lg border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-3 py-2">
-                        <div className="text-[10px] uppercase tracking-wide text-[color:var(--text)]0">Incluye</div>
+                        <div className="text-[10px] uppercase tracking-wide ui-muted">Incluye</div>
                         <input
                           value={bundleSearch}
                           onChange={(event) => setBundleSearch(event.target.value)}
@@ -3237,7 +3237,7 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
                               );
                             })
                           ) : (
-                            <div className="text-[11px] text-[color:var(--text)]0">No hay extras disponibles.</div>
+                            <div className="text-[11px] ui-muted">No hay extras disponibles.</div>
                           )}
                         </div>
                         {bundleSummaryLine && (
@@ -3287,10 +3287,10 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
                   </div>
                 </div>
               </div>
-              <div className="sm:hidden fixed inset-0 z-[9999] flex items-end justify-center bg-black/60">
+              <div className="sm:hidden fixed inset-0 z-[9999] flex items-end justify-center bg-[color:var(--surface-overlay)]">
                 <div
                   ref={catalogEditorSheetRef}
-                  className="w-full max-w-lg rounded-t-2xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] p-4 shadow-2xl max-h-[85vh] overflow-y-auto"
+                  className="w-full max-w-lg ui-overlay rounded-t-2xl rounded-b-none p-4 max-h-[85vh] overflow-y-auto"
                   role="dialog"
                   aria-modal="true"
                   aria-label="Editor de catálogo"
@@ -3374,7 +3374,7 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
                     </label>
                     {catalogDraft.type === "BUNDLE" && (
                       <div className="rounded-lg border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-3 py-2">
-                        <div className="text-[10px] uppercase tracking-wide text-[color:var(--text)]0">Incluye</div>
+                        <div className="text-[10px] uppercase tracking-wide ui-muted">Incluye</div>
                         <input
                           value={bundleSearch}
                           onChange={(event) => setBundleSearch(event.target.value)}
@@ -3414,7 +3414,7 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
                               );
                             })
                           ) : (
-                            <div className="text-[11px] text-[color:var(--text)]0">No hay extras disponibles.</div>
+                            <div className="text-[11px] ui-muted">No hay extras disponibles.</div>
                           )}
                         </div>
                         {bundleSummaryLine && (
@@ -3472,10 +3472,10 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
       isPopClipEditorOpen && popClipDraft && popClipDraftItem && typeof document !== "undefined"
         ? createPortal(
             <>
-              <div className="hidden sm:flex fixed inset-0 z-[9999] items-center justify-center bg-black/60 px-4 py-6">
+              <div className="hidden sm:flex fixed inset-0 z-[9999] items-center justify-center bg-[color:var(--surface-overlay)] px-4 py-6">
                 <div
                   ref={popClipEditorModalRef}
-                  className="w-full max-w-lg rounded-2xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] p-4 shadow-2xl"
+                  className="w-full max-w-lg ui-overlay p-4"
                   role="dialog"
                   aria-modal="true"
                   aria-label="Editor PopClips"
@@ -3497,7 +3497,7 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
                   </div>
                   <div className="mt-4 space-y-3">
                     <div className="rounded-lg border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-3 py-2">
-                      <div className="text-[10px] uppercase tracking-wide text-[color:var(--text)]0">Pack</div>
+                      <div className="text-[10px] uppercase tracking-wide ui-muted">Pack</div>
                       <div className="mt-1 text-[12px] font-semibold text-[color:var(--text)]">{popClipDraftItem.title}</div>
                       <div className="text-[11px] text-[color:var(--muted)]">
                         {formatPriceCents(popClipDraftItem.priceCents, popClipDraftItem.currency)}
@@ -3570,7 +3570,7 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
                     </label>
                     {popClipEditorError && <div className="text-[11px] text-[color:var(--danger)]">{popClipEditorError}</div>}
                     <div className="rounded-lg border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-3 py-2">
-                      <div className="text-[10px] uppercase tracking-wide text-[color:var(--text)]0">Preview</div>
+                      <div className="text-[10px] uppercase tracking-wide ui-muted">Preview</div>
                       {popClipDraft.videoUrl.trim() ? (
                         <video
                           src={popClipDraft.videoUrl.trim()}
@@ -3582,7 +3582,7 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
                           className="mt-2 w-full rounded-lg border border-[color:var(--surface-border)] bg-black/40"
                         />
                       ) : (
-                        <div className="mt-2 text-[11px] text-[color:var(--text)]0">Añade un video URL para previsualizar.</div>
+                        <div className="mt-2 text-[11px] ui-muted">Añade un video URL para previsualizar.</div>
                       )}
                     </div>
                   </div>
@@ -3627,10 +3627,10 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
                   </div>
                 </div>
               </div>
-              <div className="sm:hidden fixed inset-0 z-[9999] flex items-end justify-center bg-black/60">
+              <div className="sm:hidden fixed inset-0 z-[9999] flex items-end justify-center bg-[color:var(--surface-overlay)]">
                 <div
                   ref={popClipEditorSheetRef}
-                  className="w-full max-w-lg rounded-t-2xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] p-4 shadow-2xl max-h-[85vh] overflow-y-auto"
+                  className="w-full max-w-lg ui-overlay rounded-t-2xl rounded-b-none p-4 max-h-[85vh] overflow-y-auto"
                   role="dialog"
                   aria-modal="true"
                   aria-label="Editor PopClips"
@@ -3652,7 +3652,7 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
                   </div>
                   <div className="mt-4 space-y-3">
                     <div className="rounded-lg border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-3 py-2">
-                      <div className="text-[10px] uppercase tracking-wide text-[color:var(--text)]0">Pack</div>
+                      <div className="text-[10px] uppercase tracking-wide ui-muted">Pack</div>
                       <div className="mt-1 text-[12px] font-semibold text-[color:var(--text)]">{popClipDraftItem.title}</div>
                       <div className="text-[11px] text-[color:var(--muted)]">
                         {formatPriceCents(popClipDraftItem.priceCents, popClipDraftItem.currency)}
@@ -3725,7 +3725,7 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
                     </label>
                     {popClipEditorError && <div className="text-[11px] text-[color:var(--danger)]">{popClipEditorError}</div>}
                     <div className="rounded-lg border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-3 py-2">
-                      <div className="text-[10px] uppercase tracking-wide text-[color:var(--text)]0">Preview</div>
+                      <div className="text-[10px] uppercase tracking-wide ui-muted">Preview</div>
                       {popClipDraft.videoUrl.trim() ? (
                         <video
                           src={popClipDraft.videoUrl.trim()}
@@ -3737,7 +3737,7 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
                           className="mt-2 w-full rounded-lg border border-[color:var(--surface-border)] bg-black/40"
                         />
                       ) : (
-                        <div className="mt-2 text-[11px] text-[color:var(--text)]0">Añade un video URL para previsualizar.</div>
+                        <div className="mt-2 text-[11px] ui-muted">Añade un video URL para previsualizar.</div>
                       )}
                     </div>
                   </div>
@@ -3791,10 +3791,10 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
       catalogFanPickerOpen && catalogDraftItem && typeof document !== "undefined"
         ? createPortal(
             <>
-              <div className="hidden sm:flex fixed inset-0 z-[9999] items-center justify-center bg-black/60 px-4 py-6">
+              <div className="hidden sm:flex fixed inset-0 z-[9999] items-center justify-center bg-[color:var(--surface-overlay)] px-4 py-6">
                 <div
                   ref={catalogFanPickerModalRef}
-                  className="w-full max-w-md rounded-2xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] p-4 shadow-2xl"
+                  className="w-full max-w-md ui-overlay p-4"
                   role="dialog"
                   aria-modal="true"
                   aria-label="Elegir fan"
@@ -3817,7 +3817,7 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
                   <div className="mt-4 space-y-3 max-h-[50vh] overflow-y-auto pr-1">
                     {fanCandidates.priority.length > 0 && (
                       <div>
-                        <div className="text-[10px] uppercase tracking-wide text-[color:var(--text)]0">Prioridad</div>
+                        <div className="text-[10px] uppercase tracking-wide ui-muted">Prioridad</div>
                         <div className="mt-2 space-y-2">
                           {fanCandidates.priority.map((fan) => (
                             <button
@@ -3837,7 +3837,7 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
                     )}
                     {fanCandidates.rest.length > 0 && (
                       <div>
-                        <div className="text-[10px] uppercase tracking-wide text-[color:var(--text)]0">Cola</div>
+                        <div className="text-[10px] uppercase tracking-wide ui-muted">Cola</div>
                         <div className="mt-2 space-y-2">
                           {fanCandidates.rest.map((fan) => (
                             <button
@@ -3861,10 +3861,10 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
                   </div>
                 </div>
               </div>
-              <div className="sm:hidden fixed inset-0 z-[9999] flex items-end justify-center bg-black/60">
+              <div className="sm:hidden fixed inset-0 z-[9999] flex items-end justify-center bg-[color:var(--surface-overlay)]">
                 <div
                   ref={catalogFanPickerSheetRef}
-                  className="w-full max-w-lg rounded-t-2xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] p-4 shadow-2xl max-h-[85vh] overflow-y-auto"
+                  className="w-full max-w-lg ui-overlay rounded-t-2xl rounded-b-none p-4 max-h-[85vh] overflow-y-auto"
                   role="dialog"
                   aria-modal="true"
                   aria-label="Elegir fan"
@@ -3887,7 +3887,7 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
                   <div className="mt-4 space-y-3">
                     {fanCandidates.priority.length > 0 && (
                       <div>
-                        <div className="text-[10px] uppercase tracking-wide text-[color:var(--text)]0">Prioridad</div>
+                        <div className="text-[10px] uppercase tracking-wide ui-muted">Prioridad</div>
                         <div className="mt-2 space-y-2">
                           {fanCandidates.priority.map((fan) => (
                             <button
@@ -3907,7 +3907,7 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
                     )}
                     {fanCandidates.rest.length > 0 && (
                       <div>
-                        <div className="text-[10px] uppercase tracking-wide text-[color:var(--text)]0">Cola</div>
+                        <div className="text-[10px] uppercase tracking-wide ui-muted">Cola</div>
                         <div className="mt-2 space-y-2">
                           {fanCandidates.rest.map((fan) => (
                             <button
@@ -3996,10 +3996,10 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
       overflowOpen && typeof document !== "undefined"
         ? createPortal(
             <>
-              <div className="hidden sm:flex fixed inset-0 z-[9999] items-center justify-center bg-black/60 px-4 py-6">
+              <div className="hidden sm:flex fixed inset-0 z-[9999] items-center justify-center bg-[color:var(--surface-overlay)] px-4 py-6">
                 <div
                   ref={overflowModalRef}
-                  className="w-full max-w-md rounded-2xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] p-4 shadow-2xl"
+                  className="w-full max-w-md ui-overlay p-4"
                   role="dialog"
                   aria-modal="true"
                   aria-label="Atajos ocultos"
@@ -4057,10 +4057,10 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
                   </div>
                 </div>
               </div>
-              <div className="sm:hidden fixed inset-0 z-[9999] flex items-end justify-center bg-black/60">
+              <div className="sm:hidden fixed inset-0 z-[9999] flex items-end justify-center bg-[color:var(--surface-overlay)]">
                 <div
                   ref={overflowSheetRef}
-                  className="w-full max-w-lg rounded-t-2xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] p-4 shadow-2xl max-h-[80vh] overflow-y-auto"
+                  className="w-full max-w-lg ui-overlay rounded-t-2xl rounded-b-none p-4 max-h-[80vh] overflow-y-auto"
                   role="dialog"
                   aria-modal="true"
                   aria-label="Atajos ocultos"
@@ -4126,10 +4126,10 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
       isFavoritesEditorOpen && typeof document !== "undefined"
         ? createPortal(
             <>
-              <div className="hidden sm:flex fixed inset-0 z-[9999] items-center justify-center bg-black/60 px-4 py-6">
+              <div className="hidden sm:flex fixed inset-0 z-[9999] items-center justify-center bg-[color:var(--surface-overlay)] px-4 py-6">
                 <div
                   ref={favoritesModalRef}
-                  className="w-full max-w-lg rounded-2xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] p-4 shadow-2xl"
+                  className="w-full max-w-lg ui-overlay p-4"
                   role="dialog"
                   aria-modal="true"
                   aria-label="Editar favoritos"
@@ -4139,7 +4139,7 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
                       <h3 className="text-sm font-semibold text-[color:var(--text)]">{editorTitle}</h3>
                       <p className="text-[11px] text-[color:var(--muted)]">
                         Elige qué botones aparecen abajo.{" "}
-                        <span className="text-[color:var(--text)]0">(máx recomendado 6)</span>
+                        <span className="ui-muted">(máx recomendado 6)</span>
                       </p>
                     </div>
                     <button
@@ -4154,10 +4154,10 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
                   {editorFooter}
                 </div>
               </div>
-              <div className="sm:hidden fixed inset-0 z-[9999] flex items-end justify-center bg-black/60">
+              <div className="sm:hidden fixed inset-0 z-[9999] flex items-end justify-center bg-[color:var(--surface-overlay)]">
                 <div
                   ref={favoritesSheetRef}
-                  className="w-full max-w-lg rounded-t-2xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] p-4 shadow-2xl max-h-[80vh] overflow-y-auto"
+                  className="w-full max-w-lg ui-overlay rounded-t-2xl rounded-b-none p-4 max-h-[80vh] overflow-y-auto"
                   role="dialog"
                   aria-modal="true"
                   aria-label="Editar favoritos"
@@ -4167,7 +4167,7 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
                       <h3 className="text-sm font-semibold text-[color:var(--text)]">{editorTitle}</h3>
                       <p className="text-[11px] text-[color:var(--muted)]">
                         Elige qué botones aparecen abajo.{" "}
-                        <span className="text-[color:var(--text)]0">(máx recomendado 6)</span>
+                        <span className="ui-muted">(máx recomendado 6)</span>
                       </p>
                     </div>
                     <button
@@ -4556,7 +4556,7 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
   }
 
   const containerClass = clsx(
-    "rounded-2xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)]",
+    "ui-panel",
     density === "compact" ? "p-3" : "p-4",
     "flex flex-col h-full min-h-0",
     density === "compact" ? "space-y-2.5" : "space-y-3"
@@ -4571,11 +4571,11 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
                 <p className="text-xs text-[color:var(--muted)]">
                   Dime qué quieres conseguir hoy y te digo con quién hablar y qué hacer para no perder dinero.
                 </p>
-                <p className="text-[11px] text-[color:var(--text)]0">Chat interno entre tú y tu manager IA (no visible para fans).</p>
+                <p className="text-[11px] ui-muted">Chat interno entre tú y tu manager IA (no visible para fans).</p>
               </div>
             </div>
           )}
-          <div className="rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-4 py-3 text-xs text-[color:var(--text)] space-y-2">
+          <div className="ui-card px-4 py-3 text-xs text-[color:var(--text)] space-y-2">
             <div>
               {snapshot ? (
                 <p className="space-x-1">
@@ -4585,7 +4585,7 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
                   <strong className="text-[color:var(--text)]">{formatCurrency(snapshot.ingresosUltimos30Dias)}</strong> en 30 días
                 </p>
               ) : (
-                <span className="text-[color:var(--text)]0">Preparando resumen del negocio...</span>
+                <span className="ui-muted">Preparando resumen del negocio...</span>
               )}
             </div>
             {usedFallback && (

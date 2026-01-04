@@ -80,7 +80,7 @@ export function KpiCard({
   );
 
   const baseClass = clsx(
-    "group w-full rounded-2xl border p-4 text-left transition",
+    "group w-full ui-card p-4 text-left transition",
     VARIANT_STYLES[variant],
     interactive && "cursor-pointer hover:-translate-y-[1px] focus-visible:outline-none",
     interactive && interactiveRingClass,

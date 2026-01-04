@@ -961,7 +961,7 @@ function TodayPriorityList({
   };
 
   return (
-    <div className="rounded-2xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)]/85 p-4 space-y-3">
+    <div className="ui-panel p-4 space-y-3">
       <div className="flex items-center justify-between">
         <div>
           <p className="text-[11px] uppercase tracking-wide text-[color:var(--muted)]">Prioridad de hoy</p>
@@ -973,7 +973,7 @@ function TodayPriorityList({
       {!queueError && !next && <div className="text-sm text-[color:var(--muted)]">Sin fans priorizados por ahora.</div>}
 
       {!queueError && next && (
-        <div className="rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)]/95 px-3 py-3 space-y-2 shadow-inner">
+        <div className="ui-card px-3 py-3 space-y-2 shadow-inner">
           <div className="flex items-center justify-between gap-2">
             <div>
               <p className="text-xs uppercase tracking-wide text-[color:var(--brand)]/80">Siguiente recomendado</p>
@@ -1004,7 +1004,7 @@ function TodayPriorityList({
         rest.map((fan) => (
           <div
             key={fan.id}
-            className="flex items-center justify-between gap-3 rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-3 py-2"
+            className="flex items-center justify-between gap-3 ui-card px-3 py-2"
           >
             <div className="flex flex-col gap-1">
               <span className="text-sm font-semibold text-[color:var(--text)]">{fan.displayName}</span>

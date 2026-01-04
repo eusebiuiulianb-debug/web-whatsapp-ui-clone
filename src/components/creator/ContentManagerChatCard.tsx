@@ -249,7 +249,7 @@ export const ContentManagerChatCard = forwardRef<ContentManagerChatCardHandle, P
       </div>
 
       {error && <div className="text-[11px] text-[color:var(--danger)]">{error}</div>}
-      <div className="text-[11px] text-[color:var(--text)]0">Solo tú ves este chat.</div>
+      <div className="text-[11px] ui-muted">Solo tú ves este chat.</div>
 
       <div className="flex flex-nowrap items-center gap-2 overflow-x-auto pb-1">
         {(mode === "CONTENT" ? contentSuggestions : growthSuggestions).map((sugg) => (

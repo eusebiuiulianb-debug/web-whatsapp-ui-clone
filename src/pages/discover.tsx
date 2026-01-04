@@ -286,7 +286,7 @@ export default function DiscoverPage() {
             </div>
 
             <div className="flex items-center gap-2">
-              <span className="text-xs text-[color:var(--text)]0">Vista</span>
+              <span className="text-xs ui-muted">Vista</span>
               {(["list", "orbital"] as const).map((mode) => (
                 <button
                   key={mode}
@@ -326,7 +326,7 @@ export default function DiscoverPage() {
                           {rec.responseHours ? `Resp. ~${rec.responseHours}h` : "Resp. estándar"}
                         </div>
                         {rec.country && (
-                          <div className="text-xs text-[color:var(--text)]0">
+                          <div className="text-xs ui-muted">
                             {rec.country}
                             {rec.cityApprox ? ` · ${rec.cityApprox}` : ""}
                           </div>

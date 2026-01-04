@@ -8330,7 +8330,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
                               className={clsx(
                                 "flex items-center justify-between rounded-lg border px-3 py-2 text-sm",
                                 locked
-                                  ? "border-[color:var(--surface-border)] bg-[color:var(--surface-2)] text-[color:var(--text)]0 cursor-not-allowed opacity-60"
+                                  ? "border-[color:var(--surface-border)] bg-[color:var(--surface-2)] ui-muted cursor-not-allowed opacity-60"
                                   : selected
                                   ? "border-[color:var(--warning)] bg-[color:rgba(245,158,11,0.08)] text-[color:var(--text)]"
                                   : "border-[color:var(--surface-border)] bg-[color:var(--surface-1)] text-[color:var(--text)] hover:border-[color:rgba(245,158,11,0.6)]"
@@ -8365,7 +8365,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
                           );
                         })}
                         {!contentLoading && packItems.length === 0 && (
-                          <div className="text-xs text-[color:var(--text)]0">No hay contenidos en este pack.</div>
+                          <div className="text-xs ui-muted">No hay contenidos en este pack.</div>
                         )}
                       </div>
                     </div>
@@ -8465,7 +8465,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
                       })}
                     {!contentLoading &&
                       contentItems.filter((item) => item.isExtra === true || item.visibility === "EXTRA").length === 0 && (
-                        <div className="text-xs text-[color:var(--text)]0">No hay extras PPV todavía.</div>
+                        <div className="text-xs ui-muted">No hay extras PPV todavía.</div>
                       )}
                   </div>
                 </div>
@@ -8477,7 +8477,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
                       value={catalogSearch}
                       onChange={(event) => setCatalogSearch(event.target.value)}
                       placeholder="Buscar..."
-                      className="w-full sm:max-w-[240px] rounded-md border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-3 py-2 text-xs text-[color:var(--text)] placeholder:text-[color:var(--text)]0"
+                      className="w-full sm:max-w-[240px] rounded-md border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-3 py-2 text-xs text-[color:var(--text)] placeholder:ui-muted"
                     />
                     <div className="inline-flex rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] p-1 text-[10px] font-semibold">
                       {([
@@ -8562,7 +8562,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
                                   <div className="text-[11px] text-[color:var(--muted)] truncate">{item.description}</div>
                                 )}
                                 {includesPreview && (
-                                  <div className="text-[11px] text-[color:var(--text)]0 truncate">{includesPreview}</div>
+                                  <div className="text-[11px] ui-muted truncate">{includesPreview}</div>
                                 )}
                               </div>
                               <div className="flex flex-col items-end gap-2">
@@ -8622,7 +8622,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
                   className={clsx(
                     "rounded-full border px-3 py-1.5 text-xs font-semibold transition",
                     selectedContentIds.length === 0 || !!contentError
-                      ? "border-[color:var(--surface-border)] bg-[color:var(--surface-2)] text-[color:var(--text)]0 cursor-not-allowed"
+                      ? "border-[color:var(--surface-border)] bg-[color:var(--surface-2)] ui-muted cursor-not-allowed"
                       : "border-[color:var(--warning)] bg-[color:rgba(245,158,11,0.08)] text-[color:var(--text)] hover:bg-[color:rgba(245,158,11,0.16)]"
                   )}
                   onClick={async () => {
@@ -8711,7 +8711,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
       )}
       {showQuickSheet && (
         <div className="fixed inset-0 z-40 flex items-end justify-center bg-[color:var(--surface-overlay)] backdrop-blur-sm">
-          <div className="w-full max-w-md rounded-t-3xl bg-[color:var(--surface-1)] border border-[color:var(--surface-border)] shadow-xl p-5 space-y-5">
+          <div className="w-full max-w-md ui-overlay rounded-t-3xl rounded-b-none p-5 space-y-5">
             <div className="flex items-center justify-between gap-3">
               <h2 className="text-sm font-semibold text-[color:var(--muted)]">Ficha rápida</h2>
               <button

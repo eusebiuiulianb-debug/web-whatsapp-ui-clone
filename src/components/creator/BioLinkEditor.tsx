@@ -643,7 +643,7 @@ function LabeledInput({
         readOnly={readOnly}
         disabled={readOnly}
       />
-      {helper && <span className="text-[11px] text-[color:var(--text)]0">{helper}</span>}
+      {helper && <span className="text-[11px] ui-muted">{helper}</span>}
       {error && <span className="text-[11px] text-[color:var(--danger)]">{error}</span>}
     </label>
   );
@@ -668,7 +668,7 @@ function LabeledTextArea({
         value={value}
         onChange={(e) => onChange(e.target.value)}
       />
-      {helper && <span className="text-[11px] text-[color:var(--text)]0">{helper}</span>}
+      {helper && <span className="text-[11px] ui-muted">{helper}</span>}
     </label>
   );
 }

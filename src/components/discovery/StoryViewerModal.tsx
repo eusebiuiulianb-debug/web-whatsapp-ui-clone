@@ -191,7 +191,7 @@ export function StoryViewerModal({ open, recommendation, onClose }: StoryViewerM
               <h4 className="text-xl font-semibold mb-3">{slideContent.title}</h4>
               {slideContent.body}
             </div>
-            <div className="flex items-center justify-between text-xs text-[color:var(--text)]0">
+            <div className="flex items-center justify-between text-xs ui-muted">
               <span>Usa ← → para cambiar de slide</span>
               <span>Enter en burbuja · Esc para cerrar</span>
             </div>

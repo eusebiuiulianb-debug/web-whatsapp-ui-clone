@@ -90,7 +90,7 @@ export default function ConversationList(props: ConversationListProps) {
             </div>
             {hasManagerPreview && <span className={`truncate ${previewClasses}`}>{previewMessage}</span>}
             {hasManagerCaption && (
-              <div className="flex items-center gap-2 text-[11px] text-[color:var(--text)]0">
+              <div className="flex items-center gap-2 text-[11px] ui-muted">
                 <span>{managerCaption}</span>
                 {lastTime ? (
                   <>
@@ -282,7 +282,7 @@ export default function ConversationList(props: ConversationListProps) {
               </div>
             )}
             {!isCompact && (
-              <div className="flex items-center gap-1 text-[11px] text-[color:var(--text)]0">
+              <div className="flex items-center gap-1 text-[11px] ui-muted">
                 <span>{`${totalSpent} €`}</span>
                 {hasContextSignals && (
                   <>
@@ -362,7 +362,7 @@ export default function ConversationList(props: ConversationListProps) {
           </div>
           <div className="flex flex-col items-end gap-1 w-auto text-[#aebac1] relative">
             <div className="flex items-center gap-2">
-              <h1 className="text-[10px] text-[color:var(--text)]0">{lastTime}</h1>
+              <h1 className="text-[10px] ui-muted">{lastTime}</h1>
               <ConversationActionsMenu
                 conversation={data}
                 variant="row"

@@ -60,7 +60,7 @@ function LeftSectionCard({ children, className }: LeftSectionCardProps) {
   return (
     <div
       className={clsx(
-        "rounded-2xl border border-[color:var(--surface-border)] bg-[var(--surface-1)] p-4 transition",
+        "ui-panel p-4 transition",
         "hover:border-[color:var(--surface-border-hover)] hover:ring-1 hover:ring-[color:var(--surface-ring)]",
         className
       )}
@@ -93,8 +93,8 @@ function LeftKpiCard({
 }: LeftKpiCardProps) {
   const toneClass = tone === "accent" ? "text-[color:var(--brand)]" : "text-[color:var(--muted)]";
   return (
-    <div className={clsx("rounded-xl bg-[var(--surface-2)] p-3", className)}>
-      <div className="text-[10px] text-[color:var(--text)]0">{label}</div>
+    <div className={clsx("ui-card p-3", className)}>
+      <div className="text-[10px] ui-muted">{label}</div>
       <div
         className={clsx(
           "mt-1 text-2xl font-semibold tracking-tight tabular-nums leading-tight",
@@ -104,8 +104,8 @@ function LeftKpiCard({
       >
         {value}
       </div>
-      {hint ? <div className="mt-1 text-[10px] text-[color:var(--text)]0">{hint}</div> : null}
-      {supporting ? <div className="mt-1 text-[10px] text-[color:var(--text)]0">{supporting}</div> : null}
+      {hint ? <div className="mt-1 text-[10px] ui-muted">{hint}</div> : null}
+      {supporting ? <div className="mt-1 text-[10px] ui-muted">{supporting}</div> : null}
     </div>
   );
 }
@@ -1538,7 +1538,7 @@ function SideBarInner() {
               <div className="flex items-center justify-between">
                 <div className="space-y-1">
                   <div className="text-sm font-semibold text-[color:var(--text)]">Resumen de hoy</div>
-                  <div className="text-[11px] text-[color:var(--text)]0">Ventas y actividad</div>
+                  <div className="text-[11px] ui-muted">Ventas y actividad</div>
                 </div>
               </div>
               <div className="mt-3 grid grid-cols-2 gap-2">
@@ -1590,9 +1590,9 @@ function SideBarInner() {
                   </div>
                 </div>
                 {giftedTodayCount > 0 && (
-                  <div className="mt-1 text-[10px] text-[color:var(--text)]0">Regalos hoy: {giftedTodayCount}</div>
+                  <div className="mt-1 text-[10px] ui-muted">Regalos hoy: {giftedTodayCount}</div>
                 )}
-                <div className="mt-3 flex items-center justify-between text-[10px] text-[color:var(--text)]0">
+                <div className="mt-3 flex items-center justify-between text-[10px] ui-muted">
                   <span>Últimos 7 días</span>
                   <span
                     className={clsx(
@@ -1604,7 +1604,7 @@ function SideBarInner() {
                   </span>
                 </div>
                 {giftedLast7Count > 0 && (
-                  <div className="mt-1 text-[10px] text-[color:var(--text)]0">Regalos 7d: {giftedLast7Count}</div>
+                  <div className="mt-1 text-[10px] ui-muted">Regalos 7d: {giftedLast7Count}</div>
                 )}
               </LeftSectionCard>
             )}
