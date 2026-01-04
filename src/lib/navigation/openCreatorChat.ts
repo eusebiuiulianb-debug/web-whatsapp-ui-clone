@@ -11,7 +11,17 @@ type OpenFanChatOptions = {
   pathname?: string;
 };
 
+type ComposerDraftMode = "fan";
+
+type ComposerDraftPayload = {
+  fanId: string;
+  mode: ComposerDraftMode;
+  text: string;
+};
+
 const DEFAULT_CHAT_PATH = "/creator";
+const PENDING_COMPOSER_DRAFT_KEY = "novsy:pendingComposerDraft";
+const COMPOSER_DRAFT_EVENT = "novsy:composerDraft";
 
 export function buildFanChatHref(fanId: string, options: Omit<OpenFanChatOptions, "pathname"> = {}) {
   if (!fanId) return DEFAULT_CHAT_PATH;
@@ -50,4 +60,50 @@ export function openFanChat(router: NextRouter, fanId: string, options: OpenFanC
 
 export function openCreatorChat(router: NextRouter, fanId: string) {
   openFanChat(router, fanId);
+}
+
+export function queueComposerDraft(payload: ComposerDraftPayload) {
+  if (typeof window === "undefined") return;
+  const fanId = payload?.fanId?.trim();
+  const text = typeof payload?.text === "string" ? payload.text.trim() : "";
+  if (!fanId || !text) return;
+  try {
+    sessionStorage.setItem(
+      PENDING_COMPOSER_DRAFT_KEY,
+      JSON.stringify({ fanId, mode: payload.mode, text: payload.text })
+    );
+  } catch (_err) {
+    // ignore storage errors
+  }
+  try {
+    window.dispatchEvent(new CustomEvent(COMPOSER_DRAFT_EVENT, { detail: { fanId, mode: payload.mode, text: payload.text } }));
+  } catch (_err) {
+    // ignore event errors
+  }
+}
+
+export function consumeComposerDraft(fanId: string): ComposerDraftPayload | null {
+  if (typeof window === "undefined") return null;
+  const targetFanId = fanId?.trim();
+  if (!targetFanId) return null;
+  try {
+    const raw = sessionStorage.getItem(PENDING_COMPOSER_DRAFT_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as Partial<ComposerDraftPayload> | null;
+    if (!parsed || typeof parsed !== "object") {
+      sessionStorage.removeItem(PENDING_COMPOSER_DRAFT_KEY);
+      return null;
+    }
+    if (parsed.fanId !== targetFanId) return null;
+    const text = typeof parsed.text === "string" ? parsed.text : "";
+    if (!text.trim()) {
+      sessionStorage.removeItem(PENDING_COMPOSER_DRAFT_KEY);
+      return null;
+    }
+    sessionStorage.removeItem(PENDING_COMPOSER_DRAFT_KEY);
+    return { fanId: targetFanId, mode: parsed.mode === "fan" ? "fan" : "fan", text };
+  } catch (_err) {
+    sessionStorage.removeItem(PENDING_COMPOSER_DRAFT_KEY);
+    return null;
+  }
 }

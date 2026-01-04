@@ -74,7 +74,7 @@ import { IconGlyph, type IconName } from "../ui/IconGlyph";
 import { Badge, type BadgeTone } from "../ui/Badge";
 import { ConversationActionsMenu } from "../conversations/ConversationActionsMenu";
 import { badgeToneForLabel } from "../../lib/badgeTone";
-import { getFanIdFromQuery, openFanChat } from "../../lib/navigation/openCreatorChat";
+import { consumeComposerDraft, getFanIdFromQuery, openFanChat } from "../../lib/navigation/openCreatorChat";
 
 type ManagerQuickIntent = ManagerObjective;
 type ManagerSuggestionIntent = "romper_hielo" | "pregunta_simple" | "cierre_suave" | "upsell_mensual_suave";
@@ -937,6 +937,47 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
   const resetMessageInputHeight = useCallback(() => {
     autoGrowTextarea(messageInputRef.current, MAX_MAIN_COMPOSER_HEIGHT);
   }, [autoGrowTextarea]);
+
+  const applyComposerDraft = useCallback(
+    (draftText: string) => {
+      if (!id) return false;
+      const trimmed = draftText.trim();
+      if (!trimmed) return false;
+      setComposerTarget("fan");
+      setMessageSend(draftText);
+      draftAppliedFanIdRef.current = id;
+      requestAnimationFrame(() => {
+        const input = messageInputRef.current;
+        if (!input) return;
+        input.focus();
+        const len = draftText.length;
+        input.setSelectionRange(len, len);
+        autoGrowTextarea(input, MAX_MAIN_COMPOSER_HEIGHT);
+      });
+      return true;
+    },
+    [autoGrowTextarea, id]
+  );
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const handleComposerDraft = (event: Event) => {
+      const detail = (event as CustomEvent)?.detail as { fanId?: string; text?: string } | undefined;
+      if (!id || !detail?.fanId || detail.fanId !== id) return;
+      const stored = consumeComposerDraft(id);
+      if (stored?.text) {
+        applyComposerDraft(stored.text);
+        return;
+      }
+      if (typeof detail.text === "string" && detail.text.trim()) {
+        applyComposerDraft(detail.text);
+      }
+    };
+    window.addEventListener("novsy:composerDraft", handleComposerDraft as EventListener);
+    return () => {
+      window.removeEventListener("novsy:composerDraft", handleComposerDraft as EventListener);
+    };
+  }, [applyComposerDraft, id]);
 
   useEffect(() => {
     if (!router.isReady) return;
@@ -2535,25 +2576,19 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
   useEffect(() => {
     if (!id) return;
     const pendingDraft = pendingComposerDraftRef.current;
-    if (!pendingDraft) return;
-    const targetFanId = pendingComposerDraftFanIdRef.current;
-    if (targetFanId && targetFanId !== id) return;
-    const trimmed = pendingDraft.trim();
-    pendingComposerDraftRef.current = null;
-    pendingComposerDraftFanIdRef.current = null;
-    if (!trimmed) return;
-    setComposerTarget("fan");
-    setMessageSend(pendingDraft);
-    draftAppliedFanIdRef.current = id;
-    requestAnimationFrame(() => {
-      const input = messageInputRef.current;
-      if (!input) return;
-      input.focus();
-      const len = pendingDraft.length;
-      input.setSelectionRange(len, len);
-      autoGrowTextarea(input, MAX_MAIN_COMPOSER_HEIGHT);
-    });
-  }, [autoGrowTextarea, id]);
+    if (pendingDraft) {
+      const targetFanId = pendingComposerDraftFanIdRef.current;
+      if (!targetFanId || targetFanId === id) {
+        pendingComposerDraftRef.current = null;
+        pendingComposerDraftFanIdRef.current = null;
+        if (applyComposerDraft(pendingDraft)) return;
+      }
+    }
+    const storedDraft = consumeComposerDraft(id);
+    if (storedDraft?.text) {
+      applyComposerDraft(storedDraft.text);
+    }
+  }, [applyComposerDraft, id]);
 
   useEffect(() => {
     const normalized = normalizePreferredLanguage(conversation.preferredLanguage) ?? null;

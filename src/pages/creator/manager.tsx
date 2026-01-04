@@ -25,7 +25,7 @@ import { ManagerInsightsPanel } from "../../components/creator/ManagerInsightsPa
 import type { CatalogItem } from "../../lib/catalog";
 import { KpiCard } from "../../components/ui/KpiCard";
 import { SectionCard } from "../../components/ui/SectionCard";
-import { buildFanChatHref, openFanChat } from "../../lib/navigation/openCreatorChat";
+import { buildFanChatHref, getFanIdFromQuery, openFanChat, queueComposerDraft } from "../../lib/navigation/openCreatorChat";
 
 type Props = {
   initialSnapshot: CreatorBusinessSnapshot | null;
@@ -891,7 +891,11 @@ function ManagerChatLayout({
       return;
     }
     setFanPanelOpen(false);
-    openFanChat(router, fan.fanId, { draft });
+    queueComposerDraft({ fanId: fan.fanId, mode: "fan", text: draft });
+    const activeFanId = getFanIdFromQuery(router.query);
+    const isChatRoute = router.pathname === "/" || router.pathname === "/creator";
+    if (isChatRoute && activeFanId === fan.fanId) return;
+    openFanChat(router, fan.fanId);
   };
   const toggleAttended = async (fanId: string) => {
     if (!fanId) return;

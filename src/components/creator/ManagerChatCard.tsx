@@ -57,7 +57,7 @@ import {
   getNextActionNoteLabel,
   isGenericNextActionNote,
 } from "../../lib/nextActionLabel";
-import { openFanChat } from "../../lib/navigation/openCreatorChat";
+import { getFanIdFromQuery, openFanChat, queueComposerDraft } from "../../lib/navigation/openCreatorChat";
 
 type ManagerChatMessage = {
   id: string;
@@ -2194,7 +2194,13 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
   const handleSendDraftToFan = useCallback(
     (fanId: string, draft: string) => {
       if (!fanId || !draft) return;
-      openFanChat(router, fanId, { draft });
+      const trimmed = draft.trim();
+      if (!trimmed) return;
+      queueComposerDraft({ fanId, mode: "fan", text: draft });
+      const activeFanId = getFanIdFromQuery(router.query);
+      const isChatRoute = router.pathname === "/" || router.pathname === "/creator";
+      if (isChatRoute && activeFanId === fanId) return;
+      openFanChat(router, fanId);
     },
     [router]
   );
@@ -2827,7 +2833,9 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
                               onPointerDown={(event) => event.stopPropagation()}
                               onClick={(event) => {
                                 event.stopPropagation();
-                                insertAndFocus(buildSegmentSuggestedAction(segment, suggestedFan));
+                                if (!suggestedFan?.fanId) return;
+                                const draft = buildSegmentSuggestedAction(segment, suggestedFan);
+                                handleSendDraftToFan(suggestedFan.fanId, draft);
                               }}
                               className="rounded-full border border-[color:var(--brand)] bg-[color:rgba(var(--brand-rgb),0.12)] px-3 py-1 text-[11px] font-semibold text-[color:var(--text)] transition hover:bg-[color:rgba(var(--brand-rgb),0.2)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--ring)]"
                             >
