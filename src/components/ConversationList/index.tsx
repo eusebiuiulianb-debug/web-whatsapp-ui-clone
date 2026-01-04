@@ -9,6 +9,7 @@ import { computeFanTotals } from "../../lib/fanTotals";
 import { formatNextActionTooltip } from "../../lib/nextActionLabel";
 import { normalizePreferredLanguage } from "../../lib/language";
 import { isStickerToken } from "../../lib/stickers";
+import { toneForLabel } from "../../lib/badgeTone";
 import { IconBadge } from "../ui/IconBadge";
 import { Badge, type BadgeTone } from "../ui/Badge";
 import { ConversationActionsMenu } from "../conversations/ConversationActionsMenu";
@@ -177,14 +178,16 @@ export default function ConversationList(props: ConversationListProps) {
   ]);
   const totalSpent = Math.round(purchaseTotals.totalSpent);
   const isRiskTier = tierLabel === "En riesgo";
-  const tierBadgeTone: BadgeTone = isRiskTier
-    ? "danger"
-    : tierLabel === "VIP"
-    ? "warn"
-    : tierLabel === "Habitual"
-    ? "muted"
-    : "accent";
-  const followUpTone: BadgeTone = followUpTag === "expired" ? "danger" : "warn";
+  const followUpBadgeLabel =
+    followUpTag === "trial_soon"
+      ? `Prueba · ${daysLeft ?? ""} d`
+      : followUpTag === "monthly_soon"
+      ? `Renueva en ${daysLeft ?? ""} d`
+      : followUpTag === "expired"
+      ? "Caducado"
+      : "Seguimiento";
+  const tierBadgeTone: BadgeTone = isRiskTier ? "danger" : toneForLabel(tierLabel);
+  const followUpTone: BadgeTone = toneForLabel(followUpBadgeLabel);
   const urgencyTone: BadgeTone =
     urgencyLevel === "high" ? "danger" : urgencyLevel === "medium" ? "warn" : "muted";
 
@@ -207,14 +210,7 @@ export default function ConversationList(props: ConversationListProps) {
 
   const hasActiveAccess = typeof data.hasActiveAccess === "boolean" ? data.hasActiveAccess : normalizedAccessState === "ACTIVE";
   const isInvitePending = !isManagerChat && !data.inviteUsedAt && !hasActiveAccess;
-  const accessBadgeTone: BadgeTone =
-    normalizedAccessState === "ACTIVE"
-      ? "warn"
-      : normalizedAccessState === "EXPIRED"
-      ? "danger"
-      : isNew
-      ? "accent"
-      : "muted";
+  const accessBadgeTone: BadgeTone = toneForLabel(accessChipLabel);
 
   return (
     <div 
@@ -239,19 +235,19 @@ export default function ConversationList(props: ConversationListProps) {
                 {tierLabel}
               </Badge>
               {languageBadgeLabel && (
-                <Badge tone="muted" size="sm">
+                <Badge tone={toneForLabel(languageBadgeLabel)} size="sm">
                   {languageBadgeLabel}
                 </Badge>
               )}
               {novsyStatus === "NOVSY" && (
-                <Badge tone="accent" size="sm">
+                <Badge tone={toneForLabel("Extras")} size="sm">
                   Extras
                 </Badge>
               )}
               {/* Badge de alta prioridad */}
               {isHighPriority && (
                 <Badge
-                  tone="warn"
+                  tone={toneForLabel("Alta prioridad")}
                   size="sm"
                   leftGlyph="pin"
                   ariaLabel="Alta prioridad"
@@ -262,9 +258,7 @@ export default function ConversationList(props: ConversationListProps) {
               )}
               {followUpTag !== "none" && (
                 <Badge tone={followUpTone} size="sm">
-                  {followUpTag === "trial_soon" && `Prueba · ${daysLeft ?? ""} d`}
-                  {followUpTag === "monthly_soon" && `Renueva en ${daysLeft ?? ""} d`}
-                  {followUpTag === "expired" && "Caducado"}
+                  {followUpBadgeLabel}
                 </Badge>
               )}
             </div>
