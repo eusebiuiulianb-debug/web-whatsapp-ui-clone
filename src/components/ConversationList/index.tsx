@@ -410,9 +410,9 @@ type MetaRowProps = {
 
 function MetaRow({ label, text, variant }: MetaRowProps) {
   const icon = variant === "profile" ? "user" : "note";
-  const toneClass = variant === "profile" ? "text-[color:var(--muted)]/80" : "text-[color:var(--muted)]/70";
+  const toneClass = "ui-muted";
   return (
-    <div className="flex items-center gap-2 min-w-0 text-[11px] text-[color:var(--muted)]/80 leading-tight">
+    <div className="flex items-center gap-2 min-w-0 text-[11px] ui-muted leading-tight">
       <IconBadge
         label={label}
         icon={icon}
@@ -420,7 +420,7 @@ function MetaRow({ label, text, variant }: MetaRowProps) {
         size="md"
         className={toneClass}
       />
-      <span className="truncate min-w-0 text-[11px] text-[color:var(--muted)]/80" title={text}>
+      <span className="truncate min-w-0 text-[11px] ui-muted" title={text}>
         {text}
       </span>
     </div>
