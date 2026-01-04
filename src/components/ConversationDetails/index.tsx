@@ -946,11 +946,11 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
   }, [autoGrowTextarea]);
 
   const applyComposerDraft = useCallback(
-    (draftText: string) => {
+    (draftText: string, insertMode: "replace" | "append" = "replace") => {
       if (!id) return false;
       const trimmed = draftText.trim();
       if (!trimmed) return false;
-      const nextText = appendDraftText(messageSend, draftText);
+      const nextText = insertMode === "append" ? appendDraftText(messageSend, draftText) : draftText;
       if (!nextText.trim()) return false;
       setComposerTarget("fan");
       setMessageSend(nextText);
@@ -971,17 +971,23 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
   useEffect(() => {
     if (typeof window === "undefined") return;
     const handleComposerDraft = (event: Event) => {
-      const detail = (event as CustomEvent)?.detail as { target?: string; fanId?: string; text?: string } | undefined;
+      const detail = (event as CustomEvent)?.detail as {
+        target?: string;
+        fanId?: string;
+        text?: string;
+        insertMode?: string;
+      } | undefined;
       const target = detail?.target === "cortex" ? "cortex" : "fan";
       if (target !== "fan") return;
       if (!id || !detail?.fanId || detail.fanId !== id) return;
       const stored = consumeDraft({ target: "fan", fanId: id });
+      const insertMode = stored?.insertMode === "append" || detail?.insertMode === "append" ? "append" : "replace";
       if (stored?.text) {
-        applyComposerDraft(stored.text);
+        applyComposerDraft(stored.text, insertMode);
         return;
       }
       if (typeof detail.text === "string" && detail.text.trim()) {
-        applyComposerDraft(detail.text);
+        applyComposerDraft(detail.text, insertMode);
       }
     };
     window.addEventListener(COMPOSER_DRAFT_EVENT, handleComposerDraft as EventListener);
@@ -2599,7 +2605,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
     }
     const storedDraft = consumeDraft({ target: "fan", fanId: id });
     if (storedDraft?.text) {
-      applyComposerDraft(storedDraft.text);
+      applyComposerDraft(storedDraft.text, storedDraft.insertMode === "append" ? "append" : "replace");
     }
   }, [applyComposerDraft, id]);
 
@@ -3028,10 +3034,14 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
   }, [openInternalPanel, nextActionDate, id, fetchFollowUpHistory]);
 
   const applyCortexDraft = useCallback(
-    (draftText: string) => {
+    (draftText: string, insertMode: "replace" | "append" = "replace") => {
       const trimmed = draftText.trim();
       if (!trimmed) return false;
-      setManagerChatInput((prev) => appendDraftText(prev, draftText));
+      if (insertMode === "append") {
+        setManagerChatInput((prev) => appendDraftText(prev, draftText));
+      } else {
+        setManagerChatInput(draftText);
+      }
       setManagerSelectedText(null);
       openInternalPanel("manager");
       focusManagerComposer(true);
@@ -3057,16 +3067,22 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
   useEffect(() => {
     if (typeof window === "undefined") return;
     const handleComposerDraft = (event: Event) => {
-      const detail = (event as CustomEvent)?.detail as { target?: string; fanId?: string; text?: string } | undefined;
+      const detail = (event as CustomEvent)?.detail as {
+        target?: string;
+        fanId?: string;
+        text?: string;
+        insertMode?: string;
+      } | undefined;
       if (detail?.target !== "cortex") return;
       if (!id || !detail?.fanId || detail.fanId !== id) return;
       const stored = consumeDraft({ target: "cortex", fanId: id });
+      const insertMode = stored?.insertMode === "append" || detail?.insertMode === "append" ? "append" : "replace";
       if (stored?.text) {
-        applyCortexDraft(stored.text);
+        applyCortexDraft(stored.text, insertMode);
         return;
       }
       if (typeof detail.text === "string" && detail.text.trim()) {
-        applyCortexDraft(detail.text);
+        applyCortexDraft(detail.text, insertMode);
       }
     };
     window.addEventListener(COMPOSER_DRAFT_EVENT, handleComposerDraft as EventListener);
@@ -3079,7 +3095,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
     if (!id) return;
     const storedDraft = consumeDraft({ target: "cortex", fanId: id });
     if (storedDraft?.text) {
-      applyCortexDraft(storedDraft.text);
+      applyCortexDraft(storedDraft.text, storedDraft.insertMode === "append" ? "append" : "replace");
     }
   }, [applyCortexDraft, id]);
 

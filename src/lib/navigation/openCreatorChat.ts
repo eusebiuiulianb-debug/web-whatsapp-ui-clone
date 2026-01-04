@@ -13,6 +13,7 @@ type OpenFanChatOptions = {
 
 export type ComposerDraftTarget = "fan" | "cortex";
 export type ComposerDraftMode = "fan" | "internal" | "manager";
+export type ComposerDraftInsertMode = "replace" | "append";
 
 export type ComposerDraftPayload = {
   target: ComposerDraftTarget;
@@ -20,6 +21,7 @@ export type ComposerDraftPayload = {
   mode?: ComposerDraftMode;
   text: string;
   source?: string;
+  insertMode?: ComposerDraftInsertMode;
 };
 
 const DEFAULT_CHAT_PATH = "/creator";
@@ -71,6 +73,7 @@ const getDraftStorageKey = (target: ComposerDraftTarget) =>
   target === "cortex" ? PENDING_CORTEX_DRAFT_KEY : PENDING_COMPOSER_DRAFT_KEY;
 
 const normalizeDraftTarget = (target?: string): ComposerDraftTarget => (target === "cortex" ? "cortex" : "fan");
+const normalizeInsertMode = (mode?: string): ComposerDraftInsertMode => (mode === "append" ? "append" : "replace");
 
 export function appendDraftText(existing: string, incoming: string) {
   const trimmedExisting = existing.trim();
@@ -85,6 +88,7 @@ export function queueDraft(payload: ComposerDraftPayload) {
   const target = normalizeDraftTarget(payload?.target);
   const text = typeof payload?.text === "string" ? payload.text : "";
   const fanId = typeof payload?.fanId === "string" ? payload.fanId.trim() : "";
+  const insertMode = normalizeInsertMode(payload?.insertMode);
   if (!text.trim()) return;
   if (target === "fan" && !fanId) return;
   const normalizedPayload: ComposerDraftPayload = {
@@ -93,6 +97,7 @@ export function queueDraft(payload: ComposerDraftPayload) {
     mode: payload.mode,
     text: payload.text,
     source: payload.source,
+    insertMode,
   };
   try {
     sessionStorage.setItem(getDraftStorageKey(target), JSON.stringify(normalizedPayload));
@@ -111,6 +116,7 @@ export function insertIntoCurrentComposer(payload: ComposerDraftPayload) {
   const target = normalizeDraftTarget(payload?.target);
   const text = typeof payload?.text === "string" ? payload.text : "";
   const fanId = typeof payload?.fanId === "string" ? payload.fanId.trim() : "";
+  const insertMode = normalizeInsertMode(payload?.insertMode);
   if (!text.trim()) return false;
   if (target === "fan" && !fanId) return false;
   queueDraft({
@@ -119,6 +125,7 @@ export function insertIntoCurrentComposer(payload: ComposerDraftPayload) {
     mode: payload.mode,
     text: payload.text,
     source: payload.source,
+    insertMode,
   });
   return true;
 }
@@ -140,6 +147,7 @@ export function consumeDraft(options: { target: ComposerDraftTarget; fanId?: str
     const parsedTarget = normalizeDraftTarget(parsed.target);
     if (parsedTarget !== target) return null;
     const parsedFanId = typeof parsed.fanId === "string" ? parsed.fanId.trim() : "";
+    const insertMode = normalizeInsertMode(parsed.insertMode);
     if (target === "fan") {
       if (!parsedFanId || parsedFanId !== targetFanId) return null;
     } else if (targetFanId) {
@@ -159,6 +167,7 @@ export function consumeDraft(options: { target: ComposerDraftTarget; fanId?: str
       mode: parsed.mode,
       text,
       source: parsed.source,
+      insertMode,
     };
   } catch (_err) {
     sessionStorage.removeItem(storageKey);
