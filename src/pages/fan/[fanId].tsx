@@ -22,7 +22,7 @@ import { getStickerById } from "../../lib/emoji/stickers";
 import { buildFanChatProps } from "../../lib/fanChatProps";
 import { buildStickerTokenFromItem, getStickerByToken, type StickerItem } from "../../lib/stickers";
 import { IconGlyph, type IconName } from "../../components/ui/IconGlyph";
-import { Badge, type BadgeVariant } from "../../components/ui/Badge";
+import { Badge, type BadgeTone } from "../../components/ui/Badge";
 
 type ApiContentItem = {
   id: string;
@@ -1220,7 +1220,7 @@ function ContentCard({ message }: { message: ApiMessage }) {
   const alignItems = message.from === "fan" ? "items-end" : "items-start";
   const mediaUrl = (content?.mediaPath || content?.externalUrl || "").trim();
 
-  const visibilityVariant = visibilityLabel ? getVisibilityBadgeVariant(visibilityLabel) : "neutral";
+  const visibilityTone = visibilityLabel ? getVisibilityBadgeTone(visibilityLabel) : "muted";
 
   return (
     <div className={`flex flex-col ${alignItems} w-full h-max`}>
@@ -1233,7 +1233,7 @@ function ContentCard({ message }: { message: ApiMessage }) {
           <span>{typeLabel}</span>
           {visibilityLabel && <span className="w-1 h-1 rounded-full bg-[color:var(--muted)]" />}
           {visibilityLabel && (
-            <Badge variant={visibilityVariant} size="sm">
+            <Badge tone={visibilityTone} size="sm">
               {visibilityLabel}
             </Badge>
           )}
@@ -1269,12 +1269,12 @@ function getContentIconName(type?: ContentType): IconName {
   return "image";
 }
 
-function getVisibilityBadgeVariant(label: string): BadgeVariant {
+function getVisibilityBadgeTone(label: string): BadgeTone {
   const value = label.toLowerCase();
-  if (value.includes("vip")) return "warn";
+  if (value.includes("vip")) return "amber";
   if (value.includes("extra")) return "brand";
-  if (value.includes("incluido")) return "success";
-  return "neutral";
+  if (value.includes("incluido")) return "brand";
+  return "muted";
 }
 
 function safeDecodeQueryParam(value: string) {
@@ -1300,7 +1300,7 @@ function IncludedContentSection({ items }: { items: IncludedContent[] }) {
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         {items.map((item) => {
           const visibilityLabel = getContentVisibilityLabel(item.visibility as ContentVisibility);
-          const visibilityVariant = getVisibilityBadgeVariant(visibilityLabel);
+          const visibilityTone = getVisibilityBadgeTone(visibilityLabel);
           const iconName = getContentIconName(item.type as ContentType);
           const mediaUrl = (item.mediaPath || item.externalUrl || "").trim();
           return (
@@ -1318,7 +1318,7 @@ function IncludedContentSection({ items }: { items: IncludedContent[] }) {
               <div className="flex items-center gap-2 text-[11px] text-[color:var(--muted)]">
                 <span>{getContentTypeLabel(item.type as ContentType)}</span>
                 <span className="w-1 h-1 rounded-full bg-[color:var(--muted)]" />
-                <Badge variant={visibilityVariant} size="sm">
+                <Badge tone={visibilityTone} size="sm">
                   {visibilityLabel}
                 </Badge>
               </div>

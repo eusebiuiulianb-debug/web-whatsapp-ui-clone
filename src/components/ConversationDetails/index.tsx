@@ -71,7 +71,7 @@ import { useRouter } from "next/router";
 import { useIsomorphicLayoutEffect } from "../../hooks/useIsomorphicLayoutEffect";
 import Image from "next/image";
 import { IconGlyph, type IconName } from "../ui/IconGlyph";
-import { Badge, type BadgeVariant } from "../ui/Badge";
+import { Badge, type BadgeTone } from "../ui/Badge";
 import { ConversationActionsMenu } from "../conversations/ConversationActionsMenu";
 
 type ManagerQuickIntent = ManagerObjective;
@@ -6567,17 +6567,21 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
   const composerActionLabel = isFanTarget ? "Enviar a FAN" : "Enviar al Manager";
   const canAttachContent = isFanTarget && !isChatBlocked && !isInternalPanelOpen;
   const nextActionStatus = getFollowUpStatusFromDate(nextActionDate);
-  const nextActionVariant: BadgeVariant =
+  const nextActionTone: BadgeTone =
     nextActionStatus?.tone === "overdue"
       ? "danger"
       : nextActionStatus?.tone === "today"
-      ? "warn"
-      : nextActionStatus?.tone === "tomorrow"
-      ? "info"
-      : "neutral";
+      ? "amber"
+      : "muted";
   const tierLabel = formatTier(conversation.customerTier);
   const isPriorityTier = tierLabel === "Alta prioridad";
-  const tierBadgeVariant: BadgeVariant = isPriorityTier ? "warn" : tierLabel === "Habitual" ? "success" : "info";
+  const tierBadgeTone: BadgeTone = isPriorityTier
+    ? "amber"
+    : tierLabel === "Habitual"
+    ? "muted"
+    : tierLabel === "Nuevo"
+    ? "brand"
+    : "amber";
   const nextActionNoteValue =
     typeof conversation.nextActionNote === "string" ? conversation.nextActionNote.trim() : "";
   const followUpNoteRaw =
@@ -7166,23 +7170,23 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
           <div className="flex items-center gap-2 min-w-0 flex-1 justify-center">
             <span className="truncate text-sm font-medium text-[color:var(--text)]">{contactName}</span>
             {languageBadgeLabel && (
-              <Badge variant="muted" size="md">
+              <Badge tone="muted" size="md">
                 {languageBadgeLabel}
               </Badge>
             )}
             {(conversation.isHighPriority || (conversation.extrasCount ?? 0) > 0) && (
               conversation.isHighPriority ? (
-                <Badge variant="warn" size="md" leftGlyph="pin">
+                <Badge tone="amber" size="md" leftGlyph="pin">
                   Alta
                 </Badge>
               ) : (
-                <Badge variant="brand" size="md">
+                <Badge tone="brand" size="md">
                   Extras
                 </Badge>
               )
             )}
             {nextActionStatus && (
-              <Badge variant={nextActionVariant} size="md" leftGlyph="clock">
+              <Badge tone={nextActionTone} size="md" leftGlyph="clock">
                 {nextActionStatus.label}
               </Badge>
             )}
@@ -7201,12 +7205,12 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
                 <div className="flex items-center gap-2 min-w-0">
                   <h1 className="text-base font-semibold text-[color:var(--text)] truncate">{contactName}</h1>
                   {languageBadgeLabel && (
-                    <Badge variant="muted" size="md">
+                    <Badge tone="muted" size="md">
                       {languageBadgeLabel}
                     </Badge>
                   )}
                   {conversation.isHighPriority && (
-                    <Badge variant="warn" size="md" leftGlyph="pin">
+                    <Badge tone="amber" size="md" leftGlyph="pin">
                       Alta
                     </Badge>
                   )}
@@ -7251,24 +7255,24 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
 
           {/* Piso 2 */}
           <div className="flex flex-wrap items-center gap-2 text-xs min-w-0">
-            <Badge variant="brand" size="md">
+            <Badge tone="amber" size="md">
               {packLabel}
             </Badge>
-            <Badge variant={tierBadgeVariant} size="md">
+            <Badge tone={tierBadgeTone} size="md">
               {tierLabel}
             </Badge>
             {conversation.isHighPriority && (
-              <Badge variant="warn" size="md" leftGlyph="pin">
+              <Badge tone="amber" size="md" leftGlyph="pin">
                 Alta prioridad
               </Badge>
             )}
             {extrasCountDisplay > 0 && (
-              <Badge variant="brand" size="md">
+              <Badge tone="brand" size="md">
                 Extras
               </Badge>
             )}
             {nextActionStatus && (
-              <Badge variant={nextActionVariant} size="md" leftGlyph="clock">
+              <Badge tone={nextActionTone} size="md" leftGlyph="clock">
                 {nextActionStatus.label}
               </Badge>
             )}

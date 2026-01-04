@@ -37,24 +37,18 @@ body {
   --ring: rgba(148, 163, 184, 0.22);
   --warning: #f59e0b;
   --danger: #f43f5e;
-  --badge-success-bg: rgba(var(--brand-rgb), 0.12);
-  --badge-success-fg: var(--brand);
-  --badge-success-bd: rgba(var(--brand-rgb), 0.35);
-  --badge-info-bg: rgba(var(--brand-rgb), 0.08);
-  --badge-info-fg: rgba(var(--brand-rgb), 0.85);
-  --badge-info-bd: rgba(var(--brand-rgb), 0.25);
-  --badge-warn-bg: rgba(var(--warning-rgb), 0.12);
-  --badge-warn-fg: var(--warning);
-  --badge-warn-bd: rgba(var(--warning-rgb), 0.35);
-  --badge-danger-bg: rgba(var(--danger-rgb), 0.12);
+  --badge-muted-bg: var(--surface-2);
+  --badge-muted-fg: var(--muted-foreground);
+  --badge-muted-bd: var(--border);
+  --badge-brand-bg: rgba(var(--brand-rgb), 0.16);
+  --badge-brand-fg: var(--brand);
+  --badge-brand-bd: rgba(var(--brand-rgb), 0.45);
+  --badge-amber-bg: rgba(var(--warning-rgb), 0.16);
+  --badge-amber-fg: var(--warning);
+  --badge-amber-bd: rgba(var(--warning-rgb), 0.45);
+  --badge-danger-bg: rgba(var(--danger-rgb), 0.16);
   --badge-danger-fg: var(--danger);
-  --badge-danger-bd: rgba(var(--danger-rgb), 0.35);
-  --badge-neutral-bg: var(--surface-overlay-soft);
-  --badge-neutral-fg: var(--foreground);
-  --badge-neutral-bd: var(--border);
-  --badge-brand-bg: rgba(var(--brand-rgb), 0.18);
-  --badge-brand-fg: var(--text);
-  --badge-brand-bd: rgba(var(--brand-rgb), 0.5);
+  --badge-danger-bd: rgba(var(--danger-rgb), 0.45);
   --surface-border: var(--border);
   --surface-border-hover: var(--border-a);
   --surface-ring: var(--ring);
@@ -107,8 +101,9 @@ body {
     letter-spacing: 0.02em;
     line-height: 1.1;
     white-space: nowrap;
-    background: var(--surface-overlay-soft);
-    color: var(--foreground);
+    background: var(--badge-bg, var(--surface-overlay-soft));
+    color: var(--badge-fg, var(--foreground));
+    border-color: var(--badge-border, var(--border));
   }
 
   .ui-badge svg {
@@ -125,46 +120,28 @@ body {
     font-size: 12px;
   }
 
-  .ui-badge--success {
-    background: var(--badge-success-bg);
-    color: var(--badge-success-fg);
-    border-color: var(--badge-success-bd);
-  }
-
-  .ui-badge--info {
-    background: var(--badge-info-bg);
-    color: var(--badge-info-fg);
-    border-color: var(--badge-info-bd);
-  }
-
-  .ui-badge--warn {
-    background: var(--badge-warn-bg);
-    color: var(--badge-warn-fg);
-    border-color: var(--badge-warn-bd);
-  }
-
-  .ui-badge--danger {
-    background: var(--badge-danger-bg);
-    color: var(--badge-danger-fg);
-    border-color: var(--badge-danger-bd);
-  }
-
   .ui-badge--muted {
-    background: var(--surface-2);
-    color: var(--muted-foreground);
-    border-color: var(--border);
-  }
-
-  .ui-badge--neutral {
-    background: var(--badge-neutral-bg);
-    color: var(--badge-neutral-fg);
-    border-color: var(--badge-neutral-bd);
+    --badge-bg: var(--badge-muted-bg);
+    --badge-fg: var(--badge-muted-fg);
+    --badge-border: var(--badge-muted-bd);
   }
 
   .ui-badge--brand {
-    background: var(--badge-brand-bg);
-    color: var(--badge-brand-fg);
-    border-color: var(--badge-brand-bd);
+    --badge-bg: var(--badge-brand-bg);
+    --badge-fg: var(--badge-brand-fg);
+    --badge-border: var(--badge-brand-bd);
+  }
+
+  .ui-badge--amber {
+    --badge-bg: var(--badge-amber-bg);
+    --badge-fg: var(--badge-amber-fg);
+    --badge-border: var(--badge-amber-bd);
+  }
+
+  .ui-badge--danger {
+    --badge-bg: var(--badge-danger-bg);
+    --badge-fg: var(--badge-danger-fg);
+    --badge-border: var(--badge-danger-bd);
   }
 }
 

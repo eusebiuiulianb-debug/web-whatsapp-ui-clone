@@ -10,7 +10,7 @@ import { formatNextActionTooltip } from "../../lib/nextActionLabel";
 import { normalizePreferredLanguage } from "../../lib/language";
 import { isStickerToken } from "../../lib/stickers";
 import { IconBadge } from "../ui/IconBadge";
-import { Badge, type BadgeVariant } from "../ui/Badge";
+import { Badge, type BadgeTone } from "../ui/Badge";
 import { ConversationActionsMenu } from "../conversations/ConversationActionsMenu";
 
 interface ConversationListProps {
@@ -84,7 +84,7 @@ export default function ConversationList(props: ConversationListProps) {
           <div className="flex flex-col gap-[2px] min-w-0 w-full">
             <div className="flex items-center gap-2 min-w-0">
               <span className={`truncate ${nameClasses}`}>{contactName}</span>
-              <Badge variant="brand" size="sm">
+              <Badge tone="brand" size="sm">
                 IA
               </Badge>
             </div>
@@ -177,17 +177,16 @@ export default function ConversationList(props: ConversationListProps) {
   ]);
   const totalSpent = Math.round(purchaseTotals.totalSpent);
   const isRiskTier = tierLabel === "En riesgo";
-  const tierBadgeVariant: BadgeVariant = isRiskTier
+  const tierBadgeTone: BadgeTone = isRiskTier
     ? "danger"
-    : normalizedTier === "vip"
-    ? "warn"
-    : normalizedTier === "regular"
-    ? "success"
-    : "info";
-  const followUpVariant: BadgeVariant =
-    followUpTag === "trial_soon" ? "warn" : followUpTag === "expired" ? "danger" : "info";
-  const urgencyVariant: BadgeVariant =
-    urgencyLevel === "high" ? "danger" : urgencyLevel === "medium" ? "warn" : "neutral";
+    : tierLabel === "VIP"
+    ? "amber"
+    : tierLabel === "Habitual"
+    ? "muted"
+    : "brand";
+  const followUpTone: BadgeTone = followUpTag === "expired" ? "danger" : "amber";
+  const urgencyTone: BadgeTone =
+    urgencyLevel === "high" ? "danger" : urgencyLevel === "medium" ? "amber" : "muted";
 
   function getAccessChipLabel() {
     if (normalizedAccessState === "NONE") {
@@ -208,14 +207,14 @@ export default function ConversationList(props: ConversationListProps) {
 
   const hasActiveAccess = typeof data.hasActiveAccess === "boolean" ? data.hasActiveAccess : normalizedAccessState === "ACTIVE";
   const isInvitePending = !isManagerChat && !data.inviteUsedAt && !hasActiveAccess;
-  const accessBadgeVariant: BadgeVariant =
+  const accessBadgeTone: BadgeTone =
     normalizedAccessState === "ACTIVE"
-      ? "brand"
+      ? "amber"
       : normalizedAccessState === "EXPIRED"
       ? "danger"
       : isNew
-      ? "info"
-      : "neutral";
+      ? "brand"
+      : "muted";
 
   return (
     <div 
@@ -236,23 +235,23 @@ export default function ConversationList(props: ConversationListProps) {
             <div className="flex items-center gap-1.5 min-w-0">
               <span className={`truncate ${nameTint}`}>{contactName}</span>
               {/* Badge de nivel según el tier del fan, usando la misma paleta que el botón amarillo */}
-              <Badge variant={tierBadgeVariant} size="sm">
+              <Badge tone={tierBadgeTone} size="sm">
                 {tierLabel}
               </Badge>
               {languageBadgeLabel && (
-                <Badge variant="muted" size="sm">
+                <Badge tone="muted" size="sm">
                   {languageBadgeLabel}
                 </Badge>
               )}
               {novsyStatus === "NOVSY" && (
-                <Badge variant="brand" size="sm">
+                <Badge tone="brand" size="sm">
                   Extras
                 </Badge>
               )}
               {/* Badge de alta prioridad */}
               {isHighPriority && (
                 <Badge
-                  variant="warn"
+                  tone="amber"
                   size="sm"
                   leftGlyph="pin"
                   ariaLabel="Alta prioridad"
@@ -262,7 +261,7 @@ export default function ConversationList(props: ConversationListProps) {
                 </Badge>
               )}
               {followUpTag !== "none" && (
-                <Badge variant={followUpVariant} size="sm">
+                <Badge tone={followUpTone} size="sm">
                   {followUpTag === "trial_soon" && `Prueba · ${daysLeft ?? ""} d`}
                   {followUpTag === "monthly_soon" && `Renueva en ${daysLeft ?? ""} d`}
                   {followUpTag === "expired" && "Caducado"}
@@ -324,34 +323,34 @@ export default function ConversationList(props: ConversationListProps) {
               isCompact ? "mt-0.5" : "mt-1"
             )}>
               {shouldShowAccessChip ? (
-                <Badge variant={accessBadgeVariant} size="sm">
+                <Badge tone={accessBadgeTone} size="sm">
                   {accessChipLabel}
                 </Badge>
               ) : null}
               {!isCompact && isInvitePending && (
-                <Badge variant="warn" size="sm" title="Invitación privada /i/token pendiente de entrar">
+                <Badge tone="amber" size="sm" title="Invitación privada /i/token pendiente de entrar">
                   Pendiente
                 </Badge>
               )}
               {daysLabel ? (
-                <Badge variant={urgencyVariant} size="sm">
+                <Badge tone={urgencyTone} size="sm">
                   {daysLabel}
                 </Badge>
               ) : null}
               {!isCompact && (sourceLabel || campaignLabel || contentLabel) && (
                 <div className="flex items-center gap-1.5 flex-nowrap shrink-0">
                   {sourceLabel && (
-                    <Badge variant="muted" size="sm">
+                    <Badge tone="muted" size="sm">
                       {sourceLabel}
                     </Badge>
                   )}
                   {campaignLabel && (
-                    <Badge variant="muted" size="sm">
+                    <Badge tone="muted" size="sm">
                       {campaignLabel}
                     </Badge>
                   )}
                   {contentLabel && (
-                    <Badge variant="muted" size="sm">
+                    <Badge tone="muted" size="sm">
                       {contentLabel}
                     </Badge>
                   )}
