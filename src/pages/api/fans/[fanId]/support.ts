@@ -171,8 +171,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     if (!fan) return res.status(404).json({ error: "Fan not found" });
 
     if (clientTxnId) {
-      const existing = await prisma.extraPurchase.findUnique({
-        where: { clientTxnId },
+      const existing = await prisma.extraPurchase.findFirst({
+        where: { fanId, kind, clientTxnId },
         select: { id: true, kind: true, amount: true, createdAt: true },
       });
       if (existing) {
@@ -233,13 +233,14 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
     return res.status(201).json({
       ok: true,
+      reused: false,
       purchase: { id: purchase.id, kind: purchase.kind, amount: purchase.amount, createdAt: purchase.createdAt },
     });
   } catch (error) {
     const code = (error as { code?: string }).code;
     if (code === "P2002" && clientTxnId) {
-      const existing = await prisma.extraPurchase.findUnique({
-        where: { clientTxnId },
+      const existing = await prisma.extraPurchase.findFirst({
+        where: { fanId, kind, clientTxnId },
         select: { id: true, kind: true, amount: true, createdAt: true },
       });
       if (existing) {

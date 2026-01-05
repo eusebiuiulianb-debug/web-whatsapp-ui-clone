@@ -91,8 +91,8 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
 
   try {
     if (clientTxnId) {
-      const existing = await prisma.extraPurchase.findUnique({
-        where: { clientTxnId },
+      const existing = await prisma.extraPurchase.findFirst({
+        where: { fanId, kind: "EXTRA", clientTxnId },
       });
       if (existing) {
         return res.status(200).json({ ok: true, purchase: existing, reused: true });
@@ -130,12 +130,12 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
       },
     });
 
-    return res.status(201).json({ ok: true, purchase });
+    return res.status(201).json({ ok: true, purchase, reused: false });
   } catch (error) {
     const code = (error as { code?: string }).code;
     if (code === "P2002" && clientTxnId) {
-      const existing = await prisma.extraPurchase.findUnique({
-        where: { clientTxnId },
+      const existing = await prisma.extraPurchase.findFirst({
+        where: { fanId, kind: "EXTRA", clientTxnId },
       });
       if (existing) {
         return res.status(200).json({ ok: true, purchase: existing, reused: true });

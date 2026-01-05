@@ -374,9 +374,11 @@ model ExtraPurchase {
   productId     String?
   productType   ExtraPurchaseProductType?
   sessionTag    String?
-  clientTxnId   String?     @unique
+  clientTxnId   String?
   createdAt     DateTime    @default(now())
   isArchived    Boolean     @default(false)
+
+  @@unique([fanId, kind, clientTxnId])
 }
 
 model GeneratedAsset {
