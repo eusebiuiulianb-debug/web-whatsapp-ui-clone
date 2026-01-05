@@ -49,6 +49,10 @@ type ChatComposerBarProps = {
   onEmojiSelect?: (emoji: string) => void;
   showStickers?: boolean;
   onStickerSelect?: (sticker: StickerItem) => void;
+  showVoice?: boolean;
+  onVoiceStart?: () => void;
+  voiceDisabled?: boolean;
+  isVoiceRecording?: boolean;
 };
 
 export function ChatComposerBar({
@@ -80,6 +84,10 @@ export function ChatComposerBar({
   onEmojiSelect,
   showStickers = false,
   onStickerSelect,
+  showVoice = false,
+  onVoiceStart,
+  voiceDisabled = false,
+  isVoiceRecording = false,
 }: ChatComposerBarProps) {
   const isInternalMode = audience === "INTERNAL";
   const isInputDisabled = (isChatBlocked && !isInternalMode) || isInternalPanelOpen;
@@ -417,6 +425,25 @@ export function ChatComposerBar({
                 <path d="M12 5v14" />
                 <path d="M5 12h14" />
               </svg>
+            </button>
+          )}
+          {showVoice && (
+            <button
+              type="button"
+              onClick={onVoiceStart}
+              disabled={isInputDisabled || voiceDisabled}
+              className={clsx(
+                "flex h-9 w-9 items-center justify-center rounded-full border transition focus-visible:outline-none focus-visible:ring-2",
+                isInputDisabled || voiceDisabled
+                  ? "border-[color:var(--border)] bg-[color:var(--surface-2)] text-[color:var(--muted)] cursor-not-allowed"
+                  : isVoiceRecording
+                  ? "border-[color:rgba(34,197,94,0.7)] bg-[color:rgba(34,197,94,0.18)] text-[color:var(--text)]"
+                  : "border-[color:var(--border)] bg-[color:var(--surface-2)] text-[color:var(--text)] hover:border-[color:var(--border-a)] hover:bg-[color:var(--surface-1)] focus-visible:ring-[color:var(--ring)]"
+              )}
+              title={isVoiceRecording ? "Grabando nota de voz" : "Grabar nota de voz"}
+              aria-label="Grabar nota de voz"
+            >
+              <IconGlyph name="audio" className="h-5 w-5" />
             </button>
           )}
           {showEmoji && (

@@ -46,12 +46,18 @@ export default function ConversationList(props: ConversationListProps) {
     accessLabel,
     daysLeft,
     urgencyLevel,
+    unseenPurchaseCount,
+    unseenPurchaseLabel,
   } = data;
   const borderClass = isFirstConversation ? "border-transparent" : "border-[color:var(--border)]";
   const isManagerChat = data.isManager === true;
   const previewMessage =
     typeof lastMessage === "string" && isStickerToken(lastMessage) ? "Sticker" : lastMessage;
   const hasUnread = !isManagerChat && !!unreadCount && unreadCount > 0;
+  const hasUnseenPurchase = !isManagerChat && !!unseenPurchaseCount && unseenPurchaseCount > 0;
+  const purchaseBadgeLabel = typeof unseenPurchaseLabel === "string" && unseenPurchaseLabel.trim().length > 0
+    ? unseenPurchaseLabel
+    : "+€";
   const isCompact = variant === "compact";
   const nameSizeClass = isCompact ? "text-[13px]" : "text-sm";
   const nameClasses = hasUnread
@@ -362,6 +368,16 @@ export default function ConversationList(props: ConversationListProps) {
                 onCopyInvite={onCopyInvite}
               />
             </div>
+            {hasUnseenPurchase && (
+              <Badge
+                key={`${purchaseBadgeLabel}-${unseenPurchaseCount}`}
+                tone="accent"
+                size="sm"
+                className="novsy-purchase-pill novsy-pop"
+              >
+                {purchaseBadgeLabel}
+              </Badge>
+            )}
             {hasUnread && (
               <span className="self-end min-w-[20px] h-5 px-2 rounded-full bg-[color:var(--brand)] text-[color:var(--surface-0)] text-xs font-semibold flex items-center justify-center">
                 {unreadCount}

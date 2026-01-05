@@ -48,6 +48,7 @@ next-env.d.ts
 prisma/dev.db*
 manager_chunk.js
 in IA) + UX base*
+public/uploads/
 
 # Local env
 .env

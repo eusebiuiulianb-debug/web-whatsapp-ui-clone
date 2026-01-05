@@ -12,11 +12,15 @@ interface Message {
   time?: string;
   createdAt?: string;
   status?: "sending" | "failed" | "sent";
-  kind?: "text" | "content" | "sticker" | "system";
-  type?: "TEXT" | "CONTENT" | "STICKER" | "SYSTEM";
+  kind?: "text" | "content" | "sticker" | "system" | "audio";
+  type?: "TEXT" | "CONTENT" | "STICKER" | "SYSTEM" | "AUDIO";
   stickerId?: string | null;
   stickerSrc?: string | null;
   stickerAlt?: string | null;
+  audioUrl?: string | null;
+  audioDurationMs?: number | null;
+  audioMime?: string | null;
+  audioSizeBytes?: number | null;
   contentItem?: {
     id: string;
     title: string;
@@ -205,6 +209,8 @@ interface ConversationListData {
   firstUtmCampaign?: string | null;
   firstUtmContent?: string | null;
   firstUtmTerm?: string | null;
+  unseenPurchaseCount?: number;
+  unseenPurchaseLabel?: string | null;
 }
 
 interface FanFollowUp {

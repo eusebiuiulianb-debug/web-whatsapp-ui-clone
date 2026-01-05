@@ -47,8 +47,12 @@ type ApiMessage = {
   creatorTranslatedText?: string | null;
   time?: string | null;
   isLastFromCreator?: boolean | null;
-  type?: "TEXT" | "CONTENT" | "STICKER" | "SYSTEM";
+  type?: "TEXT" | "CONTENT" | "STICKER" | "SYSTEM" | "AUDIO";
   stickerId?: string | null;
+  audioUrl?: string | null;
+  audioDurationMs?: number | null;
+  audioMime?: string | null;
+  audioSizeBytes?: number | null;
   contentItem?: ApiContentItem | null;
   status?: "sending" | "failed" | "sent";
 };
@@ -573,6 +577,7 @@ export function FanChatPage({
       }
       emitPurchaseCreated({
         fanId,
+        fanName: fanProfile.displayName ?? fanProfile.name ?? undefined,
         amountCents: Math.round((result.purchase?.amount ?? amountValue) * 100),
         kind: result.purchase?.kind ?? "TIP",
         title: "Propina",
@@ -590,6 +595,8 @@ export function FanChatPage({
     closeMoneyModal,
     createSupportPurchase,
     fanId,
+    fanProfile.displayName,
+    fanProfile.name,
     tipAmountCustom,
     tipAmountPreset,
     supportSubmitting,
@@ -619,6 +626,7 @@ export function FanChatPage({
         }
         emitPurchaseCreated({
           fanId,
+          fanName: fanProfile.displayName ?? fanProfile.name ?? undefined,
           amountCents: Math.round((result.purchase?.amount ?? amountValue) * 100),
           kind: result.purchase?.kind ?? "GIFT",
           title: pack.name,
@@ -633,7 +641,16 @@ export function FanChatPage({
         setSupportSubmitting(false);
       }
     },
-    [appendSystemMessage, closeMoneyModal, createSupportPurchase, fanId, fetchAccessInfo, supportSubmitting]
+    [
+      appendSystemMessage,
+      closeMoneyModal,
+      createSupportPurchase,
+      fanId,
+      fanProfile.displayName,
+      fanProfile.name,
+      fetchAccessInfo,
+      supportSubmitting,
+    ]
   );
 
   const handlePackRequest = useCallback(
@@ -817,6 +834,9 @@ export function FanChatPage({
                 }
                 if (msg.type === "SYSTEM") {
                   return <SystemMessage key={messageId} text={msg.text || ""} />;
+                }
+                if (msg.type === "AUDIO") {
+                  return <AudioMessage key={messageId} message={msg} />;
                 }
                 const tokenSticker =
                   msg.type !== "STICKER" ? getStickerByToken(msg.text ?? "") : null;
@@ -1309,6 +1329,101 @@ function ContentCard({ message }: { message: ApiMessage }) {
   );
 }
 
+function AudioMessage({ message }: { message: ApiMessage }) {
+  const router = useRouter();
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+  const [ isPlaying, setIsPlaying ] = useState(false);
+  const [ currentTime, setCurrentTime ] = useState(0);
+  const isMe = message.from === "fan";
+  const audioSrc = resolveAudioUrl(message.audioUrl, router.basePath);
+  const totalSeconds = Math.max(0, Math.round((message.audioDurationMs ?? 0) / 1000));
+  const totalLabel = formatAudioTime(totalSeconds);
+  const currentLabel = formatAudioTime(Math.round(currentTime));
+  const progress = totalSeconds > 0 ? Math.min(100, (currentTime / totalSeconds) * 100) : 0;
+  const bubbleClass = isMe
+    ? "bg-[color:var(--brand-weak)] text-[color:var(--text)] border border-[color:rgba(var(--brand-rgb),0.28)]"
+    : "bg-[color:var(--surface-2)] text-[color:var(--text)] border border-[color:var(--border)]";
+  const isSending = message.status === "sending";
+
+  useEffect(() => {
+    const audio = audioRef.current;
+    if (!audio) return;
+    const handleTimeUpdate = () => {
+      setCurrentTime(audio.currentTime || 0);
+    };
+    const handleEnded = () => {
+      setIsPlaying(false);
+      setCurrentTime(0);
+    };
+    audio.addEventListener("timeupdate", handleTimeUpdate);
+    audio.addEventListener("ended", handleEnded);
+    return () => {
+      audio.removeEventListener("timeupdate", handleTimeUpdate);
+      audio.removeEventListener("ended", handleEnded);
+    };
+  }, []);
+
+  const togglePlayback = async () => {
+    const audio = audioRef.current;
+    if (!audio || !audioSrc || isSending) return;
+    try {
+      if (isPlaying) {
+        audio.pause();
+        setIsPlaying(false);
+      } else {
+        await audio.play();
+        setIsPlaying(true);
+      }
+    } catch (_err) {
+      setIsPlaying(false);
+    }
+  };
+
+  return (
+    <div className={isMe ? "flex justify-end" : "flex justify-start"}>
+      <div className="max-w-[75%]">
+        <p className={`mb-1 text-[10px] uppercase tracking-wide text-[color:var(--muted)] ${isMe ? "text-right" : ""}`}>
+          <span>{isMe ? "Tú" : "Fan"} • {message.time || ""}</span>
+        </p>
+        <div className={`rounded-2xl px-4 py-3 ${bubbleClass}`}>
+          <div className="flex items-center gap-3">
+            <button
+              type="button"
+              onClick={togglePlayback}
+              disabled={isSending || !audioSrc}
+              className={
+                isSending || !audioSrc
+                  ? "flex h-10 w-10 items-center justify-center rounded-full border border-[color:var(--border)] bg-[color:var(--surface-2)] text-[color:var(--muted)] cursor-not-allowed"
+                  : "flex h-10 w-10 items-center justify-center rounded-full border border-[color:var(--border)] bg-[color:var(--surface-1)] text-[color:var(--text)] hover:border-[color:var(--border-a)]"
+              }
+              aria-label={isPlaying ? "Pausar" : "Reproducir"}
+            >
+              {isPlaying ? "II" : "▶"}
+            </button>
+            <div className="flex-1 min-w-0">
+              <div className="h-1.5 w-full rounded-full bg-[color:var(--surface-1)] overflow-hidden">
+                <div
+                  className="h-full rounded-full bg-[color:var(--brand)] transition-[width]"
+                  style={{ width: `${progress}%` }}
+                />
+              </div>
+              <div className="mt-1 flex items-center justify-between text-[10px] text-[color:var(--muted)]">
+                <span>{isSending ? "Subiendo..." : currentLabel}</span>
+                <span>{totalLabel}</span>
+              </div>
+            </div>
+          </div>
+          {audioSrc ? (
+            <audio ref={audioRef} src={audioSrc} preload="metadata" />
+          ) : (
+            <div className="mt-2 text-[11px] text-[color:var(--muted)]">Audio no disponible.</div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function getContentIconName(type?: ContentType): IconName {
   if (type === "VIDEO") return "video";
   if (type === "AUDIO") return "audio";
@@ -1322,6 +1437,20 @@ function getVisibilityBadgeTone(label: string): BadgeTone {
   if (value.includes("extra")) return "accent";
   if (value.includes("incluido")) return "accent";
   return "muted";
+}
+
+function formatAudioTime(totalSeconds: number) {
+  const safeSeconds = Number.isFinite(totalSeconds) && totalSeconds > 0 ? totalSeconds : 0;
+  const minutes = Math.floor(safeSeconds / 60);
+  const seconds = safeSeconds % 60;
+  return `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
+}
+
+function resolveAudioUrl(rawUrl: string | null | undefined, basePath?: string) {
+  if (!rawUrl) return null;
+  if (!basePath || basePath === "/" || !rawUrl.startsWith("/uploads/")) return rawUrl;
+  if (rawUrl.startsWith(basePath)) return rawUrl;
+  return `${basePath}${rawUrl}`;
 }
 
 function safeDecodeQueryParam(value: string) {
