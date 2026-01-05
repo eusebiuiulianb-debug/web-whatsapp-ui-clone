@@ -12,18 +12,12 @@ import { getFollowUpTag, getUrgencyLevel, shouldFollowUpToday, isExpiredAccess }
 import { getFanDisplayNameForCreator } from "../../utils/fanDisplayName";
 import { PACKS } from "../../config/packs";
 import { ConversationContext, QueueFilter } from "../../context/ConversationContext";
-import {
-  CREATOR_DATA_CHANGED_EVENT,
-  EXTRAS_UPDATED_EVENT,
-  FAN_MESSAGE_SENT_EVENT,
-  PURCHASE_CREATED_EVENT,
-  PURCHASE_SEEN_EVENT,
-} from "../../constants/events";
 import { HIGH_PRIORITY_LIMIT } from "../../config/customers";
 import { normalizePreferredLanguage } from "../../lib/language";
 import { getFanIdFromQuery, openFanChat } from "../../lib/navigation/openCreatorChat";
 import { clearUnseenPurchase, getUnseenPurchases, recordUnseenPurchase, type PurchaseNotice } from "../../lib/unseenPurchases";
 import { formatPurchaseUI } from "../../lib/purchaseUi";
+import { useCreatorRealtime } from "../../hooks/useCreatorRealtime";
 import { IconGlyph } from "../ui/IconGlyph";
 import { Chip } from "../ui/Chip";
 
@@ -1409,38 +1403,18 @@ function SideBarInner() {
     };
   }, [pollFans]);
 
-  useEffect(() => {
-    function handleFanDataUpdated(event: Event) {
-      const custom = event as CustomEvent;
-      const rawFans = Array.isArray(custom.detail?.fans) ? (custom.detail.fans as Fan[]) : null;
-      if (rawFans) {
-        setFans(mapFans(rawFans));
-        setFansError("");
-        setLoadingFans(false);
-        setHasMore(false);
-        setNextCursor(null);
-        return;
-      }
-      fetchFansPage();
-    }
-
-    window.addEventListener("fanDataUpdated", handleFanDataUpdated as EventListener);
-    const handleExtrasUpdated = (event: Event) => {
-      const custom = event as CustomEvent;
-      const detail = custom.detail as
-        | {
-            fanId?: string;
-            totals?: {
-              extrasCount?: number;
-              extrasSpentTotal?: number;
-              lifetimeSpend?: number;
-              lifetimeValue?: number;
-              customerTier?: "new" | "regular" | "vip";
-              isHighPriority?: boolean;
-            };
-          }
-        | undefined;
-
+  const handleExtrasUpdated = useCallback(
+    (detail: {
+      fanId?: string;
+      totals?: {
+        extrasCount?: number;
+        extrasSpentTotal?: number;
+        lifetimeSpend?: number;
+        lifetimeValue?: number;
+        customerTier?: "new" | "regular" | "vip";
+        isHighPriority?: boolean;
+      };
+    }) => {
       if (detail?.fanId && detail?.totals) {
         setFans((prev) =>
           prev.map((fan) =>
@@ -1465,15 +1439,13 @@ function SideBarInner() {
           )
         );
       }
-
       void refreshExtrasSummary();
-    };
-    window.addEventListener(EXTRAS_UPDATED_EVENT, handleExtrasUpdated as EventListener);
+    },
+    [refreshExtrasSummary]
+  );
 
-    const handleFanMessageSent = (event: Event) => {
-      const detail = (event as CustomEvent)?.detail as
-        | { fanId?: string; text?: string; kind?: string; sentAt?: string }
-        | undefined;
+  const handleFanMessageSent = useCallback(
+    (detail: { fanId?: string; text?: string; kind?: string; sentAt?: string }) => {
       const fanId = typeof detail?.fanId === "string" ? detail.fanId : "";
       if (!fanId) {
         scheduleFansRefresh();
@@ -1491,7 +1463,7 @@ function SideBarInner() {
       const preview =
         rawText ||
         (detail?.kind === "audio"
-          ? "🎤 Nota de voz"
+          ? "\uD83C\uDFA4 Nota de voz"
           : detail?.kind === "sticker"
           ? "Sticker"
           : detail?.kind === "content"
@@ -1515,21 +1487,20 @@ function SideBarInner() {
       }
       void fetchFanById(fanId);
       void refreshExtrasSummary();
-    };
-    window.addEventListener(FAN_MESSAGE_SENT_EVENT, handleFanMessageSent as EventListener);
+    },
+    [fetchFanById, refreshExtrasSummary, scheduleFansRefresh]
+  );
 
-    const handlePurchaseCreated = (event: Event) => {
-      const detail = (event as CustomEvent)?.detail as
-        | {
-            fanId?: string;
-            fanName?: string;
-            amountCents?: number;
-            kind?: string;
-            title?: string;
-            purchaseId?: string;
-            createdAt?: string;
-          }
-        | undefined;
+  const handlePurchaseCreated = useCallback(
+    (detail: {
+      fanId?: string;
+      fanName?: string;
+      amountCents?: number;
+      kind?: string;
+      title?: string;
+      purchaseId?: string;
+      createdAt?: string;
+    }) => {
       const fanId = typeof detail?.fanId === "string" ? detail.fanId : "";
       if (!fanId) return;
       const amount = typeof detail?.amountCents === "number" ? detail.amountCents / 100 : 0;
@@ -1545,12 +1516,12 @@ function SideBarInner() {
       const amountLabel = amount > 0 ? formatCurrency(amount) : "";
       const previewBase =
         kind === "TIP"
-          ? `💶 Propina ${amountLabel}`
+          ? `\uD83D\uDCB6 Propina ${amountLabel}`
           : kind === "GIFT"
-          ? `🎁 Regalo ${title ? `${title} ` : ""}${amountLabel}`
+          ? `\uD83C\uDF81 Regalo ${title ? `${title} ` : ""}${amountLabel}`
           : kind === "SUBSCRIPTION" || kind === "SUB"
-          ? `💶 Suscripción ${title ? `${title} ` : ""}${amountLabel}`
-          : `🧾 ${title ? `${title} ` : "Extra "}${amountLabel}`;
+          ? `\uD83D\uDCB6 Suscripci\u00F3n ${title ? `${title} ` : ""}${amountLabel}`
+          : `\uD83E\uDDFE ${title ? `${title} ` : "Extra "}${amountLabel}`;
       const preview = previewBase.trim();
       const activeConversationId = conversation?.id || "";
       const isActiveConversation = !conversation?.isManager && activeConversationId === fanId;
@@ -1601,32 +1572,48 @@ function SideBarInner() {
       });
       scheduleFansRefresh();
       void refreshExtrasSummary();
-    };
-    window.addEventListener(PURCHASE_CREATED_EVENT, handlePurchaseCreated as EventListener);
+    },
+    [conversation?.id, conversation?.isManager, refreshExtrasSummary, scheduleFansRefresh, showPurchaseToast]
+  );
 
-    const handlePurchaseSeen = (event: Event) => {
-      const detail = (event as CustomEvent)?.detail as { fanId?: string; purchaseIds?: string[] } | undefined;
-      const fanId = typeof detail?.fanId === "string" ? detail.fanId : "";
-      if (!fanId) return;
-      clearUnseenPurchase(fanId);
-      setUnseenPurchaseByFan((prev) => {
-        if (!prev[fanId]) return prev;
-        const next = { ...prev };
-        delete next[fanId];
-        return next;
-      });
-    };
-    window.addEventListener(PURCHASE_SEEN_EVENT, handlePurchaseSeen as EventListener);
+  const handlePurchaseSeen = useCallback((detail: { fanId?: string; purchaseIds?: string[] }) => {
+    const fanId = typeof detail?.fanId === "string" ? detail.fanId : "";
+    if (!fanId) return;
+    clearUnseenPurchase(fanId);
+    setUnseenPurchaseByFan((prev) => {
+      if (!prev[fanId]) return prev;
+      const next = { ...prev };
+      delete next[fanId];
+      return next;
+    });
+  }, []);
 
-    const handleCreatorDataChanged = (event: Event) => {
-      const detail = (event as CustomEvent)?.detail as { fanId?: string } | undefined;
+  const handleCreatorDataChanged = useCallback(
+    (detail: { fanId?: string } = {}) => {
       if (detail?.fanId) {
         void fetchFanById(detail.fanId);
       }
       void refreshExtrasSummary();
-    };
-    window.addEventListener(CREATOR_DATA_CHANGED_EVENT, handleCreatorDataChanged as EventListener);
+    },
+    [fetchFanById, refreshExtrasSummary]
+  );
 
+  useEffect(() => {
+    function handleFanDataUpdated(event: Event) {
+      const custom = event as CustomEvent;
+      const rawFans = Array.isArray(custom.detail?.fans) ? (custom.detail.fans as Fan[]) : null;
+      if (rawFans) {
+        setFans(mapFans(rawFans));
+        setFansError("");
+        setLoadingFans(false);
+        setHasMore(false);
+        setNextCursor(null);
+        return;
+      }
+      fetchFansPage();
+    }
+
+    window.addEventListener("fanDataUpdated", handleFanDataUpdated as EventListener);
     const handleExternalFilter = (event: Event) => {
       const detail = (event as CustomEvent)?.detail as
         | {
@@ -1660,24 +1647,23 @@ function SideBarInner() {
 
     return () => {
       window.removeEventListener("fanDataUpdated", handleFanDataUpdated as EventListener);
-      window.removeEventListener(EXTRAS_UPDATED_EVENT, handleExtrasUpdated as EventListener);
-      window.removeEventListener(FAN_MESSAGE_SENT_EVENT, handleFanMessageSent as EventListener);
-      window.removeEventListener(PURCHASE_CREATED_EVENT, handlePurchaseCreated as EventListener);
-      window.removeEventListener(PURCHASE_SEEN_EVENT, handlePurchaseSeen as EventListener);
-      window.removeEventListener(CREATOR_DATA_CHANGED_EVENT, handleCreatorDataChanged as EventListener);
       window.removeEventListener("applyChatFilter", handleExternalFilter as EventListener);
     };
   }, [
     applyFilter,
     conversation?.id,
     conversation?.isManager,
-    fetchFanById,
     fetchFansPage,
     mapFans,
-    refreshExtrasSummary,
-    scheduleFansRefresh,
-    showPurchaseToast,
   ]);
+
+  useCreatorRealtime({
+    onExtrasUpdated: handleExtrasUpdated,
+    onFanMessageSent: handleFanMessageSent,
+    onPurchaseCreated: handlePurchaseCreated,
+    onPurchaseSeen: handlePurchaseSeen,
+    onCreatorDataChanged: handleCreatorDataChanged,
+  });
 
   useEffect(() => {
     const fanIdFromQuery = getFanIdFromQuery({ fan: queryFan, fanId: queryFanId });

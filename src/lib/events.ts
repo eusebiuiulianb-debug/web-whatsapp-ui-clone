@@ -6,7 +6,8 @@ import {
   PURCHASE_CREATED_EVENT,
   PURCHASE_SEEN_EVENT,
 } from "../constants/events";
-import { emitAppEvent } from "./crossTabEvents";
+import { emitCreatorEvent } from "./creatorRealtimeBus";
+import { resolvePurchaseEventId } from "./purchaseEventDedupe";
 
 export type FanMessageSentPayload = {
   fanId: string;
@@ -32,6 +33,7 @@ export type PurchaseCreatedPayload = {
   title?: string;
   purchaseId?: string;
   createdAt?: string;
+  eventId?: string;
 };
 
 export type PurchaseSeenPayload = {
@@ -50,11 +52,11 @@ export type ExtrasUpdatedPayload = {
 };
 
 export function emitFanMessageSent(payload: FanMessageSentPayload) {
-  emitAppEvent(FAN_MESSAGE_SENT_EVENT, payload);
+  emitCreatorEvent(FAN_MESSAGE_SENT_EVENT, payload);
 }
 
 export function emitPurchaseChanged(payload: PurchaseChangedPayload) {
-  emitAppEvent(PURCHASE_CHANGED_EVENT, payload);
+  emitCreatorEvent(PURCHASE_CHANGED_EVENT, payload);
 }
 
 export function emitPurchaseCreated(payload: PurchaseCreatedPayload) {
@@ -66,23 +68,29 @@ export function emitPurchaseCreated(payload: PurchaseCreatedPayload) {
     typeof payload.createdAt === "string" && payload.createdAt.trim().length > 0
       ? payload.createdAt
       : new Date().toISOString();
-  emitAppEvent(PURCHASE_CREATED_EVENT, {
+  const eventId = resolvePurchaseEventId({
     ...payload,
     purchaseId: resolvedId,
     createdAt: resolvedCreatedAt,
   });
+  emitCreatorEvent(PURCHASE_CREATED_EVENT, {
+    ...payload,
+    purchaseId: resolvedId,
+    createdAt: resolvedCreatedAt,
+    eventId,
+  });
 }
 
 export function emitPurchaseSeen(payload: PurchaseSeenPayload) {
-  emitAppEvent(PURCHASE_SEEN_EVENT, payload);
+  emitCreatorEvent(PURCHASE_SEEN_EVENT, payload);
 }
 
 export function emitCreatorDataChanged(payload: CreatorDataChangedPayload) {
-  emitAppEvent(CREATOR_DATA_CHANGED_EVENT, payload);
+  emitCreatorEvent(CREATOR_DATA_CHANGED_EVENT, payload);
 }
 
 export function emitExtrasUpdated(payload: ExtrasUpdatedPayload) {
-  emitAppEvent(EXTRAS_UPDATED_EVENT, payload);
+  emitCreatorEvent(EXTRAS_UPDATED_EVENT, payload);
 }
 
 export {

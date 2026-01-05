@@ -47,7 +47,7 @@ import { ChatComposerBar } from "../ChatComposerBar";
 import { EmojiPicker } from "../EmojiPicker";
 import { PillButton } from "../ui/PillButton";
 import { IconGlyph } from "../ui/IconGlyph";
-import { CREATOR_DATA_CHANGED_EVENT, FAN_MESSAGE_SENT_EVENT, PURCHASE_CREATED_EVENT } from "../../constants/events";
+import { useCreatorRealtime } from "../../hooks/useCreatorRealtime";
 import {
   CreatorPlatformKey,
   CreatorPlatforms,
@@ -1505,25 +1505,16 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
     };
   }, [shouldLoadSegments, followUpRangeDays, segmentsRefreshToken]);
 
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    const handleFanMessageSent = () => {
-      setSegmentsRefreshToken((prev) => prev + 1);
-      setSalesRetry((prev) => prev + 1);
-    };
-    const handleCreatorDataChanged = () => {
-      setSegmentsRefreshToken((prev) => prev + 1);
-      setSalesRetry((prev) => prev + 1);
-    };
-    window.addEventListener(FAN_MESSAGE_SENT_EVENT, handleFanMessageSent as EventListener);
-    window.addEventListener(CREATOR_DATA_CHANGED_EVENT, handleCreatorDataChanged as EventListener);
-    window.addEventListener(PURCHASE_CREATED_EVENT, handleCreatorDataChanged as EventListener);
-    return () => {
-      window.removeEventListener(FAN_MESSAGE_SENT_EVENT, handleFanMessageSent as EventListener);
-      window.removeEventListener(CREATOR_DATA_CHANGED_EVENT, handleCreatorDataChanged as EventListener);
-      window.removeEventListener(PURCHASE_CREATED_EVENT, handleCreatorDataChanged as EventListener);
-    };
+  const handleRealtimeRefresh = useCallback(() => {
+    setSegmentsRefreshToken((prev) => prev + 1);
+    setSalesRetry((prev) => prev + 1);
   }, []);
+
+  useCreatorRealtime({
+    onFanMessageSent: handleRealtimeRefresh,
+    onCreatorDataChanged: handleRealtimeRefresh,
+    onPurchaseCreated: handleRealtimeRefresh,
+  });
   const catalogItemsSorted = useMemo(
     () => sortCatalogItems(catalogItemsState),
     [catalogItemsState]

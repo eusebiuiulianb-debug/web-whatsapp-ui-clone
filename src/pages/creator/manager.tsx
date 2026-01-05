@@ -26,7 +26,7 @@ import type { CatalogItem } from "../../lib/catalog";
 import { KpiCard } from "../../components/ui/KpiCard";
 import { SectionCard } from "../../components/ui/SectionCard";
 import { buildFanChatHref, openFanChat, openFanChatAndPrefill } from "../../lib/navigation/openCreatorChat";
-import { CREATOR_DATA_CHANGED_EVENT, FAN_MESSAGE_SENT_EVENT, PURCHASE_CREATED_EVENT } from "../../constants/events";
+import { useCreatorRealtime } from "../../hooks/useCreatorRealtime";
 
 type Props = {
   initialSnapshot: CreatorBusinessSnapshot | null;
@@ -226,23 +226,15 @@ export default function CreatorManagerPage(props: Props) {
     void fetchPlatforms();
   }, [fetchSummary, fetchAdvisorInput, fetchPlatforms]);
 
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    const handleFanMessageSent = () => {
-      void fetchSummary();
-    };
-    const handleCreatorDataChanged = () => {
-      void fetchSummary();
-    };
-    window.addEventListener(FAN_MESSAGE_SENT_EVENT, handleFanMessageSent as EventListener);
-    window.addEventListener(CREATOR_DATA_CHANGED_EVENT, handleCreatorDataChanged as EventListener);
-    window.addEventListener(PURCHASE_CREATED_EVENT, handleCreatorDataChanged as EventListener);
-    return () => {
-      window.removeEventListener(FAN_MESSAGE_SENT_EVENT, handleFanMessageSent as EventListener);
-      window.removeEventListener(CREATOR_DATA_CHANGED_EVENT, handleCreatorDataChanged as EventListener);
-      window.removeEventListener(PURCHASE_CREATED_EVENT, handleCreatorDataChanged as EventListener);
-    };
+  const handleRealtimeSummaryRefresh = useCallback(() => {
+    void fetchSummary();
   }, [fetchSummary]);
+
+  useCreatorRealtime({
+    onFanMessageSent: handleRealtimeSummaryRefresh,
+    onCreatorDataChanged: handleRealtimeSummaryRefresh,
+    onPurchaseCreated: handleRealtimeSummaryRefresh,
+  });
 
   return (
     <>

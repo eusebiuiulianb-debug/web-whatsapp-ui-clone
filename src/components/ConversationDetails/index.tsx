@@ -37,8 +37,8 @@ import {
   emitFanMessageSent,
   emitPurchaseCreated,
   emitPurchaseSeen,
-  PURCHASE_CREATED_EVENT,
 } from "../../lib/events";
+import { useCreatorRealtime } from "../../hooks/useCreatorRealtime";
 import { AiTone, normalizeTone, ACTION_TYPE_FOR_USAGE } from "../../lib/aiQuickExtra";
 import { AiTemplateUsage, AiTurnMode } from "../../lib/aiTemplateTypes";
 import { normalizeAiTurnMode } from "../../lib/aiSettings";
@@ -3405,20 +3405,16 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
     };
   }, [closeOverlays]);
 
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    const handlePurchaseCreated = (event: Event) => {
-      const detail = (event as CustomEvent)?.detail as
-        | {
-            fanId?: string;
-            fanName?: string;
-            amountCents?: number;
-            kind?: string;
-            title?: string;
-            purchaseId?: string;
-            createdAt?: string;
-          }
-        | undefined;
+  const handlePurchaseCreated = useCallback(
+    (detail: {
+      fanId?: string;
+      fanName?: string;
+      amountCents?: number;
+      kind?: string;
+      title?: string;
+      purchaseId?: string;
+      createdAt?: string;
+    }) => {
       if (!detail?.fanId || typeof detail.amountCents !== "number" || !detail.kind) return;
       appendPurchaseSystemMessage({
         fanId: detail.fanId,
@@ -3428,12 +3424,11 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
         purchaseId: detail.purchaseId,
         createdAt: detail.createdAt,
       });
-    };
-    window.addEventListener(PURCHASE_CREATED_EVENT, handlePurchaseCreated as EventListener);
-    return () => {
-      window.removeEventListener(PURCHASE_CREATED_EVENT, handlePurchaseCreated as EventListener);
-    };
-  }, [appendPurchaseSystemMessage]);
+    },
+    [appendPurchaseSystemMessage]
+  );
+
+  useCreatorRealtime({ onPurchaseCreated: handlePurchaseCreated });
 
   useEffect(() => {
     if (!id || conversation.isManager) {
