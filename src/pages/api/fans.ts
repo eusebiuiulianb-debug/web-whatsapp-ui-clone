@@ -175,6 +175,29 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       where.id = fanIdFilter;
     }
 
+    let cursorFilter: Prisma.FanWhereInput | null = null;
+    if (cursorId && !fanIdFilter) {
+      const cursorFan = await prisma.fan.findUnique({
+        where: { id: cursorId },
+        select: { lastActivityAt: true },
+      });
+      if (cursorFan?.lastActivityAt) {
+        cursorFilter = {
+          OR: [
+            { lastActivityAt: { lt: cursorFan.lastActivityAt } },
+            { AND: [{ lastActivityAt: cursorFan.lastActivityAt }, { id: { lt: cursorId } }] },
+            { lastActivityAt: null },
+          ],
+        };
+      } else if (cursorFan) {
+        cursorFilter = {
+          AND: [{ lastActivityAt: null }, { id: { lt: cursorId } }],
+        };
+      }
+    }
+
+    const finalWhere = cursorFilter ? { AND: [where, cursorFilter] } : where;
+
     const fans = await prisma.fan.findMany({
       select: {
         id: true,
@@ -200,6 +223,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         segment: true,
         riskLevel: true,
         healthScore: true,
+        lastActivityAt: true,
         isBlocked: true,
         isArchived: true,
         preferredLanguage: true,
@@ -239,15 +263,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         inviteUsedAt: true,
         _count: { select: { notes: true } },
       },
-      orderBy: { id: "asc" },
+      orderBy: [{ lastActivityAt: "desc" }, { id: "desc" }],
       take: limit + 1,
-      ...(cursorId
-        ? {
-            cursor: { id: cursorId },
-            skip: 1,
-          }
-        : {}),
-      where,
+      where: finalWhere,
     });
 
     const now = new Date();
@@ -439,6 +457,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         .filter((d): d is Date => !!d)
         .sort((a, b) => b.getTime() - a.getTime())[0];
 
+      const lastVisibleAt = lastVisibleMessage ? parseMessageTimestamp(lastVisibleMessage.id) : null;
+      const lastActivityAt =
+        fan.lastActivityAt ?? lastVisibleAt ?? lastCreatorMessage ?? lastFanActivity ?? null;
       const lastNoteSnippet = truncateSnippet(fan.notes?.[0]?.content);
       const quickNoteValue = normalizeNoteValue(fan.quickNote);
       const quickNotePreview = truncateSnippet(quickNoteValue);
@@ -490,6 +511,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         notesCount,
         notePreview,
         lastCreatorMessageAt: lastCreatorMessage ? lastCreatorMessage.toISOString() : null,
+        lastActivityAt: lastActivityAt ? lastActivityAt.toISOString() : null,
         paidGrantsCount,
         lifetimeValue: totalSpend, // mantenemos compatibilidad pero usando el gasto total real
         lifetimeSpend: totalSpend,

@@ -21,6 +21,8 @@ const SUPPORT_CONTENT: Record<SupportKind, SupportMeta> = {
   },
 };
 
+const MAX_CLIENT_TXN_ID = 120;
+
 function normalizeSupportKind(value: unknown): SupportKind | null {
   if (value === "TIP" || value === "GIFT") return value;
   return null;
@@ -34,6 +36,13 @@ function parseAmount(value: unknown): number | null {
     return Number.isFinite(amount) ? amount : null;
   }
   return null;
+}
+
+function normalizeClientTxnId(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  return trimmed.slice(0, MAX_CLIENT_TXN_ID);
 }
 
 function buildGiftSessionTag(packId: unknown, packName: unknown): string | null {
@@ -143,6 +152,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
   const packId = req.body?.packId;
   const packName = req.body?.packName;
+  const clientTxnId = normalizeClientTxnId(req.body?.clientTxnId);
 
   try {
     const fan = await prisma.fan.findUnique({
@@ -150,6 +160,16 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       select: { id: true, creatorId: true },
     });
     if (!fan) return res.status(404).json({ error: "Fan not found" });
+
+    if (clientTxnId) {
+      const existing = await prisma.extraPurchase.findUnique({
+        where: { clientTxnId },
+        select: { id: true, kind: true, amount: true },
+      });
+      if (existing) {
+        return res.status(200).json({ ok: true, purchase: existing, reused: true });
+      }
+    }
 
     const now = new Date();
     const purchase = await prisma.$transaction(async (tx) => {
@@ -167,6 +187,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           productId,
           productType,
           sessionTag,
+          clientTxnId,
         },
       });
 
@@ -188,6 +209,16 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
     return res.status(201).json({ ok: true, purchase: { id: purchase.id, kind: purchase.kind, amount: purchase.amount } });
   } catch (error) {
+    const code = (error as { code?: string }).code;
+    if (code === "P2002" && clientTxnId) {
+      const existing = await prisma.extraPurchase.findUnique({
+        where: { clientTxnId },
+        select: { id: true, kind: true, amount: true },
+      });
+      if (existing) {
+        return res.status(200).json({ ok: true, purchase: existing, reused: true });
+      }
+    }
     console.error("Error creating support purchase", error);
     return sendServerError(res, "Failed to create support purchase");
   }

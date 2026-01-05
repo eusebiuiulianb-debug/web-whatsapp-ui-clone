@@ -19,10 +19,16 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   if (!fanId || typeof fanId !== "string") {
     return sendBadRequest(res, "fanId is required");
   }
+  const includeArchived = req.query.includeArchived === "1";
 
   try {
+    const where = {
+      fanId,
+      amount: { gt: 0 },
+      ...(includeArchived ? {} : { isArchived: false }),
+    };
     const purchases = await prisma.extraPurchase.findMany({
-      where: { fanId, amount: { gt: 0 } },
+      where,
       orderBy: { createdAt: "desc" },
       select: {
         id: true,

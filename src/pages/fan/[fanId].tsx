@@ -20,6 +20,7 @@ import { inferPreferredLanguage, LANGUAGE_LABELS, normalizePreferredLanguage, ty
 import { parseReactionsRaw, useReactions } from "../../lib/emoji/reactions";
 import { getStickerById } from "../../lib/emoji/stickers";
 import { buildFanChatProps } from "../../lib/fanChatProps";
+import { generateClientTxnId } from "../../lib/clientTxn";
 import { buildStickerTokenFromItem, getStickerByToken, type StickerItem } from "../../lib/stickers";
 import { IconGlyph, type IconName } from "../../components/ui/IconGlyph";
 import { Badge, type BadgeTone } from "../../components/ui/Badge";
@@ -140,6 +141,7 @@ export function FanChatPage({
   const [giftError, setGiftError] = useState("");
   const [giftView, setGiftView] = useState<"list" | "details">("list");
   const [selectedGiftPack, setSelectedGiftPack] = useState<PackSummary | null>(null);
+  const [supportSubmitting, setSupportSubmitting] = useState(false);
 
   const sortMessages = useCallback((list: ApiMessage[]) => {
     const withKeys = list.map((msg, idx) => ({
@@ -510,7 +512,7 @@ export function FanChatPage({
   }, [focusComposer]);
 
   const createSupportPurchase = useCallback(
-    async (payload: { kind: "TIP" | "GIFT"; amount: number; packId?: string; packName?: string }) => {
+    async (payload: { kind: "TIP" | "GIFT"; amount: number; packId?: string; packName?: string; clientTxnId?: string }) => {
       if (!fanId) return { ok: false, error: "Missing fanId" };
       try {
         const res = await fetch(`/api/fans/${fanId}/support`, {
@@ -550,45 +552,70 @@ export function FanChatPage({
 
   const handleTipConfirm = useCallback(async () => {
     if (!fanId) return;
+    if (supportSubmitting) return;
     const amountValue = tipAmountPreset ?? parseAmountToNumber(tipAmountCustom);
     if (!Number.isFinite(amountValue) || amountValue <= 0 || amountValue > 500) {
       setTipError("Introduce un importe válido.");
       return;
     }
-    const result = await createSupportPurchase({ kind: "TIP", amount: amountValue });
-    if (!result.ok) {
-      setTipError(result.error ?? "No se pudo registrar la propina.");
-      return;
+    setSupportSubmitting(true);
+    try {
+      const result = await createSupportPurchase({
+        kind: "TIP",
+        amount: amountValue,
+        clientTxnId: generateClientTxnId(),
+      });
+      if (!result.ok) {
+        setTipError(result.error ?? "No se pudo registrar la propina.");
+        return;
+      }
+      const amountLabel = formatAmountLabel(amountValue);
+      appendSystemMessage(`🎁 Has apoyado con ${amountLabel}`);
+      closeMoneyModal();
+    } finally {
+      setSupportSubmitting(false);
     }
-    const amountLabel = formatAmountLabel(amountValue);
-    appendSystemMessage(`🎁 Has apoyado con ${amountLabel}`);
-    closeMoneyModal();
-  }, [appendSystemMessage, closeMoneyModal, createSupportPurchase, fanId, tipAmountCustom, tipAmountPreset]);
+  }, [
+    appendSystemMessage,
+    closeMoneyModal,
+    createSupportPurchase,
+    fanId,
+    tipAmountCustom,
+    tipAmountPreset,
+    supportSubmitting,
+  ]);
 
   const handleGiftConfirm = useCallback(
     async (pack: PackSummary) => {
       if (!fanId) return;
+      if (supportSubmitting) return;
       const amountValue = parseAmountToNumber(pack.price);
       if (!Number.isFinite(amountValue) || amountValue <= 0 || amountValue > 500) {
         setGiftError("Introduce un importe válido.");
         return;
       }
-      const result = await createSupportPurchase({
-        kind: "GIFT",
-        amount: amountValue,
-        packId: pack.id,
-        packName: pack.name,
-      });
-      if (!result.ok) {
-        setGiftError(result.error ?? "No se pudo registrar el regalo.");
-        return;
+      setSupportSubmitting(true);
+      try {
+        const result = await createSupportPurchase({
+          kind: "GIFT",
+          amount: amountValue,
+          packId: pack.id,
+          packName: pack.name,
+          clientTxnId: generateClientTxnId(),
+        });
+        if (!result.ok) {
+          setGiftError(result.error ?? "No se pudo registrar el regalo.");
+          return;
+        }
+        await fetchAccessInfo(fanId);
+        const priceLabel = normalizePriceLabel(pack.price);
+        appendSystemMessage(`🎁 Has regalado ${pack.name} (${priceLabel})`);
+        closeMoneyModal();
+      } finally {
+        setSupportSubmitting(false);
       }
-      await fetchAccessInfo(fanId);
-      const priceLabel = normalizePriceLabel(pack.price);
-      appendSystemMessage(`🎁 Has regalado ${pack.name} (${priceLabel})`);
-      closeMoneyModal();
     },
-    [appendSystemMessage, closeMoneyModal, createSupportPurchase, fanId, fetchAccessInfo]
+    [appendSystemMessage, closeMoneyModal, createSupportPurchase, fanId, fetchAccessInfo, supportSubmitting]
   );
 
   const handlePackRequest = useCallback(
@@ -1116,7 +1143,8 @@ export function FanChatPage({
             <button
               type="button"
               onClick={handleTipConfirm}
-              className="rounded-full bg-[color:rgba(var(--brand-rgb),0.16)] px-4 py-1.5 text-xs font-semibold text-[color:var(--text)] hover:bg-[color:rgba(var(--brand-rgb),0.24)]"
+              disabled={supportSubmitting}
+              className="rounded-full bg-[color:rgba(var(--brand-rgb),0.16)] px-4 py-1.5 text-xs font-semibold text-[color:var(--text)] hover:bg-[color:rgba(var(--brand-rgb),0.24)] disabled:opacity-60"
             >
               Enviar propina
             </button>
@@ -1158,7 +1186,8 @@ export function FanChatPage({
                   <button
                     type="button"
                     onClick={() => handleGiftConfirm(pack)}
-                    className="rounded-full bg-[color:rgba(var(--brand-rgb),0.16)] px-4 py-1.5 text-xs font-semibold text-[color:var(--text)] hover:bg-[color:rgba(var(--brand-rgb),0.24)]"
+                    disabled={supportSubmitting}
+                    className="rounded-full bg-[color:rgba(var(--brand-rgb),0.16)] px-4 py-1.5 text-xs font-semibold text-[color:var(--text)] hover:bg-[color:rgba(var(--brand-rgb),0.24)] disabled:opacity-60"
                   >
                     Regalar
                   </button>

@@ -6,6 +6,7 @@ import {
   getSalesProductKey,
   type CreatorSalesPurchase,
 } from "../../../../lib/analytics/creatorSalesTotals";
+import { daysAgoInTimeZone, startOfDayInTimeZone } from "../../../../lib/timezone";
 
 type SalesRange = "today" | "7d" | "30d";
 
@@ -65,6 +66,7 @@ type ExtraPurchaseRow = {
   fanId: string;
   amount: number | null;
   kind: string | null;
+  createdAt?: Date | null;
   isArchived?: boolean | null;
   productId?: string | null;
   productType?: string | null;
@@ -109,18 +111,6 @@ function buildEmptyResponse(error?: string): SalesResponse {
     topFans: [],
     insights: [],
   };
-}
-
-function startOfToday(): Date {
-  const d = new Date();
-  d.setHours(0, 0, 0, 0);
-  return d;
-}
-
-function daysAgo(days: number): Date {
-  const d = startOfToday();
-  d.setDate(d.getDate() - days);
-  return d;
 }
 
 function normalizeRange(value: unknown): SalesRange | null {
@@ -247,6 +237,7 @@ async function loadExtraPurchases({
     amount: true,
     kind: true,
     isArchived: true,
+    createdAt: true,
     contentItemId: true,
     contentItem: { select: { title: true } },
     fan: { select: { displayName: true, name: true } },
@@ -299,7 +290,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
 
   const creatorId = process.env.CREATOR_ID ?? "creator-1";
   const now = new Date();
-  const from = range === "today" ? startOfToday() : range === "7d" ? daysAgo(7) : daysAgo(30);
+  const from =
+    range === "today" ? startOfDayInTimeZone() : range === "7d" ? daysAgoInTimeZone(7) : daysAgoInTimeZone(30);
+  const debug = req.query?.debug === "1" && process.env.NODE_ENV !== "production";
 
   try {
     const [purchasesResult, grantsResult, extrasActiveCountResult] = await Promise.all([
@@ -313,6 +306,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
               id: true,
               fanId: true,
               type: true,
+              createdAt: true,
               fan: { select: { displayName: true, name: true } },
             },
           }),
@@ -331,6 +325,27 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
     const purchases = purchasesResult.value;
     const grants = grantsResult.value;
     const extrasActiveCount = extrasActiveCountResult.value;
+
+    if (debug) {
+      console.info("cortex-sales-debug", {
+        range,
+        from: from.toISOString(),
+        to: now.toISOString(),
+        purchases: purchases.map((purchase) => ({
+          id: purchase.id,
+          amount: purchase.amount,
+          kind: purchase.kind,
+          productType: purchase.productType,
+          isArchived: purchase.isArchived,
+          createdAt: purchase.createdAt,
+        })),
+        grants: grants.map((grant) => ({
+          id: grant.id,
+          type: grant.type,
+          createdAt: grant.createdAt,
+        })),
+      });
+    }
 
     let extrasCount = 0;
     let tipsCount = 0;

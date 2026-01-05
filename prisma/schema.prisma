@@ -93,6 +93,7 @@ model Fan {
   healthScore      Int             @default(0)
   lastMessageAt    DateTime?
   lastCreatorMessageAt DateTime?
+  lastActivityAt   DateTime?
   lastCortexOutreachAt DateTime?
   lastCortexOutreachKey String?
   lastPurchaseAt   DateTime?
@@ -368,6 +369,7 @@ model ExtraPurchase {
   productId     String?
   productType   ExtraPurchaseProductType?
   sessionTag    String?
+  clientTxnId   String?     @unique
   createdAt     DateTime    @default(now())
   isArchived    Boolean     @default(false)
 }

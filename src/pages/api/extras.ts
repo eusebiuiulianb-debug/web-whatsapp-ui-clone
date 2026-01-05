@@ -4,9 +4,17 @@ import prisma from "../../lib/prisma.server";
 import { sendBadRequest, sendServerError } from "../../lib/apiError";
 
 const EXTRA_TIERS = ["T0", "T1", "T2", "T3"] as const;
+const MAX_CLIENT_TXN_ID = 120;
 
 function isValidTier(tier: unknown): tier is ExtraTier {
   return typeof tier === "string" && (EXTRA_TIERS as readonly string[]).includes(tier);
+}
+
+function normalizeClientTxnId(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  return trimmed.slice(0, MAX_CLIENT_TXN_ID);
 }
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
@@ -58,6 +66,7 @@ async function handleGet(req: NextApiRequest, res: NextApiResponse) {
 
 async function handlePost(req: NextApiRequest, res: NextApiResponse) {
   const { fanId, contentItemId, tier, amount, sessionTag } = req.body || {};
+  const clientTxnId = normalizeClientTxnId(req.body?.clientTxnId);
   console.log("POST /api/extras body:", req.body);
 
   if (!fanId || typeof fanId !== "string") {
@@ -75,6 +84,15 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
   }
 
   try {
+    if (clientTxnId) {
+      const existing = await prisma.extraPurchase.findUnique({
+        where: { clientTxnId },
+      });
+      if (existing) {
+        return res.status(200).json({ ok: true, purchase: existing, reused: true });
+      }
+    }
+
     const purchase = await prisma.extraPurchase.create({
       data: {
         fanId,
@@ -85,11 +103,21 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
         productId: contentItemId,
         productType: "EXTRA",
         sessionTag: typeof sessionTag === "string" && sessionTag.trim().length > 0 ? sessionTag.trim() : null,
+        clientTxnId,
       },
     });
 
     return res.status(201).json({ ok: true, purchase });
   } catch (error) {
+    const code = (error as { code?: string }).code;
+    if (code === "P2002" && clientTxnId) {
+      const existing = await prisma.extraPurchase.findUnique({
+        where: { clientTxnId },
+      });
+      if (existing) {
+        return res.status(200).json({ ok: true, purchase: existing, reused: true });
+      }
+    }
     console.error("Error creating extra purchase", error);
     return sendServerError(res, "Failed to create extra purchase");
   }

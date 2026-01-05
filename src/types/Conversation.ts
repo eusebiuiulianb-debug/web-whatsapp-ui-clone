@@ -48,6 +48,7 @@ interface Conversation {
   lastTime?: string;
   followUpTag?: FollowUpTag;
   lastCreatorMessageAt?: string | null;
+  lastActivityAt?: string | null;
   notesCount?: number;
   notePreview?: string | null;
   profileText?: string | null;
@@ -138,6 +139,7 @@ interface ConversationListData {
   lastSeenAt?: string | null;
   followUpTag?: FollowUpTag;
   lastCreatorMessageAt?: string | null;
+  lastActivityAt?: string | null;
   notesCount?: number;
   notePreview?: string | null;
   profileText?: string | null;

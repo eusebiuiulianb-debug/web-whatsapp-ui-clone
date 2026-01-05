@@ -324,6 +324,7 @@ function SideBarInner() {
       lastSeen: fan.lastSeen,
       lastSeenAt: fan.lastSeenAt ?? null,
       lastCreatorMessageAt: fan.lastCreatorMessageAt,
+      lastActivityAt: fan.lastActivityAt ?? null,
       activeGrantTypes: fan.activeGrantTypes ?? [],
       hasAccessHistory: fan.hasAccessHistory ?? false,
       followUpTag: fan.followUpTag ?? getFollowUpTag(fan.membershipStatus, fan.daysLeft, fan.activeGrantTypes),
@@ -398,6 +399,7 @@ function SideBarInner() {
         "contactName",
         "lastTime",
         "lastCreatorMessageAt",
+        "lastActivityAt",
         "unreadCount",
         "lastMessage",
         "isHighPriority",
@@ -487,6 +489,10 @@ function SideBarInner() {
   );
 
   const getLastActivityTimestamp = useCallback((fan: FanData): number => {
+    if (fan.lastActivityAt) {
+      const d = new Date(fan.lastActivityAt);
+      if (!Number.isNaN(d.getTime())) return d.getTime();
+    }
     if (fan.lastCreatorMessageAt) {
       const d = new Date(fan.lastCreatorMessageAt);
       if (!Number.isNaN(d.getTime())) return d.getTime();
@@ -1032,8 +1038,8 @@ function SideBarInner() {
             const da = typeof a.daysLeft === "number" ? a.daysLeft : Number.POSITIVE_INFINITY;
             const db = typeof b.daysLeft === "number" ? b.daysLeft : Number.POSITIVE_INFINITY;
             if (da !== db) return da - db;
-            const la = a.lastCreatorMessageAt ? new Date(a.lastCreatorMessageAt).getTime() : 0;
-            const lb = b.lastCreatorMessageAt ? new Date(b.lastCreatorMessageAt).getTime() : 0;
+            const la = getLastActivityTimestamp(a);
+            const lb = getLastActivityTimestamp(b);
             return lb - la;
           }
 
@@ -1387,7 +1393,7 @@ function SideBarInner() {
 
     const handleFanMessageSent = (event: Event) => {
       const detail = (event as CustomEvent)?.detail as
-        | { fanId?: string; text?: string; kind?: string }
+        | { fanId?: string; text?: string; kind?: string; sentAt?: string }
         | undefined;
       const fanId = typeof detail?.fanId === "string" ? detail.fanId : "";
       if (!fanId) {
@@ -1395,7 +1401,9 @@ function SideBarInner() {
         return;
       }
       const now = new Date();
-      const timeLabel = now.toLocaleTimeString("es-ES", {
+      const sentAt = typeof detail?.sentAt === "string" ? new Date(detail.sentAt) : now;
+      const safeSentAt = Number.isNaN(sentAt.getTime()) ? now : sentAt;
+      const timeLabel = safeSentAt.toLocaleTimeString("es-ES", {
         hour: "2-digit",
         minute: "2-digit",
         hour12: false,
@@ -1418,7 +1426,8 @@ function SideBarInner() {
             ...current,
             lastMessage: preview || current.lastMessage,
             lastTime: timeLabel,
-            lastCreatorMessageAt: now.toISOString(),
+            lastCreatorMessageAt: safeSentAt.toISOString(),
+            lastActivityAt: safeSentAt.toISOString(),
           };
           return [updated, ...prev.slice(0, index), ...prev.slice(index + 1)];
         });

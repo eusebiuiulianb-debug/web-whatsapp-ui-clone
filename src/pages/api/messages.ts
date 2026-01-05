@@ -304,23 +304,25 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse<MessageRespo
           ? text
           : "";
       const preview = previewSource.trim().slice(0, 120);
+      const now = new Date();
       const fanUpdate: Record<string, unknown> = {
         preview,
         time,
-        lastMessageAt: new Date(),
+        lastMessageAt: now,
+        lastActivityAt: now,
       };
       if (normalizedFrom === "fan") {
         fanUpdate.isArchived = false;
         fanUpdate.unreadCount = { increment: 1 };
         if (fan.inviteToken && !fan.inviteUsedAt) {
-          fanUpdate.inviteUsedAt = new Date();
+          fanUpdate.inviteUsedAt = now;
         }
       } else {
-        fanUpdate.lastCreatorMessageAt = new Date();
+        fanUpdate.lastCreatorMessageAt = now;
         fanUpdate.unreadCount = 0;
       }
       if (normalizedFrom === "creator" && normalizedAudience !== "INTERNAL" && isCortexOutreach) {
-        fanUpdate.lastCortexOutreachAt = new Date();
+        fanUpdate.lastCortexOutreachAt = now;
         fanUpdate.lastCortexOutreachKey = normalizedActionKey;
       }
       try {

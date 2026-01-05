@@ -3,6 +3,7 @@ import prisma from "./prisma.server";
 import { PACKS } from "../config/packs";
 import { buildManagerQueueForCreator, type Segment } from "../server/manager/managerService";
 import { getCreatorRevenueSummary } from "./analytics/revenue";
+import { daysAgoInTimeZone, startOfDayInTimeZone } from "./timezone";
 
 export type PriorityItemKind = "INVITE_PENDING" | "EXPIRING_ACCESS" | "NO_ACCESS_BUT_MESSAGE" | "AT_RISK";
 
@@ -112,15 +113,11 @@ const PRIORITY_KIND_RANK = PRIORITY_KIND_ORDER.reduce(
 );
 
 function startOfToday(): Date {
-  const d = new Date();
-  d.setHours(0, 0, 0, 0);
-  return d;
+  return startOfDayInTimeZone();
 }
 
 function daysAgo(days: number): Date {
-  const d = startOfToday();
-  d.setDate(d.getDate() - days);
-  return d;
+  return daysAgoInTimeZone(days);
 }
 
 function daysFromNow(days: number): Date {

@@ -52,6 +52,7 @@ import { getStickerById, type StickerItem as LegacyStickerItem } from "../../lib
 import { buildStickerToken, getStickerByToken, type StickerItem as PickerStickerItem } from "../../lib/stickers";
 import { parseReactionsRaw, useReactions } from "../../lib/emoji/reactions";
 import { computeFanTotals } from "../../lib/fanTotals";
+import { generateClientTxnId } from "../../lib/clientTxn";
 import { formatNextActionLabel, formatWhen, isGenericNextActionNote } from "../../lib/nextActionLabel";
 import {
   buildCatalogPitch,
@@ -630,6 +631,7 @@ export default function ConversationDetails({ onBackToBoard }: ConversationDetai
       isArchived?: boolean;
     }[]
   >([]);
+  const [ showArchivedPurchases, setShowArchivedPurchases ] = useState(false);
   const [ purchaseHistoryLoading, setPurchaseHistoryLoading ] = useState(false);
   const [ purchaseArchiveBusyId, setPurchaseArchiveBusyId ] = useState<string | null>(null);
   const [ historyFilter, setHistoryFilter ] = useState<"all" | "extra" | "tip" | "gift">("all");
@@ -749,6 +751,7 @@ export default function ConversationDetails({ onBackToBoard }: ConversationDetai
   const [ selectedExtraId, setSelectedExtraId ] = useState<string>("");
   const [ extraAmount, setExtraAmount ] = useState<number | "">("");
   const [ extraError, setExtraError ] = useState<string | null>(null);
+  const [ isRegisteringExtra, setIsRegisteringExtra ] = useState(false);
   const [ showManualExtraForm, setShowManualExtraForm ] = useState(false);
   const [ isChatBlocked, setIsChatBlocked ] = useState(conversation.isBlocked ?? false);
   const [ isChatArchived, setIsChatArchived ] = useState(conversation.isArchived ?? false);
@@ -1975,6 +1978,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
     tier,
     sessionTag,
     source,
+    clientTxnId,
   }: {
     fanId: string;
     extraId: string;
@@ -1982,6 +1986,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
     tier: "T0" | "T1" | "T2" | "T3";
     sessionTag?: string | null;
     source?: string | null;
+    clientTxnId?: string | null;
   }): Promise<{ ok: boolean; error?: string }> {
     if (!fanId || !extraId) return { ok: false, error: "Datos incompletos." };
     try {
@@ -1992,6 +1997,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
         amount,
         sessionTag,
         source,
+        clientTxnId: clientTxnId ?? null,
       };
       const res = await fetch("/api/extras", {
         method: "POST",
@@ -2306,22 +2312,29 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
     }
   }, []);
 
-  async function fetchHistory(fanId: string) {
-    try {
-      setHistoryError("");
-      setPurchaseHistoryLoading(true);
-      const res = await fetch(`/api/fans/purchases?fanId=${fanId}`);
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok || !data?.ok) throw new Error("error");
-      const history = Array.isArray(data.history) ? data.history : [];
-      setPurchaseHistory(history);
-    } catch (_err) {
-      setHistoryError("Error cargando historial");
-      setPurchaseHistory([]);
-    } finally {
-      setPurchaseHistoryLoading(false);
-    }
-  }
+  const fetchHistory = useCallback(
+    async (fanId: string) => {
+      try {
+        setHistoryError("");
+        setPurchaseHistoryLoading(true);
+        const params = new URLSearchParams({ fanId });
+        if (showArchivedPurchases) {
+          params.set("includeArchived", "1");
+        }
+        const res = await fetch(`/api/fans/purchases?${params.toString()}`);
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok || !data?.ok) throw new Error("error");
+        const history = Array.isArray(data.history) ? data.history : [];
+        setPurchaseHistory(history);
+      } catch (_err) {
+        setHistoryError("Error cargando historial");
+        setPurchaseHistory([]);
+      } finally {
+        setPurchaseHistoryLoading(false);
+      }
+    },
+    [showArchivedPurchases]
+  );
 
   async function handleTogglePurchaseArchive(entry: { id: string; isArchived?: boolean }) {
     if (!entry?.id || purchaseArchiveBusyId === entry.id) return;
@@ -2846,7 +2859,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
   useEffect(() => {
     if (!id || openPanel !== "history") return;
     fetchHistory(id);
-  }, [id, openPanel]);
+  }, [id, openPanel, fetchHistory]);
 
   useEffect(() => {
     if (!id || openPanel !== "extras") return;
@@ -8210,6 +8223,18 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
                 {filter.label}
               </button>
             ))}
+            <button
+              type="button"
+              onClick={() => setShowArchivedPurchases((prev) => !prev)}
+              className={clsx(
+                "rounded-full border px-3 py-1 font-semibold transition",
+                showArchivedPurchases
+                  ? "border-[color:var(--brand)] bg-[color:rgba(var(--brand-rgb),0.12)] text-[color:var(--text)]"
+                  : "border-[color:var(--surface-border)] bg-[color:var(--surface-2)] text-[color:var(--muted)] hover:border-[color:var(--surface-border-hover)] hover:text-[color:var(--text)]"
+              )}
+            >
+              {showArchivedPurchases ? "Ocultar archivados" : "Mostrar archivados"}
+            </button>
           </div>
           {historyError && <div className="text-[11px] text-[color:var(--danger)]">{historyError}</div>}
           {!historyError && !purchaseHistoryLoading && filteredPurchaseHistory.length === 0 && (
@@ -8616,8 +8641,10 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
                         />
                         <button
                           type="button"
-                          className="rounded-lg border border-[color:var(--brand)] bg-[color:rgba(var(--brand-rgb),0.12)] px-3 py-2 text-xs font-semibold text-[color:var(--text)] hover:bg-[color:rgba(var(--brand-rgb),0.2)]"
+                          className="rounded-lg border border-[color:var(--brand)] bg-[color:rgba(var(--brand-rgb),0.12)] px-3 py-2 text-xs font-semibold text-[color:var(--text)] hover:bg-[color:rgba(var(--brand-rgb),0.2)] disabled:opacity-60"
+                          disabled={isRegisteringExtra}
                           onClick={async () => {
+                            if (isRegisteringExtra) return;
                             if (!id || !selectedExtraId) {
                               setExtraError("Selecciona fan y extra.");
                               return;
@@ -8635,21 +8662,27 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
                             const sessionTag = `${timeOfDay}_${new Date().toISOString().slice(0, 10)}`;
                             setExtraError("");
                             const amountNumber = Number(extraAmount);
-                            const result = await registerExtraSale({
-                              fanId: id,
-                              extraId: item.id,
-                              amount: amountNumber,
-                              tier,
-                              sessionTag,
-                              source: "manual_panel",
-                            });
-                            if (!result.ok) {
-                              setExtraError(result.error || "No se pudo registrar el extra.");
-                              return;
+                            setIsRegisteringExtra(true);
+                            try {
+                              const result = await registerExtraSale({
+                                fanId: id,
+                                extraId: item.id,
+                                amount: amountNumber,
+                                tier,
+                                sessionTag,
+                                source: "manual_panel",
+                                clientTxnId: generateClientTxnId(),
+                              });
+                              if (!result.ok) {
+                                setExtraError(result.error || "No se pudo registrar el extra.");
+                                return;
+                              }
+                              setSelectedExtraId("");
+                              setExtraAmount("");
+                              setShowManualExtraForm(false);
+                            } finally {
+                              setIsRegisteringExtra(false);
                             }
-                            setSelectedExtraId("");
-                            setExtraAmount("");
-                            setShowManualExtraForm(false);
                           }}
                         >
                           Registrar extra
@@ -9412,6 +9445,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
                           tier,
                           sessionTag,
                           source: registerExtrasSource ?? "offer_flow",
+                          clientTxnId: generateClientTxnId(),
                         });
                         if (!result.ok) {
                           failed.push(item.title || "Extra");
