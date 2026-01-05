@@ -32,8 +32,8 @@ function formatToneLabel(tone?: FanTone | null) {
 }
 
 type Props = {
-  managerSuggestions?: { id: string; label: string; message: string }[];
-  onApplySuggestion?: (text: string, detail?: string) => void;
+  managerSuggestions?: { id: string; label: string; message: string; intent?: string }[];
+  onApplySuggestion?: (text: string, detail?: string, actionKeyOrIntent?: string) => void;
   draftCards?: { id: string; label: string; text: string }[];
   onDraftAction?: (draftId: string, action: "alternate" | "shorter" | "softer" | "bolder") => void;
   currentObjective?: ManagerObjective | null;
@@ -441,7 +441,7 @@ export default function FanManagerDrawer({
                 <div className="flex flex-wrap items-center gap-2">
                   <button
                     type="button"
-                    onClick={() => onApplySuggestion?.(draft.text, draft.label)}
+                    onClick={() => onApplySuggestion?.(draft.text, draft.label, `draft:${draft.id}`)}
                     className="inline-flex items-center rounded-full border border-[color:var(--brand)] bg-[color:rgba(var(--brand-rgb),0.12)] px-3 py-1 text-[11px] font-medium text-[color:var(--text)] hover:bg-[color:rgba(var(--brand-rgb),0.2)] transition"
                   >
                     Usar en mensaje
@@ -498,7 +498,13 @@ export default function FanManagerDrawer({
                 <div className="flex flex-wrap items-center gap-2">
                 <button
                   type="button"
-                  onClick={() => onApplySuggestion?.(suggestion.message, suggestion.label)}
+                  onClick={() =>
+                    onApplySuggestion?.(
+                      suggestion.message,
+                      suggestion.label,
+                      suggestion.intent ?? `manager:${suggestion.id}`
+                    )
+                  }
                   className="inline-flex items-center rounded-full border border-[color:var(--brand)] bg-[color:rgba(var(--brand-rgb),0.12)] px-3 py-1 text-[11px] font-medium text-[color:var(--text)] hover:bg-[color:rgba(var(--brand-rgb),0.2)] transition"
                 >
                   Usar en mensaje

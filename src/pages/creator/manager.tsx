@@ -26,6 +26,7 @@ import type { CatalogItem } from "../../lib/catalog";
 import { KpiCard } from "../../components/ui/KpiCard";
 import { SectionCard } from "../../components/ui/SectionCard";
 import { buildFanChatHref, openFanChat, openFanChatAndPrefill } from "../../lib/navigation/openCreatorChat";
+import { FAN_MESSAGE_SENT_EVENT } from "../../constants/events";
 
 type Props = {
   initialSnapshot: CreatorBusinessSnapshot | null;
@@ -224,6 +225,17 @@ export default function CreatorManagerPage(props: Props) {
     void fetchAdvisorInput();
     void fetchPlatforms();
   }, [fetchSummary, fetchAdvisorInput, fetchPlatforms]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const handleFanMessageSent = () => {
+      void fetchSummary();
+    };
+    window.addEventListener(FAN_MESSAGE_SENT_EVENT, handleFanMessageSent as EventListener);
+    return () => {
+      window.removeEventListener(FAN_MESSAGE_SENT_EVENT, handleFanMessageSent as EventListener);
+    };
+  }, [fetchSummary]);
 
   return (
     <>
@@ -891,7 +903,12 @@ function ManagerChatLayout({
       return;
     }
     setFanPanelOpen(false);
-    openFanChatAndPrefill(router, { fanId: fan.fanId, text: draft, mode: "fan" });
+    openFanChatAndPrefill(router, {
+      fanId: fan.fanId,
+      text: draft,
+      mode: "fan",
+      actionKey: `queue:${fan.fanId}`,
+    });
   };
   const toggleAttended = async (fanId: string) => {
     if (!fanId) return;

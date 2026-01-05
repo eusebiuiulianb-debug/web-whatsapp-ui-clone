@@ -22,6 +22,7 @@ export type ComposerDraftPayload = {
   text: string;
   source?: string;
   insertMode?: ComposerDraftInsertMode;
+  actionKey?: string;
 };
 
 const DEFAULT_CHAT_PATH = "/creator";
@@ -74,6 +75,11 @@ const getDraftStorageKey = (target: ComposerDraftTarget) =>
 
 const normalizeDraftTarget = (target?: string): ComposerDraftTarget => (target === "cortex" ? "cortex" : "fan");
 const normalizeInsertMode = (mode?: string): ComposerDraftInsertMode => (mode === "append" ? "append" : "replace");
+const normalizeActionKey = (key?: string) => {
+  if (typeof key !== "string") return undefined;
+  const trimmed = key.trim();
+  return trimmed ? trimmed : undefined;
+};
 
 export function appendDraftText(existing: string, incoming: string) {
   const trimmedExisting = existing.trim();
@@ -89,6 +95,7 @@ export function queueDraft(payload: ComposerDraftPayload) {
   const text = typeof payload?.text === "string" ? payload.text : "";
   const fanId = typeof payload?.fanId === "string" ? payload.fanId.trim() : "";
   const insertMode = normalizeInsertMode(payload?.insertMode);
+  const actionKey = normalizeActionKey(payload?.actionKey);
   if (!text.trim()) return;
   if (target === "fan" && !fanId) return;
   const normalizedPayload: ComposerDraftPayload = {
@@ -98,6 +105,7 @@ export function queueDraft(payload: ComposerDraftPayload) {
     text: payload.text,
     source: payload.source,
     insertMode,
+    actionKey,
   };
   try {
     sessionStorage.setItem(getDraftStorageKey(target), JSON.stringify(normalizedPayload));
@@ -117,6 +125,7 @@ export function insertIntoCurrentComposer(payload: ComposerDraftPayload) {
   const text = typeof payload?.text === "string" ? payload.text : "";
   const fanId = typeof payload?.fanId === "string" ? payload.fanId.trim() : "";
   const insertMode = normalizeInsertMode(payload?.insertMode);
+  const actionKey = normalizeActionKey(payload?.actionKey);
   if (!text.trim()) return false;
   if (target === "fan" && !fanId) return false;
   queueDraft({
@@ -126,6 +135,7 @@ export function insertIntoCurrentComposer(payload: ComposerDraftPayload) {
     text: payload.text,
     source: payload.source,
     insertMode,
+    actionKey,
   });
   return true;
 }
@@ -148,6 +158,7 @@ export function consumeDraft(options: { target: ComposerDraftTarget; fanId?: str
     if (parsedTarget !== target) return null;
     const parsedFanId = typeof parsed.fanId === "string" ? parsed.fanId.trim() : "";
     const insertMode = normalizeInsertMode(parsed.insertMode);
+    const actionKey = normalizeActionKey(parsed.actionKey);
     if (target === "fan") {
       if (!parsedFanId || parsedFanId !== targetFanId) return null;
     } else if (targetFanId) {
@@ -168,6 +179,7 @@ export function consumeDraft(options: { target: ComposerDraftTarget; fanId?: str
       text,
       source: parsed.source,
       insertMode,
+      actionKey,
     };
   } catch (_err) {
     sessionStorage.removeItem(storageKey);
@@ -177,12 +189,28 @@ export function consumeDraft(options: { target: ComposerDraftTarget; fanId?: str
 
 export function openFanChatAndPrefill(
   router: NextRouter,
-  options: { fanId: string; text: string; mode?: ComposerDraftMode; source?: string; pathname?: string; shallow?: boolean; scroll?: boolean }
+  options: {
+    fanId: string;
+    text: string;
+    mode?: ComposerDraftMode;
+    source?: string;
+    actionKey?: string;
+    pathname?: string;
+    shallow?: boolean;
+    scroll?: boolean;
+  }
 ) {
   const fanId = options.fanId?.trim();
   const text = typeof options.text === "string" ? options.text : "";
   if (!fanId || !text.trim()) return;
-  queueDraft({ target: "fan", fanId, mode: options.mode ?? "fan", text: options.text, source: options.source });
+  queueDraft({
+    target: "fan",
+    fanId,
+    mode: options.mode ?? "fan",
+    text: options.text,
+    source: options.source,
+    actionKey: options.actionKey,
+  });
   const activeFanId = getFanIdFromQuery(router.query);
   const isChatRoute = router.pathname === "/" || router.pathname === DEFAULT_CHAT_PATH;
   if (isChatRoute && activeFanId === fanId) return;

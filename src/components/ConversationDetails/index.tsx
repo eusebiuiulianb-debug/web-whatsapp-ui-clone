@@ -31,7 +31,7 @@ import { ChatComposerBar } from "../ChatComposerBar";
 import { getFanDisplayNameForCreator } from "../../utils/fanDisplayName";
 import { ContentItem, getContentTypeLabel, getContentVisibilityLabel } from "../../types/content";
 import { getTimeOfDayTag } from "../../utils/contentTags";
-import { EXTRAS_UPDATED_EVENT } from "../../constants/events";
+import { EXTRAS_UPDATED_EVENT, FAN_MESSAGE_SENT_EVENT } from "../../constants/events";
 import { AiTone, normalizeTone, ACTION_TYPE_FOR_USAGE } from "../../lib/aiQuickExtra";
 import { AiTemplateUsage, AiTurnMode } from "../../lib/aiTemplateTypes";
 import { normalizeAiTurnMode } from "../../lib/aiSettings";
@@ -81,7 +81,15 @@ import {
   getFanIdFromQuery,
   insertIntoCurrentComposer,
   openFanChat,
+  openFanChatAndPrefill,
 } from "../../lib/navigation/openCreatorChat";
+import {
+  clearCortexFlow,
+  getNextFanFromFlow,
+  readCortexFlow,
+  writeCortexFlow,
+  type CortexFlowState,
+} from "../../lib/cortexFlow";
 
 type ManagerQuickIntent = ManagerObjective;
 type ManagerSuggestionIntent = "romper_hielo" | "pregunta_simple" | "cierre_suave" | "upsell_mensual_suave";
@@ -123,6 +131,13 @@ type InlineAction = {
   onUndo?: () => void;
   ttlMs?: number;
 };
+type DuplicateConfirmState = {
+  candidate: string;
+  reason: "intent" | "hash" | "similarity";
+  actionKey?: string | null;
+  lastSentPreview?: string | null;
+  lastSentAt?: number | null;
+};
 
 type ConversationDetailsProps = {
   onBackToBoard?: () => void;
@@ -136,7 +151,64 @@ const DUPLICATE_SIMILARITY_THRESHOLD = 0.88;
 const DUPLICATE_STRICT_SIMILARITY = 0.93;
 const DUPLICATE_RECENT_HOURS = 6;
 const DUPLICATE_STRICT_HOURS = 24;
+const DUPLICATE_ACTION_WINDOW_MS = 6 * 60 * 60 * 1000;
+const DUPLICATE_BYPASS_WINDOW_MS = 5 * 60 * 1000;
+const FAN_SEND_COOLDOWN_MS = 15000;
+const LAST_SENT_STORAGE_PREFIX = "novsy:lastSent:";
 const TOOLBAR_MARGIN = 12;
+
+const normalizeActionKey = (key?: string | null) => {
+  if (typeof key !== "string") return null;
+  const trimmed = key.trim();
+  return trimmed ? trimmed : null;
+};
+
+const normalizeTextForHash = (text: string) => text.trim().replace(/\s+/g, " ").toLowerCase();
+
+const hashText = (text: string) => {
+  const normalized = normalizeTextForHash(text);
+  let hash = 5381;
+  for (let i = 0; i < normalized.length; i += 1) {
+    hash = (hash * 33) ^ normalized.charCodeAt(i);
+  }
+  return (hash >>> 0).toString(16);
+};
+
+const readLastSentRecord = (fanId: string) => {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = localStorage.getItem(`${LAST_SENT_STORAGE_PREFIX}${fanId}`);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as {
+      actionKey?: string | null;
+      textHash?: string;
+      sentAt?: number;
+      preview?: string;
+    };
+    if (!parsed || typeof parsed !== "object") return null;
+    if (!parsed.textHash || typeof parsed.sentAt !== "number") return null;
+    return {
+      actionKey: normalizeActionKey(parsed.actionKey),
+      textHash: parsed.textHash,
+      sentAt: parsed.sentAt,
+      preview: typeof parsed.preview === "string" ? parsed.preview : "",
+    };
+  } catch (_err) {
+    return null;
+  }
+};
+
+const writeLastSentRecord = (
+  fanId: string,
+  record: { actionKey?: string | null; textHash: string; sentAt: number; preview: string }
+) => {
+  if (typeof window === "undefined") return;
+  try {
+    localStorage.setItem(`${LAST_SENT_STORAGE_PREFIX}${fanId}`, JSON.stringify(record));
+  } catch (_err) {
+    // ignore storage errors
+  }
+};
 
 const CONTENT_PACKS = [
   { code: "WELCOME" as const, label: "Pack bienvenida" },
@@ -525,6 +597,7 @@ export default function ConversationDetails({ onBackToBoard }: ConversationDetai
   const reactionsRaw = useReactions(activeFanId || "");
   const reactionsStore = useMemo(() => parseReactionsRaw(reactionsRaw), [reactionsRaw]);
   const [ messageSend, setMessageSend ] = useState("");
+  const [ composerActionKey, setComposerActionKey ] = useState<string | null>(null);
   const [ pendingInsert, setPendingInsert ] = useState<{ text: string; detail?: string } | null>(null);
   const [ isSending, setIsSending ] = useState(false);
   const [ isInternalSending, setIsInternalSending ] = useState(false);
@@ -541,6 +614,11 @@ export default function ConversationDetails({ onBackToBoard }: ConversationDetai
   const [ accessGrants, setAccessGrants ] = useState<
     { id: string; fanId: string; type: string; createdAt: string; expiresAt: string }[]
   >([]);
+  const [ fanSendCooldownById, setFanSendCooldownById ] = useState<
+    Record<string, { until: number; phase: "sent" | "cooldown" }>
+  >({});
+  const [ cortexFlow, setCortexFlow ] = useState<CortexFlowState | null>(null);
+  const [ cortexFlowAutoNext, setCortexFlowAutoNext ] = useState(true);
   const [ purchaseHistory, setPurchaseHistory ] = useState<
     {
       id: string;
@@ -618,7 +696,7 @@ export default function ConversationDetails({ onBackToBoard }: ConversationDetai
   const translationPreviewRequestId = useRef(0);
   const translationPreviewKeyRef = useRef<string | null>(null);
   const [ showContentModal, setShowContentModal ] = useState(false);
-  const [ duplicateConfirm, setDuplicateConfirm ] = useState<{ candidate: string } | null>(null);
+  const [ duplicateConfirm, setDuplicateConfirm ] = useState<DuplicateConfirmState | null>(null);
   const [ selectionToolbar, setSelectionToolbar ] = useState<{
     x: number;
     y: number;
@@ -681,6 +759,10 @@ export default function ConversationDetails({ onBackToBoard }: ConversationDetai
   const MAX_INTERNAL_COMPOSER_HEIGHT = 220;
   const SCROLL_BOTTOM_THRESHOLD = 48;
   const messageInputRef = useRef<HTMLTextAreaElement | null>(null);
+  const composerActionKeyRef = useRef<string | null>(null);
+  const fanSendCooldownTimeoutsRef = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
+  const fanSendCooldownPhaseTimeoutsRef = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
+  const duplicateBypassRef = useRef<{ actionKey?: string | null; expiresAt: number } | null>(null);
   const rightPaneRef = useRef<HTMLDivElement | null>(null);
   const dockRef = useRef<HTMLDivElement | null>(null);
   const dockOverlaySheetRef = useRef<HTMLDivElement | null>(null);
@@ -754,6 +836,19 @@ export default function ConversationDetails({ onBackToBoard }: ConversationDetai
   const previousPanelOpenRef = useRef(false);
   const fanHeaderRef = useRef<HTMLDivElement | null>(null);
   const { config } = useCreatorConfig();
+
+  useEffect(() => {
+    composerActionKeyRef.current = composerActionKey;
+  }, [composerActionKey]);
+
+  useEffect(() => {
+    const cooldownTimeouts = fanSendCooldownTimeoutsRef.current;
+    const cooldownPhaseTimeouts = fanSendCooldownPhaseTimeoutsRef.current;
+    return () => {
+      Object.values(cooldownTimeouts).forEach((timer) => clearTimeout(timer));
+      Object.values(cooldownPhaseTimeouts).forEach((timer) => clearTimeout(timer));
+    };
+  }, []);
   const accessSummary = getAccessSummary({
     membershipStatus,
     daysLeft,
@@ -946,7 +1041,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
   }, [autoGrowTextarea]);
 
   const applyComposerDraft = useCallback(
-    (draftText: string, insertMode: "replace" | "append" = "replace") => {
+    (draftText: string, insertMode: "replace" | "append" = "replace", actionKey?: string | null) => {
       if (!id) return false;
       const trimmed = draftText.trim();
       if (!trimmed) return false;
@@ -954,6 +1049,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
       if (!nextText.trim()) return false;
       setComposerTarget("fan");
       setMessageSend(nextText);
+      setComposerActionKey(actionKey ?? null);
       draftAppliedFanIdRef.current = id;
       requestAnimationFrame(() => {
         const input = messageInputRef.current;
@@ -976,18 +1072,21 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
         fanId?: string;
         text?: string;
         insertMode?: string;
+        actionKey?: string;
       } | undefined;
       const target = detail?.target === "cortex" ? "cortex" : "fan";
       if (target !== "fan") return;
       if (!id || !detail?.fanId || detail.fanId !== id) return;
       const stored = consumeDraft({ target: "fan", fanId: id });
       const insertMode = stored?.insertMode === "append" || detail?.insertMode === "append" ? "append" : "replace";
+      const actionKey =
+        stored?.actionKey ?? (typeof detail?.actionKey === "string" ? detail.actionKey : null);
       if (stored?.text) {
-        applyComposerDraft(stored.text, insertMode);
+        applyComposerDraft(stored.text, insertMode, actionKey);
         return;
       }
       if (typeof detail.text === "string" && detail.text.trim()) {
-        applyComposerDraft(detail.text, insertMode);
+        applyComposerDraft(detail.text, insertMode, actionKey);
       }
     };
     window.addEventListener(COMPOSER_DRAFT_EVENT, handleComposerDraft as EventListener);
@@ -1348,9 +1447,20 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
     return { index: idx, size: queueFans.length };
   }
 
-  function fillMessage(template: string) {
+  function fillMessage(template: string, actionKey?: string | null) {
+    if (id) {
+      insertIntoCurrentComposer({
+        target: "fan",
+        fanId: id,
+        mode: "fan",
+        text: template,
+        actionKey: actionKey ?? undefined,
+      });
+      return;
+    }
     setComposerTarget("fan");
     setMessageSend(template);
+    setComposerActionKey(actionKey ?? null);
   }
   const handleInsertEmoji = useCallback(
     (emoji: string) => {
@@ -1407,9 +1517,10 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
     },
     [autoGrowTextarea]
   );
-  const focusMainMessageInput = (text: string) => {
+  const focusMainMessageInput = (text: string, actionKey?: string | null) => {
     setComposerTarget("fan");
     setMessageSend(text);
+    setComposerActionKey(actionKey ?? null);
     requestAnimationFrame(() => {
       adjustMessageInputHeight();
       const input = messageInputRef.current;
@@ -1423,23 +1534,55 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
   };
   const insertComposerTextWithUndo = (
     nextText: string,
-    options: { title: string; detail?: string; forceFan?: boolean }
+    options: { title: string; detail?: string; forceFan?: boolean; actionKey?: string }
   ) => {
     const previousText = messageSend;
     if (!id || !nextText.trim()) return;
-    insertIntoCurrentComposer({ target: "fan", fanId: id, mode: "fan", text: nextText });
+    insertIntoCurrentComposer({
+      target: "fan",
+      fanId: id,
+      mode: "fan",
+      text: nextText,
+      actionKey: options.actionKey,
+    });
     showInlineAction({
       kind: "ok",
       title: options.title,
       detail: options.detail,
       undoLabel: "Deshacer",
-      onUndo: () => focusMainMessageInput(previousText),
+      onUndo: () => focusMainMessageInput(previousText, null),
       ttlMs: 9000,
     });
   };
-  const handleApplyManagerSuggestion = (text: string, detail?: string) => {
+  const resolveIntentActionKey = (intent?: string | null) => {
+    switch (intent) {
+      case "romper_hielo":
+        return "break_ice";
+      case "ofrecer_extra":
+        return "offer_extra";
+      case "llevar_a_mensual":
+        return "monthly_upsell";
+      case "reactivar_fan_frio":
+        return "reactivate_cold";
+      case "renovacion":
+        return "renewal";
+      case "bienvenida":
+        return "welcome";
+      default:
+        return intent ? `intent:${intent}` : null;
+    }
+  };
+
+  const resolveActionKeyValue = (value?: string | null) => {
+    if (!value) return null;
+    if (value.includes(":")) return value;
+    return resolveIntentActionKey(value);
+  };
+
+  const handleApplyManagerSuggestion = (text: string, detail?: string, actionKeyOrIntent?: string) => {
     const filled = text.replace("{nombre}", getFirstName(contactName) || contactName || "");
-    handleUseManagerReplyAsMainMessage(filled, detail);
+    const actionKey = resolveActionKeyValue(actionKeyOrIntent);
+    handleUseManagerReplyAsMainMessage(filled, detail, actionKey);
   };
   const handleSelectFanFromBanner = useCallback(
     (fan: ConversationListData | null) => {
@@ -1486,10 +1629,16 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
     });
   };
 
-  function handleUseManagerReplyAsMainMessage(text: string, detail?: string) {
+  function handleUseManagerReplyAsMainMessage(text: string, detail?: string, actionKey?: string | null) {
     const nextText = text || "";
     if (!id || !nextText.trim()) return;
-    insertIntoCurrentComposer({ target: "fan", fanId: id, mode: "fan", text: nextText });
+    insertIntoCurrentComposer({
+      target: "fan",
+      fanId: id,
+      mode: "fan",
+      text: nextText,
+      actionKey: actionKey ?? undefined,
+    });
     closeInlinePanel({ focus: true });
     showInlineAction({
       kind: "ok",
@@ -1697,7 +1846,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
   function handleWelcomePack() {
     const welcomePackMessage =
       "Te propongo el Pack bienvenida (9 €): primer contacto + 3 audios base personalizados. Si te encaja, te envío el enlace de pago.";
-    fillMessage(welcomePackMessage);
+    fillMessage(welcomePackMessage, "pack:welcome");
     setShowPackSelector(false);
     setOpenPanel("none");
   }
@@ -1747,9 +1896,9 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
       "Incluye: acceso al chat 1:1 conmigo y contenido nuevo cada semana, adaptado a lo que vas viviendo.\n" +
       "Si tienes alguna duda antes de entrar, dímelo y lo aclaramos.";
     if (options?.focus) {
-      focusMainMessageInput(subscriptionLinkMessage);
+      focusMainMessageInput(subscriptionLinkMessage, "pack:subscription_link");
     } else {
-      fillMessage(subscriptionLinkMessage);
+      fillMessage(subscriptionLinkMessage, "pack:subscription_link");
     }
     setShowPackSelector(false);
     setOpenPanel("none");
@@ -1984,7 +2133,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
       usage === "pack_offer" && conversation.extraLadderStatus?.suggestedTier
         ? suggestedText.replace(/Pack especial/gi, `Pack especial ${conversation.extraLadderStatus.suggestedTier}`)
         : suggestedText;
-    setMessageSend(enriched);
+    fillMessage(enriched, `template:${usage}`);
     await logTemplateUsage(enriched, usage);
     if (usage === "extra_quick") {
       const nextFilter = timeOfDay === "NIGHT" ? "night" : "day";
@@ -2030,7 +2179,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
   function fillMessageFromPackType(type: "trial" | "monthly" | "special") {
     const pack = findPackByType(type);
     if (pack) {
-      fillMessage(buildPackProposalMessage(pack));
+      fillMessage(buildPackProposalMessage(pack), `pack:${type}`);
     }
   }
 
@@ -2571,6 +2720,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
     const preserveDraft = draftAppliedFanIdRef.current === conversation.id;
     if (!preserveDraft) {
       setMessageSend("");
+      setComposerActionKey(null);
     }
     setInternalDraftInput("");
     setShowPackSelector(false);
@@ -2593,6 +2743,20 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
   }, [accessLabel, conversation.id, conversation.followUpOpen, conversation.profileText, conversation.quickNote, membershipStatus]);
 
   useEffect(() => {
+    if (!id) {
+      setCortexFlow(null);
+      return;
+    }
+    const stored = readCortexFlow();
+    if (stored && stored.currentFanId === id) {
+      setCortexFlow(stored);
+      setCortexFlowAutoNext(stored.autoNext ?? true);
+      return;
+    }
+    setCortexFlow(null);
+  }, [id]);
+
+  useEffect(() => {
     if (!id) return;
     const pendingDraft = pendingComposerDraftRef.current;
     if (pendingDraft) {
@@ -2605,7 +2769,11 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
     }
     const storedDraft = consumeDraft({ target: "fan", fanId: id });
     if (storedDraft?.text) {
-      applyComposerDraft(storedDraft.text, storedDraft.insertMode === "append" ? "append" : "replace");
+      applyComposerDraft(
+        storedDraft.text,
+        storedDraft.insertMode === "append" ? "append" : "replace",
+        storedDraft.actionKey ?? null
+      );
     }
   }, [applyComposerDraft, id]);
 
@@ -3816,7 +3984,9 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
                       {isManager && (
                         <button
                           type="button"
-                          onClick={() => handleUseManagerReplyAsMainMessage(msg.text, msg.title ?? "Manager IA")}
+                          onClick={() =>
+                            handleUseManagerReplyAsMainMessage(msg.text, msg.title ?? "Manager IA", `manager:chat:${msg.id}`)
+                          }
                           className={clsx("mt-1", inlineActionButtonClass)}
                         >
                           Usar en mensaje
@@ -3908,7 +4078,13 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
                     <div className="mt-3 flex flex-wrap gap-2">
                       <button
                         type="button"
-                        onClick={() => handleUseManagerReplyAsMainMessage(draft.text, draft.label ?? sourceLabel)}
+                        onClick={() =>
+                          handleUseManagerReplyAsMainMessage(
+                            draft.text,
+                            draft.label ?? sourceLabel,
+                            `draft:${draft.id}`
+                          )
+                        }
                         className={inlineActionButtonClass}
                       >
                         Usar en mensaje
@@ -3988,7 +4164,13 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
                           <div className="mt-3 flex flex-wrap gap-2">
                             <button
                               type="button"
-                              onClick={() => handleUseManagerReplyAsMainMessage(noteText, "Borrador interno")}
+                              onClick={() =>
+                                handleUseManagerReplyAsMainMessage(
+                                  noteText,
+                                  "Borrador interno",
+                                  `internal:draft:${msg.id}`
+                                )
+                              }
                               className={inlineActionButtonClass}
                             >
                               Usar en mensaje
@@ -4414,6 +4596,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
                                   insertComposerTextWithUndo(resolveFanTemplateText(selected.text), {
                                     title: "Plantilla insertada",
                                     detail: selected.title,
+                                    actionKey: `template:${selected.id}`,
                                   });
                                   closeDockPanel();
                                 }}
@@ -5735,7 +5918,13 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
       setLastAutopilotObjective(objective);
       setLastAutopilotTone(toneForDraft);
       if (id) {
-        insertIntoCurrentComposer({ target: "fan", fanId: id, mode: "fan", text: draft });
+        insertIntoCurrentComposer({
+          target: "fan",
+          fanId: id,
+          mode: "fan",
+          text: draft,
+          actionKey: `autopilot:${objective}`,
+        });
       }
       addGeneratedDraft(
         buildDraftCard(draft, {
@@ -5822,7 +6011,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
       selectedPack.name.toLowerCase().includes("especial") ? "special" : selectedPackType;
 
     setSelectedPackType(mappedType as "trial" | "monthly" | "special");
-    fillMessage(buildPackProposalMessage(selectedPack));
+    fillMessage(buildPackProposalMessage(selectedPack), `pack:${selectedPack.id}`);
     setShowPackSelector(true);
     setOpenPanel("none");
   }
@@ -5839,12 +6028,105 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
     const { key } = evt;
 
     if (isInternalPanelOpen) return;
+    if ((evt.ctrlKey || evt.metaKey) && key.toLowerCase() === "j") {
+      evt.preventDefault();
+      if (composerTarget === "fan" && cortexFlow) {
+        handleCortexFlowOpenNext();
+      }
+      return;
+    }
     if (key === "Enter" && !evt.shiftKey) {
       evt.preventDefault();
       if (isSendingRef.current || isInternalSending || isManagerSending) return;
+      if (composerTarget === "fan" && id) {
+        const cooldown = fanSendCooldownById[id];
+        if (cooldown && cooldown.until > Date.now()) return;
+      }
       if (messageSend.trim()) handleSendMessage();
     }
   }
+
+  const startFanSendCooldown = useCallback((fanId: string) => {
+    if (!fanId) return;
+    const until = Date.now() + FAN_SEND_COOLDOWN_MS;
+    setFanSendCooldownById((prev) => ({
+      ...prev,
+      [fanId]: { until, phase: "sent" },
+    }));
+    if (fanSendCooldownPhaseTimeoutsRef.current[fanId]) {
+      clearTimeout(fanSendCooldownPhaseTimeoutsRef.current[fanId]);
+    }
+    fanSendCooldownPhaseTimeoutsRef.current[fanId] = setTimeout(() => {
+      setFanSendCooldownById((prev) => {
+        const current = prev[fanId];
+        if (!current) return prev;
+        return { ...prev, [fanId]: { ...current, phase: "cooldown" } };
+      });
+    }, 1500);
+    if (fanSendCooldownTimeoutsRef.current[fanId]) {
+      clearTimeout(fanSendCooldownTimeoutsRef.current[fanId]);
+    }
+    fanSendCooldownTimeoutsRef.current[fanId] = setTimeout(() => {
+      setFanSendCooldownById((prev) => {
+        const next = { ...prev };
+        delete next[fanId];
+        return next;
+      });
+    }, FAN_SEND_COOLDOWN_MS);
+  }, []);
+
+  const updateCortexFlowState = useCallback((nextFlow: CortexFlowState | null) => {
+    if (!nextFlow) {
+      clearCortexFlow();
+      setCortexFlow(null);
+      return;
+    }
+    writeCortexFlow(nextFlow);
+    setCortexFlow(nextFlow);
+  }, []);
+
+  const openNextFanFromFlow = useCallback(
+    (flow: CortexFlowState) => {
+      if (!flow || !id || flow.currentFanId !== id) return false;
+      const { nextFanId } = getNextFanFromFlow(flow);
+      if (!nextFanId) {
+        updateCortexFlowState(null);
+        void router.push("/creator/manager");
+        return false;
+      }
+      const draft = flow.draftsByFanId?.[nextFanId] ?? "";
+      if (draft.trim()) {
+        openFanChatAndPrefill(router, {
+          fanId: nextFanId,
+          text: draft,
+          mode: "fan",
+          actionKey: flow.actionKey,
+        });
+      } else {
+        openFanChat(router, nextFanId);
+      }
+      updateCortexFlowState({ ...flow, currentFanId: nextFanId });
+      return true;
+    },
+    [id, router, updateCortexFlowState]
+  );
+
+  const handleCortexFlowOpenNext = useCallback(() => {
+    if (!cortexFlow) return;
+    openNextFanFromFlow(cortexFlow);
+  }, [cortexFlow, openNextFanFromFlow]);
+
+  const handleCortexFlowReturn = useCallback(() => {
+    updateCortexFlowState(null);
+    void router.push("/creator/manager");
+  }, [router, updateCortexFlowState]);
+
+  const handleCortexFlowToggleAutoNext = useCallback(() => {
+    if (!cortexFlow) return;
+    const nextValue = !cortexFlowAutoNext;
+    setCortexFlowAutoNext(nextValue);
+    updateCortexFlowState({ ...cortexFlow, autoNext: nextValue });
+  }, [cortexFlow, cortexFlowAutoNext, updateCortexFlowState]);
 
   const adjustMessageInputHeight = () => {
     autoGrowTextarea(messageInputRef.current, MAX_MAIN_COMPOSER_HEIGHT);
@@ -5872,6 +6154,36 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
       return ts;
     },
     [lastCreatorMessageAt]
+  );
+
+  const getStoredDuplicateWarning = useCallback(
+    (candidate: string, actionKey?: string | null) => {
+      if (!id) return null;
+      const lastSent = readLastSentRecord(id);
+      if (!lastSent) return null;
+      const ageMs = Date.now() - lastSent.sentAt;
+      if (ageMs > DUPLICATE_ACTION_WINDOW_MS || ageMs < 0) return null;
+      const normalizedActionKey = normalizeActionKey(actionKey);
+      const candidateHash = hashText(candidate);
+      if (normalizedActionKey && lastSent.actionKey && normalizedActionKey === lastSent.actionKey) {
+        return {
+          reason: "intent" as const,
+          actionKey: lastSent.actionKey,
+          lastSentPreview: lastSent.preview,
+          lastSentAt: lastSent.sentAt,
+        };
+      }
+      if (candidateHash === lastSent.textHash) {
+        return {
+          reason: "hash" as const,
+          actionKey: lastSent.actionKey ?? null,
+          lastSentPreview: lastSent.preview,
+          lastSentAt: lastSent.sentAt,
+        };
+      }
+      return null;
+    },
+    [id]
   );
 
   const getDuplicateWarning = useCallback(
@@ -5991,6 +6303,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
       setSchemaError(null);
       if (!options?.preserveComposer) {
         setMessageSend("");
+        setComposerActionKey(null);
         resetMessageInputHeight();
         requestAnimationFrame(() => messageInputRef.current?.focus());
       }
@@ -6080,6 +6393,12 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
       void track(ANALYTICS_EVENTS.SEND_MESSAGE, { fanId: id });
       showComposerToast("Sticker enviado");
       setSchemaError(null);
+      startFanSendCooldown(id);
+      try {
+        window.dispatchEvent(new CustomEvent(FAN_MESSAGE_SENT_EVENT, { detail: { fanId: id } }));
+      } catch (_err) {
+        // ignore event errors
+      }
     } catch (err) {
       console.error("Error enviando sticker", err);
       setMessagesError("Error enviando sticker");
@@ -6093,18 +6412,66 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
     if (isInternalPanelOpen) return false;
     const trimmed = text.trim();
     if (!trimmed) return false;
-    if (!options?.bypassDuplicateCheck) {
-      const duplicate = getDuplicateWarning(trimmed);
-      if (duplicate) {
-        setDuplicateConfirm({ candidate: trimmed });
+    const currentActionKey = normalizeActionKey(composerActionKeyRef.current);
+    const bypassWindowActive =
+      duplicateBypassRef.current && duplicateBypassRef.current.expiresAt > Date.now();
+    if (duplicateBypassRef.current && duplicateBypassRef.current.expiresAt <= Date.now()) {
+      duplicateBypassRef.current = null;
+    }
+    if (!options?.bypassDuplicateCheck && !bypassWindowActive) {
+      const storedDuplicate = getStoredDuplicateWarning(trimmed, currentActionKey);
+      if (storedDuplicate) {
+        setDuplicateConfirm({ candidate: trimmed, ...storedDuplicate });
         return false;
       }
+      const duplicate = getDuplicateWarning(trimmed);
+      if (duplicate) {
+        setDuplicateConfirm({
+          candidate: trimmed,
+          reason: "similarity",
+          lastSentPreview: duplicate.lastMessage,
+          lastSentAt: getMessageTimestamp(getLastCreatorMessage()),
+        });
+        return false;
+      }
+    }
+    if (id) {
+      const cooldown = fanSendCooldownById[id];
+      if (cooldown && cooldown.until > Date.now()) return false;
     }
     if (isSendingRef.current) return false;
     isSendingRef.current = true;
     setIsSending(true);
+    const textHash = hashText(trimmed);
+    const preview = trimmed.slice(0, 140);
     try {
-      return await sendMessageText(trimmed, "CREATOR");
+      const ok = await sendMessageText(trimmed, "CREATOR");
+      if (ok && id) {
+        writeLastSentRecord(id, {
+          actionKey: currentActionKey,
+          textHash,
+          sentAt: Date.now(),
+          preview,
+        });
+        startFanSendCooldown(id);
+        try {
+          window.dispatchEvent(
+            new CustomEvent(FAN_MESSAGE_SENT_EVENT, {
+              detail: { fanId: id, actionKey: currentActionKey ?? undefined },
+            })
+          );
+        } catch (_err) {
+          // ignore event errors
+        }
+        const flow = readCortexFlow();
+        if (flow && flow.currentFanId === id && (flow.autoNext ?? true)) {
+          openNextFanFromFlow(flow);
+        }
+      }
+      if (bypassWindowActive) {
+        duplicateBypassRef.current = null;
+      }
+      return ok;
     } finally {
       isSendingRef.current = false;
       setIsSending(false);
@@ -6116,6 +6483,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
     if (!trimmed) {
       if (messageSend) {
         setMessageSend("");
+        setComposerActionKey(null);
         resetMessageInputHeight();
         requestAnimationFrame(() => messageInputRef.current?.focus());
       }
@@ -6140,6 +6508,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
       setIsManagerSending(true);
       askInternalManager(trimmed, undefined, undefined, { selectedText: null });
       setMessageSend("");
+      setComposerActionKey(null);
       adjustMessageInputHeight();
       requestAnimationFrame(() => messageInputRef.current?.focus());
       showInlineAction({
@@ -6174,12 +6543,78 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
     );
   };
 
+  const buildFallbackRephraseVariants = (text: string) => {
+    const base = text.trim();
+    if (!base) return [];
+    const name = getFirstName(contactName) || contactName || "";
+    const stripped = base.replace(/^(hola|hey|buenas|oye|ey)\b[, ]*/i, "");
+    const keywordSwaps: Array<[RegExp, string]> = [
+      [/\bextra\b/gi, "contenido extra"],
+      [/\bmensual\b/gi, "plan mensual"],
+      [/\bpack\b/gi, "pack especial"],
+      [/\brenovaci[oó]n\b/gi, "renovar el acceso"],
+    ];
+    const withSwap = keywordSwaps.reduce((acc, [pattern, replacement]) => acc.replace(pattern, replacement), stripped);
+    const starters = [
+      name ? `Hola ${name}, ` : "Hola, ",
+      name ? `Ey ${name}, ` : "Ey, ",
+    ];
+    const closers = ["¿Te encaja?", "¿Quieres que lo deje listo?", "¿Cómo lo ves?"];
+    const variantA = `${starters[0]}${withSwap}`.trim();
+    const variantB = `${starters[1]}${withSwap}`.trim();
+    const withCloser = (value: string, closer: string) =>
+      value.endsWith("?") || value.endsWith("!") ? value : `${value} ${closer}`;
+    return [
+      withCloser(variantA, closers[0]),
+      withCloser(variantB, closers[1]),
+    ];
+  };
+
+  const applyDuplicateRephrase = (nextText: string) => {
+    const trimmed = nextText.trim();
+    if (!trimmed) return;
+    setComposerTarget("fan");
+    setMessageSend(nextText);
+    adjustMessageInputHeight();
+    requestAnimationFrame(() => {
+      const input = messageInputRef.current;
+      if (!input) return;
+      input.focus();
+      const len = input.value.length;
+      input.setSelectionRange(len, len);
+    });
+  };
+
   const handleDuplicateRephrase = () => {
     if (!duplicateConfirm?.candidate) return;
     const candidate = duplicateConfirm.candidate;
     setDuplicateConfirm(null);
+    duplicateBypassRef.current = {
+      actionKey: normalizeActionKey(composerActionKeyRef.current),
+      expiresAt: Date.now() + DUPLICATE_BYPASS_WINDOW_MS,
+    };
+    let resolved = false;
+    const fallbackVariants = buildFallbackRephraseVariants(candidate);
+    const fallback = () => {
+      if (resolved) return;
+      resolved = true;
+      applyDuplicateRephrase(fallbackVariants[0] ?? candidate);
+    };
+    const fallbackTimer = setTimeout(fallback, 900);
     askInternalManager(buildDuplicateRephrasePrompt(candidate), undefined, undefined, {
       selectedText: candidate,
+      skipChat: true,
+      onSuggestions: (bundle) => {
+        if (resolved) return;
+        resolved = true;
+        clearTimeout(fallbackTimer);
+        const suggestion = bundle.suggestions?.[0] ?? bundle.title ?? "";
+        if (suggestion.trim()) {
+          applyDuplicateRephrase(suggestion);
+        } else {
+          fallback();
+        }
+      },
     });
   };
 
@@ -6518,7 +6953,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
   }
 
   async function handleAttachContent(item: ContentWithFlags, options?: { keepOpen?: boolean }) {
-    if (!id) return;
+    if (!id) return false;
     const keepOpen = options?.keepOpen ?? false;
     try {
       const res = await fetch("/api/messages", {
@@ -6550,12 +6985,14 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
       if (!keepOpen) {
         setShowContentModal(false);
       }
+      return true;
     } catch (err) {
       console.error("Error adjuntando contenido", err);
       setMessagesError("Error adjuntando contenido");
       if (!keepOpen) {
         setShowContentModal(false);
       }
+      return false;
     }
   }
 
@@ -6623,7 +7060,13 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
     setRegisterExtrasSource(null);
     setTransactionPrices({});
     if (!id || !draft.trim()) return;
-    insertIntoCurrentComposer({ target: "fan", fanId: id, mode: "fan", text: draft });
+    insertIntoCurrentComposer({
+      target: "fan",
+      fanId: id,
+      mode: "fan",
+      text: draft,
+      actionKey: `catalog:${item.id}`,
+    });
     showInlineAction({
       kind: "ok",
       title: "Sugerencia insertada",
@@ -6670,6 +7113,9 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
     !conversation.isManager && preferredLanguage ? preferredLanguage.toUpperCase() : null;
   const languageSelectValue = preferredLanguage ?? "auto";
   const isInternalPanelOpen = managerPanelOpen && managerPanelTab === "manager";
+  const cortexFlowNext = cortexFlow ? getNextFanFromFlow(cortexFlow) : { nextFanId: null, nextFanName: null };
+  const cortexFlowLabel = cortexFlow?.segmentLabel || cortexFlow?.segmentKey || "Cortex";
+  const showCortexFlowBanner = Boolean(cortexFlow && id && cortexFlow.currentFanId === id);
 
   useEffect(() => {
     if (typeof document === "undefined") return;
@@ -6709,19 +7155,31 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
 
   const hasComposerPayload = messageSend.trim().length > 0;
   const isComposerSubmitting = isSending || isInternalSending || isManagerSending;
+  const currentFanCooldown = id ? fanSendCooldownById[id] : null;
+  const isFanCooldownActive =
+    isFanTarget && !!currentFanCooldown && currentFanCooldown.until > Date.now();
+  const cooldownLabel =
+    isFanCooldownActive && currentFanCooldown?.phase === "sent"
+      ? "Enviado"
+      : isFanCooldownActive
+      ? "Espera..."
+      : null;
   const sendDisabled =
     isComposerSubmitting ||
     !hasComposerPayload ||
     isInternalPanelOpen ||
-    (isFanTarget && isChatBlocked);
+    (isFanTarget && isChatBlocked) ||
+    isFanCooldownActive;
   const composerPlaceholder = isChatBlocked && isFanTarget
     ? "Has bloqueado este chat. Desbloquéalo para volver a escribir."
     : composerCopy.placeholder;
   const mainComposerPlaceholder = isInternalPanelOpen
     ? "Panel interno abierto. Usa el chat interno…"
     : composerPlaceholder;
-  const composerActionLabel = composerCopy.actionLabel;
-  const composerHelpText = composerCopy.helpText;
+  const composerActionLabel = cooldownLabel ?? composerCopy.actionLabel;
+  const composerHelpText = isFanCooldownActive
+    ? "Enviado recientemente. Espera unos segundos."
+    : composerCopy.helpText;
   const composerSendingLabel = composerCopy.sendingLabel;
   const canAttachContent = isFanTarget && !isChatBlocked && !isInternalPanelOpen;
   const nextActionStatus = getFollowUpStatusFromDate(nextActionDate);
@@ -7084,7 +7542,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
   const handleRenewAction = () => {
     const first = getFirstName(contactName) || contactName;
     const text = buildFollowUpExpiredMessage(first);
-    fillMessage(text);
+    fillMessage(text, resolveIntentActionKey("renovacion"));
     adjustMessageInputHeight();
     requestAnimationFrame(() => {
       messageInputRef.current?.focus();
@@ -8141,6 +8599,44 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
               {internalToast && <div className="mb-2 text-[11px] text-[color:var(--brand)]">{internalToast}</div>}
               {composerError && <div className="mb-2 text-[11px] text-[color:var(--danger)]">{composerError}</div>}
               {composerDock?.chips}
+              {showCortexFlowBanner && (
+                <div className="mb-2 rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-3 py-2 text-[11px] text-[color:var(--text)]">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div className="min-w-0">
+                      <div className="text-[10px] uppercase tracking-wide text-[color:var(--muted)]">Cortex</div>
+                      <div className="text-[11px] text-[color:var(--text)] truncate">
+                        Cortex · {cortexFlowLabel} · Siguiente: {cortexFlowNext.nextFanName ?? "—"}
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={handleCortexFlowOpenNext}
+                        disabled={!cortexFlowNext.nextFanId}
+                        className="rounded-full border border-[color:var(--brand)] bg-[color:rgba(var(--brand-rgb),0.12)] px-3 py-1 text-[10px] font-semibold text-[color:var(--text)] transition hover:bg-[color:rgba(var(--brand-rgb),0.2)] disabled:opacity-50"
+                      >
+                        Abrir siguiente
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleCortexFlowReturn}
+                        className="rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-3 py-1 text-[10px] font-semibold text-[color:var(--text)] transition hover:border-[color:var(--surface-border-hover)] hover:bg-[color:var(--surface-2)]"
+                      >
+                        Volver a Cortex
+                      </button>
+                    </div>
+                  </div>
+                  <label className="mt-2 flex items-center gap-2 text-[10px] text-[color:var(--muted)]">
+                    <input
+                      type="checkbox"
+                      checked={cortexFlowAutoNext}
+                      onChange={handleCortexFlowToggleAutoNext}
+                      className="h-3 w-3 rounded border-[color:var(--surface-border)] bg-[color:var(--surface-1)] text-[color:var(--brand)] focus:ring-2 focus:ring-[color:var(--ring)]"
+                    />
+                    <span>Auto-siguiente tras enviar</span>
+                  </label>
+                </div>
+              )}
               <ChatComposerBar
                 value={messageSend}
                 onChange={(evt) => {
@@ -8778,8 +9274,10 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
                     const sentItems: ContentWithFlags[] = [];
                     for (const item of chosen) {
                       // eslint-disable-next-line no-await-in-loop
-                      await handleAttachContent(item, { keepOpen: true });
-                      sentItems.push(item);
+                      const ok = await handleAttachContent(item, { keepOpen: true });
+                      if (ok) {
+                        sentItems.push(item);
+                      }
                     }
                     if (contentModalMode === "extras" && registerExtrasChecked && sentItems.length > 0 && id) {
                       const sessionTag = `${timeOfDay}_${new Date().toISOString().slice(0, 10)}`;
@@ -8804,6 +9302,14 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
                         alert('Contenido enviado, pero no se ha podido registrar la venta. Inténtalo desde "Ventas extra".');
                       }
                     }
+                    if (sentItems.length > 0 && id) {
+                      startFanSendCooldown(id);
+                      try {
+                        window.dispatchEvent(new CustomEvent(FAN_MESSAGE_SENT_EVENT, { detail: { fanId: id } }));
+                      } catch (_err) {
+                        // ignore event errors
+                      }
+                    }
                     setShowContentModal(false);
                     setSelectedContentIds([]);
                     setContentModalPackFocus(null);
@@ -8824,10 +9330,25 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
       {duplicateConfirm && (
         <div className="fixed inset-0 z-[60] flex items-center justify-center bg-[color:var(--surface-overlay)] px-4">
           <div className="w-full max-w-sm rounded-2xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] p-6 shadow-xl">
-            <h3 className="text-lg font-semibold text-[color:var(--text)]">Este mensaje se parece mucho al anterior</h3>
+            <h3 className="text-lg font-semibold text-[color:var(--text)]">Mensaje repetido recientemente</h3>
             <p className="mt-2 text-sm text-[color:var(--muted)]">
-              Puede sonar repetido. ¿Quieres enviarlo igualmente?
+              {duplicateConfirm.reason === "intent"
+                ? "Vas a repetir la misma intención en menos de 6 horas."
+                : duplicateConfirm.reason === "hash"
+                ? "Vas a enviar el mismo texto otra vez."
+                : "Este mensaje es muy parecido al último."}{" "}
+              ¿Quieres reformularlo o enviarlo igual?
             </p>
+            {duplicateConfirm.lastSentAt && (
+              <div className="mt-2 text-xs text-[color:var(--muted)]">
+                Último envío {formatDistanceToNow(new Date(duplicateConfirm.lastSentAt), { addSuffix: true, locale: es })}
+              </div>
+            )}
+            {duplicateConfirm.lastSentPreview && (
+              <div className="mt-2 rounded-lg border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-3 py-2 text-xs text-[color:var(--text)] line-clamp-3">
+                {duplicateConfirm.lastSentPreview}
+              </div>
+            )}
             <div className="mt-4 flex items-center justify-end gap-2">
               <button
                 type="button"

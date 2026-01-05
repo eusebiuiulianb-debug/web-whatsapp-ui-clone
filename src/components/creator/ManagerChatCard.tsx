@@ -45,6 +45,7 @@ import { ChatComposerBar } from "../ChatComposerBar";
 import { EmojiPicker } from "../EmojiPicker";
 import { PillButton } from "../ui/PillButton";
 import { IconGlyph } from "../ui/IconGlyph";
+import { FAN_MESSAGE_SENT_EVENT } from "../../constants/events";
 import {
   CreatorPlatformKey,
   CreatorPlatforms,
@@ -66,6 +67,7 @@ import {
   openFanChat,
   openFanChatAndPrefill,
 } from "../../lib/navigation/openCreatorChat";
+import { writeCortexFlow, type CortexFlowState } from "../../lib/cortexFlow";
 
 type ManagerChatMessage = {
   id: string;
@@ -478,6 +480,7 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
   const [segmentsLoading, setSegmentsLoading] = useState(false);
   const [segmentsError, setSegmentsError] = useState<string | null>(null);
   const [segmentsExpanded, setSegmentsExpanded] = useState<Record<string, boolean>>({});
+  const [segmentsRefreshToken, setSegmentsRefreshToken] = useState(0);
   const [isEmojiOpen, setIsEmojiOpen] = useState(false);
   const [emojiRecents, setEmojiRecents] = useState<string[]>([]);
   const [isFavoritesEditorOpen, setIsFavoritesEditorOpen] = useState(false);
@@ -1495,7 +1498,19 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
       alive = false;
       controller.abort();
     };
-  }, [shouldLoadSegments, followUpRangeDays]);
+  }, [shouldLoadSegments, followUpRangeDays, segmentsRefreshToken]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const handleFanMessageSent = () => {
+      setSegmentsRefreshToken((prev) => prev + 1);
+      setSalesRetry((prev) => prev + 1);
+    };
+    window.addEventListener(FAN_MESSAGE_SENT_EVENT, handleFanMessageSent as EventListener);
+    return () => {
+      window.removeEventListener(FAN_MESSAGE_SENT_EVENT, handleFanMessageSent as EventListener);
+    };
+  }, []);
   const catalogItemsSorted = useMemo(
     () => sortCatalogItems(catalogItemsState),
     [catalogItemsState]
@@ -2199,7 +2214,8 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
   const handleCatalogDraftFanSelect = (fan: CortexOverviewFan) => {
     if (!catalogDraftItem) return;
     const draft = buildCatalogDraft(catalogDraftItem, fan.displayName || "Fan");
-    handleSendDraftToFan(fan.fanId, draft);
+    const actionKey = catalogDraftItem.id ? `catalog:${catalogDraftItem.id}` : "catalog:draft";
+    handleSendDraftToFan(fan.fanId, draft, { actionKey });
     closeCatalogFanPicker();
   };
   const handleFavoritesEditorClose = () => {
@@ -2260,9 +2276,17 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
     }));
   };
   const handleSendDraftToFan = useCallback(
-    (fanId: string, draft: string) => {
+    (fanId: string, draft: string, options?: { actionKey?: string; flow?: CortexFlowState | null }) => {
       if (!fanId || !draft) return;
-      openFanChatAndPrefill(router, { fanId, text: draft, mode: "fan" });
+      if (options?.flow) {
+        writeCortexFlow(options.flow);
+      }
+      openFanChatAndPrefill(router, {
+        fanId,
+        text: draft,
+        mode: "fan",
+        actionKey: options?.actionKey,
+      });
     },
     [router]
   );
@@ -2290,6 +2314,31 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
       return `Hola ${name}, ${trimmed}`;
     },
     []
+  );
+  const buildSegmentFlow = useCallback(
+    (segment: CortexSegmentEntry, actionKey: string, currentFanId: string): CortexFlowState => {
+      const fanIdsInSegment = Array.from(
+        new Set(segment.fanPreview.map((fan) => fan.fanId).filter(Boolean))
+      );
+      const fanNamesById: Record<string, string> = {};
+      const draftsByFanId: Record<string, string> = {};
+      segment.fanPreview.forEach((fan) => {
+        fanNamesById[fan.fanId] = fan.displayName || "Fan";
+        draftsByFanId[fan.fanId] = buildSegmentSuggestedAction(segment, fan);
+      });
+      return {
+        from: "cortex",
+        segmentKey: segment.id,
+        segmentLabel: segment.title,
+        fanIdsInSegment,
+        fanNamesById,
+        draftsByFanId,
+        currentFanId,
+        actionKey,
+        autoNext: true,
+      };
+    },
+    [buildSegmentSuggestedAction]
   );
   const buildSegmentFollowUpNote = useCallback((segment: CortexSegmentEntry) => {
     switch (segment.id) {
@@ -2335,7 +2384,9 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
                       onPointerDown={(event) => event.stopPropagation()}
                       onClick={(event) => {
                         event.stopPropagation();
-                        handleSendDraftToFan(group.fanId, draft);
+                        handleSendDraftToFan(group.fanId, draft, {
+                          actionKey: `cortex:draft:${group.fanId}:${index}`,
+                        });
                       }}
                       className="inline-flex items-center rounded-full border border-[color:rgba(var(--brand-rgb),0.5)] bg-[color:rgba(var(--brand-rgb),0.12)] px-3 py-1 text-[11px] font-semibold text-[color:var(--text)] hover:bg-[color:rgba(var(--brand-rgb),0.16)]"
                     >
@@ -2878,7 +2929,9 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
                                     onClick={(event) => {
                                       event.stopPropagation();
                                       const draft = buildSegmentSuggestedAction(segment, fan);
-                                      handleSendDraftToFan(fan.fanId, draft);
+                                      const actionKey = `cortex:${segment.id}:suggested`;
+                                      const flow = buildSegmentFlow(segment, actionKey, fan.fanId);
+                                      handleSendDraftToFan(fan.fanId, draft, { actionKey, flow });
                                     }}
                                     className="rounded-full border border-[color:var(--brand)] bg-[color:rgba(var(--brand-rgb),0.12)] px-3 py-1 text-[11px] font-semibold text-[color:var(--text)] transition hover:bg-[color:rgba(var(--brand-rgb),0.2)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--ring)]"
                                   >
