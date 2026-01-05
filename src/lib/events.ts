@@ -4,6 +4,7 @@ import {
   CREATOR_DATA_CHANGED_EVENT,
   PURCHASE_CHANGED_EVENT,
   PURCHASE_CREATED_EVENT,
+  PURCHASE_SEEN_EVENT,
 } from "../constants/events";
 import { emitAppEvent } from "./crossTabEvents";
 
@@ -25,11 +26,17 @@ export type PurchaseChangedPayload = {
 
 export type PurchaseCreatedPayload = {
   fanId: string;
+  fanName?: string;
   amountCents: number;
   kind: string;
   title?: string;
   purchaseId?: string;
   createdAt?: string;
+};
+
+export type PurchaseSeenPayload = {
+  fanId: string;
+  purchaseIds?: string[];
 };
 
 export type CreatorDataChangedPayload = {
@@ -51,7 +58,23 @@ export function emitPurchaseChanged(payload: PurchaseChangedPayload) {
 }
 
 export function emitPurchaseCreated(payload: PurchaseCreatedPayload) {
-  emitAppEvent(PURCHASE_CREATED_EVENT, payload);
+  const resolvedId =
+    typeof payload.purchaseId === "string" && payload.purchaseId.trim().length > 0
+      ? payload.purchaseId
+      : `purchase-${payload.fanId}-${payload.createdAt ?? Date.now()}`;
+  const resolvedCreatedAt =
+    typeof payload.createdAt === "string" && payload.createdAt.trim().length > 0
+      ? payload.createdAt
+      : new Date().toISOString();
+  emitAppEvent(PURCHASE_CREATED_EVENT, {
+    ...payload,
+    purchaseId: resolvedId,
+    createdAt: resolvedCreatedAt,
+  });
+}
+
+export function emitPurchaseSeen(payload: PurchaseSeenPayload) {
+  emitAppEvent(PURCHASE_SEEN_EVENT, payload);
 }
 
 export function emitCreatorDataChanged(payload: CreatorDataChangedPayload) {
@@ -68,4 +91,5 @@ export {
   CREATOR_DATA_CHANGED_EVENT,
   PURCHASE_CHANGED_EVENT,
   PURCHASE_CREATED_EVENT,
+  PURCHASE_SEEN_EVENT,
 };

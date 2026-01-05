@@ -573,6 +573,7 @@ export function FanChatPage({
       }
       emitPurchaseCreated({
         fanId,
+        fanName: fanProfile.displayName ?? fanProfile.name ?? undefined,
         amountCents: Math.round((result.purchase?.amount ?? amountValue) * 100),
         kind: result.purchase?.kind ?? "TIP",
         title: "Propina",
@@ -590,6 +591,8 @@ export function FanChatPage({
     closeMoneyModal,
     createSupportPurchase,
     fanId,
+    fanProfile.displayName,
+    fanProfile.name,
     tipAmountCustom,
     tipAmountPreset,
     supportSubmitting,
@@ -619,6 +622,7 @@ export function FanChatPage({
         }
         emitPurchaseCreated({
           fanId,
+          fanName: fanProfile.displayName ?? fanProfile.name ?? undefined,
           amountCents: Math.round((result.purchase?.amount ?? amountValue) * 100),
           kind: result.purchase?.kind ?? "GIFT",
           title: pack.name,
@@ -633,7 +637,16 @@ export function FanChatPage({
         setSupportSubmitting(false);
       }
     },
-    [appendSystemMessage, closeMoneyModal, createSupportPurchase, fanId, fetchAccessInfo, supportSubmitting]
+    [
+      appendSystemMessage,
+      closeMoneyModal,
+      createSupportPurchase,
+      fanId,
+      fanProfile.displayName,
+      fanProfile.name,
+      fetchAccessInfo,
+      supportSubmitting,
+    ]
   );
 
   const handlePackRequest = useCallback(

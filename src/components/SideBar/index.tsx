@@ -17,10 +17,12 @@ import {
   EXTRAS_UPDATED_EVENT,
   FAN_MESSAGE_SENT_EVENT,
   PURCHASE_CREATED_EVENT,
+  PURCHASE_SEEN_EVENT,
 } from "../../constants/events";
 import { HIGH_PRIORITY_LIMIT } from "../../config/customers";
 import { normalizePreferredLanguage } from "../../lib/language";
 import { getFanIdFromQuery, openFanChat } from "../../lib/navigation/openCreatorChat";
+import { clearUnseenPurchase, getUnseenPurchases, recordUnseenPurchase, type PurchaseNotice } from "../../lib/unseenPurchases";
 import { IconGlyph } from "../ui/IconGlyph";
 import { Chip } from "../ui/Chip";
 
@@ -310,8 +312,10 @@ function SideBarInner() {
     fanId: string;
     label: string;
     amount: number;
+    purchaseIds: string[];
   } | null>(null);
   const purchaseToastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [ unseenPurchaseByFan, setUnseenPurchaseByFan ] = useState<Record<string, PurchaseNotice>>({});
 
 
   const mapFans = useCallback((rawFans: Fan[]): ConversationListData[] => {
@@ -418,7 +422,7 @@ function SideBarInner() {
   }, []);
 
   const showPurchaseToast = useCallback(
-    (payload: { fanId: string; label: string; amount: number }) => {
+    (payload: { fanId: string; label: string; amount: number; purchaseIds: string[] }) => {
       setPurchaseToast(payload);
       playPurchaseSound();
       if (purchaseToastTimerRef.current) {
@@ -511,6 +515,10 @@ function SideBarInner() {
     };
   }, []);
 
+  useEffect(() => {
+    setUnseenPurchaseByFan(getUnseenPurchases());
+  }, []);
+
   const fansWithScore: FanData[] = useMemo(
     () =>
       fans.map((fan) => ({
@@ -542,6 +550,7 @@ function SideBarInner() {
     if (!purchaseToast?.fanId) return;
     const targetPath = router.pathname.startsWith("/creator/manager") ? "/creator" : router.pathname || "/creator";
     openFanChat(router, purchaseToast.fanId, { shallow: true, scroll: false, pathname: targetPath });
+    setPurchaseToast(null);
   }, [purchaseToast?.fanId, router]);
 
   const getLastActivityTimestamp = useCallback((fan: FanData): number => {
@@ -1509,6 +1518,7 @@ function SideBarInner() {
       const detail = (event as CustomEvent)?.detail as
         | {
             fanId?: string;
+            fanName?: string;
             amountCents?: number;
             kind?: string;
             title?: string;
@@ -1538,19 +1548,33 @@ function SideBarInner() {
           ? `💶 Suscripción ${title ? `${title} ` : ""}${amountLabel}`
           : `🧾 ${title ? `${title} ` : "Extra "}${amountLabel}`;
       const preview = previewBase.trim();
-      const fanLabel = (fansRef.current.find((fan) => fan.id === fanId)?.contactName || "").trim();
-      if (fanLabel) {
-        showPurchaseToast({
+      const activeConversationId = conversation?.id || "";
+      const isActiveConversation = !conversation?.isManager && activeConversationId === fanId;
+      const fanLabel =
+        (typeof detail?.fanName === "string" ? detail.fanName.trim() : "") ||
+        (fansRef.current.find((fan) => fan.id === fanId)?.contactName || "").trim();
+      if (!isActiveConversation) {
+        const unseenNotice = recordUnseenPurchase({
           fanId,
-          label: `+${amountLabel || "0€"} de ${fanLabel}`,
-          amount,
+          fanName: fanLabel || undefined,
+          amountCents: typeof detail?.amountCents === "number" ? detail.amountCents : 0,
+          kind: detail?.kind,
+          title: detail?.title,
+          purchaseId: typeof detail?.purchaseId === "string" ? detail.purchaseId : undefined,
+          createdAt: safeTime.toISOString(),
         });
-      } else {
-        showPurchaseToast({
-          fanId,
-          label: `+${amountLabel || "0€"} recibido`,
-          amount,
-        });
+        if (unseenNotice) {
+          setUnseenPurchaseByFan((prev) => ({
+            ...prev,
+            [fanId]: unseenNotice,
+          }));
+          showPurchaseToast({
+            fanId,
+            label: fanLabel ? `+${amountLabel || "0€"} de ${fanLabel}` : `+${amountLabel || "0€"} recibido`,
+            amount,
+            purchaseIds: unseenNotice.purchaseIds,
+          });
+        }
       }
       setFans((prev) => {
         const index = prev.findIndex((fan) => fan.id === fanId);
@@ -1568,6 +1592,20 @@ function SideBarInner() {
       void refreshExtrasSummary();
     };
     window.addEventListener(PURCHASE_CREATED_EVENT, handlePurchaseCreated as EventListener);
+
+    const handlePurchaseSeen = (event: Event) => {
+      const detail = (event as CustomEvent)?.detail as { fanId?: string; purchaseIds?: string[] } | undefined;
+      const fanId = typeof detail?.fanId === "string" ? detail.fanId : "";
+      if (!fanId) return;
+      clearUnseenPurchase(fanId);
+      setUnseenPurchaseByFan((prev) => {
+        if (!prev[fanId]) return prev;
+        const next = { ...prev };
+        delete next[fanId];
+        return next;
+      });
+    };
+    window.addEventListener(PURCHASE_SEEN_EVENT, handlePurchaseSeen as EventListener);
 
     const handleCreatorDataChanged = (event: Event) => {
       const detail = (event as CustomEvent)?.detail as { fanId?: string } | undefined;
@@ -1614,10 +1652,21 @@ function SideBarInner() {
       window.removeEventListener(EXTRAS_UPDATED_EVENT, handleExtrasUpdated as EventListener);
       window.removeEventListener(FAN_MESSAGE_SENT_EVENT, handleFanMessageSent as EventListener);
       window.removeEventListener(PURCHASE_CREATED_EVENT, handlePurchaseCreated as EventListener);
+      window.removeEventListener(PURCHASE_SEEN_EVENT, handlePurchaseSeen as EventListener);
       window.removeEventListener(CREATOR_DATA_CHANGED_EVENT, handleCreatorDataChanged as EventListener);
       window.removeEventListener("applyChatFilter", handleExternalFilter as EventListener);
     };
-  }, [applyFilter, fetchFanById, fetchFansPage, mapFans, refreshExtrasSummary, scheduleFansRefresh, showPurchaseToast]);
+  }, [
+    applyFilter,
+    conversation?.id,
+    conversation?.isManager,
+    fetchFanById,
+    fetchFansPage,
+    mapFans,
+    refreshExtrasSummary,
+    scheduleFansRefresh,
+    showPurchaseToast,
+  ]);
 
   useEffect(() => {
     const fanIdFromQuery = getFanIdFromQuery({ fan: queryFan, fanId: queryFanId });
@@ -1678,6 +1727,12 @@ function SideBarInner() {
   function formatCurrency(value: number) {
     const rounded = Math.round((value ?? 0) * 100) / 100;
     return `${rounded % 1 === 0 ? rounded.toFixed(0) : rounded.toFixed(2)} €`;
+  }
+
+  function getPurchaseBadgeLabel(notice: PurchaseNotice) {
+    const amount = typeof notice.totalAmountCents === "number" ? notice.totalAmountCents / 100 : 0;
+    const amountLabel = amount > 0 ? formatCurrency(amount) : "€";
+    return `+${amountLabel}`;
   }
 
   const handleOpenManagerPanel = useCallback((_item?: ConversationListData) => {
@@ -1742,9 +1797,14 @@ function SideBarInner() {
           </div>
         )}
         {purchaseToast && (
-          <div className="mb-2 rounded-xl border border-[color:rgba(34,197,94,0.4)] bg-[color:rgba(34,197,94,0.1)] px-3 py-2 text-[11px] text-[color:var(--text)]">
+          <div className="mb-2 rounded-xl border border-[color:rgba(34,197,94,0.4)] bg-[color:rgba(34,197,94,0.1)] px-3 py-2 text-[11px] text-[color:var(--text)] novsy-pop">
             <div className="flex items-center justify-between gap-2">
-              <span className="font-semibold">{purchaseToast.label}</span>
+              <div className="flex items-center gap-2">
+                <span className="inline-flex h-6 w-6 items-center justify-center rounded-full border border-[color:rgba(34,197,94,0.5)] bg-[color:rgba(34,197,94,0.16)] text-[color:var(--brand)]">
+                  <IconGlyph name="coin" className="h-3.5 w-3.5" ariaHidden />
+                </span>
+                <span className="font-semibold">{purchaseToast.label}</span>
+              </div>
               <button
                 type="button"
                 onClick={handleOpenPurchaseFan}
@@ -2354,16 +2414,26 @@ function SideBarInner() {
                 No hay chats en cola.
               </div>
             ) : (
-              priorityQueueList.map((conversation, index) => (
-                <ConversationList
-                  key={conversation.id || index}
-                  isFirstConversation={false}
-                  data={conversation}
-                  onSelect={handleSelectConversation}
-                  onToggleHighPriority={handleToggleHighPriority}
-                  onCopyInvite={handleCopyInviteForFan}
-                />
-              ))
+              priorityQueueList.map((conversation, index) => {
+                const notice = conversation.id ? unseenPurchaseByFan[conversation.id] : null;
+                const data = notice
+                  ? {
+                      ...conversation,
+                      unseenPurchaseCount: notice.count,
+                      unseenPurchaseLabel: getPurchaseBadgeLabel(notice),
+                    }
+                  : conversation;
+                return (
+                  <ConversationList
+                    key={conversation.id || index}
+                    isFirstConversation={false}
+                    data={data}
+                    onSelect={handleSelectConversation}
+                    onToggleHighPriority={handleToggleHighPriority}
+                    onCopyInvite={handleCopyInviteForFan}
+                  />
+                );
+              })
             )}
           </>
         )}
@@ -2426,11 +2496,19 @@ function SideBarInner() {
               </div>
             )}
             {safeFilteredConversationsList.map((conversation, index) => {
+              const notice = conversation.id ? unseenPurchaseByFan[conversation.id] : null;
+              const data = notice
+                ? {
+                    ...conversation,
+                    unseenPurchaseCount: notice.count,
+                    unseenPurchaseLabel: getPurchaseBadgeLabel(notice),
+                  }
+                : conversation;
               return (
                 <ConversationList
                   key={conversation.id || index}
                   isFirstConversation={false}
-                  data={conversation}
+                  data={data}
                   onSelect={handleSelectConversation}
                   onToggleHighPriority={handleToggleHighPriority}
                   onCopyInvite={handleCopyInviteForFan}

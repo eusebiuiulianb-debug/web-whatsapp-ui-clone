@@ -205,6 +205,8 @@ interface ConversationListData {
   firstUtmCampaign?: string | null;
   firstUtmContent?: string | null;
   firstUtmTerm?: string | null;
+  unseenPurchaseCount?: number;
+  unseenPurchaseLabel?: string | null;
 }
 
 interface FanFollowUp {

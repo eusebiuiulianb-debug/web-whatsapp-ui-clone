@@ -36,6 +36,7 @@ import {
   emitExtrasUpdated,
   emitFanMessageSent,
   emitPurchaseCreated,
+  emitPurchaseSeen,
   PURCHASE_CREATED_EVENT,
 } from "../../lib/events";
 import { AiTone, normalizeTone, ACTION_TYPE_FOR_USAGE } from "../../lib/aiQuickExtra";
@@ -78,6 +79,7 @@ import { useRouter } from "next/router";
 import { useIsomorphicLayoutEffect } from "../../hooks/useIsomorphicLayoutEffect";
 import Image from "next/image";
 import { IconGlyph, type IconName } from "../ui/IconGlyph";
+import { consumeUnseenPurchase } from "../../lib/unseenPurchases";
 import { Badge, type BadgeTone } from "../ui/Badge";
 import { ConversationActionsMenu } from "../conversations/ConversationActionsMenu";
 import { badgeToneForLabel } from "../../lib/badgeTone";
@@ -125,6 +127,15 @@ type FanTemplateItem = {
 type FanTemplatePools = Record<FanTemplateCategory, FanTemplateItem[]>;
 type FanTemplateSelection = Record<FanTemplateCategory, string | null>;
 type ComposerTarget = "fan" | "internal" | "manager";
+
+type PurchaseNoticeState = {
+  count: number;
+  totalAmountCents: number;
+  kind: string;
+  title?: string;
+  createdAt?: string;
+  purchaseIds: string[];
+};
 type MessageAudienceMode = "CREATOR" | "INTERNAL";
 type InlineTab = "templates" | "tools" | "manager";
 type InternalPanelTab = "manager" | "internal" | "note";
@@ -624,6 +635,19 @@ export default function ConversationDetails({ onBackToBoard }: ConversationDetai
   const [ fanSendCooldownById, setFanSendCooldownById ] = useState<
     Record<string, { until: number; phase: "sent" | "cooldown" }>
   >({});
+  const [ purchaseNotice, setPurchaseNotice ] = useState<PurchaseNoticeState | null>(null);
+  const purchaseNoticeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const purchaseNoticeShownAtRef = useRef(0);
+
+  const dismissPurchaseNotice = useCallback(() => {
+    if (purchaseNoticeTimerRef.current) {
+      clearTimeout(purchaseNoticeTimerRef.current);
+      purchaseNoticeTimerRef.current = null;
+    }
+    if (purchaseNotice) {
+      setPurchaseNotice(null);
+    }
+  }, [purchaseNotice]);
 
   function formatCurrency(value: number) {
     const rounded = Math.round((value ?? 0) * 100) / 100;
@@ -2102,6 +2126,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
       });
       emitPurchaseCreated({
         fanId,
+        fanName: contactName || undefined,
         amountCents: Math.round((purchase?.amount ?? amount) * 100),
         kind: purchase?.kind ?? "EXTRA",
         title: title ?? undefined,
@@ -3106,6 +3131,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
       const detail = (event as CustomEvent)?.detail as
         | {
             fanId?: string;
+            fanName?: string;
             amountCents?: number;
             kind?: string;
             title?: string;
@@ -3128,6 +3154,57 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
       window.removeEventListener(PURCHASE_CREATED_EVENT, handlePurchaseCreated as EventListener);
     };
   }, [appendPurchaseSystemMessage]);
+
+  useEffect(() => {
+    if (!id || conversation.isManager) {
+      setPurchaseNotice(null);
+      return;
+    }
+    const unseen = consumeUnseenPurchase(id);
+    if (!unseen) {
+      setPurchaseNotice(null);
+      return;
+    }
+    setPurchaseNotice({
+      count: unseen.count,
+      totalAmountCents: unseen.totalAmountCents,
+      kind: unseen.last.kind,
+      title: unseen.last.title,
+      createdAt: unseen.last.createdAt,
+      purchaseIds: unseen.purchaseIds,
+    });
+    purchaseNoticeShownAtRef.current = Date.now();
+    if (purchaseNoticeTimerRef.current) {
+      clearTimeout(purchaseNoticeTimerRef.current);
+    }
+    purchaseNoticeTimerRef.current = setTimeout(() => setPurchaseNotice(null), 10000);
+    emitPurchaseSeen({ fanId: id, purchaseIds: unseen.purchaseIds });
+    return () => {
+      if (purchaseNoticeTimerRef.current) {
+        clearTimeout(purchaseNoticeTimerRef.current);
+        purchaseNoticeTimerRef.current = null;
+      }
+    };
+  }, [conversation.isManager, id]);
+
+  useEffect(() => {
+    if (!purchaseNotice) return;
+    const handleDismiss = () => {
+      if (Date.now() - purchaseNoticeShownAtRef.current < 300) return;
+      setPurchaseNotice(null);
+    };
+    const container = messagesContainerRef.current;
+    if (container) {
+      container.addEventListener("scroll", handleDismiss, { passive: true });
+      container.addEventListener("pointerdown", handleDismiss);
+    }
+    return () => {
+      if (container) {
+        container.removeEventListener("scroll", handleDismiss);
+        container.removeEventListener("pointerdown", handleDismiss);
+      }
+    };
+  }, [purchaseNotice]);
 
   useEffect(() => {
     const handleRouteChange = () => {
@@ -3233,6 +3310,19 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
   const translateEnabled = translationPreviewOpen && !conversation.isManager && isFanTarget;
   const isFanMode = !conversation.isManager;
   const hasAutopilotContext = !!(lastAutopilotObjective && lastAutopilotTone);
+  const purchaseNoticeLabel = (() => {
+    if (!purchaseNotice) return "";
+    const amount = purchaseNotice.totalAmountCents ? purchaseNotice.totalAmountCents / 100 : 0;
+    const amountLabel = amount > 0 ? formatCurrency(amount) : "";
+    const prefix = purchaseNotice.count > 1 ? "Apoyos recibidos" : "Apoyo recibido";
+    return amountLabel ? `${prefix} · +${amountLabel}` : prefix;
+  })();
+  const purchaseNoticeTime = (() => {
+    if (!purchaseNotice?.createdAt) return "hace un momento";
+    const parsed = new Date(purchaseNotice.createdAt);
+    if (Number.isNaN(parsed.getTime())) return "hace un momento";
+    return formatDistanceToNow(parsed, { addSuffix: true, locale: es });
+  })();
   const disableTranslationPreview = () => {
     if (translationPreviewTimer.current) {
       clearTimeout(translationPreviewTimer.current);
@@ -6676,6 +6766,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
       }
       return;
     }
+    dismissPurchaseNotice();
     setComposerError(null);
     if (messagesError) {
       setMessagesError("");
@@ -6870,6 +6961,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
         type === "monthly" ? PACKS.monthly.price : type === "special" ? PACKS.special.price : PACKS.trial.price;
       emitPurchaseCreated({
         fanId: id,
+        fanName: contactName || undefined,
         amountCents: Math.round(amount * 100),
         kind: "SUBSCRIPTION",
         title:
@@ -6878,6 +6970,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
             : type === "special"
             ? PACKS.special.name
             : PACKS.trial.name,
+        purchaseId: typeof data?.purchaseId === "string" ? data.purchaseId : `grant-${id}-${Date.now()}`,
         createdAt: new Date().toISOString(),
       });
     } catch (err) {
@@ -8472,6 +8565,17 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
                 </div>
               </div>
             )}
+            {purchaseNotice && (
+              <div className="mb-3 flex justify-center">
+                <div className="rounded-2xl border border-[color:rgba(34,197,94,0.4)] bg-[color:rgba(34,197,94,0.08)] px-4 py-2 text-[11px] text-[color:var(--text)] novsy-pop">
+                  <div className="flex items-center gap-2 font-semibold">
+                    <IconGlyph name="coin" className="h-3.5 w-3.5 text-[color:var(--brand)]" ariaHidden />
+                    <span>{purchaseNoticeLabel}</span>
+                  </div>
+                  <div className="mt-1 text-[10px] text-[color:var(--muted)]">{purchaseNoticeTime}</div>
+                </div>
+              </div>
+            )}
             {messages.map((messageConversation, index) => {
               if (messageConversation.kind === "system") {
                 return (
@@ -8896,6 +9000,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
               <ChatComposerBar
                 value={messageSend}
                 onChange={(evt) => {
+                  dismissPurchaseNotice();
                   setMessageSend(evt.target.value);
                   if (composerError) setComposerError(null);
                   autoGrowTextarea(evt.currentTarget, MAX_MAIN_COMPOSER_HEIGHT);
