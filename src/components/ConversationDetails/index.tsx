@@ -1111,6 +1111,8 @@ export default function ConversationDetails({ onBackToBoard }: ConversationDetai
   const [ contentItems, setContentItems ] = useState<ContentWithFlags[]>([]);
   const [ contentLoading, setContentLoading ] = useState(false);
   const [ contentError, setContentError ] = useState("");
+  const [ isContentSending, setIsContentSending ] = useState(false);
+  const contentSendingRef = useRef(false);
   const [ catalogItems, setCatalogItems ] = useState<CatalogItem[]>([]);
   const [ catalogLoading, setCatalogLoading ] = useState(false);
   const catalogLoadingRef = useRef(false);
@@ -1139,6 +1141,8 @@ export default function ConversationDetails({ onBackToBoard }: ConversationDetai
   const [ extraAmount, setExtraAmount ] = useState<number | "">("");
   const [ extraError, setExtraError ] = useState<string | null>(null);
   const [ isRegisteringExtra, setIsRegisteringExtra ] = useState(false);
+  const registerExtraRef = useRef(false);
+  const registerExtraTxnRef = useRef<string | null>(null);
   const [ showManualExtraForm, setShowManualExtraForm ] = useState(false);
   const [ isChatBlocked, setIsChatBlocked ] = useState(conversation.isBlocked ?? false);
   const [ isChatArchived, setIsChatArchived ] = useState(conversation.isArchived ?? false);
@@ -2424,46 +2428,52 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
         const errText = typeof data?.error === "string" ? data.error : "";
         return { ok: false, error: errText || "No se pudo registrar el extra." };
       }
-      const prevExtrasCount = conversation.extrasCount ?? 0;
-      const prevExtrasTotal = conversation.extrasSpentTotal ?? 0;
-      const prevLifetime = conversation.lifetimeSpend ?? 0;
-      const updatedExtrasCount = prevExtrasCount + 1;
-      const updatedExtrasTotal = prevExtrasTotal + amount;
-      const updatedLifetime = prevLifetime + amount;
-      const updatedTier = getCustomerTierFromSpend(updatedLifetime);
-      const updatedHighPriority = conversation.isHighPriority ?? false;
-      setConversation({
-        ...conversation,
-        extrasCount: updatedExtrasCount,
-        extrasSpentTotal: updatedExtrasTotal,
-        lifetimeSpend: updatedLifetime,
-        lifetimeValue: updatedLifetime,
-        customerTier: updatedTier,
-        isHighPriority: updatedHighPriority,
-      });
-      await refreshFanData(fanId);
-      await fetchExtrasHistory(fanId);
-      const purchase = data?.purchase as { id?: string; kind?: string; amount?: number; createdAt?: string } | undefined;
-      emitExtrasUpdated({
-        fanId,
-        totals: {
+      const reused = data?.reused === true;
+      const purchase = data?.purchase as
+        | { id?: string; kind?: string; amount?: number; createdAt?: string; clientTxnId?: string | null }
+        | undefined;
+      if (!reused) {
+        const prevExtrasCount = conversation.extrasCount ?? 0;
+        const prevExtrasTotal = conversation.extrasSpentTotal ?? 0;
+        const prevLifetime = conversation.lifetimeSpend ?? 0;
+        const updatedExtrasCount = prevExtrasCount + 1;
+        const updatedExtrasTotal = prevExtrasTotal + amount;
+        const updatedLifetime = prevLifetime + amount;
+        const updatedTier = getCustomerTierFromSpend(updatedLifetime);
+        const updatedHighPriority = conversation.isHighPriority ?? false;
+        setConversation({
+          ...conversation,
           extrasCount: updatedExtrasCount,
           extrasSpentTotal: updatedExtrasTotal,
           lifetimeSpend: updatedLifetime,
           lifetimeValue: updatedLifetime,
           customerTier: updatedTier,
           isHighPriority: updatedHighPriority,
-        },
-      });
-      emitPurchaseCreated({
-        fanId,
-        fanName: contactName || undefined,
-        amountCents: Math.round((purchase?.amount ?? amount) * 100),
-        kind: purchase?.kind ?? "EXTRA",
-        title: title ?? undefined,
-        purchaseId: purchase?.id,
-        createdAt: typeof purchase?.createdAt === "string" ? purchase.createdAt : undefined,
-      });
+        });
+        emitExtrasUpdated({
+          fanId,
+          totals: {
+            extrasCount: updatedExtrasCount,
+            extrasSpentTotal: updatedExtrasTotal,
+            lifetimeSpend: updatedLifetime,
+            lifetimeValue: updatedLifetime,
+            customerTier: updatedTier,
+            isHighPriority: updatedHighPriority,
+          },
+        });
+        emitPurchaseCreated({
+          fanId,
+          fanName: contactName || undefined,
+          amountCents: Math.round((purchase?.amount ?? amount) * 100),
+          kind: purchase?.kind ?? "EXTRA",
+          title: title ?? undefined,
+          purchaseId: purchase?.id,
+          createdAt: typeof purchase?.createdAt === "string" ? purchase.createdAt : undefined,
+          clientTxnId: purchase?.clientTxnId ?? clientTxnId ?? undefined,
+        });
+      }
+      await refreshFanData(fanId);
+      await fetchExtrasHistory(fanId);
       return { ok: true };
     } catch (_err) {
       return { ok: false, error: "No se pudo registrar el extra." };
@@ -9137,7 +9147,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
                           className="rounded-lg border border-[color:var(--brand)] bg-[color:rgba(var(--brand-rgb),0.12)] px-3 py-2 text-xs font-semibold text-[color:var(--text)] hover:bg-[color:rgba(var(--brand-rgb),0.2)] disabled:opacity-60"
                           disabled={isRegisteringExtra}
                           onClick={async () => {
-                            if (isRegisteringExtra) return;
+                            if (registerExtraRef.current || isRegisteringExtra) return;
                             if (!id || !selectedExtraId) {
                               setExtraError("Selecciona fan y extra.");
                               return;
@@ -9155,7 +9165,10 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
                             const sessionTag = `${timeOfDay}_${new Date().toISOString().slice(0, 10)}`;
                             setExtraError("");
                             const amountNumber = Number(extraAmount);
+                            const txnId = registerExtraTxnRef.current ?? generateClientTxnId();
+                            registerExtraTxnRef.current = txnId;
                             setIsRegisteringExtra(true);
+                            registerExtraRef.current = true;
                             try {
                               const result = await registerExtraSale({
                                 fanId: id,
@@ -9164,7 +9177,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
                                 tier,
                                 sessionTag,
                                 source: "manual_panel",
-                                clientTxnId: generateClientTxnId(),
+                                clientTxnId: txnId,
                                 title: item.title,
                               });
                               if (!result.ok) {
@@ -9176,10 +9189,12 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
                               setShowManualExtraForm(false);
                             } finally {
                               setIsRegisteringExtra(false);
+                              registerExtraRef.current = false;
+                              registerExtraTxnRef.current = null;
                             }
                           }}
                         >
-                          Registrar extra
+                          {isRegisteringExtra ? "Procesando..." : "Registrar extra"}
                         </button>
                       </div>
                       {extraError && <div className="text-[11px] text-[color:var(--danger)]">{extraError}</div>}
@@ -9944,74 +9959,89 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
               {contentModalMode !== "catalog" && (
                 <button
                   type="button"
-                  disabled={selectedContentIds.length === 0 || !!contentError}
+                  disabled={selectedContentIds.length === 0 || !!contentError || isContentSending}
                   className={clsx(
                     "rounded-full border px-3 py-1.5 text-xs font-semibold transition",
-                    selectedContentIds.length === 0 || !!contentError
+                    selectedContentIds.length === 0 || !!contentError || isContentSending
                       ? "border-[color:var(--surface-border)] bg-[color:var(--surface-2)] ui-muted cursor-not-allowed"
                       : "border-[color:var(--warning)] bg-[color:rgba(245,158,11,0.08)] text-[color:var(--text)] hover:bg-[color:rgba(245,158,11,0.16)]"
                   )}
                   onClick={async () => {
+                    if (contentSendingRef.current || isContentSending) return;
                     if (selectedContentIds.length === 0) return;
                     const chosen = contentItems.filter((item) => selectedContentIds.includes(item.id));
                     if (chosen.length === 0) return;
-                    // Enviamos cada contenido como mensaje CONTENT para mantener consistencia con /api/messages.
-                    const sentItems: ContentWithFlags[] = [];
-                    for (const item of chosen) {
-                      // eslint-disable-next-line no-await-in-loop
-                      const ok = await handleAttachContent(item, { keepOpen: true });
-                      if (ok) {
-                        sentItems.push(item);
-                      }
-                    }
-                    if (contentModalMode === "extras" && registerExtrasChecked && sentItems.length > 0 && id) {
-                      const sessionTag = `${timeOfDay}_${new Date().toISOString().slice(0, 10)}`;
-                      const failed: string[] = [];
-                      for (const item of sentItems) {
-                        const tier = getExtraTier(item);
-                        const amount = getTransactionPriceFor(item);
+                    contentSendingRef.current = true;
+                    setIsContentSending(true);
+                    setContentError("");
+                    try {
+                      // Enviamos cada contenido como mensaje CONTENT para mantener consistencia con /api/messages.
+                      const sentItems: ContentWithFlags[] = [];
+                      for (const item of chosen) {
                         // eslint-disable-next-line no-await-in-loop
-                        const result = await registerExtraSale({
-                          fanId: id,
-                          extraId: item.id,
-                          amount,
-                          tier,
-                          sessionTag,
-                          source: registerExtrasSource ?? "offer_flow",
-                          clientTxnId: generateClientTxnId(),
-                          title: item.title,
-                        });
-                        if (!result.ok) {
-                          failed.push(item.title || "Extra");
+                        const ok = await handleAttachContent(item, { keepOpen: true });
+                        if (ok) {
+                          sentItems.push(item);
                         }
                       }
-                      if (failed.length > 0) {
-                        alert('Contenido enviado, pero no se ha podido registrar la venta. Inténtalo desde "Ventas extra".');
+                      if (contentModalMode === "extras" && registerExtrasChecked && sentItems.length > 0 && id) {
+                        const sessionTag = `${timeOfDay}_${new Date().toISOString().slice(0, 10)}`;
+                        const failed: string[] = [];
+                        for (const item of sentItems) {
+                          const tier = getExtraTier(item);
+                          const amount = getTransactionPriceFor(item);
+                          // eslint-disable-next-line no-await-in-loop
+                          const result = await registerExtraSale({
+                            fanId: id,
+                            extraId: item.id,
+                            amount,
+                            tier,
+                            sessionTag,
+                            source: registerExtrasSource ?? "offer_flow",
+                            clientTxnId: generateClientTxnId(),
+                            title: item.title,
+                          });
+                          if (!result.ok) {
+                            failed.push(item.title || "Extra");
+                          }
+                        }
+                        if (failed.length > 0) {
+                          setContentError(
+                            "Contenido enviado, pero no se pudo registrar una o más ventas. Reinténtalo desde Ventas extra."
+                          );
+                        }
                       }
+                      if (sentItems.length > 0 && id) {
+                        const previewLabel =
+                          sentItems.length === 1
+                            ? sentItems[0]?.title || "Contenido compartido"
+                            : `Contenido compartido (${sentItems.length})`;
+                        startFanSendCooldown(id);
+                        emitFanMessageSent({
+                          fanId: id,
+                          text: previewLabel,
+                          kind: "content",
+                          sentAt: new Date().toISOString(),
+                        });
+                        emitCreatorDataChanged({ reason: "fan_message_sent", fanId: id });
+                      }
+                      setShowContentModal(false);
+                      setSelectedContentIds([]);
+                      setContentModalPackFocus(null);
+                      setRegisterExtrasChecked(false);
+                      setRegisterExtrasSource(null);
+                      setTransactionPrices({});
+                    } catch (_err) {
+                      setContentError("No se pudo enviar el contenido. Inténtalo de nuevo.");
+                    } finally {
+                      contentSendingRef.current = false;
+                      setIsContentSending(false);
                     }
-                    if (sentItems.length > 0 && id) {
-                      const previewLabel =
-                        sentItems.length === 1
-                          ? sentItems[0]?.title || "Contenido compartido"
-                          : `Contenido compartido (${sentItems.length})`;
-                      startFanSendCooldown(id);
-                      emitFanMessageSent({
-                        fanId: id,
-                        text: previewLabel,
-                        kind: "content",
-                        sentAt: new Date().toISOString(),
-                      });
-                      emitCreatorDataChanged({ reason: "fan_message_sent", fanId: id });
-                    }
-                    setShowContentModal(false);
-                    setSelectedContentIds([]);
-                    setContentModalPackFocus(null);
-                    setRegisterExtrasChecked(false);
-                    setRegisterExtrasSource(null);
-                    setTransactionPrices({});
                   }}
                 >
-                  {selectedContentIds.length <= 1
+                  {isContentSending
+                    ? "Procesando..."
+                    : selectedContentIds.length <= 1
                     ? "Enviar 1 elemento"
                     : `Enviar ${selectedContentIds.length} elementos`}
                 </button>

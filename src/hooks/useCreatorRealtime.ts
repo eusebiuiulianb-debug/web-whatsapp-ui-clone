@@ -18,7 +18,7 @@ import { createPurchaseEventDedupe } from "../lib/purchaseEventDedupe";
 
 type CreatorRealtimeHandlers = {
   onFanMessageSent?: (payload: FanMessageSentPayload) => void;
-  onPurchaseCreated?: (payload: PurchaseCreatedPayload & { eventId?: string }) => void;
+  onPurchaseCreated?: (payload: PurchaseCreatedPayload) => void;
   onPurchaseSeen?: (payload: PurchaseSeenPayload) => void;
   onCreatorDataChanged?: (payload: CreatorDataChangedPayload) => void;
   onExtrasUpdated?: (payload: ExtrasUpdatedPayload) => void;
@@ -41,7 +41,7 @@ export function useCreatorRealtime(handlers: CreatorRealtimeHandlers, options?: 
     };
 
     const handlePurchaseCreated = (event: Event) => {
-      const detail = (event as CustomEvent).detail as (PurchaseCreatedPayload & { eventId?: string }) | undefined;
+      const detail = (event as CustomEvent).detail as PurchaseCreatedPayload | undefined;
       if (!detail) return;
       if (!purchaseDedupeRef.current.shouldProcess(detail)) return;
       handlersRef.current.onPurchaseCreated?.(detail);

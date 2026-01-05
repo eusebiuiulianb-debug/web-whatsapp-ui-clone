@@ -34,6 +34,7 @@ export type PurchaseCreatedPayload = {
   purchaseId?: string;
   createdAt?: string;
   eventId?: string;
+  clientTxnId?: string;
 };
 
 export type PurchaseSeenPayload = {

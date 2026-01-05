@@ -147,6 +147,8 @@ export function FanChatPage({
   const [giftView, setGiftView] = useState<"list" | "details">("list");
   const [selectedGiftPack, setSelectedGiftPack] = useState<PackSummary | null>(null);
   const [supportSubmitting, setSupportSubmitting] = useState(false);
+  const supportSubmitRef = useRef(false);
+  const supportTxnRef = useRef<string | null>(null);
 
   const sortMessages = useCallback((list: ApiMessage[]) => {
     const withKeys = list.map((msg, idx) => ({
@@ -529,7 +531,7 @@ export function FanChatPage({
         if (!res.ok) {
           return { ok: false, error: "No se pudo registrar el pago." };
         }
-        return { ok: true, purchase: data?.purchase };
+        return { ok: true, purchase: data?.purchase, reused: data?.reused === true };
       } catch (err) {
         console.error("Error recording support purchase", err);
         return { ok: false, error: "No se pudo registrar el pago." };
@@ -558,37 +560,45 @@ export function FanChatPage({
 
   const handleTipConfirm = useCallback(async () => {
     if (!fanId) return;
-    if (supportSubmitting) return;
+    if (supportSubmitting || supportSubmitRef.current) return;
     const amountValue = tipAmountPreset ?? parseAmountToNumber(tipAmountCustom);
     if (!Number.isFinite(amountValue) || amountValue <= 0 || amountValue > 500) {
       setTipError("Introduce un importe válido.");
       return;
     }
+    const txnId = supportTxnRef.current ?? generateClientTxnId();
+    supportTxnRef.current = txnId;
     setSupportSubmitting(true);
+    supportSubmitRef.current = true;
     try {
       const result = await createSupportPurchase({
         kind: "TIP",
         amount: amountValue,
-        clientTxnId: generateClientTxnId(),
+        clientTxnId: txnId,
       });
       if (!result.ok) {
         setTipError(result.error ?? "No se pudo registrar la propina.");
         return;
       }
-      emitPurchaseCreated({
-        fanId,
-        fanName: fanProfile.displayName ?? fanProfile.name ?? undefined,
-        amountCents: Math.round((result.purchase?.amount ?? amountValue) * 100),
-        kind: result.purchase?.kind ?? "TIP",
-        title: "Propina",
-        purchaseId: result.purchase?.id,
-        createdAt: result.purchase?.createdAt,
-      });
-      const amountLabel = formatAmountLabel(amountValue);
-      appendSystemMessage(`🎁 Has apoyado con ${amountLabel}`);
+      if (!result.reused) {
+        emitPurchaseCreated({
+          fanId,
+          fanName: fanProfile.displayName ?? fanProfile.name ?? undefined,
+          amountCents: Math.round((result.purchase?.amount ?? amountValue) * 100),
+          kind: result.purchase?.kind ?? "TIP",
+          title: "Propina",
+          purchaseId: result.purchase?.id,
+          createdAt: result.purchase?.createdAt,
+          clientTxnId: txnId,
+        });
+        const amountLabel = formatAmountLabel(amountValue);
+        appendSystemMessage(`🎁 Has apoyado con ${amountLabel}`);
+      }
       closeMoneyModal();
     } finally {
       setSupportSubmitting(false);
+      supportSubmitRef.current = false;
+      supportTxnRef.current = null;
     }
   }, [
     appendSystemMessage,
@@ -597,6 +607,8 @@ export function FanChatPage({
     fanId,
     fanProfile.displayName,
     fanProfile.name,
+    supportSubmitRef,
+    supportTxnRef,
     tipAmountCustom,
     tipAmountPreset,
     supportSubmitting,
@@ -605,40 +617,50 @@ export function FanChatPage({
   const handleGiftConfirm = useCallback(
     async (pack: PackSummary) => {
       if (!fanId) return;
-      if (supportSubmitting) return;
+      if (supportSubmitting || supportSubmitRef.current) return;
       const amountValue = parseAmountToNumber(pack.price);
       if (!Number.isFinite(amountValue) || amountValue <= 0 || amountValue > 500) {
         setGiftError("Introduce un importe válido.");
         return;
       }
+      const txnId = supportTxnRef.current ?? generateClientTxnId();
+      supportTxnRef.current = txnId;
       setSupportSubmitting(true);
+      supportSubmitRef.current = true;
       try {
         const result = await createSupportPurchase({
           kind: "GIFT",
           amount: amountValue,
           packId: pack.id,
           packName: pack.name,
-          clientTxnId: generateClientTxnId(),
+          clientTxnId: txnId,
         });
         if (!result.ok) {
           setGiftError(result.error ?? "No se pudo registrar el regalo.");
           return;
         }
-        emitPurchaseCreated({
-          fanId,
-          fanName: fanProfile.displayName ?? fanProfile.name ?? undefined,
-          amountCents: Math.round((result.purchase?.amount ?? amountValue) * 100),
-          kind: result.purchase?.kind ?? "GIFT",
-          title: pack.name,
-          purchaseId: result.purchase?.id,
-          createdAt: result.purchase?.createdAt,
-        });
+        if (!result.reused) {
+          emitPurchaseCreated({
+            fanId,
+            fanName: fanProfile.displayName ?? fanProfile.name ?? undefined,
+            amountCents: Math.round((result.purchase?.amount ?? amountValue) * 100),
+            kind: result.purchase?.kind ?? "GIFT",
+            title: pack.name,
+            purchaseId: result.purchase?.id,
+            createdAt: result.purchase?.createdAt,
+            clientTxnId: txnId,
+          });
+        }
         await fetchAccessInfo(fanId);
-        const priceLabel = normalizePriceLabel(pack.price);
-        appendSystemMessage(`🎁 Has regalado ${pack.name} (${priceLabel})`);
+        if (!result.reused) {
+          const priceLabel = normalizePriceLabel(pack.price);
+          appendSystemMessage(`🎁 Has regalado ${pack.name} (${priceLabel})`);
+        }
         closeMoneyModal();
       } finally {
         setSupportSubmitting(false);
+        supportSubmitRef.current = false;
+        supportTxnRef.current = null;
       }
     },
     [
@@ -649,6 +671,8 @@ export function FanChatPage({
       fanProfile.displayName,
       fanProfile.name,
       fetchAccessInfo,
+      supportSubmitRef,
+      supportTxnRef,
       supportSubmitting,
     ]
   );
@@ -1184,7 +1208,7 @@ export function FanChatPage({
               disabled={supportSubmitting}
               className="rounded-full bg-[color:rgba(var(--brand-rgb),0.16)] px-4 py-1.5 text-xs font-semibold text-[color:var(--text)] hover:bg-[color:rgba(var(--brand-rgb),0.24)] disabled:opacity-60"
             >
-              Enviar propina
+              {supportSubmitting ? "Procesando..." : "Enviar propina"}
             </button>
           </div>
         </div>
@@ -1227,7 +1251,7 @@ export function FanChatPage({
                     disabled={supportSubmitting}
                     className="rounded-full bg-[color:rgba(var(--brand-rgb),0.16)] px-4 py-1.5 text-xs font-semibold text-[color:var(--text)] hover:bg-[color:rgba(var(--brand-rgb),0.24)] disabled:opacity-60"
                   >
-                    Regalar
+                    {supportSubmitting ? "Procesando..." : "Regalar"}
                   </button>
                   <button
                     type="button"
@@ -1255,9 +1279,10 @@ export function FanChatPage({
                 <button
                   type="button"
                   onClick={() => handleGiftConfirm(selectedGiftPack)}
-                  className="rounded-full bg-[color:rgba(var(--brand-rgb),0.16)] px-4 py-1.5 text-xs font-semibold text-[color:var(--text)] hover:bg-[color:rgba(var(--brand-rgb),0.24)]"
+                  disabled={supportSubmitting}
+                  className="rounded-full bg-[color:rgba(var(--brand-rgb),0.16)] px-4 py-1.5 text-xs font-semibold text-[color:var(--text)] hover:bg-[color:rgba(var(--brand-rgb),0.24)] disabled:opacity-60"
                 >
-                  Regalar
+                  {supportSubmitting ? "Procesando..." : "Regalar"}
                 </button>
                 <button
                   type="button"
