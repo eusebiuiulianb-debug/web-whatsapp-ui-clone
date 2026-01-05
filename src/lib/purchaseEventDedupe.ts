@@ -44,10 +44,14 @@ export function createPurchaseEventDedupe(options?: { ttlMs?: number; maxEntries
       const old = queue.shift();
       if (old) seen.delete(old);
     }
-    for (const [key, ts] of seen.entries()) {
+    const toDelete: string[] = [];
+    seen.forEach((ts, key) => {
       if (now - ts > ttlMs) {
-        seen.delete(key);
+        toDelete.push(key);
       }
+    });
+    for (let i = 0; i < toDelete.length; i += 1) {
+      seen.delete(toDelete[i]);
     }
   };
 
