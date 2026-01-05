@@ -2,6 +2,7 @@ import type { NextApiRequest, NextApiResponse } from "next";
 import prisma from "../../../lib/prisma.server";
 import { sendBadRequest, sendServerError } from "../../../lib/apiError";
 import { isGrantType, upsertAccessGrant } from "../../../lib/accessGrants";
+import { PACKS } from "../../../config/packs";
 
 async function getActiveGrantsForFan(fanId: string) {
   const now = new Date();
@@ -9,6 +10,14 @@ async function getActiveGrantsForFan(fanId: string) {
     where: { fanId, expiresAt: { gt: now } },
     orderBy: { createdAt: "desc" },
   });
+}
+
+function formatGrantPreview(type: string) {
+  const normalized = type.trim().toLowerCase();
+  if (normalized === "monthly") return `💶 ${PACKS.monthly.name} · ${PACKS.monthly.price}€`;
+  if (normalized === "special") return `💶 ${PACKS.special.name} · ${PACKS.special.price}€`;
+  if (normalized === "trial") return `💶 ${PACKS.trial.name} · ${PACKS.trial.price}€`;
+  return "💶 Suscripción";
 }
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
@@ -41,6 +50,21 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     });
 
     const activeGrants = await getActiveGrantsForFan(fanId);
+    const now = new Date();
+    const time = now.toLocaleTimeString("es-ES", {
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: false,
+    });
+    await prisma.fan.update({
+      where: { id: fanId },
+      data: {
+        lastActivityAt: now,
+        lastPurchaseAt: now,
+        preview: formatGrantPreview(type),
+        time,
+      },
+    });
 
     return res.status(200).json({ ok: true, grant, activeGrants });
   } catch (err) {

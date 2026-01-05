@@ -17,6 +17,12 @@ function normalizeClientTxnId(value: unknown): string | null {
   return trimmed.slice(0, MAX_CLIENT_TXN_ID);
 }
 
+function formatPurchasePreview(title: string | null, amount: number) {
+  const safeTitle = title?.trim() || "Extra";
+  const amountLabel = `${Math.round(amount)}€`;
+  return `🧾 ${safeTitle} · ${amountLabel}`;
+}
+
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method === "GET") {
     return handleGet(req, res);
@@ -104,6 +110,23 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
         productType: "EXTRA",
         sessionTag: typeof sessionTag === "string" && sessionTag.trim().length > 0 ? sessionTag.trim() : null,
         clientTxnId,
+      },
+      include: { contentItem: { select: { title: true } } },
+    });
+    const now = new Date();
+    const time = now.toLocaleTimeString("es-ES", {
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: false,
+    });
+    const preview = formatPurchasePreview(purchase.contentItem?.title ?? null, amountNumber);
+    await prisma.fan.update({
+      where: { id: fanId },
+      data: {
+        lastActivityAt: now,
+        lastPurchaseAt: now,
+        preview,
+        time,
       },
     });
 

@@ -21,6 +21,7 @@ import { parseReactionsRaw, useReactions } from "../../lib/emoji/reactions";
 import { getStickerById } from "../../lib/emoji/stickers";
 import { buildFanChatProps } from "../../lib/fanChatProps";
 import { generateClientTxnId } from "../../lib/clientTxn";
+import { emitPurchaseCreated } from "../../lib/events";
 import { buildStickerTokenFromItem, getStickerByToken, type StickerItem } from "../../lib/stickers";
 import { IconGlyph, type IconName } from "../../components/ui/IconGlyph";
 import { Badge, type BadgeTone } from "../../components/ui/Badge";
@@ -520,10 +521,11 @@ export function FanChatPage({
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(payload),
         });
+        const data = await res.json().catch(() => ({}));
         if (!res.ok) {
           return { ok: false, error: "No se pudo registrar el pago." };
         }
-        return { ok: true };
+        return { ok: true, purchase: data?.purchase };
       } catch (err) {
         console.error("Error recording support purchase", err);
         return { ok: false, error: "No se pudo registrar el pago." };
@@ -569,6 +571,14 @@ export function FanChatPage({
         setTipError(result.error ?? "No se pudo registrar la propina.");
         return;
       }
+      emitPurchaseCreated({
+        fanId,
+        amountCents: Math.round((result.purchase?.amount ?? amountValue) * 100),
+        kind: result.purchase?.kind ?? "TIP",
+        title: "Propina",
+        purchaseId: result.purchase?.id,
+        createdAt: result.purchase?.createdAt,
+      });
       const amountLabel = formatAmountLabel(amountValue);
       appendSystemMessage(`🎁 Has apoyado con ${amountLabel}`);
       closeMoneyModal();
@@ -607,6 +617,14 @@ export function FanChatPage({
           setGiftError(result.error ?? "No se pudo registrar el regalo.");
           return;
         }
+        emitPurchaseCreated({
+          fanId,
+          amountCents: Math.round((result.purchase?.amount ?? amountValue) * 100),
+          kind: result.purchase?.kind ?? "GIFT",
+          title: pack.name,
+          purchaseId: result.purchase?.id,
+          createdAt: result.purchase?.createdAt,
+        });
         await fetchAccessInfo(fanId);
         const priceLabel = normalizePriceLabel(pack.price);
         appendSystemMessage(`🎁 Has regalado ${pack.name} (${priceLabel})`);

@@ -12,7 +12,12 @@ import { getFollowUpTag, getUrgencyLevel, shouldFollowUpToday, isExpiredAccess }
 import { getFanDisplayNameForCreator } from "../../utils/fanDisplayName";
 import { PACKS } from "../../config/packs";
 import { ConversationContext, QueueFilter } from "../../context/ConversationContext";
-import { EXTRAS_UPDATED_EVENT, FAN_MESSAGE_SENT_EVENT } from "../../constants/events";
+import {
+  CREATOR_DATA_CHANGED_EVENT,
+  EXTRAS_UPDATED_EVENT,
+  FAN_MESSAGE_SENT_EVENT,
+  PURCHASE_CREATED_EVENT,
+} from "../../constants/events";
 import { HIGH_PRIORITY_LIMIT } from "../../config/customers";
 import { normalizePreferredLanguage } from "../../lib/language";
 import { getFanIdFromQuery, openFanChat } from "../../lib/navigation/openCreatorChat";
@@ -300,6 +305,13 @@ function SideBarInner() {
   const [ openFanToast, setOpenFanToast ] = useState("");
   const openFanToastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const openFanNotFoundRef = useRef<string | null>(null);
+  const fansRefetchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [ purchaseToast, setPurchaseToast ] = useState<{
+    fanId: string;
+    label: string;
+    amount: number;
+  } | null>(null);
+  const purchaseToastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
 
   const mapFans = useCallback((rawFans: Fan[]): ConversationListData[] => {
@@ -385,6 +397,38 @@ function SideBarInner() {
     openFanToastTimerRef.current = setTimeout(() => setOpenFanToast(""), 2200);
   }, []);
 
+  const playPurchaseSound = useCallback(() => {
+    if (typeof window === "undefined") return;
+    const enabled = window.localStorage.getItem("novsy:purchaseSound") === "1";
+    if (!enabled) return;
+    try {
+      const context = new AudioContext();
+      const osc = context.createOscillator();
+      const gain = context.createGain();
+      osc.type = "sine";
+      osc.frequency.value = 660;
+      gain.gain.value = 0.08;
+      osc.connect(gain);
+      gain.connect(context.destination);
+      osc.start();
+      osc.stop(context.currentTime + 0.12);
+    } catch (_err) {
+      // ignore audio errors
+    }
+  }, []);
+
+  const showPurchaseToast = useCallback(
+    (payload: { fanId: string; label: string; amount: number }) => {
+      setPurchaseToast(payload);
+      playPurchaseSound();
+      if (purchaseToastTimerRef.current) {
+        clearTimeout(purchaseToastTimerRef.current);
+      }
+      purchaseToastTimerRef.current = setTimeout(() => setPurchaseToast(null), 2600);
+    },
+    [playPurchaseSound]
+  );
+
   const hasFanListChanged = useCallback((prev: ConversationListData[], next: ConversationListData[]): boolean => {
     if (prev.length !== next.length) return true;
     const prevMap = new Map<string, ConversationListData>();
@@ -458,6 +502,12 @@ function SideBarInner() {
       if (openFanToastTimerRef.current) {
         clearTimeout(openFanToastTimerRef.current);
       }
+      if (fansRefetchTimerRef.current) {
+        clearTimeout(fansRefetchTimerRef.current);
+      }
+      if (purchaseToastTimerRef.current) {
+        clearTimeout(purchaseToastTimerRef.current);
+      }
     };
   }, []);
 
@@ -487,6 +537,12 @@ function SideBarInner() {
     },
     [router, setConversation]
   );
+
+  const handleOpenPurchaseFan = useCallback(() => {
+    if (!purchaseToast?.fanId) return;
+    const targetPath = router.pathname.startsWith("/creator/manager") ? "/creator" : router.pathname || "/creator";
+    openFanChat(router, purchaseToast.fanId, { shallow: true, scroll: false, pathname: targetPath });
+  }, [purchaseToast?.fanId, router]);
 
   const getLastActivityTimestamp = useCallback((fan: FanData): number => {
     if (fan.lastActivityAt) {
@@ -1198,6 +1254,18 @@ function SideBarInner() {
     [apiFilter, mapFans, search]
   );
 
+  const scheduleFansRefresh = useCallback(
+    (delay = 350) => {
+      if (fansRefetchTimerRef.current) {
+        clearTimeout(fansRefetchTimerRef.current);
+      }
+      fansRefetchTimerRef.current = setTimeout(() => {
+        void fetchFansPage();
+      }, delay);
+    },
+    [fetchFansPage]
+  );
+
   const fetchFanById = useCallback(
     async (fanId: string, options?: { signal?: AbortSignal }) => {
       if (!fanId) return null;
@@ -1397,7 +1465,7 @@ function SideBarInner() {
         | undefined;
       const fanId = typeof detail?.fanId === "string" ? detail.fanId : "";
       if (!fanId) {
-        fetchFansPage();
+        scheduleFansRefresh();
         return;
       }
       const now = new Date();
@@ -1437,6 +1505,79 @@ function SideBarInner() {
     };
     window.addEventListener(FAN_MESSAGE_SENT_EVENT, handleFanMessageSent as EventListener);
 
+    const handlePurchaseCreated = (event: Event) => {
+      const detail = (event as CustomEvent)?.detail as
+        | {
+            fanId?: string;
+            amountCents?: number;
+            kind?: string;
+            title?: string;
+            purchaseId?: string;
+            createdAt?: string;
+          }
+        | undefined;
+      const fanId = typeof detail?.fanId === "string" ? detail.fanId : "";
+      if (!fanId) return;
+      const amount = typeof detail?.amountCents === "number" ? detail.amountCents / 100 : 0;
+      const kind = (detail?.kind || "EXTRA").toString().toUpperCase();
+      const title = typeof detail?.title === "string" ? detail.title.trim() : "";
+      const timeValue = detail?.createdAt ? new Date(detail.createdAt) : new Date();
+      const safeTime = Number.isNaN(timeValue.getTime()) ? new Date() : timeValue;
+      const timeLabel = safeTime.toLocaleTimeString("es-ES", {
+        hour: "2-digit",
+        minute: "2-digit",
+        hour12: false,
+      });
+      const amountLabel = amount > 0 ? formatCurrency(amount) : "";
+      const previewBase =
+        kind === "TIP"
+          ? `💶 Propina ${amountLabel}`
+          : kind === "GIFT"
+          ? `🎁 Regalo ${title ? `${title} ` : ""}${amountLabel}`
+          : kind === "SUBSCRIPTION" || kind === "SUB"
+          ? `💶 Suscripción ${title ? `${title} ` : ""}${amountLabel}`
+          : `🧾 ${title ? `${title} ` : "Extra "}${amountLabel}`;
+      const preview = previewBase.trim();
+      const fanLabel = (fansRef.current.find((fan) => fan.id === fanId)?.contactName || "").trim();
+      if (fanLabel) {
+        showPurchaseToast({
+          fanId,
+          label: `+${amountLabel || "0€"} de ${fanLabel}`,
+          amount,
+        });
+      } else {
+        showPurchaseToast({
+          fanId,
+          label: `+${amountLabel || "0€"} recibido`,
+          amount,
+        });
+      }
+      setFans((prev) => {
+        const index = prev.findIndex((fan) => fan.id === fanId);
+        if (index === -1) return prev;
+        const current = prev[index];
+        const updated = {
+          ...current,
+          lastMessage: preview || current.lastMessage,
+          lastTime: timeLabel,
+          lastActivityAt: safeTime.toISOString(),
+        };
+        return [updated, ...prev.slice(0, index), ...prev.slice(index + 1)];
+      });
+      scheduleFansRefresh();
+      void refreshExtrasSummary();
+    };
+    window.addEventListener(PURCHASE_CREATED_EVENT, handlePurchaseCreated as EventListener);
+
+    const handleCreatorDataChanged = (event: Event) => {
+      const detail = (event as CustomEvent)?.detail as { fanId?: string } | undefined;
+      if (detail?.fanId) {
+        void fetchFanById(detail.fanId);
+      }
+      void refreshExtrasSummary();
+    };
+    window.addEventListener(CREATOR_DATA_CHANGED_EVENT, handleCreatorDataChanged as EventListener);
+
     const handleExternalFilter = (event: Event) => {
       const detail = (event as CustomEvent)?.detail as
         | {
@@ -1472,9 +1613,11 @@ function SideBarInner() {
       window.removeEventListener("fanDataUpdated", handleFanDataUpdated as EventListener);
       window.removeEventListener(EXTRAS_UPDATED_EVENT, handleExtrasUpdated as EventListener);
       window.removeEventListener(FAN_MESSAGE_SENT_EVENT, handleFanMessageSent as EventListener);
+      window.removeEventListener(PURCHASE_CREATED_EVENT, handlePurchaseCreated as EventListener);
+      window.removeEventListener(CREATOR_DATA_CHANGED_EVENT, handleCreatorDataChanged as EventListener);
       window.removeEventListener("applyChatFilter", handleExternalFilter as EventListener);
     };
-  }, [applyFilter, fetchFanById, fetchFansPage, mapFans, refreshExtrasSummary]);
+  }, [applyFilter, fetchFanById, fetchFansPage, mapFans, refreshExtrasSummary, scheduleFansRefresh, showPurchaseToast]);
 
   useEffect(() => {
     const fanIdFromQuery = getFanIdFromQuery({ fan: queryFan, fanId: queryFanId });
@@ -1596,6 +1739,20 @@ function SideBarInner() {
         {openFanToast && (
           <div className="mb-2 rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-3 py-2 text-[11px] text-[color:var(--muted)]">
             {openFanToast}
+          </div>
+        )}
+        {purchaseToast && (
+          <div className="mb-2 rounded-xl border border-[color:rgba(34,197,94,0.4)] bg-[color:rgba(34,197,94,0.1)] px-3 py-2 text-[11px] text-[color:var(--text)]">
+            <div className="flex items-center justify-between gap-2">
+              <span className="font-semibold">{purchaseToast.label}</span>
+              <button
+                type="button"
+                onClick={handleOpenPurchaseFan}
+                className="rounded-full border border-[color:rgba(34,197,94,0.5)] bg-[color:rgba(34,197,94,0.16)] px-2 py-0.5 text-[10px] font-semibold hover:bg-[color:rgba(34,197,94,0.24)]"
+              >
+                Abrir chat
+              </button>
+            </div>
           </div>
         )}
         {isLoading ? (

@@ -129,6 +129,15 @@ function resolveGiftGrantType(packId: unknown, packName: unknown, amount: number
   return null;
 }
 
+function formatSupportPreview(kind: SupportKind, packName: string | null, amount: number) {
+  const amountLabel = `${Math.round(amount)}€`;
+  if (kind === "TIP") {
+    return `💶 Propina · ${amountLabel}`;
+  }
+  const title = packName?.trim() || "Regalo";
+  return `🎁 ${title} · ${amountLabel}`;
+}
+
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== "POST") {
     res.setHeader("Allow", ["POST"]);
@@ -164,7 +173,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     if (clientTxnId) {
       const existing = await prisma.extraPurchase.findUnique({
         where: { clientTxnId },
-        select: { id: true, kind: true, amount: true },
+        select: { id: true, kind: true, amount: true, createdAt: true },
       });
       if (existing) {
         return res.status(200).json({ ok: true, purchase: existing, reused: true });
@@ -207,13 +216,31 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       return created;
     });
 
-    return res.status(201).json({ ok: true, purchase: { id: purchase.id, kind: purchase.kind, amount: purchase.amount } });
+    const time = now.toLocaleTimeString("es-ES", {
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: false,
+    });
+    await prisma.fan.update({
+      where: { id: fanId },
+      data: {
+        lastActivityAt: now,
+        lastPurchaseAt: now,
+        preview: formatSupportPreview(kind, typeof packName === "string" ? packName : null, amount),
+        time,
+      },
+    });
+
+    return res.status(201).json({
+      ok: true,
+      purchase: { id: purchase.id, kind: purchase.kind, amount: purchase.amount, createdAt: purchase.createdAt },
+    });
   } catch (error) {
     const code = (error as { code?: string }).code;
     if (code === "P2002" && clientTxnId) {
       const existing = await prisma.extraPurchase.findUnique({
         where: { clientTxnId },
-        select: { id: true, kind: true, amount: true },
+        select: { id: true, kind: true, amount: true, createdAt: true },
       });
       if (existing) {
         return res.status(200).json({ ok: true, purchase: existing, reused: true });

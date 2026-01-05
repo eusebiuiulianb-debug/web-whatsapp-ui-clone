@@ -47,7 +47,7 @@ import { ChatComposerBar } from "../ChatComposerBar";
 import { EmojiPicker } from "../EmojiPicker";
 import { PillButton } from "../ui/PillButton";
 import { IconGlyph } from "../ui/IconGlyph";
-import { FAN_MESSAGE_SENT_EVENT } from "../../constants/events";
+import { CREATOR_DATA_CHANGED_EVENT, FAN_MESSAGE_SENT_EVENT, PURCHASE_CREATED_EVENT } from "../../constants/events";
 import {
   CreatorPlatformKey,
   CreatorPlatforms,
@@ -1511,9 +1511,17 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
       setSegmentsRefreshToken((prev) => prev + 1);
       setSalesRetry((prev) => prev + 1);
     };
+    const handleCreatorDataChanged = () => {
+      setSegmentsRefreshToken((prev) => prev + 1);
+      setSalesRetry((prev) => prev + 1);
+    };
     window.addEventListener(FAN_MESSAGE_SENT_EVENT, handleFanMessageSent as EventListener);
+    window.addEventListener(CREATOR_DATA_CHANGED_EVENT, handleCreatorDataChanged as EventListener);
+    window.addEventListener(PURCHASE_CREATED_EVENT, handleCreatorDataChanged as EventListener);
     return () => {
       window.removeEventListener(FAN_MESSAGE_SENT_EVENT, handleFanMessageSent as EventListener);
+      window.removeEventListener(CREATOR_DATA_CHANGED_EVENT, handleCreatorDataChanged as EventListener);
+      window.removeEventListener(PURCHASE_CREATED_EVENT, handleCreatorDataChanged as EventListener);
     };
   }, []);
   const catalogItemsSorted = useMemo(

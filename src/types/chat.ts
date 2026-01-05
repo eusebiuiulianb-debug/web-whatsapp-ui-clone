@@ -123,7 +123,7 @@ export interface Message {
   creatorTranslatedText?: string | null;
   time: string;
   isLastFromCreator?: boolean;
-  type?: "TEXT" | "CONTENT" | "STICKER";
+  type?: "TEXT" | "CONTENT" | "STICKER" | "SYSTEM";
   stickerId?: string | null;
   contentItem?: {
     id: string;

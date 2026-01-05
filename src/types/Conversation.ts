@@ -12,8 +12,8 @@ interface Message {
   time?: string;
   createdAt?: string;
   status?: "sending" | "failed" | "sent";
-  kind?: "text" | "content" | "sticker";
-  type?: "TEXT" | "CONTENT" | "STICKER";
+  kind?: "text" | "content" | "sticker" | "system";
+  type?: "TEXT" | "CONTENT" | "STICKER" | "SYSTEM";
   stickerId?: string | null;
   stickerSrc?: string | null;
   stickerAlt?: string | null;

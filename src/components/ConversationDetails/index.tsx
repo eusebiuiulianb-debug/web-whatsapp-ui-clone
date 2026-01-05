@@ -31,7 +31,13 @@ import { ChatComposerBar } from "../ChatComposerBar";
 import { getFanDisplayNameForCreator } from "../../utils/fanDisplayName";
 import { ContentItem, getContentTypeLabel, getContentVisibilityLabel } from "../../types/content";
 import { getTimeOfDayTag } from "../../utils/contentTags";
-import { EXTRAS_UPDATED_EVENT, FAN_MESSAGE_SENT_EVENT } from "../../constants/events";
+import {
+  emitCreatorDataChanged,
+  emitExtrasUpdated,
+  emitFanMessageSent,
+  emitPurchaseCreated,
+  PURCHASE_CREATED_EVENT,
+} from "../../lib/events";
 import { AiTone, normalizeTone, ACTION_TYPE_FOR_USAGE } from "../../lib/aiQuickExtra";
 import { AiTemplateUsage, AiTurnMode } from "../../lib/aiTemplateTypes";
 import { normalizeAiTurnMode } from "../../lib/aiSettings";
@@ -618,6 +624,12 @@ export default function ConversationDetails({ onBackToBoard }: ConversationDetai
   const [ fanSendCooldownById, setFanSendCooldownById ] = useState<
     Record<string, { until: number; phase: "sent" | "cooldown" }>
   >({});
+
+  function formatCurrency(value: number) {
+    const rounded = Math.round((value ?? 0) * 100) / 100;
+    return `${rounded % 1 === 0 ? rounded.toFixed(0) : rounded.toFixed(2)} €`;
+  }
+
   const [ cortexFlow, setCortexFlow ] = useState<CortexFlowState | null>(null);
   const [ cortexFlowAutoNext, setCortexFlowAutoNext ] = useState(true);
   const [ purchaseHistory, setPurchaseHistory ] = useState<
@@ -931,14 +943,60 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
     return null;
   }
 
-  const scrollToBottom = (behavior: ScrollBehavior = "smooth") => {
+  const scrollToBottom = useCallback((behavior: ScrollBehavior = "smooth") => {
     const el = messagesContainerRef.current;
     if (!el) return;
     el.scrollTo({
       top: el.scrollHeight - el.clientHeight,
       behavior,
     });
-  };
+  }, []);
+
+  const appendPurchaseSystemMessage = useCallback(
+    (payload: {
+      fanId: string;
+      amountCents: number;
+      kind: string;
+      title?: string;
+      purchaseId?: string;
+      createdAt?: string;
+    }) => {
+      if (!payload?.fanId || payload.fanId !== id) return;
+      const amount = payload.amountCents ? payload.amountCents / 100 : 0;
+      const amountLabel = formatCurrency(amount);
+      const kind = payload.kind?.toString().toUpperCase() ?? "EXTRA";
+      const title = payload.title?.trim() ?? "";
+      const fanName = getFanDisplayNameForCreator(conversation) || contactName || "El fan";
+      const text =
+        kind === "TIP"
+          ? `💶 ${fanName} ha apoyado con ${amountLabel}`
+          : kind === "GIFT"
+          ? `🎁 ${fanName} ha regalado ${title || "un regalo"} (${amountLabel})`
+          : kind === "SUBSCRIPTION" || kind === "SUB"
+          ? `💶 ${fanName} ha activado ${title || "una suscripción"} (${amountLabel})`
+          : `🧾 ${fanName} ha comprado ${title || "un extra"} (${amountLabel})`;
+      const messageId =
+        payload.purchaseId ||
+        `purchase-${payload.fanId}-${payload.createdAt || payload.amountCents || Date.now()}`;
+      setMessage((prev) => {
+        const list = prev || [];
+        if (list.some((item) => item.id === messageId)) return list;
+        return [
+          ...list,
+          {
+            id: messageId,
+            fanId: payload.fanId,
+            me: false,
+            message: text,
+            kind: "system",
+            type: "SYSTEM",
+          },
+        ];
+      });
+      scrollToBottom("auto");
+    },
+    [contactName, conversation, id, scrollToBottom, setMessage]
+  );
 
   const captureChatScrollForPanelToggle = useCallback(() => {
     const el = messagesContainerRef.current;
@@ -1979,6 +2037,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
     sessionTag,
     source,
     clientTxnId,
+    title,
   }: {
     fanId: string;
     extraId: string;
@@ -1987,6 +2046,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
     sessionTag?: string | null;
     source?: string | null;
     clientTxnId?: string | null;
+    title?: string | null;
   }): Promise<{ ok: boolean; error?: string }> {
     if (!fanId || !extraId) return { ok: false, error: "Datos incompletos." };
     try {
@@ -2004,8 +2064,9 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
       });
-      if (!res.ok) {
-        const errText = await res.text();
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data?.ok) {
+        const errText = typeof data?.error === "string" ? data.error : "";
         return { ok: false, error: errText || "No se pudo registrar el extra." };
       }
       const prevExtrasCount = conversation.extrasCount ?? 0;
@@ -2027,23 +2088,26 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
       });
       await refreshFanData(fanId);
       await fetchExtrasHistory(fanId);
-      if (typeof window !== "undefined") {
-        window.dispatchEvent(
-          new CustomEvent(EXTRAS_UPDATED_EVENT, {
-            detail: {
-              fanId,
-              totals: {
-                extrasCount: updatedExtrasCount,
-                extrasSpentTotal: updatedExtrasTotal,
-                lifetimeSpend: updatedLifetime,
-                lifetimeValue: updatedLifetime,
-                customerTier: updatedTier,
-                isHighPriority: updatedHighPriority,
-              },
-            },
-          })
-        );
-      }
+      const purchase = data?.purchase as { id?: string; kind?: string; amount?: number; createdAt?: string } | undefined;
+      emitExtrasUpdated({
+        fanId,
+        totals: {
+          extrasCount: updatedExtrasCount,
+          extrasSpentTotal: updatedExtrasTotal,
+          lifetimeSpend: updatedLifetime,
+          lifetimeValue: updatedLifetime,
+          customerTier: updatedTier,
+          isHighPriority: updatedHighPriority,
+        },
+      });
+      emitPurchaseCreated({
+        fanId,
+        amountCents: Math.round((purchase?.amount ?? amount) * 100),
+        kind: purchase?.kind ?? "EXTRA",
+        title: title ?? undefined,
+        purchaseId: purchase?.id,
+        createdAt: typeof purchase?.createdAt === "string" ? purchase.createdAt : undefined,
+      });
       return { ok: true };
     } catch (_err) {
       return { ok: false, error: "No se pudo registrar el extra." };
@@ -2362,7 +2426,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
         void fetchHistory(fanId);
       }
       if (typeof window !== "undefined") {
-        window.dispatchEvent(new CustomEvent(EXTRAS_UPDATED_EVENT, { detail: { fanId } }));
+        emitCreatorDataChanged({ reason: "purchase_archived_or_restored", fanId });
       }
       showComposerToast(finalArchived ? "Compra archivada" : "Compra restaurada");
     } catch (err) {
@@ -2555,6 +2619,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
     return apiMessages.map((msg) => {
       const isContent = msg.type === "CONTENT";
       const isLegacySticker = msg.type === "STICKER";
+      const isSystem = msg.type === "SYSTEM";
       const tokenSticker = !isContent && !isLegacySticker ? getStickerByToken(msg.text ?? "") : null;
       const isSticker = isLegacySticker || Boolean(tokenSticker);
       const sticker = isLegacySticker ? getStickerById(msg.stickerId ?? null) : null;
@@ -2563,7 +2628,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
       return {
         id: msg.id,
         fanId: msg.fanId,
-        me: msg.from === "creator",
+        me: isSystem ? false : msg.from === "creator",
         message: msg.text ?? "",
         translatedText: isSticker ? undefined : msg.creatorTranslatedText ?? undefined,
         audience: deriveAudience(msg),
@@ -2571,7 +2636,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
         time: msg.time || "",
         createdAt: (msg as any)?.createdAt ?? undefined,
         status: "sent",
-        kind: isContent ? "content" : isSticker ? "sticker" : "text",
+        kind: isSystem ? "system" : isContent ? "content" : isSticker ? "sticker" : "text",
         type: msg.type,
         stickerId: isLegacySticker ? msg.stickerId ?? null : null,
         stickerSrc,
@@ -3034,6 +3099,35 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
       window.removeEventListener("novsy:conversation:changing", handleConversationChanging as EventListener);
     };
   }, [closeOverlays]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const handlePurchaseCreated = (event: Event) => {
+      const detail = (event as CustomEvent)?.detail as
+        | {
+            fanId?: string;
+            amountCents?: number;
+            kind?: string;
+            title?: string;
+            purchaseId?: string;
+            createdAt?: string;
+          }
+        | undefined;
+      if (!detail?.fanId || typeof detail.amountCents !== "number" || !detail.kind) return;
+      appendPurchaseSystemMessage({
+        fanId: detail.fanId,
+        amountCents: detail.amountCents,
+        kind: detail.kind,
+        title: detail.title,
+        purchaseId: detail.purchaseId,
+        createdAt: detail.createdAt,
+      });
+    };
+    window.addEventListener(PURCHASE_CREATED_EVENT, handlePurchaseCreated as EventListener);
+    return () => {
+      window.removeEventListener(PURCHASE_CREATED_EVENT, handlePurchaseCreated as EventListener);
+    };
+  }, [appendPurchaseSystemMessage]);
 
   useEffect(() => {
     const handleRouteChange = () => {
@@ -6463,20 +6557,13 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
       showComposerToast("Sticker enviado");
       setSchemaError(null);
       startFanSendCooldown(id);
-      try {
-        window.dispatchEvent(
-          new CustomEvent(FAN_MESSAGE_SENT_EVENT, {
-            detail: {
-              fanId: id,
-              text: stickerLabel,
-              kind: "sticker",
-              sentAt: new Date().toISOString(),
-            },
-          })
-        );
-      } catch (_err) {
-        // ignore event errors
-      }
+      emitFanMessageSent({
+        fanId: id,
+        text: stickerLabel,
+        kind: "sticker",
+        sentAt: new Date().toISOString(),
+      });
+      emitCreatorDataChanged({ reason: "fan_message_sent", fanId: id });
     } catch (err) {
       console.error("Error enviando sticker", err);
       setMessagesError("Error enviando sticker");
@@ -6532,21 +6619,14 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
           preview,
         });
         startFanSendCooldown(id);
-        try {
-          window.dispatchEvent(
-            new CustomEvent(FAN_MESSAGE_SENT_EVENT, {
-              detail: {
-                fanId: id,
-                actionKey: currentActionKey ?? undefined,
-                text: trimmed,
-                kind: "text",
-                sentAt: new Date().toISOString(),
-              },
-            })
-          );
-        } catch (_err) {
-          // ignore event errors
-        }
+        emitFanMessageSent({
+          fanId: id,
+          actionKey: currentActionKey ?? undefined,
+          text: trimmed,
+          kind: "text",
+          sentAt: new Date().toISOString(),
+        });
+        emitCreatorDataChanged({ reason: "fan_message_sent", fanId: id });
         const flow = readCortexFlow();
         if (flow && flow.currentFanId === id) {
           const autoNext = flow.autoNext ?? true;
@@ -6786,6 +6866,20 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
       setSelectedPackType(type);
       setShowPackSelector(true);
       await refreshFanData(id);
+      const amount =
+        type === "monthly" ? PACKS.monthly.price : type === "special" ? PACKS.special.price : PACKS.trial.price;
+      emitPurchaseCreated({
+        fanId: id,
+        amountCents: Math.round(amount * 100),
+        kind: "SUBSCRIPTION",
+        title:
+          type === "monthly"
+            ? PACKS.monthly.name
+            : type === "special"
+            ? PACKS.special.name
+            : PACKS.trial.name,
+        createdAt: new Date().toISOString(),
+      });
     } catch (err) {
       console.error("Error actualizando acceso", err);
       alert("Error actualizando acceso");
@@ -8379,6 +8473,15 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
               </div>
             )}
             {messages.map((messageConversation, index) => {
+              if (messageConversation.kind === "system") {
+                return (
+                  <div key={messageConversation.id || index} className="flex justify-center">
+                    <div className="rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-3 py-1 text-[11px] font-semibold text-[color:var(--muted)] text-center">
+                      {messageConversation.message}
+                    </div>
+                  </div>
+                );
+              }
               if (messageConversation.kind === "content") {
                 return (
                   <ContentAttachmentCard
@@ -8672,6 +8775,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
                                 sessionTag,
                                 source: "manual_panel",
                                 clientTxnId: generateClientTxnId(),
+                                title: item.title,
                               });
                               if (!result.ok) {
                                 setExtraError(result.error || "No se pudo registrar el extra.");
@@ -9446,6 +9550,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
                           sessionTag,
                           source: registerExtrasSource ?? "offer_flow",
                           clientTxnId: generateClientTxnId(),
+                          title: item.title,
                         });
                         if (!result.ok) {
                           failed.push(item.title || "Extra");
@@ -9461,20 +9566,13 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
                           ? sentItems[0]?.title || "Contenido compartido"
                           : `Contenido compartido (${sentItems.length})`;
                       startFanSendCooldown(id);
-                      try {
-                        window.dispatchEvent(
-                          new CustomEvent(FAN_MESSAGE_SENT_EVENT, {
-                            detail: {
-                              fanId: id,
-                              text: previewLabel,
-                              kind: "content",
-                              sentAt: new Date().toISOString(),
-                            },
-                          })
-                        );
-                      } catch (_err) {
-                        // ignore event errors
-                      }
+                      emitFanMessageSent({
+                        fanId: id,
+                        text: previewLabel,
+                        kind: "content",
+                        sentAt: new Date().toISOString(),
+                      });
+                      emitCreatorDataChanged({ reason: "fan_message_sent", fanId: id });
                     }
                     setShowContentModal(false);
                     setSelectedContentIds([]);
