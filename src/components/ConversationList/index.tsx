@@ -373,7 +373,6 @@ export default function ConversationList(props: ConversationListProps) {
                 key={`${purchaseBadgeLabel}-${unseenPurchaseCount}`}
                 tone="accent"
                 size="sm"
-                leftGlyph="coin"
                 className="novsy-purchase-pill novsy-pop"
               >
                 {purchaseBadgeLabel}

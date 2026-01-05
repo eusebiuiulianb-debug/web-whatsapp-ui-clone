@@ -23,6 +23,7 @@ import { HIGH_PRIORITY_LIMIT } from "../../config/customers";
 import { normalizePreferredLanguage } from "../../lib/language";
 import { getFanIdFromQuery, openFanChat } from "../../lib/navigation/openCreatorChat";
 import { clearUnseenPurchase, getUnseenPurchases, recordUnseenPurchase, type PurchaseNotice } from "../../lib/unseenPurchases";
+import { formatPurchaseUI } from "../../lib/purchaseUi";
 import { IconGlyph } from "../ui/IconGlyph";
 import { Chip } from "../ui/Chip";
 
@@ -310,6 +311,7 @@ function SideBarInner() {
   const fansRefetchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [ purchaseToast, setPurchaseToast ] = useState<{
     fanId: string;
+    icon: string;
     label: string;
     amount: number;
     purchaseIds: string[];
@@ -422,7 +424,7 @@ function SideBarInner() {
   }, []);
 
   const showPurchaseToast = useCallback(
-    (payload: { fanId: string; label: string; amount: number; purchaseIds: string[] }) => {
+    (payload: { fanId: string; icon: string; label: string; amount: number; purchaseIds: string[] }) => {
       setPurchaseToast(payload);
       playPurchaseSound();
       if (purchaseToastTimerRef.current) {
@@ -1488,7 +1490,9 @@ function SideBarInner() {
       const rawText = typeof detail?.text === "string" ? detail.text.trim() : "";
       const preview =
         rawText ||
-        (detail?.kind === "sticker"
+        (detail?.kind === "audio"
+          ? "🎤 Nota de voz"
+          : detail?.kind === "sticker"
           ? "Sticker"
           : detail?.kind === "content"
           ? "Contenido compartido"
@@ -1564,13 +1568,20 @@ function SideBarInner() {
           createdAt: safeTime.toISOString(),
         });
         if (unseenNotice) {
+          const ui = formatPurchaseUI({
+            kind: detail?.kind,
+            amountCents: unseenNotice.totalAmountCents,
+            fanName: fanLabel || undefined,
+            viewer: "creator",
+          });
           setUnseenPurchaseByFan((prev) => ({
             ...prev,
             [fanId]: unseenNotice,
           }));
           showPurchaseToast({
             fanId,
-            label: fanLabel ? `+${amountLabel || "0€"} de ${fanLabel}` : `+${amountLabel || "0€"} recibido`,
+            icon: ui.icon,
+            label: ui.toastLabel,
             amount,
             purchaseIds: unseenNotice.purchaseIds,
           });
@@ -1730,9 +1741,12 @@ function SideBarInner() {
   }
 
   function getPurchaseBadgeLabel(notice: PurchaseNotice) {
-    const amount = typeof notice.totalAmountCents === "number" ? notice.totalAmountCents / 100 : 0;
-    const amountLabel = amount > 0 ? formatCurrency(amount) : "€";
-    return `+${amountLabel}`;
+    const ui = formatPurchaseUI({
+      kind: notice.last.kind,
+      amountCents: notice.totalAmountCents,
+      viewer: "creator",
+    });
+    return `${ui.icon} ${ui.badgeLabel}`;
   }
 
   const handleOpenManagerPanel = useCallback((_item?: ConversationListData) => {
@@ -1800,9 +1814,7 @@ function SideBarInner() {
           <div className="mb-2 rounded-xl border border-[color:rgba(34,197,94,0.4)] bg-[color:rgba(34,197,94,0.1)] px-3 py-2 text-[11px] text-[color:var(--text)] novsy-pop">
             <div className="flex items-center justify-between gap-2">
               <div className="flex items-center gap-2">
-                <span className="inline-flex h-6 w-6 items-center justify-center rounded-full border border-[color:rgba(34,197,94,0.5)] bg-[color:rgba(34,197,94,0.16)] text-[color:var(--brand)]">
-                  <IconGlyph name="coin" className="h-3.5 w-3.5" ariaHidden />
-                </span>
+                <span className="text-base leading-none">{purchaseToast.icon}</span>
                 <span className="font-semibold">{purchaseToast.label}</span>
               </div>
               <button

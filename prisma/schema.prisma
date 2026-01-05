@@ -156,6 +156,10 @@ model Message {
   contentItemId     String?
   contentItem       ContentItem? @relation("MessageContentItems", fields: [contentItemId], references: [id])
   stickerId         String?
+  audioUrl          String?
+  audioDurationMs   Int?
+  audioMime         String?
+  audioSizeBytes    Int?
 }
 
 model ContentItem {
@@ -315,6 +319,7 @@ enum MessageType {
   TEXT
   CONTENT
   STICKER
+  AUDIO
 }
 
 enum MessageAudience {

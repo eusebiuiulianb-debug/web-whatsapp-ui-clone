@@ -123,8 +123,12 @@ export interface Message {
   creatorTranslatedText?: string | null;
   time: string;
   isLastFromCreator?: boolean;
-  type?: "TEXT" | "CONTENT" | "STICKER" | "SYSTEM";
+  type?: "TEXT" | "CONTENT" | "STICKER" | "SYSTEM" | "AUDIO";
   stickerId?: string | null;
+  audioUrl?: string | null;
+  audioDurationMs?: number | null;
+  audioMime?: string | null;
+  audioSizeBytes?: number | null;
   contentItem?: {
     id: string;
     title: string;
