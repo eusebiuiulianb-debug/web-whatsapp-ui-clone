@@ -35,6 +35,16 @@ function truncateSnippet(text: string | null | undefined, max = 80): string | nu
   return `${trimmed.slice(0, max - 1)}…`;
 }
 
+function resolvePurchaseTitle(sessionTag?: string | null, contentTitle?: string | null): string | null {
+  const title = contentTitle?.trim() ?? "";
+  if (title) return title;
+  const raw = typeof sessionTag === "string" ? sessionTag.trim() : "";
+  if (!raw) return null;
+  const parts = raw.split(":");
+  const candidate = parts.length > 1 ? parts.slice(1).join(":").trim() : raw;
+  return candidate || null;
+}
+
 function normalizeNoteValue(value: string | null | undefined): string | null {
   if (!value) return null;
   const trimmed = value.trim();
@@ -272,31 +282,72 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
     const fanIds = fans.map((fan) => fan.id);
     const creatorId = fans[0]?.creatorId || "creator-1";
-    type ExtraPurchaseRow = { amount: number | null; createdAt: Date; tier: string; kind?: string | null };
+    type ExtraPurchaseRow = {
+      id: string;
+      amount: number | null;
+      createdAt: Date;
+      tier: string;
+      kind?: string | null;
+      contentTitle?: string | null;
+      sessionTag?: string | null;
+    };
     type ExtraStats = { purchases: ExtraPurchaseRow[]; maxTier: string | null };
     const extrasByFan = new Map<string, ExtraStats>();
     const purchasesByFan = new Map<string, ExtraPurchaseRow[]>();
+    const latestPurchaseByFan = new Map<string, { id: string; kind?: string | null; amount: number | null; createdAt: Date; title?: string | null }>();
 
     if (fanIds.length > 0) {
       try {
         const purchases = await prisma.extraPurchase.findMany({
           where: { fanId: { in: fanIds }, amount: { gt: 0 }, isArchived: false },
-          select: { fanId: true, amount: true, tier: true, createdAt: true, kind: true },
+          select: {
+            fanId: true,
+            id: true,
+            amount: true,
+            tier: true,
+            createdAt: true,
+            kind: true,
+            sessionTag: true,
+            contentItem: { select: { title: true } },
+          },
         });
         const tierPriority: Record<string, number> = { T0: 0, T1: 1, T2: 2, T3: 3, T4: 4 };
         for (const purchase of purchases) {
           const kind = purchase.kind ?? "EXTRA";
           const allPurchases = purchasesByFan.get(purchase.fanId) ?? [];
+          const contentTitle = purchase.contentItem?.title ?? null;
+          const resolvedTitle = resolvePurchaseTitle(purchase.sessionTag, contentTitle);
           allPurchases.push({
+            id: purchase.id,
             amount: purchase.amount ?? 0,
             createdAt: purchase.createdAt,
             tier: purchase.tier,
             kind: purchase.kind ?? null,
+            contentTitle,
+            sessionTag: purchase.sessionTag ?? null,
           });
           purchasesByFan.set(purchase.fanId, allPurchases);
+          const latest = latestPurchaseByFan.get(purchase.fanId);
+          if (!latest || purchase.createdAt.getTime() > latest.createdAt.getTime()) {
+            latestPurchaseByFan.set(purchase.fanId, {
+              id: purchase.id,
+              kind: purchase.kind ?? "EXTRA",
+              amount: purchase.amount ?? 0,
+              createdAt: purchase.createdAt,
+              title: resolvedTitle ?? null,
+            });
+          }
           if (kind !== "EXTRA") continue;
           const current = extrasByFan.get(purchase.fanId) ?? { purchases: [], maxTier: null };
-          current.purchases.push({ amount: purchase.amount ?? 0, createdAt: purchase.createdAt, tier: purchase.tier, kind: purchase.kind ?? null });
+          current.purchases.push({
+            id: purchase.id,
+            amount: purchase.amount ?? 0,
+            createdAt: purchase.createdAt,
+            tier: purchase.tier,
+            kind: purchase.kind ?? null,
+            contentTitle,
+            sessionTag: purchase.sessionTag ?? null,
+          });
           const shouldUpdateTier =
             current.maxTier === null || (tierPriority[purchase.tier] ?? 0) > (tierPriority[current.maxTier] ?? 0);
           const nextTier = shouldUpdateTier ? purchase.tier : current.maxTier;
@@ -376,6 +427,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       const paidGrantsCount = paidGrants.length;
       const extrasInfo = extrasByFan.get(fan.id) ?? { purchases: [], maxTier: null };
       const allPurchases = purchasesByFan.get(fan.id) ?? [];
+      const latestPurchase = latestPurchaseByFan.get(fan.id) ?? null;
       const purchaseTotals = computeFanTotals(allPurchases);
       const monetization = buildFanMonetizationSummaryFromFan({
         accessGrants: fan.accessGrants,
@@ -539,6 +591,15 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         tipsSpentTotal: purchaseTotals.tipsAmount,
         giftsCount: monetization.gifts.count,
         giftsSpentTotal: purchaseTotals.giftsAmount,
+        lastPurchase: latestPurchase
+          ? {
+              id: latestPurchase.id,
+              kind: latestPurchase.kind ?? "EXTRA",
+              amount: latestPurchase.amount ?? 0,
+              createdAt: latestPurchase.createdAt ? latestPurchase.createdAt.toISOString() : null,
+              title: latestPurchase.title ?? null,
+            }
+          : null,
         maxExtraTier: extrasInfo.maxTier,
         novsyStatus,
         isHighPriority,

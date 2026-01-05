@@ -26,7 +26,10 @@ export function deriveAudience(message: { audience?: string | null; from?: strin
   return "INTERNAL";
 }
 
-export function isVisibleToFan(message: { audience?: string | null; from?: string | null }): boolean {
+export function isVisibleToFan(message: { audience?: string | null; from?: string | null; type?: string | null }): boolean {
+  if (message?.type === "SYSTEM") {
+    return normalizeAudience(message.audience) !== "INTERNAL";
+  }
   const audience = deriveAudience(message);
   return audience === "FAN" || audience === "CREATOR";
 }

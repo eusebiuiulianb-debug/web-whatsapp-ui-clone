@@ -100,6 +100,13 @@ export interface Fan {
   firstUtmCampaign?: string | null;
   firstUtmContent?: string | null;
   firstUtmTerm?: string | null;
+  lastPurchase?: {
+    id: string;
+    kind?: string | null;
+    amount?: number | null;
+    createdAt?: string | null;
+    title?: string | null;
+  } | null;
 }
 
 export interface FanFollowUp {

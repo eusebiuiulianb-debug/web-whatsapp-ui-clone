@@ -34,6 +34,11 @@ export const getServerSideProps: GetServerSideProps<InviteChatProps> = async ({ 
     const data = await inviteRes.json();
     const fanId = typeof data?.fanId === "string" ? data.fanId : "";
     const creatorHandle = typeof data?.creatorHandle === "string" ? data.creatorHandle : "";
+    const initialMessages = Array.isArray(data?.messages)
+      ? data.messages
+      : Array.isArray(data?.items)
+      ? data.items
+      : [];
     if (!fanId) {
       return { notFound: true };
     }
@@ -47,6 +52,7 @@ export const getServerSideProps: GetServerSideProps<InviteChatProps> = async ({ 
         fanIdOverride: fanId,
         inviteOverride: true,
         forceAccessRefresh: true,
+        initialMessages,
       },
     };
   } catch (error) {

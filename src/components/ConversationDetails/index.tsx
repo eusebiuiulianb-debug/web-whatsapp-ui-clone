@@ -61,6 +61,7 @@ import { parseReactionsRaw, useReactions } from "../../lib/emoji/reactions";
 import { computeFanTotals } from "../../lib/fanTotals";
 import { generateClientTxnId } from "../../lib/clientTxn";
 import { formatPurchaseUI } from "../../lib/purchaseUi";
+import { createPurchaseEventDedupe, resolvePurchaseEventId } from "../../lib/purchaseEventDedupe";
 import { formatNextActionLabel, formatWhen, isGenericNextActionNote } from "../../lib/nextActionLabel";
 import {
   buildCatalogPitch,
@@ -649,6 +650,7 @@ export default function ConversationDetails({ onBackToBoard }: ConversationDetai
   const [ internalToast, setInternalToast ] = useState<string | null>(null);
   const purchaseNoticeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const purchaseNoticeShownAtRef = useRef(0);
+  const purchaseEventDedupeRef = useRef(createPurchaseEventDedupe());
   const internalToastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [ isVoiceRecording, setIsVoiceRecording ] = useState(false);
   const [ voiceRecordingMs, setVoiceRecordingMs ] = useState(0);
@@ -3417,9 +3419,12 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
             title?: string;
             purchaseId?: string;
             createdAt?: string;
+            eventId?: string;
           }
         | undefined;
       if (!detail?.fanId || typeof detail.amountCents !== "number" || !detail.kind) return;
+      const eventId = resolvePurchaseEventId(detail);
+      if (!purchaseEventDedupeRef.current.shouldProcess(eventId)) return;
       appendPurchaseSystemMessage({
         fanId: detail.fanId,
         amountCents: detail.amountCents,
@@ -8849,7 +8854,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
               </div>
             )}
             {purchaseNotice && (
-              <div className="mb-3 flex justify-center">
+              <div className="mb-3 flex justify-center sticky top-3 z-20">
                 <div className="rounded-2xl border border-[color:rgba(34,197,94,0.4)] bg-[color:rgba(34,197,94,0.08)] px-4 py-2 text-[11px] text-[color:var(--text)] novsy-pop">
                   <div className="flex items-center gap-2 font-semibold">
                     <span className="text-base leading-none">{purchaseNoticeIcon}</span>

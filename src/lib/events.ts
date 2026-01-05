@@ -32,6 +32,7 @@ export type PurchaseCreatedPayload = {
   title?: string;
   purchaseId?: string;
   createdAt?: string;
+  eventId?: string;
 };
 
 export type PurchaseSeenPayload = {
@@ -66,10 +67,15 @@ export function emitPurchaseCreated(payload: PurchaseCreatedPayload) {
     typeof payload.createdAt === "string" && payload.createdAt.trim().length > 0
       ? payload.createdAt
       : new Date().toISOString();
+  const resolvedEventId =
+    typeof payload.eventId === "string" && payload.eventId.trim().length > 0
+      ? payload.eventId
+      : resolvedId;
   emitAppEvent(PURCHASE_CREATED_EVENT, {
     ...payload,
     purchaseId: resolvedId,
     createdAt: resolvedCreatedAt,
+    eventId: resolvedEventId,
   });
 }
 

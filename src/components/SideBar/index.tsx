@@ -22,8 +22,10 @@ import {
 import { HIGH_PRIORITY_LIMIT } from "../../config/customers";
 import { normalizePreferredLanguage } from "../../lib/language";
 import { getFanIdFromQuery, openFanChat } from "../../lib/navigation/openCreatorChat";
+import { emitPurchaseCreated } from "../../lib/events";
 import { clearUnseenPurchase, getUnseenPurchases, recordUnseenPurchase, type PurchaseNotice } from "../../lib/unseenPurchases";
 import { formatPurchaseUI } from "../../lib/purchaseUi";
+import { createPurchaseEventDedupe, resolvePurchaseEventId } from "../../lib/purchaseEventDedupe";
 import { IconGlyph } from "../ui/IconGlyph";
 import { Chip } from "../ui/Chip";
 
@@ -318,6 +320,9 @@ function SideBarInner() {
   } | null>(null);
   const purchaseToastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [ unseenPurchaseByFan, setUnseenPurchaseByFan ] = useState<Record<string, PurchaseNotice>>({});
+  const purchaseEventDedupeRef = useRef(createPurchaseEventDedupe());
+  const purchaseSnapshotRef = useRef<Record<string, { id: string | null; createdAt: string | null }>>({});
+  const purchaseSnapshotReadyRef = useRef(false);
 
 
   const mapFans = useCallback((rawFans: Fan[]): ConversationListData[] => {
@@ -366,6 +371,7 @@ function SideBarInner() {
       tipsSpentTotal: typeof fan.tipsSpentTotal === "number" ? fan.tipsSpentTotal : undefined,
       giftsCount: typeof fan.giftsCount === "number" ? fan.giftsCount : undefined,
       giftsSpentTotal: typeof fan.giftsSpentTotal === "number" ? fan.giftsSpentTotal : undefined,
+      lastPurchase: fan.lastPurchase ?? null,
       maxExtraTier: (fan as any).maxExtraTier ?? null,
       novsyStatus: fan.novsyStatus ?? null,
       isHighPriority: fan.isHighPriority ?? false,
@@ -520,6 +526,53 @@ function SideBarInner() {
   useEffect(() => {
     setUnseenPurchaseByFan(getUnseenPurchases());
   }, []);
+
+  useEffect(() => {
+    if (!fans.length) return;
+    const snapshot = purchaseSnapshotRef.current;
+    const nextSnapshot = { ...snapshot };
+    if (!purchaseSnapshotReadyRef.current) {
+      fans.forEach((fan) => {
+        if (!fan.id || fan.isManager) return;
+        nextSnapshot[fan.id] = {
+          id: fan.lastPurchase?.id ?? null,
+          createdAt: fan.lastPurchase?.createdAt ?? null,
+        };
+      });
+      purchaseSnapshotRef.current = nextSnapshot;
+      purchaseSnapshotReadyRef.current = true;
+      return;
+    }
+    fans.forEach((fan) => {
+      if (!fan.id || fan.isManager) return;
+      const latest = fan.lastPurchase;
+      const prev = snapshot[fan.id];
+      if (!latest?.id) {
+        nextSnapshot[fan.id] = { id: null, createdAt: null };
+        return;
+      }
+      if (!prev?.id) {
+        nextSnapshot[fan.id] = { id: latest.id, createdAt: latest.createdAt ?? null };
+        return;
+      }
+      if (prev.id === latest.id) {
+        nextSnapshot[fan.id] = prev;
+        return;
+      }
+      emitPurchaseCreated({
+        fanId: fan.id,
+        fanName: fan.contactName || undefined,
+        amountCents: Math.round((latest.amount ?? 0) * 100),
+        kind: latest.kind ?? "EXTRA",
+        title: latest.title ?? undefined,
+        purchaseId: latest.id,
+        createdAt: latest.createdAt ?? undefined,
+        eventId: `purchase:${latest.id}`,
+      });
+      nextSnapshot[fan.id] = { id: latest.id, createdAt: latest.createdAt ?? null };
+    });
+    purchaseSnapshotRef.current = nextSnapshot;
+  }, [fans]);
 
   const fansWithScore: FanData[] = useMemo(
     () =>
@@ -1528,10 +1581,19 @@ function SideBarInner() {
             title?: string;
             purchaseId?: string;
             createdAt?: string;
+            eventId?: string;
           }
         | undefined;
       const fanId = typeof detail?.fanId === "string" ? detail.fanId : "";
       if (!fanId) return;
+      const eventId = resolvePurchaseEventId(detail);
+      if (!purchaseEventDedupeRef.current.shouldProcess(eventId)) return;
+      if (detail?.purchaseId) {
+        purchaseSnapshotRef.current[fanId] = {
+          id: detail.purchaseId,
+          createdAt: detail.createdAt ?? null,
+        };
+      }
       const amount = typeof detail?.amountCents === "number" ? detail.amountCents / 100 : 0;
       const kind = (detail?.kind || "EXTRA").toString().toUpperCase();
       const title = typeof detail?.title === "string" ? detail.title.trim() : "";
