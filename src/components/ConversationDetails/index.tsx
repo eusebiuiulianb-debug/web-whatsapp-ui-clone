@@ -627,9 +627,11 @@ export default function ConversationDetails({ onBackToBoard }: ConversationDetai
       createdAt: string;
       contentItemId?: string | null;
       contentTitle?: string | null;
+      isArchived?: boolean;
     }[]
   >([]);
   const [ purchaseHistoryLoading, setPurchaseHistoryLoading ] = useState(false);
+  const [ purchaseArchiveBusyId, setPurchaseArchiveBusyId ] = useState<string | null>(null);
   const [ historyFilter, setHistoryFilter ] = useState<"all" | "extra" | "tip" | "gift">("all");
   const [ accessGrantsLoading, setAccessGrantsLoading ] = useState(false);
   const [ openPanel, setOpenPanel ] = useState<"none" | "history" | "extras">("none");
@@ -2318,6 +2320,46 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
       setPurchaseHistory([]);
     } finally {
       setPurchaseHistoryLoading(false);
+    }
+  }
+
+  async function handleTogglePurchaseArchive(entry: { id: string; isArchived?: boolean }) {
+    if (!entry?.id || purchaseArchiveBusyId === entry.id) return;
+    const fanId = id;
+    const nextArchived = !entry.isArchived;
+    setPurchaseArchiveBusyId(entry.id);
+    setPurchaseHistory((prev) =>
+      prev.map((item) => (item.id === entry.id ? { ...item, isArchived: nextArchived } : item))
+    );
+    try {
+      const res = await fetch(`/api/fans/purchases/${entry.id}/archive`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ archived: nextArchived }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data?.ok) throw new Error("archive_failed");
+      const finalArchived =
+        typeof data?.purchase?.isArchived === "boolean" ? data.purchase.isArchived : nextArchived;
+      setPurchaseHistory((prev) =>
+        prev.map((item) => (item.id === entry.id ? { ...item, isArchived: finalArchived } : item))
+      );
+      if (fanId) {
+        await refreshFanData(fanId);
+        void fetchHistory(fanId);
+      }
+      if (typeof window !== "undefined") {
+        window.dispatchEvent(new CustomEvent(EXTRAS_UPDATED_EVENT, { detail: { fanId } }));
+      }
+      showComposerToast(finalArchived ? "Compra archivada" : "Compra restaurada");
+    } catch (err) {
+      console.error("Error updating purchase archive", err);
+      setHistoryError("No se pudo archivar la compra.");
+      setPurchaseHistory((prev) =>
+        prev.map((item) => (item.id === entry.id ? { ...item, isArchived: entry.isArchived } : item))
+      );
+    } finally {
+      setPurchaseArchiveBusyId(null);
     }
   }
 
@@ -6085,14 +6127,14 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
     setCortexFlow(nextFlow);
   }, []);
 
+  type CortexFlowAdvanceResult = "moved" | "no-next" | "inactive";
+
   const openNextFanFromFlow = useCallback(
-    (flow: CortexFlowState) => {
-      if (!flow || !id || flow.currentFanId !== id) return false;
+    (flow: CortexFlowState): CortexFlowAdvanceResult => {
+      if (!flow || !id || flow.currentFanId !== id) return "inactive";
       const { nextFanId } = getNextFanFromFlow(flow);
       if (!nextFanId) {
-        updateCortexFlowState(null);
-        void router.push("/creator/manager");
-        return false;
+        return "no-next";
       }
       const draft = flow.draftsByFanId?.[nextFanId] ?? "";
       if (draft.trim()) {
@@ -6106,20 +6148,29 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
         openFanChat(router, nextFanId);
       }
       updateCortexFlowState({ ...flow, currentFanId: nextFanId });
-      return true;
+      return "moved";
     },
     [id, router, updateCortexFlowState]
   );
-
-  const handleCortexFlowOpenNext = useCallback(() => {
-    if (!cortexFlow) return;
-    openNextFanFromFlow(cortexFlow);
-  }, [cortexFlow, openNextFanFromFlow]);
 
   const handleCortexFlowReturn = useCallback(() => {
     updateCortexFlowState(null);
     void router.push("/creator/manager");
   }, [router, updateCortexFlowState]);
+
+  const handleCortexFlowOpenNext = useCallback(() => {
+    if (!cortexFlow) return;
+    const result = openNextFanFromFlow(cortexFlow);
+    if (result === "no-next") {
+      showInlineAction({
+        kind: "info",
+        title: "No hay más fans",
+        detail: "Último fan del segmento.",
+        undoLabel: "Volver a Cortex",
+        onUndo: handleCortexFlowReturn,
+      });
+    }
+  }, [cortexFlow, handleCortexFlowReturn, openNextFanFromFlow, showInlineAction]);
 
   const handleCortexFlowToggleAutoNext = useCallback(() => {
     if (!cortexFlow) return;
@@ -6206,7 +6257,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
   async function sendMessageText(
     text: string,
     audienceMode: MessageAudienceMode = "CREATOR",
-    options?: { preserveComposer?: boolean }
+    options?: { preserveComposer?: boolean; actionKey?: string | null }
   ): Promise<boolean> {
     if (!id) return false;
     const isInternal = audienceMode === "INTERNAL";
@@ -6251,6 +6302,10 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
       };
       if (isInternal) {
         payload.audience = "INTERNAL";
+      }
+      const actionKey = normalizeActionKey(options?.actionKey);
+      if (actionKey) {
+        payload.actionKey = actionKey;
       }
       const res = await fetch("/api/messages", {
         method: "POST",
@@ -6327,6 +6382,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
       setMessagesError("Chat bloqueado. Desbloquéalo para escribir.");
       return;
     }
+    const stickerLabel = sticker.label || "Sticker";
 
     const tempId = `temp-sticker-${Date.now()}`;
     const timeLabel = new Date().toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit", hour12: false });
@@ -6357,7 +6413,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
         from: "creator",
         type: "STICKER",
         stickerId: sticker.id,
-        text: sticker.label,
+        text: stickerLabel,
       };
       const res = await fetch("/api/messages", {
         method: "POST",
@@ -6395,7 +6451,16 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
       setSchemaError(null);
       startFanSendCooldown(id);
       try {
-        window.dispatchEvent(new CustomEvent(FAN_MESSAGE_SENT_EVENT, { detail: { fanId: id } }));
+        window.dispatchEvent(
+          new CustomEvent(FAN_MESSAGE_SENT_EVENT, {
+            detail: {
+              fanId: id,
+              text: stickerLabel,
+              kind: "sticker",
+              sentAt: new Date().toISOString(),
+            },
+          })
+        );
       } catch (_err) {
         // ignore event errors
       }
@@ -6445,7 +6510,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
     const textHash = hashText(trimmed);
     const preview = trimmed.slice(0, 140);
     try {
-      const ok = await sendMessageText(trimmed, "CREATOR");
+      const ok = await sendMessageText(trimmed, "CREATOR", { actionKey: currentActionKey });
       if (ok && id) {
         writeLastSentRecord(id, {
           actionKey: currentActionKey,
@@ -6457,15 +6522,44 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
         try {
           window.dispatchEvent(
             new CustomEvent(FAN_MESSAGE_SENT_EVENT, {
-              detail: { fanId: id, actionKey: currentActionKey ?? undefined },
+              detail: {
+                fanId: id,
+                actionKey: currentActionKey ?? undefined,
+                text: trimmed,
+                kind: "text",
+                sentAt: new Date().toISOString(),
+              },
             })
           );
         } catch (_err) {
           // ignore event errors
         }
         const flow = readCortexFlow();
-        if (flow && flow.currentFanId === id && (flow.autoNext ?? true)) {
-          openNextFanFromFlow(flow);
+        if (flow && flow.currentFanId === id) {
+          const autoNext = flow.autoNext ?? true;
+          if (autoNext) {
+            const result = openNextFanFromFlow(flow);
+            if (result === "no-next") {
+              showInlineAction({
+                kind: "ok",
+                title: "Enviado",
+                detail: "Último fan del segmento.",
+                undoLabel: "Volver a Cortex",
+                onUndo: handleCortexFlowReturn,
+              });
+            }
+          } else {
+            const { nextFanId } = getNextFanFromFlow(flow);
+            if (!nextFanId) {
+              showInlineAction({
+                kind: "ok",
+                title: "Enviado",
+                detail: "Último fan del segmento.",
+                undoLabel: "Volver a Cortex",
+                onUndo: handleCortexFlowReturn,
+              });
+            }
+          }
         }
       }
       if (bypassWindowActive) {
@@ -8129,6 +8223,8 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
                   icon: "receipt",
                   tone: "text-[color:var(--text)]",
                 };
+                const isArchived = entry.isArchived === true;
+                const isArchiveBusy = purchaseArchiveBusyId === entry.id;
                 const title =
                   entry.kind === "EXTRA"
                     ? entry.contentTitle
@@ -8140,7 +8236,13 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
                     ? "Regalo"
                     : meta.label;
                 return (
-                  <div key={entry.id} className="rounded-lg border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-2 py-2">
+                  <div
+                    key={entry.id}
+                    className={clsx(
+                      "rounded-lg border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-2 py-2",
+                      isArchived && "opacity-70"
+                    )}
+                  >
                     <div className="flex items-start justify-between gap-2">
                       <div className="flex items-start gap-2 min-w-0">
                         <IconGlyph name={meta.icon} className={clsx("h-4 w-4", meta.tone)} />
@@ -8150,6 +8252,23 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
                         </div>
                       </div>
                       <span className="text-[12px] font-semibold text-[color:var(--text)]">{Math.round(entry.amount)} €</span>
+                    </div>
+                    <div className="mt-2 flex items-center justify-between gap-2">
+                      {isArchived ? (
+                        <span className="rounded-full border border-[color:rgba(245,158,11,0.5)] bg-[color:rgba(245,158,11,0.08)] px-2 py-0.5 text-[10px] font-semibold text-[color:var(--text)]">
+                          Archivado
+                        </span>
+                      ) : (
+                        <span />
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => handleTogglePurchaseArchive(entry)}
+                        disabled={isArchiveBusy}
+                        className="rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-2 py-0.5 text-[10px] font-semibold text-[color:var(--text)] transition hover:border-[color:var(--surface-border-hover)] hover:bg-[color:var(--surface-2)] disabled:opacity-50"
+                      >
+                        {isArchived ? "Restaurar" : "Archivar"}
+                      </button>
                     </div>
                   </div>
                 );
@@ -9303,9 +9422,22 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
                       }
                     }
                     if (sentItems.length > 0 && id) {
+                      const previewLabel =
+                        sentItems.length === 1
+                          ? sentItems[0]?.title || "Contenido compartido"
+                          : `Contenido compartido (${sentItems.length})`;
                       startFanSendCooldown(id);
                       try {
-                        window.dispatchEvent(new CustomEvent(FAN_MESSAGE_SENT_EVENT, { detail: { fanId: id } }));
+                        window.dispatchEvent(
+                          new CustomEvent(FAN_MESSAGE_SENT_EVENT, {
+                            detail: {
+                              fanId: id,
+                              text: previewLabel,
+                              kind: "content",
+                              sentAt: new Date().toISOString(),
+                            },
+                          })
+                        );
                       } catch (_err) {
                         // ignore event errors
                       }

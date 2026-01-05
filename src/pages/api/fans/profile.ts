@@ -30,7 +30,7 @@ async function handleGet(req: NextApiRequest, res: NextApiResponse) {
         select: { id: true, profileText: true },
       }),
       prisma.extraPurchase.findMany({
-        where: { fanId },
+        where: { fanId, amount: { gt: 0 }, isArchived: false },
         select: { amount: true, kind: true },
       }),
     ]);

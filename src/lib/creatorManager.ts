@@ -227,7 +227,7 @@ export async function getCreatorManagerSummary(creatorId: string, deps: ManagerD
         inviteUsedAt: true,
         isNew: true,
         accessGrants: { select: { type: true, createdAt: true, expiresAt: true } },
-        extraPurchases: { select: { amount: true, createdAt: true, kind: true } },
+        extraPurchases: { where: { amount: { gt: 0 }, isArchived: false }, select: { amount: true, createdAt: true, kind: true } },
         messages: { where: { from: "fan" }, select: { id: true }, take: 1 },
       },
     }),

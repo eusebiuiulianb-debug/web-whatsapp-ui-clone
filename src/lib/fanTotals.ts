@@ -1,6 +1,7 @@
 export type FanPurchaseLike = {
   kind?: string | null;
   amount?: number | null;
+  isArchived?: boolean | null;
 };
 
 export type FanTotals = {
@@ -23,9 +24,11 @@ export function computeFanTotals(purchases: FanPurchaseLike[] = []): FanTotals {
   let giftsAmount = 0;
 
   for (const purchase of purchases) {
+    if (purchase?.isArchived) continue;
     const rawAmount = typeof purchase?.amount === "number" ? purchase.amount : Number(purchase?.amount);
     if (!Number.isFinite(rawAmount)) continue;
     const amount = rawAmount ?? 0;
+    if (amount <= 0) continue;
     const kind = normalizeKind(purchase?.kind ?? null);
     if (kind === "TIP") {
       tipsAmount += amount;

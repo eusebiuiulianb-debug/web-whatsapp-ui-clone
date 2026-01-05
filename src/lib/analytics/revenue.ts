@@ -48,7 +48,7 @@ type GetCreatorRevenueSummaryParams = {
 
 type FanMonetizationSource = {
   accessGrants: { type: string; createdAt: Date; expiresAt: Date }[];
-  extraPurchases: { amount: number | null; createdAt: Date; kind?: string | null }[];
+  extraPurchases: { amount: number | null; createdAt: Date; kind?: string | null; isArchived?: boolean | null }[];
 };
 
 type FanMonetizationQueryParams = {
@@ -102,7 +102,9 @@ export function buildFanMonetizationSummaryFromFan(
   now: Date = new Date()
 ): FanMonetizationSummary {
   const grants = [...(source.accessGrants ?? [])];
-  const purchases = [...(source.extraPurchases ?? [])];
+  const purchases = (source.extraPurchases ?? []).filter(
+    (purchase) => !purchase?.isArchived && (purchase.amount ?? 0) > 0
+  );
   const extras = purchases.filter((purchase) => normalizePurchaseKind(purchase.kind) === "EXTRA");
   const tipPurchases = purchases.filter((purchase) => normalizePurchaseKind(purchase.kind) === "TIP");
   const giftPurchases = purchases.filter((purchase) => normalizePurchaseKind(purchase.kind) === "GIFT");
@@ -187,7 +189,7 @@ export async function getFanMonetizationSummary(
       include: { accessGrants: true },
     }),
     client.extraPurchase.findMany({
-      where: { fanId },
+      where: { fanId, amount: { gt: 0 }, isArchived: false },
       select: { amount: true, createdAt: true, kind: true },
     }),
   ]);
@@ -209,7 +211,12 @@ export async function getCreatorRevenueSummary({
   const [purchaseAgg, grants] = await Promise.all([
     client.extraPurchase.groupBy({
       by: ["kind"],
-      where: { fan: { creatorId }, createdAt: { gte: from, lte: rangeEnd } },
+      where: {
+        fan: { creatorId },
+        createdAt: { gte: from, lte: rangeEnd },
+        amount: { gt: 0 },
+        isArchived: false,
+      },
       _count: { _all: true },
       _sum: { amount: true },
     }),
@@ -246,11 +253,13 @@ export async function getCreatorRevenueSummary({
 
   for (const grant of grants) {
     const type = normalizeGrantType(grant.type);
+    const amount = getGrantAmount(type);
+    if (amount <= 0) continue;
     if (!subsByType[type]) {
       subsByType[type] = { amount: 0, count: 0 };
     }
     subsByType[type].count += 1;
-    subsByType[type].amount += getGrantAmount(type);
+    subsByType[type].amount += amount;
   }
 
   const subsAmount = Object.values(subsByType).reduce((acc, entry) => acc + (entry.amount || 0), 0);

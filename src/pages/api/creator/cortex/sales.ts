@@ -65,6 +65,7 @@ type ExtraPurchaseRow = {
   fanId: string;
   amount: number | null;
   kind: string | null;
+  isArchived?: boolean | null;
   productId?: string | null;
   productType?: string | null;
   contentItemId?: string | null;
@@ -239,12 +240,13 @@ async function loadExtraPurchases({
   from: Date;
   now: Date;
 }): Promise<{ value: ExtraPurchaseRow[]; ok: boolean }> {
-  const where = { fan: { creatorId }, createdAt: { gte: from, lte: now } };
+  const where = { fan: { creatorId }, createdAt: { gte: from, lte: now }, amount: { gt: 0 }, isArchived: false };
   const baseSelect = {
     id: true,
     fanId: true,
     amount: true,
     kind: true,
+    isArchived: true,
     contentItemId: true,
     contentItem: { select: { title: true } },
     fan: { select: { displayName: true, name: true } },
@@ -341,6 +343,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
 
     for (const purchase of purchases) {
       const amount = purchase.amount ?? 0;
+      if (amount <= 0 || purchase.isArchived) continue;
       purchasesAmount += amount;
       const kind = normalizePurchaseKind(purchase.kind);
       if (kind === "TIP") tipsCount += 1;
@@ -402,6 +405,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
     for (const grant of grants) {
       const type = normalizeGrantType(grant.type);
       const amount = getGrantAmount(type);
+      if (amount <= 0) continue;
       subscriptionsAmount += amount;
       subscriptionsCount += 1;
       const productId = `sub-${type}`;
@@ -456,7 +460,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
 
     const totals: SalesTotals = {
       totalAmount: purchasesAmount + subscriptionsAmount,
-      count: purchases.length + grants.length,
+      count: purchases.length + subscriptionsCount,
       uniqueFans: uniqueFans.size,
     };
 

@@ -14,6 +14,8 @@ type SegmentPreview = {
   followUpAt: string | null;
   followUpNote: string | null;
   notesCount: number;
+  lastCortexOutreachAt: string | null;
+  lastCortexOutreachKey: string | null;
 };
 
 type InternalPreview = SegmentPreview & {
@@ -146,8 +148,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
         nextAction: true,
         nextActionAt: true,
         nextActionNote: true,
+        lastCortexOutreachAt: true,
+        lastCortexOutreachKey: true,
         accessGrants: { select: { type: true, expiresAt: true } },
-        extraPurchases: { select: { amount: true, kind: true } },
+        extraPurchases: { where: { amount: { gt: 0 }, isArchived: false }, select: { amount: true, kind: true } },
         followUps: {
           where: { status: "OPEN" },
           orderBy: { dueAt: "asc" },
@@ -194,6 +198,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
         notesCount,
         inviteUsedAt: fan.inviteUsedAt ? fan.inviteUsedAt.toISOString() : null,
         isNew: fan.isNew ?? false,
+        lastCortexOutreachAt: fan.lastCortexOutreachAt ? fan.lastCortexOutreachAt.toISOString() : null,
+        lastCortexOutreachKey:
+          typeof fan.lastCortexOutreachKey === "string" ? fan.lastCortexOutreachKey : null,
       };
     });
 

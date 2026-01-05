@@ -107,7 +107,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         select: { fanId: true, createdAt: true },
       }),
       prisma.extraPurchase.findMany({
-        where: { fan: { creatorId } },
+        where: { fan: { creatorId }, amount: { gt: 0 }, isArchived: false },
         select: { fanId: true, createdAt: true },
       }),
       prisma.fan.findMany({

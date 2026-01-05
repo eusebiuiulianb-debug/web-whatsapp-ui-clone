@@ -28,7 +28,7 @@ async function handleGet(req: NextApiRequest, res: NextApiResponse) {
 
   try {
     const purchases = await prisma.extraPurchase.findMany({
-      where: { fanId, kind: "EXTRA" },
+      where: { fanId, kind: "EXTRA", amount: { gt: 0 }, isArchived: false },
       orderBy: { createdAt: "desc" },
       include: { contentItem: true },
     });

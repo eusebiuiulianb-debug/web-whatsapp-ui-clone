@@ -262,7 +262,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     if (fanIds.length > 0) {
       try {
         const purchases = await prisma.extraPurchase.findMany({
-          where: { fanId: { in: fanIds } },
+          where: { fanId: { in: fanIds }, amount: { gt: 0 }, isArchived: false },
           select: { fanId: true, amount: true, tier: true, createdAt: true, kind: true },
         });
         const tierPriority: Record<string, number> = { T0: 0, T1: 1, T2: 2, T3: 3, T4: 4 };

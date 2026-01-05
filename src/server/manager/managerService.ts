@@ -397,7 +397,10 @@ export async function buildCreatorAiContext(creatorId: string, prisma: PrismaCli
         lifetimeValue: true,
         isNew: true,
         accessGrants: { select: { type: true, createdAt: true, expiresAt: true } },
-        extraPurchases: { where: { kind: "EXTRA" }, select: { amount: true, createdAt: true, tier: true } },
+        extraPurchases: {
+          where: { kind: "EXTRA", amount: { gt: 0 }, isArchived: false },
+          select: { amount: true, createdAt: true, tier: true },
+        },
       },
     }),
     prisma.accessGrant.findMany({
@@ -409,11 +412,11 @@ export async function buildCreatorAiContext(creatorId: string, prisma: PrismaCli
       select: { fanId: true, type: true, createdAt: true, expiresAt: true },
     }),
     prisma.extraPurchase.findMany({
-      where: { fan: { creatorId }, createdAt: { gte: start30 }, kind: "EXTRA" },
+      where: { fan: { creatorId }, createdAt: { gte: start30 }, kind: "EXTRA", amount: { gt: 0 }, isArchived: false },
       select: { amount: true, tier: true, createdAt: true },
     }),
     prisma.extraPurchase.findMany({
-      where: { fan: { creatorId }, kind: "EXTRA" },
+      where: { fan: { creatorId }, kind: "EXTRA", amount: { gt: 0 }, isArchived: false },
       select: { amount: true, tier: true, createdAt: true },
     }),
   ]);
@@ -554,7 +557,7 @@ export async function buildManagerQueueForCreator(creatorId: string, prisma: Pri
     where: { creatorId },
     include: {
       accessGrants: true,
-      extraPurchases: true,
+      extraPurchases: { where: { amount: { gt: 0 }, isArchived: false } },
       messages: true,
     },
   });
@@ -663,7 +666,7 @@ export async function buildFanManagerSummary(creatorId: string, fanId: string, p
     where: { id: fanId },
     include: {
       accessGrants: true,
-      extraPurchases: true,
+      extraPurchases: { where: { amount: { gt: 0 }, isArchived: false } },
       messages: true,
       notes: { orderBy: { createdAt: "desc" }, take: 1 },
     },

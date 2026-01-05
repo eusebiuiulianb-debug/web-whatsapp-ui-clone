@@ -10,6 +10,8 @@ import {
   useRef,
   useState,
 } from "react";
+import { formatDistanceToNow } from "date-fns";
+import { es } from "date-fns/locale";
 import { createPortal } from "react-dom";
 import clsx from "clsx";
 import Link from "next/link";
@@ -138,6 +140,8 @@ type CortexSegmentFanPreview = {
   followUpAt: string | null;
   followUpNote: string | null;
   notesCount: number;
+  lastCortexOutreachAt: string | null;
+  lastCortexOutreachKey: string | null;
 };
 
 type CortexSegmentEntry = {
@@ -366,6 +370,7 @@ const MAX_MAIN_COMPOSER_HEIGHT = 140;
 const MAX_VISIBLE_CHIPS = 4;
 const MAX_CATALOG_ITEMS_VISIBLE = 10;
 const CHIP_GAP = 8;
+const CORTEX_OUTREACH_COOLDOWN_MS = 45 * 60 * 1000;
 const LEGACY_FAVORITES_KEY = "cortex_quick_prompts_pinned";
 const LEGACY_FAVORITES_PREFIX = "cortex_quick_prompts_pinned:v1";
 const ACTIVE_TAB_KEY_PREFIX = "cortex_active_tab:v1";
@@ -2883,63 +2888,98 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
                             {previewFans.length === 0 && (
                               <div className="text-[12px] text-[color:var(--muted)]">Sin fans en este segmento.</div>
                             )}
-                            {previewFans.map((fan) => (
-                              <div key={fan.fanId} className="flex items-center justify-between gap-2">
-                                <div className="min-w-0">
-                                  <div className="truncate text-[12px] text-[color:var(--text)]">{fan.displayName}</div>
-                                  <div className="text-[11px] text-[color:var(--muted)]">
-                                    {formatCurrency(fan.totalSpent)} · {formatCount(fan.extrasCount)} extras ·{" "}
-                                    {formatCount(fan.tipsCount)} propinas · {formatCount(fan.giftsCount)} regalos
-                                  </div>
-                                  {fan.followUpAt && (() => {
-                                    const followUpWhen = formatDateEsDMY(fan.followUpAt);
-                                    const followUpLabel = getNextActionNoteLabel(fan.followUpNote, true);
-                                    const isOverdue = new Date(fan.followUpAt).getTime() <= Date.now();
-                                    return (
-                                      <div
-                                        className={clsx(
-                                          "mt-1 inline-flex max-w-full items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-semibold",
-                                          isOverdue
-                                            ? "border-[color:rgba(244,63,94,0.7)] bg-[color:rgba(244,63,94,0.08)] text-[color:var(--text)]"
-                                            : "border-[color:var(--surface-border)] bg-[color:var(--surface-2)] text-[color:var(--muted)]"
-                                        )}
-                                      >
-                                        <IconGlyph name="clock" className="h-3.5 w-3.5" />
-                                        <span className="truncate">{followUpLabel}</span>
-                                        {followUpWhen && <span className="shrink-0">· {followUpWhen}</span>}
+                            {previewFans.map((fan) => {
+                              const outreachAt = fan.lastCortexOutreachAt
+                                ? new Date(fan.lastCortexOutreachAt)
+                                : null;
+                              const outreachTimestamp =
+                                outreachAt && !Number.isNaN(outreachAt.getTime()) ? outreachAt : null;
+                              const outreachKey = fan.lastCortexOutreachKey ?? "";
+                              const isSegmentOutreach =
+                                Boolean(outreachTimestamp) &&
+                                Boolean(outreachKey) &&
+                                outreachKey.startsWith(`cortex:${segment.id}:`);
+                              const outreachAgeMs =
+                                isSegmentOutreach && outreachTimestamp
+                                  ? Date.now() - outreachTimestamp.getTime()
+                                  : null;
+                              const isCooldownActive =
+                                typeof outreachAgeMs === "number" &&
+                                outreachAgeMs >= 0 &&
+                                outreachAgeMs < CORTEX_OUTREACH_COOLDOWN_MS;
+                              const outreachLabel =
+                                isSegmentOutreach && outreachTimestamp
+                                  ? `Contactado ${formatDistanceToNow(outreachTimestamp, { addSuffix: true, locale: es })}`
+                                  : null;
+                              return (
+                                <div key={fan.fanId} className="flex items-center justify-between gap-2">
+                                  <div className="min-w-0">
+                                    <div className="truncate text-[12px] text-[color:var(--text)]">{fan.displayName}</div>
+                                    <div className="text-[11px] text-[color:var(--muted)]">
+                                      {formatCurrency(fan.totalSpent)} · {formatCount(fan.extrasCount)} extras ·{" "}
+                                      {formatCount(fan.tipsCount)} propinas · {formatCount(fan.giftsCount)} regalos
+                                    </div>
+                                    {outreachLabel && (
+                                      <div className="mt-1 text-[10px] text-[color:var(--brand)]">
+                                        {outreachLabel}
                                       </div>
-                                    );
-                                  })()}
+                                    )}
+                                    {fan.followUpAt && (() => {
+                                      const followUpWhen = formatDateEsDMY(fan.followUpAt);
+                                      const followUpLabel = getNextActionNoteLabel(fan.followUpNote, true);
+                                      const isOverdue = new Date(fan.followUpAt).getTime() <= Date.now();
+                                      return (
+                                        <div
+                                          className={clsx(
+                                            "mt-1 inline-flex max-w-full items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-semibold",
+                                            isOverdue
+                                              ? "border-[color:rgba(244,63,94,0.7)] bg-[color:rgba(244,63,94,0.08)] text-[color:var(--text)]"
+                                              : "border-[color:var(--surface-border)] bg-[color:var(--surface-2)] text-[color:var(--muted)]"
+                                          )}
+                                        >
+                                          <IconGlyph name="clock" className="h-3.5 w-3.5" />
+                                          <span className="truncate">{followUpLabel}</span>
+                                          {followUpWhen && <span className="shrink-0">· {followUpWhen}</span>}
+                                        </div>
+                                      );
+                                    })()}
+                                  </div>
+                                  <div className="shrink-0 flex items-center gap-2">
+                                    {isCooldownActive && (
+                                      <span className="rounded-full border border-[color:rgba(var(--brand-rgb),0.4)] bg-[color:rgba(var(--brand-rgb),0.12)] px-2 py-0.5 text-[10px] font-semibold text-[color:var(--text)]">
+                                        Contactado
+                                      </span>
+                                    )}
+                                    <button
+                                      type="button"
+                                      onPointerDown={(event) => event.stopPropagation()}
+                                      onClick={(event) => {
+                                        event.stopPropagation();
+                                        handleOpenFanChat(fan.fanId, segmentNote);
+                                      }}
+                                      className="rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-3 py-1 text-[11px] font-semibold text-[color:var(--text)] transition hover:border-[color:var(--surface-border-hover)] hover:bg-[color:var(--surface-2)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--ring)]"
+                                    >
+                                      Abrir chat
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onPointerDown={(event) => event.stopPropagation()}
+                                      onClick={(event) => {
+                                        event.stopPropagation();
+                                        const draft = buildSegmentSuggestedAction(segment, fan);
+                                        const actionKey = `cortex:${segment.id}:suggested`;
+                                        const flow = buildSegmentFlow(segment, actionKey, fan.fanId);
+                                        handleSendDraftToFan(fan.fanId, draft, { actionKey, flow });
+                                      }}
+                                      disabled={isCooldownActive}
+                                      className="rounded-full border border-[color:var(--brand)] bg-[color:rgba(var(--brand-rgb),0.12)] px-3 py-1 text-[11px] font-semibold text-[color:var(--text)] transition hover:bg-[color:rgba(var(--brand-rgb),0.2)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--ring)] disabled:cursor-not-allowed disabled:opacity-50"
+                                    >
+                                      Insertar
+                                    </button>
+                                  </div>
                                 </div>
-                                <div className="shrink-0 flex items-center gap-2">
-                                  <button
-                                    type="button"
-                                    onPointerDown={(event) => event.stopPropagation()}
-                                    onClick={(event) => {
-                                      event.stopPropagation();
-                                      handleOpenFanChat(fan.fanId, segmentNote);
-                                    }}
-                                    className="rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-3 py-1 text-[11px] font-semibold text-[color:var(--text)] transition hover:border-[color:var(--surface-border-hover)] hover:bg-[color:var(--surface-2)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--ring)]"
-                                  >
-                                    Abrir chat
-                                  </button>
-                                  <button
-                                    type="button"
-                                    onPointerDown={(event) => event.stopPropagation()}
-                                    onClick={(event) => {
-                                      event.stopPropagation();
-                                      const draft = buildSegmentSuggestedAction(segment, fan);
-                                      const actionKey = `cortex:${segment.id}:suggested`;
-                                      const flow = buildSegmentFlow(segment, actionKey, fan.fanId);
-                                      handleSendDraftToFan(fan.fanId, draft, { actionKey, flow });
-                                    }}
-                                    className="rounded-full border border-[color:var(--brand)] bg-[color:rgba(var(--brand-rgb),0.12)] px-3 py-1 text-[11px] font-semibold text-[color:var(--text)] transition hover:bg-[color:rgba(var(--brand-rgb),0.2)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--ring)]"
-                                  >
-                                    Insertar
-                                  </button>
-                                </div>
-                              </div>
-                            ))}
+                              );
+                            })}
                           </div>
 
                           <div className="flex flex-wrap items-center gap-2 pt-1">

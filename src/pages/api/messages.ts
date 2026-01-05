@@ -165,7 +165,7 @@ async function handleGet(req: NextApiRequest, res: NextApiResponse<MessageRespon
 }
 
 async function handlePost(req: NextApiRequest, res: NextApiResponse<MessageResponse>) {
-  const { fanId, text, from, type, contentItemId, audience, stickerId } = req.body || {};
+  const { fanId, text, from, type, contentItemId, audience, stickerId, actionKey } = req.body || {};
 
   if (!fanId || typeof fanId !== "string") {
     return res.status(400).json({ ok: false, error: "fanId is required" });
@@ -206,6 +206,8 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse<MessageRespo
       : "";
 
   const normalizedFrom = normalizeFrom(typeof from === "string" ? from : undefined);
+  const normalizedActionKey = typeof actionKey === "string" ? actionKey.trim() : "";
+  const isCortexOutreach = normalizedActionKey.startsWith("cortex:");
   const storedFrom = normalizedFrom === "fan" ? "fan" : "creator";
   const rawAudience = typeof audience === "string" ? audience : undefined;
   const parsedAudience = normalizeAudience(rawAudience);
@@ -316,6 +318,10 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse<MessageRespo
       } else {
         fanUpdate.lastCreatorMessageAt = new Date();
         fanUpdate.unreadCount = 0;
+      }
+      if (normalizedFrom === "creator" && normalizedAudience !== "INTERNAL" && isCortexOutreach) {
+        fanUpdate.lastCortexOutreachAt = new Date();
+        fanUpdate.lastCortexOutreachKey = normalizedActionKey;
       }
       try {
         await prisma.fan.update({

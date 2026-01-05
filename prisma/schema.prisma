@@ -93,6 +93,8 @@ model Fan {
   healthScore      Int             @default(0)
   lastMessageAt    DateTime?
   lastCreatorMessageAt DateTime?
+  lastCortexOutreachAt DateTime?
+  lastCortexOutreachKey String?
   lastPurchaseAt   DateTime?
   lifetimeValue    Float           @default(0)
   recent30dSpend   Float           @default(0)
@@ -367,6 +369,7 @@ model ExtraPurchase {
   productType   ExtraPurchaseProductType?
   sessionTag    String?
   createdAt     DateTime    @default(now())
+  isArchived    Boolean     @default(false)
 }
 
 model GeneratedAsset {

@@ -12,7 +12,7 @@ import { getFollowUpTag, getUrgencyLevel, shouldFollowUpToday, isExpiredAccess }
 import { getFanDisplayNameForCreator } from "../../utils/fanDisplayName";
 import { PACKS } from "../../config/packs";
 import { ConversationContext, QueueFilter } from "../../context/ConversationContext";
-import { EXTRAS_UPDATED_EVENT } from "../../constants/events";
+import { EXTRAS_UPDATED_EVENT, FAN_MESSAGE_SENT_EVENT } from "../../constants/events";
 import { HIGH_PRIORITY_LIMIT } from "../../config/customers";
 import { normalizePreferredLanguage } from "../../lib/language";
 import { getFanIdFromQuery, openFanChat } from "../../lib/navigation/openCreatorChat";
@@ -1385,6 +1385,49 @@ function SideBarInner() {
     };
     window.addEventListener(EXTRAS_UPDATED_EVENT, handleExtrasUpdated as EventListener);
 
+    const handleFanMessageSent = (event: Event) => {
+      const detail = (event as CustomEvent)?.detail as
+        | { fanId?: string; text?: string; kind?: string }
+        | undefined;
+      const fanId = typeof detail?.fanId === "string" ? detail.fanId : "";
+      if (!fanId) {
+        fetchFansPage();
+        return;
+      }
+      const now = new Date();
+      const timeLabel = now.toLocaleTimeString("es-ES", {
+        hour: "2-digit",
+        minute: "2-digit",
+        hour12: false,
+      });
+      const rawText = typeof detail?.text === "string" ? detail.text.trim() : "";
+      const preview =
+        rawText ||
+        (detail?.kind === "sticker"
+          ? "Sticker"
+          : detail?.kind === "content"
+          ? "Contenido compartido"
+          : "");
+      const existing = fansRef.current.find((fan) => fan.id === fanId) ?? null;
+      if (existing) {
+        setFans((prev) => {
+          const index = prev.findIndex((fan) => fan.id === fanId);
+          if (index === -1) return prev;
+          const current = prev[index];
+          const updated = {
+            ...current,
+            lastMessage: preview || current.lastMessage,
+            lastTime: timeLabel,
+            lastCreatorMessageAt: now.toISOString(),
+          };
+          return [updated, ...prev.slice(0, index), ...prev.slice(index + 1)];
+        });
+      }
+      void fetchFanById(fanId);
+      void refreshExtrasSummary();
+    };
+    window.addEventListener(FAN_MESSAGE_SENT_EVENT, handleFanMessageSent as EventListener);
+
     const handleExternalFilter = (event: Event) => {
       const detail = (event as CustomEvent)?.detail as
         | {
@@ -1419,9 +1462,10 @@ function SideBarInner() {
     return () => {
       window.removeEventListener("fanDataUpdated", handleFanDataUpdated as EventListener);
       window.removeEventListener(EXTRAS_UPDATED_EVENT, handleExtrasUpdated as EventListener);
+      window.removeEventListener(FAN_MESSAGE_SENT_EVENT, handleFanMessageSent as EventListener);
       window.removeEventListener("applyChatFilter", handleExternalFilter as EventListener);
     };
-  }, [applyFilter, fetchFansPage, mapFans, refreshExtrasSummary]);
+  }, [applyFilter, fetchFanById, fetchFansPage, mapFans, refreshExtrasSummary]);
 
   useEffect(() => {
     const fanIdFromQuery = getFanIdFromQuery({ fan: queryFan, fanId: queryFanId });

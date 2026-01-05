@@ -56,7 +56,7 @@ export async function getExtraLadderStatusForFan(
     }));
 
   const purchases = await prisma.extraPurchase.findMany({
-    where: { fanId, amount: { gt: 0 }, kind: "EXTRA" },
+    where: { fanId, amount: { gt: 0 }, kind: "EXTRA", isArchived: false },
     include: { contentItem: { select: { title: true, extraTier: true } } },
     orderBy: { createdAt: "desc" },
   });
@@ -134,6 +134,7 @@ export async function getExtraSessionTodayForFan(
       fanId,
       amount: { gt: 0 },
       kind: "EXTRA",
+      isArchived: false,
       createdAt: {
         gte: startOfDay,
         lte: endOfDay,

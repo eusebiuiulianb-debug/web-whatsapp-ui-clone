@@ -22,13 +22,14 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
   try {
     const purchases = await prisma.extraPurchase.findMany({
-      where: { fanId },
+      where: { fanId, amount: { gt: 0 } },
       orderBy: { createdAt: "desc" },
       select: {
         id: true,
         kind: true,
         amount: true,
         createdAt: true,
+        isArchived: true,
         contentItemId: true,
         contentItem: { select: { title: true } },
       },
@@ -41,6 +42,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       createdAt: purchase.createdAt,
       contentItemId: purchase.contentItemId ?? null,
       contentTitle: purchase.contentItem?.title ?? null,
+      isArchived: purchase.isArchived ?? false,
     }));
 
     return res.status(200).json({ ok: true, history });
