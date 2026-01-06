@@ -22,8 +22,7 @@ type PurchaseToast = {
 
 const MAX_TOASTS = 3;
 const SEEN_TTL_MS = 60 * 1000;
-const DESKTOP_TOAST_MS = 12000;
-const MOBILE_TOAST_MS = 15000;
+const DESKTOP_TOAST_MS = 11000;
 
 function normalizeKindLabel(raw?: string): string | null {
   const value = (raw || "").toUpperCase();
@@ -47,6 +46,7 @@ export function RealtimeToastHost() {
   const router = useRouter();
   const { conversation, queueFans } = useContext(ConversationContext);
   const [toasts, setToasts] = useState<PurchaseToast[]>([]);
+  const [toastIndex, setToastIndex] = useState(0);
   const [isMobile, setIsMobile] = useState(false);
   const toastTimersRef = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
   const seenToastRef = useRef(new Map<string, number>());
@@ -69,6 +69,25 @@ export function RealtimeToastHost() {
       });
     };
   }, []);
+
+  useEffect(() => {
+    if (!isMobile) return;
+    const timers = toastTimersRef.current;
+    Object.keys(timers).forEach((key) => {
+      clearTimeout(timers[key]);
+      delete timers[key];
+    });
+  }, [isMobile]);
+
+  useEffect(() => {
+    if (toasts.length === 0) {
+      setToastIndex(0);
+      return;
+    }
+    if (toastIndex >= toasts.length) {
+      setToastIndex(0);
+    }
+  }, [toastIndex, toasts.length]);
 
   const activeChatFanId = useMemo(() => {
     const isFanRoute = router.pathname === "/fan/[fanId]";
@@ -139,10 +158,12 @@ export function RealtimeToastHost() {
   const enqueueToast = useCallback(
     (toast: PurchaseToast) => {
       setToasts((prev) => [toast, ...prev].slice(0, MAX_TOASTS));
-      const duration = isMobile ? MOBILE_TOAST_MS : DESKTOP_TOAST_MS;
       const timer = toastTimersRef.current[toast.id];
       if (timer) clearTimeout(timer);
-      toastTimersRef.current[toast.id] = setTimeout(() => dismissToast(toast.id), duration);
+      if (!isMobile) {
+        toastTimersRef.current[toast.id] = setTimeout(() => dismissToast(toast.id), DESKTOP_TOAST_MS);
+      }
+      setToastIndex(0);
     },
     [dismissToast, isMobile]
   );
@@ -195,53 +216,63 @@ export function RealtimeToastHost() {
 
   useCreatorRealtime({ onPurchaseCreated: handlePurchaseCreated });
 
-  if (toasts.length === 0) return null;
+  const activeToast = toasts[toastIndex] ?? toasts[0];
+  if (!activeToast) return null;
 
   return (
     <div className="pointer-events-none fixed left-0 right-0 top-3 z-[90] flex justify-center px-3">
       <div className="pointer-events-auto flex w-full max-w-md flex-col gap-2">
-        {toasts.map((toast) => (
-          <div
-            key={toast.id}
-            onClick={() => {
-              openToastChat(toast.fanId);
-              dismissToast(toast.id);
-            }}
-            onKeyDown={(event) => {
-              if (event.key === "Enter" || event.key === " ") {
-                event.preventDefault();
-                openToastChat(toast.fanId);
-                dismissToast(toast.id);
-              }
-            }}
-            role="button"
-            tabIndex={0}
-            className={clsx(
-              "flex w-full items-start gap-3 rounded-2xl border border-[color:var(--surface-border)]",
-              "bg-[color:var(--surface-1)] px-4 py-3 text-left shadow-lg transition",
-              "hover:border-[color:var(--surface-border-hover)]"
-            )}
-          >
-            <span className="text-lg leading-none">{toast.icon || "$"}</span>
-            <span className="flex min-w-0 flex-1 flex-col gap-1">
-              <span className="text-sm font-semibold text-[color:var(--text)]">{toast.title}</span>
-              {toast.subtitle && <span className="text-xs text-[color:var(--muted)]">{toast.subtitle}</span>}
-            </span>
-            <span className="flex items-center">
+        <div
+          onClick={() => {
+            openToastChat(activeToast.fanId);
+            dismissToast(activeToast.id);
+          }}
+          onKeyDown={(event) => {
+            if (event.key === "Enter" || event.key === " ") {
+              event.preventDefault();
+              openToastChat(activeToast.fanId);
+              dismissToast(activeToast.id);
+            }
+          }}
+          role="button"
+          tabIndex={0}
+          className={clsx(
+            "flex w-full items-start gap-3 rounded-2xl border border-[color:var(--surface-border)]",
+            "bg-[color:var(--surface-1)] px-4 py-3 text-left shadow-lg transition",
+            "hover:border-[color:var(--surface-border-hover)]"
+          )}
+        >
+          <span className="text-lg leading-none">{activeToast.icon || "$"}</span>
+          <span className="flex min-w-0 flex-1 flex-col gap-1">
+            <span className="text-sm font-semibold text-[color:var(--text)]">{activeToast.title}</span>
+            {activeToast.subtitle && <span className="text-xs text-[color:var(--muted)]">{activeToast.subtitle}</span>}
+          </span>
+          <span className="flex flex-col items-end gap-1">
+            <button
+              type="button"
+              className="rounded-full p-1 text-[color:var(--muted)] hover:text-[color:var(--text)]"
+              onClick={(event) => {
+                event.stopPropagation();
+                dismissToast(activeToast.id);
+              }}
+              aria-label="Cerrar"
+            >
+              x
+            </button>
+            {toasts.length > 1 && (
               <button
                 type="button"
-                className="rounded-full p-1 text-[color:var(--muted)] hover:text-[color:var(--text)]"
+                className="text-[11px] font-semibold text-[color:var(--muted)] hover:text-[color:var(--text)]"
                 onClick={(event) => {
                   event.stopPropagation();
-                  dismissToast(toast.id);
+                  setToastIndex((prev) => (toasts.length > 0 ? (prev + 1) % toasts.length : 0));
                 }}
-                aria-label="Cerrar"
               >
-                x
+                Ver siguiente
               </button>
-            </span>
-          </div>
-        ))}
+            )}
+          </span>
+        </div>
       </div>
     </div>
   );
