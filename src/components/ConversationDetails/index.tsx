@@ -80,7 +80,9 @@ import { useRouter } from "next/router";
 import { useIsomorphicLayoutEffect } from "../../hooks/useIsomorphicLayoutEffect";
 import Image from "next/image";
 import { IconGlyph, type IconName } from "../ui/IconGlyph";
-import { consumeUnseenPurchase } from "../../lib/unseenPurchases";
+import { consumePendingPurchaseNotice, consumeUnseenPurchase } from "../../lib/unseenPurchases";
+import type { PurchaseCreatedPayload } from "../../lib/events";
+import { resolvePurchaseEventId } from "../../lib/purchaseEventDedupe";
 import { Badge, type BadgeTone } from "../ui/Badge";
 import { ConversationActionsMenu } from "../conversations/ConversationActionsMenu";
 import { badgeToneForLabel } from "../../lib/badgeTone";
@@ -136,6 +138,7 @@ type PurchaseNoticeState = {
   title?: string;
   createdAt?: string;
   purchaseIds: string[];
+  fanName?: string;
 };
 type MessageAudienceMode = "CREATOR" | "INTERNAL";
 type InlineTab = "templates" | "tools" | "manager";
@@ -649,6 +652,7 @@ export default function ConversationDetails({ onBackToBoard }: ConversationDetai
   const [ internalToast, setInternalToast ] = useState<string | null>(null);
   const purchaseNoticeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const purchaseNoticeShownAtRef = useRef(0);
+  const purchaseNoticeFallbackNameRef = useRef("Fan");
   const internalToastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [ isVoiceRecording, setIsVoiceRecording ] = useState(false);
   const [ voiceRecordingMs, setVoiceRecordingMs ] = useState(0);
@@ -662,6 +666,19 @@ export default function ConversationDetails({ onBackToBoard }: ConversationDetai
   const voiceObjectUrlsRef = useRef<Map<string, string>>(new Map());
   const messageEventIdsRef = useRef<Set<string>>(new Set());
   const messagesContainerRef = useRef<HTMLDivElement | null>(null);
+
+  const showPurchaseNotice = useCallback((payload: PurchaseNoticeState) => {
+    setPurchaseNotice(payload);
+    purchaseNoticeShownAtRef.current = Date.now();
+    if (purchaseNoticeTimerRef.current) {
+      clearTimeout(purchaseNoticeTimerRef.current);
+    }
+    purchaseNoticeTimerRef.current = setTimeout(() => setPurchaseNotice(null), 7000);
+  }, []);
+
+  useEffect(() => {
+    purchaseNoticeFallbackNameRef.current = getFanDisplayNameForCreator(conversation) || contactName || "Fan";
+  }, [conversation, contactName]);
 
   const dismissPurchaseNotice = useCallback(() => {
     if (purchaseNoticeTimerRef.current) {
@@ -1320,52 +1337,6 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
     if (lower.includes("individual")) return "special";
     return null;
   }
-
-  const appendPurchaseSystemMessage = useCallback(
-    (payload: {
-      fanId: string;
-      amountCents: number;
-      kind: string;
-      title?: string;
-      purchaseId?: string;
-      createdAt?: string;
-    }) => {
-      if (!payload?.fanId || payload.fanId !== id) return;
-      const amount = payload.amountCents ? payload.amountCents / 100 : 0;
-      const amountLabel = formatCurrency(amount);
-      const kind = payload.kind?.toString().toUpperCase() ?? "EXTRA";
-      const title = payload.title?.trim() ?? "";
-      const fanName = getFanDisplayNameForCreator(conversation) || contactName || "El fan";
-      const text =
-        kind === "TIP"
-          ? `💶 ${fanName} ha apoyado con ${amountLabel}`
-          : kind === "GIFT"
-          ? `🎁 ${fanName} ha regalado ${title || "un regalo"} (${amountLabel})`
-          : kind === "SUBSCRIPTION" || kind === "SUB"
-          ? `💶 ${fanName} ha activado ${title || "una suscripción"} (${amountLabel})`
-          : `🧾 ${fanName} ha comprado ${title || "un extra"} (${amountLabel})`;
-      const messageId =
-        payload.purchaseId ||
-        `purchase-${payload.fanId}-${payload.createdAt || payload.amountCents || Date.now()}`;
-      setMessage((prev) => {
-        const list = prev || [];
-        if (list.some((item) => item.id === messageId)) return list;
-        return [
-          ...list,
-          {
-            id: messageId,
-            fanId: payload.fanId,
-            me: false,
-            message: text,
-            kind: "system",
-            type: "SYSTEM",
-          },
-        ];
-      });
-      scrollToBottom("auto");
-    },
-    [contactName, conversation, id, scrollToBottom, setMessage]
-  );
 
   const captureChatScrollForPanelToggle = useCallback(() => {
     const el = messagesContainerRef.current;
@@ -3416,26 +3387,21 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
   }, [closeOverlays]);
 
   const handlePurchaseCreated = useCallback(
-    (detail: {
-      fanId?: string;
-      fanName?: string;
-      amountCents?: number;
-      kind?: string;
-      title?: string;
-      purchaseId?: string;
-      createdAt?: string;
-    }) => {
+    (detail: PurchaseCreatedPayload) => {
       if (!detail?.fanId || typeof detail.amountCents !== "number" || !detail.kind) return;
-      appendPurchaseSystemMessage({
-        fanId: detail.fanId,
-        amountCents: detail.amountCents,
-        kind: detail.kind,
+      if (conversation.isManager || detail.fanId !== id) return;
+      const eventId = resolvePurchaseEventId(detail);
+      showPurchaseNotice({
+        count: 1,
+        totalAmountCents: detail.amountCents,
+        kind: detail.kind?.toString().toUpperCase() ?? "EXTRA",
         title: detail.title,
-        purchaseId: detail.purchaseId,
         createdAt: detail.createdAt,
+        fanName: typeof detail.fanName === "string" ? detail.fanName : undefined,
+        purchaseIds: eventId ? [eventId] : [],
       });
     },
-    [appendPurchaseSystemMessage]
+    [conversation.isManager, id, showPurchaseNotice]
   );
 
   useCreatorRealtime({ onPurchaseCreated: handlePurchaseCreated });
@@ -3445,32 +3411,50 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
       setPurchaseNotice(null);
       return;
     }
+    const pending = consumePendingPurchaseNotice(id);
     const unseen = consumeUnseenPurchase(id);
-    if (!unseen) {
+    if (!pending && !unseen) {
       setPurchaseNotice(null);
       return;
     }
-    setPurchaseNotice({
-      count: unseen.count,
-      totalAmountCents: unseen.totalAmountCents,
-      kind: unseen.last.kind,
-      title: unseen.last.title,
-      createdAt: unseen.last.createdAt,
-      purchaseIds: unseen.purchaseIds,
+    const fallbackName = purchaseNoticeFallbackNameRef.current;
+    const fanName = (pending?.fanName || unseen?.last?.fanName || "").trim() || fallbackName;
+    const kind = (pending?.kind || unseen?.last?.kind || "EXTRA").toString().toUpperCase();
+    const title = pending?.title ?? unseen?.last?.title;
+    const createdAt = pending?.createdAt ?? unseen?.last?.createdAt;
+    const totalAmountCents =
+      typeof unseen?.totalAmountCents === "number"
+        ? unseen.totalAmountCents
+        : typeof pending?.amountCents === "number"
+        ? pending.amountCents
+        : 0;
+    const purchaseIds =
+      unseen?.purchaseIds && unseen.purchaseIds.length > 0
+        ? unseen.purchaseIds
+        : pending?.eventId
+        ? [pending.eventId]
+        : pending?.purchaseId
+        ? [pending.purchaseId]
+        : [];
+    showPurchaseNotice({
+      count: unseen?.count ?? 1,
+      totalAmountCents,
+      kind,
+      title,
+      createdAt,
+      purchaseIds,
+      fanName,
     });
-    purchaseNoticeShownAtRef.current = Date.now();
-    if (purchaseNoticeTimerRef.current) {
-      clearTimeout(purchaseNoticeTimerRef.current);
+    if (purchaseIds.length > 0) {
+      emitPurchaseSeen({ fanId: id, purchaseIds });
     }
-    purchaseNoticeTimerRef.current = setTimeout(() => setPurchaseNotice(null), 10000);
-    emitPurchaseSeen({ fanId: id, purchaseIds: unseen.purchaseIds });
     return () => {
       if (purchaseNoticeTimerRef.current) {
         clearTimeout(purchaseNoticeTimerRef.current);
         purchaseNoticeTimerRef.current = null;
       }
     };
-  }, [conversation.isManager, id]);
+  }, [conversation.isManager, id, showPurchaseNotice]);
 
   useEffect(() => {
     if (!purchaseNotice) return;
@@ -3602,7 +3586,12 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
         viewer: "creator",
       })
     : null;
-  const purchaseNoticeLabel = purchaseNoticeUi?.chatLabel ?? "";
+  const purchaseNoticeAmountLabel = purchaseNoticeUi?.amountLabel ?? "";
+  const purchaseNoticeLabel = purchaseNotice
+    ? purchaseNotice.fanName
+      ? `Has recibido ${purchaseNoticeAmountLabel} de ${purchaseNotice.fanName}`
+      : `Has recibido ${purchaseNoticeAmountLabel}`
+    : "";
   const purchaseNoticeIcon = purchaseNoticeUi?.icon ?? "";
   const purchaseNoticeTime = (() => {
     if (!purchaseNotice?.createdAt) return "hace un momento";

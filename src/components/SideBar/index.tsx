@@ -15,7 +15,14 @@ import { ConversationContext, QueueFilter } from "../../context/ConversationCont
 import { HIGH_PRIORITY_LIMIT } from "../../config/customers";
 import { normalizePreferredLanguage } from "../../lib/language";
 import { getFanIdFromQuery, openFanChat } from "../../lib/navigation/openCreatorChat";
-import { clearUnseenPurchase, getUnseenPurchases, recordUnseenPurchase, type PurchaseNotice } from "../../lib/unseenPurchases";
+import {
+  clearUnseenPurchase,
+  getUnseenPurchases,
+  recordUnseenPurchase,
+  setPendingPurchaseNotice,
+  type PurchaseNotice,
+} from "../../lib/unseenPurchases";
+import type { PurchaseCreatedPayload } from "../../lib/events";
 import { formatPurchaseUI } from "../../lib/purchaseUi";
 import { useCreatorRealtime } from "../../hooks/useCreatorRealtime";
 import { IconGlyph } from "../ui/IconGlyph";
@@ -303,14 +310,6 @@ function SideBarInner() {
   const openFanToastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const openFanNotFoundRef = useRef<string | null>(null);
   const fansRefetchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const [ purchaseToast, setPurchaseToast ] = useState<{
-    fanId: string;
-    icon: string;
-    label: string;
-    amount: number;
-    purchaseIds: string[];
-  } | null>(null);
-  const purchaseToastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [ unseenPurchaseByFan, setUnseenPurchaseByFan ] = useState<Record<string, PurchaseNotice>>({});
 
 
@@ -417,18 +416,6 @@ function SideBarInner() {
     }
   }, []);
 
-  const showPurchaseToast = useCallback(
-    (payload: { fanId: string; icon: string; label: string; amount: number; purchaseIds: string[] }) => {
-      setPurchaseToast(payload);
-      playPurchaseSound();
-      if (purchaseToastTimerRef.current) {
-        clearTimeout(purchaseToastTimerRef.current);
-      }
-      purchaseToastTimerRef.current = setTimeout(() => setPurchaseToast(null), 2600);
-    },
-    [playPurchaseSound]
-  );
-
   const hasFanListChanged = useCallback((prev: ConversationListData[], next: ConversationListData[]): boolean => {
     if (prev.length !== next.length) return true;
     const prevMap = new Map<string, ConversationListData>();
@@ -505,9 +492,6 @@ function SideBarInner() {
       if (fansRefetchTimerRef.current) {
         clearTimeout(fansRefetchTimerRef.current);
       }
-      if (purchaseToastTimerRef.current) {
-        clearTimeout(purchaseToastTimerRef.current);
-      }
     };
   }, []);
 
@@ -523,6 +507,49 @@ function SideBarInner() {
       })),
     [fans]
   );
+
+  const boardPurchaseSummary = useMemo(() => {
+    const entries = Object.entries(unseenPurchaseByFan);
+    let latest: { fanId: string; notice: PurchaseNotice; ts: number } | null = null;
+    let totalCount = 0;
+    for (let i = 0; i < entries.length; i += 1) {
+      const [fanId, notice] = entries[i];
+      if (!fanId || !notice) continue;
+      const count = typeof notice.count === "number" ? notice.count : 0;
+      totalCount += count;
+      const createdAt = notice.last?.createdAt;
+      const ts = createdAt ? new Date(createdAt).getTime() : 0;
+      if (!latest || ts >= latest.ts) {
+        latest = { fanId, notice, ts };
+      }
+    }
+    return { latest, totalCount };
+  }, [unseenPurchaseByFan]);
+
+  const handleOpenPurchaseBanner = useCallback(() => {
+    const latest = boardPurchaseSummary.latest;
+    if (!latest) return;
+    const targetPath = router.pathname.startsWith("/creator/manager") ? "/creator" : router.pathname || "/creator";
+    setPendingPurchaseNotice({
+      fanId: latest.fanId,
+      fanName: latest.notice.last?.fanName,
+      amountCents: latest.notice.last?.amountCents,
+      kind: latest.notice.last?.kind,
+      title: latest.notice.last?.title,
+      purchaseId: latest.notice.last?.purchaseId,
+      createdAt: latest.notice.last?.createdAt,
+    });
+    openFanChat(router, latest.fanId, { shallow: true, scroll: false, pathname: targetPath });
+  }, [boardPurchaseSummary.latest, router]);
+
+  const handleDismissPurchaseBanner = useCallback(() => {
+    const entries = Object.keys(unseenPurchaseByFan);
+    if (entries.length === 0) return;
+    for (let i = 0; i < entries.length; i += 1) {
+      clearUnseenPurchase(entries[i]);
+    }
+    setUnseenPurchaseByFan({});
+  }, [unseenPurchaseByFan]);
 
   const handleSelectConversation = useCallback(
     (item: ConversationListData) => {
@@ -541,13 +568,6 @@ function SideBarInner() {
     },
     [router, setConversation]
   );
-
-  const handleOpenPurchaseFan = useCallback(() => {
-    if (!purchaseToast?.fanId) return;
-    const targetPath = router.pathname.startsWith("/creator/manager") ? "/creator" : router.pathname || "/creator";
-    openFanChat(router, purchaseToast.fanId, { shallow: true, scroll: false, pathname: targetPath });
-    setPurchaseToast(null);
-  }, [purchaseToast?.fanId, router]);
 
   const getLastActivityTimestamp = useCallback((fan: FanData): number => {
     if (fan.lastActivityAt) {
@@ -1492,15 +1512,7 @@ function SideBarInner() {
   );
 
   const handlePurchaseCreated = useCallback(
-    (detail: {
-      fanId?: string;
-      fanName?: string;
-      amountCents?: number;
-      kind?: string;
-      title?: string;
-      purchaseId?: string;
-      createdAt?: string;
-    }) => {
+    (detail: PurchaseCreatedPayload) => {
       const fanId = typeof detail?.fanId === "string" ? detail.fanId : "";
       if (!fanId) return;
       const amount = typeof detail?.amountCents === "number" ? detail.amountCents / 100 : 0;
@@ -1536,26 +1548,15 @@ function SideBarInner() {
           kind: detail?.kind,
           title: detail?.title,
           purchaseId: typeof detail?.purchaseId === "string" ? detail.purchaseId : undefined,
+          eventId: typeof detail?.eventId === "string" ? detail.eventId : undefined,
           createdAt: safeTime.toISOString(),
         });
         if (unseenNotice) {
-          const ui = formatPurchaseUI({
-            kind: detail?.kind,
-            amountCents: unseenNotice.totalAmountCents,
-            fanName: fanLabel || undefined,
-            viewer: "creator",
-          });
           setUnseenPurchaseByFan((prev) => ({
             ...prev,
             [fanId]: unseenNotice,
           }));
-          showPurchaseToast({
-            fanId,
-            icon: ui.icon,
-            label: ui.toastLabel,
-            amount,
-            purchaseIds: unseenNotice.purchaseIds,
-          });
+          playPurchaseSound();
         }
       }
       setFans((prev) => {
@@ -1573,7 +1574,7 @@ function SideBarInner() {
       scheduleFansRefresh();
       void refreshExtrasSummary();
     },
-    [conversation?.id, conversation?.isManager, refreshExtrasSummary, scheduleFansRefresh, showPurchaseToast]
+    [conversation?.id, conversation?.isManager, playPurchaseSound, refreshExtrasSummary, scheduleFansRefresh]
   );
 
   const handlePurchaseSeen = useCallback((detail: { fanId?: string; purchaseIds?: string[] }) => {
@@ -1762,8 +1763,28 @@ function SideBarInner() {
     "flex items-center justify-between gap-3 rounded-lg px-2 py-1.5 text-left transition hover:bg-[color:var(--surface-2)] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[color:var(--ring)]";
   const countPillClass =
     "inline-flex items-center rounded-full px-2.5 py-1 text-[11px] font-semibold tabular-nums tracking-tight";
+  const boardPurchaseMeta = useMemo(() => {
+    const latest = boardPurchaseSummary.latest;
+    if (!latest) return null;
+    const notice = latest.notice;
+    const fallbackName =
+      (fans.find((fan) => fan.id === latest.fanId)?.contactName || "").trim();
+    const fanName = (notice.last.fanName || "").trim() || fallbackName || "Fan";
+    const amountCents =
+      typeof notice.last.amountCents === "number" ? notice.last.amountCents : notice.totalAmountCents;
+    const ui = formatPurchaseUI({
+      kind: notice.last.kind,
+      amountCents,
+      fanName,
+      viewer: "creator",
+    });
+    const label = fanName ? `Has recibido ${ui.amountLabel} de ${fanName}` : `Has recibido ${ui.amountLabel}`;
+    const extraCount = Math.max(0, boardPurchaseSummary.totalCount - 1);
+    return { label, icon: ui.icon, extraCount };
+  }, [boardPurchaseSummary, fans]);
   return (
     <div
+      data-creator-board="true"
       className="flex flex-col w-full md:w-[480px] lg:min-w-[420px] shrink-0 bg-[color:var(--surface-1)] min-h-[320px] md:h-full"
       style={{ borderRight: "1px solid var(--border)" }}
     >
@@ -1796,20 +1817,32 @@ function SideBarInner() {
             {openFanToast}
           </div>
         )}
-        {purchaseToast && (
-          <div className="mb-2 rounded-xl border border-[color:rgba(34,197,94,0.4)] bg-[color:rgba(34,197,94,0.1)] px-3 py-2 text-[11px] text-[color:var(--text)] novsy-pop">
+        {boardPurchaseMeta && (
+          <div className="mb-2 rounded-xl border border-[color:rgba(34,197,94,0.4)] bg-[color:rgba(34,197,94,0.1)] px-3 py-2 text-[11px] text-[color:var(--text)]">
             <div className="flex items-center justify-between gap-2">
-              <div className="flex items-center gap-2">
-                <span className="text-base leading-none">{purchaseToast.icon}</span>
-                <span className="font-semibold">{purchaseToast.label}</span>
-              </div>
               <button
                 type="button"
-                onClick={handleOpenPurchaseFan}
-                className="rounded-full border border-[color:rgba(34,197,94,0.5)] bg-[color:rgba(34,197,94,0.16)] px-2 py-0.5 text-[10px] font-semibold hover:bg-[color:rgba(34,197,94,0.24)]"
+                onClick={handleOpenPurchaseBanner}
+                className="flex min-w-0 flex-1 items-center gap-2 text-left"
               >
-                Abrir chat
+                <span className="text-base leading-none">{boardPurchaseMeta.icon}</span>
+                <span className="font-semibold truncate">{boardPurchaseMeta.label}</span>
               </button>
+              <div className="flex items-center gap-2">
+                {boardPurchaseMeta.extraCount > 0 && (
+                  <span className="rounded-full border border-[color:rgba(34,197,94,0.5)] bg-[color:rgba(34,197,94,0.16)] px-2 py-0.5 text-[10px] font-semibold">
+                    +{boardPurchaseMeta.extraCount}
+                  </span>
+                )}
+                <button
+                  type="button"
+                  onClick={handleDismissPurchaseBanner}
+                  className="rounded-full border border-[color:rgba(34,197,94,0.5)] bg-[color:rgba(34,197,94,0.12)] px-2 py-0.5 text-[10px] font-semibold hover:bg-[color:rgba(34,197,94,0.2)]"
+                  aria-label="Cerrar"
+                >
+                  x
+                </button>
+              </div>
             </div>
           </div>
         )}

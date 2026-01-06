@@ -9,6 +9,7 @@ import type { PurchaseCreatedPayload } from "../../lib/events";
 import { getFanIdFromQuery, openFanChat } from "../../lib/navigation/openCreatorChat";
 import { resolvePurchaseEventId } from "../../lib/purchaseEventDedupe";
 import { formatPurchaseUI } from "../../lib/purchaseUi";
+import { recordUnseenPurchase, setPendingPurchaseNotice } from "../../lib/unseenPurchases";
 import { getFanDisplayNameForCreator } from "../../utils/fanDisplayName";
 
 type PurchaseToast = {
@@ -18,6 +19,11 @@ type PurchaseToast = {
   subtitle?: string;
   icon?: string;
   createdAt: string;
+  amountCents?: number;
+  kind?: string;
+  fanName?: string;
+  purchaseId?: string;
+  eventId?: string;
 };
 
 const MAX_TOASTS = 3;
@@ -102,6 +108,13 @@ export function RealtimeToastHost() {
     return null;
   }, [conversation?.id, conversation?.isManager, router.pathname, router.query]);
 
+  const isBoardVisible = useCallback(() => {
+    if (typeof document === "undefined") return false;
+    const board = document.querySelector('[data-creator-board="true"]') as HTMLElement | null;
+    if (!board) return false;
+    return board.offsetParent !== null;
+  }, []);
+
   const resolveFanName = useCallback(
     (fanId: string, fallback?: string) => {
       const trimmed = typeof fallback === "string" ? fallback.trim() : "";
@@ -169,14 +182,23 @@ export function RealtimeToastHost() {
   );
 
   const openToastChat = useCallback(
-    (fanId: string) => {
-      if (!fanId) return;
+    (toast: PurchaseToast) => {
+      if (!toast?.fanId) return;
+      setPendingPurchaseNotice({
+        fanId: toast.fanId,
+        fanName: toast.fanName,
+        amountCents: toast.amountCents,
+        kind: toast.kind,
+        purchaseId: toast.purchaseId,
+        eventId: toast.eventId,
+        createdAt: toast.createdAt,
+      });
       if (router.pathname === "/fan/[fanId]") {
-        void router.push(`/fan/${fanId}`);
+        void router.push(`/fan/${toast.fanId}`);
         return;
       }
       const targetPath = router.pathname === "/" ? "/" : "/creator";
-      openFanChat(router, fanId, { shallow: true, scroll: false, pathname: targetPath });
+      openFanChat(router, toast.fanId, { shallow: true, scroll: false, pathname: targetPath });
     },
     [router]
   );
@@ -186,6 +208,7 @@ export function RealtimeToastHost() {
       const fanId = typeof detail?.fanId === "string" ? detail.fanId.trim() : "";
       if (!fanId) return;
       if (activeChatFanId && fanId === activeChatFanId) return;
+      if (isBoardVisible()) return;
       const toastId =
         resolvePurchaseEventId(detail) ?? (detail?.purchaseId ? String(detail.purchaseId) : `${fanId}-${Date.now()}`);
       if (!toastId || hasSeen(toastId)) return;
@@ -202,6 +225,16 @@ export function RealtimeToastHost() {
       const kindLabel = normalizeKindLabel(detail?.kind);
       const relative = formatRelativeTime(createdAt);
       const subtitle = kindLabel ? `${kindLabel} - ${relative}` : relative;
+      recordUnseenPurchase({
+        fanId,
+        fanName: fanName || undefined,
+        amountCents: typeof detail?.amountCents === "number" ? detail.amountCents : 0,
+        kind: detail?.kind,
+        title: detail?.title,
+        purchaseId: typeof detail?.purchaseId === "string" ? detail.purchaseId : undefined,
+        eventId: typeof detail?.eventId === "string" ? detail.eventId : undefined,
+        createdAt,
+      });
       enqueueToast({
         id: toastId,
         fanId,
@@ -209,9 +242,14 @@ export function RealtimeToastHost() {
         subtitle,
         icon: ui.icon,
         createdAt,
+        amountCents: typeof detail?.amountCents === "number" ? detail.amountCents : undefined,
+        kind: detail?.kind,
+        fanName,
+        purchaseId: typeof detail?.purchaseId === "string" ? detail.purchaseId : undefined,
+        eventId: typeof detail?.eventId === "string" ? detail.eventId : undefined,
       });
     },
-    [activeChatFanId, enqueueToast, hasSeen, markSeen, resolveFanName]
+    [activeChatFanId, enqueueToast, hasSeen, isBoardVisible, markSeen, resolveFanName]
   );
 
   useCreatorRealtime({ onPurchaseCreated: handlePurchaseCreated });
@@ -224,13 +262,13 @@ export function RealtimeToastHost() {
       <div className="pointer-events-auto flex w-full max-w-md flex-col gap-2">
         <div
           onClick={() => {
-            openToastChat(activeToast.fanId);
+            openToastChat(activeToast);
             dismissToast(activeToast.id);
           }}
           onKeyDown={(event) => {
             if (event.key === "Enter" || event.key === " ") {
               event.preventDefault();
-              openToastChat(activeToast.fanId);
+              openToastChat(activeToast);
               dismissToast(activeToast.id);
             }
           }}

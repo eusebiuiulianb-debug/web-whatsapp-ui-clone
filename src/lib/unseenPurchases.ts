@@ -5,6 +5,7 @@ type PurchaseNoticePayload = {
   kind?: string;
   title?: string;
   purchaseId?: string;
+  eventId?: string;
   createdAt?: string;
 };
 
@@ -69,6 +70,9 @@ export function getUnseenPurchases(): Record<string, PurchaseNotice> {
 export function recordUnseenPurchase(payload: PurchaseNoticePayload): PurchaseNotice | null {
   if (!payload?.fanId) return null;
   const purchaseId = (() => {
+    if (typeof payload.eventId === "string" && payload.eventId.trim()) {
+      return payload.eventId.trim();
+    }
     if (typeof payload.purchaseId === "string" && payload.purchaseId.trim()) {
       return payload.purchaseId.trim();
     }
@@ -122,4 +126,45 @@ export function clearUnseenPurchase(fanId: string) {
   if (!map[fanId]) return;
   delete map[fanId];
   writeStore(map);
+}
+
+export type PendingPurchaseNoticePayload = {
+  fanId: string;
+  fanName?: string;
+  amountCents?: number;
+  kind?: string;
+  title?: string;
+  purchaseId?: string;
+  eventId?: string;
+  createdAt?: string;
+};
+
+const PENDING_NOTICE_PREFIX = "pending_purchase_notice:";
+
+export function setPendingPurchaseNotice(payload: PendingPurchaseNoticePayload) {
+  if (typeof window === "undefined") return;
+  if (!payload?.fanId) return;
+  try {
+    window.sessionStorage.setItem(
+      `${PENDING_NOTICE_PREFIX}${payload.fanId}`,
+      JSON.stringify(payload)
+    );
+  } catch (_err) {
+    // ignore storage errors
+  }
+}
+
+export function consumePendingPurchaseNotice(fanId: string): PendingPurchaseNoticePayload | null {
+  if (typeof window === "undefined" || !fanId) return null;
+  const key = `${PENDING_NOTICE_PREFIX}${fanId}`;
+  try {
+    const raw = window.sessionStorage.getItem(key);
+    if (!raw) return null;
+    window.sessionStorage.removeItem(key);
+    const parsed = JSON.parse(raw) as PendingPurchaseNoticePayload | null;
+    if (!parsed || typeof parsed !== "object") return null;
+    return parsed;
+  } catch (_err) {
+    return null;
+  }
 }
