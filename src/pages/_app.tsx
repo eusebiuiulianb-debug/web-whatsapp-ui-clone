@@ -4,6 +4,7 @@ import { useEffect } from "react";
 import { ConversationProvider } from "../context/ConversationContext";
 import { CreatorConfigProvider } from "../context/CreatorConfigContext";
 import { initCrossTabEvents } from "../lib/crossTabEvents";
+import { RealtimeToastHost } from "../components/creator/RealtimeToastHost";
 
 function MyApp({ Component, pageProps }: AppProps) {
   useEffect(() => {
@@ -14,6 +15,7 @@ function MyApp({ Component, pageProps }: AppProps) {
     <CreatorConfigProvider>
       <ConversationProvider>
         <Component {...pageProps} />
+        <RealtimeToastHost />
       </ConversationProvider>
     </CreatorConfigProvider>
   )
