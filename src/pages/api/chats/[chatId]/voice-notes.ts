@@ -3,6 +3,7 @@ import path from "path";
 import fs from "fs/promises";
 import formidable, { type File } from "formidable";
 import prisma from "../../../../lib/prisma.server";
+import { normalizeAudience, normalizeFrom, type MessageAudience } from "../../../../lib/messageAudience";
 
 type VoiceNoteResponse =
   | { ok: true; message: any; messages?: any[] }
@@ -93,14 +94,30 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
       return res.status(400).json({ ok: false, error: "Audio too large" });
     }
 
+    const rawFrom = Array.isArray(fields.from) ? fields.from[0] : fields.from;
+    const normalizedFrom = normalizeFrom(typeof rawFrom === "string" ? rawFrom : undefined);
+    const storedFrom = normalizedFrom === "fan" ? "fan" : "creator";
+    const rawAudience = Array.isArray(fields.audience) ? fields.audience[0] : fields.audience;
+    const parsedAudience = normalizeAudience(typeof rawAudience === "string" ? rawAudience : undefined);
+    let normalizedAudience: MessageAudience;
+    if (storedFrom === "fan") {
+      normalizedAudience = "FAN";
+    } else if (!rawAudience || parsedAudience === "CREATOR" || parsedAudience === "FAN") {
+      normalizedAudience = "CREATOR";
+    } else if (parsedAudience === "INTERNAL") {
+      normalizedAudience = "INTERNAL";
+    } else {
+      return res.status(400).json({ ok: false, error: "Invalid audience" });
+    }
+
     const fan = await prisma.fan.findUnique({
       where: { id: chatIdParam },
-      select: { id: true, isBlocked: true },
+      select: { id: true, isBlocked: true, inviteToken: true, inviteUsedAt: true },
     });
     if (!fan) {
       return res.status(404).json({ ok: false, error: "Fan not found" });
     }
-    if (fan.isBlocked) {
+    if (storedFrom === "creator" && fan.isBlocked && normalizedAudience !== "INTERNAL") {
       return res.status(403).json({ ok: false, error: "CHAT_BLOCKED" });
     }
 
@@ -119,22 +136,25 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
       hour12: false,
     });
 
-    await prisma.message.updateMany({
-      where: { fanId: chatIdParam },
-      data: { isLastFromCreator: false },
-    });
+    const shouldUpdateThread = normalizedAudience !== "INTERNAL";
+    if (shouldUpdateThread) {
+      await prisma.message.updateMany({
+        where: { fanId: chatIdParam },
+        data: { isLastFromCreator: false },
+      });
+    }
 
     const created = await prisma.message.create({
       data: {
         id: messageId,
         fanId: chatIdParam,
-        from: "creator",
-        audience: "CREATOR",
+        from: storedFrom,
+        audience: normalizedAudience,
         text: "",
         deliveredText: null,
         creatorTranslatedText: null,
         time,
-        isLastFromCreator: true,
+        isLastFromCreator: shouldUpdateThread && storedFrom === "creator",
         type: "AUDIO",
         contentItemId: null,
         stickerId: null,
@@ -145,19 +165,30 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
       },
     });
 
-    const preview = "🎤 Nota de voz";
-    const now = new Date();
-    await prisma.fan.update({
-      where: { id: chatIdParam },
-      data: {
+    if (shouldUpdateThread) {
+      const preview = "🎤 Nota de voz";
+      const now = new Date();
+      const fanUpdate: Record<string, unknown> = {
         preview,
         time,
         lastMessageAt: now,
         lastActivityAt: now,
-        lastCreatorMessageAt: now,
-        unreadCount: 0,
-      },
-    });
+      };
+      if (storedFrom === "fan") {
+        fanUpdate.isArchived = false;
+        fanUpdate.unreadCount = { increment: 1 };
+        if (fan.inviteToken && !fan.inviteUsedAt) {
+          fanUpdate.inviteUsedAt = now;
+        }
+      } else {
+        fanUpdate.lastCreatorMessageAt = now;
+        fanUpdate.unreadCount = 0;
+      }
+      await prisma.fan.update({
+        where: { id: chatIdParam },
+        data: fanUpdate,
+      });
+    }
 
     return res.status(200).json({ ok: true, message: created, messages: [created] });
   } catch (err) {

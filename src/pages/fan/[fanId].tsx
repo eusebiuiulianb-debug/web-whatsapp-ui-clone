@@ -72,6 +72,22 @@ type PackSummary = {
   description: string;
 };
 
+type VoiceUploadPayload = {
+  blob: Blob;
+  durationMs: number;
+  mimeType: string;
+};
+
+const VOICE_MAX_DURATION_MS = 120_000;
+const VOICE_MAX_SIZE_BYTES = 20 * 1024 * 1024;
+const VOICE_MIME_PREFERENCES = [
+  "audio/webm;codecs=opus",
+  "audio/webm",
+  "audio/ogg;codecs=opus",
+  "audio/ogg",
+  "audio/mp4",
+];
+
 export function FanChatPage({
   includedContent,
   initialAccessSummary,
@@ -149,6 +165,18 @@ export function FanChatPage({
   const [supportSubmitting, setSupportSubmitting] = useState(false);
   const supportSubmitRef = useRef(false);
   const supportTxnRef = useRef<string | null>(null);
+  const [isVoiceRecording, setIsVoiceRecording] = useState(false);
+  const [voiceRecordingMs, setVoiceRecordingMs] = useState(0);
+  const [isVoiceUploading, setIsVoiceUploading] = useState(false);
+  const [voiceUploadError, setVoiceUploadError] = useState("");
+  const [voiceRetryPayload, setVoiceRetryPayload] = useState<VoiceUploadPayload | null>(null);
+  const voiceRecorderRef = useRef<MediaRecorder | null>(null);
+  const voiceStreamRef = useRef<MediaStream | null>(null);
+  const voiceChunksRef = useRef<BlobPart[]>([]);
+  const voiceStartRef = useRef<number | null>(null);
+  const voiceTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const voiceCancelRef = useRef(false);
+  const voiceObjectUrlsRef = useRef<Map<string, string>>(new Map());
 
   const sortMessages = useCallback((list: ApiMessage[]) => {
     const withKeys = list.map((msg, idx) => ({
@@ -688,6 +716,7 @@ export function FanChatPage({
   );
 
   const sendDisabled = isComposerDisabled || draft.trim().length === 0;
+  const voiceRecordingLabel = formatAudioTime(Math.max(0, Math.floor(voiceRecordingMs / 1000)));
 
   const handleOnboardingSkip = () => {
     setOnboardingDismissed(true);
@@ -751,14 +780,256 @@ export function FanChatPage({
     [creatorName]
   );
 
-  const scrollToBottom = (behavior: ScrollBehavior = "smooth") => {
+  const scrollToBottom = useCallback((behavior: ScrollBehavior = "smooth") => {
     const el = messagesContainerRef.current;
     if (!el) return;
     el.scrollTo({
       top: el.scrollHeight - el.clientHeight,
       behavior,
     });
-  };
+  }, []);
+
+  const clearVoiceTimer = useCallback(() => {
+    if (voiceTimerRef.current) {
+      clearInterval(voiceTimerRef.current);
+      voiceTimerRef.current = null;
+    }
+  }, []);
+
+  const stopVoiceStream = useCallback(() => {
+    if (voiceStreamRef.current) {
+      voiceStreamRef.current.getTracks().forEach((track) => track.stop());
+      voiceStreamRef.current = null;
+    }
+  }, []);
+
+  const resetVoiceRecording = useCallback(() => {
+    clearVoiceTimer();
+    stopVoiceStream();
+    voiceChunksRef.current = [];
+    voiceStartRef.current = null;
+    voiceRecorderRef.current = null;
+    voiceCancelRef.current = false;
+    setVoiceRecordingMs(0);
+    setIsVoiceRecording(false);
+  }, [clearVoiceTimer, stopVoiceStream]);
+
+  const resolveVoiceMimeType = useCallback(() => {
+    if (typeof window === "undefined" || typeof MediaRecorder === "undefined") return "";
+    for (let i = 0; i < VOICE_MIME_PREFERENCES.length; i += 1) {
+      const candidate = VOICE_MIME_PREFERENCES[i];
+      if (MediaRecorder.isTypeSupported(candidate)) return candidate;
+    }
+    return "";
+  }, []);
+
+  const uploadVoiceNote = useCallback(
+    async (payload: VoiceUploadPayload) => {
+      if (!fanId) return;
+      const { blob, durationMs, mimeType } = payload;
+      const tempId = `temp-audio-${Date.now()}`;
+      const localUrl = URL.createObjectURL(blob);
+      voiceObjectUrlsRef.current.set(tempId, localUrl);
+      const timeLabel = new Date().toLocaleTimeString("es-ES", {
+        hour: "2-digit",
+        minute: "2-digit",
+        hour12: false,
+      });
+      const tempMessage: ApiMessage = {
+        id: tempId,
+        fanId,
+        from: "fan",
+        text: "",
+        time: timeLabel,
+        status: "sending",
+        type: "AUDIO",
+        audioUrl: localUrl,
+        audioDurationMs: durationMs,
+        audioMime: mimeType,
+        audioSizeBytes: blob.size,
+      };
+      setMessages((prev) => reconcileMessages(prev, [tempMessage], sortMessages, fanId));
+      scrollToBottom("auto");
+      setVoiceUploadError("");
+      setVoiceRetryPayload(null);
+      setIsVoiceUploading(true);
+      try {
+        const form = new FormData();
+        const extension = mimeType.includes("ogg") ? "ogg" : mimeType.includes("mp4") ? "mp4" : "webm";
+        form.append("file", blob, `voice-note.${extension}`);
+        form.append("durationMs", String(durationMs));
+        form.append("from", "fan");
+        const res = await fetch(`/api/chats/${fanId}/voice-notes`, {
+          method: "POST",
+          body: form,
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok || !data?.ok) {
+          throw new Error(data?.error || "upload_failed");
+        }
+        const newMessages: ApiMessage[] = Array.isArray(data.messages)
+          ? (data.messages as ApiMessage[])
+          : data.message
+          ? [data.message as ApiMessage]
+          : [];
+        if (newMessages.length > 0) {
+          setMessages((prev) => {
+            const withoutTemp = (prev || []).filter((msg) => msg.id !== tempId);
+            return reconcileMessages(withoutTemp, newMessages, sortMessages, fanId);
+          });
+        } else {
+          setMessages((prev) => (prev || []).filter((msg) => msg.id !== tempId));
+        }
+      } catch (_err) {
+        setVoiceUploadError("No se pudo subir la nota de voz.");
+        setVoiceRetryPayload(payload);
+        setMessages((prev) => (prev || []).filter((msg) => msg.id !== tempId));
+      } finally {
+        const url = voiceObjectUrlsRef.current.get(tempId);
+        if (url) {
+          URL.revokeObjectURL(url);
+          voiceObjectUrlsRef.current.delete(tempId);
+        }
+        setIsVoiceUploading(false);
+      }
+    },
+    [fanId, scrollToBottom, sortMessages]
+  );
+
+  const startVoiceRecording = useCallback(async () => {
+    if (isVoiceRecording || isVoiceUploading) return;
+    if (!fanId || isComposerDisabled) return;
+    if (typeof navigator === "undefined" || !navigator.mediaDevices?.getUserMedia) {
+      setVoiceUploadError("No se detecta micro en este navegador.");
+      return;
+    }
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      voiceStreamRef.current = stream;
+      const mimeType = resolveVoiceMimeType();
+      const recorder = mimeType ? new MediaRecorder(stream, { mimeType }) : new MediaRecorder(stream);
+      voiceRecorderRef.current = recorder;
+      voiceChunksRef.current = [];
+      voiceCancelRef.current = false;
+      voiceStartRef.current = Date.now();
+      setVoiceRecordingMs(0);
+      setIsVoiceRecording(true);
+      setVoiceUploadError("");
+      setVoiceRetryPayload(null);
+      recorder.ondataavailable = (event) => {
+        if (event.data && event.data.size > 0) {
+          voiceChunksRef.current.push(event.data);
+        }
+      };
+      recorder.onerror = () => {
+        setVoiceUploadError("Error al grabar la nota de voz.");
+        resetVoiceRecording();
+      };
+      recorder.onstop = () => {
+        const startedAt = voiceStartRef.current ?? Date.now();
+        const elapsedMs = Math.max(0, Date.now() - startedAt);
+        const chunks = voiceChunksRef.current;
+        clearVoiceTimer();
+        stopVoiceStream();
+        voiceRecorderRef.current = null;
+        voiceStartRef.current = null;
+        setIsVoiceRecording(false);
+        setVoiceRecordingMs(0);
+        if (voiceCancelRef.current) {
+          voiceCancelRef.current = false;
+          voiceChunksRef.current = [];
+          return;
+        }
+        const blob = new Blob(chunks, { type: mimeType || "audio/webm" });
+        voiceChunksRef.current = [];
+        if (!blob.size) {
+          setVoiceUploadError("No se pudo grabar la nota de voz.");
+          return;
+        }
+        if (blob.size > VOICE_MAX_SIZE_BYTES) {
+          setVoiceUploadError("La nota de voz supera los 20 MB.");
+          return;
+        }
+        if (elapsedMs > VOICE_MAX_DURATION_MS) {
+          setVoiceUploadError("La nota de voz supera los 120 s.");
+          return;
+        }
+        if (elapsedMs < 800) {
+          setVoiceUploadError("La nota de voz es demasiado corta.");
+          return;
+        }
+        void uploadVoiceNote({ blob, durationMs: elapsedMs, mimeType: blob.type || mimeType || "audio/webm" });
+      };
+      recorder.start();
+      voiceTimerRef.current = setInterval(() => {
+        if (!voiceStartRef.current) return;
+        setVoiceRecordingMs(Date.now() - voiceStartRef.current);
+      }, 250);
+    } catch (_err) {
+      setVoiceUploadError("Permiso del micro denegado.");
+      resetVoiceRecording();
+    }
+  }, [
+    fanId,
+    isComposerDisabled,
+    isVoiceRecording,
+    isVoiceUploading,
+    resolveVoiceMimeType,
+    resetVoiceRecording,
+    uploadVoiceNote,
+    clearVoiceTimer,
+    stopVoiceStream,
+  ]);
+
+  const stopVoiceRecording = useCallback(() => {
+    if (!isVoiceRecording) return;
+    const recorder = voiceRecorderRef.current;
+    if (!recorder || recorder.state === "inactive") {
+      resetVoiceRecording();
+      return;
+    }
+    recorder.stop();
+  }, [isVoiceRecording, resetVoiceRecording]);
+
+  const cancelVoiceRecording = useCallback(() => {
+    if (!isVoiceRecording) return;
+    voiceCancelRef.current = true;
+    const recorder = voiceRecorderRef.current;
+    if (recorder && recorder.state !== "inactive") {
+      recorder.stop();
+    } else {
+      resetVoiceRecording();
+    }
+  }, [isVoiceRecording, resetVoiceRecording]);
+
+  const retryVoiceUpload = useCallback(() => {
+    if (!voiceRetryPayload || isVoiceUploading) return;
+    setVoiceUploadError("");
+    const payload = voiceRetryPayload;
+    setVoiceRetryPayload(null);
+    void uploadVoiceNote(payload);
+  }, [isVoiceUploading, uploadVoiceNote, voiceRetryPayload]);
+
+  const clearVoiceRetry = useCallback(() => {
+    setVoiceRetryPayload(null);
+    setVoiceUploadError("");
+  }, []);
+
+  useEffect(() => {
+    const objectUrls = voiceObjectUrlsRef.current;
+    return () => {
+      clearVoiceTimer();
+      stopVoiceStream();
+      objectUrls.forEach((url) => URL.revokeObjectURL(url));
+      objectUrls.clear();
+    };
+  }, [clearVoiceTimer, stopVoiceStream]);
+
+  useEffect(() => {
+    setVoiceUploadError("");
+    setVoiceRetryPayload(null);
+    resetVoiceRecording();
+  }, [fanId, resetVoiceRecording]);
 
   useIsomorphicLayoutEffect(() => {
     const el = messagesContainerRef.current;
@@ -775,12 +1046,12 @@ export function FanChatPage({
 
   useIsomorphicLayoutEffect(() => {
     scrollToBottom("auto");
-  }, [fanId]);
+  }, [fanId, scrollToBottom]);
 
   useIsomorphicLayoutEffect(() => {
     if (!isAtBottom) return;
     scrollToBottom("smooth");
-  }, [visibleMessages.length, isAtBottom]);
+  }, [visibleMessages.length, isAtBottom, scrollToBottom]);
 
   useEffect(() => {
     if (typeof document === "undefined") return;
@@ -967,6 +1238,59 @@ export function FanChatPage({
         {!isOnboardingVisible && (
           <div className="shrink-0 border-t border-[color:var(--surface-border)] bg-[color:var(--surface-0)] backdrop-blur-xl">
             <div className="px-4 sm:px-6 py-3">
+              {(isVoiceRecording || isVoiceUploading) && (
+                <div className="mb-2 rounded-xl border border-[color:rgba(34,197,94,0.4)] bg-[color:rgba(34,197,94,0.08)] px-3 py-2 text-[11px] text-[color:var(--text)]">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div className="flex items-center gap-2 font-semibold">
+                      <span>🎤</span>
+                      <span>{isVoiceUploading ? "Subiendo nota de voz..." : `Grabando ${voiceRecordingLabel}`}</span>
+                    </div>
+                    {isVoiceRecording && (
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={stopVoiceRecording}
+                          className="rounded-full border border-[color:rgba(34,197,94,0.6)] bg-[color:rgba(34,197,94,0.16)] px-3 py-1 text-[10px] font-semibold hover:bg-[color:rgba(34,197,94,0.24)]"
+                        >
+                          Stop
+                        </button>
+                        <button
+                          type="button"
+                          onClick={cancelVoiceRecording}
+                          className="rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-3 py-1 text-[10px] font-semibold text-[color:var(--muted)] hover:text-[color:var(--text)]"
+                        >
+                          Cancelar
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+              {voiceUploadError && (
+                <div className="mb-2 rounded-xl border border-[color:rgba(244,63,94,0.4)] bg-[color:rgba(244,63,94,0.1)] px-3 py-2 text-[11px] text-[color:var(--text)]">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <span>{voiceUploadError}</span>
+                    {voiceRetryPayload ? (
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={retryVoiceUpload}
+                          className="rounded-full border border-[color:rgba(244,63,94,0.5)] bg-[color:rgba(244,63,94,0.12)] px-3 py-1 text-[10px] font-semibold text-[color:var(--text)] hover:bg-[color:rgba(244,63,94,0.2)]"
+                        >
+                          Reintentar
+                        </button>
+                        <button
+                          type="button"
+                          onClick={clearVoiceRetry}
+                          className="rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-3 py-1 text-[10px] font-semibold text-[color:var(--muted)] hover:text-[color:var(--text)]"
+                        >
+                          Descartar
+                        </button>
+                      </div>
+                    ) : null}
+                  </div>
+                </div>
+              )}
               <div
                 className="flex flex-col gap-2 rounded-2xl border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-3 py-2.5 shadow-[0_-12px_22px_-16px_rgba(0,0,0,0.55)] focus-within:border-[color:rgba(var(--brand-rgb),0.45)] focus-within:ring-1 focus-within:ring-[color:var(--ring)]"
               >
@@ -988,6 +1312,10 @@ export function FanChatPage({
                   isInternalPanelOpen={false}
                   showAudienceToggle={false}
                   showAttach
+                  showVoice
+                  onVoiceStart={startVoiceRecording}
+                  voiceDisabled={isComposerDisabled || isVoiceRecording || isVoiceUploading}
+                  isVoiceRecording={isVoiceRecording}
                   showEmoji
                   onEmojiSelect={handleEmojiSelect}
                   showStickers
