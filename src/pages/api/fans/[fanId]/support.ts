@@ -3,6 +3,7 @@ import prisma from "../../../../lib/prisma.server";
 import { sendBadRequest, sendServerError } from "../../../../lib/apiError";
 import { PACKS } from "../../../../config/packs";
 import { upsertAccessGrant, type GrantType } from "../../../../lib/accessGrants";
+import { emitCreatorEvent as emitRealtimeEvent } from "../../../../server/realtimeHub";
 
 type SupportKind = "TIP" | "GIFT";
 
@@ -166,7 +167,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   try {
     const fan = await prisma.fan.findUnique({
       where: { id: fanId },
-      select: { id: true, creatorId: true },
+      select: { id: true, creatorId: true, displayName: true, name: true },
     });
     if (!fan) return res.status(404).json({ error: "Fan not found" });
 
@@ -228,6 +229,22 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         lastPurchaseAt: now,
         preview: formatSupportPreview(kind, typeof packName === "string" ? packName : null, amount),
         time,
+      },
+    });
+
+    emitRealtimeEvent({
+      eventId: purchase.id,
+      type: "PURCHASE_CREATED",
+      creatorId: fan.creatorId,
+      fanId,
+      createdAt: purchase.createdAt.toISOString(),
+      payload: {
+        purchaseId: purchase.id,
+        kind: purchase.kind,
+        amountCents: Math.round((purchase.amount ?? amount) * 100),
+        title: typeof packName === "string" ? packName : null,
+        createdAt: purchase.createdAt.toISOString(),
+        fanName: fan.displayName ?? fan.name ?? null,
       },
     });
 

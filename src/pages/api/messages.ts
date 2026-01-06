@@ -10,6 +10,7 @@ import { normalizePreferredLanguage } from "../../lib/language";
 import { getDbSchemaOutOfSyncPayload, isDbSchemaOutOfSyncError } from "../../lib/dbSchemaGuard";
 import { translateText } from "../../server/ai/translateText";
 import { getStickerById } from "../../lib/emoji/stickers";
+import { emitCreatorEvent as emitRealtimeEvent } from "../../server/realtimeHub";
 
 type MessageResponse =
   | { ok: true; items: any[]; messages?: any[] }
@@ -292,6 +293,39 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse<MessageRespo
         stickerId: normalizedType === "STICKER" ? normalizedStickerId : null,
       },
       include: { contentItem: true },
+    });
+
+    emitRealtimeEvent({
+      eventId: created.id,
+      type: "MESSAGE_CREATED",
+      creatorId: fan.creatorId,
+      fanId,
+      createdAt: new Date().toISOString(),
+      payload: {
+        message: {
+          id: created.id,
+          fanId,
+          from: created.from,
+          audience: created.audience,
+          text: created.text,
+          deliveredText: created.deliveredText,
+          creatorTranslatedText: created.creatorTranslatedText,
+          time: created.time,
+          type: created.type,
+          stickerId: created.stickerId,
+          contentItem: created.contentItem,
+          audioUrl: created.audioUrl,
+          audioDurationMs: created.audioDurationMs,
+          audioMime: created.audioMime,
+          audioSizeBytes: created.audioSizeBytes,
+          transcriptText: created.transcriptText,
+          transcriptStatus: created.transcriptStatus,
+          transcriptError: created.transcriptError,
+          transcribedAt: created.transcribedAt,
+          transcriptLang: created.transcriptLang,
+          intentJson: created.intentJson,
+        },
+      },
     });
 
     if (shouldUpdateThread) {

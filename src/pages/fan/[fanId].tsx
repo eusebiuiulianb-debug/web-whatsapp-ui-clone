@@ -21,10 +21,12 @@ import { parseReactionsRaw, useReactions } from "../../lib/emoji/reactions";
 import { getStickerById } from "../../lib/emoji/stickers";
 import { buildFanChatProps } from "../../lib/fanChatProps";
 import { generateClientTxnId } from "../../lib/clientTxn";
+import { getPreferredAudioStream } from "../../lib/getPreferredAudioStream";
 import { emitPurchaseCreated } from "../../lib/events";
 import { buildStickerTokenFromItem, getStickerByToken, type StickerItem } from "../../lib/stickers";
 import { IconGlyph, type IconName } from "../../components/ui/IconGlyph";
 import { Badge, type BadgeTone } from "../../components/ui/Badge";
+import clsx from "clsx";
 
 type ApiContentItem = {
   id: string;
@@ -53,6 +55,17 @@ type ApiMessage = {
   audioDurationMs?: number | null;
   audioMime?: string | null;
   audioSizeBytes?: number | null;
+  transcriptText?: string | null;
+  transcriptStatus?: "OFF" | "PENDING" | "DONE" | "FAILED" | null;
+  transcriptError?: string | null;
+  transcribedAt?: string | null;
+  transcriptLang?: string | null;
+  intentJson?: {
+    intent?: string;
+    tags?: string[];
+    needsReply?: boolean;
+    replyDraft?: string;
+  } | null;
   contentItem?: ApiContentItem | null;
   status?: "sending" | "failed" | "sent";
 };
@@ -76,14 +89,16 @@ type VoiceUploadPayload = {
   blob: Blob;
   durationMs: number;
   mimeType: string;
+  clientTxnId: string;
 };
 
 const VOICE_MAX_DURATION_MS = 120_000;
 const VOICE_MAX_SIZE_BYTES = 20 * 1024 * 1024;
+const VOICE_MIN_SIZE_BYTES = 2 * 1024;
 const VOICE_MIME_PREFERENCES = [
   "audio/webm;codecs=opus",
-  "audio/webm",
   "audio/ogg;codecs=opus",
+  "audio/webm",
   "audio/ogg",
   "audio/mp4",
 ];
@@ -177,6 +192,7 @@ export function FanChatPage({
   const voiceTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const voiceCancelRef = useRef(false);
   const voiceObjectUrlsRef = useRef<Map<string, string>>(new Map());
+  const voicePreviewRef = useRef<HTMLAudioElement | null>(null);
 
   const sortMessages = useCallback((list: ApiMessage[]) => {
     const withKeys = list.map((msg, idx) => ({
@@ -803,6 +819,33 @@ export function FanChatPage({
     }
   }, []);
 
+  const previewVoiceBlob = useCallback((blob: Blob) => {
+    if (typeof Audio === "undefined") return;
+    if (voicePreviewRef.current) {
+      voicePreviewRef.current.pause();
+      voicePreviewRef.current = null;
+    }
+    const previewUrl = URL.createObjectURL(blob);
+    const audio = new Audio(previewUrl);
+    audio.preload = "metadata";
+    voicePreviewRef.current = audio;
+    const cleanup = () => {
+      if (voicePreviewRef.current === audio) {
+        voicePreviewRef.current = null;
+      }
+      URL.revokeObjectURL(previewUrl);
+    };
+    audio.addEventListener("ended", cleanup);
+    audio.addEventListener("error", cleanup);
+    const playPromise = audio.play();
+    if (playPromise && typeof playPromise.catch === "function") {
+      playPromise.catch((err) => {
+        console.warn("[voice-note] preview playback failed", err);
+        cleanup();
+      });
+    }
+  }, []);
+
   const resetVoiceRecording = useCallback(() => {
     clearVoiceTimer();
     stopVoiceStream();
@@ -826,7 +869,7 @@ export function FanChatPage({
   const uploadVoiceNote = useCallback(
     async (payload: VoiceUploadPayload) => {
       if (!fanId) return;
-      const { blob, durationMs, mimeType } = payload;
+      const { blob, durationMs, mimeType, clientTxnId } = payload;
       const tempId = `temp-audio-${Date.now()}`;
       const localUrl = URL.createObjectURL(blob);
       voiceObjectUrlsRef.current.set(tempId, localUrl);
@@ -856,17 +899,27 @@ export function FanChatPage({
       try {
         const form = new FormData();
         const extension = mimeType.includes("ogg") ? "ogg" : mimeType.includes("mp4") ? "mp4" : "webm";
-        form.append("file", blob, `voice-note.${extension}`);
+        form.append("file", blob, `voice_${Date.now()}.${extension}`);
         form.append("durationMs", String(durationMs));
         form.append("from", "fan");
+        form.append("clientTxnId", clientTxnId);
+        form.append("mime", mimeType);
+        form.append("fanId", fanId);
         const res = await fetch(`/api/chats/${fanId}/voice-notes`, {
           method: "POST",
           body: form,
         });
         const data = await res.json().catch(() => ({}));
         if (!res.ok || !data?.ok) {
-          throw new Error(data?.error || "upload_failed");
+          const errorMessage =
+            typeof data?.error === "string" && data.error.trim().length > 0
+              ? data.error
+              : res.ok
+              ? "No se pudo subir la nota de voz."
+              : `Error ${res.status}`;
+          throw new Error(errorMessage);
         }
+        const reused = Boolean(data?.reused);
         const newMessages: ApiMessage[] = Array.isArray(data.messages)
           ? (data.messages as ApiMessage[])
           : data.message
@@ -875,13 +928,21 @@ export function FanChatPage({
         if (newMessages.length > 0) {
           setMessages((prev) => {
             const withoutTemp = (prev || []).filter((msg) => msg.id !== tempId);
+            if (reused) {
+              const existingIds = new Set(withoutTemp.map((msg) => msg.id));
+              const fresh = newMessages.filter((msg) => !existingIds.has(msg.id));
+              if (fresh.length === 0) return withoutTemp;
+              return reconcileMessages(withoutTemp, fresh, sortMessages, fanId);
+            }
             return reconcileMessages(withoutTemp, newMessages, sortMessages, fanId);
           });
         } else {
           setMessages((prev) => (prev || []).filter((msg) => msg.id !== tempId));
         }
-      } catch (_err) {
-        setVoiceUploadError("No se pudo subir la nota de voz.");
+      } catch (err) {
+        const message =
+          err instanceof Error && err.message.trim().length > 0 ? err.message : "No se pudo subir la nota de voz.";
+        setVoiceUploadError(message);
         setVoiceRetryPayload(payload);
         setMessages((prev) => (prev || []).filter((msg) => msg.id !== tempId));
       } finally {
@@ -904,7 +965,28 @@ export function FanChatPage({
       return;
     }
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const { stream, label, deviceId, isMonitor } = await getPreferredAudioStream();
+      console.info("voice capture device:", label, deviceId ?? "");
+      const audioTracks = stream.getAudioTracks();
+      if (!audioTracks.length) {
+        setVoiceUploadError("No se detectó audio.");
+        stream.getTracks().forEach((track) => track.stop());
+        return;
+      }
+      if (isMonitor || audioTracks.some((track) => track.label.toLowerCase().includes("monitor"))) {
+        setVoiceUploadError("Entrada de micro incorrecta (Monitor). Cambia a MicrophoneFX en ajustes.");
+        setVoiceRetryPayload(null);
+        stream.getTracks().forEach((track) => track.stop());
+        return;
+      }
+      audioTracks.forEach((track) => {
+        if (!track.enabled) track.enabled = true;
+      });
+      if (!audioTracks.some((track) => track.enabled)) {
+        setVoiceUploadError("No se detectó audio.");
+        stream.getTracks().forEach((track) => track.stop());
+        return;
+      }
       voiceStreamRef.current = stream;
       const mimeType = resolveVoiceMimeType();
       const recorder = mimeType ? new MediaRecorder(stream, { mimeType }) : new MediaRecorder(stream);
@@ -942,8 +1024,17 @@ export function FanChatPage({
         }
         const blob = new Blob(chunks, { type: mimeType || "audio/webm" });
         voiceChunksRef.current = [];
+        console.info("[voice-note] recorded", {
+          blobType: blob.type,
+          blobSize: blob.size,
+          durationMs: elapsedMs,
+        });
         if (!blob.size) {
           setVoiceUploadError("No se pudo grabar la nota de voz.");
+          return;
+        }
+        if (blob.size < VOICE_MIN_SIZE_BYTES) {
+          setVoiceUploadError("No se detectó audio.");
           return;
         }
         if (blob.size > VOICE_MAX_SIZE_BYTES) {
@@ -958,7 +1049,14 @@ export function FanChatPage({
           setVoiceUploadError("La nota de voz es demasiado corta.");
           return;
         }
-        void uploadVoiceNote({ blob, durationMs: elapsedMs, mimeType: blob.type || mimeType || "audio/webm" });
+        previewVoiceBlob(blob);
+        const clientTxnId = generateClientTxnId();
+        void uploadVoiceNote({
+          blob,
+          durationMs: elapsedMs,
+          mimeType: blob.type || mimeType || "audio/webm",
+          clientTxnId,
+        });
       };
       recorder.start();
       voiceTimerRef.current = setInterval(() => {
@@ -977,6 +1075,7 @@ export function FanChatPage({
     resolveVoiceMimeType,
     resetVoiceRecording,
     uploadVoiceNote,
+    previewVoiceBlob,
     clearVoiceTimer,
     stopVoiceStream,
   ]);
@@ -1020,6 +1119,10 @@ export function FanChatPage({
     return () => {
       clearVoiceTimer();
       stopVoiceStream();
+      if (voicePreviewRef.current) {
+        voicePreviewRef.current.pause();
+        voicePreviewRef.current = null;
+      }
       objectUrls.forEach((url) => URL.revokeObjectURL(url));
       objectUrls.clear();
     };
@@ -1687,8 +1790,15 @@ function AudioMessage({ message }: { message: ApiMessage }) {
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const [ isPlaying, setIsPlaying ] = useState(false);
   const [ currentTime, setCurrentTime ] = useState(0);
+  const [ audioError, setAudioError ] = useState(false);
+  const [ reloadToken, setReloadToken ] = useState(0);
+  const [ transcriptOpen, setTranscriptOpen ] = useState(false);
   const isMe = message.from === "fan";
-  const audioSrc = resolveAudioUrl(message.audioUrl, router.basePath);
+  const resolvedAudioSrc = resolveAudioUrl(message.audioUrl, router.basePath);
+  const audioSrc =
+    resolvedAudioSrc && reloadToken
+      ? `${resolvedAudioSrc}${resolvedAudioSrc.includes("?") ? "&" : "?"}t=${reloadToken}`
+      : resolvedAudioSrc;
   const totalSeconds = Math.max(0, Math.round((message.audioDurationMs ?? 0) / 1000));
   const totalLabel = formatAudioTime(totalSeconds);
   const currentLabel = formatAudioTime(Math.round(currentTime));
@@ -1697,6 +1807,11 @@ function AudioMessage({ message }: { message: ApiMessage }) {
     ? "bg-[color:var(--brand-weak)] text-[color:var(--text)] border border-[color:rgba(var(--brand-rgb),0.28)]"
     : "bg-[color:var(--surface-2)] text-[color:var(--text)] border border-[color:var(--border)]";
   const isSending = message.status === "sending";
+  const transcriptText = typeof message.transcriptText === "string" ? message.transcriptText.trim() : "";
+  const transcriptError = typeof message.transcriptError === "string" ? message.transcriptError.trim() : "";
+  const resolvedStatus = message.transcriptStatus ?? (transcriptText ? "DONE" : "OFF");
+  const showTranscriptSection =
+    resolvedStatus === "PENDING" || resolvedStatus === "FAILED" || Boolean(transcriptText);
 
   useEffect(() => {
     const audio = audioRef.current;
@@ -1716,9 +1831,13 @@ function AudioMessage({ message }: { message: ApiMessage }) {
     };
   }, []);
 
+  useEffect(() => {
+    setAudioError(false);
+  }, [resolvedAudioSrc]);
+
   const togglePlayback = async () => {
     const audio = audioRef.current;
-    if (!audio || !audioSrc || isSending) return;
+    if (!audio || !audioSrc || isSending || audioError) return;
     try {
       if (isPlaying) {
         audio.pause();
@@ -1732,6 +1851,13 @@ function AudioMessage({ message }: { message: ApiMessage }) {
     }
   };
 
+  const retryDownload = () => {
+    setAudioError(false);
+    setIsPlaying(false);
+    setCurrentTime(0);
+    setReloadToken(Date.now());
+  };
+
   return (
     <div className={isMe ? "flex justify-end" : "flex justify-start"}>
       <div className="max-w-[75%]">
@@ -1743,9 +1869,9 @@ function AudioMessage({ message }: { message: ApiMessage }) {
             <button
               type="button"
               onClick={togglePlayback}
-              disabled={isSending || !audioSrc}
+              disabled={isSending || !audioSrc || audioError}
               className={
-                isSending || !audioSrc
+                isSending || !audioSrc || audioError
                   ? "flex h-10 w-10 items-center justify-center rounded-full border border-[color:var(--border)] bg-[color:var(--surface-2)] text-[color:var(--muted)] cursor-not-allowed"
                   : "flex h-10 w-10 items-center justify-center rounded-full border border-[color:var(--border)] bg-[color:var(--surface-1)] text-[color:var(--text)] hover:border-[color:var(--border-a)]"
               }
@@ -1767,9 +1893,65 @@ function AudioMessage({ message }: { message: ApiMessage }) {
             </div>
           </div>
           {audioSrc ? (
-            <audio ref={audioRef} src={audioSrc} preload="metadata" />
+            <audio
+              ref={audioRef}
+              src={audioSrc}
+              preload="metadata"
+              controls
+              className="sr-only"
+              onError={() => {
+                setAudioError(true);
+                setIsPlaying(false);
+              }}
+            />
           ) : (
             <div className="mt-2 text-[11px] text-[color:var(--muted)]">Audio no disponible.</div>
+          )}
+          {audioError && (
+            <div className="mt-2 flex items-center justify-between gap-2 text-[11px] text-[color:var(--danger)]">
+              <span>No se pudo reproducir el audio.</span>
+              <button
+                type="button"
+                className="rounded-full border border-[color:rgba(244,63,94,0.7)] px-2 py-0.5 text-[10px] font-semibold hover:bg-[color:rgba(244,63,94,0.12)]"
+                onClick={retryDownload}
+              >
+                Reintentar descarga
+              </button>
+            </div>
+          )}
+          {showTranscriptSection && (
+            <div className="mt-3 border-t border-[color:var(--surface-border)] pt-2 text-xs text-[color:var(--muted)]">
+              {resolvedStatus === "PENDING" && <span>Transcribiendo…</span>}
+              {resolvedStatus === "FAILED" && (
+                <div className="flex flex-col gap-1">
+                  <span>No disponible</span>
+                  {transcriptError && (
+                    <span className="text-[10px] text-[color:var(--muted)]">
+                      {transcriptError.length > 120 ? `${transcriptError.slice(0, 120)}…` : transcriptError}
+                    </span>
+                  )}
+                </div>
+              )}
+              {resolvedStatus === "DONE" && transcriptText && (
+                <div className="space-y-2">
+                  <p
+                    className={clsx(
+                      "whitespace-pre-wrap text-[color:var(--text)]",
+                      transcriptOpen ? "" : "line-clamp-2"
+                    )}
+                  >
+                    {transcriptText}
+                  </p>
+                  <button
+                    type="button"
+                    className="text-[11px] text-[color:var(--muted)] hover:text-[color:var(--text)]"
+                    onClick={() => setTranscriptOpen((prev) => !prev)}
+                  >
+                    {transcriptOpen ? "Ocultar texto" : "Ver texto"}
+                  </button>
+                </div>
+              )}
+            </div>
           )}
         </div>
       </div>
@@ -1801,9 +1983,13 @@ function formatAudioTime(totalSeconds: number) {
 
 function resolveAudioUrl(rawUrl: string | null | undefined, basePath?: string) {
   if (!rawUrl) return null;
-  if (!basePath || basePath === "/" || !rawUrl.startsWith("/uploads/")) return rawUrl;
-  if (rawUrl.startsWith(basePath)) return rawUrl;
-  return `${basePath}${rawUrl}`;
+  let resolved = rawUrl;
+  if (resolved.startsWith("/uploads/voice-notes/")) {
+    resolved = `/api/voice-notes/${resolved.slice("/uploads/voice-notes/".length)}`;
+  }
+  if (!basePath || basePath === "/" || !resolved.startsWith("/")) return resolved;
+  if (resolved.startsWith(basePath)) return resolved;
+  return `${basePath}${resolved}`;
 }
 
 function safeDecodeQueryParam(value: string) {

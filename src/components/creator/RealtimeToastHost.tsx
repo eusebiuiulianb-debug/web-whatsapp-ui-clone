@@ -5,25 +5,33 @@ import { useRouter } from "next/router";
 import { useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { ConversationContext } from "../../context/ConversationContext";
 import { useCreatorRealtime } from "../../hooks/useCreatorRealtime";
-import type { PurchaseCreatedPayload } from "../../lib/events";
+import { VOICE_TRANSCRIPTION_BUDGET_EVENT } from "../../constants/events";
+import type { FanMessageSentPayload, PurchaseCreatedPayload, VoiceTranscriptPayload } from "../../lib/events";
 import { getFanIdFromQuery, openFanChat } from "../../lib/navigation/openCreatorChat";
 import { resolvePurchaseEventId } from "../../lib/purchaseEventDedupe";
 import { formatPurchaseUI } from "../../lib/purchaseUi";
 import { recordUnseenPurchase, setPendingPurchaseNotice } from "../../lib/unseenPurchases";
+import { clearUnseenVoiceNote, recordUnseenVoiceNote } from "../../lib/unseenVoiceNotes";
+import { setPendingManagerTranscript } from "../../lib/pendingManagerTranscript";
 import { getFanDisplayNameForCreator } from "../../utils/fanDisplayName";
 
-type PurchaseToast = {
+type RealtimeToast = {
   id: string;
-  fanId: string;
+  fanId?: string;
   title: string;
   subtitle?: string;
   icon?: string;
   createdAt: string;
+  variant: "purchase" | "voice" | "transcript" | "notice";
   amountCents?: number;
   kind?: string;
   fanName?: string;
   purchaseId?: string;
   eventId?: string;
+  durationMs?: number;
+  from?: "fan" | "creator";
+  transcriptText?: string | null;
+  messageId?: string;
 };
 
 const MAX_TOASTS = 3;
@@ -48,10 +56,18 @@ function formatRelativeTime(createdAt: string) {
   return formatDistanceToNow(date, { addSuffix: true, locale: es });
 }
 
+function formatVoiceDuration(durationMs?: number) {
+  if (!Number.isFinite(durationMs) || (durationMs ?? 0) <= 0) return "";
+  const totalSeconds = Math.max(0, Math.round((durationMs ?? 0) / 1000));
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  return `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
+}
+
 export function RealtimeToastHost() {
   const router = useRouter();
   const { conversation, queueFans } = useContext(ConversationContext);
-  const [toasts, setToasts] = useState<PurchaseToast[]>([]);
+  const [toasts, setToasts] = useState<RealtimeToast[]>([]);
   const [toastIndex, setToastIndex] = useState(0);
   const [isMobile, setIsMobile] = useState(false);
   const toastTimersRef = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
@@ -169,7 +185,7 @@ export function RealtimeToastHost() {
   }, []);
 
   const enqueueToast = useCallback(
-    (toast: PurchaseToast) => {
+    (toast: RealtimeToast) => {
       setToasts((prev) => [toast, ...prev].slice(0, MAX_TOASTS));
       const timer = toastTimersRef.current[toast.id];
       if (timer) clearTimeout(timer);
@@ -181,18 +197,48 @@ export function RealtimeToastHost() {
     [dismissToast, isMobile]
   );
 
-  const openToastChat = useCallback(
-    (toast: PurchaseToast) => {
-      if (!toast?.fanId) return;
-      setPendingPurchaseNotice({
-        fanId: toast.fanId,
-        fanName: toast.fanName,
-        amountCents: toast.amountCents,
-        kind: toast.kind,
-        purchaseId: toast.purchaseId,
-        eventId: toast.eventId,
-        createdAt: toast.createdAt,
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const handleBudgetPaused = (event: Event) => {
+      const detail = (event as CustomEvent).detail as { message?: string } | undefined;
+      const message =
+        typeof detail?.message === "string" && detail.message.trim().length > 0
+          ? detail.message.trim()
+          : "Auto pausado por presupuesto";
+      const toastId = "voice-budget-paused";
+      if (hasSeen(toastId)) return;
+      markSeen(toastId);
+      enqueueToast({
+        id: toastId,
+        fanId: "",
+        title: message,
+        createdAt: new Date().toISOString(),
+        icon: "\u26A0\uFE0F",
+        variant: "notice",
       });
+    };
+    window.addEventListener(VOICE_TRANSCRIPTION_BUDGET_EVENT, handleBudgetPaused as EventListener);
+    return () => {
+      window.removeEventListener(VOICE_TRANSCRIPTION_BUDGET_EVENT, handleBudgetPaused as EventListener);
+    };
+  }, [enqueueToast, hasSeen, markSeen]);
+
+  const openToastChat = useCallback(
+    (toast: RealtimeToast) => {
+      if (!toast?.fanId) return;
+      if (toast.variant === "purchase") {
+        setPendingPurchaseNotice({
+          fanId: toast.fanId,
+          fanName: toast.fanName,
+          amountCents: toast.amountCents,
+          kind: toast.kind,
+          purchaseId: toast.purchaseId,
+          eventId: toast.eventId,
+          createdAt: toast.createdAt,
+        });
+      } else {
+        clearUnseenVoiceNote(toast.fanId);
+      }
       if (router.pathname === "/fan/[fanId]") {
         void router.push(`/fan/${toast.fanId}`);
         return;
@@ -201,6 +247,31 @@ export function RealtimeToastHost() {
       openFanChat(router, toast.fanId, { shallow: true, scroll: false, pathname: targetPath });
     },
     [router]
+  );
+
+  const handleCopyTranscript = useCallback(async (toast: RealtimeToast) => {
+    if (!toast?.transcriptText) return;
+    if (typeof navigator === "undefined" || !navigator.clipboard?.writeText) return;
+    try {
+      await navigator.clipboard.writeText(toast.transcriptText);
+    } catch (_err) {
+      // ignore clipboard failures
+    }
+  }, []);
+
+  const handleUseTranscript = useCallback(
+    (toast: RealtimeToast) => {
+      if (!toast?.fanId || !toast.transcriptText) return;
+      setPendingManagerTranscript({
+        fanId: toast.fanId,
+        transcript: toast.transcriptText,
+        createdAt: toast.createdAt,
+        messageId: toast.messageId,
+      });
+      openToastChat(toast);
+      dismissToast(toast.id);
+    },
+    [dismissToast, openToastChat]
   );
 
   const handlePurchaseCreated = useCallback(
@@ -242,6 +313,7 @@ export function RealtimeToastHost() {
         subtitle,
         icon: ui.icon,
         createdAt,
+        variant: "purchase",
         amountCents: typeof detail?.amountCents === "number" ? detail.amountCents : undefined,
         kind: detail?.kind,
         fanName,
@@ -252,7 +324,95 @@ export function RealtimeToastHost() {
     [activeChatFanId, enqueueToast, hasSeen, isBoardVisible, markSeen, resolveFanName]
   );
 
-  useCreatorRealtime({ onPurchaseCreated: handlePurchaseCreated });
+  const handleVoiceNote = useCallback(
+    (detail: FanMessageSentPayload) => {
+      if (!detail || detail.kind !== "audio") return;
+      if (detail.from !== "fan") return;
+      const fanId = typeof detail?.fanId === "string" ? detail.fanId.trim() : "";
+      if (!fanId) return;
+      if (activeChatFanId && fanId === activeChatFanId) return;
+      const toastId =
+        typeof detail.eventId === "string" && detail.eventId.trim().length > 0
+          ? detail.eventId
+          : `${fanId}-${detail.sentAt ?? Date.now()}`;
+      if (!toastId || hasSeen(toastId)) return;
+      markSeen(toastId);
+      const fanName = resolveFanName(fanId);
+      const durationMs =
+        typeof detail.durationMs === "number"
+          ? detail.durationMs
+          : typeof (detail.message as { audioDurationMs?: number } | undefined)?.audioDurationMs === "number"
+          ? (detail.message as { audioDurationMs?: number }).audioDurationMs
+          : undefined;
+      const durationLabel = formatVoiceDuration(durationMs);
+      const createdAt = typeof detail.sentAt === "string" ? detail.sentAt : new Date().toISOString();
+      recordUnseenVoiceNote({
+        fanId,
+        fanName,
+        durationMs: typeof durationMs === "number" ? durationMs : 0,
+        from: detail.from,
+        eventId: toastId,
+        createdAt,
+      });
+      const baseLabel = `Nota de voz de ${fanName}`;
+      const title = durationLabel ? `${baseLabel} (${durationLabel})` : baseLabel;
+      enqueueToast({
+        id: toastId,
+        fanId,
+        title,
+        subtitle: formatRelativeTime(createdAt),
+        icon: "\uD83C\uDF99",
+        createdAt,
+        variant: "voice",
+        fanName,
+        durationMs,
+        from: detail.from,
+        eventId: toastId,
+      });
+    },
+    [activeChatFanId, enqueueToast, hasSeen, markSeen, resolveFanName]
+  );
+
+  const handleVoiceTranscriptUpdated = useCallback(
+    (detail: VoiceTranscriptPayload) => {
+      const fanId = typeof detail?.fanId === "string" ? detail.fanId.trim() : "";
+      if (!fanId) return;
+      if (detail?.transcriptStatus !== "DONE") return;
+      if (activeChatFanId && fanId === activeChatFanId) return;
+      const transcriptText =
+        typeof detail?.transcriptText === "string" ? detail.transcriptText.trim() : "";
+      const toastId =
+        typeof detail?.eventId === "string" && detail.eventId.trim().length > 0
+          ? detail.eventId
+          : `voice-transcript-${detail?.messageId ?? fanId}`;
+      if (!toastId || hasSeen(toastId)) return;
+      markSeen(toastId);
+      const fanName = resolveFanName(fanId);
+      const createdAt =
+        typeof detail?.transcribedAt === "string" ? detail.transcribedAt : new Date().toISOString();
+      const title = fanName ? `Transcripción lista de ${fanName}` : "Transcripción lista";
+      enqueueToast({
+        id: toastId,
+        fanId,
+        title,
+        subtitle: formatRelativeTime(createdAt),
+        icon: "\uD83D\uDCDD",
+        createdAt,
+        variant: "transcript",
+        fanName,
+        eventId: toastId,
+        transcriptText: transcriptText || null,
+        messageId: typeof detail?.messageId === "string" ? detail.messageId : undefined,
+      });
+    },
+    [activeChatFanId, enqueueToast, hasSeen, markSeen, resolveFanName]
+  );
+
+  useCreatorRealtime({
+    onPurchaseCreated: handlePurchaseCreated,
+    onFanMessageSent: handleVoiceNote,
+    onVoiceTranscriptUpdated: handleVoiceTranscriptUpdated,
+  });
 
   const activeToast = toasts[toastIndex] ?? toasts[0];
   if (!activeToast) return null;
@@ -284,6 +444,30 @@ export function RealtimeToastHost() {
           <span className="flex min-w-0 flex-1 flex-col gap-1">
             <span className="text-sm font-semibold text-[color:var(--text)]">{activeToast.title}</span>
             {activeToast.subtitle && <span className="text-xs text-[color:var(--muted)]">{activeToast.subtitle}</span>}
+            {activeToast.variant === "transcript" && activeToast.transcriptText && (
+              <span className="mt-1 flex flex-wrap gap-2 text-[11px]">
+                <button
+                  type="button"
+                  className="rounded-full border border-[color:var(--surface-border)] px-2 py-0.5 font-semibold text-[color:var(--text)] hover:bg-[color:var(--surface-1)]"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    void handleCopyTranscript(activeToast);
+                  }}
+                >
+                  Copiar
+                </button>
+                <button
+                  type="button"
+                  className="rounded-full border border-[color:var(--surface-border)] px-2 py-0.5 font-semibold text-[color:var(--text)] hover:bg-[color:var(--surface-1)]"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    handleUseTranscript(activeToast);
+                  }}
+                >
+                  Usar en Manager
+                </button>
+              </span>
+            )}
           </span>
           <span className="flex flex-col items-end gap-1">
             <button

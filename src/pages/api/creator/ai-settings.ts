@@ -9,6 +9,7 @@ import {
   creatorPlatformsToJsonValue,
   normalizeCreatorPlatforms,
 } from "../../../lib/creatorPlatforms";
+import { DEFAULT_VOICE_TRANSCRIPTION_SETTINGS } from "../../../lib/voiceTranscriptionSettings";
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method === "GET") {
@@ -33,7 +34,15 @@ async function handleGet(_req: NextApiRequest, res: NextApiResponse) {
 
     if (!settings) {
       settings = await prisma.creatorAiSettings.create({
-        data: { creatorId, platforms: createDefaultCreatorPlatforms() },
+        data: {
+          creatorId,
+          platforms: createDefaultCreatorPlatforms(),
+          voiceTranscriptionMode: DEFAULT_VOICE_TRANSCRIPTION_SETTINGS.mode,
+          voiceTranscriptionMinSeconds: DEFAULT_VOICE_TRANSCRIPTION_SETTINGS.minSeconds,
+          voiceTranscriptionDailyBudgetUsd: DEFAULT_VOICE_TRANSCRIPTION_SETTINGS.dailyBudgetUsd,
+          voiceTranscriptionExtractIntentTags: DEFAULT_VOICE_TRANSCRIPTION_SETTINGS.extractIntentTags,
+          voiceTranscriptionSuggestReply: DEFAULT_VOICE_TRANSCRIPTION_SETTINGS.suggestReply,
+        },
       });
     }
 
@@ -69,6 +78,13 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
     allowSuggestExtras,
     allowSuggestRenewals,
     allowAutoLowPriority,
+    voiceTranscriptionMode,
+    voiceTranscriptionMinSeconds,
+    voiceTranscriptionDailyBudgetUsd,
+    voiceTranscriptionDailyBudgetMinutes,
+    voiceTranscriptionExtractIntentTags,
+    voiceTranscriptionSuggestReply,
+    voiceIntentTagsEnabled,
     creditsAvailable,
     hardLimitPerDay,
     turnMode,
@@ -143,6 +159,58 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
     updateData.allowAutoLowPriority = allowAutoLowPriority;
     createData.allowAutoLowPriority = allowAutoLowPriority;
   }
+  if (voiceTranscriptionMode !== undefined) {
+    if (typeof voiceTranscriptionMode !== "string") {
+      return sendBadRequest(res, "voiceTranscriptionMode must be a string");
+    }
+    updateData.voiceTranscriptionMode = voiceTranscriptionMode.toUpperCase();
+    createData.voiceTranscriptionMode = voiceTranscriptionMode.toUpperCase();
+  }
+  if (voiceTranscriptionMinSeconds !== undefined) {
+    if (!Number.isFinite(Number(voiceTranscriptionMinSeconds))) {
+      return sendBadRequest(res, "voiceTranscriptionMinSeconds must be a number");
+    }
+    const normalized = Math.max(0, Math.round(Number(voiceTranscriptionMinSeconds)));
+    updateData.voiceTranscriptionMinSeconds = normalized;
+    createData.voiceTranscriptionMinSeconds = normalized;
+  }
+  if (voiceTranscriptionDailyBudgetUsd !== undefined) {
+    if (!Number.isFinite(Number(voiceTranscriptionDailyBudgetUsd))) {
+      return sendBadRequest(res, "voiceTranscriptionDailyBudgetUsd must be a number");
+    }
+    const normalized = Math.max(0, Number(voiceTranscriptionDailyBudgetUsd));
+    const rounded = Math.round(normalized * 100) / 100;
+    updateData.voiceTranscriptionDailyBudgetUsd = rounded;
+    createData.voiceTranscriptionDailyBudgetUsd = rounded;
+  } else if (voiceTranscriptionDailyBudgetMinutes !== undefined) {
+    if (!Number.isFinite(Number(voiceTranscriptionDailyBudgetMinutes))) {
+      return sendBadRequest(res, "voiceTranscriptionDailyBudgetMinutes must be a number");
+    }
+    const normalized = Math.max(0, Number(voiceTranscriptionDailyBudgetMinutes));
+    const converted = Math.round(normalized * 0.006 * 100) / 100;
+    updateData.voiceTranscriptionDailyBudgetUsd = converted;
+    createData.voiceTranscriptionDailyBudgetUsd = converted;
+  }
+  if (voiceTranscriptionExtractIntentTags !== undefined) {
+    if (typeof voiceTranscriptionExtractIntentTags !== "boolean") {
+      return sendBadRequest(res, "voiceTranscriptionExtractIntentTags must be a boolean");
+    }
+    updateData.voiceTranscriptionExtractIntentTags = voiceTranscriptionExtractIntentTags;
+    createData.voiceTranscriptionExtractIntentTags = voiceTranscriptionExtractIntentTags;
+  } else if (voiceIntentTagsEnabled !== undefined) {
+    if (typeof voiceIntentTagsEnabled !== "boolean") {
+      return sendBadRequest(res, "voiceIntentTagsEnabled must be a boolean");
+    }
+    updateData.voiceTranscriptionExtractIntentTags = voiceIntentTagsEnabled;
+    createData.voiceTranscriptionExtractIntentTags = voiceIntentTagsEnabled;
+  }
+  if (voiceTranscriptionSuggestReply !== undefined) {
+    if (typeof voiceTranscriptionSuggestReply !== "boolean") {
+      return sendBadRequest(res, "voiceTranscriptionSuggestReply must be a boolean");
+    }
+    updateData.voiceTranscriptionSuggestReply = voiceTranscriptionSuggestReply;
+    createData.voiceTranscriptionSuggestReply = voiceTranscriptionSuggestReply;
+  }
   if (creditsAvailable !== undefined) {
     if (!Number.isInteger(creditsAvailable)) return sendBadRequest(res, "creditsAvailable must be a number");
     updateData.creditsAvailable = creditsAvailable as number;
@@ -172,6 +240,21 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
 
   try {
     const creatorId = await resolveCreatorId();
+    if (createData.voiceTranscriptionMode === undefined) {
+      createData.voiceTranscriptionMode = DEFAULT_VOICE_TRANSCRIPTION_SETTINGS.mode;
+    }
+    if (createData.voiceTranscriptionMinSeconds === undefined) {
+      createData.voiceTranscriptionMinSeconds = DEFAULT_VOICE_TRANSCRIPTION_SETTINGS.minSeconds;
+    }
+    if (createData.voiceTranscriptionDailyBudgetUsd === undefined) {
+      createData.voiceTranscriptionDailyBudgetUsd = DEFAULT_VOICE_TRANSCRIPTION_SETTINGS.dailyBudgetUsd;
+    }
+    if (createData.voiceTranscriptionExtractIntentTags === undefined) {
+      createData.voiceTranscriptionExtractIntentTags = DEFAULT_VOICE_TRANSCRIPTION_SETTINGS.extractIntentTags;
+    }
+    if (createData.voiceTranscriptionSuggestReply === undefined) {
+      createData.voiceTranscriptionSuggestReply = DEFAULT_VOICE_TRANSCRIPTION_SETTINGS.suggestReply;
+    }
 
     const settings = await prisma.creatorAiSettings.upsert({
       where: { creatorId },

@@ -129,6 +129,17 @@ export interface Message {
   audioDurationMs?: number | null;
   audioMime?: string | null;
   audioSizeBytes?: number | null;
+  transcriptText?: string | null;
+  transcriptStatus?: "OFF" | "PENDING" | "DONE" | "FAILED" | null;
+  transcriptError?: string | null;
+  transcribedAt?: string | null;
+  transcriptLang?: string | null;
+  intentJson?: {
+    intent?: string;
+    tags?: string[];
+    needsReply?: boolean;
+    replyDraft?: string;
+  } | null;
   contentItem?: {
     id: string;
     title: string;

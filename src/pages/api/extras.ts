@@ -2,6 +2,7 @@ import type { NextApiRequest, NextApiResponse } from "next";
 import { ExtraTier } from "@prisma/client";
 import prisma from "../../lib/prisma.server";
 import { sendBadRequest, sendServerError } from "../../lib/apiError";
+import { emitCreatorEvent as emitRealtimeEvent } from "../../server/realtimeHub";
 
 const EXTRA_TIERS = ["T0", "T1", "T2", "T3"] as const;
 const MAX_CLIENT_TXN_ID = 120;
@@ -90,6 +91,14 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
   }
 
   try {
+    const fan = await prisma.fan.findUnique({
+      where: { id: fanId },
+      select: { id: true, creatorId: true, displayName: true, name: true },
+    });
+    if (!fan) {
+      return sendBadRequest(res, "Fan not found");
+    }
+
     if (clientTxnId) {
       const existing = await prisma.extraPurchase.findFirst({
         where: { fanId, kind: "EXTRA", clientTxnId },
@@ -127,6 +136,22 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
         lastPurchaseAt: now,
         preview,
         time,
+      },
+    });
+
+    emitRealtimeEvent({
+      eventId: purchase.id,
+      type: "PURCHASE_CREATED",
+      creatorId: fan.creatorId,
+      fanId,
+      createdAt: purchase.createdAt.toISOString(),
+      payload: {
+        purchaseId: purchase.id,
+        kind: purchase.kind,
+        amountCents: Math.round((purchase.amount ?? amountNumber) * 100),
+        title: purchase.contentItem?.title ?? null,
+        createdAt: purchase.createdAt.toISOString(),
+        fanName: fan.displayName ?? fan.name ?? null,
       },
     });
 

@@ -160,6 +160,12 @@ model Message {
   audioDurationMs   Int?
   audioMime         String?
   audioSizeBytes    Int?
+  transcriptText     String?
+  transcriptStatus   String  @default("OFF")
+  transcriptError    String?
+  transcribedAt      DateTime?
+  transcriptLang     String?
+  intentJson         Json?
 }
 
 model ContentItem {
@@ -413,6 +419,13 @@ model CreatorAiSettings {
   allowSuggestExtras   Boolean @default(true)
   allowSuggestRenewals Boolean @default(true)
   allowAutoLowPriority Boolean @default(false)
+  voiceTranscriptionMode String @default("MANUAL")
+  voiceTranscriptionMinSeconds Int @default(8)
+  voiceTranscriptionDailyBudgetMinutes Int @default(15)
+  voiceTranscriptionDailyBudgetUsd Float @default(0.5)
+  voiceIntentTagsEnabled Boolean @default(false)
+  voiceTranscriptionExtractIntentTags Boolean @default(false)
+  voiceTranscriptionSuggestReply Boolean @default(false)
 
   creditsAvailable Int  @default(0)
   hardLimitPerDay  Int?

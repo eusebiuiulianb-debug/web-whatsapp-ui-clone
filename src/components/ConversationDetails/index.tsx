@@ -37,6 +37,7 @@ import {
   emitFanMessageSent,
   emitPurchaseCreated,
   emitPurchaseSeen,
+  type FanMessageSentPayload,
 } from "../../lib/events";
 import { useCreatorRealtime } from "../../hooks/useCreatorRealtime";
 import { AiTone, normalizeTone, ACTION_TYPE_FOR_USAGE } from "../../lib/aiQuickExtra";
@@ -60,6 +61,7 @@ import { buildStickerToken, getStickerByToken, type StickerItem as PickerSticker
 import { parseReactionsRaw, useReactions } from "../../lib/emoji/reactions";
 import { computeFanTotals } from "../../lib/fanTotals";
 import { generateClientTxnId } from "../../lib/clientTxn";
+import { getPreferredAudioStream } from "../../lib/getPreferredAudioStream";
 import { formatPurchaseUI } from "../../lib/purchaseUi";
 import { formatNextActionLabel, formatWhen, isGenericNextActionNote } from "../../lib/nextActionLabel";
 import {
@@ -81,6 +83,7 @@ import { useIsomorphicLayoutEffect } from "../../hooks/useIsomorphicLayoutEffect
 import Image from "next/image";
 import { IconGlyph, type IconName } from "../ui/IconGlyph";
 import { consumePendingPurchaseNotice, consumeUnseenPurchase } from "../../lib/unseenPurchases";
+import { consumePendingManagerTranscript } from "../../lib/pendingManagerTranscript";
 import type { PurchaseCreatedPayload } from "../../lib/events";
 import { resolvePurchaseEventId } from "../../lib/purchaseEventDedupe";
 import { Badge, type BadgeTone } from "../ui/Badge";
@@ -179,14 +182,22 @@ const FAN_SEND_COOLDOWN_MS = 15000;
 const LAST_SENT_STORAGE_PREFIX = "novsy:lastSent:";
 const VOICE_MAX_DURATION_MS = 120_000;
 const VOICE_MAX_SIZE_BYTES = 20 * 1024 * 1024;
+const VOICE_MIN_SIZE_BYTES = 2 * 1024;
 const VOICE_MIME_PREFERENCES = [
   "audio/webm;codecs=opus",
-  "audio/webm",
   "audio/ogg;codecs=opus",
+  "audio/webm",
   "audio/ogg",
   "audio/mp4",
 ];
 const TOOLBAR_MARGIN = 12;
+
+type VoiceUploadPayload = {
+  blob: Blob;
+  durationMs: number;
+  mimeType: string;
+  clientTxnId: string;
+};
 
 const normalizeActionKey = (key?: string | null) => {
   if (typeof key !== "string") return null;
@@ -649,14 +660,18 @@ export default function ConversationDetails({ onBackToBoard }: ConversationDetai
     Record<string, { until: number; phase: "sent" | "cooldown" }>
   >({});
   const [ purchaseNotice, setPurchaseNotice ] = useState<PurchaseNoticeState | null>(null);
+  const [ voiceNotice, setVoiceNotice ] = useState<{ fanName: string; durationMs?: number; createdAt: string } | null>(null);
   const [ internalToast, setInternalToast ] = useState<string | null>(null);
   const purchaseNoticeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const voiceNoticeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const purchaseNoticeShownAtRef = useRef(0);
   const purchaseNoticeFallbackNameRef = useRef("Fan");
   const internalToastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [ isVoiceRecording, setIsVoiceRecording ] = useState(false);
   const [ voiceRecordingMs, setVoiceRecordingMs ] = useState(0);
   const [ isVoiceUploading, setIsVoiceUploading ] = useState(false);
+  const [ voiceUploadError, setVoiceUploadError ] = useState("");
+  const [ voiceRetryPayload, setVoiceRetryPayload ] = useState<VoiceUploadPayload | null>(null);
   const voiceRecorderRef = useRef<MediaRecorder | null>(null);
   const voiceStreamRef = useRef<MediaStream | null>(null);
   const voiceChunksRef = useRef<BlobPart[]>([]);
@@ -664,7 +679,10 @@ export default function ConversationDetails({ onBackToBoard }: ConversationDetai
   const voiceTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const voiceCancelRef = useRef(false);
   const voiceObjectUrlsRef = useRef<Map<string, string>>(new Map());
+  const voicePreviewRef = useRef<HTMLAudioElement | null>(null);
   const messageEventIdsRef = useRef<Set<string>>(new Set());
+  const lastSentMessageIdRef = useRef<string | null>(null);
+  const lastContentMessageIdRef = useRef<string | null>(null);
   const messagesContainerRef = useRef<HTMLDivElement | null>(null);
 
   const showPurchaseNotice = useCallback((payload: PurchaseNoticeState) => {
@@ -674,6 +692,14 @@ export default function ConversationDetails({ onBackToBoard }: ConversationDetai
       clearTimeout(purchaseNoticeTimerRef.current);
     }
     purchaseNoticeTimerRef.current = setTimeout(() => setPurchaseNotice(null), 7000);
+  }, []);
+
+  const showVoiceNotice = useCallback((payload: { fanName: string; durationMs?: number; createdAt: string }) => {
+    setVoiceNotice(payload);
+    if (voiceNoticeTimerRef.current) {
+      clearTimeout(voiceNoticeTimerRef.current);
+    }
+    voiceNoticeTimerRef.current = setTimeout(() => setVoiceNotice(null), 6500);
   }, []);
 
   useEffect(() => {
@@ -690,6 +716,7 @@ export default function ConversationDetails({ onBackToBoard }: ConversationDetai
     }
   }, [purchaseNotice]);
 
+
   const clearVoiceTimer = useCallback(() => {
     if (voiceTimerRef.current) {
       clearInterval(voiceTimerRef.current);
@@ -701,6 +728,33 @@ export default function ConversationDetails({ onBackToBoard }: ConversationDetai
     if (voiceStreamRef.current) {
       voiceStreamRef.current.getTracks().forEach((track) => track.stop());
       voiceStreamRef.current = null;
+    }
+  }, []);
+
+  const previewVoiceBlob = useCallback((blob: Blob) => {
+    if (typeof Audio === "undefined") return;
+    if (voicePreviewRef.current) {
+      voicePreviewRef.current.pause();
+      voicePreviewRef.current = null;
+    }
+    const previewUrl = URL.createObjectURL(blob);
+    const audio = new Audio(previewUrl);
+    audio.preload = "metadata";
+    voicePreviewRef.current = audio;
+    const cleanup = () => {
+      if (voicePreviewRef.current === audio) {
+        voicePreviewRef.current = null;
+      }
+      URL.revokeObjectURL(previewUrl);
+    };
+    audio.addEventListener("ended", cleanup);
+    audio.addEventListener("error", cleanup);
+    const playPromise = audio.play();
+    if (playPromise && typeof playPromise.catch === "function") {
+      playPromise.catch((err) => {
+        console.warn("[voice-note] preview playback failed", err);
+        cleanup();
+      });
     }
   }, []);
 
@@ -771,6 +825,12 @@ export default function ConversationDetails({ onBackToBoard }: ConversationDetai
         audioDurationMs: isAudio ? msg.audioDurationMs ?? null : null,
         audioMime: isAudio ? msg.audioMime ?? null : null,
         audioSizeBytes: isAudio ? msg.audioSizeBytes ?? null : null,
+        transcriptText: isAudio ? msg.transcriptText ?? null : null,
+        transcriptStatus: isAudio ? msg.transcriptStatus ?? null : null,
+        transcriptError: isAudio ? msg.transcriptError ?? null : null,
+        transcribedAt: isAudio ? msg.transcribedAt ?? null : null,
+        transcriptLang: isAudio ? msg.transcriptLang ?? null : null,
+        intentJson: isAudio ? msg.intentJson ?? null : null,
         contentItem: msg.contentItem
           ? {
               id: msg.contentItem.id,
@@ -803,9 +863,27 @@ export default function ConversationDetails({ onBackToBoard }: ConversationDetai
     }, 1800);
   }, []);
 
+  const handleCopyTranscript = useCallback(
+    async (text: string) => {
+      if (!text) return;
+      if (typeof navigator === "undefined" || !navigator.clipboard?.writeText) {
+        showComposerToast("No se pudo copiar el texto.");
+        return;
+      }
+      try {
+        await navigator.clipboard.writeText(text);
+        showComposerToast("Texto copiado.");
+      } catch (_err) {
+        showComposerToast("No se pudo copiar el texto.");
+      }
+    },
+    [showComposerToast]
+  );
+
   const uploadVoiceNote = useCallback(
-    async (blob: Blob, durationMs: number, mimeType: string) => {
+    async (payload: VoiceUploadPayload) => {
       if (!id) return;
+      const { blob, durationMs, mimeType, clientTxnId } = payload;
       const tempId = `temp-audio-${Date.now()}`;
       const localUrl = URL.createObjectURL(blob);
       voiceObjectUrlsRef.current.set(tempId, localUrl);
@@ -834,13 +912,19 @@ export default function ConversationDetails({ onBackToBoard }: ConversationDetai
         return [...(prev || []), tempMessage];
       });
       scrollToBottom("auto");
+      setVoiceUploadError("");
+      setVoiceRetryPayload(null);
 
       setIsVoiceUploading(true);
       try {
         const form = new FormData();
         const extension = mimeType.includes("ogg") ? "ogg" : mimeType.includes("mp4") ? "mp4" : "webm";
-        form.append("file", blob, `voice-note.${extension}`);
+        form.append("file", blob, `voice_${Date.now()}.${extension}`);
         form.append("durationMs", String(durationMs));
+        form.append("from", "creator");
+        form.append("clientTxnId", clientTxnId);
+        form.append("mime", mimeType);
+        form.append("chatId", id);
         const res = await fetch(`/api/chats/${id}/voice-notes`, {
           method: "POST",
           body: form,
@@ -851,10 +935,15 @@ export default function ConversationDetails({ onBackToBoard }: ConversationDetai
           return;
         }
         if (!res.ok || !data?.ok) {
-          showComposerToast("No se pudo subir la nota de voz.");
-          setMessage((prev) => (prev || []).filter((msg) => msg.id !== tempId));
-          return;
+          const errorMessage =
+            typeof data?.error === "string" && data.error.trim().length > 0
+              ? data.error
+              : res.ok
+              ? "No se pudo subir la nota de voz."
+              : `Error ${res.status}`;
+          throw new Error(errorMessage);
         }
+        const reused = Boolean(data?.reused);
         const apiMessages: ApiMessage[] = Array.isArray(data.messages)
           ? (data.messages as ApiMessage[])
           : data.message
@@ -870,21 +959,40 @@ export default function ConversationDetails({ onBackToBoard }: ConversationDetai
         if (mapped.length > 0) {
           setMessage((prev) => {
             const withoutTemp = (prev || []).filter((msg) => msg.id !== tempId);
+            if (reused) {
+              const existingIds = new Set(withoutTemp.map((msg) => msg.id));
+              const fresh = mapped.filter((msg) => !existingIds.has(msg.id));
+              if (fresh.length === 0) return withoutTemp;
+              return reconcileMessages(withoutTemp, fresh, id);
+            }
             return reconcileMessages(withoutTemp, mapped, id);
           });
         } else {
           setMessage((prev) => (prev || []).filter((msg) => msg.id !== tempId));
         }
-        emitFanMessageSent({
-          fanId: id,
-          text: "🎤 Nota de voz",
-          kind: "audio",
-          sentAt: new Date().toISOString(),
-        });
-        emitCreatorDataChanged({ reason: "fan_message_sent", fanId: id });
+        const voiceMessage = apiMessages[apiMessages.length - 1] ?? null;
+        const voiceMessageId = voiceMessage?.id ?? null;
+        if (!reused && deduped.length > 0) {
+          const durationMsValue =
+            typeof voiceMessage?.audioDurationMs === "number" ? voiceMessage.audioDurationMs : durationMs;
+          emitFanMessageSent({
+            fanId: id,
+            text: "🎤 Nota de voz",
+            kind: "audio",
+            sentAt: new Date().toISOString(),
+            from: "creator",
+            eventId: voiceMessageId ?? undefined,
+            durationMs: durationMsValue,
+            message: voiceMessage ?? undefined,
+          });
+          emitCreatorDataChanged({ reason: "fan_message_sent", fanId: id });
+        }
         setSchemaError(null);
-      } catch (_err) {
-        showComposerToast("No se pudo subir la nota de voz.");
+      } catch (err) {
+        const message =
+          err instanceof Error && err.message.trim().length > 0 ? err.message : "No se pudo subir la nota de voz.";
+        setVoiceUploadError(message);
+        setVoiceRetryPayload(payload);
         setMessage((prev) => (prev || []).filter((msg) => msg.id !== tempId));
       } finally {
         const url = voiceObjectUrlsRef.current.get(tempId);
@@ -895,7 +1003,7 @@ export default function ConversationDetails({ onBackToBoard }: ConversationDetai
         setIsVoiceUploading(false);
       }
     },
-    [id, handleSchemaOutOfSync, mapApiMessagesToState, scrollToBottom, setMessage, showComposerToast]
+    [id, handleSchemaOutOfSync, mapApiMessagesToState, scrollToBottom, setMessage]
   );
 
   const startVoiceRecording = useCallback(async () => {
@@ -906,7 +1014,30 @@ export default function ConversationDetails({ onBackToBoard }: ConversationDetai
       return;
     }
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      setVoiceUploadError("");
+      setVoiceRetryPayload(null);
+      const { stream, label, deviceId, isMonitor } = await getPreferredAudioStream();
+      console.info("voice capture device:", label, deviceId ?? "");
+      const audioTracks = stream.getAudioTracks();
+      if (!audioTracks.length) {
+        showComposerToast("No se detectó audio.");
+        stream.getTracks().forEach((track) => track.stop());
+        return;
+      }
+      if (isMonitor || audioTracks.some((track) => track.label.toLowerCase().includes("monitor"))) {
+        setVoiceUploadError("Entrada de micro incorrecta (Monitor). Cambia a MicrophoneFX en ajustes.");
+        setVoiceRetryPayload(null);
+        stream.getTracks().forEach((track) => track.stop());
+        return;
+      }
+      audioTracks.forEach((track) => {
+        if (!track.enabled) track.enabled = true;
+      });
+      if (!audioTracks.some((track) => track.enabled)) {
+        showComposerToast("No se detectó audio.");
+        stream.getTracks().forEach((track) => track.stop());
+        return;
+      }
       voiceStreamRef.current = stream;
       const mimeType = resolveVoiceMimeType();
       const recorder = mimeType ? new MediaRecorder(stream, { mimeType }) : new MediaRecorder(stream);
@@ -942,8 +1073,17 @@ export default function ConversationDetails({ onBackToBoard }: ConversationDetai
         }
         const blob = new Blob(chunks, { type: mimeType || "audio/webm" });
         voiceChunksRef.current = [];
+        console.info("[voice-note] recorded", {
+          blobType: blob.type,
+          blobSize: blob.size,
+          durationMs: elapsedMs,
+        });
         if (!blob.size) {
           showComposerToast("No se pudo grabar la nota de voz.");
+          return;
+        }
+        if (blob.size < VOICE_MIN_SIZE_BYTES) {
+          showComposerToast("No se detectó audio.");
           return;
         }
         if (blob.size > VOICE_MAX_SIZE_BYTES) {
@@ -958,7 +1098,14 @@ export default function ConversationDetails({ onBackToBoard }: ConversationDetai
           showComposerToast("La nota de voz es demasiado corta.");
           return;
         }
-        void uploadVoiceNote(blob, elapsedMs, blob.type || mimeType || "audio/webm");
+        previewVoiceBlob(blob);
+        const clientTxnId = generateClientTxnId();
+        void uploadVoiceNote({
+          blob,
+          durationMs: elapsedMs,
+          mimeType: blob.type || mimeType || "audio/webm",
+          clientTxnId,
+        });
       };
       recorder.start();
       voiceTimerRef.current = setInterval(() => {
@@ -979,6 +1126,7 @@ export default function ConversationDetails({ onBackToBoard }: ConversationDetai
     resetVoiceRecording,
     showComposerToast,
     uploadVoiceNote,
+    previewVoiceBlob,
     clearVoiceTimer,
     stopVoiceStream,
   ]);
@@ -1004,11 +1152,28 @@ export default function ConversationDetails({ onBackToBoard }: ConversationDetai
     }
   }, [isVoiceRecording, resetVoiceRecording]);
 
+  const retryVoiceUpload = useCallback(() => {
+    if (!voiceRetryPayload || isVoiceUploading) return;
+    setVoiceUploadError("");
+    const payload = voiceRetryPayload;
+    setVoiceRetryPayload(null);
+    void uploadVoiceNote(payload);
+  }, [isVoiceUploading, uploadVoiceNote, voiceRetryPayload]);
+
+  const clearVoiceRetry = useCallback(() => {
+    setVoiceRetryPayload(null);
+    setVoiceUploadError("");
+  }, []);
+
   useEffect(() => {
     const objectUrls = voiceObjectUrlsRef.current;
     return () => {
       clearVoiceTimer();
       stopVoiceStream();
+      if (voicePreviewRef.current) {
+        voicePreviewRef.current.pause();
+        voicePreviewRef.current = null;
+      }
       objectUrls.forEach((url) => URL.revokeObjectURL(url));
       objectUrls.clear();
     };
@@ -1016,7 +1181,10 @@ export default function ConversationDetails({ onBackToBoard }: ConversationDetai
 
   useEffect(() => {
     messageEventIdsRef.current.clear();
-  }, [id]);
+    setVoiceUploadError("");
+    setVoiceRetryPayload(null);
+    resetVoiceRecording();
+  }, [id, resetVoiceRecording]);
 
   function formatCurrency(value: number) {
     const rounded = Math.round((value ?? 0) * 100) / 100;
@@ -2953,7 +3121,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
   }
 
   const messagesAbortRef = useRef<AbortController | null>(null);
-  const messagesPollRef = useRef<NodeJS.Timeout | null>(null);
+  const markedReadFanIdsRef = useRef<Set<string>>(new Set());
 
   const handleCopySchemaFix = useCallback(async () => {
     if (!schemaError) return;
@@ -2973,8 +3141,8 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
   }, [schemaError]);
 
   const fetchMessages = useCallback(
-    async (shouldShowLoading = false) => {
-      if (!id) return;
+    async (fanId: string, shouldShowLoading = false) => {
+      if (!fanId) return;
       if (messagesAbortRef.current) {
         messagesAbortRef.current.abort();
       }
@@ -2985,7 +3153,11 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
           setIsLoadingMessages(true);
         }
         setMessagesError("");
-        const params = new URLSearchParams({ fanId: id, markRead: "1", audiences: "FAN,CREATOR" });
+        const shouldMarkRead = !markedReadFanIdsRef.current.has(fanId);
+        const params = new URLSearchParams({ fanId, audiences: "FAN,CREATOR" });
+        if (shouldMarkRead) {
+          params.set("markRead", "1");
+        }
         const res = await fetch(`/api/messages?${params.toString()}`, { signal: controller.signal });
         const data = await res.json().catch(() => ({}));
         if (handleSchemaOutOfSync(data)) return;
@@ -2997,7 +3169,10 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
           : [];
         const visible = source.filter((msg) => isVisibleToFan(msg));
         const mapped = mapApiMessagesToState(visible);
-        setMessage((prev) => reconcileMessages(prev || [], mapped, id));
+        setMessage((prev) => reconcileMessages(prev || [], mapped, fanId));
+        if (shouldMarkRead) {
+          markedReadFanIdsRef.current.add(fanId);
+        }
         setSchemaError(null);
       } catch (err) {
         if ((err as any)?.name === "AbortError") return;
@@ -3008,7 +3183,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
         }
       }
     },
-    [handleSchemaOutOfSync, id, mapApiMessagesToState, setMessage]
+    [handleSchemaOutOfSync, mapApiMessagesToState, setMessage]
   );
 
   const fetchInternalMessages = useCallback(
@@ -3052,7 +3227,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
   useEffect(() => {
     if (!id) return;
     setMessage([]);
-    fetchMessages(true);
+    fetchMessages(id, true);
     return () => {
       if (messagesAbortRef.current) {
         messagesAbortRef.current.abort();
@@ -3066,6 +3241,11 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
     setInternalToast(null);
     if (internalToastTimer.current) {
       clearTimeout(internalToastTimer.current);
+    }
+    setVoiceNotice(null);
+    if (voiceNoticeTimerRef.current) {
+      clearTimeout(voiceNoticeTimerRef.current);
+      voiceNoticeTimerRef.current = null;
     }
     setInlineAction(null);
     if (inlineActionTimerRef.current) {
@@ -3107,18 +3287,6 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
     managerPanelOpen,
   ]);
 
-  useEffect(() => {
-    if (!id) return undefined;
-    const interval = setInterval(() => {
-      if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
-      fetchMessages(false);
-    }, 1800);
-    messagesPollRef.current = interval as any;
-    return () => {
-      if (messagesPollRef.current) clearInterval(messagesPollRef.current as any);
-      if (messagesAbortRef.current) messagesAbortRef.current.abort();
-    };
-  }, [fetchMessages, id]);
   useEffect(() => {
     if (draftAppliedFanIdRef.current && draftAppliedFanIdRef.current !== conversation.id) {
       draftAppliedFanIdRef.current = null;
@@ -3386,6 +3554,130 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
     };
   }, [closeOverlays]);
 
+  const handleRealtimeMessage = useCallback(
+    (detail: FanMessageSentPayload) => {
+      if (!detail?.fanId || detail.fanId !== id) return;
+      if (conversation.isManager) return;
+      if (detail.eventId && messageEventIdsRef.current.has(detail.eventId)) return;
+      const rawMessage = detail.message as ApiMessage | undefined;
+      if (detail.kind === "audio" && detail.from === "fan") {
+        const durationMs =
+          typeof detail.durationMs === "number"
+            ? detail.durationMs
+            : typeof rawMessage?.audioDurationMs === "number"
+            ? rawMessage.audioDurationMs
+            : undefined;
+        const fanName = (getFanDisplayNameForCreator(conversation) || contactName || "Fan").trim() || "Fan";
+        showVoiceNotice({
+          fanName,
+          durationMs,
+          createdAt: typeof detail.sentAt === "string" ? detail.sentAt : new Date().toISOString(),
+        });
+      }
+      if (rawMessage) {
+        if (deriveAudience(rawMessage) === "INTERNAL") return;
+        if (detail.eventId) {
+          messageEventIdsRef.current.add(detail.eventId);
+        }
+        const mapped = mapApiMessagesToState([rawMessage]);
+        if (mapped.length > 0) {
+          setMessage((prev) => reconcileMessages(prev || [], mapped, id));
+          return;
+        }
+      }
+      fetchMessages(detail.fanId, false);
+    },
+    [conversation, contactName, fetchMessages, id, mapApiMessagesToState, setMessage, showVoiceNotice]
+  );
+
+  const handleVoiceTranscriptUpdated = useCallback(
+    (detail: {
+      fanId?: string;
+      messageId?: string;
+      transcriptText?: string | null;
+      transcriptStatus?: string;
+      transcriptError?: string | null;
+      transcribedAt?: string;
+      transcriptLang?: string | null;
+      intentJson?: unknown;
+    }) => {
+      if (!detail?.fanId || detail.fanId !== id) return;
+      if (conversation.isManager) return;
+      const messageId = typeof detail.messageId === "string" ? detail.messageId : "";
+      if (!messageId) return;
+      setMessage((prev) => {
+        if (!prev || prev.length === 0) return prev;
+        return prev.map((msg) => {
+          if (msg.id !== messageId) return msg;
+          const rawStatus = detail.transcriptStatus;
+          const normalizedStatus =
+            rawStatus === "OFF" || rawStatus === "PENDING" || rawStatus === "DONE" || rawStatus === "FAILED"
+              ? rawStatus
+              : undefined;
+          return {
+            ...msg,
+            transcriptText: typeof detail.transcriptText === "string" ? detail.transcriptText : null,
+            transcriptStatus: normalizedStatus ?? msg.transcriptStatus ?? null,
+            transcriptError:
+              typeof detail.transcriptError === "string" ? detail.transcriptError : msg.transcriptError ?? null,
+            transcribedAt:
+              typeof detail.transcribedAt === "string" ? detail.transcribedAt : msg.transcribedAt ?? null,
+            transcriptLang:
+              typeof detail.transcriptLang === "string" ? detail.transcriptLang : msg.transcriptLang ?? null,
+            intentJson: detail.intentJson !== undefined ? (detail.intentJson as any) : msg.intentJson ?? null,
+          };
+        });
+      });
+    },
+    [conversation.isManager, id, setMessage]
+  );
+
+  const requestTranscriptRetry = useCallback(
+    async (messageId: string) => {
+      if (!messageId) return;
+      setMessage((prev) => {
+        if (!prev) return prev;
+        return prev.map((msg) =>
+          msg.id === messageId
+            ? {
+                ...msg,
+                transcriptStatus: "PENDING",
+                transcriptError: null,
+                transcribedAt: null,
+              }
+            : msg
+        );
+      });
+      const res = await fetch(`/api/voice-notes/transcribe/${messageId}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({}),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data?.ok) {
+        const errorMessage =
+          typeof data?.error === "string" && data.error.trim().length > 0
+            ? data.error
+            : `Error ${res.status}`;
+        setMessage((prev) => {
+          if (!prev) return prev;
+          return prev.map((msg) =>
+            msg.id === messageId
+              ? {
+                  ...msg,
+                  transcriptStatus: "FAILED",
+                  transcriptError: errorMessage,
+                  transcribedAt: null,
+                }
+              : msg
+          );
+        });
+        throw new Error(errorMessage);
+      }
+    },
+    [setMessage]
+  );
+
   const handlePurchaseCreated = useCallback(
     (detail: PurchaseCreatedPayload) => {
       if (!detail?.fanId || typeof detail.amountCents !== "number" || !detail.kind) return;
@@ -3404,7 +3696,11 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
     [conversation.isManager, id, showPurchaseNotice]
   );
 
-  useCreatorRealtime({ onPurchaseCreated: handlePurchaseCreated });
+  useCreatorRealtime({
+    onPurchaseCreated: handlePurchaseCreated,
+    onFanMessageSent: handleRealtimeMessage,
+    onVoiceTranscriptUpdated: handleVoiceTranscriptUpdated,
+  });
 
   useEffect(() => {
     if (!id || conversation.isManager) {
@@ -3599,6 +3895,21 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
     if (Number.isNaN(parsed.getTime())) return "hace un momento";
     return formatDistanceToNow(parsed, { addSuffix: true, locale: es });
   })();
+  const voiceNoticeLabel = voiceNotice
+    ? (() => {
+        const durationSeconds =
+          typeof voiceNotice.durationMs === "number" ? Math.round(voiceNotice.durationMs / 1000) : 0;
+        const durationLabel = durationSeconds > 0 ? formatAudioTime(durationSeconds) : "";
+        const base = `Nota de voz de ${voiceNotice.fanName}`;
+        return durationLabel ? `${base} (${durationLabel})` : base;
+      })()
+    : "";
+  const voiceNoticeTime = (() => {
+    if (!voiceNotice?.createdAt) return "hace un momento";
+    const parsed = new Date(voiceNotice.createdAt);
+    if (Number.isNaN(parsed.getTime())) return "hace un momento";
+    return formatDistanceToNow(parsed, { addSuffix: true, locale: es });
+  })();
   const voiceRecordingLabel = formatRecordingLabel(voiceRecordingMs);
   const disableTranslationPreview = () => {
     if (translationPreviewTimer.current) {
@@ -3644,6 +3955,28 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
     },
     [activeFanId, openManagerPanel]
   );
+
+  const handleUseTranscript = useCallback(
+    (transcript: string) => {
+      if (!transcript) return;
+      const fanName = (getFanDisplayNameForCreator(conversation) || contactName || "Fan").trim() || "Fan";
+      const prompt = `Fan: ${fanName}\nAudio dice:\n${transcript}\n\nDame 3 respuestas cortas (cálida, directa, upsell suave).`;
+      setManagerChatInput(prompt);
+      setManagerSelectedText(null);
+      openInternalPanel("manager", { scrollToTop: true });
+      requestAnimationFrame(() => {
+        managerChatInputRef.current?.focus();
+      });
+    },
+    [conversation, contactName, openInternalPanel]
+  );
+
+  useEffect(() => {
+    if (!id || conversation.isManager) return;
+    const pending = consumePendingManagerTranscript(id);
+    if (!pending?.transcript) return;
+    handleUseTranscript(pending.transcript);
+  }, [conversation.isManager, handleUseTranscript, id]);
 
   const openInternalPanelTab = useCallback(
     (tab: InternalPanelTab, options?: { forceScroll?: boolean; scrollToTop?: boolean }) => {
@@ -6819,6 +7152,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
           highlightDraftId: newestInternalId ?? undefined,
         });
       } else {
+        lastSentMessageIdRef.current = apiMessages[apiMessages.length - 1]?.id ?? null;
         const mapped = mapApiMessagesToState(apiMessages);
         if (mapped.length > 0) {
           setMessage((prev) => {
@@ -6913,6 +7247,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
         : data.message
         ? [data.message as ApiMessage]
         : [];
+      const stickerMessageId = apiMessages[apiMessages.length - 1]?.id ?? null;
       const mapped = mapApiMessagesToState(apiMessages);
       if (mapped.length > 0) {
         setMessage((prev) => {
@@ -6929,6 +7264,8 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
         text: stickerLabel,
         kind: "sticker",
         sentAt: new Date().toISOString(),
+        from: "creator",
+        eventId: stickerMessageId ?? undefined,
       });
       emitCreatorDataChanged({ reason: "fan_message_sent", fanId: id });
     } catch (err) {
@@ -6986,12 +7323,16 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
           preview,
         });
         startFanSendCooldown(id);
+        const sentMessageId = lastSentMessageIdRef.current;
+        lastSentMessageIdRef.current = null;
         emitFanMessageSent({
           fanId: id,
           actionKey: currentActionKey ?? undefined,
           text: trimmed,
           kind: "text",
           sentAt: new Date().toISOString(),
+          from: "creator",
+          eventId: sentMessageId ?? undefined,
         });
         emitCreatorDataChanged({ reason: "fan_message_sent", fanId: id });
         const flow = readCortexFlow();
@@ -7547,6 +7888,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
         : data.message
         ? [data.message as ApiMessage]
         : [];
+      lastContentMessageIdRef.current = apiMessages[apiMessages.length - 1]?.id ?? null;
       const mapped = mapApiMessagesToState(apiMessages);
       if (mapped.length > 0) {
         setMessage((prev) => reconcileMessages(prev || [], mapped, id));
@@ -8853,6 +9195,17 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
                 </div>
               </div>
             )}
+            {voiceNotice && (
+              <div className="mb-3 flex justify-center">
+                <div className="rounded-2xl border border-[color:rgba(var(--brand-rgb),0.4)] bg-[color:rgba(var(--brand-rgb),0.12)] px-4 py-2 text-[11px] text-[color:var(--text)] novsy-pop">
+                  <div className="flex items-center gap-2 font-semibold">
+                    <span className="text-base leading-none">🎙️</span>
+                    <span>{voiceNoticeLabel}</span>
+                  </div>
+                  <div className="mt-1 text-[10px] text-[color:var(--muted)]">{voiceNoticeTime}</div>
+                </div>
+              </div>
+            )}
             {messages.map((messageConversation, index) => {
               if (messageConversation.kind === "system") {
                 return (
@@ -8868,6 +9221,9 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
                   <AudioMessageBubble
                     key={messageConversation.id || index}
                     message={messageConversation}
+                    onCopyTranscript={handleCopyTranscript}
+                    onUseTranscript={handleUseTranscript}
+                    onRetryTranscript={requestTranscriptRetry}
                   />
                 );
               }
@@ -9273,6 +9629,31 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
                         </button>
                       </div>
                     )}
+                  </div>
+                </div>
+              )}
+              {voiceUploadError && (
+                <div className="mb-2 rounded-xl border border-[color:rgba(244,63,94,0.4)] bg-[color:rgba(244,63,94,0.1)] px-3 py-2 text-[11px] text-[color:var(--text)]">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <span>{voiceUploadError}</span>
+                    {voiceRetryPayload ? (
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={retryVoiceUpload}
+                          className="rounded-full border border-[color:rgba(244,63,94,0.5)] bg-[color:rgba(244,63,94,0.12)] px-3 py-1 text-[10px] font-semibold text-[color:var(--text)] hover:bg-[color:rgba(244,63,94,0.2)]"
+                        >
+                          Reintentar
+                        </button>
+                        <button
+                          type="button"
+                          onClick={clearVoiceRetry}
+                          className="rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-3 py-1 text-[10px] font-semibold text-[color:var(--muted)] hover:text-[color:var(--text)]"
+                        >
+                          Descartar
+                        </button>
+                      </div>
+                    ) : null}
                   </div>
                 </div>
               )}
@@ -10006,11 +10387,15 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
                             ? sentItems[0]?.title || "Contenido compartido"
                             : `Contenido compartido (${sentItems.length})`;
                         startFanSendCooldown(id);
+                        const contentEventId = lastContentMessageIdRef.current;
+                        lastContentMessageIdRef.current = null;
                         emitFanMessageSent({
                           fanId: id,
                           text: previewLabel,
                           kind: "content",
                           sentAt: new Date().toISOString(),
+                          from: "creator",
+                          eventId: contentEventId ?? undefined,
                         });
                         emitCreatorDataChanged({ reason: "fan_message_sent", fanId: id });
                       }
@@ -10307,12 +10692,31 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
   )
 }
 
-function AudioMessageBubble({ message }: { message: ConversationMessage }) {
+function AudioMessageBubble({
+  message,
+  onCopyTranscript,
+  onUseTranscript,
+  onRetryTranscript,
+}: {
+  message: ConversationMessage;
+  onCopyTranscript?: (text: string) => void;
+  onUseTranscript?: (text: string) => void;
+  onRetryTranscript?: (messageId: string) => Promise<void> | void;
+}) {
   const router = useRouter();
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const [ isPlaying, setIsPlaying ] = useState(false);
   const [ currentTime, setCurrentTime ] = useState(0);
-  const audioSrc = resolveAudioUrl(message.audioUrl, router.basePath);
+  const [ audioError, setAudioError ] = useState(false);
+  const [ reloadToken, setReloadToken ] = useState(0);
+  const [ transcriptOpen, setTranscriptOpen ] = useState(false);
+  const [ transcriptRetrying, setTranscriptRetrying ] = useState(false);
+  const [ transcriptRetryError, setTranscriptRetryError ] = useState("");
+  const resolvedAudioSrc = resolveAudioUrl(message.audioUrl, router.basePath);
+  const audioSrc =
+    resolvedAudioSrc && reloadToken
+      ? `${resolvedAudioSrc}${resolvedAudioSrc.includes("?") ? "&" : "?"}t=${reloadToken}`
+      : resolvedAudioSrc;
   const totalSeconds = Math.max(0, Math.round((message.audioDurationMs ?? 0) / 1000));
   const totalLabel = formatAudioTime(totalSeconds);
   const currentLabel = formatAudioTime(Math.round(currentTime));
@@ -10321,6 +10725,23 @@ function AudioMessageBubble({ message }: { message: ConversationMessage }) {
     ? "bg-[color:var(--brand-weak)] text-[color:var(--text)] border border-[color:rgba(var(--brand-rgb),0.28)]"
     : "bg-[color:var(--surface-2)] text-[color:var(--text)] border border-[color:var(--border)]";
   const isSending = message.status === "sending";
+  const transcriptText = typeof message.transcriptText === "string" ? message.transcriptText.trim() : "";
+  const transcriptError = typeof message.transcriptError === "string" ? message.transcriptError.trim() : "";
+  const resolvedStatus = message.transcriptStatus ?? (transcriptText ? "DONE" : "OFF");
+  const canRequestTranscript = Boolean(onRetryTranscript) && resolvedStatus === "OFF";
+  const showTranscriptSection =
+    canRequestTranscript ||
+    resolvedStatus === "PENDING" ||
+    resolvedStatus === "FAILED" ||
+    (resolvedStatus === "DONE" && Boolean(transcriptText));
+  const intentData = message.intentJson && typeof message.intentJson === "object" ? (message.intentJson as any) : null;
+  const intentLabel = typeof intentData?.intent === "string" ? intentData.intent.trim() : "";
+  const intentTags = Array.isArray(intentData?.tags)
+    ? intentData.tags
+        .filter((tag: unknown) => typeof tag === "string" && tag.trim().length > 0)
+        .map((tag: string) => tag.trim())
+    : [];
+  const needsReply = Boolean(intentData?.needsReply);
 
   useEffect(() => {
     const audio = audioRef.current;
@@ -10340,9 +10761,13 @@ function AudioMessageBubble({ message }: { message: ConversationMessage }) {
     };
   }, []);
 
+  useEffect(() => {
+    setAudioError(false);
+  }, [resolvedAudioSrc]);
+
   const togglePlayback = async () => {
     const audio = audioRef.current;
-    if (!audio || !audioSrc || isSending) return;
+    if (!audio || !audioSrc || isSending || audioError) return;
     try {
       if (isPlaying) {
         audio.pause();
@@ -10353,6 +10778,28 @@ function AudioMessageBubble({ message }: { message: ConversationMessage }) {
       }
     } catch (_err) {
       setIsPlaying(false);
+    }
+  };
+
+  const retryDownload = () => {
+    setAudioError(false);
+    setIsPlaying(false);
+    setCurrentTime(0);
+    setReloadToken(Date.now());
+  };
+
+  const handleRetryTranscript = async () => {
+    if (!onRetryTranscript || !message.id || transcriptRetrying) return;
+    setTranscriptRetrying(true);
+    setTranscriptRetryError("");
+    try {
+      await onRetryTranscript(message.id);
+    } catch (err) {
+      const errorMessage =
+        err instanceof Error && err.message.trim().length > 0 ? err.message : "No se pudo reintentar.";
+      setTranscriptRetryError(errorMessage);
+    } finally {
+      setTranscriptRetrying(false);
     }
   };
 
@@ -10369,10 +10816,10 @@ function AudioMessageBubble({ message }: { message: ConversationMessage }) {
             <button
               type="button"
               onClick={togglePlayback}
-              disabled={isSending || !audioSrc}
+              disabled={isSending || !audioSrc || audioError}
               className={clsx(
                 "flex h-10 w-10 items-center justify-center rounded-full border text-sm font-semibold transition",
-                isSending || !audioSrc
+                isSending || !audioSrc || audioError
                   ? "border-[color:var(--border)] bg-[color:var(--surface-2)] text-[color:var(--muted)] cursor-not-allowed"
                   : "border-[color:var(--border)] bg-[color:var(--surface-1)] text-[color:var(--text)] hover:border-[color:var(--border-a)]"
               )}
@@ -10394,9 +10841,148 @@ function AudioMessageBubble({ message }: { message: ConversationMessage }) {
             </div>
           </div>
           {audioSrc ? (
-            <audio ref={audioRef} src={audioSrc} preload="metadata" />
+            <audio
+              ref={audioRef}
+              src={audioSrc}
+              preload="metadata"
+              controls
+              className="sr-only"
+              onError={() => {
+                setAudioError(true);
+                setIsPlaying(false);
+              }}
+            />
           ) : (
             <div className="mt-2 text-[11px] text-[color:var(--muted)]">Audio no disponible.</div>
+          )}
+          {audioError && (
+            <div className="mt-2 flex items-center justify-between gap-2 text-[11px] text-[color:var(--danger)]">
+              <span>No se pudo reproducir el audio.</span>
+              <button
+                type="button"
+                className="rounded-full border border-[color:rgba(244,63,94,0.7)] px-2 py-0.5 text-[10px] font-semibold hover:bg-[color:rgba(244,63,94,0.12)]"
+                onClick={retryDownload}
+              >
+                Reintentar descarga
+              </button>
+            </div>
+          )}
+          {showTranscriptSection && (
+            <div className="mt-3 border-t border-[color:var(--surface-border)] pt-2 text-xs text-[color:var(--muted)]">
+              {resolvedStatus === "OFF" && canRequestTranscript && (
+                <div className="flex items-center justify-end">
+                  <button
+                    type="button"
+                    className={clsx(
+                      "rounded-full border px-2 py-0.5 text-[10px] font-semibold",
+                      transcriptRetrying
+                        ? "border-[color:var(--surface-border)] text-[color:var(--muted)] cursor-not-allowed"
+                        : "border-[color:var(--surface-border)] text-[color:var(--text)] hover:bg-[color:var(--surface-1)]"
+                    )}
+                    onClick={handleRetryTranscript}
+                    disabled={transcriptRetrying}
+                  >
+                    {transcriptRetrying ? "Transcribiendo…" : "Transcribir"}
+                  </button>
+                </div>
+              )}
+              {resolvedStatus === "PENDING" && <span>Transcribiendo…</span>}
+              {resolvedStatus === "FAILED" && (
+                <div className="flex flex-col gap-1">
+                  <div className="flex items-center justify-between gap-2">
+                    <span>No disponible</span>
+                    {onRetryTranscript && (
+                      <button
+                        type="button"
+                        className={clsx(
+                          "rounded-full border px-2 py-0.5 text-[10px] font-semibold",
+                          transcriptRetrying
+                            ? "border-[color:var(--surface-border)] text-[color:var(--muted)] cursor-not-allowed"
+                            : "border-[color:var(--surface-border)] text-[color:var(--text)] hover:bg-[color:var(--surface-1)]"
+                        )}
+                        onClick={handleRetryTranscript}
+                        disabled={transcriptRetrying}
+                      >
+                        {transcriptRetrying ? "Reintentando…" : "Reintentar"}
+                      </button>
+                    )}
+                  </div>
+                  {transcriptError && (
+                    <div className="text-[10px] text-[color:var(--muted)]">
+                      {transcriptError.length > 120 ? `${transcriptError.slice(0, 120)}…` : transcriptError}
+                    </div>
+                  )}
+                </div>
+              )}
+              {resolvedStatus === "DONE" && transcriptText && (
+                <div className="space-y-2">
+                  <p
+                    className={clsx(
+                      "whitespace-pre-wrap text-[color:var(--text)]",
+                      transcriptOpen ? "" : "line-clamp-2"
+                    )}
+                  >
+                    {transcriptText}
+                  </p>
+                  <div className="flex flex-wrap items-center justify-between gap-2 text-[11px]">
+                    <button
+                      type="button"
+                      className="text-[color:var(--muted)] hover:text-[color:var(--text)]"
+                      onClick={() => setTranscriptOpen((prev) => !prev)}
+                    >
+                      {transcriptOpen ? "Ocultar texto" : "Ver texto"}
+                    </button>
+                    <div className="flex items-center gap-2">
+                      {onCopyTranscript && (
+                        <button
+                          type="button"
+                          className="rounded-full border border-[color:var(--surface-border)] px-2 py-0.5 font-semibold text-[color:var(--text)] hover:bg-[color:var(--surface-1)]"
+                          onClick={() => onCopyTranscript(transcriptText)}
+                        >
+                          Copiar texto
+                        </button>
+                      )}
+                      {onUseTranscript && (
+                        <button
+                          type="button"
+                          className="rounded-full border border-[color:var(--surface-border)] px-2 py-0.5 font-semibold text-[color:var(--text)] hover:bg-[color:var(--surface-1)]"
+                          onClick={() => onUseTranscript(transcriptText)}
+                        >
+                          Usar en Manager
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                  {(intentLabel || intentTags.length > 0 || needsReply) && (
+                    <div className="flex flex-wrap gap-2 text-[10px] text-[color:var(--muted)]">
+                      {intentLabel && (
+                        <span className="rounded-full border border-[color:var(--surface-border)] px-2 py-0.5">
+                          Intento: {intentLabel}
+                        </span>
+                      )}
+                      {needsReply && (
+                        <span className="rounded-full border border-[color:rgba(234,88,12,0.6)] px-2 py-0.5 text-[color:var(--text)]">
+                          Necesita respuesta
+                        </span>
+                      )}
+                      {intentTags.map((tag: string) => (
+                        <span
+                          key={tag}
+                          className="rounded-full border border-[color:var(--surface-border)] px-2 py-0.5"
+                        >
+                          {tag}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+              {transcriptRetryError && (
+                <div className="mt-1 text-[10px] text-[color:var(--danger)]">
+                  {transcriptRetryError}
+                </div>
+              )}
+            </div>
           )}
         </div>
       </div>
@@ -10512,7 +11098,11 @@ function formatAudioTime(totalSeconds: number) {
 
 function resolveAudioUrl(rawUrl: string | null | undefined, basePath?: string) {
   if (!rawUrl) return null;
-  if (!basePath || basePath === "/" || !rawUrl.startsWith("/uploads/")) return rawUrl;
-  if (rawUrl.startsWith(basePath)) return rawUrl;
-  return `${basePath}${rawUrl}`;
+  let resolved = rawUrl;
+  if (resolved.startsWith("/uploads/voice-notes/")) {
+    resolved = `/api/voice-notes/${resolved.slice("/uploads/voice-notes/".length)}`;
+  }
+  if (!basePath || basePath === "/" || !resolved.startsWith("/")) return resolved;
+  if (resolved.startsWith(basePath)) return resolved;
+  return `${basePath}${resolved}`;
 }

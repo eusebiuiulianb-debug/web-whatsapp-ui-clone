@@ -2,15 +2,14 @@ import path from "path";
 import { PrismaClient } from "@prisma/client";
 
 function normalizeDatabaseUrl(raw?: string | null): string {
-  const defaultUrl = "file:./prisma/dev.db";
+  const defaultUrl = "file:./dev.db";
   let value = raw && raw.trim().length > 0 ? raw.trim() : defaultUrl;
-  if (value.startsWith("file:")) {
-    const filePath = value.replace(/^file:/, "");
-    if (!filePath.includes(`${path.sep}prisma${path.sep}`) && !filePath.includes(`/prisma/`)) {
-      value = "file:./prisma/dev.db";
-    }
+  if (value.startsWith("prisma://") || value.startsWith("prisma+postgres://")) {
+    return value;
   }
-  if (!value.startsWith("file:")) return value;
+  if (!value.startsWith("file:")) {
+    value = defaultUrl;
+  }
 
   const filePath = value.replace(/^file:/, "");
   const absolutePath = path.isAbsolute(filePath) ? filePath : path.resolve(process.cwd(), filePath);

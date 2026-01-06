@@ -22,7 +22,14 @@ import {
   setPendingPurchaseNotice,
   type PurchaseNotice,
 } from "../../lib/unseenPurchases";
-import type { PurchaseCreatedPayload } from "../../lib/events";
+import {
+  clearUnseenVoiceNote,
+  getUnseenVoiceNotes,
+  recordUnseenVoiceNote,
+  type VoiceNoteNotice,
+} from "../../lib/unseenVoiceNotes";
+import { setSmartTranscriptionTargets } from "../../lib/voiceTranscriptionSmartTargets";
+import type { FanMessageSentPayload, PurchaseCreatedPayload, VoiceTranscriptPayload } from "../../lib/events";
 import { formatPurchaseUI } from "../../lib/purchaseUi";
 import { useCreatorRealtime } from "../../hooks/useCreatorRealtime";
 import { IconGlyph } from "../ui/IconGlyph";
@@ -277,8 +284,6 @@ function SideBarInner() {
   const [ nextCursor, setNextCursor ] = useState<string | null>(null);
   const [ hasMore, setHasMore ] = useState(false);
   const [ isLoadingMore, setIsLoadingMore ] = useState(false);
-  const pollAbortRef = useRef<AbortController | null>(null);
-  const pollIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const openFanFetchRef = useRef<string | null>(null);
   const fansRef = useRef<ConversationListData[]>([]);
   const didInitialFetchRef = useRef(false);
@@ -311,6 +316,7 @@ function SideBarInner() {
   const openFanNotFoundRef = useRef<string | null>(null);
   const fansRefetchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [ unseenPurchaseByFan, setUnseenPurchaseByFan ] = useState<Record<string, PurchaseNotice>>({});
+  const [ unseenVoiceByFan, setUnseenVoiceByFan ] = useState<Record<string, VoiceNoteNotice>>({});
 
 
   const mapFans = useCallback((rawFans: Fan[]): ConversationListData[] => {
@@ -497,6 +503,7 @@ function SideBarInner() {
 
   useEffect(() => {
     setUnseenPurchaseByFan(getUnseenPurchases());
+    setUnseenVoiceByFan(getUnseenVoiceNotes());
   }, []);
 
   const fansWithScore: FanData[] = useMemo(
@@ -526,6 +533,24 @@ function SideBarInner() {
     return { latest, totalCount };
   }, [unseenPurchaseByFan]);
 
+  const boardVoiceSummary = useMemo(() => {
+    const entries = Object.entries(unseenVoiceByFan);
+    let latest: { fanId: string; notice: VoiceNoteNotice; ts: number } | null = null;
+    let totalCount = 0;
+    for (let i = 0; i < entries.length; i += 1) {
+      const [fanId, notice] = entries[i];
+      if (!fanId || !notice) continue;
+      const count = typeof notice.count === "number" ? notice.count : 0;
+      totalCount += count;
+      const createdAt = notice.last?.createdAt;
+      const ts = createdAt ? new Date(createdAt).getTime() : 0;
+      if (!latest || ts >= latest.ts) {
+        latest = { fanId, notice, ts };
+      }
+    }
+    return { latest, totalCount };
+  }, [unseenVoiceByFan]);
+
   const handleOpenPurchaseBanner = useCallback(() => {
     const latest = boardPurchaseSummary.latest;
     if (!latest) return;
@@ -550,6 +575,29 @@ function SideBarInner() {
     }
     setUnseenPurchaseByFan({});
   }, [unseenPurchaseByFan]);
+
+  const handleOpenVoiceBanner = useCallback(() => {
+    const latest = boardVoiceSummary.latest;
+    if (!latest) return;
+    clearUnseenVoiceNote(latest.fanId);
+    setUnseenVoiceByFan((prev) => {
+      if (!prev[latest.fanId]) return prev;
+      const next = { ...prev };
+      delete next[latest.fanId];
+      return next;
+    });
+    const targetPath = router.pathname.startsWith("/creator/manager") ? "/creator" : router.pathname || "/creator";
+    openFanChat(router, latest.fanId, { shallow: true, scroll: false, pathname: targetPath });
+  }, [boardVoiceSummary.latest, router]);
+
+  const handleDismissVoiceBanner = useCallback(() => {
+    const entries = Object.keys(unseenVoiceByFan);
+    if (entries.length === 0) return;
+    for (let i = 0; i < entries.length; i += 1) {
+      clearUnseenVoiceNote(entries[i]);
+    }
+    setUnseenVoiceByFan({});
+  }, [unseenVoiceByFan]);
 
   const handleSelectConversation = useCallback(
     (item: ConversationListData) => {
@@ -1225,6 +1273,31 @@ function SideBarInner() {
     }
     setQueueFans(priorityQueueList);
   }, [priorityQueueList, hasFanListChanged, queueFans, setQueueFans]);
+
+  const smartTranscriptionTargets = useMemo(() => {
+    const ids: string[] = [];
+    const seen: Record<string, boolean> = {};
+    for (let i = 0; i < priorityQueueList.length; i += 1) {
+      const fanId = priorityQueueList[i]?.id;
+      if (!fanId || seen[fanId]) continue;
+      seen[fanId] = true;
+      ids.push(fanId);
+    }
+    for (let i = 0; i < fans.length; i += 1) {
+      const fan = fans[i];
+      if (!fan?.id) continue;
+      if (fan.isHighPriority || fan.customerTier === "vip") {
+        if (seen[fan.id]) continue;
+        seen[fan.id] = true;
+        ids.push(fan.id);
+      }
+    }
+    return ids;
+  }, [fans, priorityQueueList]);
+
+  useEffect(() => {
+    setSmartTranscriptionTargets(smartTranscriptionTargets);
+  }, [smartTranscriptionTargets]);
   const apiFilter = (() => {
     if (statusFilter === "archived") return "archived";
     if (statusFilter === "blocked") return "blocked";
@@ -1364,38 +1437,6 @@ function SideBarInner() {
     [conversation, fetchFansPage, setConversation]
   );
 
-  const pollFans = useCallback(async () => {
-    if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
-    try {
-      if (pollAbortRef.current) {
-        pollAbortRef.current.abort();
-      }
-      const controller = new AbortController();
-      pollAbortRef.current = controller;
-      const params = new URLSearchParams();
-      params.set("limit", "30");
-      params.set("filter", apiFilter);
-      if (search.trim()) params.set("q", search.trim());
-      const res = await fetch(`/api/fans?${params.toString()}`, {
-        signal: controller.signal,
-        cache: "no-store",
-      });
-      if (!res.ok) throw new Error("poll-fans-failed");
-      const data = await res.json();
-      const rawItems = Array.isArray(data.items) ? (data.items as Fan[]) : [];
-      const mapped: ConversationListData[] = mapFans(rawItems);
-      const merged = mergeFansById(fansRef.current, mapped);
-      if (hasFanListChanged(fansRef.current, merged)) {
-        setFans(merged);
-        setFansError("");
-        setNextCursor(typeof data.nextCursor === "string" ? data.nextCursor : null);
-        setHasMore(Boolean(data.hasMore));
-      }
-    } catch (_err) {
-      // silent poll failure
-    }
-  }, [apiFilter, hasFanListChanged, mapFans, mergeFansById, search, setFansError]);
-
   useEffect(() => {
     if (didMountFetchRef.current) return;
     didMountFetchRef.current = true;
@@ -1410,18 +1451,6 @@ function SideBarInner() {
     }
     fetchFansPage();
   }, [apiFilter, fetchFansPage, search]);
-
-  useEffect(() => {
-    void pollFans();
-    const interval = setInterval(() => {
-      void pollFans();
-    }, 2500);
-    pollIntervalRef.current = interval as any;
-    return () => {
-      if (pollIntervalRef.current) clearInterval(pollIntervalRef.current as any);
-      if (pollAbortRef.current) pollAbortRef.current.abort();
-    };
-  }, [pollFans]);
 
   const handleExtrasUpdated = useCallback(
     (detail: {
@@ -1465,7 +1494,7 @@ function SideBarInner() {
   );
 
   const handleFanMessageSent = useCallback(
-    (detail: { fanId?: string; text?: string; kind?: string; sentAt?: string }) => {
+    (detail: FanMessageSentPayload) => {
       const fanId = typeof detail?.fanId === "string" ? detail.fanId : "";
       if (!fanId) {
         scheduleFansRefresh();
@@ -1480,16 +1509,46 @@ function SideBarInner() {
         hour12: false,
       });
       const rawText = typeof detail?.text === "string" ? detail.text.trim() : "";
+      const durationMs =
+        typeof detail?.durationMs === "number"
+          ? detail.durationMs
+          : typeof (detail?.message as { audioDurationMs?: number } | undefined)?.audioDurationMs === "number"
+          ? (detail?.message as { audioDurationMs?: number }).audioDurationMs
+          : null;
+      const durationLabel =
+        typeof durationMs === "number" && durationMs > 0 ? formatVoiceDuration(durationMs) : "";
+      const audioPreview =
+        durationLabel ? `\uD83C\uDF99 Nota de voz (${durationLabel})` : "\uD83C\uDF99 Nota de voz";
       const preview =
         rawText ||
         (detail?.kind === "audio"
-          ? "\uD83C\uDFA4 Nota de voz"
+          ? audioPreview
           : detail?.kind === "sticker"
           ? "Sticker"
           : detail?.kind === "content"
           ? "Contenido compartido"
           : "");
+      const isFromFan = detail?.from === "fan";
+      const activeConversationId = conversation?.id || "";
+      const isActiveConversation = !conversation?.isManager && activeConversationId === fanId;
       const existing = fansRef.current.find((fan) => fan.id === fanId) ?? null;
+      const fanLabel = (existing?.contactName || "").trim();
+      if (detail?.kind === "audio" && detail?.from === "fan" && !isActiveConversation) {
+        const notice = recordUnseenVoiceNote({
+          fanId,
+          fanName: fanLabel || undefined,
+          durationMs: typeof durationMs === "number" ? durationMs : 0,
+          from: detail?.from,
+          eventId: typeof detail?.eventId === "string" ? detail.eventId : undefined,
+          createdAt: safeSentAt.toISOString(),
+        });
+        if (notice) {
+          setUnseenVoiceByFan((prev) => ({
+            ...prev,
+            [fanId]: notice,
+          }));
+        }
+      }
       if (existing) {
         setFans((prev) => {
           const index = prev.findIndex((fan) => fan.id === fanId);
@@ -1499,8 +1558,8 @@ function SideBarInner() {
             ...current,
             lastMessage: preview || current.lastMessage,
             lastTime: timeLabel,
-            lastCreatorMessageAt: safeSentAt.toISOString(),
             lastActivityAt: safeSentAt.toISOString(),
+            lastCreatorMessageAt: isFromFan ? current.lastCreatorMessageAt : safeSentAt.toISOString(),
           };
           return [updated, ...prev.slice(0, index), ...prev.slice(index + 1)];
         });
@@ -1508,7 +1567,7 @@ function SideBarInner() {
       void fetchFanById(fanId);
       void refreshExtrasSummary();
     },
-    [fetchFanById, refreshExtrasSummary, scheduleFansRefresh]
+    [conversation?.id, conversation?.isManager, fetchFanById, refreshExtrasSummary, scheduleFansRefresh]
   );
 
   const handlePurchaseCreated = useCallback(
@@ -1575,6 +1634,34 @@ function SideBarInner() {
       void refreshExtrasSummary();
     },
     [conversation?.id, conversation?.isManager, playPurchaseSound, refreshExtrasSummary, scheduleFansRefresh]
+  );
+
+  const handleVoiceTranscriptUpdated = useCallback(
+    (detail: VoiceTranscriptPayload) => {
+      const fanId = typeof detail?.fanId === "string" ? detail.fanId : "";
+      if (!fanId) return;
+      if (detail?.transcriptStatus !== "DONE") return;
+      const timeValue = detail?.transcribedAt ? new Date(detail.transcribedAt) : new Date();
+      const safeTime = Number.isNaN(timeValue.getTime()) ? new Date() : timeValue;
+      const timeLabel = safeTime.toLocaleTimeString("es-ES", {
+        hour: "2-digit",
+        minute: "2-digit",
+        hour12: false,
+      });
+      setFans((prev) => {
+        const index = prev.findIndex((fan) => fan.id === fanId);
+        if (index === -1) return prev;
+        const current = prev[index];
+        const updated = {
+          ...current,
+          lastTime: timeLabel,
+          lastActivityAt: safeTime.toISOString(),
+        };
+        return [updated, ...prev.slice(0, index), ...prev.slice(index + 1)];
+      });
+      void fetchFanById(fanId);
+    },
+    [fetchFanById]
   );
 
   const handlePurchaseSeen = useCallback((detail: { fanId?: string; purchaseIds?: string[] }) => {
@@ -1664,6 +1751,7 @@ function SideBarInner() {
     onPurchaseCreated: handlePurchaseCreated,
     onPurchaseSeen: handlePurchaseSeen,
     onCreatorDataChanged: handleCreatorDataChanged,
+    onVoiceTranscriptUpdated: handleVoiceTranscriptUpdated,
   });
 
   useEffect(() => {
@@ -1722,6 +1810,14 @@ function SideBarInner() {
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, [showLegend]);
 
+  function formatVoiceDuration(durationMs: number) {
+    if (!Number.isFinite(durationMs) || durationMs <= 0) return "";
+    const totalSeconds = Math.max(0, Math.round(durationMs / 1000));
+    const minutes = Math.floor(totalSeconds / 60);
+    const seconds = totalSeconds % 60;
+    return `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
+  }
+
   function formatCurrency(value: number) {
     const rounded = Math.round((value ?? 0) * 100) / 100;
     return `${rounded % 1 === 0 ? rounded.toFixed(0) : rounded.toFixed(2)} €`;
@@ -1763,6 +1859,20 @@ function SideBarInner() {
     "flex items-center justify-between gap-3 rounded-lg px-2 py-1.5 text-left transition hover:bg-[color:var(--surface-2)] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[color:var(--ring)]";
   const countPillClass =
     "inline-flex items-center rounded-full px-2.5 py-1 text-[11px] font-semibold tabular-nums tracking-tight";
+  const boardVoiceMeta = useMemo(() => {
+    const latest = boardVoiceSummary.latest;
+    if (!latest) return null;
+    const notice = latest.notice;
+    const fallbackName =
+      (fans.find((fan) => fan.id === latest.fanId)?.contactName || "").trim();
+    const fanName = (notice.last.fanName || "").trim() || fallbackName || "Fan";
+    const durationLabel = formatVoiceDuration(notice.last.durationMs);
+    const base =
+      notice.last.from === "creator" ? `Nota de voz enviada a ${fanName}` : `Nota de voz de ${fanName}`;
+    const label = durationLabel ? `\uD83C\uDF99 ${base} (${durationLabel})` : `\uD83C\uDF99 ${base}`;
+    const extraCount = Math.max(0, boardVoiceSummary.totalCount - 1);
+    return { label, icon: "\uD83C\uDF99", extraCount };
+  }, [boardVoiceSummary, fans]);
   const boardPurchaseMeta = useMemo(() => {
     const latest = boardPurchaseSummary.latest;
     if (!latest) return null;
@@ -1815,6 +1925,35 @@ function SideBarInner() {
         {openFanToast && (
           <div className="mb-2 rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-3 py-2 text-[11px] text-[color:var(--muted)]">
             {openFanToast}
+          </div>
+        )}
+        {boardVoiceMeta && (
+          <div className="mb-2 rounded-xl border border-[color:rgba(var(--brand-rgb),0.35)] bg-[color:rgba(var(--brand-rgb),0.12)] px-3 py-2 text-[11px] text-[color:var(--text)]">
+            <div className="flex items-center justify-between gap-2">
+              <button
+                type="button"
+                onClick={handleOpenVoiceBanner}
+                className="flex min-w-0 flex-1 items-center gap-2 text-left"
+              >
+                <span className="text-base leading-none">{boardVoiceMeta.icon}</span>
+                <span className="font-semibold truncate">{boardVoiceMeta.label}</span>
+              </button>
+              <div className="flex items-center gap-2">
+                {boardVoiceMeta.extraCount > 0 && (
+                  <span className="rounded-full border border-[color:rgba(var(--brand-rgb),0.4)] bg-[color:rgba(var(--brand-rgb),0.18)] px-2 py-0.5 text-[10px] font-semibold">
+                    +{boardVoiceMeta.extraCount}
+                  </span>
+                )}
+                <button
+                  type="button"
+                  onClick={handleDismissVoiceBanner}
+                  className="rounded-full border border-[color:rgba(var(--brand-rgb),0.4)] bg-[color:rgba(var(--brand-rgb),0.14)] px-2 py-0.5 text-[10px] font-semibold hover:bg-[color:rgba(var(--brand-rgb),0.22)]"
+                  aria-label="Cerrar"
+                >
+                  x
+                </button>
+              </div>
+            </div>
           </div>
         )}
         {boardPurchaseMeta && (

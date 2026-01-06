@@ -4,6 +4,7 @@ import CreatorHeader from "../../components/CreatorHeader";
 import { useCreatorConfig } from "../../context/CreatorConfigContext";
 import { AiBaseTone, AiTurnMode, AI_TURN_MODE_OPTIONS, AI_TURN_MODES, normalizeAiBaseTone, normalizeAiTurnMode } from "../../lib/aiSettings";
 import { buildDailyUsageFromLogs } from "../../lib/aiUsage";
+import { normalizeVoiceTranscriptionSettings, type VoiceTranscriptionMode } from "../../lib/voiceTranscriptionSettings";
 import {
   CREATOR_PLATFORM_KEYS,
   CreatorPlatformConfig,
@@ -19,6 +20,11 @@ type CreatorAiSettings = {
   creatorId: string;
   tone: AiBaseTone;
   allowAutoLowPriority: boolean;
+  voiceTranscriptionMode: VoiceTranscriptionMode;
+  voiceTranscriptionMinSeconds: number;
+  voiceTranscriptionDailyBudgetUsd: number;
+  voiceTranscriptionExtractIntentTags: boolean;
+  voiceTranscriptionSuggestReply: boolean;
   creditsAvailable: number;
   hardLimitPerDay: number | null;
   createdAt: string;
@@ -33,6 +39,11 @@ type FormState = {
   creditsAvailable: number | "";
   hardLimitPerDay: number | "" | null;
   allowAutoLowPriority: boolean;
+  voiceTranscriptionMode: VoiceTranscriptionMode;
+  voiceTranscriptionMinSeconds: number | "";
+  voiceTranscriptionDailyBudgetUsd: number | "";
+  voiceTranscriptionExtractIntentTags: boolean;
+  voiceTranscriptionSuggestReply: boolean;
   platforms: CreatorPlatforms;
 };
 
@@ -86,6 +97,11 @@ export default function CreatorAiSettingsPage() {
   const pageSize = 10;
 
   const turnModeOptions = AI_TURN_MODE_OPTIONS;
+  const voiceModeOptions: { value: VoiceTranscriptionMode; label: string }[] = [
+    { value: "MANUAL", label: "Manual (botón Transcribir)" },
+    { value: "AUTO_SMART", label: "Auto inteligente (VIP/cola/prioridad)" },
+    { value: "AUTO_ALWAYS", label: "Auto siempre (entrantes)" },
+  ];
   const platformKeys: CreatorPlatformKey[] = [...CREATOR_PLATFORM_KEYS];
 
   function updatePlatform(key: CreatorPlatformKey, patch: Partial<CreatorPlatformConfig>) {
@@ -107,11 +123,17 @@ export default function CreatorAiSettingsPage() {
   }
 
   const normalizeSettings = useCallback((raw: any): CreatorAiSettings => {
+    const voiceSettings = normalizeVoiceTranscriptionSettings(raw);
     return {
       id: String(raw.id),
       creatorId: raw.creatorId,
       tone: normalizeAiBaseTone(raw.tone),
       allowAutoLowPriority: Boolean(raw.allowAutoLowPriority),
+      voiceTranscriptionMode: voiceSettings.mode,
+      voiceTranscriptionMinSeconds: voiceSettings.minSeconds,
+      voiceTranscriptionDailyBudgetUsd: voiceSettings.dailyBudgetUsd,
+      voiceTranscriptionExtractIntentTags: voiceSettings.extractIntentTags,
+      voiceTranscriptionSuggestReply: voiceSettings.suggestReply,
       creditsAvailable: Number.isFinite(Number(raw.creditsAvailable))
         ? Number(raw.creditsAvailable)
         : 0,
@@ -160,6 +182,15 @@ export default function CreatorAiSettingsPage() {
       creditsAvailable: Number.isFinite(next.creditsAvailable) ? next.creditsAvailable : 0,
       hardLimitPerDay: next.hardLimitPerDay === null ? "" : next.hardLimitPerDay,
       allowAutoLowPriority: next.allowAutoLowPriority,
+      voiceTranscriptionMode: next.voiceTranscriptionMode,
+      voiceTranscriptionMinSeconds: Number.isFinite(next.voiceTranscriptionMinSeconds)
+        ? next.voiceTranscriptionMinSeconds
+        : "",
+      voiceTranscriptionDailyBudgetUsd: Number.isFinite(next.voiceTranscriptionDailyBudgetUsd)
+        ? next.voiceTranscriptionDailyBudgetUsd
+        : "",
+      voiceTranscriptionExtractIntentTags: next.voiceTranscriptionExtractIntentTags,
+      voiceTranscriptionSuggestReply: next.voiceTranscriptionSuggestReply,
       platforms: normalizeCreatorPlatforms(next.platforms),
     });
   }
@@ -226,12 +257,29 @@ export default function CreatorAiSettingsPage() {
       return;
     }
 
+    const minSecondsValue = form.voiceTranscriptionMinSeconds === "" ? 0 : form.voiceTranscriptionMinSeconds;
+    if (typeof minSecondsValue === "number" && minSecondsValue < 0) {
+      setError("El mínimo de segundos no puede ser negativo.");
+      return;
+    }
+    const budgetValue =
+      form.voiceTranscriptionDailyBudgetUsd === "" ? 0 : form.voiceTranscriptionDailyBudgetUsd;
+    if (typeof budgetValue === "number" && budgetValue < 0) {
+      setError("El presupuesto diario no puede ser negativo.");
+      return;
+    }
+
     const payload: Partial<CreatorAiSettings> = {
       tone: form.tone,
       turnMode: form.turnMode,
       creditsAvailable: typeof form.creditsAvailable === "number" ? form.creditsAvailable : 0,
       hardLimitPerDay: form.hardLimitPerDay === "" ? null : form.hardLimitPerDay ?? null,
       allowAutoLowPriority: form.allowAutoLowPriority,
+      voiceTranscriptionMode: form.voiceTranscriptionMode,
+      voiceTranscriptionMinSeconds: typeof minSecondsValue === "number" ? minSecondsValue : 0,
+      voiceTranscriptionDailyBudgetUsd: typeof budgetValue === "number" ? budgetValue : 0,
+      voiceTranscriptionExtractIntentTags: form.voiceTranscriptionExtractIntentTags,
+      voiceTranscriptionSuggestReply: form.voiceTranscriptionSuggestReply,
       platforms: form.platforms ?? createDefaultCreatorPlatforms(),
     };
 
@@ -485,6 +533,108 @@ export default function CreatorAiSettingsPage() {
                     <p className="text-xs text-[color:var(--muted)]">
                       Si está activado, la IA puede contestar por ti cuando la cola esté muy llena. Solo se usa con fans marcados como baja prioridad.
                     </p>
+                  </div>
+                </div>
+              </div>
+
+              <div className="rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-4 py-4">
+                <div className="flex flex-col gap-3">
+                  <div>
+                    <h3 className="text-sm font-semibold text-[color:var(--text)]">Transcripción de notas de voz</h3>
+                    <p className="text-xs text-[color:var(--muted)]">
+                      Controla cuándo se transcriben los audios y limita el gasto diario.
+                    </p>
+                  </div>
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                    <div className="flex flex-col gap-2">
+                      <label className="text-sm text-[color:var(--text)] font-medium">Modo</label>
+                      <select
+                        value={form.voiceTranscriptionMode}
+                        onChange={(e) =>
+                          setForm((prev) =>
+                            prev ? { ...prev, voiceTranscriptionMode: e.target.value as VoiceTranscriptionMode } : prev
+                          )
+                        }
+                        className="w-full rounded-lg bg-[color:var(--surface-2)] border border-[color:var(--surface-border)] px-3 py-2 text-sm text-[color:var(--text)] focus:border-[color:var(--border-a)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--ring)]"
+                      >
+                        {voiceModeOptions.map((option) => (
+                          <option key={option.value} value={option.value}>
+                            {option.label}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    <div className="flex flex-col gap-2">
+                      <label className="text-sm text-[color:var(--text)] font-medium">Mínimo (segundos)</label>
+                      <input
+                        type="number"
+                        min={0}
+                        value={form.voiceTranscriptionMinSeconds === "" ? "" : form.voiceTranscriptionMinSeconds}
+                        onChange={(e) => {
+                          const value = e.target.value;
+                          setForm((prev) =>
+                            prev
+                              ? { ...prev, voiceTranscriptionMinSeconds: value === "" ? "" : Number(value) }
+                              : prev
+                          );
+                        }}
+                        className="w-full rounded-lg bg-[color:var(--surface-2)] border border-[color:var(--surface-border)] px-3 py-2 text-sm text-[color:var(--text)] focus:border-[color:var(--border-a)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--ring)]"
+                      />
+                    </div>
+                    <div className="flex flex-col gap-2">
+                      <label className="text-sm text-[color:var(--text)] font-medium">Presupuesto diario (USD)</label>
+                      <input
+                        type="number"
+                        min={0}
+                        step="0.01"
+                        value={
+                          form.voiceTranscriptionDailyBudgetUsd === ""
+                            ? ""
+                            : form.voiceTranscriptionDailyBudgetUsd
+                        }
+                        onChange={(e) => {
+                          const value = e.target.value;
+                          setForm((prev) =>
+                            prev
+                              ? {
+                                  ...prev,
+                                  voiceTranscriptionDailyBudgetUsd: value === "" ? "" : Number(value),
+                                }
+                              : prev
+                          );
+                        }}
+                        className="w-full rounded-lg bg-[color:var(--surface-2)] border border-[color:var(--surface-border)] px-3 py-2 text-sm text-[color:var(--text)] focus:border-[color:var(--border-a)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--ring)]"
+                      />
+                      <p className="text-xs text-[color:var(--muted)]">0 = auto pausado por presupuesto.</p>
+                    </div>
+                  </div>
+                  <div className="flex flex-col gap-2 text-xs text-[color:var(--muted)]">
+                    <label className="flex items-center gap-3">
+                      <input
+                        type="checkbox"
+                        checked={form.voiceTranscriptionExtractIntentTags}
+                        onChange={(e) =>
+                          setForm((prev) =>
+                            prev ? { ...prev, voiceTranscriptionExtractIntentTags: e.target.checked } : prev
+                          )
+                        }
+                        className="h-4 w-4 rounded border-[color:var(--surface-border)] bg-[color:var(--surface-2)] text-[color:var(--brand)] focus:ring-[color:var(--ring)]"
+                      />
+                      Extraer intención/tags del audio.
+                    </label>
+                    <label className="flex items-center gap-3">
+                      <input
+                        type="checkbox"
+                        checked={form.voiceTranscriptionSuggestReply}
+                        onChange={(e) =>
+                          setForm((prev) =>
+                            prev ? { ...prev, voiceTranscriptionSuggestReply: e.target.checked } : prev
+                          )
+                        }
+                        className="h-4 w-4 rounded border-[color:var(--surface-border)] bg-[color:var(--surface-2)] text-[color:var(--brand)] focus:ring-[color:var(--ring)]"
+                      />
+                      Sugerir respuestas (no auto-enviar).
+                    </label>
                   </div>
                 </div>
               </div>

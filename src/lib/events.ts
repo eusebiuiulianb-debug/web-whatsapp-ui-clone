@@ -5,6 +5,8 @@ import {
   PURCHASE_CHANGED_EVENT,
   PURCHASE_CREATED_EVENT,
   PURCHASE_SEEN_EVENT,
+  VOICE_TRANSCRIPT_UPDATED_EVENT,
+  VOICE_TRANSCRIPTION_BUDGET_EVENT,
 } from "../constants/events";
 import { emitCreatorEvent } from "./creatorRealtimeBus";
 import { resolvePurchaseEventId } from "./purchaseEventDedupe";
@@ -15,6 +17,10 @@ export type FanMessageSentPayload = {
   text?: string;
   kind?: string;
   actionKey?: string | null;
+  from?: "fan" | "creator";
+  eventId?: string;
+  durationMs?: number;
+  message?: unknown;
 };
 
 export type PurchaseChangedPayload = {
@@ -50,6 +56,18 @@ export type CreatorDataChangedPayload = {
 export type ExtrasUpdatedPayload = {
   fanId?: string;
   totals?: Record<string, unknown>;
+};
+
+export type VoiceTranscriptPayload = {
+  fanId: string;
+  messageId: string;
+  transcriptText?: string | null;
+  transcriptStatus?: "OFF" | "PENDING" | "DONE" | "FAILED";
+  transcriptError?: string | null;
+  transcribedAt?: string;
+  transcriptLang?: string | null;
+  intentJson?: unknown;
+  eventId?: string;
 };
 
 export function emitFanMessageSent(payload: FanMessageSentPayload) {
@@ -101,4 +119,6 @@ export {
   PURCHASE_CHANGED_EVENT,
   PURCHASE_CREATED_EVENT,
   PURCHASE_SEEN_EVENT,
+  VOICE_TRANSCRIPT_UPDATED_EVENT,
+  VOICE_TRANSCRIPTION_BUDGET_EVENT,
 };
