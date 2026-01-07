@@ -21,6 +21,8 @@ type VoiceInsightsCardProps = {
   tone?: FanTone;
   onTranscribe?: (messageId: string) => Promise<void> | void;
   onInsertText?: (text: string) => void;
+  onCopyTranscript?: (text: string) => void;
+  onUseTranscript?: (text: string) => void;
   onTranscriptSaved?: (transcript: string) => void;
   onAnalysisSaved?: (analysis: VoiceAnalysis) => void;
   onTranslationSaved?: (translation: VoiceTranslation) => void;
@@ -57,6 +59,8 @@ export function VoiceInsightsCard({
   tone,
   onTranscribe,
   onInsertText,
+  onCopyTranscript,
+  onUseTranscript,
   onTranscriptSaved,
   onAnalysisSaved,
   onTranslationSaved,
@@ -65,6 +69,7 @@ export function VoiceInsightsCard({
   initialAnalysis,
   disabled,
 }: VoiceInsightsCardProps) {
+  const hasInitialSuggestions = Boolean(initialAnalysis?.suggestions?.length);
   const [analysis, setAnalysis] = useState<VoiceAnalysis | null>(initialAnalysis ?? null);
   const [status, setStatus] = useState<"idle" | "loading" | "done" | "error">(
     initialAnalysis ? "done" : "idle"
@@ -82,11 +87,36 @@ export function VoiceInsightsCard({
   );
   const [translationError, setTranslationError] = useState("");
   const [translationOpen, setTranslationOpen] = useState(false);
+  const transcriptStorageKey = messageId ? `voiceTranscriptOpen:${messageId}` : "";
+  const legacyTranscriptStorageKey = messageId ? `novsy:voice-transcript:${messageId}` : "";
+  const [transcriptOpen, setTranscriptOpen] = useState(() => {
+    if (!transcriptStorageKey || typeof window === "undefined") return false;
+    try {
+      const stored = window.localStorage.getItem(transcriptStorageKey);
+      if (stored === "1" || stored === "0") return stored === "1";
+      if (!legacyTranscriptStorageKey) return false;
+      return window.localStorage.getItem(legacyTranscriptStorageKey) === "1";
+    } catch (_err) {
+      return false;
+    }
+  });
+  const insightsStorageKey = messageId ? `novsy:voice-insights:${messageId}` : "";
+  const [showInsights, setShowInsights] = useState(() => {
+    if (!insightsStorageKey || typeof window === "undefined") return !hasInitialSuggestions;
+    try {
+      const stored = window.localStorage.getItem(insightsStorageKey);
+      if (stored === "1" || stored === "0") return stored === "1";
+    } catch (_err) {
+      return !hasInitialSuggestions;
+    }
+    return !hasInitialSuggestions;
+  });
   const latestAnalysisRef = useRef<VoiceAnalysis | null>(initialAnalysis ?? null);
   const latestTranslationRef = useRef<VoiceTranslation | null>(initialTranslation ?? null);
   const lastVariantRef = useRef<"default" | "shorter" | "alternate">("default");
 
-  const hasTranscript = Boolean(transcriptText && transcriptText.trim());
+  const cleanedTranscript = transcriptText ? transcriptText.trim() : "";
+  const hasTranscript = Boolean(cleanedTranscript);
   const normalizedStatus =
     transcriptStatus === "PENDING" || transcriptStatus === "DONE" || transcriptStatus === "FAILED"
       ? transcriptStatus
@@ -122,6 +152,60 @@ export function VoiceInsightsCard({
     setManualError("");
     setTranscribeError("");
   }, [hasTranscript, transcriptText]);
+
+  useEffect(() => {
+    if (!hasTranscript && transcriptOpen) {
+      setTranscriptOpen(false);
+    }
+  }, [hasTranscript, transcriptOpen]);
+
+  useEffect(() => {
+    if (!transcriptStorageKey || typeof window === "undefined") return;
+    try {
+      const stored = window.localStorage.getItem(transcriptStorageKey);
+      if (stored === "1" || stored === "0") {
+        setTranscriptOpen(stored === "1");
+        return;
+      }
+      if (!legacyTranscriptStorageKey) return;
+      setTranscriptOpen(window.localStorage.getItem(legacyTranscriptStorageKey) === "1");
+    } catch (_err) {
+      setTranscriptOpen(false);
+    }
+  }, [legacyTranscriptStorageKey, transcriptStorageKey]);
+
+  useEffect(() => {
+    if (!transcriptStorageKey || typeof window === "undefined") return;
+    try {
+      window.localStorage.setItem(transcriptStorageKey, transcriptOpen ? "1" : "0");
+      if (legacyTranscriptStorageKey) {
+        window.localStorage.setItem(legacyTranscriptStorageKey, transcriptOpen ? "1" : "0");
+      }
+    } catch (_err) {
+      return;
+    }
+  }, [legacyTranscriptStorageKey, transcriptOpen, transcriptStorageKey]);
+
+  useEffect(() => {
+    if (!insightsStorageKey || typeof window === "undefined") return;
+    try {
+      const stored = window.localStorage.getItem(insightsStorageKey);
+      if (stored === "1" || stored === "0") {
+        setShowInsights(stored === "1");
+      }
+    } catch (_err) {
+      return;
+    }
+  }, [insightsStorageKey]);
+
+  useEffect(() => {
+    if (!insightsStorageKey || typeof window === "undefined") return;
+    try {
+      window.localStorage.setItem(insightsStorageKey, showInsights ? "1" : "0");
+    } catch (_err) {
+      return;
+    }
+  }, [insightsStorageKey, showInsights]);
 
   useEffect(() => {
     if (normalizedStatus !== "PENDING") {
@@ -174,6 +258,7 @@ export function VoiceInsightsCard({
         setAnalysis(result);
         onAnalysisSaved?.(result);
         setStatus("done");
+        setShowInsights(true);
       } catch (err) {
         const message =
           err instanceof Error && err.message.trim().length > 0 ? err.message : "No se pudo analizar la nota de voz.";
@@ -357,6 +442,7 @@ export function VoiceInsightsCard({
   const translateLabel =
     translationStatus === "loading" ? "Traduciendo..." : translationStatus === "error" ? "Reintentar" : "Traducir";
   const showManualOption = !hasTranscript;
+  const summaryTags = tags.length > 0 ? tags : hasAnalysis ? ["Manual"] : [];
 
   if (!messageId || isFromFan === false) return null;
 
@@ -387,10 +473,10 @@ export function VoiceInsightsCard({
             <button
               type="button"
               className={clsx(
-                "inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-semibold",
+                "inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-medium",
                 isDisabled || !hasTranscript || translationStatus === "loading"
                   ? "border-[color:var(--surface-border)] text-[color:var(--muted)] cursor-not-allowed"
-                  : "border-[color:var(--surface-border)] text-[color:var(--text)] hover:bg-[color:var(--surface-1)]"
+                  : "border-[color:var(--surface-border)] text-[color:var(--muted)] hover:text-[color:var(--text)] hover:bg-[color:var(--surface-1)]"
               )}
               onClick={handleTranslate}
               disabled={isDisabled || !hasTranscript || translationStatus === "loading"}
@@ -501,6 +587,93 @@ export function VoiceInsightsCard({
         </div>
       )}
 
+      {(hasTranscript || hasAnalysis) && (
+        <div className="mt-2 flex flex-wrap items-center justify-between gap-2 text-[10px] text-[color:var(--muted)]">
+          <div className="flex flex-wrap gap-2">
+            {analysisLabel && (
+              <span className="rounded-full border border-[color:var(--surface-border)] px-2 py-0.5">
+                Intento: {analysisLabel}
+              </span>
+            )}
+            {urgencyLabel && (
+              <span className="rounded-full border border-[color:var(--surface-border)] px-2 py-0.5">
+                Urgencia: {urgencyLabel}
+              </span>
+            )}
+            {summaryTags.map((tag) => (
+              <span
+                key={tag}
+                className="rounded-full border border-[color:var(--surface-border)] px-2 py-0.5"
+              >
+                {tag}
+              </span>
+            ))}
+            {hasTranscript && (
+              <button
+                type="button"
+                onClick={() => setTranscriptOpen((prev) => !prev)}
+                className={clsx(
+                  "inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-semibold transition",
+                  transcriptOpen
+                    ? "border-[color:var(--brand)] bg-[color:rgba(var(--brand-rgb),0.12)] text-[color:var(--text)]"
+                    : "border-[color:var(--surface-border)] text-[color:var(--text)] hover:bg-[color:var(--surface-1)]"
+                )}
+              >
+                {transcriptOpen ? "Ocultar texto" : "Texto"}
+              </button>
+            )}
+          </div>
+          {suggestions.length > 0 && (
+            <button
+              type="button"
+              className="inline-flex items-center gap-1 rounded-full border border-[color:var(--surface-border)] px-2 py-0.5 text-[10px] font-semibold text-[color:var(--text)] hover:bg-[color:var(--surface-1)]"
+              onClick={() => setShowInsights((prev) => !prev)}
+            >
+              <span>
+                {showInsights
+                  ? `Ocultar respuestas (${suggestions.length})`
+                  : `Ver respuestas (${suggestions.length})`}
+              </span>
+              <IconGlyph
+                name="chevronDown"
+                size="sm"
+                className={clsx("transition-transform", showInsights ? "rotate-180" : "")}
+              />
+            </button>
+          )}
+        </div>
+      )}
+
+      {hasTranscript && transcriptOpen && (
+        <div className="mt-2 rounded-lg border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-3 py-2 space-y-2">
+          <p className="max-h-32 overflow-y-auto whitespace-pre-wrap text-[12px] text-[color:var(--text)]">
+            {cleanedTranscript}
+          </p>
+          {(onCopyTranscript || onUseTranscript) && (
+            <div className="flex flex-wrap items-center gap-2 text-[10px] text-[color:var(--muted)]">
+              {onCopyTranscript && (
+                <button
+                  type="button"
+                  className="rounded-full border border-[color:var(--surface-border)] px-2 py-0.5 font-semibold text-[color:var(--text)] hover:bg-[color:var(--surface-1)]"
+                  onClick={() => onCopyTranscript(cleanedTranscript)}
+                >
+                  Copiar texto
+                </button>
+              )}
+              {onUseTranscript && (
+                <button
+                  type="button"
+                  className="rounded-full border border-[color:var(--surface-border)] px-2 py-0.5 font-semibold text-[color:var(--text)] hover:bg-[color:var(--surface-1)]"
+                  onClick={() => onUseTranscript(cleanedTranscript)}
+                >
+                  Usar en Manager
+                </button>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
       {hasTranslation && (
         <div className="mt-2 rounded-lg border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-3 py-2 space-y-2">
           <div className="flex items-center justify-between text-[10px] uppercase tracking-wide text-[color:var(--muted)]">
@@ -544,27 +717,7 @@ export function VoiceInsightsCard({
 
       {hasAnalysis && (
         <div className="mt-2 space-y-2">
-          <div className="flex flex-wrap gap-2 text-[10px] text-[color:var(--muted)]">
-            {analysisLabel && (
-              <span className="rounded-full border border-[color:var(--surface-border)] px-2 py-0.5">
-                Intento: {analysisLabel}
-              </span>
-            )}
-            {urgencyLabel && (
-              <span className="rounded-full border border-[color:var(--surface-border)] px-2 py-0.5">
-                Urgencia: {urgencyLabel}
-              </span>
-            )}
-            {tags.map((tag) => (
-              <span
-                key={tag}
-                className="rounded-full border border-[color:var(--surface-border)] px-2 py-0.5"
-              >
-                {tag}
-              </span>
-            ))}
-          </div>
-          {suggestions.length > 0 && (
+          {showInsights && suggestions.length > 0 && (
             <div className="space-y-2">
               {suggestions.map((suggestion, idx) => (
                 <div
@@ -588,34 +741,36 @@ export function VoiceInsightsCard({
               ))}
             </div>
           )}
-          <div className="flex flex-wrap gap-2 pt-1">
-            <button
-              type="button"
-              onClick={() => handleAnalyze("alternate")}
-              disabled={isDisabled || status === "loading"}
-              className={clsx(
-                "inline-flex items-center rounded-full border px-2.5 py-1 text-[10px] font-semibold",
-                isDisabled || status === "loading"
-                  ? "border-[color:var(--surface-border)] text-[color:var(--muted)] cursor-not-allowed"
-                  : "border-[color:var(--surface-border)] bg-[color:var(--surface-2)] text-[color:var(--text)] hover:border-[color:var(--surface-border-hover)]"
-              )}
-            >
-              Otra version
-            </button>
-            <button
-              type="button"
-              onClick={() => handleAnalyze("shorter")}
-              disabled={isDisabled || status === "loading"}
-              className={clsx(
-                "inline-flex items-center rounded-full border px-2.5 py-1 text-[10px] font-semibold",
-                isDisabled || status === "loading"
-                  ? "border-[color:var(--surface-border)] text-[color:var(--muted)] cursor-not-allowed"
-                  : "border-[color:var(--surface-border)] bg-[color:var(--surface-2)] text-[color:var(--text)] hover:border-[color:var(--surface-border-hover)]"
-              )}
-            >
-              Mas corta
-            </button>
-          </div>
+          {showInsights && (
+            <div className="flex flex-wrap gap-2 pt-1">
+              <button
+                type="button"
+                onClick={() => handleAnalyze("alternate")}
+                disabled={isDisabled || status === "loading"}
+                className={clsx(
+                  "inline-flex items-center rounded-full border px-2.5 py-1 text-[10px] font-semibold",
+                  isDisabled || status === "loading"
+                    ? "border-[color:var(--surface-border)] text-[color:var(--muted)] cursor-not-allowed"
+                    : "border-[color:var(--surface-border)] bg-[color:var(--surface-2)] text-[color:var(--text)] hover:border-[color:var(--surface-border-hover)]"
+                )}
+              >
+                Otra version
+              </button>
+              <button
+                type="button"
+                onClick={() => handleAnalyze("shorter")}
+                disabled={isDisabled || status === "loading"}
+                className={clsx(
+                  "inline-flex items-center rounded-full border px-2.5 py-1 text-[10px] font-semibold",
+                  isDisabled || status === "loading"
+                    ? "border-[color:var(--surface-border)] text-[color:var(--muted)] cursor-not-allowed"
+                    : "border-[color:var(--surface-border)] bg-[color:var(--surface-2)] text-[color:var(--text)] hover:border-[color:var(--surface-border-hover)]"
+                )}
+              >
+                Mas corta
+              </button>
+            </div>
+          )}
         </div>
       )}
 

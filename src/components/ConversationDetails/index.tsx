@@ -10787,7 +10787,6 @@ function AudioMessageBubble({
   const [ currentTime, setCurrentTime ] = useState(0);
   const [ audioError, setAudioError ] = useState(false);
   const [ reloadToken, setReloadToken ] = useState(0);
-  const [ transcriptOpen, setTranscriptOpen ] = useState(false);
   const { favorites } = useEmojiFavorites();
   const [ reactionRecents, setReactionRecents ] = useState<string[]>([]);
   const [ isReactionBarOpen, setIsReactionBarOpen ] = useState(false);
@@ -10811,7 +10810,7 @@ function AudioMessageBubble({
   const isSending = message.status === "sending";
   const transcriptText = typeof message.transcriptText === "string" ? message.transcriptText.trim() : "";
   const resolvedStatus = message.transcriptStatus ?? (transcriptText ? "DONE" : "OFF");
-  const showTranscriptSection = resolvedStatus === "DONE" && Boolean(transcriptText);
+  const showIntentSection = resolvedStatus === "DONE" && Boolean(transcriptText);
   const isFromFan = !message.me;
   const intentData = message.intentJson && typeof message.intentJson === "object" ? (message.intentJson as any) : null;
   const intentLabel = typeof intentData?.intent === "string" ? intentData.intent.trim() : "";
@@ -11053,68 +11052,27 @@ function AudioMessageBubble({
               </button>
             </div>
           )}
-          {showTranscriptSection && (
-            <div className="mt-3 border-t border-[color:var(--surface-border)] pt-2 text-xs text-[color:var(--muted)]">
-              <div className="space-y-2">
-                <p
-                  className={clsx(
-                    "whitespace-pre-wrap text-[color:var(--text)]",
-                    transcriptOpen ? "" : "line-clamp-2"
-                  )}
-                >
-                  {transcriptText}
-                </p>
-                <div className="flex flex-wrap items-center justify-between gap-2 text-[11px]">
-                  <button
-                    type="button"
-                    className="text-[color:var(--muted)] hover:text-[color:var(--text)]"
-                    onClick={() => setTranscriptOpen((prev) => !prev)}
-                  >
-                    {transcriptOpen ? "Ocultar texto" : "Ver texto"}
-                  </button>
-                  <div className="flex items-center gap-2">
-                    {onCopyTranscript && (
-                      <button
-                        type="button"
-                        className="rounded-full border border-[color:var(--surface-border)] px-2 py-0.5 font-semibold text-[color:var(--text)] hover:bg-[color:var(--surface-1)]"
-                        onClick={() => onCopyTranscript(transcriptText)}
-                      >
-                        Copiar texto
-                      </button>
-                    )}
-                    {onUseTranscript && (
-                      <button
-                        type="button"
-                        className="rounded-full border border-[color:var(--surface-border)] px-2 py-0.5 font-semibold text-[color:var(--text)] hover:bg-[color:var(--surface-1)]"
-                        onClick={() => onUseTranscript(transcriptText)}
-                      >
-                        Usar en Manager
-                      </button>
-                    )}
-                  </div>
-                </div>
-                {(intentLabel || intentTags.length > 0 || needsReply) && (
-                  <div className="flex flex-wrap gap-2 text-[10px] text-[color:var(--muted)]">
-                    {intentLabel && (
-                      <span className="rounded-full border border-[color:var(--surface-border)] px-2 py-0.5">
-                        Intento: {intentLabel}
-                      </span>
-                    )}
-                    {needsReply && (
-                      <span className="rounded-full border border-[color:rgba(234,88,12,0.6)] px-2 py-0.5 text-[color:var(--text)]">
-                        Necesita respuesta
-                      </span>
-                    )}
-                    {intentTags.map((tag: string) => (
-                      <span
-                        key={tag}
-                        className="rounded-full border border-[color:var(--surface-border)] px-2 py-0.5"
-                      >
-                        {tag}
-                      </span>
-                    ))}
-                  </div>
+          {showIntentSection && (intentLabel || intentTags.length > 0 || needsReply) && (
+            <div className="mt-3 border-t border-[color:var(--surface-border)] pt-2 text-[10px] text-[color:var(--muted)]">
+              <div className="flex flex-wrap gap-2">
+                {intentLabel && (
+                  <span className="rounded-full border border-[color:var(--surface-border)] px-2 py-0.5">
+                    Intento: {intentLabel}
+                  </span>
                 )}
+                {needsReply && (
+                  <span className="rounded-full border border-[color:rgba(234,88,12,0.6)] px-2 py-0.5 text-[color:var(--text)]">
+                    Necesita respuesta
+                  </span>
+                )}
+                {intentTags.map((tag: string) => (
+                  <span
+                    key={tag}
+                    className="rounded-full border border-[color:var(--surface-border)] px-2 py-0.5"
+                  >
+                    {tag}
+                  </span>
+                ))}
               </div>
             </div>
           )}
@@ -11130,6 +11088,8 @@ function AudioMessageBubble({
               initialAnalysis={safeParseVoiceAnalysis(message.voiceAnalysisJson)}
               initialTranslation={safeParseVoiceTranslation(message.voiceAnalysisJson)}
               onInsertText={onInsertText}
+              onCopyTranscript={onCopyTranscript}
+              onUseTranscript={onUseTranscript}
               onTranscriptSaved={onTranscriptSaved}
               onAnalysisSaved={onAnalysisSaved}
               onTranslationSaved={onTranslationSaved}
