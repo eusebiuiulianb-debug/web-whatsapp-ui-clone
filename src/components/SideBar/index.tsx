@@ -32,6 +32,8 @@ import { setSmartTranscriptionTargets } from "../../lib/voiceTranscriptionSmartT
 import type { FanMessageSentPayload, PurchaseCreatedPayload, VoiceTranscriptPayload } from "../../lib/events";
 import { formatPurchaseUI } from "../../lib/purchaseUi";
 import { useCreatorRealtime } from "../../hooks/useCreatorRealtime";
+import { DevRequestCounters } from "../DevRequestCounters";
+import { recordDevRequest } from "../../lib/devRequestStats";
 import { IconGlyph } from "../ui/IconGlyph";
 import { Chip } from "../ui/Chip";
 
@@ -317,6 +319,8 @@ function SideBarInner() {
   const fansRefetchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const fansRefetchInFlightRef = useRef(false);
   const lastFansRefetchAtRef = useRef(0);
+  const lastFansSuccessAtRef = useRef(0);
+  const lastFansSuccessQueryRef = useRef<string | null>(null);
   const [ unseenPurchaseByFan, setUnseenPurchaseByFan ] = useState<Record<string, PurchaseNotice>>({});
   const [ unseenVoiceByFan, setUnseenVoiceByFan ] = useState<Record<string, VoiceNoteNotice>>({});
 
@@ -1324,17 +1328,27 @@ function SideBarInner() {
     }
   }, []);
 
+  const buildFansQuery = useCallback(
+    (cursor?: string | null) => {
+      const params = new URLSearchParams();
+      params.set("limit", "30");
+      params.set("filter", apiFilter);
+      if (search.trim()) params.set("q", search.trim());
+      if (cursor) params.set("cursor", cursor);
+      return params;
+    },
+    [apiFilter, search]
+  );
+
   const fetchFansPage = useCallback(
     async (cursor?: string | null, append = false) => {
       try {
         if (append) setIsLoadingMore(true);
         else setLoadingFans(true);
-        const params = new URLSearchParams();
-        params.set("limit", "30");
-        params.set("filter", apiFilter);
-        if (search.trim()) params.set("q", search.trim());
-        if (cursor) params.set("cursor", cursor);
-        const res = await fetch(`/api/fans?${params.toString()}`, { cache: "no-store" });
+        const params = buildFansQuery(cursor);
+        const queryString = params.toString();
+        recordDevRequest("fans");
+        const res = await fetch(`/api/fans?${queryString}`, { cache: "no-store" });
         if (!res.ok) throw new Error("Error fetching fans");
         const data = await res.json();
         const rawItems = Array.isArray(data.items) ? (data.items as Fan[]) : [];
@@ -1343,6 +1357,8 @@ function SideBarInner() {
         setFansError("");
         setNextCursor(typeof data.nextCursor === "string" ? data.nextCursor : null);
         setHasMore(Boolean(data.hasMore));
+        lastFansSuccessAtRef.current = Date.now();
+        lastFansSuccessQueryRef.current = queryString;
       } catch (_err) {
         setFansError("Error cargando fans");
         if (!append) setFans([]);
@@ -1351,14 +1367,20 @@ function SideBarInner() {
         setIsLoadingMore(false);
       }
     },
-    [apiFilter, mapFans, search]
+    [buildFansQuery, mapFans]
   );
 
   const scheduleFansRefetch = useCallback(
     (reason?: string, options?: { realtime?: boolean }) => {
+      const logSkip = (skipReason: string) => {
+        if (process.env.NODE_ENV !== "production") {
+          console.debug(`[fans] refetch skipped reason=${skipReason}`);
+        }
+      };
       if (options?.realtime) {
         const normalizedReason = typeof reason === "string" ? reason.trim().toLowerCase() : "";
         if (normalizedReason === "heartbeat" || normalizedReason === "noop" || normalizedReason === "no-op") {
+          logSkip("realtime_noop");
           return;
         }
       }
@@ -1368,12 +1390,20 @@ function SideBarInner() {
       const run = () => {
         const now = Date.now();
         if (fansRefetchInFlightRef.current) {
+          logSkip("in_flight");
           fansRefetchTimerRef.current = setTimeout(run, 1000);
           return;
         }
         const sinceLast = now - lastFansRefetchAtRef.current;
         if (sinceLast < 1000) {
+          logSkip("throttle_recent_fetch");
           fansRefetchTimerRef.current = setTimeout(run, 1000 - sinceLast);
+          return;
+        }
+        const queryString = buildFansQuery(null).toString();
+        const lastSuccessAt = lastFansSuccessAtRef.current;
+        if (queryString === lastFansSuccessQueryRef.current && now - lastSuccessAt < 1000) {
+          logSkip("same_query_recent_success");
           return;
         }
         fansRefetchInFlightRef.current = true;
@@ -1384,13 +1414,14 @@ function SideBarInner() {
       };
       fansRefetchTimerRef.current = setTimeout(run, 1000);
     },
-    [fetchFansPage]
+    [buildFansQuery, fetchFansPage]
   );
 
   const fetchFanById = useCallback(
     async (fanId: string, options?: { signal?: AbortSignal }) => {
       if (!fanId) return null;
       try {
+        recordDevRequest("fans");
         const res = await fetch(`/api/fans?fanId=${encodeURIComponent(fanId)}`, {
           cache: "no-store",
           signal: options?.signal,
@@ -1948,6 +1979,7 @@ function SideBarInner() {
             {openFanToast}
           </div>
         )}
+        <DevRequestCounters />
         {boardVoiceMeta && (
           <div className="mb-2 rounded-xl border border-[color:rgba(var(--brand-rgb),0.35)] bg-[color:rgba(var(--brand-rgb),0.12)] px-3 py-2 text-[11px] text-[color:var(--text)]">
             <div className="flex items-center justify-between gap-2">

@@ -40,6 +40,8 @@ import {
   type FanMessageSentPayload,
 } from "../../lib/events";
 import { useCreatorRealtime } from "../../hooks/useCreatorRealtime";
+import { recordDevRequest } from "../../lib/devRequestStats";
+import { fetchJsonDedupe } from "../../lib/fetchDedupe";
 import { AiTone, normalizeTone, ACTION_TYPE_FOR_USAGE } from "../../lib/aiQuickExtra";
 import { AiTemplateUsage, AiTurnMode } from "../../lib/aiTemplateTypes";
 import { normalizeAiTurnMode } from "../../lib/aiSettings";
@@ -2480,9 +2482,9 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
 
   async function fetchAiStatus() {
     try {
-      const res = await fetch("/api/creator/ai/status");
-      if (!res.ok) throw new Error("status failed");
-      const data = await res.json();
+      const data = await fetchJsonDedupe<any>("cd:status", () => fetch("/api/creator/ai/status"), {
+        ttlMs: 1200,
+      });
       setAiStatus({
         creditsAvailable: data.creditsAvailable ?? 0,
         hardLimitPerDay: data.hardLimitPerDay ?? null,
@@ -2502,9 +2504,9 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
 
   async function fetchAiSettingsTone() {
     try {
-      const res = await fetch("/api/creator/ai-settings");
-      if (!res.ok) throw new Error("settings failed");
-      const data = await res.json();
+      const data = await fetchJsonDedupe<any>("cd:ai-settings", () => fetch("/api/creator/ai-settings"), {
+        ttlMs: 1200,
+      });
       const tone = data?.settings?.tone;
       if (typeof tone === "string" && tone.trim().length > 0) {
         setAiTone(normalizeTone(tone));
@@ -2813,9 +2815,11 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
   const fetchAccessGrants = useCallback(async (fanId: string) => {
     try {
       setAccessGrantsLoading(true);
-      const res = await fetch(`/api/access/grant?fanId=${fanId}`);
-      if (!res.ok) throw new Error("error");
-      const data = await res.json();
+      const data = await fetchJsonDedupe<any>(
+        `cd:${fanId}:grant`,
+        () => fetch(`/api/access/grant?fanId=${fanId}`),
+        { ttlMs: 1200 }
+      );
       const grants = Array.isArray(data.activeGrants)
         ? data.activeGrants
         : Array.isArray(data.grants)
@@ -2833,9 +2837,12 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
     try {
       setProfileLoading(true);
       setProfileError("");
-      const res = await fetch(`/api/fans/profile?fanId=${fanId}`, { cache: "no-store" });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok || !data?.ok) throw new Error("error");
+      const data = await fetchJsonDedupe<any>(
+        `cd:${fanId}:profile`,
+        () => fetch(`/api/fans/profile?fanId=${fanId}`, { cache: "no-store" }),
+        { ttlMs: 1200 }
+      );
+      if (!data?.ok) throw new Error("error");
       const nextProfile = typeof data.profileText === "string" ? data.profileText : "";
       setProfileText(nextProfile);
       if (!profileDraftEditedRef.current) {
@@ -2852,9 +2859,12 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
     try {
       setFollowUpLoading(true);
       setFollowUpError("");
-      const res = await fetch(`/api/fans/follow-up?fanId=${fanId}`);
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok || !data?.ok) throw new Error("error");
+      const data = await fetchJsonDedupe<any>(
+        `cd:${fanId}:followup`,
+        () => fetch(`/api/fans/follow-up?fanId=${fanId}`),
+        { ttlMs: 1200 }
+      );
+      if (!data?.ok) throw new Error("error");
       setFollowUpOpen(data.followUp ?? null);
     } catch (_err) {
       setFollowUpError("Error cargando seguimiento");
@@ -2868,9 +2878,12 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
     try {
       setFollowUpHistoryLoading(true);
       setFollowUpHistoryError("");
-      const res = await fetch(`/api/fans/follow-up/history?fanId=${fanId}`);
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok || !data?.ok) throw new Error("error");
+      const data = await fetchJsonDedupe<any>(
+        `cd:${fanId}:history`,
+        () => fetch(`/api/fans/follow-up/history?fanId=${fanId}`),
+        { ttlMs: 1200 }
+      );
+      if (!data?.ok) throw new Error("error");
       const history = Array.isArray(data.history) ? data.history : [];
       setFollowUpHistory(history);
     } catch (_err) {
@@ -2950,9 +2963,8 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
       setContentLoading(true);
       setContentError("");
       const url = targetFanId ? `/api/content?fanId=${encodeURIComponent(targetFanId)}` : "/api/content";
-      const res = await fetch(url);
-      if (!res.ok) throw new Error("error");
-      const data = await res.json();
+      const dedupeKey = targetFanId ? `cd:${targetFanId}:content` : "cd:content";
+      const data = await fetchJsonDedupe<any>(dedupeKey, () => fetch(url), { ttlMs: 1200 });
       const items = Array.isArray(data.items) ? (data.items as ContentWithFlags[]) : [];
       setContentItems(items);
     } catch (_err) {
@@ -3159,6 +3171,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
           markedReadFanIdsRef.current.add(fanId);
           params.set("markRead", "1");
         }
+        recordDevRequest("messages");
         const res = await fetch(`/api/messages?${params.toString()}`, { signal: controller.signal });
         const data = await res.json().catch(() => ({}));
         if (handleSchemaOutOfSync(data)) return;
@@ -3198,6 +3211,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
         }
         setInternalMessagesError("");
         const params = new URLSearchParams({ fanId: id, audiences: "INTERNAL" });
+        recordDevRequest("messages");
         const res = await fetch(`/api/messages?${params.toString()}`, { signal: controller.signal });
         const data = await res.json().catch(() => ({}));
         if (handleSchemaOutOfSync(data)) return;
@@ -3446,9 +3460,9 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
     let cancelled = false;
     const loadFanTemplatePools = async () => {
       try {
-        const res = await fetch("/api/creator/ai/templates");
-        if (!res.ok) throw new Error("failed to load templates");
-        const data = await res.json();
+        const data = await fetchJsonDedupe<any>("cd:templates", () => fetch("/api/creator/ai/templates"), {
+          ttlMs: 1200,
+        });
         if (!cancelled) {
           const merged = buildFanTemplatePoolsFromApi(data?.templates, LOCAL_FAN_TEMPLATE_POOLS);
           setFanTemplatePools(merged);

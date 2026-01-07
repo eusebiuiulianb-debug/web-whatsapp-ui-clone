@@ -23,6 +23,7 @@ import { buildFanChatProps } from "../../lib/fanChatProps";
 import { generateClientTxnId } from "../../lib/clientTxn";
 import { getPreferredAudioStream } from "../../lib/getPreferredAudioStream";
 import { emitPurchaseCreated } from "../../lib/events";
+import { recordDevRequest } from "../../lib/devRequestStats";
 import { buildStickerTokenFromItem, getStickerByToken, type StickerItem } from "../../lib/stickers";
 import { IconGlyph, type IconName } from "../../components/ui/IconGlyph";
 import { Badge, type BadgeTone } from "../../components/ui/Badge";
@@ -215,15 +216,17 @@ export function FanChatPage({
       if (!targetFanId) return;
       const showLoading = options?.showLoading ?? false;
       const silent = options?.silent ?? false;
+      let controller: AbortController | null = null;
       try {
         if (showLoading) setLoading(true);
         if (!silent) setError("");
         if (pollAbortRef.current) {
           pollAbortRef.current.abort();
         }
-        const controller = new AbortController();
+        controller = new AbortController();
         pollAbortRef.current = controller;
         const params = new URLSearchParams({ fanId: targetFanId, audiences: "FAN,CREATOR" });
+        recordDevRequest("messages");
         const res = await fetch(`/api/messages?${params.toString()}`, {
           signal: controller.signal,
           cache: "no-store",
@@ -243,6 +246,9 @@ export function FanChatPage({
         if ((_err as any)?.name === "AbortError") return;
         if (!silent) setError("No se pudieron cargar mensajes");
       } finally {
+        if (controller && pollAbortRef.current === controller) {
+          pollAbortRef.current = null;
+        }
         if (showLoading) setLoading(false);
       }
     },
@@ -250,51 +256,76 @@ export function FanChatPage({
   );
 
   useEffect(() => {
-    if (!fanId) return;
-    setMessages([]);
-    fetchMessages(fanId, { showLoading: true });
-    const canPoll = () => {
-      if (typeof document !== "undefined" && document.hidden) return false;
-      if (fanIdOverride) return fanIdOverride === fanId;
-      if (routeFanId) return routeFanId === fanId;
-      return true;
-    };
     const clearPoll = () => {
       if (pollIntervalRef.current) {
         clearInterval(pollIntervalRef.current as any);
         pollIntervalRef.current = null;
       }
     };
+    const canPoll = () => {
+      if (!fanId) return false;
+      if (!fanIdOverride && !router.isReady) return false;
+      if (typeof document !== "undefined" && document.hidden) return false;
+      if (fanIdOverride) return fanIdOverride === fanId;
+      if (routeFanId) return routeFanId === fanId;
+      return true;
+    };
     const startPolling = () => {
       clearPoll();
       if (!canPoll()) return;
+      if (!fanId) return;
       pollIntervalRef.current = setInterval(() => {
         if (!canPoll()) return;
+        if (!fanId) return;
+        if (pollAbortRef.current) return;
         void fetchMessages(fanId, {
           showLoading: false,
           silent: true,
         });
       }, 2500) as any;
     };
-    startPolling();
     const handleVisibility = () => {
       if (typeof document !== "undefined" && document.hidden) {
         clearPoll();
         return;
       }
+      if (!canPoll()) return;
+      if (!fanId) return;
+      if (!pollAbortRef.current) {
+        void fetchMessages(fanId, { showLoading: false, silent: true });
+      }
       startPolling();
     };
-    if (typeof document !== "undefined") {
-      document.addEventListener("visibilitychange", handleVisibility);
-    }
-    return () => {
+    const cleanup = () => {
+      clearPoll();
+      if (pollAbortRef.current) {
+        pollAbortRef.current.abort();
+        pollAbortRef.current = null;
+      }
       if (typeof document !== "undefined") {
         document.removeEventListener("visibilitychange", handleVisibility);
       }
-      clearPoll();
-      if (pollAbortRef.current) pollAbortRef.current.abort();
     };
-  }, [fanId, fanIdOverride, fetchMessages, routeFanId]);
+
+    if (!canPoll()) {
+      cleanup();
+      return cleanup;
+    }
+
+    const activeFanId = fanId;
+    if (!activeFanId) {
+      cleanup();
+      return cleanup;
+    }
+
+    setMessages([]);
+    fetchMessages(activeFanId, { showLoading: true });
+    startPolling();
+    if (typeof document !== "undefined") {
+      document.addEventListener("visibilitychange", handleVisibility);
+    }
+    return cleanup;
+  }, [fanId, fanIdOverride, fetchMessages, routeFanId, router.isReady]);
 
   useEffect(() => {
     if (!router.isReady || draftAppliedRef.current) return;
@@ -1182,20 +1213,6 @@ export function FanChatPage({
     if (!isAtBottom) return;
     scrollToBottom("smooth");
   }, [visibleMessages.length, isAtBottom, scrollToBottom]);
-
-  useEffect(() => {
-    if (typeof document === "undefined") return;
-    const onVisibility = () => {
-      if (document.visibilityState === "visible" && fanId) {
-        void fetchMessages(fanId, {
-          showLoading: false,
-          silent: true,
-        });
-      }
-    };
-    document.addEventListener("visibilitychange", onVisibility);
-    return () => document.removeEventListener("visibilitychange", onVisibility);
-  }, [fanId, fetchMessages]);
 
   return (
     <div className="flex flex-col h-[100dvh] max-h-[100dvh] overflow-hidden bg-[color:var(--surface-0)] text-[color:var(--text)]">
