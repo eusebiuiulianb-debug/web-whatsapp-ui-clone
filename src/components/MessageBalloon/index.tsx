@@ -5,12 +5,7 @@ import { useEmojiFavorites } from "../../hooks/useEmojiFavorites";
 import { EmojiPicker } from "../EmojiPicker";
 import { IconGlyph } from "../ui/IconGlyph";
 import { readEmojiRecents, recordEmojiRecent } from "../../lib/emoji/recents";
-import {
-  getActorReaction,
-  getReactionSummary,
-  type MessageReaction,
-  toggleMessageReaction,
-} from "../../lib/emoji/reactions";
+import { getMineEmoji, type ReactionSummaryEntry } from "../../lib/messageReactions";
 
 interface MessageBalloonProps {
   me: boolean;
@@ -28,9 +23,8 @@ interface MessageBalloonProps {
   stickerSrc?: string | null;
   stickerAlt?: string | null;
   enableReactions?: boolean;
-  reactionActor?: string;
-  reactions?: MessageReaction[];
-  reactionFanId?: string;
+  reactionsSummary?: ReactionSummaryEntry[];
+  onReact?: (emoji: string) => void;
 }
 
 const MessageBalloon = memo(function MessageBalloon(props: MessageBalloonProps) {
@@ -51,9 +45,8 @@ const MessageBalloon = memo(function MessageBalloon(props: MessageBalloonProps) 
     stickerSrc,
     stickerAlt,
     enableReactions = false,
-    reactionActor = "creator",
-    reactions: reactionsProp,
-    reactionFanId,
+    reactionsSummary: reactionsSummaryProp,
+    onReact,
   } = props;
   const isSticker = Boolean(stickerSrc);
   const bubbleClass =
@@ -65,14 +58,15 @@ const MessageBalloon = memo(function MessageBalloon(props: MessageBalloonProps) 
   const bubblePadding = isSticker ? "p-2" : "px-4 py-2";
   const bubbleTone = isSticker ? "bg-[color:var(--surface-2)] border border-[color:var(--border)]" : bubbleClass;
   const reactionAlign = me ? "right-0" : "left-0";
-  const canShowReactions = enableReactions && Boolean(messageId) && Boolean(reactionFanId) && !isSticker;
+  const canShowReactions =
+    enableReactions && Boolean(messageId) && Boolean(onReact) && !isSticker && status !== "sending";
   const { favorites } = useEmojiFavorites();
   const [reactionRecents, setReactionRecents] = useState<string[]>([]);
   const reactionChoices = useMemo(() => {
     const deduped = favorites.concat(reactionRecents.filter((emoji) => !favorites.includes(emoji)));
     return deduped.slice(0, 6);
   }, [favorites, reactionRecents]);
-  const reactions = useMemo(() => reactionsProp ?? [], [reactionsProp]);
+  const reactionsSummary = useMemo(() => reactionsSummaryProp ?? [], [reactionsSummaryProp]);
   const [ isReactionBarOpen, setIsReactionBarOpen ] = useState(false);
   const [ isReactionPickerOpen, setIsReactionPickerOpen ] = useState(false);
   const [ isHovered, setIsHovered ] = useState(false);
@@ -80,8 +74,7 @@ const MessageBalloon = memo(function MessageBalloon(props: MessageBalloonProps) 
   const reactionPickerAnchorRef = useRef<HTMLButtonElement | null>(null);
   const longPressTimerRef = useRef<number | null>(null);
   const longPressStartRef = useRef<{ x: number; y: number; pointerId: number } | null>(null);
-  const reactionSummary = useMemo(() => getReactionSummary(reactions), [reactions]);
-  const actorReaction = useMemo(() => getActorReaction(reactions, reactionActor), [reactions, reactionActor]);
+  const actorReaction = useMemo(() => getMineEmoji(reactionsSummary), [reactionsSummary]);
   const LONG_PRESS_DELAY = 350;
   const LONG_PRESS_MOVE_THRESHOLD = 12;
 
@@ -137,16 +130,16 @@ const MessageBalloon = memo(function MessageBalloon(props: MessageBalloonProps) 
   }, [canShowReactions, isReactionBarOpen, isReactionPickerOpen]);
 
   const handleSelectReaction = (emoji: string) => {
-    if (!messageId || !reactionFanId) return;
+    if (!messageId || !onReact) return;
     setReactionRecents((prev) => recordEmojiRecent(emoji, prev));
-    toggleMessageReaction(reactionFanId, messageId, emoji, reactionActor);
+    onReact(emoji);
     setIsReactionBarOpen(false);
     setIsReactionPickerOpen(false);
   };
 
   const handleClearReaction = () => {
-    if (!messageId || !reactionFanId || !actorReaction) return;
-    toggleMessageReaction(reactionFanId, messageId, actorReaction, reactionActor);
+    if (!messageId || !onReact || !actorReaction) return;
+    onReact(actorReaction);
     setIsReactionBarOpen(false);
     setIsReactionPickerOpen(false);
   };
@@ -331,9 +324,9 @@ const MessageBalloon = memo(function MessageBalloon(props: MessageBalloonProps) 
             )}
           </div>
         ) : null}
-        {reactionSummary.length > 0 && !isSticker && (
+        {reactionsSummary.length > 0 && !isSticker && (
           <div className={clsx("mt-1 flex flex-wrap gap-1", me ? "justify-end" : "justify-start")}>
-            {reactionSummary.map((entry) => (
+            {reactionsSummary.map((entry) => (
               <button
                 key={entry.emoji}
                 type="button"

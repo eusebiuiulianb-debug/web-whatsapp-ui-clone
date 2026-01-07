@@ -12,6 +12,7 @@ import { translateText } from "../../server/ai/translateText";
 import { getStickerById } from "../../lib/emoji/stickers";
 import { emitCreatorEvent as emitRealtimeEvent } from "../../server/realtimeHub";
 import { saveVoice } from "../../lib/voiceStorage";
+import { buildReactionSummary, type ReactionActor } from "../../lib/messageReactions";
 
 export const config = {
   api: {
@@ -80,6 +81,80 @@ function normalizeList(value: string | string[] | undefined): string[] {
   return arr.flatMap((entry) => entry.split(",")).map((entry) => entry.trim()).filter(Boolean);
 }
 
+type ViewerRole = "creator" | "fan";
+
+function resolveViewerRole(req: NextApiRequest): ViewerRole {
+  const headerRaw = req.headers["x-novsy-viewer"];
+  const header = Array.isArray(headerRaw) ? headerRaw[0] : headerRaw;
+  if (typeof header === "string" && header.trim().toLowerCase() === "creator") return "creator";
+
+  const viewerParamRaw = req.query.viewer;
+  const viewerParam = Array.isArray(viewerParamRaw) ? viewerParamRaw[0] : viewerParamRaw;
+  if (typeof viewerParam === "string" && viewerParam.trim().toLowerCase() === "creator") return "creator";
+
+  return "fan";
+}
+
+function sanitizeMessageForFan(message: Record<string, unknown>) {
+  if (!message || typeof message !== "object") return message;
+  const {
+    transcriptText,
+    transcriptStatus,
+    transcriptError,
+    transcribedAt,
+    transcriptLang,
+    intentJson,
+    voiceAnalysisJson,
+    voiceAnalysisUpdatedAt,
+    voiceTranscript,
+    voiceTranscriptStatus,
+    voiceTranscriptError,
+    voiceTranscriptLang,
+    voiceTranslation,
+    voiceTranslationText,
+    voiceTranslationLang,
+    voiceInsightsJson,
+    voiceInsightsUpdatedAt,
+    ...rest
+  } = message as Record<string, unknown>;
+  return rest;
+}
+
+async function loadReactionSummaries(
+  messageIds: string[],
+  viewer?: ReactionActor | null
+): Promise<Record<string, ReturnType<typeof buildReactionSummary>>> {
+  if (!messageIds.length) return {};
+  const reactions = await prisma.messageReaction.findMany({
+    where: { messageId: { in: messageIds } },
+    select: { messageId: true, emoji: true, actorType: true, actorId: true },
+    orderBy: { createdAt: "asc" },
+  });
+  const byMessage = new Map<string, typeof reactions>();
+  for (const reaction of reactions) {
+    const list = byMessage.get(reaction.messageId) ?? [];
+    list.push(reaction);
+    byMessage.set(reaction.messageId, list);
+  }
+  const summaryById: Record<string, ReturnType<typeof buildReactionSummary>> = {};
+  for (const id of messageIds) {
+    summaryById[id] = buildReactionSummary(byMessage.get(id) ?? [], viewer ?? undefined);
+  }
+  return summaryById;
+}
+
+async function resolveCreatorId() {
+  if (process.env.CREATOR_ID) return process.env.CREATOR_ID;
+  const creator = await prisma.creator.findFirst({
+    select: { id: true },
+    orderBy: { id: "asc" },
+  });
+  if (!creator) {
+    throw new Error("No creator found");
+  }
+  return creator.id;
+}
+
 export default async function handler(req: NextApiRequest, res: NextApiResponse<MessageResponse>) {
   if (req.method === "GET") {
     return handleGet(req, res);
@@ -100,6 +175,7 @@ async function handleGet(req: NextApiRequest, res: NextApiResponse<MessageRespon
     return res.status(400).json({ ok: false, error: "fanId is required" });
   }
   const normalizedFanId = fanId.trim();
+  const viewerRole = resolveViewerRole(req);
   const shouldMarkRead =
     typeof markRead === "string" ? markRead === "1" || markRead.toLowerCase() === "true" : false;
   const normalizedAudiences = normalizeList(Array.isArray(audiences) || typeof audiences === "string" ? audiences : undefined);
@@ -176,8 +252,25 @@ async function handleGet(req: NextApiRequest, res: NextApiResponse<MessageRespon
         console.error("api/messages markRead error", { fanId: normalizedFanId, error: (updateErr as Error)?.message });
       }
     }
+    const messageIds = filteredMessages
+      .map((message) => (typeof message.id === "string" ? message.id : ""))
+      .filter(Boolean);
+    const viewerActor: ReactionActor | null =
+      viewerRole === "creator"
+        ? { actorType: "CREATOR", actorId: await resolveCreatorId() }
+        : { actorType: "FAN", actorId: normalizedFanId };
+    const reactionSummaries = await loadReactionSummaries(messageIds, viewerActor);
+    const withReactions = filteredMessages.map((message) => ({
+      ...message,
+      reactionsSummary: reactionSummaries[message.id] ?? [],
+    }));
 
-    return res.status(200).json({ ok: true, items: filteredMessages, messages: filteredMessages });
+    const responseMessages =
+      viewerRole === "fan"
+        ? withReactions.map((message) => sanitizeMessageForFan(message as Record<string, unknown>))
+        : withReactions;
+
+    return res.status(200).json({ ok: true, items: responseMessages, messages: responseMessages });
   } catch (err) {
     if (isDbSchemaOutOfSyncError(err)) {
       const payload = getDbSchemaOutOfSyncPayload();
@@ -207,6 +300,7 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse<MessageRespo
     return res.status(400).json({ ok: false, error: "fanId is required" });
   }
   const normalizedFanId = fanId.trim();
+  const viewerRole = resolveViewerRole(req);
 
   const normalizedType =
     type === "CONTENT"
@@ -398,6 +492,8 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse<MessageRespo
       include: { contentItem: true },
     });
 
+    const createdMessage = { ...created, reactionsSummary: [] };
+
     emitRealtimeEvent({
       eventId: created.id,
       type: "MESSAGE_CREATED",
@@ -406,27 +502,28 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse<MessageRespo
       createdAt: new Date().toISOString(),
       payload: {
         message: {
-          id: created.id,
+          id: createdMessage.id,
           fanId: normalizedFanId,
-          from: created.from,
-          audience: created.audience,
-          text: created.text,
-          deliveredText: created.deliveredText,
-          creatorTranslatedText: created.creatorTranslatedText,
-          time: created.time,
-          type: created.type,
-          stickerId: created.stickerId,
-          contentItem: created.contentItem,
-          audioUrl: created.audioUrl,
-          audioDurationMs: created.audioDurationMs,
-          audioMime: created.audioMime,
-          audioSizeBytes: created.audioSizeBytes,
-          transcriptText: created.transcriptText,
-          transcriptStatus: created.transcriptStatus,
-          transcriptError: created.transcriptError,
-          transcribedAt: created.transcribedAt,
-          transcriptLang: created.transcriptLang,
-          intentJson: created.intentJson,
+          from: createdMessage.from,
+          audience: createdMessage.audience,
+          text: createdMessage.text,
+          deliveredText: createdMessage.deliveredText,
+          creatorTranslatedText: createdMessage.creatorTranslatedText,
+          time: createdMessage.time,
+          type: createdMessage.type,
+          stickerId: createdMessage.stickerId,
+          contentItem: createdMessage.contentItem,
+          audioUrl: createdMessage.audioUrl,
+          audioDurationMs: createdMessage.audioDurationMs,
+          audioMime: createdMessage.audioMime,
+          audioSizeBytes: createdMessage.audioSizeBytes,
+          transcriptText: createdMessage.transcriptText,
+          transcriptStatus: createdMessage.transcriptStatus,
+          transcriptError: createdMessage.transcriptError,
+          transcribedAt: createdMessage.transcribedAt,
+          transcriptLang: createdMessage.transcriptLang,
+          intentJson: createdMessage.intentJson,
+          reactionsSummary: createdMessage.reactionsSummary,
         },
       },
     });
@@ -474,7 +571,16 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse<MessageRespo
       }
     }
 
-    return res.status(200).json({ ok: true, message: created, items: [created], messages: [created] });
+    const responseMessage =
+      viewerRole === "fan"
+        ? sanitizeMessageForFan(createdMessage as Record<string, unknown>)
+        : createdMessage;
+    return res.status(200).json({
+      ok: true,
+      message: responseMessage,
+      items: [responseMessage],
+      messages: [responseMessage],
+    });
   } catch (err) {
     if (isDbSchemaOutOfSyncError(err)) {
       const payload = getDbSchemaOutOfSyncPayload();

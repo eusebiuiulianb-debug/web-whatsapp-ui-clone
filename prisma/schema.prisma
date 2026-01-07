@@ -166,6 +166,22 @@ model Message {
   transcribedAt      DateTime?
   transcriptLang     String?
   intentJson         Json?
+  voiceAnalysisJson  String?
+  voiceAnalysisUpdatedAt DateTime?
+  messageReactions   MessageReaction[]
+}
+
+model MessageReaction {
+  id        String            @id @default(cuid())
+  messageId String
+  actorType ReactionActorType
+  actorId   String
+  emoji     String
+  createdAt DateTime          @default(now())
+  message   Message           @relation(fields: [messageId], references: [id], onDelete: Cascade)
+
+  @@unique([messageId, actorType, actorId])
+  @@index([messageId])
 }
 
 model ContentItem {
@@ -333,6 +349,11 @@ enum MessageAudience {
   FAN
   CREATOR
   INTERNAL
+}
+
+enum ReactionActorType {
+  FAN
+  CREATOR
 }
 
 enum GeneratedAssetPurpose {

@@ -21,6 +21,7 @@ import { es } from "date-fns/locale";
 import { ConversationContext } from "../../context/ConversationContext";
 import Avatar from "../Avatar";
 import MessageBalloon from "../MessageBalloon";
+import { EmojiPicker } from "../EmojiPicker";
 import { useCreatorConfig } from "../../context/CreatorConfigContext";
 import { Message as ApiMessage, Fan, FanFollowUp } from "../../types/chat";
 import { Message as ConversationMessage, ConversationListData } from "../../types/Conversation";
@@ -42,6 +43,14 @@ import {
 import { useCreatorRealtime } from "../../hooks/useCreatorRealtime";
 import { recordDevRequest } from "../../lib/devRequestStats";
 import { fetchJsonDedupe } from "../../lib/fetchDedupe";
+import { VoiceInsightsCard } from "../VoiceInsightsCard";
+import {
+  mergeVoiceInsightsJson,
+  safeParseVoiceAnalysis,
+  safeParseVoiceTranslation,
+  type VoiceAnalysis,
+  type VoiceTranslation,
+} from "../../types/voiceAnalysis";
 import { AiTone, normalizeTone, ACTION_TYPE_FOR_USAGE } from "../../lib/aiQuickExtra";
 import { AiTemplateUsage, AiTurnMode } from "../../lib/aiTemplateTypes";
 import { normalizeAiTurnMode } from "../../lib/aiSettings";
@@ -59,8 +68,10 @@ import { ANALYTICS_EVENTS } from "../../lib/analyticsEvents";
 import { deriveAudience, isVisibleToFan, normalizeFrom } from "../../lib/messageAudience";
 import { getNearDuplicateSimilarity } from "../../lib/text/isNearDuplicate";
 import { getStickerById, type StickerItem as LegacyStickerItem } from "../../lib/emoji/stickers";
+import { readEmojiRecents, recordEmojiRecent } from "../../lib/emoji/recents";
 import { buildStickerToken, getStickerByToken, type StickerItem as PickerStickerItem } from "../../lib/stickers";
-import { parseReactionsRaw, useReactions } from "../../lib/emoji/reactions";
+import { applyOptimisticReaction, getMineEmoji } from "../../lib/messageReactions";
+import { useEmojiFavorites } from "../../hooks/useEmojiFavorites";
 import { computeFanTotals } from "../../lib/fanTotals";
 import { generateClientTxnId } from "../../lib/clientTxn";
 import { useVoiceRecorder } from "../../lib/useVoiceRecorder";
@@ -639,8 +650,6 @@ export default function ConversationDetails({ onBackToBoard }: ConversationDetai
     lastCreatorMessageAt,
   } = conversation;
   const activeFanId = conversation?.isManager ? null : id ?? null;
-  const reactionsRaw = useReactions(activeFanId || "");
-  const reactionsStore = useMemo(() => parseReactionsRaw(reactionsRaw), [reactionsRaw]);
   const [ messageSend, setMessageSend ] = useState("");
   const [ composerActionKey, setComposerActionKey ] = useState<string | null>(null);
   const [ pendingInsert, setPendingInsert ] = useState<{ text: string; detail?: string } | null>(null);
@@ -670,6 +679,7 @@ export default function ConversationDetails({ onBackToBoard }: ConversationDetai
   const purchaseNoticeShownAtRef = useRef(0);
   const purchaseNoticeFallbackNameRef = useRef("Fan");
   const internalToastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const reactionInFlightRef = useRef<Set<string>>(new Set());
   const [ isVoiceUploading, setIsVoiceUploading ] = useState(false);
   const [ voiceUploadError, setVoiceUploadError ] = useState("");
   const [ voiceRetryPayload, setVoiceRetryPayload ] = useState<VoiceUploadPayload | null>(null);
@@ -801,6 +811,9 @@ export default function ConversationDetails({ onBackToBoard }: ConversationDetai
         transcribedAt: isAudio ? msg.transcribedAt ?? null : null,
         transcriptLang: isAudio ? msg.transcriptLang ?? null : null,
         intentJson: isAudio ? msg.intentJson ?? null : null,
+        voiceAnalysisJson: isAudio ? msg.voiceAnalysisJson ?? null : null,
+        voiceAnalysisUpdatedAt: isAudio ? msg.voiceAnalysisUpdatedAt ?? null : null,
+        reactionsSummary: Array.isArray(msg.reactionsSummary) ? msg.reactionsSummary : [],
         contentItem: msg.contentItem
           ? {
               id: msg.contentItem.id,
@@ -813,6 +826,7 @@ export default function ConversationDetails({ onBackToBoard }: ConversationDetai
       };
     });
   }, []);
+
 
   const scrollToBottom = useCallback((behavior: ScrollBehavior = "smooth") => {
     const el = messagesContainerRef.current;
@@ -832,6 +846,56 @@ export default function ConversationDetails({ onBackToBoard }: ConversationDetai
       setInternalToast(null);
     }, 1800);
   }, []);
+
+  const handleReactToMessage = useCallback(
+    async (messageId: string, emoji: string) => {
+      if (!messageId) return;
+      if (reactionInFlightRef.current.has(messageId)) return;
+      reactionInFlightRef.current.add(messageId);
+      let previousSummary: ReturnType<typeof applyOptimisticReaction> | null = null;
+      setMessage((prev) => {
+        if (!prev) return prev;
+        return prev.map((msg) => {
+          if (msg.id !== messageId) return msg;
+          previousSummary = Array.isArray(msg.reactionsSummary) ? msg.reactionsSummary : [];
+          return {
+            ...msg,
+            reactionsSummary: applyOptimisticReaction(previousSummary, emoji),
+          };
+        });
+      });
+      try {
+        const res = await fetch("/api/messages/react", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "x-novsy-viewer": "creator" },
+          body: JSON.stringify({ messageId, emoji }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok || !data?.ok || !Array.isArray(data.reactionsSummary)) {
+          throw new Error("No se pudo reaccionar");
+        }
+        setMessage((prev) => {
+          if (!prev) return prev;
+          return prev.map((msg) =>
+            msg.id === messageId ? { ...msg, reactionsSummary: data.reactionsSummary } : msg
+          );
+        });
+      } catch (_err) {
+        if (previousSummary) {
+          setMessage((prev) => {
+            if (!prev) return prev;
+            return prev.map((msg) =>
+              msg.id === messageId ? { ...msg, reactionsSummary: previousSummary ?? [] } : msg
+            );
+          });
+        }
+        showComposerToast("No se pudo reaccionar");
+      } finally {
+        reactionInFlightRef.current.delete(messageId);
+      }
+    },
+    [setMessage, showComposerToast]
+  );
 
   const handleCopyTranscript = useCallback(
     async (text: string) => {
@@ -889,7 +953,7 @@ export default function ConversationDetails({ onBackToBoard }: ConversationDetai
       try {
         const res = await fetch("/api/messages", {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: { "Content-Type": "application/json", "x-novsy-viewer": "creator" },
           body: JSON.stringify({
             fanId: id,
             from: "creator",
@@ -3072,7 +3136,10 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
           params.set("markRead", "1");
         }
         recordDevRequest("messages");
-        const res = await fetch(`/api/messages?${params.toString()}`, { signal: controller.signal });
+        const res = await fetch(`/api/messages?${params.toString()}`, {
+          signal: controller.signal,
+          headers: { "x-novsy-viewer": "creator" },
+        });
         const data = await res.json().catch(() => ({}));
         if (handleSchemaOutOfSync(data)) return;
         if (!res.ok || !data?.ok) throw new Error(data?.error || "error");
@@ -3112,7 +3179,10 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
         setInternalMessagesError("");
         const params = new URLSearchParams({ fanId: id, audiences: "INTERNAL" });
         recordDevRequest("messages");
-        const res = await fetch(`/api/messages?${params.toString()}`, { signal: controller.signal });
+        const res = await fetch(`/api/messages?${params.toString()}`, {
+          signal: controller.signal,
+          headers: { "x-novsy-viewer": "creator" },
+        });
         const data = await res.json().catch(() => ({}));
         if (handleSchemaOutOfSync(data)) return;
         if (!res.ok || !data?.ok) throw new Error(data?.error || "error");
@@ -3586,6 +3656,67 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
         });
         throw new Error(errorMessage);
       }
+    },
+    [setMessage]
+  );
+
+  const handleManualTranscriptSaved = useCallback(
+    (messageId: string, transcript: string) => {
+      const trimmed = transcript.trim();
+      if (!trimmed) return;
+      const now = new Date().toISOString();
+      setMessage((prev) => {
+        if (!prev) return prev;
+        return prev.map((msg) =>
+          msg.id === messageId
+            ? {
+                ...msg,
+                transcriptText: trimmed,
+                transcriptStatus: "DONE",
+                transcriptError: null,
+                transcribedAt: now,
+              }
+            : msg
+        );
+      });
+    },
+    [setMessage]
+  );
+
+  const handleVoiceAnalysisSaved = useCallback(
+    (messageId: string, analysis: VoiceAnalysis) => {
+      if (!messageId) return;
+      const updatedAt = analysis.updatedAt ?? new Date().toISOString();
+      setMessage((prev) => {
+        if (!prev) return prev;
+        return prev.map((msg) =>
+          msg.id === messageId
+            ? {
+                ...msg,
+                voiceAnalysisJson: mergeVoiceInsightsJson(msg.voiceAnalysisJson, { analysis }),
+                voiceAnalysisUpdatedAt: updatedAt,
+              }
+            : msg
+        );
+      });
+    },
+    [setMessage]
+  );
+
+  const handleVoiceTranslationSaved = useCallback(
+    (messageId: string, translation: VoiceTranslation) => {
+      if (!messageId) return;
+      setMessage((prev) => {
+        if (!prev) return prev;
+        return prev.map((msg) =>
+          msg.id === messageId
+            ? {
+                ...msg,
+                voiceAnalysisJson: mergeVoiceInsightsJson(msg.voiceAnalysisJson, { translation }),
+              }
+            : msg
+        );
+      });
     },
     [setMessage]
   );
@@ -7028,7 +7159,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
       }
       const res = await fetch("/api/messages", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", "x-novsy-viewer": "creator" },
         body: JSON.stringify(payload),
       });
 
@@ -7137,7 +7268,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
       };
       const res = await fetch("/api/messages", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", "x-novsy-viewer": "creator" },
         body: JSON.stringify(payload),
       });
       const data = await res.json().catch(() => ({}));
@@ -7782,7 +7913,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
     try {
       const res = await fetch("/api/messages", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", "x-novsy-viewer": "creator" },
         body: JSON.stringify({
           fanId: id,
           from: "creator",
@@ -9136,6 +9267,23 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
                     onCopyTranscript={handleCopyTranscript}
                     onUseTranscript={handleUseTranscript}
                     onRetryTranscript={requestTranscriptRetry}
+                    tone={fanTone}
+                    onInsertText={(text) => handleUseManagerReplyAsMainMessage(text, "Análisis voz")}
+                    onTranscriptSaved={(text) =>
+                      messageConversation.id && handleManualTranscriptSaved(messageConversation.id, text)
+                    }
+                    onAnalysisSaved={(analysis) =>
+                      messageConversation.id && handleVoiceAnalysisSaved(messageConversation.id, analysis)
+                    }
+                    onTranslationSaved={(translation) =>
+                      messageConversation.id && handleVoiceTranslationSaved(messageConversation.id, translation)
+                    }
+                    onToast={showComposerToast}
+                    fanId={id ?? ""}
+                    onReact={(emoji) => {
+                      if (!messageConversation.id) return;
+                      handleReactToMessage(messageConversation.id, emoji);
+                    }}
                   />
                 );
               }
@@ -9154,14 +9302,13 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
               const isLegacySticker = messageConversation.type === "STICKER";
               const retrySticker = isLegacySticker ? getStickerById(messageConversation.stickerId ?? null) : null;
               const translatedText = !me ? messageConversation.translatedText ?? undefined : undefined;
-              const messageId = messageConversation.id || `message-${index}`;
-              const messageReactions = reactionsStore[messageId] ?? [];
+              const reactionsSummary = messageConversation.reactionsSummary ?? [];
               return (
                 <div key={messageConversation.id || index} className="space-y-1">
                   <MessageBalloon
                     me={me}
                     message={message}
-                    messageId={messageId}
+                    messageId={messageConversation.id}
                     seen={seen}
                     time={time}
                     status={messageConversation.status}
@@ -9172,8 +9319,11 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
                     stickerSrc={isStickerMessage ? messageConversation.stickerSrc ?? null : null}
                     stickerAlt={isStickerMessage ? messageConversation.stickerAlt ?? "Sticker" : null}
                     enableReactions={!isInternalMessage}
-                    reactionFanId={activeFanId || undefined}
-                    reactions={isInternalMessage ? [] : messageReactions}
+                    reactionsSummary={isInternalMessage ? [] : reactionsSummary}
+                    onReact={(emoji) => {
+                      if (!messageConversation.id) return;
+                      handleReactToMessage(messageConversation.id, emoji);
+                    }}
                   />
                   {messageConversation.status === "failed" && (
                     <div className="flex justify-end">
@@ -10609,11 +10759,27 @@ function AudioMessageBubble({
   onCopyTranscript,
   onUseTranscript,
   onRetryTranscript,
+  tone,
+  onInsertText,
+  onTranscriptSaved,
+  onAnalysisSaved,
+  onTranslationSaved,
+  onToast,
+  fanId,
+  onReact,
 }: {
   message: ConversationMessage;
   onCopyTranscript?: (text: string) => void;
   onUseTranscript?: (text: string) => void;
   onRetryTranscript?: (messageId: string) => Promise<void> | void;
+  tone?: FanTone;
+  onInsertText?: (text: string) => void;
+  onTranscriptSaved?: (text: string) => void;
+  onAnalysisSaved?: (analysis: VoiceAnalysis) => void;
+  onTranslationSaved?: (translation: VoiceTranslation) => void;
+  onToast?: (message: string) => void;
+  fanId?: string;
+  onReact?: (emoji: string) => void;
 }) {
   const router = useRouter();
   const audioRef = useRef<HTMLAudioElement | null>(null);
@@ -10622,8 +10788,13 @@ function AudioMessageBubble({
   const [ audioError, setAudioError ] = useState(false);
   const [ reloadToken, setReloadToken ] = useState(0);
   const [ transcriptOpen, setTranscriptOpen ] = useState(false);
-  const [ transcriptRetrying, setTranscriptRetrying ] = useState(false);
-  const [ transcriptRetryError, setTranscriptRetryError ] = useState("");
+  const { favorites } = useEmojiFavorites();
+  const [ reactionRecents, setReactionRecents ] = useState<string[]>([]);
+  const [ isReactionBarOpen, setIsReactionBarOpen ] = useState(false);
+  const [ isReactionPickerOpen, setIsReactionPickerOpen ] = useState(false);
+  const [ isHovered, setIsHovered ] = useState(false);
+  const reactionBarRef = useRef<HTMLDivElement | null>(null);
+  const reactionPickerAnchorRef = useRef<HTMLButtonElement | null>(null);
   const resolvedAudioSrc = resolveAudioUrl(message.audioUrl, router.basePath);
   const audioSrc =
     resolvedAudioSrc && reloadToken
@@ -10636,16 +10807,12 @@ function AudioMessageBubble({
   const bubbleClass = message.me
     ? "bg-[color:var(--brand-weak)] text-[color:var(--text)] border border-[color:rgba(var(--brand-rgb),0.28)]"
     : "bg-[color:var(--surface-2)] text-[color:var(--text)] border border-[color:var(--border)]";
+  const reactionAlign = message.me ? "right-0" : "left-0";
   const isSending = message.status === "sending";
   const transcriptText = typeof message.transcriptText === "string" ? message.transcriptText.trim() : "";
-  const transcriptError = typeof message.transcriptError === "string" ? message.transcriptError.trim() : "";
   const resolvedStatus = message.transcriptStatus ?? (transcriptText ? "DONE" : "OFF");
-  const canRequestTranscript = Boolean(onRetryTranscript) && resolvedStatus === "OFF";
-  const showTranscriptSection =
-    canRequestTranscript ||
-    resolvedStatus === "PENDING" ||
-    resolvedStatus === "FAILED" ||
-    (resolvedStatus === "DONE" && Boolean(transcriptText));
+  const showTranscriptSection = resolvedStatus === "DONE" && Boolean(transcriptText);
+  const isFromFan = !message.me;
   const intentData = message.intentJson && typeof message.intentJson === "object" ? (message.intentJson as any) : null;
   const intentLabel = typeof intentData?.intent === "string" ? intentData.intent.trim() : "";
   const intentTags = Array.isArray(intentData?.tags)
@@ -10654,6 +10821,13 @@ function AudioMessageBubble({
         .map((tag: string) => tag.trim())
     : [];
   const needsReply = Boolean(intentData?.needsReply);
+  const reactionsSummary = message.reactionsSummary ?? [];
+  const actorReaction = getMineEmoji(reactionsSummary);
+  const canShowReactions = Boolean(onReact && message.id && !isSending);
+  const reactionChoices = useMemo(() => {
+    const deduped = favorites.concat(reactionRecents.filter((emoji) => !favorites.includes(emoji)));
+    return deduped.slice(0, 6);
+  }, [favorites, reactionRecents]);
 
   useEffect(() => {
     const audio = audioRef.current;
@@ -10672,6 +10846,31 @@ function AudioMessageBubble({
       audio.removeEventListener("ended", handleEnded);
     };
   }, []);
+
+  useEffect(() => {
+    if (!canShowReactions) return;
+    if (!isReactionBarOpen && !isReactionPickerOpen) return;
+    setReactionRecents(readEmojiRecents());
+  }, [canShowReactions, isReactionBarOpen, isReactionPickerOpen]);
+
+  useEffect(() => {
+    if (!canShowReactions) return;
+    if (!isReactionBarOpen && !isReactionPickerOpen) return;
+    const handlePointerDown = (event: PointerEvent) => {
+      const target = event.target as Node | null;
+      if (!target) return;
+      const element = target as Element;
+      if (reactionBarRef.current?.contains(target)) return;
+      if (reactionPickerAnchorRef.current?.contains(target)) return;
+      if (element.closest?.("[data-emoji-picker=\"true\"]")) return;
+      setIsReactionBarOpen(false);
+      setIsReactionPickerOpen(false);
+    };
+    document.addEventListener("pointerdown", handlePointerDown);
+    return () => {
+      document.removeEventListener("pointerdown", handlePointerDown);
+    };
+  }, [canShowReactions, isReactionBarOpen, isReactionPickerOpen]);
 
   useEffect(() => {
     setAudioError(false);
@@ -10693,6 +10892,21 @@ function AudioMessageBubble({
     }
   };
 
+  const handleSelectReaction = (emoji: string) => {
+    if (!canShowReactions || !onReact) return;
+    setReactionRecents((prev) => recordEmojiRecent(emoji, prev));
+    onReact(emoji);
+    setIsReactionBarOpen(false);
+    setIsReactionPickerOpen(false);
+  };
+
+  const handleClearReaction = () => {
+    if (!canShowReactions || !onReact || !actorReaction) return;
+    onReact(actorReaction);
+    setIsReactionBarOpen(false);
+    setIsReactionPickerOpen(false);
+  };
+
   const retryDownload = () => {
     setAudioError(false);
     setIsPlaying(false);
@@ -10700,32 +10914,92 @@ function AudioMessageBubble({
     setReloadToken(Date.now());
   };
 
-  const handleRetryTranscript = async () => {
-    if (!onRetryTranscript || !message.id || transcriptRetrying) return;
-    setTranscriptRetrying(true);
-    setTranscriptRetryError("");
-    try {
-      await onRetryTranscript(message.id);
-    } catch (err) {
-      const errorMessage =
-        err instanceof Error && err.message.trim().length > 0 ? err.message : "No se pudo reintentar.";
-      setTranscriptRetryError(errorMessage);
-    } finally {
-      setTranscriptRetrying(false);
-    }
-  };
-
   return (
-    <div className={clsx(message.me ? "flex justify-end" : "flex justify-start")}>
+    <div
+      className={clsx(message.me ? "flex justify-end" : "flex justify-start")}
+      onMouseEnter={() => setIsHovered(true)}
+      onMouseLeave={() => setIsHovered(false)}
+    >
       <div className="max-w-[75%]">
         <p
           className={`mb-1 text-[10px] uppercase tracking-wide text-[color:var(--muted)] ${message.me ? "text-right" : ""}`}
         >
           <span>{message.me ? "Tú" : "Fan"} • {message.time}</span>
         </p>
-        <div className={clsx("rounded-2xl px-4 py-3", bubbleClass)}>
-          <div className="flex items-center gap-3">
+        <div className="relative">
+          {canShowReactions && (
             <button
+              type="button"
+              onClick={() => {
+                setIsReactionBarOpen((prev) => !prev);
+                setIsReactionPickerOpen(false);
+              }}
+              className={clsx(
+                "absolute -top-3 flex h-6 w-6 items-center justify-center rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-0)] text-xs text-[color:var(--text)] shadow transition",
+                reactionAlign,
+                isHovered || isReactionBarOpen ? "opacity-100" : "opacity-0 pointer-events-none"
+              )}
+              aria-label="Reaccionar"
+            >
+              <IconGlyph name="smile" className="h-3.5 w-3.5" />
+            </button>
+          )}
+          {canShowReactions && isReactionBarOpen && (
+            <div
+              ref={reactionBarRef}
+              className={clsx(
+                "absolute z-20 -top-12 flex items-center gap-1 rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-2 py-1 shadow-xl",
+                reactionAlign
+              )}
+            >
+              {reactionChoices.map((emoji) => (
+                <button
+                  key={emoji}
+                  type="button"
+                  onClick={() => handleSelectReaction(emoji)}
+                  className={clsx(
+                    "flex h-7 w-7 items-center justify-center rounded-full border text-sm",
+                    actorReaction === emoji
+                      ? "border-[color:var(--brand)] bg-[color:rgba(var(--brand-rgb),0.14)] text-[color:var(--text)]"
+                      : "border-[color:var(--surface-border)] bg-[color:var(--surface-1)] text-[color:var(--text)] hover:bg-[color:var(--surface-2)]"
+                  )}
+                >
+                  {emoji}
+                </button>
+              ))}
+              {actorReaction && (
+                <button
+                  type="button"
+                  onClick={handleClearReaction}
+                  className="flex h-7 w-7 items-center justify-center rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] text-[11px] font-semibold text-[color:var(--text)] hover:bg-[color:var(--surface-2)]"
+                  aria-label="Quitar reacción"
+                >
+                  ✕
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={() => setIsReactionPickerOpen((prev) => !prev)}
+                className="flex h-7 w-7 items-center justify-center rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] text-[12px] font-semibold text-[color:var(--text)] hover:bg-[color:var(--surface-2)]"
+                aria-label="Más reacciones"
+                ref={reactionPickerAnchorRef}
+              >
+                +
+              </button>
+            </div>
+          )}
+          {canShowReactions && (
+            <EmojiPicker
+              isOpen={isReactionPickerOpen}
+              anchorRef={reactionPickerAnchorRef}
+              onClose={() => setIsReactionPickerOpen(false)}
+              onSelect={handleSelectReaction}
+              mode="reaction"
+            />
+          )}
+          <div className={clsx("rounded-2xl px-4 py-3", bubbleClass)}>
+            <div className="flex items-center gap-3">
+              <button
               type="button"
               onClick={togglePlayback}
               disabled={isSending || !audioSrc || audioError}
@@ -10781,122 +11055,112 @@ function AudioMessageBubble({
           )}
           {showTranscriptSection && (
             <div className="mt-3 border-t border-[color:var(--surface-border)] pt-2 text-xs text-[color:var(--muted)]">
-              {resolvedStatus === "OFF" && canRequestTranscript && (
-                <div className="flex items-center justify-end">
+              <div className="space-y-2">
+                <p
+                  className={clsx(
+                    "whitespace-pre-wrap text-[color:var(--text)]",
+                    transcriptOpen ? "" : "line-clamp-2"
+                  )}
+                >
+                  {transcriptText}
+                </p>
+                <div className="flex flex-wrap items-center justify-between gap-2 text-[11px]">
                   <button
                     type="button"
-                    className={clsx(
-                      "rounded-full border px-2 py-0.5 text-[10px] font-semibold",
-                      transcriptRetrying
-                        ? "border-[color:var(--surface-border)] text-[color:var(--muted)] cursor-not-allowed"
-                        : "border-[color:var(--surface-border)] text-[color:var(--text)] hover:bg-[color:var(--surface-1)]"
-                    )}
-                    onClick={handleRetryTranscript}
-                    disabled={transcriptRetrying}
+                    className="text-[color:var(--muted)] hover:text-[color:var(--text)]"
+                    onClick={() => setTranscriptOpen((prev) => !prev)}
                   >
-                    {transcriptRetrying ? "Transcribiendo…" : "Transcribir"}
+                    {transcriptOpen ? "Ocultar texto" : "Ver texto"}
                   </button>
-                </div>
-              )}
-              {resolvedStatus === "PENDING" && <span>Transcribiendo…</span>}
-              {resolvedStatus === "FAILED" && (
-                <div className="flex flex-col gap-1">
-                  <div className="flex items-center justify-between gap-2">
-                    <span>No disponible</span>
-                    {onRetryTranscript && (
+                  <div className="flex items-center gap-2">
+                    {onCopyTranscript && (
                       <button
                         type="button"
-                        className={clsx(
-                          "rounded-full border px-2 py-0.5 text-[10px] font-semibold",
-                          transcriptRetrying
-                            ? "border-[color:var(--surface-border)] text-[color:var(--muted)] cursor-not-allowed"
-                            : "border-[color:var(--surface-border)] text-[color:var(--text)] hover:bg-[color:var(--surface-1)]"
-                        )}
-                        onClick={handleRetryTranscript}
-                        disabled={transcriptRetrying}
+                        className="rounded-full border border-[color:var(--surface-border)] px-2 py-0.5 font-semibold text-[color:var(--text)] hover:bg-[color:var(--surface-1)]"
+                        onClick={() => onCopyTranscript(transcriptText)}
                       >
-                        {transcriptRetrying ? "Reintentando…" : "Reintentar"}
+                        Copiar texto
+                      </button>
+                    )}
+                    {onUseTranscript && (
+                      <button
+                        type="button"
+                        className="rounded-full border border-[color:var(--surface-border)] px-2 py-0.5 font-semibold text-[color:var(--text)] hover:bg-[color:var(--surface-1)]"
+                        onClick={() => onUseTranscript(transcriptText)}
+                      >
+                        Usar en Manager
                       </button>
                     )}
                   </div>
-                  {transcriptError && (
-                    <div className="text-[10px] text-[color:var(--muted)]">
-                      {transcriptError.length > 120 ? `${transcriptError.slice(0, 120)}…` : transcriptError}
-                    </div>
-                  )}
                 </div>
-              )}
-              {resolvedStatus === "DONE" && transcriptText && (
-                <div className="space-y-2">
-                  <p
-                    className={clsx(
-                      "whitespace-pre-wrap text-[color:var(--text)]",
-                      transcriptOpen ? "" : "line-clamp-2"
+                {(intentLabel || intentTags.length > 0 || needsReply) && (
+                  <div className="flex flex-wrap gap-2 text-[10px] text-[color:var(--muted)]">
+                    {intentLabel && (
+                      <span className="rounded-full border border-[color:var(--surface-border)] px-2 py-0.5">
+                        Intento: {intentLabel}
+                      </span>
                     )}
-                  >
-                    {transcriptText}
-                  </p>
-                  <div className="flex flex-wrap items-center justify-between gap-2 text-[11px]">
-                    <button
-                      type="button"
-                      className="text-[color:var(--muted)] hover:text-[color:var(--text)]"
-                      onClick={() => setTranscriptOpen((prev) => !prev)}
-                    >
-                      {transcriptOpen ? "Ocultar texto" : "Ver texto"}
-                    </button>
-                    <div className="flex items-center gap-2">
-                      {onCopyTranscript && (
-                        <button
-                          type="button"
-                          className="rounded-full border border-[color:var(--surface-border)] px-2 py-0.5 font-semibold text-[color:var(--text)] hover:bg-[color:var(--surface-1)]"
-                          onClick={() => onCopyTranscript(transcriptText)}
-                        >
-                          Copiar texto
-                        </button>
-                      )}
-                      {onUseTranscript && (
-                        <button
-                          type="button"
-                          className="rounded-full border border-[color:var(--surface-border)] px-2 py-0.5 font-semibold text-[color:var(--text)] hover:bg-[color:var(--surface-1)]"
-                          onClick={() => onUseTranscript(transcriptText)}
-                        >
-                          Usar en Manager
-                        </button>
-                      )}
-                    </div>
+                    {needsReply && (
+                      <span className="rounded-full border border-[color:rgba(234,88,12,0.6)] px-2 py-0.5 text-[color:var(--text)]">
+                        Necesita respuesta
+                      </span>
+                    )}
+                    {intentTags.map((tag: string) => (
+                      <span
+                        key={tag}
+                        className="rounded-full border border-[color:var(--surface-border)] px-2 py-0.5"
+                      >
+                        {tag}
+                      </span>
+                    ))}
                   </div>
-                  {(intentLabel || intentTags.length > 0 || needsReply) && (
-                    <div className="flex flex-wrap gap-2 text-[10px] text-[color:var(--muted)]">
-                      {intentLabel && (
-                        <span className="rounded-full border border-[color:var(--surface-border)] px-2 py-0.5">
-                          Intento: {intentLabel}
-                        </span>
-                      )}
-                      {needsReply && (
-                        <span className="rounded-full border border-[color:rgba(234,88,12,0.6)] px-2 py-0.5 text-[color:var(--text)]">
-                          Necesita respuesta
-                        </span>
-                      )}
-                      {intentTags.map((tag: string) => (
-                        <span
-                          key={tag}
-                          className="rounded-full border border-[color:var(--surface-border)] px-2 py-0.5"
-                        >
-                          {tag}
-                        </span>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              )}
-              {transcriptRetryError && (
-                <div className="mt-1 text-[10px] text-[color:var(--danger)]">
-                  {transcriptRetryError}
-                </div>
-              )}
+                )}
+              </div>
             </div>
           )}
+          {message.type === "VOICE" && message.id && isFromFan && (
+            <VoiceInsightsCard
+              messageId={message.id}
+              fanId={fanId || message.fanId || ""}
+              transcriptText={transcriptText || null}
+              transcriptStatus={message.transcriptStatus ?? null}
+              transcriptError={message.transcriptError ?? null}
+              isFromFan={isFromFan}
+              tone={tone}
+              initialAnalysis={safeParseVoiceAnalysis(message.voiceAnalysisJson)}
+              initialTranslation={safeParseVoiceTranslation(message.voiceAnalysisJson)}
+              onInsertText={onInsertText}
+              onTranscriptSaved={onTranscriptSaved}
+              onAnalysisSaved={onAnalysisSaved}
+              onTranslationSaved={onTranslationSaved}
+              onTranscribe={onRetryTranscript}
+              onToast={onToast}
+              disabled={isSending}
+            />
+          )}
+          </div>
         </div>
+        {reactionsSummary.length > 0 && (
+          <div className={clsx("mt-1 flex flex-wrap gap-1", message.me ? "justify-end" : "justify-start")}>
+            {reactionsSummary.map((entry) => (
+              <button
+                key={entry.emoji}
+                type="button"
+                onClick={() => handleSelectReaction(entry.emoji)}
+                className={clsx(
+                  "inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] transition",
+                  actorReaction === entry.emoji
+                    ? "border-[color:var(--brand)] bg-[color:rgba(var(--brand-rgb),0.14)] text-[color:var(--text)]"
+                    : "border-[color:var(--surface-border)] bg-[color:var(--surface-1)] text-[color:var(--text)] hover:bg-[color:var(--surface-2)]"
+                )}
+                aria-label={`Reacción ${entry.emoji}`}
+              >
+                <span>{entry.emoji}</span>
+                <span className="text-[10px] text-[color:var(--muted)]">{entry.count}</span>
+              </button>
+            ))}
+          </div>
+        )}
       </div>
     </div>
   );

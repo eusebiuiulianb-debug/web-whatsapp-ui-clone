@@ -1,4 +1,5 @@
 import type { FollowUpTag, UrgencyLevel } from "../utils/followUp";
+import type { ReactionSummaryEntry } from "../lib/messageReactions";
 import type { ContentType, ContentVisibility } from "./content";
 
 export interface Creator {
@@ -140,6 +141,9 @@ export interface Message {
     needsReply?: boolean;
     replyDraft?: string;
   } | null;
+  voiceAnalysisJson?: string | null;
+  voiceAnalysisUpdatedAt?: string | null;
+  reactionsSummary?: ReactionSummaryEntry[];
   contentItem?: {
     id: string;
     title: string;

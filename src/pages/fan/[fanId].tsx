@@ -4,6 +4,7 @@ import { useRouter } from "next/router";
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import { ChatComposerBar } from "../../components/ChatComposerBar";
 import MessageBalloon from "../../components/MessageBalloon";
+import { EmojiPicker } from "../../components/EmojiPicker";
 import { useCreatorConfig } from "../../context/CreatorConfigContext";
 import {
   ContentType,
@@ -17,7 +18,6 @@ import { useIsomorphicLayoutEffect } from "../../hooks/useIsomorphicLayoutEffect
 import { getFanDisplayName } from "../../utils/fanDisplayName";
 import { isVisibleToFan } from "../../lib/messageAudience";
 import { inferPreferredLanguage, LANGUAGE_LABELS, normalizePreferredLanguage, type SupportedLanguage } from "../../lib/language";
-import { parseReactionsRaw, useReactions } from "../../lib/emoji/reactions";
 import { getStickerById } from "../../lib/emoji/stickers";
 import { buildFanChatProps } from "../../lib/fanChatProps";
 import { generateClientTxnId } from "../../lib/clientTxn";
@@ -25,8 +25,11 @@ import { emitPurchaseCreated } from "../../lib/events";
 import { recordDevRequest } from "../../lib/devRequestStats";
 import { buildStickerTokenFromItem, getStickerByToken, type StickerItem } from "../../lib/stickers";
 import { useVoiceRecorder } from "../../lib/useVoiceRecorder";
+import { readEmojiRecents, recordEmojiRecent } from "../../lib/emoji/recents";
 import { IconGlyph, type IconName } from "../../components/ui/IconGlyph";
 import { Badge, type BadgeTone } from "../../components/ui/Badge";
+import { applyOptimisticReaction, getMineEmoji, type ReactionSummaryEntry } from "../../lib/messageReactions";
+import { useEmojiFavorites } from "../../hooks/useEmojiFavorites";
 import clsx from "clsx";
 
 type ApiContentItem = {
@@ -56,18 +59,8 @@ type ApiMessage = {
   audioDurationMs?: number | null;
   audioMime?: string | null;
   audioSizeBytes?: number | null;
-  transcriptText?: string | null;
-  transcriptStatus?: "OFF" | "PENDING" | "DONE" | "FAILED" | null;
-  transcriptError?: string | null;
-  transcribedAt?: string | null;
-  transcriptLang?: string | null;
-  intentJson?: {
-    intent?: string;
-    tags?: string[];
-    needsReply?: boolean;
-    replyDraft?: string;
-  } | null;
   contentItem?: ApiContentItem | null;
+  reactionsSummary?: ReactionSummaryEntry[];
   status?: "sending" | "failed" | "sent";
 };
 
@@ -137,8 +130,6 @@ export function FanChatPage({
         : [],
     [config.packs]
   );
-  const reactionsRaw = useReactions(fanId || "");
-  const reactionsStore = useMemo(() => parseReactionsRaw(reactionsRaw), [reactionsRaw]);
 
   const [messages, setMessages] = useState<ApiMessage[]>([]);
   const [loading, setLoading] = useState(false);
@@ -168,6 +159,7 @@ export function FanChatPage({
   const [isAtBottom, setIsAtBottom] = useState(true);
   const pollAbortRef = useRef<AbortController | null>(null);
   const pollIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const reactionInFlightRef = useRef<Set<string>>(new Set());
   const [actionMenuOpen, setActionMenuOpen] = useState(false);
   const [contentSheetOpen, setContentSheetOpen] = useState(false);
   const [contentSheetTab, setContentSheetTab] = useState<"content" | "packs">("content");
@@ -254,6 +246,49 @@ export function FanChatPage({
       }
     },
     [sortMessages]
+  );
+
+  const handleReactToMessage = useCallback(
+    async (messageId: string, emoji: string) => {
+      if (!messageId) return;
+      if (reactionInFlightRef.current.has(messageId)) return;
+      reactionInFlightRef.current.add(messageId);
+      let previousSummary: ReactionSummaryEntry[] | null = null;
+      setMessages((prev) =>
+        prev.map((msg) => {
+          if (msg.id !== messageId) return msg;
+          previousSummary = Array.isArray(msg.reactionsSummary) ? msg.reactionsSummary : [];
+          return { ...msg, reactionsSummary: applyOptimisticReaction(previousSummary, emoji) };
+        })
+      );
+      try {
+        const res = await fetch("/api/messages/react", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ messageId, emoji }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok || !data?.ok || !Array.isArray(data.reactionsSummary)) {
+          throw new Error("No se pudo reaccionar");
+        }
+        setMessages((prev) =>
+          prev.map((msg) =>
+            msg.id === messageId ? { ...msg, reactionsSummary: data.reactionsSummary } : msg
+          )
+        );
+      } catch (_err) {
+        if (previousSummary) {
+          setMessages((prev) =>
+            prev.map((msg) =>
+              msg.id === messageId ? { ...msg, reactionsSummary: previousSummary ?? [] } : msg
+            )
+          );
+        }
+      } finally {
+        reactionInFlightRef.current.delete(messageId);
+      }
+    },
+    []
   );
 
   useEffect(() => {
@@ -1168,7 +1203,16 @@ export function FanChatPage({
                   return <SystemMessage key={messageId} text={msg.text || ""} />;
                 }
                 if (msg.type === "AUDIO" || msg.type === "VOICE") {
-                  return <AudioMessage key={messageId} message={msg} />;
+                  return (
+                    <AudioMessage
+                      key={messageId}
+                      message={msg}
+                      onReact={(emoji) => {
+                        if (!msg.id) return;
+                        handleReactToMessage(msg.id, emoji);
+                      }}
+                    />
+                  );
                 }
                 const tokenSticker =
                   msg.type !== "STICKER" ? getStickerByToken(msg.text ?? "") : null;
@@ -1182,22 +1226,23 @@ export function FanChatPage({
                     : msg.from === "creator"
                     ? (msg.deliveredText ?? msg.text ?? "")
                     : msg.text ?? "";
-                const messageReactions = reactionsStore[messageId] ?? [];
                 return (
                   <MessageBalloon
                     key={messageId}
                     me={msg.from === "fan"}
                     message={displayText}
-                    messageId={messageId}
+                    messageId={msg.id}
                     seen={!!msg.isLastFromCreator}
                     time={msg.time || undefined}
                     status={msg.status}
                     stickerSrc={isSticker ? stickerSrc : null}
                     stickerAlt={isSticker ? stickerAlt : null}
                     enableReactions
-                    reactionActor="fan"
-                    reactionFanId={fanId || undefined}
-                    reactions={messageReactions}
+                    reactionsSummary={msg.reactionsSummary ?? []}
+                    onReact={(emoji) => {
+                      if (!msg.id) return;
+                      handleReactToMessage(msg.id, emoji);
+                    }}
                   />
                 );
               })}
@@ -1719,14 +1764,20 @@ function ContentCard({ message }: { message: ApiMessage }) {
   );
 }
 
-function AudioMessage({ message }: { message: ApiMessage }) {
+function AudioMessage({ message, onReact }: { message: ApiMessage; onReact?: (emoji: string) => void }) {
   const router = useRouter();
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const [ isPlaying, setIsPlaying ] = useState(false);
   const [ currentTime, setCurrentTime ] = useState(0);
   const [ audioError, setAudioError ] = useState(false);
   const [ reloadToken, setReloadToken ] = useState(0);
-  const [ transcriptOpen, setTranscriptOpen ] = useState(false);
+  const { favorites } = useEmojiFavorites();
+  const [ reactionRecents, setReactionRecents ] = useState<string[]>([]);
+  const [ isReactionBarOpen, setIsReactionBarOpen ] = useState(false);
+  const [ isReactionPickerOpen, setIsReactionPickerOpen ] = useState(false);
+  const [ isHovered, setIsHovered ] = useState(false);
+  const reactionBarRef = useRef<HTMLDivElement | null>(null);
+  const reactionPickerAnchorRef = useRef<HTMLButtonElement | null>(null);
   const isMe = message.from === "fan";
   const resolvedAudioSrc = resolveAudioUrl(message.audioUrl, router.basePath);
   const audioSrc =
@@ -1741,11 +1792,14 @@ function AudioMessage({ message }: { message: ApiMessage }) {
     ? "bg-[color:var(--brand-weak)] text-[color:var(--text)] border border-[color:rgba(var(--brand-rgb),0.28)]"
     : "bg-[color:var(--surface-2)] text-[color:var(--text)] border border-[color:var(--border)]";
   const isSending = message.status === "sending";
-  const transcriptText = typeof message.transcriptText === "string" ? message.transcriptText.trim() : "";
-  const transcriptError = typeof message.transcriptError === "string" ? message.transcriptError.trim() : "";
-  const resolvedStatus = message.transcriptStatus ?? (transcriptText ? "DONE" : "OFF");
-  const showTranscriptSection =
-    resolvedStatus === "PENDING" || resolvedStatus === "FAILED" || Boolean(transcriptText);
+  const reactionAlign = isMe ? "right-0" : "left-0";
+  const reactionsSummary = message.reactionsSummary ?? [];
+  const actorReaction = getMineEmoji(reactionsSummary);
+  const canShowReactions = Boolean(onReact && message.id && !isSending);
+  const reactionChoices = useMemo(() => {
+    const deduped = favorites.concat(reactionRecents.filter((emoji) => !favorites.includes(emoji)));
+    return deduped.slice(0, 6);
+  }, [favorites, reactionRecents]);
 
   useEffect(() => {
     const audio = audioRef.current;
@@ -1764,6 +1818,31 @@ function AudioMessage({ message }: { message: ApiMessage }) {
       audio.removeEventListener("ended", handleEnded);
     };
   }, []);
+
+  useEffect(() => {
+    if (!canShowReactions) return;
+    if (!isReactionBarOpen && !isReactionPickerOpen) return;
+    setReactionRecents(readEmojiRecents());
+  }, [canShowReactions, isReactionBarOpen, isReactionPickerOpen]);
+
+  useEffect(() => {
+    if (!canShowReactions) return;
+    if (!isReactionBarOpen && !isReactionPickerOpen) return;
+    const handlePointerDown = (event: PointerEvent) => {
+      const target = event.target as Node | null;
+      if (!target) return;
+      const element = target as Element;
+      if (reactionBarRef.current?.contains(target)) return;
+      if (reactionPickerAnchorRef.current?.contains(target)) return;
+      if (element.closest?.("[data-emoji-picker=\"true\"]")) return;
+      setIsReactionBarOpen(false);
+      setIsReactionPickerOpen(false);
+    };
+    document.addEventListener("pointerdown", handlePointerDown);
+    return () => {
+      document.removeEventListener("pointerdown", handlePointerDown);
+    };
+  }, [canShowReactions, isReactionBarOpen, isReactionPickerOpen]);
 
   useEffect(() => {
     setAudioError(false);
@@ -1785,6 +1864,21 @@ function AudioMessage({ message }: { message: ApiMessage }) {
     }
   };
 
+  const handleSelectReaction = (emoji: string) => {
+    if (!canShowReactions || !onReact) return;
+    setReactionRecents((prev) => recordEmojiRecent(emoji, prev));
+    onReact(emoji);
+    setIsReactionBarOpen(false);
+    setIsReactionPickerOpen(false);
+  };
+
+  const handleClearReaction = () => {
+    if (!canShowReactions || !onReact || !actorReaction) return;
+    onReact(actorReaction);
+    setIsReactionBarOpen(false);
+    setIsReactionPickerOpen(false);
+  };
+
   const retryDownload = () => {
     setAudioError(false);
     setIsPlaying(false);
@@ -1793,14 +1887,89 @@ function AudioMessage({ message }: { message: ApiMessage }) {
   };
 
   return (
-    <div className={isMe ? "flex justify-end" : "flex justify-start"}>
+    <div
+      className={isMe ? "flex justify-end" : "flex justify-start"}
+      onMouseEnter={() => setIsHovered(true)}
+      onMouseLeave={() => setIsHovered(false)}
+    >
       <div className="max-w-[75%]">
         <p className={`mb-1 text-[10px] uppercase tracking-wide text-[color:var(--muted)] ${isMe ? "text-right" : ""}`}>
           <span>{isMe ? "Tú" : "Fan"} • {message.time || ""}</span>
         </p>
-        <div className={`rounded-2xl px-4 py-3 ${bubbleClass}`}>
-          <div className="flex items-center gap-3">
+        <div className="relative">
+          {canShowReactions && (
             <button
+              type="button"
+              onClick={() => {
+                setIsReactionBarOpen((prev) => !prev);
+                setIsReactionPickerOpen(false);
+              }}
+              className={clsx(
+                "absolute -top-3 flex h-6 w-6 items-center justify-center rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-0)] text-xs text-[color:var(--text)] shadow transition",
+                reactionAlign,
+                isHovered || isReactionBarOpen ? "opacity-100" : "opacity-0 pointer-events-none"
+              )}
+              aria-label="Reaccionar"
+            >
+              <IconGlyph name="smile" className="h-3.5 w-3.5" />
+            </button>
+          )}
+          {canShowReactions && isReactionBarOpen && (
+            <div
+              ref={reactionBarRef}
+              className={clsx(
+                "absolute z-20 -top-12 flex items-center gap-1 rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-2 py-1 shadow-xl",
+                reactionAlign
+              )}
+            >
+              {reactionChoices.map((emoji) => (
+                <button
+                  key={emoji}
+                  type="button"
+                  onClick={() => handleSelectReaction(emoji)}
+                  className={clsx(
+                    "flex h-7 w-7 items-center justify-center rounded-full border text-sm",
+                    actorReaction === emoji
+                      ? "border-[color:var(--brand)] bg-[color:rgba(var(--brand-rgb),0.14)] text-[color:var(--text)]"
+                      : "border-[color:var(--surface-border)] bg-[color:var(--surface-1)] text-[color:var(--text)] hover:bg-[color:var(--surface-2)]"
+                  )}
+                >
+                  {emoji}
+                </button>
+              ))}
+              {actorReaction && (
+                <button
+                  type="button"
+                  onClick={handleClearReaction}
+                  className="flex h-7 w-7 items-center justify-center rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] text-[11px] font-semibold text-[color:var(--text)] hover:bg-[color:var(--surface-2)]"
+                  aria-label="Quitar reacción"
+                >
+                  ✕
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={() => setIsReactionPickerOpen((prev) => !prev)}
+                className="flex h-7 w-7 items-center justify-center rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] text-[12px] font-semibold text-[color:var(--text)] hover:bg-[color:var(--surface-2)]"
+                aria-label="Más reacciones"
+                ref={reactionPickerAnchorRef}
+              >
+                +
+              </button>
+            </div>
+          )}
+          {canShowReactions && (
+            <EmojiPicker
+              isOpen={isReactionPickerOpen}
+              anchorRef={reactionPickerAnchorRef}
+              onClose={() => setIsReactionPickerOpen(false)}
+              onSelect={handleSelectReaction}
+              mode="reaction"
+            />
+          )}
+          <div className={`rounded-2xl px-4 py-3 ${bubbleClass}`}>
+            <div className="flex items-center gap-3">
+              <button
               type="button"
               onClick={togglePlayback}
               disabled={isSending || !audioSrc || audioError}
@@ -1853,41 +2022,29 @@ function AudioMessage({ message }: { message: ApiMessage }) {
               </button>
             </div>
           )}
-          {showTranscriptSection && (
-            <div className="mt-3 border-t border-[color:var(--surface-border)] pt-2 text-xs text-[color:var(--muted)]">
-              {resolvedStatus === "PENDING" && <span>Transcribiendo…</span>}
-              {resolvedStatus === "FAILED" && (
-                <div className="flex flex-col gap-1">
-                  <span>No disponible</span>
-                  {transcriptError && (
-                    <span className="text-[10px] text-[color:var(--muted)]">
-                      {transcriptError.length > 120 ? `${transcriptError.slice(0, 120)}…` : transcriptError}
-                    </span>
-                  )}
-                </div>
-              )}
-              {resolvedStatus === "DONE" && transcriptText && (
-                <div className="space-y-2">
-                  <p
-                    className={clsx(
-                      "whitespace-pre-wrap text-[color:var(--text)]",
-                      transcriptOpen ? "" : "line-clamp-2"
-                    )}
-                  >
-                    {transcriptText}
-                  </p>
-                  <button
-                    type="button"
-                    className="text-[11px] text-[color:var(--muted)] hover:text-[color:var(--text)]"
-                    onClick={() => setTranscriptOpen((prev) => !prev)}
-                  >
-                    {transcriptOpen ? "Ocultar texto" : "Ver texto"}
-                  </button>
-                </div>
-              )}
-            </div>
-          )}
+          </div>
         </div>
+        {reactionsSummary.length > 0 && (
+          <div className={clsx("mt-1 flex flex-wrap gap-1", isMe ? "justify-end" : "justify-start")}>
+            {reactionsSummary.map((entry) => (
+              <button
+                key={entry.emoji}
+                type="button"
+                onClick={() => handleSelectReaction(entry.emoji)}
+                className={clsx(
+                  "inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] transition",
+                  actorReaction === entry.emoji
+                    ? "border-[color:var(--brand)] bg-[color:rgba(var(--brand-rgb),0.14)] text-[color:var(--text)]"
+                    : "border-[color:var(--surface-border)] bg-[color:var(--surface-1)] text-[color:var(--text)] hover:bg-[color:var(--surface-2)]"
+                )}
+                aria-label={`Reacción ${entry.emoji}`}
+              >
+                <span>{entry.emoji}</span>
+                <span className="text-[10px] text-[color:var(--muted)]">{entry.count}</span>
+              </button>
+            ))}
+          </div>
+        )}
       </div>
     </div>
   );
