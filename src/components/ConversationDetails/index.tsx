@@ -3156,6 +3156,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
         const shouldMarkRead = !markedReadFanIdsRef.current.has(fanId);
         const params = new URLSearchParams({ fanId, audiences: "FAN,CREATOR" });
         if (shouldMarkRead) {
+          markedReadFanIdsRef.current.add(fanId);
           params.set("markRead", "1");
         }
         const res = await fetch(`/api/messages?${params.toString()}`, { signal: controller.signal });
@@ -3170,9 +3171,6 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
         const visible = source.filter((msg) => isVisibleToFan(msg));
         const mapped = mapApiMessagesToState(visible);
         setMessage((prev) => reconcileMessages(prev || [], mapped, fanId));
-        if (shouldMarkRead) {
-          markedReadFanIdsRef.current.add(fanId);
-        }
         setSchemaError(null);
       } catch (err) {
         if ((err as any)?.name === "AbortError") return;

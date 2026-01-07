@@ -115,6 +115,7 @@ export function FanChatPage({
     if (fanIdOverride) return fanIdOverride;
     return typeof router.query.fanId === "string" ? router.query.fanId : undefined;
   }, [fanIdOverride, router.query.fanId]);
+  const routeFanId = typeof router.query.fanId === "string" ? router.query.fanId : undefined;
   const inviteFlag = useMemo(() => {
     if (typeof inviteOverride === "boolean") return inviteOverride;
     return router.query.invite === "1";
@@ -252,22 +253,48 @@ export function FanChatPage({
     if (!fanId) return;
     setMessages([]);
     fetchMessages(fanId, { showLoading: true });
-    if (pollIntervalRef.current) {
-      clearInterval(pollIntervalRef.current as any);
-      pollIntervalRef.current = null;
+    const canPoll = () => {
+      if (typeof document !== "undefined" && document.hidden) return false;
+      if (fanIdOverride) return fanIdOverride === fanId;
+      if (routeFanId) return routeFanId === fanId;
+      return true;
+    };
+    const clearPoll = () => {
+      if (pollIntervalRef.current) {
+        clearInterval(pollIntervalRef.current as any);
+        pollIntervalRef.current = null;
+      }
+    };
+    const startPolling = () => {
+      clearPoll();
+      if (!canPoll()) return;
+      pollIntervalRef.current = setInterval(() => {
+        if (!canPoll()) return;
+        void fetchMessages(fanId, {
+          showLoading: false,
+          silent: true,
+        });
+      }, 2500) as any;
+    };
+    startPolling();
+    const handleVisibility = () => {
+      if (typeof document !== "undefined" && document.hidden) {
+        clearPoll();
+        return;
+      }
+      startPolling();
+    };
+    if (typeof document !== "undefined") {
+      document.addEventListener("visibilitychange", handleVisibility);
     }
-    pollIntervalRef.current = setInterval(() => {
-      if (typeof document !== "undefined" && document.hidden) return;
-      void fetchMessages(fanId, {
-        showLoading: false,
-        silent: true,
-      });
-    }, 2500) as any;
     return () => {
-      if (pollIntervalRef.current) clearInterval(pollIntervalRef.current as any);
+      if (typeof document !== "undefined") {
+        document.removeEventListener("visibilitychange", handleVisibility);
+      }
+      clearPoll();
       if (pollAbortRef.current) pollAbortRef.current.abort();
     };
-  }, [fanId, fetchMessages]);
+  }, [fanId, fanIdOverride, fetchMessages, routeFanId]);
 
   useEffect(() => {
     if (!router.isReady || draftAppliedRef.current) return;

@@ -315,6 +315,8 @@ function SideBarInner() {
   const openFanToastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const openFanNotFoundRef = useRef<string | null>(null);
   const fansRefetchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const fansRefetchInFlightRef = useRef(false);
+  const lastFansRefetchAtRef = useRef(0);
   const [ unseenPurchaseByFan, setUnseenPurchaseByFan ] = useState<Record<string, PurchaseNotice>>({});
   const [ unseenVoiceByFan, setUnseenVoiceByFan ] = useState<Record<string, VoiceNoteNotice>>({});
 
@@ -1352,14 +1354,35 @@ function SideBarInner() {
     [apiFilter, mapFans, search]
   );
 
-  const scheduleFansRefresh = useCallback(
-    (delay = 350) => {
+  const scheduleFansRefetch = useCallback(
+    (reason?: string, options?: { realtime?: boolean }) => {
+      if (options?.realtime) {
+        const normalizedReason = typeof reason === "string" ? reason.trim().toLowerCase() : "";
+        if (normalizedReason === "heartbeat" || normalizedReason === "noop" || normalizedReason === "no-op") {
+          return;
+        }
+      }
       if (fansRefetchTimerRef.current) {
         clearTimeout(fansRefetchTimerRef.current);
       }
-      fansRefetchTimerRef.current = setTimeout(() => {
-        void fetchFansPage();
-      }, delay);
+      const run = () => {
+        const now = Date.now();
+        if (fansRefetchInFlightRef.current) {
+          fansRefetchTimerRef.current = setTimeout(run, 1000);
+          return;
+        }
+        const sinceLast = now - lastFansRefetchAtRef.current;
+        if (sinceLast < 1000) {
+          fansRefetchTimerRef.current = setTimeout(run, 1000 - sinceLast);
+          return;
+        }
+        fansRefetchInFlightRef.current = true;
+        lastFansRefetchAtRef.current = now;
+        void fetchFansPage().finally(() => {
+          fansRefetchInFlightRef.current = false;
+        });
+      };
+      fansRefetchTimerRef.current = setTimeout(run, 1000);
     },
     [fetchFansPage]
   );
@@ -1497,7 +1520,7 @@ function SideBarInner() {
     (detail: FanMessageSentPayload) => {
       const fanId = typeof detail?.fanId === "string" ? detail.fanId : "";
       if (!fanId) {
-        scheduleFansRefresh();
+        scheduleFansRefetch("fan_message_sent", { realtime: true });
         return;
       }
       const now = new Date();
@@ -1567,7 +1590,7 @@ function SideBarInner() {
       void fetchFanById(fanId);
       void refreshExtrasSummary();
     },
-    [conversation?.id, conversation?.isManager, fetchFanById, refreshExtrasSummary, scheduleFansRefresh]
+    [conversation?.id, conversation?.isManager, fetchFanById, refreshExtrasSummary, scheduleFansRefetch]
   );
 
   const handlePurchaseCreated = useCallback(
@@ -1630,10 +1653,10 @@ function SideBarInner() {
         };
         return [updated, ...prev.slice(0, index), ...prev.slice(index + 1)];
       });
-      scheduleFansRefresh();
+      scheduleFansRefetch("purchase_created", { realtime: true });
       void refreshExtrasSummary();
     },
-    [conversation?.id, conversation?.isManager, playPurchaseSound, refreshExtrasSummary, scheduleFansRefresh]
+    [conversation?.id, conversation?.isManager, playPurchaseSound, refreshExtrasSummary, scheduleFansRefetch]
   );
 
   const handleVoiceTranscriptUpdated = useCallback(
@@ -1698,7 +1721,7 @@ function SideBarInner() {
         setNextCursor(null);
         return;
       }
-      fetchFansPage();
+      scheduleFansRefetch("fan_data_updated");
     }
 
     window.addEventListener("fanDataUpdated", handleFanDataUpdated as EventListener);
@@ -1739,9 +1762,7 @@ function SideBarInner() {
     };
   }, [
     applyFilter,
-    conversation?.id,
-    conversation?.isManager,
-    fetchFansPage,
+    scheduleFansRefetch,
     mapFans,
   ]);
 
