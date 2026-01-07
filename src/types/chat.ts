@@ -123,7 +123,7 @@ export interface Message {
   creatorTranslatedText?: string | null;
   time: string;
   isLastFromCreator?: boolean;
-  type?: "TEXT" | "CONTENT" | "STICKER" | "SYSTEM" | "AUDIO";
+  type?: "TEXT" | "CONTENT" | "STICKER" | "SYSTEM" | "AUDIO" | "VOICE";
   stickerId?: string | null;
   audioUrl?: string | null;
   audioDurationMs?: number | null;

@@ -11,6 +11,15 @@ import { getDbSchemaOutOfSyncPayload, isDbSchemaOutOfSyncError } from "../../lib
 import { translateText } from "../../server/ai/translateText";
 import { getStickerById } from "../../lib/emoji/stickers";
 import { emitCreatorEvent as emitRealtimeEvent } from "../../server/realtimeHub";
+import { saveVoice } from "../../lib/voiceStorage";
+
+export const config = {
+  api: {
+    bodyParser: {
+      sizeLimit: "16mb",
+    },
+  },
+};
 
 type MessageResponse =
   | { ok: true; items: any[]; messages?: any[] }
@@ -21,6 +30,21 @@ type MessageTimestampCandidate = {
   id?: string | null;
   createdAt?: Date | string | null;
 };
+
+const MAX_VOICE_BYTES = 10 * 1024 * 1024;
+const MAX_VOICE_DURATION_MS = 120 * 1000;
+const MIN_VOICE_BYTES = 2 * 1024;
+const ALLOWED_VOICE_MIME = new Set(["audio/webm", "audio/ogg", "audio/mpeg", "audio/mp4"]);
+
+function normalizeMimeType(value: string) {
+  return value.split(";")[0].trim().toLowerCase();
+}
+
+function extractBase64Payload(value: string) {
+  const trimmed = value.trim();
+  const commaIndex = trimmed.indexOf(",");
+  return commaIndex >= 0 ? trimmed.slice(commaIndex + 1) : trimmed;
+}
 
 function parseSinceMs(value?: string | null): number | null {
   if (!value) return null;
@@ -75,7 +99,6 @@ async function handleGet(req: NextApiRequest, res: NextApiResponse<MessageRespon
   if (!fanId || typeof fanId !== "string") {
     return res.status(400).json({ ok: false, error: "fanId is required" });
   }
-
   const normalizedFanId = fanId.trim();
   const shouldMarkRead =
     typeof markRead === "string" ? markRead === "1" || markRead.toLowerCase() === "true" : false;
@@ -166,13 +189,33 @@ async function handleGet(req: NextApiRequest, res: NextApiResponse<MessageRespon
 }
 
 async function handlePost(req: NextApiRequest, res: NextApiResponse<MessageResponse>) {
-  const { fanId, text, from, type, contentItemId, audience, stickerId, actionKey } = req.body || {};
+  const {
+    fanId,
+    text,
+    from,
+    type,
+    contentItemId,
+    audience,
+    stickerId,
+    actionKey,
+    audioBase64,
+    mimeType,
+    durationMs,
+  } = req.body || {};
 
   if (!fanId || typeof fanId !== "string") {
     return res.status(400).json({ ok: false, error: "fanId is required" });
   }
+  const normalizedFanId = fanId.trim();
 
-  const normalizedType = type === "CONTENT" ? "CONTENT" : type === "STICKER" ? "STICKER" : "TEXT";
+  const normalizedType =
+    type === "CONTENT"
+      ? "CONTENT"
+      : type === "STICKER"
+      ? "STICKER"
+      : type === "VOICE"
+      ? "VOICE"
+      : "TEXT";
 
   if (normalizedType === "TEXT") {
     if (!text || typeof text !== "string" || text.trim().length === 0) {
@@ -190,6 +233,14 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse<MessageRespo
       return res.status(400).json({ ok: false, error: "stickerId is required for sticker messages" });
     }
   }
+  if (normalizedType === "VOICE") {
+    if (!audioBase64 || typeof audioBase64 !== "string") {
+      return res.status(400).json({ ok: false, error: "audioBase64 is required for voice messages" });
+    }
+    if (!mimeType || typeof mimeType !== "string") {
+      return res.status(400).json({ ok: false, error: "mimeType is required for voice messages" });
+    }
+  }
 
   const normalizedStickerId = normalizedType === "STICKER" ? stickerId.trim() : null;
   if (normalizedType === "STICKER" && !normalizedStickerId) {
@@ -202,9 +253,14 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse<MessageRespo
       ? typeof text === "string" && text.trim().length > 0
         ? text.trim()
         : stickerLabel
+      : normalizedType === "VOICE"
+      ? ""
       : typeof text === "string"
       ? text
       : "";
+
+  const normalizedMime = normalizedType === "VOICE" ? normalizeMimeType(mimeType as string) : "";
+  const parsedDurationMs = Number(durationMs);
 
   const normalizedFrom = normalizeFrom(typeof from === "string" ? from : undefined);
   const normalizedActionKey = typeof actionKey === "string" ? actionKey.trim() : "";
@@ -223,15 +279,36 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse<MessageRespo
   } else {
     return res.status(400).json({ ok: false, error: "Invalid audience" });
   }
+
+  if (normalizedType === "VOICE") {
+    if (!ALLOWED_VOICE_MIME.has(normalizedMime)) {
+      return res.status(400).json({ ok: false, error: "Unsupported audio format" });
+    }
+    if (Number.isFinite(parsedDurationMs)) {
+      if (parsedDurationMs <= 0) {
+        return res.status(400).json({ ok: false, error: "Invalid duration" });
+      }
+      if (parsedDurationMs > MAX_VOICE_DURATION_MS) {
+        return res.status(400).json({ ok: false, error: "Audio too long" });
+      }
+    }
+  }
   const time = new Date().toLocaleTimeString("es-ES", {
     hour: "2-digit",
     minute: "2-digit",
     hour12: false,
   });
 
+  let voicePayload: {
+    audioUrl: string;
+    audioMime: string;
+    audioSizeBytes: number;
+    audioDurationMs: number | null;
+  } | null = null;
+
   try {
     const fan = await prisma.fan.findUnique({
-      where: { id: fanId },
+      where: { id: normalizedFanId },
       select: { isBlocked: true, preferredLanguage: true, creatorId: true, inviteUsedAt: true, inviteToken: true },
     });
     if (!fan) {
@@ -239,6 +316,28 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse<MessageRespo
     }
     if (normalizedFrom === "creator" && fan.isBlocked && normalizedAudience !== "INTERNAL") {
       return res.status(403).json({ ok: false, error: "CHAT_BLOCKED" });
+    }
+
+    if (normalizedType === "VOICE") {
+      const base64Payload = extractBase64Payload(audioBase64 as string);
+      const bytes = Buffer.from(base64Payload, "base64");
+      if (!bytes.length || bytes.length < MIN_VOICE_BYTES) {
+        return res.status(400).json({ ok: false, error: "No se detectó audio" });
+      }
+      if (bytes.length > MAX_VOICE_BYTES) {
+        return res.status(400).json({ ok: false, error: "Audio too large" });
+      }
+      const stored = await saveVoice({
+        fanId: normalizedFanId,
+        bytes,
+        mimeType: normalizedMime,
+      });
+      voicePayload = {
+        audioUrl: stored.url,
+        audioMime: normalizedMime,
+        audioSizeBytes: bytes.length,
+        audioDurationMs: Number.isFinite(parsedDurationMs) ? Math.round(parsedDurationMs) : null,
+      };
     }
 
     const preferredLanguage = normalizePreferredLanguage(fan.preferredLanguage) ?? "en";
@@ -256,7 +355,7 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse<MessageRespo
         text,
         targetLanguage: preferredLanguage,
         creatorId: fan.creatorId,
-        fanId,
+        fanId: normalizedFanId,
       });
     }
 
@@ -265,22 +364,22 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse<MessageRespo
         text,
         targetLanguage: "es",
         creatorId: fan.creatorId,
-        fanId,
+        fanId: normalizedFanId,
       });
     }
 
     const shouldUpdateThread = normalizedAudience !== "INTERNAL";
     if (shouldUpdateThread) {
       await prisma.message.updateMany({
-        where: { fanId },
+        where: { fanId: normalizedFanId },
         data: { isLastFromCreator: false },
       });
     }
 
     const created = await prisma.message.create({
       data: {
-        id: `${fanId}-${Date.now()}`,
-        fanId,
+        id: `${normalizedFanId}-${Date.now()}`,
+        fanId: normalizedFanId,
         from: storedFrom,
         audience: normalizedAudience,
         text: messageText,
@@ -291,6 +390,10 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse<MessageRespo
         type: normalizedType,
         contentItemId: normalizedType === "CONTENT" ? (contentItemId as string) : null,
         stickerId: normalizedType === "STICKER" ? normalizedStickerId : null,
+        audioUrl: voicePayload?.audioUrl ?? null,
+        audioDurationMs: voicePayload?.audioDurationMs ?? null,
+        audioMime: voicePayload?.audioMime ?? null,
+        audioSizeBytes: voicePayload?.audioSizeBytes ?? null,
       },
       include: { contentItem: true },
     });
@@ -299,12 +402,12 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse<MessageRespo
       eventId: created.id,
       type: "MESSAGE_CREATED",
       creatorId: fan.creatorId,
-      fanId,
+      fanId: normalizedFanId,
       createdAt: new Date().toISOString(),
       payload: {
         message: {
           id: created.id,
-          fanId,
+          fanId: normalizedFanId,
           from: created.from,
           audience: created.audience,
           text: created.text,
@@ -332,6 +435,8 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse<MessageRespo
       const previewSource =
         normalizedType === "CONTENT"
           ? created.contentItem?.title || "Contenido compartido"
+          : normalizedType === "VOICE"
+          ? "🎤 Nota de voz"
           : normalizedType === "STICKER"
           ? stickerLabel
           : typeof text === "string"
@@ -361,11 +466,11 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse<MessageRespo
       }
       try {
         await prisma.fan.update({
-          where: { id: fanId },
+          where: { id: normalizedFanId },
           data: fanUpdate,
         });
       } catch (updateErr) {
-        console.error("api/messages fan-update error", { fanId, error: (updateErr as Error)?.message });
+        console.error("api/messages fan-update error", { fanId: normalizedFanId, error: (updateErr as Error)?.message });
       }
     }
 
@@ -375,7 +480,7 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse<MessageRespo
       const payload = getDbSchemaOutOfSyncPayload();
       return res.status(500).json({ ok: false, error: payload.errorCode, ...payload });
     }
-    console.error("api/messages post error", { fanId, error: (err as Error)?.message });
+    console.error("api/messages post error", { fanId: normalizedFanId, error: (err as Error)?.message });
     return res.status(500).json({ ok: false, error: "Error creating message" });
   }
 }

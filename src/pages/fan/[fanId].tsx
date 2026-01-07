@@ -21,10 +21,10 @@ import { parseReactionsRaw, useReactions } from "../../lib/emoji/reactions";
 import { getStickerById } from "../../lib/emoji/stickers";
 import { buildFanChatProps } from "../../lib/fanChatProps";
 import { generateClientTxnId } from "../../lib/clientTxn";
-import { getPreferredAudioStream } from "../../lib/getPreferredAudioStream";
 import { emitPurchaseCreated } from "../../lib/events";
 import { recordDevRequest } from "../../lib/devRequestStats";
 import { buildStickerTokenFromItem, getStickerByToken, type StickerItem } from "../../lib/stickers";
+import { useVoiceRecorder } from "../../lib/useVoiceRecorder";
 import { IconGlyph, type IconName } from "../../components/ui/IconGlyph";
 import { Badge, type BadgeTone } from "../../components/ui/Badge";
 import clsx from "clsx";
@@ -50,7 +50,7 @@ type ApiMessage = {
   creatorTranslatedText?: string | null;
   time?: string | null;
   isLastFromCreator?: boolean | null;
-  type?: "TEXT" | "CONTENT" | "STICKER" | "SYSTEM" | "AUDIO";
+  type?: "TEXT" | "CONTENT" | "STICKER" | "SYSTEM" | "AUDIO" | "VOICE";
   stickerId?: string | null;
   audioUrl?: string | null;
   audioDurationMs?: number | null;
@@ -88,13 +88,14 @@ type PackSummary = {
 
 type VoiceUploadPayload = {
   blob: Blob;
+  base64: string;
   durationMs: number;
   mimeType: string;
-  clientTxnId: string;
+  sizeBytes: number;
 };
 
 const VOICE_MAX_DURATION_MS = 120_000;
-const VOICE_MAX_SIZE_BYTES = 20 * 1024 * 1024;
+const VOICE_MAX_SIZE_BYTES = 10 * 1024 * 1024;
 const VOICE_MIN_SIZE_BYTES = 2 * 1024;
 const VOICE_MIME_PREFERENCES = [
   "audio/webm;codecs=opus",
@@ -182,17 +183,17 @@ export function FanChatPage({
   const [supportSubmitting, setSupportSubmitting] = useState(false);
   const supportSubmitRef = useRef(false);
   const supportTxnRef = useRef<string | null>(null);
-  const [isVoiceRecording, setIsVoiceRecording] = useState(false);
-  const [voiceRecordingMs, setVoiceRecordingMs] = useState(0);
   const [isVoiceUploading, setIsVoiceUploading] = useState(false);
   const [voiceUploadError, setVoiceUploadError] = useState("");
   const [voiceRetryPayload, setVoiceRetryPayload] = useState<VoiceUploadPayload | null>(null);
-  const voiceRecorderRef = useRef<MediaRecorder | null>(null);
-  const voiceStreamRef = useRef<MediaStream | null>(null);
-  const voiceChunksRef = useRef<BlobPart[]>([]);
-  const voiceStartRef = useRef<number | null>(null);
-  const voiceTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const voiceCancelRef = useRef(false);
+  const {
+    isRecording: isVoiceRecording,
+    recordingMs: voiceRecordingMs,
+    start: startVoiceRecorder,
+    stop: stopVoiceRecorder,
+    cancel: cancelVoiceRecorder,
+    reset: resetVoiceRecorder,
+  } = useVoiceRecorder({ mimePreferences: VOICE_MIME_PREFERENCES });
   const voiceObjectUrlsRef = useRef<Map<string, string>>(new Map());
   const voicePreviewRef = useRef<HTMLAudioElement | null>(null);
 
@@ -863,20 +864,6 @@ export function FanChatPage({
     });
   }, []);
 
-  const clearVoiceTimer = useCallback(() => {
-    if (voiceTimerRef.current) {
-      clearInterval(voiceTimerRef.current);
-      voiceTimerRef.current = null;
-    }
-  }, []);
-
-  const stopVoiceStream = useCallback(() => {
-    if (voiceStreamRef.current) {
-      voiceStreamRef.current.getTracks().forEach((track) => track.stop());
-      voiceStreamRef.current = null;
-    }
-  }, []);
-
   const previewVoiceBlob = useCallback((blob: Blob) => {
     if (typeof Audio === "undefined") return;
     if (voicePreviewRef.current) {
@@ -904,31 +891,11 @@ export function FanChatPage({
     }
   }, []);
 
-  const resetVoiceRecording = useCallback(() => {
-    clearVoiceTimer();
-    stopVoiceStream();
-    voiceChunksRef.current = [];
-    voiceStartRef.current = null;
-    voiceRecorderRef.current = null;
-    voiceCancelRef.current = false;
-    setVoiceRecordingMs(0);
-    setIsVoiceRecording(false);
-  }, [clearVoiceTimer, stopVoiceStream]);
-
-  const resolveVoiceMimeType = useCallback(() => {
-    if (typeof window === "undefined" || typeof MediaRecorder === "undefined") return "";
-    for (let i = 0; i < VOICE_MIME_PREFERENCES.length; i += 1) {
-      const candidate = VOICE_MIME_PREFERENCES[i];
-      if (MediaRecorder.isTypeSupported(candidate)) return candidate;
-    }
-    return "";
-  }, []);
-
   const uploadVoiceNote = useCallback(
     async (payload: VoiceUploadPayload) => {
       if (!fanId) return;
-      const { blob, durationMs, mimeType, clientTxnId } = payload;
-      const tempId = `temp-audio-${Date.now()}`;
+      const { blob, base64, durationMs, mimeType, sizeBytes } = payload;
+      const tempId = `temp-voice-${Date.now()}`;
       const localUrl = URL.createObjectURL(blob);
       voiceObjectUrlsRef.current.set(tempId, localUrl);
       const timeLabel = new Date().toLocaleTimeString("es-ES", {
@@ -943,11 +910,11 @@ export function FanChatPage({
         text: "",
         time: timeLabel,
         status: "sending",
-        type: "AUDIO",
+        type: "VOICE",
         audioUrl: localUrl,
         audioDurationMs: durationMs,
         audioMime: mimeType,
-        audioSizeBytes: blob.size,
+        audioSizeBytes: sizeBytes,
       };
       setMessages((prev) => reconcileMessages(prev, [tempMessage], sortMessages, fanId));
       scrollToBottom("auto");
@@ -955,17 +922,17 @@ export function FanChatPage({
       setVoiceRetryPayload(null);
       setIsVoiceUploading(true);
       try {
-        const form = new FormData();
-        const extension = mimeType.includes("ogg") ? "ogg" : mimeType.includes("mp4") ? "mp4" : "webm";
-        form.append("file", blob, `voice_${Date.now()}.${extension}`);
-        form.append("durationMs", String(durationMs));
-        form.append("from", "fan");
-        form.append("clientTxnId", clientTxnId);
-        form.append("mime", mimeType);
-        form.append("fanId", fanId);
-        const res = await fetch(`/api/chats/${fanId}/voice-notes`, {
+        const res = await fetch("/api/messages", {
           method: "POST",
-          body: form,
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            fanId,
+            from: "fan",
+            type: "VOICE",
+            audioBase64: base64,
+            mimeType,
+            durationMs,
+          }),
         });
         const data = await res.json().catch(() => ({}));
         if (!res.ok || !data?.ok) {
@@ -977,7 +944,6 @@ export function FanChatPage({
               : `Error ${res.status}`;
           throw new Error(errorMessage);
         }
-        const reused = Boolean(data?.reused);
         const newMessages: ApiMessage[] = Array.isArray(data.messages)
           ? (data.messages as ApiMessage[])
           : data.message
@@ -986,12 +952,6 @@ export function FanChatPage({
         if (newMessages.length > 0) {
           setMessages((prev) => {
             const withoutTemp = (prev || []).filter((msg) => msg.id !== tempId);
-            if (reused) {
-              const existingIds = new Set(withoutTemp.map((msg) => msg.id));
-              const fresh = newMessages.filter((msg) => !existingIds.has(msg.id));
-              if (fresh.length === 0) return withoutTemp;
-              return reconcileMessages(withoutTemp, fresh, sortMessages, fanId);
-            }
             return reconcileMessages(withoutTemp, newMessages, sortMessages, fanId);
           });
         } else {
@@ -1018,146 +978,77 @@ export function FanChatPage({
   const startVoiceRecording = useCallback(async () => {
     if (isVoiceRecording || isVoiceUploading) return;
     if (!fanId || isComposerDisabled) return;
-    if (typeof navigator === "undefined" || !navigator.mediaDevices?.getUserMedia) {
-      setVoiceUploadError("No se detecta micro en este navegador.");
-      return;
-    }
     try {
-      const { stream, label, deviceId, isMonitor } = await getPreferredAudioStream();
-      console.info("voice capture device:", label, deviceId ?? "");
-      const audioTracks = stream.getAudioTracks();
-      if (!audioTracks.length) {
-        setVoiceUploadError("No se detectó audio.");
-        stream.getTracks().forEach((track) => track.stop());
-        return;
-      }
-      if (isMonitor || audioTracks.some((track) => track.label.toLowerCase().includes("monitor"))) {
-        setVoiceUploadError("Entrada de micro incorrecta (Monitor). Cambia a MicrophoneFX en ajustes.");
-        setVoiceRetryPayload(null);
-        stream.getTracks().forEach((track) => track.stop());
-        return;
-      }
-      audioTracks.forEach((track) => {
-        if (!track.enabled) track.enabled = true;
-      });
-      if (!audioTracks.some((track) => track.enabled)) {
-        setVoiceUploadError("No se detectó audio.");
-        stream.getTracks().forEach((track) => track.stop());
-        return;
-      }
-      voiceStreamRef.current = stream;
-      const mimeType = resolveVoiceMimeType();
-      const recorder = mimeType ? new MediaRecorder(stream, { mimeType }) : new MediaRecorder(stream);
-      voiceRecorderRef.current = recorder;
-      voiceChunksRef.current = [];
-      voiceCancelRef.current = false;
-      voiceStartRef.current = Date.now();
-      setVoiceRecordingMs(0);
-      setIsVoiceRecording(true);
       setVoiceUploadError("");
       setVoiceRetryPayload(null);
-      recorder.ondataavailable = (event) => {
-        if (event.data && event.data.size > 0) {
-          voiceChunksRef.current.push(event.data);
-        }
-      };
-      recorder.onerror = () => {
-        setVoiceUploadError("Error al grabar la nota de voz.");
-        resetVoiceRecording();
-      };
-      recorder.onstop = () => {
-        const startedAt = voiceStartRef.current ?? Date.now();
-        const elapsedMs = Math.max(0, Date.now() - startedAt);
-        const chunks = voiceChunksRef.current;
-        clearVoiceTimer();
-        stopVoiceStream();
-        voiceRecorderRef.current = null;
-        voiceStartRef.current = null;
-        setIsVoiceRecording(false);
-        setVoiceRecordingMs(0);
-        if (voiceCancelRef.current) {
-          voiceCancelRef.current = false;
-          voiceChunksRef.current = [];
-          return;
-        }
-        const blob = new Blob(chunks, { type: mimeType || "audio/webm" });
-        voiceChunksRef.current = [];
-        console.info("[voice-note] recorded", {
-          blobType: blob.type,
-          blobSize: blob.size,
-          durationMs: elapsedMs,
-        });
-        if (!blob.size) {
-          setVoiceUploadError("No se pudo grabar la nota de voz.");
-          return;
-        }
-        if (blob.size < VOICE_MIN_SIZE_BYTES) {
-          setVoiceUploadError("No se detectó audio.");
-          return;
-        }
-        if (blob.size > VOICE_MAX_SIZE_BYTES) {
-          setVoiceUploadError("La nota de voz supera los 20 MB.");
-          return;
-        }
-        if (elapsedMs > VOICE_MAX_DURATION_MS) {
-          setVoiceUploadError("La nota de voz supera los 120 s.");
-          return;
-        }
-        if (elapsedMs < 800) {
-          setVoiceUploadError("La nota de voz es demasiado corta.");
-          return;
-        }
-        previewVoiceBlob(blob);
-        const clientTxnId = generateClientTxnId();
-        void uploadVoiceNote({
-          blob,
-          durationMs: elapsedMs,
-          mimeType: blob.type || mimeType || "audio/webm",
-          clientTxnId,
-        });
-      };
-      recorder.start();
-      voiceTimerRef.current = setInterval(() => {
-        if (!voiceStartRef.current) return;
-        setVoiceRecordingMs(Date.now() - voiceStartRef.current);
-      }, 250);
-    } catch (_err) {
-      setVoiceUploadError("Permiso del micro denegado.");
-      resetVoiceRecording();
+      await startVoiceRecorder();
+    } catch (err) {
+      const message =
+        err instanceof Error && err.message.trim().length > 0 ? err.message : "Permiso del micro denegado.";
+      setVoiceUploadError(message);
+      resetVoiceRecorder();
     }
   }, [
     fanId,
     isComposerDisabled,
     isVoiceRecording,
     isVoiceUploading,
-    resolveVoiceMimeType,
-    resetVoiceRecording,
-    uploadVoiceNote,
-    previewVoiceBlob,
-    clearVoiceTimer,
-    stopVoiceStream,
+    resetVoiceRecorder,
+    startVoiceRecorder,
   ]);
 
-  const stopVoiceRecording = useCallback(() => {
+  const stopVoiceRecording = useCallback(async () => {
     if (!isVoiceRecording) return;
-    const recorder = voiceRecorderRef.current;
-    if (!recorder || recorder.state === "inactive") {
-      resetVoiceRecording();
-      return;
+    try {
+      const result = await stopVoiceRecorder();
+      if (!result) return;
+      console.info("[voice-note] recorded", {
+        blobType: result.blob.type,
+        blobSize: result.sizeBytes,
+        durationMs: result.durationMs,
+      });
+      if (!result.sizeBytes) {
+        setVoiceUploadError("No se pudo grabar la nota de voz.");
+        return;
+      }
+      if (result.sizeBytes < VOICE_MIN_SIZE_BYTES) {
+        setVoiceUploadError("No se detectó audio.");
+        return;
+      }
+      if (result.sizeBytes > VOICE_MAX_SIZE_BYTES) {
+        setVoiceUploadError("La nota de voz supera los 10 MB.");
+        return;
+      }
+      if (result.durationMs > VOICE_MAX_DURATION_MS) {
+        setVoiceUploadError("La nota de voz supera los 120 s.");
+        return;
+      }
+      if (result.durationMs < 800) {
+        setVoiceUploadError("La nota de voz es demasiado corta.");
+        return;
+      }
+      previewVoiceBlob(result.blob);
+      void uploadVoiceNote({
+        blob: result.blob,
+        base64: result.base64,
+        durationMs: result.durationMs,
+        mimeType: result.mimeType,
+        sizeBytes: result.sizeBytes,
+      });
+    } catch (err) {
+      const message =
+        err instanceof Error && err.message.trim().length > 0
+          ? err.message
+          : "Error al grabar la nota de voz.";
+      setVoiceUploadError(message);
+      resetVoiceRecorder();
     }
-    recorder.stop();
-  }, [isVoiceRecording, resetVoiceRecording]);
+  }, [isVoiceRecording, previewVoiceBlob, resetVoiceRecorder, stopVoiceRecorder, uploadVoiceNote]);
 
   const cancelVoiceRecording = useCallback(() => {
     if (!isVoiceRecording) return;
-    voiceCancelRef.current = true;
-    const recorder = voiceRecorderRef.current;
-    if (recorder && recorder.state !== "inactive") {
-      recorder.stop();
-    } else {
-      resetVoiceRecording();
-    }
-  }, [isVoiceRecording, resetVoiceRecording]);
+    cancelVoiceRecorder();
+  }, [cancelVoiceRecorder, isVoiceRecording]);
 
   const retryVoiceUpload = useCallback(() => {
     if (!voiceRetryPayload || isVoiceUploading) return;
@@ -1175,8 +1066,7 @@ export function FanChatPage({
   useEffect(() => {
     const objectUrls = voiceObjectUrlsRef.current;
     return () => {
-      clearVoiceTimer();
-      stopVoiceStream();
+      resetVoiceRecorder();
       if (voicePreviewRef.current) {
         voicePreviewRef.current.pause();
         voicePreviewRef.current = null;
@@ -1184,13 +1074,13 @@ export function FanChatPage({
       objectUrls.forEach((url) => URL.revokeObjectURL(url));
       objectUrls.clear();
     };
-  }, [clearVoiceTimer, stopVoiceStream]);
+  }, [resetVoiceRecorder]);
 
   useEffect(() => {
     setVoiceUploadError("");
     setVoiceRetryPayload(null);
-    resetVoiceRecording();
-  }, [fanId, resetVoiceRecording]);
+    resetVoiceRecorder();
+  }, [fanId, resetVoiceRecorder]);
 
   useIsomorphicLayoutEffect(() => {
     const el = messagesContainerRef.current;
@@ -1277,7 +1167,7 @@ export function FanChatPage({
                 if (msg.type === "SYSTEM") {
                   return <SystemMessage key={messageId} text={msg.text || ""} />;
                 }
-                if (msg.type === "AUDIO") {
+                if (msg.type === "AUDIO" || msg.type === "VOICE") {
                   return <AudioMessage key={messageId} message={msg} />;
                 }
                 const tokenSticker =

@@ -102,7 +102,7 @@ function dispatchLocal(eventName: string, detail: unknown) {
 
 function normalizeMessageKind(type?: string | null) {
   const upper = typeof type === "string" ? type.toUpperCase() : "";
-  if (upper === "AUDIO") return "audio";
+  if (upper === "AUDIO" || upper === "VOICE") return "audio";
   if (upper === "CONTENT") return "content";
   if (upper === "STICKER") return "sticker";
   return "text";

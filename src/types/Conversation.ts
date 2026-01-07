@@ -13,7 +13,7 @@ interface Message {
   createdAt?: string;
   status?: "sending" | "failed" | "sent";
   kind?: "text" | "content" | "sticker" | "system" | "audio";
-  type?: "TEXT" | "CONTENT" | "STICKER" | "SYSTEM" | "AUDIO";
+  type?: "TEXT" | "CONTENT" | "STICKER" | "SYSTEM" | "AUDIO" | "VOICE";
   stickerId?: string | null;
   stickerSrc?: string | null;
   stickerAlt?: string | null;

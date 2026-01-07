@@ -49,6 +49,7 @@ function resolveLocalAudioPath(audioUrl: string): string | null {
   const clean = audioUrl.split("?")[0];
   const apiPrefix = "/api/voice-notes/";
   const publicPrefix = "/uploads/voice-notes/";
+  const voicePublicPrefix = "/uploads/voice/";
   if (clean.startsWith(apiPrefix)) {
     const relative = clean.slice(apiPrefix.length);
     const [chatId, filename] = relative.split("/");
@@ -60,6 +61,12 @@ function resolveLocalAudioPath(audioUrl: string): string | null {
     const [chatId, filename] = relative.split("/");
     if (!isSafeSegment(chatId) || !isSafeFilename(filename)) return null;
     return path.join(process.cwd(), "public", "uploads", "voice-notes", chatId, filename);
+  }
+  if (clean.startsWith(voicePublicPrefix)) {
+    const relative = clean.slice(voicePublicPrefix.length);
+    const [fanId, filename] = relative.split("/");
+    if (!isSafeSegment(fanId) || !isSafeFilename(filename)) return null;
+    return path.join(process.cwd(), "public", "uploads", "voice", fanId, filename);
   }
   return null;
 }

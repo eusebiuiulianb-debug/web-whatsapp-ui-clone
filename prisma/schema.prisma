@@ -326,6 +326,7 @@ enum MessageType {
   CONTENT
   STICKER
   AUDIO
+  VOICE
 }
 
 enum MessageAudience {

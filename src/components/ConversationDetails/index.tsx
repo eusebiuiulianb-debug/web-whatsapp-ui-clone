@@ -63,7 +63,7 @@ import { buildStickerToken, getStickerByToken, type StickerItem as PickerSticker
 import { parseReactionsRaw, useReactions } from "../../lib/emoji/reactions";
 import { computeFanTotals } from "../../lib/fanTotals";
 import { generateClientTxnId } from "../../lib/clientTxn";
-import { getPreferredAudioStream } from "../../lib/getPreferredAudioStream";
+import { useVoiceRecorder } from "../../lib/useVoiceRecorder";
 import { formatPurchaseUI } from "../../lib/purchaseUi";
 import { formatNextActionLabel, formatWhen, isGenericNextActionNote } from "../../lib/nextActionLabel";
 import {
@@ -183,7 +183,7 @@ const DUPLICATE_BYPASS_WINDOW_MS = 5 * 60 * 1000;
 const FAN_SEND_COOLDOWN_MS = 15000;
 const LAST_SENT_STORAGE_PREFIX = "novsy:lastSent:";
 const VOICE_MAX_DURATION_MS = 120_000;
-const VOICE_MAX_SIZE_BYTES = 20 * 1024 * 1024;
+const VOICE_MAX_SIZE_BYTES = 10 * 1024 * 1024;
 const VOICE_MIN_SIZE_BYTES = 2 * 1024;
 const VOICE_MIME_PREFERENCES = [
   "audio/webm;codecs=opus",
@@ -196,9 +196,10 @@ const TOOLBAR_MARGIN = 12;
 
 type VoiceUploadPayload = {
   blob: Blob;
+  base64: string;
   durationMs: number;
   mimeType: string;
-  clientTxnId: string;
+  sizeBytes: number;
 };
 
 const normalizeActionKey = (key?: string | null) => {
@@ -669,17 +670,17 @@ export default function ConversationDetails({ onBackToBoard }: ConversationDetai
   const purchaseNoticeShownAtRef = useRef(0);
   const purchaseNoticeFallbackNameRef = useRef("Fan");
   const internalToastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const [ isVoiceRecording, setIsVoiceRecording ] = useState(false);
-  const [ voiceRecordingMs, setVoiceRecordingMs ] = useState(0);
   const [ isVoiceUploading, setIsVoiceUploading ] = useState(false);
   const [ voiceUploadError, setVoiceUploadError ] = useState("");
   const [ voiceRetryPayload, setVoiceRetryPayload ] = useState<VoiceUploadPayload | null>(null);
-  const voiceRecorderRef = useRef<MediaRecorder | null>(null);
-  const voiceStreamRef = useRef<MediaStream | null>(null);
-  const voiceChunksRef = useRef<BlobPart[]>([]);
-  const voiceStartRef = useRef<number | null>(null);
-  const voiceTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const voiceCancelRef = useRef(false);
+  const {
+    isRecording: isVoiceRecording,
+    recordingMs: voiceRecordingMs,
+    start: startVoiceRecorder,
+    stop: stopVoiceRecorder,
+    cancel: cancelVoiceRecorder,
+    reset: resetVoiceRecorder,
+  } = useVoiceRecorder({ mimePreferences: VOICE_MIME_PREFERENCES });
   const voiceObjectUrlsRef = useRef<Map<string, string>>(new Map());
   const voicePreviewRef = useRef<HTMLAudioElement | null>(null);
   const messageEventIdsRef = useRef<Set<string>>(new Set());
@@ -719,20 +720,6 @@ export default function ConversationDetails({ onBackToBoard }: ConversationDetai
   }, [purchaseNotice]);
 
 
-  const clearVoiceTimer = useCallback(() => {
-    if (voiceTimerRef.current) {
-      clearInterval(voiceTimerRef.current);
-      voiceTimerRef.current = null;
-    }
-  }, []);
-
-  const stopVoiceStream = useCallback(() => {
-    if (voiceStreamRef.current) {
-      voiceStreamRef.current.getTracks().forEach((track) => track.stop());
-      voiceStreamRef.current = null;
-    }
-  }, []);
-
   const previewVoiceBlob = useCallback((blob: Blob) => {
     if (typeof Audio === "undefined") return;
     if (voicePreviewRef.current) {
@@ -760,25 +747,6 @@ export default function ConversationDetails({ onBackToBoard }: ConversationDetai
     }
   }, []);
 
-  const resetVoiceRecording = useCallback(() => {
-    clearVoiceTimer();
-    stopVoiceStream();
-    voiceChunksRef.current = [];
-    voiceStartRef.current = null;
-    voiceRecorderRef.current = null;
-    voiceCancelRef.current = false;
-    setVoiceRecordingMs(0);
-    setIsVoiceRecording(false);
-  }, [clearVoiceTimer, stopVoiceStream]);
-
-  const resolveVoiceMimeType = useCallback(() => {
-    if (typeof window === "undefined" || typeof MediaRecorder === "undefined") return "";
-    for (const candidate of VOICE_MIME_PREFERENCES) {
-      if (MediaRecorder.isTypeSupported(candidate)) return candidate;
-    }
-    return "";
-  }, []);
-
   const formatRecordingLabel = (ms: number) => {
     const seconds = Math.max(0, Math.floor(ms / 1000));
     return formatAudioTime(seconds);
@@ -800,7 +768,7 @@ export default function ConversationDetails({ onBackToBoard }: ConversationDetai
     return apiMessages.map((msg) => {
       const isContent = msg.type === "CONTENT";
       const isLegacySticker = msg.type === "STICKER";
-      const isAudio = msg.type === "AUDIO";
+      const isAudio = msg.type === "AUDIO" || msg.type === "VOICE";
       const isSystem = msg.type === "SYSTEM";
       const tokenSticker = !isContent && !isLegacySticker ? getStickerByToken(msg.text ?? "") : null;
       const isSticker = isLegacySticker || Boolean(tokenSticker);
@@ -885,8 +853,8 @@ export default function ConversationDetails({ onBackToBoard }: ConversationDetai
   const uploadVoiceNote = useCallback(
     async (payload: VoiceUploadPayload) => {
       if (!id) return;
-      const { blob, durationMs, mimeType, clientTxnId } = payload;
-      const tempId = `temp-audio-${Date.now()}`;
+      const { blob, base64, durationMs, mimeType, sizeBytes } = payload;
+      const tempId = `temp-voice-${Date.now()}`;
       const localUrl = URL.createObjectURL(blob);
       voiceObjectUrlsRef.current.set(tempId, localUrl);
       const timeLabel = new Date().toLocaleTimeString("es-ES", {
@@ -903,11 +871,11 @@ export default function ConversationDetails({ onBackToBoard }: ConversationDetai
         createdAt: new Date().toISOString(),
         status: "sending",
         kind: "audio",
-        type: "AUDIO",
+        type: "VOICE",
         audioUrl: localUrl,
         audioDurationMs: durationMs,
         audioMime: mimeType,
-        audioSizeBytes: blob.size,
+        audioSizeBytes: sizeBytes,
       };
       setMessage((prev) => {
         if (!id) return prev || [];
@@ -919,17 +887,17 @@ export default function ConversationDetails({ onBackToBoard }: ConversationDetai
 
       setIsVoiceUploading(true);
       try {
-        const form = new FormData();
-        const extension = mimeType.includes("ogg") ? "ogg" : mimeType.includes("mp4") ? "mp4" : "webm";
-        form.append("file", blob, `voice_${Date.now()}.${extension}`);
-        form.append("durationMs", String(durationMs));
-        form.append("from", "creator");
-        form.append("clientTxnId", clientTxnId);
-        form.append("mime", mimeType);
-        form.append("chatId", id);
-        const res = await fetch(`/api/chats/${id}/voice-notes`, {
+        const res = await fetch("/api/messages", {
           method: "POST",
-          body: form,
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            fanId: id,
+            from: "creator",
+            type: "VOICE",
+            audioBase64: base64,
+            mimeType,
+            durationMs,
+          }),
         });
         const data = await res.json().catch(() => ({}));
         if (handleSchemaOutOfSync(data)) {
@@ -945,7 +913,6 @@ export default function ConversationDetails({ onBackToBoard }: ConversationDetai
               : `Error ${res.status}`;
           throw new Error(errorMessage);
         }
-        const reused = Boolean(data?.reused);
         const apiMessages: ApiMessage[] = Array.isArray(data.messages)
           ? (data.messages as ApiMessage[])
           : data.message
@@ -961,12 +928,6 @@ export default function ConversationDetails({ onBackToBoard }: ConversationDetai
         if (mapped.length > 0) {
           setMessage((prev) => {
             const withoutTemp = (prev || []).filter((msg) => msg.id !== tempId);
-            if (reused) {
-              const existingIds = new Set(withoutTemp.map((msg) => msg.id));
-              const fresh = mapped.filter((msg) => !existingIds.has(msg.id));
-              if (fresh.length === 0) return withoutTemp;
-              return reconcileMessages(withoutTemp, fresh, id);
-            }
             return reconcileMessages(withoutTemp, mapped, id);
           });
         } else {
@@ -974,7 +935,7 @@ export default function ConversationDetails({ onBackToBoard }: ConversationDetai
         }
         const voiceMessage = apiMessages[apiMessages.length - 1] ?? null;
         const voiceMessageId = voiceMessage?.id ?? null;
-        if (!reused && deduped.length > 0) {
+        if (deduped.length > 0) {
           const durationMsValue =
             typeof voiceMessage?.audioDurationMs === "number" ? voiceMessage.audioDurationMs : durationMs;
           emitFanMessageSent({
@@ -1011,112 +972,16 @@ export default function ConversationDetails({ onBackToBoard }: ConversationDetai
   const startVoiceRecording = useCallback(async () => {
     if (isVoiceRecording || isVoiceUploading) return;
     if (!id || conversation.isManager || composerTarget !== "fan") return;
-    if (typeof navigator === "undefined" || !navigator.mediaDevices?.getUserMedia) {
-      showComposerToast("No se detecta micro en este navegador.");
-      return;
-    }
     try {
       setVoiceUploadError("");
       setVoiceRetryPayload(null);
-      const { stream, label, deviceId, isMonitor } = await getPreferredAudioStream();
-      console.info("voice capture device:", label, deviceId ?? "");
-      const audioTracks = stream.getAudioTracks();
-      if (!audioTracks.length) {
-        showComposerToast("No se detectó audio.");
-        stream.getTracks().forEach((track) => track.stop());
-        return;
-      }
-      if (isMonitor || audioTracks.some((track) => track.label.toLowerCase().includes("monitor"))) {
-        setVoiceUploadError("Entrada de micro incorrecta (Monitor). Cambia a MicrophoneFX en ajustes.");
-        setVoiceRetryPayload(null);
-        stream.getTracks().forEach((track) => track.stop());
-        return;
-      }
-      audioTracks.forEach((track) => {
-        if (!track.enabled) track.enabled = true;
-      });
-      if (!audioTracks.some((track) => track.enabled)) {
-        showComposerToast("No se detectó audio.");
-        stream.getTracks().forEach((track) => track.stop());
-        return;
-      }
-      voiceStreamRef.current = stream;
-      const mimeType = resolveVoiceMimeType();
-      const recorder = mimeType ? new MediaRecorder(stream, { mimeType }) : new MediaRecorder(stream);
-      voiceRecorderRef.current = recorder;
-      voiceChunksRef.current = [];
-      voiceCancelRef.current = false;
-      voiceStartRef.current = Date.now();
-      setVoiceRecordingMs(0);
-      setIsVoiceRecording(true);
-      recorder.ondataavailable = (event) => {
-        if (event.data && event.data.size > 0) {
-          voiceChunksRef.current.push(event.data);
-        }
-      };
-      recorder.onerror = () => {
-        showComposerToast("Error al grabar la nota de voz.");
-        resetVoiceRecording();
-      };
-      recorder.onstop = () => {
-        const startedAt = voiceStartRef.current ?? Date.now();
-        const elapsedMs = Math.max(0, Date.now() - startedAt);
-        const chunks = voiceChunksRef.current;
-        clearVoiceTimer();
-        stopVoiceStream();
-        voiceRecorderRef.current = null;
-        voiceStartRef.current = null;
-        setIsVoiceRecording(false);
-        setVoiceRecordingMs(0);
-        if (voiceCancelRef.current) {
-          voiceCancelRef.current = false;
-          voiceChunksRef.current = [];
-          return;
-        }
-        const blob = new Blob(chunks, { type: mimeType || "audio/webm" });
-        voiceChunksRef.current = [];
-        console.info("[voice-note] recorded", {
-          blobType: blob.type,
-          blobSize: blob.size,
-          durationMs: elapsedMs,
-        });
-        if (!blob.size) {
-          showComposerToast("No se pudo grabar la nota de voz.");
-          return;
-        }
-        if (blob.size < VOICE_MIN_SIZE_BYTES) {
-          showComposerToast("No se detectó audio.");
-          return;
-        }
-        if (blob.size > VOICE_MAX_SIZE_BYTES) {
-          showComposerToast("La nota de voz supera los 20 MB.");
-          return;
-        }
-        if (elapsedMs > VOICE_MAX_DURATION_MS) {
-          showComposerToast("La nota de voz supera los 120 s.");
-          return;
-        }
-        if (elapsedMs < 800) {
-          showComposerToast("La nota de voz es demasiado corta.");
-          return;
-        }
-        previewVoiceBlob(blob);
-        const clientTxnId = generateClientTxnId();
-        void uploadVoiceNote({
-          blob,
-          durationMs: elapsedMs,
-          mimeType: blob.type || mimeType || "audio/webm",
-          clientTxnId,
-        });
-      };
-      recorder.start();
-      voiceTimerRef.current = setInterval(() => {
-        if (!voiceStartRef.current) return;
-        setVoiceRecordingMs(Date.now() - voiceStartRef.current);
-      }, 250);
-    } catch (_err) {
-      showComposerToast("Permiso del micro denegado.");
-      resetVoiceRecording();
+      await startVoiceRecorder();
+    } catch (err) {
+      const message =
+        err instanceof Error && err.message.trim().length > 0 ? err.message : "Permiso del micro denegado.";
+      setVoiceUploadError(message);
+      showComposerToast(message);
+      resetVoiceRecorder();
     }
   }, [
     composerTarget,
@@ -1124,35 +989,71 @@ export default function ConversationDetails({ onBackToBoard }: ConversationDetai
     id,
     isVoiceRecording,
     isVoiceUploading,
-    resolveVoiceMimeType,
-    resetVoiceRecording,
+    resetVoiceRecorder,
     showComposerToast,
-    uploadVoiceNote,
-    previewVoiceBlob,
-    clearVoiceTimer,
-    stopVoiceStream,
+    startVoiceRecorder,
   ]);
 
-  const stopVoiceRecording = useCallback(() => {
+  const stopVoiceRecording = useCallback(async () => {
     if (!isVoiceRecording) return;
-    const recorder = voiceRecorderRef.current;
-    if (!recorder || recorder.state === "inactive") {
-      resetVoiceRecording();
-      return;
+    try {
+      const result = await stopVoiceRecorder();
+      if (!result) return;
+      console.info("[voice-note] recorded", {
+        blobType: result.blob.type,
+        blobSize: result.sizeBytes,
+        durationMs: result.durationMs,
+      });
+      if (!result.sizeBytes) {
+        showComposerToast("No se pudo grabar la nota de voz.");
+        return;
+      }
+      if (result.sizeBytes < VOICE_MIN_SIZE_BYTES) {
+        showComposerToast("No se detectó audio.");
+        return;
+      }
+      if (result.sizeBytes > VOICE_MAX_SIZE_BYTES) {
+        showComposerToast("La nota de voz supera los 10 MB.");
+        return;
+      }
+      if (result.durationMs > VOICE_MAX_DURATION_MS) {
+        showComposerToast("La nota de voz supera los 120 s.");
+        return;
+      }
+      if (result.durationMs < 800) {
+        showComposerToast("La nota de voz es demasiado corta.");
+        return;
+      }
+      previewVoiceBlob(result.blob);
+      void uploadVoiceNote({
+        blob: result.blob,
+        base64: result.base64,
+        durationMs: result.durationMs,
+        mimeType: result.mimeType,
+        sizeBytes: result.sizeBytes,
+      });
+    } catch (err) {
+      const message =
+        err instanceof Error && err.message.trim().length > 0
+          ? err.message
+          : "Error al grabar la nota de voz.";
+      setVoiceUploadError(message);
+      showComposerToast(message);
+      resetVoiceRecorder();
     }
-    recorder.stop();
-  }, [isVoiceRecording, resetVoiceRecording]);
+  }, [
+    isVoiceRecording,
+    previewVoiceBlob,
+    resetVoiceRecorder,
+    showComposerToast,
+    stopVoiceRecorder,
+    uploadVoiceNote,
+  ]);
 
   const cancelVoiceRecording = useCallback(() => {
     if (!isVoiceRecording) return;
-    voiceCancelRef.current = true;
-    const recorder = voiceRecorderRef.current;
-    if (recorder && recorder.state !== "inactive") {
-      recorder.stop();
-    } else {
-      resetVoiceRecording();
-    }
-  }, [isVoiceRecording, resetVoiceRecording]);
+    cancelVoiceRecorder();
+  }, [cancelVoiceRecorder, isVoiceRecording]);
 
   const retryVoiceUpload = useCallback(() => {
     if (!voiceRetryPayload || isVoiceUploading) return;
@@ -1170,8 +1071,7 @@ export default function ConversationDetails({ onBackToBoard }: ConversationDetai
   useEffect(() => {
     const objectUrls = voiceObjectUrlsRef.current;
     return () => {
-      clearVoiceTimer();
-      stopVoiceStream();
+      resetVoiceRecorder();
       if (voicePreviewRef.current) {
         voicePreviewRef.current.pause();
         voicePreviewRef.current = null;
@@ -1179,14 +1079,14 @@ export default function ConversationDetails({ onBackToBoard }: ConversationDetai
       objectUrls.forEach((url) => URL.revokeObjectURL(url));
       objectUrls.clear();
     };
-  }, [clearVoiceTimer, stopVoiceStream]);
+  }, [resetVoiceRecorder]);
 
   useEffect(() => {
     messageEventIdsRef.current.clear();
     setVoiceUploadError("");
     setVoiceRetryPayload(null);
-    resetVoiceRecording();
-  }, [id, resetVoiceRecording]);
+    resetVoiceRecorder();
+  }, [id, resetVoiceRecorder]);
 
   function formatCurrency(value: number) {
     const rounded = Math.round((value ?? 0) * 100) / 100;
