@@ -228,7 +228,7 @@ export function VoiceInsightsCard({
 
       const request = fetch("/api/messages/analyze", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", "x-novsy-viewer": "creator" },
         cache: "no-store",
         body: JSON.stringify({ messageId, variant, tone, fanId }),
       })
@@ -299,34 +299,28 @@ export function VoiceInsightsCard({
     setTranslationStatus("loading");
     setTranslationError("");
 
-    const request = fetch("/api/messages/translate", {
+    const request = fetch("/api/creator/messages/translate", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", "x-novsy-viewer": "creator" },
       cache: "no-store",
-      body: JSON.stringify({ messageId, targetLanguage: "es" }),
+      body: JSON.stringify({ messageId, targetLang: "es", sourceKind: "voice_transcript" }),
     })
       .then(async (res) => {
         const data = await res.json().catch(() => ({}));
-        if (!res.ok || !data?.ok) {
-          throw new Error("No se pudo traducir.");
+        if (!res.ok) {
+          const errorCode = typeof data?.error === "string" ? data.error : "";
+          const message = errorCode === "ai_not_configured" ? "Traduccion no disponible." : "No se pudo traducir.";
+          throw new Error(message);
         }
         const translatedText =
           typeof data?.translatedText === "string" ? data.translatedText.trim() : "";
         if (!translatedText) {
-          const reason = typeof data?.reason === "string" ? data.reason : "";
-          const message =
-            reason === "ai_not_configured"
-              ? "Traduccion no disponible."
-              : reason === "not_required"
-              ? "No hace falta traducir."
-              : "No se pudo traducir.";
-          throw new Error(message);
+          throw new Error("No se pudo traducir.");
         }
         const translationPayload: VoiceTranslation = {
           text: translatedText,
-          targetLang: typeof data?.targetLanguage === "string" ? data.targetLanguage : "es",
-          sourceLang: typeof data?.detectedLanguage === "string" ? data.detectedLanguage : undefined,
-          updatedAt: new Date().toISOString(),
+          targetLang: typeof data?.targetLang === "string" ? data.targetLang : "es",
+          updatedAt: typeof data?.createdAt === "string" ? data.createdAt : new Date().toISOString(),
         };
         return translationPayload;
       })
@@ -427,6 +421,38 @@ export function VoiceInsightsCard({
     },
     [onInsertText]
   );
+
+  const copyTextToClipboard = useCallback(async (text: string) => {
+    if (typeof navigator !== "undefined" && navigator.clipboard?.writeText) {
+      try {
+        await navigator.clipboard.writeText(text);
+        return true;
+      } catch (_err) {
+        return false;
+      }
+    }
+    if (typeof document === "undefined") return false;
+    try {
+      const textarea = document.createElement("textarea");
+      textarea.value = text;
+      textarea.style.position = "fixed";
+      textarea.style.opacity = "0";
+      document.body.appendChild(textarea);
+      textarea.focus();
+      textarea.select();
+      const ok = document.execCommand("copy");
+      document.body.removeChild(textarea);
+      return ok;
+    } catch (_err) {
+      return false;
+    }
+  }, []);
+
+  const handleCopyTranslation = useCallback(async () => {
+    if (!translation?.text) return;
+    const ok = await copyTextToClipboard(translation.text);
+    onToast?.(ok ? "Texto copiado." : "No se pudo copiar.");
+  }, [copyTextToClipboard, onToast, translation?.text]);
 
   const analysisLabel = analysis ? INTENT_LABELS[analysis.intent] : null;
   const urgencyLabel = analysis ? URGENCY_LABELS[analysis.urgency] : null;
@@ -689,14 +715,25 @@ export function VoiceInsightsCard({
           <p className={clsx("text-[12px] text-[color:var(--text)]", translationOpen ? "" : "line-clamp-2")}>
             {translation?.text}
           </p>
-          {onInsertText && translation?.text && (
-            <button
-              type="button"
-              onClick={() => onInsert(translation.text)}
-              className="inline-flex items-center rounded-full border border-[color:var(--brand)] bg-[color:rgba(var(--brand-rgb),0.12)] px-3 py-1 text-[11px] font-medium text-[color:var(--text)] hover:bg-[color:rgba(var(--brand-rgb),0.2)] transition"
-            >
-              Usar en mensaje
-            </button>
+          {translation?.text && (
+            <div className="flex flex-wrap items-center gap-2 text-[10px] text-[color:var(--muted)]">
+              <button
+                type="button"
+                className="rounded-full border border-[color:var(--surface-border)] px-2 py-0.5 font-semibold text-[color:var(--text)] hover:bg-[color:var(--surface-1)]"
+                onClick={handleCopyTranslation}
+              >
+                Copiar
+              </button>
+              {onInsertText && (
+                <button
+                  type="button"
+                  onClick={() => onInsert(translation.text)}
+                  className="rounded-full border border-[color:var(--brand)] bg-[color:rgba(var(--brand-rgb),0.12)] px-2 py-0.5 font-semibold text-[color:var(--text)] hover:bg-[color:rgba(var(--brand-rgb),0.2)]"
+                >
+                  Insertar en el input
+                </button>
+              )}
+            </div>
           )}
         </div>
       )}

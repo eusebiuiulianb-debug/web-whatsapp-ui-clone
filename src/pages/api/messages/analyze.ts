@@ -1,5 +1,6 @@
 import type { NextApiRequest, NextApiResponse } from "next";
 import prisma from "../../../lib/prisma.server";
+import { dedupeGet, dedupeSet, hashText, rateLimitOrThrow } from "../../../lib/ai/guardrails";
 import { runAiCompletion } from "../../../server/ai/aiAdapter";
 import { maybeDecrypt } from "../../../server/crypto/maybeDecrypt";
 import {
@@ -9,7 +10,14 @@ import {
   type VoiceAnalysis,
 } from "../../../types/voiceAnalysis";
 
-const inFlight = new Map<string, Promise<VoiceAnalysis>>();
+type AnalyzeResult = {
+  analysis: VoiceAnalysis;
+  cacheStatus: "db" | "dedupe" | "miss";
+  rateLimitRemaining?: number;
+};
+
+const inFlight = new Map<string, Promise<AnalyzeResult>>();
+const DEDUPE_TTL_SEC = 30 * 60;
 const FALLBACK_ANALYSIS_JSON =
   '{"intent":"other","confidence":0.1,"urgency":"low","tags":["manual"],"summary":"No disponible","suggestions":[{"label":"principal","text":"Lo siento, ahora no puedo analizar."},{"label":"alternativa","text":"Lo reviso en un momento."},{"label":"corta","text":"Ahora no puedo."}]}';
 
@@ -33,7 +41,7 @@ type AnalyzeRequest = {
 
 type AnalyzeResponse =
   | { ok: true; analysis: VoiceAnalysis; cached?: boolean }
-  | { ok: false; error: string; reason?: string };
+  | { ok: false; error: string; reason?: string; retryAfterSec?: number };
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse<AnalyzeResponse>) {
   if (req.method !== "POST") {
@@ -43,6 +51,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
 
   res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0");
   res.setHeader("Pragma", "no-cache");
+
+  if (resolveViewerRole(req) !== "creator") {
+    return res.status(403).json({ ok: false, error: "Forbidden" });
+  }
 
   const { messageId, variant, tone } = (req.body || {}) as AnalyzeRequest;
   const normalizedId = typeof messageId === "string" ? messageId.trim() : "";
@@ -55,10 +67,20 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
   const existingPromise = inFlight.get(key);
   if (existingPromise) {
     try {
-      const analysis = await existingPromise;
-      return res.status(200).json({ ok: true, analysis });
+      const result = await existingPromise;
+      applyCacheHeaders(res, result);
+      return res.status(200).json({
+        ok: true,
+        analysis: result.analysis,
+        cached: result.cacheStatus !== "miss",
+      });
     } catch (err) {
       inFlight.delete(key);
+      if (isRateLimitError(err)) {
+        const retryAfterSec = err.retryAfterSec ?? 60;
+        res.setHeader("Retry-After", String(retryAfterSec));
+        return res.status(429).json({ ok: false, error: "RATE_LIMITED", retryAfterSec });
+      }
       return res.status(500).json({ ok: false, error: "No se pudo analizar la nota de voz" });
     }
   }
@@ -67,9 +89,19 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
   inFlight.set(key, analysisPromise);
 
   try {
-    const analysis = await analysisPromise;
-    return res.status(200).json({ ok: true, analysis });
+    const result = await analysisPromise;
+    applyCacheHeaders(res, result);
+    return res.status(200).json({
+      ok: true,
+      analysis: result.analysis,
+      cached: result.cacheStatus !== "miss",
+    });
   } catch (err) {
+    if (isRateLimitError(err)) {
+      const retryAfterSec = err.retryAfterSec ?? 60;
+      res.setHeader("Retry-After", String(retryAfterSec));
+      return res.status(429).json({ ok: false, error: "RATE_LIMITED", retryAfterSec });
+    }
     const safeMessage = err instanceof VoiceAnalysisError ? err.message : "No se pudo analizar la nota de voz";
     const status = err instanceof VoiceAnalysisError ? err.status : 500;
     if (err instanceof VoiceAnalysisError && err.reason === "missing_transcript") {
@@ -92,7 +124,11 @@ class VoiceAnalysisError extends Error {
   }
 }
 
-async function analyzeVoiceMessage(params: { messageId: string; variant: "default" | "shorter" | "alternate"; tone?: AnalyzeRequest["tone"] }) {
+async function analyzeVoiceMessage(params: {
+  messageId: string;
+  variant: "default" | "shorter" | "alternate";
+  tone?: AnalyzeRequest["tone"];
+}): Promise<AnalyzeResult> {
   const message = await prisma.message.findUnique({
     where: { id: params.messageId },
     select: {
@@ -129,11 +165,20 @@ async function analyzeVoiceMessage(params: { messageId: string; variant: "defaul
   const existing = safeParseVoiceAnalysis(message.voiceAnalysisJson);
   const existingTranslation = safeParseVoiceTranslation(message.voiceAnalysisJson);
   if (params.variant === "default" && existing) {
-    return existing;
+    return { analysis: existing, cacheStatus: "db" };
   }
 
   const toneLabel = formatToneLabel(params.tone);
   const baseAnalysis = params.variant !== "default" ? existing : null;
+
+  const sourceHash = hashText(transcriptText);
+  const dedupeKey = `ai:voice_insights:${creatorId}:${message.id}:${params.variant}:${sourceHash}`;
+  const deduped = await dedupeGet<VoiceAnalysis>(dedupeKey);
+  if (deduped) {
+    return { analysis: deduped, cacheStatus: "dedupe" };
+  }
+
+  const rateLimit = await rateLimitOrThrow({ creatorId, action: "voice_insights" });
 
   const apiKey = maybeDecrypt(process.env.OPENAI_API_KEY, { creatorId, label: "OPENAI_API_KEY" });
   const aiResult = await runAiCompletion({
@@ -185,7 +230,9 @@ async function analyzeVoiceMessage(params: { messageId: string; variant: "defaul
     },
   });
 
-  return merged;
+  await dedupeSet(dedupeKey, merged, DEDUPE_TTL_SEC);
+
+  return { analysis: merged, cacheStatus: "miss", rateLimitRemaining: rateLimit.remaining };
 }
 
 function buildAnalysisMessages(params: {
@@ -297,6 +344,30 @@ function formatToneLabel(tone?: "suave" | "intimo" | "picante") {
     default:
       return "equilibrado, cercano y respetuoso";
   }
+}
+
+function applyCacheHeaders(res: NextApiResponse, result: AnalyzeResult) {
+  res.setHeader("x-cache", result.cacheStatus);
+  if (typeof result.rateLimitRemaining === "number") {
+    res.setHeader("x-ratelimit-remaining", String(result.rateLimitRemaining));
+  }
+}
+
+function resolveViewerRole(req: NextApiRequest): "creator" | "fan" {
+  const headerRaw = req.headers["x-novsy-viewer"];
+  const header = Array.isArray(headerRaw) ? headerRaw[0] : headerRaw;
+  if (typeof header === "string" && header.trim().toLowerCase() === "creator") return "creator";
+
+  const viewerParamRaw = req.query.viewer;
+  const viewerParam = Array.isArray(viewerParamRaw) ? viewerParamRaw[0] : viewerParamRaw;
+  if (typeof viewerParam === "string" && viewerParam.trim().toLowerCase() === "creator") return "creator";
+
+  return "fan";
+}
+
+function isRateLimitError(err: unknown): err is { status?: number; retryAfterSec?: number } {
+  if (!err || typeof err !== "object") return false;
+  return "status" in err && (err as { status?: number }).status === 429;
 }
 
 async function resolveCreatorId() {

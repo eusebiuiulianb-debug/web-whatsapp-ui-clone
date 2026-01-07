@@ -171,6 +171,23 @@ model Message {
   voiceAnalysisJson  String?
   voiceAnalysisUpdatedAt DateTime?
   messageReactions   MessageReaction[]
+  messageTranslations MessageTranslation[]
+}
+
+model MessageTranslation {
+  id                 String   @id @default(cuid())
+  messageId          String
+  targetLang         String
+  sourceKind         String
+  sourceHash         String
+  translatedText     String
+  provider           String?
+  createdAt          DateTime @default(now())
+  createdByCreatorId String?
+  message            Message  @relation(fields: [messageId], references: [id], onDelete: Cascade)
+
+  @@unique([messageId, targetLang, sourceKind, sourceHash])
+  @@index([messageId, targetLang])
 }
 
 model MessageReaction {

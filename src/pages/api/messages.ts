@@ -115,6 +115,8 @@ function sanitizeMessageForFan(message: Record<string, unknown>) {
     voiceTranslationLang,
     voiceInsightsJson,
     voiceInsightsUpdatedAt,
+    creatorTranslatedText,
+    messageTranslations,
     ...rest
   } = message as Record<string, unknown>;
   return rest;
@@ -215,10 +217,16 @@ async function handleGet(req: NextApiRequest, res: NextApiResponse<MessageRespon
           ],
         }
       : baseWhere;
+    const includeTranslations = viewerRole === "creator";
     const messages = await prisma.message.findMany({
       where,
       orderBy: { id: "asc" },
-      include: { contentItem: true },
+      include: {
+        contentItem: true,
+        ...(includeTranslations
+          ? { messageTranslations: { orderBy: { createdAt: "desc" } } }
+          : {}),
+      },
     });
 
     const normalizedMessages = messages

@@ -1,4 +1,4 @@
-import { memo, useEffect, useMemo, useRef, useState, type MouseEventHandler } from "react";
+import { memo, useEffect, useMemo, useRef, useState, type MouseEventHandler, type ReactNode } from "react";
 import clsx from "clsx";
 import Image from "next/image";
 import { useEmojiFavorites } from "../../hooks/useEmojiFavorites";
@@ -25,6 +25,11 @@ interface MessageBalloonProps {
   enableReactions?: boolean;
   reactionsSummary?: ReactionSummaryEntry[];
   onReact?: (emoji: string) => void;
+  actionMenu?: ReactNode;
+  actionMenuAlign?: "left" | "right";
+  onTouchLongPress?: () => void;
+  forceReactionButton?: boolean;
+  anchorId?: string;
 }
 
 const MessageBalloon = memo(function MessageBalloon(props: MessageBalloonProps) {
@@ -47,6 +52,11 @@ const MessageBalloon = memo(function MessageBalloon(props: MessageBalloonProps) 
     enableReactions = false,
     reactionsSummary: reactionsSummaryProp,
     onReact,
+    actionMenu,
+    actionMenuAlign,
+    onTouchLongPress,
+    forceReactionButton = false,
+    anchorId,
   } = props;
   const isSticker = Boolean(stickerSrc);
   const bubbleClass =
@@ -58,6 +68,7 @@ const MessageBalloon = memo(function MessageBalloon(props: MessageBalloonProps) 
   const bubblePadding = isSticker ? "p-2" : "px-4 py-2";
   const bubbleTone = isSticker ? "bg-[color:var(--surface-2)] border border-[color:var(--border)]" : bubbleClass;
   const reactionAlign = me ? "right-0" : "left-0";
+  const actionAlign = (actionMenuAlign ?? (me ? "right" : "left")) === "right" ? "right-0" : "left-0";
   const canShowReactions =
     enableReactions && Boolean(messageId) && Boolean(onReact) && !isSticker && status !== "sending";
   const { favorites } = useEmojiFavorites();
@@ -153,8 +164,8 @@ const MessageBalloon = memo(function MessageBalloon(props: MessageBalloonProps) 
   };
 
   const handlePointerDown = (event: React.PointerEvent<HTMLDivElement>) => {
-    if (!canShowReactions) return;
     if (event.pointerType !== "touch") return;
+    if (!canShowReactions && !onTouchLongPress) return;
     if (isReactionBarOpen || isReactionPickerOpen) return;
     if (longPressTimerRef.current) {
       window.clearTimeout(longPressTimerRef.current);
@@ -165,8 +176,14 @@ const MessageBalloon = memo(function MessageBalloon(props: MessageBalloonProps) 
       pointerId: event.pointerId,
     };
     longPressTimerRef.current = window.setTimeout(() => {
-      setIsReactionBarOpen(true);
-      setIsReactionPickerOpen(false);
+      if (onTouchLongPress) {
+        onTouchLongPress();
+        return;
+      }
+      if (canShowReactions) {
+        setIsReactionBarOpen(true);
+        setIsReactionPickerOpen(false);
+      }
     }, LONG_PRESS_DELAY);
   };
 
@@ -195,7 +212,7 @@ const MessageBalloon = memo(function MessageBalloon(props: MessageBalloonProps) 
     <div
       className={clsx(
         me ? "flex justify-end" : "flex justify-start",
-        "touch-pan-y select-none md:select-text"
+        "group touch-pan-y select-none md:select-text"
       )}
       onContextMenu={onContextMenu}
       onMouseEnter={() => setIsHovered(true)}
@@ -205,7 +222,7 @@ const MessageBalloon = memo(function MessageBalloon(props: MessageBalloonProps) 
       onPointerUp={handlePointerUp}
       onPointerCancel={handlePointerCancel}
     >
-      <div className="max-w-[75%]">
+      <div className="max-w-[75%]" data-message-anchor={anchorId}>
         <p
           className={`mb-1 text-[10px] uppercase tracking-wide text-[color:var(--muted)] ${me ? "text-right" : ""}`}
         >
@@ -217,22 +234,34 @@ const MessageBalloon = memo(function MessageBalloon(props: MessageBalloonProps) 
           )}
         </p>
         <div className="relative">
-          {canShowReactions && (
-            <button
-              type="button"
-              onClick={() => {
-                setIsReactionBarOpen((prev) => !prev);
-                setIsReactionPickerOpen(false);
-              }}
+          {(canShowReactions || actionMenu) && (
+            <div
               className={clsx(
-                "absolute -top-3 flex h-6 w-6 items-center justify-center rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-0)] text-xs text-[color:var(--text)] shadow transition",
-                reactionAlign,
-                isHovered || isReactionBarOpen ? "opacity-100" : "opacity-0 pointer-events-none"
+                "absolute -top-3 flex items-center gap-1",
+                actionAlign,
+                isHovered || isReactionBarOpen || isReactionPickerOpen || forceReactionButton
+                  ? "opacity-100"
+                  : "opacity-0 pointer-events-none",
+                "transition"
               )}
-              aria-label="Reaccionar"
             >
-              <IconGlyph name="smile" className="h-3.5 w-3.5" />
-            </button>
+              {actionMenu}
+              {canShowReactions && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsReactionBarOpen((prev) => !prev);
+                    setIsReactionPickerOpen(false);
+                  }}
+                  className={clsx(
+                    "flex h-6 w-6 items-center justify-center rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-0)] text-xs text-[color:var(--text)] shadow"
+                  )}
+                  aria-label="Reaccionar"
+                >
+                  <IconGlyph name="smile" className="h-3.5 w-3.5" />
+                </button>
+              )}
+            </div>
           )}
           {canShowReactions && isReactionBarOpen && (
             <div

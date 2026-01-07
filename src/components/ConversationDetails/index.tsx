@@ -16,6 +16,7 @@ import {
   type UIEventHandler,
   type WheelEventHandler,
 } from "react";
+import { createPortal } from "react-dom";
 import { format, formatDistanceToNow } from "date-fns";
 import { es } from "date-fns/locale";
 import { ConversationContext } from "../../context/ConversationContext";
@@ -102,6 +103,7 @@ import type { PurchaseCreatedPayload } from "../../lib/events";
 import { resolvePurchaseEventId } from "../../lib/purchaseEventDedupe";
 import { Badge, type BadgeTone } from "../ui/Badge";
 import { ConversationActionsMenu } from "../conversations/ConversationActionsMenu";
+import { ContextMenu } from "../ui/ContextMenu";
 import { badgeToneForLabel } from "../../lib/badgeTone";
 import {
   COMPOSER_DRAFT_EVENT,
@@ -214,6 +216,25 @@ type VoiceUploadPayload = {
   sizeBytes: number;
 };
 
+type MessageTranslationResponse = {
+  id: string;
+  translatedText: string;
+  targetLang: string;
+  sourceKind: "text" | "voice_transcript";
+  createdAt: string;
+};
+
+type MessageTranslationState = {
+  status: "idle" | "loading" | "error";
+  error?: string;
+};
+
+type MessageActionSheetState = {
+  messageId?: string;
+  text: string;
+  canTranslate: boolean;
+};
+
 const normalizeActionKey = (key?: string | null) => {
   if (typeof key !== "string") return null;
   const trimmed = key.trim();
@@ -321,7 +342,6 @@ const LOCAL_FAN_TEMPLATE_POOLS: FanTemplatePools = {
     { id: "close-any-1", title: "Cierre simple", text: "Estoy aquí cuando quieras.", tone: "any" },
   ],
 };
-const TRANSLATION_PREVIEW_KEY_PREFIX = "novsy.creatorTranslationPreview";
 
 type ApiAiTemplate = {
   id?: string;
@@ -776,6 +796,13 @@ export default function ConversationDetails({ onBackToBoard }: ConversationDetai
   }, [setSchemaCopyState, setSchemaError]);
 
   const mapApiMessagesToState = useCallback((apiMessages: ApiMessage[]): ConversationMessage[] => {
+    const resolveLatestTranslation = (
+      message: ApiMessage,
+      sourceKind: "text" | "voice_transcript"
+    ) => {
+      const translations = Array.isArray(message.messageTranslations) ? message.messageTranslations : [];
+      return translations.find((translation) => translation?.sourceKind === sourceKind) ?? null;
+    };
     return apiMessages.map((msg) => {
       const isContent = msg.type === "CONTENT";
       const isLegacySticker = msg.type === "STICKER";
@@ -786,12 +813,14 @@ export default function ConversationDetails({ onBackToBoard }: ConversationDetai
       const sticker = isLegacySticker ? getStickerById(msg.stickerId ?? null) : null;
       const stickerSrc = isLegacySticker ? sticker?.file ?? null : tokenSticker?.src ?? null;
       const stickerAlt = isLegacySticker ? sticker?.label ?? null : tokenSticker?.label ?? null;
+      const textTranslation = resolveLatestTranslation(msg, "text");
+      const voiceTranslation = resolveLatestTranslation(msg, "voice_transcript");
       return {
         id: msg.id,
         fanId: msg.fanId,
         me: isSystem ? false : msg.from === "creator",
         message: msg.text ?? "",
-        translatedText: isSticker ? undefined : msg.creatorTranslatedText ?? undefined,
+        translatedText: isSticker ? undefined : textTranslation?.translatedText ?? undefined,
         audience: deriveAudience(msg),
         seen: !!msg.isLastFromCreator,
         time: msg.time || "",
@@ -814,6 +843,13 @@ export default function ConversationDetails({ onBackToBoard }: ConversationDetai
         intentJson: isAudio ? msg.intentJson ?? null : null,
         voiceAnalysisJson: isAudio ? msg.voiceAnalysisJson ?? null : null,
         voiceAnalysisUpdatedAt: isAudio ? msg.voiceAnalysisUpdatedAt ?? null : null,
+        voiceTranslation: voiceTranslation?.translatedText
+          ? {
+              text: voiceTranslation.translatedText,
+              targetLang: voiceTranslation.targetLang,
+              updatedAt: voiceTranslation.createdAt,
+            }
+          : safeParseVoiceTranslation(msg.voiceAnalysisJson),
         reactionsSummary: Array.isArray(msg.reactionsSummary) ? msg.reactionsSummary : [],
         contentItem: msg.contentItem
           ? {
@@ -1216,11 +1252,12 @@ export default function ConversationDetails({ onBackToBoard }: ConversationDetai
   const [ draftCardsByFan, setDraftCardsByFan ] = useState<Record<string, DraftCard[]>>({});
   const [ generatedDraftsByFan, setGeneratedDraftsByFan ] = useState<Record<string, DraftCard[]>>({});
   const [ internalPanelTab, setInternalPanelTab ] = useState<InternalPanelTab>("manager");
-  const [ translationPreviewStatus, setTranslationPreviewStatus ] = useState<
+  const [ , setTranslationPreviewStatus ] = useState<
     "idle" | "loading" | "ready" | "unavailable" | "error"
   >("idle");
-  const [ translationPreviewText, setTranslationPreviewText ] = useState<string | null>(null);
-  const [ translationPreviewNotice, setTranslationPreviewNotice ] = useState<string | null>(null);
+  const [ , setTranslationPreviewText ] = useState<string | null>(null);
+  const [ , setTranslationPreviewNotice ] = useState<string | null>(null);
+  const [ messageTranslationState, setMessageTranslationState ] = useState<Record<string, MessageTranslationState>>({});
   const [ inviteCopyState, setInviteCopyState ] = useState<"idle" | "loading" | "copied" | "error">("idle");
   const [ inviteCopyError, setInviteCopyError ] = useState<string | null>(null);
   const [ inviteCopyUrl, setInviteCopyUrl ] = useState<string | null>(null);
@@ -1238,12 +1275,16 @@ export default function ConversationDetails({ onBackToBoard }: ConversationDetai
   const translationPreviewAbortRef = useRef<AbortController | null>(null);
   const translationPreviewRequestId = useRef(0);
   const translationPreviewKeyRef = useRef<string | null>(null);
+  const messageTranslationInFlightRef = useRef(new Map<string, Promise<MessageTranslationResponse>>());
   const [ showContentModal, setShowContentModal ] = useState(false);
   const [ duplicateConfirm, setDuplicateConfirm ] = useState<DuplicateConfirmState | null>(null);
-  const [ selectionToolbar, setSelectionToolbar ] = useState<{
+  const [ isCoarsePointer, setIsCoarsePointer ] = useState(false);
+  const [ messageActionSheet, setMessageActionSheet ] = useState<MessageActionSheetState | null>(null);
+  const [ messageTranslationPopover, setMessageTranslationPopover ] = useState<{
+    messageId: string;
+    error: string;
     x: number;
     y: number;
-    text: string;
     maxWidth: number;
   } | null>(null);
   const [ contentModalMode, setContentModalMode ] = useState<"packs" | "extras" | "catalog">("packs");
@@ -1300,8 +1341,6 @@ export default function ConversationDetails({ onBackToBoard }: ConversationDetai
   const [ isChatArchived, setIsChatArchived ] = useState(conversation.isArchived ?? false);
   const [ isChatActionLoading, setIsChatActionLoading ] = useState(false);
   const router = useRouter();
-  const selectionToolbarRef = useRef<HTMLDivElement | null>(null);
-  const isPointerDownRef = useRef(false);
   const templatePanelOpenRef = useRef(false);
   const MAX_MAIN_COMPOSER_HEIGHT = 140;
   const MAX_INTERNAL_COMPOSER_HEIGHT = 220;
@@ -3415,18 +3454,17 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
   }, []);
 
   useEffect(() => {
-    if (!id || typeof window === "undefined") return;
-    const stored = window.localStorage.getItem(`${TRANSLATION_PREVIEW_KEY_PREFIX}:${id}`);
-    setTranslationPreviewOpen(stored === "1");
-  }, [id]);
+    if (typeof window === "undefined") return;
+    const mq = window.matchMedia("(pointer: coarse)");
+    const update = () => setIsCoarsePointer(mq.matches);
+    update();
+    mq.addEventListener("change", update);
+    return () => mq.removeEventListener("change", update);
+  }, []);
 
   useEffect(() => {
-    if (!id || typeof window === "undefined") return;
-    window.localStorage.setItem(
-      `${TRANSLATION_PREVIEW_KEY_PREFIX}:${id}`,
-      translationPreviewOpen ? "1" : "0"
-    );
-  }, [id, translationPreviewOpen]);
+    setTranslationPreviewOpen(false);
+  }, [id]);
 
   useEffect(() => {
     let cancelled = false;
@@ -3503,6 +3541,8 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
 
   useEffect(() => {
     closeOverlays({ keepManagerPanel: true });
+    setMessageActionSheet(null);
+    setMessageTranslationPopover(null);
     setHighlightDraftId(null);
     if (!managerPanelOpen) {
       setInternalPanelTab("manager");
@@ -3634,7 +3674,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
       });
       const res = await fetch(`/api/voice-notes/transcribe/${messageId}`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", "x-novsy-viewer": "creator" },
         body: JSON.stringify({}),
       });
       const data = await res.json().catch(() => ({}));
@@ -3714,7 +3754,26 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
           msg.id === messageId
             ? {
                 ...msg,
-                voiceAnalysisJson: mergeVoiceInsightsJson(msg.voiceAnalysisJson, { translation }),
+                voiceTranslation: translation,
+              }
+            : msg
+        );
+      });
+    },
+    [setMessage]
+  );
+
+  const handleMessageTranslationSaved = useCallback(
+    (messageId: string, translatedText: string) => {
+      const trimmed = translatedText.trim();
+      if (!messageId || !trimmed) return;
+      setMessage((prev) => {
+        if (!prev) return prev;
+        return prev.map((msg) =>
+          msg.id === messageId
+            ? {
+                ...msg,
+                translatedText: trimmed,
               }
             : msg
         );
@@ -3917,8 +3976,12 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
   const isInternalTarget = composerTarget === "internal";
   const isManagerTarget = composerTarget === "manager";
   const composerAudience = isFanTarget ? "CREATOR" : "INTERNAL";
-  const translateEnabled = translationPreviewOpen && !conversation.isManager && isFanTarget;
   const isFanMode = !conversation.isManager;
+  const messageSheetTranslationStatus = messageActionSheet?.messageId
+    ? messageTranslationState[messageActionSheet.messageId]?.status ?? "idle"
+    : "idle";
+  const messageSheetTranslateDisabled = messageSheetTranslationStatus === "loading";
+  const messageSheetTranslateLabel = messageSheetTranslateDisabled ? "Traduciendo..." : "Traducir";
   const hasAutopilotContext = !!(lastAutopilotObjective && lastAutopilotTone);
   const purchaseNoticeUi = purchaseNotice
     ? formatPurchaseUI({
@@ -3956,20 +4019,6 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
     return formatDistanceToNow(parsed, { addSuffix: true, locale: es });
   })();
   const voiceRecordingLabel = formatRecordingLabel(voiceRecordingMs);
-  const disableTranslationPreview = () => {
-    if (translationPreviewTimer.current) {
-      clearTimeout(translationPreviewTimer.current);
-    }
-    if (translationPreviewAbortRef.current) {
-      translationPreviewAbortRef.current.abort();
-    }
-    translationPreviewKeyRef.current = null;
-    setTranslationPreviewStatus("idle");
-    setTranslationPreviewText(null);
-    setTranslationPreviewNotice(null);
-    setTranslationPreviewOpen(false);
-  };
-
   const openInternalPanel = useCallback(
     (
       tab: "manager" | "drafts" | "crm",
@@ -4161,168 +4210,119 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
     }
   }, [applyCortexDraft, id]);
 
-  const clampToolbarPosition = useCallback(
-    (x: number, y: number, options?: { containerRect?: DOMRect | null; maxWidth?: number }) => {
-    if (typeof window === "undefined") return { x, y };
+  const clampToolbarPosition = useCallback((x: number, y: number, maxWidth: number) => {
+    if (typeof window === "undefined") return { x, y, maxWidth };
     const toolbarHeight = 48;
     const margin = TOOLBAR_MARGIN;
+    const safeMaxWidth = Math.max(0, Math.min(maxWidth, window.innerWidth - margin * 2));
+    const maxX = window.innerWidth - safeMaxWidth - margin;
+    const centeredX = x - safeMaxWidth / 2;
+    const clampedX = Math.max(margin, Math.min(centeredX, maxX));
     const maxY = window.innerHeight - toolbarHeight - margin;
     const clampedY = Math.max(margin, Math.min(y - toolbarHeight, maxY));
-    const containerRect = options?.containerRect ?? null;
-    const maxWidth = Math.max(0, options?.maxWidth ?? 0);
-    if (containerRect) {
-      const leftBound = containerRect.left + margin;
-      const rightBound = containerRect.right - maxWidth - margin;
-      const safeRight = Math.max(leftBound, rightBound);
-      const centeredX = x - maxWidth / 2;
-      return {
-        x: Math.max(leftBound, Math.min(centeredX, safeRight)),
-        y: clampedY,
-      };
-    }
-    const fallbackWidth = 320;
-    const maxX = window.innerWidth - fallbackWidth - margin;
-    return {
-      x: Math.max(margin, Math.min(x - fallbackWidth / 2, maxX)),
-      y: clampedY,
-    };
+    return { x: clampedX, y: clampedY, maxWidth: safeMaxWidth };
   }, []);
 
-  const updateSelectionToolbar = useCallback((options?: { force?: boolean }) => {
-    if (isPointerDownRef.current && !options?.force) return;
-    if (typeof window === "undefined") return;
-    const container = messagesContainerRef.current;
-    if (!container) return;
-    const selection = window.getSelection();
-    if (!selection || selection.isCollapsed) {
-      setSelectionToolbar(null);
-      return;
-    }
-    const selectedText = selection.toString().trim();
-    if (!selectedText) {
-      setSelectionToolbar(null);
-      return;
-    }
-    const range = selection.rangeCount > 0 ? selection.getRangeAt(0) : null;
-    if (!range) {
-      setSelectionToolbar(null);
-      return;
-    }
-    const commonNode = range.commonAncestorContainer;
-    const commonElement =
-      commonNode.nodeType === Node.ELEMENT_NODE ? (commonNode as Element) : commonNode.parentElement;
-    if (!commonElement || !container.contains(commonElement)) {
-      setSelectionToolbar(null);
-      return;
-    }
-    if (commonElement.closest("input, textarea, [contenteditable=\"true\"]")) {
-      setSelectionToolbar(null);
-      return;
-    }
-    const rect = range.getBoundingClientRect();
-    if (!rect || (rect.width === 0 && rect.height === 0)) {
-      setSelectionToolbar(null);
-      return;
-    }
-    const containerRect = container.getBoundingClientRect();
-    const maxWidth = Math.max(0, containerRect.width - TOOLBAR_MARGIN * 2);
-    const position = clampToolbarPosition(rect.left + rect.width / 2, rect.top, {
-      containerRect,
-      maxWidth,
-    });
-    setSelectionToolbar({ x: position.x, y: position.y, text: selectedText, maxWidth });
-  }, [clampToolbarPosition]);
-
-  const clearSelectionRanges = useCallback(() => {
-    if (typeof window === "undefined") return;
-    const selection = window.getSelection();
-    if (!selection) return;
-    try {
-      selection.removeAllRanges();
-    } catch (_err) {
-      // noop
-    }
+  const clampPopoverPosition = useCallback((x: number, y: number, maxWidth: number) => {
+    if (typeof window === "undefined") return { x, y, maxWidth };
+    const margin = TOOLBAR_MARGIN;
+    const popoverHeight = 220;
+    const safeMaxWidth = Math.max(0, Math.min(maxWidth, window.innerWidth - margin * 2));
+    const maxX = window.innerWidth - safeMaxWidth - margin;
+    const clampedX = Math.max(margin, Math.min(x, maxX));
+    const maxY = window.innerHeight - popoverHeight - margin;
+    const clampedY = Math.max(margin, Math.min(y, maxY));
+    return { x: clampedX, y: clampedY, maxWidth: safeMaxWidth };
   }, []);
 
-  const closeSelectionToolbar = useCallback(() => {
-    setSelectionToolbar(null);
-    clearSelectionRanges();
-  }, [clearSelectionRanges]);
+  const getMessageAnchorPosition = useCallback(
+    (messageKey: string) => {
+      if (typeof window === "undefined") return null;
+      const container = messagesContainerRef.current;
+      const element = container?.querySelector<HTMLElement>(`[data-message-anchor="${messageKey}"]`);
+      if (!element) return null;
+      const rect = element.getBoundingClientRect();
+      const maxWidth = Math.max(0, Math.min(384, window.innerWidth - TOOLBAR_MARGIN * 2));
+      return clampToolbarPosition(rect.left + rect.width / 2, rect.top, maxWidth);
+    },
+    [clampToolbarPosition]
+  );
 
-  useEffect(() => {
-    if (typeof document === "undefined") return;
-    let raf = 0;
-    const scheduleUpdate = (force = false) => {
-      if (raf) cancelAnimationFrame(raf);
-      raf = requestAnimationFrame(() => updateSelectionToolbar({ force }));
-    };
-    const clearOnScroll = () => setSelectionToolbar(null);
-    const handleSelectionChange = () => scheduleUpdate(false);
-    const handleKeyUp = () => scheduleUpdate(false);
-    const handlePointerDown = () => {
-      isPointerDownRef.current = true;
-      setSelectionToolbar(null);
-    };
-    const handlePointerUp = () => {
-      if (!isPointerDownRef.current) return;
-      isPointerDownRef.current = false;
-      scheduleUpdate(true);
-    };
-    document.addEventListener("selectionchange", handleSelectionChange);
-    document.addEventListener("keyup", handleKeyUp);
-    document.addEventListener("pointerdown", handlePointerDown);
-    document.addEventListener("pointerup", handlePointerUp);
-    document.addEventListener("scroll", clearOnScroll, true);
-    return () => {
-      if (raf) cancelAnimationFrame(raf);
-      document.removeEventListener("selectionchange", handleSelectionChange);
-      document.removeEventListener("keyup", handleKeyUp);
-      document.removeEventListener("pointerdown", handlePointerDown);
-      document.removeEventListener("pointerup", handlePointerUp);
-      document.removeEventListener("scroll", clearOnScroll, true);
-    };
-  }, [updateSelectionToolbar]);
+  const openMessageTranslationPopover = useCallback(
+    (messageId: string, error: string) => {
+      const anchor = getMessageAnchorPosition(messageId);
+      if (!anchor) return;
+      const position = clampPopoverPosition(anchor.x, anchor.y + 56, anchor.maxWidth);
+      setMessageTranslationPopover({
+        messageId,
+        error,
+        x: position.x,
+        y: position.y,
+        maxWidth: position.maxWidth,
+      });
+    },
+    [clampPopoverPosition, getMessageAnchorPosition]
+  );
 
-  useEffect(() => {
-    if (typeof document === "undefined") return;
-    const handleKeyDown = (event: globalThis.KeyboardEvent) => {
-      if (event.key !== "Escape") return;
-      if (!selectionToolbar) return;
-      closeSelectionToolbar();
-    };
-    document.addEventListener("keydown", handleKeyDown);
-    return () => document.removeEventListener("keydown", handleKeyDown);
-  }, [closeSelectionToolbar, selectionToolbar]);
+  const handleTranslateMessage = useCallback(
+    async (messageId: string) => {
+      if (!messageId) return;
+      if (messageTranslationInFlightRef.current.has(messageId)) return;
+      setMessageTranslationState((prev) => ({
+        ...prev,
+        [messageId]: { status: "loading" },
+      }));
 
-  const getSelectionInsideMessagesContainer = useCallback(() => {
-    if (typeof window === "undefined") return null;
-    const container = messagesContainerRef.current;
-    if (!container) return null;
-    const selection = window.getSelection();
-    if (!selection || selection.isCollapsed) return null;
-    const selectedText = selection.toString().trim();
-    if (!selectedText) return null;
-    const anchorNode = selection.anchorNode;
-    if (!anchorNode || !container.contains(anchorNode)) return null;
-    const anchorElement =
-      anchorNode.nodeType === Node.ELEMENT_NODE ? (anchorNode as Element) : anchorNode.parentElement;
-    if (anchorElement?.closest("input, textarea, [contenteditable=\"true\"]")) return null;
-    return selectedText;
-  }, []);
+      const request = fetch("/api/creator/messages/translate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "x-novsy-viewer": "creator" },
+        cache: "no-store",
+        body: JSON.stringify({ messageId, targetLang: "es", sourceKind: "text" }),
+      })
+        .then(async (res) => {
+          const data = await res.json().catch(() => ({}));
+          if (!res.ok) {
+            const errorCode = typeof data?.error === "string" ? data.error : "";
+            const message = errorCode === "ai_not_configured" ? "Traducción no configurada" : "No se pudo traducir.";
+            throw new Error(message);
+          }
+          const translatedText =
+            typeof data?.translatedText === "string" ? data.translatedText.trim() : "";
+          if (!translatedText) {
+            throw new Error("No se pudo traducir.");
+          }
+          return data as MessageTranslationResponse;
+        })
+        .finally(() => {
+          messageTranslationInFlightRef.current.delete(messageId);
+        });
 
-  const handleMessageContextMenu = useCallback(
-    (event: MouseEvent<HTMLElement>) => {
-      if (selectionToolbar?.text || getSelectionInsideMessagesContainer()) {
-        event.preventDefault();
-        event.stopPropagation();
+      messageTranslationInFlightRef.current.set(messageId, request);
+
+      try {
+        const result = await request;
+        handleMessageTranslationSaved(messageId, result.translatedText);
+        setMessageTranslationState((prev) => ({
+          ...prev,
+          [messageId]: { status: "idle" },
+        }));
+        setMessageTranslationPopover((prev) => (prev?.messageId === messageId ? null : prev));
+      } catch (err) {
+        const message =
+          err instanceof Error && err.message.trim().length > 0 ? err.message : "No se pudo traducir.";
+        setMessageTranslationState((prev) => ({
+          ...prev,
+          [messageId]: { status: "error", error: message },
+        }));
+        openMessageTranslationPopover(messageId, message);
       }
     },
-    [getSelectionInsideMessagesContainer, selectionToolbar]
+    [handleMessageTranslationSaved, openMessageTranslationPopover]
   );
 
   const buildManagerQuotePrompt = (text: string) => {
     return (
-      `Texto seleccionado: «${text}»\n\n` +
+      `Texto del mensaje: «${text}»\n\n` +
       "Qué quiero: dime cómo responderle sin sonar vendedor, tono íntimo, CTA suave."
     );
   };
@@ -4330,7 +4330,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
   const buildManagerRephrasePrompt = (text: string) => {
     const name = getFirstName(contactName) || contactName || "este fan";
     return (
-      `Texto seleccionado: «${text}»\n\n` +
+      `Texto del mensaje: «${text}»\n\n` +
       `Reformula este mensaje para ${name}: íntimo, natural, cero presión, que parezca conversación real. ` +
       "Devuélveme 2 versiones."
     );
@@ -4361,7 +4361,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
     return `${clipped}...`;
   };
 
-  const copyTextToClipboard = async (text: string) => {
+  const copyTextToClipboard = useCallback(async (text: string) => {
     if (typeof navigator !== "undefined" && navigator.clipboard?.writeText) {
       try {
         await navigator.clipboard.writeText(text);
@@ -4386,7 +4386,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
       console.error(err);
       return false;
     }
-  };
+  }, []);
 
 
   const mergeProfileDraft = (base: string, addition: string) => {
@@ -4398,38 +4398,39 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
     return `${trimmedBase}\n${trimmedAddition}`.trim();
   };
 
-  const handleSelectionQuote = () => {
-    if (!selectionToolbar) return;
+  const handleMessageQuote = (text: string) => {
+    const trimmed = text.trim();
+    if (!trimmed) return;
     requestDraftCardFromPrompt({
-      prompt: buildManagerQuotePrompt(selectionToolbar.text),
+      prompt: buildManagerQuotePrompt(trimmed),
       source: "citar",
       label: "Citar al Manager",
-      selectedText: selectionToolbar.text,
+      selectedText: trimmed,
     });
-    closeSelectionToolbar();
   };
 
-  const handleSelectionRephrase = () => {
-    if (!selectionToolbar) return;
+  const handleMessageRephrase = (text: string) => {
+    const trimmed = text.trim();
+    if (!trimmed) return;
     requestDraftCardFromPrompt({
-      prompt: buildManagerRephrasePrompt(selectionToolbar.text),
+      prompt: buildManagerRephrasePrompt(trimmed),
       source: "reformular",
       label: "Reformular",
-      selectedText: selectionToolbar.text,
+      selectedText: trimmed,
     });
-    closeSelectionToolbar();
   };
 
-  const handleSelectionCopy = async () => {
-    if (!selectionToolbar) return;
-    const ok = await copyTextToClipboard(selectionToolbar.text);
+  const handleMessageCopy = async (text: string) => {
+    const trimmed = text.trim();
+    if (!trimmed) return;
+    const ok = await copyTextToClipboard(trimmed);
     showComposerToast(ok ? "Texto copiado" : "No se pudo copiar");
-    closeSelectionToolbar();
   };
 
-  const handleSelectionSaveProfile = () => {
-    if (!selectionToolbar) return;
-    const merged = mergeProfileDraft(profileDraft, selectionToolbar.text);
+  const handleMessageSaveProfile = (text: string) => {
+    const trimmed = text.trim();
+    if (!trimmed) return;
+    const merged = mergeProfileDraft(profileDraft, trimmed);
     profileDraftEditedRef.current = true;
     setProfileDraft(merged);
     openInternalPanel("crm");
@@ -4442,20 +4443,35 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
       detail: "Guárdalo para que el Manager lo use.",
       ttlMs: 2200,
     });
-    closeSelectionToolbar();
   };
 
-  const handleSelectionCreateFollowUp = () => {
-    if (!selectionToolbar) return;
-    setNextActionDraft(selectionToolbar.text.trim());
+  const handleMessageCreateFollowUp = (text: string) => {
+    const trimmed = text.trim();
+    if (!trimmed) return;
+    setNextActionDraft(trimmed);
     openFollowUpNote();
-    closeSelectionToolbar();
   };
 
   const handleToolbarPointerDown = useCallback((event: ReactPointerEvent) => {
     event.preventDefault();
     event.stopPropagation();
   }, []);
+
+  const closeMessageActionSheet = useCallback(() => {
+    setMessageActionSheet(null);
+  }, []);
+
+  const openMessageActionSheet = useCallback(
+    (options: { messageId?: string; text: string; canTranslate: boolean }) => {
+      if (!isCoarsePointer) return;
+      setMessageActionSheet({
+        messageId: options.messageId,
+        text: options.text,
+        canTranslate: options.canTranslate,
+      });
+    },
+    [isCoarsePointer]
+  );
 
   const openAttachContent = (options?: { closeInline?: boolean }) => {
     if (isChatBlocked) return;
@@ -4561,7 +4577,6 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
 
     const renderInlineToolsPanel = () => {
       const toolsDisabled = !isFanTarget;
-      const translationDisabled = !isFanTarget || isInternalPanelOpen;
       return (
         <InlinePanelShell
           title="Herramientas"
@@ -4598,102 +4613,6 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
                   </span>
                 )}
               </button>
-              <div className="text-[11px] font-semibold text-[color:var(--muted)]">Traducción</div>
-              {isTranslationPreviewAvailable ? (
-                <div
-                  className={clsx(
-                    "flex w-full items-center justify-between rounded-xl border px-3 py-2 text-[12px] font-semibold transition",
-                    translationPreviewOpen
-                      ? "border-[color:rgba(var(--brand-rgb),0.5)] bg-[color:rgba(var(--brand-rgb),0.12)] text-[color:var(--text)]"
-                      : "border-[color:var(--surface-border)] bg-[color:var(--surface-2)] text-[color:var(--text)]",
-                    translationDisabled && "opacity-60"
-                  )}
-                >
-                  <span className="flex items-center gap-2">
-                    <IconGlyph name="globe" className="h-4 w-4" />
-                    <span>Traducir</span>
-                  </span>
-                  <div className="flex items-center gap-2">
-                    {translationDisabled && (
-                      <span className="rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-2 py-0.5 text-[9px] uppercase tracking-[0.18em] text-[color:var(--muted)]">
-                        Solo fan
-                      </span>
-                    )}
-                    <button
-                      type="button"
-                      onClick={() => {
-                        if (translateEnabled) {
-                          disableTranslationPreview();
-                          showInlineAction({ kind: "info", title: "Traducción desactivada" });
-                        } else {
-                          setTranslationPreviewOpen(true);
-                          showInlineAction({ kind: "info", title: "Traducción activada" });
-                        }
-                      }}
-                      disabled={translationDisabled}
-                      className={clsx(
-                        "relative inline-flex h-5 w-10 items-center rounded-full border transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--ring)]",
-                        translationPreviewOpen
-                          ? "border-[color:var(--brand)] bg-[color:rgba(var(--brand-rgb),0.2)]"
-                          : "border-[color:var(--surface-border)] bg-[color:var(--surface-2)]",
-                        translationDisabled && "cursor-not-allowed"
-                      )}
-                      aria-pressed={translationPreviewOpen}
-                    >
-                      <span
-                        className={clsx(
-                          "inline-block h-4 w-4 rounded-full transition",
-                          translationPreviewOpen
-                            ? "translate-x-5 bg-[color:var(--brand)]"
-                            : "translate-x-1 bg-[color:var(--muted)]"
-                        )}
-                      />
-                    </button>
-                  </div>
-                </div>
-              ) : (
-                <div className="flex w-full items-center justify-between rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-3 py-2 text-[12px] font-semibold text-[color:var(--muted)]">
-                  <span className="flex items-center gap-2">
-                    <IconGlyph name="globe" className="h-4 w-4" />
-                    <span>Traducir</span>
-                  </span>
-                  <span className="rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-2 py-0.5 text-[9px] uppercase tracking-[0.2em] text-[color:var(--muted)]">
-                    Próximamente
-                  </span>
-                </div>
-              )}
-              {isTranslationPreviewAvailable && translationPreviewOpen && isFanTarget && (
-                <div className="space-y-2 rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-3 py-2">
-                  <div className="text-[11px] font-semibold text-[color:var(--muted)]">Traducción automática</div>
-                  <div className="flex items-center gap-2 text-[11px] text-[color:var(--text)]">
-                    <span className="text-[color:var(--muted)]">Idioma</span>
-                    <select
-                      value={languageSelectValue}
-                      onChange={(event) => {
-                        const value = event.target.value;
-                        if (value === "auto") return;
-                        handlePreferredLanguageChange(value as SupportedLanguage);
-                      }}
-                      disabled={preferredLanguageSaving}
-                      className="flex-1 rounded-lg border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-2 py-1 text-[11px] font-semibold text-[color:var(--text)] focus:border-[color:var(--border-a)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--ring)]"
-                    >
-                      <option value="auto" disabled>
-                        Auto (EN por defecto)
-                      </option>
-                      {SUPPORTED_LANGUAGES.map((lang) => (
-                        <option key={lang} value={lang}>
-                          {lang.toUpperCase()}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                  {!isTranslationPreviewAvailable && (
-                    <div className="text-[10px] text-[color:var(--muted)]">
-                      Selecciona un idioma distinto de ES para activar preview.
-                    </div>
-                  )}
-                </div>
-              )}
               <div className="text-[11px] font-semibold text-[color:var(--muted)]">Acciones rápidas</div>
               <div className="grid gap-2 sm:grid-cols-3">
                 {[
@@ -9303,8 +9222,70 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
               const isStickerMessage = messageConversation.kind === "sticker";
               const isLegacySticker = messageConversation.type === "STICKER";
               const retrySticker = isLegacySticker ? getStickerById(messageConversation.stickerId ?? null) : null;
+              const messageKey = messageConversation.id ?? `temp-${index}`;
+              const isTextMessage = messageConversation.kind === "text" || !messageConversation.kind;
+              const messageText = message ?? "";
+              const hasMessageText = messageText.trim().length > 0;
               const translatedText = !me ? messageConversation.translatedText ?? undefined : undefined;
               const reactionsSummary = messageConversation.reactionsSummary ?? [];
+              const translationState = messageConversation.id ? messageTranslationState[messageConversation.id] : undefined;
+              const translationStatus = translationState?.status ?? "idle";
+              const canTranslateText = Boolean(
+                messageConversation.id &&
+                  !me &&
+                  !isInternalMessage &&
+                  isTextMessage
+              );
+              const canShowMessageActions =
+                isFanMode && isTextMessage && !isInternalMessage && hasMessageText;
+              const messageActionItems = canShowMessageActions
+                ? [
+                    {
+                      label: "Copiar",
+                      onClick: () => {
+                        void handleMessageCopy(messageText);
+                      },
+                    },
+                    ...(canTranslateText
+                      ? [
+                          {
+                            label: "Traducir",
+                            icon: "globe",
+                            disabled: translationStatus === "loading",
+                            onClick: () => handleTranslateMessage(messageConversation.id as string),
+                          },
+                        ]
+                      : []),
+                    {
+                      label: "Citar al Manager",
+                      onClick: () => handleMessageQuote(messageText),
+                    },
+                    {
+                      label: "Reformular",
+                      onClick: () => handleMessageRephrase(messageText),
+                    },
+                    {
+                      label: "Guardar en perfil",
+                      onClick: () => handleMessageSaveProfile(messageText),
+                    },
+                    {
+                      label: "Crear seguimiento",
+                      onClick: () => handleMessageCreateFollowUp(messageText),
+                    },
+                  ]
+                : [];
+              const showActionMenu = canShowMessageActions && !isCoarsePointer;
+              const actionMenu = showActionMenu ? (
+                <ContextMenu
+                  buttonAriaLabel="Acciones del mensaje"
+                  items={messageActionItems}
+                  align={me ? "right" : "left"}
+                  buttonIcon="dots"
+                  buttonClassName="h-6 w-6 border border-[color:var(--surface-border)] bg-[color:var(--surface-0)] text-[color:var(--text)]"
+                  buttonIconClassName="h-3.5 w-3.5"
+                />
+              ) : null;
+              const canOpenActionSheet = isCoarsePointer && canShowMessageActions;
               return (
                 <div key={messageConversation.id || index} className="space-y-1">
                   <MessageBalloon
@@ -9314,10 +9295,8 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
                     seen={seen}
                     time={time}
                     status={messageConversation.status}
-                    translatedText={isStickerMessage ? undefined : translatedText}
                     badge={isInternalMessage ? "INTERNO" : undefined}
                     variant={isInternalMessage ? "internal" : "default"}
-                    onContextMenu={handleMessageContextMenu}
                     stickerSrc={isStickerMessage ? messageConversation.stickerSrc ?? null : null}
                     stickerAlt={isStickerMessage ? messageConversation.stickerAlt ?? "Sticker" : null}
                     enableReactions={!isInternalMessage}
@@ -9326,7 +9305,55 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
                       if (!messageConversation.id) return;
                       handleReactToMessage(messageConversation.id, emoji);
                     }}
+                    actionMenu={actionMenu}
+                    actionMenuAlign={me ? "right" : "left"}
+                    onTouchLongPress={
+                      canOpenActionSheet
+                        ? () =>
+                            openMessageActionSheet({
+                              messageId: messageConversation.id ?? undefined,
+                              text: messageText,
+                              canTranslate: canTranslateText,
+                            })
+                        : undefined
+                    }
+                    forceReactionButton={isCoarsePointer}
+                    anchorId={messageKey}
                   />
+                  {canTranslateText && (
+                    <div className={clsx("flex flex-col gap-2", me ? "items-end" : "items-start")}>
+                      {translatedText && (
+                        <div className="rounded-lg border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-3 py-2 space-y-2">
+                          <div className="text-[10px] uppercase tracking-wide text-[color:var(--muted)]">
+                            Traduccion
+                          </div>
+                          <p className="whitespace-pre-wrap text-[12px] text-[color:var(--text)]">
+                            {translatedText}
+                          </p>
+                          <div className="flex flex-wrap items-center gap-2 text-[10px] text-[color:var(--muted)]">
+                            <button
+                              type="button"
+                              className="rounded-full border border-[color:var(--surface-border)] px-2 py-0.5 font-semibold text-[color:var(--text)] hover:bg-[color:var(--surface-1)]"
+                              onClick={() => {
+                                void copyTextToClipboard(translatedText).then((ok) =>
+                                  showComposerToast(ok ? "Texto copiado" : "No se pudo copiar")
+                                );
+                              }}
+                            >
+                              Copiar
+                            </button>
+                            <button
+                              type="button"
+                              className="rounded-full border border-[color:var(--brand)] bg-[color:rgba(var(--brand-rgb),0.12)] px-2 py-0.5 font-semibold text-[color:var(--text)] hover:bg-[color:rgba(var(--brand-rgb),0.2)]"
+                              onClick={() => handleUseManagerReplyAsMainMessage(translatedText, "Traduccion")}
+                            >
+                              Insertar en el input
+                            </button>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
                   {messageConversation.status === "failed" && (
                     <div className="flex justify-end">
                       <button
@@ -9817,67 +9844,123 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
         </div>
         </div>
       </div>
-      {selectionToolbar && (
-        <div
-          className="fixed inset-0 z-40 pointer-events-none"
-          onContextMenu={(event) => event.preventDefault()}
-        >
-          <div
-            ref={selectionToolbarRef}
-            className="absolute pointer-events-auto"
-            style={{
-              left: selectionToolbar.x,
-              top: selectionToolbar.y,
-              maxWidth: selectionToolbar.maxWidth,
-            }}
-            onPointerDown={handleToolbarPointerDown}
-          >
+      {messageTranslationPopover && typeof document !== "undefined"
+        ? createPortal(
             <div
-              className={clsx(
-                "flex items-center gap-2 rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-3 py-2 shadow-xl",
-                "whitespace-nowrap overflow-x-auto",
-                "[-ms-overflow-style:'none'] [scrollbar-width:'none'] [&::-webkit-scrollbar]:hidden"
-              )}
+              className="fixed inset-0 z-[60] pointer-events-none"
+              onContextMenu={(event) => event.preventDefault()}
             >
+              {messageTranslationPopover && (
+                <div
+                  className="fixed pointer-events-auto"
+                  style={{
+                    left: messageTranslationPopover.x,
+                    top: messageTranslationPopover.y,
+                    maxWidth: messageTranslationPopover.maxWidth,
+                  }}
+                  onPointerDown={handleToolbarPointerDown}
+                >
+                  <div className="w-full max-w-sm rounded-2xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] p-3 shadow-xl">
+                    <div className="flex items-center justify-between text-[10px] uppercase tracking-wide text-[color:var(--muted)]">
+                      <span>Traduccion</span>
+                      <button
+                        type="button"
+                        onClick={() => setMessageTranslationPopover(null)}
+                        className="rounded-full border border-[color:var(--surface-border)] px-2 py-0.5 text-[9px] font-semibold text-[color:var(--muted)] hover:text-[color:var(--text)]"
+                      >
+                        Cerrar
+                      </button>
+                    </div>
+                    <div className="mt-2 space-y-2">
+                      <div className="text-[11px] text-[color:var(--danger)]">
+                        {messageTranslationPopover.error}
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          handleTranslateMessage(messageTranslationPopover.messageId);
+                          setMessageTranslationPopover(null);
+                        }}
+                        className="rounded-full border border-[color:var(--surface-border)] px-2 py-0.5 text-[10px] font-semibold text-[color:var(--text)] hover:bg-[color:var(--surface-2)]"
+                      >
+                        Reintentar
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>,
+            document.body
+          )
+        : null}
+      {messageActionSheet && (
+        <div className="fixed inset-0 z-[70]">
+          <div className="absolute inset-0 bg-[color:var(--surface-overlay)]" onClick={closeMessageActionSheet} />
+          <div className="absolute inset-x-0 bottom-0 max-h-[85vh] overflow-y-auto rounded-t-3xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-4 pb-6 pt-4">
+            <div className="mx-auto mb-3 h-1.5 w-12 rounded-full bg-[color:var(--surface-2)]/80" />
+            <div className="grid gap-2">
               <button
                 type="button"
-                onClick={handleSelectionQuote}
-                onPointerDown={handleToolbarPointerDown}
-                className="inline-flex items-center gap-1 rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-3 py-1 text-[11px] font-semibold text-[color:var(--text)] hover:bg-[color:var(--surface-2)]"
+                onClick={() => {
+                  void handleMessageCopy(messageActionSheet.text);
+                  closeMessageActionSheet();
+                }}
+                className="flex items-center justify-between rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-4 py-3 text-sm text-[color:var(--text)] hover:bg-[color:var(--surface-2)]"
               >
-                Citar al Manager
+                <span>Copiar</span>
+              </button>
+              {messageActionSheet.canTranslate && messageActionSheet.messageId && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    handleTranslateMessage(messageActionSheet.messageId as string);
+                    closeMessageActionSheet();
+                  }}
+                  disabled={messageSheetTranslateDisabled}
+                  className="flex items-center justify-between rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-4 py-3 text-sm text-[color:var(--text)] hover:bg-[color:var(--surface-2)]"
+                >
+                  <span>{messageSheetTranslateLabel}</span>
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={() => {
+                  handleMessageQuote(messageActionSheet.text);
+                  closeMessageActionSheet();
+                }}
+                className="flex items-center justify-between rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-4 py-3 text-sm text-[color:var(--text)] hover:bg-[color:var(--surface-2)]"
+              >
+                <span>Citar al Manager</span>
               </button>
               <button
                 type="button"
-                onClick={handleSelectionRephrase}
-                onPointerDown={handleToolbarPointerDown}
-                className="inline-flex items-center gap-1 rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-3 py-1 text-[11px] font-semibold text-[color:var(--text)] hover:bg-[color:var(--surface-2)]"
+                onClick={() => {
+                  handleMessageRephrase(messageActionSheet.text);
+                  closeMessageActionSheet();
+                }}
+                className="flex items-center justify-between rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-4 py-3 text-sm text-[color:var(--text)] hover:bg-[color:var(--surface-2)]"
               >
-                Reformular
+                <span>Reformular</span>
               </button>
               <button
                 type="button"
-                onClick={handleSelectionCopy}
-                onPointerDown={handleToolbarPointerDown}
-                className="inline-flex items-center gap-1 rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-3 py-1 text-[11px] font-semibold text-[color:var(--text)] hover:bg-[color:var(--surface-2)]"
+                onClick={() => {
+                  handleMessageSaveProfile(messageActionSheet.text);
+                  closeMessageActionSheet();
+                }}
+                className="flex items-center justify-between rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-4 py-3 text-sm text-[color:var(--text)] hover:bg-[color:var(--surface-2)]"
               >
-                Copiar
+                <span>Guardar en perfil</span>
               </button>
               <button
                 type="button"
-                onClick={handleSelectionSaveProfile}
-                onPointerDown={handleToolbarPointerDown}
-                className="inline-flex items-center gap-1 rounded-full border border-[color:rgba(245,158,11,0.7)] bg-[color:rgba(245,158,11,0.08)] px-3 py-1 text-[11px] font-semibold text-[color:var(--text)] hover:bg-[color:rgba(245,158,11,0.16)]"
+                onClick={() => {
+                  handleMessageCreateFollowUp(messageActionSheet.text);
+                  closeMessageActionSheet();
+                }}
+                className="flex items-center justify-between rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-4 py-3 text-sm text-[color:var(--text)] hover:bg-[color:var(--surface-2)]"
               >
-                Guardar en Perfil
-              </button>
-              <button
-                type="button"
-                onClick={handleSelectionCreateFollowUp}
-                onPointerDown={handleToolbarPointerDown}
-                className="inline-flex items-center gap-1 rounded-full border border-[color:var(--brand)] bg-[color:rgba(var(--brand-rgb),0.12)] px-3 py-1 text-[11px] font-semibold text-[color:var(--text)] hover:bg-[color:rgba(var(--brand-rgb),0.2)]"
-              >
-                Crear seguimiento
+                <span>Crear seguimiento</span>
               </button>
             </div>
           </div>
@@ -11088,7 +11171,7 @@ function AudioMessageBubble({
               isFromFan={isFromFan}
               tone={tone}
               initialAnalysis={safeParseVoiceAnalysis(message.voiceAnalysisJson)}
-              initialTranslation={safeParseVoiceTranslation(message.voiceAnalysisJson)}
+              initialTranslation={message.voiceTranslation ?? null}
               onInsertText={onInsertText}
               onCopyTranscript={onCopyTranscript}
               onUseTranscript={onUseTranscript}

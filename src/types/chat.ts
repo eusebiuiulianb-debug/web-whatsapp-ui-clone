@@ -117,6 +117,18 @@ export interface FanFollowUp {
   doneAt?: string | null;
 }
 
+export interface MessageTranslation {
+  id: string;
+  messageId: string;
+  targetLang: string;
+  sourceKind: "text" | "voice_transcript";
+  sourceHash: string;
+  translatedText: string;
+  provider?: string | null;
+  createdAt: string;
+  createdByCreatorId?: string | null;
+}
+
 export interface Message {
   id: string;
   fanId: string;
@@ -146,6 +158,7 @@ export interface Message {
   } | null;
   voiceAnalysisJson?: string | null;
   voiceAnalysisUpdatedAt?: string | null;
+  messageTranslations?: MessageTranslation[];
   reactionsSummary?: ReactionSummaryEntry[];
   contentItem?: {
     id: string;

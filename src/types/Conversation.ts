@@ -1,6 +1,7 @@
 import type { FollowUpTag, UrgencyLevel } from "../utils/followUp";
 import type { ReactionSummaryEntry } from "../lib/messageReactions";
 import type { ContentType, ContentVisibility } from "./content";
+import type { VoiceTranslation } from "./voiceAnalysis";
 
 interface Message {
   fanId?: string;
@@ -35,6 +36,7 @@ interface Message {
   } | null;
   voiceAnalysisJson?: string | null;
   voiceAnalysisUpdatedAt?: string | null;
+  voiceTranslation?: VoiceTranslation | null;
   reactionsSummary?: ReactionSummaryEntry[];
   contentItem?: {
     id: string;

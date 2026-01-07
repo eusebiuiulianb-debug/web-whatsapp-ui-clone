@@ -185,6 +185,7 @@ export async function maybeAutoTranscribeVoiceNote(payload: AutoTranscriptionPay
   try {
     const res = await fetch(`/api/voice-notes/transcribe/${payload.messageId}`, {
       method: "POST",
+      headers: { "x-novsy-viewer": "creator" },
     });
     const data = await res.json().catch(() => ({}));
     if (res.ok && data?.ok && data.started) {
