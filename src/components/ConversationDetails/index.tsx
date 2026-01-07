@@ -207,6 +207,8 @@ const VOICE_MIME_PREFERENCES = [
   "audio/mp4",
 ];
 const TOOLBAR_MARGIN = 12;
+const TRANSLATION_POPOVER_MAX_WIDTH = 360;
+const TRANSLATION_POPOVER_HEIGHT = 180;
 
 type VoiceUploadPayload = {
   blob: Blob;
@@ -718,6 +720,7 @@ export default function ConversationDetails({ onBackToBoard }: ConversationDetai
   const lastSentMessageIdRef = useRef<string | null>(null);
   const lastContentMessageIdRef = useRef<string | null>(null);
   const messagesContainerRef = useRef<HTMLDivElement | null>(null);
+  const chatOverlayRef = useRef<HTMLDivElement | null>(null);
 
   const showPurchaseNotice = useCallback((payload: PurchaseNoticeState) => {
     setPurchaseNotice(payload);
@@ -4210,49 +4213,39 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
     }
   }, [applyCortexDraft, id]);
 
-  const clampToolbarPosition = useCallback((x: number, y: number, maxWidth: number) => {
-    if (typeof window === "undefined") return { x, y, maxWidth };
-    const toolbarHeight = 48;
-    const margin = TOOLBAR_MARGIN;
-    const safeMaxWidth = Math.max(0, Math.min(maxWidth, window.innerWidth - margin * 2));
-    const maxX = window.innerWidth - safeMaxWidth - margin;
-    const centeredX = x - safeMaxWidth / 2;
-    const clampedX = Math.max(margin, Math.min(centeredX, maxX));
-    const maxY = window.innerHeight - toolbarHeight - margin;
-    const clampedY = Math.max(margin, Math.min(y - toolbarHeight, maxY));
-    return { x: clampedX, y: clampedY, maxWidth: safeMaxWidth };
-  }, []);
+  const getMessageTranslationPosition = useCallback((messageId: string) => {
+    if (typeof window === "undefined") return null;
+    const container = messagesContainerRef.current;
+    const overlay = chatOverlayRef.current;
+    const chatRect = overlay?.getBoundingClientRect() ?? container?.getBoundingClientRect();
+    if (!chatRect) return null;
 
-  const clampPopoverPosition = useCallback((x: number, y: number, maxWidth: number) => {
-    if (typeof window === "undefined") return { x, y, maxWidth };
-    const margin = TOOLBAR_MARGIN;
-    const popoverHeight = 220;
-    const safeMaxWidth = Math.max(0, Math.min(maxWidth, window.innerWidth - margin * 2));
-    const maxX = window.innerWidth - safeMaxWidth - margin;
-    const clampedX = Math.max(margin, Math.min(x, maxX));
-    const maxY = window.innerHeight - popoverHeight - margin;
-    const clampedY = Math.max(margin, Math.min(y, maxY));
-    return { x: clampedX, y: clampedY, maxWidth: safeMaxWidth };
-  }, []);
+    const clamp = (value: number, min: number, max: number) => Math.max(min, Math.min(value, max));
+    const maxWidth = Math.max(0, Math.min(TRANSLATION_POPOVER_MAX_WIDTH, chatRect.width - TOOLBAR_MARGIN * 2));
+    const maxX = chatRect.width - maxWidth - TOOLBAR_MARGIN;
+    const maxY = chatRect.height - TRANSLATION_POPOVER_HEIGHT - TOOLBAR_MARGIN;
+    const fallbackX = clamp((chatRect.width - maxWidth) / 2, TOOLBAR_MARGIN, maxX);
+    const fallbackY = clamp((chatRect.height - TRANSLATION_POPOVER_HEIGHT) / 2, TOOLBAR_MARGIN, maxY);
 
-  const getMessageAnchorPosition = useCallback(
-    (messageKey: string) => {
-      if (typeof window === "undefined") return null;
-      const container = messagesContainerRef.current;
-      const element = container?.querySelector<HTMLElement>(`[data-message-anchor="${messageKey}"]`);
-      if (!element) return null;
-      const rect = element.getBoundingClientRect();
-      const maxWidth = Math.max(0, Math.min(384, window.innerWidth - TOOLBAR_MARGIN * 2));
-      return clampToolbarPosition(rect.left + rect.width / 2, rect.top, maxWidth);
-    },
-    [clampToolbarPosition]
-  );
+    const anchor = container?.querySelector<HTMLElement>(`[data-message-id="${messageId}"]`);
+    if (!anchor) {
+      return { x: fallbackX, y: fallbackY, maxWidth };
+    }
+
+    const rect = anchor.getBoundingClientRect();
+    let x = clamp(rect.left - chatRect.left, TOOLBAR_MARGIN, maxX);
+    let y = rect.bottom - chatRect.top + 8;
+    if (y + TRANSLATION_POPOVER_HEIGHT > chatRect.height - TOOLBAR_MARGIN) {
+      y = rect.top - chatRect.top - TRANSLATION_POPOVER_HEIGHT - 8;
+    }
+    y = clamp(y, TOOLBAR_MARGIN, maxY);
+    return { x, y, maxWidth };
+  }, []);
 
   const openMessageTranslationPopover = useCallback(
     (messageId: string, error: string) => {
-      const anchor = getMessageAnchorPosition(messageId);
-      if (!anchor) return;
-      const position = clampPopoverPosition(anchor.x, anchor.y + 56, anchor.maxWidth);
+      const position = getMessageTranslationPosition(messageId);
+      if (!position) return;
       setMessageTranslationPopover({
         messageId,
         error,
@@ -4261,8 +4254,33 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
         maxWidth: position.maxWidth,
       });
     },
-    [clampPopoverPosition, getMessageAnchorPosition]
+    [getMessageTranslationPosition]
   );
+
+  useEffect(() => {
+    const messageId = messageTranslationPopover?.messageId;
+    if (!messageId) return;
+    const container = messagesContainerRef.current;
+    if (!container) return;
+
+    const handleReposition = () => {
+      const position = getMessageTranslationPosition(messageId);
+      if (!position) return;
+      setMessageTranslationPopover((prev) => {
+        if (!prev || prev.messageId !== messageId) return prev;
+        if (prev.x === position.x && prev.y === position.y && prev.maxWidth === position.maxWidth) return prev;
+        return { ...prev, ...position };
+      });
+    };
+
+    handleReposition();
+    container.addEventListener("scroll", handleReposition, { passive: true });
+    window.addEventListener("resize", handleReposition);
+    return () => {
+      container.removeEventListener("scroll", handleReposition);
+      window.removeEventListener("resize", handleReposition);
+    };
+  }, [getMessageTranslationPosition, messageTranslationPopover?.messageId]);
 
   const handleTranslateMessage = useCallback(
     async (messageId: string) => {
@@ -9115,15 +9133,16 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
         })()
       )}
       <div className="flex flex-col flex-1 min-h-0">
-        <div
-          ref={messagesContainerRef}
-          className="flex flex-col w-full flex-1 min-h-0 overflow-y-auto"
-          style={{ backgroundImage: "var(--chat-pattern)" }}
-        >
+        <div className="relative flex flex-col flex-1 min-h-0">
           <div
-            className="max-w-4xl mx-auto w-full px-4 sm:px-6 lg:px-8 py-6"
-            style={{ paddingBottom: messageListBottomPadding }}
+            ref={messagesContainerRef}
+            className="flex flex-col w-full flex-1 min-h-0 overflow-y-auto"
+            style={{ backgroundImage: "var(--chat-pattern)" }}
           >
+            <div
+              className="max-w-4xl mx-auto w-full px-4 sm:px-6 lg:px-8 py-6"
+              style={{ paddingBottom: messageListBottomPadding }}
+            >
             {schemaError && (
               <div className="mb-4 rounded-xl border border-[color:rgba(244,63,94,0.6)] bg-[color:rgba(244,63,94,0.08)] px-4 py-3 text-[color:var(--text)]">
                 <div className="flex items-start justify-between gap-3">
@@ -9423,6 +9442,8 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
               </div>
             )}
           </div>
+        </div>
+        <div ref={chatOverlayRef} className="absolute inset-0 z-[60] pointer-events-none" />
         </div>
         {process.env.NEXT_PUBLIC_DEBUG_CHAT === "1" && (
           <div className="fixed bottom-2 right-2 text-[11px] text-[color:var(--text)] bg-[color:var(--surface-1)] border border-[color:var(--surface-border)] px-2 py-1 rounded">
@@ -9844,53 +9865,51 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
         </div>
         </div>
       </div>
-      {messageTranslationPopover && typeof document !== "undefined"
+      {messageTranslationPopover && chatOverlayRef.current
         ? createPortal(
             <div
-              className="fixed inset-0 z-[60] pointer-events-none"
+              className="absolute inset-0 pointer-events-none"
               onContextMenu={(event) => event.preventDefault()}
             >
-              {messageTranslationPopover && (
-                <div
-                  className="fixed pointer-events-auto"
-                  style={{
-                    left: messageTranslationPopover.x,
-                    top: messageTranslationPopover.y,
-                    maxWidth: messageTranslationPopover.maxWidth,
-                  }}
-                  onPointerDown={handleToolbarPointerDown}
-                >
-                  <div className="w-full max-w-sm rounded-2xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] p-3 shadow-xl">
-                    <div className="flex items-center justify-between text-[10px] uppercase tracking-wide text-[color:var(--muted)]">
-                      <span>Traduccion</span>
-                      <button
-                        type="button"
-                        onClick={() => setMessageTranslationPopover(null)}
-                        className="rounded-full border border-[color:var(--surface-border)] px-2 py-0.5 text-[9px] font-semibold text-[color:var(--muted)] hover:text-[color:var(--text)]"
-                      >
-                        Cerrar
-                      </button>
+              <div
+                className="absolute pointer-events-auto"
+                style={{
+                  left: messageTranslationPopover.x,
+                  top: messageTranslationPopover.y,
+                  maxWidth: messageTranslationPopover.maxWidth,
+                }}
+                onPointerDown={handleToolbarPointerDown}
+              >
+                <div className="w-full max-w-sm rounded-2xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] p-3 shadow-xl">
+                  <div className="flex items-center justify-between text-[10px] uppercase tracking-wide text-[color:var(--muted)]">
+                    <span>Traduccion</span>
+                    <button
+                      type="button"
+                      onClick={() => setMessageTranslationPopover(null)}
+                      className="rounded-full border border-[color:var(--surface-border)] px-2 py-0.5 text-[9px] font-semibold text-[color:var(--muted)] hover:text-[color:var(--text)]"
+                    >
+                      Cerrar
+                    </button>
+                  </div>
+                  <div className="mt-2 space-y-2">
+                    <div className="text-[11px] text-[color:var(--danger)]">
+                      {messageTranslationPopover.error}
                     </div>
-                    <div className="mt-2 space-y-2">
-                      <div className="text-[11px] text-[color:var(--danger)]">
-                        {messageTranslationPopover.error}
-                      </div>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          handleTranslateMessage(messageTranslationPopover.messageId);
-                          setMessageTranslationPopover(null);
-                        }}
-                        className="rounded-full border border-[color:var(--surface-border)] px-2 py-0.5 text-[10px] font-semibold text-[color:var(--text)] hover:bg-[color:var(--surface-2)]"
-                      >
-                        Reintentar
-                      </button>
-                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        handleTranslateMessage(messageTranslationPopover.messageId);
+                        setMessageTranslationPopover(null);
+                      }}
+                      className="rounded-full border border-[color:var(--surface-border)] px-2 py-0.5 text-[10px] font-semibold text-[color:var(--text)] hover:bg-[color:var(--surface-2)]"
+                    >
+                      Reintentar
+                    </button>
                   </div>
                 </div>
-              )}
+              </div>
             </div>,
-            document.body
+            chatOverlayRef.current
           )
         : null}
       {messageActionSheet && (

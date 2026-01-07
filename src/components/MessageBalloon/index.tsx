@@ -222,7 +222,7 @@ const MessageBalloon = memo(function MessageBalloon(props: MessageBalloonProps) 
       onPointerUp={handlePointerUp}
       onPointerCancel={handlePointerCancel}
     >
-      <div className="max-w-[75%]" data-message-anchor={anchorId}>
+      <div className="max-w-[75%]" data-message-id={messageId || undefined} data-message-anchor={anchorId}>
         <p
           className={`mb-1 text-[10px] uppercase tracking-wide text-[color:var(--muted)] ${me ? "text-right" : ""}`}
         >
