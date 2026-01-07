@@ -93,6 +93,8 @@ model Fan {
   healthScore      Int             @default(0)
   lastMessageAt    DateTime?
   lastCreatorMessageAt DateTime?
+  lastReadAtCreator DateTime?
+  lastReadAtFan     DateTime?
   lastActivityAt   DateTime?
   lastCortexOutreachAt DateTime?
   lastCortexOutreachKey String?

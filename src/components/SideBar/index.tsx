@@ -1,6 +1,7 @@
 import ConversationList from "../ConversationList";
 import React, { Component, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/router";
+import useSWRInfinite from "swr/infinite";
 import CreatorHeader from "../CreatorHeader";
 import { useCreatorConfig } from "../../context/CreatorConfigContext";
 import CreatorSettingsPanel from "../CreatorSettingsPanel";
@@ -31,6 +32,7 @@ import {
 import { setSmartTranscriptionTargets } from "../../lib/voiceTranscriptionSmartTargets";
 import type { FanMessageSentPayload, PurchaseCreatedPayload, VoiceTranscriptPayload } from "../../lib/events";
 import { formatPurchaseUI } from "../../lib/purchaseUi";
+import { publishChatEvent, subscribeChatEvents } from "../../lib/chatEvents";
 import { useCreatorRealtime } from "../../hooks/useCreatorRealtime";
 import { DevRequestCounters } from "../DevRequestCounters";
 import { recordDevRequest } from "../../lib/devRequestStats";
@@ -271,7 +273,6 @@ function SideBarInner() {
   const [ search, setSearch ] = useState("");
   const [ isSettingsOpen, setIsSettingsOpen ] = useState(false);
   const [ fans, setFans ] = useState<ConversationListData[]>([]);
-  const [ loadingFans, setLoadingFans ] = useState(true);
   const [ fansError, setFansError ] = useState("");
   const [ followUpMode, setFollowUpMode ] = useState<"all" | "today" | "expired" | "priority">("all");
   const [ showOnlyWithNotes, setShowOnlyWithNotes ] = useState(false);
@@ -283,13 +284,9 @@ function SideBarInner() {
   const [ focusMode, setFocusMode ] = useState(false);
   const [ showPacksPanel, setShowPacksPanel ] = useState(false);
   const [ listSegment, setListSegment ] = useState<"all" | "queue">("all");
-  const [ nextCursor, setNextCursor ] = useState<string | null>(null);
-  const [ hasMore, setHasMore ] = useState(false);
   const [ isLoadingMore, setIsLoadingMore ] = useState(false);
   const openFanFetchRef = useRef<string | null>(null);
   const fansRef = useRef<ConversationListData[]>([]);
-  const didInitialFetchRef = useRef(false);
-  const didMountFetchRef = useRef(false);
   const packsCount = Object.keys(PACKS).length;
   const { config } = useCreatorConfig();
   const creatorInitial = config.creatorName?.trim().charAt(0) || "E";
@@ -348,6 +345,7 @@ function SideBarInner() {
       lastSeenAt: fan.lastSeenAt ?? null,
       lastCreatorMessageAt: fan.lastCreatorMessageAt,
       lastActivityAt: fan.lastActivityAt ?? null,
+      lastMessageAt: fan.lastMessageAt ?? null,
       activeGrantTypes: fan.activeGrantTypes ?? [],
       hasAccessHistory: fan.hasAccessHistory ?? false,
       followUpTag: fan.followUpTag ?? getFollowUpTag(fan.membershipStatus, fan.daysLeft, fan.activeGrantTypes),
@@ -626,6 +624,10 @@ function SideBarInner() {
   const getLastActivityTimestamp = useCallback((fan: FanData): number => {
     if (fan.lastActivityAt) {
       const d = new Date(fan.lastActivityAt);
+      if (!Number.isNaN(d.getTime())) return d.getTime();
+    }
+    if (fan.lastMessageAt) {
+      const d = new Date(fan.lastMessageAt);
       if (!Number.isNaN(d.getTime())) return d.getTime();
     }
     if (fan.lastCreatorMessageAt) {
@@ -1028,10 +1030,11 @@ function SideBarInner() {
         highPriorityAt: null,
         inviteUsedAt: null,
       };
-      setFans((prev) => {
+      updateChatPages((prev) => {
         if (prev.some((fan) => fan.id === fanId)) return prev;
         return [newConversation, ...prev];
       });
+      void mutateChats();
       setConversation(newConversation as any);
       const targetPath = router.pathname.startsWith("/creator/manager") ? "/creator" : router.pathname || "/creator";
       openFanChat(router, fanId, { shallow: true, pathname: targetPath });
@@ -1340,35 +1343,98 @@ function SideBarInner() {
     [apiFilter, search]
   );
 
-  const fetchFansPage = useCallback(
-    async (cursor?: string | null, append = false) => {
-      try {
-        if (append) setIsLoadingMore(true);
-        else setLoadingFans(true);
-        const params = buildFansQuery(cursor);
-        const queryString = params.toString();
-        recordDevRequest("fans");
-        const res = await fetch(`/api/fans?${queryString}`, { cache: "no-store" });
-        if (!res.ok) throw new Error("Error fetching fans");
-        const data = await res.json();
-        const rawItems = Array.isArray(data.items) ? (data.items as Fan[]) : [];
-        const mapped: ConversationListData[] = mapFans(rawItems);
-        setFans((prev) => (append ? [...prev, ...mapped] : mapped));
-        setFansError("");
-        setNextCursor(typeof data.nextCursor === "string" ? data.nextCursor : null);
-        setHasMore(Boolean(data.hasMore));
-        lastFansSuccessAtRef.current = Date.now();
-        lastFansSuccessQueryRef.current = queryString;
-      } catch (_err) {
-        setFansError("Error cargando fans");
-        if (!append) setFans([]);
-      } finally {
-        setLoadingFans(false);
-        setIsLoadingMore(false);
-      }
+  const fetchChatsPage = useCallback(
+    async (url: string) => {
+      recordDevRequest("fans");
+      const res = await fetch(url, { cache: "no-store" });
+      if (!res.ok) throw new Error("Error fetching fans");
+      const data = await res.json();
+      const rawItems = Array.isArray(data.items)
+        ? (data.items as Fan[])
+        : Array.isArray(data.fans)
+        ? (data.fans as Fan[])
+        : [];
+      const mapped = mapFans(rawItems);
+      return { ...data, items: mapped };
     },
-    [buildFansQuery, mapFans]
+    [mapFans]
   );
+
+  const {
+    data: chatPages,
+    error: chatError,
+    isValidating: isChatValidating,
+    setSize: setChatPageCount,
+    mutate: mutateChats,
+  } = useSWRInfinite(
+    (pageIndex, previousPageData) => {
+      if (previousPageData && !previousPageData.hasMore) return null;
+      const cursor = pageIndex === 0 ? null : previousPageData?.nextCursor ?? null;
+      const params = buildFansQuery(cursor);
+      return `/api/creator/chats?${params.toString()}`;
+    },
+    fetchChatsPage,
+    { refreshInterval: 0 }
+  );
+
+  const fetchedFans: ConversationListData[] = useMemo(() => {
+    if (!chatPages) return [];
+    return chatPages.flatMap((page) =>
+      Array.isArray(page.items) ? (page.items as ConversationListData[]) : []
+    );
+  }, [chatPages]);
+
+  const hasMore = Boolean(chatPages?.[chatPages.length - 1]?.hasMore);
+
+  useEffect(() => {
+    setFansError(chatError ? "Error cargando fans" : "");
+  }, [chatError]);
+
+  useEffect(() => {
+    if (!isChatValidating) {
+      setIsLoadingMore(false);
+    }
+  }, [isChatValidating]);
+
+  useEffect(() => {
+    setFans(fetchedFans);
+  }, [fetchedFans]);
+
+  const updateChatPages = useCallback(
+    (updater: (items: ConversationListData[]) => ConversationListData[]) => {
+      mutateChats((pages) => {
+        if (!pages) return pages;
+        const flat = pages.flatMap((page) =>
+          Array.isArray(page.items) ? (page.items as ConversationListData[]) : []
+        );
+        const nextFlat = updater(flat);
+        let offset = 0;
+        const nextPages = pages.map((page) => {
+          const size = Array.isArray(page.items) ? page.items.length : 0;
+          const items = nextFlat.slice(offset, offset + size);
+          offset += size;
+          return { ...page, items };
+        });
+        if (offset < nextFlat.length && nextPages.length > 0) {
+          nextPages[0] = {
+            ...nextPages[0],
+            items: [
+              ...(Array.isArray(nextPages[0].items) ? nextPages[0].items : []),
+              ...nextFlat.slice(offset),
+            ],
+          };
+        }
+        return nextPages;
+      }, { revalidate: false });
+    },
+    [mutateChats]
+  );
+
+  useEffect(() => {
+    if (!chatPages) return;
+    lastFansSuccessAtRef.current = Date.now();
+    lastFansSuccessQueryRef.current = buildFansQuery(null).toString();
+  }, [buildFansQuery, chatPages]);
 
   const scheduleFansRefetch = useCallback(
     (reason?: string, options?: { realtime?: boolean }) => {
@@ -1408,13 +1474,13 @@ function SideBarInner() {
         }
         fansRefetchInFlightRef.current = true;
         lastFansRefetchAtRef.current = now;
-        void fetchFansPage().finally(() => {
+        void mutateChats().finally(() => {
           fansRefetchInFlightRef.current = false;
         });
       };
       fansRefetchTimerRef.current = setTimeout(run, 1000);
     },
-    [buildFansQuery, fetchFansPage]
+    [buildFansQuery, mutateChats]
   );
 
   const fetchFanById = useCallback(
@@ -1422,7 +1488,7 @@ function SideBarInner() {
       if (!fanId) return null;
       try {
         recordDevRequest("fans");
-        const res = await fetch(`/api/fans?fanId=${encodeURIComponent(fanId)}`, {
+        const res = await fetch(`/api/creator/chats?fanId=${encodeURIComponent(fanId)}`, {
           cache: "no-store",
           signal: options?.signal,
         });
@@ -1435,7 +1501,7 @@ function SideBarInner() {
         const mapped = mapFans(rawItems);
         const target = mapped.find((fan) => fan.id === fanId) ?? null;
         if (!target) return null;
-        setFans((prev) => mergeFansById(prev, [target]));
+        updateChatPages((prev) => mergeFansById(prev, [target]));
         return target;
       } catch (err) {
         if ((err as any)?.name === "AbortError") return null;
@@ -1443,7 +1509,7 @@ function SideBarInner() {
         return null;
       }
     },
-    [mapFans, mergeFansById]
+    [mapFans, mergeFansById, updateChatPages]
   );
 
   const handleToggleHighPriority = useCallback(
@@ -1452,13 +1518,14 @@ function SideBarInner() {
       const nextValue = !(item.isHighPriority ?? false);
       const nextTimestamp = nextValue ? new Date().toISOString() : null;
 
-      setFans((prev) =>
+      updateChatPages((prev) =>
         prev.map((fan) =>
           fan.id === item.id
             ? { ...fan, isHighPriority: nextValue, highPriorityAt: nextTimestamp }
             : fan
         )
       );
+      void mutateChats();
 
       if (conversation?.id === item.id) {
         setConversation({
@@ -1479,32 +1546,25 @@ function SideBarInner() {
           if (process.env.NODE_ENV !== "production") {
             console.warn("[high-priority] patch failed", data?.error || res.statusText);
           }
-          await fetchFansPage();
+          await mutateChats();
           return;
         }
-        await fetchFansPage();
+        await mutateChats();
       } catch (err) {
         console.error("Error updating high priority", err);
-        await fetchFansPage();
+        await mutateChats();
       }
     },
-    [conversation, fetchFansPage, setConversation]
+    [conversation, mutateChats, setConversation, updateChatPages]
   );
 
   useEffect(() => {
-    if (didMountFetchRef.current) return;
-    didMountFetchRef.current = true;
-    fetchFansPage();
     void refreshExtrasSummary();
-  }, [fetchFansPage, refreshExtrasSummary]);
+  }, [refreshExtrasSummary]);
 
   useEffect(() => {
-    if (!didInitialFetchRef.current) {
-      didInitialFetchRef.current = true;
-      return;
-    }
-    fetchFansPage();
-  }, [apiFilter, fetchFansPage, search]);
+    setChatPageCount(1);
+  }, [apiFilter, search, setChatPageCount]);
 
   const handleExtrasUpdated = useCallback(
     (detail: {
@@ -1519,7 +1579,7 @@ function SideBarInner() {
       };
     }) => {
       if (detail?.fanId && detail?.totals) {
-        setFans((prev) =>
+        updateChatPages((prev) =>
           prev.map((fan) =>
             fan.id === detail.fanId
               ? {
@@ -1544,7 +1604,7 @@ function SideBarInner() {
       }
       void refreshExtrasSummary();
     },
-    [refreshExtrasSummary]
+    [refreshExtrasSummary, updateChatPages]
   );
 
   const handleFanMessageSent = useCallback(
@@ -1557,11 +1617,6 @@ function SideBarInner() {
       const now = new Date();
       const sentAt = typeof detail?.sentAt === "string" ? new Date(detail.sentAt) : now;
       const safeSentAt = Number.isNaN(sentAt.getTime()) ? now : sentAt;
-      const timeLabel = safeSentAt.toLocaleTimeString("es-ES", {
-        hour: "2-digit",
-        minute: "2-digit",
-        hour12: false,
-      });
       const rawText = typeof detail?.text === "string" ? detail.text.trim() : "";
       const durationMs =
         typeof detail?.durationMs === "number"
@@ -1603,25 +1658,16 @@ function SideBarInner() {
           }));
         }
       }
-      if (existing) {
-        setFans((prev) => {
-          const index = prev.findIndex((fan) => fan.id === fanId);
-          if (index === -1) return prev;
-          const current = prev[index];
-          const updated = {
-            ...current,
-            lastMessage: preview || current.lastMessage,
-            lastTime: timeLabel,
-            lastActivityAt: safeSentAt.toISOString(),
-            lastCreatorMessageAt: isFromFan ? current.lastCreatorMessageAt : safeSentAt.toISOString(),
-          };
-          return [updated, ...prev.slice(0, index), ...prev.slice(index + 1)];
-        });
-      }
-      void fetchFanById(fanId);
+      publishChatEvent({
+        type: "message_created",
+        threadId: fanId,
+        createdAt: safeSentAt.toISOString(),
+        preview,
+        isIncoming: isFromFan,
+      });
       void refreshExtrasSummary();
     },
-    [conversation?.id, conversation?.isManager, fetchFanById, refreshExtrasSummary, scheduleFansRefetch]
+    [conversation?.id, conversation?.isManager, refreshExtrasSummary, scheduleFansRefetch]
   );
 
   const handlePurchaseCreated = useCallback(
@@ -1672,7 +1718,7 @@ function SideBarInner() {
           playPurchaseSound();
         }
       }
-      setFans((prev) => {
+      updateChatPages((prev) => {
         const index = prev.findIndex((fan) => fan.id === fanId);
         if (index === -1) return prev;
         const current = prev[index];
@@ -1687,7 +1733,7 @@ function SideBarInner() {
       scheduleFansRefetch("purchase_created", { realtime: true });
       void refreshExtrasSummary();
     },
-    [conversation?.id, conversation?.isManager, playPurchaseSound, refreshExtrasSummary, scheduleFansRefetch]
+    [conversation?.id, conversation?.isManager, playPurchaseSound, refreshExtrasSummary, scheduleFansRefetch, updateChatPages]
   );
 
   const handleVoiceTranscriptUpdated = useCallback(
@@ -1702,7 +1748,7 @@ function SideBarInner() {
         minute: "2-digit",
         hour12: false,
       });
-      setFans((prev) => {
+      updateChatPages((prev) => {
         const index = prev.findIndex((fan) => fan.id === fanId);
         if (index === -1) return prev;
         const current = prev[index];
@@ -1713,9 +1759,9 @@ function SideBarInner() {
         };
         return [updated, ...prev.slice(0, index), ...prev.slice(index + 1)];
       });
-      void fetchFanById(fanId);
+      scheduleFansRefetch("voice_transcript", { realtime: true });
     },
-    [fetchFanById]
+    [scheduleFansRefetch, updateChatPages]
   );
 
   const handlePurchaseSeen = useCallback((detail: { fanId?: string; purchaseIds?: string[] }) => {
@@ -1745,11 +1791,19 @@ function SideBarInner() {
       const custom = event as CustomEvent;
       const rawFans = Array.isArray(custom.detail?.fans) ? (custom.detail.fans as Fan[]) : null;
       if (rawFans) {
-        setFans(mapFans(rawFans));
+        const mapped = mapFans(rawFans);
+        mutateChats(
+          [
+            {
+              ok: true,
+              items: mapped,
+              hasMore: false,
+              nextCursor: null,
+            },
+          ],
+          { revalidate: false }
+        );
         setFansError("");
-        setLoadingFans(false);
-        setHasMore(false);
-        setNextCursor(null);
         return;
       }
       scheduleFansRefetch("fan_data_updated");
@@ -1791,11 +1845,7 @@ function SideBarInner() {
       window.removeEventListener("fanDataUpdated", handleFanDataUpdated as EventListener);
       window.removeEventListener("applyChatFilter", handleExternalFilter as EventListener);
     };
-  }, [
-    applyFilter,
-    scheduleFansRefetch,
-    mapFans,
-  ]);
+  }, [applyFilter, mapFans, mutateChats, scheduleFansRefetch]);
 
   useCreatorRealtime({
     onExtrasUpdated: handleExtrasUpdated,
@@ -1805,6 +1855,62 @@ function SideBarInner() {
     onCreatorDataChanged: handleCreatorDataChanged,
     onVoiceTranscriptUpdated: handleVoiceTranscriptUpdated,
   });
+
+  useEffect(() => {
+    return subscribeChatEvents((event) => {
+      if (event.type === "message_created") {
+        const threadId = event.threadId;
+        if (!threadId) return;
+        const createdAt = new Date(event.createdAt);
+        const timeLabel = Number.isNaN(createdAt.getTime())
+          ? ""
+          : createdAt.toLocaleTimeString("es-ES", {
+              hour: "2-digit",
+              minute: "2-digit",
+              hour12: false,
+            });
+        const isActive = !conversation?.isManager && conversation?.id === threadId;
+        const shouldIncrement = event.isIncoming && !isActive;
+        updateChatPages((prev) => {
+          const index = prev.findIndex((fan) => fan.id === threadId);
+          if (index === -1) return prev;
+          const current = prev[index];
+          const nextUnread = shouldIncrement
+            ? (current.unreadCount ?? 0) + 1
+            : isActive
+            ? 0
+            : current.unreadCount ?? 0;
+          const updated = {
+            ...current,
+            lastMessage: event.preview || current.lastMessage,
+            lastTime: timeLabel || current.lastTime,
+            lastActivityAt: event.createdAt,
+            lastMessageAt: event.createdAt,
+            lastCreatorMessageAt: event.isIncoming ? current.lastCreatorMessageAt : event.createdAt,
+            unreadCount: nextUnread,
+          };
+          return [updated, ...prev.slice(0, index), ...prev.slice(index + 1)];
+        });
+        scheduleFansRefetch("message_created", { realtime: true });
+        return;
+      }
+      if (event.type === "thread_read") {
+        const threadId = event.threadId;
+        if (!threadId) return;
+        updateChatPages((prev) =>
+          prev.map((fan) =>
+            fan.id === threadId
+              ? {
+                  ...fan,
+                  unreadCount: 0,
+                }
+              : fan
+          )
+        );
+        scheduleFansRefetch("thread_read", { realtime: true });
+      }
+    });
+  }, [conversation?.id, conversation?.isManager, scheduleFansRefetch, updateChatPages]);
 
   useEffect(() => {
     const fanIdFromQuery = getFanIdFromQuery({ fan: queryFan, fanId: queryFanId });
@@ -1905,7 +2011,7 @@ function SideBarInner() {
     []
   );
 
-  const isLoading = loadingFans;
+  const isLoading = !chatPages && !chatError;
   const isError = Boolean(fansError);
   const filterRowClass =
     "flex items-center justify-between gap-3 rounded-lg px-2 py-1.5 text-left transition hover:bg-[color:var(--surface-2)] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[color:var(--ring)]";
@@ -1967,7 +2073,7 @@ function SideBarInner() {
               <button
                 type="button"
                 className="rounded-md border border-[color:rgba(244,63,94,0.4)] bg-[color:rgba(244,63,94,0.2)] px-2 py-1 text-[11px] font-semibold hover:bg-[color:rgba(244,63,94,0.28)]"
-                onClick={() => fetchFansPage()}
+                onClick={() => mutateChats()}
               >
                 Reintentar
               </button>
@@ -2624,13 +2730,13 @@ function SideBarInner() {
           onSelect={handleOpenManagerPanel}
           variant="compact"
         />
-        {loadingFans && (
+        {isLoading && (
           <div className="text-center text-[color:var(--muted)] py-4 text-sm">Cargando fans...</div>
         )}
-        {fansError && !loadingFans && (
+        {fansError && !isLoading && (
           <div className="text-center text-[color:var(--danger)] py-4 text-sm">{fansError}</div>
         )}
-        {!loadingFans && !fansError && listSegment === "queue" && !focusMode && (
+        {!isLoading && !fansError && listSegment === "queue" && !focusMode && (
           <>
             {queueCount === 0 ? (
               <div className="px-4 py-3 text-xs text-[color:var(--muted)]">
@@ -2660,7 +2766,7 @@ function SideBarInner() {
             )}
           </>
         )}
-        {!loadingFans && !fansError && listSegment === "all" && !focusMode && (
+        {!isLoading && !fansError && listSegment === "all" && !focusMode && (
           <>
             {followUpMode === "priority" && safeFilteredConversationsList.length === 0 && (
               <div className="px-4 py-3 text-xs text-[color:var(--muted)]">
@@ -2740,12 +2846,15 @@ function SideBarInner() {
             })}
           </>
         )}
-        {!loadingFans && !fansError && !focusMode && hasMore && (
+        {!isLoading && !fansError && !focusMode && hasMore && (
           <div className="px-4 py-3">
             <button
               type="button"
               disabled={isLoadingMore}
-              onClick={() => fetchFansPage(nextCursor, true)}
+              onClick={() => {
+                setIsLoadingMore(true);
+                setChatPageCount((count) => count + 1);
+              }}
               className={clsx(
                 "w-full rounded-lg border px-3 py-2 text-sm font-semibold",
                 isLoadingMore

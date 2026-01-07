@@ -28,6 +28,28 @@ function parseMessageTimestamp(messageId: string): Date | null {
   return null;
 }
 
+type ViewerRole = "creator" | "fan";
+
+function resolveViewerRole(req: NextApiRequest): ViewerRole {
+  const headerRaw = req.headers["x-novsy-viewer"];
+  const header = Array.isArray(headerRaw) ? headerRaw[0] : headerRaw;
+  if (typeof header === "string") {
+    const normalized = header.trim().toLowerCase();
+    if (normalized === "fan") return "fan";
+    if (normalized === "creator") return "creator";
+  }
+
+  const viewerParamRaw = req.query.viewer;
+  const viewerParam = Array.isArray(viewerParamRaw) ? viewerParamRaw[0] : viewerParamRaw;
+  if (typeof viewerParam === "string") {
+    const normalized = viewerParam.trim().toLowerCase();
+    if (normalized === "fan") return "fan";
+    if (normalized === "creator") return "creator";
+  }
+
+  return "creator";
+}
+
 function truncateSnippet(text: string | null | undefined, max = 80): string | null {
   if (!text) return null;
   const trimmed = text.trim();
@@ -103,6 +125,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   }
 
   res.setHeader("Cache-Control", "no-store");
+  const viewerRole = resolveViewerRole(req);
 
   const { limit: limitParam, cursor, filter = "all", q, fanId, source } = req.query;
   const normalizedSource = typeof source === "string" && source.trim() ? source.trim().toLowerCase() : (process.env.FANS_SOURCE ?? "db").toLowerCase();
@@ -179,19 +202,19 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     if (cursorId && !fanIdFilter) {
       const cursorFan = await prisma.fan.findUnique({
         where: { id: cursorId },
-        select: { lastActivityAt: true },
+        select: { lastMessageAt: true },
       });
-      if (cursorFan?.lastActivityAt) {
+      if (cursorFan?.lastMessageAt) {
         cursorFilter = {
           OR: [
-            { lastActivityAt: { lt: cursorFan.lastActivityAt } },
-            { AND: [{ lastActivityAt: cursorFan.lastActivityAt }, { id: { lt: cursorId } }] },
-            { lastActivityAt: null },
+            { lastMessageAt: { lt: cursorFan.lastMessageAt } },
+            { AND: [{ lastMessageAt: cursorFan.lastMessageAt }, { id: { lt: cursorId } }] },
+            { lastMessageAt: null },
           ],
         };
       } else if (cursorFan) {
         cursorFilter = {
-          AND: [{ lastActivityAt: null }, { id: { lt: cursorId } }],
+          AND: [{ lastMessageAt: null }, { id: { lt: cursorId } }],
         };
       }
     }
@@ -223,7 +246,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         segment: true,
         riskLevel: true,
         healthScore: true,
+        lastMessageAt: true,
         lastActivityAt: true,
+        lastReadAtCreator: true,
+        lastReadAtFan: true,
         isBlocked: true,
         isArchived: true,
         preferredLanguage: true,
@@ -263,7 +289,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         inviteUsedAt: true,
         _count: { select: { notes: true } },
       },
-      orderBy: [{ lastActivityAt: "desc" }, { id: "desc" }],
+      orderBy: [{ lastMessageAt: "desc" }, { id: "desc" }],
       take: limit + 1,
       where: finalWhere,
     });
@@ -458,8 +484,19 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         .sort((a, b) => b.getTime() - a.getTime())[0];
 
       const lastVisibleAt = lastVisibleMessage ? parseMessageTimestamp(lastVisibleMessage.id) : null;
+      const lastMessageAt = fan.lastMessageAt ?? lastVisibleAt ?? null;
       const lastActivityAt =
-        fan.lastActivityAt ?? lastVisibleAt ?? lastCreatorMessage ?? lastFanActivity ?? null;
+        fan.lastActivityAt ?? lastMessageAt ?? lastVisibleAt ?? lastCreatorMessage ?? lastFanActivity ?? null;
+      const lastReadAt = viewerRole === "creator" ? fan.lastReadAtCreator : fan.lastReadAtFan;
+      const lastReadMs = lastReadAt ? lastReadAt.getTime() : null;
+      const unreadCount = hasMessages
+        ? visibleMessages.filter((msg) => {
+            if (normalizeFrom(msg.from) === viewerRole) return false;
+            const ts = msg.id ? parseMessageTimestamp(msg.id) : null;
+            if (!ts) return false;
+            return lastReadMs === null ? true : ts.getTime() > lastReadMs;
+          }).length
+        : 0;
       const lastNoteSnippet = truncateSnippet(fan.notes?.[0]?.content);
       const quickNoteValue = normalizeNoteValue(fan.quickNote);
       const quickNotePreview = truncateSnippet(quickNoteValue);
@@ -489,6 +526,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       // - daysLeft: días restantes derivados de expiresAt (nunca guardados en BD)
       // - followUpTag/urgencyLevel se calculan en el cliente con estos valores
       return {
+        threadId: fan.id,
         id: fan.id,
         name: fan.name,
         displayName: fan.displayName ?? null,
@@ -496,8 +534,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         preferredLanguage: normalizePreferredLanguage(fan.preferredLanguage) ?? null,
         avatar: fan.avatar || "",
         preview: hasMessages ? preview : "",
+        lastMessagePreview: hasMessages ? preview : "",
         time: hasMessages ? lastVisibleTime : "",
-        unreadCount: hasMessages ? fan.unreadCount ?? 0 : 0,
+        unreadCount,
         isNew: fan.isNew ?? false,
         isNew30d,
         accessState,
@@ -512,6 +551,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         notePreview,
         lastCreatorMessageAt: lastCreatorMessage ? lastCreatorMessage.toISOString() : null,
         lastActivityAt: lastActivityAt ? lastActivityAt.toISOString() : null,
+        lastMessageAt: lastMessageAt ? lastMessageAt.toISOString() : null,
         paidGrantsCount,
         lifetimeValue: totalSpend, // mantenemos compatibilidad pero usando el gasto total real
         lifetimeSpend: totalSpend,

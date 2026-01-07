@@ -67,6 +67,7 @@ function formatVoiceDuration(durationMs?: number) {
 export function RealtimeToastHost() {
   const router = useRouter();
   const { conversation, queueFans } = useContext(ConversationContext);
+  const isCreatorRoute = router.pathname === "/" || router.pathname.startsWith("/creator");
   const [toasts, setToasts] = useState<RealtimeToast[]>([]);
   const [toastIndex, setToastIndex] = useState(0);
   const [isMobile, setIsMobile] = useState(false);
@@ -198,6 +199,7 @@ export function RealtimeToastHost() {
   );
 
   useEffect(() => {
+    if (!isCreatorRoute) return;
     if (typeof window === "undefined") return;
     const handleBudgetPaused = (event: Event) => {
       const detail = (event as CustomEvent).detail as { message?: string } | undefined;
@@ -221,7 +223,7 @@ export function RealtimeToastHost() {
     return () => {
       window.removeEventListener(VOICE_TRANSCRIPTION_BUDGET_EVENT, handleBudgetPaused as EventListener);
     };
-  }, [enqueueToast, hasSeen, markSeen]);
+  }, [enqueueToast, hasSeen, isCreatorRoute, markSeen]);
 
   const openToastChat = useCallback(
     (toast: RealtimeToast) => {
@@ -412,8 +414,9 @@ export function RealtimeToastHost() {
     onPurchaseCreated: handlePurchaseCreated,
     onFanMessageSent: handleVoiceNote,
     onVoiceTranscriptUpdated: handleVoiceTranscriptUpdated,
-  });
+  }, { enabled: isCreatorRoute });
 
+  if (!isCreatorRoute) return null;
   const activeToast = toasts[toastIndex] ?? toasts[0];
   if (!activeToast) return null;
 

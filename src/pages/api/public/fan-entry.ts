@@ -107,7 +107,6 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           time,
           lastMessageAt: now,
           lastActivityAt: now,
-          unreadCount: { increment: 1 },
           ...(shouldUpdateLanguage ? { preferredLanguage } : {}),
           ...(needsAttribution
             ? {
@@ -132,7 +131,6 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           lastMessageAt: now,
           lastActivityAt: now,
           isNew: true,
-          unreadCount: 1,
           preferredLanguage,
           ...attribution,
         },

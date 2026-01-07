@@ -244,9 +244,14 @@ async function handleGet(req: NextApiRequest, res: NextApiResponse<MessageRespon
 
     if (shouldMarkRead) {
       try {
+        const now = new Date();
+        const data =
+          viewerRole === "creator"
+            ? { lastReadAtCreator: now }
+            : { lastReadAtFan: now };
         await prisma.fan.updateMany({
-          where: { id: normalizedFanId, unreadCount: { gt: 0 } },
-          data: { unreadCount: 0 },
+          where: { id: normalizedFanId },
+          data,
         });
       } catch (updateErr) {
         console.error("api/messages markRead error", { fanId: normalizedFanId, error: (updateErr as Error)?.message });
@@ -549,13 +554,11 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse<MessageRespo
       };
       if (normalizedFrom === "fan") {
         fanUpdate.isArchived = false;
-        fanUpdate.unreadCount = { increment: 1 };
         if (fan.inviteToken && !fan.inviteUsedAt) {
           fanUpdate.inviteUsedAt = now;
         }
       } else {
         fanUpdate.lastCreatorMessageAt = now;
-        fanUpdate.unreadCount = 0;
       }
       if (normalizedFrom === "creator" && normalizedAudience !== "INTERNAL" && isCortexOutreach) {
         fanUpdate.lastCortexOutreachAt = now;
