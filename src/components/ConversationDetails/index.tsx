@@ -91,7 +91,15 @@ import {
   isDbSchemaOutOfSyncPayload,
   type DbSchemaOutOfSyncPayload,
 } from "../../lib/dbSchemaGuard";
-import { LANGUAGE_LABELS, SUPPORTED_LANGUAGES, normalizePreferredLanguage, type SupportedLanguage } from "../../lib/language";
+import {
+  LANGUAGE_LABELS,
+  SUPPORTED_LANGUAGES,
+  getTranslationLanguageName,
+  normalizePreferredLanguage,
+  normalizeTranslationLanguage,
+  type SupportedLanguage,
+  type TranslationLanguage,
+} from "../../lib/language";
 import clsx from "clsx";
 import { useRouter } from "next/router";
 import { useIsomorphicLayoutEffect } from "../../hooks/useIsomorphicLayoutEffect";
@@ -246,22 +254,29 @@ const normalizeActionKey = (key?: string | null) => {
 
 const formatTranslationLang = (value: string | null | undefined, fallback: string) => {
   const trimmed = typeof value === "string" ? value.trim() : "";
-  return trimmed ? trimmed.toUpperCase() : fallback;
+  if (!trimmed) return fallback;
+  const upper = trimmed.toUpperCase();
+  if (upper === "AUTO" || upper === "UN" || upper === "?") return fallback;
+  return upper;
 };
 
 const buildManagerTranslationPayload = (
   sourceLabel: string,
   targetLabel: string,
   originalText: string,
-  translatedText: string
+  translatedText: string,
+  isSourceUnknown: boolean
 ) => {
   const cleanOriginal = originalText.trim();
   const cleanTranslated = translatedText.trim();
+  const instruction = isSourceUnknown
+    ? "Responde en el mismo idioma del mensaje original. Devuelve SOLO el texto final."
+    : `Responde al fan en el idioma detectado (${sourceLabel}). Devuelve SOLO el texto final.`;
   return (
-    `Original: ${cleanOriginal}\n\n` +
+    `Original (${sourceLabel}): ${cleanOriginal}\n\n` +
     `Traducción (${targetLabel}): ${cleanTranslated}\n\n` +
     `Idioma detectado: ${sourceLabel}\n` +
-    `Responde en el idioma detectado (${sourceLabel}). Devuelve solo el texto final.`
+    `Instrucción: ${instruction}`
   );
 };
 
@@ -883,6 +898,7 @@ export default function ConversationDetails({ onBackToBoard }: ConversationDetai
           ? {
               text: voiceTranslation.translatedText,
               targetLang: voiceTranslation.targetLang,
+              sourceLang: voiceTranslation.detectedSourceLang ?? null,
               updatedAt: voiceTranslation.createdAt,
             }
           : safeParseVoiceTranslation(msg.voiceAnalysisJson),
@@ -2261,25 +2277,6 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
     });
   }
 
-  const handleInsertFanComposerText = useCallback(
-    (text: string) => {
-      const trimmed = text.trim();
-      if (!trimmed) return;
-      setComposerTarget("fan");
-      setComposerActionKey(null);
-      setMessageSend(trimmed);
-      requestAnimationFrame(() => {
-        const input = messageInputRef.current;
-        if (!input) return;
-        input.focus();
-        const len = trimmed.length;
-        input.setSelectionRange(len, len);
-        autoGrowTextarea(input, MAX_MAIN_COMPOSER_HEIGHT);
-      });
-    },
-    [autoGrowTextarea]
-  );
-
   const handleInsertManagerComposerText = useCallback(
     (text: string) => {
       const trimmed = text.trim();
@@ -2567,6 +2564,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
     translateConfigured?: boolean;
     translateProvider?: string;
     translateMissingVars?: string[];
+    creatorLang?: TranslationLanguage;
   } | null>(null);
   const [aiTone, setAiTone] = useState<AiTone>("cercano");
   const [aiTurnMode, setAiTurnMode] = useState<AiTurnMode>("auto");
@@ -2588,6 +2586,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
         translateMissingVars: Array.isArray(data.translateMissingVars)
           ? data.translateMissingVars.filter((item: unknown) => typeof item === "string" && item.trim().length > 0)
           : [],
+        creatorLang: normalizeTranslationLanguage(data.creatorLang) ?? "es",
       });
       setIaBlocked(Boolean(data.limitReached));
       if (typeof data.turnMode === "string") {
@@ -4068,6 +4067,8 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
   const hasInternalThreadMessages = internalNotes.length > 0 || managerChatMessages.length > 0;
   const effectiveLanguage = (preferredLanguage ?? "en") as SupportedLanguage;
   const isTranslateConfigured = aiStatus?.translateConfigured !== false;
+  const translateTargetLang = aiStatus?.creatorLang ?? "es";
+  const translateTargetLabel = formatTranslationLang(translateTargetLang, "ES");
   const isTranslationPreviewAvailable =
     !!id && !conversation.isManager && effectiveLanguage !== "es" && isTranslateConfigured;
   const hasComposerText = messageSend.trim().length > 0;
@@ -4399,7 +4400,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
         method: "POST",
         headers: { "Content-Type": "application/json", "x-novsy-viewer": "creator" },
         cache: "no-store",
-        body: JSON.stringify({ messageId, targetLang: "es", sourceKind: "text" }),
+        body: JSON.stringify({ messageId, targetLang: translateTargetLang, sourceKind: "text" }),
       })
         .then(async (res) => {
           const data = await res.json().catch(() => ({}));
@@ -4448,8 +4449,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
           showTranslateConfigToast();
           return;
         }
-        const message =
-          err instanceof Error && err.message.trim().length > 0 ? err.message : "No se pudo traducir.";
+        const message = "No se pudo traducir.";
         setMessageTranslationState((prev) => ({
           ...prev,
           [messageId]: { status: "error", error: message },
@@ -4457,7 +4457,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
         openMessageTranslationPopover(messageId, message);
       }
     },
-    [aiStatus, handleMessageTranslationSaved, openMessageTranslationPopover, showTranslateConfigToast]
+    [aiStatus, handleMessageTranslationSaved, openMessageTranslationPopover, showTranslateConfigToast, translateTargetLang]
   );
 
   const buildManagerQuotePrompt = (text: string) => {
@@ -9335,7 +9335,6 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
                     onRetryTranscript={requestTranscriptRetry}
                     tone={fanTone}
                     onInsertText={(text) => handleUseManagerReplyAsMainMessage(text, "Análisis voz")}
-                    onInsertTranslation={handleInsertFanComposerText}
                     onInsertManager={handleInsertManagerComposerText}
                     onTranscriptSaved={(text) =>
                       messageConversation.id && handleManualTranscriptSaved(messageConversation.id, text)
@@ -9350,6 +9349,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
                     translateEnabled={isFanMode}
                     translateConfigured={isTranslateConfigured}
                     onTranslateNotConfigured={showTranslateConfigToast}
+                    translateTargetLang={translateTargetLang}
                     fanId={id ?? ""}
                     onReact={(emoji) => {
                       if (!messageConversation.id) return;
@@ -9377,8 +9377,12 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
               const messageText = message ?? "";
               const hasMessageText = messageText.trim().length > 0;
               const translatedText = !me ? messageConversation.translatedText ?? undefined : undefined;
-              const translationSourceLabel = formatTranslationLang(messageConversation.translationSourceLang, "AUTO");
-              const translationTargetLabel = formatTranslationLang(messageConversation.translationTargetLang, "ES");
+              const translationSourceLabel = formatTranslationLang(messageConversation.translationSourceLang, "?");
+              const translationTargetLabel = formatTranslationLang(messageConversation.translationTargetLang, translateTargetLabel);
+              const isTranslationSourceUnknown = translationSourceLabel === "?";
+              const translationBadgeTitle = `${getTranslationLanguageName(translationSourceLabel)} → ${getTranslationLanguageName(
+                translationTargetLabel
+              )}`;
               const reactionsSummary = messageConversation.reactionsSummary ?? [];
               const translationState = messageConversation.id ? messageTranslationState[messageConversation.id] : undefined;
               const translationStatus = translationState?.status ?? "idle";
@@ -9479,7 +9483,10 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
                         <div className="rounded-lg border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-3 py-2 space-y-2">
                           <div className="flex flex-wrap items-center gap-2 text-[10px] uppercase tracking-wide text-[color:var(--muted)]">
                             <span>TRADUCCIÓN</span>
-                            <span className="rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-2 py-0.5 text-[9px] font-semibold text-[color:var(--muted)]">
+                            <span
+                              className="rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-2 py-0.5 text-[9px] font-semibold text-[color:var(--muted)]"
+                              title={translationBadgeTitle}
+                            >
                               {`DETECTADO: ${translationSourceLabel} → ${translationTargetLabel}`}
                             </span>
                           </div>
@@ -9500,13 +9507,6 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
                             </button>
                             <button
                               type="button"
-                              className="rounded-full border border-[color:var(--brand)] bg-[color:rgba(var(--brand-rgb),0.12)] px-2 py-0.5 font-semibold text-[color:var(--text)] hover:bg-[color:rgba(var(--brand-rgb),0.2)]"
-                              onClick={() => handleInsertFanComposerText(translatedText)}
-                            >
-                              Insertar en el input (FAN)
-                            </button>
-                            <button
-                              type="button"
                               className="rounded-full border border-[color:var(--surface-border)] px-2 py-0.5 font-semibold text-[color:var(--text)] hover:bg-[color:var(--surface-1)]"
                               onClick={() =>
                                 handleInsertManagerComposerText(
@@ -9514,7 +9514,8 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
                                     translationSourceLabel,
                                     translationTargetLabel,
                                     messageText,
-                                    translatedText
+                                    translatedText,
+                                    isTranslationSourceUnknown
                                   )
                                 )
                               }
@@ -11033,7 +11034,6 @@ function AudioMessageBubble({
   onRetryTranscript,
   tone,
   onInsertText,
-  onInsertTranslation,
   onInsertManager,
   onTranscriptSaved,
   onAnalysisSaved,
@@ -11042,6 +11042,7 @@ function AudioMessageBubble({
   translateEnabled,
   translateConfigured,
   onTranslateNotConfigured,
+  translateTargetLang,
   fanId,
   onReact,
 }: {
@@ -11051,7 +11052,6 @@ function AudioMessageBubble({
   onRetryTranscript?: (messageId: string) => Promise<void> | void;
   tone?: FanTone;
   onInsertText?: (text: string) => void;
-  onInsertTranslation?: (text: string) => void;
   onInsertManager?: (text: string) => void;
   onTranscriptSaved?: (text: string) => void;
   onAnalysisSaved?: (analysis: VoiceAnalysis) => void;
@@ -11060,6 +11060,7 @@ function AudioMessageBubble({
   translateEnabled?: boolean;
   translateConfigured?: boolean;
   onTranslateNotConfigured?: () => void;
+  translateTargetLang?: TranslationLanguage;
   fanId?: string;
   onReact?: (emoji: string) => void;
 }) {
@@ -11370,7 +11371,6 @@ function AudioMessageBubble({
               initialAnalysis={safeParseVoiceAnalysis(message.voiceAnalysisJson)}
               initialTranslation={message.voiceTranslation ?? null}
               onInsertText={onInsertText}
-              onInsertTranslation={onInsertTranslation}
               onInsertManager={onInsertManager}
               onCopyTranscript={onCopyTranscript}
               onUseTranscript={onUseTranscript}
@@ -11382,6 +11382,7 @@ function AudioMessageBubble({
               translateEnabled={translateEnabled}
               translateConfigured={translateConfigured}
               onTranslateNotConfigured={onTranslateNotConfigured}
+              targetLang={translateTargetLang}
               disabled={isSending}
             />
           )}

@@ -1,6 +1,6 @@
 import type { NextApiRequest, NextApiResponse } from "next";
 import prisma from "../../../lib/prisma.server";
-import { normalizePreferredLanguage } from "../../../lib/language";
+import { normalizeTranslationLanguage } from "../../../lib/language";
 import { getDbSchemaOutOfSyncPayload, isDbSchemaOutOfSyncError } from "../../../lib/dbSchemaGuard";
 import { getEffectiveTranslateConfig, translateText } from "../../../lib/ai/translateProvider";
 import { mergeVoiceInsightsJson, type VoiceTranslation } from "../../../types/voiceAnalysis";
@@ -10,10 +10,27 @@ type TranslateResponse =
       ok: true;
       translatedText: string | null;
       reason?: string;
+      detectedSourceLang?: string | null;
+      targetLang?: string | null;
       detectedLanguage?: string | null;
       targetLanguage?: string | null;
     }
   | { ok: false; error: string; code?: string; errorCode?: string; message?: string; fix?: string[] };
+
+const normalizeDetectedSourceLang = (value?: string | null) => {
+  const trimmed = typeof value === "string" ? value.trim() : "";
+  if (!trimmed) return "UN";
+  const upper = trimmed.toUpperCase();
+  if (upper === "AUTO" || upper === "UN") return "UN";
+  return upper;
+};
+
+const logTranslateError = (context: string, err: unknown) => {
+  const message = err instanceof Error ? err.message : "translation_failed";
+  const status = err && typeof err === "object" && "status" in err ? (err as { status?: number }).status : undefined;
+  const detail = err && typeof err === "object" && "detail" in err ? (err as { detail?: string }).detail : undefined;
+  console.error(context, { status, message, detail });
+};
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse<TranslateResponse>) {
   if (req.method !== "POST") {
@@ -25,8 +42,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
   const text = typeof req.body?.text === "string" ? req.body.text.trim() : "";
   const fanId = typeof req.body?.fanId === "string" ? req.body.fanId.trim() : "";
   const targetLanguage =
-    normalizePreferredLanguage(req.body?.targetLanguage) ??
-    normalizePreferredLanguage(req.body?.targetLang) ??
+    normalizeTranslationLanguage(req.body?.targetLanguage) ??
+    normalizeTranslationLanguage(req.body?.targetLang) ??
     null;
 
   if (messageId) {
@@ -64,39 +81,46 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
         return res.status(409).json({ ok: false, error: "Transcript required" });
       }
 
-      const preferredLanguage = targetLanguage ?? "es";
-      if (preferredLanguage === "es" && message.transcriptLang === "es") {
-        return res.status(200).json({ ok: true, translatedText: null, reason: "not_required" });
-      }
-
       const translateConfig = await getEffectiveTranslateConfig(creatorId);
       if (!translateConfig.configured) {
         return res.status(501).json({ ok: false, error: "TRANSLATE_NOT_CONFIGURED", code: "TRANSLATE_NOT_CONFIGURED" });
       }
 
+      const preferredLanguage = targetLanguage ?? translateConfig.creatorLang ?? "es";
+
       let translatedText = "";
+      let detectedSourceLang: string | null = null;
       try {
         const result = await translateText({
           text: transcriptText,
           targetLang: preferredLanguage,
-          sourceLang: message.transcriptLang ?? null,
           creatorId,
           fanId: message.fanId,
           configOverride: translateConfig,
         });
         translatedText = result.translatedText;
-      } catch (_err) {
-        translatedText = "";
+        detectedSourceLang = normalizeDetectedSourceLang(result.detectedSourceLang);
+      } catch (err) {
+        logTranslateError("api/messages/translate voice error", err);
+        return res.status(502).json({ ok: false, error: "translation_failed" });
       }
 
       if (!translatedText) {
-        return res.status(200).json({ ok: true, translatedText: null, reason: "unavailable" });
+        return res.status(200).json({
+          ok: true,
+          translatedText: null,
+          reason: "unavailable",
+          detectedSourceLang: "UN",
+          targetLang: preferredLanguage,
+          detectedLanguage: "UN",
+          targetLanguage: preferredLanguage,
+        });
       }
 
       const translation: VoiceTranslation = {
         text: translatedText,
         targetLang: preferredLanguage,
-        sourceLang: message.transcriptLang ?? null,
+        sourceLang: detectedSourceLang,
         updatedAt: new Date().toISOString(),
       };
 
@@ -109,7 +133,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
       return res.status(200).json({
         ok: true,
         translatedText,
-        detectedLanguage: translation.sourceLang ?? null,
+        detectedSourceLang,
+        targetLang: translation.targetLang ?? null,
+        detectedLanguage: detectedSourceLang,
         targetLanguage: translation.targetLang ?? null,
       });
     } catch (err) {
@@ -141,9 +167,17 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
     }
 
     const preferredLanguage =
-      targetLanguage ?? normalizePreferredLanguage(fan.preferredLanguage) ?? "en";
+      targetLanguage ?? normalizeTranslationLanguage(fan.preferredLanguage) ?? "en";
     if (preferredLanguage === "es") {
-      return res.status(200).json({ ok: true, translatedText: null, reason: "not_required" });
+      return res.status(200).json({
+        ok: true,
+        translatedText: null,
+        reason: "not_required",
+        detectedSourceLang: "UN",
+        targetLang: preferredLanguage,
+        detectedLanguage: "UN",
+        targetLanguage: preferredLanguage,
+      });
     }
 
     const translateConfig = await getEffectiveTranslateConfig(fan.creatorId);
@@ -152,6 +186,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
     }
 
     let translatedText = "";
+    let detectedSourceLang: string | null = null;
     try {
       const result = await translateText({
         text,
@@ -161,15 +196,32 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
         configOverride: translateConfig,
       });
       translatedText = result.translatedText;
-    } catch (_err) {
-      translatedText = "";
+      detectedSourceLang = normalizeDetectedSourceLang(result.detectedSourceLang);
+    } catch (err) {
+      logTranslateError("api/messages/translate error", err);
+      return res.status(502).json({ ok: false, error: "translation_failed" });
     }
 
     if (!translatedText) {
-      return res.status(200).json({ ok: true, translatedText: null, reason: "unavailable" });
+      return res.status(200).json({
+        ok: true,
+        translatedText: null,
+        reason: "unavailable",
+        detectedSourceLang: "UN",
+        targetLang: preferredLanguage,
+        detectedLanguage: "UN",
+        targetLanguage: preferredLanguage,
+      });
     }
 
-    return res.status(200).json({ ok: true, translatedText });
+    return res.status(200).json({
+      ok: true,
+      translatedText,
+      detectedSourceLang,
+      targetLang: preferredLanguage,
+      detectedLanguage: detectedSourceLang,
+      targetLanguage: preferredLanguage,
+    });
   } catch (err) {
     if (isDbSchemaOutOfSyncError(err)) {
       const payload = getDbSchemaOutOfSyncPayload();

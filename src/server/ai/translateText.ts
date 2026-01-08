@@ -1,10 +1,10 @@
 import { runAiCompletion } from "./aiAdapter";
 import { maybeDecrypt } from "../crypto/maybeDecrypt";
-import { type SupportedLanguage } from "../../lib/language";
+import { TRANSLATION_LANGUAGE_NAMES, type TranslationLanguage } from "../../lib/language";
 
 type TranslateParams = {
   text: string;
-  targetLanguage: SupportedLanguage;
+  targetLanguage: TranslationLanguage;
   creatorId?: string;
   fanId?: string | null;
 };
@@ -15,8 +15,7 @@ export async function translateText({ text, targetLanguage, creatorId, fanId }: 
 
   const apiKey = maybeDecrypt(process.env.OPENAI_API_KEY, { creatorId, label: "OPENAI_API_KEY" });
   const aiMode = process.env.AI_MODE ?? "mock";
-  const languageLabel =
-    targetLanguage === "es" ? "Spanish" : targetLanguage === "ro" ? "Romanian" : "English";
+  const languageLabel = TRANSLATION_LANGUAGE_NAMES[targetLanguage] ?? targetLanguage.toUpperCase();
 
   try {
     const result = await runAiCompletion({

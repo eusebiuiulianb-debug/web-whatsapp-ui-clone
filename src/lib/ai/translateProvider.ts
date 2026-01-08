@@ -1,7 +1,7 @@
 import { translateText as translateWithOpenAi } from "../../server/ai/translateText";
 import prisma from "../prisma.server";
 import { decryptSecret } from "../crypto/secrets";
-import type { SupportedLanguage } from "../language";
+import { normalizeTranslationLanguage, type TranslationLanguage } from "../language";
 
 export type TranslateProvider = "deepl" | "google" | "openai" | "libretranslate" | "none";
 
@@ -9,6 +9,7 @@ export type TranslateConfig = {
   provider: TranslateProvider;
   configured: boolean;
   missingVars: string[];
+  creatorLang: TranslationLanguage;
 };
 
 type ResolvedTranslateConfig = TranslateConfig & {
@@ -21,7 +22,7 @@ type ResolvedTranslateConfig = TranslateConfig & {
 
 type TranslateRequest = {
   text: string;
-  targetLang: SupportedLanguage;
+  targetLang: TranslationLanguage;
   sourceLang?: string | null;
   creatorId?: string;
   fanId?: string | null;
@@ -36,6 +37,7 @@ const LIBRETRANSLATE_HELP_MESSAGE =
   `No se pudo conectar a LibreTranslate. Tienes el servidor levantado? Ejecuta: ${LIBRETRANSLATE_DOCKER_CMD}`;
 
 const PROVIDERS = new Set<TranslateProvider>(["deepl", "google", "openai", "libretranslate", "none"]);
+const DEFAULT_CREATOR_LANG: TranslationLanguage = "es";
 
 export function getLibreTranslateHelpMessage() {
   return LIBRETRANSLATE_HELP_MESSAGE;
@@ -60,6 +62,7 @@ async function getDbTranslateConfig(creatorId: string): Promise<ResolvedTranslat
         libretranslateApiKeyEnc: true,
         deeplApiUrl: true,
         deeplApiKeyEnc: true,
+        priorityOrderJson: true,
       },
     });
 
@@ -95,6 +98,7 @@ async function getDbTranslateConfig(creatorId: string): Promise<ResolvedTranslat
       libretranslateApiKey,
       deeplApiUrl,
       deeplApiKey,
+      creatorLang: resolveCreatorLangFromPriority(settings.priorityOrderJson),
       source: "db",
     });
   } catch (err) {
@@ -108,6 +112,7 @@ function getEnvTranslateConfig(): ResolvedTranslateConfig {
   const libretranslateUrl = normalizeLibreTranslateUrl(process.env.LIBRETRANSLATE_URL);
   const libretranslateApiKey = getProviderKey("libretranslate");
   const deeplApiKey = getProviderKey("deepl");
+  const creatorLang = normalizeTranslationLanguage(process.env.CREATOR_LANG) ?? DEFAULT_CREATOR_LANG;
 
   return buildTranslateConfig({
     provider,
@@ -115,6 +120,7 @@ function getEnvTranslateConfig(): ResolvedTranslateConfig {
     libretranslateApiKey,
     deeplApiUrl: null,
     deeplApiKey,
+    creatorLang,
     source: "env",
   });
 }
@@ -135,9 +141,11 @@ function buildTranslateConfig(params: {
   libretranslateApiKey?: string | null;
   deeplApiUrl?: string | null;
   deeplApiKey?: string | null;
+  creatorLang?: TranslationLanguage | null;
   source: "db" | "env";
 }): ResolvedTranslateConfig {
   const missingVars: string[] = [];
+  const creatorLang = normalizeTranslationLanguage(params.creatorLang) ?? DEFAULT_CREATOR_LANG;
 
   if (params.provider === "none") {
     if (params.source === "env") {
@@ -147,6 +155,7 @@ function buildTranslateConfig(params: {
       provider: params.provider,
       configured: false,
       missingVars,
+      creatorLang,
       source: params.source,
       libretranslateUrl: params.libretranslateUrl ?? null,
       libretranslateApiKey: params.libretranslateApiKey ?? null,
@@ -163,6 +172,7 @@ function buildTranslateConfig(params: {
       provider: params.provider,
       configured: missingVars.length === 0,
       missingVars,
+      creatorLang,
       source: params.source,
       libretranslateUrl: params.libretranslateUrl ?? null,
       libretranslateApiKey: params.libretranslateApiKey ?? null,
@@ -179,6 +189,7 @@ function buildTranslateConfig(params: {
       provider: params.provider,
       configured: missingVars.length === 0,
       missingVars,
+      creatorLang,
       source: params.source,
       libretranslateUrl: params.libretranslateUrl ?? null,
       libretranslateApiKey: params.libretranslateApiKey ?? null,
@@ -196,6 +207,7 @@ function buildTranslateConfig(params: {
       provider: params.provider,
       configured: missingVars.length === 0,
       missingVars,
+      creatorLang,
       source: params.source,
       libretranslateUrl: params.libretranslateUrl ?? null,
       libretranslateApiKey: params.libretranslateApiKey ?? null,
@@ -220,6 +232,7 @@ function buildTranslateConfig(params: {
       provider: params.provider,
       configured: missingVars.length === 0,
       missingVars,
+      creatorLang,
       source: params.source,
       libretranslateUrl: params.libretranslateUrl ?? null,
       libretranslateApiKey: params.libretranslateApiKey ?? null,
@@ -232,6 +245,7 @@ function buildTranslateConfig(params: {
     provider: "none",
     configured: false,
     missingVars: ["TRANSLATE_PROVIDER"],
+    creatorLang,
     source: params.source,
     libretranslateUrl: params.libretranslateUrl ?? null,
     libretranslateApiKey: params.libretranslateApiKey ?? null,
@@ -250,6 +264,7 @@ export async function getTranslateConfig(creatorId?: string | null): Promise<Tra
     provider: config.provider,
     configured: config.configured,
     missingVars: config.missingVars,
+    creatorLang: config.creatorLang,
   };
 }
 
@@ -295,7 +310,7 @@ export async function translateText(params: TranslateRequest): Promise<Translate
       return translateWithDeepL({
         text: trimmed,
         targetLang: params.targetLang,
-        sourceLang: params.sourceLang ?? null,
+        sourceLang: null,
         apiKey: config.deeplApiKey ?? "",
         apiUrlOverride: config.deeplApiUrl ?? null,
       });
@@ -385,6 +400,19 @@ function normalizeDeepLApiUrl(raw?: string | null): string | null {
   return normalized.replace(/\/+$/, "");
 }
 
+function resolveCreatorLangFromPriority(raw?: unknown): TranslationLanguage {
+  if (!raw || typeof raw !== "object") return DEFAULT_CREATOR_LANG;
+  const record = raw as Record<string, unknown>;
+  const translation = record.translation;
+  if (translation && typeof translation === "object" && !Array.isArray(translation)) {
+    const nested = (translation as Record<string, unknown>).creatorLang;
+    const normalized = normalizeTranslationLanguage(nested);
+    if (normalized) return normalized;
+  }
+  const normalized = normalizeTranslationLanguage(record.creatorLang);
+  return normalized ?? DEFAULT_CREATOR_LANG;
+}
+
 export function resolveDeepLBaseUrl(apiKey: string, apiUrlOverride?: string | null): string {
   const normalizedOverride = normalizeDeepLApiUrl(apiUrlOverride);
   if (normalizedOverride) return normalizedOverride;
@@ -419,7 +447,16 @@ async function translateWithGoogle(params: {
   });
 
   if (!res.ok) {
-    throw new Error("translation_failed");
+    const errorText = await res.text().catch(() => "");
+    const error = new Error("translation_failed") as Error & {
+      code?: string;
+      status?: number;
+      detail?: string;
+    };
+    error.code = "DEEPL_ERROR";
+    error.status = res.status;
+    error.detail = errorText || res.statusText;
+    throw error;
   }
 
   const data = await res.json().catch(() => ({}));

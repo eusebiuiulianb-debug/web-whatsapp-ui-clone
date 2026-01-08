@@ -1,6 +1,6 @@
 import type { NextApiRequest, NextApiResponse } from "next";
 import prisma from "../../../../lib/prisma.server";
-import { normalizePreferredLanguage } from "../../../../lib/language";
+import { normalizeTranslationLanguage } from "../../../../lib/language";
 import { getDbSchemaOutOfSyncPayload, isDbSchemaOutOfSyncError } from "../../../../lib/dbSchemaGuard";
 import { dedupeGet, dedupeSet, hashText, rateLimitOrThrow } from "../../../../lib/ai/guardrails";
 import { getEffectiveTranslateConfig, translateText } from "../../../../lib/ai/translateProvider";
@@ -20,6 +20,14 @@ type TranslateResponse =
       createdAt: string;
     }
   | { error: string; code?: string; errorCode?: string; message?: string; fix?: string[]; retryAfterSec?: number };
+
+const normalizeDetectedSourceLang = (value?: string | null) => {
+  const trimmed = typeof value === "string" ? value.trim() : "";
+  if (!trimmed) return "UN";
+  const upper = trimmed.toUpperCase();
+  if (upper === "AUTO" || upper === "UN") return "UN";
+  return upper;
+};
 
 function resolveViewerRole(req: NextApiRequest): "creator" | "fan" {
   const headerRaw = req.headers["x-novsy-viewer"];
@@ -52,10 +60,11 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
   const messageId = typeof req.body?.messageId === "string" ? req.body.messageId.trim() : "";
   const rawText = typeof req.body?.text === "string" ? req.body.text.trim() : "";
   const targetLangRaw = typeof req.body?.targetLang === "string" ? req.body.targetLang.trim() : "";
-  const targetLang = normalizePreferredLanguage(targetLangRaw);
+  const targetLang = normalizeTranslationLanguage(targetLangRaw);
+  const hasTargetLang = targetLangRaw.length > 0;
   const sourceKind = normalizeSourceKind(typeof req.body?.sourceKind === "string" ? req.body.sourceKind : undefined);
 
-  if (!targetLang) {
+  if (hasTargetLang && !targetLang) {
     return res.status(400).json({ error: "targetLang is required" });
   }
 
@@ -69,14 +78,15 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
         return res.status(400).json({ error: "text is required" });
       }
       const creatorId = await resolveCreatorId();
+      const translateConfig = await getEffectiveTranslateConfig(creatorId);
+      const resolvedTargetLang = targetLang ?? translateConfig.creatorLang ?? "es";
       const sourceHash = hashText(rawText);
-      const dedupeKey = `ai:translate:${creatorId}:selection:${targetLang}:${sourceHash}`;
+      const dedupeKey = `ai:translate:${creatorId}:selection:${resolvedTargetLang}:${sourceHash}`;
       const deduped = await dedupeGet<TranslateResponse>(dedupeKey);
       if (deduped && "translatedText" in deduped) {
         res.setHeader("x-cache", "dedupe");
         return res.status(200).json(deduped);
       }
-      const translateConfig = await getEffectiveTranslateConfig(creatorId);
       if (!translateConfig.configured) {
         return res.status(501).json({ error: "TRANSLATE_NOT_CONFIGURED", code: "TRANSLATE_NOT_CONFIGURED" });
       }
@@ -86,17 +96,17 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
       }
       const result = await translateText({
         text: rawText,
-        targetLang,
+        targetLang: resolvedTargetLang,
         creatorId,
         fanId: null,
         configOverride: translateConfig,
       });
       const translatedText = result.translatedText;
-      const detectedSourceLang = result.detectedSourceLang ?? null;
+      const detectedSourceLang = normalizeDetectedSourceLang(result.detectedSourceLang);
       const payload: TranslateResponse = {
         id: `selection-${Date.now()}`,
         translatedText,
-        targetLang,
+        targetLang: resolvedTargetLang,
         sourceKind: "text",
         detectedSourceLang,
         createdAt: new Date().toISOString(),
@@ -127,15 +137,6 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
       return res.status(403).json({ error: "Forbidden" });
     }
 
-    const preferredSourceLang = normalizePreferredLanguage(message.fan.preferredLanguage);
-    const transcriptSourceLang = normalizePreferredLanguage(message.transcriptLang);
-    const sourceLang =
-      sourceKind === "voice_transcript"
-        ? transcriptSourceLang ?? (preferredSourceLang && preferredSourceLang !== targetLang ? preferredSourceLang : null)
-        : preferredSourceLang && preferredSourceLang !== targetLang
-        ? preferredSourceLang
-        : null;
-
     const sourceText =
       sourceKind === "voice_transcript"
         ? typeof message.transcriptText === "string"
@@ -151,11 +152,14 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
 
     const sourceHash = hashText(sourceText);
 
+    const translateConfig = await getEffectiveTranslateConfig(creatorId);
+    const resolvedTargetLang = targetLang ?? translateConfig.creatorLang ?? "es";
+
     const existing = await prisma.messageTranslation.findUnique({
       where: {
         messageId_targetLang_sourceKind_sourceHash: {
           messageId,
-          targetLang,
+          targetLang: resolvedTargetLang,
           sourceKind,
           sourceHash,
         },
@@ -169,19 +173,18 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
         translatedText: existing.translatedText,
         targetLang: existing.targetLang,
         sourceKind: existing.sourceKind as SourceKind,
-        detectedSourceLang: existing.detectedSourceLang ?? null,
+        detectedSourceLang: normalizeDetectedSourceLang(existing.detectedSourceLang),
         createdAt: existing.createdAt.toISOString(),
       });
     }
 
-    const dedupeKey = `ai:translate:${creatorId}:${messageId}:${targetLang}:${sourceKind}:${sourceHash}`;
+    const dedupeKey = `ai:translate:${creatorId}:${messageId}:${resolvedTargetLang}:${sourceKind}:${sourceHash}`;
     const deduped = await dedupeGet<TranslateResponse>(dedupeKey);
     if (deduped && "translatedText" in deduped) {
       res.setHeader("x-cache", "dedupe");
       return res.status(200).json(deduped);
     }
 
-    const translateConfig = await getEffectiveTranslateConfig(creatorId);
     if (!translateConfig.configured) {
       return res.status(501).json({ error: "TRANSLATE_NOT_CONFIGURED", code: "TRANSLATE_NOT_CONFIGURED" });
     }
@@ -193,20 +196,19 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
 
     const result = await translateText({
       text: sourceText,
-      targetLang,
-      sourceLang,
+      targetLang: resolvedTargetLang,
       creatorId,
       fanId: message.fanId,
       configOverride: translateConfig,
     });
     const translatedText = result.translatedText;
-    const detectedSourceLang = result.detectedSourceLang ?? null;
+    const detectedSourceLang = normalizeDetectedSourceLang(result.detectedSourceLang);
 
     try {
       const created = await prisma.messageTranslation.create({
         data: {
           messageId,
-          targetLang,
+          targetLang: resolvedTargetLang,
           sourceKind,
           sourceHash,
           translatedText,
@@ -220,7 +222,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
         translatedText: created.translatedText,
         targetLang: created.targetLang,
         sourceKind: created.sourceKind as SourceKind,
-        detectedSourceLang: created.detectedSourceLang ?? null,
+        detectedSourceLang: normalizeDetectedSourceLang(created.detectedSourceLang),
         createdAt: created.createdAt.toISOString(),
       };
       res.setHeader("x-cache", "miss");
@@ -232,7 +234,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
           where: {
             messageId_targetLang_sourceKind_sourceHash: {
               messageId,
-              targetLang,
+              targetLang: resolvedTargetLang,
               sourceKind,
               sourceHash,
             },
@@ -245,6 +247,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
             translatedText: deduped.translatedText,
             targetLang: deduped.targetLang,
             sourceKind: deduped.sourceKind as SourceKind,
+            detectedSourceLang: normalizeDetectedSourceLang(deduped.detectedSourceLang),
             createdAt: deduped.createdAt.toISOString(),
           });
         }

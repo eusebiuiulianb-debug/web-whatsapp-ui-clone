@@ -3,6 +3,7 @@ import { Prisma } from "@prisma/client";
 import prisma from "../../../../lib/prisma.server";
 import { encryptSecret } from "../../../../lib/crypto/secrets";
 import { getEffectiveTranslateConfig } from "../../../../lib/ai/translateProvider";
+import { normalizeTranslationLanguage, type TranslationLanguage } from "../../../../lib/language";
 
 type TranslateProvider = "none" | "libretranslate" | "deepl";
 
@@ -12,6 +13,7 @@ type TranslateSettingsResponse = {
   deeplApiUrl: string | null;
   hasLibreKey: boolean;
   hasDeeplKey: boolean;
+  creatorLang: TranslationLanguage;
 };
 
 type ErrorResponse = { error: string; message?: string };
@@ -50,6 +52,7 @@ async function handleGet(
         libretranslateApiKeyEnc: true,
         deeplApiUrl: true,
         deeplApiKeyEnc: true,
+        priorityOrderJson: true,
       },
     });
 
@@ -61,6 +64,7 @@ async function handleGet(
         deeplApiUrl: normalizeDeepLApiUrl(effective.deeplApiUrl ?? null),
         hasLibreKey: Boolean(effective.libretranslateApiKey),
         hasDeeplKey: Boolean(effective.deeplApiKey),
+        creatorLang: effective.creatorLang,
       });
     }
 
@@ -70,6 +74,7 @@ async function handleGet(
       deeplApiUrl: normalizeDeepLApiUrl(settings.deeplApiUrl),
       hasLibreKey: Boolean(settings.libretranslateApiKeyEnc),
       hasDeeplKey: Boolean(settings.deeplApiKeyEnc),
+      creatorLang: resolveCreatorLangFromPriority(settings.priorityOrderJson),
     });
   } catch (err) {
     console.error("Error loading translate settings", err);
@@ -103,6 +108,7 @@ async function handlePost(
       libretranslateApiKeyEnc: true,
       deeplApiUrl: true,
       deeplApiKeyEnc: true,
+      priorityOrderJson: true,
     },
   });
 
@@ -116,6 +122,9 @@ async function handlePost(
   const deeplApiUrlRaw =
     typeof req.body?.deeplApiUrl === "string" ? req.body.deeplApiUrl.trim() : undefined;
   const deeplApiUrl = deeplApiUrlRaw !== undefined ? normalizeDeepLApiUrl(deeplApiUrlRaw) : null;
+  const creatorLangRaw = typeof req.body?.creatorLang === "string" ? req.body.creatorLang : undefined;
+  const creatorLang =
+    creatorLangRaw !== undefined ? normalizeTranslationLanguage(creatorLangRaw) : null;
 
   if (provider === "libretranslate" && !libretranslateUrl) {
     return res.status(400).json({ error: "LIBRETRANSLATE_URL is required" });
@@ -128,6 +137,10 @@ async function handlePost(
     if (!deeplApiKeyRaw && !existing?.deeplApiKeyEnc) {
       return res.status(400).json({ error: "DEEPL_API_KEY is required" });
     }
+  }
+
+  if (creatorLangRaw !== undefined && !creatorLang) {
+    return res.status(400).json({ error: "creatorLang is invalid" });
   }
 
   const updateData: Prisma.CreatorAiSettingsUncheckedUpdateInput = {
@@ -168,6 +181,12 @@ async function handlePost(
     createData.deeplApiKeyEnc = updateData.deeplApiKeyEnc as string | null;
   }
 
+  if (creatorLangRaw !== undefined) {
+    const nextPriority = mergeCreatorLangPriority(existing?.priorityOrderJson, creatorLang ?? DEFAULT_CREATOR_LANG);
+    updateData.priorityOrderJson = nextPriority;
+    createData.priorityOrderJson = nextPriority;
+  }
+
   try {
     const settings = await prisma.creatorAiSettings.upsert({
       where: { creatorId },
@@ -179,6 +198,7 @@ async function handlePost(
         libretranslateApiKeyEnc: true,
         deeplApiUrl: true,
         deeplApiKeyEnc: true,
+        priorityOrderJson: true,
       },
     });
 
@@ -188,6 +208,7 @@ async function handlePost(
       deeplApiUrl: normalizeDeepLApiUrl(settings.deeplApiUrl),
       hasLibreKey: Boolean(settings.libretranslateApiKeyEnc),
       hasDeeplKey: Boolean(settings.deeplApiKeyEnc),
+      creatorLang: resolveCreatorLangFromPriority(settings.priorityOrderJson),
     });
   } catch (err) {
     console.error("Error saving translate settings", err);
@@ -231,6 +252,39 @@ function normalizeDeepLApiUrl(raw?: string | null): string | null {
     normalized = normalized.slice(0, -"/v2".length);
   }
   return normalized.replace(/\/+$/, "");
+}
+
+const DEFAULT_CREATOR_LANG: TranslationLanguage = "es";
+
+function resolveCreatorLangFromPriority(raw?: unknown): TranslationLanguage {
+  if (!raw || typeof raw !== "object") return DEFAULT_CREATOR_LANG;
+  const record = raw as Record<string, unknown>;
+  const translation = record.translation;
+  if (translation && typeof translation === "object" && !Array.isArray(translation)) {
+    const nested = (translation as Record<string, unknown>).creatorLang;
+    const normalized = normalizeTranslationLanguage(nested);
+    if (normalized) return normalized;
+  }
+  const normalized = normalizeTranslationLanguage(record.creatorLang);
+  return normalized ?? DEFAULT_CREATOR_LANG;
+}
+
+function mergeCreatorLangPriority(
+  raw: unknown,
+  creatorLang: TranslationLanguage
+): Prisma.InputJsonValue {
+  const base = raw && typeof raw === "object" && !Array.isArray(raw) ? (raw as Record<string, unknown>) : {};
+  const translation =
+    base.translation && typeof base.translation === "object" && !Array.isArray(base.translation)
+      ? (base.translation as Record<string, unknown>)
+      : {};
+  return {
+    ...base,
+    translation: {
+      ...translation,
+      creatorLang,
+    },
+  } as Prisma.InputJsonValue;
 }
 
 function isPlaceholderKey(value: string) {

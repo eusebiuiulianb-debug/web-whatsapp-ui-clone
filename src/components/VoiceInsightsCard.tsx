@@ -3,6 +3,7 @@ import clsx from "clsx";
 import { IconGlyph } from "./ui/IconGlyph";
 import { type VoiceAnalysis, type VoiceTranslation } from "../types/voiceAnalysis";
 import type { FanTone } from "../types/manager";
+import { getTranslationLanguageName, type TranslationLanguage } from "../lib/language";
 
 const analysisInFlight = new Map<string, Promise<VoiceAnalysis>>();
 const transcriptInFlight = new Map<string, Promise<string>>();
@@ -26,7 +27,6 @@ type VoiceInsightsCardProps = {
   tone?: FanTone;
   onTranscribe?: (messageId: string) => Promise<void> | void;
   onInsertText?: (text: string) => void;
-  onInsertTranslation?: (text: string) => void;
   onInsertManager?: (text: string) => void;
   onCopyTranscript?: (text: string) => void;
   onUseTranscript?: (text: string) => void;
@@ -40,6 +40,7 @@ type VoiceInsightsCardProps = {
   disabled?: boolean;
   translateEnabled?: boolean;
   translateConfigured?: boolean;
+  targetLang?: TranslationLanguage;
 };
 
 const INTENT_LABELS: Record<VoiceAnalysis["intent"], string> = {
@@ -61,22 +62,29 @@ const URGENCY_LABELS: Record<VoiceAnalysis["urgency"], string> = {
 
 const formatTranslationLang = (value: string | null | undefined, fallback: string) => {
   const trimmed = typeof value === "string" ? value.trim() : "";
-  return trimmed ? trimmed.toUpperCase() : fallback;
+  if (!trimmed) return fallback;
+  const upper = trimmed.toUpperCase();
+  if (upper === "AUTO" || upper === "UN" || upper === "?") return fallback;
+  return upper;
 };
 
 const buildManagerTranslationPayload = (
   sourceLabel: string,
   targetLabel: string,
   originalText: string,
-  translatedText: string
+  translatedText: string,
+  isSourceUnknown: boolean
 ) => {
   const cleanOriginal = originalText.trim();
   const cleanTranslated = translatedText.trim();
+  const instruction = isSourceUnknown
+    ? "Responde en el mismo idioma del mensaje original. Devuelve SOLO el texto final."
+    : `Responde al fan en el idioma detectado (${sourceLabel}). Devuelve SOLO el texto final.`;
   return (
-    `Original: ${cleanOriginal}\n\n` +
+    `Original (${sourceLabel}): ${cleanOriginal}\n\n` +
     `Traducción (${targetLabel}): ${cleanTranslated}\n\n` +
     `Idioma detectado: ${sourceLabel}\n` +
-    `Responde en el idioma detectado (${sourceLabel}). Devuelve solo el texto final.`
+    `Instrucción: ${instruction}`
   );
 };
 
@@ -90,7 +98,6 @@ export function VoiceInsightsCard({
   tone,
   onTranscribe,
   onInsertText,
-  onInsertTranslation,
   onInsertManager,
   onCopyTranscript,
   onUseTranscript,
@@ -104,6 +111,7 @@ export function VoiceInsightsCard({
   disabled,
   translateEnabled = true,
   translateConfigured = true,
+  targetLang,
 }: VoiceInsightsCardProps) {
   const hasInitialSuggestions = Boolean(initialAnalysis?.suggestions?.length);
   const [analysis, setAnalysis] = useState<VoiceAnalysis | null>(initialAnalysis ?? null);
@@ -160,6 +168,7 @@ export function VoiceInsightsCard({
   const isDisabled = disabled || !messageId || !fanId;
   const isProviderMissing =
     typeof transcriptError === "string" && transcriptError.toLowerCase().includes("no provider configured");
+  const resolvedTargetLang = targetLang ?? "es";
 
   useEffect(() => {
     if (!initialAnalysis) return;
@@ -345,7 +354,7 @@ export function VoiceInsightsCard({
       method: "POST",
       headers: { "Content-Type": "application/json", "x-novsy-viewer": "creator" },
       cache: "no-store",
-      body: JSON.stringify({ messageId, targetLang: "es", sourceKind: "voice_transcript" }),
+      body: JSON.stringify({ messageId, targetLang: resolvedTargetLang, sourceKind: "voice_transcript" }),
     })
       .then(async (res) => {
         const data = await res.json().catch(() => ({}));
@@ -371,7 +380,7 @@ export function VoiceInsightsCard({
         }
         const translationPayload: VoiceTranslation = {
           text: translatedText,
-          targetLang: typeof data?.targetLang === "string" ? data.targetLang : "es",
+          targetLang: typeof data?.targetLang === "string" ? data.targetLang : resolvedTargetLang,
           sourceLang: typeof data?.detectedSourceLang === "string" ? data.detectedSourceLang : null,
           updatedAt: typeof data?.createdAt === "string" ? data.createdAt : new Date().toISOString(),
         };
@@ -399,8 +408,7 @@ export function VoiceInsightsCard({
         onTranslateNotConfigured?.();
         return;
       }
-      const message =
-        err instanceof Error && err.message.trim().length > 0 ? err.message : "No se pudo traducir.";
+      const message = "No se pudo traducir.";
       setTranslationError(message);
       setTranslationStatus("error");
       onToast?.(message);
@@ -414,6 +422,7 @@ export function VoiceInsightsCard({
     onTranslateNotConfigured,
     translateConfigured,
     translateEnabled,
+    resolvedTargetLang,
   ]);
 
   const handleSaveTranscript = useCallback(async () => {
@@ -522,21 +531,15 @@ export function VoiceInsightsCard({
     onToast?.(ok ? "Texto copiado." : "No se pudo copiar.");
   }, [copyTextToClipboard, onToast, translation?.text]);
 
-  const handleInsertTranslation = useCallback(
-    (text: string) => {
-      const trimmed = text.trim();
-      if (!trimmed) return;
-      if (onInsertTranslation) {
-        onInsertTranslation(trimmed);
-        return;
-      }
-      onInsertText?.(trimmed);
-    },
-    [onInsertText, onInsertTranslation]
+  const translationSourceLabel = formatTranslationLang(translation?.sourceLang, "?");
+  const translationTargetLabel = formatTranslationLang(
+    translation?.targetLang,
+    formatTranslationLang(resolvedTargetLang, "ES")
   );
-
-  const translationSourceLabel = formatTranslationLang(translation?.sourceLang, "AUTO");
-  const translationTargetLabel = formatTranslationLang(translation?.targetLang, "ES");
+  const isTranslationSourceUnknown = translationSourceLabel === "?";
+  const translationBadgeTitle = `${getTranslationLanguageName(translationSourceLabel)} → ${getTranslationLanguageName(
+    translationTargetLabel
+  )}`;
 
   const handleSendTranslationToManager = useCallback(() => {
     if (!translation?.text || !onInsertManager) return;
@@ -546,10 +549,18 @@ export function VoiceInsightsCard({
       translationSourceLabel,
       translationTargetLabel,
       original,
-      translation.text
+      translation.text,
+      isTranslationSourceUnknown
     );
     onInsertManager(payload);
-  }, [cleanedTranscript, onInsertManager, translation?.text, translationSourceLabel, translationTargetLabel]);
+  }, [
+    cleanedTranscript,
+    isTranslationSourceUnknown,
+    onInsertManager,
+    translation?.text,
+    translationSourceLabel,
+    translationTargetLabel,
+  ]);
 
   const analysisLabel = analysis ? INTENT_LABELS[analysis.intent] : null;
   const urgencyLabel = analysis ? URGENCY_LABELS[analysis.urgency] : null;
@@ -804,7 +815,10 @@ export function VoiceInsightsCard({
           <div className="flex items-center justify-between text-[10px] uppercase tracking-wide text-[color:var(--muted)]">
             <div className="flex flex-wrap items-center gap-2">
               <span>TRADUCCIÓN</span>
-              <span className="rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-2 py-0.5 text-[9px] font-semibold text-[color:var(--muted)]">
+              <span
+                className="rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-2 py-0.5 text-[9px] font-semibold text-[color:var(--muted)]"
+                title={translationBadgeTitle}
+              >
                 {`DETECTADO: ${translationSourceLabel} → ${translationTargetLabel}`}
               </span>
             </div>
@@ -828,15 +842,6 @@ export function VoiceInsightsCard({
               >
                 Copiar
               </button>
-              {(onInsertTranslation || onInsertText) && (
-                <button
-                  type="button"
-                  onClick={() => handleInsertTranslation(translation.text)}
-                  className="rounded-full border border-[color:var(--brand)] bg-[color:rgba(var(--brand-rgb),0.12)] px-2 py-0.5 font-semibold text-[color:var(--text)] hover:bg-[color:rgba(var(--brand-rgb),0.2)]"
-                >
-                  Insertar en el input (FAN)
-                </button>
-              )}
               {onInsertManager && (
                 <button
                   type="button"

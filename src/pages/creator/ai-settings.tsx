@@ -7,6 +7,7 @@ import { useCreatorConfig } from "../../context/CreatorConfigContext";
 import { AiBaseTone, AiTurnMode, AI_TURN_MODE_OPTIONS, AI_TURN_MODES, normalizeAiBaseTone, normalizeAiTurnMode } from "../../lib/aiSettings";
 import { buildDailyUsageFromLogs } from "../../lib/aiUsage";
 import { normalizeVoiceTranscriptionSettings, type VoiceTranscriptionMode } from "../../lib/voiceTranscriptionSettings";
+import { TRANSLATION_LANGUAGES, getTranslationLanguageName, normalizeTranslationLanguage, type TranslationLanguage } from "../../lib/language";
 import {
   CREATOR_PLATFORM_KEYS,
   CreatorPlatformConfig,
@@ -58,6 +59,7 @@ type AiStatus = {
   translateConfigured?: boolean;
   translateProvider?: string;
   translateMissingVars?: string[];
+  creatorLang?: TranslationLanguage;
 };
 
 type TranslateProviderOption = "none" | "libretranslate" | "deepl";
@@ -70,6 +72,7 @@ type TranslateSettingsForm = {
   deeplApiKey: string;
   hasLibreKey: boolean;
   hasDeeplKey: boolean;
+  creatorLang: TranslationLanguage;
 };
 
 type ActionCount = { actionType: string; count: number };
@@ -96,11 +99,26 @@ type AiUsageSummary = {
   dailyUsage?: { date: string; count: number }[];
 };
 
+const DEFAULT_TRANSLATE_LANG: TranslationLanguage = "es";
+
+function resolveDefaultTranslateLang(): TranslationLanguage {
+  if (typeof navigator === "undefined") return DEFAULT_TRANSLATE_LANG;
+  const candidates = [navigator.language, ...(navigator.languages ?? [])];
+  for (const candidate of candidates) {
+    if (typeof candidate !== "string") continue;
+    const base = candidate.split(/[-_]/)[0];
+    const normalized = normalizeTranslationLanguage(base);
+    if (normalized) return normalized;
+  }
+  return DEFAULT_TRANSLATE_LANG;
+}
+
 export default function CreatorAiSettingsPage() {
   const { config } = useCreatorConfig();
   const router = useRouter();
   const creatorInitial = config.creatorName?.trim().charAt(0) || "E";
   const defaultLibreUrl = "http://127.0.0.1:5000";
+  const defaultTranslateLang = resolveDefaultTranslateLang();
 
   const [settings, setSettings] = useState<CreatorAiSettings | null>(null);
   const [form, setForm] = useState<FormState | null>(null);
@@ -121,6 +139,7 @@ export default function CreatorAiSettingsPage() {
     deeplApiKey: "",
     hasLibreKey: false,
     hasDeeplKey: false,
+    creatorLang: defaultTranslateLang,
   });
   const [translateLoading, setTranslateLoading] = useState(true);
   const [translateLoadError, setTranslateLoadError] = useState("");
@@ -142,6 +161,10 @@ export default function CreatorAiSettingsPage() {
     { value: "AUTO_ALWAYS", label: "Auto siempre (entrantes)" },
   ];
   const platformKeys: CreatorPlatformKey[] = [...CREATOR_PLATFORM_KEYS];
+  const translationLangOptions = TRANSLATION_LANGUAGES.map((lang) => ({
+    value: lang,
+    label: `${getTranslationLanguageName(lang)} (${lang.toUpperCase()})`,
+  }));
 
   function updatePlatform(key: CreatorPlatformKey, patch: Partial<CreatorPlatformConfig>) {
     setForm((prev) => {
@@ -250,11 +273,12 @@ export default function CreatorAiSettingsPage() {
         translateMissingVars: Array.isArray(data.translateMissingVars)
           ? data.translateMissingVars.filter((item: unknown) => typeof item === "string" && item.trim().length > 0)
           : [],
+        creatorLang: normalizeTranslationLanguage(data.creatorLang) ?? defaultTranslateLang,
       });
     } catch (err) {
       console.error("Error loading AI status", err);
     }
-  }, []);
+  }, [defaultTranslateLang]);
 
   const fetchUsageSummary = useCallback(async () => {
     try {
@@ -293,6 +317,7 @@ export default function CreatorAiSettingsPage() {
         deeplApiKey: "",
         hasLibreKey: Boolean(data.hasLibreKey),
         hasDeeplKey: Boolean(data.hasDeeplKey),
+        creatorLang: normalizeTranslationLanguage(data.creatorLang) ?? defaultTranslateLang,
       });
       setShowDeeplAdvanced(normalizedProvider === "deepl" && deeplApiUrl.length > 0);
     } catch (err) {
@@ -301,7 +326,7 @@ export default function CreatorAiSettingsPage() {
     } finally {
       setTranslateLoading(false);
     }
-  }, [defaultLibreUrl]);
+  }, [defaultLibreUrl, defaultTranslateLang]);
 
   const showTranslateTestToast = useCallback((message: string, variant: "success" | "error") => {
     setTranslateTestToast({ message, variant });
@@ -401,6 +426,9 @@ export default function CreatorAiSettingsPage() {
       const payload: Record<string, string> = {
         provider: translateForm.provider,
       };
+      if (translateForm.creatorLang) {
+        payload.creatorLang = translateForm.creatorLang;
+      }
       if (translateForm.provider === "libretranslate") {
         payload.libretranslateUrl = translateForm.libretranslateUrl.trim();
         if (translateForm.libretranslateApiKey.trim()) {
@@ -447,6 +475,10 @@ export default function CreatorAiSettingsPage() {
                   deeplApiKey: "",
                   hasLibreKey: Boolean(data.hasLibreKey),
                   hasDeeplKey: Boolean(data.hasDeeplKey),
+                  creatorLang:
+                    normalizeTranslationLanguage(data.creatorLang) ??
+                    prev.creatorLang ??
+                    defaultTranslateLang,
                 }
               : prev
           );
@@ -464,7 +496,7 @@ export default function CreatorAiSettingsPage() {
     } finally {
       setTranslateSaving(false);
     }
-  }, [fetchStatus, fetchTranslateSettings, showTranslateTestToast, translateForm]);
+  }, [defaultTranslateLang, fetchStatus, fetchTranslateSettings, showTranslateTestToast, translateForm]);
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -592,6 +624,9 @@ export default function CreatorAiSettingsPage() {
     ? "rounded-full border border-[color:rgba(34,197,94,0.5)] bg-[color:rgba(34,197,94,0.12)] px-3 py-1 text-[11px] font-semibold text-[color:var(--text)]"
     : "rounded-full border border-[color:rgba(244,63,94,0.5)] bg-[color:rgba(244,63,94,0.12)] px-3 py-1 text-[11px] font-semibold text-[color:var(--text)]";
   const selectedTranslateProvider = translateForm?.provider ?? "none";
+  const showTranslateLoadError = Boolean(
+    !translateLoading && translateLoadError && !status?.translateConfigured
+  );
   const showLibreFields = selectedTranslateProvider === "libretranslate";
   const showDeeplFields = selectedTranslateProvider === "deepl";
   const isTranslateFormDisabled = translateLoading || translateSaving;
@@ -763,7 +798,7 @@ export default function CreatorAiSettingsPage() {
                       </button>
                     </div>
                   )}
-                  {!translateLoading && translateLoadError && (
+                  {showTranslateLoadError && (
                     <div className="flex items-center justify-between gap-2">
                       <span className="text-[color:var(--danger)]">{translateLoadError}</span>
                       <button
@@ -802,6 +837,29 @@ export default function CreatorAiSettingsPage() {
                       <option value="libretranslate">LibreTranslate (self-hosted)</option>
                       <option value="deepl">DeepL</option>
                     </select>
+                  </label>
+                  <label className="flex flex-col gap-1">
+                    <span className="text-[11px] font-semibold text-[color:var(--text)]">Idioma del creador</span>
+                    <select
+                      value={translateForm?.creatorLang ?? defaultTranslateLang}
+                      onChange={(event) => {
+                        const nextLang = normalizeTranslationLanguage(event.target.value) ?? defaultTranslateLang;
+                        setTranslateForm((prev) => (prev ? { ...prev, creatorLang: nextLang } : prev));
+                        setTranslateError("");
+                        setTranslateSuccess("");
+                      }}
+                      disabled={isTranslateFormDisabled}
+                      className="w-full rounded-lg bg-[color:var(--surface-2)] border border-[color:var(--surface-border)] px-3 py-2 text-sm text-[color:var(--text)] focus:border-[color:var(--border-a)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--ring)] disabled:cursor-not-allowed disabled:opacity-70"
+                    >
+                      {translationLangOptions.map((option) => (
+                        <option key={option.value} value={option.value}>
+                          {option.label}
+                        </option>
+                      ))}
+                    </select>
+                    <span className="text-[10px] text-[color:var(--muted)]">
+                      Las traducciones se generan hacia este idioma.
+                    </span>
                   </label>
 
                   {showLibreFields && (

@@ -42,6 +42,7 @@ export default async function handler(_req: NextApiRequest, res: NextApiResponse
       translateConfigured: translateConfig.configured,
       translateProvider: translateConfig.provider,
       translateMissingVars: translateConfig.missingVars,
+      creatorLang: translateConfig.creatorLang,
     });
   } catch (err) {
     console.error("Error fetching AI status", err);
