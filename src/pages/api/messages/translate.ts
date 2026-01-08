@@ -2,8 +2,7 @@ import type { NextApiRequest, NextApiResponse } from "next";
 import prisma from "../../../lib/prisma.server";
 import { normalizePreferredLanguage } from "../../../lib/language";
 import { getDbSchemaOutOfSyncPayload, isDbSchemaOutOfSyncError } from "../../../lib/dbSchemaGuard";
-import { maybeDecrypt } from "../../../server/crypto/maybeDecrypt";
-import { translateText } from "../../../server/ai/translateText";
+import { getEffectiveTranslateConfig, translateText } from "../../../lib/ai/translateProvider";
 import { mergeVoiceInsightsJson, type VoiceTranslation } from "../../../types/voiceAnalysis";
 
 type TranslateResponse =
@@ -14,14 +13,7 @@ type TranslateResponse =
       detectedLanguage?: string | null;
       targetLanguage?: string | null;
     }
-  | { ok: false; error: string; errorCode?: string; message?: string; fix?: string[] };
-
-function normalizeMode(raw?: string | null) {
-  const lowered = (raw || "").toLowerCase();
-  if (lowered === "openai" || lowered === "live") return "live";
-  if (lowered === "demo") return "demo";
-  return "mock";
-}
+  | { ok: false; error: string; code?: string; errorCode?: string; message?: string; fix?: string[] };
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse<TranslateResponse>) {
   if (req.method !== "POST") {
@@ -77,19 +69,25 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
         return res.status(200).json({ ok: true, translatedText: null, reason: "not_required" });
       }
 
-      const mode = normalizeMode(process.env.AI_MODE ?? "mock");
-      const apiKey = maybeDecrypt(process.env.OPENAI_API_KEY, { creatorId, label: "OPENAI_API_KEY" });
-      const model = process.env.OPENAI_MODEL;
-      if (mode !== "live" || !apiKey || !apiKey.trim() || !model || !model.trim()) {
-        return res.status(200).json({ ok: true, translatedText: null, reason: "ai_not_configured" });
+      const translateConfig = await getEffectiveTranslateConfig(creatorId);
+      if (!translateConfig.configured) {
+        return res.status(501).json({ ok: false, error: "TRANSLATE_NOT_CONFIGURED", code: "TRANSLATE_NOT_CONFIGURED" });
       }
 
-      const translatedText = await translateText({
-        text: transcriptText,
-        targetLanguage: preferredLanguage,
-        creatorId,
-        fanId: message.fanId,
-      });
+      let translatedText = "";
+      try {
+        const result = await translateText({
+          text: transcriptText,
+          targetLang: preferredLanguage,
+          sourceLang: message.transcriptLang ?? null,
+          creatorId,
+          fanId: message.fanId,
+          configOverride: translateConfig,
+        });
+        translatedText = result.translatedText;
+      } catch (_err) {
+        translatedText = "";
+      }
 
       if (!translatedText) {
         return res.status(200).json({ ok: true, translatedText: null, reason: "unavailable" });
@@ -148,19 +146,24 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
       return res.status(200).json({ ok: true, translatedText: null, reason: "not_required" });
     }
 
-    const mode = normalizeMode(process.env.AI_MODE ?? "mock");
-    const apiKey = maybeDecrypt(process.env.OPENAI_API_KEY, { creatorId: fan.creatorId, label: "OPENAI_API_KEY" });
-    const model = process.env.OPENAI_MODEL;
-    if (mode !== "live" || !apiKey || !apiKey.trim() || !model || !model.trim()) {
-      return res.status(200).json({ ok: true, translatedText: null, reason: "ai_not_configured" });
+    const translateConfig = await getEffectiveTranslateConfig(fan.creatorId);
+    if (!translateConfig.configured) {
+      return res.status(501).json({ ok: false, error: "TRANSLATE_NOT_CONFIGURED", code: "TRANSLATE_NOT_CONFIGURED" });
     }
 
-    const translatedText = await translateText({
-      text,
-      targetLanguage: preferredLanguage,
-      creatorId: fan.creatorId,
-      fanId,
-    });
+    let translatedText = "";
+    try {
+      const result = await translateText({
+        text,
+        targetLang: preferredLanguage,
+        creatorId: fan.creatorId,
+        fanId,
+        configOverride: translateConfig,
+      });
+      translatedText = result.translatedText;
+    } catch (_err) {
+      translatedText = "";
+    }
 
     if (!translatedText) {
       return res.status(200).json({ ok: true, translatedText: null, reason: "unavailable" });

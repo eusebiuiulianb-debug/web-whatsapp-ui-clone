@@ -3,8 +3,7 @@ import prisma from "../../../../lib/prisma.server";
 import { normalizePreferredLanguage } from "../../../../lib/language";
 import { getDbSchemaOutOfSyncPayload, isDbSchemaOutOfSyncError } from "../../../../lib/dbSchemaGuard";
 import { dedupeGet, dedupeSet, hashText, rateLimitOrThrow } from "../../../../lib/ai/guardrails";
-import { maybeDecrypt } from "../../../../server/crypto/maybeDecrypt";
-import { translateText } from "../../../../server/ai/translateText";
+import { getEffectiveTranslateConfig, translateText } from "../../../../lib/ai/translateProvider";
 
 const SUPPORTED_SOURCE_KINDS = new Set(["text", "voice_transcript"] as const);
 const DEDUPE_TTL_SEC = 30 * 60;
@@ -17,16 +16,10 @@ type TranslateResponse =
       translatedText: string;
       targetLang: string;
       sourceKind: SourceKind;
+      detectedSourceLang?: string | null;
       createdAt: string;
     }
-  | { error: string; errorCode?: string; message?: string; fix?: string[]; retryAfterSec?: number };
-
-function normalizeMode(raw?: string | null) {
-  const lowered = (raw || "").toLowerCase();
-  if (lowered === "openai" || lowered === "live") return "live";
-  if (lowered === "demo") return "demo";
-  return "mock";
-}
+  | { error: string; code?: string; errorCode?: string; message?: string; fix?: string[]; retryAfterSec?: number };
 
 function resolveViewerRole(req: NextApiRequest): "creator" | "fan" {
   const headerRaw = req.headers["x-novsy-viewer"];
@@ -83,30 +76,29 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
         res.setHeader("x-cache", "dedupe");
         return res.status(200).json(deduped);
       }
-      const mode = normalizeMode(process.env.AI_MODE ?? "mock");
-      const apiKey = maybeDecrypt(process.env.OPENAI_API_KEY, { creatorId, label: "OPENAI_API_KEY" });
-      const model = process.env.OPENAI_MODEL;
-      if (mode !== "live" || !apiKey || !apiKey.trim() || !model || !model.trim()) {
-        return res.status(409).json({ error: "ai_not_configured" });
+      const translateConfig = await getEffectiveTranslateConfig(creatorId);
+      if (!translateConfig.configured) {
+        return res.status(501).json({ error: "TRANSLATE_NOT_CONFIGURED", code: "TRANSLATE_NOT_CONFIGURED" });
       }
       const rateLimit = await rateLimitOrThrow({ creatorId, action: "translate" });
       if (typeof rateLimit.remaining === "number") {
         res.setHeader("x-ratelimit-remaining", String(rateLimit.remaining));
       }
-      const translatedText = await translateText({
+      const result = await translateText({
         text: rawText,
-        targetLanguage: targetLang,
+        targetLang,
         creatorId,
         fanId: null,
+        configOverride: translateConfig,
       });
-      if (!translatedText) {
-        return res.status(500).json({ error: "translation_failed" });
-      }
+      const translatedText = result.translatedText;
+      const detectedSourceLang = result.detectedSourceLang ?? null;
       const payload: TranslateResponse = {
         id: `selection-${Date.now()}`,
         translatedText,
         targetLang,
         sourceKind: "text",
+        detectedSourceLang,
         createdAt: new Date().toISOString(),
       };
       res.setHeader("x-cache", "miss");
@@ -121,7 +113,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
         fanId: true,
         text: true,
         transcriptText: true,
-        fan: { select: { creatorId: true } },
+        transcriptLang: true,
+        fan: { select: { creatorId: true, preferredLanguage: true } },
       },
     });
 
@@ -133,6 +126,15 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
     if (message.fan.creatorId !== creatorId) {
       return res.status(403).json({ error: "Forbidden" });
     }
+
+    const preferredSourceLang = normalizePreferredLanguage(message.fan.preferredLanguage);
+    const transcriptSourceLang = normalizePreferredLanguage(message.transcriptLang);
+    const sourceLang =
+      sourceKind === "voice_transcript"
+        ? transcriptSourceLang ?? (preferredSourceLang && preferredSourceLang !== targetLang ? preferredSourceLang : null)
+        : preferredSourceLang && preferredSourceLang !== targetLang
+        ? preferredSourceLang
+        : null;
 
     const sourceText =
       sourceKind === "voice_transcript"
@@ -167,6 +169,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
         translatedText: existing.translatedText,
         targetLang: existing.targetLang,
         sourceKind: existing.sourceKind as SourceKind,
+        detectedSourceLang: existing.detectedSourceLang ?? null,
         createdAt: existing.createdAt.toISOString(),
       });
     }
@@ -178,11 +181,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
       return res.status(200).json(deduped);
     }
 
-    const mode = normalizeMode(process.env.AI_MODE ?? "mock");
-    const apiKey = maybeDecrypt(process.env.OPENAI_API_KEY, { creatorId, label: "OPENAI_API_KEY" });
-    const model = process.env.OPENAI_MODEL;
-    if (mode !== "live" || !apiKey || !apiKey.trim() || !model || !model.trim()) {
-      return res.status(409).json({ error: "ai_not_configured" });
+    const translateConfig = await getEffectiveTranslateConfig(creatorId);
+    if (!translateConfig.configured) {
+      return res.status(501).json({ error: "TRANSLATE_NOT_CONFIGURED", code: "TRANSLATE_NOT_CONFIGURED" });
     }
 
     const rateLimit = await rateLimitOrThrow({ creatorId, action: "translate" });
@@ -190,16 +191,16 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
       res.setHeader("x-ratelimit-remaining", String(rateLimit.remaining));
     }
 
-    const translatedText = await translateText({
+    const result = await translateText({
       text: sourceText,
-      targetLanguage: targetLang,
+      targetLang,
+      sourceLang,
       creatorId,
       fanId: message.fanId,
+      configOverride: translateConfig,
     });
-
-    if (!translatedText) {
-      return res.status(500).json({ error: "translation_failed" });
-    }
+    const translatedText = result.translatedText;
+    const detectedSourceLang = result.detectedSourceLang ?? null;
 
     try {
       const created = await prisma.messageTranslation.create({
@@ -209,6 +210,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
           sourceKind,
           sourceHash,
           translatedText,
+          detectedSourceLang,
           createdByCreatorId: creatorId,
         },
       });
@@ -218,6 +220,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
         translatedText: created.translatedText,
         targetLang: created.targetLang,
         sourceKind: created.sourceKind as SourceKind,
+        detectedSourceLang: created.detectedSourceLang ?? null,
         createdAt: created.createdAt.toISOString(),
       };
       res.setHeader("x-cache", "miss");
@@ -249,6 +252,16 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
       throw createErr;
     }
   } catch (err) {
+    if (isTranslateNotConfiguredError(err)) {
+      return res.status(501).json({ error: "TRANSLATE_NOT_CONFIGURED", code: "TRANSLATE_NOT_CONFIGURED" });
+    }
+    if (isTranslateProviderError(err) && err.code === "NETWORK_ERROR") {
+      return res.status(502).json({
+        error: "NETWORK_ERROR",
+        code: "NETWORK_ERROR",
+        message: err.message,
+      });
+    }
     if (isRateLimitError(err)) {
       const retryAfterSec = err.retryAfterSec ?? 60;
       res.setHeader("Retry-After", String(retryAfterSec));
@@ -266,6 +279,16 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
 function isUniqueConstraintError(err: unknown) {
   if (!err || typeof err !== "object") return false;
   return "code" in err && (err as { code?: string }).code === "P2002";
+}
+
+function isTranslateNotConfiguredError(err: unknown): err is { code?: string } {
+  if (!err || typeof err !== "object") return false;
+  return "code" in err && (err as { code?: string }).code === "TRANSLATE_NOT_CONFIGURED";
+}
+
+function isTranslateProviderError(err: unknown): err is { code?: string; message?: string } {
+  if (!err || typeof err !== "object") return false;
+  return "code" in err && typeof (err as { code?: string }).code === "string";
 }
 
 function isRateLimitError(err: unknown): err is { status?: number; retryAfterSec?: number } {

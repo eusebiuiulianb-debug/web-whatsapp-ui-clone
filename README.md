@@ -61,6 +61,13 @@ En Windows, si ves errores raros de `.next` (p. ej. `__webpack_require__.a is no
 5. `npm run dev` (http://localhost:3005)
 6. `npm run build` para validar que el build pasa.
 
+## Traducción (LibreTranslate local)
+1. `npm run lt:up`
+2. Abre `http://127.0.0.1:5000` para verificar que responde.
+3. En `/creator/ai-settings`, selecciona "LibreTranslate" y URL `http://127.0.0.1:5000`.
+4. Si usas `.env.local`, asegúrate de tener `LIBRETRANSLATE_URL=http://127.0.0.1:5000`.
+5. Usa "Probar conexión" y luego "Traducir" en el chat.
+
 ### Puerto ocupado (Windows)
 - Detectar proceso: `netstat -ano | findstr :3005`
 - Forzar cierre: `taskkill /PID <pid> /F`

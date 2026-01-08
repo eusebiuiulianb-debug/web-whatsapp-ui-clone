@@ -223,6 +223,7 @@ type MessageTranslationResponse = {
   translatedText: string;
   targetLang: string;
   sourceKind: "text" | "voice_transcript";
+  detectedSourceLang?: string | null;
   createdAt: string;
 };
 
@@ -241,6 +242,32 @@ const normalizeActionKey = (key?: string | null) => {
   if (typeof key !== "string") return null;
   const trimmed = key.trim();
   return trimmed ? trimmed : null;
+};
+
+const formatTranslationLang = (value: string | null | undefined, fallback: string) => {
+  const trimmed = typeof value === "string" ? value.trim() : "";
+  return trimmed ? trimmed.toUpperCase() : fallback;
+};
+
+const buildManagerTranslationPayload = (
+  sourceLabel: string,
+  targetLabel: string,
+  originalText: string,
+  translatedText: string
+) => {
+  const cleanOriginal = originalText.trim();
+  const cleanTranslated = translatedText.trim();
+  return (
+    `Original: ${cleanOriginal}\n\n` +
+    `Traducción (${targetLabel}): ${cleanTranslated}\n\n` +
+    `Idioma detectado: ${sourceLabel}\n` +
+    `Responde en el idioma detectado (${sourceLabel}). Devuelve solo el texto final.`
+  );
+};
+
+const isTranslateNotConfiguredError = (err: unknown) => {
+  if (!err || typeof err !== "object") return false;
+  return "code" in err && (err as { code?: string }).code === "TRANSLATE_NOT_CONFIGURED";
 };
 
 const normalizeTextForHash = (text: string) => text.trim().replace(/\s+/g, " ").toLowerCase();
@@ -697,11 +724,15 @@ export default function ConversationDetails({ onBackToBoard }: ConversationDetai
   const [ purchaseNotice, setPurchaseNotice ] = useState<PurchaseNoticeState | null>(null);
   const [ voiceNotice, setVoiceNotice ] = useState<{ fanName: string; durationMs?: number; createdAt: string } | null>(null);
   const [ internalToast, setInternalToast ] = useState<string | null>(null);
+  const [ actionToast, setActionToast ] = useState<{ message: string; actionLabel: string; actionHref: string } | null>(
+    null
+  );
   const purchaseNoticeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const voiceNoticeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const purchaseNoticeShownAtRef = useRef(0);
   const purchaseNoticeFallbackNameRef = useRef("Fan");
   const internalToastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const actionToastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const reactionInFlightRef = useRef<Set<string>>(new Set());
   const [ isVoiceUploading, setIsVoiceUploading ] = useState(false);
   const [ voiceUploadError, setVoiceUploadError ] = useState("");
@@ -824,6 +855,8 @@ export default function ConversationDetails({ onBackToBoard }: ConversationDetai
         me: isSystem ? false : msg.from === "creator",
         message: msg.text ?? "",
         translatedText: isSticker ? undefined : textTranslation?.translatedText ?? undefined,
+        translationSourceLang: textTranslation?.detectedSourceLang ?? null,
+        translationTargetLang: textTranslation?.targetLang ?? null,
         audience: deriveAudience(msg),
         seen: !!msg.isLastFromCreator,
         time: msg.time || "",
@@ -885,6 +918,16 @@ export default function ConversationDetails({ onBackToBoard }: ConversationDetai
     internalToastTimer.current = setTimeout(() => {
       setInternalToast(null);
     }, 1800);
+  }, []);
+
+  const showActionToast = useCallback((message: string, actionLabel: string, actionHref: string) => {
+    setActionToast({ message, actionLabel, actionHref });
+    if (actionToastTimer.current) {
+      clearTimeout(actionToastTimer.current);
+    }
+    actionToastTimer.current = setTimeout(() => {
+      setActionToast(null);
+    }, 3500);
   }, []);
 
   const handleReactToMessage = useCallback(
@@ -2218,6 +2261,44 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
     });
   }
 
+  const handleInsertFanComposerText = useCallback(
+    (text: string) => {
+      const trimmed = text.trim();
+      if (!trimmed) return;
+      setComposerTarget("fan");
+      setComposerActionKey(null);
+      setMessageSend(trimmed);
+      requestAnimationFrame(() => {
+        const input = messageInputRef.current;
+        if (!input) return;
+        input.focus();
+        const len = trimmed.length;
+        input.setSelectionRange(len, len);
+        autoGrowTextarea(input, MAX_MAIN_COMPOSER_HEIGHT);
+      });
+    },
+    [autoGrowTextarea]
+  );
+
+  const handleInsertManagerComposerText = useCallback(
+    (text: string) => {
+      const trimmed = text.trim();
+      if (!trimmed) return;
+      setComposerTarget("manager");
+      setComposerActionKey(null);
+      setMessageSend(trimmed);
+      requestAnimationFrame(() => {
+        const input = messageInputRef.current;
+        if (!input) return;
+        input.focus();
+        const len = trimmed.length;
+        input.setSelectionRange(len, len);
+        autoGrowTextarea(input, MAX_MAIN_COMPOSER_HEIGHT);
+      });
+    },
+    [autoGrowTextarea]
+  );
+
   const handleChangeFanTone = useCallback(
     (tone: FanTone) => {
       setFanTone(tone);
@@ -2483,6 +2564,9 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
     remainingToday: number | null;
     limitReached: boolean;
     turnMode?: AiTurnMode;
+    translateConfigured?: boolean;
+    translateProvider?: string;
+    translateMissingVars?: string[];
   } | null>(null);
   const [aiTone, setAiTone] = useState<AiTone>("cercano");
   const [aiTurnMode, setAiTurnMode] = useState<AiTurnMode>("auto");
@@ -2499,6 +2583,11 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
         remainingToday: data.remainingToday ?? null,
         limitReached: Boolean(data.limitReached),
         turnMode: data.turnMode as AiTurnMode | undefined,
+        translateConfigured: Boolean(data.translateConfigured),
+        translateProvider: typeof data.translateProvider === "string" ? data.translateProvider : undefined,
+        translateMissingVars: Array.isArray(data.translateMissingVars)
+          ? data.translateMissingVars.filter((item: unknown) => typeof item === "string" && item.trim().length > 0)
+          : [],
       });
       setIaBlocked(Boolean(data.limitReached));
       if (typeof data.turnMode === "string") {
@@ -3268,6 +3357,10 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
     if (internalToastTimer.current) {
       clearTimeout(internalToastTimer.current);
     }
+    setActionToast(null);
+    if (actionToastTimer.current) {
+      clearTimeout(actionToastTimer.current);
+    }
     setVoiceNotice(null);
     if (voiceNoticeTimerRef.current) {
       clearTimeout(voiceNoticeTimerRef.current);
@@ -3767,7 +3860,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
   );
 
   const handleMessageTranslationSaved = useCallback(
-    (messageId: string, translatedText: string) => {
+    (messageId: string, translatedText: string, detectedSourceLang?: string | null, targetLang?: string | null) => {
       const trimmed = translatedText.trim();
       if (!messageId || !trimmed) return;
       setMessage((prev) => {
@@ -3777,6 +3870,8 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
             ? {
                 ...msg,
                 translatedText: trimmed,
+                translationSourceLang: detectedSourceLang ?? null,
+                translationTargetLang: targetLang ?? msg.translationTargetLang ?? null,
               }
             : msg
         );
@@ -3972,8 +4067,9 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
   }, [profileText]);
   const hasInternalThreadMessages = internalNotes.length > 0 || managerChatMessages.length > 0;
   const effectiveLanguage = (preferredLanguage ?? "en") as SupportedLanguage;
+  const isTranslateConfigured = aiStatus?.translateConfigured !== false;
   const isTranslationPreviewAvailable =
-    !!id && !conversation.isManager && effectiveLanguage !== "es";
+    !!id && !conversation.isManager && effectiveLanguage !== "es" && isTranslateConfigured;
   const hasComposerText = messageSend.trim().length > 0;
   const isFanTarget = composerTarget === "fan";
   const isInternalTarget = composerTarget === "internal";
@@ -4257,6 +4353,10 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
     [getMessageTranslationPosition]
   );
 
+  const showTranslateConfigToast = useCallback(() => {
+    showActionToast("Traducción no configurada", "Configurar", "/creator/ai-settings#translation");
+  }, [showActionToast]);
+
   useEffect(() => {
     const messageId = messageTranslationPopover?.messageId;
     if (!messageId) return;
@@ -4286,6 +4386,10 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
     async (messageId: string) => {
       if (!messageId) return;
       if (messageTranslationInFlightRef.current.has(messageId)) return;
+      if (aiStatus && aiStatus.translateConfigured === false) {
+        showTranslateConfigToast();
+        return;
+      }
       setMessageTranslationState((prev) => ({
         ...prev,
         [messageId]: { status: "loading" },
@@ -4300,32 +4404,50 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
         .then(async (res) => {
           const data = await res.json().catch(() => ({}));
           if (!res.ok) {
-            const errorCode = typeof data?.error === "string" ? data.error : "";
-            const message = errorCode === "ai_not_configured" ? "Traducción no configurada" : "No se pudo traducir.";
-            throw new Error(message);
+            const errorCode =
+              typeof data?.code === "string"
+                ? data.code
+                : typeof data?.error === "string"
+                ? data.error
+                : "";
+            const errorMessage =
+              typeof data?.message === "string" && data.message.trim().length > 0
+                ? data.message
+                : errorCode || "translation_failed";
+            const error = new Error(errorMessage) as Error & { code?: string };
+            error.code = errorCode;
+            throw error;
           }
-          const translatedText =
-            typeof data?.translatedText === "string" ? data.translatedText.trim() : "";
-          if (!translatedText) {
-            throw new Error("No se pudo traducir.");
-          }
-          return data as MessageTranslationResponse;
-        })
-        .finally(() => {
-          messageTranslationInFlightRef.current.delete(messageId);
-        });
+        const translatedText =
+          typeof data?.translatedText === "string" ? data.translatedText.trim() : "";
+        if (!translatedText) {
+          throw new Error("No se pudo traducir.");
+        }
+        return data as MessageTranslationResponse;
+      })
+      .finally(() => {
+        messageTranslationInFlightRef.current.delete(messageId);
+      });
 
       messageTranslationInFlightRef.current.set(messageId, request);
 
       try {
         const result = await request;
-        handleMessageTranslationSaved(messageId, result.translatedText);
+        handleMessageTranslationSaved(messageId, result.translatedText, result.detectedSourceLang, result.targetLang);
         setMessageTranslationState((prev) => ({
           ...prev,
           [messageId]: { status: "idle" },
         }));
         setMessageTranslationPopover((prev) => (prev?.messageId === messageId ? null : prev));
       } catch (err) {
+        if (isTranslateNotConfiguredError(err)) {
+          setMessageTranslationState((prev) => ({
+            ...prev,
+            [messageId]: { status: "idle" },
+          }));
+          showTranslateConfigToast();
+          return;
+        }
         const message =
           err instanceof Error && err.message.trim().length > 0 ? err.message : "No se pudo traducir.";
         setMessageTranslationState((prev) => ({
@@ -4335,7 +4457,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
         openMessageTranslationPopover(messageId, message);
       }
     },
-    [handleMessageTranslationSaved, openMessageTranslationPopover]
+    [aiStatus, handleMessageTranslationSaved, openMessageTranslationPopover, showTranslateConfigToast]
   );
 
   const buildManagerQuotePrompt = (text: string) => {
@@ -5733,6 +5855,12 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
         const data = await res.json().catch(() => ({}));
         if (requestId !== translationPreviewRequestId.current) return;
 
+        if (res.status === 501 && data?.code === "TRANSLATE_NOT_CONFIGURED") {
+          setTranslationPreviewStatus("idle");
+          setTranslationPreviewNotice(null);
+          return;
+        }
+
         if (!res.ok || !data?.ok) {
           setTranslationPreviewStatus("error");
           setTranslationPreviewNotice("No se pudo generar la traducción. Se enviará en español.");
@@ -5748,9 +5876,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
         }
 
         const reason = typeof data.reason === "string" ? data.reason : "";
-        if (reason === "ai_not_configured") {
-          setTranslationPreviewNotice("Sin traducción (IA no configurada). Se enviará en español.");
-        } else if (reason === "empty") {
+        if (reason === "empty") {
           setTranslationPreviewNotice(null);
         } else {
           setTranslationPreviewNotice("No se pudo generar la traducción. Se enviará en español.");
@@ -9209,6 +9335,8 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
                     onRetryTranscript={requestTranscriptRetry}
                     tone={fanTone}
                     onInsertText={(text) => handleUseManagerReplyAsMainMessage(text, "Análisis voz")}
+                    onInsertTranslation={handleInsertFanComposerText}
+                    onInsertManager={handleInsertManagerComposerText}
                     onTranscriptSaved={(text) =>
                       messageConversation.id && handleManualTranscriptSaved(messageConversation.id, text)
                     }
@@ -9219,6 +9347,9 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
                       messageConversation.id && handleVoiceTranslationSaved(messageConversation.id, translation)
                     }
                     onToast={showComposerToast}
+                    translateEnabled={isFanMode}
+                    translateConfigured={isTranslateConfigured}
+                    onTranslateNotConfigured={showTranslateConfigToast}
                     fanId={id ?? ""}
                     onReact={(emoji) => {
                       if (!messageConversation.id) return;
@@ -9246,6 +9377,8 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
               const messageText = message ?? "";
               const hasMessageText = messageText.trim().length > 0;
               const translatedText = !me ? messageConversation.translatedText ?? undefined : undefined;
+              const translationSourceLabel = formatTranslationLang(messageConversation.translationSourceLang, "AUTO");
+              const translationTargetLabel = formatTranslationLang(messageConversation.translationTargetLang, "ES");
               const reactionsSummary = messageConversation.reactionsSummary ?? [];
               const translationState = messageConversation.id ? messageTranslationState[messageConversation.id] : undefined;
               const translationStatus = translationState?.status ?? "idle";
@@ -9255,6 +9388,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
                   !isInternalMessage &&
                   isTextMessage
               );
+              const canShowTranslationBlock = Boolean(!me && !isInternalMessage && isTextMessage && translatedText);
               const canShowMessageActions =
                 isFanMode && isTextMessage && !isInternalMessage && hasMessageText;
               const messageActionItems = canShowMessageActions
@@ -9339,12 +9473,15 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
                     forceReactionButton={isCoarsePointer}
                     anchorId={messageKey}
                   />
-                  {canTranslateText && (
+                  {canShowTranslationBlock && (
                     <div className={clsx("flex flex-col gap-2", me ? "items-end" : "items-start")}>
                       {translatedText && (
                         <div className="rounded-lg border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-3 py-2 space-y-2">
-                          <div className="text-[10px] uppercase tracking-wide text-[color:var(--muted)]">
-                            Traduccion
+                          <div className="flex flex-wrap items-center gap-2 text-[10px] uppercase tracking-wide text-[color:var(--muted)]">
+                            <span>TRADUCCIÓN</span>
+                            <span className="rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-2 py-0.5 text-[9px] font-semibold text-[color:var(--muted)]">
+                              {`DETECTADO: ${translationSourceLabel} → ${translationTargetLabel}`}
+                            </span>
                           </div>
                           <p className="whitespace-pre-wrap text-[12px] text-[color:var(--text)]">
                             {translatedText}
@@ -9364,9 +9501,25 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
                             <button
                               type="button"
                               className="rounded-full border border-[color:var(--brand)] bg-[color:rgba(var(--brand-rgb),0.12)] px-2 py-0.5 font-semibold text-[color:var(--text)] hover:bg-[color:rgba(var(--brand-rgb),0.2)]"
-                              onClick={() => handleUseManagerReplyAsMainMessage(translatedText, "Traduccion")}
+                              onClick={() => handleInsertFanComposerText(translatedText)}
                             >
-                              Insertar en el input
+                              Insertar en el input (FAN)
+                            </button>
+                            <button
+                              type="button"
+                              className="rounded-full border border-[color:var(--surface-border)] px-2 py-0.5 font-semibold text-[color:var(--text)] hover:bg-[color:var(--surface-1)]"
+                              onClick={() =>
+                                handleInsertManagerComposerText(
+                                  buildManagerTranslationPayload(
+                                    translationSourceLabel,
+                                    translationTargetLabel,
+                                    messageText,
+                                    translatedText
+                                  )
+                                )
+                              }
+                            >
+                              Enviar al Manager
                             </button>
                           </div>
                         </div>
@@ -9714,6 +9867,21 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
           )}
           <div className="sticky bottom-0 z-30 border-t border-[color:var(--border)] bg-[color:var(--surface-1)] backdrop-blur-xl">
             <div className="max-w-4xl mx-auto w-full px-4 sm:px-6 lg:px-8 py-2.5">
+              {actionToast && (
+                <div className="mb-2 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-[color:rgba(var(--brand-rgb),0.5)] bg-[color:rgba(var(--brand-rgb),0.08)] px-3 py-2 text-[11px] text-[color:var(--text)]">
+                  <span>{actionToast.message}</span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setActionToast(null);
+                      router.push(actionToast.actionHref);
+                    }}
+                    className="rounded-full border border-[color:var(--brand)] bg-[color:rgba(var(--brand-rgb),0.12)] px-3 py-1 text-[10px] font-semibold text-[color:var(--text)] hover:bg-[color:rgba(var(--brand-rgb),0.2)]"
+                  >
+                    {actionToast.actionLabel}
+                  </button>
+                </div>
+              )}
               {internalToast && <div className="mb-2 text-[11px] text-[color:var(--brand)]">{internalToast}</div>}
               {composerError && <div className="mb-2 text-[11px] text-[color:var(--danger)]">{composerError}</div>}
               {(isVoiceRecording || isVoiceUploading) && (
@@ -9892,7 +10060,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
                     </button>
                   </div>
                   <div className="mt-2 space-y-2">
-                    <div className="text-[11px] text-[color:var(--danger)]">
+                    <div className="text-[11px] text-[color:var(--danger)] whitespace-pre-wrap">
                       {messageTranslationPopover.error}
                     </div>
                     <button
@@ -10865,10 +11033,15 @@ function AudioMessageBubble({
   onRetryTranscript,
   tone,
   onInsertText,
+  onInsertTranslation,
+  onInsertManager,
   onTranscriptSaved,
   onAnalysisSaved,
   onTranslationSaved,
   onToast,
+  translateEnabled,
+  translateConfigured,
+  onTranslateNotConfigured,
   fanId,
   onReact,
 }: {
@@ -10878,10 +11051,15 @@ function AudioMessageBubble({
   onRetryTranscript?: (messageId: string) => Promise<void> | void;
   tone?: FanTone;
   onInsertText?: (text: string) => void;
+  onInsertTranslation?: (text: string) => void;
+  onInsertManager?: (text: string) => void;
   onTranscriptSaved?: (text: string) => void;
   onAnalysisSaved?: (analysis: VoiceAnalysis) => void;
   onTranslationSaved?: (translation: VoiceTranslation) => void;
   onToast?: (message: string) => void;
+  translateEnabled?: boolean;
+  translateConfigured?: boolean;
+  onTranslateNotConfigured?: () => void;
   fanId?: string;
   onReact?: (emoji: string) => void;
 }) {
@@ -11192,6 +11370,8 @@ function AudioMessageBubble({
               initialAnalysis={safeParseVoiceAnalysis(message.voiceAnalysisJson)}
               initialTranslation={message.voiceTranslation ?? null}
               onInsertText={onInsertText}
+              onInsertTranslation={onInsertTranslation}
+              onInsertManager={onInsertManager}
               onCopyTranscript={onCopyTranscript}
               onUseTranscript={onUseTranscript}
               onTranscriptSaved={onTranscriptSaved}
@@ -11199,6 +11379,9 @@ function AudioMessageBubble({
               onTranslationSaved={onTranslationSaved}
               onTranscribe={onRetryTranscript}
               onToast={onToast}
+              translateEnabled={translateEnabled}
+              translateConfigured={translateConfigured}
+              onTranslateNotConfigured={onTranslateNotConfigured}
               disabled={isSending}
             />
           )}

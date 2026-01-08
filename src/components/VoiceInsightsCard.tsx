@@ -11,6 +11,11 @@ const translationInFlight = new Map<string, Promise<VoiceTranslation | null>>();
 const MIN_TRANSCRIPT_LEN = 3;
 const MAX_TRANSCRIPT_LEN = 4000;
 
+const isTranslateNotConfiguredError = (err: unknown) => {
+  if (!err || typeof err !== "object") return false;
+  return "code" in err && (err as { code?: string }).code === "TRANSLATE_NOT_CONFIGURED";
+};
+
 type VoiceInsightsCardProps = {
   messageId: string;
   fanId: string;
@@ -21,6 +26,8 @@ type VoiceInsightsCardProps = {
   tone?: FanTone;
   onTranscribe?: (messageId: string) => Promise<void> | void;
   onInsertText?: (text: string) => void;
+  onInsertTranslation?: (text: string) => void;
+  onInsertManager?: (text: string) => void;
   onCopyTranscript?: (text: string) => void;
   onUseTranscript?: (text: string) => void;
   onTranscriptSaved?: (transcript: string) => void;
@@ -28,8 +35,11 @@ type VoiceInsightsCardProps = {
   onTranslationSaved?: (translation: VoiceTranslation) => void;
   initialTranslation?: VoiceTranslation | null;
   onToast?: (message: string) => void;
+  onTranslateNotConfigured?: () => void;
   initialAnalysis?: VoiceAnalysis | null;
   disabled?: boolean;
+  translateEnabled?: boolean;
+  translateConfigured?: boolean;
 };
 
 const INTENT_LABELS: Record<VoiceAnalysis["intent"], string> = {
@@ -49,6 +59,27 @@ const URGENCY_LABELS: Record<VoiceAnalysis["urgency"], string> = {
   high: "Alta",
 };
 
+const formatTranslationLang = (value: string | null | undefined, fallback: string) => {
+  const trimmed = typeof value === "string" ? value.trim() : "";
+  return trimmed ? trimmed.toUpperCase() : fallback;
+};
+
+const buildManagerTranslationPayload = (
+  sourceLabel: string,
+  targetLabel: string,
+  originalText: string,
+  translatedText: string
+) => {
+  const cleanOriginal = originalText.trim();
+  const cleanTranslated = translatedText.trim();
+  return (
+    `Original: ${cleanOriginal}\n\n` +
+    `Traducción (${targetLabel}): ${cleanTranslated}\n\n` +
+    `Idioma detectado: ${sourceLabel}\n` +
+    `Responde en el idioma detectado (${sourceLabel}). Devuelve solo el texto final.`
+  );
+};
+
 export function VoiceInsightsCard({
   messageId,
   fanId,
@@ -59,6 +90,8 @@ export function VoiceInsightsCard({
   tone,
   onTranscribe,
   onInsertText,
+  onInsertTranslation,
+  onInsertManager,
   onCopyTranscript,
   onUseTranscript,
   onTranscriptSaved,
@@ -66,8 +99,11 @@ export function VoiceInsightsCard({
   onTranslationSaved,
   initialTranslation,
   onToast,
+  onTranslateNotConfigured,
   initialAnalysis,
   disabled,
+  translateEnabled = true,
+  translateConfigured = true,
 }: VoiceInsightsCardProps) {
   const hasInitialSuggestions = Boolean(initialAnalysis?.suggestions?.length);
   const [analysis, setAnalysis] = useState<VoiceAnalysis | null>(initialAnalysis ?? null);
@@ -294,7 +330,13 @@ export function VoiceInsightsCard({
   }, [isDisabled, messageId, onToast, onTranscribe]);
 
   const handleTranslate = useCallback(async () => {
-    if (!messageId || isDisabled || !hasTranscript) return;
+    if (!messageId || isDisabled || !hasTranscript || !translateEnabled) return;
+    if (translateConfigured === false) {
+      setTranslationStatus("idle");
+      setTranslationError("");
+      onTranslateNotConfigured?.();
+      return;
+    }
     if (translationInFlight.has(messageId)) return;
     setTranslationStatus("loading");
     setTranslationError("");
@@ -308,9 +350,19 @@ export function VoiceInsightsCard({
       .then(async (res) => {
         const data = await res.json().catch(() => ({}));
         if (!res.ok) {
-          const errorCode = typeof data?.error === "string" ? data.error : "";
-          const message = errorCode === "ai_not_configured" ? "Traduccion no disponible." : "No se pudo traducir.";
-          throw new Error(message);
+          const errorCode =
+            typeof data?.code === "string"
+              ? data.code
+              : typeof data?.error === "string"
+              ? data.error
+              : "";
+          const errorMessage =
+            typeof data?.message === "string" && data.message.trim().length > 0
+              ? data.message
+              : errorCode || "translation_failed";
+          const error = new Error(errorMessage) as Error & { code?: string };
+          error.code = errorCode;
+          throw error;
         }
         const translatedText =
           typeof data?.translatedText === "string" ? data.translatedText.trim() : "";
@@ -320,6 +372,7 @@ export function VoiceInsightsCard({
         const translationPayload: VoiceTranslation = {
           text: translatedText,
           targetLang: typeof data?.targetLang === "string" ? data.targetLang : "es",
+          sourceLang: typeof data?.detectedSourceLang === "string" ? data.detectedSourceLang : null,
           updatedAt: typeof data?.createdAt === "string" ? data.createdAt : new Date().toISOString(),
         };
         return translationPayload;
@@ -340,13 +393,28 @@ export function VoiceInsightsCard({
       setTranslationStatus("ready");
       onTranslationSaved?.(result);
     } catch (err) {
+      if (isTranslateNotConfiguredError(err)) {
+        setTranslationStatus("idle");
+        setTranslationError("");
+        onTranslateNotConfigured?.();
+        return;
+      }
       const message =
         err instanceof Error && err.message.trim().length > 0 ? err.message : "No se pudo traducir.";
       setTranslationError(message);
       setTranslationStatus("error");
       onToast?.(message);
     }
-  }, [hasTranscript, isDisabled, messageId, onToast, onTranslationSaved]);
+  }, [
+    hasTranscript,
+    isDisabled,
+    messageId,
+    onToast,
+    onTranslationSaved,
+    onTranslateNotConfigured,
+    translateConfigured,
+    translateEnabled,
+  ]);
 
   const handleSaveTranscript = useCallback(async () => {
     if (!messageId || isDisabled) return;
@@ -454,6 +522,35 @@ export function VoiceInsightsCard({
     onToast?.(ok ? "Texto copiado." : "No se pudo copiar.");
   }, [copyTextToClipboard, onToast, translation?.text]);
 
+  const handleInsertTranslation = useCallback(
+    (text: string) => {
+      const trimmed = text.trim();
+      if (!trimmed) return;
+      if (onInsertTranslation) {
+        onInsertTranslation(trimmed);
+        return;
+      }
+      onInsertText?.(trimmed);
+    },
+    [onInsertText, onInsertTranslation]
+  );
+
+  const translationSourceLabel = formatTranslationLang(translation?.sourceLang, "AUTO");
+  const translationTargetLabel = formatTranslationLang(translation?.targetLang, "ES");
+
+  const handleSendTranslationToManager = useCallback(() => {
+    if (!translation?.text || !onInsertManager) return;
+    const original = cleanedTranscript.trim();
+    if (!original) return;
+    const payload = buildManagerTranslationPayload(
+      translationSourceLabel,
+      translationTargetLabel,
+      original,
+      translation.text
+    );
+    onInsertManager(payload);
+  }, [cleanedTranscript, onInsertManager, translation?.text, translationSourceLabel, translationTargetLabel]);
+
   const analysisLabel = analysis ? INTENT_LABELS[analysis.intent] : null;
   const urgencyLabel = analysis ? URGENCY_LABELS[analysis.urgency] : null;
   const hasAnalysis = Boolean(analysis);
@@ -496,20 +593,22 @@ export function VoiceInsightsCard({
                 <span>{analyzeLabel}</span>
               </button>
             )}
-            <button
-              type="button"
-              className={clsx(
-                "inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-medium",
-                isDisabled || !hasTranscript || translationStatus === "loading"
-                  ? "border-[color:var(--surface-border)] text-[color:var(--muted)] cursor-not-allowed"
-                  : "border-[color:var(--surface-border)] text-[color:var(--muted)] hover:text-[color:var(--text)] hover:bg-[color:var(--surface-1)]"
-              )}
-              onClick={handleTranslate}
-              disabled={isDisabled || !hasTranscript || translationStatus === "loading"}
-            >
-              <IconGlyph name="globe" size="sm" />
-              <span>{translateLabel}</span>
-            </button>
+            {translateEnabled && (
+              <button
+                type="button"
+                className={clsx(
+                  "inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-medium",
+                  isDisabled || !hasTranscript || translationStatus === "loading"
+                    ? "border-[color:var(--surface-border)] text-[color:var(--muted)] cursor-not-allowed"
+                    : "border-[color:var(--surface-border)] text-[color:var(--muted)] hover:text-[color:var(--text)] hover:bg-[color:var(--surface-1)]"
+                )}
+                onClick={handleTranslate}
+                disabled={isDisabled || !hasTranscript || translationStatus === "loading"}
+              >
+                <IconGlyph name="globe" size="sm" />
+                <span>{translateLabel}</span>
+              </button>
+            )}
           </div>
         )}
       </div>
@@ -703,7 +802,12 @@ export function VoiceInsightsCard({
       {hasTranslation && (
         <div className="mt-2 rounded-lg border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-3 py-2 space-y-2">
           <div className="flex items-center justify-between text-[10px] uppercase tracking-wide text-[color:var(--muted)]">
-            <span>Traduccion</span>
+            <div className="flex flex-wrap items-center gap-2">
+              <span>TRADUCCIÓN</span>
+              <span className="rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-2 py-0.5 text-[9px] font-semibold text-[color:var(--muted)]">
+                {`DETECTADO: ${translationSourceLabel} → ${translationTargetLabel}`}
+              </span>
+            </div>
             <button
               type="button"
               className="text-[color:var(--muted)] hover:text-[color:var(--text)]"
@@ -724,13 +828,22 @@ export function VoiceInsightsCard({
               >
                 Copiar
               </button>
-              {onInsertText && (
+              {(onInsertTranslation || onInsertText) && (
                 <button
                   type="button"
-                  onClick={() => onInsert(translation.text)}
+                  onClick={() => handleInsertTranslation(translation.text)}
                   className="rounded-full border border-[color:var(--brand)] bg-[color:rgba(var(--brand-rgb),0.12)] px-2 py-0.5 font-semibold text-[color:var(--text)] hover:bg-[color:rgba(var(--brand-rgb),0.2)]"
                 >
-                  Insertar en el input
+                  Insertar en el input (FAN)
+                </button>
+              )}
+              {onInsertManager && (
+                <button
+                  type="button"
+                  onClick={handleSendTranslationToManager}
+                  className="rounded-full border border-[color:var(--surface-border)] px-2 py-0.5 font-semibold text-[color:var(--text)] hover:bg-[color:var(--surface-1)]"
+                >
+                  Enviar al Manager
                 </button>
               )}
             </div>
@@ -738,9 +851,9 @@ export function VoiceInsightsCard({
         </div>
       )}
 
-      {translationStatus === "error" && translationError && (
+      {translateEnabled && translationStatus === "error" && translationError && (
         <div className="mt-2 flex items-center gap-2 text-[10px] text-[color:var(--danger)]">
-          <span>{translationError}</span>
+          <span className="whitespace-pre-wrap">{translationError}</span>
           <button
             type="button"
             onClick={handleTranslate}

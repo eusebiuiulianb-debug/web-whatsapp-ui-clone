@@ -2,6 +2,7 @@ import type { NextApiRequest, NextApiResponse } from "next";
 import prisma from "../../../../lib/prisma.server";
 import { normalizeAiTurnMode } from "../../../../lib/aiSettings";
 import { createDefaultCreatorPlatforms } from "../../../../lib/creatorPlatforms";
+import { getTranslateConfig } from "../../../../lib/ai/translateProvider";
 
 export default async function handler(_req: NextApiRequest, res: NextApiResponse) {
   try {
@@ -29,6 +30,8 @@ export default async function handler(_req: NextApiRequest, res: NextApiResponse
       (typeof hardLimitPerDay === "number" && hardLimitPerDay >= 0 && usedToday >= hardLimitPerDay) ||
       settings.creditsAvailable <= 0;
 
+    const translateConfig = await getTranslateConfig(creatorId);
+
     return res.status(200).json({
       creditsAvailable: settings.creditsAvailable,
       hardLimitPerDay,
@@ -36,6 +39,9 @@ export default async function handler(_req: NextApiRequest, res: NextApiResponse
       remainingToday,
       limitReached,
       turnMode: normalizeAiTurnMode(settings.turnMode as string | null | undefined),
+      translateConfigured: translateConfig.configured,
+      translateProvider: translateConfig.provider,
+      translateMissingVars: translateConfig.missingVars,
     });
   } catch (err) {
     console.error("Error fetching AI status", err);

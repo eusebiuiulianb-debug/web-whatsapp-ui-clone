@@ -124,6 +124,7 @@ export interface MessageTranslation {
   sourceKind: "text" | "voice_transcript";
   sourceHash: string;
   translatedText: string;
+  detectedSourceLang?: string | null;
   provider?: string | null;
   createdAt: string;
   createdByCreatorId?: string | null;

@@ -1,0 +1,147 @@
+[1mdiff --git a/src/components/ConversationDetails/index.tsx b/src/components/ConversationDetails/index.tsx[m
+[1mindex 09a013d..8c99f70 100644[m
+[1m--- a/src/components/ConversationDetails/index.tsx[m
+[1m+++ b/src/components/ConversationDetails/index.tsx[m
+[36m@@ -207,6 +207,8 @@[m [mconst VOICE_MIME_PREFERENCES = [[m
+   "audio/mp4",[m
+ ];[m
+ const TOOLBAR_MARGIN = 12;[m
+[32m+[m[32mconst TRANSLATION_POPOVER_MAX_WIDTH = 360;[m
+[32m+[m[32mconst TRANSLATION_POPOVER_HEIGHT = 180;[m
+ [m
+ type VoiceUploadPayload = {[m
+   blob: Blob;[m
+[36m@@ -718,6 +720,7 @@[m [mexport default function ConversationDetails({ onBackToBoard }: ConversationDetai[m
+   const lastSentMessageIdRef = useRef<string | null>(null);[m
+   const lastContentMessageIdRef = useRef<string | null>(null);[m
+   const messagesContainerRef = useRef<HTMLDivElement | null>(null);[m
+[32m+[m[32m  const chatOverlayRef = useRef<HTMLDivElement | null>(null);[m
+ [m
+   const showPurchaseNotice = useCallback((payload: PurchaseNoticeState) => {[m
+     setPurchaseNotice(payload);[m
+[36m@@ -4210,49 +4213,39 @@[m [mconst DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";[m
+     }[m
+   }, [applyCortexDraft, id]);[m
+ [m
+[31m-  const clampToolbarPosition = useCallback((x: number, y: number, maxWidth: number) => {[m
+[31m-    if (typeof window === "undefined") return { x, y, maxWidth };[m
+[31m-    const toolbarHeight = 48;[m
+[31m-    const margin = TOOLBAR_MARGIN;[m
+[31m-    const safeMaxWidth = Math.max(0, Math.min(maxWidth, window.innerWidth - margin * 2));[m
+[31m-    const maxX = window.innerWidth - safeMaxWidth - margin;[m
+[31m-    const centeredX = x - safeMaxWidth / 2;[m
+[31m-    const clampedX = Math.max(margin, Math.min(centeredX, maxX));[m
+[31m-    const maxY = window.innerHeight - toolbarHeight - margin;[m
+[31m-    const clampedY = Math.max(margin, Math.min(y - toolbarHeight, maxY));[m
+[31m-    return { x: clampedX, y: clampedY, maxWidth: safeMaxWidth };[m
+[31m-  }, []);[m
+[31m-[m
+[31m-  const clampPopoverPosition = useCallback((x: number, y: number, maxWidth: number) => {[m
+[31m-    if (typeof window === "undefined") return { x, y, maxWidth };[m
+[31m-    const margin = TOOLBAR_MARGIN;[m
+[31m-    const popoverHeight = 220;[m
+[31m-    const safeMaxWidth = Math.max(0, Math.min(maxWidth, window.innerWidth - margin * 2));[m
+[31m-    const maxX = window.innerWidth - safeMaxWidth - margin;[m
+[31m-    const clampedX = Math.max(margin, Math.min(x, maxX));[m
+[31m-    const maxY = window.innerHeight - popoverHeight - margin;[m
+[31m-    const clampedY = Math.max(margin, Math.min(y, maxY));[m
+[31m-    return { x: clampedX, y: clampedY, maxWidth: safeMaxWidth };[m
+[32m+[m[32m  const getMessageTranslationPosition = useCallback((messageId: string) => {[m
+[32m+[m[32m    if (typeof window === "undefined") return null;[m
+[32m+[m[32m    const container = messagesContainerRef.current;[m
+[32m+[m[32m    const overlay = chatOverlayRef.current;[m
+[32m+[m[32m    const chatRect = overlay?.getBoundingClientRect() ?? container?.getBoundingClientRect();[m
+[32m+[m[32m    if (!chatRect) return null;[m
+[32m+[m
+[32m+[m[32m    const clamp = (value: number, min: number, max: number) => Math.max(min, Math.min(value, max));[m
+[32m+[m[32m    const maxWidth = Math.max(0, Math.min(TRANSLATION_POPOVER_MAX_WIDTH, chatRect.width - TOOLBAR_MARGIN * 2));[m
+[32m+[m[32m    const maxX = chatRect.width - maxWidth - TOOLBAR_MARGIN;[m
+[32m+[m[32m    const maxY = chatRect.height - TRANSLATION_POPOVER_HEIGHT - TOOLBAR_MARGIN;[m
+[32m+[m[32m    const fallbackX = clamp((chatRect.width - maxWidth) / 2, TOOLBAR_MARGIN, maxX);[m
+[32m+[m[32m    const fallbackY = clamp((chatRect.height - TRANSLATION_POPOVER_HEIGHT) / 2, TOOLBAR_MARGIN, maxY);[m
+[32m+[m
+[32m+[m[32m    const anchor = container?.querySelector<HTMLElement>(`[data-message-id="${messageId}"]`);[m
+[32m+[m[32m    if (!anchor) {[m
+[32m+[m[32m      return { x: fallbackX, y: fallbackY, maxWidth };[m
+[32m+[m[32m    }[m
+[32m+[m
+[32m+[m[32m    const rect = anchor.getBoundingClientRect();[m
+[32m+[m[32m    let x = clamp(rect.left - chatRect.left, TOOLBAR_MARGIN, maxX);[m
+[32m+[m[32m    let y = rect.bottom - chatRect.top + 8;[m
+[32m+[m[32m    if (y + TRANSLATION_POPOVER_HEIGHT > chatRect.height - TOOLBAR_MARGIN) {[m
+[32m+[m[32m      y = rect.top - chatRect.top - TRANSLATION_POPOVER_HEIGHT - 8;[m
+[32m+[m[32m    }[m
+[32m+[m[32m    y = clamp(y, TOOLBAR_MARGIN, maxY);[m
+[32m+[m[32m    return { x, y, maxWidth };[m
+   }, []);[m
+ [m
+[31m-  const getMessageAnchorPosition = useCallback([m
+[31m-    (messageKey: string) => {[m
+[31m-      if (typeof window === "undefined") return null;[m
+[31m-      const container = messagesContainerRef.current;[m
+[31m-      const element = container?.querySelector<HTMLElement>(`[data-message-anchor="${messageKey}"]`);[m
+[31m-      if (!element) return null;[m
+[31m-      const rect = element.getBoundingClientRect();[m
+[31m-      const maxWidth = Math.max(0, Math.min(384, window.innerWidth - TOOLBAR_MARGIN * 2));[m
+[31m-      return clampToolbarPosition(rect.left + rect.width / 2, rect.top, maxWidth);[m
+[31m-    },[m
+[31m-    [clampToolbarPosition][m
+[31m-  );[m
+[31m-[m
+   const openMessageTranslationPopover = useCallback([m
+     (messageId: string, error: string) => {[m
+[31m-      const anchor = getMessageAnchorPosition(messageId);[m
+[31m-      if (!anchor) return;[m
+[31m-      const position = clampPopoverPosition(anchor.x, anchor.y + 56, anchor.maxWidth);[m
+[32m+[m[32m      const position = getMessageTranslationPosition(messageId);[m
+[32m+[m[32m      if (!position) return;[m
+       setMessageTranslationPopover({[m
+         messageId,[m
+         error,[m
+[36m@@ -4261,9 +4254,34 @@[m [mconst DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";[m
+         maxWidth: position.maxWidth,[m
+       });[m
+     },[m
+[31m-    [clampPopoverPosition, getMessageAnchorPosition][m
+[32m+[m[32m    [getMessageTranslationPosition][m
+   );[m
+ [m
+[32m+[m[32m  useEffect(() => {[m
+[32m+[m[32m    const messageId = messageTranslationPopover?.messageId;[m
+[32m+[m[32m    if (!messageId) return;[m
+[32m+[m[32m    const container = messagesContainerRef.current;[m
+[32m+[m[32m    if (!container) return;[m
+[32m+[m
+[32m+[m[32m    const handleReposition = () => {[m
+[32m+[m[32m      const position = getMessageTranslationPosition(messageId);[m
+[32m+[m[32m      if (!position) return;[m
+[32m+[m[32m      setMessageTranslationPopover((prev) => {[m
+[32m+[m[32m        if (!prev || prev.messageId !== messageId) return prev;[m
+[32m+[m[32m        if (prev.x === position.x && prev.y === position.y && prev.maxWidth === position.maxWidth) return prev;[m
+[32m+[m[32m        return { ...prev, ...position };[m
+[32m+[m[32m      });[m
+[32m+[m[32m    };[m
+[32m+[m
+[32m+[m[32m    handleReposition();[m
+[32m+[m[32m    container.addEventListener("scroll", handleReposition, { passive: true });[m
+[32m+[m[32m    window.addEventListener("resize", handleReposition);[m
+[32m+[m[32m    return () => {[m
+[32m+[m[32m      container.removeEventListener("scroll", handleReposition);[m
+[32m+[m[32m      window.removeEventListener("resize", handleReposition);[m
+[32m+[m[32m    };[m
+[32m+[m[32m  }, [getMessageTranslationPosition, messageTranslationPopover?.messageId]);[m
+[32m+[m
+   const handleTranslateMessage = useCallback([m
+     async (messageId: string) => {[m
+       if (!messageId) return;[m
+[36m@@ -9115,15 +9133,16 @@[m [mconst DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";[m
+         })()[m
+       )}[m
+       <div className="flex flex-col flex-1 min-h-0">[m
+[31m-        <div[m
+[31m-          ref={messagesContainerRef}[m
+[31m-          className="flex flex-col w-full flex-1 min-h-0 overflow-y-auto"[m
+[31m-          style={{ backgroundImage: "var(--chat-pattern)" }}[m
+[31m-        >[m
+[32m+[m[32m        <div className="relative flex flex-col flex-1 min-h-0">[m
+           <di

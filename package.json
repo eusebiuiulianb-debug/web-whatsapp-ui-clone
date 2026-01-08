@@ -17,7 +17,10 @@
     "clean": "node scripts/clean-next.js",
     "clean:next": "node scripts/clean-next.js",
     "build": "next build",
-    "start": "next start"
+    "start": "next start",
+    "lt:up": "docker compose -f docker-compose.libretranslate.yml up -d",
+    "lt:down": "docker compose -f docker-compose.libretranslate.yml down",
+    "lt:logs": "docker compose -f docker-compose.libretranslate.yml logs -f"
   },
   "dependencies": {
     "@emoji-mart/data": "^1.2.1",

@@ -9,6 +9,8 @@ interface Message {
   me: boolean;
   message: string;
   translatedText?: string | null;
+  translationSourceLang?: string | null;
+  translationTargetLang?: string | null;
   audience?: "FAN" | "CREATOR" | "INTERNAL";
   seen?: boolean;
   time?: string;
