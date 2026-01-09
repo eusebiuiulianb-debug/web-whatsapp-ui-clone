@@ -119,6 +119,7 @@ import {
   consumeDraft,
   getFanIdFromQuery,
   insertIntoCurrentComposer,
+  openCortexAndPrefill,
   openFanChat,
   openFanChatAndPrefill,
 } from "../../lib/navigation/openCreatorChat";
@@ -764,6 +765,7 @@ export default function ConversationDetails({ onBackToBoard }: ConversationDetai
   const voicePreviewRef = useRef<HTMLAudioElement | null>(null);
   const messageEventIdsRef = useRef<Set<string>>(new Set());
   const lastSentMessageIdRef = useRef<string | null>(null);
+  const lastSentMessageRef = useRef<ApiMessage | null>(null);
   const lastContentMessageIdRef = useRef<string | null>(null);
   const messagesContainerRef = useRef<HTMLDivElement | null>(null);
   const chatOverlayRef = useRef<HTMLDivElement | null>(null);
@@ -2281,19 +2283,15 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
     (text: string) => {
       const trimmed = text.trim();
       if (!trimmed) return;
-      setComposerTarget("manager");
-      setComposerActionKey(null);
-      setMessageSend(trimmed);
-      requestAnimationFrame(() => {
-        const input = messageInputRef.current;
-        if (!input) return;
-        input.focus();
-        const len = trimmed.length;
-        input.setSelectionRange(len, len);
-        autoGrowTextarea(input, MAX_MAIN_COMPOSER_HEIGHT);
+      openCortexAndPrefill(router, {
+        text: trimmed,
+        fanId: id ?? undefined,
+        mode: "manager",
+        source: "translation",
       });
+      showComposerToast("Enviado al Manager IA");
     },
-    [autoGrowTextarea]
+    [id, router, showComposerToast]
   );
 
   const handleChangeFanTone = useCallback(
@@ -7260,7 +7258,12 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
           highlightDraftId: newestInternalId ?? undefined,
         });
       } else {
-        lastSentMessageIdRef.current = apiMessages[apiMessages.length - 1]?.id ?? null;
+        const latestMessage = apiMessages[apiMessages.length - 1] ?? null;
+        lastSentMessageIdRef.current = latestMessage?.id ?? null;
+        lastSentMessageRef.current = latestMessage;
+        if (latestMessage?.id) {
+          messageEventIdsRef.current.add(latestMessage.id);
+        }
         const mapped = mapApiMessagesToState(apiMessages);
         if (mapped.length > 0) {
           setMessage((prev) => {
@@ -7356,6 +7359,9 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
         ? [data.message as ApiMessage]
         : [];
       const stickerMessageId = apiMessages[apiMessages.length - 1]?.id ?? null;
+      if (stickerMessageId) {
+        messageEventIdsRef.current.add(stickerMessageId);
+      }
       const mapped = mapApiMessagesToState(apiMessages);
       if (mapped.length > 0) {
         setMessage((prev) => {
@@ -7374,6 +7380,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
         sentAt: new Date().toISOString(),
         from: "creator",
         eventId: stickerMessageId ?? undefined,
+        message: apiMessages[apiMessages.length - 1] ?? undefined,
       });
       emitCreatorDataChanged({ reason: "fan_message_sent", fanId: id });
     } catch (err) {
@@ -7433,6 +7440,8 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
         startFanSendCooldown(id);
         const sentMessageId = lastSentMessageIdRef.current;
         lastSentMessageIdRef.current = null;
+        const sentMessage = lastSentMessageRef.current;
+        lastSentMessageRef.current = null;
         emitFanMessageSent({
           fanId: id,
           actionKey: currentActionKey ?? undefined,
@@ -7441,6 +7450,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
           sentAt: new Date().toISOString(),
           from: "creator",
           eventId: sentMessageId ?? undefined,
+          message: sentMessage ?? undefined,
         });
         emitCreatorDataChanged({ reason: "fan_message_sent", fanId: id });
         const flow = readCortexFlow();

@@ -499,6 +499,15 @@ model AiUsageLog {
   createdAt   DateTime      @default(now())
   turnMode    AiTurnMode    @default(auto)
 
+  endpoint  String?
+  provider  String?
+  model     String?
+  tokensIn  Int?
+  tokensOut Int?
+  latencyMs Int?
+  ok        Boolean?
+  errorCode String?
+
   // Campos heredados para compatibilidad con usos anteriores
   actionType     String?
   contextSummary String?

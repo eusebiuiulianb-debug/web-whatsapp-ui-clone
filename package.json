@@ -17,6 +17,7 @@
     "clean": "node scripts/clean-next.js",
     "clean:next": "node scripts/clean-next.js",
     "build": "next build",
+    "test:e2e": "playwright test",
     "start": "next start",
     "lt:up": "docker compose -f docker-compose.libretranslate.yml up -d",
     "lt:down": "docker compose -f docker-compose.libretranslate.yml down",
@@ -40,6 +41,7 @@
     "zod": "^4.1.13"
   },
   "devDependencies": {
+    "@playwright/test": "^1.57.0",
     "@types/formidable": "^3.4.6",
     "@types/node": "18.7.5",
     "@types/react": "18.0.17",

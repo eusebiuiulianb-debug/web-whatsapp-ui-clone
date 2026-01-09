@@ -313,11 +313,8 @@ function SideBarInner() {
   const [ openFanToast, setOpenFanToast ] = useState("");
   const openFanToastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const openFanNotFoundRef = useRef<string | null>(null);
-  const fansRefetchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const fansRefetchInFlightRef = useRef(false);
-  const lastFansRefetchAtRef = useRef(0);
-  const lastFansSuccessAtRef = useRef(0);
-  const lastFansSuccessQueryRef = useRef<string | null>(null);
+  const chatPollIntervalMs = 6000;
+  const chatPollDedupeMs = 4000;
   const [ unseenPurchaseByFan, setUnseenPurchaseByFan ] = useState<Record<string, PurchaseNotice>>({});
   const [ unseenVoiceByFan, setUnseenVoiceByFan ] = useState<Record<string, VoiceNoteNotice>>({});
 
@@ -498,9 +495,6 @@ function SideBarInner() {
     return () => {
       if (openFanToastTimerRef.current) {
         clearTimeout(openFanToastTimerRef.current);
-      }
-      if (fansRefetchTimerRef.current) {
-        clearTimeout(fansRefetchTimerRef.current);
       }
     };
   }, []);
@@ -1374,7 +1368,11 @@ function SideBarInner() {
       return `/api/creator/chats?${params.toString()}`;
     },
     fetchChatsPage,
-    { refreshInterval: 0 }
+    {
+      refreshInterval: chatPollIntervalMs,
+      dedupingInterval: chatPollDedupeMs,
+      revalidateOnFocus: false,
+    }
   );
 
   const fetchedFans: ConversationListData[] = useMemo(() => {
@@ -1428,59 +1426,6 @@ function SideBarInner() {
       }, { revalidate: false });
     },
     [mutateChats]
-  );
-
-  useEffect(() => {
-    if (!chatPages) return;
-    lastFansSuccessAtRef.current = Date.now();
-    lastFansSuccessQueryRef.current = buildFansQuery(null).toString();
-  }, [buildFansQuery, chatPages]);
-
-  const scheduleFansRefetch = useCallback(
-    (reason?: string, options?: { realtime?: boolean }) => {
-      const logSkip = (skipReason: string) => {
-        if (process.env.NODE_ENV !== "production") {
-          console.debug(`[fans] refetch skipped reason=${skipReason}`);
-        }
-      };
-      if (options?.realtime) {
-        const normalizedReason = typeof reason === "string" ? reason.trim().toLowerCase() : "";
-        if (normalizedReason === "heartbeat" || normalizedReason === "noop" || normalizedReason === "no-op") {
-          logSkip("realtime_noop");
-          return;
-        }
-      }
-      if (fansRefetchTimerRef.current) {
-        clearTimeout(fansRefetchTimerRef.current);
-      }
-      const run = () => {
-        const now = Date.now();
-        if (fansRefetchInFlightRef.current) {
-          logSkip("in_flight");
-          fansRefetchTimerRef.current = setTimeout(run, 1000);
-          return;
-        }
-        const sinceLast = now - lastFansRefetchAtRef.current;
-        if (sinceLast < 1000) {
-          logSkip("throttle_recent_fetch");
-          fansRefetchTimerRef.current = setTimeout(run, 1000 - sinceLast);
-          return;
-        }
-        const queryString = buildFansQuery(null).toString();
-        const lastSuccessAt = lastFansSuccessAtRef.current;
-        if (queryString === lastFansSuccessQueryRef.current && now - lastSuccessAt < 1000) {
-          logSkip("same_query_recent_success");
-          return;
-        }
-        fansRefetchInFlightRef.current = true;
-        lastFansRefetchAtRef.current = now;
-        void mutateChats().finally(() => {
-          fansRefetchInFlightRef.current = false;
-        });
-      };
-      fansRefetchTimerRef.current = setTimeout(run, 1000);
-    },
-    [buildFansQuery, mutateChats]
   );
 
   const fetchFanById = useCallback(
@@ -1610,10 +1555,7 @@ function SideBarInner() {
   const handleFanMessageSent = useCallback(
     (detail: FanMessageSentPayload) => {
       const fanId = typeof detail?.fanId === "string" ? detail.fanId : "";
-      if (!fanId) {
-        scheduleFansRefetch("fan_message_sent", { realtime: true });
-        return;
-      }
+      if (!fanId) return;
       const now = new Date();
       const sentAt = typeof detail?.sentAt === "string" ? new Date(detail.sentAt) : now;
       const safeSentAt = Number.isNaN(sentAt.getTime()) ? now : sentAt;
@@ -1667,7 +1609,7 @@ function SideBarInner() {
       });
       void refreshExtrasSummary();
     },
-    [conversation?.id, conversation?.isManager, refreshExtrasSummary, scheduleFansRefetch]
+    [conversation?.id, conversation?.isManager, refreshExtrasSummary]
   );
 
   const handlePurchaseCreated = useCallback(
@@ -1730,10 +1672,9 @@ function SideBarInner() {
         };
         return [updated, ...prev.slice(0, index), ...prev.slice(index + 1)];
       });
-      scheduleFansRefetch("purchase_created", { realtime: true });
       void refreshExtrasSummary();
     },
-    [conversation?.id, conversation?.isManager, playPurchaseSound, refreshExtrasSummary, scheduleFansRefetch, updateChatPages]
+    [conversation?.id, conversation?.isManager, playPurchaseSound, refreshExtrasSummary, updateChatPages]
   );
 
   const handleVoiceTranscriptUpdated = useCallback(
@@ -1759,9 +1700,8 @@ function SideBarInner() {
         };
         return [updated, ...prev.slice(0, index), ...prev.slice(index + 1)];
       });
-      scheduleFansRefetch("voice_transcript", { realtime: true });
     },
-    [scheduleFansRefetch, updateChatPages]
+    [updateChatPages]
   );
 
   const handlePurchaseSeen = useCallback((detail: { fanId?: string; purchaseIds?: string[] }) => {
@@ -1806,7 +1746,7 @@ function SideBarInner() {
         setFansError("");
         return;
       }
-      scheduleFansRefetch("fan_data_updated");
+      void mutateChats();
     }
 
     window.addEventListener("fanDataUpdated", handleFanDataUpdated as EventListener);
@@ -1845,7 +1785,7 @@ function SideBarInner() {
       window.removeEventListener("fanDataUpdated", handleFanDataUpdated as EventListener);
       window.removeEventListener("applyChatFilter", handleExternalFilter as EventListener);
     };
-  }, [applyFilter, mapFans, mutateChats, scheduleFansRefetch]);
+  }, [applyFilter, mapFans, mutateChats]);
 
   useCreatorRealtime({
     onExtrasUpdated: handleExtrasUpdated,
@@ -1889,9 +1829,15 @@ function SideBarInner() {
             lastCreatorMessageAt: event.isIncoming ? current.lastCreatorMessageAt : event.createdAt,
             unreadCount: nextUnread,
           };
-          return [updated, ...prev.slice(0, index), ...prev.slice(index + 1)];
+          const hasActivityChange =
+            current.lastActivityAt !== event.createdAt ||
+            current.lastMessageAt !== event.createdAt ||
+            updated.lastMessage !== current.lastMessage;
+          if (!hasActivityChange && updated.unreadCount === current.unreadCount) return prev;
+          const next = prev.slice();
+          next.splice(index, 1);
+          return [updated, ...next];
         });
-        scheduleFansRefetch("message_created", { realtime: true });
         return;
       }
       if (event.type === "thread_read") {
@@ -1907,10 +1853,9 @@ function SideBarInner() {
               : fan
           )
         );
-        scheduleFansRefetch("thread_read", { realtime: true });
       }
     });
-  }, [conversation?.id, conversation?.isManager, scheduleFansRefetch, updateChatPages]);
+  }, [conversation?.id, conversation?.isManager, updateChatPages]);
 
   useEffect(() => {
     const fanIdFromQuery = getFanIdFromQuery({ fan: queryFan, fanId: queryFanId });

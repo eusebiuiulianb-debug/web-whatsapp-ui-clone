@@ -1,0 +1,359 @@
+import { sanitizeForOpenAi } from "../../server/ai/sanitizeForOpenAi";
+import { parseOpenAiError, toSafeErrorMessage } from "../../server/ai/openAiError";
+import { maybeDecrypt } from "../../server/crypto/maybeDecrypt";
+import { requestOllamaChatCompletion } from "./providers/ollama";
+
+export type CortexChatMessage = { role: "system" | "user" | "assistant"; content: string };
+
+export type CortexSuggestContext = {
+  original?: string;
+  translation?: string;
+  detected?: { src?: string; tgt?: string };
+};
+
+export type CortexProviderName = "openai" | "ollama" | "demo";
+
+export type CortexProviderStatus = {
+  provider: CortexProviderName;
+  configured: boolean;
+  missingVars: string[];
+};
+
+export type CortexProviderResult = {
+  ok: boolean;
+  text: string;
+  provider: CortexProviderName;
+  model: string | null;
+  tokensIn: number | null;
+  tokensOut: number | null;
+  latencyMs: number;
+  errorCode?: string;
+  status?: number | null;
+  errorMessage?: string;
+};
+
+type CortexProviderParams = {
+  messages: CortexChatMessage[];
+  creatorId?: string;
+  fanId?: string | null;
+  route?: string;
+  mockContext?: CortexSuggestContext | null;
+  mockMode?: string | null;
+};
+
+export type CortexProviderSelection = {
+  provider: CortexProviderName;
+  desiredProvider: CortexProviderName;
+  configured: boolean;
+  missingVars: string[];
+  model: string | null;
+  apiKey?: string | null;
+  baseUrl?: string | null;
+};
+
+const DEFAULT_MODEL = "gpt-4o-mini";
+const DEFAULT_MAX_TOKENS = 300;
+const DEFAULT_TIMEOUT_MS = 20_000;
+
+function normalizeProvider(raw?: string | null): CortexProviderName {
+  const normalized = (raw || "").trim().toLowerCase();
+  if (normalized === "openai" || normalized === "live") return "openai";
+  if (normalized === "ollama") return "ollama";
+  if (normalized === "mock" || normalized === "demo") return "demo";
+  return "demo";
+}
+
+function resolveDesiredProvider(): CortexProviderName {
+  const envProvider = process.env.AI_PROVIDER ?? process.env.CORTEX_AI_PROVIDER ?? process.env.AI_MODE ?? "demo";
+  return normalizeProvider(envProvider);
+}
+
+function resolveTemperature(): number {
+  const raw = process.env.AI_TEMPERATURE ?? process.env.CORTEX_AI_TEMPERATURE;
+  const parsed = raw ? Number(raw) : NaN;
+  if (Number.isFinite(parsed)) return parsed;
+  return 0.4;
+}
+
+function resolveProviderSelection(params: { creatorId?: string }): CortexProviderSelection {
+  const desiredProvider = resolveDesiredProvider();
+
+  if (desiredProvider === "ollama") {
+    const baseUrl = process.env.AI_BASE_URL?.trim() ?? "";
+    const model = process.env.AI_MODEL?.trim() ?? process.env.CORTEX_AI_MODEL?.trim() ?? "";
+    const missingVars: string[] = [];
+    if (!baseUrl) missingVars.push("AI_BASE_URL");
+    if (!model) missingVars.push("AI_MODEL");
+
+    if (missingVars.length) {
+      return {
+        provider: "demo",
+        desiredProvider,
+        configured: false,
+        missingVars,
+        model: model || null,
+      };
+    }
+
+    const apiKeyRaw = process.env.AI_API_KEY ?? "";
+    const apiKey = maybeDecrypt(apiKeyRaw, { creatorId: params.creatorId, label: "AI_API_KEY" }) ?? "ollama";
+
+    return {
+      provider: "ollama",
+      desiredProvider,
+      configured: true,
+      missingVars: [],
+      model,
+      baseUrl,
+      apiKey,
+    };
+  }
+
+  if (desiredProvider === "openai") {
+    const apiKeyRaw = process.env.CORTEX_OPENAI_API_KEY ?? process.env.OPENAI_API_KEY ?? "";
+    const apiKey = maybeDecrypt(apiKeyRaw, { creatorId: params.creatorId, label: "OPENAI_API_KEY" });
+    const model = process.env.CORTEX_AI_MODEL ?? process.env.OPENAI_MODEL ?? DEFAULT_MODEL;
+    const missingVars: string[] = [];
+
+    if (!apiKey || !apiKey.trim()) missingVars.push("OPENAI_API_KEY");
+
+    if (missingVars.length) {
+      return {
+        provider: "demo",
+        desiredProvider,
+        configured: false,
+        missingVars,
+        model,
+      };
+    }
+
+    return {
+      provider: "openai",
+      desiredProvider,
+      configured: true,
+      missingVars: [],
+      model,
+      apiKey,
+    };
+  }
+
+  return {
+    provider: "demo",
+    desiredProvider: "demo",
+    configured: true,
+    missingVars: [],
+    model: "demo",
+  };
+}
+
+export function getCortexProviderStatus(params?: { creatorId?: string }): CortexProviderStatus {
+  const selection = resolveProviderSelection({ creatorId: params?.creatorId });
+  return {
+    provider: selection.desiredProvider,
+    configured: selection.configured,
+    missingVars: selection.missingVars,
+  };
+}
+
+export function getCortexProviderSelection(params?: { creatorId?: string }): CortexProviderSelection {
+  return resolveProviderSelection({ creatorId: params?.creatorId });
+}
+
+function buildMockResponse(params: CortexProviderParams, latencyMs: number): CortexProviderResult {
+  if (process.env.CORTEX_AI_MOCK_ERROR === "1" || process.env.AI_MOCK_ERROR === "1") {
+    return {
+      ok: false,
+      text: "",
+      provider: "demo",
+      model: "demo",
+      tokensIn: 0,
+      tokensOut: 0,
+      latencyMs,
+      errorCode: "demo_error",
+      status: 500,
+    };
+  }
+
+  const context = params.mockContext ?? {};
+  const srcLang = context.detected?.src || context.detected?.tgt || "es";
+  const intent = params.mockMode?.trim() ? params.mockMode.trim() : "reply";
+  const pieces = [
+    context.original ? `ORIG:${context.original.trim()}` : null,
+    context.translation ? `TRAD:${context.translation.trim()}` : null,
+  ].filter(Boolean);
+  const baseMessage = pieces.length > 0 ? pieces.join(" | ") : "Sugerencia demo.";
+  const message = `SUGERENCIA MOCK · ${baseMessage}`.trim();
+  const payload = JSON.stringify({
+    message,
+    language: srcLang,
+    intent,
+    follow_up_questions: [],
+  });
+
+  return {
+    ok: true,
+    text: payload,
+    provider: "demo",
+    model: "demo",
+    tokensIn: 0,
+    tokensOut: 0,
+    latencyMs,
+  };
+}
+
+export async function requestCortexCompletion(params: CortexProviderParams): Promise<CortexProviderResult> {
+  const selection = resolveProviderSelection({ creatorId: params.creatorId });
+  const startedAt = Date.now();
+
+  if (selection.provider === "demo") {
+    if (selection.desiredProvider !== "demo" && selection.missingVars.length > 0) {
+      console.warn("cortex_provider_fallback", {
+        route: params.route ?? "unknown",
+        creatorId: params.creatorId ?? null,
+        fanId: params.fanId ?? null,
+        desiredProvider: selection.desiredProvider,
+        missingVars: selection.missingVars,
+      });
+    }
+    const latencyMs = Math.max(1, Date.now() - startedAt);
+    return buildMockResponse(params, latencyMs);
+  }
+
+  if (selection.provider === "ollama") {
+    const messageCount = params.messages.length;
+    const payloadLength = JSON.stringify({
+      model: selection.model,
+      temperature: resolveTemperature(),
+      max_tokens: DEFAULT_MAX_TOKENS,
+      messages: params.messages,
+    }).length;
+
+    const result = await requestOllamaChatCompletion({
+      baseUrl: selection.baseUrl || "",
+      apiKey: selection.apiKey ?? "ollama",
+      model: selection.model ?? "ollama",
+      messages: params.messages,
+      temperature: resolveTemperature(),
+      maxTokens: DEFAULT_MAX_TOKENS,
+      timeoutMs: DEFAULT_TIMEOUT_MS,
+      creatorId: params.creatorId,
+    });
+
+    if (!result.ok) {
+      console.error("cortex_ollama_error", {
+        route: params.route ?? "unknown",
+        creatorId: params.creatorId ?? null,
+        fanId: params.fanId ?? null,
+        status: result.status ?? null,
+        code: result.errorCode ?? "ollama_error",
+        message: result.errorMessage ?? "ollama_error",
+        payloadLength,
+        messageCount,
+      });
+    }
+
+    return {
+      ok: result.ok,
+      text: result.text,
+      provider: "ollama",
+      model: result.model,
+      tokensIn: result.tokensIn,
+      tokensOut: result.tokensOut,
+      latencyMs: result.latencyMs,
+      errorCode: result.errorCode,
+      status: result.status,
+      errorMessage: result.errorMessage,
+    };
+  }
+
+  const model = selection.model ?? DEFAULT_MODEL;
+  const payload = sanitizeForOpenAi(
+    {
+      model,
+      temperature: resolveTemperature(),
+      messages: params.messages,
+    },
+    { creatorId: params.creatorId }
+  );
+  const payloadLength = typeof payload === "object" ? JSON.stringify(payload).length : 0;
+  const messageCount = Array.isArray((payload as any)?.messages) ? (payload as any).messages.length : 0;
+
+  try {
+    const response = await fetch("https://api.openai.com/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${selection.apiKey}`,
+      },
+      body: JSON.stringify(payload),
+    });
+    const latencyMs = Math.max(1, Date.now() - startedAt);
+
+    if (!response.ok) {
+      const errorInfo = await parseOpenAiError(response, { creatorId: params.creatorId });
+      console.warn("cortex_openai_error", {
+        route: params.route ?? "unknown",
+        creatorId: params.creatorId ?? null,
+        fanId: params.fanId ?? null,
+        status: errorInfo.status,
+        code: errorInfo.code ?? "openai_error",
+        message: "[redacted]",
+        payloadLength,
+        messageCount,
+      });
+      return {
+        ok: false,
+        text: "",
+        provider: "openai",
+        model,
+        tokensIn: null,
+        tokensOut: null,
+        latencyMs,
+        errorCode: errorInfo.code ?? "openai_error",
+        status: errorInfo.status,
+        errorMessage: errorInfo.message,
+      };
+    }
+
+    const data = (await response.json()) as any;
+    const completionText =
+      typeof data?.choices?.[0]?.message?.content === "string" ? data.choices[0].message.content : "";
+    const tokensIn = typeof data?.usage?.prompt_tokens === "number" ? data.usage.prompt_tokens : null;
+    const tokensOut = typeof data?.usage?.completion_tokens === "number" ? data.usage.completion_tokens : null;
+
+    return {
+      ok: Boolean(completionText && completionText.trim()),
+      text: completionText?.trim() ?? "",
+      provider: "openai",
+      model,
+      tokensIn,
+      tokensOut,
+      latencyMs,
+    };
+  } catch (err) {
+    const latencyMs = Math.max(1, Date.now() - startedAt);
+    console.warn("cortex_openai_error", {
+      route: params.route ?? "unknown",
+      creatorId: params.creatorId ?? null,
+      fanId: params.fanId ?? null,
+      status: (err as any)?.status ?? null,
+      code: (err as any)?.code ?? "openai_error",
+      message: "[redacted]",
+      payloadLength,
+      messageCount,
+      error: toSafeErrorMessage(err, { creatorId: params.creatorId }),
+    });
+    return {
+      ok: false,
+      text: "",
+      provider: "openai",
+      model,
+      tokensIn: null,
+      tokensOut: null,
+      latencyMs,
+      errorCode: (err as any)?.code ?? "openai_error",
+      status: (err as any)?.status ?? null,
+      errorMessage: toSafeErrorMessage(err, { creatorId: params.creatorId }),
+    };
+  }
+}

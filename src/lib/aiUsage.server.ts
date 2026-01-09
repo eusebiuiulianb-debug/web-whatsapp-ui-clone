@@ -79,3 +79,47 @@ export async function logAiUsage(params: {
     },
   });
 }
+
+export async function logCortexLlmUsage(params: {
+  creatorId: string;
+  fanId?: string | null;
+  endpoint: string;
+  provider: string;
+  model?: string | null;
+  tokensIn?: number | null;
+  tokensOut?: number | null;
+  latencyMs?: number | null;
+  ok: boolean;
+  errorCode?: string | null;
+}) {
+  const {
+    creatorId,
+    fanId,
+    endpoint,
+    provider,
+    model,
+    tokensIn,
+    tokensOut,
+    latencyMs,
+    ok,
+    errorCode,
+  } = params;
+
+  return prisma.aiUsageLog.create({
+    data: {
+      creatorId,
+      fanId: fanId ?? undefined,
+      type: AiUsageType.MANAGER,
+      origin: AiUsageOrigin.MANAGER_STRATEGY,
+      creditsUsed: 0,
+      endpoint,
+      provider,
+      model: model ?? null,
+      tokensIn: tokensIn ?? null,
+      tokensOut: tokensOut ?? null,
+      latencyMs: latencyMs ?? null,
+      ok,
+      errorCode: errorCode ?? null,
+    },
+  });
+}

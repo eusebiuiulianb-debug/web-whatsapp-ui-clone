@@ -2,6 +2,7 @@ import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useSta
 import clsx from "clsx";
 import Link from "next/link";
 import type { CreatorContentSnapshot } from "../../lib/creatorContentManager";
+import { useCortexProviderStatus } from "../../hooks/useCortexProviderStatus";
 
 type ContentManagerChatMessage = {
   id: string;
@@ -56,6 +57,10 @@ export const ContentManagerChatCard = forwardRef<ContentManagerChatCardHandle, P
   const [input, setInput] = useState("");
   const listRef = useRef<HTMLDivElement | null>(null);
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
+  const cortexStatus = useCortexProviderStatus();
+  const showDemoBanner = cortexStatus
+    ? cortexStatus.provider === "demo" || !cortexStatus.configured
+    : !process.env.NEXT_PUBLIC_OPENAI_API_KEY;
 
   const loadMessages = useCallback(
     async (opts?: { silent?: boolean }) => {
@@ -139,8 +144,8 @@ export const ContentManagerChatCard = forwardRef<ContentManagerChatCardHandle, P
       setMessages((prev) => prev.filter((m) => !m.id.startsWith("local-")));
       const fallback =
         mode === "GROWTH"
-          ? "Modo demo crecimiento: aquí verías un resumen de métricas y 3 movimientos para crecer. Conecta tu OPENAI_API_KEY para recomendaciones reales."
-          : "Modo demo: conecta tu OPENAI_API_KEY para respuestas con tus datos de catálogo.";
+          ? "Modo demo crecimiento: aquí verías un resumen de métricas y 3 movimientos para crecer. Configura el proveedor de IA para recomendaciones reales."
+          : "Modo demo: configura el proveedor de IA para respuestas con tus datos de catálogo.";
       setMessages((prev) => [
         ...prev,
         { id: `assistant-${Date.now()}`, role: "ASSISTANT", content: fallback, createdAt: new Date().toISOString() },
@@ -183,14 +188,15 @@ export const ContentManagerChatCard = forwardRef<ContentManagerChatCardHandle, P
   const fallbackBanner =
     settingsStatus === "settings_missing" ? (
       <span>
-        Revisar ajustes: falta `OPENAI_API_KEY` o no se pudo descifrar.{" "}
+        Revisar ajustes: falta configurar el proveedor de IA o no se pudo descifrar.{" "}
         <Link href="/creator/ai-settings">
           <a className="underline hover:text-[color:var(--text)]">Abrir ajustes</a>
         </Link>
       </span>
     ) : (
-      "Modo demo: conecta tu OPENAI_API_KEY para respuestas con tus datos reales."
+      "Modo demo: configura el proveedor de IA para respuestas con tus datos reales."
     );
+  const showFallbackBanner = usedFallback && showDemoBanner;
 
   return (
     <section className={containerClass}>
@@ -207,7 +213,7 @@ export const ContentManagerChatCard = forwardRef<ContentManagerChatCardHandle, P
 
       <div className="rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-3 py-2 text-xs text-[color:var(--text)] space-y-2">
         <div className="text-[12px] text-[color:var(--text)]">{summaryText}</div>
-        {usedFallback && (
+        {showFallbackBanner && (
           <div className="text-[11px] text-[color:var(--warning)]">
             {fallbackBanner}
           </div>

@@ -1,7 +1,6 @@
 import type { NextApiRequest, NextApiResponse } from "next";
 import { AiUsageOrigin, AiUsageType, ManagerAiRole, ManagerAiTab } from "@prisma/client";
 import prisma from "../../../../lib/prisma.server";
-import { sendBadRequest, sendServerError } from "../../../../lib/apiError";
 import { buildManagerContext } from "../../../../lib/ai/manager/context";
 import {
   buildGrowthPrompts,
@@ -28,12 +27,14 @@ type ChatResponseBody = {
   aiMode?: "demo" | "live";
 };
 
+type ErrorResponse = { error: string; details?: string };
+
 const HISTORY_LIMIT = 20;
 
-export default async function handler(req: NextApiRequest, res: NextApiResponse<ChatResponseBody | { error: string; hint?: string }>) {
+export default async function handler(req: NextApiRequest, res: NextApiResponse<ChatResponseBody | ErrorResponse>) {
   if (req.method !== "POST") {
     res.setHeader("Allow", "POST");
-    return res.status(405).json({ error: "Method not allowed" });
+    return res.status(405).json({ error: "Method not allowed", details: "Use POST" });
   }
 
   const rawTab = typeof req.body?.tab === "string" ? req.body.tab : "";
@@ -44,10 +45,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
   const tab = normalizeTab(rawTab);
 
   if (!tab) {
-    return sendBadRequest(res, "tab must be STRATEGY, CONTENT or GROWTH");
+    return res.status(400).json({ error: "Invalid tab", details: "tab must be STRATEGY, CONTENT or GROWTH" });
   }
   if (!incomingMessage) {
-    return sendBadRequest(res, "message is required");
+    return res.status(400).json({ error: "Invalid message", details: "message is required" });
   }
 
   try {
@@ -68,7 +69,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
     const wantsOpenAi = ["openai", "live"].includes((process.env.AI_MODE || "mock").toLowerCase());
 
     if (wantsOpenAi && (!apiKey || !process.env.OPENAI_MODEL)) {
-      return res.status(500).json({ error: "AI not configured", hint: "Set AI_MODE=mock or configure OPENAI_*" });
+      return res.status(500).json({
+        error: "AI not configured",
+        details: "Set AI_MODE=mock or configure OPENAI_*",
+      });
     }
 
     if (!apiKey) {
@@ -124,7 +128,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
       fallbackMessage: OPENAI_FALLBACK_MESSAGE,
     });
     if (aiResult.needsConfig) {
-      return res.status(500).json({ error: "AI not configured", hint: "Set AI_MODE=mock or configure OPENAI_*" });
+      return res.status(500).json({
+        error: "AI not configured",
+        details: "Set AI_MODE=mock or configure OPENAI_*",
+      });
     }
     const usedFallback = !!aiResult?.usedFallback || aiResult?.mode === "demo";
     const aiMode = aiResult?.mode ?? "live";
@@ -167,7 +174,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
     });
   } catch (err) {
     console.error("Error processing manager chat", toSafeErrorMessage(err));
-    return sendServerError(res, "No se pudo procesar el chat del Manager IA");
+    return res.status(500).json({
+      error: "No se pudo procesar el chat del Manager IA",
+      details: toSafeErrorMessage(err),
+    });
   }
 }
 

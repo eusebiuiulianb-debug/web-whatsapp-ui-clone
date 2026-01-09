@@ -3,6 +3,7 @@ import prisma from "../../../../lib/prisma.server";
 import { normalizeAiTurnMode } from "../../../../lib/aiSettings";
 import { createDefaultCreatorPlatforms } from "../../../../lib/creatorPlatforms";
 import { getTranslateConfig } from "../../../../lib/ai/translateProvider";
+import { getCortexProviderStatus } from "../../../../lib/ai/cortexProvider";
 
 export default async function handler(_req: NextApiRequest, res: NextApiResponse) {
   try {
@@ -31,6 +32,7 @@ export default async function handler(_req: NextApiRequest, res: NextApiResponse
       settings.creditsAvailable <= 0;
 
     const translateConfig = await getTranslateConfig(creatorId);
+    const cortexStatus = getCortexProviderStatus({ creatorId });
 
     return res.status(200).json({
       creditsAvailable: settings.creditsAvailable,
@@ -43,6 +45,9 @@ export default async function handler(_req: NextApiRequest, res: NextApiResponse
       translateProvider: translateConfig.provider,
       translateMissingVars: translateConfig.missingVars,
       creatorLang: translateConfig.creatorLang,
+      cortexProvider: cortexStatus.provider,
+      cortexConfigured: cortexStatus.configured,
+      cortexMissingVars: cortexStatus.missingVars,
     });
   } catch (err) {
     console.error("Error fetching AI status", err);
