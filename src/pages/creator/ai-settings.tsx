@@ -34,6 +34,10 @@ type CreatorAiSettings = {
   updatedAt: string;
   turnMode: AiTurnMode;
   platforms: CreatorPlatforms;
+  cortexProvider?: string | null;
+  cortexBaseUrl?: string | null;
+  cortexModel?: string | null;
+  hasCortexKey?: boolean;
 };
 
 type FormState = {
@@ -63,6 +67,16 @@ type AiStatus = {
 };
 
 type TranslateProviderOption = "none" | "libretranslate" | "deepl";
+
+type CortexProviderOption = "ollama" | "openai";
+
+type CortexSettingsForm = {
+  provider: CortexProviderOption;
+  baseUrl: string;
+  model: string;
+  apiKey: string;
+  hasApiKey: boolean;
+};
 
 type TranslateSettingsForm = {
   provider: TranslateProviderOption;
@@ -118,6 +132,8 @@ export default function CreatorAiSettingsPage() {
   const router = useRouter();
   const creatorInitial = config.creatorName?.trim().charAt(0) || "E";
   const defaultLibreUrl = "http://127.0.0.1:5000";
+  const defaultCortexBaseUrl = "http://127.0.0.1:11434/v1";
+  const defaultCortexModel = "llama3.1:8b";
   const defaultTranslateLang = resolveDefaultTranslateLang();
 
   const [settings, setSettings] = useState<CreatorAiSettings | null>(null);
@@ -152,6 +168,21 @@ export default function CreatorAiSettingsPage() {
   const [isTestingTranslate, setIsTestingTranslate] = useState(false);
   const [showDeeplAdvanced, setShowDeeplAdvanced] = useState(false);
   const translateTestTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [cortexForm, setCortexForm] = useState<CortexSettingsForm | null>({
+    provider: "ollama",
+    baseUrl: defaultCortexBaseUrl,
+    model: defaultCortexModel,
+    apiKey: "",
+    hasApiKey: false,
+  });
+  const [cortexSaving, setCortexSaving] = useState(false);
+  const [cortexError, setCortexError] = useState("");
+  const [cortexSuccess, setCortexSuccess] = useState("");
+  const [cortexTestToast, setCortexTestToast] = useState<{ message: string; variant: "success" | "error" } | null>(
+    null
+  );
+  const [isTestingCortex, setIsTestingCortex] = useState(false);
+  const cortexTestTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pageSize = 10;
 
   const turnModeOptions = AI_TURN_MODE_OPTIONS;
@@ -208,6 +239,10 @@ export default function CreatorAiSettingsPage() {
       updatedAt: raw.updatedAt,
       turnMode: turnModeFromRaw(raw.turnMode),
       platforms: normalizeCreatorPlatforms(raw.platforms),
+      cortexProvider: normalizeCortexProviderOption(raw.cortexProvider),
+      cortexBaseUrl: typeof raw.cortexBaseUrl === "string" ? raw.cortexBaseUrl : null,
+      cortexModel: typeof raw.cortexModel === "string" ? raw.cortexModel : null,
+      hasCortexKey: Boolean(raw.cortexApiKeyEnc),
     };
   }, []);
 
@@ -254,6 +289,14 @@ export default function CreatorAiSettingsPage() {
       voiceTranscriptionExtractIntentTags: next.voiceTranscriptionExtractIntentTags,
       voiceTranscriptionSuggestReply: next.voiceTranscriptionSuggestReply,
       platforms: normalizeCreatorPlatforms(next.platforms),
+    });
+    const provider = normalizeCortexProviderOption(next.cortexProvider) ?? "ollama";
+    setCortexForm({
+      provider,
+      baseUrl: next.cortexBaseUrl?.trim() || defaultCortexBaseUrl,
+      model: next.cortexModel?.trim() || defaultCortexModel,
+      apiKey: "",
+      hasApiKey: Boolean(next.hasCortexKey),
     });
   }
 
@@ -336,6 +379,45 @@ export default function CreatorAiSettingsPage() {
     translateTestTimerRef.current = setTimeout(() => setTranslateTestToast(null), 3000);
   }, []);
 
+  const showCortexTestToast = useCallback((message: string, variant: "success" | "error") => {
+    setCortexTestToast({ message, variant });
+    if (cortexTestTimerRef.current) {
+      clearTimeout(cortexTestTimerRef.current);
+    }
+    cortexTestTimerRef.current = setTimeout(() => setCortexTestToast(null), 3000);
+  }, []);
+
+  const handleTestCortex = useCallback(async () => {
+    if (isTestingCortex || cortexSaving) return;
+    setCortexError("");
+    setCortexSuccess("");
+    setIsTestingCortex(true);
+    try {
+      const res = await fetch("/api/creator/cortex/health", { cache: "no-store" });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        const message =
+          typeof data?.error === "string" && data.error.trim().length > 0
+            ? data.error
+            : "No se pudo probar la conexión.";
+        showCortexTestToast(message, "error");
+        return;
+      }
+      if (!data?.reachable) {
+        showCortexTestToast("Proveedor no accesible. Revisa base URL y modelo.", "error");
+        return;
+      }
+      const label =
+        typeof data?.provider === "string" ? data.provider.toUpperCase() : "Proveedor";
+      showCortexTestToast(`${label} responde OK.`, "success");
+    } catch (err) {
+      console.error("Error testing cortex provider", err);
+      showCortexTestToast("No se pudo probar la conexión.", "error");
+    } finally {
+      setIsTestingCortex(false);
+    }
+  }, [cortexSaving, isTestingCortex, showCortexTestToast]);
+
   const handleTestTranslate = useCallback(async () => {
     if (isTestingTranslate || translateLoading || translateSaving) return;
     if (!translateForm || translateForm.provider === "none") {
@@ -381,6 +463,63 @@ export default function CreatorAiSettingsPage() {
       setIsTestingTranslate(false);
     }
   }, [isTestingTranslate, showTranslateTestToast, translateForm, translateLoading, translateSaving]);
+
+  const handleSaveCortexSettings = useCallback(async () => {
+    if (!cortexForm) return;
+    setCortexError("");
+    setCortexSuccess("");
+
+    if (cortexForm.provider === "ollama" && !cortexForm.baseUrl.trim()) {
+      setCortexError("AI_BASE_URL es obligatorio.");
+      return;
+    }
+    if (!cortexForm.model.trim()) {
+      setCortexError("AI_MODEL es obligatorio.");
+      return;
+    }
+    if (cortexForm.provider === "openai" && !cortexForm.apiKey.trim() && !cortexForm.hasApiKey) {
+      setCortexError("OPENAI_API_KEY es obligatorio.");
+      return;
+    }
+
+    setCortexSaving(true);
+    try {
+      const payload: Record<string, string> = {
+        cortexProvider: cortexForm.provider,
+        cortexBaseUrl: cortexForm.baseUrl.trim(),
+        cortexModel: cortexForm.model.trim(),
+      };
+      if (cortexForm.apiKey.trim()) {
+        payload.cortexApiKey = cortexForm.apiKey.trim();
+      }
+
+      const res = await fetch("/api/creator/ai-settings", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        const message =
+          typeof data?.error === "string" && data.error.trim().length > 0
+            ? data.error
+            : "No se pudo guardar la configuración del proveedor.";
+        setCortexError(message);
+        return;
+      }
+      if (data?.settings) {
+        const normalized = normalizeSettings(data.settings);
+        applyFormFromSettings(normalized);
+      }
+      setCortexSuccess("Proveedor guardado.");
+      showCortexTestToast("Ajustes guardados.", "success");
+    } catch (err) {
+      console.error("Error saving cortex settings", err);
+      setCortexError("No se pudo guardar la configuración del proveedor.");
+    } finally {
+      setCortexSaving(false);
+    }
+  }, [applyFormFromSettings, cortexForm, normalizeSettings, showCortexTestToast]);
 
   useEffect(() => {
     fetchSettings();
@@ -599,6 +738,13 @@ export default function CreatorAiSettingsPage() {
     return "none";
   }
 
+  function normalizeCortexProviderOption(raw: unknown): CortexProviderOption | null {
+    const value = typeof raw === "string" ? raw.trim().toLowerCase() : "";
+    if (value === "ollama") return "ollama";
+    if (value === "openai") return "openai";
+    return null;
+  }
+
   const dailyUsageForChart = (() => {
     if (usageSummary?.dailyUsage && usageSummary.dailyUsage.length > 0) return usageSummary.dailyUsage;
     if (usageSummary?.recentLogs) {
@@ -630,6 +776,8 @@ export default function CreatorAiSettingsPage() {
   const showLibreFields = selectedTranslateProvider === "libretranslate";
   const showDeeplFields = selectedTranslateProvider === "deepl";
   const isTranslateFormDisabled = translateLoading || translateSaving;
+  const selectedCortexProvider = cortexForm?.provider ?? "ollama";
+  const isCortexFormDisabled = cortexSaving || isTestingCortex;
 
   function AiUsageChart({ data }: { data: { date: string; count: number }[] }) {
     if (!data || data.length === 0 || data.every((d) => !d.count)) {
@@ -770,6 +918,138 @@ export default function CreatorAiSettingsPage() {
                     className="w-full rounded-lg bg-[color:var(--surface-2)] border border-[color:var(--surface-border)] px-3 py-2 text-sm text-[color:var(--text)] focus:border-[color:var(--border-a)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--ring)]"
                   />
                 </div>
+              </div>
+
+              <div className="rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-4 py-4">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div>
+                    <h3 className="text-sm font-semibold text-[color:var(--text)]">Proveedor de IA (Cortex/Manager)</h3>
+                    <p className="text-xs text-[color:var(--muted)]">
+                      Configura el modelo que responde en el Cortex y el Manager.
+                    </p>
+                  </div>
+                </div>
+
+                <div className="mt-4 grid gap-3 text-xs text-[color:var(--muted)]">
+                  <label className="flex flex-col gap-1">
+                    <span className="text-[11px] font-semibold text-[color:var(--text)]">Proveedor</span>
+                    <select
+                      value={cortexForm?.provider ?? "ollama"}
+                      onChange={(event) => {
+                        const nextProvider = normalizeCortexProviderOption(event.target.value) ?? "ollama";
+                        setCortexForm((prev) =>
+                          prev
+                            ? {
+                                ...prev,
+                                provider: nextProvider,
+                              }
+                            : prev
+                        );
+                        setCortexError("");
+                        setCortexSuccess("");
+                      }}
+                      disabled={isCortexFormDisabled}
+                      className="w-full rounded-lg bg-[color:var(--surface-2)] border border-[color:var(--surface-border)] px-3 py-2 text-sm text-[color:var(--text)] focus:border-[color:var(--border-a)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--ring)] disabled:cursor-not-allowed disabled:opacity-70"
+                    >
+                      <option value="ollama">Ollama (local)</option>
+                      <option value="openai">OpenAI</option>
+                    </select>
+                  </label>
+                  <label className="flex flex-col gap-1">
+                    <span className="text-[11px] font-semibold text-[color:var(--text)]">AI_BASE_URL</span>
+                    <input
+                      type="text"
+                      value={cortexForm?.baseUrl ?? defaultCortexBaseUrl}
+                      onChange={(event) =>
+                        setCortexForm((prev) =>
+                          prev ? { ...prev, baseUrl: event.target.value } : prev
+                        )
+                      }
+                      disabled={isCortexFormDisabled}
+                      placeholder={defaultCortexBaseUrl}
+                      className="w-full rounded-lg bg-[color:var(--surface-2)] border border-[color:var(--surface-border)] px-3 py-2 text-sm text-[color:var(--text)] focus:border-[color:var(--border-a)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--ring)] disabled:cursor-not-allowed disabled:opacity-70"
+                    />
+                  </label>
+                  <label className="flex flex-col gap-1">
+                    <span className="text-[11px] font-semibold text-[color:var(--text)]">AI_MODEL</span>
+                    <input
+                      type="text"
+                      value={cortexForm?.model ?? defaultCortexModel}
+                      onChange={(event) =>
+                        setCortexForm((prev) =>
+                          prev ? { ...prev, model: event.target.value } : prev
+                        )
+                      }
+                      disabled={isCortexFormDisabled}
+                      placeholder={defaultCortexModel}
+                      className="w-full rounded-lg bg-[color:var(--surface-2)] border border-[color:var(--surface-border)] px-3 py-2 text-sm text-[color:var(--text)] focus:border-[color:var(--border-a)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--ring)] disabled:cursor-not-allowed disabled:opacity-70"
+                    />
+                  </label>
+                  <label className="flex flex-col gap-1">
+                    <span className="text-[11px] font-semibold text-[color:var(--text)]">
+                      AI_API_KEY {selectedCortexProvider === "ollama" ? "(opcional)" : "(obligatoria)"}
+                    </span>
+                    <input
+                      type="password"
+                      value={cortexForm?.apiKey ?? ""}
+                      onChange={(event) =>
+                        setCortexForm((prev) =>
+                          prev ? { ...prev, apiKey: event.target.value } : prev
+                        )
+                      }
+                      disabled={isCortexFormDisabled}
+                      placeholder={cortexForm?.hasApiKey ? "Key guardada" : selectedCortexProvider === "ollama" ? "Opcional" : "Obligatoria"}
+                      className="w-full rounded-lg bg-[color:var(--surface-2)] border border-[color:var(--surface-border)] px-3 py-2 text-sm text-[color:var(--text)] focus:border-[color:var(--border-a)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--ring)] disabled:cursor-not-allowed disabled:opacity-70"
+                    />
+                    {cortexForm?.hasApiKey && !cortexForm.apiKey && (
+                      <span className="text-[10px] text-[color:var(--muted)]">Key guardada en servidor.</span>
+                    )}
+                  </label>
+
+                  {cortexError && <div className="text-[11px] text-[color:var(--danger)]">{cortexError}</div>}
+                  {cortexSuccess && <div className="text-[11px] text-[color:rgba(34,197,94,0.9)]">{cortexSuccess}</div>}
+                </div>
+
+                <div className="mt-4 flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    onClick={handleTestCortex}
+                    disabled={isTestingCortex || cortexSaving}
+                    className={clsx(
+                      "inline-flex items-center justify-center rounded-full border px-4 py-2 text-[11px] font-semibold transition",
+                      isTestingCortex || cortexSaving
+                        ? "border-[color:var(--surface-border)] bg-[color:var(--surface-2)] text-[color:var(--muted)] cursor-not-allowed"
+                        : "border-[color:var(--surface-border)] bg-[color:var(--surface-2)] text-[color:var(--text)] hover:bg-[color:var(--surface-1)]"
+                    )}
+                  >
+                    {isTestingCortex ? "Probando..." : "Probar conexión"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleSaveCortexSettings}
+                    disabled={cortexSaving || !cortexForm}
+                    className={clsx(
+                      "inline-flex items-center justify-center rounded-full border px-4 py-2 text-[11px] font-semibold transition",
+                      cortexSaving || !cortexForm
+                        ? "border-[color:var(--surface-border)] bg-[color:var(--surface-2)] text-[color:var(--muted)] cursor-not-allowed"
+                        : "border-[color:var(--brand)] bg-[color:rgba(var(--brand-rgb),0.14)] text-[color:var(--text)] hover:bg-[color:rgba(var(--brand-rgb),0.2)]"
+                    )}
+                  >
+                    {cortexSaving ? "Guardando..." : "Guardar ajustes"}
+                  </button>
+                </div>
+                {cortexTestToast && (
+                  <div
+                    className={clsx(
+                      "mt-2 text-[11px] whitespace-pre-wrap",
+                      cortexTestToast.variant === "success"
+                        ? "text-[color:rgba(34,197,94,0.9)]"
+                        : "text-[color:var(--danger)]"
+                    )}
+                  >
+                    {cortexTestToast.message}
+                  </div>
+                )}
               </div>
 
               <div

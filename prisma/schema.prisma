@@ -479,6 +479,10 @@ model CreatorAiSettings {
   libretranslateApiKeyEnc String?
   deeplApiUrl             String?
   deeplApiKeyEnc          String?
+  cortexProvider         String?
+  cortexBaseUrl          String?
+  cortexModel            String?
+  cortexApiKeyEnc        String?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

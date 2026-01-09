@@ -29,6 +29,15 @@ type OllamaRequestParams = {
 const DEFAULT_TIMEOUT_MS = 20_000;
 const DEFAULT_MAX_TOKENS = 300;
 
+function toInt(value: unknown): number | undefined {
+  if (typeof value === "number" && Number.isFinite(value)) return Math.trunc(value);
+  if (typeof value === "string") {
+    const parsed = Number(value);
+    if (Number.isFinite(parsed)) return Math.trunc(parsed);
+  }
+  return undefined;
+}
+
 export async function requestOllamaChatCompletion(params: OllamaRequestParams): Promise<OllamaCompletionResult> {
   const startedAt = Date.now();
   const baseUrl = params.baseUrl.replace(/\/+$/, "");
@@ -38,15 +47,17 @@ export async function requestOllamaChatCompletion(params: OllamaRequestParams): 
   const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
   try {
-    const payload = sanitizeForOpenAi(
-      {
-        model: params.model,
-        messages: params.messages,
-        temperature: params.temperature ?? 0.4,
-        max_tokens: params.maxTokens ?? DEFAULT_MAX_TOKENS,
-      },
-      { creatorId: params.creatorId }
-    );
+    const maxTokens = toInt(params.maxTokens ?? DEFAULT_MAX_TOKENS);
+    const rawPayload: Record<string, unknown> = {
+      model: params.model,
+      messages: params.messages,
+      temperature: params.temperature ?? 0.4,
+      max_tokens: maxTokens,
+    };
+    if (maxTokens === undefined) {
+      delete rawPayload.max_tokens;
+    }
+    const payload = sanitizeForOpenAi(rawPayload, { creatorId: params.creatorId });
 
     const response = await fetch(url, {
       method: "POST",

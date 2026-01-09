@@ -1,6 +1,8 @@
 import { sanitizeForOpenAi } from "../../server/ai/sanitizeForOpenAi";
 import { parseOpenAiError, toSafeErrorMessage } from "../../server/ai/openAiError";
 import { maybeDecrypt } from "../../server/crypto/maybeDecrypt";
+import prisma from "../prisma.server";
+import { decryptSecret } from "../crypto/secrets";
 import { requestOllamaChatCompletion } from "./providers/ollama";
 
 export type CortexChatMessage = { role: "system" | "user" | "assistant"; content: string };
@@ -39,6 +41,7 @@ type CortexProviderParams = {
   route?: string;
   mockContext?: CortexSuggestContext | null;
   mockMode?: string | null;
+  selection?: CortexProviderSelection;
 };
 
 export type CortexProviderSelection = {
@@ -49,6 +52,8 @@ export type CortexProviderSelection = {
   model: string | null;
   apiKey?: string | null;
   baseUrl?: string | null;
+  source?: "db" | "env";
+  decryptFailed?: boolean;
 };
 
 const DEFAULT_MODEL = "gpt-4o-mini";
@@ -75,7 +80,13 @@ function resolveTemperature(): number {
   return 0.4;
 }
 
-function resolveProviderSelection(params: { creatorId?: string }): CortexProviderSelection {
+function normalizeOptionalString(value?: string | null): string | null {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  return trimmed ? trimmed : null;
+}
+
+function resolveEnvProviderSelection(params: { creatorId?: string }): CortexProviderSelection {
   const desiredProvider = resolveDesiredProvider();
 
   if (desiredProvider === "ollama") {
@@ -92,6 +103,7 @@ function resolveProviderSelection(params: { creatorId?: string }): CortexProvide
         configured: false,
         missingVars,
         model: model || null,
+        source: "env",
       };
     }
 
@@ -106,6 +118,7 @@ function resolveProviderSelection(params: { creatorId?: string }): CortexProvide
       model,
       baseUrl,
       apiKey,
+      source: "env",
     };
   }
 
@@ -124,6 +137,7 @@ function resolveProviderSelection(params: { creatorId?: string }): CortexProvide
         configured: false,
         missingVars,
         model,
+        source: "env",
       };
     }
 
@@ -134,20 +148,123 @@ function resolveProviderSelection(params: { creatorId?: string }): CortexProvide
       missingVars: [],
       model,
       apiKey,
+      source: "env",
     };
   }
 
   return {
     provider: "demo",
     desiredProvider: "demo",
-    configured: true,
+    configured: false,
     missingVars: [],
     model: "demo",
+    source: "env",
   };
 }
 
-export function getCortexProviderStatus(params?: { creatorId?: string }): CortexProviderStatus {
-  const selection = resolveProviderSelection({ creatorId: params?.creatorId });
+async function resolveDbProviderSelection(creatorId: string): Promise<CortexProviderSelection | null> {
+  try {
+    const settings = await prisma.creatorAiSettings.findUnique({
+      where: { creatorId },
+      select: {
+        cortexProvider: true,
+        cortexBaseUrl: true,
+        cortexModel: true,
+        cortexApiKeyEnc: true,
+      },
+    });
+    if (!settings || !settings.cortexProvider) return null;
+
+    const desiredProvider = normalizeProvider(settings.cortexProvider);
+    if (desiredProvider === "demo") {
+      return {
+        provider: "demo",
+        desiredProvider,
+        configured: false,
+        missingVars: [],
+        model: "demo",
+        source: "db",
+      };
+    }
+
+    const baseUrl = normalizeOptionalString(settings.cortexBaseUrl);
+    const model = normalizeOptionalString(settings.cortexModel);
+    let apiKey: string | null = null;
+    let decryptFailed = false;
+
+    if (settings.cortexApiKeyEnc) {
+      try {
+        apiKey = decryptSecret(settings.cortexApiKeyEnc);
+      } catch (err) {
+        decryptFailed = true;
+        console.warn("cortex_provider_decrypt_failed", {
+          creatorId,
+          provider: desiredProvider,
+          error: err instanceof Error ? err.message : "unknown_error",
+        });
+      }
+    }
+
+    if (decryptFailed) {
+      return {
+        provider: "demo",
+        desiredProvider,
+        configured: false,
+        missingVars: ["CORTEX_API_KEY"],
+        model: model ?? null,
+        baseUrl: baseUrl ?? null,
+        apiKey: null,
+        source: "db",
+        decryptFailed: true,
+      };
+    }
+
+    if (desiredProvider === "ollama") {
+      const missingVars: string[] = [];
+      if (!baseUrl) missingVars.push("CORTEX_BASE_URL");
+      if (!model) missingVars.push("CORTEX_MODEL");
+      const configured = missingVars.length === 0;
+      return {
+        provider: configured ? "ollama" : "demo",
+        desiredProvider,
+        configured,
+        missingVars,
+        model: model ?? null,
+        baseUrl: baseUrl ?? null,
+        apiKey: apiKey ?? "ollama",
+        source: "db",
+      };
+    }
+
+    const missingVars: string[] = [];
+    const resolvedModel = model ?? DEFAULT_MODEL;
+    if (!apiKey || !apiKey.trim()) missingVars.push("CORTEX_API_KEY");
+    const configured = missingVars.length === 0;
+    return {
+      provider: configured ? "openai" : "demo",
+      desiredProvider,
+      configured,
+      missingVars,
+      model: resolvedModel,
+      apiKey: apiKey ?? null,
+      source: "db",
+    };
+  } catch (err) {
+    console.error("cortex_provider_db_error", err);
+    return null;
+  }
+}
+
+async function resolveProviderSelection(params: { creatorId?: string }): Promise<CortexProviderSelection> {
+  if (params.creatorId) {
+    const dbSelection = await resolveDbProviderSelection(params.creatorId);
+    if (dbSelection) return dbSelection;
+  }
+  return resolveEnvProviderSelection({ creatorId: params.creatorId });
+}
+
+export async function getCortexProviderStatus(params?: { creatorId?: string }): Promise<CortexProviderStatus> {
+  const selection = await resolveProviderSelection({ creatorId: params?.creatorId });
   return {
     provider: selection.desiredProvider,
     configured: selection.configured,
@@ -155,7 +272,7 @@ export function getCortexProviderStatus(params?: { creatorId?: string }): Cortex
   };
 }
 
-export function getCortexProviderSelection(params?: { creatorId?: string }): CortexProviderSelection {
+export async function getCortexProviderSelection(params?: { creatorId?: string }): Promise<CortexProviderSelection> {
   return resolveProviderSelection({ creatorId: params?.creatorId });
 }
 
@@ -202,7 +319,8 @@ function buildMockResponse(params: CortexProviderParams, latencyMs: number): Cor
 }
 
 export async function requestCortexCompletion(params: CortexProviderParams): Promise<CortexProviderResult> {
-  const selection = resolveProviderSelection({ creatorId: params.creatorId });
+  const selection =
+    params.selection ?? (await resolveProviderSelection({ creatorId: params.creatorId }));
   const startedAt = Date.now();
 
   if (selection.provider === "demo") {

@@ -89,7 +89,7 @@ type ManagerChatPostResponse = {
   creditsUsed: number;
   creditsRemaining: number;
   usedFallback?: boolean;
-  settingsStatus?: "ok" | "settings_missing";
+  settingsStatus?: "ok" | "settings_missing" | "decrypt_failed";
 };
 
 type ManagerActionIntent = "ROMPER_EL_HIELO" | "REACTIVAR_FAN_FRIO" | "OFRECER_UN_EXTRA" | "LLEVAR_A_MENSUAL" | "RESUMEN_PULSO_HOY";
@@ -504,7 +504,7 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
   const [error, setError] = useState<string | null>(null);
   const [input, setInput] = useState("");
   const [usedFallback, setUsedFallback] = useState(false);
-  const [settingsStatus, setSettingsStatus] = useState<"ok" | "settings_missing" | null>(null);
+  const [settingsStatus, setSettingsStatus] = useState<"ok" | "settings_missing" | "decrypt_failed" | null>(null);
   const [globalMode, setGlobalMode] = useState<GlobalMode>("HOY");
   const [growthPlatform, setGrowthPlatform] = useState<CreatorPlatformKey>("tiktok");
   const [salesRange, setSalesRange] = useState<SalesRange>("7d");
@@ -1222,16 +1222,26 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
         : enabledPlatforms[0]
       : growthPlatform;
 
-  const fallbackBanner = settingsStatus === "settings_missing"
-    ? (
-        <span>
-          Revisar ajustes: falta configurar el proveedor de IA o no se pudo descifrar.{" "}
-          <Link href="/creator/ai-settings">
-            <a className="underline hover:text-[color:var(--text)]">Abrir ajustes</a>
-          </Link>
-        </span>
-      )
-    : "Modo demo activo: configura el proveedor de IA para respuestas con tus datos reales.";
+  const fallbackBanner =
+    settingsStatus === "decrypt_failed"
+      ? (
+          <span>
+            Revisar ajustes: no se pudo descifrar la clave del proveedor IA.{" "}
+            <Link href="/creator/ai-settings">
+              <a className="underline hover:text-[color:var(--text)]">Abrir ajustes</a>
+            </Link>
+          </span>
+        )
+      : settingsStatus === "settings_missing"
+      ? (
+          <span>
+            Revisar ajustes: falta configurar el proveedor de IA.{" "}
+            <Link href="/creator/ai-settings">
+              <a className="underline hover:text-[color:var(--text)]">Abrir ajustes</a>
+            </Link>
+          </span>
+        )
+      : "Modo demo activo: configura el proveedor de IA para respuestas con tus datos reales.";
   const showFallbackBanner = usedFallback;
   const globalModes: GlobalMode[] = ["HOY", "VENTAS", "CATALOGO", "CRECIMIENTO"];
   const growthActiveList = enabledPlatforms.length

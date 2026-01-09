@@ -28,7 +28,7 @@ export default async function handler(
 
   try {
     const creatorId = "creator-1";
-    const selection = getCortexProviderSelection({ creatorId });
+    const selection = await getCortexProviderSelection({ creatorId });
     const provider = selection.provider;
     const baseUrl =
       provider === "openai" ? OPENAI_BASE_URL : selection.baseUrl?.trim() || null;

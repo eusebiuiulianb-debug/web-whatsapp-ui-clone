@@ -4,6 +4,7 @@ import prisma from "../../../lib/prisma.server";
 import { sendBadRequest, sendServerError } from "../../../lib/apiError";
 import { AI_TURN_MODES, type AiTurnMode } from "../../../lib/aiTemplateTypes";
 import { normalizeAiBaseTone, normalizeAiTurnMode } from "../../../lib/aiSettings";
+import { encryptSecret } from "../../../lib/crypto/secrets";
 import {
   createDefaultCreatorPlatforms,
   creatorPlatformsToJsonValue,
@@ -88,6 +89,10 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
     creditsAvailable,
     hardLimitPerDay,
     turnMode,
+    cortexProvider,
+    cortexBaseUrl,
+    cortexModel,
+    cortexApiKey,
     platforms,
   } = body as Record<string, unknown>;
 
@@ -232,6 +237,36 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
     updateData.turnMode = (normalizedMode as any) ?? "auto";
     createData.turnMode = (normalizedMode as any) ?? "auto";
   }
+  const cortexProviderNormalized =
+    cortexProvider !== undefined ? normalizeCortexProvider(cortexProvider) : null;
+  if (cortexProvider !== undefined && !cortexProviderNormalized) {
+    return sendBadRequest(res, "cortexProvider must be 'ollama' or 'openai'");
+  }
+  if (cortexProviderNormalized) {
+    updateData.cortexProvider = cortexProviderNormalized;
+    createData.cortexProvider = cortexProviderNormalized;
+  }
+  if (cortexBaseUrl !== undefined) {
+    if (typeof cortexBaseUrl !== "string") return sendBadRequest(res, "cortexBaseUrl must be a string");
+    const normalized = cortexBaseUrl.trim();
+    updateData.cortexBaseUrl = normalized ? normalized : null;
+    createData.cortexBaseUrl = updateData.cortexBaseUrl;
+  }
+  if (cortexModel !== undefined) {
+    if (typeof cortexModel !== "string") return sendBadRequest(res, "cortexModel must be a string");
+    const normalized = cortexModel.trim();
+    updateData.cortexModel = normalized ? normalized : null;
+    createData.cortexModel = updateData.cortexModel;
+  }
+  if (cortexApiKey !== undefined) {
+    if (typeof cortexApiKey !== "string") return sendBadRequest(res, "cortexApiKey must be a string");
+    const trimmed = cortexApiKey.trim();
+    if (trimmed && !process.env.APP_SECRET_KEY?.trim()) {
+      return sendBadRequest(res, "APP_SECRET_KEY is required to store cortexApiKey");
+    }
+    updateData.cortexApiKeyEnc = trimmed ? encryptSecret(trimmed) : null;
+    createData.cortexApiKeyEnc = updateData.cortexApiKeyEnc as string | null;
+  }
   if (platforms !== undefined) {
     const normalizedPlatforms = normalizeCreatorPlatforms(platforms);
     updateData.platforms = creatorPlatformsToJsonValue(normalizedPlatforms) as Prisma.InputJsonValue;
@@ -240,6 +275,24 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
 
   try {
     const creatorId = await resolveCreatorId();
+    if (cortexProviderNormalized === "ollama") {
+      if (typeof cortexBaseUrl !== "string" || !cortexBaseUrl.trim()) {
+        return sendBadRequest(res, "cortexBaseUrl is required for ollama");
+      }
+      if (typeof cortexModel !== "string" || !cortexModel.trim()) {
+        return sendBadRequest(res, "cortexModel is required for ollama");
+      }
+    }
+    if (cortexProviderNormalized === "openai") {
+      const existing = await prisma.creatorAiSettings.findUnique({
+        where: { creatorId },
+        select: { cortexApiKeyEnc: true },
+      });
+      const incomingKey = typeof cortexApiKey === "string" ? cortexApiKey.trim() : "";
+      if (!incomingKey && !existing?.cortexApiKeyEnc) {
+        return sendBadRequest(res, "cortexApiKey is required for openai");
+      }
+    }
     if (createData.voiceTranscriptionMode === undefined) {
       createData.voiceTranscriptionMode = DEFAULT_VOICE_TRANSCRIPTION_SETTINGS.mode;
     }
@@ -272,6 +325,14 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
     }
     return sendServerError(res, "Error saving AI settings");
   }
+}
+
+function normalizeCortexProvider(value: unknown): "ollama" | "openai" | null {
+  if (typeof value !== "string") return null;
+  const normalized = value.trim().toLowerCase();
+  if (normalized === "ollama") return "ollama";
+  if (normalized === "openai") return "openai";
+  return null;
 }
 
 async function resolveCreatorId(): Promise<string> {

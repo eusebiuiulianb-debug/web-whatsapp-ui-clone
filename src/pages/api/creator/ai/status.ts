@@ -32,7 +32,7 @@ export default async function handler(_req: NextApiRequest, res: NextApiResponse
       settings.creditsAvailable <= 0;
 
     const translateConfig = await getTranslateConfig(creatorId);
-    const cortexStatus = getCortexProviderStatus({ creatorId });
+    const cortexStatus = await getCortexProviderStatus({ creatorId });
 
     return res.status(200).json({
       creditsAvailable: settings.creditsAvailable,
