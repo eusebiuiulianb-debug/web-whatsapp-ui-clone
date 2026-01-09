@@ -6515,7 +6515,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
   );
 
   const askInternalManager = useCallback(
-    (
+    async (
       question: string,
       intent?: ManagerQuickIntent,
       toneOverride?: FanTone,
@@ -6549,31 +6549,90 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
         focusManagerComposer(true);
       }
 
-      setTimeout(() => {
-        const resolvedIntent = intent
-          ? mapQuickIntentToSuggestionIntent(intent)
-          : inferSuggestionIntentFromPrompt(promptForManager);
-        const bundle = buildSimulatedManagerSuggestions({
-          fanName: contactName,
-          tone: toneOverride ?? fanTone,
-          intent: resolvedIntent,
+      const resolvedCreatorId = await resolveCreatorId();
+      if (!resolvedCreatorId) {
+        showComposerToast("No se pudo detectar el creador.");
+        return;
+      }
+
+      const priorMessages = managerChatByFan[fanKey] ?? [];
+      const normalizedHistory = priorMessages
+        .map((msg) => {
+          const content = msg.text.trim();
+          if (!content) return null;
+          const role = msg.role === "manager" ? "assistant" : msg.role === "creator" ? "user" : "system";
+          return { role, content };
+        })
+        .filter(Boolean) as Array<{ role: "system" | "user" | "assistant"; content: string }>;
+      const outgoingMessages = [...normalizedHistory, { role: "user", content: promptForManager }];
+
+      let responseData: any = null;
+      try {
+        const res = await fetch("/api/creator/ai-manager/chat", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            creatorId: resolvedCreatorId,
+            fanId: fanKey,
+            messages: outgoingMessages,
+          }),
         });
-        if (!options?.skipChat) {
-          const managerMessage: ManagerChatMessage = {
-            id: `${fanKey}-${Date.now()}-manager`,
-            role: "manager",
-            text: bundle.suggestions[0] ?? bundle.title,
-            title: bundle.title,
-            suggestions: bundle.suggestions,
-            createdAt: new Date().toISOString(),
-          };
-          setManagerChatByFan((prev) => {
-            const prevMsgs = prev[fanKey] ?? [];
-            return { ...prev, [fanKey]: [...prevMsgs, managerMessage] };
-          });
+        responseData = await res.json().catch(() => ({}));
+        if (!res.ok || responseData?.ok === false) {
+          const message =
+            typeof responseData?.message === "string"
+              ? responseData.message
+              : typeof responseData?.error === "string"
+              ? responseData.error
+              : "No se pudo consultar al Manager IA.";
+          showComposerToast(message);
+          return;
         }
-        options?.onSuggestions?.(bundle);
-      }, 700);
+      } catch (err) {
+        console.error("Error sending manager chat", err);
+        showComposerToast("No se pudo consultar al Manager IA.");
+        return;
+      }
+
+      const assistantText =
+        typeof responseData?.message?.content === "string"
+          ? responseData.message.content.trim()
+          : typeof responseData?.items?.[0]?.content === "string"
+          ? responseData.items[0].content.trim()
+          : "";
+      if (!assistantText) {
+        showComposerToast("La respuesta del Manager IA llegó vacía.");
+        return;
+      }
+
+      const resolvedIntent = intent
+        ? mapQuickIntentToSuggestionIntent(intent)
+        : inferSuggestionIntentFromPrompt(promptForManager);
+      const simulatedBundle = buildSimulatedManagerSuggestions({
+        fanName: contactName,
+        tone: toneOverride ?? fanTone,
+        intent: resolvedIntent,
+      });
+      const bundle = {
+        title: simulatedBundle.title,
+        suggestions: [assistantText, ...simulatedBundle.suggestions.filter((s) => s !== assistantText)].slice(0, 3),
+      };
+
+      if (!options?.skipChat) {
+        const managerMessage: ManagerChatMessage = {
+          id: `${fanKey}-${Date.now()}-manager`,
+          role: "manager",
+          text: assistantText,
+          title: bundle.title,
+          suggestions: bundle.suggestions,
+          createdAt: new Date().toISOString(),
+        };
+        setManagerChatByFan((prev) => {
+          const prevMsgs = prev[fanKey] ?? [];
+          return { ...prev, [fanKey]: [...prevMsgs, managerMessage] };
+        });
+      }
+      options?.onSuggestions?.(bundle);
     },
     [
       buildManagerContextPrompt,
@@ -6583,11 +6642,14 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
       focusManagerComposer,
       id,
       inferSuggestionIntentFromPrompt,
+      managerChatByFan,
       mapQuickIntentToSuggestionIntent,
       openInternalPanelTab,
+      resolveCreatorId,
       setManagerChatByFan,
       setManagerChatInput,
       setManagerSelectedText,
+      showComposerToast,
     ]
   );
 

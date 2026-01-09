@@ -1,5 +1,6 @@
 import type { NextApiRequest, NextApiResponse } from "next";
 import { getCortexProviderSelection, type CortexProviderName } from "../../../../lib/ai/cortexProvider";
+import { buildOllamaOpenAiRequest } from "../../../../lib/ai/providers/ollama";
 
 type HealthResponse = {
   provider: CortexProviderName;
@@ -79,7 +80,7 @@ async function pingProvider(params: {
     const url =
       params.provider === "openai"
         ? `${OPENAI_BASE_URL}/models`
-        : `${params.baseUrl.replace(/\/+$/, "")}/models`;
+        : buildOllamaOpenAiRequest({ baseUrl: params.baseUrl, path: "models" }).url;
     const headers =
       params.provider === "openai" || params.provider === "ollama"
         ? { Authorization: `Bearer ${params.apiKey || "ollama"}` }

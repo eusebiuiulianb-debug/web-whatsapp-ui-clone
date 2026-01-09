@@ -3,7 +3,7 @@ import { parseOpenAiError, toSafeErrorMessage } from "../../server/ai/openAiErro
 import { maybeDecrypt } from "../../server/crypto/maybeDecrypt";
 import prisma from "../prisma.server";
 import { decryptSecret } from "../crypto/secrets";
-import { requestOllamaChatCompletion } from "./providers/ollama";
+import { buildOllamaOpenAiRequest, requestOllamaChatCompletion } from "./providers/ollama";
 
 export type CortexChatMessage = { role: "system" | "user" | "assistant"; content: string };
 
@@ -338,13 +338,20 @@ export async function requestCortexCompletion(params: CortexProviderParams): Pro
   }
 
   if (selection.provider === "ollama") {
-    const messageCount = params.messages.length;
-    const payloadLength = JSON.stringify({
-      model: selection.model,
-      temperature: resolveTemperature(),
-      max_tokens: DEFAULT_MAX_TOKENS,
-      messages: params.messages,
-    }).length;
+    const preparedRequest = buildOllamaOpenAiRequest({
+      baseUrl: selection.baseUrl || "",
+      path: "chat/completions",
+      payload: {
+        model: selection.model ?? "ollama",
+        temperature: resolveTemperature(),
+        max_tokens: DEFAULT_MAX_TOKENS,
+        messages: params.messages,
+      },
+      creatorId: params.creatorId,
+    });
+    const payload = preparedRequest.payload ?? {};
+    const payloadLength = JSON.stringify(payload).length;
+    const messageCount = Array.isArray((payload as any)?.messages) ? (payload as any).messages.length : 0;
 
     const result = await requestOllamaChatCompletion({
       baseUrl: selection.baseUrl || "",
@@ -358,6 +365,7 @@ export async function requestCortexCompletion(params: CortexProviderParams): Pro
     });
 
     if (!result.ok) {
+      const debug = process.env.NODE_ENV === "development" ? result.debug : undefined;
       console.error("cortex_ollama_error", {
         route: params.route ?? "unknown",
         creatorId: params.creatorId ?? null,
@@ -367,6 +375,7 @@ export async function requestCortexCompletion(params: CortexProviderParams): Pro
         message: result.errorMessage ?? "ollama_error",
         payloadLength,
         messageCount,
+        ...(debug ? { debug } : {}),
       });
     }
 

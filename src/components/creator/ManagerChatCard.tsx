@@ -85,9 +85,12 @@ type ManagerChatGetResponse = {
 };
 
 type ManagerChatPostResponse = {
-  reply: { text: string };
-  creditsUsed: number;
-  creditsRemaining: number;
+  ok?: boolean;
+  reply?: { text?: string };
+  message?: { role?: string; content?: string };
+  items?: Array<{ role?: string; content?: string }>;
+  creditsUsed?: number;
+  creditsRemaining?: number;
   usedFallback?: boolean;
   settingsStatus?: "ok" | "settings_missing" | "decrypt_failed";
 };
@@ -1140,6 +1143,10 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
     try {
       setSending(true);
       setError(null);
+      const creatorIdValue = await resolveCreatorId();
+      if (!creatorIdValue) {
+        throw new Error("No se pudo detectar el creador.");
+      }
       const now = new Date().toISOString();
       const optimisticId = `local-${Date.now()}`;
       setMessages((prev) => [
@@ -1150,21 +1157,34 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
       const res = await fetch("/api/creator/ai-manager/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ tab: "STRATEGY", message: text, action }),
+        body: JSON.stringify({ creatorId: creatorIdValue, tab: "STRATEGY", message: text, action }),
       });
 
       const body = await res.json().catch(() => ({}));
       if (!res.ok) {
-        const message = typeof body?.error === "string" ? body.error : "Error enviando mensaje";
+        const message =
+          typeof body?.error === "string"
+            ? body.error
+            : typeof body?.message === "string"
+            ? body.message
+            : "Error enviando mensaje";
         const details = typeof body?.details === "string" ? body.details : null;
         throw new Error(formatRequestError(message, res.status, details));
       }
 
       const data = body as ManagerChatPostResponse;
+      const replyText =
+        typeof data?.reply?.text === "string"
+          ? data.reply.text
+          : typeof data?.message?.content === "string"
+          ? data.message.content
+          : typeof data?.items?.[0]?.content === "string"
+          ? data.items[0].content
+          : "Sin respuesta";
       const assistantMessage: ManagerChatMessage = {
         id: `assistant-${Date.now()}`,
         role: "ASSISTANT",
-        content: data?.reply?.text ?? "Sin respuesta",
+        content: replyText,
         createdAt: new Date().toISOString(),
       };
       setMessages((prev) =>

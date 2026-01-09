@@ -16,9 +16,12 @@ type ContentChatGetResponse = {
 };
 
 type ContentChatPostResponse = {
-  reply: { text: string };
-  creditsUsed: number;
-  creditsRemaining: number;
+  ok?: boolean;
+  reply?: { text?: string };
+  message?: { role?: string; content?: string };
+  items?: Array<{ role?: string; content?: string }>;
+  creditsUsed?: number;
+  creditsRemaining?: number;
   usedFallback?: boolean;
   settingsStatus?: "ok" | "settings_missing";
 };
@@ -55,12 +58,28 @@ export const ContentManagerChatCard = forwardRef<ContentManagerChatCardHandle, P
   const [usedFallback, setUsedFallback] = useState(false);
   const [settingsStatus, setSettingsStatus] = useState<"ok" | "settings_missing" | null>(null);
   const [input, setInput] = useState("");
+  const [resolvedCreatorId, setResolvedCreatorId] = useState<string | null>(null);
   const listRef = useRef<HTMLDivElement | null>(null);
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
   const cortexStatus = useCortexProviderStatus();
   const showDemoBanner = cortexStatus
     ? cortexStatus.provider === "demo" || !cortexStatus.configured
     : !process.env.NEXT_PUBLIC_OPENAI_API_KEY;
+  const resolveCreatorId = useCallback(async () => {
+    if (resolvedCreatorId) return resolvedCreatorId;
+    try {
+      const res = await fetch("/api/creator");
+      if (!res.ok) return null;
+      const data = await res.json().catch(() => ({}));
+      const idValue = typeof data?.creator?.id === "string" ? data.creator.id : null;
+      if (idValue) {
+        setResolvedCreatorId(idValue);
+      }
+      return idValue;
+    } catch (_err) {
+      return null;
+    }
+  }, [resolvedCreatorId]);
 
   const loadMessages = useCallback(
     async (opts?: { silent?: boolean }) => {
@@ -109,6 +128,10 @@ export const ContentManagerChatCard = forwardRef<ContentManagerChatCardHandle, P
     try {
       setSending(true);
       setError(null);
+      const creatorIdValue = await resolveCreatorId();
+      if (!creatorIdValue) {
+        throw new Error("No se pudo detectar el creador.");
+      }
       const now = new Date().toISOString();
       const optimisticId = `local-${Date.now()}`;
       setMessages((prev) => [
@@ -119,17 +142,31 @@ export const ContentManagerChatCard = forwardRef<ContentManagerChatCardHandle, P
       const res = await fetch("/api/creator/ai-manager/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ tab: mode, message: text, action }),
+        body: JSON.stringify({ creatorId: creatorIdValue, tab: mode, message: text, action }),
       });
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
-        throw new Error(body?.error ?? "Error enviando mensaje");
+        const message =
+          typeof body?.error === "string"
+            ? body.error
+            : typeof body?.message === "string"
+            ? body.message
+            : "Error enviando mensaje";
+        throw new Error(message);
       }
       const data = (await res.json()) as ContentChatPostResponse;
+      const replyText =
+        typeof data?.reply?.text === "string"
+          ? data.reply.text
+          : typeof data?.message?.content === "string"
+          ? data.message.content
+          : typeof data?.items?.[0]?.content === "string"
+          ? data.items[0].content
+          : "Sin respuesta";
       const assistantMessage: ContentManagerChatMessage = {
         id: `assistant-${Date.now()}`,
         role: "ASSISTANT",
-        content: data?.reply?.text ?? "Sin respuesta",
+        content: replyText,
         createdAt: new Date().toISOString(),
       };
       setMessages((prev) =>

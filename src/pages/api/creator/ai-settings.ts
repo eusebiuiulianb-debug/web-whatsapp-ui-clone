@@ -106,19 +106,22 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
     createData.tone = normalizedTone as any;
   }
   if (spicinessLevel !== undefined) {
-    if (!Number.isInteger(spicinessLevel)) return sendBadRequest(res, "spicinessLevel must be a number");
-    updateData.spicinessLevel = spicinessLevel as number;
-    createData.spicinessLevel = spicinessLevel as number;
+    const normalized = coerceInteger(spicinessLevel);
+    if (normalized === null) return sendBadRequest(res, "spicinessLevel must be a number");
+    updateData.spicinessLevel = normalized;
+    createData.spicinessLevel = normalized;
   }
   if (formalityLevel !== undefined) {
-    if (!Number.isInteger(formalityLevel)) return sendBadRequest(res, "formalityLevel must be a number");
-    updateData.formalityLevel = formalityLevel as number;
-    createData.formalityLevel = formalityLevel as number;
+    const normalized = coerceInteger(formalityLevel);
+    if (normalized === null) return sendBadRequest(res, "formalityLevel must be a number");
+    updateData.formalityLevel = normalized;
+    createData.formalityLevel = normalized;
   }
   if (emojiUsage !== undefined) {
-    if (!Number.isInteger(emojiUsage)) return sendBadRequest(res, "emojiUsage must be a number");
-    updateData.emojiUsage = emojiUsage as number;
-    createData.emojiUsage = emojiUsage as number;
+    const normalized = coerceInteger(emojiUsage);
+    if (normalized === null) return sendBadRequest(res, "emojiUsage must be a number");
+    updateData.emojiUsage = normalized;
+    createData.emojiUsage = normalized;
   }
   if (priorityOrderJson !== undefined) {
     if (priorityOrderJson !== null && typeof priorityOrderJson !== "object") {
@@ -217,16 +220,21 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
     createData.voiceTranscriptionSuggestReply = voiceTranscriptionSuggestReply;
   }
   if (creditsAvailable !== undefined) {
-    if (!Number.isInteger(creditsAvailable)) return sendBadRequest(res, "creditsAvailable must be a number");
-    updateData.creditsAvailable = creditsAvailable as number;
-    createData.creditsAvailable = creditsAvailable as number;
+    const normalized = coerceInteger(creditsAvailable);
+    if (normalized === null) return sendBadRequest(res, "creditsAvailable must be a number");
+    updateData.creditsAvailable = normalized;
+    createData.creditsAvailable = normalized;
   }
   if (hardLimitPerDay !== undefined) {
-    if (hardLimitPerDay !== null && !Number.isInteger(hardLimitPerDay)) {
-      return sendBadRequest(res, "hardLimitPerDay must be a number or null");
+    if (hardLimitPerDay === null) {
+      updateData.hardLimitPerDay = null;
+      createData.hardLimitPerDay = null;
+    } else {
+      const normalized = coerceInteger(hardLimitPerDay);
+      if (normalized === null) return sendBadRequest(res, "hardLimitPerDay must be a number or null");
+      updateData.hardLimitPerDay = normalized;
+      createData.hardLimitPerDay = normalized;
     }
-    updateData.hardLimitPerDay = hardLimitPerDay as number | null;
-    createData.hardLimitPerDay = hardLimitPerDay as number | null;
   }
   if (turnMode !== undefined) {
     const validModes = AI_TURN_MODES as readonly string[];
@@ -325,6 +333,14 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
     }
     return sendServerError(res, "Error saving AI settings");
   }
+}
+
+function coerceInteger(value: unknown): number | null {
+  if (typeof value === "string" && !value.trim()) return null;
+  if (typeof value !== "number" && typeof value !== "string") return null;
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || !Number.isInteger(parsed)) return null;
+  return parsed;
 }
 
 function normalizeCortexProvider(value: unknown): "ollama" | "openai" | null {

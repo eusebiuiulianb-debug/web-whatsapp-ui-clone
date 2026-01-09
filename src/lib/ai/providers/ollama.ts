@@ -3,6 +3,18 @@ import { sanitizeForOpenAi } from "../../../server/ai/sanitizeForOpenAi";
 
 export type OllamaChatMessage = { role: "system" | "user" | "assistant"; content: string };
 
+type OllamaDebugInfo = {
+  url: string;
+  maxTokensType: string;
+  maxTokensValue: unknown;
+};
+
+export type OllamaOpenAiRequest = {
+  url: string;
+  payload?: Record<string, unknown>;
+  debug: OllamaDebugInfo;
+};
+
 export type OllamaCompletionResult = {
   ok: boolean;
   text: string;
@@ -13,6 +25,7 @@ export type OllamaCompletionResult = {
   status?: number | null;
   errorCode?: string;
   errorMessage?: string;
+  debug?: OllamaDebugInfo;
 };
 
 type OllamaRequestParams = {
@@ -29,38 +42,84 @@ type OllamaRequestParams = {
 const DEFAULT_TIMEOUT_MS = 20_000;
 const DEFAULT_MAX_TOKENS = 300;
 
-function toInt(value: unknown): number | undefined {
-  if (typeof value === "number" && Number.isFinite(value)) return Math.trunc(value);
+function coerceInt(value: unknown): number | undefined {
   if (typeof value === "string") {
+    if (!value.trim()) return undefined;
+  }
+  if (typeof value === "number" || typeof value === "string" || typeof value === "bigint") {
     const parsed = Number(value);
     if (Number.isFinite(parsed)) return Math.trunc(parsed);
   }
   return undefined;
 }
 
+function normalizeOllamaBaseUrl(baseUrl: string): string {
+  const trimmed = baseUrl.trim();
+  if (!trimmed) return "";
+  const withoutTrailing = trimmed.replace(/\/+$/, "");
+  const withoutV1 = withoutTrailing.replace(/\/v1$/i, "");
+  return withoutV1.replace(/\/+$/, "");
+}
+
+export function buildOllamaOpenAiRequest(params: {
+  baseUrl: string;
+  path: string;
+  payload?: Record<string, unknown>;
+  creatorId?: string;
+}): OllamaOpenAiRequest {
+  const baseUrl = normalizeOllamaBaseUrl(params.baseUrl);
+  const cleanPath = params.path.replace(/^\/+/, "");
+  const url = baseUrl ? `${baseUrl}/v1/${cleanPath}` : `/v1/${cleanPath}`;
+  const payload = params.payload
+    ? (sanitizeForOpenAi(params.payload, { creatorId: params.creatorId }) as Record<string, unknown>)
+    : undefined;
+  if (payload && Object.prototype.hasOwnProperty.call(payload, "max_tokens")) {
+    const coerced = coerceInt(payload.max_tokens);
+    if (coerced === undefined) {
+      delete payload.max_tokens;
+    } else {
+      payload.max_tokens = coerced;
+    }
+  }
+  const maxTokensValue = payload?.max_tokens;
+  return {
+    url,
+    payload,
+    debug: {
+      url,
+      maxTokensType: typeof maxTokensValue,
+      maxTokensValue,
+    },
+  };
+}
+
 export async function requestOllamaChatCompletion(params: OllamaRequestParams): Promise<OllamaCompletionResult> {
   const startedAt = Date.now();
-  const baseUrl = params.baseUrl.replace(/\/+$/, "");
-  const url = `${baseUrl}/chat/completions`;
   const controller = new AbortController();
   const timeoutMs = params.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
-
-  try {
-    const maxTokens = toInt(params.maxTokens ?? DEFAULT_MAX_TOKENS);
-    const rawPayload: Record<string, unknown> = {
+  const prepared = buildOllamaOpenAiRequest({
+    baseUrl: params.baseUrl,
+    path: "chat/completions",
+    payload: {
       model: params.model,
       messages: params.messages,
       temperature: params.temperature ?? 0.4,
-      max_tokens: maxTokens,
-    };
-    if (maxTokens === undefined) {
-      delete rawPayload.max_tokens;
-    }
-    const payload = sanitizeForOpenAi(rawPayload, { creatorId: params.creatorId });
+      max_tokens: params.maxTokens ?? DEFAULT_MAX_TOKENS,
+    },
+    creatorId: params.creatorId,
+  });
+  const payload = prepared.payload ?? {};
+  const debug = prepared.debug;
 
-    const response = await fetch(url, {
+  if (process.env.NODE_ENV === "development") {
+    console.debug("ollama_chat_request_debug", debug);
+  }
+
+  try {
+    const response = await fetch(prepared.url, {
       method: "POST",
+      cache: "no-store",
       headers: {
         "Content-Type": "application/json",
         Authorization: `Bearer ${params.apiKey || "ollama"}`,
@@ -82,6 +141,7 @@ export async function requestOllamaChatCompletion(params: OllamaRequestParams): 
         errorCode: errorInfo.code ?? "ollama_error",
         status: errorInfo.status,
         errorMessage: errorInfo.message,
+        debug,
       };
     }
 
@@ -98,6 +158,7 @@ export async function requestOllamaChatCompletion(params: OllamaRequestParams): 
       tokensIn,
       tokensOut,
       latencyMs,
+      debug,
     };
   } catch (err) {
     const latencyMs = Math.max(1, Date.now() - startedAt);
@@ -112,6 +173,7 @@ export async function requestOllamaChatCompletion(params: OllamaRequestParams): 
       errorCode: isTimeout ? "ollama_timeout" : (err as any)?.code ?? "ollama_error",
       status: (err as any)?.status ?? null,
       errorMessage: toSafeErrorMessage(err, { creatorId: params.creatorId }),
+      debug,
     };
   } finally {
     clearTimeout(timeoutId);
