@@ -37,7 +37,8 @@ type CreatorAiSettings = {
   cortexProvider?: string | null;
   cortexBaseUrl?: string | null;
   cortexModel?: string | null;
-  hasCortexKey?: boolean;
+  cortexApiKeySaved?: boolean;
+  cortexApiKeyInvalid?: boolean;
 };
 
 type FormState = {
@@ -75,7 +76,8 @@ type CortexSettingsForm = {
   baseUrl: string;
   model: string;
   apiKey: string;
-  hasApiKey: boolean;
+  apiKeySaved: boolean;
+  apiKeyInvalid: boolean;
 };
 
 type TranslateSettingsForm = {
@@ -84,8 +86,10 @@ type TranslateSettingsForm = {
   libretranslateApiKey: string;
   deeplApiUrl: string;
   deeplApiKey: string;
-  hasLibreKey: boolean;
-  hasDeeplKey: boolean;
+  libretranslateKeySaved: boolean;
+  libretranslateKeyInvalid: boolean;
+  deeplKeySaved: boolean;
+  deeplKeyInvalid: boolean;
   creatorLang: TranslationLanguage;
 };
 
@@ -153,8 +157,10 @@ export default function CreatorAiSettingsPage() {
     libretranslateApiKey: "",
     deeplApiUrl: "",
     deeplApiKey: "",
-    hasLibreKey: false,
-    hasDeeplKey: false,
+    libretranslateKeySaved: false,
+    libretranslateKeyInvalid: false,
+    deeplKeySaved: false,
+    deeplKeyInvalid: false,
     creatorLang: defaultTranslateLang,
   });
   const [translateLoading, setTranslateLoading] = useState(true);
@@ -173,7 +179,8 @@ export default function CreatorAiSettingsPage() {
     baseUrl: defaultCortexBaseUrl,
     model: defaultCortexModel,
     apiKey: "",
-    hasApiKey: false,
+    apiKeySaved: false,
+    apiKeyInvalid: false,
   });
   const [cortexSaving, setCortexSaving] = useState(false);
   const [cortexError, setCortexError] = useState("");
@@ -215,7 +222,7 @@ export default function CreatorAiSettingsPage() {
     });
   }
 
-  const normalizeSettings = useCallback((raw: any): CreatorAiSettings => {
+  const normalizeSettings = useCallback((raw: any, cortexKey?: { saved?: boolean; invalid?: boolean }): CreatorAiSettings => {
     const voiceSettings = normalizeVoiceTranscriptionSettings(raw);
     return {
       id: String(raw.id),
@@ -242,7 +249,8 @@ export default function CreatorAiSettingsPage() {
       cortexProvider: normalizeCortexProviderOption(raw.cortexProvider),
       cortexBaseUrl: typeof raw.cortexBaseUrl === "string" ? raw.cortexBaseUrl : null,
       cortexModel: typeof raw.cortexModel === "string" ? raw.cortexModel : null,
-      hasCortexKey: Boolean(raw.cortexApiKeyEnc),
+      cortexApiKeySaved: Boolean(cortexKey?.saved),
+      cortexApiKeyInvalid: Boolean(cortexKey?.invalid),
     };
   }, []);
 
@@ -254,22 +262,77 @@ export default function CreatorAiSettingsPage() {
     return valid || "auto";
   }
 
-  const fetchSettings = useCallback(async () => {
+  const applyTranslateFormFromPayload = useCallback(
+    (payload?: any) => {
+      const provider = normalizeTranslateProviderOption(payload?.provider);
+      const libreUrlRaw =
+        typeof payload?.libretranslate?.url === "string"
+          ? payload.libretranslate.url
+          : typeof payload?.libretranslateUrl === "string"
+          ? payload.libretranslateUrl
+          : "";
+      const libretranslateUrl = libreUrlRaw.trim() ? libreUrlRaw : defaultLibreUrl;
+      const deeplUrlRaw =
+        typeof payload?.deepl?.apiUrl === "string"
+          ? payload.deepl.apiUrl
+          : typeof payload?.deeplApiUrl === "string"
+          ? payload.deeplApiUrl
+          : "";
+      const deeplApiUrl = deeplUrlRaw.trim() ? deeplUrlRaw : "";
+      const libreKey = payload?.libretranslate?.apiKey ?? payload?.libretranslateApiKey ?? {};
+      const deeplKey = payload?.deepl?.apiKey ?? payload?.deeplApiKey ?? {};
+      const creatorLangRaw = payload?.creatorLanguage ?? payload?.creatorLang;
+      const creatorLang = normalizeTranslationLanguage(creatorLangRaw) ?? defaultTranslateLang;
+
+      setTranslateForm({
+        provider,
+        libretranslateUrl,
+        libretranslateApiKey: "",
+        deeplApiUrl,
+        deeplApiKey: "",
+        libretranslateKeySaved: Boolean(libreKey?.saved),
+        libretranslateKeyInvalid: Boolean(libreKey?.invalid),
+        deeplKeySaved: Boolean(deeplKey?.saved),
+        deeplKeyInvalid: Boolean(deeplKey?.invalid),
+        creatorLang,
+      });
+      setShowDeeplAdvanced(provider === "deepl" && deeplApiUrl.length > 0);
+    },
+    [defaultLibreUrl, defaultTranslateLang]
+  );
+
+  const fetchSettings = useCallback(async (opts?: { silent?: boolean }) => {
     try {
-      setLoading(true);
-      setError("");
-      const res = await fetch("/api/creator/ai-settings");
+      if (!opts?.silent) {
+        setLoading(true);
+        setError("");
+      }
+      setTranslateLoading(true);
+      setTranslateLoadError("");
+      const res = await fetch("/api/creator/ai-settings", { cache: "no-store" });
       if (!res.ok) throw new Error("Error fetching settings");
       const data = await res.json();
-      const normalized = normalizeSettings(data.settings);
+      const payload = data?.data ?? data;
+      const rawSettings = payload?.settings ?? data?.settings;
+      if (!rawSettings) {
+        throw new Error("Missing settings payload");
+      }
+      const normalized = normalizeSettings(rawSettings, payload?.ai?.apiKey);
       applyFormFromSettings(normalized);
+      applyTranslateFormFromPayload(payload?.translation);
     } catch (err) {
       console.error("Error loading AI settings", err);
-      setError("No se pudieron cargar los ajustes.");
+      if (!opts?.silent) {
+        setError("No se pudieron cargar los ajustes.");
+      }
+      setTranslateLoadError("No se pudieron cargar los ajustes de traducción.");
     } finally {
-      setLoading(false);
+      setTranslateLoading(false);
+      if (!opts?.silent) {
+        setLoading(false);
+      }
     }
-  }, [normalizeSettings]);
+  }, [applyTranslateFormFromPayload, normalizeSettings]);
 
   function applyFormFromSettings(next: CreatorAiSettings) {
     setSettings(next);
@@ -296,15 +359,17 @@ export default function CreatorAiSettingsPage() {
       baseUrl: next.cortexBaseUrl?.trim() || defaultCortexBaseUrl,
       model: next.cortexModel?.trim() || defaultCortexModel,
       apiKey: "",
-      hasApiKey: Boolean(next.hasCortexKey),
+      apiKeySaved: Boolean(next.cortexApiKeySaved),
+      apiKeyInvalid: Boolean(next.cortexApiKeyInvalid),
     });
   }
 
   const fetchStatus = useCallback(async () => {
     try {
-      const res = await fetch("/api/creator/ai/status");
+      const res = await fetch("/api/creator/ai/status", { cache: "no-store" });
       if (!res.ok) throw new Error("Error fetching status");
-      const data = await res.json();
+      const raw = await res.json();
+      const data = raw?.data ?? raw;
       setStatus({
         creditsAvailable: data.creditsAvailable ?? 0,
         hardLimitPerDay: data.hardLimitPerDay ?? null,
@@ -340,36 +405,8 @@ export default function CreatorAiSettingsPage() {
   }, []);
 
   const fetchTranslateSettings = useCallback(async () => {
-    setTranslateLoading(true);
-    setTranslateLoadError("");
-    try {
-      const res = await fetch("/api/creator/ai/translate-settings", { cache: "no-store" });
-      if (!res.ok) throw new Error("Error fetching translate settings");
-      const data = await res.json();
-      const normalizedProvider = normalizeTranslateProviderOption(data.provider);
-      const deeplApiUrl =
-        typeof data.deeplApiUrl === "string" && data.deeplApiUrl.trim().length > 0 ? data.deeplApiUrl : "";
-      setTranslateForm({
-        provider: normalizedProvider,
-        libretranslateUrl:
-          typeof data.libretranslateUrl === "string" && data.libretranslateUrl.trim().length > 0
-            ? data.libretranslateUrl
-            : defaultLibreUrl,
-        libretranslateApiKey: "",
-        deeplApiUrl,
-        deeplApiKey: "",
-        hasLibreKey: Boolean(data.hasLibreKey),
-        hasDeeplKey: Boolean(data.hasDeeplKey),
-        creatorLang: normalizeTranslationLanguage(data.creatorLang) ?? defaultTranslateLang,
-      });
-      setShowDeeplAdvanced(normalizedProvider === "deepl" && deeplApiUrl.length > 0);
-    } catch (err) {
-      console.error("Error loading translate settings", err);
-      setTranslateLoadError("No se pudieron cargar los ajustes de traducción.");
-    } finally {
-      setTranslateLoading(false);
-    }
-  }, [defaultLibreUrl, defaultTranslateLang]);
+    await fetchSettings({ silent: true });
+  }, [fetchSettings]);
 
   const showTranslateTestToast = useCallback((message: string, variant: "success" | "error") => {
     setTranslateTestToast({ message, variant });
@@ -431,7 +468,7 @@ export default function CreatorAiSettingsPage() {
     if (
       translateForm.provider === "deepl" &&
       !translateForm.deeplApiKey.trim() &&
-      !translateForm.hasDeeplKey
+      !translateForm.deeplKeySaved
     ) {
       showTranslateTestToast("Falta DEEPL_API_KEY.", "error");
       return;
@@ -477,7 +514,7 @@ export default function CreatorAiSettingsPage() {
       setCortexError("AI_MODEL es obligatorio.");
       return;
     }
-    if (cortexForm.provider === "openai" && !cortexForm.apiKey.trim() && !cortexForm.hasApiKey) {
+    if (cortexForm.provider === "openai" && !cortexForm.apiKey.trim() && !cortexForm.apiKeySaved) {
       setCortexError("OPENAI_API_KEY es obligatorio.");
       return;
     }
@@ -499,18 +536,18 @@ export default function CreatorAiSettingsPage() {
         body: JSON.stringify(payload),
       });
       const data = await res.json().catch(() => ({}));
-      if (!res.ok) {
+      if (!res.ok || data?.ok === false) {
         const message =
-          typeof data?.error === "string" && data.error.trim().length > 0
+          typeof data?.error?.message === "string"
+            ? data.error.message
+            : typeof data?.error === "string" && data.error.trim().length > 0
             ? data.error
             : "No se pudo guardar la configuración del proveedor.";
         setCortexError(message);
         return;
       }
-      if (data?.settings) {
-        const normalized = normalizeSettings(data.settings);
-        applyFormFromSettings(normalized);
-      }
+      await fetchSettings({ silent: true });
+      await fetchStatus();
       setCortexSuccess("Proveedor guardado.");
       showCortexTestToast("Ajustes guardados.", "success");
     } catch (err) {
@@ -519,14 +556,13 @@ export default function CreatorAiSettingsPage() {
     } finally {
       setCortexSaving(false);
     }
-  }, [applyFormFromSettings, cortexForm, normalizeSettings, showCortexTestToast]);
+  }, [cortexForm, fetchSettings, fetchStatus, showCortexTestToast]);
 
   useEffect(() => {
     fetchSettings();
     fetchStatus();
     fetchUsageSummary();
-    fetchTranslateSettings();
-  }, [fetchSettings, fetchStatus, fetchTranslateSettings, fetchUsageSummary]);
+  }, [fetchSettings, fetchStatus, fetchUsageSummary]);
 
   useEffect(() => {
     setCurrentPage(1);
@@ -554,7 +590,7 @@ export default function CreatorAiSettingsPage() {
     if (
       translateForm.provider === "deepl" &&
       !translateForm.deeplApiKey.trim() &&
-      !translateForm.hasDeeplKey
+      !translateForm.deeplKeySaved
     ) {
       setTranslateError("DEEPL_API_KEY es obligatorio.");
       return;
@@ -587,9 +623,11 @@ export default function CreatorAiSettingsPage() {
         body: JSON.stringify(payload),
       });
       const data = await res.json().catch(() => ({}));
-      if (!res.ok) {
+      if (!res.ok || data?.ok === false) {
         const message =
-          typeof data?.error === "string" && data.error.trim().length > 0
+          typeof data?.error?.message === "string"
+            ? data.error.message
+            : typeof data?.error === "string" && data.error.trim().length > 0
             ? data.error
             : "No se pudo guardar la configuración de traducción.";
         setTranslateError(message);
@@ -597,45 +635,15 @@ export default function CreatorAiSettingsPage() {
       }
       setTranslateSuccess("Configuración de traducción guardada.");
       showTranslateTestToast("Ajustes guardados.", "success");
-      setTranslateForm((prev) =>
-            prev
-              ? {
-                  ...prev,
-                  provider: normalizeTranslateProviderOption(data.provider),
-                  libretranslateUrl:
-                    typeof data.libretranslateUrl === "string" && data.libretranslateUrl.trim().length > 0
-                      ? data.libretranslateUrl
-                      : prev.libretranslateUrl,
-                  libretranslateApiKey: "",
-                  deeplApiUrl:
-                    typeof data.deeplApiUrl === "string" && data.deeplApiUrl.trim().length > 0
-                      ? data.deeplApiUrl
-                      : "",
-                  deeplApiKey: "",
-                  hasLibreKey: Boolean(data.hasLibreKey),
-                  hasDeeplKey: Boolean(data.hasDeeplKey),
-                  creatorLang:
-                    normalizeTranslationLanguage(data.creatorLang) ??
-                    prev.creatorLang ??
-                    defaultTranslateLang,
-                }
-              : prev
-          );
-      const nextProvider = normalizeTranslateProviderOption(data.provider);
-      if (nextProvider !== "deepl") {
-        setShowDeeplAdvanced(false);
-      } else if (typeof data?.deeplApiUrl === "string" && data.deeplApiUrl.trim().length > 0) {
-        setShowDeeplAdvanced(true);
-      }
+      await fetchSettings({ silent: true });
       await fetchStatus();
-      await fetchTranslateSettings();
     } catch (err) {
       console.error("Error saving translate settings", err);
       setTranslateError("No se pudo guardar la configuración de traducción.");
     } finally {
       setTranslateSaving(false);
     }
-  }, [defaultTranslateLang, fetchStatus, fetchTranslateSettings, showTranslateTestToast, translateForm]);
+  }, [fetchSettings, fetchStatus, showTranslateTestToast, translateForm]);
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -690,15 +698,11 @@ export default function CreatorAiSettingsPage() {
         body: JSON.stringify(payload),
       });
 
-      if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || data?.ok === false) {
         throw new Error("Error saving settings");
       }
-
-      const data = await res.json();
-      if (data.settings) {
-        const normalized = normalizeSettings(data.settings);
-        applyFormFromSettings(normalized);
-      }
+      await fetchSettings({ silent: true });
       fetchStatus();
       setSuccess("Ajustes guardados.");
     } catch (err) {
@@ -998,10 +1002,19 @@ export default function CreatorAiSettingsPage() {
                         )
                       }
                       disabled={isCortexFormDisabled}
-                      placeholder={cortexForm?.hasApiKey ? "Key guardada" : selectedCortexProvider === "ollama" ? "Opcional" : "Obligatoria"}
+                      placeholder={
+                        cortexForm?.apiKeySaved
+                          ? "Key guardada"
+                          : selectedCortexProvider === "ollama"
+                          ? "Opcional"
+                          : "Obligatoria"
+                      }
                       className="w-full rounded-lg bg-[color:var(--surface-2)] border border-[color:var(--surface-border)] px-3 py-2 text-sm text-[color:var(--text)] focus:border-[color:var(--border-a)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--ring)] disabled:cursor-not-allowed disabled:opacity-70"
                     />
-                    {cortexForm?.hasApiKey && !cortexForm.apiKey && (
+                    {cortexForm?.apiKeyInvalid && !cortexForm.apiKey && (
+                      <span className="text-[10px] text-[color:var(--danger)]">Key inválida. Vuelve a guardarla.</span>
+                    )}
+                    {cortexForm?.apiKeySaved && !cortexForm.apiKey && !cortexForm.apiKeyInvalid && (
                       <span className="text-[10px] text-[color:var(--muted)]">Key guardada en servidor.</span>
                     )}
                   </label>
@@ -1172,12 +1185,19 @@ export default function CreatorAiSettingsPage() {
                             )
                           }
                           disabled={isTranslateFormDisabled}
-                          placeholder={translateForm?.hasLibreKey ? "Key guardada" : "Opcional"}
+                          placeholder={translateForm?.libretranslateKeySaved ? "Key guardada" : "Opcional"}
                           className="w-full rounded-lg bg-[color:var(--surface-2)] border border-[color:var(--surface-border)] px-3 py-2 text-sm text-[color:var(--text)] focus:border-[color:var(--border-a)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--ring)] disabled:cursor-not-allowed disabled:opacity-70"
                         />
-                        {translateForm?.hasLibreKey && !translateForm.libretranslateApiKey && (
-                          <span className="text-[10px] text-[color:var(--muted)]">Key guardada en servidor.</span>
+                        {translateForm?.libretranslateKeyInvalid && !translateForm.libretranslateApiKey && (
+                          <span className="text-[10px] text-[color:var(--danger)]">
+                            Key inválida. Vuelve a guardarla.
+                          </span>
                         )}
+                        {translateForm?.libretranslateKeySaved &&
+                          !translateForm.libretranslateApiKey &&
+                          !translateForm.libretranslateKeyInvalid && (
+                            <span className="text-[10px] text-[color:var(--muted)]">Key guardada en servidor.</span>
+                          )}
                       </label>
                     </>
                   )}
@@ -1195,12 +1215,19 @@ export default function CreatorAiSettingsPage() {
                             )
                           }
                           disabled={isTranslateFormDisabled}
-                          placeholder={translateForm?.hasDeeplKey ? "Key guardada" : "Obligatoria"}
+                          placeholder={translateForm?.deeplKeySaved ? "Key guardada" : "Obligatoria"}
                           className="w-full rounded-lg bg-[color:var(--surface-2)] border border-[color:var(--surface-border)] px-3 py-2 text-sm text-[color:var(--text)] focus:border-[color:var(--border-a)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--ring)] disabled:cursor-not-allowed disabled:opacity-70"
                         />
-                        {translateForm?.hasDeeplKey && !translateForm.deeplApiKey && (
-                          <span className="text-[10px] text-[color:var(--muted)]">Key guardada en servidor.</span>
+                        {translateForm?.deeplKeyInvalid && !translateForm.deeplApiKey && (
+                          <span className="text-[10px] text-[color:var(--danger)]">
+                            Key inválida. Vuelve a guardarla.
+                          </span>
                         )}
+                        {translateForm?.deeplKeySaved &&
+                          !translateForm.deeplApiKey &&
+                          !translateForm.deeplKeyInvalid && (
+                            <span className="text-[10px] text-[color:var(--muted)]">Key guardada en servidor.</span>
+                          )}
                       </label>
                       <button
                         type="button"

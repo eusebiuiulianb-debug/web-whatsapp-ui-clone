@@ -136,6 +136,15 @@ type ManagerSuggestionIntent = "romper_hielo" | "pregunta_simple" | "cierre_suav
 type SuggestionVariantMode = "alternate" | "shorter";
 type DraftVariantMode = "alternate" | "shorter" | "softer" | "bolder";
 type DraftSource = "reformular" | "citar" | "autosuggest";
+type PpvOffer = {
+  contentId?: string;
+  title?: string;
+  tier?: string | null;
+  dayPart?: string | null;
+  slot?: string | null;
+  priceCents?: number;
+  currency?: string;
+};
 type DraftCard = {
   id: string;
   text: string;
@@ -146,6 +155,7 @@ type DraftCard = {
   objective?: ManagerObjective | null;
   selectedText?: string | null;
   basePrompt?: string | null;
+  offer?: PpvOffer | null;
 };
 type FanTemplateTone = "suave" | "intimo" | "picante" | "any";
 type FanTemplateCategory = "greeting" | "question" | "closing";
@@ -218,6 +228,36 @@ const VOICE_MIME_PREFERENCES = [
 const TOOLBAR_MARGIN = 12;
 const TRANSLATION_POPOVER_MAX_WIDTH = 360;
 const TRANSLATION_POPOVER_HEIGHT = 180;
+type ChatPpvTierValue = "CHAT_T0" | "CHAT_T1" | "CHAT_T2" | "CHAT_T3";
+const CHAT_PPV_TIERS: ChatPpvTierValue[] = ["CHAT_T0", "CHAT_T1", "CHAT_T2", "CHAT_T3"];
+const CHAT_PPV_DEFAULT_COPY: Record<ChatPpvTierValue, string> = {
+  CHAT_T0: "Uf… vas directo 😈. Lo más privado lo dejo para el privado. ¿Lo quieres suave o más picante?",
+  CHAT_T1: "Te puedo mandar un primer privado ahora. ¿Te lo paso?",
+  CHAT_T2: "El siguiente es más privado y mejor. ¿Lo desbloqueamos?",
+  CHAT_T3: "Te hago uno premium ahora mismo (más exclusivo). ¿Te va?",
+};
+const EXTRA_SLOT_LABELS: Record<string, { phase: string; moment: string }> = {
+  DAY_1: { phase: "Suave", moment: "Día" },
+  DAY_2: { phase: "Picante", moment: "Día" },
+  NIGHT_1: { phase: "Directo", moment: "Noche" },
+  NIGHT_2: { phase: "Final", moment: "Noche" },
+  ANY: { phase: "Cualquiera", moment: "" },
+};
+const formatExtraSlotLabel = (slot?: string | null, timeOfDay?: string | null) => {
+  if (slot && EXTRA_SLOT_LABELS[slot]) {
+    const meta = EXTRA_SLOT_LABELS[slot];
+    return meta.moment ? `${meta.phase} · ${meta.moment}` : meta.phase;
+  }
+  if (timeOfDay === "DAY") return "Suave · Día";
+  if (timeOfDay === "NIGHT") return "Directo · Noche";
+  return "Cualquiera";
+};
+const formatDayPartLabel = (dayPart?: string | null) => {
+  if (dayPart === "DAY") return "Día";
+  if (dayPart === "NIGHT") return "Noche";
+  if (dayPart === "ANY") return "Cualquiera";
+  return null;
+};
 
 type VoiceUploadPayload = {
   blob: Blob;
@@ -251,6 +291,24 @@ const normalizeActionKey = (key?: string | null) => {
   if (typeof key !== "string") return null;
   const trimmed = key.trim();
   return trimmed ? trimmed : null;
+};
+const resolveChatTierLabel = (tier: ChatPpvTierValue) => tier.replace("CHAT_", "");
+const resolveChatTierFromExtraTier = (tier?: string | null): ChatPpvTierValue | null => {
+  if (tier === "T0" || tier === "T1" || tier === "T2" || tier === "T3") {
+    return `CHAT_${tier}` as ChatPpvTierValue;
+  }
+  return null;
+};
+const resolveExtraTierFromChatTier = (tier?: ChatPpvTierValue | null): "T0" | "T1" | "T2" | "T3" | null => {
+  if (!tier) return null;
+  return tier.replace("CHAT_", "") as "T0" | "T1" | "T2" | "T3";
+};
+const formatOfferLabel = (offer?: PpvOffer | null) => {
+  if (!offer) return null;
+  const tier = offer.tier ?? "T?";
+  const dayPartLabel = formatDayPartLabel(offer.dayPart ?? null);
+  const slotLabel = dayPartLabel ?? formatExtraSlotLabel(offer.slot, null);
+  return `Oferta: ${tier} · ${slotLabel}`;
 };
 
 const formatTranslationLang = (value: string | null | undefined, fallback: string) => {
@@ -1341,6 +1399,8 @@ export default function ConversationDetails({ onBackToBoard }: ConversationDetai
   const translationPreviewKeyRef = useRef<string | null>(null);
   const messageTranslationInFlightRef = useRef(new Map<string, Promise<MessageTranslationResponse>>());
   const [ showContentModal, setShowContentModal ] = useState(false);
+  const [ ppvTierMenuOpen, setPpvTierMenuOpen ] = useState(false);
+  const [ ppvTierFilter, setPpvTierFilter ] = useState<ChatPpvTierValue>("CHAT_T1");
   const [ duplicateConfirm, setDuplicateConfirm ] = useState<DuplicateConfirmState | null>(null);
   const [ isCoarsePointer, setIsCoarsePointer ] = useState(false);
   const [ messageActionSheet, setMessageActionSheet ] = useState<MessageActionSheetState | null>(null);
@@ -1363,6 +1423,9 @@ export default function ConversationDetails({ onBackToBoard }: ConversationDetai
     hasBeenSentToFan?: boolean;
     isExtra?: boolean;
     extraTier?: "T0" | "T1" | "T2" | "T3" | null;
+    extraSlot?: string | null;
+    chatTier?: ChatPpvTierValue | null;
+    defaultCopy?: string | null;
     timeOfDay?: TimeOfDayValue;
   };
   const [ contentItems, setContentItems ] = useState<ContentWithFlags[]>([]);
@@ -1410,6 +1473,8 @@ export default function ConversationDetails({ onBackToBoard }: ConversationDetai
   const MAX_INTERNAL_COMPOSER_HEIGHT = 220;
   const SCROLL_BOTTOM_THRESHOLD = 48;
   const messageInputRef = useRef<HTMLTextAreaElement | null>(null);
+  const ppvTierButtonRef = useRef<HTMLButtonElement | null>(null);
+  const ppvTierMenuRef = useRef<HTMLDivElement | null>(null);
   const composerActionKeyRef = useRef<string | null>(null);
   const fanSendCooldownTimeoutsRef = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
   const fanSendCooldownPhaseTimeoutsRef = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
@@ -1429,6 +1494,7 @@ export default function ConversationDetails({ onBackToBoard }: ConversationDetai
     createdAt: string;
     title?: string;
     suggestions?: string[];
+    offer?: PpvOffer | null;
   };
   type ManagerSuggestion = {
     id: string;
@@ -2279,6 +2345,71 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
     });
   }
 
+  function handleInsertOffer(text: string, offer: PpvOffer, detail?: string, action?: string | null) {
+    const nextText = text || "";
+    if (!id || !nextText.trim()) return;
+    insertIntoCurrentComposer({
+      target: "fan",
+      fanId: id,
+      mode: "fan",
+      text: nextText,
+      actionKey: action ?? (offer.contentId ? `ppv:${offer.contentId}` : offer.tier ? `ppv:${offer.tier}` : undefined),
+    });
+    const tier = typeof offer.tier === "string" ? (offer.tier as "T0" | "T1" | "T2" | "T3") : null;
+    if (offer.dayPart === "DAY") {
+      setTimeOfDayFilter("day");
+    } else if (offer.dayPart === "NIGHT") {
+      setTimeOfDayFilter("night");
+    } else if (offer.dayPart === "ANY") {
+      setTimeOfDayFilter("all");
+    }
+    openContentModal({
+      mode: "extras",
+      tier,
+      selectedIds: offer.contentId ? [offer.contentId] : [],
+      defaultRegisterExtras: false,
+      registerSource: "offer_flow",
+    });
+    const slotMeta = offer.slot ? EXTRA_SLOT_LABELS[offer.slot] : null;
+    const dayPartLabel = formatDayPartLabel(offer.dayPart ?? null);
+    const phaseLabel = dayPartLabel ?? (slotMeta ? slotMeta.phase : "Cualquiera");
+    track(ANALYTICS_EVENTS.PPV_OFFER_INSERTED, {
+      fanId: id ?? undefined,
+      meta: {
+        creatorId: creatorId ?? undefined,
+        contentId: offer.contentId ?? null,
+        title: offer.title ?? null,
+        tier: offer.tier ?? null,
+        slot: offer.slot ?? null,
+        dayPart: offer.dayPart ?? null,
+        phaseLabel,
+        source: "MANAGER_AI",
+        action,
+      },
+    });
+    track(ANALYTICS_EVENTS.PPV_OFFER_SENT, {
+      fanId: id ?? undefined,
+      meta: {
+        creatorId: creatorId ?? undefined,
+        contentId: offer.contentId ?? null,
+        title: offer.title ?? null,
+        tier: offer.tier ?? null,
+        slot: offer.slot ?? null,
+        dayPart: offer.dayPart ?? null,
+        phaseLabel,
+        source: "MANAGER_AI",
+        action,
+      },
+    });
+    closeInlinePanel({ focus: true });
+    showInlineAction({
+      kind: "ok",
+      title: "Oferta insertada",
+      detail: detail ?? offer.title ?? offer.tier ?? "Oferta",
+      ttlMs: 1800,
+    });
+  }
+
   const handleInsertManagerComposerText = useCallback(
     (text: string) => {
       const trimmed = text.trim();
@@ -2569,26 +2700,29 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
 
   async function fetchAiStatus() {
     try {
-      const data = await fetchJsonDedupe<any>("cd:status", () => fetch("/api/creator/ai/status"), {
-        ttlMs: 1200,
-      });
+      const data = await fetchJsonDedupe<any>(
+        "cd:status",
+        () => fetch("/api/creator/ai/status", { cache: "no-store" }),
+        { ttlMs: 1200 }
+      );
+      const payload = data?.data ?? data;
       setAiStatus({
-        creditsAvailable: data.creditsAvailable ?? 0,
-        hardLimitPerDay: data.hardLimitPerDay ?? null,
-        usedToday: data.usedToday ?? 0,
-        remainingToday: data.remainingToday ?? null,
-        limitReached: Boolean(data.limitReached),
-        turnMode: data.turnMode as AiTurnMode | undefined,
-        translateConfigured: Boolean(data.translateConfigured),
-        translateProvider: typeof data.translateProvider === "string" ? data.translateProvider : undefined,
-        translateMissingVars: Array.isArray(data.translateMissingVars)
-          ? data.translateMissingVars.filter((item: unknown) => typeof item === "string" && item.trim().length > 0)
+        creditsAvailable: payload.creditsAvailable ?? 0,
+        hardLimitPerDay: payload.hardLimitPerDay ?? null,
+        usedToday: payload.usedToday ?? 0,
+        remainingToday: payload.remainingToday ?? null,
+        limitReached: Boolean(payload.limitReached),
+        turnMode: payload.turnMode as AiTurnMode | undefined,
+        translateConfigured: Boolean(payload.translateConfigured),
+        translateProvider: typeof payload.translateProvider === "string" ? payload.translateProvider : undefined,
+        translateMissingVars: Array.isArray(payload.translateMissingVars)
+          ? payload.translateMissingVars.filter((item: unknown) => typeof item === "string" && item.trim().length > 0)
           : [],
-        creatorLang: normalizeTranslationLanguage(data.creatorLang) ?? "es",
+        creatorLang: normalizeTranslationLanguage(payload.creatorLang) ?? "es",
       });
-      setIaBlocked(Boolean(data.limitReached));
-      if (typeof data.turnMode === "string") {
-        setAiTurnMode(normalizeAiTurnMode(data.turnMode));
+      setIaBlocked(Boolean(payload.limitReached));
+      if (typeof payload.turnMode === "string") {
+        setAiTurnMode(normalizeAiTurnMode(payload.turnMode));
       }
     } catch (err) {
       console.error("Error obteniendo estado de IA", err);
@@ -2597,14 +2731,17 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
 
   async function fetchAiSettingsTone() {
     try {
-      const data = await fetchJsonDedupe<any>("cd:ai-settings", () => fetch("/api/creator/ai-settings"), {
-        ttlMs: 1200,
-      });
-      const tone = data?.settings?.tone;
+      const data = await fetchJsonDedupe<any>(
+        "cd:ai-settings",
+        () => fetch("/api/creator/ai-settings", { cache: "no-store" }),
+        { ttlMs: 1200 }
+      );
+      const settingsPayload = data?.data?.settings ?? data?.settings;
+      const tone = settingsPayload?.tone;
       if (typeof tone === "string" && tone.trim().length > 0) {
         setAiTone(normalizeTone(tone));
       }
-      const mode = data?.settings?.turnMode;
+      const mode = settingsPayload?.turnMode;
       if (typeof mode === "string") {
         setAiTurnMode(normalizeAiTurnMode(mode));
       }
@@ -2824,6 +2961,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
     packFocus?: "WELCOME" | "MONTHLY" | "SPECIAL" | null;
     defaultRegisterExtras?: boolean;
     registerSource?: string | null;
+    selectedIds?: string[];
   }) {
     const nextMode = options?.mode ?? "packs";
     setContentModalMode(nextMode);
@@ -2834,13 +2972,40 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
     setTransactionPrices({});
     setOpenPanel("none");
     setShowPackSelector(false);
-    setSelectedContentIds([]);
+    setSelectedContentIds(options?.selectedIds ?? []);
     if (nextMode !== "catalog") {
       fetchContentItems(id);
       if (id) fetchAccessGrants(id);
     }
     setShowContentModal(true);
   }
+
+  const resolveChatTierForItem = (item: ContentWithFlags): ChatPpvTierValue | null => {
+    if (item.chatTier) return item.chatTier;
+    return resolveChatTierFromExtraTier(item.extraTier ?? null);
+  };
+
+  const resolvePpvCopyForItem = (item: ContentWithFlags, fallbackTier: ChatPpvTierValue) => {
+    const rawCopy = typeof item.defaultCopy === "string" ? item.defaultCopy.trim() : "";
+    if (rawCopy) return rawCopy;
+    const tier = resolveChatTierForItem(item) ?? fallbackTier;
+    return CHAT_PPV_DEFAULT_COPY[tier] ?? CHAT_PPV_DEFAULT_COPY.CHAT_T1;
+  };
+
+  const handleSelectPpvItem = (item: ContentWithFlags) => {
+    const resolvedTier = resolveChatTierForItem(item) ?? ppvTierFilter;
+    const copy = resolvePpvCopyForItem(item, ppvTierFilter);
+    fillMessage(copy, `ppv:${item.id}`);
+    const extraTier = item.extraTier ?? resolveExtraTierFromChatTier(resolvedTier);
+    setPpvTierMenuOpen(false);
+    openContentModal({
+      mode: "extras",
+      tier: extraTier ?? null,
+      selectedIds: [item.id],
+      defaultRegisterExtras: false,
+      registerSource: "offer_flow",
+    });
+  };
 
   function handleOpenExtrasPanel() {
     const nextFilter = timeOfDay === "NIGHT" ? "night" : "day";
@@ -3542,6 +3707,35 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
   }, [showContentModal, contentModalMode]);
 
   useEffect(() => {
+    if (!ppvTierMenuOpen) return;
+    if (contentItems.length === 0 && !contentLoading) {
+      fetchContentItems(id);
+    }
+  }, [ppvTierMenuOpen, contentItems.length, contentLoading, fetchContentItems, id]);
+
+  useEffect(() => {
+    if (!ppvTierMenuOpen) return;
+    const handlePointerDown = (event: MouseEvent) => {
+      const target = event.target as Node | null;
+      if (!target) return;
+      if (ppvTierMenuRef.current?.contains(target)) return;
+      if (ppvTierButtonRef.current?.contains(target)) return;
+      setPpvTierMenuOpen(false);
+    };
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setPpvTierMenuOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handlePointerDown);
+    document.addEventListener("keydown", handleKeyDown);
+    return () => {
+      document.removeEventListener("mousedown", handlePointerDown);
+      document.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [ppvTierMenuOpen]);
+
+  useEffect(() => {
     fetchAiStatus();
     fetchAiSettingsTone();
   }, []);
@@ -4046,6 +4240,19 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
       .filter(Boolean);
   }, [displayInternalNotes]);
   const normalizedProfileText = useMemo(() => (profileText || "").trim(), [profileText]);
+  const detectAgeSignal = useCallback((text: string) => {
+    const normalized = text.trim().toLowerCase();
+    if (!normalized) return false;
+    const patterns = [
+      /\b(tengo|cumplo)\s*1[0-7]\b/i,
+      /\b(tengo|cumplo)\s*1[0-7]\s*(años|anos)\b/i,
+      /\b1[0-7]\s*(años|anos)\b/i,
+      /\bsoy\s*menor\b/i,
+      /\bmenor\s+de\s+edad\b/i,
+      /\bsoy\s*1[0-7]\b/i,
+    ];
+    return patterns.some((pattern) => pattern.test(normalized));
+  }, []);
   const recentConversationLines = useMemo(() => {
     return (messages || [])
       .filter((msg) => msg.audience !== "INTERNAL")
@@ -4057,6 +4264,16 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
       .filter((line) => line.length > 0)
       .slice(-6);
   }, [messages]);
+  const ageSignalDetected = useMemo(() => {
+    const combined = (messages || [])
+      .filter((msg) => msg.audience !== "INTERNAL")
+      .filter((msg) => msg.kind === "text" || !msg.kind)
+      .filter((msg) => !msg.me)
+      .map((msg) => (msg.message || "").trim())
+      .filter(Boolean)
+      .join("\n");
+    return detectAgeSignal(combined);
+  }, [detectAgeSignal, messages]);
 
   useEffect(() => {
     if (profileDraftEditedRef.current) return;
@@ -4075,6 +4292,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
   const isManagerTarget = composerTarget === "manager";
   const composerAudience = isFanTarget ? "CREATOR" : "INTERNAL";
   const isFanMode = !conversation.isManager;
+  const canUseManagerActions = Boolean(id);
   const messageSheetTranslationStatus = messageActionSheet?.messageId
     ? messageTranslationState[messageActionSheet.messageId]?.status ?? "idle"
     : "idle";
@@ -4474,19 +4692,40 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
     );
   };
 
-  const buildManagerVariantPrompt = useCallback((mode: SuggestionVariantMode, text: string) => {
+  const buildRewritePrompt = useCallback((style: string, text: string) => {
     const base = text.trim();
-    if (mode === "shorter") {
-      return (
-        "Reescribe este mensaje en una versión más corta y directa, manteniendo el tono y la intención:\n\n" +
-        `«${base}»`
-      );
-    }
+    if (!base) return text;
     return (
-      "Dame otra versión de este mensaje manteniendo el tono y la intención, con palabras distintas:\n\n" +
-      `«${base}»`
+      `Reescribe el siguiente mensaje con el estilo ${style}. ` +
+      "Reglas: máximo 240 caracteres; termina con una pregunta; no seas explícito. " +
+      "No añadas disclaimers ni temas de edad salvo que el input lo sugiera. Sin moralizar ni sermonear. " +
+      "Si el mensaje pide algo explícito, responde con un límite elegante + una alternativa sugerente + un CTA suave. " +
+      `Mensaje: <<<${base}>>>`
     );
   }, []);
+
+  const buildSafeRewritePrompt = useCallback((text: string) => {
+    const base = text.trim();
+    if (!base) return text;
+    return (
+      "Reescribe el siguiente mensaje para que sea sugerente y no explícito. " +
+      "No menciones edad ni políticas. Sin moralizar ni sermonear. " +
+      "Si el mensaje pide algo explícito, pon un límite elegante + alternativa sugerente + CTA suave. " +
+      "Devuelve SOLO el mensaje final (máximo 240 caracteres) y termina con una pregunta. " +
+      `Mensaje: <<<${base}>>>`
+    );
+  }, []);
+
+  const buildManagerVariantPrompt = useCallback(
+    (mode: SuggestionVariantMode, text: string) => {
+      const style =
+        mode === "shorter"
+          ? "más corta y directa"
+          : "otra versión distinta manteniendo el tono y la intención";
+      return buildRewritePrompt(style, text);
+    },
+    [buildRewritePrompt]
+  );
 
   const shortenSuggestionText = (text: string) => {
     const trimmed = text.trim();
@@ -4539,22 +4778,32 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
   const handleMessageQuote = (text: string) => {
     const trimmed = text.trim();
     if (!trimmed) return;
+    if (!id) {
+      showComposerToast("Necesitas un fan activo para usar el Manager.");
+      return;
+    }
     requestDraftCardFromPrompt({
       prompt: buildManagerQuotePrompt(trimmed),
       source: "citar",
       label: "Citar al Manager",
       selectedText: trimmed,
+      action: "quote_manager",
     });
   };
 
   const handleMessageRephrase = (text: string) => {
     const trimmed = text.trim();
     if (!trimmed) return;
+    if (!id) {
+      showComposerToast("Necesitas un fan activo para usar el Manager.");
+      return;
+    }
     requestDraftCardFromPrompt({
       prompt: buildManagerRephrasePrompt(trimmed),
       source: "reformular",
       label: "Reformular",
       selectedText: trimmed,
+      action: "rephrase_manager",
     });
   };
 
@@ -4872,8 +5121,11 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
               onRenew={() => handleManagerQuickAction("reactivar_fan_frio")}
               onQuickExtra={() => handleManagerQuickAction("ofrecer_extra")}
               onPackOffer={() => handleManagerQuickAction("llevar_a_mensual")}
+              onPhaseAction={handleManagerPhaseAction}
+              onOpenOfferSelector={handleOpenExtrasPanel}
               onRequestSuggestionAlt={(text) => handleRequestSuggestionVariant("alternate", text)}
               onRequestSuggestionShorter={(text) => handleRequestSuggestionVariant("shorter", text)}
+              onInsertOffer={(text, offer, detail) => handleInsertOffer(text, offer, detail, "manager_phase")}
               showRenewAction={showRenewAction}
               quickExtraDisabled={quickExtraDisabled}
               isRecommended={isRecommended}
@@ -4933,15 +5185,31 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
                         <div className={clsx(bubbleClass, "max-w-[75%]")}>{msg.text}</div>
                       )}
                       {isManager && (
-                        <button
-                          type="button"
-                          onClick={() =>
-                            handleUseManagerReplyAsMainMessage(msg.text, msg.title ?? "Manager IA", `manager:chat:${msg.id}`)
-                          }
-                          className={clsx("mt-1", inlineActionButtonClass)}
-                        >
-                          Usar en mensaje
-                        </button>
+                        <>
+                          <button
+                            type="button"
+                            onClick={() =>
+                              handleUseManagerReplyAsMainMessage(msg.text, msg.title ?? "Manager IA", `manager:chat:${msg.id}`)
+                            }
+                            className={clsx("mt-1", inlineActionButtonClass)}
+                          >
+                            Usar en mensaje
+                          </button>
+                          {msg.offer && (
+                            <div className="mt-2 flex flex-wrap items-center gap-2">
+                              <span className="inline-flex items-center rounded-full border border-[color:rgba(var(--brand-rgb),0.35)] bg-[color:rgba(var(--brand-rgb),0.12)] px-2.5 py-1 text-[10px] font-semibold text-[color:var(--text)]">
+                                {formatOfferLabel(msg.offer)}
+                              </span>
+                              <button
+                                type="button"
+                                onClick={() => handleInsertOffer(msg.text, msg.offer as PpvOffer, msg.title ?? "Manager IA", "manager_chat")}
+                                className="inline-flex items-center rounded-full border border-[color:var(--warning)] bg-[color:rgba(245,158,11,0.08)] px-3 py-1 text-[10px] font-semibold text-[color:var(--text)] hover:bg-[color:rgba(245,158,11,0.16)]"
+                              >
+                                Insertar + Oferta
+                              </button>
+                            </div>
+                          )}
+                        </>
                       )}
                     </div>
                   </div>
@@ -6521,15 +6789,24 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
       toneOverride?: FanTone,
       options?: {
         selectedText?: string | null;
-        onSuggestions?: (payload: { title: string; suggestions: string[] }) => void;
+        onSuggestions?: (payload: { title: string; suggestions: string[]; offer?: PpvOffer | null }) => void;
         skipChat?: boolean;
+        skipContext?: boolean;
+        skipHistory?: boolean;
+        action?: string;
+        ageSignal?: boolean;
+        silentOnRefusal?: boolean;
       }
     ) => {
       if (!id) return;
       const trimmed = question.trim();
       if (!trimmed) return;
-      const contextPrompt = buildManagerContextPrompt({ selectedText: options?.selectedText ?? null });
-      const promptForManager = `${trimmed}${contextPrompt}`;
+      const refusalBubbleText =
+        "Se bloqueó la generación con este contexto. Prueba \"Otra versión\" o \"Suavizar\".";
+      const contextPrompt = options?.skipContext
+        ? ""
+        : buildManagerContextPrompt({ selectedText: options?.selectedText ?? null });
+      const promptForManager = contextPrompt ? `${trimmed}${contextPrompt}` : trimmed;
       const fanKey = id;
       managerPanelStickToBottomRef.current = true;
       if (!options?.skipChat) {
@@ -6555,7 +6832,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
         return;
       }
 
-      const priorMessages = managerChatByFan[fanKey] ?? [];
+      const priorMessages = options?.skipHistory ? [] : managerChatByFan[fanKey] ?? [];
       const normalizedHistory = priorMessages
         .map((msg) => {
           const content = msg.text.trim();
@@ -6565,44 +6842,164 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
         })
         .filter(Boolean) as Array<{ role: "system" | "user" | "assistant"; content: string }>;
       const outgoingMessages = [...normalizedHistory, { role: "user", content: promptForManager }];
+      const resolvedAgeSignal = options?.ageSignal ?? ageSignalDetected;
 
       let responseData: any = null;
+      let responseStatus = 0;
+      let replyContent = "";
+      const extractReplyContent = (data: any) => {
+        if (typeof data?.data?.reply?.content === "string") return data.data.reply.content.trim();
+        if (typeof data?.reply?.content === "string") return data.reply.content.trim();
+        if (typeof data?.message?.content === "string") return data.message.content.trim();
+        if (typeof data?.items?.[0]?.content === "string") return data.items[0].content.trim();
+        if (typeof data?.reply?.text === "string") return data.reply.text.trim();
+        return "";
+      };
+      const extractOffer = (data: any): PpvOffer | null => {
+        const raw = data?.offer ?? data?.data?.offer;
+        if (!raw || typeof raw !== "object") return null;
+        const record = raw as Record<string, unknown>;
+        const contentId = typeof record.contentId === "string" ? record.contentId : "";
+        const title = typeof record.title === "string" ? record.title : "";
+        const tier = typeof record.tier === "string" ? record.tier : null;
+        const dayPart = typeof record.dayPart === "string" ? record.dayPart : null;
+        const slot = typeof record.slot === "string" ? record.slot : null;
+        const priceCents = typeof record.priceCents === "number" ? record.priceCents : undefined;
+        const currency = typeof record.currency === "string" ? record.currency : undefined;
+        if (!tier && !dayPart && !slot && !contentId && !title) return null;
+        return {
+          contentId: contentId || undefined,
+          title: title || undefined,
+          tier,
+          dayPart,
+          slot,
+          priceCents,
+          currency,
+        };
+      };
+      const pushManagerMessage = (text: string) => {
+        if (options?.skipChat) return;
+        const managerMessage: ManagerChatMessage = {
+          id: `${fanKey}-${Date.now()}-manager`,
+          role: "manager",
+          text,
+          createdAt: new Date().toISOString(),
+        };
+        setManagerChatByFan((prev) => {
+          const prevMsgs = prev[fanKey] ?? [];
+          return { ...prev, [fanKey]: [...prevMsgs, managerMessage] };
+        });
+      };
       try {
         const res = await fetch("/api/creator/ai-manager/chat", {
           method: "POST",
+          cache: "no-store",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             creatorId: resolvedCreatorId,
             fanId: fanKey,
             messages: outgoingMessages,
+            mode: "message",
+            action: options?.action,
+            ageSignal: resolvedAgeSignal,
           }),
         });
+        responseStatus = res.status;
         responseData = await res.json().catch(() => ({}));
-        if (!res.ok || responseData?.ok === false) {
-          const message =
-            typeof responseData?.message === "string"
-              ? responseData.message
-              : typeof responseData?.error === "string"
-              ? responseData.error
-              : "No se pudo consultar al Manager IA.";
-          showComposerToast(message);
-          return;
+        replyContent = extractReplyContent(responseData);
+        const responseOffer = extractOffer(responseData);
+      const errorCode =
+        typeof responseData?.error?.code === "string"
+          ? responseData.error.code
+          : typeof responseData?.code === "string"
+          ? responseData.code
+          : typeof responseData?.error === "string"
+          ? responseData.error
+          : "";
+      const errorMessage =
+        typeof responseData?.error?.message === "string"
+          ? responseData.error.message
+          : typeof responseData?.message === "string"
+          ? responseData.message
+          : "No se pudo consultar al Manager IA.";
+      const statusValue =
+        typeof responseData?.status === "string"
+          ? responseData.status
+          : typeof responseData?.data?.status === "string"
+          ? responseData.data.status
+          : "";
+      const normalizedStatus = statusValue.trim().toLowerCase();
+      const providerUnavailable =
+        normalizedStatus === "provider_down" ||
+        errorCode.toUpperCase() === "PROVIDER_UNAVAILABLE" ||
+        responseStatus === 502;
+      const isRefusal = normalizedStatus === "refusal" || errorCode.toUpperCase() === "REFUSAL";
+      const needsAgeGate = normalizedStatus === "needs_age_gate";
+      if (responseData?.ok === false || providerUnavailable || isRefusal) {
+        if (providerUnavailable) {
+          showComposerToast("Ollama no responde. Revisa que esté activo.");
+          if (replyContent && !options?.skipChat) {
+            const managerMessage: ManagerChatMessage = {
+              id: `${fanKey}-${Date.now()}-manager`,
+              role: "manager",
+              text: replyContent,
+              createdAt: new Date().toISOString(),
+              offer: responseOffer,
+            };
+            setManagerChatByFan((prev) => {
+              const prevMsgs = prev[fanKey] ?? [];
+              return { ...prev, [fanKey]: [...prevMsgs, managerMessage] };
+            });
+          }
+          return { ok: false, errorCode: "PROVIDER_UNAVAILABLE", errorMessage };
+        } else if (replyContent) {
+          showComposerToast("Respuesta de seguridad / fallback.");
+        } else if (isRefusal) {
+          if (!options?.silentOnRefusal) {
+            if (options?.skipChat) {
+              showComposerToast(refusalBubbleText);
+            } else {
+              pushManagerMessage(refusalBubbleText);
+            }
+          }
+          return { ok: false, errorCode: "REFUSAL", errorMessage };
+        } else {
+          showComposerToast(errorMessage);
+          return { ok: false, errorCode: errorCode || "ERROR", errorMessage };
         }
+      }
+      if (needsAgeGate) {
+        showComposerToast("Se requiere confirmar +18.");
+      }
       } catch (err) {
         console.error("Error sending manager chat", err);
         showComposerToast("No se pudo consultar al Manager IA.");
-        return;
+        return { ok: false, errorCode: "NETWORK_ERROR", errorMessage: "No se pudo consultar al Manager IA." };
       }
 
-      const assistantText =
-        typeof responseData?.message?.content === "string"
-          ? responseData.message.content.trim()
-          : typeof responseData?.items?.[0]?.content === "string"
-          ? responseData.items[0].content.trim()
-          : "";
+      const assistantText = replyContent || extractReplyContent(responseData);
+      const resolvedOffer = extractOffer(responseData);
       if (!assistantText) {
-        showComposerToast("La respuesta del Manager IA llegó vacía.");
-        return;
+        const emptyMessage =
+          typeof responseData?.error?.message === "string"
+            ? responseData.error.message
+            : "La IA no devolvió texto.";
+        if (options?.skipChat) {
+          showComposerToast(emptyMessage);
+        } else {
+          const managerMessage: ManagerChatMessage = {
+            id: `${fanKey}-${Date.now()}-manager`,
+            role: "manager",
+            text: emptyMessage,
+            createdAt: new Date().toISOString(),
+            offer: resolvedOffer,
+          };
+          setManagerChatByFan((prev) => {
+            const prevMsgs = prev[fanKey] ?? [];
+            return { ...prev, [fanKey]: [...prevMsgs, managerMessage] };
+          });
+        }
+        return { ok: false, errorCode: "EMPTY", errorMessage: emptyMessage };
       }
 
       const resolvedIntent = intent
@@ -6616,6 +7013,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
       const bundle = {
         title: simulatedBundle.title,
         suggestions: [assistantText, ...simulatedBundle.suggestions.filter((s) => s !== assistantText)].slice(0, 3),
+        offer: resolvedOffer,
       };
 
       if (!options?.skipChat) {
@@ -6625,6 +7023,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
           text: assistantText,
           title: bundle.title,
           suggestions: bundle.suggestions,
+          offer: resolvedOffer,
           createdAt: new Date().toISOString(),
         };
         setManagerChatByFan((prev) => {
@@ -6633,8 +7032,10 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
         });
       }
       options?.onSuggestions?.(bundle);
+      return { ok: true, text: assistantText, offer: resolvedOffer ?? undefined };
     },
     [
+      ageSignalDetected,
       buildManagerContextPrompt,
       buildSimulatedManagerSuggestions,
       contactName,
@@ -6653,13 +7054,40 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
     ]
   );
 
-  const handleRequestSuggestionVariant = (mode: SuggestionVariantMode, text: string) => {
+  const handleRequestSuggestionVariant = async (mode: SuggestionVariantMode, text: string) => {
     const trimmed = text.trim();
     if (!trimmed) return;
     const label = mode === "shorter" ? "Más corta" : "Otra versión";
     const prompt = buildManagerVariantPrompt(mode, trimmed);
-    askInternalManager(prompt, undefined, undefined, {
+    const result = await askInternalManager(prompt, undefined, undefined, {
       selectedText: trimmed,
+      skipContext: true,
+      skipHistory: true,
+      action: mode === "shorter" ? "rewrite_shorter" : "rewrite_alt",
+      silentOnRefusal: true,
+      onSuggestions: (bundle) => {
+        const baseSuggestion = bundle.suggestions[0] ?? trimmed;
+        const nextMessage = mode === "shorter" ? shortenSuggestionText(baseSuggestion) : baseSuggestion;
+        if (!nextMessage.trim()) return;
+        setManagerSuggestions((prev) => {
+          const filtered = prev.filter((item) => item.message !== nextMessage);
+          return [
+            {
+              id: `variant-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+              label,
+              message: nextMessage,
+            },
+            ...filtered,
+          ].slice(0, 3);
+        });
+      },
+    });
+    if (result?.ok || result?.errorCode !== "REFUSAL") return;
+    await askInternalManager(buildSafeRewritePrompt(trimmed), undefined, undefined, {
+      selectedText: trimmed,
+      skipContext: true,
+      skipHistory: true,
+      action: "rewrite_safe",
       onSuggestions: (bundle) => {
         const baseSuggestion = bundle.suggestions[0] ?? trimmed;
         const nextMessage = mode === "shorter" ? shortenSuggestionText(baseSuggestion) : baseSuggestion;
@@ -6692,18 +7120,31 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
     }
   }, []);
 
-  const buildDraftVariantPrompt = useCallback((mode: DraftVariantMode, basePrompt: string) => {
-    const normalized = basePrompt.trim();
-    if (!normalized) return basePrompt;
-    const suffix =
-      mode === "shorter"
-        ? "Haz una versión más corta y directa, en 1-2 frases."
-        : mode === "softer"
-        ? "Reescribe en un tono más suave y cercano, menos directo."
-        : mode === "bolder"
-        ? "Reescribe en un tono más directo y claro, sin sonar agresivo."
-        : "Dame otra versión distinta manteniendo el tono e intención.";
-    return `${normalized}\n\n${suffix}`;
+  const buildDraftVariantPrompt = useCallback(
+    (mode: DraftVariantMode, draftText: string) => {
+      const style =
+        mode === "shorter"
+          ? "más corta y directa"
+          : mode === "softer"
+          ? "más suave y cercana"
+          : mode === "bolder"
+          ? "más directa y segura (sin ser explícita)"
+          : "otra versión distinta manteniendo el tono y la intención";
+      return buildRewritePrompt(style, draftText);
+    },
+    [buildRewritePrompt]
+  );
+
+  const buildPhasePrompt = useCallback((phase: "suave" | "picante" | "directo" | "final") => {
+    const label =
+      phase === "suave"
+        ? "Suave (Día)"
+        : phase === "picante"
+        ? "Picante (Día)"
+        : phase === "directo"
+        ? "Directo (Noche)"
+        : "Final (Noche)";
+    return `Genera un borrador fase ${label}. 1–2 frases + 1 pregunta, tono sugerente adulto, sin ser explícita, y con CTA suave a PPV.`;
   }, []);
 
   const buildDraftCard = useCallback(
@@ -6716,6 +7157,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
         basePrompt?: string | null;
         tone?: FanTone | null;
         objective?: ManagerObjective | null;
+        offer?: PpvOffer | null;
       }
     ) => {
       return {
@@ -6728,6 +7170,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
         objective: options.objective ?? currentObjective ?? null,
         selectedText: options.selectedText ?? null,
         basePrompt: options.basePrompt ?? null,
+        offer: options.offer ?? null,
       };
     },
     [currentObjective, draftSourceLabel, fanTone]
@@ -6751,7 +7194,16 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
   }, [id]);
 
   const addDraftPair = useCallback(
-    (text: string, options: { source: DraftSource; label?: string; selectedText?: string | null; basePrompt?: string | null }) => {
+    (
+      text: string,
+      options: {
+        source: DraftSource;
+        label?: string;
+        selectedText?: string | null;
+        basePrompt?: string | null;
+        offer?: PpvOffer | null;
+      }
+    ) => {
       const card = buildDraftCard(text, options);
       addDraftCard(card);
       addGeneratedDraft(buildDraftCard(text, options));
@@ -6771,13 +7223,14 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
   }, [id]);
 
   const requestDraftCardFromPrompt = useCallback(
-    (options: { prompt: string; source: DraftSource; label?: string; selectedText?: string | null }) => {
+    (options: { prompt: string; source: DraftSource; label?: string; selectedText?: string | null; action?: string }) => {
       const trimmed = options.prompt.trim();
       if (!trimmed) return;
       openInternalPanel("manager");
       askInternalManager(trimmed, undefined, undefined, {
         selectedText: options.selectedText ?? null,
         skipChat: true,
+        action: options.action,
         onSuggestions: (bundle) => {
           const nextText = bundle.suggestions[0] ?? "";
           if (!nextText.trim()) return;
@@ -6786,6 +7239,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
             label: options.label,
             selectedText: options.selectedText ?? null,
             basePrompt: trimmed,
+            offer: bundle.offer ?? null,
           });
         },
       });
@@ -6794,19 +7248,27 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
   );
 
   const handleDraftCardVariant = useCallback(
-    (draftId: string, mode: DraftVariantMode) => {
+    async (draftId: string, mode: DraftVariantMode) => {
       if (!id) return;
       const cards = draftCardsByFan[id] ?? [];
       const target = cards.find((item) => item.id === draftId);
       if (!target) return;
-      const basePrompt = target.basePrompt?.trim();
-      const fallbackMode: SuggestionVariantMode = mode === "shorter" ? "shorter" : "alternate";
-      const prompt = basePrompt
-        ? buildDraftVariantPrompt(mode, basePrompt)
-        : buildManagerVariantPrompt(fallbackMode, target.text);
-      askInternalManager(prompt, undefined, undefined, {
+      const prompt = buildDraftVariantPrompt(mode, target.text);
+      const action =
+        mode === "bolder"
+          ? "rewrite_more_direct"
+          : mode === "softer"
+          ? "rewrite_softer"
+          : mode === "shorter"
+          ? "rewrite_shorter"
+          : "rewrite_alt";
+      const result = await askInternalManager(prompt, undefined, undefined, {
         selectedText: target.selectedText ?? null,
         skipChat: true,
+        skipContext: true,
+        skipHistory: true,
+        action,
+        silentOnRefusal: true,
         onSuggestions: (bundle) => {
           const nextText = bundle.suggestions[0] ?? target.text;
           if (!nextText.trim()) return;
@@ -6817,12 +7279,44 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
               label: target.label,
               selectedText: target.selectedText ?? null,
               basePrompt: target.basePrompt ?? null,
+              offer: target.offer ?? null,
+            })
+          );
+        },
+      });
+      if (result?.ok || result?.errorCode !== "REFUSAL") return;
+      await askInternalManager(buildSafeRewritePrompt(target.text), undefined, undefined, {
+        selectedText: target.selectedText ?? null,
+        skipChat: true,
+        skipContext: true,
+        skipHistory: true,
+        action: "rewrite_safe",
+        onSuggestions: (bundle) => {
+          const nextText = bundle.suggestions[0] ?? target.text;
+          if (!nextText.trim()) return;
+          updateDraftCard(draftId, nextText);
+          addGeneratedDraft(
+            buildDraftCard(nextText, {
+              source: target.source,
+              label: target.label,
+              selectedText: target.selectedText ?? null,
+              basePrompt: target.basePrompt ?? null,
+              offer: target.offer ?? null,
             })
           );
         },
       });
     },
-    [addGeneratedDraft, askInternalManager, buildDraftCard, buildDraftVariantPrompt, buildManagerVariantPrompt, draftCardsByFan, id, updateDraftCard]
+    [
+      addGeneratedDraft,
+      askInternalManager,
+      buildDraftCard,
+      buildDraftVariantPrompt,
+      buildSafeRewritePrompt,
+      draftCardsByFan,
+      id,
+      updateDraftCard,
+    ]
   );
 
   const handleDeleteGeneratedDraft = useCallback((draftId: string) => {
@@ -6994,6 +7488,26 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
       await triggerAutopilotDraft(intent, toneToUse);
     }
   };
+
+  const handleManagerPhaseAction = useCallback(
+    (phase: "suave" | "picante" | "directo" | "final") => {
+      const label =
+        phase === "suave"
+          ? "Suave"
+          : phase === "picante"
+          ? "Picante"
+          : phase === "directo"
+          ? "Directo"
+          : "Final";
+      requestDraftCardFromPrompt({
+        prompt: buildPhasePrompt(phase),
+        source: "autosuggest",
+        label: `Fase ${label}`,
+        action: `phase_${phase}`,
+      });
+    },
+    [buildPhasePrompt, requestDraftCardFromPrompt]
+  );
 
   const handleAutopilotSoften = () => {
     if (!autoPilotEnabled || isAutoPilotLoading || !lastAutopilotObjective) return;
@@ -8275,6 +8789,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
     : composerCopy.helpText;
   const composerSendingLabel = composerCopy.sendingLabel;
   const canAttachContent = isFanTarget && !isChatBlocked && !isInternalPanelOpen;
+  const canUsePpvTiers = canAttachContent;
   const nextActionStatus = getFollowUpStatusFromDate(nextActionDate);
   const nextActionTone: BadgeTone =
     nextActionStatus?.tone === "overdue"
@@ -8848,6 +9363,108 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
 
     return true;
   });
+  const ppvTierItems = useMemo(() => {
+    return contentItems.filter((item) => {
+      const isExtraItem = item.isExtra === true || item.visibility === "EXTRA";
+      if (!isExtraItem) return false;
+      const resolvedTier = item.chatTier ?? resolveChatTierFromExtraTier(item.extraTier ?? null);
+      return resolvedTier === ppvTierFilter;
+    });
+  }, [contentItems, ppvTierFilter]);
+
+  const ppvTierMenu = isFanTarget ? (
+    <div className="relative inline-flex">
+      <button
+        ref={ppvTierButtonRef}
+        type="button"
+        onClick={() => {
+          if (!canUsePpvTiers) return;
+          setPpvTierMenuOpen((prev) => !prev);
+        }}
+        disabled={!canUsePpvTiers}
+        className={clsx(
+          "inline-flex h-9 items-center gap-1.5 rounded-full border px-3 text-[11px] font-semibold transition focus-visible:outline-none focus-visible:ring-2",
+          canUsePpvTiers
+            ? "border-[color:var(--border)] bg-[color:var(--surface-2)] text-[color:var(--text)] hover:border-[color:var(--border-a)] hover:bg-[color:var(--surface-1)] focus-visible:ring-[color:var(--ring)]"
+            : "border-[color:var(--border)] bg-[color:var(--surface-2)] text-[color:var(--muted)] cursor-not-allowed"
+        )}
+        title={canUsePpvTiers ? "Tiers PPV" : "Solo disponible cuando escribes al fan."}
+        aria-label="Tiers PPV"
+      >
+        <span>Tiers</span>
+        <span className="text-[10px] text-[color:var(--muted)]">▾</span>
+      </button>
+      {ppvTierMenuOpen && (
+        <div
+          ref={ppvTierMenuRef}
+          className="absolute bottom-11 left-0 z-50 w-72 rounded-2xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] p-3 shadow-xl"
+        >
+          <div className="flex items-center justify-between text-[10px] uppercase tracking-wide text-[color:var(--muted)]">
+            <span>PPV tiers</span>
+            <button
+              type="button"
+              onClick={() => setPpvTierMenuOpen(false)}
+              className="rounded-full border border-[color:var(--surface-border)] px-2 py-0.5 text-[9px] font-semibold text-[color:var(--muted)] hover:text-[color:var(--text)]"
+            >
+              Cerrar
+            </button>
+          </div>
+          <div className="mt-2 flex flex-wrap items-center gap-1.5">
+            {CHAT_PPV_TIERS.map((tier) => {
+              const isActive = tier === ppvTierFilter;
+              return (
+                <button
+                  key={tier}
+                  type="button"
+                  onClick={() => setPpvTierFilter(tier)}
+                  className={clsx(
+                    "rounded-full border px-2.5 py-1 text-[10px] font-semibold transition",
+                    isActive
+                      ? "border-[color:var(--brand)] bg-[color:rgba(var(--brand-rgb),0.18)] text-[color:var(--text)]"
+                      : "border-[color:var(--surface-border)] bg-[color:var(--surface-2)] text-[color:var(--text)] hover:border-[color:var(--surface-border-hover)]"
+                  )}
+                >
+                  {resolveChatTierLabel(tier)}
+                </button>
+              );
+            })}
+          </div>
+          <div className="mt-3 max-h-56 space-y-1 overflow-y-auto">
+            {contentLoading && (
+              <div className="text-xs text-[color:var(--muted)]">Cargando extras…</div>
+            )}
+            {!contentLoading && contentError && (
+              <div className="text-xs text-[color:var(--danger)]">No se pudieron cargar los extras.</div>
+            )}
+            {!contentLoading && !contentError && ppvTierItems.length === 0 && (
+              <div className="rounded-lg border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-3 py-2 text-xs text-[color:var(--muted)]">
+                No hay extras en este tier. Prueba “Cualquiera” o un tier inferior.
+              </div>
+            )}
+            {!contentLoading &&
+              !contentError &&
+              ppvTierItems.map((item) => {
+                const timeLabel = formatExtraSlotLabel(item.extraSlot ?? null, item.timeOfDay ?? null);
+                return (
+                  <button
+                    key={item.id}
+                    type="button"
+                    onClick={() => handleSelectPpvItem(item)}
+                    className="flex w-full items-center justify-between gap-3 rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-3 py-2 text-left text-xs text-[color:var(--text)] hover:border-[color:rgba(245,158,11,0.6)] hover:bg-[color:var(--surface-2)]"
+                  >
+                    <div className="min-w-0">
+                      <div className="truncate text-[12px] font-semibold">{item.title}</div>
+                      <div className="text-[10px] text-[color:var(--muted)]">{timeLabel}</div>
+                    </div>
+                    <span className="text-[10px] text-[color:var(--muted)]">{resolveChatTierLabel(ppvTierFilter)}</span>
+                  </button>
+                );
+              })}
+          </div>
+        </div>
+      )}
+    </div>
+  ) : null;
 
   return (
     <div className="relative flex flex-col w-full h-[100dvh] max-h-[100dvh]">
@@ -9487,10 +10104,14 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
                       : []),
                     {
                       label: "Citar al Manager",
+                      disabled: !canUseManagerActions,
+                      title: !canUseManagerActions ? "Necesitas un fan activo para usar el Manager." : undefined,
                       onClick: () => handleMessageQuote(messageText),
                     },
                     {
                       label: "Reformular",
+                      disabled: !canUseManagerActions,
+                      title: !canUseManagerActions ? "Necesitas un fan activo para usar el Manager." : undefined,
                       onClick: () => handleMessageRephrase(messageText),
                     },
                     {
@@ -10093,6 +10714,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
                 onEmojiSelect={handleInsertEmoji}
                 showStickers={isFanTarget}
                 onStickerSelect={handleInsertSticker}
+                extraActions={ppvTierMenu}
                 inputRef={messageInputRef}
                 maxHeight={MAX_MAIN_COMPOSER_HEIGHT}
                 isChatBlocked={isChatBlocked}
@@ -10185,20 +10807,26 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
               <button
                 type="button"
                 onClick={() => {
+                  if (!canUseManagerActions) return;
                   handleMessageQuote(messageActionSheet.text);
                   closeMessageActionSheet();
                 }}
-                className="flex items-center justify-between rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-4 py-3 text-sm text-[color:var(--text)] hover:bg-[color:var(--surface-2)]"
+                disabled={!canUseManagerActions}
+                title={!canUseManagerActions ? "Necesitas un fan activo para usar el Manager." : undefined}
+                className="flex items-center justify-between rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-4 py-3 text-sm text-[color:var(--text)] hover:bg-[color:var(--surface-2)] disabled:cursor-not-allowed disabled:opacity-60"
               >
                 <span>Citar al Manager</span>
               </button>
               <button
                 type="button"
                 onClick={() => {
+                  if (!canUseManagerActions) return;
                   handleMessageRephrase(messageActionSheet.text);
                   closeMessageActionSheet();
                 }}
-                className="flex items-center justify-between rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-4 py-3 text-sm text-[color:var(--text)] hover:bg-[color:var(--surface-2)]"
+                disabled={!canUseManagerActions}
+                title={!canUseManagerActions ? "Necesitas un fan activo para usar el Manager." : undefined}
+                className="flex items-center justify-between rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-4 py-3 text-sm text-[color:var(--text)] hover:bg-[color:var(--surface-2)] disabled:cursor-not-allowed disabled:opacity-60"
               >
                 <span>Reformular</span>
               </button>

@@ -1,14 +1,16 @@
 import crypto from "crypto";
 
-const FALLBACK_DEV_KEY = "novsy-dev-secret-key-32bytes!";
+const DEV_FALLBACK_SEED = "DEV_APP_SECRET_KEY_STATIC";
 const IV_BYTES = 12;
 const AUTH_TAG_BYTES = 16;
 
 let cachedKey: Buffer | null = null;
 let warnedFallback = false;
+let warnedDerived = false;
+let warnedDecryptFailure = false;
 let verifiedKey = false;
 
-function getSecretKey(): Buffer {
+function deriveKey(): Buffer {
   if (cachedKey) return cachedKey;
 
   const raw = typeof process.env.APP_SECRET_KEY === "string" ? process.env.APP_SECRET_KEY.trim() : "";
@@ -19,13 +21,10 @@ function getSecretKey(): Buffer {
       throw new Error("APP_SECRET_KEY is required in production.");
     }
     if (!warnedFallback) {
-      console.warn("APP_SECRET_KEY missing; using dev fallback key.");
+      console.warn("APP_SECRET_KEY missing; using deterministic dev fallback key.");
       warnedFallback = true;
     }
-    cachedKey = Buffer.from(FALLBACK_DEV_KEY, "utf8");
-    if (cachedKey.length !== 32) {
-      cachedKey = crypto.createHash("sha256").update(FALLBACK_DEV_KEY).digest();
-    }
+    cachedKey = crypto.createHash("sha256").update(DEV_FALLBACK_SEED).digest();
     verifyKey(cachedKey);
     return cachedKey;
   }
@@ -37,12 +36,10 @@ function getSecretKey(): Buffer {
     const rawBytes = Buffer.from(raw, "utf8");
     if (rawBytes.length === 32) {
       key = rawBytes;
-    } else if (isProd) {
-      throw new Error("APP_SECRET_KEY must be 32 bytes or 64 hex chars in production.");
     } else {
-      if (!warnedFallback) {
-        console.warn("APP_SECRET_KEY length is not 32 bytes; deriving a dev key via SHA-256.");
-        warnedFallback = true;
+      if (!warnedDerived) {
+        console.warn("APP_SECRET_KEY length is not 32 bytes; deriving a key via SHA-256.");
+        warnedDerived = true;
       }
       key = crypto.createHash("sha256").update(rawBytes).digest();
     }
@@ -94,7 +91,7 @@ export function encryptSecret(plaintext: string): string {
   if (!plaintext) {
     throw new Error("Missing secret to encrypt.");
   }
-  const key = getSecretKey();
+  const key = deriveKey();
   return encryptWithKey(plaintext, key);
 }
 
@@ -102,6 +99,26 @@ export function decryptSecret(payload: string): string {
   if (!payload) {
     throw new Error("Missing secret payload.");
   }
-  const key = getSecretKey();
+  const key = deriveKey();
   return decryptWithKey(payload, key);
+}
+
+export function decryptSecretSafe(
+  payload: string | null | undefined
+): { ok: true; value: string } | { ok: false; errorCode: "DECRYPT_FAILED" } {
+  if (!payload) {
+    return { ok: false, errorCode: "DECRYPT_FAILED" };
+  }
+  try {
+    const key = deriveKey();
+    return { ok: true, value: decryptWithKey(payload, key) };
+  } catch (err) {
+    if (!warnedDecryptFailure && process.env.NODE_ENV !== "production") {
+      console.warn("decrypt_secret_failed", {
+        reason: err instanceof Error ? err.message : "unknown_error",
+      });
+      warnedDecryptFailure = true;
+    }
+    return { ok: false, errorCode: "DECRYPT_FAILED" };
+  }
 }

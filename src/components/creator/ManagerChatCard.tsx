@@ -78,21 +78,58 @@ type ManagerChatMessage = {
   createdAt: string;
   drafts?: CortexDraftGroup[];
   actions?: CortexActionCard[];
+  offer?: ManagerChatOffer | null;
 };
 
 type ManagerChatGetResponse = {
-  messages: ManagerChatMessage[];
+  ok?: boolean;
+  data?: { messages?: ManagerChatMessage[] };
+  messages?: ManagerChatMessage[];
 };
 
 type ManagerChatPostResponse = {
   ok?: boolean;
-  reply?: { text?: string };
+  status?: string;
+  meta?: { providerUsed?: string; modelUsed?: string; latencyMs?: number };
+  offer?: ManagerChatOffer;
+  error?: { code?: string; message?: string };
+  data?: {
+    reply?: { role?: string; content?: string };
+    usedFallback?: boolean;
+    settingsStatus?: "ok" | "settings_missing" | "decrypt_failed";
+    status?: string;
+    offer?: ManagerChatOffer;
+  };
+  reply?: { content?: string; text?: string };
   message?: { role?: string; content?: string };
   items?: Array<{ role?: string; content?: string }>;
   creditsUsed?: number;
   creditsRemaining?: number;
   usedFallback?: boolean;
   settingsStatus?: "ok" | "settings_missing" | "decrypt_failed";
+};
+
+type ManagerChatOffer = {
+  tier?: string | null;
+  dayPart?: string | null;
+  contentId?: string;
+  title?: string;
+  price?: number;
+};
+
+const formatDayPartLabel = (dayPart?: string | null) => {
+  if (dayPart === "DAY") return "Día";
+  if (dayPart === "NIGHT") return "Noche";
+  if (dayPart === "ANY") return "Cualquiera";
+  return null;
+};
+
+const formatOfferLabel = (offer?: ManagerChatOffer | null) => {
+  if (!offer) return null;
+  const tier = offer.tier ?? "T?";
+  const dayPartLabel = formatDayPartLabel(offer.dayPart ?? null);
+  const slotLabel = dayPartLabel ?? "Cualquiera";
+  return `Oferta: ${tier} · ${slotLabel}`;
 };
 
 type ManagerActionIntent = "ROMPER_EL_HIELO" | "REACTIVAR_FAN_FRIO" | "OFRECER_UN_EXTRA" | "LLEVAR_A_MENSUAL" | "RESUMEN_PULSO_HOY";
@@ -508,6 +545,7 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
   const [input, setInput] = useState("");
   const [usedFallback, setUsedFallback] = useState(false);
   const [settingsStatus, setSettingsStatus] = useState<"ok" | "settings_missing" | "decrypt_failed" | null>(null);
+  const [pendingOffer, setPendingOffer] = useState<ManagerChatOffer | null>(null);
   const [globalMode, setGlobalMode] = useState<GlobalMode>("HOY");
   const [growthPlatform, setGrowthPlatform] = useState<CreatorPlatformKey>("tiktok");
   const [salesRange, setSalesRange] = useState<SalesRange>("7d");
@@ -1005,12 +1043,13 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
         setLoading(true);
       }
       setError(null);
-      const res = await fetch("/api/creator/ai-manager/messages?tab=STRATEGY");
+      const res = await fetch("/api/creator/ai-manager/messages?tab=STRATEGY", { cache: "no-store" });
       if (!res.ok) {
         throw new Error("No se pudo cargar el historial");
       }
       const data = (await res.json()) as ManagerChatGetResponse;
-      setMessages((data?.messages ?? []).slice(-50));
+      const payload = data?.data ?? data;
+      setMessages((payload?.messages ?? []).slice(-50));
       if (!opts?.silent) {
         setUsedFallback(false);
       }
@@ -1157,41 +1196,117 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
       const res = await fetch("/api/creator/ai-manager/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ creatorId: creatorIdValue, tab: "STRATEGY", message: text, action }),
+        body: JSON.stringify({ creatorId: creatorIdValue, tab: "STRATEGY", text, action, mode: "analysis" }),
       });
 
-      const body = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        const message =
-          typeof body?.error === "string"
-            ? body.error
-            : typeof body?.message === "string"
-            ? body.message
-            : "Error enviando mensaje";
-        const details = typeof body?.details === "string" ? body.details : null;
-        throw new Error(formatRequestError(message, res.status, details));
+      const body = (await res.json().catch(() => ({}))) as ManagerChatPostResponse;
+      const extractOffer = (payload: any): ManagerChatOffer | null => {
+        const raw = payload?.offer ?? payload?.data?.offer;
+        if (!raw || typeof raw !== "object") return null;
+        const record = raw as Record<string, unknown>;
+        const tier = typeof record.tier === "string" ? record.tier : null;
+        const dayPart = typeof record.dayPart === "string" ? record.dayPart : null;
+        const contentId = typeof record.contentId === "string" ? record.contentId : undefined;
+        const title = typeof record.title === "string" ? record.title : undefined;
+        const price = typeof record.price === "number" ? record.price : undefined;
+        if (!tier && !dayPart && !contentId && !title) return null;
+        return { tier, dayPart, contentId, title, price };
+      };
+      const replyText =
+        typeof body?.data?.reply?.content === "string"
+          ? body.data.reply.content
+          : typeof body?.reply?.content === "string"
+          ? body.reply.content
+          : typeof body?.message?.content === "string"
+          ? body.message.content
+          : typeof body?.items?.[0]?.content === "string"
+          ? body.items[0].content
+          : typeof body?.reply?.text === "string"
+          ? body.reply.text
+          : "";
+      const trimmedReplyText = replyText.trim();
+      const responseOffer = extractOffer(body);
+      const statusValue =
+        typeof body?.status === "string"
+          ? body.status
+          : typeof body?.data?.status === "string"
+          ? body.data.status
+          : "";
+      const normalizedStatus = statusValue.trim().toLowerCase();
+      if (body?.ok === false || normalizedStatus === "provider_down" || normalizedStatus === "refusal") {
+        const errorCode =
+          typeof (body as any)?.error?.code === "string"
+            ? (body as any).error.code
+            : typeof (body as any)?.code === "string"
+            ? (body as any).code
+            : "";
+        const providerUnavailable =
+          normalizedStatus === "provider_down" ||
+          errorCode.toUpperCase() === "PROVIDER_UNAVAILABLE" ||
+          res.status === 502;
+        if (providerUnavailable) {
+          setError("Ollama no responde. Revisa que esté activo.");
+          if (!trimmedReplyText) {
+            const assistantMessage: ManagerChatMessage = {
+              id: `assistant-${Date.now()}`,
+              role: "ASSISTANT",
+              content: "Ollama no responde. Reintenta en unos segundos.",
+              createdAt: new Date().toISOString(),
+            };
+            setMessages((prev) =>
+              [...prev.filter((m) => m.id !== optimisticId), assistantMessage].slice(-50)
+            );
+            return;
+          }
+        } else if (!trimmedReplyText && (normalizedStatus === "refusal" || errorCode.toUpperCase() === "REFUSAL")) {
+          const refusalText =
+            "Se bloqueó la generación con este contexto. Prueba \"Otra versión\" o \"Suavizar\".";
+          const assistantMessage: ManagerChatMessage = {
+            id: `assistant-${Date.now()}`,
+            role: "ASSISTANT",
+            content: refusalText,
+            createdAt: new Date().toISOString(),
+          };
+          setMessages((prev) =>
+            [...prev.filter((m) => m.id !== optimisticId), assistantMessage].slice(-50)
+          );
+          return;
+        } else if (!trimmedReplyText) {
+          const message =
+            typeof (body as any)?.error?.message === "string"
+              ? (body as any).error.message
+            : typeof (body as any)?.error === "string"
+            ? (body as any).error
+              : typeof body?.message === "string"
+              ? body.message
+              : "Error enviando mensaje";
+          const details = typeof (body as any)?.details === "string" ? (body as any).details : null;
+          throw new Error(formatRequestError(message, res.status, details));
+        }
+        if (trimmedReplyText && !providerUnavailable) {
+          setError("Respuesta de seguridad / fallback.");
+        }
       }
 
       const data = body as ManagerChatPostResponse;
-      const replyText =
-        typeof data?.reply?.text === "string"
-          ? data.reply.text
-          : typeof data?.message?.content === "string"
-          ? data.message.content
-          : typeof data?.items?.[0]?.content === "string"
-          ? data.items[0].content
-          : "Sin respuesta";
+      const normalizedReplyText = trimmedReplyText || "Sin respuesta";
       const assistantMessage: ManagerChatMessage = {
         id: `assistant-${Date.now()}`,
         role: "ASSISTANT",
-        content: replyText,
+        content: normalizedReplyText,
         createdAt: new Date().toISOString(),
+        offer: responseOffer ?? undefined,
       };
       setMessages((prev) =>
         [...prev.filter((m) => m.id !== optimisticId), assistantMessage].slice(-50)
       );
-      setUsedFallback(Boolean(data?.usedFallback));
-      setSettingsStatus(data?.settingsStatus ?? null);
+      setUsedFallback(Boolean(data?.data?.usedFallback ?? data?.usedFallback));
+      setSettingsStatus(data?.data?.settingsStatus ?? data?.settingsStatus ?? null);
+      if (normalizedStatus === "needs_age_gate") {
+        setError("Se requiere confirmar +18.");
+      } else if (!normalizedStatus || normalizedStatus === "ok") {
+        setError(null);
+      }
       void loadMessages({ silent: true });
       setInput("");
       lastQuickPromptRef.current = null;
@@ -1570,6 +1685,14 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
       return true;
     },
     [resizeComposer]
+  );
+  const handleInsertOffer = useCallback(
+    (draftText: string, offer: ManagerChatOffer) => {
+      const inserted = applyCortexDraft(draftText, "replace");
+      if (!inserted) return;
+      setPendingOffer(offer);
+    },
+    [applyCortexDraft]
   );
   const handleGenerateSuggestion = useCallback(async () => {
     if (suggestionLoading) return;
@@ -4392,6 +4515,20 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
                       fromLabel="Manager IA"
                       meLabel="Tú"
                     />
+                    {!isCreator && msg.offer && (
+                      <div className="mt-1 flex flex-wrap items-center gap-2">
+                        <span className="inline-flex items-center rounded-full border border-[color:rgba(var(--brand-rgb),0.35)] bg-[color:rgba(var(--brand-rgb),0.12)] px-2.5 py-1 text-[10px] font-semibold text-[color:var(--text)]">
+                          {formatOfferLabel(msg.offer)}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => handleInsertOffer(msg.content, msg.offer as ManagerChatOffer)}
+                          className="inline-flex items-center rounded-full border border-[color:var(--warning)] bg-[color:rgba(245,158,11,0.08)] px-3 py-1 text-[10px] font-semibold text-[color:var(--text)] hover:bg-[color:rgba(245,158,11,0.16)]"
+                        >
+                          Insertar + Oferta
+                        </button>
+                      </div>
+                    )}
                     {!isCreator && (
                       <>
                         {renderActionCards(msg.actions, "max-w-2xl")}
@@ -4582,6 +4719,20 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
                     </div>
                   )}
                 </div>
+                {pendingOffer && (
+                  <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-[color:rgba(var(--brand-rgb),0.35)] bg-[color:rgba(var(--brand-rgb),0.08)] px-3 py-2 text-[11px] text-[color:var(--text)]">
+                    <span className="font-medium">
+                      Oferta sugerida: {(formatOfferLabel(pendingOffer) || "").replace(/^Oferta:\s*/, "")}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setPendingOffer(null)}
+                      className="rounded-full border border-[color:var(--surface-border)] px-2.5 py-0.5 text-[10px] font-semibold text-[color:var(--muted)] hover:text-[color:var(--text)]"
+                    >
+                      Quitar
+                    </button>
+                  </div>
+                )}
                 <textarea
                   ref={inputRef}
                   rows={1}

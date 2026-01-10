@@ -53,6 +53,7 @@ type ChatComposerBarProps = {
   onVoiceStart?: () => void;
   voiceDisabled?: boolean;
   isVoiceRecording?: boolean;
+  extraActions?: React.ReactNode;
 };
 
 export function ChatComposerBar({
@@ -88,6 +89,7 @@ export function ChatComposerBar({
   onVoiceStart,
   voiceDisabled = false,
   isVoiceRecording = false,
+  extraActions,
 }: ChatComposerBarProps) {
   const isInternalMode = audience === "INTERNAL";
   const isInputDisabled = (isChatBlocked && !isInternalMode) || isInternalPanelOpen;
@@ -504,6 +506,7 @@ export function ChatComposerBar({
               )}
             </div>
           )}
+          {extraActions}
           {hasModeToggle ? (
             <div
               className={clsx(

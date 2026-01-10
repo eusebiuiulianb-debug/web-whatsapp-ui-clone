@@ -8,6 +8,10 @@ export interface ContentItem {
   visibility: ContentVisibility;
   externalUrl: string;
   createdAt: string;
+  defaultCopy?: string | null;
+  chatTier?: string | null;
+  extraTier?: string | null;
+  extraSlot?: string | null;
 }
 
 export function getContentTypeLabel(type: ContentType): string {

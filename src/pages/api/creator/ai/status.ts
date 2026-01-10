@@ -7,6 +7,7 @@ import { getCortexProviderStatus } from "../../../../lib/ai/cortexProvider";
 
 export default async function handler(_req: NextApiRequest, res: NextApiResponse) {
   try {
+    res.setHeader("Cache-Control", "no-store");
     const creatorId = "creator-1";
 
     const settings =
@@ -35,22 +36,28 @@ export default async function handler(_req: NextApiRequest, res: NextApiResponse
     const cortexStatus = await getCortexProviderStatus({ creatorId });
 
     return res.status(200).json({
-      creditsAvailable: settings.creditsAvailable,
-      hardLimitPerDay,
-      usedToday,
-      remainingToday,
-      limitReached,
-      turnMode: normalizeAiTurnMode(settings.turnMode as string | null | undefined),
-      translateConfigured: translateConfig.configured,
-      translateProvider: translateConfig.provider,
-      translateMissingVars: translateConfig.missingVars,
-      creatorLang: translateConfig.creatorLang,
-      cortexProvider: cortexStatus.provider,
-      cortexConfigured: cortexStatus.configured,
-      cortexMissingVars: cortexStatus.missingVars,
+      ok: true,
+      data: {
+        creditsAvailable: settings.creditsAvailable,
+        hardLimitPerDay,
+        usedToday,
+        remainingToday,
+        limitReached,
+        turnMode: normalizeAiTurnMode(settings.turnMode as string | null | undefined),
+        translateConfigured: translateConfig.configured,
+        translateProvider: translateConfig.provider,
+        translateMissingVars: translateConfig.missingVars,
+        creatorLang: translateConfig.creatorLang,
+        cortexProvider: cortexStatus.provider,
+        cortexConfigured: cortexStatus.configured,
+        cortexMissingVars: cortexStatus.missingVars,
+      },
     });
   } catch (err) {
     console.error("Error fetching AI status", err);
-    return res.status(500).json({ error: "INTERNAL_ERROR" });
+    return res.status(500).json({
+      ok: false,
+      error: { code: "INTERNAL_ERROR", message: "Error fetching AI status" },
+    });
   }
 }

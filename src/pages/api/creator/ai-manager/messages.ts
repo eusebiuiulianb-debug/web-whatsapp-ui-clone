@@ -1,7 +1,6 @@
 import type { NextApiRequest, NextApiResponse } from "next";
 import { ManagerAiTab } from "@prisma/client";
 import prisma from "../../../../lib/prisma.server";
-import { sendBadRequest, sendServerError } from "../../../../lib/apiError";
 
 type ManagerMessage = {
   id: string;
@@ -11,18 +10,28 @@ type ManagerMessage = {
 };
 
 type MessagesResponse = {
-  messages: ManagerMessage[];
+  ok: true;
+  data: { messages: ManagerMessage[] };
+  messages?: ManagerMessage[];
 };
 
-export default async function handler(req: NextApiRequest, res: NextApiResponse<MessagesResponse | { error: string }>) {
+type ErrorResponse = { ok: false; error: { code: string; message: string } };
+
+export default async function handler(
+  req: NextApiRequest,
+  res: NextApiResponse<MessagesResponse | ErrorResponse>
+) {
   if (req.method !== "GET") {
     res.setHeader("Allow", "GET");
-    return res.status(405).json({ error: "Method not allowed" });
+    return res.status(405).json({ ok: false, error: { code: "method_not_allowed", message: "Method not allowed" } });
   }
+  res.setHeader("Cache-Control", "no-store");
 
   const tab = normalizeTab(typeof req.query.tab === "string" ? req.query.tab : "");
   if (!tab) {
-    return sendBadRequest(res, "tab must be STRATEGY or CONTENT");
+    return res
+      .status(400)
+      .json({ ok: false, error: { code: "bad_request", message: "tab must be STRATEGY or CONTENT" } });
   }
 
   try {
@@ -32,17 +41,19 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
       orderBy: { createdAt: "asc" },
     });
 
-    return res.status(200).json({
-      messages: messages.map((msg) => ({
-        id: msg.id,
-        role: msg.role,
-        content: msg.content,
-        createdAt: msg.createdAt instanceof Date ? msg.createdAt.toISOString() : String(msg.createdAt),
-      })),
-    });
+    const payload = messages.map((msg) => ({
+      id: msg.id,
+      role: msg.role,
+      content: msg.content,
+      createdAt: msg.createdAt instanceof Date ? msg.createdAt.toISOString() : String(msg.createdAt),
+    }));
+    return res.status(200).json({ ok: true, data: { messages: payload }, messages: payload });
   } catch (err) {
     console.error("Error loading manager messages", err);
-    return sendServerError(res, "No se pudo cargar el historial del Manager IA");
+    return res.status(500).json({
+      ok: false,
+      error: { code: "server_error", message: "No se pudo cargar el historial del Manager IA" },
+    });
   }
 }
 

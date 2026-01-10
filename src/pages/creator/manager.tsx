@@ -210,10 +210,11 @@ export default function CreatorManagerPage(props: Props) {
 
   const fetchPlatforms = useCallback(async () => {
     try {
-      const res = await fetch("/api/creator/ai-settings");
+      const res = await fetch("/api/creator/ai-settings", { cache: "no-store" });
       if (!res.ok) throw new Error("Error fetching platforms");
       const data = await res.json();
-      const normalized = normalizeCreatorPlatforms(data?.settings?.platforms);
+      const settingsPayload = data?.data?.settings ?? data?.settings;
+      const normalized = normalizeCreatorPlatforms(settingsPayload?.platforms);
       setPlatforms(normalized);
     } catch (_err) {
       setPlatforms(null);

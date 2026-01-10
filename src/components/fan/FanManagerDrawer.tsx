@@ -31,11 +31,51 @@ function formatToneLabel(tone?: FanTone | null) {
   return null;
 }
 
+const OFFER_SLOT_LABELS: Record<string, { phase: string; moment: string }> = {
+  DAY_1: { phase: "Suave", moment: "Día" },
+  DAY_2: { phase: "Picante", moment: "Día" },
+  NIGHT_1: { phase: "Directo", moment: "Noche" },
+  NIGHT_2: { phase: "Final", moment: "Noche" },
+  ANY: { phase: "Cualquiera", moment: "" },
+};
+const formatDayPartLabel = (dayPart?: string | null) => {
+  if (dayPart === "DAY") return "Día";
+  if (dayPart === "NIGHT") return "Noche";
+  if (dayPart === "ANY") return "Cualquiera";
+  return null;
+};
+const formatOfferSlot = (slot?: string | null) => {
+  if (!slot) return "Cualquiera";
+  const meta = OFFER_SLOT_LABELS[slot];
+  if (!meta) return slot;
+  return meta.moment ? `${meta.phase} · ${meta.moment}` : meta.phase;
+};
+const formatOfferLabel = (offer?: PpvOffer | null) => {
+  if (!offer) return null;
+  const tier = offer.tier ?? "T?";
+  const dayPartLabel = formatDayPartLabel(offer.dayPart ?? null);
+  const slotLabel = dayPartLabel ?? formatOfferSlot(offer.slot);
+  return `Oferta: ${tier} · ${slotLabel}`;
+};
+
+type PpvOffer = {
+  contentId?: string;
+  title?: string;
+  tier?: string | null;
+  dayPart?: string | null;
+  slot?: string | null;
+  priceCents?: number;
+  currency?: string;
+};
+
 type Props = {
   managerSuggestions?: { id: string; label: string; message: string; intent?: string }[];
   onApplySuggestion?: (text: string, detail?: string, actionKeyOrIntent?: string) => void;
-  draftCards?: { id: string; label: string; text: string }[];
+  draftCards?: { id: string; label: string; text: string; offer?: PpvOffer | null }[];
   onDraftAction?: (draftId: string, action: "alternate" | "shorter" | "softer" | "bolder") => void;
+  onInsertOffer?: (text: string, offer: PpvOffer, detail?: string) => void;
+  onPhaseAction?: (phase: "suave" | "picante" | "directo" | "final") => void;
+  onOpenOfferSelector?: () => void;
   currentObjective?: ManagerObjective | null;
   suggestedObjective?: ManagerObjective | null;
   fanManagerState?: FanManagerState | null;
@@ -90,6 +130,9 @@ export default function FanManagerDrawer({
   onApplySuggestion,
   draftCards,
   onDraftAction,
+  onInsertOffer,
+  onPhaseAction,
+  onOpenOfferSelector,
   currentObjective,
   suggestedObjective,
   fanManagerState,
@@ -424,6 +467,50 @@ export default function FanManagerDrawer({
             Llevar a mensual
           </button>
         </div>
+        <div className="mt-3 flex flex-wrap items-center gap-2">
+          <span className="text-[10px] uppercase tracking-wide text-[color:var(--muted)]">Fases PPV</span>
+          {(["suave", "picante", "directo", "final"] as const).map((phase) => (
+            <button
+              key={phase}
+              type="button"
+              onClick={() => {
+                if (objectivesLocked) return;
+                onPhaseAction?.(phase);
+              }}
+              disabled={objectivesLocked}
+              className={clsx(
+                "inline-flex items-center justify-center rounded-full border px-3 py-1 text-[11px] font-semibold transition",
+                objectivesLocked
+                  ? "border-[color:var(--surface-border)] bg-[color:var(--surface-2)] text-[color:var(--muted)] cursor-not-allowed"
+                  : "border-[color:var(--surface-border)] bg-[color:var(--surface-2)] text-[color:var(--text)] hover:border-[color:var(--brand)]"
+              )}
+            >
+              {phase === "suave"
+                ? "Suave"
+                : phase === "picante"
+                ? "Picante"
+                : phase === "directo"
+                ? "Directo"
+                : "Final"}
+            </button>
+          ))}
+          <button
+            type="button"
+            onClick={() => {
+              if (objectivesLocked) return;
+              onOpenOfferSelector?.();
+            }}
+            disabled={objectivesLocked}
+            className={clsx(
+              "inline-flex items-center justify-center rounded-full border px-3 py-1 text-[11px] font-semibold transition",
+              objectivesLocked
+                ? "border-[color:var(--surface-border)] bg-[color:var(--surface-2)] text-[color:var(--muted)] cursor-not-allowed"
+                : "border-[color:rgba(245,158,11,0.6)] bg-[color:rgba(245,158,11,0.12)] text-[color:var(--text)] hover:bg-[color:rgba(245,158,11,0.2)]"
+            )}
+          >
+            Ofrecer extra
+          </button>
+        </div>
       </div>
       {draftCards && draftCards.length > 0 && (
         <div className="mt-3 rounded-xl border border-[color:rgba(var(--brand-rgb),0.25)] bg-[color:rgba(var(--brand-rgb),0.06)] p-3 flex flex-col gap-2">
@@ -438,6 +525,20 @@ export default function FanManagerDrawer({
               >
                 <div className="text-[10px] uppercase tracking-wide text-[color:var(--muted)]">{draft.label}</div>
                 <div className="text-[12px] text-[color:var(--text)]">{draft.text}</div>
+                {draft.offer && (
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="inline-flex items-center rounded-full border border-[color:rgba(var(--brand-rgb),0.35)] bg-[color:rgba(var(--brand-rgb),0.12)] px-2.5 py-1 text-[10px] font-semibold text-[color:var(--text)]">
+                      {formatOfferLabel(draft.offer)}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => draft.offer && onInsertOffer?.(draft.text, draft.offer, draft.label)}
+                      className="inline-flex items-center rounded-full border border-[color:var(--warning)] bg-[color:rgba(245,158,11,0.08)] px-3 py-1 text-[10px] font-semibold text-[color:var(--text)] hover:bg-[color:rgba(245,158,11,0.16)]"
+                    >
+                      Insertar + Oferta
+                    </button>
+                  </div>
+                )}
                 <div className="flex flex-wrap items-center gap-2">
                   <button
                     type="button"

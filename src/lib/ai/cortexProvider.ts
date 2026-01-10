@@ -2,7 +2,7 @@ import { sanitizeForOpenAi } from "../../server/ai/sanitizeForOpenAi";
 import { parseOpenAiError, toSafeErrorMessage } from "../../server/ai/openAiError";
 import { maybeDecrypt } from "../../server/crypto/maybeDecrypt";
 import prisma from "../prisma.server";
-import { decryptSecret } from "../crypto/secrets";
+import { decryptSecretSafe } from "../crypto/secrets";
 import { buildOllamaOpenAiRequest, requestOllamaChatCompletion } from "./providers/ollama";
 
 export type CortexChatMessage = { role: "system" | "user" | "assistant"; content: string };
@@ -193,15 +193,14 @@ async function resolveDbProviderSelection(creatorId: string): Promise<CortexProv
     let decryptFailed = false;
 
     if (settings.cortexApiKeyEnc) {
-      try {
-        apiKey = decryptSecret(settings.cortexApiKeyEnc);
-      } catch (err) {
+      const decrypted = decryptSecretSafe(settings.cortexApiKeyEnc);
+      if (decrypted.ok) {
+        apiKey = decrypted.value;
+      } else {
         decryptFailed = true;
-        console.warn("cortex_provider_decrypt_failed", {
-          creatorId,
-          provider: desiredProvider,
-          error: err instanceof Error ? err.message : "unknown_error",
-        });
+        if (process.env.NODE_ENV !== "production") {
+          console.warn("cortex_provider_decrypt_failed", { creatorId, provider: desiredProvider });
+        }
       }
     }
 

@@ -6,6 +6,8 @@ export const ANALYTICS_EVENTS = {
   SEND_MESSAGE: "send_message",
   PURCHASE_START: "purchase_start",
   PURCHASE_SUCCESS: "purchase_success",
+  PPV_OFFER_SENT: "ppv_offer_sent",
+  PPV_OFFER_INSERTED: "ppv_offer_inserted",
 } as const;
 
 export type AnalyticsEventName = (typeof ANALYTICS_EVENTS)[keyof typeof ANALYTICS_EVENTS];

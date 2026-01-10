@@ -19,12 +19,17 @@ export function useCortexProviderStatus(): CortexProviderStatus | null {
 
   useEffect(() => {
     let active = true;
-    fetchJsonDedupe<any>("cortex:provider-status", () => fetch("/api/creator/ai/status"), { ttlMs: 1200 })
+    fetchJsonDedupe<any>(
+      "cortex:provider-status",
+      () => fetch("/api/creator/ai/status", { cache: "no-store" }),
+      { ttlMs: 1200 }
+    )
       .then((data) => {
         if (!active) return;
+        const payload = data?.data ?? data;
         setStatus({
-          provider: normalizeProvider(data?.cortexProvider),
-          configured: Boolean(data?.cortexConfigured),
+          provider: normalizeProvider(payload?.cortexProvider),
+          configured: Boolean(payload?.cortexConfigured),
         });
       })
       .catch(() => {

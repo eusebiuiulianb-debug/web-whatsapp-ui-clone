@@ -1,6 +1,6 @@
 import { translateText as translateWithOpenAi } from "../../server/ai/translateText";
 import prisma from "../prisma.server";
-import { decryptSecret } from "../crypto/secrets";
+import { decryptSecretSafe } from "../crypto/secrets";
 import { normalizeTranslationLanguage, type TranslationLanguage } from "../language";
 
 export type TranslateProvider = "deepl" | "google" | "openai" | "libretranslate" | "none";
@@ -76,19 +76,17 @@ async function getDbTranslateConfig(creatorId: string): Promise<ResolvedTranslat
 
     let libretranslateApiKey: string | null = null;
     if (settings.libretranslateApiKeyEnc) {
-      try {
-        libretranslateApiKey = decryptSecret(settings.libretranslateApiKeyEnc);
-      } catch (err) {
-        console.warn("Failed to decrypt LibreTranslate API key.", err);
+      const decrypted = decryptSecretSafe(settings.libretranslateApiKeyEnc);
+      if (decrypted.ok) {
+        libretranslateApiKey = decrypted.value;
       }
     }
 
     let deeplApiKey: string | null = null;
     if (settings.deeplApiKeyEnc) {
-      try {
-        deeplApiKey = decryptSecret(settings.deeplApiKeyEnc);
-      } catch (err) {
-        console.warn("Failed to decrypt DeepL API key.", err);
+      const decrypted = decryptSecretSafe(settings.deeplApiKeyEnc);
+      if (decrypted.ok) {
+        deeplApiKey = decrypted.value;
       }
     }
 

@@ -9,21 +9,58 @@ type ContentManagerChatMessage = {
   role: "CREATOR" | "ASSISTANT";
   content: string;
   createdAt: string;
+  offer?: ContentManagerChatOffer | null;
 };
 
 type ContentChatGetResponse = {
-  messages: ContentManagerChatMessage[];
+  ok?: boolean;
+  data?: { messages?: ContentManagerChatMessage[] };
+  messages?: ContentManagerChatMessage[];
 };
 
 type ContentChatPostResponse = {
   ok?: boolean;
-  reply?: { text?: string };
+  status?: string;
+  meta?: { providerUsed?: string; modelUsed?: string; latencyMs?: number };
+  offer?: ContentManagerChatOffer;
+  error?: { code?: string; message?: string };
+  data?: {
+    reply?: { role?: string; content?: string };
+    usedFallback?: boolean;
+    settingsStatus?: "ok" | "settings_missing" | "decrypt_failed";
+    status?: string;
+    offer?: ContentManagerChatOffer;
+  };
+  reply?: { content?: string; text?: string };
   message?: { role?: string; content?: string };
   items?: Array<{ role?: string; content?: string }>;
   creditsUsed?: number;
   creditsRemaining?: number;
   usedFallback?: boolean;
-  settingsStatus?: "ok" | "settings_missing";
+  settingsStatus?: "ok" | "settings_missing" | "decrypt_failed";
+};
+
+type ContentManagerChatOffer = {
+  tier?: string | null;
+  dayPart?: string | null;
+  contentId?: string;
+  title?: string;
+  price?: number;
+};
+
+const formatDayPartLabel = (dayPart?: string | null) => {
+  if (dayPart === "DAY") return "Día";
+  if (dayPart === "NIGHT") return "Noche";
+  if (dayPart === "ANY") return "Cualquiera";
+  return null;
+};
+
+const formatOfferLabel = (offer?: ContentManagerChatOffer | null) => {
+  if (!offer) return null;
+  const tier = offer.tier ?? "T?";
+  const dayPartLabel = formatDayPartLabel(offer.dayPart ?? null);
+  const slotLabel = dayPartLabel ?? "Cualquiera";
+  return `Oferta: ${tier} · ${slotLabel}`;
 };
 
 const contentSuggestions = [
@@ -58,6 +95,7 @@ export const ContentManagerChatCard = forwardRef<ContentManagerChatCardHandle, P
   const [usedFallback, setUsedFallback] = useState(false);
   const [settingsStatus, setSettingsStatus] = useState<"ok" | "settings_missing" | null>(null);
   const [input, setInput] = useState("");
+  const [pendingOffer, setPendingOffer] = useState<ContentManagerChatOffer | null>(null);
   const [resolvedCreatorId, setResolvedCreatorId] = useState<string | null>(null);
   const listRef = useRef<HTMLDivElement | null>(null);
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
@@ -88,10 +126,11 @@ export const ContentManagerChatCard = forwardRef<ContentManagerChatCardHandle, P
           setLoading(true);
         }
         setError(null);
-        const res = await fetch(`/api/creator/ai-manager/messages?tab=${mode}`);
+        const res = await fetch(`/api/creator/ai-manager/messages?tab=${mode}`, { cache: "no-store" });
         if (!res.ok) throw new Error("No se pudo cargar el historial");
         const data = (await res.json()) as ContentChatGetResponse;
-        setMessages((data?.messages ?? []).slice(-50));
+        const payload = data?.data ?? data;
+        setMessages((payload?.messages ?? []).slice(-50));
         if (!opts?.silent) {
           setUsedFallback(false);
         }
@@ -122,6 +161,16 @@ export const ContentManagerChatCard = forwardRef<ContentManagerChatCardHandle, P
     }
   }, [initialSnapshot]);
 
+  const handleInsertOffer = useCallback((message: string, offer: ContentManagerChatOffer) => {
+    const trimmed = message.trim();
+    if (!trimmed) return;
+    setInput(trimmed);
+    setPendingOffer(offer);
+    requestAnimationFrame(() => {
+      inputRef.current?.focus();
+    });
+  }, []);
+
   async function handleSend(externalText?: string, action?: string | null) {
     const text = (typeof externalText === "string" ? externalText : input).trim();
     if (!text || sending) return;
@@ -142,38 +191,113 @@ export const ContentManagerChatCard = forwardRef<ContentManagerChatCardHandle, P
       const res = await fetch("/api/creator/ai-manager/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ creatorId: creatorIdValue, tab: mode, message: text, action }),
+        body: JSON.stringify({ creatorId: creatorIdValue, tab: mode, text, action, mode: "analysis" }),
       });
-      if (!res.ok) {
-        const body = await res.json().catch(() => ({}));
-        const message =
-          typeof body?.error === "string"
-            ? body.error
-            : typeof body?.message === "string"
-            ? body.message
-            : "Error enviando mensaje";
-        throw new Error(message);
-      }
-      const data = (await res.json()) as ContentChatPostResponse;
+      const data = (await res.json().catch(() => ({}))) as ContentChatPostResponse;
+      const extractOffer = (payload: any): ContentManagerChatOffer | null => {
+        const raw = payload?.offer ?? payload?.data?.offer;
+        if (!raw || typeof raw !== "object") return null;
+        const record = raw as Record<string, unknown>;
+        const tier = typeof record.tier === "string" ? record.tier : null;
+        const dayPart = typeof record.dayPart === "string" ? record.dayPart : null;
+        const contentId = typeof record.contentId === "string" ? record.contentId : undefined;
+        const title = typeof record.title === "string" ? record.title : undefined;
+        const price = typeof record.price === "number" ? record.price : undefined;
+        if (!tier && !dayPart && !contentId && !title) return null;
+        return { tier, dayPart, contentId, title, price };
+      };
       const replyText =
-        typeof data?.reply?.text === "string"
-          ? data.reply.text
+        typeof data?.data?.reply?.content === "string"
+          ? data.data.reply.content
+          : typeof data?.reply?.content === "string"
+          ? data.reply.content
           : typeof data?.message?.content === "string"
           ? data.message.content
           : typeof data?.items?.[0]?.content === "string"
           ? data.items[0].content
-          : "Sin respuesta";
+          : typeof data?.reply?.text === "string"
+          ? data.reply.text
+          : "";
+      const trimmedReplyText = replyText.trim();
+      const responseOffer = extractOffer(data);
+      const statusValue =
+        typeof data?.status === "string"
+          ? data.status
+          : typeof data?.data?.status === "string"
+          ? data.data.status
+          : "";
+      const normalizedStatus = statusValue.trim().toLowerCase();
+      if (data?.ok === false || normalizedStatus === "provider_down" || normalizedStatus === "refusal") {
+        const errorCode =
+          typeof (data as any)?.error?.code === "string"
+            ? (data as any).error.code
+            : typeof (data as any)?.code === "string"
+            ? (data as any).code
+            : "";
+        const providerUnavailable =
+          normalizedStatus === "provider_down" ||
+          errorCode.toUpperCase() === "PROVIDER_UNAVAILABLE" ||
+          res.status === 502;
+        if (providerUnavailable) {
+          setError("Ollama no responde. Revisa que esté activo.");
+          if (!trimmedReplyText) {
+            const assistantMessage: ContentManagerChatMessage = {
+              id: `assistant-${Date.now()}`,
+              role: "ASSISTANT",
+              content: "Ollama no responde. Reintenta en unos segundos.",
+              createdAt: new Date().toISOString(),
+            };
+            setMessages((prev) =>
+              [...prev.filter((m) => m.id !== optimisticId), assistantMessage].slice(-50)
+            );
+            return;
+          }
+        } else if (!trimmedReplyText && (normalizedStatus === "refusal" || errorCode.toUpperCase() === "REFUSAL")) {
+          const refusalText =
+            "Se bloqueó la generación con este contexto. Prueba \"Otra versión\" o \"Suavizar\".";
+          const assistantMessage: ContentManagerChatMessage = {
+            id: `assistant-${Date.now()}`,
+            role: "ASSISTANT",
+            content: refusalText,
+            createdAt: new Date().toISOString(),
+          };
+          setMessages((prev) =>
+            [...prev.filter((m) => m.id !== optimisticId), assistantMessage].slice(-50)
+          );
+          return;
+        } else if (!trimmedReplyText) {
+          const message =
+            typeof (data as any)?.error?.message === "string"
+              ? (data as any).error.message
+            : typeof (data as any)?.error === "string"
+            ? (data as any).error
+              : typeof data?.message === "string"
+              ? data.message
+              : "Error enviando mensaje";
+          throw new Error(message);
+        }
+        if (trimmedReplyText && !providerUnavailable) {
+          setError("Respuesta de seguridad / fallback.");
+        }
+      }
+      const normalizedReplyText = trimmedReplyText || "Sin respuesta";
       const assistantMessage: ContentManagerChatMessage = {
         id: `assistant-${Date.now()}`,
         role: "ASSISTANT",
-        content: replyText,
+        content: normalizedReplyText,
         createdAt: new Date().toISOString(),
+        offer: responseOffer ?? undefined,
       };
       setMessages((prev) =>
         [...prev.filter((m) => m.id !== optimisticId), assistantMessage].slice(-50)
       );
-      setUsedFallback(Boolean(data?.usedFallback));
-      setSettingsStatus(data?.settingsStatus ?? null);
+      setUsedFallback(Boolean(data?.data?.usedFallback ?? data?.usedFallback));
+      setSettingsStatus(data?.data?.settingsStatus ?? data?.settingsStatus ?? null);
+      if (normalizedStatus === "needs_age_gate") {
+        setError("Se requiere confirmar +18.");
+      } else if (!normalizedStatus || normalizedStatus === "ok") {
+        setError(null);
+      }
       void loadMessages({ silent: true });
       if (!externalText) setInput("");
     } catch (err) {
@@ -284,6 +408,20 @@ export const ContentManagerChatCard = forwardRef<ContentManagerChatCardHandle, P
                     >
                       {msg.content}
                     </div>
+                    {!isCreator && msg.offer && (
+                      <div className="mt-2 flex flex-wrap items-center gap-2">
+                        <span className="inline-flex items-center rounded-full border border-[color:rgba(var(--brand-rgb),0.35)] bg-[color:rgba(var(--brand-rgb),0.12)] px-2.5 py-1 text-[10px] font-semibold text-[color:var(--text)]">
+                          {formatOfferLabel(msg.offer)}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => handleInsertOffer(msg.content, msg.offer as ContentManagerChatOffer)}
+                          className="inline-flex items-center rounded-full border border-[color:var(--warning)] bg-[color:rgba(245,158,11,0.08)] px-3 py-1 text-[10px] font-semibold text-[color:var(--text)] hover:bg-[color:rgba(245,158,11,0.16)]"
+                        >
+                          Insertar + Oferta
+                        </button>
+                      </div>
+                    )}
                   </div>
                 </div>
               );
@@ -327,28 +465,44 @@ export const ContentManagerChatCard = forwardRef<ContentManagerChatCardHandle, P
           e.preventDefault();
           void handleSend();
         }}
-        className="flex gap-2"
+        className="flex flex-col gap-2"
       >
-        <textarea
-          ref={inputRef}
-          value={input}
-          onChange={(e) => setInput(e.target.value)}
-          disabled={sending}
-          placeholder={
-            mode === "CONTENT"
-              ? "Pregúntale al Manager IA de catálogo."
-              : "Pega aquí tus métricas de la semana (seguidores, visitas, ingresos, etc.) o cuéntame qué ha pasado…"
-          }
-          className="flex-1 resize-none rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-3 py-2 text-sm text-[color:var(--text)] focus:outline-none focus:ring-2 focus:ring-[color:var(--ring)] disabled:cursor-not-allowed disabled:opacity-70"
-          rows={2}
-        />
-        <button
-          type="submit"
-          disabled={sending || !input.trim()}
-          className="self-end rounded-xl bg-[color:var(--brand-strong)] px-4 py-2 text-sm font-semibold text-[color:var(--text)] hover:bg-[color:var(--brand-strong)] disabled:opacity-50"
-        >
-          {sending ? "Enviando..." : "Enviar"}
-        </button>
+        {pendingOffer && (
+          <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-[color:rgba(var(--brand-rgb),0.35)] bg-[color:rgba(var(--brand-rgb),0.08)] px-3 py-2 text-[11px] text-[color:var(--text)]">
+            <span className="font-medium">
+              Oferta sugerida: {(formatOfferLabel(pendingOffer) || "").replace(/^Oferta:\s*/, "")}
+            </span>
+            <button
+              type="button"
+              onClick={() => setPendingOffer(null)}
+              className="rounded-full border border-[color:var(--surface-border)] px-2.5 py-0.5 text-[10px] font-semibold text-[color:var(--muted)] hover:text-[color:var(--text)]"
+            >
+              Quitar
+            </button>
+          </div>
+        )}
+        <div className="flex gap-2">
+          <textarea
+            ref={inputRef}
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            disabled={sending}
+            placeholder={
+              mode === "CONTENT"
+                ? "Pregúntale al Manager IA de catálogo."
+                : "Pega aquí tus métricas de la semana (seguidores, visitas, ingresos, etc.) o cuéntame qué ha pasado…"
+            }
+            className="flex-1 resize-none rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-3 py-2 text-sm text-[color:var(--text)] focus:outline-none focus:ring-2 focus:ring-[color:var(--ring)] disabled:cursor-not-allowed disabled:opacity-70"
+            rows={2}
+          />
+          <button
+            type="submit"
+            disabled={sending || !input.trim()}
+            className="self-end rounded-xl bg-[color:var(--brand-strong)] px-4 py-2 text-sm font-semibold text-[color:var(--text)] hover:bg-[color:var(--brand-strong)] disabled:opacity-50"
+          >
+            {sending ? "Enviando..." : "Enviar"}
+          </button>
+        </div>
       </form>
     </section>
   );

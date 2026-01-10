@@ -1,16 +1,17 @@
 import type { NextApiRequest, NextApiResponse } from "next";
-import { Prisma } from "@prisma/client";
+import { Prisma, type CreatorAiSettings } from "@prisma/client";
 import prisma from "../../../lib/prisma.server";
 import { sendBadRequest, sendServerError } from "../../../lib/apiError";
 import { AI_TURN_MODES, type AiTurnMode } from "../../../lib/aiTemplateTypes";
 import { normalizeAiBaseTone, normalizeAiTurnMode } from "../../../lib/aiSettings";
-import { encryptSecret } from "../../../lib/crypto/secrets";
+import { decryptSecretSafe, encryptSecret } from "../../../lib/crypto/secrets";
 import {
   createDefaultCreatorPlatforms,
   creatorPlatformsToJsonValue,
   normalizeCreatorPlatforms,
 } from "../../../lib/creatorPlatforms";
 import { DEFAULT_VOICE_TRANSCRIPTION_SETTINGS } from "../../../lib/voiceTranscriptionSettings";
+import { normalizeTranslationLanguage, type TranslationLanguage } from "../../../lib/language";
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method === "GET") {
@@ -26,6 +27,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 }
 
 async function handleGet(_req: NextApiRequest, res: NextApiResponse) {
+  res.setHeader("Cache-Control", "no-store");
   try {
     const creatorId = await resolveCreatorId();
 
@@ -47,9 +49,9 @@ async function handleGet(_req: NextApiRequest, res: NextApiResponse) {
       });
     }
 
-    const platforms = normalizeCreatorPlatforms((settings as any).platforms);
+    const data = buildSettingsPayload(settings);
 
-    return res.status(200).json({ settings: { ...settings, platforms } });
+    return res.status(200).json({ ok: true, data, settings: data.settings });
   } catch (err) {
     console.error("Error loading creator AI settings", err);
     if (err instanceof Error && err.message === "Creator not found") {
@@ -60,6 +62,7 @@ async function handleGet(_req: NextApiRequest, res: NextApiResponse) {
 }
 
 async function handlePost(req: NextApiRequest, res: NextApiResponse) {
+  res.setHeader("Cache-Control", "no-store");
   const body = req.body;
 
   if (!body || typeof body !== "object" || Array.isArray(body)) {
@@ -269,11 +272,13 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
   if (cortexApiKey !== undefined) {
     if (typeof cortexApiKey !== "string") return sendBadRequest(res, "cortexApiKey must be a string");
     const trimmed = cortexApiKey.trim();
-    if (trimmed && !process.env.APP_SECRET_KEY?.trim()) {
-      return sendBadRequest(res, "APP_SECRET_KEY is required to store cortexApiKey");
+    if (trimmed) {
+      if (!process.env.APP_SECRET_KEY?.trim() && process.env.NODE_ENV === "production") {
+        return sendBadRequest(res, "APP_SECRET_KEY is required to store cortexApiKey");
+      }
+      updateData.cortexApiKeyEnc = encryptSecret(trimmed);
+      createData.cortexApiKeyEnc = updateData.cortexApiKeyEnc as string | null;
     }
-    updateData.cortexApiKeyEnc = trimmed ? encryptSecret(trimmed) : null;
-    createData.cortexApiKeyEnc = updateData.cortexApiKeyEnc as string | null;
   }
   if (platforms !== undefined) {
     const normalizedPlatforms = normalizeCreatorPlatforms(platforms);
@@ -297,7 +302,10 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
         select: { cortexApiKeyEnc: true },
       });
       const incomingKey = typeof cortexApiKey === "string" ? cortexApiKey.trim() : "";
-      if (!incomingKey && !existing?.cortexApiKeyEnc) {
+      const existingKeyValid = existing?.cortexApiKeyEnc
+        ? decryptSecretSafe(existing.cortexApiKeyEnc).ok
+        : false;
+      if (!incomingKey && !existingKeyValid) {
         return sendBadRequest(res, "cortexApiKey is required for openai");
       }
     }
@@ -323,9 +331,9 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
       create: { creatorId, platforms: createDefaultCreatorPlatforms(), ...createData },
     });
 
-    const platformsPayload = normalizeCreatorPlatforms((settings as any).platforms);
+    const data = buildSettingsPayload(settings);
 
-    return res.status(200).json({ settings: { ...settings, platforms: platformsPayload } });
+    return res.status(200).json({ ok: true, data, settings: data.settings });
   } catch (err) {
     console.error("Error saving creator AI settings", err);
     if (err instanceof Error && err.message === "Creator not found") {
@@ -349,6 +357,106 @@ function normalizeCortexProvider(value: unknown): "ollama" | "openai" | null {
   if (normalized === "ollama") return "ollama";
   if (normalized === "openai") return "openai";
   return null;
+}
+
+type KeyStatus = { saved: boolean; invalid: boolean };
+
+function buildKeyStatus(payload?: string | null): KeyStatus {
+  if (!payload) return { saved: false, invalid: false };
+  const decrypted = decryptSecretSafe(payload);
+  if (decrypted.ok) return { saved: true, invalid: false };
+  return { saved: false, invalid: true };
+}
+
+function normalizeOptionalString(value?: string | null): string | null {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  return trimmed ? trimmed : null;
+}
+
+function normalizeTranslateProvider(raw?: string | null): "deepl" | "libretranslate" | "none" {
+  const normalized = typeof raw === "string" ? raw.trim().toLowerCase() : "";
+  if (normalized === "deepl") return "deepl";
+  if (normalized === "libre" || normalized === "libretranslate") return "libretranslate";
+  return "none";
+}
+
+function normalizeUrl(raw?: string | null): string | null {
+  const trimmed = typeof raw === "string" ? raw.trim() : "";
+  if (!trimmed) return null;
+  return trimmed.replace(/\/+$/, "");
+}
+
+function normalizeDeepLApiUrl(raw?: string | null): string | null {
+  const trimmed = typeof raw === "string" ? raw.trim() : "";
+  if (!trimmed) return null;
+  let normalized = trimmed.replace(/\/+$/, "");
+  if (normalized.endsWith("/v2/translate")) {
+    normalized = normalized.slice(0, -"/v2/translate".length);
+  } else if (normalized.endsWith("/v2")) {
+    normalized = normalized.slice(0, -"/v2".length);
+  }
+  return normalized.replace(/\/+$/, "");
+}
+
+const DEFAULT_CREATOR_LANG: TranslationLanguage = "es";
+
+function resolveCreatorLangFromPriority(raw?: unknown): TranslationLanguage {
+  if (!raw || typeof raw !== "object") return DEFAULT_CREATOR_LANG;
+  const record = raw as Record<string, unknown>;
+  const translation = record.translation;
+  if (translation && typeof translation === "object" && !Array.isArray(translation)) {
+    const nested = (translation as Record<string, unknown>).creatorLang;
+    const normalized = normalizeTranslationLanguage(nested);
+    if (normalized) return normalized;
+  }
+  const normalized = normalizeTranslationLanguage(record.creatorLang);
+  return normalized ?? DEFAULT_CREATOR_LANG;
+}
+
+function toIso(value: unknown): string | null {
+  if (value instanceof Date) return value.toISOString();
+  if (typeof value === "string") return value;
+  return null;
+}
+
+function buildSettingsPayload(settings: CreatorAiSettings) {
+  const {
+    cortexApiKeyEnc: _cortexApiKeyEnc,
+    libretranslateApiKeyEnc: _libretranslateApiKeyEnc,
+    deeplApiKeyEnc: _deeplApiKeyEnc,
+    ...rest
+  } = settings as any;
+
+  const platforms = normalizeCreatorPlatforms((settings as any).platforms);
+
+  return {
+    ai: {
+      provider: normalizeCortexProvider((settings as any).cortexProvider),
+      baseUrl: normalizeOptionalString((settings as any).cortexBaseUrl),
+      model: normalizeOptionalString((settings as any).cortexModel),
+      apiKey: buildKeyStatus((settings as any).cortexApiKeyEnc),
+    },
+    translation: {
+      provider: normalizeTranslateProvider((settings as any).translateProvider),
+      creatorLanguage: resolveCreatorLangFromPriority((settings as any).priorityOrderJson),
+      deepl: {
+        apiKey: buildKeyStatus((settings as any).deeplApiKeyEnc),
+        apiUrl: normalizeDeepLApiUrl((settings as any).deeplApiUrl),
+      },
+      libretranslate: {
+        url: normalizeUrl((settings as any).libretranslateUrl),
+        apiKey: buildKeyStatus((settings as any).libretranslateApiKeyEnc),
+      },
+    },
+    settings: {
+      ...rest,
+      platforms,
+    },
+    meta: {
+      updatedAt: toIso((settings as any).updatedAt),
+    },
+  };
 }
 
 async function resolveCreatorId(): Promise<string> {
