@@ -28,28 +28,30 @@ const AGENCY_STAGES = [
 ];
 
 const AGENCY_INTENSITIES = ["SOFT", "MEDIUM", "INTENSE"];
+const AGENCY_PLAYBOOKS = ["GIRLFRIEND", "PLAYFUL", "ELEGANT", "SOFT_DOMINANT"];
+const DEFAULT_PLAYBOOK = "GIRLFRIEND";
 
 const OPENERS_BY_INTENSITY = {
   SOFT: [
-    "Hey {fanName}{hook}",
-    "Hola {fanName}{hook}",
-    "Ey {fanName}{hook}",
-    "{fanName}, te leo{hook}",
-    "Aquí estoy, {fanName}{hook}",
+    "Hey {fanName}{hook} {style}",
+    "Hola {fanName}{hook} {style}",
+    "Ey {fanName}{hook} {style}",
+    "{fanName}, te leo{hook} {style}",
+    "Aquí estoy, {fanName}{hook} {style}",
   ],
   MEDIUM: [
-    "Hey {fanName}{hook}",
-    "Ey {fanName}{hook}",
-    "{fanName}, me gusta leerte{hook}",
-    "Hey, {fanName}{hook}",
-    "{fanName}, te tengo en mente{hook}",
+    "Hey {fanName}{hook} {style}",
+    "Ey {fanName}{hook} {style}",
+    "{fanName}, me gusta leerte{hook} {style}",
+    "Hey, {fanName}{hook} {style}",
+    "{fanName}, te tengo en mente{hook} {style}",
   ],
   INTENSE: [
-    "Ey {fanName}{hook}",
-    "{fanName}, me enciendes{hook}",
-    "Hey, {fanName}{hook}",
-    "{fanName}, me dejas con ganas{hook}",
-    "Ey {fanName}, ven{hook}",
+    "Ey {fanName}{hook} {style}",
+    "{fanName}, me enciendes{hook} {style}",
+    "Hey, {fanName}{hook} {style}",
+    "{fanName}, me dejas con ganas{hook} {style}",
+    "Ey {fanName}, ven{hook} {style}",
   ],
 };
 
@@ -66,25 +68,25 @@ const STAGE_OPENER_HOOKS = {
 
 const BRIDGES_BY_INTENSITY = {
   SOFT: [
-    "Sobre lo de {context}, me quedé pensando{hook}",
-    "Lo de {context} me dejó con curiosidad{hook}",
-    "Me quedé con {context}{hook}",
-    "Lo de {context} me gustó{hook}",
-    "Sobre {context}, me apetece seguir{hook}",
+    "Sobre lo de {context}, me quedé pensando{hook} {style}",
+    "Lo de {context} me dejó con curiosidad{hook} {style}",
+    "Me quedé con {context}{hook} {style}",
+    "Lo de {context} me gustó{hook} {style}",
+    "Sobre {context}, me apetece seguir{hook} {style}",
   ],
   MEDIUM: [
-    "Lo de {context} me dejó con ganas{hook}",
-    "Sobre {context}, me encendió la curiosidad{hook}",
-    "Me quedé con {context} en la cabeza{hook}",
-    "Lo de {context} me hizo sonreír{hook}",
-    "Sobre lo de {context}, me quedé con ganas{hook}",
+    "Lo de {context} me dejó con ganas{hook} {style}",
+    "Sobre {context}, me encendió la curiosidad{hook} {style}",
+    "Me quedé con {context} en la cabeza{hook} {style}",
+    "Lo de {context} me hizo sonreír{hook} {style}",
+    "Sobre lo de {context}, me quedé con ganas{hook} {style}",
   ],
   INTENSE: [
-    "Lo de {context} me dejó con tensión{hook}",
-    "Sobre {context}, me quedé con ganas de más{hook}",
-    "Me quedé con {context} muy en la piel{hook}",
-    "Lo de {context} me encendió{hook}",
-    "Sobre {context}, me quedé con fuego{hook}",
+    "Lo de {context} me dejó con tensión{hook} {style}",
+    "Sobre {context}, me quedé con ganas de más{hook} {style}",
+    "Me quedé con {context} muy en la piel{hook} {style}",
+    "Lo de {context} me encendió{hook} {style}",
+    "Sobre {context}, me quedé con fuego{hook} {style}",
   ],
 };
 
@@ -101,25 +103,25 @@ const STAGE_BRIDGE_HOOKS = {
 
 const TEASES_BY_INTENSITY = {
   SOFT: [
-    "Podemos ir suave y subir si te apetece{hook}",
-    "Te propongo algo suave y cercano{hook}",
-    "Vamos con ritmo lento y rico{hook}",
-    "Puedo guiarte con calma y picardía{hook}",
-    "Me gusta empezar suave y jugar un poco{hook}",
+    "Podemos ir suave y subir si te apetece{hook} {sensory} {style}",
+    "Te propongo algo suave y cercano{hook} {sensory} {style}",
+    "Vamos con ritmo lento y rico{hook} {sensory} {style}",
+    "Puedo guiarte con calma y picardía{hook} {sensory} {style}",
+    "Me gusta empezar suave y jugar un poco{hook} {sensory} {style}",
   ],
   MEDIUM: [
-    "Podemos subir un poco el tono{hook}",
-    "Te preparo algo con chispa{hook}",
-    "Subimos la tensión sin ir a lo explícito{hook}",
-    "Me apetece jugar más contigo{hook}",
-    "Vamos a un punto más atrevido{hook}",
+    "Podemos subir un poco el tono{hook} {sensory} {style}",
+    "Te preparo algo con chispa{hook} {sensory} {style}",
+    "Subimos la tensión sin ir a lo explícito{hook} {sensory} {style}",
+    "Me apetece jugar más contigo{hook} {sensory} {style}",
+    "Vamos a un punto más atrevido{hook} {sensory} {style}",
   ],
   INTENSE: [
-    "Puedo subir el tono con control{hook}",
-    "Vamos con más fuego, sin pasarnos{hook}",
-    "Te dejo en tensión y lo subo un paso{hook}",
-    "Me apetece un punto más intenso{hook}",
-    "Subimos claro y con cuidado{hook}",
+    "Puedo subir el tono con control{hook} {sensory} {style}",
+    "Vamos con más fuego, sin pasarnos{hook} {sensory} {style}",
+    "Te dejo en tensión y lo subo un paso{hook} {sensory} {style}",
+    "Me apetece un punto más intenso{hook} {sensory} {style}",
+    "Subimos claro y con cuidado{hook} {sensory} {style}",
   ],
 };
 
@@ -169,25 +171,82 @@ const STAGE_CTA_HOOKS = {
   BOUNDARY: [" ahora", " aquí", " con calma"],
 };
 
-function buildFallbackPools(stage, intensity) {
+const PLAYBOOK_STYLES = {
+  GIRLFRIEND: {
+    openers: ["me encanta cuidarte", "te tengo cerquita", "me gusta estar contigo"],
+    bridges: ["me nace seguirte", "me sale cuidarte", "me quedé con ganas"],
+    teases: ["me apetece mimarte", "quiero ir despacio", "me gusta tu calma"],
+    sensory: ["con tu voz cerquita", "con tu risa suave", "con ese calor en la piel"],
+  },
+  PLAYFUL: {
+    openers: ["me apetece jugar", "hoy vengo traviesa", "me gusta provocarte"],
+    bridges: ["me pica la curiosidad", "me dan ganas de jugar", "me pongo juguetona"],
+    teases: ["te doy un guiño", "me apetece picarte", "quiero un toque travieso"],
+    sensory: ["con tu risa de lado", "con tu mirada traviesa", "con ese guiño que imagino"],
+  },
+  ELEGANT: {
+    openers: ["con calma y clase", "me gusta lo sutil", "te leo con cariño"],
+    bridges: ["me inspira seguir", "me gusta tu tono", "me quedé con el detalle"],
+    teases: ["con estilo suave", "me gusta lo lento", "quiero algo delicado"],
+    sensory: ["con tu voz suave", "con tu ritmo tranquilo", "con esa calma elegante"],
+  },
+  SOFT_DOMINANT: {
+    openers: ["déjame guiarte", "yo marco el ritmo", "sigue mi paso"],
+    bridges: ["deja que te lleve", "confía en mí", "yo conduzco"],
+    teases: ["te llevo despacio", "te marco el ritmo", "control suave y rico"],
+    sensory: ["con tu respiración cerca", "con tu ritmo bajo control", "con ese calor que sube"],
+  },
+};
+
+function buildFallbackPools(stage, intensity, playbook) {
+  const style = PLAYBOOK_STYLES[playbook] ?? PLAYBOOK_STYLES[DEFAULT_PLAYBOOK];
   return {
-    openers: combineWithHooks(OPENERS_BY_INTENSITY[intensity], STAGE_OPENER_HOOKS[stage]),
-    bridges: combineWithHooks(BRIDGES_BY_INTENSITY[intensity], STAGE_BRIDGE_HOOKS[stage]),
-    teases: combineWithHooks(TEASES_BY_INTENSITY[intensity], STAGE_TEASE_HOOKS[stage]),
-    ctas: combineWithHooks(CTAS_BY_INTENSITY[intensity], STAGE_CTA_HOOKS[stage]),
+    openers: expandTemplates(OPENERS_BY_INTENSITY[intensity], {
+      hooks: STAGE_OPENER_HOOKS[stage],
+      styles: style.openers,
+    }),
+    bridges: expandTemplates(BRIDGES_BY_INTENSITY[intensity], {
+      hooks: STAGE_BRIDGE_HOOKS[stage],
+      styles: style.bridges,
+    }),
+    teases: expandTemplates(TEASES_BY_INTENSITY[intensity], {
+      hooks: STAGE_TEASE_HOOKS[stage],
+      styles: style.teases,
+      sensory: style.sensory,
+    }),
+    ctas: expandTemplates(CTAS_BY_INTENSITY[intensity], {
+      hooks: STAGE_CTA_HOOKS[stage],
+    }),
   };
 }
 
-function combineWithHooks(base, hooks) {
+function expandTemplates(base, replacements) {
+  const hooks = replacements.hooks && replacements.hooks.length > 0 ? replacements.hooks : [""];
+  const styles = replacements.styles && replacements.styles.length > 0 ? replacements.styles : [""];
+  const sensory = replacements.sensory && replacements.sensory.length > 0 ? replacements.sensory : [""];
   const results = [];
-  base.forEach((baseItem) => {
-    hooks.forEach((hook) => {
-      const combined = baseItem.replace("{hook}", hook);
-      const normalized = combined.replace(/\s+/g, " ").trim();
-      if (normalized) results.push(normalized);
-    });
-  });
+
+  for (const baseItem of base) {
+    const hookVariants = baseItem.includes("{hook}") ? hooks : [""];
+    for (const hook of hookVariants) {
+      const withHook = baseItem.replace("{hook}", hook).trim();
+      const styleVariants = withHook.includes("{style}") ? styles : [""];
+      for (const style of styleVariants) {
+        const withStyle = withHook.replace("{style}", style).trim();
+        const sensoryVariants = withStyle.includes("{sensory}") ? sensory : [""];
+        for (const sense of sensoryVariants) {
+          const combined = withStyle.replace("{sensory}", sense);
+          const normalized = normalizePhrase(combined);
+          if (normalized.length > 0) results.push(normalized);
+        }
+      }
+    }
+  }
   return uniquePool(results);
+}
+
+function normalizePhrase(value) {
+  return value.replace(/\s+/g, " ").replace(/\s+([.,!?])/g, "$1").trim();
 }
 
 function uniquePool(pool) {
@@ -207,8 +266,9 @@ function buildAgencyTemplateSeeds() {
         stage,
         objective: "CONNECT",
         intensity,
+        playbook: DEFAULT_PLAYBOOK,
         language: "es",
-        blocksJson: buildFallbackPools(stage, intensity),
+        blocksJson: buildFallbackPools(stage, intensity, DEFAULT_PLAYBOOK),
         active: true,
       });
     });

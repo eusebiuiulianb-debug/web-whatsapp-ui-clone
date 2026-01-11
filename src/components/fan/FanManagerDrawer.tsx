@@ -71,7 +71,10 @@ type PpvOffer = {
 
 type Props = {
   managerSuggestions?: { id: string; label: string; message: string; intent?: string }[];
+  reengageSuggestions?: { id: string; label: string; message: string; intent?: string }[];
+  reengageLoading?: boolean;
   onApplySuggestion?: (text: string, detail?: string, actionKeyOrIntent?: string) => void;
+  onApplyReengage?: (text: string, detail?: string, actionKeyOrIntent?: string) => void;
   draftCards?: { id: string; label: string; text: string; offer?: PpvOffer | null }[];
   onDraftAction?: (draftId: string, action: "alternate" | "shorter" | "softer" | "bolder") => void;
   onInsertOffer?: (text: string, offer: PpvOffer, detail?: string) => void;
@@ -103,6 +106,8 @@ type Props = {
   onPackOffer: () => void;
   onRequestSuggestionAlt?: (text: string) => void;
   onRequestSuggestionShorter?: (text: string) => void;
+  onRequestReengageAlt?: (suggestionId: string) => void;
+  onRequestReengageShorter?: (suggestionId: string) => void;
   showRenewAction: boolean;
   quickExtraDisabled?: boolean;
   isRecommended: (id: string) => boolean;
@@ -128,7 +133,10 @@ export default function FanManagerDrawer({
   onManagerSummary,
   onSuggestionClick,
   managerSuggestions,
+  reengageSuggestions,
+  reengageLoading = false,
   onApplySuggestion,
+  onApplyReengage,
   draftCards,
   onDraftAction,
   onInsertOffer,
@@ -149,6 +157,8 @@ export default function FanManagerDrawer({
   onPackOffer,
   onRequestSuggestionAlt,
   onRequestSuggestionShorter,
+  onRequestReengageAlt,
+  onRequestReengageShorter,
   showRenewAction,
   quickExtraDisabled,
   isRecommended,
@@ -639,6 +649,74 @@ export default function FanManagerDrawer({
               </div>
             ))}
           </div>
+        </div>
+      )}
+      {(reengageLoading || (reengageSuggestions && reengageSuggestions.length > 0)) && (
+        <div className="mt-3 rounded-xl border border-[color:rgba(16,185,129,0.25)] bg-[color:rgba(16,185,129,0.06)] p-3 flex flex-col gap-2">
+          <div className="text-[11px] font-semibold uppercase tracking-wide text-[color:rgba(16,185,129,0.9)]">
+            Re-engage por silencio
+          </div>
+          {reengageLoading && (
+            <div className="text-[11px] text-[color:var(--muted)]">Generando toques…</div>
+          )}
+          {reengageSuggestions && reengageSuggestions.length > 0 && (
+            <div className="space-y-2">
+              {reengageSuggestions.slice(0, 3).map((suggestion) => (
+                <div
+                  key={suggestion.id}
+                  className="rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-3 py-2 space-y-2"
+                >
+                  <div className="text-[10px] uppercase tracking-wide text-[color:var(--muted)]">
+                    {suggestion.label}
+                  </div>
+                  <div className="text-[12px] text-[color:var(--text)]">{suggestion.message}</div>
+                  {(() => {
+                    const qa = scoreDraft(suggestion.message);
+                    const warnings = qa.warnings.slice(0, 2).join(" · ");
+                    return (
+                      <div className="flex flex-wrap items-center gap-2 text-[10px] text-[color:var(--muted)]">
+                        <span className="font-semibold">QA: {qa.score}/100</span>
+                        {warnings && <span>{warnings}</span>}
+                      </div>
+                    );
+                  })()}
+                  <div className="flex flex-wrap items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() =>
+                        onApplyReengage?.(
+                          suggestion.message,
+                          suggestion.label,
+                          suggestion.intent ?? `reengage:${suggestion.id}`
+                        )
+                      }
+                      className="inline-flex items-center rounded-full border border-[color:rgba(16,185,129,0.7)] bg-[color:rgba(16,185,129,0.12)] px-3 py-1 text-[11px] font-medium text-[color:var(--text)] hover:bg-[color:rgba(16,185,129,0.2)] transition"
+                    >
+                      Usar en mensaje
+                    </button>
+                    {onRequestReengageAlt && (
+                      <button
+                        type="button"
+                        onClick={() => onRequestReengageAlt(suggestion.id)}
+                        className="inline-flex items-center rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-2.5 py-1 text-[10px] font-semibold text-[color:var(--text)] hover:border-[color:var(--surface-border-hover)]"
+                      >
+                        Otra versión
+                      </button>
+                    )}
+                    {onRequestReengageShorter && (
+                      <button
+                        type="button"
+                        onClick={() => onRequestReengageShorter(suggestion.id)}
+                        className="inline-flex items-center rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-2.5 py-1 text-[10px] font-semibold text-[color:var(--text)] hover:border-[color:var(--surface-border-hover)]"
+                      >
+                        Más corta
+                      </button>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       )}
       <div

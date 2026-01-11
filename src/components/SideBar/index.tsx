@@ -39,7 +39,7 @@ import { recordDevRequest } from "../../lib/devRequestStats";
 import { IconGlyph } from "../ui/IconGlyph";
 import { Chip } from "../ui/Chip";
 import { computeAgencyPriorityScore } from "../../lib/agency/priorityScore";
-import type { AgencyIntensity, AgencyObjective, AgencyStage } from "../../lib/agency/types";
+import type { AgencyIntensity, AgencyStage } from "../../lib/agency/types";
 
 class SideBarBoundary extends Component<{ children: React.ReactNode }, { hasError: boolean }> {
   constructor(props: { children: React.ReactNode }) {
@@ -241,7 +241,7 @@ function normalizeTier(tier?: string | null): "new" | "regular" | "vip" {
 function computePriorityScore(fan: FanData): number {
   const tag = fan.followUpTag ?? getFollowUpTag(fan.membershipStatus, fan.daysLeft, fan.activeGrantTypes);
   const stage = (fan.agencyStage ?? "NEW") as AgencyStage;
-  const objective = (fan.agencyObjective ?? "CONNECT") as AgencyObjective;
+  const objective = fan.agencyObjective ?? "CONNECT";
   const intensity = (fan.agencyIntensity ?? "MEDIUM") as AgencyIntensity;
   const segmentLabel = ((fan.segment || "") as string).toUpperCase();
   const riskValue = (fan.riskLevel || "").toString().toUpperCase();
@@ -332,6 +332,7 @@ function SideBarInner() {
       contactName: getFanDisplayNameForCreator(fan),
       displayName: fan.displayName ?? null,
       creatorLabel: fan.creatorLabel ?? null,
+      locale: fan.locale ?? null,
       preferredLanguage: normalizePreferredLanguage(fan.preferredLanguage) ?? null,
       lastMessage: fan.preview,
       lastTime: fan.time,

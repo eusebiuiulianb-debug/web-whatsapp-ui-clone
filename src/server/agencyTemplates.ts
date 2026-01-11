@@ -1,5 +1,5 @@
 import { prisma } from "@/server/prisma";
-import type { AgencyIntensity, AgencyObjective, AgencyStage } from "@/lib/agency/types";
+import type { AgencyIntensity, AgencyObjective, AgencyPlaybook, AgencyStage } from "@/lib/agency/types";
 import {
   buildAgencyDraftFromBlocks,
   passesDraftHardRules,
@@ -8,12 +8,14 @@ import {
   type AgencyOfferContext,
   type AgencyTemplateBlocks,
 } from "@/lib/agency/drafts";
+import { normalizeLocale, normalizeLocaleTag } from "@/lib/language";
 
 type AgencyTemplateRecord = {
   id: string;
   stage: AgencyStage;
   objective: AgencyObjective;
   intensity: AgencyIntensity;
+  playbook: AgencyPlaybook;
   language: string;
   blocksJson: unknown;
   active: boolean;
@@ -26,6 +28,7 @@ export type BuildAgencyDraftInput = {
   stage: AgencyStage;
   objective: AgencyObjective;
   intensity: AgencyIntensity;
+  playbook?: AgencyPlaybook | null;
   language?: string | null;
   offer?: AgencyOfferContext | null;
   variant?: number;
@@ -42,25 +45,25 @@ export type AgencyDraftResponse = {
 
 const OPENERS_BY_INTENSITY: Record<AgencyIntensity, string[]> = {
   SOFT: [
-    "Hey {fanName}{hook}",
-    "Hola {fanName}{hook}",
-    "Ey {fanName}{hook}",
-    "{fanName}, te leo{hook}",
-    "Aquí estoy, {fanName}{hook}",
+    "Hey {fanName}{hook} {style}",
+    "Hola {fanName}{hook} {style}",
+    "Ey {fanName}{hook} {style}",
+    "{fanName}, te leo{hook} {style}",
+    "Aquí estoy, {fanName}{hook} {style}",
   ],
   MEDIUM: [
-    "Hey {fanName}{hook}",
-    "Ey {fanName}{hook}",
-    "{fanName}, me gusta leerte{hook}",
-    "Hey, {fanName}{hook}",
-    "{fanName}, te tengo en mente{hook}",
+    "Hey {fanName}{hook} {style}",
+    "Ey {fanName}{hook} {style}",
+    "{fanName}, me gusta leerte{hook} {style}",
+    "Hey, {fanName}{hook} {style}",
+    "{fanName}, te tengo en mente{hook} {style}",
   ],
   INTENSE: [
-    "Ey {fanName}{hook}",
-    "{fanName}, me enciendes{hook}",
-    "Hey, {fanName}{hook}",
-    "{fanName}, me dejas con ganas{hook}",
-    "Ey {fanName}, ven{hook}",
+    "Ey {fanName}{hook} {style}",
+    "{fanName}, me enciendes{hook} {style}",
+    "Hey, {fanName}{hook} {style}",
+    "{fanName}, me dejas con ganas{hook} {style}",
+    "Ey {fanName}, ven{hook} {style}",
   ],
 };
 
@@ -77,25 +80,25 @@ const STAGE_OPENER_HOOKS: Record<AgencyStage, string[]> = {
 
 const BRIDGES_BY_INTENSITY: Record<AgencyIntensity, string[]> = {
   SOFT: [
-    "Sobre lo de {context}, me quedé pensando{hook}",
-    "Lo de {context} me dejó con curiosidad{hook}",
-    "Me quedé con {context}{hook}",
-    "Lo de {context} me gustó{hook}",
-    "Sobre {context}, me apetece seguir{hook}",
+    "Sobre lo de {context}, me quedé pensando{hook} {style}",
+    "Lo de {context} me dejó con curiosidad{hook} {style}",
+    "Me quedé con {context}{hook} {style}",
+    "Lo de {context} me gustó{hook} {style}",
+    "Sobre {context}, me apetece seguir{hook} {style}",
   ],
   MEDIUM: [
-    "Lo de {context} me dejó con ganas{hook}",
-    "Sobre {context}, me encendió la curiosidad{hook}",
-    "Me quedé con {context} en la cabeza{hook}",
-    "Lo de {context} me hizo sonreír{hook}",
-    "Sobre lo de {context}, me quedé con ganas{hook}",
+    "Lo de {context} me dejó con ganas{hook} {style}",
+    "Sobre {context}, me encendió la curiosidad{hook} {style}",
+    "Me quedé con {context} en la cabeza{hook} {style}",
+    "Lo de {context} me hizo sonreír{hook} {style}",
+    "Sobre lo de {context}, me quedé con ganas{hook} {style}",
   ],
   INTENSE: [
-    "Lo de {context} me dejó con tensión{hook}",
-    "Sobre {context}, me quedé con ganas de más{hook}",
-    "Me quedé con {context} muy en la piel{hook}",
-    "Lo de {context} me encendió{hook}",
-    "Sobre {context}, me quedé con fuego{hook}",
+    "Lo de {context} me dejó con tensión{hook} {style}",
+    "Sobre {context}, me quedé con ganas de más{hook} {style}",
+    "Me quedé con {context} muy en la piel{hook} {style}",
+    "Lo de {context} me encendió{hook} {style}",
+    "Sobre {context}, me quedé con fuego{hook} {style}",
   ],
 };
 
@@ -112,25 +115,25 @@ const STAGE_BRIDGE_HOOKS: Record<AgencyStage, string[]> = {
 
 const TEASES_BY_INTENSITY: Record<AgencyIntensity, string[]> = {
   SOFT: [
-    "Podemos ir suave y subir si te apetece{hook}",
-    "Te propongo algo suave y cercano{hook}",
-    "Vamos con ritmo lento y rico{hook}",
-    "Puedo guiarte con calma y picardía{hook}",
-    "Me gusta empezar suave y jugar un poco{hook}",
+    "Podemos ir suave y subir si te apetece{hook} {sensory} {style}",
+    "Te propongo algo suave y cercano{hook} {sensory} {style}",
+    "Vamos con ritmo lento y rico{hook} {sensory} {style}",
+    "Puedo guiarte con calma y picardía{hook} {sensory} {style}",
+    "Me gusta empezar suave y jugar un poco{hook} {sensory} {style}",
   ],
   MEDIUM: [
-    "Podemos subir un poco el tono{hook}",
-    "Te preparo algo con chispa{hook}",
-    "Subimos la tensión sin ir a lo explícito{hook}",
-    "Me apetece jugar más contigo{hook}",
-    "Vamos a un punto más atrevido{hook}",
+    "Podemos subir un poco el tono{hook} {sensory} {style}",
+    "Te preparo algo con chispa{hook} {sensory} {style}",
+    "Subimos la tensión sin ir a lo explícito{hook} {sensory} {style}",
+    "Me apetece jugar más contigo{hook} {sensory} {style}",
+    "Vamos a un punto más atrevido{hook} {sensory} {style}",
   ],
   INTENSE: [
-    "Puedo subir el tono con control{hook}",
-    "Vamos con más fuego, sin pasarnos{hook}",
-    "Te dejo en tensión y lo subo un paso{hook}",
-    "Me apetece un punto más intenso{hook}",
-    "Subimos claro y con cuidado{hook}",
+    "Puedo subir el tono con control{hook} {sensory} {style}",
+    "Vamos con más fuego, sin pasarnos{hook} {sensory} {style}",
+    "Te dejo en tensión y lo subo un paso{hook} {sensory} {style}",
+    "Me apetece un punto más intenso{hook} {sensory} {style}",
+    "Subimos claro y con cuidado{hook} {sensory} {style}",
   ],
 };
 
@@ -180,45 +183,111 @@ const STAGE_CTA_HOOKS: Record<AgencyStage, string[]> = {
   BOUNDARY: [" ahora", " aquí", " con calma"],
 };
 
-function buildFallbackPools(stage: AgencyStage, intensity: AgencyIntensity): Required<AgencyTemplateBlocks> {
+const PLAYBOOK_STYLES: Record<
+  AgencyPlaybook,
+  {
+    openers: string[];
+    bridges: string[];
+    teases: string[];
+    sensory: string[];
+  }
+> = {
+  GIRLFRIEND: {
+    openers: ["me encanta cuidarte", "te tengo cerquita", "me gusta estar contigo"],
+    bridges: ["me nace seguirte", "me sale cuidarte", "me quedé con ganas"],
+    teases: ["me apetece mimarte", "quiero ir despacio", "me gusta tu calma"],
+    sensory: ["con tu voz cerquita", "con tu risa suave", "con ese calor en la piel"],
+  },
+  PLAYFUL: {
+    openers: ["me apetece jugar", "hoy vengo traviesa", "me gusta provocarte"],
+    bridges: ["me pica la curiosidad", "me dan ganas de jugar", "me pongo juguetona"],
+    teases: ["te doy un guiño", "me apetece picarte", "quiero un toque travieso"],
+    sensory: ["con tu risa de lado", "con tu mirada traviesa", "con ese guiño que imagino"],
+  },
+  ELEGANT: {
+    openers: ["con calma y clase", "me gusta lo sutil", "te leo con cariño"],
+    bridges: ["me inspira seguir", "me gusta tu tono", "me quedé con el detalle"],
+    teases: ["con estilo suave", "me gusta lo lento", "quiero algo delicado"],
+    sensory: ["con tu voz suave", "con tu ritmo tranquilo", "con esa calma elegante"],
+  },
+  SOFT_DOMINANT: {
+    openers: ["déjame guiarte", "yo marco el ritmo", "sigue mi paso"],
+    bridges: ["deja que te lleve", "confía en mí", "yo conduzco"],
+    teases: ["te llevo despacio", "te marco el ritmo", "control suave y rico"],
+    sensory: ["con tu respiración cerca", "con tu ritmo bajo control", "con ese calor que sube"],
+  },
+};
+
+function buildFallbackPools(
+  stage: AgencyStage,
+  intensity: AgencyIntensity,
+  playbook: AgencyPlaybook
+): Required<AgencyTemplateBlocks> {
+  const style = PLAYBOOK_STYLES[playbook] ?? PLAYBOOK_STYLES.GIRLFRIEND;
   return {
-    openers: combineWithHooks(OPENERS_BY_INTENSITY[intensity], STAGE_OPENER_HOOKS[stage]),
-    bridges: combineWithHooks(BRIDGES_BY_INTENSITY[intensity], STAGE_BRIDGE_HOOKS[stage]),
-    teases: combineWithHooks(TEASES_BY_INTENSITY[intensity], STAGE_TEASE_HOOKS[stage]),
-    ctas: combineWithHooks(CTAS_BY_INTENSITY[intensity], STAGE_CTA_HOOKS[stage]),
+    openers: expandTemplates(OPENERS_BY_INTENSITY[intensity], {
+      hooks: STAGE_OPENER_HOOKS[stage],
+      styles: style.openers,
+    }),
+    bridges: expandTemplates(BRIDGES_BY_INTENSITY[intensity], {
+      hooks: STAGE_BRIDGE_HOOKS[stage],
+      styles: style.bridges,
+    }),
+    teases: expandTemplates(TEASES_BY_INTENSITY[intensity], {
+      hooks: STAGE_TEASE_HOOKS[stage],
+      styles: style.teases,
+      sensory: style.sensory,
+    }),
+    ctas: expandTemplates(CTAS_BY_INTENSITY[intensity], {
+      hooks: STAGE_CTA_HOOKS[stage],
+    }),
   };
 }
 
 export async function buildAgencyDraft(input: BuildAgencyDraftInput): Promise<AgencyDraftResponse> {
   const baseVariant = typeof input.variant === "number" ? Math.max(0, Math.floor(input.variant)) : 0;
-  const fallbackPools = buildFallbackPools(input.stage, input.intensity);
+  const playbook = input.playbook ?? "GIRLFRIEND";
+  const fallbackPools = buildFallbackPools(input.stage, input.intensity, playbook);
   let templateId: string | null = null;
   let blocks: Required<AgencyTemplateBlocks> = fallbackPools;
 
   if (prisma) {
-    const language = (input.language || "es").trim() || "es";
+    const languageSeed = normalizeLocaleTag(input.language || "") || "es";
+    const localeCandidates = normalizeLocale(languageSeed);
+    if (localeCandidates.length === 0) {
+      localeCandidates.push("es");
+    }
     const templates = await prisma.agencyTemplate.findMany({
-      where: { creatorId: input.creatorId, active: true, language },
+      where: { creatorId: input.creatorId, active: true, language: { in: localeCandidates } },
       select: {
         id: true,
         stage: true,
         objective: true,
         intensity: true,
+        playbook: true,
         language: true,
         blocksJson: true,
         active: true,
       },
     });
 
-    const candidate = pickTemplate({
-      templates,
-      stage: input.stage,
-      objective: input.objective,
-      intensity: input.intensity,
-      fanName: input.fanName ?? "",
-      lastFanMsg: input.lastFanMsg ?? "",
-      variant: baseVariant,
-    });
+    let candidate: AgencyTemplateRecord | null = null;
+    for (const locale of localeCandidates) {
+      const scoped = templates.filter(
+        (template) => normalizeLocaleTag(template.language) === locale
+      );
+      candidate = pickTemplate({
+        templates: scoped,
+        stage: input.stage,
+        objective: input.objective,
+        intensity: input.intensity,
+        playbook,
+        fanName: input.fanName ?? "",
+        lastFanMsg: input.lastFanMsg ?? "",
+        variant: baseVariant,
+      });
+      if (candidate) break;
+    }
 
     if (candidate?.blocksJson) {
       const normalized = normalizeBlocks(candidate.blocksJson);
@@ -274,12 +343,15 @@ function pickTemplate(args: {
   stage: AgencyStage;
   objective: AgencyObjective;
   intensity: AgencyIntensity;
+  playbook: AgencyPlaybook;
   fanName: string;
   lastFanMsg: string;
   variant: number;
 }): AgencyTemplateRecord | null {
-  const { templates, stage, objective, intensity, fanName, lastFanMsg, variant } = args;
+  const { templates, stage, objective, intensity, playbook, fanName, lastFanMsg, variant } = args;
   if (!templates.length) return null;
+  const scopedTemplates =
+    templates.some((tpl) => tpl.playbook === playbook) ? templates.filter((tpl) => tpl.playbook === playbook) : templates;
   const filters: Array<(tpl: AgencyTemplateRecord) => boolean> = [
     (tpl) => tpl.stage === stage && tpl.objective === objective && tpl.intensity === intensity,
     (tpl) => tpl.stage === stage && tpl.intensity === intensity,
@@ -291,7 +363,7 @@ function pickTemplate(args: {
 
   let candidates: AgencyTemplateRecord[] = [];
   for (const predicate of filters) {
-    candidates = templates.filter(predicate);
+    candidates = scopedTemplates.filter(predicate);
     if (candidates.length > 0) break;
   }
   if (!candidates.length) return null;
@@ -348,16 +420,36 @@ function normalizePool(value: unknown): string[] {
     .filter((item) => item.length > 0);
 }
 
-function combineWithHooks(base: string[], hooks: string[]): string[] {
+function expandTemplates(
+  base: string[],
+  replacements: { hooks?: string[]; styles?: string[]; sensory?: string[] }
+): string[] {
+  const hooks = replacements.hooks && replacements.hooks.length > 0 ? replacements.hooks : [""];
+  const styles = replacements.styles && replacements.styles.length > 0 ? replacements.styles : [""];
+  const sensory = replacements.sensory && replacements.sensory.length > 0 ? replacements.sensory : [""];
   const results: string[] = [];
+
   for (const baseItem of base) {
-    for (const hook of hooks) {
-      const combined = baseItem.replace("{hook}", hook);
-      const normalized = combined.replace(/\s+/g, " ").trim();
-      if (normalized.length > 0) results.push(normalized);
+    const hookVariants = baseItem.includes("{hook}") ? hooks : [""];
+    for (const hook of hookVariants) {
+      const withHook = baseItem.replace("{hook}", hook).trim();
+      const styleVariants = withHook.includes("{style}") ? styles : [""];
+      for (const style of styleVariants) {
+        const withStyle = withHook.replace("{style}", style).trim();
+        const sensoryVariants = withStyle.includes("{sensory}") ? sensory : [""];
+        for (const sense of sensoryVariants) {
+          const combined = withStyle.replace("{sensory}", sense);
+          const normalized = normalizePhrase(combined);
+          if (normalized.length > 0) results.push(normalized);
+        }
+      }
     }
   }
   return uniquePool(results);
+}
+
+function normalizePhrase(value: string): string {
+  return value.replace(/\s+/g, " ").replace(/\s+([.,!?])/g, "$1").trim();
 }
 
 function uniquePool(pool: string[]): string[] {

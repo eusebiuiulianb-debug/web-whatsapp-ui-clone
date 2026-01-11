@@ -10,12 +10,13 @@ import {
 } from "../../../../lib/ai/manager/prompts";
 import {
   normalizeAgencyIntensity,
-  normalizeAgencyObjective,
+  normalizeAgencyPlaybook,
   normalizeAgencyStage,
   type AgencyIntensity,
-  type AgencyObjective,
+  type AgencyPlaybook,
   type AgencyStage,
 } from "../../../../lib/agency/types";
+import { normalizeObjectiveCode, resolveObjectiveForScoring } from "../../../../lib/agency/objectives";
 import { buildAgencyDraft } from "../../../../server/agencyTemplates";
 import { buildDemoManagerReply, type ManagerDemoReply } from "../../../../lib/ai/manager/demo";
 import { registerAiUsage } from "../../../../lib/ai/registerAiUsage";
@@ -1360,12 +1361,15 @@ async function buildTemplateFallback(args: {
       (args.agency?.stage && normalizeAgencyStage(args.agency.stage)) ||
       (defaultStage as AgencyStage);
     const normalizedStage = stage === "NEW" ? (defaultStage as AgencyStage) : stage;
-    const objective =
-      (args.agency?.objective && normalizeAgencyObjective(args.agency.objective)) ||
-      ("CONNECT" as AgencyObjective);
+    const objective = resolveObjectiveForScoring(
+      normalizeObjectiveCode(args.agency?.objective)
+    );
     const intensity =
       (args.agency?.intensity && normalizeAgencyIntensity(args.agency.intensity)) ||
       ("MEDIUM" as AgencyIntensity);
+    const playbook =
+      (args.agency?.playbook && normalizeAgencyPlaybook(args.agency.playbook)) ||
+      ("GIRLFRIEND" as AgencyPlaybook);
     const offer =
       args.offer && typeof args.offer === "object"
         ? {
@@ -1382,6 +1386,7 @@ async function buildTemplateFallback(args: {
       stage: normalizedStage,
       objective,
       intensity,
+      playbook,
       offer,
       mode: "full",
     });
@@ -1663,6 +1668,7 @@ function buildFanPromptContext(params: {
     stage?: string | null;
     objective?: string | null;
     intensity?: string | null;
+    playbook?: string | null;
     nextAction?: string | null;
   };
 }): string {
@@ -1783,6 +1789,7 @@ type AgencyContext = {
   stage?: string | null;
   objective?: string | null;
   intensity?: string | null;
+  playbook?: string | null;
   nextAction?: string | null;
 };
 
@@ -1791,14 +1798,18 @@ function parseAgencyContext(body: Record<string, unknown>): AgencyContext | null
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
   const record = raw as Record<string, unknown>;
   const stage = normalizeAgencyStage(record.stage);
-  const objective = normalizeAgencyObjective(record.objective);
+  const objective = normalizeObjectiveCode(
+    typeof record.objectiveCode === "string" ? record.objectiveCode : record.objective
+  );
   const intensity = normalizeAgencyIntensity(record.intensity);
+  const playbook = normalizeAgencyPlaybook(record.playbook);
   const nextAction = typeof record.nextAction === "string" ? record.nextAction.trim() : "";
-  if (!stage && !objective && !intensity && !nextAction) return null;
+  if (!stage && !objective && !intensity && !playbook && !nextAction) return null;
   return {
     stage,
     objective,
     intensity,
+    playbook,
     nextAction: nextAction || null,
   };
 }
@@ -1809,6 +1820,7 @@ function buildAgencyPromptLines(agency?: AgencyContext | null): string[] {
   if (agency.stage) lines.push(`agency_stage: ${agency.stage}`);
   if (agency.objective) lines.push(`agency_objective: ${agency.objective}`);
   if (agency.intensity) lines.push(`agency_intensity: ${agency.intensity}`);
+  if (agency.playbook) lines.push(`agency_playbook: ${agency.playbook}`);
   if (agency.nextAction) {
     lines.push(`agency_next_action: «${truncateForPrompt(agency.nextAction, 120)}»`);
   }

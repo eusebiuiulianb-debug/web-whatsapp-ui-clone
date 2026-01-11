@@ -40,6 +40,7 @@ export type DraftQaResult = {
 const MAX_CONTEXT_WORDS = 10;
 const MAX_CONTEXT_CHARS = 80;
 const MAX_DRAFT_CHARS = 220;
+const MAX_FINAL_QUESTION_CHARS = 60;
 const MARKETING_WORDS = [
   "promoción",
   "promo",
@@ -69,6 +70,18 @@ const HUMAN_DETAIL_PATTERNS: RegExp[] = [
   /\bcontigo\b/i,
   /\bte\s+leo\b/i,
   /\bme\s+encanta\b/i,
+];
+const MICRO_DETAIL_PATTERNS: RegExp[] = [
+  /\bvoz\b/i,
+  /\bmirada\b/i,
+  /\brespiraci[oó]n\b/i,
+  /\brisa\b/i,
+  /\bcalor\b/i,
+  /\bpiel\b/i,
+  /\britmo\b/i,
+  /\bsusurro\b/i,
+  /\bsonrisa\b/i,
+  /\bcercan[ií]a\b/i,
 ];
 const UNDERAGE_PATTERNS: RegExp[] = [
   /\b(tengo|cumplo)\s*1[0-7]\b/i,
@@ -112,6 +125,7 @@ export function buildAgencyDraftFromBlocks(options: BuildAgencyDraftOptions): Ag
   }
 
   const variant = typeof options.variant === "number" ? options.variant : 0;
+  const offerTitle = sanitizeOfferTitle(options.offer?.title ?? "");
   const baseSeed = hashString(
     [
       fanName || "fan",
@@ -119,7 +133,7 @@ export function buildAgencyDraftFromBlocks(options: BuildAgencyDraftOptions): Ag
       options.stage,
       options.objective,
       options.intensity,
-      options.offer?.title ?? "",
+      offerTitle,
       options.offer?.tier ?? "",
       String(variant),
     ].join("|")
@@ -134,7 +148,7 @@ export function buildAgencyDraftFromBlocks(options: BuildAgencyDraftOptions): Ag
   const baseReplacements = {
     fanName,
     context: contextSnippet ?? "",
-    offerTitle: options.offer?.title ?? "",
+    offerTitle,
     offerTier: options.offer?.tier ?? "",
   };
 
@@ -158,6 +172,7 @@ export function buildAgencyDraftFromBlocks(options: BuildAgencyDraftOptions): Ag
 
   let draft = parts.map((part) => part.trim()).filter(Boolean).join(" ");
   draft = sanitizeBannedTerms(draft);
+  draft = injectOfferMention(draft, offerTitle, baseSeed);
   draft = normalizeWhitespace(draft);
   draft = ensureQuestion(draft);
 
@@ -211,6 +226,27 @@ export function scoreDraft(text: string): DraftQaResult {
   } else {
     score -= 6;
     warnings.push("Poca calidez humana");
+  }
+
+  const hasMicroDetail = MICRO_DETAIL_PATTERNS.some((pattern) => pattern.test(trimmed));
+  if (hasMicroDetail) {
+    score += 6;
+  } else {
+    score -= 8;
+    warnings.push("Falta detalle sensorial");
+  }
+
+  const finalQuestion = extractFinalQuestion(trimmed);
+  if (finalQuestion && finalQuestion.length <= MAX_FINAL_QUESTION_CHARS) {
+    score += 4;
+  } else if (finalQuestion) {
+    score -= 6;
+    warnings.push("Pregunta final larga");
+  }
+
+  if (hasRepeatedPhrases(trimmed)) {
+    score -= 8;
+    warnings.push("Frases repetidas");
   }
 
   const hasMarketing = MARKETING_WORDS.some((word) => trimmed.toLowerCase().includes(word));
@@ -297,8 +333,126 @@ function sanitizeBannedTerms(text: string): string {
   return normalizeWhitespace(next);
 }
 
+export function sanitizeAgencyMarketingText(text: string): string {
+  return sanitizeBannedTerms(text || "");
+}
+
+const OFFER_SENSORY_DETAILS = [
+  "con tu voz cerca",
+  "con tu respiración suave",
+  "con tu risa en la cabeza",
+  "con ese calor rico",
+  "con tu ritmo encima",
+];
+
+function sanitizeOfferTitle(value: string): string {
+  const cleaned = normalizeWhitespace(value.replace(/[<>]/g, ""));
+  if (!cleaned) return "";
+  const sanitized = sanitizeBannedTerms(cleaned);
+  return sanitized.length > 80 ? sanitized.slice(0, 80).trim() : sanitized;
+}
+
+function injectOfferMention(text: string, offerTitle: string, seed: number): string {
+  if (!offerTitle) return text;
+  const normalized = text.toLowerCase();
+  if (normalized.includes(offerTitle.toLowerCase())) return text;
+  const phrases = buildOfferPhrases(offerTitle, seed);
+  for (const phrase of phrases) {
+    const candidate = insertBeforeFinalQuestion(text, phrase);
+    if (candidate.length <= MAX_DRAFT_CHARS) {
+      return candidate;
+    }
+  }
+  return text;
+}
+
+function buildOfferPhrases(offerTitle: string, seed: number): string[] {
+  const sensory = pickFromPool(OFFER_SENSORY_DETAILS, seed, "offer-sensory", 0);
+  const templates = [
+    `Si te apetece, te preparo ${offerTitle} ${sensory}`,
+    `Te preparo ${offerTitle} ${sensory}`,
+    `Si quieres, dejo ${offerTitle} listo`,
+  ];
+  return templates.map((phrase) => normalizeWhitespace(phrase));
+}
+
+function insertBeforeFinalQuestion(text: string, phrase: string): string {
+  const trimmed = text.trim();
+  if (!trimmed) return trimmed;
+  const questionIndex = trimmed.lastIndexOf("?");
+  if (questionIndex === -1) return normalizeWhitespace(`${trimmed} ${phrase}`);
+  const prefix = trimmed.slice(0, questionIndex).trim();
+  const suffix = trimmed.slice(questionIndex).trim();
+  return normalizeWhitespace(`${prefix} ${phrase} ${suffix}`);
+}
+
 function normalizeWhitespace(value: string): string {
   return value.replace(/\s+/g, " ").trim();
+}
+
+function extractFinalQuestion(text: string): string | null {
+  const trimmed = text.trim();
+  if (!trimmed) return null;
+  const lastQuestionMark = Math.max(trimmed.lastIndexOf("?"), trimmed.lastIndexOf("¿"));
+  if (lastQuestionMark === -1) return null;
+  const slice = trimmed.slice(0, lastQuestionMark + 1);
+  const lastSeparator = Math.max(slice.lastIndexOf("."), slice.lastIndexOf("!"), slice.lastIndexOf("¡"));
+  const question = slice.slice(lastSeparator + 1).trim();
+  return question || null;
+}
+
+function hasRepeatedPhrases(text: string): boolean {
+  const normalized = text
+    .toLowerCase()
+    .replace(/[^a-záéíóúñü\s]/gi, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!normalized) return false;
+  const stopwords = new Set([
+    "que",
+    "de",
+    "la",
+    "el",
+    "y",
+    "en",
+    "a",
+    "un",
+    "una",
+    "me",
+    "te",
+    "tu",
+    "lo",
+    "los",
+    "las",
+    "por",
+    "para",
+    "con",
+    "sin",
+    "como",
+    "mi",
+    "se",
+    "es",
+    "al",
+    "del",
+  ]);
+  const words = normalized
+    .split(" ")
+    .map((word) => word.trim())
+    .filter((word) => word.length > 2 && !stopwords.has(word));
+  if (words.length < 6) return false;
+  const seen = new Map<string, number>();
+  for (let i = 0; i <= words.length - 3; i += 1) {
+    const key = `${words[i]} ${words[i + 1]} ${words[i + 2]}`;
+    const count = (seen.get(key) ?? 0) + 1;
+    if (count >= 2) return true;
+    seen.set(key, count);
+  }
+  const repeatPhrases = ["te apetece", "si quieres", "te preparo", "me apetece", "lo dejamos", "lo hacemos"];
+  for (const phrase of repeatPhrases) {
+    const occurrences = normalized.split(phrase).length - 1;
+    if (occurrences >= 2) return true;
+  }
+  return false;
 }
 
 function getBannedWordHits(text: string): string[] {
@@ -329,6 +483,16 @@ export function passesDraftHardRules(text: string): { ok: boolean; warnings: str
   const bannedHits = getBannedWordHits(trimmed);
   if (bannedHits.length > 0) {
     warnings.push(`Palabras prohibidas: ${bannedHits.join(", ")}`);
+  }
+  if (!MICRO_DETAIL_PATTERNS.some((pattern) => pattern.test(trimmed))) {
+    warnings.push("Falta detalle sensorial");
+  }
+  const finalQuestion = extractFinalQuestion(trimmed);
+  if (finalQuestion && finalQuestion.length > MAX_FINAL_QUESTION_CHARS) {
+    warnings.push("Pregunta final larga");
+  }
+  if (hasRepeatedPhrases(trimmed)) {
+    warnings.push("Frases repetidas");
   }
   return { ok: warnings.length === 0, warnings };
 }

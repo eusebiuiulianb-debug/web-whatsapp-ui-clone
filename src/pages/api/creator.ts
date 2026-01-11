@@ -1,6 +1,7 @@
 import type { NextApiRequest, NextApiResponse } from "next";
 import prisma from "../../lib/prisma.server";
 import { sendServerError } from "../../lib/apiError";
+import { normalizeUiLocale } from "../../lib/language";
 
 export default async function handler(_req: NextApiRequest, res: NextApiResponse) {
   if (_req.method === "GET") return handleGet(res);
@@ -28,6 +29,7 @@ async function handleGet(res: NextApiResponse) {
       subtitle: creator.subtitle,
       description: creator.description,
       avatarUrl: creator.bioLinkAvatarUrl || "",
+      uiLocale: creator.uiLocale || "es",
       handle: slugifyHandle(creator.name),
     };
 
@@ -46,7 +48,13 @@ async function handleGet(res: NextApiResponse) {
 
 async function handlePost(req: NextApiRequest, res: NextApiResponse) {
   try {
-    const body = req.body as Partial<{ name: string; subtitle: string; description: string; avatarUrl?: string | null }>;
+    const body = req.body as Partial<{
+      name: string;
+      subtitle: string;
+      description: string;
+      avatarUrl?: string | null;
+      uiLocale?: string | null;
+    }>;
     if (!body || typeof body !== "object") {
       return res.status(400).json({ error: "Payload inválido" });
     }
@@ -56,6 +64,9 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
     if (typeof body.subtitle === "string") updates.subtitle = body.subtitle;
     if (typeof body.description === "string") updates.description = body.description;
     if (body.avatarUrl !== undefined) updates.bioLinkAvatarUrl = typeof body.avatarUrl === "string" ? body.avatarUrl : null;
+    if (body.uiLocale !== undefined) {
+      updates.uiLocale = normalizeUiLocale(body.uiLocale) ?? "es";
+    }
 
     if (Object.keys(updates).length === 0) {
       return res.status(400).json({ error: "No hay campos para actualizar" });
@@ -73,6 +84,7 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
       subtitle: creator.subtitle,
       description: creator.description,
       avatarUrl: creator.bioLinkAvatarUrl || "",
+      uiLocale: creator.uiLocale || "es",
       handle: slugifyHandle(creator.name),
     };
 

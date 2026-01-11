@@ -2,7 +2,7 @@ import type { FollowUpTag, UrgencyLevel } from "../utils/followUp";
 import type { ReactionSummaryEntry } from "../lib/messageReactions";
 import type { ContentType, ContentVisibility } from "./content";
 import type { VoiceTranslation } from "./voiceAnalysis";
-import type { AgencyIntensity, AgencyObjective, AgencyStage } from "../lib/agency/types";
+import type { AgencyIntensity, AgencyPlaybook, AgencyStage } from "../lib/agency/types";
 
 interface Message {
   fanId?: string;
@@ -55,6 +55,7 @@ interface Conversation {
   contactName: string;
   displayName?: string | null;
   creatorLabel?: string | null;
+  locale?: string | null;
   preferredLanguage?: "es" | "en" | "ro" | null;
   messageHistory: Message[];
   image: string;
@@ -94,8 +95,10 @@ interface Conversation {
   lastNoteSummary?: string | null;
   nextActionSummary?: string | null;
   agencyStage?: AgencyStage | null;
-  agencyObjective?: AgencyObjective | null;
+  agencyObjective?: string | null;
+  agencyObjectiveLabel?: string | null;
   agencyIntensity?: AgencyIntensity | null;
+  agencyPlaybook?: AgencyPlaybook | null;
   agencyNextAction?: string | null;
   agencyRecommendedOfferId?: string | null;
   lifetimeSpend?: number;
@@ -151,6 +154,7 @@ interface ConversationListData {
   contactName: string;
   displayName?: string | null;
   creatorLabel?: string | null;
+  locale?: string | null;
   preferredLanguage?: "es" | "en" | "ro" | null;
   lastMessage: string;
   lastTime: string;
@@ -191,8 +195,10 @@ interface ConversationListData {
   lastNoteSummary?: string | null;
   nextActionSummary?: string | null;
   agencyStage?: AgencyStage | null;
-  agencyObjective?: AgencyObjective | null;
+  agencyObjective?: string | null;
+  agencyObjectiveLabel?: string | null;
   agencyIntensity?: AgencyIntensity | null;
+  agencyPlaybook?: AgencyPlaybook | null;
   agencyNextAction?: string | null;
   agencyRecommendedOfferId?: string | null;
   lifetimeSpend?: number;

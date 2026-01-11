@@ -11,14 +11,15 @@ import {
 import { isNewWithinDays } from "../../lib/fanNewness";
 import { createInviteTokenForFan } from "../../utils/createInviteToken";
 import { isVisibleToFan, normalizeFrom } from "../../lib/messageAudience";
-import { normalizePreferredLanguage } from "../../lib/language";
+import { normalizeLocaleTag, normalizePreferredLanguage, normalizeUiLocale } from "../../lib/language";
 import { getDbSchemaOutOfSyncPayload, isDbSchemaOutOfSyncError } from "../../lib/dbSchemaGuard";
 import { buildAccessStateFromGrants } from "../../lib/accessState";
 import { computeFanTotals } from "../../lib/fanTotals";
 import { getStickerById } from "../../lib/emoji/stickers";
 import { buildFanMonetizationSummaryFromFan } from "../../lib/analytics/revenue";
 import { computeAgencyPriorityScore } from "../../lib/agency/priorityScore";
-import type { AgencyIntensity, AgencyObjective, AgencyStage } from "../../lib/agency/types";
+import { resolveObjectiveForScoring, resolveObjectiveLabel } from "../../lib/agency/objectives";
+import type { AgencyIntensity, AgencyPlaybook, AgencyStage } from "../../lib/agency/types";
 
 function parseMessageTimestamp(messageId: string): Date | null {
   const parts = messageId.split("-");
@@ -265,6 +266,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         lastReadAtFan: true,
         isBlocked: true,
         isArchived: true,
+        locale: true,
         preferredLanguage: true,
         accessGrants: true,
         notes: {
@@ -311,6 +313,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
     const fanIds = fans.map((fan) => fan.id);
     const creatorId = fans[0]?.creatorId || "creator-1";
+    const creatorLocale = await prisma.creator
+      .findUnique({ where: { id: creatorId }, select: { uiLocale: true } })
+      .then((creator) => normalizeUiLocale(creator?.uiLocale) ?? "es")
+      .catch(() => "es");
     type ExtraPurchaseRow = { amount: number | null; createdAt: Date; tier: string; kind?: string | null };
     type ExtraStats = { purchases: ExtraPurchaseRow[]; maxTier: string | null };
     const extrasByFan = new Map<string, ExtraStats>();
@@ -319,8 +325,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       string,
       {
         stage: string;
-        objective: string;
+        objectiveCode: string;
         intensity: string;
+        playbook: string;
         nextAction: string | null;
         lastTouchAt: Date | null;
       }
@@ -363,8 +370,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           select: {
             fanId: true,
             stage: true,
-            objective: true,
+            objectiveCode: true,
             intensity: true,
+            playbook: true,
             nextAction: true,
             lastTouchAt: true,
           },
@@ -372,14 +380,32 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         agencyMetas.forEach((meta) => {
           agencyMetaByFan.set(meta.fanId, {
             stage: meta.stage,
-            objective: meta.objective,
+            objectiveCode: meta.objectiveCode,
             intensity: meta.intensity,
+            playbook: meta.playbook,
             nextAction: meta.nextAction ?? null,
             lastTouchAt: meta.lastTouchAt ?? null,
           });
         });
       } catch (err) {
         console.error("Error loading agency meta", err);
+      }
+    }
+
+    const objectiveLabelsByCode = new Map<string, Record<string, string>>();
+    if (creatorId) {
+      try {
+        const objectives = await prisma.agencyObjective.findMany({
+          where: { creatorId, active: true },
+          select: { code: true, labels: true },
+        });
+        objectives.forEach((objective) => {
+          const labels = objective.labels;
+          if (!labels || typeof labels !== "object" || Array.isArray(labels)) return;
+          objectiveLabelsByCode.set(objective.code, labels as Record<string, string>);
+        });
+      } catch (err) {
+        console.error("Error loading agency objectives", err);
       }
     }
 
@@ -477,9 +503,17 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       );
       const agencyMeta = agencyMetaByFan.get(fan.id);
       const agencyStage = (agencyMeta?.stage ?? "NEW") as AgencyStage;
-      const agencyObjective = (agencyMeta?.objective ?? "CONNECT") as AgencyObjective;
+      const agencyObjective = agencyMeta?.objectiveCode ?? "CONNECT";
       const agencyIntensity = (agencyMeta?.intensity ?? "MEDIUM") as AgencyIntensity;
+      const agencyPlaybook = (agencyMeta?.playbook ?? "GIRLFRIEND") as AgencyPlaybook;
       const agencyNextAction = agencyMeta?.nextAction ?? null;
+      const objectiveLocale = creatorLocale;
+      const agencyObjectiveLabel =
+        resolveObjectiveLabel({
+          code: agencyObjective,
+          locale: objectiveLocale,
+          labelsByCode: objectiveLabelsByCode,
+        }) ?? agencyObjective;
       const spent7d = sumPurchasesSince(allPurchases, new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000));
       const spent30d = sumPurchasesSince(allPurchases, new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000));
       const segmentLabel = (fan.segment ?? "").toUpperCase();
@@ -526,7 +560,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         spent7d,
         spent30d,
         stage: agencyStage,
-        objective: agencyObjective,
+        objective: resolveObjectiveForScoring(agencyObjective),
         intensity: agencyIntensity,
         flags: { vip: isVip, expired: isExpired, atRisk: isAtRisk, isNew: isNew30d },
       });
@@ -579,6 +613,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         name: fan.name,
         displayName: fan.displayName ?? null,
         creatorLabel: fan.creatorLabel ?? null,
+        locale: fan.locale ? normalizeLocaleTag(fan.locale) : null,
         preferredLanguage: normalizePreferredLanguage(fan.preferredLanguage) ?? null,
         avatar: fan.avatar || "",
         preview: hasMessages ? preview : "",
@@ -619,7 +654,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         priorityScore,
         agencyStage,
         agencyObjective,
+        agencyObjectiveLabel,
         agencyIntensity,
+        agencyPlaybook,
         agencyNextAction,
         lastNoteSnippet,
         nextActionSnippet,

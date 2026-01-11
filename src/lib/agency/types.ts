@@ -20,10 +20,12 @@ export const AGENCY_OBJECTIVES = [
 ] as const;
 
 export const AGENCY_INTENSITIES = ["SOFT", "MEDIUM", "INTENSE"] as const;
+export const AGENCY_PLAYBOOKS = ["GIRLFRIEND", "PLAYFUL", "ELEGANT", "SOFT_DOMINANT"] as const;
 
 export type AgencyStage = typeof AGENCY_STAGES[number];
 export type AgencyObjective = typeof AGENCY_OBJECTIVES[number];
 export type AgencyIntensity = typeof AGENCY_INTENSITIES[number];
+export type AgencyPlaybook = typeof AGENCY_PLAYBOOKS[number];
 
 function normalizeAgencyEnum<T extends readonly string[]>(value: unknown, allowed: T): T[number] | null {
   if (typeof value !== "string") return null;
@@ -42,4 +44,8 @@ export function normalizeAgencyObjective(value: unknown): AgencyObjective | null
 
 export function normalizeAgencyIntensity(value: unknown): AgencyIntensity | null {
   return normalizeAgencyEnum(value, AGENCY_INTENSITIES);
+}
+
+export function normalizeAgencyPlaybook(value: unknown): AgencyPlaybook | null {
+  return normalizeAgencyEnum(value, AGENCY_PLAYBOOKS);
 }

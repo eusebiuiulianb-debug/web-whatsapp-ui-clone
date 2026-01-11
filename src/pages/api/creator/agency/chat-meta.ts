@@ -3,12 +3,18 @@ import { prisma } from "@/server/prisma";
 import { computeAgencyPriorityScore } from "../../../../lib/agency/priorityScore";
 import {
   normalizeAgencyIntensity,
-  normalizeAgencyObjective,
+  normalizeAgencyPlaybook,
   normalizeAgencyStage,
   type AgencyIntensity,
-  type AgencyObjective,
+  type AgencyPlaybook,
   type AgencyStage,
 } from "../../../../lib/agency/types";
+import {
+  isBuiltInObjectiveCode,
+  normalizeObjectiveCode,
+  resolveObjectiveForScoring,
+} from "../../../../lib/agency/objectives";
+import { normalizeLocaleTag } from "../../../../lib/language";
 import { buildAccessStateFromGrants } from "../../../../lib/accessState";
 import { isNewWithinDays } from "../../../../lib/fanNewness";
 import { getDbSchemaOutOfSyncPayload, isDbSchemaOutOfSyncError } from "../../../../lib/dbSchemaGuard";
@@ -19,8 +25,9 @@ type ChatAgencyMetaPayload = {
   creatorId: string;
   fanId: string;
   stage: AgencyStage;
-  objective: AgencyObjective;
+  objectiveCode: string;
   intensity: AgencyIntensity;
+  playbook: AgencyPlaybook;
   nextAction: string | null;
   notes: string | null;
   recommendedOfferId: string | null;
@@ -104,14 +111,35 @@ async function handlePut(req: NextApiRequest, res: NextApiResponse<ChatMetaRespo
   if (Object.prototype.hasOwnProperty.call(body, "stage") && !stageInput) {
     return res.status(400).json({ ok: false, error: "Invalid stage" });
   }
-  const objectiveInput = normalizeAgencyObjective(body.objective);
-  if (Object.prototype.hasOwnProperty.call(body, "objective") && !objectiveInput) {
+  const objectiveCodeInput = normalizeObjectiveCode(
+    typeof body.objectiveCode === "string" ? body.objectiveCode : body.objective
+  );
+  if (Object.prototype.hasOwnProperty.call(body, "objectiveCode") && !objectiveCodeInput) {
+    return res.status(400).json({ ok: false, error: "Invalid objectiveCode" });
+  }
+  if (Object.prototype.hasOwnProperty.call(body, "objective") && !objectiveCodeInput) {
     return res.status(400).json({ ok: false, error: "Invalid objective" });
   }
   const intensityInput = normalizeAgencyIntensity(body.intensity);
   if (Object.prototype.hasOwnProperty.call(body, "intensity") && !intensityInput) {
     return res.status(400).json({ ok: false, error: "Invalid intensity" });
   }
+  const playbookInput = normalizeAgencyPlaybook(body.playbook);
+  if (Object.prototype.hasOwnProperty.call(body, "playbook") && !playbookInput) {
+    return res.status(400).json({ ok: false, error: "Invalid playbook" });
+  }
+
+  const objectiveLabel =
+    typeof body.objectiveLabel === "string" ? body.objectiveLabel.trim() : "";
+  const localeRaw =
+    typeof body.objectiveLocale === "string"
+      ? body.objectiveLocale
+      : typeof body.locale === "string"
+      ? body.locale
+      : typeof body.language === "string"
+      ? body.language
+      : "";
+  const locale = normalizeLocaleTag(localeRaw) || "es";
 
   const nextAction = normalizeOptionalString(body.nextAction, 120);
   const notes = normalizeOptionalString(body.notes, 600);
@@ -124,10 +152,20 @@ async function handlePut(req: NextApiRequest, res: NextApiResponse<ChatMetaRespo
       return res.status(404).json({ ok: false, error: "Fan not found" });
     }
 
+    if (objectiveCodeInput && objectiveCodeInput.length > 48) {
+      return res.status(400).json({ ok: false, error: "objectiveCode too long" });
+    }
+    if (objectiveLabel && objectiveLabel.length > 80) {
+      return res.status(400).json({ ok: false, error: "objectiveLabel too long" });
+    }
+
     const data: Record<string, unknown> = {};
     if (Object.prototype.hasOwnProperty.call(body, "stage")) data.stage = stageInput;
-    if (Object.prototype.hasOwnProperty.call(body, "objective")) data.objective = objectiveInput;
+    if (Object.prototype.hasOwnProperty.call(body, "objective") || Object.prototype.hasOwnProperty.call(body, "objectiveCode")) {
+      data.objectiveCode = objectiveCodeInput;
+    }
     if (Object.prototype.hasOwnProperty.call(body, "intensity")) data.intensity = intensityInput;
+    if (Object.prototype.hasOwnProperty.call(body, "playbook")) data.playbook = playbookInput;
     if (Object.prototype.hasOwnProperty.call(body, "nextAction")) data.nextAction = nextAction;
     if (Object.prototype.hasOwnProperty.call(body, "notes")) data.notes = notes;
     const hasRecommendedOfferId = Object.prototype.hasOwnProperty.call(body, "recommendedOfferId");
@@ -146,6 +184,23 @@ async function handlePut(req: NextApiRequest, res: NextApiResponse<ChatMetaRespo
       }
     }
 
+    if (objectiveCodeInput && objectiveLabel && !isBuiltInObjectiveCode(objectiveCodeInput)) {
+      const existing = await prisma.agencyObjective.findFirst({
+        where: { creatorId, code: objectiveCodeInput },
+        select: { id: true },
+      });
+      if (!existing) {
+        await prisma.agencyObjective.create({
+          data: {
+            creatorId,
+            code: objectiveCodeInput,
+            labels: { [locale]: objectiveLabel },
+            active: true,
+          },
+        });
+      }
+    }
+
     const meta = await prisma.chatAgencyMeta.upsert({
       where: { creatorId_fanId: { creatorId, fanId } },
       update: data,
@@ -153,8 +208,9 @@ async function handlePut(req: NextApiRequest, res: NextApiResponse<ChatMetaRespo
         creatorId,
         fanId,
         stage: stageInput ?? undefined,
-        objective: objectiveInput ?? undefined,
+        objectiveCode: objectiveCodeInput ?? undefined,
         intensity: intensityInput ?? undefined,
+        playbook: playbookInput ?? undefined,
         nextAction,
         notes,
         recommendedOfferId: hasRecommendedOfferId ? recommendedOfferId : undefined,
@@ -193,8 +249,9 @@ function serializeMeta(meta: {
   creatorId: string;
   fanId: string;
   stage: AgencyStage;
-  objective: AgencyObjective;
+  objectiveCode: string;
   intensity: AgencyIntensity;
+  playbook: AgencyPlaybook;
   nextAction: string | null;
   notes: string | null;
   recommendedOfferId: string | null;
@@ -207,8 +264,9 @@ function serializeMeta(meta: {
     creatorId: meta.creatorId,
     fanId: meta.fanId,
     stage: meta.stage,
-    objective: meta.objective,
+    objectiveCode: meta.objectiveCode,
     intensity: meta.intensity,
+    playbook: meta.playbook,
     nextAction: meta.nextAction ?? null,
     notes: meta.notes ?? null,
     recommendedOfferId: meta.recommendedOfferId ?? null,
@@ -352,7 +410,7 @@ async function buildPriorityAndSummary(args: {
   };
   meta: {
     stage: AgencyStage;
-    objective: AgencyObjective;
+    objectiveCode: string;
     intensity: AgencyIntensity;
   };
 }) {
@@ -382,7 +440,7 @@ async function buildPriorityAndSummary(args: {
     spent7d,
     spent30d,
     stage: meta.stage,
-    objective: meta.objective,
+    objective: resolveObjectiveForScoring(meta.objectiveCode),
     intensity: meta.intensity,
     flags: {
       vip: segmentLabel === "VIP" || spent30d >= 200,

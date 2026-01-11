@@ -4,6 +4,7 @@ export interface CreatorConfig {
   creatorName: string;
   creatorHandle?: string;
   creatorSubtitle: string;
+  uiLocale: string;
   creatorDescription: string;
   avatarUrl?: string;
   quickReplies: {
@@ -20,6 +21,7 @@ export const DEFAULT_CREATOR_CONFIG: CreatorConfig = {
   creatorName: "Eusebiu",
   creatorHandle: slugifyHandle("Eusebiu"),
   creatorSubtitle: "Responde en menos de 24h",
+  uiLocale: "es",
   creatorDescription:
     "Bienvenido a mi espacio en NOVSY. Aquí comparto avances, envío audios personalizados y respondo tus ideas para crear contenido hecho a tu medida. Únete para acceder a sesiones 1:1, material exclusivo y priorizar tus pedidos.",
   quickReplies: {

@@ -3,12 +3,14 @@ import { prisma } from "@/server/prisma";
 import { buildAgencyDraft } from "@/server/agencyTemplates";
 import {
   normalizeAgencyIntensity,
-  normalizeAgencyObjective,
+  normalizeAgencyPlaybook,
   normalizeAgencyStage,
   type AgencyIntensity,
-  type AgencyObjective,
+  type AgencyPlaybook,
   type AgencyStage,
 } from "@/lib/agency/types";
+import { normalizeObjectiveCode, resolveObjectiveForScoring } from "@/lib/agency/objectives";
+import { normalizeLocaleTag } from "@/lib/language";
 
 type DraftResponse =
   | {
@@ -34,12 +36,29 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
     typeof body.creatorId === "string" && body.creatorId.trim() ? body.creatorId.trim() : await resolveCreatorId();
 
   const stage = (normalizeAgencyStage(body.stage) ?? "NEW") as AgencyStage;
-  const objective = (normalizeAgencyObjective(body.objective) ?? "CONNECT") as AgencyObjective;
+  const objectiveCode = normalizeObjectiveCode(
+    typeof body.objectiveCode === "string" ? body.objectiveCode : body.objective
+  );
+  const objective = resolveObjectiveForScoring(objectiveCode);
   const intensity = (normalizeAgencyIntensity(body.intensity) ?? "MEDIUM") as AgencyIntensity;
+  const playbook = (normalizeAgencyPlaybook(body.playbook) ?? "GIRLFRIEND") as AgencyPlaybook;
 
   const fanName = typeof body.fanName === "string" ? body.fanName.trim() : "";
   const lastFanMsg = typeof body.lastFanMsg === "string" ? body.lastFanMsg.trim() : "";
-  const language = typeof body.language === "string" ? body.language.trim() : "es";
+  const fanId = typeof body.fanId === "string" ? body.fanId.trim() : "";
+  let language = typeof body.language === "string" ? body.language.trim() : "";
+  if (fanId) {
+    const fan = await prisma.fan.findUnique({
+      where: { id: fanId },
+      select: { locale: true, preferredLanguage: true },
+    });
+    const rawLocale = fan?.locale ?? fan?.preferredLanguage ?? "";
+    language = normalizeLocaleTag(rawLocale) || language;
+  }
+  language = normalizeLocaleTag(language) || language;
+  if (!language) {
+    language = "es";
+  }
   const mode = body.mode === "short" ? "short" : "full";
   const variant = typeof body.variant === "number" && Number.isFinite(body.variant) ? Math.max(0, Math.floor(body.variant)) : 0;
   const avoidText = typeof body.avoidText === "string" ? body.avoidText : null;
@@ -69,6 +88,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
       stage,
       objective,
       intensity,
+      playbook,
       language,
       offer,
       variant,

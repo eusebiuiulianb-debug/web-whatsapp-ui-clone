@@ -60,13 +60,22 @@ import { normalizeAiTurnMode } from "../../lib/aiSettings";
 import { getAccessSnapshot, getChatterProPlan } from "../../lib/chatPlaybook";
 import {
   AGENCY_INTENSITIES,
-  AGENCY_OBJECTIVES,
+  AGENCY_PLAYBOOKS,
   AGENCY_STAGES,
   type AgencyIntensity,
-  type AgencyObjective,
+  type AgencyPlaybook,
   type AgencyStage,
 } from "../../lib/agency/types";
-import { scoreDraft, type DraftQaResult } from "../../lib/agency/drafts";
+import {
+  BUILT_IN_OBJECTIVES,
+  isBuiltInObjectiveCode,
+  normalizeObjectiveCode,
+  resolveObjectiveLabel,
+  slugifyObjectiveCode,
+  type ObjectiveLabels,
+} from "../../lib/agency/objectives";
+import { sanitizeAgencyMarketingText, scoreDraft, type DraftQaResult } from "../../lib/agency/drafts";
+import { getAutoAdvanceStage } from "../../lib/agency/autoAdvance";
 import FanManagerDrawer from "../fan/FanManagerDrawer";
 import type { FanManagerSummary } from "../../server/manager/managerService";
 import { deriveFanManagerState, getDefaultFanTone } from "../../lib/fanManagerState";
@@ -104,9 +113,14 @@ import {
 import {
   LANGUAGE_LABELS,
   SUPPORTED_LANGUAGES,
+  UI_LOCALES,
+  UI_LOCALE_LABELS,
   getTranslationLanguageName,
+  normalizeLocale,
+  normalizeLocaleTag,
   normalizePreferredLanguage,
   normalizeTranslationLanguage,
+  normalizeUiLocale,
   type SupportedLanguage,
   type TranslationLanguage,
 } from "../../lib/language";
@@ -154,6 +168,12 @@ type PpvOffer = {
   slot?: string | null;
   priceCents?: number;
   currency?: string;
+};
+type ObjectiveOption = {
+  id: string;
+  code: string;
+  labels: ObjectiveLabels;
+  active: boolean;
 };
 type DraftCard = {
   id: string;
@@ -493,20 +513,17 @@ const PLAYBOOK_MOMENT_LABELS: Record<PlaybookMoment, string> = {
   ANY: "Cualquiera",
 };
 
-const AGENCY_OBJECTIVE_LABELS: Record<AgencyObjective, string> = {
-  CONNECT: "Conectar",
-  SELL_EXTRA: "Vender extra",
-  SELL_PACK: "Vender pack",
-  SELL_MONTHLY: "Vender mensual",
-  RECOVER: "Recuperar",
-  RETAIN: "Retener",
-  UPSELL: "Upsell",
-};
-
 const AGENCY_INTENSITY_LABELS: Record<AgencyIntensity, string> = {
   SOFT: "Soft",
   MEDIUM: "Medium",
   INTENSE: "Intense",
+};
+
+const AGENCY_PLAYBOOK_LABELS: Record<AgencyPlaybook, string> = {
+  GIRLFRIEND: "Novia cercana",
+  PLAYFUL: "Juguetona",
+  ELEGANT: "Elegante",
+  SOFT_DOMINANT: "Dominante sutil",
 };
 
 function formatAgencyStageLabel(value: AgencyStage) {
@@ -525,6 +542,12 @@ const OFFER_INTENSITY_RANK: Record<AgencyIntensity, number> = {
   MEDIUM: 1,
   INTENSE: 2,
 };
+
+const REENGAGE_TOUCHES: Array<{ key: string; label: string; minHours: number; intensity: AgencyIntensity }> = [
+  { key: "touch1", label: "Toque 1", minHours: 12, intensity: "SOFT" },
+  { key: "touch2", label: "Toque 2", minHours: 48, intensity: "MEDIUM" },
+  { key: "touch3", label: "Toque 3", minHours: 120, intensity: "INTENSE" },
+];
 
 const LOCAL_PLAYBOOKS: Playbook[] = [
   {
@@ -1588,8 +1611,9 @@ export default function ConversationDetails({ onBackToBoard }: ConversationDetai
 
     const fallback = {
       stage: (conversation.agencyStage ?? "NEW") as AgencyStage,
-      objective: (conversation.agencyObjective ?? "CONNECT") as AgencyObjective,
+      objective: normalizeObjectiveCode(conversation.agencyObjective) ?? "CONNECT",
       intensity: (conversation.agencyIntensity ?? "MEDIUM") as AgencyIntensity,
+      playbook: (conversation.agencyPlaybook ?? "GIRLFRIEND") as AgencyPlaybook,
       nextAction: (conversation.agencyNextAction ?? "").toString(),
       recommendedOfferId: null,
     };
@@ -1611,10 +1635,13 @@ export default function ConversationDetails({ onBackToBoard }: ConversationDetai
           throw new Error(data?.error || res.statusText);
         }
         const meta = data.meta || {};
+        const rawObjective =
+          typeof meta.objectiveCode === "string" ? meta.objectiveCode : typeof meta.objective === "string" ? meta.objective : null;
         const nextMeta = {
           stage: (meta.stage ?? fallback.stage) as AgencyStage,
-          objective: (meta.objective ?? fallback.objective) as AgencyObjective,
+          objective: normalizeObjectiveCode(rawObjective) ?? fallback.objective,
           intensity: (meta.intensity ?? fallback.intensity) as AgencyIntensity,
+          playbook: (meta.playbook ?? fallback.playbook) as AgencyPlaybook,
           nextAction: meta.nextAction ? String(meta.nextAction) : "",
           recommendedOfferId: typeof meta.recommendedOfferId === "string" ? meta.recommendedOfferId : null,
         };
@@ -1634,10 +1661,43 @@ export default function ConversationDetails({ onBackToBoard }: ConversationDetai
     conversation.agencyIntensity,
     conversation.agencyNextAction,
     conversation.agencyObjective,
+    conversation.agencyPlaybook,
     conversation.agencyStage,
     conversation.isManager,
     id,
   ]);
+
+  const fetchObjectives = useCallback(async () => {
+    setObjectivesLoading(true);
+    setObjectivesError(null);
+    try {
+      const res = await fetch("/api/creator/agency/objectives?includeInactive=1", {
+        cache: "no-store",
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || data?.ok !== true) {
+        throw new Error(data?.error || res.statusText);
+      }
+      const items = Array.isArray(data.items) ? (data.items as ObjectiveOption[]) : [];
+      const normalized = items
+        .filter((item) => item && typeof item.code === "string")
+        .map((item) => ({
+          id: item.id,
+          code: item.code.trim(),
+          labels:
+            item.labels && typeof item.labels === "object" && !Array.isArray(item.labels)
+              ? (item.labels as ObjectiveLabels)
+              : ({} as ObjectiveLabels),
+          active: typeof item.active === "boolean" ? item.active : true,
+        }));
+      setObjectiveOptions(normalized);
+    } catch (err) {
+      console.error("Error loading objectives", err);
+      setObjectivesError("No se pudieron cargar objetivos.");
+    } finally {
+      setObjectivesLoading(false);
+    }
+  }, []);
 
   const fetchOffers = useCallback(async () => {
     setOffersLoading(true);
@@ -1661,7 +1721,23 @@ export default function ConversationDetails({ onBackToBoard }: ConversationDetai
   useEffect(() => {
     if (!managerPanelOpen || !id || conversation.isManager) return;
     void fetchOffers();
-  }, [conversation.isManager, fetchOffers, id, managerPanelOpen]);
+    void fetchObjectives();
+  }, [conversation.isManager, fetchObjectives, fetchOffers, id, managerPanelOpen]);
+
+  useEffect(() => {
+    setObjectiveCreatorOpen(false);
+  }, [id]);
+
+  useEffect(() => {
+    if (objectiveCreatorOpen) return;
+    setObjectiveNameDraft("");
+    setObjectiveNameEnDraft("");
+    setObjectiveCodeDraft("");
+    setObjectiveCreateError(null);
+    setObjectiveTranslations({});
+    setObjectiveTranslateError(null);
+    setObjectiveTranslateLoading(false);
+  }, [id, objectiveCreatorOpen]);
 
   function formatCurrency(value: number) {
     const rounded = Math.round((value ?? 0) * 100) / 100;
@@ -1688,10 +1764,16 @@ export default function ConversationDetails({ onBackToBoard }: ConversationDetai
     return `${trimmed}?`;
   }
 
+  function sanitizeOfferCopy(value: string): string {
+    const trimmed = value.trim();
+    if (!trimmed) return "";
+    return sanitizeAgencyMarketingText(trimmed);
+  }
+
   function buildOfferMessage(offer: Offer): string {
-    const hook = pickRandom(offer.hooks) ?? "";
-    const oneLiner = offer.oneLiner ?? "";
-    const cta = ensureQuestion(pickRandom(offer.ctas) ?? "");
+    const hook = sanitizeOfferCopy(pickRandom(offer.hooks) ?? "");
+    const oneLiner = sanitizeOfferCopy(offer.oneLiner ?? "");
+    const cta = ensureQuestion(sanitizeOfferCopy(pickRandom(offer.ctas) ?? ""));
     return [hook, oneLiner, cta].map((part) => part.trim()).filter(Boolean).join(" ");
   }
 
@@ -1738,15 +1820,17 @@ export default function ConversationDetails({ onBackToBoard }: ConversationDetai
   const [ followUpHistoryError, setFollowUpHistoryError ] = useState("");
   const [ agencyMeta, setAgencyMeta ] = useState<{
     stage: AgencyStage;
-    objective: AgencyObjective;
+    objective: string;
     intensity: AgencyIntensity;
+    playbook: AgencyPlaybook;
     nextAction: string;
     recommendedOfferId: string | null;
   } | null>(null);
   const [ agencyDraft, setAgencyDraft ] = useState<{
     stage: AgencyStage;
-    objective: AgencyObjective;
+    objective: string;
     intensity: AgencyIntensity;
+    playbook: AgencyPlaybook;
     nextAction: string;
     recommendedOfferId: string | null;
   } | null>(null);
@@ -1757,6 +1841,18 @@ export default function ConversationDetails({ onBackToBoard }: ConversationDetai
   const [ offersLoading, setOffersLoading ] = useState(false);
   const [ offersError, setOffersError ] = useState<string | null>(null);
   const [ offerSelectionSaving, setOfferSelectionSaving ] = useState(false);
+  const [ objectiveOptions, setObjectiveOptions ] = useState<ObjectiveOption[]>([]);
+  const [ objectivesLoading, setObjectivesLoading ] = useState(false);
+  const [ objectivesError, setObjectivesError ] = useState<string | null>(null);
+  const [ objectiveCreatorOpen, setObjectiveCreatorOpen ] = useState(false);
+  const [ objectiveNameDraft, setObjectiveNameDraft ] = useState("");
+  const [ objectiveNameEnDraft, setObjectiveNameEnDraft ] = useState("");
+  const [ objectiveCodeDraft, setObjectiveCodeDraft ] = useState("");
+  const [ objectiveCreateError, setObjectiveCreateError ] = useState<string | null>(null);
+  const [ objectiveCreateSaving, setObjectiveCreateSaving ] = useState(false);
+  const [ objectiveTranslations, setObjectiveTranslations ] = useState<ObjectiveLabels>({});
+  const [ objectiveTranslateLoading, setObjectiveTranslateLoading ] = useState(false);
+  const [ objectiveTranslateError, setObjectiveTranslateError ] = useState<string | null>(null);
   const [ historyError, setHistoryError ] = useState("");
   const [ nextActionDraft, setNextActionDraft ] = useState("");
   const [ nextActionDate, setNextActionDate ] = useState("");
@@ -1938,6 +2034,8 @@ export default function ConversationDetails({ onBackToBoard }: ConversationDetai
   const [ isLoadingInternalMessages, setIsLoadingInternalMessages ] = useState(false);
   const internalMessagesAbortRef = useRef<AbortController | null>(null);
   const [ managerSuggestions, setManagerSuggestions ] = useState<ManagerSuggestion[]>([]);
+  const [ reengageSuggestions, setReengageSuggestions ] = useState<ManagerSuggestion[]>([]);
+  const [ reengageLoading, setReengageLoading ] = useState(false);
   const [ currentObjective, setCurrentObjective ] = useState<ManagerObjective | null>(null);
   const [ managerSummary, setManagerSummary ] = useState<FanManagerSummary | null>(null);
   const [ hasManualManagerObjective, setHasManualManagerObjective ] = useState(false);
@@ -2029,6 +2127,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
       agencyMeta.stage !== agencyDraft.stage ||
       agencyMeta.objective !== agencyDraft.objective ||
       agencyMeta.intensity !== agencyDraft.intensity ||
+      agencyMeta.playbook !== agencyDraft.playbook ||
       (agencyMeta.nextAction || "") !== (agencyDraft.nextAction || "")
     );
   }, [agencyDraft, agencyMeta]);
@@ -2042,6 +2141,49 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
   const offersForDropdown = compatibleOffers.length > 0 ? compatibleOffers : activeOffers;
   const selectedOfferId = agencyDraft?.recommendedOfferId ?? null;
   const selectedOffer = offersForDropdown.find((offer) => offer.id === selectedOfferId) ?? null;
+  const objectiveLocale = normalizeUiLocale(config?.uiLocale) ?? "es";
+  const objectiveLabelsByCode = useMemo(() => {
+    const map = new Map<string, ObjectiveLabels>();
+    objectiveOptions.forEach((objective) => {
+      if (!objective?.code) return;
+      const rawCode = objective.code.trim();
+      if (!rawCode) return;
+      map.set(rawCode, objective.labels ?? {});
+      const normalized = normalizeObjectiveCode(rawCode);
+      if (normalized) {
+        map.set(normalized, objective.labels ?? {});
+      }
+    });
+    return map;
+  }, [objectiveOptions]);
+  const objectiveSelectOptions = useMemo(() => {
+    const options: Array<{ code: string; label: string; active: boolean; isBuiltIn: boolean }> = [];
+    BUILT_IN_OBJECTIVES.forEach((code) => {
+      const label =
+        resolveObjectiveLabel({ code, locale: objectiveLocale, labelsByCode: objectiveLabelsByCode }) ?? code;
+      options.push({ code, label, active: true, isBuiltIn: true });
+    });
+    const custom: Array<{ code: string; label: string; active: boolean; isBuiltIn: boolean }> = [];
+    objectiveOptions.forEach((objective) => {
+      const normalized = normalizeObjectiveCode(objective.code) ?? objective.code;
+      if (!normalized || isBuiltInObjectiveCode(normalized)) return;
+      if (custom.some((entry) => entry.code === normalized)) return;
+      const label =
+        resolveObjectiveLabel({ code: normalized, locale: objectiveLocale, labelsByCode: objectiveLabelsByCode }) ??
+        normalized;
+      custom.push({ code: normalized, label, active: objective.active, isBuiltIn: false });
+    });
+    custom.sort((a, b) => a.label.localeCompare(b.label, objectiveLocale));
+    const combined = [...options, ...custom];
+    const currentObjective = normalizeObjectiveCode(agencyDraft?.objective) ?? agencyDraft?.objective ?? null;
+    if (currentObjective && !combined.some((entry) => entry.code === currentObjective)) {
+      const label =
+        resolveObjectiveLabel({ code: currentObjective, locale: objectiveLocale, labelsByCode: objectiveLabelsByCode }) ??
+        currentObjective;
+      combined.push({ code: currentObjective, label, active: true, isBuiltIn: false });
+    }
+    return combined;
+  }, [agencyDraft?.objective, objectiveLabelsByCode, objectiveLocale, objectiveOptions]);
 
   function parseNextActionValue(value?: string | null) {
     if (!value) return { text: "", date: "", time: "" };
@@ -2090,8 +2232,9 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
         body: JSON.stringify({
           fanId: id,
           stage: agencyDraft.stage,
-          objective: agencyDraft.objective,
+          objectiveCode: agencyDraft.objective,
           intensity: agencyDraft.intensity,
+          playbook: agencyDraft.playbook,
           nextAction: agencyDraft.nextAction,
           recommendedOfferId: agencyDraft.recommendedOfferId,
         }),
@@ -2101,10 +2244,13 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
         throw new Error(data?.error || res.statusText);
       }
       const meta = data.meta || {};
+      const rawObjective =
+        typeof meta.objectiveCode === "string" ? meta.objectiveCode : typeof meta.objective === "string" ? meta.objective : null;
       const nextMeta = {
         stage: (meta.stage ?? agencyDraft.stage) as AgencyStage,
-        objective: (meta.objective ?? agencyDraft.objective) as AgencyObjective,
+        objective: normalizeObjectiveCode(rawObjective) ?? agencyDraft.objective,
         intensity: (meta.intensity ?? agencyDraft.intensity) as AgencyIntensity,
+        playbook: (meta.playbook ?? agencyDraft.playbook) as AgencyPlaybook,
         nextAction: meta.nextAction ? String(meta.nextAction) : "",
         recommendedOfferId: typeof meta.recommendedOfferId === "string" ? meta.recommendedOfferId : agencyDraft.recommendedOfferId,
       };
@@ -2116,6 +2262,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
           agencyStage: nextMeta.stage,
           agencyObjective: nextMeta.objective,
           agencyIntensity: nextMeta.intensity,
+          agencyPlaybook: nextMeta.playbook,
           agencyNextAction: nextMeta.nextAction || null,
           agencyRecommendedOfferId: nextMeta.recommendedOfferId ?? null,
         } as any);
@@ -2159,6 +2306,256 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
       }
     },
     [agencyDraft, id]
+  );
+
+  const objectiveCodePreview = useMemo(() => {
+    const seed = objectiveCodeDraft.trim() || objectiveNameDraft.trim();
+    return seed ? slugifyObjectiveCode(seed) : "";
+  }, [objectiveCodeDraft, objectiveNameDraft]);
+
+  const handleObjectiveSelect = useCallback(
+    (value: string) => {
+      if (value === "__create__") {
+        setObjectiveCreatorOpen(true);
+        return;
+      }
+      const normalized = normalizeObjectiveCode(value) ?? value;
+      setObjectiveCreatorOpen(false);
+      setObjectiveCreateError(null);
+      setAgencyDraft((prev) => (prev ? { ...prev, objective: normalized } : prev));
+    },
+    []
+  );
+
+  const handleCreateObjective = useCallback(async () => {
+    if (objectiveCreateSaving) return;
+    setObjectiveCreateError(null);
+    const localName = objectiveNameDraft.trim();
+    const englishName = objectiveNameEnDraft.trim();
+    if (!localName) {
+      setObjectiveCreateError("Añade un nombre para el objetivo.");
+      return;
+    }
+    if (localName.length > 80 || englishName.length > 80) {
+      setObjectiveCreateError("El nombre es demasiado largo.");
+      return;
+    }
+    const code = normalizeObjectiveCode(objectiveCodeDraft.trim() || localName);
+    if (!code) {
+      setObjectiveCreateError("Código inválido.");
+      return;
+    }
+    if (code.length > 48) {
+      setObjectiveCreateError("El código es demasiado largo.");
+      return;
+    }
+    if (isBuiltInObjectiveCode(code)) {
+      setObjectiveCreateError("Ese código ya está reservado.");
+      return;
+    }
+    const exists = objectiveOptions.some((objective) => {
+      const normalized = normalizeObjectiveCode(objective.code) ?? objective.code;
+      return normalized === code;
+    });
+    if (exists) {
+      setObjectiveCreateError("Ya existe un objetivo con ese código.");
+      return;
+    }
+
+    const objectiveLocaleKey = normalizeLocaleTag(objectiveLocale) || objectiveLocale;
+    const labels: ObjectiveLabels = { [objectiveLocaleKey]: localName };
+    if (englishName) {
+      labels.en = englishName;
+    }
+    Object.entries(objectiveTranslations).forEach(([locale, label]) => {
+      const normalized = normalizeLocaleTag(locale) || locale;
+      if (!normalized || labels[normalized]) return;
+      const trimmed = label.trim();
+      if (!trimmed) return;
+      labels[normalized] = trimmed;
+    });
+
+    setObjectiveCreateSaving(true);
+    try {
+      const res = await fetch("/api/creator/agency/objectives", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ code, labels }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || data?.ok !== true) {
+        throw new Error(data?.error || res.statusText);
+      }
+      const item = data?.item ?? {};
+      const normalizedItem: ObjectiveOption = {
+        id: typeof item.id === "string" ? item.id : `objective-${code}`,
+        code: typeof item.code === "string" ? item.code : code,
+        labels:
+          item.labels && typeof item.labels === "object" && !Array.isArray(item.labels)
+            ? (item.labels as ObjectiveLabels)
+            : labels,
+        active: typeof item.active === "boolean" ? item.active : true,
+      };
+      setObjectiveOptions((prev) => {
+        const normalizedCode = normalizeObjectiveCode(normalizedItem.code) ?? normalizedItem.code;
+        const filtered = prev.filter((entry) => {
+          const entryCode = normalizeObjectiveCode(entry.code) ?? entry.code;
+          return entryCode !== normalizedCode;
+        });
+        return [normalizedItem, ...filtered];
+      });
+      setAgencyDraft((prev) => (prev ? { ...prev, objective: normalizedItem.code } : prev));
+      setObjectiveCreatorOpen(false);
+    } catch (err) {
+      console.error("Error creating objective", err);
+      setObjectiveCreateError("No se pudo crear el objetivo.");
+    } finally {
+      setObjectiveCreateSaving(false);
+    }
+  }, [
+    objectiveCreateSaving,
+    objectiveNameDraft,
+    objectiveNameEnDraft,
+    objectiveCodeDraft,
+    objectiveLocale,
+    objectiveOptions,
+    objectiveTranslations,
+  ]);
+
+  const handleObjectiveAutoTranslate = useCallback(async () => {
+    if (objectiveTranslateLoading) return;
+    setObjectiveTranslateError(null);
+    const source = objectiveNameDraft.trim();
+    if (!source) {
+      setObjectiveTranslateError("Añade un nombre antes de traducir.");
+      return;
+    }
+
+    const objectiveLocaleKey = normalizeLocaleTag(objectiveLocale);
+    const usedLocales = new Set<string>();
+    if (objectiveLocaleKey) usedLocales.add(objectiveLocaleKey);
+    if (objectiveNameEnDraft.trim()) usedLocales.add("en");
+    Object.keys(objectiveTranslations).forEach((key) => {
+      const normalized = normalizeLocaleTag(key);
+      if (normalized) usedLocales.add(normalized);
+    });
+
+    const targets = UI_LOCALES.filter((locale) => {
+      const normalized = normalizeLocaleTag(locale);
+      return normalized ? !usedLocales.has(normalized) : false;
+    });
+    if (targets.length === 0) {
+      setObjectiveTranslateError("No hay idiomas pendientes de traducir.");
+      return;
+    }
+
+    setObjectiveTranslateLoading(true);
+    const translated: ObjectiveLabels = {};
+    let hadConfigError = false;
+    let hadNetworkError = false;
+
+    await Promise.all(
+      targets.map(async (targetLocale) => {
+        const normalizedTarget = normalizeLocaleTag(targetLocale);
+        if (!normalizedTarget) return;
+        const candidates = normalizeLocale(normalizedTarget);
+        const targetLang =
+          normalizeTranslationLanguage(candidates[0]) ??
+          normalizeTranslationLanguage(candidates[1]) ??
+          null;
+        if (!targetLang) return;
+
+        try {
+          const res = await fetch("/api/creator/messages/translate", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ text: source, targetLang }),
+          });
+          const data = await res.json().catch(() => ({}));
+          if (!res.ok || typeof data?.translatedText !== "string") {
+            if (data?.error === "TRANSLATE_NOT_CONFIGURED" || data?.code === "TRANSLATE_NOT_CONFIGURED") {
+              hadConfigError = true;
+              return;
+            }
+            hadNetworkError = true;
+            return;
+          }
+          const text = data.translatedText.trim();
+          if (text) translated[normalizedTarget] = text;
+        } catch (_err) {
+          hadNetworkError = true;
+        }
+      })
+    );
+
+    if (translated.en && !objectiveNameEnDraft.trim()) {
+      setObjectiveNameEnDraft(translated.en);
+      delete translated.en;
+    }
+    if (Object.keys(translated).length > 0) {
+      setObjectiveTranslations((prev) => ({ ...prev, ...translated }));
+    }
+
+    if (hadConfigError) {
+      setObjectiveTranslateError("Configura DeepL para traducir automáticamente.");
+    } else if (hadNetworkError && Object.keys(translated).length === 0) {
+      setObjectiveTranslateError("No se pudieron generar traducciones.");
+    }
+
+    setObjectiveTranslateLoading(false);
+  }, [
+    objectiveLocale,
+    objectiveNameDraft,
+    objectiveNameEnDraft,
+    objectiveTranslations,
+    objectiveTranslateLoading,
+  ]);
+
+  const applyAutoAdvanceStage = useCallback(
+    async (nextStage: AgencyStage, actionKey?: string | null) => {
+      if (!id || conversation.isManager) return;
+      if (!agencyMeta || !agencyDraft) return;
+      if (isAgencyDirty) return;
+      if (agencyMeta.stage === nextStage) return;
+      try {
+        const res = await fetch("/api/creator/agency/chat-meta", {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            fanId: id,
+            stage: nextStage,
+          }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok || data?.ok !== true) {
+          throw new Error(data?.error || res.statusText);
+        }
+        const meta = data.meta || {};
+        const updatedStage = (meta.stage ?? nextStage) as AgencyStage;
+        const rawObjective =
+          typeof meta.objectiveCode === "string" ? meta.objectiveCode : typeof meta.objective === "string" ? meta.objective : null;
+        const updatedMeta = {
+          stage: updatedStage,
+          objective: normalizeObjectiveCode(rawObjective) ?? agencyMeta.objective,
+          intensity: (meta.intensity ?? agencyMeta.intensity) as AgencyIntensity,
+          playbook: (meta.playbook ?? agencyMeta.playbook) as AgencyPlaybook,
+          nextAction: meta.nextAction ? String(meta.nextAction) : agencyMeta.nextAction,
+          recommendedOfferId:
+            typeof meta.recommendedOfferId === "string" ? meta.recommendedOfferId : agencyMeta.recommendedOfferId,
+        };
+        setAgencyMeta(updatedMeta);
+        setAgencyDraft(updatedMeta);
+        if (!conversation.isManager) {
+          setConversation({
+            ...conversation,
+            agencyStage: updatedStage,
+          } as any);
+        }
+      } catch (err) {
+        console.error("Error auto-advancing agency stage", { actionKey, err });
+      }
+    },
+    [agencyDraft, agencyMeta, conversation, id, isAgencyDirty, setConversation]
   );
 
   const captureChatScrollForPanelToggle = useCallback(() => {
@@ -3878,6 +4275,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
           contactName: getFanDisplayNameForCreator(targetFan),
           displayName: targetFan.displayName ?? prev.displayName ?? null,
           creatorLabel: targetFan.creatorLabel ?? prev.creatorLabel ?? null,
+          locale: targetFan.locale ?? prev.locale ?? null,
           preferredLanguage: normalizePreferredLanguage(targetFan.preferredLanguage) ?? null,
           membershipStatus: targetFan.membershipStatus,
           daysLeft: targetFan.daysLeft,
@@ -5606,7 +6004,9 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
           <div className="rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] p-3 space-y-2">
             <div className="flex items-center justify-between gap-2 text-[10px] font-semibold text-[color:var(--muted)]">
               <span>Agency OS</span>
-              {agencyLoading && <span className="text-[10px] text-[color:var(--muted)]">Cargando…</span>}
+              {(agencyLoading || objectivesLoading) && (
+                <span className="text-[10px] text-[color:var(--muted)]">Cargando…</span>
+              )}
             </div>
             {agencyDraft ? (
               <>
@@ -5636,21 +6036,16 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
                     <span>Objetivo</span>
                     <select
                       value={agencyDraft.objective}
-                      onChange={(event) =>
-                        setAgencyDraft((prev) =>
-                          prev
-                            ? { ...prev, objective: event.target.value as AgencyObjective }
-                            : prev
-                        )
-                      }
+                      onChange={(event) => handleObjectiveSelect(event.target.value)}
                       disabled={agencySaving}
                       className="rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-2 py-1 text-[11px] text-[color:var(--text)]"
                     >
-                      {AGENCY_OBJECTIVES.map((objective) => (
-                        <option key={objective} value={objective}>
-                          {AGENCY_OBJECTIVE_LABELS[objective]}
+                      {objectiveSelectOptions.map((objective) => (
+                        <option key={objective.code} value={objective.code}>
+                          {objective.active ? objective.label : `${objective.label} (inactivo)`}
                         </option>
                       ))}
+                      <option value="__create__">+ Crear objetivo</option>
                     </select>
                   </label>
                   <label className="flex items-center gap-2">
@@ -5674,7 +6069,126 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
                       ))}
                     </select>
                   </label>
+                  <label className="flex items-center gap-2">
+                    <span>Playbook</span>
+                    <select
+                      value={agencyDraft.playbook}
+                      onChange={(event) =>
+                        setAgencyDraft((prev) =>
+                          prev
+                            ? { ...prev, playbook: event.target.value as AgencyPlaybook }
+                            : prev
+                        )
+                      }
+                      disabled={agencySaving}
+                      className="rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-2 py-1 text-[11px] text-[color:var(--text)]"
+                    >
+                      {AGENCY_PLAYBOOKS.map((playbook) => (
+                        <option key={playbook} value={playbook}>
+                          {AGENCY_PLAYBOOK_LABELS[playbook]}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
                 </div>
+                {objectivesError && (
+                  <div className="text-[10px] text-[color:var(--danger)]">{objectivesError}</div>
+                )}
+                {objectiveCreatorOpen && (
+                  <div className="rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] p-3 space-y-2">
+                    <div className="text-[10px] font-semibold text-[color:var(--muted)]">Crear objetivo</div>
+                    <div className="grid gap-2 sm:grid-cols-2">
+                      <input
+                        value={objectiveNameDraft}
+                        onChange={(event) => setObjectiveNameDraft(event.target.value)}
+                        placeholder={`Nombre (${UI_LOCALE_LABELS[objectiveLocale] ?? objectiveLocale.toUpperCase()})`}
+                        disabled={objectiveCreateSaving}
+                        className="rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-3 py-1.5 text-[11px] text-[color:var(--text)] placeholder:text-[color:var(--muted)]"
+                      />
+                      <input
+                        value={objectiveNameEnDraft}
+                        onChange={(event) => setObjectiveNameEnDraft(event.target.value)}
+                        placeholder="Nombre (EN, opcional)"
+                        disabled={objectiveCreateSaving}
+                        className="rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-3 py-1.5 text-[11px] text-[color:var(--text)] placeholder:text-[color:var(--muted)]"
+                      />
+                    </div>
+                    <div className="grid gap-2 sm:grid-cols-2">
+                      <input
+                        value={objectiveCodeDraft}
+                        onChange={(event) => setObjectiveCodeDraft(event.target.value)}
+                        placeholder="Código (opcional)"
+                        disabled={objectiveCreateSaving}
+                        className="rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-3 py-1.5 text-[11px] text-[color:var(--text)] placeholder:text-[color:var(--muted)]"
+                      />
+                      <div className="flex items-center rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-3 py-1.5 text-[10px] text-[color:var(--muted)]">
+                        Código sugerido:
+                        <span className="ml-1 text-[color:var(--text)]">
+                          {objectiveCodePreview || "—"}
+                        </span>
+                      </div>
+                    </div>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={handleObjectiveAutoTranslate}
+                        disabled={objectiveTranslateLoading || !objectiveNameDraft.trim()}
+                        className={clsx(
+                          "inline-flex items-center rounded-full border px-3 py-1 text-[11px] font-semibold transition",
+                          objectiveTranslateLoading || !objectiveNameDraft.trim()
+                            ? "cursor-not-allowed border-[color:var(--surface-border)] bg-[color:var(--surface-2)] text-[color:var(--muted)]"
+                            : "border-[color:var(--surface-border)] bg-[color:var(--surface-2)] text-[color:var(--text)] hover:bg-[color:var(--surface-1)]"
+                        )}
+                      >
+                        {objectiveTranslateLoading ? "Traduciendo…" : "Auto-traducir"}
+                      </button>
+                      {objectiveTranslateError && (
+                        <span className="text-[10px] text-[color:var(--danger)]">{objectiveTranslateError}</span>
+                      )}
+                    </div>
+                    {Object.keys(objectiveTranslations).length > 0 && (
+                      <div className="grid gap-1 text-[10px] text-[color:var(--muted)]">
+                        {Object.entries(objectiveTranslations).map(([locale, label]) => (
+                          <div key={locale} className="flex items-center gap-2">
+                            <span className="min-w-[52px] uppercase">{locale}</span>
+                            <span className="text-[color:var(--text)]">{label}</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    <div className="flex flex-wrap items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={handleCreateObjective}
+                        disabled={objectiveCreateSaving}
+                        className={clsx(
+                          "inline-flex items-center rounded-full border px-3 py-1 text-[11px] font-semibold transition",
+                          objectiveCreateSaving
+                            ? "cursor-not-allowed border-[color:var(--surface-border)] bg-[color:var(--surface-2)] text-[color:var(--muted)]"
+                            : "border-[color:rgba(245,158,11,0.7)] bg-[color:rgba(245,158,11,0.08)] text-[color:var(--text)] hover:bg-[color:rgba(245,158,11,0.16)]"
+                        )}
+                      >
+                        {objectiveCreateSaving ? "Guardando…" : "Guardar objetivo"}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setObjectiveCreatorOpen(false)}
+                        disabled={objectiveCreateSaving}
+                        className={clsx(
+                          "inline-flex items-center rounded-full border px-3 py-1 text-[11px] font-semibold transition",
+                          objectiveCreateSaving
+                            ? "cursor-not-allowed border-[color:var(--surface-border)] bg-[color:var(--surface-2)] text-[color:var(--muted)]"
+                            : "border-[color:var(--surface-border)] bg-[color:var(--surface-2)] text-[color:var(--text)] hover:bg-[color:var(--surface-1)]"
+                        )}
+                      >
+                        Cancelar
+                      </button>
+                    </div>
+                    {objectiveCreateError && (
+                      <div className="text-[10px] text-[color:var(--danger)]">{objectiveCreateError}</div>
+                    )}
+                  </div>
+                )}
                 <div className="flex flex-wrap items-center gap-2">
                   <input
                     value={agencyDraft.nextAction}
@@ -5790,7 +6304,10 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
           <div className="rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] p-3">
             <FanManagerDrawer
               managerSuggestions={managerSuggestions}
+              reengageSuggestions={reengageSuggestions}
+              reengageLoading={reengageLoading}
               onApplySuggestion={handleApplyManagerSuggestion}
+              onApplyReengage={handleApplyManagerSuggestion}
               draftCards={draftCards}
               onDraftAction={handleDraftCardVariant}
               currentObjective={currentObjective}
@@ -5821,6 +6338,8 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
               onOpenOfferSelector={handleOpenExtrasPanel}
               onRequestSuggestionAlt={(text) => handleRequestSuggestionVariant("alternate", text)}
               onRequestSuggestionShorter={(text) => handleRequestSuggestionVariant("shorter", text)}
+              onRequestReengageAlt={(suggestionId) => handleRequestReengageVariant("full", suggestionId)}
+              onRequestReengageShorter={(suggestionId) => handleRequestReengageVariant("short", suggestionId)}
               onInsertOffer={(text, offer, detail) => handleInsertOffer(text, offer, detail, "manager_phase")}
               showRenewAction={showRenewAction}
               quickExtraDisabled={quickExtraDisabled}
@@ -7655,8 +8174,9 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
         ? null
         : agencyDraft ?? {
             stage: (conversation.agencyStage ?? "NEW") as AgencyStage,
-            objective: (conversation.agencyObjective ?? "CONNECT") as AgencyObjective,
+            objective: normalizeObjectiveCode(conversation.agencyObjective) ?? "CONNECT",
             intensity: (conversation.agencyIntensity ?? "MEDIUM") as AgencyIntensity,
+            playbook: (conversation.agencyPlaybook ?? "GIRLFRIEND") as AgencyPlaybook,
             nextAction: (conversation.agencyNextAction ?? "").toString(),
           };
       const agencyPayload = resolvedAgency
@@ -7664,6 +8184,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
             stage: resolvedAgency.stage,
             objective: resolvedAgency.objective,
             intensity: resolvedAgency.intensity,
+            playbook: resolvedAgency.playbook,
             nextAction: resolvedAgency.nextAction?.trim() || undefined,
           }
         : undefined;
@@ -7881,6 +8402,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
       conversation.agencyIntensity,
       conversation.agencyNextAction,
       conversation.agencyObjective,
+      conversation.agencyPlaybook,
       conversation.agencyStage,
       conversation.isManager,
       fanTone,
@@ -7903,7 +8425,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
       mode: "full" | "short";
       avoidText?: string | null;
       stage?: AgencyStage;
-      objective?: AgencyObjective;
+      objective?: string;
       intensity?: AgencyIntensity;
       variant?: number;
       offerId?: string | null;
@@ -7911,8 +8433,9 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
       if (!id) return null;
       const fallbackAgency = {
         stage: (conversation.agencyStage ?? "NEW") as AgencyStage,
-        objective: (conversation.agencyObjective ?? "CONNECT") as AgencyObjective,
+        objective: normalizeObjectiveCode(conversation.agencyObjective) ?? "CONNECT",
         intensity: (conversation.agencyIntensity ?? "MEDIUM") as AgencyIntensity,
+        playbook: (conversation.agencyPlaybook ?? "GIRLFRIEND") as AgencyPlaybook,
         nextAction: (conversation.agencyNextAction ?? "").toString(),
         recommendedOfferId: conversation.agencyRecommendedOfferId ?? null,
       };
@@ -7920,8 +8443,13 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
       const resolvedStage = options.stage ?? resolvedAgency.stage;
       const resolvedObjective = options.objective ?? resolvedAgency.objective;
       const resolvedIntensity = options.intensity ?? resolvedAgency.intensity;
+      const resolvedPlaybook = resolvedAgency.playbook ?? "GIRLFRIEND";
       const resolvedOfferId =
         options.offerId !== undefined ? options.offerId : resolvedAgency.recommendedOfferId ?? null;
+      const resolvedLocale =
+        (typeof conversation.locale === "string" && conversation.locale.trim()) ||
+        normalizePreferredLanguage(conversation.preferredLanguage) ||
+        "es";
       try {
         const res = await fetch("/api/creator/agency/template-draft", {
           method: "POST",
@@ -7931,8 +8459,10 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
             fanName: contactName,
             lastFanMsg: lastFanMessage,
             stage: resolvedStage,
-            objective: resolvedObjective,
+            objectiveCode: resolvedObjective,
             intensity: resolvedIntensity,
+            playbook: resolvedPlaybook,
+            language: resolvedLocale,
             offerId: resolvedOfferId,
             mode: options.mode,
             avoidText: options.avoidText ?? null,
@@ -7961,8 +8491,11 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
       conversation.agencyIntensity,
       conversation.agencyNextAction,
       conversation.agencyObjective,
+      conversation.agencyPlaybook,
       conversation.agencyRecommendedOfferId,
       conversation.agencyStage,
+      conversation.locale,
+      conversation.preferredLanguage,
       id,
       lastFanMessage,
       showComposerToast,
@@ -8015,6 +8548,74 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
     };
   }, [buildTemplateVariants, id]);
 
+  const parseMessageDate = (value?: string | null) => {
+    if (!value) return null;
+    const ts = new Date(value).getTime();
+    return Number.isNaN(ts) ? null : ts;
+  };
+
+  const reengageTouches = useMemo(() => {
+    const lastCreatorAt = parseMessageDate(conversation.lastCreatorMessageAt ?? null);
+    if (!lastCreatorAt) return [];
+    const lastFanAt = parseMessageDate(conversation.lastMessageAt ?? null);
+    if (lastFanAt && lastFanAt >= lastCreatorAt) return [];
+    const silenceHours = (Date.now() - lastCreatorAt) / (1000 * 60 * 60);
+    if (silenceHours < 0) return [];
+    return REENGAGE_TOUCHES.filter((touch) => silenceHours >= touch.minHours);
+  }, [conversation.lastCreatorMessageAt, conversation.lastMessageAt]);
+
+  const reengageKey = useMemo(
+    () => reengageTouches.map((touch) => touch.key).join("|"),
+    [reengageTouches]
+  );
+
+  useEffect(() => {
+    if (!managerPanelOpen || !id || conversation.isManager) return;
+    if (reengageTouches.length === 0) {
+      setReengageSuggestions([]);
+      setReengageLoading(false);
+      return;
+    }
+    let cancelled = false;
+    setReengageLoading(true);
+    (async () => {
+      try {
+        const results = await Promise.all(
+          reengageTouches.map((touch) =>
+            requestTemplateDraft({
+              mode: "full",
+              stage: "RECOVERY",
+              objective: "RECOVER",
+              intensity: touch.intensity,
+            })
+          )
+        );
+        if (cancelled) return;
+        const suggestions = reengageTouches
+          .map((touch, index) => {
+            const draft = results[index]?.draft?.trim() ?? "";
+            if (!draft) return null;
+            return {
+              id: `${id}-reengage-${touch.key}`,
+              label: touch.label,
+              message: draft,
+              intent: `reengage:${touch.key}`,
+              intensity: touch.intensity,
+            } as ManagerSuggestion;
+          })
+          .filter(Boolean) as ManagerSuggestion[];
+        setReengageSuggestions(suggestions);
+      } catch (err) {
+        console.error("Error building reengage drafts", err);
+      } finally {
+        if (!cancelled) setReengageLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [conversation.isManager, id, managerPanelOpen, reengageKey, reengageTouches, requestTemplateDraft]);
+
   const handleRequestSuggestionVariant = async (mode: SuggestionVariantMode, text: string) => {
     const trimmed = text.trim();
     if (!trimmed) return;
@@ -8030,6 +8631,25 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
     const nextMessage = templateResult?.draft?.trim();
     if (!nextMessage || !target) return;
     setManagerSuggestions((prev) =>
+      prev.map((item) => (item.id === target.id ? { ...item, message: nextMessage } : item))
+    );
+  };
+
+  const handleRequestReengageVariant = async (mode: "full" | "short", suggestionId: string) => {
+    const target = reengageSuggestions.find((item) => item.id === suggestionId);
+    if (!target) return;
+    const trimmed = target.message.trim();
+    if (!trimmed) return;
+    const templateResult = await requestTemplateDraft({
+      mode,
+      avoidText: trimmed,
+      stage: "RECOVERY",
+      objective: "RECOVER",
+      intensity: target.intensity ?? "SOFT",
+    });
+    const nextMessage = templateResult?.draft?.trim();
+    if (!nextMessage) return;
+    setReengageSuggestions((prev) =>
       prev.map((item) => (item.id === target.id ? { ...item, message: nextMessage } : item))
     );
   };
@@ -8977,6 +9597,11 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
           message: sentMessage ?? undefined,
         });
         emitCreatorDataChanged({ reason: "fan_message_sent", fanId: id });
+        const currentStage = (agencyMeta?.stage ?? agencyDraft?.stage ?? conversation.agencyStage ?? "NEW") as AgencyStage;
+        const nextStage = getAutoAdvanceStage({ currentStage, actionKey: currentActionKey });
+        if (nextStage && nextStage !== currentStage) {
+          void applyAutoAdvanceStage(nextStage, currentActionKey);
+        }
         const flow = readCortexFlow();
         if (flow && flow.currentFanId === id) {
           const autoNext = flow.autoNext ?? true;

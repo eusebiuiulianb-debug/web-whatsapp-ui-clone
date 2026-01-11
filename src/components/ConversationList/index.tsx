@@ -162,8 +162,16 @@ export default function ConversationList(props: ConversationListProps) {
     ? AGENCY_STAGE_TONES[agencyStageKey] ?? "muted"
     : "muted";
   const agencyObjectiveKey = typeof data.agencyObjective === "string" ? data.agencyObjective.toUpperCase() : null;
+  const agencyObjectiveLabelFromData =
+    typeof data.agencyObjectiveLabel === "string" && data.agencyObjectiveLabel.trim()
+      ? data.agencyObjectiveLabel.trim()
+      : null;
   const agencyObjectiveIcon = agencyObjectiveKey ? AGENCY_OBJECTIVE_ICONS[agencyObjectiveKey] ?? null : null;
-  const agencyObjectiveLabel = agencyObjectiveKey ? AGENCY_OBJECTIVE_LABELS[agencyObjectiveKey] ?? agencyObjectiveKey : null;
+  const agencyObjectiveLabel = agencyObjectiveLabelFromData
+    ? agencyObjectiveLabelFromData
+    : agencyObjectiveKey
+    ? AGENCY_OBJECTIVE_LABELS[agencyObjectiveKey] ?? agencyObjectiveKey
+    : null;
   const hasContextSignals = notesCount > 0 || hasNextAction;
   const shouldShowNotePreview = notesCount > 0 && hasNotePreview;
 

@@ -14,6 +14,7 @@ model Creator {
   id                         String                      @id @default("creator-1")
   name                       String
   subtitle                   String
+  uiLocale                   String                      @default("es")
   description                String
   bioLinkEnabled             Boolean                     @default(false)
   bioLinkTitle               String?
@@ -43,6 +44,7 @@ model Creator {
   campaigns                  CampaignMeta[]
   followUps                  FanFollowUp[]
   chatAgencyMetas            ChatAgencyMeta[]
+  agencyObjectives           AgencyObjective[]
   offers                     Offer[]
   agencyTemplates            AgencyTemplate[]
 }
@@ -115,6 +117,7 @@ model Fan {
   source                String?
   handle                String?
   preferredLanguage     String           @default("en")
+  locale                String?
   firstUtmSource        String?
   firstUtmMedium        String?
   firstUtmCampaign      String?
@@ -140,7 +143,7 @@ enum AgencyStage {
   BOUNDARY
 }
 
-enum AgencyObjective {
+enum AgencyObjectiveKind {
   CONNECT
   SELL_EXTRA
   SELL_PACK
@@ -156,6 +159,13 @@ enum AgencyIntensity {
   INTENSE
 }
 
+enum AgencyPlaybook {
+  GIRLFRIEND
+  PLAYFUL
+  ELEGANT
+  SOFT_DOMINANT
+}
+
 enum OfferTier {
   MICRO
   STANDARD
@@ -168,8 +178,9 @@ model ChatAgencyMeta {
   creatorId          String
   fanId              String
   stage              AgencyStage     @default(NEW)
-  objective          AgencyObjective @default(CONNECT)
+  objectiveCode      String          @default("CONNECT")
   intensity          AgencyIntensity @default(MEDIUM)
+  playbook           AgencyPlaybook  @default(GIRLFRIEND)
   nextAction         String?
   lastTouchAt        DateTime?
   notes              String?
@@ -182,24 +193,39 @@ model ChatAgencyMeta {
   @@unique([creatorId, fanId])
   @@index([creatorId, fanId])
   @@index([creatorId, stage])
-  @@index([creatorId, objective])
+  @@index([creatorId, objectiveCode])
 }
 
 model AgencyTemplate {
-  id         String          @id @default(cuid())
+  id         String              @id @default(cuid())
   creatorId  String
   stage      AgencyStage
-  objective  AgencyObjective
+  objective  AgencyObjectiveKind
   intensity  AgencyIntensity
-  language   String          @default("es")
+  playbook   AgencyPlaybook      @default(GIRLFRIEND)
+  language   String              @default("es")
   blocksJson Json
-  active     Boolean         @default(true)
-  createdAt  DateTime        @default(now())
-  updatedAt  DateTime        @updatedAt
-  creator    Creator         @relation(fields: [creatorId], references: [id])
+  active     Boolean             @default(true)
+  createdAt  DateTime            @default(now())
+  updatedAt  DateTime            @updatedAt
+  creator    Creator             @relation(fields: [creatorId], references: [id])
 
-  @@index([creatorId, stage, objective, intensity])
+  @@index([creatorId, playbook, stage, objective, intensity])
   @@index([creatorId, language, active])
+}
+
+model AgencyObjective {
+  id        String   @id @default(cuid())
+  creatorId String
+  code      String
+  labels    Json
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  creator   Creator  @relation(fields: [creatorId], references: [id])
+
+  @@unique([creatorId, code])
+  @@index([creatorId, active])
 }
 
 model Offer {

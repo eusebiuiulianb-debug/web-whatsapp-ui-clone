@@ -4,6 +4,7 @@ import {
   DEFAULT_CREATOR_CONFIG,
 } from "../config/creatorConfig";
 import { useCreatorConfig } from "../context/CreatorConfigContext";
+import { UI_LOCALES, UI_LOCALE_LABELS, normalizeUiLocale } from "../lib/language";
 
 interface CreatorSettingsPanelProps {
   isOpen: boolean;
@@ -38,6 +39,7 @@ export default function CreatorSettingsPanel({ isOpen, onClose }: CreatorSetting
           subtitle: formData.creatorSubtitle,
           description: formData.creatorDescription,
           avatarUrl: formData.avatarUrl || "",
+          uiLocale: normalizeUiLocale(formData.uiLocale) || "es",
         }),
       });
       onClose();
@@ -98,6 +100,20 @@ export default function CreatorSettingsPanel({ isOpen, onClose }: CreatorSetting
                 value={formData.creatorSubtitle}
                 onChange={e => setFormData(prev => ({ ...prev, creatorSubtitle: e.target.value }))}
               />
+            </div>
+            <div>
+              <label className="block text-sm text-[color:var(--muted)] mb-1">Idioma de la app</label>
+              <select
+                className="w-full bg-[color:var(--surface-2)] border border-[color:var(--surface-border)] rounded-md px-3 py-2 text-[color:var(--text)]"
+                value={formData.uiLocale || "es"}
+                onChange={e => setFormData(prev => ({ ...prev, uiLocale: e.target.value }))}
+              >
+                {UI_LOCALES.map((locale) => (
+                  <option key={locale} value={locale}>
+                    {UI_LOCALE_LABELS[locale] ?? locale}
+                  </option>
+                ))}
+              </select>
             </div>
             <div>
               <label className="block text-sm text-[color:var(--muted)] mb-1">Avatar (URL)</label>

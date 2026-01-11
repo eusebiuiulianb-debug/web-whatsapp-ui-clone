@@ -1,7 +1,8 @@
 import type { NextApiRequest, NextApiResponse } from "next";
 import { prisma } from "@/server/prisma";
 import { computeAgencyPriorityScore } from "../../../../lib/agency/priorityScore";
-import type { AgencyIntensity, AgencyObjective, AgencyStage } from "../../../../lib/agency/types";
+import type { AgencyIntensity, AgencyStage } from "../../../../lib/agency/types";
+import { resolveObjectiveForScoring } from "../../../../lib/agency/objectives";
 import { buildAccessStateFromGrants } from "../../../../lib/accessState";
 import { isNewWithinDays } from "../../../../lib/fanNewness";
 import { getDbSchemaOutOfSyncPayload, isDbSchemaOutOfSyncError } from "../../../../lib/dbSchemaGuard";
@@ -10,7 +11,7 @@ type AgencyInboxItem = {
   fanId: string;
   displayName: string;
   stage: AgencyStage;
-  objective: AgencyObjective;
+  objectiveCode: string;
   intensity: AgencyIntensity;
   priorityScore: number;
   lastIncomingAt: string | null;
@@ -52,9 +53,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
     });
 
     const fanIds = fans.map((fan) => fan.id);
-    const metaByFan = new Map<
-      string,
-      { stage: AgencyStage; objective: AgencyObjective; intensity: AgencyIntensity }
+  const metaByFan = new Map<
+    string,
+      { stage: AgencyStage; objectiveCode: string; intensity: AgencyIntensity }
     >();
     const purchasesByFan = new Map<string, Array<{ amount: number | null; createdAt: Date }>>();
 
@@ -62,7 +63,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
       const [metas, purchases] = await Promise.all([
         prisma.chatAgencyMeta.findMany({
           where: { creatorId, fanId: { in: fanIds } },
-          select: { fanId: true, stage: true, objective: true, intensity: true },
+          select: { fanId: true, stage: true, objectiveCode: true, intensity: true },
         }),
         prisma.extraPurchase.findMany({
           where: { fanId: { in: fanIds }, amount: { gt: 0 }, isArchived: false },
@@ -73,7 +74,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
       metas.forEach((meta) => {
         metaByFan.set(meta.fanId, {
           stage: meta.stage,
-          objective: meta.objective,
+          objectiveCode: meta.objectiveCode,
           intensity: meta.intensity,
         });
       });
@@ -92,7 +93,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
     const items: AgencyInboxItem[] = fans.map((fan) => {
       const meta = metaByFan.get(fan.id);
       const stage = (meta?.stage ?? "NEW") as AgencyStage;
-      const objective = (meta?.objective ?? "CONNECT") as AgencyObjective;
+      const objectiveCode = meta?.objectiveCode ?? "CONNECT";
       const intensity = (meta?.intensity ?? "MEDIUM") as AgencyIntensity;
       const purchases = purchasesByFan.get(fan.id) ?? [];
       const spent7d = sumPurchasesSince(purchases, since7d);
@@ -115,7 +116,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
         spent7d,
         spent30d,
         stage,
-        objective,
+        objective: resolveObjectiveForScoring(objectiveCode),
         intensity,
         flags: {
           vip: segmentLabel === "VIP" || spent30d >= 200,
@@ -135,7 +136,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
         fanId: fan.id,
         displayName: fan.displayName ?? fan.name,
         stage,
-        objective,
+        objectiveCode,
         intensity,
         priorityScore,
         lastIncomingAt: fan.lastMessageAt ? fan.lastMessageAt.toISOString() : null,

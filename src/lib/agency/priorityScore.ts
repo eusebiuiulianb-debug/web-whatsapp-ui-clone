@@ -1,4 +1,5 @@
 import type { AgencyIntensity, AgencyObjective, AgencyStage } from "./types";
+import { resolveObjectiveForScoring } from "./objectives";
 
 export type AgencyPriorityFlags = {
   vip?: boolean;
@@ -13,7 +14,7 @@ export type AgencyPriorityInput = {
   spent7d?: number | null;
   spent30d?: number | null;
   stage?: AgencyStage | null;
-  objective?: AgencyObjective | null;
+  objective?: AgencyObjective | string | null;
   intensity?: AgencyIntensity | null;
   flags?: AgencyPriorityFlags | null;
   now?: Date;
@@ -53,7 +54,10 @@ export function computeAgencyPriorityScore(input: AgencyPriorityInput): number {
 
   let score = 0;
   if (input.stage && STAGE_SCORES[input.stage] !== undefined) score += STAGE_SCORES[input.stage];
-  if (input.objective && OBJECTIVE_SCORES[input.objective] !== undefined) score += OBJECTIVE_SCORES[input.objective];
+  const resolvedObjective = resolveObjectiveForScoring(input.objective);
+  if (resolvedObjective && OBJECTIVE_SCORES[resolvedObjective] !== undefined) {
+    score += OBJECTIVE_SCORES[resolvedObjective];
+  }
   if (input.intensity && INTENSITY_SCORES[input.intensity] !== undefined) score += INTENSITY_SCORES[input.intensity];
 
   const incomingHours = hoursSince(incomingAt, now);
