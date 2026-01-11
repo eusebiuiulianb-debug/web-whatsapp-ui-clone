@@ -1,6 +1,7 @@
 import type { FollowUpTag, UrgencyLevel } from "../utils/followUp";
 import type { ReactionSummaryEntry } from "../lib/messageReactions";
 import type { ContentType, ContentVisibility } from "./content";
+import type { AgencyIntensity, AgencyObjective, AgencyStage } from "../lib/agency/types";
 
 export interface Creator {
   id: string;
@@ -60,6 +61,11 @@ export interface Fan {
   nextActionSnippet?: string | null;
   lastNoteSummary?: string | null;
   nextActionSummary?: string | null;
+  agencyStage?: AgencyStage | null;
+  agencyObjective?: AgencyObjective | null;
+  agencyIntensity?: AgencyIntensity | null;
+  agencyNextAction?: string | null;
+  agencyRecommendedOfferId?: string | null;
   lifetimeSpend?: number;
   totalSpent?: number;
   recent30dSpent?: number;

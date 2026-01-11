@@ -1,6 +1,6 @@
 import type { NextApiRequest, NextApiResponse } from "next";
 import { Prisma } from "@prisma/client";
-import prisma from "../../lib/prisma.server";
+import { prisma } from "@/server/prisma";
 import { getFollowUpTag, shouldFollowUpToday } from "../../utils/followUp";
 import {
   getExtraLadderStatusForFan,
@@ -17,6 +17,8 @@ import { buildAccessStateFromGrants } from "../../lib/accessState";
 import { computeFanTotals } from "../../lib/fanTotals";
 import { getStickerById } from "../../lib/emoji/stickers";
 import { buildFanMonetizationSummaryFromFan } from "../../lib/analytics/revenue";
+import { computeAgencyPriorityScore } from "../../lib/agency/priorityScore";
+import type { AgencyIntensity, AgencyObjective, AgencyStage } from "../../lib/agency/types";
 
 function parseMessageTimestamp(messageId: string): Date | null {
   const parts = messageId.split("-");
@@ -90,6 +92,13 @@ function formatNextActionFromSchedule(note?: string | null, dueAt?: string | nul
   return `${safeNote} (para ${date}${suffix})`;
 }
 
+function sumPurchasesSince(purchases: Array<{ amount: number | null; createdAt: Date }>, since: Date): number {
+  return purchases.reduce((sum, purchase) => {
+    if (purchase.createdAt < since) return sum;
+    return sum + (purchase.amount ?? 0);
+  }, 0);
+}
+
 function mapFollowUp(followUp: {
   id: string;
   title: string;
@@ -122,6 +131,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   if (req.method !== "GET") {
     res.setHeader("Allow", "GET, POST");
     return res.status(405).json({ ok: false, error: "Method not allowed" });
+  }
+
+  if (!prisma) {
+    return res.status(500).json({ ok: false, error: "PRISMA_NOT_INITIALIZED" });
   }
 
   res.setHeader("Cache-Control", "no-store");
@@ -302,6 +315,16 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     type ExtraStats = { purchases: ExtraPurchaseRow[]; maxTier: string | null };
     const extrasByFan = new Map<string, ExtraStats>();
     const purchasesByFan = new Map<string, ExtraPurchaseRow[]>();
+    const agencyMetaByFan = new Map<
+      string,
+      {
+        stage: string;
+        objective: string;
+        intensity: string;
+        nextAction: string | null;
+        lastTouchAt: Date | null;
+      }
+    >();
 
     if (fanIds.length > 0) {
       try {
@@ -330,6 +353,33 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         }
       } catch (err) {
         console.error("Error calculating extra metrics", err);
+      }
+    }
+
+    if (fanIds.length > 0) {
+      try {
+        const agencyMetas = await prisma.chatAgencyMeta.findMany({
+          where: { fanId: { in: fanIds }, creatorId },
+          select: {
+            fanId: true,
+            stage: true,
+            objective: true,
+            intensity: true,
+            nextAction: true,
+            lastTouchAt: true,
+          },
+        });
+        agencyMetas.forEach((meta) => {
+          agencyMetaByFan.set(meta.fanId, {
+            stage: meta.stage,
+            objective: meta.objective,
+            intensity: meta.intensity,
+            nextAction: meta.nextAction ?? null,
+            lastTouchAt: meta.lastTouchAt ?? null,
+          });
+        });
+      } catch (err) {
+        console.error("Error loading agency meta", err);
       }
     }
 
@@ -425,30 +475,18 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         30,
         now
       );
-
-      function computePriorityScore() {
-        let urgencyScore = 0;
-        const isExpiredToday = followUpTag === "expired" && (daysLeft ?? 0) === 0;
-        switch (isExpiredToday ? "expired_today" : followUpTag) {
-          case "trial_soon":
-          case "monthly_soon":
-            urgencyScore = 3;
-            break;
-          case "expired_today":
-            urgencyScore = 2;
-            break;
-          default:
-            urgencyScore = 0;
-        }
-
-        let tierScore = 0;
-        if (customerTier === "vip") tierScore = 2;
-        else if (customerTier === "regular") tierScore = 1;
-
-        return urgencyScore * 10 + tierScore;
-      }
-
-      const priorityScore = computePriorityScore();
+      const agencyMeta = agencyMetaByFan.get(fan.id);
+      const agencyStage = (agencyMeta?.stage ?? "NEW") as AgencyStage;
+      const agencyObjective = (agencyMeta?.objective ?? "CONNECT") as AgencyObjective;
+      const agencyIntensity = (agencyMeta?.intensity ?? "MEDIUM") as AgencyIntensity;
+      const agencyNextAction = agencyMeta?.nextAction ?? null;
+      const spent7d = sumPurchasesSince(allPurchases, new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000));
+      const spent30d = sumPurchasesSince(allPurchases, new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000));
+      const segmentLabel = (fan.segment ?? "").toUpperCase();
+      const riskValue = ((fan as any).riskLevel ?? "LOW").toString().toUpperCase();
+      const isVip = customerTier === "vip" || segmentLabel === "VIP";
+      const isAtRisk = segmentLabel === "EN_RIESGO" || (riskValue && riskValue !== "LOW");
+      const isExpired = followUpTag === "expired";
 
       const visibleMessages = (fan.messages ?? []).filter((msg) => isVisibleToFan(msg));
       const creatorMessages = visibleMessages.filter((msg) => normalizeFrom(msg.from) === "creator");
@@ -482,6 +520,16 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         .map((msg) => parseMessageTimestamp(msg.id))
         .filter((d): d is Date => !!d)
         .sort((a, b) => b.getTime() - a.getTime())[0];
+      const priorityScore = computeAgencyPriorityScore({
+        lastIncomingAt: lastFanActivity,
+        lastOutgoingAt: lastCreatorMessage,
+        spent7d,
+        spent30d,
+        stage: agencyStage,
+        objective: agencyObjective,
+        intensity: agencyIntensity,
+        flags: { vip: isVip, expired: isExpired, atRisk: isAtRisk, isNew: isNew30d },
+      });
 
       const lastVisibleAt = lastVisibleMessage ? parseMessageTimestamp(lastVisibleMessage.id) : null;
       const lastMessageAt = fan.lastMessageAt ?? lastVisibleAt ?? null;
@@ -569,6 +617,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         lastGrantType,
         followUpTag,
         priorityScore,
+        agencyStage,
+        agencyObjective,
+        agencyIntensity,
+        agencyNextAction,
         lastNoteSnippet,
         nextActionSnippet,
         lastNoteSummary,
@@ -652,6 +704,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 }
 
 async function handlePost(req: NextApiRequest, res: NextApiResponse) {
+  if (!prisma) {
+    return res.status(500).json({ ok: false, error: "PRISMA_NOT_INITIALIZED" });
+  }
   const creatorLabel = normalizeInput(req.body?.nameOrAlias ?? req.body?.creatorLabel, 80);
   const note = normalizeInput(req.body?.initialNote ?? req.body?.note, 500);
 

@@ -414,7 +414,8 @@ function resolveCreatorLangFromPriority(raw?: unknown): TranslationLanguage {
 export function resolveDeepLBaseUrl(apiKey: string, apiUrlOverride?: string | null): string {
   const normalizedOverride = normalizeDeepLApiUrl(apiUrlOverride);
   if (normalizedOverride) return normalizedOverride;
-  return apiKey.endsWith(":fx") ? "https://api-free.deepl.com" : "https://api.deepl.com";
+  const normalizedKey = apiKey.trim().toLowerCase();
+  return normalizedKey.endsWith(":fx") ? "https://api-free.deepl.com" : "https://api.deepl.com";
 }
 
 async function translateWithGoogle(params: {
@@ -474,7 +475,7 @@ async function translateWithDeepL(params: {
   apiKey: string;
   apiUrlOverride?: string | null;
 }): Promise<TranslateResult> {
-  const apiKey = params.apiKey;
+  const apiKey = params.apiKey.trim();
   if (!apiKey) {
     throw new Error("translation_failed");
   }

@@ -107,15 +107,25 @@ export default function LibraryPage() {
   const [showModal, setShowModal] = useState(false);
   const [modalMode, setModalMode] = useState<"create" | "edit">("create");
   const [selectedContent, setSelectedContent] = useState<PrismaContentItem | undefined>();
+  const [createDefaultsOverride, setCreateDefaultsOverride] = useState<{
+    visibility?: "EXTRA";
+    extraTier?: ExtraTier;
+    extraSlot?: ExtraSlot;
+  } | null>(null);
   const router = useRouter();
   const [activePack, setActivePack] = useState<PackKey | null>(null);
   const [mode, setMode] = useState<"packs" | "extras">("packs");
   const createDefaults = useMemo(
     () =>
       mode === "extras"
-        ? { visibility: "EXTRA" as const, extraTier: "T1" as ExtraTier, extraSlot: "ANY" as ExtraSlot }
+        ? {
+            visibility: "EXTRA" as const,
+            extraTier: "T1" as ExtraTier,
+            extraSlot: "ANY" as ExtraSlot,
+            ...createDefaultsOverride,
+          }
         : undefined,
-    [mode]
+    [mode, createDefaultsOverride]
   );
 
   useEffect(() => {
@@ -125,6 +135,25 @@ export default function LibraryPage() {
   useEffect(() => {
     fetchCreator();
   }, []);
+
+  useEffect(() => {
+    if (!router.isReady) return;
+    const createParam = typeof router.query.create === "string" ? router.query.create : "";
+    if (createParam !== "1") return;
+    const tierParam = typeof router.query.tier === "string" ? router.query.tier.toUpperCase() : "";
+    const momentParam = typeof router.query.moment === "string" ? router.query.moment.toUpperCase() : "";
+    const allowedTiers: ExtraTier[] = ["T0", "T1", "T2", "T3"];
+    const extraTier = allowedTiers.includes(tierParam as ExtraTier) ? (tierParam as ExtraTier) : "T1";
+    const extraSlot: ExtraSlot =
+      momentParam === "DAY" ? "DAY_1" : momentParam === "NIGHT" ? "NIGHT_1" : "ANY";
+    setMode("extras");
+    setActivePack(null);
+    setModalMode("create");
+    setSelectedContent(undefined);
+    setCreateDefaultsOverride({ visibility: "EXTRA", extraTier, extraSlot });
+    setShowModal(true);
+    void router.replace("/library", undefined, { shallow: true });
+  }, [router.isReady, router.query]);
 
   useEffect(() => {
     if (!creatorId) return;
@@ -450,6 +479,7 @@ export default function LibraryPage() {
           onClick={() => {
             setSelectedContent(undefined);
             setModalMode("create");
+            setCreateDefaultsOverride(null);
             setShowModal(true);
           }}
           className="inline-flex items-center rounded-lg border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-3 py-2 text-sm font-semibold text-[color:var(--text)] hover:border-[color:var(--brand)] hover:text-[color:var(--text)] transition"
@@ -518,6 +548,7 @@ export default function LibraryPage() {
                   onEdit={(content) => {
                     setSelectedContent(content);
                     setModalMode("edit");
+                    setCreateDefaultsOverride(null);
                     setShowModal(true);
                   }}
                   onDelete={async (content) => {
@@ -570,6 +601,7 @@ export default function LibraryPage() {
                             onEdit={(content) => {
                               setSelectedContent(content);
                               setModalMode("edit");
+                              setCreateDefaultsOverride(null);
                               setShowModal(true);
                             }}
                             onDelete={async (content) => {
@@ -603,6 +635,7 @@ export default function LibraryPage() {
                             onEdit={(content) => {
                               setSelectedContent(content);
                               setModalMode("edit");
+                              setCreateDefaultsOverride(null);
                               setShowModal(true);
                             }}
                             onDelete={async (content) => {
@@ -733,6 +766,7 @@ export default function LibraryPage() {
           onClose={() => {
             setShowModal(false);
             setSelectedContent(undefined);
+            setCreateDefaultsOverride(null);
           }}
         />
       )}

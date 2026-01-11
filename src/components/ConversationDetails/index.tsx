@@ -32,6 +32,7 @@ import { PACKS } from "../../config/packs";
 import { ChatComposerBar } from "../ChatComposerBar";
 import { getFanDisplayNameForCreator } from "../../utils/fanDisplayName";
 import { ContentItem, getContentTypeLabel, getContentVisibilityLabel } from "../../types/content";
+import type { Offer, OfferTier } from "../../types/offers";
 import { getTimeOfDayTag } from "../../utils/contentTags";
 import {
   emitCreatorDataChanged,
@@ -57,6 +58,15 @@ import { AiTone, normalizeTone, ACTION_TYPE_FOR_USAGE } from "../../lib/aiQuickE
 import { AiTemplateUsage, AiTurnMode } from "../../lib/aiTemplateTypes";
 import { normalizeAiTurnMode } from "../../lib/aiSettings";
 import { getAccessSnapshot, getChatterProPlan } from "../../lib/chatPlaybook";
+import {
+  AGENCY_INTENSITIES,
+  AGENCY_OBJECTIVES,
+  AGENCY_STAGES,
+  type AgencyIntensity,
+  type AgencyObjective,
+  type AgencyStage,
+} from "../../lib/agency/types";
+import { scoreDraft, type DraftQaResult } from "../../lib/agency/drafts";
 import FanManagerDrawer from "../fan/FanManagerDrawer";
 import type { FanManagerSummary } from "../../server/manager/managerService";
 import { deriveFanManagerState, getDefaultFanTone } from "../../lib/fanManagerState";
@@ -167,6 +177,27 @@ type FanTemplateItem = {
 };
 type FanTemplatePools = Record<FanTemplateCategory, FanTemplateItem[]>;
 type FanTemplateSelection = Record<FanTemplateCategory, string | null>;
+type PlaybookMoment = "DAY" | "NIGHT" | "ANY";
+type PlaybookTier = "T0" | "T1" | "T2" | "T3" | null;
+type PlaybookObjective =
+  | "romper_hielo"
+  | "calentar"
+  | "ofrecer_extra"
+  | "subir_nivel"
+  | "cerrar_extra"
+  | "reactivar"
+  | "renovar";
+type Playbook = {
+  id: string;
+  title: string;
+  description: string;
+  tier: PlaybookTier;
+  moment: PlaybookMoment;
+  objective: PlaybookObjective;
+  tags: string[];
+  messages: string[];
+  recommended?: boolean;
+};
 type ComposerTarget = "fan" | "internal" | "manager";
 
 type PurchaseNoticeState = {
@@ -446,6 +477,189 @@ const LOCAL_FAN_TEMPLATE_POOLS: FanTemplatePools = {
   ],
 };
 
+const PLAYBOOK_OBJECTIVE_LABELS: Record<PlaybookObjective, string> = {
+  romper_hielo: "Romper hielo",
+  calentar: "Calentar",
+  ofrecer_extra: "Ofrecer extra",
+  subir_nivel: "Subir nivel",
+  cerrar_extra: "Cerrar extra",
+  reactivar: "Reactivar",
+  renovar: "Renovar",
+};
+
+const PLAYBOOK_MOMENT_LABELS: Record<PlaybookMoment, string> = {
+  DAY: "Día",
+  NIGHT: "Noche",
+  ANY: "Cualquiera",
+};
+
+const AGENCY_OBJECTIVE_LABELS: Record<AgencyObjective, string> = {
+  CONNECT: "Conectar",
+  SELL_EXTRA: "Vender extra",
+  SELL_PACK: "Vender pack",
+  SELL_MONTHLY: "Vender mensual",
+  RECOVER: "Recuperar",
+  RETAIN: "Retener",
+  UPSELL: "Upsell",
+};
+
+const AGENCY_INTENSITY_LABELS: Record<AgencyIntensity, string> = {
+  SOFT: "Soft",
+  MEDIUM: "Medium",
+  INTENSE: "Intense",
+};
+
+function formatAgencyStageLabel(value: AgencyStage) {
+  return value.replace(/_/g, " ");
+}
+
+const OFFER_TIER_LABELS: Record<OfferTier, string> = {
+  MICRO: "Micro",
+  STANDARD: "Standard",
+  PREMIUM: "Premium",
+  MONTHLY: "Monthly",
+};
+
+const OFFER_INTENSITY_RANK: Record<AgencyIntensity, number> = {
+  SOFT: 0,
+  MEDIUM: 1,
+  INTENSE: 2,
+};
+
+const LOCAL_PLAYBOOKS: Playbook[] = [
+  {
+    id: "pb-bienvenida-suave",
+    title: "Bienvenida suave",
+    description: "Abrir con saludo corto y una pregunta simple.",
+    tier: "T0",
+    moment: "DAY",
+    objective: "romper_hielo",
+    tags: ["saludo", "warmup", "suave"],
+    messages: [
+      "Hola {nombre_fan}, ¿cómo estás?",
+      "Hola, ¿qué tal va tu día?",
+      "Hola, me alegra verte por aquí. ¿Cómo estás?",
+    ],
+    recommended: true,
+  },
+  {
+    id: "pb-calentar-curiosidad",
+    title: "Calentar con curiosidad",
+    description: "Subir temperatura sin presión y con opciones.",
+    tier: "T1",
+    moment: "DAY",
+    objective: "calentar",
+    tags: ["calentar", "suave", "pregunta"],
+    messages: [
+      "Hoy voy suave 😌. ¿Te apetece algo corto o algo más completo?",
+      "Me gusta ir poco a poco. ¿Quieres algo suave o subimos un poco?",
+      "Cuéntame qué te apetece y te preparo algo a tu ritmo.",
+    ],
+    recommended: true,
+  },
+  {
+    id: "pb-extra-suave",
+    title: "Extra suave",
+    description: "Ofrecer un primer PPV suave.",
+    tier: "T1",
+    moment: "DAY",
+    objective: "ofrecer_extra",
+    tags: ["extra", "ppv", "suave"],
+    messages: [
+      "Te puedo mandar un extra suave ahora mismo. ¿Te lo paso?",
+      "Si te apetece, te preparo un extra suave y lo tienes al instante. ¿Te va?",
+      "Tengo un extra suave listo. ¿Lo quieres ahora?",
+    ],
+    recommended: true,
+  },
+  {
+    id: "pb-directo-noche",
+    title: "Directo de noche",
+    description: "Subir intensidad con un PPV nocturno.",
+    tier: "T2",
+    moment: "NIGHT",
+    objective: "subir_nivel",
+    tags: ["directo", "noche", "ppv"],
+    messages: [
+      "Esta noche me apetece subir un poco 😏. ¿Te hago un extra Directo?",
+      "Si quieres algo más intenso, te preparo un Directo en PPV. ¿Te lo envío?",
+      "Podemos subir a Directo esta noche. ¿Te apetece?",
+    ],
+    recommended: true,
+  },
+  {
+    id: "pb-final-premium",
+    title: "Final premium",
+    description: "Cerrar con un extra premium de alto valor.",
+    tier: "T3",
+    moment: "NIGHT",
+    objective: "cerrar_extra",
+    tags: ["premium", "final", "ppv"],
+    messages: [
+      "Te hago un extra Final premium ahora mismo 😈. ¿Lo quieres?",
+      "Si quieres lo más exclusivo, te preparo un Final premium. ¿Te va?",
+      "Tengo un Final premium listo para ti. ¿Te lo mando?",
+    ],
+    recommended: true,
+  },
+  {
+    id: "pb-reactivar-suave",
+    title: "Reactivar sin presión",
+    description: "Reenganche corto para fans fríos.",
+    tier: "T0",
+    moment: "ANY",
+    objective: "reactivar",
+    tags: ["reactivar", "suave"],
+    messages: [
+      "Hace tiempo que no hablamos. ¿Qué tal vas?",
+      "Me acordé de ti. ¿Te apetece retomar por aquí?",
+      "Cuando quieras retomamos. ¿Cómo te va?",
+    ],
+  },
+  {
+    id: "pb-renovacion-suave",
+    title: "Renovación suave",
+    description: "Renovar acceso sin presión.",
+    tier: "T1",
+    moment: "ANY",
+    objective: "renovar",
+    tags: ["renovar", "suscripcion"],
+    messages: [
+      "Si te apetece seguir, puedo renovarte el acceso y seguir cuidándote por aquí. ¿Quieres?",
+      "Te puedo renovar para que sigamos a gusto. ¿Te va?",
+      "Si quieres, te preparo la renovación y seguimos.",
+    ],
+  },
+  {
+    id: "pb-pack-especial",
+    title: "Pack especial suave",
+    description: "Presentar el pack especial sin presión.",
+    tier: "T2",
+    moment: "ANY",
+    objective: "subir_nivel",
+    tags: ["pack", "upsell"],
+    messages: [
+      "Si quieres algo más completo, puedo prepararte un Pack especial. ¿Te interesa?",
+      "Si te va subir de nivel, te cuento el Pack especial. ¿Lo vemos?",
+      "Te puedo ofrecer el Pack especial cuando quieras. ¿Te apetece?",
+    ],
+  },
+  {
+    id: "pb-cierre-suave",
+    title: "Cierre con pregunta",
+    description: "Cerrar suave dejando la puerta abierta.",
+    tier: "T1",
+    moment: "ANY",
+    objective: "cerrar_extra",
+    tags: ["cierre", "suave"],
+    messages: [
+      "Lo dejamos suave por ahora. ¿Quieres que te prepare algo más luego?",
+      "Cuando quieras sigo contigo. ¿Te apetece que te prepare un extra?",
+      "Me dices si quieres que te sorprenda luego.",
+    ],
+  },
+];
+
 type ApiAiTemplate = {
   id?: string;
   name?: string;
@@ -519,6 +733,58 @@ const buildFanTemplatePoolsFromApi = (
     question: mergeFanTemplateLists(pools.question, fallback.question),
     closing: mergeFanTemplateLists(pools.closing, fallback.closing),
   };
+};
+
+const API_PLAYBOOK_OBJECTIVE_MAP: Record<string, PlaybookObjective> = {
+  welcome: "romper_hielo",
+  warmup: "calentar",
+  followup: "cerrar_extra",
+  extra_quick: "ofrecer_extra",
+  pack_offer: "subir_nivel",
+  renewal: "renovar",
+  reactivation: "reactivar",
+  boundaries: "cerrar_extra",
+  support: "calentar",
+};
+
+const resolvePlaybookObjective = (category?: string | null): PlaybookObjective => {
+  const normalized = typeof category === "string" ? category.trim().toLowerCase() : "";
+  return API_PLAYBOOK_OBJECTIVE_MAP[normalized] ?? "calentar";
+};
+
+const resolveApiPlaybookTier = (tier?: string | null): PlaybookTier => {
+  const normalized = typeof tier === "string" ? tier.trim().toUpperCase() : "";
+  if (normalized === "T0" || normalized === "T1" || normalized === "T2" || normalized === "T3") {
+    return normalized as PlaybookTier;
+  }
+  return null;
+};
+
+const buildPlaybooksFromApi = (templates: ApiAiTemplate[] | null | undefined): Playbook[] => {
+  if (!Array.isArray(templates)) return [];
+  return templates
+    .filter((tpl) => tpl && tpl.isActive !== false)
+    .map((tpl, index) => {
+      const content = typeof tpl.content === "string" ? tpl.content.trim() : "";
+      if (!content) return null;
+      const objective = resolvePlaybookObjective(tpl.category);
+      const title = typeof tpl.name === "string" && tpl.name.trim() ? tpl.name.trim() : "Plantilla personalizada";
+      const categoryTag = typeof tpl.category === "string" ? tpl.category.trim().toLowerCase() : "";
+      const toneTag = typeof tpl.tone === "string" ? tpl.tone.trim().toLowerCase() : "";
+      const tier = resolveApiPlaybookTier(tpl.tier ?? null);
+      const tags = [categoryTag, toneTag, tier ? tier.toLowerCase() : ""].filter(Boolean);
+      return {
+        id: `api-${tpl.id ?? `template-${index}`}`,
+        title,
+        description: `Plantilla personalizada para ${PLAYBOOK_OBJECTIVE_LABELS[objective]}.`,
+        tier,
+        moment: "ANY",
+        objective,
+        tags,
+        messages: [content],
+      } as Playbook;
+    })
+    .filter((playbook): playbook is Playbook => Boolean(playbook));
 };
 
 type InlinePanelShellProps = {
@@ -1311,9 +1577,128 @@ export default function ConversationDetails({ onBackToBoard }: ConversationDetai
     resetVoiceRecorder();
   }, [id, resetVoiceRecorder]);
 
+  useEffect(() => {
+    if (!id || conversation.isManager) {
+      setAgencyMeta(null);
+      setAgencyDraft(null);
+      setAgencyError(null);
+      setAgencyLoading(false);
+      return;
+    }
+
+    const fallback = {
+      stage: (conversation.agencyStage ?? "NEW") as AgencyStage,
+      objective: (conversation.agencyObjective ?? "CONNECT") as AgencyObjective,
+      intensity: (conversation.agencyIntensity ?? "MEDIUM") as AgencyIntensity,
+      nextAction: (conversation.agencyNextAction ?? "").toString(),
+      recommendedOfferId: null,
+    };
+    setAgencyMeta(fallback);
+    setAgencyDraft(fallback);
+    setAgencyLoading(true);
+    setAgencyError(null);
+
+    const controller = new AbortController();
+    const fanId = id;
+    (async () => {
+      try {
+        const res = await fetch(`/api/creator/agency/chat-meta?fanId=${fanId}`, {
+          cache: "no-store",
+          signal: controller.signal,
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok || data?.ok !== true) {
+          throw new Error(data?.error || res.statusText);
+        }
+        const meta = data.meta || {};
+        const nextMeta = {
+          stage: (meta.stage ?? fallback.stage) as AgencyStage,
+          objective: (meta.objective ?? fallback.objective) as AgencyObjective,
+          intensity: (meta.intensity ?? fallback.intensity) as AgencyIntensity,
+          nextAction: meta.nextAction ? String(meta.nextAction) : "",
+          recommendedOfferId: typeof meta.recommendedOfferId === "string" ? meta.recommendedOfferId : null,
+        };
+        setAgencyMeta(nextMeta);
+        setAgencyDraft(nextMeta);
+      } catch (err) {
+        if ((err as Error)?.name === "AbortError") return;
+        console.error("Error loading agency meta", err);
+        setAgencyError("No se pudo cargar Agency OS.");
+      } finally {
+        setAgencyLoading(false);
+      }
+    })();
+
+    return () => controller.abort();
+  }, [
+    conversation.agencyIntensity,
+    conversation.agencyNextAction,
+    conversation.agencyObjective,
+    conversation.agencyStage,
+    conversation.isManager,
+    id,
+  ]);
+
+  const fetchOffers = useCallback(async () => {
+    setOffersLoading(true);
+    setOffersError(null);
+    try {
+      const res = await fetch("/api/creator/agency/offers?includeInactive=1", { cache: "no-store" });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || data?.ok !== true) {
+        throw new Error(data?.error || res.statusText);
+      }
+      const items = Array.isArray(data.items) ? (data.items as Offer[]) : [];
+      setOffers(items);
+    } catch (err) {
+      console.error("Error loading offers", err);
+      setOffersError("No se pudieron cargar las ofertas.");
+    } finally {
+      setOffersLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!managerPanelOpen || !id || conversation.isManager) return;
+    void fetchOffers();
+  }, [conversation.isManager, fetchOffers, id, managerPanelOpen]);
+
   function formatCurrency(value: number) {
     const rounded = Math.round((value ?? 0) * 100) / 100;
     return `${rounded % 1 === 0 ? rounded.toFixed(0) : rounded.toFixed(2)} €`;
+  }
+
+  function formatOfferPrice(priceCents: number, currency?: string | null) {
+    const amount = priceCents / 100;
+    const base = formatCurrency(amount);
+    const code = (currency || "EUR").toUpperCase();
+    return code === "EUR" ? base : `${base} ${code}`;
+  }
+
+  function pickRandom<T>(items: T[]): T | null {
+    if (!Array.isArray(items) || items.length === 0) return null;
+    const index = Math.floor(Math.random() * items.length);
+    return items[index] ?? null;
+  }
+
+  function ensureQuestion(value: string): string {
+    const trimmed = value.trim();
+    if (!trimmed) return "";
+    if (/[?¿]$/.test(trimmed)) return trimmed;
+    return `${trimmed}?`;
+  }
+
+  function buildOfferMessage(offer: Offer): string {
+    const hook = pickRandom(offer.hooks) ?? "";
+    const oneLiner = offer.oneLiner ?? "";
+    const cta = ensureQuestion(pickRandom(offer.ctas) ?? "");
+    return [hook, oneLiner, cta].map((part) => part.trim()).filter(Boolean).join(" ");
+  }
+
+  function isOfferCompatible(offer: Offer, intensity: AgencyIntensity): boolean {
+    const offerRank = OFFER_INTENSITY_RANK[offer.intensityMin] ?? 0;
+    const intensityRank = OFFER_INTENSITY_RANK[intensity] ?? 0;
+    return offerRank <= intensityRank;
   }
 
 
@@ -1351,6 +1736,27 @@ export default function ConversationDetails({ onBackToBoard }: ConversationDetai
   const [ followUpHistoryLoading, setFollowUpHistoryLoading ] = useState(false);
   const [ followUpError, setFollowUpError ] = useState("");
   const [ followUpHistoryError, setFollowUpHistoryError ] = useState("");
+  const [ agencyMeta, setAgencyMeta ] = useState<{
+    stage: AgencyStage;
+    objective: AgencyObjective;
+    intensity: AgencyIntensity;
+    nextAction: string;
+    recommendedOfferId: string | null;
+  } | null>(null);
+  const [ agencyDraft, setAgencyDraft ] = useState<{
+    stage: AgencyStage;
+    objective: AgencyObjective;
+    intensity: AgencyIntensity;
+    nextAction: string;
+    recommendedOfferId: string | null;
+  } | null>(null);
+  const [ agencyLoading, setAgencyLoading ] = useState(false);
+  const [ agencySaving, setAgencySaving ] = useState(false);
+  const [ agencyError, setAgencyError ] = useState<string | null>(null);
+  const [ offers, setOffers ] = useState<Offer[]>([]);
+  const [ offersLoading, setOffersLoading ] = useState(false);
+  const [ offersError, setOffersError ] = useState<string | null>(null);
+  const [ offerSelectionSaving, setOfferSelectionSaving ] = useState(false);
   const [ historyError, setHistoryError ] = useState("");
   const [ nextActionDraft, setNextActionDraft ] = useState("");
   const [ nextActionDate, setNextActionDate ] = useState("");
@@ -1371,6 +1777,13 @@ export default function ConversationDetails({ onBackToBoard }: ConversationDetai
     question: null,
     closing: null,
   });
+  const [ apiPlaybooks, setApiPlaybooks ] = useState<Playbook[]>([]);
+  const [ playbookSelections, setPlaybookSelections ] = useState<Record<string, number>>({});
+  const [ playbookSearch, setPlaybookSearch ] = useState("");
+  const [ playbookTierFilter, setPlaybookTierFilter ] = useState<PlaybookTier | "all">("all");
+  const [ playbookMomentFilter, setPlaybookMomentFilter ] = useState<PlaybookMoment | "all">("all");
+  const [ playbookObjectiveFilter, setPlaybookObjectiveFilter ] = useState<PlaybookObjective | "all">("all");
+  const [ playbookProMode, setPlaybookProMode ] = useState(false);
   const [ draftCardsByFan, setDraftCardsByFan ] = useState<Record<string, DraftCard[]>>({});
   const [ generatedDraftsByFan, setGeneratedDraftsByFan ] = useState<Record<string, DraftCard[]>>({});
   const [ internalPanelTab, setInternalPanelTab ] = useState<InternalPanelTab>("manager");
@@ -1495,12 +1908,14 @@ export default function ConversationDetails({ onBackToBoard }: ConversationDetai
     title?: string;
     suggestions?: string[];
     offer?: PpvOffer | null;
+    qa?: DraftQaResult | null;
   };
   type ManagerSuggestion = {
     id: string;
     label: string;
     message: string;
     intent?: ManagerQuickIntent | string;
+    intensity?: AgencyIntensity;
   };
   const [ managerChatByFan, setManagerChatByFan ] = useState<Record<string, ManagerChatMessage[]>>({});
   const [ managerChatInput, setManagerChatInput ] = useState("");
@@ -1538,14 +1953,17 @@ export default function ConversationDetails({ onBackToBoard }: ConversationDetai
   );
   const [ fanTone, setFanTone ] = useState<FanTone>(() => getDefaultFanTone(fanManagerAnalysis.state));
   const [ hasManualTone, setHasManualTone ] = useState(false);
-  const fanTemplateCount = useMemo(
-    () =>
-      FAN_TEMPLATE_CATEGORIES.reduce(
-        (sum, category) => sum + (fanTemplatePools[category.id]?.length ? 1 : 0),
-        0
-      ),
-    [fanTemplatePools]
-  );
+  const playbooks = useMemo(() => {
+    const merged: Playbook[] = [];
+    const seen = new Set<string>();
+    for (const entry of [...LOCAL_PLAYBOOKS, ...apiPlaybooks]) {
+      if (seen.has(entry.id)) continue;
+      seen.add(entry.id);
+      merged.push(entry);
+    }
+    return merged;
+  }, [apiPlaybooks]);
+  const playbookCount = playbooks.length;
   const [isAtBottom, setIsAtBottom] = useState(true);
   const chatPanelScrollTopRef = useRef(0);
   const chatPanelRestorePendingRef = useRef(false);
@@ -1605,6 +2023,25 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
     () => managerSummary?.monetization ?? null,
     [managerSummary?.monetization]
   );
+  const isAgencyDirty = useMemo(() => {
+    if (!agencyMeta || !agencyDraft) return false;
+    return (
+      agencyMeta.stage !== agencyDraft.stage ||
+      agencyMeta.objective !== agencyDraft.objective ||
+      agencyMeta.intensity !== agencyDraft.intensity ||
+      (agencyMeta.nextAction || "") !== (agencyDraft.nextAction || "")
+    );
+  }, [agencyDraft, agencyMeta]);
+
+  const activeOffers = useMemo(() => offers.filter((offer) => offer.active), [offers]);
+  const agencyIntensity = agencyDraft?.intensity ?? "MEDIUM";
+  const compatibleOffers = useMemo(
+    () => activeOffers.filter((offer) => isOfferCompatible(offer, agencyIntensity)),
+    [activeOffers, agencyIntensity]
+  );
+  const offersForDropdown = compatibleOffers.length > 0 ? compatibleOffers : activeOffers;
+  const selectedOfferId = agencyDraft?.recommendedOfferId ?? null;
+  const selectedOffer = offersForDropdown.find((offer) => offer.id === selectedOfferId) ?? null;
 
   function parseNextActionValue(value?: string | null) {
     if (!value) return { text: "", date: "", time: "" };
@@ -1641,6 +2078,88 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
     if (lower.includes("individual")) return "special";
     return null;
   }
+
+  const handleAgencySave = useCallback(async () => {
+    if (!id || !agencyDraft) return;
+    setAgencySaving(true);
+    setAgencyError(null);
+    try {
+      const res = await fetch("/api/creator/agency/chat-meta", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          fanId: id,
+          stage: agencyDraft.stage,
+          objective: agencyDraft.objective,
+          intensity: agencyDraft.intensity,
+          nextAction: agencyDraft.nextAction,
+          recommendedOfferId: agencyDraft.recommendedOfferId,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || data?.ok !== true) {
+        throw new Error(data?.error || res.statusText);
+      }
+      const meta = data.meta || {};
+      const nextMeta = {
+        stage: (meta.stage ?? agencyDraft.stage) as AgencyStage,
+        objective: (meta.objective ?? agencyDraft.objective) as AgencyObjective,
+        intensity: (meta.intensity ?? agencyDraft.intensity) as AgencyIntensity,
+        nextAction: meta.nextAction ? String(meta.nextAction) : "",
+        recommendedOfferId: typeof meta.recommendedOfferId === "string" ? meta.recommendedOfferId : agencyDraft.recommendedOfferId,
+      };
+      setAgencyMeta(nextMeta);
+      setAgencyDraft(nextMeta);
+      if (!conversation.isManager) {
+        setConversation({
+          ...conversation,
+          agencyStage: nextMeta.stage,
+          agencyObjective: nextMeta.objective,
+          agencyIntensity: nextMeta.intensity,
+          agencyNextAction: nextMeta.nextAction || null,
+          agencyRecommendedOfferId: nextMeta.recommendedOfferId ?? null,
+        } as any);
+      }
+    } catch (err) {
+      console.error("Error saving agency meta", err);
+      setAgencyError("No se pudo guardar Agency OS.");
+    } finally {
+      setAgencySaving(false);
+    }
+  }, [agencyDraft, conversation, id, setConversation]);
+
+  const handleRecommendedOfferChange = useCallback(
+    async (nextId: string | null) => {
+      if (!agencyDraft) return;
+      setAgencyDraft((prev) => (prev ? { ...prev, recommendedOfferId: nextId } : prev));
+      if (!id) return;
+      setOfferSelectionSaving(true);
+      try {
+        const res = await fetch("/api/creator/agency/chat-meta", {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            fanId: id,
+            recommendedOfferId: nextId,
+          }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok || data?.ok !== true) {
+          throw new Error(data?.error || res.statusText);
+        }
+        const meta = data.meta || {};
+        const updatedId = typeof meta.recommendedOfferId === "string" ? meta.recommendedOfferId : null;
+        setAgencyMeta((prev) => (prev ? { ...prev, recommendedOfferId: updatedId } : prev));
+        setAgencyDraft((prev) => (prev ? { ...prev, recommendedOfferId: updatedId } : prev));
+      } catch (err) {
+        console.error("Error updating recommended offer", err);
+        setAgencyError("No se pudo guardar la oferta recomendada.");
+      } finally {
+        setOfferSelectionSaving(false);
+      }
+    },
+    [agencyDraft, id]
+  );
 
   const captureChatScrollForPanelToggle = useCallback(() => {
     const el = messagesContainerRef.current;
@@ -2505,6 +3024,28 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
     },
     [contactName]
   );
+
+  const visiblePlaybooks = useMemo(() => {
+    const search = normalizeSearchText(playbookSearch);
+    const base = playbookProMode ? playbooks : playbooks.filter((pb) => pb.recommended);
+    return base.filter((playbook) => {
+      if (playbookTierFilter !== "all" && playbook.tier !== playbookTierFilter) return false;
+      if (playbookMomentFilter !== "all" && playbook.moment !== playbookMomentFilter) return false;
+      if (playbookObjectiveFilter !== "all" && playbook.objective !== playbookObjectiveFilter) return false;
+      if (!search) return true;
+      const haystack = normalizeSearchText(
+        [playbook.title, playbook.description, playbook.tags.join(" "), playbook.messages.join(" ")].join(" ")
+      );
+      return haystack.includes(search);
+    });
+  }, [
+    playbookSearch,
+    playbookProMode,
+    playbooks,
+    playbookTierFilter,
+    playbookMomentFilter,
+    playbookObjectiveFilter,
+  ]);
 
   const getTemplatePoolForTone = useCallback(
     (category: FanTemplateCategory, tone: FanTemplateTone | null, options?: { allowAnyFallback?: boolean }) => {
@@ -3763,10 +4304,12 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
         if (!cancelled) {
           const merged = buildFanTemplatePoolsFromApi(data?.templates, LOCAL_FAN_TEMPLATE_POOLS);
           setFanTemplatePools(merged);
+          setApiPlaybooks(buildPlaybooksFromApi(data?.templates));
         }
       } catch (err) {
         if (!cancelled) {
           setFanTemplatePools(LOCAL_FAN_TEMPLATE_POOLS);
+          setApiPlaybooks([]);
         }
       }
     };
@@ -4264,6 +4807,15 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
       .filter((line) => line.length > 0)
       .slice(-6);
   }, [messages]);
+  const lastFanMessage = useMemo(() => {
+    const candidates = (messages || [])
+      .filter((msg) => msg.audience !== "INTERNAL")
+      .filter((msg) => msg.kind === "text" || !msg.kind)
+      .filter((msg) => !msg.me)
+      .map((msg) => (msg.message || "").trim())
+      .filter(Boolean);
+    return candidates.length > 0 ? candidates[candidates.length - 1] : "";
+  }, [messages]);
   const ageSignalDetected = useMemo(() => {
     const combined = (messages || [])
       .filter((msg) => msg.audience !== "INTERNAL")
@@ -4716,28 +5268,6 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
     );
   }, []);
 
-  const buildManagerVariantPrompt = useCallback(
-    (mode: SuggestionVariantMode, text: string) => {
-      const style =
-        mode === "shorter"
-          ? "más corta y directa"
-          : "otra versión distinta manteniendo el tono y la intención";
-      return buildRewritePrompt(style, text);
-    },
-    [buildRewritePrompt]
-  );
-
-  const shortenSuggestionText = (text: string) => {
-    const trimmed = text.trim();
-    if (!trimmed) return trimmed;
-    const sentenceMatch = trimmed.match(/^[^.!?]+[.!?]?/);
-    const candidate = (sentenceMatch ? sentenceMatch[0] : trimmed).trim();
-    const maxLen = 140;
-    if (candidate.length <= maxLen) return candidate;
-    const clipped = candidate.slice(0, maxLen).trim().replace(/[.,;:!?]$/, "");
-    return `${clipped}...`;
-  };
-
   const copyTextToClipboard = useCallback(async (text: string) => {
     if (typeof navigator !== "undefined" && navigator.clipboard?.writeText) {
       try {
@@ -4882,7 +5412,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
     const dockOffset = Math.max(0, dockHeight) + 12;
     const internalDraftCount = includeInternalContext ? recentInternalDrafts.length : 0;
     const managerTemplateCount = managerPromptTemplate ? 1 : 0;
-    const templatesCount: number = fanTemplateCount + managerTemplateCount;
+    const templatesCount: number = playbookCount + managerTemplateCount;
     const showManagerChip = true;
     const showTemplatesChip = isFanMode;
     const showToolsChip = isFanMode;
@@ -5073,6 +5603,172 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
     const renderInternalManagerContent = () => (
       <div className="space-y-3">
         <div className="px-4 py-3 space-y-3">
+          <div className="rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] p-3 space-y-2">
+            <div className="flex items-center justify-between gap-2 text-[10px] font-semibold text-[color:var(--muted)]">
+              <span>Agency OS</span>
+              {agencyLoading && <span className="text-[10px] text-[color:var(--muted)]">Cargando…</span>}
+            </div>
+            {agencyDraft ? (
+              <>
+                <div className="flex flex-wrap items-center gap-2 text-[11px] text-[color:var(--muted)]">
+                  <label className="flex items-center gap-2">
+                    <span>Stage</span>
+                    <select
+                      value={agencyDraft.stage}
+                      onChange={(event) =>
+                        setAgencyDraft((prev) =>
+                          prev
+                            ? { ...prev, stage: event.target.value as AgencyStage }
+                            : prev
+                        )
+                      }
+                      disabled={agencySaving}
+                      className="rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-2 py-1 text-[11px] text-[color:var(--text)]"
+                    >
+                      {AGENCY_STAGES.map((stage) => (
+                        <option key={stage} value={stage}>
+                          {formatAgencyStageLabel(stage)}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label className="flex items-center gap-2">
+                    <span>Objetivo</span>
+                    <select
+                      value={agencyDraft.objective}
+                      onChange={(event) =>
+                        setAgencyDraft((prev) =>
+                          prev
+                            ? { ...prev, objective: event.target.value as AgencyObjective }
+                            : prev
+                        )
+                      }
+                      disabled={agencySaving}
+                      className="rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-2 py-1 text-[11px] text-[color:var(--text)]"
+                    >
+                      {AGENCY_OBJECTIVES.map((objective) => (
+                        <option key={objective} value={objective}>
+                          {AGENCY_OBJECTIVE_LABELS[objective]}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label className="flex items-center gap-2">
+                    <span>Intensidad</span>
+                    <select
+                      value={agencyDraft.intensity}
+                      onChange={(event) =>
+                        setAgencyDraft((prev) =>
+                          prev
+                            ? { ...prev, intensity: event.target.value as AgencyIntensity }
+                            : prev
+                        )
+                      }
+                      disabled={agencySaving}
+                      className="rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-2 py-1 text-[11px] text-[color:var(--text)]"
+                    >
+                      {AGENCY_INTENSITIES.map((intensity) => (
+                        <option key={intensity} value={intensity}>
+                          {AGENCY_INTENSITY_LABELS[intensity]}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                </div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <input
+                    value={agencyDraft.nextAction}
+                    onChange={(event) =>
+                      setAgencyDraft((prev) =>
+                        prev ? { ...prev, nextAction: event.target.value } : prev
+                      )
+                    }
+                    placeholder="Siguiente acción…"
+                    disabled={agencySaving}
+                    className="flex-1 min-w-[180px] rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-3 py-1.5 text-[11px] text-[color:var(--text)] placeholder:text-[color:var(--muted)]"
+                  />
+                  <button
+                    type="button"
+                    onClick={handleAgencySave}
+                    disabled={!isAgencyDirty || agencySaving}
+                    className={clsx(
+                      "inline-flex items-center rounded-full border px-3 py-1 text-[11px] font-semibold transition",
+                      !isAgencyDirty || agencySaving
+                        ? "cursor-not-allowed border-[color:var(--surface-border)] bg-[color:var(--surface-1)] text-[color:var(--muted)]"
+                        : "border-[color:rgba(245,158,11,0.7)] bg-[color:rgba(245,158,11,0.08)] text-[color:var(--text)] hover:bg-[color:rgba(245,158,11,0.16)]"
+                    )}
+                  >
+                    {agencySaving ? "Guardando…" : "Guardar"}
+                  </button>
+                </div>
+                {agencyError && (
+                  <div className="text-[10px] text-[color:var(--danger)]">{agencyError}</div>
+                )}
+              </>
+            ) : (
+              <div className="text-[11px] text-[color:var(--muted)]">
+                Agency OS no disponible para este chat.
+              </div>
+            )}
+          </div>
+          <div className="rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] p-3 space-y-2">
+            <div className="flex items-center justify-between gap-2 text-[10px] font-semibold text-[color:var(--muted)]">
+              <span>Ofertas</span>
+              {offersLoading && <span className="text-[10px] text-[color:var(--muted)]">Cargando…</span>}
+            </div>
+            {offersError && (
+              <div className="text-[10px] text-[color:var(--danger)]">{offersError}</div>
+            )}
+            {offersForDropdown.length === 0 ? (
+              <div className="text-[11px] text-[color:var(--muted)]">No hay ofertas activas.</div>
+            ) : (
+              <>
+                <label className="flex flex-col gap-2 text-[11px] text-[color:var(--muted)]">
+                  <span>Oferta recomendada</span>
+                  <select
+                    value={selectedOfferId ?? ""}
+                    onChange={(event) =>
+                      handleRecommendedOfferChange(event.target.value ? event.target.value : null)
+                    }
+                    disabled={offerSelectionSaving}
+                    className="w-full rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-3 py-1 text-[11px] text-[color:var(--text)]"
+                  >
+                    <option value="">Sin oferta</option>
+                    {offersForDropdown.map((offer) => (
+                      <option key={offer.id} value={offer.id}>
+                        {offer.title} · {OFFER_TIER_LABELS[offer.tier]} · {formatOfferPrice(offer.priceCents, offer.currency)}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <div className="flex flex-wrap items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (!selectedOffer) return;
+                      const message = buildOfferMessage(selectedOffer);
+                      if (!message.trim()) return;
+                      fillMessage(message, `offer:${selectedOffer.id}`);
+                    }}
+                    disabled={!selectedOffer || offerSelectionSaving}
+                    className={clsx(
+                      "inline-flex items-center rounded-full border px-3 py-1 text-[11px] font-semibold transition",
+                      !selectedOffer || offerSelectionSaving
+                        ? "cursor-not-allowed border-[color:var(--surface-border)] bg-[color:var(--surface-1)] text-[color:var(--muted)]"
+                        : "border-[color:rgba(245,158,11,0.7)] bg-[color:rgba(245,158,11,0.08)] text-[color:var(--text)] hover:bg-[color:rgba(245,158,11,0.16)]"
+                    )}
+                  >
+                    Insertar + Oferta
+                  </button>
+                  {selectedOffer && (
+                    <span className="text-[10px] text-[color:var(--muted)]">
+                      {AGENCY_INTENSITY_LABELS[selectedOffer.intensityMin]} · {OFFER_TIER_LABELS[selectedOffer.tier]}
+                    </span>
+                  )}
+                </div>
+              </>
+            )}
+          </div>
           <div className="text-[11px] font-semibold text-[color:var(--muted)]">Insights y control</div>
           {normalizedProfileText && (
             <div className="rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] p-3">
@@ -5195,6 +5891,21 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
                           >
                             Usar en mensaje
                           </button>
+                          <button
+                            type="button"
+                            onClick={() => handleTemplateRewrite(msg.text)}
+                            className={clsx("mt-1", inlineActionButtonClass)}
+                          >
+                            Rehacer con plantilla
+                          </button>
+                          {msg.qa && (
+                            <div className="mt-1 flex flex-wrap items-center gap-2 text-[10px] text-[color:var(--muted)]">
+                              <span className="font-semibold">QA: {msg.qa.score}/100</span>
+                              {msg.qa.warnings.length > 0 && (
+                                <span>{msg.qa.warnings.slice(0, 2).join(" · ")}</span>
+                              )}
+                            </div>
+                          )}
                           {msg.offer && (
                             <div className="mt-2 flex flex-wrap items-center gap-2">
                               <span className="inline-flex items-center rounded-full border border-[color:rgba(var(--brand-rgb),0.35)] bg-[color:rgba(var(--brand-rgb),0.12)] px-2.5 py-1 text-[10px] font-semibold text-[color:var(--text)]">
@@ -5722,7 +6433,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
       }
 
       if (tab === "templates") {
-        const hasFanTemplates = fanTemplateCount > 0;
+        const hasPlaybooks = playbookCount > 0;
         const templateTabs = [
           { id: "fan", label: "Para el fan" },
           { id: "manager", label: "Para el Manager" },
@@ -5736,7 +6447,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
         const templateTabManagerActive = "border-[color:rgba(245,158,11,0.7)] bg-[color:rgba(245,158,11,0.12)] text-[color:var(--text)]";
         return (
           <InlinePanelShell
-            title="Plantillas"
+            title="Playbooks"
             onClose={closeDockPanel}
             containerClassName={dockOverlaySheetClassName}
             containerRef={dockOverlaySheetRef}
@@ -5750,7 +6461,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
               <div
                 className="flex flex-wrap items-center gap-2"
                 role="tablist"
-                aria-label="Plantillas"
+                aria-label="Playbooks"
               >
                 {templateTabs.map((tabItem) => {
                   const isActive = templateScope === tabItem.id;
@@ -5774,70 +6485,187 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
                 })}
               </div>
               {templateScope === "fan" ? (
-                hasFanTemplates ? (
+                hasPlaybooks ? (
                   <div className="space-y-3">
-                    <div className="flex justify-end">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <input
+                        value={playbookSearch}
+                        onChange={(event) => setPlaybookSearch(event.target.value)}
+                        placeholder="Buscar playbooks..."
+                        className="w-full flex-1 rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-3 py-1.5 text-[11px] text-[color:var(--text)] placeholder:text-[color:var(--muted)]"
+                      />
                       <button
                         type="button"
-                        onClick={() => syncFanTemplateSelection(true)}
-                        className="inline-flex items-center rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-3 py-1 text-[11px] font-semibold text-[color:var(--text)] hover:border-[color:var(--surface-border-hover)] hover:bg-[color:var(--surface-1)]"
+                        onClick={() => setPlaybookProMode((prev) => !prev)}
+                        className={clsx(
+                          "inline-flex items-center rounded-full border px-3 py-1 text-[11px] font-semibold transition",
+                          playbookProMode
+                            ? "border-[color:var(--brand)] bg-[color:rgba(var(--brand-rgb),0.16)] text-[color:var(--text)]"
+                            : "border-[color:var(--surface-border)] bg-[color:var(--surface-2)] text-[color:var(--text)] hover:border-[color:var(--surface-border-hover)]"
+                        )}
                       >
-                        Barajar todo
+                        {playbookProMode ? "Modo Pro ON" : "Modo Pro"}
                       </button>
                     </div>
-                    <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-                      {FAN_TEMPLATE_CATEGORIES.map((category) => {
-                        const pool = getTemplatePoolForTone(category.id, templateTone);
-                        const selected =
-                          pool.find((item) => item.id === fanTemplateSelection[category.id]) ?? pool[0] ?? null;
-                        if (!selected) {
+                    <div className="flex flex-wrap items-center gap-2 text-[11px] text-[color:var(--muted)]">
+                      <label className="flex items-center gap-2">
+                        <span>Tier</span>
+                        <select
+                          value={playbookTierFilter}
+                          onChange={(event) =>
+                            setPlaybookTierFilter(
+                              event.target.value === "all" ? "all" : (event.target.value as PlaybookTier)
+                            )
+                          }
+                          className="rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-2 py-1 text-[11px] text-[color:var(--text)]"
+                        >
+                          <option value="all">Todos</option>
+                          <option value="T0">T0</option>
+                          <option value="T1">T1</option>
+                          <option value="T2">T2</option>
+                          <option value="T3">T3</option>
+                        </select>
+                      </label>
+                      <div className="flex items-center gap-2">
+                        <span>Momento</span>
+                        <div className="inline-flex rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-1)]">
+                          {(["DAY", "NIGHT", "ANY"] as const).map((moment) => (
+                            <button
+                              key={moment}
+                              type="button"
+                              onClick={() => setPlaybookMomentFilter(moment)}
+                              className={clsx(
+                                "px-2 py-1 rounded-full text-[10px] font-semibold",
+                                playbookMomentFilter === moment
+                                  ? "bg-[color:rgba(var(--brand-rgb),0.18)] text-[color:var(--text)] border border-[color:var(--brand)]"
+                                  : "text-[color:var(--text)]"
+                              )}
+                            >
+                              {PLAYBOOK_MOMENT_LABELS[moment]}
+                            </button>
+                          ))}
+                          <button
+                            type="button"
+                            onClick={() => setPlaybookMomentFilter("all")}
+                            className={clsx(
+                              "px-2 py-1 rounded-full text-[10px] font-semibold",
+                              playbookMomentFilter === "all"
+                                ? "bg-[color:rgba(var(--brand-rgb),0.18)] text-[color:var(--text)] border border-[color:var(--brand)]"
+                                : "text-[color:var(--text)]"
+                            )}
+                          >
+                            Todos
+                          </button>
+                        </div>
+                      </div>
+                      <label className="flex items-center gap-2">
+                        <span>Objetivo</span>
+                        <select
+                          value={playbookObjectiveFilter}
+                          onChange={(event) =>
+                            setPlaybookObjectiveFilter(
+                              event.target.value === "all"
+                                ? "all"
+                                : (event.target.value as PlaybookObjective)
+                            )
+                          }
+                          className="rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-2 py-1 text-[11px] text-[color:var(--text)]"
+                        >
+                          <option value="all">Todos</option>
+                          {Object.entries(PLAYBOOK_OBJECTIVE_LABELS).map(([key, label]) => (
+                            <option key={key} value={key}>
+                              {label}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                    </div>
+                    <div className="text-[10px] text-[color:var(--muted)]">
+                      {playbookProMode
+                        ? "Modo Pro activo: lista completa de playbooks."
+                        : "Recomendadas: selección corta para hoy."}
+                    </div>
+                    {visiblePlaybooks.length === 0 ? (
+                      <InlineEmptyState icon="folder" title="Sin playbooks con estos filtros" />
+                    ) : (
+                      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                        {visiblePlaybooks.map((playbook) => {
+                          const selectionIndex = playbookSelections[playbook.id] ?? 0;
+                          const message =
+                            playbook.messages[selectionIndex % playbook.messages.length] ?? playbook.messages[0] ?? "";
+                          const tierLabel = playbook.tier ?? "—";
+                          const momentLabel = PLAYBOOK_MOMENT_LABELS[playbook.moment];
+                          const objectiveLabel = PLAYBOOK_OBJECTIVE_LABELS[playbook.objective];
                           return (
                             <div
-                              key={category.id}
+                              key={playbook.id}
                               className="flex flex-col gap-2 rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-3 py-2"
                             >
-                              <div className="text-[12px] font-semibold text-[color:var(--text)]">{category.label}</div>
-                              <p className="text-[11px] text-[color:var(--muted)]">Sin opciones disponibles.</p>
+                              <div className="flex items-start justify-between gap-2">
+                                <div className="min-w-0">
+                                  <div className="text-[12px] font-semibold text-[color:var(--text)]">
+                                    {playbook.title}
+                                  </div>
+                                  <p className="text-[11px] text-[color:var(--muted)] line-clamp-2">
+                                    {playbook.description}
+                                  </p>
+                                </div>
+                                <div className="text-[10px] text-[color:var(--muted)] whitespace-nowrap">
+                                  {tierLabel} · {momentLabel}
+                                </div>
+                              </div>
+                              <div className="flex flex-wrap items-center gap-1 text-[10px] text-[color:var(--muted)]">
+                                <span className="rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-2 py-0.5">
+                                  {objectiveLabel}
+                                </span>
+                                {playbook.tags.slice(0, 3).map((tag) => (
+                                  <span
+                                    key={`${playbook.id}-${tag}`}
+                                    className="rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-2 py-0.5"
+                                  >
+                                    {tag}
+                                  </span>
+                                ))}
+                              </div>
+                              <p className="text-[11px] text-[color:var(--text)] line-clamp-3">{message}</p>
+                              <div className="flex flex-wrap items-center gap-2">
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    insertComposerTextWithUndo(resolveFanTemplateText(message), {
+                                      title: "Playbook insertado",
+                                      detail: playbook.title,
+                                      actionKey: `playbook:${playbook.id}`,
+                                    });
+                                    closeDockPanel();
+                                  }}
+                                  className={inlineActionButtonClass}
+                                >
+                                  Insertar en mensaje
+                                </button>
+                                {playbook.messages.length > 1 && (
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      setPlaybookSelections((prev) => ({
+                                        ...prev,
+                                        [playbook.id]: (selectionIndex + 1) % playbook.messages.length,
+                                      }))
+                                    }
+                                    className="inline-flex items-center rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-3 py-1 text-[11px] font-semibold text-[color:var(--text)] hover:border-[color:var(--surface-border-hover)] hover:bg-[color:var(--surface-1)]"
+                                  >
+                                    Otra opción
+                                  </button>
+                                )}
+                              </div>
                             </div>
                           );
-                        }
-                        return (
-                          <div
-                            key={selected.id}
-                            className="flex flex-col gap-2 rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-3 py-2"
-                          >
-                            <div className="text-[12px] font-semibold text-[color:var(--text)]">{selected.title}</div>
-                            <p className="text-[11px] text-[color:var(--muted)] line-clamp-2">{selected.text}</p>
-                            <div className="flex flex-wrap items-center gap-2">
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  insertComposerTextWithUndo(resolveFanTemplateText(selected.text), {
-                                    title: "Plantilla insertada",
-                                    detail: selected.title,
-                                    actionKey: `template:${selected.id}`,
-                                  });
-                                  closeDockPanel();
-                                }}
-                                className={inlineActionButtonClass}
-                              >
-                                Insertar en mensaje
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => handleFanTemplateRotate(category.id)}
-                                className="inline-flex items-center rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-3 py-1 text-[11px] font-semibold text-[color:var(--text)] hover:border-[color:var(--surface-border-hover)] hover:bg-[color:var(--surface-1)]"
-                              >
-                                Otra opción
-                              </button>
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
+                        })}
+                      </div>
+                    )}
                   </div>
                 ) : (
-                  <InlineEmptyState icon="folder" title="Sin plantillas para el fan" />
+                  <InlineEmptyState icon="folder" title="Sin playbooks disponibles" />
                 )
               ) : managerPromptTemplate ? (
                 <div className="rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] p-3 space-y-2">
@@ -5930,7 +6758,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
               aria-controls={panelId}
             >
               <span className="flex items-center gap-1.5">
-                <span>Plantillas</span>
+                <span>Playbooks</span>
                 {templatesCount > 0 && (
                   <span className="rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-1.5 py-0.5 text-[10px] text-[color:var(--muted)]">
                     {templatesCount}
@@ -6701,27 +7529,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
     if (hasManualManagerObjective) return;
     const objective = fanManagerAnalysis.defaultObjective;
     setCurrentObjective(objective);
-    const suggestions = buildSuggestionsForObjective({
-      objective,
-      fanName: contactName,
-      tone: fanTone,
-      state: fanManagerAnalysis.state,
-      analysis: fanManagerAnalysis,
-    });
-    setManagerSuggestions(suggestions.slice(0, 3));
-  }, [contactName, fanManagerAnalysis, buildSuggestionsForObjective, fanTone, hasManualManagerObjective]);
-
-  useEffect(() => {
-    if (!currentObjective) return;
-    const suggestions = buildSuggestionsForObjective({
-      objective: currentObjective,
-      fanName: contactName,
-      tone: fanTone,
-      state: fanManagerAnalysis.state,
-      analysis: fanManagerAnalysis,
-    });
-    setManagerSuggestions(suggestions.slice(0, 3));
-  }, [fanTone, currentObjective, contactName, fanManagerAnalysis, buildSuggestionsForObjective]);
+  }, [fanManagerAnalysis, hasManualManagerObjective]);
 
   const buildManagerContextPrompt = useCallback(
     (options?: { selectedText?: string | null }) => {
@@ -6843,6 +7651,22 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
         .filter(Boolean) as Array<{ role: "system" | "user" | "assistant"; content: string }>;
       const outgoingMessages = [...normalizedHistory, { role: "user", content: promptForManager }];
       const resolvedAgeSignal = options?.ageSignal ?? ageSignalDetected;
+      const resolvedAgency = conversation.isManager
+        ? null
+        : agencyDraft ?? {
+            stage: (conversation.agencyStage ?? "NEW") as AgencyStage,
+            objective: (conversation.agencyObjective ?? "CONNECT") as AgencyObjective,
+            intensity: (conversation.agencyIntensity ?? "MEDIUM") as AgencyIntensity,
+            nextAction: (conversation.agencyNextAction ?? "").toString(),
+          };
+      const agencyPayload = resolvedAgency
+        ? {
+            stage: resolvedAgency.stage,
+            objective: resolvedAgency.objective,
+            intensity: resolvedAgency.intensity,
+            nextAction: resolvedAgency.nextAction?.trim() || undefined,
+          }
+        : undefined;
 
       let responseData: any = null;
       let responseStatus = 0;
@@ -6902,6 +7726,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
             mode: "message",
             action: options?.action,
             ageSignal: resolvedAgeSignal,
+            agency: agencyPayload,
           }),
         });
         responseStatus = res.status;
@@ -6934,8 +7759,19 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
         errorCode.toUpperCase() === "PROVIDER_UNAVAILABLE" ||
         responseStatus === 502;
       const isRefusal = normalizedStatus === "refusal" || errorCode.toUpperCase() === "REFUSAL";
+      const isCryptoMisconfigured =
+        normalizedStatus === "crypto_misconfigured" || errorCode.toUpperCase() === "CRYPTO_MISCONFIGURED";
       const needsAgeGate = normalizedStatus === "needs_age_gate";
-      if (responseData?.ok === false || providerUnavailable || isRefusal) {
+      if (responseData?.ok === false || providerUnavailable || isRefusal || isCryptoMisconfigured) {
+        if (isCryptoMisconfigured) {
+          const replyText = replyContent || errorMessage || "Crypto mal configurado.";
+          if (options?.skipChat) {
+            showComposerToast(replyText);
+          } else {
+            pushManagerMessage(replyText);
+          }
+          return { ok: false, errorCode: "CRYPTO_MISCONFIGURED", errorMessage: replyText };
+        }
         if (providerUnavailable) {
           showComposerToast("Ollama no responde. Revisa que esté activo.");
           if (replyContent && !options?.skipChat) {
@@ -7017,6 +7853,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
       };
 
       if (!options?.skipChat) {
+        const qa = scoreDraft(assistantText);
         const managerMessage: ManagerChatMessage = {
           id: `${fanKey}-${Date.now()}-manager`,
           role: "manager",
@@ -7024,6 +7861,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
           title: bundle.title,
           suggestions: bundle.suggestions,
           offer: resolvedOffer,
+          qa,
           createdAt: new Date().toISOString(),
         };
         setManagerChatByFan((prev) => {
@@ -7036,9 +7874,15 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
     },
     [
       ageSignalDetected,
+      agencyDraft,
       buildManagerContextPrompt,
       buildSimulatedManagerSuggestions,
       contactName,
+      conversation.agencyIntensity,
+      conversation.agencyNextAction,
+      conversation.agencyObjective,
+      conversation.agencyStage,
+      conversation.isManager,
       fanTone,
       focusManagerComposer,
       id,
@@ -7054,57 +7898,140 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
     ]
   );
 
+  const requestTemplateDraft = useCallback(
+    async (options: {
+      mode: "full" | "short";
+      avoidText?: string | null;
+      stage?: AgencyStage;
+      objective?: AgencyObjective;
+      intensity?: AgencyIntensity;
+      variant?: number;
+      offerId?: string | null;
+    }) => {
+      if (!id) return null;
+      const fallbackAgency = {
+        stage: (conversation.agencyStage ?? "NEW") as AgencyStage,
+        objective: (conversation.agencyObjective ?? "CONNECT") as AgencyObjective,
+        intensity: (conversation.agencyIntensity ?? "MEDIUM") as AgencyIntensity,
+        nextAction: (conversation.agencyNextAction ?? "").toString(),
+        recommendedOfferId: conversation.agencyRecommendedOfferId ?? null,
+      };
+      const resolvedAgency = agencyDraft ?? fallbackAgency;
+      const resolvedStage = options.stage ?? resolvedAgency.stage;
+      const resolvedObjective = options.objective ?? resolvedAgency.objective;
+      const resolvedIntensity = options.intensity ?? resolvedAgency.intensity;
+      const resolvedOfferId =
+        options.offerId !== undefined ? options.offerId : resolvedAgency.recommendedOfferId ?? null;
+      try {
+        const res = await fetch("/api/creator/agency/template-draft", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            fanId: id,
+            fanName: contactName,
+            lastFanMsg: lastFanMessage,
+            stage: resolvedStage,
+            objective: resolvedObjective,
+            intensity: resolvedIntensity,
+            offerId: resolvedOfferId,
+            mode: options.mode,
+            avoidText: options.avoidText ?? null,
+            variant: typeof options.variant === "number" ? options.variant : undefined,
+          }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok || data?.ok !== true) {
+          const message = typeof data?.error === "string" ? data.error : "No se pudo generar la plantilla.";
+          showComposerToast(message);
+          return null;
+        }
+        return {
+          draft: typeof data.draft === "string" ? data.draft : "",
+          qa: data.qa as DraftQaResult | undefined,
+        };
+      } catch (err) {
+        console.error("Error building template draft", err);
+        showComposerToast("No se pudo generar la plantilla.");
+        return null;
+      }
+    },
+    [
+      agencyDraft,
+      contactName,
+      conversation.agencyIntensity,
+      conversation.agencyNextAction,
+      conversation.agencyObjective,
+      conversation.agencyRecommendedOfferId,
+      conversation.agencyStage,
+      id,
+      lastFanMessage,
+      showComposerToast,
+    ]
+  );
+
+  const buildTemplateVariants = useCallback(async () => {
+    if (!id) return null;
+    const variants: Array<{ label: string; intensity: AgencyIntensity }> = [
+      { label: "SOFT", intensity: "SOFT" },
+      { label: "FLIRTY", intensity: "MEDIUM" },
+      { label: "SPICY", intensity: "INTENSE" },
+    ];
+    try {
+      const results = await Promise.all(
+        variants.map((variant) =>
+          requestTemplateDraft({ mode: "full", intensity: variant.intensity })
+        )
+      );
+      const suggestions = variants
+        .map((variant, index) => {
+          const draft = results[index]?.draft?.trim() ?? "";
+          if (!draft) return null;
+          return {
+            id: `${id}-agency-${variant.label.toLowerCase()}`,
+            label: variant.label,
+            message: draft,
+            intent: `template:${variant.intensity}`,
+            intensity: variant.intensity,
+          } as ManagerSuggestion;
+        })
+        .filter(Boolean) as ManagerSuggestion[];
+      return suggestions.length > 0 ? suggestions : null;
+    } catch (err) {
+      console.error("Error building template variants", err);
+      return null;
+    }
+  }, [id, requestTemplateDraft]);
+
+  useEffect(() => {
+    if (!id) return;
+    let cancelled = false;
+    (async () => {
+      const suggestions = await buildTemplateVariants();
+      if (cancelled || !suggestions) return;
+      setManagerSuggestions(suggestions.slice(0, 3));
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [buildTemplateVariants, id]);
+
   const handleRequestSuggestionVariant = async (mode: SuggestionVariantMode, text: string) => {
     const trimmed = text.trim();
     if (!trimmed) return;
-    const label = mode === "shorter" ? "Más corta" : "Otra versión";
-    const prompt = buildManagerVariantPrompt(mode, trimmed);
-    const result = await askInternalManager(prompt, undefined, undefined, {
-      selectedText: trimmed,
-      skipContext: true,
-      skipHistory: true,
-      action: mode === "shorter" ? "rewrite_shorter" : "rewrite_alt",
-      silentOnRefusal: true,
-      onSuggestions: (bundle) => {
-        const baseSuggestion = bundle.suggestions[0] ?? trimmed;
-        const nextMessage = mode === "shorter" ? shortenSuggestionText(baseSuggestion) : baseSuggestion;
-        if (!nextMessage.trim()) return;
-        setManagerSuggestions((prev) => {
-          const filtered = prev.filter((item) => item.message !== nextMessage);
-          return [
-            {
-              id: `variant-${Date.now()}-${Math.random().toString(16).slice(2)}`,
-              label,
-              message: nextMessage,
-            },
-            ...filtered,
-          ].slice(0, 3);
-        });
-      },
+    const target = managerSuggestions.find((item) => item.message.trim() === trimmed);
+    const intensityMatch = target?.intent?.toString().match(/template:(SOFT|MEDIUM|INTENSE)/i);
+    const intensityOverride =
+      target?.intensity || (intensityMatch ? (intensityMatch[1].toUpperCase() as AgencyIntensity) : null);
+    const templateResult = await requestTemplateDraft({
+      mode: mode === "shorter" ? "short" : "full",
+      avoidText: trimmed,
+      intensity: intensityOverride ?? undefined,
     });
-    if (result?.ok || result?.errorCode !== "REFUSAL") return;
-    await askInternalManager(buildSafeRewritePrompt(trimmed), undefined, undefined, {
-      selectedText: trimmed,
-      skipContext: true,
-      skipHistory: true,
-      action: "rewrite_safe",
-      onSuggestions: (bundle) => {
-        const baseSuggestion = bundle.suggestions[0] ?? trimmed;
-        const nextMessage = mode === "shorter" ? shortenSuggestionText(baseSuggestion) : baseSuggestion;
-        if (!nextMessage.trim()) return;
-        setManagerSuggestions((prev) => {
-          const filtered = prev.filter((item) => item.message !== nextMessage);
-          return [
-            {
-              id: `variant-${Date.now()}-${Math.random().toString(16).slice(2)}`,
-              label,
-              message: nextMessage,
-            },
-            ...filtered,
-          ].slice(0, 3);
-        });
-      },
-    });
+    const nextMessage = templateResult?.draft?.trim();
+    if (!nextMessage || !target) return;
+    setManagerSuggestions((prev) =>
+      prev.map((item) => (item.id === target.id ? { ...item, message: nextMessage } : item))
+    );
   };
 
   const draftSourceLabel = useCallback((source: DraftSource) => {
@@ -7333,6 +8260,31 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
     setManagerSelectedText(null);
   };
 
+  const handleTemplateRewrite = useCallback(
+    async (sourceText?: string | null) => {
+      if (!id) return;
+      const avoidText = sourceText?.trim() || null;
+      const result = await requestTemplateDraft({ mode: "full", avoidText });
+      const nextText = result?.draft?.trim();
+      if (!nextText) return;
+      const qa = scoreDraft(nextText);
+      const managerMessage: ManagerChatMessage = {
+        id: `${id}-${Date.now()}-manager-template`,
+        role: "manager",
+        text: nextText,
+        title: "Plantilla",
+        createdAt: new Date().toISOString(),
+        qa,
+      };
+      setManagerChatByFan((prev) => {
+        const prevMsgs = prev[id] ?? [];
+        return { ...prev, [id]: [...prevMsgs, managerMessage] };
+      });
+      openInternalPanelTab("manager");
+    },
+    [id, openInternalPanelTab, requestTemplateDraft]
+  );
+
   const handleManagerChatKeyDown = (evt: KeyboardEvent<HTMLTextAreaElement>) => {
     if (evt.key === "Enter" && !evt.shiftKey) {
       evt.preventDefault();
@@ -7471,14 +8423,10 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
         setFanToneById((prev) => ({ ...prev, [id]: options.toneOverride as FanTone }));
       }
     }
-    const newSuggestions = buildSuggestionsForObjective({
-      objective: intent,
-      fanName: contactName,
-      tone: toneToUse,
-      state: fanManagerAnalysis.state,
-      analysis: fanManagerAnalysis,
-    });
-    setManagerSuggestions(newSuggestions.slice(0, 3));
+    const newSuggestions = await buildTemplateVariants();
+    if (newSuggestions) {
+      setManagerSuggestions(newSuggestions.slice(0, 3));
+    }
     const question = buildQuickIntentQuestion(intent, contactName);
     if (options?.skipInternalChat === false) {
       askInternalManager(question, intent, toneToUse);
@@ -9363,15 +10311,73 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
 
     return true;
   });
-  const ppvTierItems = useMemo(() => {
-    return contentItems.filter((item) => {
-      const isExtraItem = item.isExtra === true || item.visibility === "EXTRA";
-      if (!isExtraItem) return false;
-      const resolvedTier = item.chatTier ?? resolveChatTierFromExtraTier(item.extraTier ?? null);
-      return resolvedTier === ppvTierFilter;
+  const ppvTierFallback = useMemo(() => {
+    const extras = contentItems.filter((item) => item.isExtra === true || item.visibility === "EXTRA");
+    const resolveItemTier = (item: ContentWithFlags) =>
+      item.chatTier ?? resolveChatTierFromExtraTier(item.extraTier ?? null);
+    const resolveItemMoment = (item: ContentWithFlags): TimeOfDayValue => {
+      const slot = item.extraSlot ?? "";
+      if (slot.startsWith("DAY")) return "DAY";
+      if (slot.startsWith("NIGHT")) return "NIGHT";
+      if (slot === "ANY") return "ANY";
+      return item.timeOfDay ?? "ANY";
+    };
+    const desiredMoment = timeOfDay === "NIGHT" ? "NIGHT" : timeOfDay === "ANY" ? "ANY" : "DAY";
+    const tierOrder = CHAT_PPV_TIERS;
+    const selectedIndex = tierOrder.indexOf(ppvTierFilter);
+    const nearbyTiers = tierOrder
+      .filter((tier) => tier !== ppvTierFilter)
+      .sort((a, b) => Math.abs(tierOrder.indexOf(a) - selectedIndex) - Math.abs(tierOrder.indexOf(b) - selectedIndex));
+    const byTierMoment = extras.filter(
+      (item) => resolveItemTier(item) === ppvTierFilter && resolveItemMoment(item) === desiredMoment
+    );
+    if (byTierMoment.length > 0) {
+      return { items: byTierMoment, stage: "tier_moment", totalExtras: extras.length };
+    }
+    const byTierAny = extras.filter(
+      (item) => resolveItemTier(item) === ppvTierFilter && resolveItemMoment(item) === "ANY"
+    );
+    if (byTierAny.length > 0) {
+      return { items: byTierAny, stage: "tier_any", totalExtras: extras.length };
+    }
+    const sortByTierDistance = (items: ContentWithFlags[]) => {
+      return items
+        .map((item, idx) => ({ item, idx }))
+        .sort((a, b) => {
+          const tierA = resolveItemTier(a.item);
+          const tierB = resolveItemTier(b.item);
+          const indexA = tierA ? tierOrder.indexOf(tierA) : Number.MAX_SAFE_INTEGER;
+          const indexB = tierB ? tierOrder.indexOf(tierB) : Number.MAX_SAFE_INTEGER;
+          const distanceA = Math.abs(indexA - selectedIndex);
+          const distanceB = Math.abs(indexB - selectedIndex);
+          if (distanceA !== distanceB) return distanceA - distanceB;
+          if (indexA !== indexB) return indexA - indexB;
+          return a.idx - b.idx;
+        })
+        .map((entry) => entry.item);
+    };
+    const byNearbyMoment = extras.filter((item) => {
+      const tier = resolveItemTier(item);
+      if (!tier || !nearbyTiers.includes(tier)) return false;
+      return resolveItemMoment(item) === desiredMoment;
     });
-  }, [contentItems, ppvTierFilter]);
+    if (byNearbyMoment.length > 0) {
+      return { items: sortByTierDistance(byNearbyMoment), stage: "near_moment", totalExtras: extras.length };
+    }
+    const byNearbyAny = extras.filter((item) => {
+      const tier = resolveItemTier(item);
+      if (!tier || !nearbyTiers.includes(tier)) return false;
+      return resolveItemMoment(item) === "ANY";
+    });
+    if (byNearbyAny.length > 0) {
+      return { items: sortByTierDistance(byNearbyAny), stage: "near_any", totalExtras: extras.length };
+    }
+    return { items: [] as ContentWithFlags[], stage: "none", totalExtras: extras.length };
+  }, [contentItems, ppvTierFilter, timeOfDay]);
+  const ppvTierItems = ppvTierFallback.items;
 
+  const ppvTierCtaTier = resolveExtraTierFromChatTier(ppvTierFilter) ?? "T1";
+  const ppvTierCtaMoment = timeOfDay === "NIGHT" ? "NIGHT" : timeOfDay === "ANY" ? "ANY" : "DAY";
   const ppvTierMenu = isFanTarget ? (
     <div className="relative inline-flex">
       <button
@@ -9437,14 +10443,28 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
               <div className="text-xs text-[color:var(--danger)]">No se pudieron cargar los extras.</div>
             )}
             {!contentLoading && !contentError && ppvTierItems.length === 0 && (
-              <div className="rounded-lg border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-3 py-2 text-xs text-[color:var(--muted)]">
-                No hay extras en este tier. Prueba “Cualquiera” o un tier inferior.
+              <div className="rounded-lg border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-3 py-2 text-xs text-[color:var(--muted)] space-y-2">
+                <div>No hay extras disponibles para este tier ahora mismo.</div>
+                {ppvTierFallback.totalExtras === 0 && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      void router.push(
+                        `/library?create=1&tier=${encodeURIComponent(ppvTierCtaTier)}&moment=${encodeURIComponent(ppvTierCtaMoment)}`
+                      );
+                    }}
+                    className="inline-flex items-center justify-center rounded-full border border-[color:var(--warning)] bg-[color:rgba(245,158,11,0.12)] px-3 py-1 text-[11px] font-semibold text-[color:var(--text)] hover:bg-[color:rgba(245,158,11,0.18)]"
+                  >
+                    Crear extra para este tier
+                  </button>
+                )}
               </div>
             )}
             {!contentLoading &&
               !contentError &&
               ppvTierItems.map((item) => {
                 const timeLabel = formatExtraSlotLabel(item.extraSlot ?? null, item.timeOfDay ?? null);
+                const itemTier = resolveChatTierForItem(item) ?? ppvTierFilter;
                 return (
                   <button
                     key={item.id}
@@ -9456,7 +10476,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
                       <div className="truncate text-[12px] font-semibold">{item.title}</div>
                       <div className="text-[10px] text-[color:var(--muted)]">{timeLabel}</div>
                     </div>
-                    <span className="text-[10px] text-[color:var(--muted)]">{resolveChatTierLabel(ppvTierFilter)}</span>
+                    <span className="text-[10px] text-[color:var(--muted)]">{resolveChatTierLabel(itemTier)}</span>
                   </button>
                 );
               })}

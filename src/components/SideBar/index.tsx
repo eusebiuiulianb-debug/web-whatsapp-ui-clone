@@ -38,6 +38,8 @@ import { DevRequestCounters } from "../DevRequestCounters";
 import { recordDevRequest } from "../../lib/devRequestStats";
 import { IconGlyph } from "../ui/IconGlyph";
 import { Chip } from "../ui/Chip";
+import { computeAgencyPriorityScore } from "../../lib/agency/priorityScore";
+import type { AgencyIntensity, AgencyObjective, AgencyStage } from "../../lib/agency/types";
 
 class SideBarBoundary extends Component<{ children: React.ReactNode }, { hasError: boolean }> {
   constructor(props: { children: React.ReactNode }) {
@@ -238,24 +240,29 @@ function normalizeTier(tier?: string | null): "new" | "regular" | "vip" {
 
 function computePriorityScore(fan: FanData): number {
   const tag = fan.followUpTag ?? getFollowUpTag(fan.membershipStatus, fan.daysLeft, fan.activeGrantTypes);
-  const isExpiredToday = tag === "expired" && (fan.daysLeft ?? 0) === 0;
-  let urgencyScore = 0;
-  switch (isExpiredToday ? "expired_today" : tag) {
-    case "trial_soon":
-    case "monthly_soon":
-      urgencyScore = 3;
-      break;
-    case "expired_today":
-      urgencyScore = 2;
-      break;
-    default:
-      urgencyScore = 0;
-  }
+  const stage = (fan.agencyStage ?? "NEW") as AgencyStage;
+  const objective = (fan.agencyObjective ?? "CONNECT") as AgencyObjective;
+  const intensity = (fan.agencyIntensity ?? "MEDIUM") as AgencyIntensity;
+  const segmentLabel = ((fan.segment || "") as string).toUpperCase();
+  const riskValue = (fan.riskLevel || "").toString().toUpperCase();
+  const isVip = normalizeTier(fan.customerTier) === "vip" || segmentLabel === "VIP";
+  const spent30d = typeof fan.recent30dSpent === "number" ? fan.recent30dSpent : 0;
 
-  const tier = normalizeTier(fan.customerTier);
-  const tierScore = tier === "vip" ? 2 : tier === "regular" ? 1 : 0;
-
-  return urgencyScore * 10 + tierScore;
+  return computeAgencyPriorityScore({
+    lastIncomingAt: fan.lastMessageAt ?? null,
+    lastOutgoingAt: fan.lastCreatorMessageAt ?? null,
+    spent7d: 0,
+    spent30d,
+    stage,
+    objective,
+    intensity,
+    flags: {
+      vip: isVip,
+      expired: tag === "expired",
+      atRisk: segmentLabel === "EN_RIESGO" || (riskValue && riskValue !== "LOW"),
+      isNew: fan.isNew30d ?? false,
+    },
+  });
 }
 
 export default function SideBar() {
@@ -379,6 +386,11 @@ function SideBarInner() {
       nextActionAt: fan.nextActionAt ?? null,
       nextActionNote: fan.nextActionNote ?? null,
       priorityScore: fan.priorityScore,
+      agencyStage: fan.agencyStage ?? null,
+      agencyObjective: fan.agencyObjective ?? null,
+      agencyIntensity: fan.agencyIntensity ?? null,
+      agencyNextAction: fan.agencyNextAction ?? null,
+      agencyRecommendedOfferId: fan.agencyRecommendedOfferId ?? null,
       lastNoteSnippet: fan.lastNoteSnippet ?? null,
       nextActionSnippet: fan.nextActionSnippet ?? null,
       lastNoteSummary: fan.lastNoteSummary ?? fan.lastNoteSnippet ?? null,
@@ -455,6 +467,11 @@ function SideBarInner() {
         "nextAction",
         "nextActionAt",
         "nextActionNote",
+        "agencyStage",
+        "agencyObjective",
+        "agencyIntensity",
+        "agencyNextAction",
+        "agencyRecommendedOfferId",
       ];
       const changed = fields.some((field) => (prevFan as any)?.[field] !== (fan as any)?.[field]);
       if (changed) return true;
@@ -1152,6 +1169,14 @@ function SideBarInner() {
           return tier === tierFilter;
         })
         .sort((a, b) => {
+          if (followUpMode === "priority") {
+            const pa = a.priorityScore ?? 0;
+            const pb = b.priorityScore ?? 0;
+            if (pa !== pb) return pb - pa;
+            const la = getLastActivityTimestamp(a);
+            const lb = getLastActivityTimestamp(b);
+            if (la !== lb) return lb - la;
+          }
           const highPriorityDelta = Number(!!b.isHighPriority) - Number(!!a.isHighPriority);
           if (highPriorityDelta !== 0) return highPriorityDelta;
           if (a.isHighPriority && b.isHighPriority) {

@@ -1,7 +1,7 @@
 import type { NextApiRequest, NextApiResponse } from "next";
 import { Prisma } from "@prisma/client";
 import prisma from "../../../../lib/prisma.server";
-import { decryptSecretSafe, encryptSecret } from "../../../../lib/crypto/secrets";
+import { decryptSecretSafe, encryptSecret, isCryptoConfigError } from "../../../../lib/crypto/secrets";
 import { normalizeTranslationLanguage, type TranslationLanguage } from "../../../../lib/language";
 
 type TranslateProvider = "none" | "libretranslate" | "deepl";
@@ -160,21 +160,35 @@ async function handlePost(
 
   if (libretranslateApiKeyRaw !== undefined) {
     if (libretranslateApiKeyRaw) {
-      if (!process.env.APP_SECRET_KEY?.trim() && process.env.NODE_ENV === "production") {
-        return res.status(400).json({ ok: false, error: "APP_SECRET_KEY is required to store LibreTranslate key" });
+      if (!hasSecretKeyEnv() && process.env.NODE_ENV === "production") {
+        return res.status(400).json({ ok: false, error: "APP_SECRET_KEYS is required to store LibreTranslate key" });
       }
-      updateData.libretranslateApiKeyEnc = encryptSecret(libretranslateApiKeyRaw);
-      createData.libretranslateApiKeyEnc = updateData.libretranslateApiKeyEnc as string | null;
+      try {
+        updateData.libretranslateApiKeyEnc = encryptSecret(libretranslateApiKeyRaw);
+        createData.libretranslateApiKeyEnc = updateData.libretranslateApiKeyEnc as string | null;
+      } catch (err) {
+        if (isCryptoConfigError(err)) {
+          return res.status(400).json({ ok: false, error: err.message });
+        }
+        throw err;
+      }
     }
   }
 
   if (deeplApiKeyRaw !== undefined) {
     if (deeplApiKeyRaw) {
-      if (!process.env.APP_SECRET_KEY?.trim() && process.env.NODE_ENV === "production") {
-        return res.status(400).json({ ok: false, error: "APP_SECRET_KEY is required to store DeepL key" });
+      if (!hasSecretKeyEnv() && process.env.NODE_ENV === "production") {
+        return res.status(400).json({ ok: false, error: "APP_SECRET_KEYS is required to store DeepL key" });
       }
-      updateData.deeplApiKeyEnc = encryptSecret(deeplApiKeyRaw);
-      createData.deeplApiKeyEnc = updateData.deeplApiKeyEnc as string | null;
+      try {
+        updateData.deeplApiKeyEnc = encryptSecret(deeplApiKeyRaw);
+        createData.deeplApiKeyEnc = updateData.deeplApiKeyEnc as string | null;
+      } catch (err) {
+        if (isCryptoConfigError(err)) {
+          return res.status(400).json({ ok: false, error: err.message });
+        }
+        throw err;
+      }
     }
   }
 
@@ -217,6 +231,13 @@ function resolveViewerRole(req: NextApiRequest): "creator" | "fan" {
   if (typeof viewerParam === "string" && viewerParam.trim().toLowerCase() === "creator") return "creator";
 
   return "fan";
+}
+
+function hasSecretKeyEnv(): boolean {
+  return Boolean(
+    (typeof process.env.APP_SECRET_KEYS === "string" && process.env.APP_SECRET_KEYS.trim()) ||
+      (typeof process.env.APP_SECRET_KEY === "string" && process.env.APP_SECRET_KEY.trim())
+  );
 }
 
 function normalizeProvider(raw?: string | null): TranslateProvider {

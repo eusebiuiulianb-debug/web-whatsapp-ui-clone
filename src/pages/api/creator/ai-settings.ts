@@ -4,7 +4,7 @@ import prisma from "../../../lib/prisma.server";
 import { sendBadRequest, sendServerError } from "../../../lib/apiError";
 import { AI_TURN_MODES, type AiTurnMode } from "../../../lib/aiTemplateTypes";
 import { normalizeAiBaseTone, normalizeAiTurnMode } from "../../../lib/aiSettings";
-import { decryptSecretSafe, encryptSecret } from "../../../lib/crypto/secrets";
+import { decryptSecretSafe, encryptSecret, isCryptoConfigError } from "../../../lib/crypto/secrets";
 import {
   createDefaultCreatorPlatforms,
   creatorPlatformsToJsonValue,
@@ -273,11 +273,18 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
     if (typeof cortexApiKey !== "string") return sendBadRequest(res, "cortexApiKey must be a string");
     const trimmed = cortexApiKey.trim();
     if (trimmed) {
-      if (!process.env.APP_SECRET_KEY?.trim() && process.env.NODE_ENV === "production") {
-        return sendBadRequest(res, "APP_SECRET_KEY is required to store cortexApiKey");
+      if (!hasSecretKeyEnv() && process.env.NODE_ENV === "production") {
+        return sendBadRequest(res, "APP_SECRET_KEYS is required to store cortexApiKey");
       }
-      updateData.cortexApiKeyEnc = encryptSecret(trimmed);
-      createData.cortexApiKeyEnc = updateData.cortexApiKeyEnc as string | null;
+      try {
+        updateData.cortexApiKeyEnc = encryptSecret(trimmed);
+        createData.cortexApiKeyEnc = updateData.cortexApiKeyEnc as string | null;
+      } catch (err) {
+        if (isCryptoConfigError(err)) {
+          return sendBadRequest(res, err.message);
+        }
+        throw err;
+      }
     }
   }
   if (platforms !== undefined) {
@@ -372,6 +379,13 @@ function normalizeOptionalString(value?: string | null): string | null {
   if (typeof value !== "string") return null;
   const trimmed = value.trim();
   return trimmed ? trimmed : null;
+}
+
+function hasSecretKeyEnv(): boolean {
+  return Boolean(
+    (typeof process.env.APP_SECRET_KEYS === "string" && process.env.APP_SECRET_KEYS.trim()) ||
+      (typeof process.env.APP_SECRET_KEY === "string" && process.env.APP_SECRET_KEY.trim())
+  );
 }
 
 function normalizeTranslateProvider(raw?: string | null): "deepl" | "libretranslate" | "none" {

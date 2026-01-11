@@ -54,6 +54,8 @@ export type CortexProviderSelection = {
   baseUrl?: string | null;
   source?: "db" | "env";
   decryptFailed?: boolean;
+  decryptFailureReason?: "CONFIG_ERROR" | "DECRYPT_FAILED";
+  decryptErrorMessage?: string | null;
 };
 
 const DEFAULT_MODEL = "gpt-4o-mini";
@@ -191,6 +193,8 @@ async function resolveDbProviderSelection(creatorId: string): Promise<CortexProv
     const model = normalizeOptionalString(settings.cortexModel);
     let apiKey: string | null = null;
     let decryptFailed = false;
+    let decryptFailureReason: CortexProviderSelection["decryptFailureReason"] = undefined;
+    let decryptErrorMessage: string | null = null;
 
     if (settings.cortexApiKeyEnc) {
       const decrypted = decryptSecretSafe(settings.cortexApiKeyEnc);
@@ -198,6 +202,8 @@ async function resolveDbProviderSelection(creatorId: string): Promise<CortexProv
         apiKey = decrypted.value;
       } else {
         decryptFailed = true;
+        decryptFailureReason = decrypted.errorCode;
+        decryptErrorMessage = decrypted.errorMessage ?? null;
         if (process.env.NODE_ENV !== "production") {
           console.warn("cortex_provider_decrypt_failed", { creatorId, provider: desiredProvider });
         }
@@ -215,6 +221,8 @@ async function resolveDbProviderSelection(creatorId: string): Promise<CortexProv
         apiKey: null,
         source: "db",
         decryptFailed: true,
+        decryptFailureReason,
+        decryptErrorMessage,
       };
     }
 

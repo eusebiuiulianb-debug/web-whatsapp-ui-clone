@@ -14,6 +14,217 @@ function addDays(base: Date, days: number) {
   return result;
 }
 
+const AGENCY_STAGES = [
+  "NEW",
+  "WARM_UP",
+  "HEAT",
+  "OFFER",
+  "CLOSE",
+  "AFTERCARE",
+  "RECOVERY",
+  "BOUNDARY",
+] as const;
+
+const AGENCY_INTENSITIES = ["SOFT", "MEDIUM", "INTENSE"] as const;
+
+type AgencyStageSeed = (typeof AGENCY_STAGES)[number];
+type AgencyIntensitySeed = (typeof AGENCY_INTENSITIES)[number];
+
+const OPENERS_BY_INTENSITY: Record<AgencyIntensitySeed, string[]> = {
+  SOFT: [
+    "Hey {fanName}{hook}",
+    "Hola {fanName}{hook}",
+    "Ey {fanName}{hook}",
+    "{fanName}, te leo{hook}",
+    "Aquí estoy, {fanName}{hook}",
+  ],
+  MEDIUM: [
+    "Hey {fanName}{hook}",
+    "Ey {fanName}{hook}",
+    "{fanName}, me gusta leerte{hook}",
+    "Hey, {fanName}{hook}",
+    "{fanName}, te tengo en mente{hook}",
+  ],
+  INTENSE: [
+    "Ey {fanName}{hook}",
+    "{fanName}, me enciendes{hook}",
+    "Hey, {fanName}{hook}",
+    "{fanName}, me dejas con ganas{hook}",
+    "Ey {fanName}, ven{hook}",
+  ],
+};
+
+const STAGE_OPENER_HOOKS: Record<AgencyStageSeed, string[]> = {
+  NEW: [", me encanta conocerte", ", vamos paso a paso", ", dime tu ritmo"],
+  WARM_UP: [", vamos suave", ", me quedé con ganas", ", cerquita y sin prisa"],
+  HEAT: [", subamos la tensión", ", me gusta cómo vamos", ", juguemos un poco más"],
+  OFFER: [", tengo un plan en mente", ", puedo prepararte algo rico", ", se me ocurrió algo"],
+  CLOSE: [", si quieres lo dejamos listo", ", lo cerramos cuando digas", ", lo dejamos hecho hoy"],
+  AFTERCARE: [", me gusta cuidarte", ", te leo con calma", ", respiramos un poco"],
+  RECOVERY: [", retomemos suave", ", sin presión", ", volvemos con calma"],
+  BOUNDARY: [", con límites claros", ", sin ir a lo explícito", ", cuidando el ritmo"],
+};
+
+const BRIDGES_BY_INTENSITY: Record<AgencyIntensitySeed, string[]> = {
+  SOFT: [
+    "Sobre lo de {context}, me quedé pensando{hook}",
+    "Lo de {context} me dejó con curiosidad{hook}",
+    "Me quedé con {context}{hook}",
+    "Lo de {context} me gustó{hook}",
+    "Sobre {context}, me apetece seguir{hook}",
+  ],
+  MEDIUM: [
+    "Lo de {context} me dejó con ganas{hook}",
+    "Sobre {context}, me encendió la curiosidad{hook}",
+    "Me quedé con {context} en la cabeza{hook}",
+    "Lo de {context} me hizo sonreír{hook}",
+    "Sobre lo de {context}, me quedé con ganas{hook}",
+  ],
+  INTENSE: [
+    "Lo de {context} me dejó con tensión{hook}",
+    "Sobre {context}, me quedé con ganas de más{hook}",
+    "Me quedé con {context} muy en la piel{hook}",
+    "Lo de {context} me encendió{hook}",
+    "Sobre {context}, me quedé con fuego{hook}",
+  ],
+};
+
+const STAGE_BRIDGE_HOOKS: Record<AgencyStageSeed, string[]> = {
+  NEW: [" y con calma", " para ir poco a poco", " sin prisa"],
+  WARM_UP: [" y despacio", " con ganas", " a fuego lento"],
+  HEAT: [" y subiendo", " con más chispa", " con un poco más"],
+  OFFER: [" y se me ocurrió algo", " y te tengo un plan", " y puedo prepararte algo"],
+  CLOSE: [" y lo dejamos listo", " y lo cerramos", " y lo resolvemos hoy"],
+  AFTERCARE: [" y te cuido", " y te leo cerca", " y quedo pendiente"],
+  RECOVERY: [" y retomamos suave", " sin presión", " y volvemos poco a poco"],
+  BOUNDARY: [" con límites", " sin cruzar líneas", " con respeto"],
+};
+
+const TEASES_BY_INTENSITY: Record<AgencyIntensitySeed, string[]> = {
+  SOFT: [
+    "Podemos ir suave y subir si te apetece{hook}",
+    "Te propongo algo suave y cercano{hook}",
+    "Vamos con ritmo lento y rico{hook}",
+    "Puedo guiarte con calma y picardía{hook}",
+    "Me gusta empezar suave y jugar un poco{hook}",
+  ],
+  MEDIUM: [
+    "Podemos subir un poco el tono{hook}",
+    "Te preparo algo con chispa{hook}",
+    "Subimos la tensión sin ir a lo explícito{hook}",
+    "Me apetece jugar más contigo{hook}",
+    "Vamos a un punto más atrevido{hook}",
+  ],
+  INTENSE: [
+    "Puedo subir el tono con control{hook}",
+    "Vamos con más fuego, sin pasarnos{hook}",
+    "Te dejo en tensión y lo subo un paso{hook}",
+    "Me apetece un punto más intenso{hook}",
+    "Subimos claro y con cuidado{hook}",
+  ],
+};
+
+const STAGE_TEASE_HOOKS: Record<AgencyStageSeed, string[]> = {
+  NEW: [", para empezar bien", ", paso a paso", ", sin correr"],
+  WARM_UP: [", calentando despacio", ", poco a poco", ", para ir entrando"],
+  HEAT: [", con más chispa", ", sin frenar", ", subiendo rico"],
+  OFFER: [", y lo dejo listo", ", si quieres te lo preparo", ", y te lo paso"],
+  CLOSE: [", y lo cerramos ya", ", si quieres lo cerramos", ", y lo dejamos hecho"],
+  AFTERCARE: [", y luego te cuido", ", y luego bajamos", ", con calma después"],
+  RECOVERY: [", y retomamos bien", ", sin presión", ", cuidando el ritmo"],
+  BOUNDARY: [", con límites claros", ", sin cruzar líneas", ", siempre con respeto"],
+};
+
+const CTAS_BY_INTENSITY: Record<AgencyIntensitySeed, string[]> = {
+  SOFT: [
+    "¿Te apetece seguir{hook}?",
+    "¿Lo hacemos con calma{hook}?",
+    "¿Te va algo suave{hook}?",
+    "¿Quieres que lo lleve despacio{hook}?",
+    "¿Te apetece que empecemos{hook}?",
+  ],
+  MEDIUM: [
+    "¿Te apetece subir un poco{hook}?",
+    "¿Lo dejamos suave o subimos{hook}?",
+    "¿Te va un toque de chispa{hook}?",
+    "¿Quieres que lo haga más intenso{hook}?",
+    "¿Te apetece jugar un poco más{hook}?",
+  ],
+  INTENSE: [
+    "¿Quieres que suba el tono{hook}?",
+    "¿Te va algo más intenso{hook}?",
+    "¿Subimos un paso más{hook}?",
+    "¿Te apetece ir más fuerte{hook}?",
+    "¿Lo llevamos a otro nivel{hook}?",
+  ],
+};
+
+const STAGE_CTA_HOOKS: Record<AgencyStageSeed, string[]> = {
+  NEW: [" ahora", " aquí", " conmigo"],
+  WARM_UP: [" ahora", " aquí", " un poquito"],
+  HEAT: [" ahora", " esta noche", " un poco más"],
+  OFFER: [" ahora", " aquí", " hoy"],
+  CLOSE: [" ya", " ahora", " hoy"],
+  AFTERCARE: [" ahora", " aquí", " con calma"],
+  RECOVERY: [" ahora", " aquí", " con calma"],
+  BOUNDARY: [" ahora", " aquí", " con calma"],
+};
+
+function buildFallbackPools(stage: AgencyStageSeed, intensity: AgencyIntensitySeed) {
+  return {
+    openers: combineWithHooks(OPENERS_BY_INTENSITY[intensity], STAGE_OPENER_HOOKS[stage]),
+    bridges: combineWithHooks(BRIDGES_BY_INTENSITY[intensity], STAGE_BRIDGE_HOOKS[stage]),
+    teases: combineWithHooks(TEASES_BY_INTENSITY[intensity], STAGE_TEASE_HOOKS[stage]),
+    ctas: combineWithHooks(CTAS_BY_INTENSITY[intensity], STAGE_CTA_HOOKS[stage]),
+  };
+}
+
+function combineWithHooks(base: string[], hooks: string[]) {
+  const results: string[] = [];
+  base.forEach((baseItem) => {
+    hooks.forEach((hook) => {
+      const combined = baseItem.replace("{hook}", hook);
+      const normalized = combined.replace(/\s+/g, " ").trim();
+      if (normalized) results.push(normalized);
+    });
+  });
+  return uniquePool(results);
+}
+
+function uniquePool(pool: string[]) {
+  const seen = new Set<string>();
+  return pool.filter((item) => {
+    if (!item || seen.has(item)) return false;
+    seen.add(item);
+    return true;
+  });
+}
+
+function buildAgencyTemplateSeeds() {
+  const seeds: Array<{
+    stage: AgencyStageSeed;
+    objective: "CONNECT";
+    intensity: AgencyIntensitySeed;
+    language: string;
+    blocksJson: ReturnType<typeof buildFallbackPools>;
+    active: boolean;
+  }> = [];
+
+  for (const stage of AGENCY_STAGES) {
+    for (const intensity of AGENCY_INTENSITIES) {
+      seeds.push({
+        stage,
+        objective: "CONNECT",
+        intensity,
+        language: "es",
+        blocksJson: buildFallbackPools(stage, intensity),
+        active: true,
+      });
+    }
+  }
+  return seeds;
+}
+
 async function main() {
   const isSqlite = isSqliteDatabase();
   if (isSqlite) {
@@ -37,11 +248,13 @@ async function main() {
       prisma.campaignLink.deleteMany(),
       prisma.discoveryFeedback.deleteMany(),
       prisma.creatorAiTemplate.deleteMany(),
+      prisma.agencyTemplate.deleteMany(),
       prisma.creatorAiSettings.deleteMany(),
       prisma.generatedAsset.deleteMany(),
       prisma.popClip.deleteMany(),
       prisma.catalogItem.deleteMany(),
       prisma.contentItem.deleteMany(),
+      prisma.offer.deleteMany(),
       prisma.campaignMeta.deleteMany(),
       prisma.creatorDiscoveryProfile.deleteMany(),
       prisma.creatorProfile.deleteMany(),
@@ -68,6 +281,15 @@ async function main() {
         "Bienvenido a mi espacio en NOVSY. Aquí comparto avances, envío audios personalizados y respondo tus ideas para crear contenido hecho a tu medida. Únete para acceder a sesiones 1:1, material exclusivo y priorizar tus pedidos.",
       bioLinkAvatarUrl: "/avatar.jpg",
     },
+  });
+
+  const agencyTemplateSeeds = buildAgencyTemplateSeeds();
+
+  await prisma.agencyTemplate.createMany({
+    data: agencyTemplateSeeds.map((tpl) => ({
+      ...tpl,
+      creatorId: creator.id,
+    })),
   });
 
   const extraCreators = await Promise.all(

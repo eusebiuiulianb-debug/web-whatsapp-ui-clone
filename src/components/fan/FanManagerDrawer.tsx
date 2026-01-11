@@ -4,6 +4,7 @@ import FanManagerPanel from "../chat/FanManagerPanel";
 import { IconGlyph } from "../ui/IconGlyph";
 import type { FanManagerSummary } from "../../server/manager/managerService";
 import type { FanManagerChip, FanManagerState, FanTone, ManagerObjective } from "../../types/manager";
+import { scoreDraft } from "../../lib/agency/drafts";
 
 function formatObjectiveLabel(objective?: ManagerObjective | null) {
   switch (objective) {
@@ -596,6 +597,16 @@ export default function FanManagerDrawer({
                   {suggestion.label}
                 </div>
                 <div className="text-[12px] text-[color:var(--text)]">{suggestion.message}</div>
+                {(() => {
+                  const qa = scoreDraft(suggestion.message);
+                  const warnings = qa.warnings.slice(0, 2).join(" · ");
+                  return (
+                    <div className="flex flex-wrap items-center gap-2 text-[10px] text-[color:var(--muted)]">
+                      <span className="font-semibold">QA: {qa.score}/100</span>
+                      {warnings && <span>{warnings}</span>}
+                    </div>
+                  );
+                })()}
                 <div className="flex flex-wrap items-center gap-2">
                 <button
                   type="button"

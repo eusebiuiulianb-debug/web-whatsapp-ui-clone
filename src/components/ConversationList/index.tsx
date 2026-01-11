@@ -12,6 +12,7 @@ import { isStickerToken } from "../../lib/stickers";
 import { badgeToneForLabel } from "../../lib/badgeTone";
 import { IconBadge } from "../ui/IconBadge";
 import { Badge, type BadgeTone } from "../ui/Badge";
+import { IconGlyph, type IconName } from "../ui/IconGlyph";
 import { ConversationActionsMenu } from "../conversations/ConversationActionsMenu";
 
 interface ConversationListProps {
@@ -155,6 +156,14 @@ export default function ConversationList(props: ConversationListProps) {
   const novsyStatus = (data as any).novsyStatus ?? null;
   const preferredLanguage = normalizePreferredLanguage(data.preferredLanguage);
   const languageBadgeLabel = !isManagerChat && preferredLanguage ? preferredLanguage.toUpperCase() : null;
+  const agencyStageKey = typeof data.agencyStage === "string" ? data.agencyStage.toUpperCase() : null;
+  const agencyStageLabel = agencyStageKey ? AGENCY_STAGE_LABELS[agencyStageKey] ?? agencyStageKey : null;
+  const agencyStageTone: BadgeTone = agencyStageKey
+    ? AGENCY_STAGE_TONES[agencyStageKey] ?? "muted"
+    : "muted";
+  const agencyObjectiveKey = typeof data.agencyObjective === "string" ? data.agencyObjective.toUpperCase() : null;
+  const agencyObjectiveIcon = agencyObjectiveKey ? AGENCY_OBJECTIVE_ICONS[agencyObjectiveKey] ?? null : null;
+  const agencyObjectiveLabel = agencyObjectiveKey ? AGENCY_OBJECTIVE_LABELS[agencyObjectiveKey] ?? agencyObjectiveKey : null;
   const hasContextSignals = notesCount > 0 || hasNextAction;
   const shouldShowNotePreview = notesCount > 0 && hasNotePreview;
 
@@ -236,6 +245,20 @@ export default function ConversationList(props: ConversationListProps) {
           <div className="flex flex-col gap-[2px] min-w-0 w-full">
             <div className="flex items-center gap-1.5 min-w-0">
               <span className={`truncate ${nameTint}`}>{contactName}</span>
+              {agencyStageLabel && (
+                <Badge tone={agencyStageTone} size="sm" title={`Stage ${agencyStageLabel}`}>
+                  {agencyStageLabel}
+                </Badge>
+              )}
+              {agencyObjectiveIcon && agencyObjectiveLabel && (
+                <span
+                  className="inline-flex items-center justify-center rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-1.5 py-0.5 text-[10px] text-[color:var(--muted)]"
+                  title={`Objetivo: ${agencyObjectiveLabel}`}
+                  aria-label={`Objetivo: ${agencyObjectiveLabel}`}
+                >
+                  <IconGlyph name={agencyObjectiveIcon} size="sm" />
+                </span>
+              )}
               {/* Badge de nivel según el tier del fan, usando la misma paleta que el botón amarillo */}
               <Badge tone={tierBadgeTone} size="sm">
                 {tierLabel}
@@ -398,6 +421,48 @@ function formatSourceLabel(raw?: string | null) {
   if (value.includes("discover") || value.includes("discovery")) return "Discovery";
   return value.charAt(0).toUpperCase() + value.slice(1);
 }
+
+const AGENCY_STAGE_LABELS: Record<string, string> = {
+  NEW: "NEW",
+  WARM_UP: "WARM",
+  HEAT: "HEAT",
+  OFFER: "OFFER",
+  CLOSE: "CLOSE",
+  AFTERCARE: "CARE",
+  RECOVERY: "RECOVER",
+  BOUNDARY: "BOUNDARY",
+};
+
+const AGENCY_STAGE_TONES: Record<string, BadgeTone> = {
+  NEW: "muted",
+  WARM_UP: "accent",
+  HEAT: "warn",
+  OFFER: "danger",
+  CLOSE: "danger",
+  AFTERCARE: "muted",
+  RECOVERY: "warn",
+  BOUNDARY: "muted",
+};
+
+const AGENCY_OBJECTIVE_LABELS: Record<string, string> = {
+  CONNECT: "Conectar",
+  SELL_EXTRA: "Vender extra",
+  SELL_PACK: "Vender pack",
+  SELL_MONTHLY: "Vender mensual",
+  RECOVER: "Recuperar",
+  RETAIN: "Retener",
+  UPSELL: "Upsell",
+};
+
+const AGENCY_OBJECTIVE_ICONS: Record<string, IconName> = {
+  CONNECT: "smile",
+  SELL_EXTRA: "gem",
+  SELL_PACK: "gift",
+  SELL_MONTHLY: "receipt",
+  RECOVER: "alert",
+  RETAIN: "thumbsUp",
+  UPSELL: "coin",
+};
 
 function getProfilePreview(value?: string | null, max = 90): string {
   if (!value) return "";

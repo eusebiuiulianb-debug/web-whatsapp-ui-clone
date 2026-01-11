@@ -11,37 +11,40 @@ datasource db {
 }
 
 model Creator {
-  id           String              @id @default("creator-1")
-  name         String
-  subtitle     String
-  description  String
-  bioLinkEnabled          Boolean @default(false)
-  bioLinkTitle            String?
-  bioLinkTagline          String?
-  bioLinkAvatarUrl        String?
-  bioLinkPrimaryCtaLabel  String?
-  bioLinkPrimaryCtaUrl    String?
-  bioLinkSecondaryLinks   Json?
-  bioLinkDescription      String?
-  bioLinkFaq              Json?
-  packs        Pack[]
-  fans         Fan[]
-  notes        FanNote[]
-  contentItems ContentItem[]
-  catalogItems CatalogItem[]
-  popClips     PopClip[]
-  aiSettings   CreatorAiSettings?
-  aiUsageLogs  AiUsageLog[]
-  aiTemplates  CreatorAiTemplate[]
-  managerConversation ManagerConversation?
+  id                         String                      @id @default("creator-1")
+  name                       String
+  subtitle                   String
+  description                String
+  bioLinkEnabled             Boolean                     @default(false)
+  bioLinkTitle               String?
+  bioLinkTagline             String?
+  bioLinkAvatarUrl           String?
+  bioLinkPrimaryCtaLabel     String?
+  bioLinkPrimaryCtaUrl       String?
+  bioLinkSecondaryLinks      Json?
+  bioLinkDescription         String?
+  bioLinkFaq                 Json?
+  packs                      Pack[]
+  fans                       Fan[]
+  notes                      FanNote[]
+  contentItems               ContentItem[]
+  catalogItems               CatalogItem[]
+  popClips                   PopClip[]
+  aiSettings                 CreatorAiSettings?
+  aiUsageLogs                AiUsageLog[]
+  aiTemplates                CreatorAiTemplate[]
+  managerConversation        ManagerConversation?
   contentManagerConversation ContentManagerConversation?
-  managerAiMessages ManagerAiMessage[]
-  discoveryProfile   CreatorDiscoveryProfile?
-  discoveryFeedbacks DiscoveryFeedback[]
-  profile      CreatorProfile?
-  generatedAssets GeneratedAsset[]
-  campaigns   CampaignMeta[]
-  followUps   FanFollowUp[]
+  managerAiMessages          ManagerAiMessage[]
+  discoveryProfile           CreatorDiscoveryProfile?
+  discoveryFeedbacks         DiscoveryFeedback[]
+  profile                    CreatorProfile?
+  generatedAssets            GeneratedAsset[]
+  campaigns                  CampaignMeta[]
+  followUps                  FanFollowUp[]
+  chatAgencyMetas            ChatAgencyMeta[]
+  offers                     Offer[]
+  agencyTemplates            AgencyTemplate[]
 }
 
 model CreatorProfile {
@@ -63,66 +66,162 @@ model Pack {
 }
 
 model Fan {
-  id               String          @id
-  name             String
-  displayName      String?
-  creatorLabel     String?
-  avatar           String?
-  preview          String?
-  time             String?
-  unreadCount      Int             @default(0)
-  isNew            Boolean         @default(false)
-  membershipStatus String?
-  daysLeft         Int?
-  lastSeen         String?
-  nextAction       String?
-  nextActionAt     DateTime?
-  nextActionNote   String?
-  profileText      String?
-  quickNote        String?
-  attendedAt       DateTime?
-  creatorId        String
-  creator          Creator         @relation(fields: [creatorId], references: [id])
-  messages         Message[]
-  accessGrants     AccessGrant[]
-  notes            FanNote[]
-  followUps        FanFollowUp[]
-  extraPurchases   ExtraPurchase[]
-  aiUsageLogs      AiUsageLog[]
-  segment          String          @default("NUEVO")
-  healthScore      Int             @default(0)
-  lastMessageAt    DateTime?
-  lastCreatorMessageAt DateTime?
-  lastReadAtCreator DateTime?
-  lastReadAtFan     DateTime?
-  lastActivityAt   DateTime?
-  lastCortexOutreachAt DateTime?
+  id                    String           @id
+  name                  String
+  displayName           String?
+  creatorLabel          String?
+  avatar                String?
+  preview               String?
+  time                  String?
+  unreadCount           Int              @default(0)
+  isNew                 Boolean          @default(false)
+  membershipStatus      String?
+  daysLeft              Int?
+  lastSeen              String?
+  nextAction            String?
+  nextActionAt          DateTime?
+  nextActionNote        String?
+  profileText           String?
+  quickNote             String?
+  attendedAt            DateTime?
+  creatorId             String
+  creator               Creator          @relation(fields: [creatorId], references: [id])
+  messages              Message[]
+  accessGrants          AccessGrant[]
+  notes                 FanNote[]
+  followUps             FanFollowUp[]
+  extraPurchases        ExtraPurchase[]
+  aiUsageLogs           AiUsageLog[]
+  segment               String           @default("NUEVO")
+  healthScore           Int              @default(0)
+  lastMessageAt         DateTime?
+  lastCreatorMessageAt  DateTime?
+  lastReadAtCreator     DateTime?
+  lastReadAtFan         DateTime?
+  lastActivityAt        DateTime?
+  lastCortexOutreachAt  DateTime?
   lastCortexOutreachKey String?
-  lastPurchaseAt   DateTime?
-  lifetimeValue    Float           @default(0)
-  recent30dSpend   Float           @default(0)
-  riskLevel        String          @default("LOW")
-  isBlocked        Boolean         @default(false)
-  isArchived       Boolean         @default(false)
-  isHighPriority   Boolean         @default(false)
-  highPriorityAt   DateTime?
-  inviteToken      String?         @unique
-  inviteCreatedAt  DateTime?
-  inviteUsedAt     DateTime?
-  source           String?
-  handle           String?
-  preferredLanguage String         @default("en")
-  firstUtmSource   String?
-  firstUtmMedium   String?
-  firstUtmCampaign String?
-  firstUtmContent  String?
-  firstUtmTerm     String?
+  lastPurchaseAt        DateTime?
+  lifetimeValue         Float            @default(0)
+  recent30dSpend        Float            @default(0)
+  riskLevel             String           @default("LOW")
+  isBlocked             Boolean          @default(false)
+  isArchived            Boolean          @default(false)
+  isHighPriority        Boolean          @default(false)
+  highPriorityAt        DateTime?
+  inviteToken           String?          @unique
+  inviteCreatedAt       DateTime?
+  inviteUsedAt          DateTime?
+  source                String?
+  handle                String?
+  preferredLanguage     String           @default("en")
+  firstUtmSource        String?
+  firstUtmMedium        String?
+  firstUtmCampaign      String?
+  firstUtmContent       String?
+  firstUtmTerm          String?
+  agencyMetas           ChatAgencyMeta[]
 }
 
 enum FanFollowUpStatus {
   OPEN
   DONE
   DELETED
+}
+
+enum AgencyStage {
+  NEW
+  WARM_UP
+  HEAT
+  OFFER
+  CLOSE
+  AFTERCARE
+  RECOVERY
+  BOUNDARY
+}
+
+enum AgencyObjective {
+  CONNECT
+  SELL_EXTRA
+  SELL_PACK
+  SELL_MONTHLY
+  RECOVER
+  RETAIN
+  UPSELL
+}
+
+enum AgencyIntensity {
+  SOFT
+  MEDIUM
+  INTENSE
+}
+
+enum OfferTier {
+  MICRO
+  STANDARD
+  PREMIUM
+  MONTHLY
+}
+
+model ChatAgencyMeta {
+  id                 String          @id @default(cuid())
+  creatorId          String
+  fanId              String
+  stage              AgencyStage     @default(NEW)
+  objective          AgencyObjective @default(CONNECT)
+  intensity          AgencyIntensity @default(MEDIUM)
+  nextAction         String?
+  lastTouchAt        DateTime?
+  notes              String?
+  recommendedOfferId String?
+  createdAt          DateTime        @default(now())
+  updatedAt          DateTime        @updatedAt
+  creator            Creator         @relation(fields: [creatorId], references: [id])
+  fan                Fan             @relation(fields: [fanId], references: [id])
+
+  @@unique([creatorId, fanId])
+  @@index([creatorId, fanId])
+  @@index([creatorId, stage])
+  @@index([creatorId, objective])
+}
+
+model AgencyTemplate {
+  id         String          @id @default(cuid())
+  creatorId  String
+  stage      AgencyStage
+  objective  AgencyObjective
+  intensity  AgencyIntensity
+  language   String          @default("es")
+  blocksJson Json
+  active     Boolean         @default(true)
+  createdAt  DateTime        @default(now())
+  updatedAt  DateTime        @updatedAt
+  creator    Creator         @relation(fields: [creatorId], references: [id])
+
+  @@index([creatorId, stage, objective, intensity])
+  @@index([creatorId, language, active])
+}
+
+model Offer {
+  id           String          @id @default(cuid())
+  creatorId    String
+  code         String
+  title        String
+  tier         OfferTier
+  priceCents   Int
+  currency     String          @default("EUR")
+  oneLiner     String
+  hooksJson    Json
+  ctasJson     Json
+  intensityMin AgencyIntensity @default(SOFT)
+  active       Boolean         @default(true)
+  createdAt    DateTime        @default(now())
+  updatedAt    DateTime        @updatedAt
+  creator      Creator         @relation(fields: [creatorId], references: [id])
+
+  @@unique([creatorId, code])
+  @@index([creatorId, active])
+  @@index([creatorId, tier])
 }
 
 model FanFollowUp {
@@ -144,34 +243,34 @@ model FanFollowUp {
 }
 
 model Message {
-  id                String       @id
-  fanId             String
-  from              String
-  audience          MessageAudience @default(FAN)
-  text              String
-  deliveredText     String?
-  creatorTranslatedText String?
-  time              String?
-  isLastFromCreator Boolean      @default(false)
-  fan               Fan          @relation(fields: [fanId], references: [id])
-  type              MessageType  @default(TEXT)
-  contentItemId     String?
-  contentItem       ContentItem? @relation("MessageContentItems", fields: [contentItemId], references: [id])
-  stickerId         String?
-  audioUrl          String?
-  audioDurationMs   Int?
-  audioMime         String?
-  audioSizeBytes    Int?
-  transcriptText     String?
-  transcriptStatus   String  @default("OFF")
-  transcriptError    String?
-  transcribedAt      DateTime?
-  transcriptLang     String?
-  intentJson         Json?
-  voiceAnalysisJson  String?
+  id                     String               @id
+  fanId                  String
+  from                   String
+  audience               MessageAudience      @default(FAN)
+  text                   String
+  deliveredText          String?
+  creatorTranslatedText  String?
+  time                   String?
+  isLastFromCreator      Boolean              @default(false)
+  fan                    Fan                  @relation(fields: [fanId], references: [id])
+  type                   MessageType          @default(TEXT)
+  contentItemId          String?
+  contentItem            ContentItem?         @relation("MessageContentItems", fields: [contentItemId], references: [id])
+  stickerId              String?
+  audioUrl               String?
+  audioDurationMs        Int?
+  audioMime              String?
+  audioSizeBytes         Int?
+  transcriptText         String?
+  transcriptStatus       String               @default("OFF")
+  transcriptError        String?
+  transcribedAt          DateTime?
+  transcriptLang         String?
+  intentJson             Json?
+  voiceAnalysisJson      String?
   voiceAnalysisUpdatedAt DateTime?
-  messageReactions   MessageReaction[]
-  messageTranslations MessageTranslation[]
+  messageReactions       MessageReaction[]
+  messageTranslations    MessageTranslation[]
 }
 
 model MessageTranslation {
@@ -317,9 +416,9 @@ model CatalogItem {
 }
 
 model PopClip {
-  id            String      @id @default(cuid())
+  id            String       @id @default(cuid())
   creatorId     String
-  creator       Creator     @relation(fields: [creatorId], references: [id])
+  creator       Creator      @relation(fields: [creatorId], references: [id])
   catalogItemId String?
   catalogItem   CatalogItem? @relation(fields: [catalogItemId], references: [id])
   contentItemId String?
@@ -327,16 +426,16 @@ model PopClip {
   title         String?
   videoUrl      String
   posterUrl     String?
-  startAtSec    Int         @default(0)
+  startAtSec    Int          @default(0)
   durationSec   Int?
-  isActive      Boolean     @default(true)
-  sortOrder     Int         @default(0)
-  createdAt     DateTime    @default(now())
-  updatedAt     DateTime    @updatedAt
+  isActive      Boolean      @default(true)
+  sortOrder     Int          @default(0)
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
 
-  @@index([creatorId, isActive, sortOrder])
   @@unique([creatorId, catalogItemId])
   @@unique([creatorId, contentItemId])
+  @@index([creatorId, isActive, sortOrder])
 }
 
 enum ManagerAiTab {
@@ -363,10 +462,10 @@ enum AiUsageType {
 }
 
 enum AiTurnMode {
-  auto       @map("HEATUP")
-  push_pack  @map("PACK_PUSH")
-  care_new   @map("CARE_NEW")
-  vip_focus  @map("VIP_CARE")
+  auto      @map("HEATUP")
+  push_pack @map("PACK_PUSH")
+  care_new  @map("CARE_NEW")
+  vip_focus @map("VIP_CARE")
 }
 
 enum TimeOfDay {
@@ -429,20 +528,20 @@ model FanNote {
 }
 
 model ExtraPurchase {
-  id            String      @id @default(cuid())
-  fan           Fan         @relation(fields: [fanId], references: [id])
+  id            String                    @id @default(cuid())
+  fan           Fan                       @relation(fields: [fanId], references: [id])
   fanId         String
-  contentItem   ContentItem @relation(fields: [contentItemId], references: [id])
+  contentItem   ContentItem               @relation(fields: [contentItemId], references: [id])
   contentItemId String
   tier          ExtraTier
   amount        Int
-  kind          ExtraPurchaseKind @default(EXTRA)
+  kind          ExtraPurchaseKind         @default(EXTRA)
   productId     String?
   productType   ExtraPurchaseProductType?
   sessionTag    String?
   clientTxnId   String?
-  createdAt     DateTime    @default(now())
-  isArchived    Boolean     @default(false)
+  createdAt     DateTime                  @default(now())
+  isArchived    Boolean                   @default(false)
 
   @@unique([fanId, kind, clientTxnId])
 }
@@ -475,41 +574,41 @@ model CreatorAiSettings {
   forbiddenPromises String?
   rulesManifest     String?
 
-  allowSuggestReplies  Boolean @default(true)
-  allowSuggestExtras   Boolean @default(true)
-  allowSuggestRenewals Boolean @default(true)
-  allowAutoLowPriority Boolean @default(false)
-  voiceTranscriptionMode String @default("MANUAL")
-  voiceTranscriptionMinSeconds Int @default(8)
-  voiceTranscriptionDailyBudgetMinutes Int @default(15)
-  voiceTranscriptionDailyBudgetUsd Float @default(0.5)
-  voiceIntentTagsEnabled Boolean @default(false)
-  voiceTranscriptionExtractIntentTags Boolean @default(false)
-  voiceTranscriptionSuggestReply Boolean @default(false)
+  allowSuggestReplies                  Boolean @default(true)
+  allowSuggestExtras                   Boolean @default(true)
+  allowSuggestRenewals                 Boolean @default(true)
+  allowAutoLowPriority                 Boolean @default(false)
+  voiceTranscriptionMode               String  @default("MANUAL")
+  voiceTranscriptionMinSeconds         Int     @default(8)
+  voiceTranscriptionDailyBudgetMinutes Int     @default(15)
+  voiceTranscriptionDailyBudgetUsd     Float   @default(0.5)
+  voiceIntentTagsEnabled               Boolean @default(false)
+  voiceTranscriptionExtractIntentTags  Boolean @default(false)
+  voiceTranscriptionSuggestReply       Boolean @default(false)
 
-  creditsAvailable Int  @default(0)
+  creditsAvailable Int        @default(0)
   hardLimitPerDay  Int?
   turnMode         AiTurnMode @default(auto)
   platforms        Json?
 
-  translateProvider      String?
-  libretranslateUrl      String?
+  translateProvider       String?
+  libretranslateUrl       String?
   libretranslateApiKeyEnc String?
   deeplApiUrl             String?
   deeplApiKeyEnc          String?
-  cortexProvider         String?
-  cortexBaseUrl          String?
-  cortexModel            String?
-  cortexApiKeyEnc        String?
+  cortexProvider          String?
+  cortexBaseUrl           String?
+  cortexModel             String?
+  cortexApiKeyEnc         String?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 }
 
 model AiUsageLog {
-  id        String        @id @default(cuid())
+  id        String  @id @default(cuid())
   creatorId String
-  creator   Creator       @relation(fields: [creatorId], references: [id])
+  creator   Creator @relation(fields: [creatorId], references: [id])
 
   fanId String?
   fan   Fan?    @relation(fields: [fanId], references: [id])
@@ -550,7 +649,7 @@ model CreatorAiTemplate {
 
   tier ExtraTier?
 
-  isActive Boolean @default(true)
+  isActive Boolean     @default(true)
   mode     AiTurnMode?
 
   createdAt DateTime @default(now())
@@ -578,12 +677,12 @@ model ManagerMessage {
 }
 
 model ContentManagerConversation {
-  id        String                 @id @default(cuid())
-  creator   Creator                @relation(fields: [creatorId], references: [id])
-  creatorId String                 @unique
+  id        String                  @id @default(cuid())
+  creator   Creator                 @relation(fields: [creatorId], references: [id])
+  creatorId String                  @unique
   messages  ContentManagerMessage[]
-  createdAt DateTime               @default(now())
-  updatedAt DateTime               @updatedAt
+  createdAt DateTime                @default(now())
+  updatedAt DateTime                @updatedAt
 }
 
 model ContentManagerMessage {
@@ -598,14 +697,14 @@ model ContentManagerMessage {
 }
 
 model ManagerAiMessage {
-  id          String         @id @default(cuid())
+  id          String        @id @default(cuid())
   creatorId   String
   tab         ManagerAiTab
   role        ManagerAiRole
   content     String
-  creditsUsed Int            @default(0)
+  creditsUsed Int           @default(0)
   meta        Json?
-  createdAt   DateTime       @default(now())
+  createdAt   DateTime      @default(now())
 
   creator Creator @relation(fields: [creatorId], references: [id])
 

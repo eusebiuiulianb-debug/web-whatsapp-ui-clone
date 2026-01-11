@@ -2,6 +2,7 @@ import type { FollowUpTag, UrgencyLevel } from "../utils/followUp";
 import type { ReactionSummaryEntry } from "../lib/messageReactions";
 import type { ContentType, ContentVisibility } from "./content";
 import type { VoiceTranslation } from "./voiceAnalysis";
+import type { AgencyIntensity, AgencyObjective, AgencyStage } from "../lib/agency/types";
 
 interface Message {
   fanId?: string;
@@ -92,6 +93,11 @@ interface Conversation {
   nextActionSnippet?: string | null;
   lastNoteSummary?: string | null;
   nextActionSummary?: string | null;
+  agencyStage?: AgencyStage | null;
+  agencyObjective?: AgencyObjective | null;
+  agencyIntensity?: AgencyIntensity | null;
+  agencyNextAction?: string | null;
+  agencyRecommendedOfferId?: string | null;
   lifetimeSpend?: number;
   totalSpent?: number;
   recent30dSpent?: number;
@@ -184,6 +190,11 @@ interface ConversationListData {
   nextActionSnippet?: string | null;
   lastNoteSummary?: string | null;
   nextActionSummary?: string | null;
+  agencyStage?: AgencyStage | null;
+  agencyObjective?: AgencyObjective | null;
+  agencyIntensity?: AgencyIntensity | null;
+  agencyNextAction?: string | null;
+  agencyRecommendedOfferId?: string | null;
   lifetimeSpend?: number;
   totalSpent?: number;
   recent30dSpent?: number;

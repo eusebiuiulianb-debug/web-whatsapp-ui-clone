@@ -8,6 +8,7 @@ import { AiBaseTone, AiTurnMode, AI_TURN_MODE_OPTIONS, AI_TURN_MODES, normalizeA
 import { buildDailyUsageFromLogs } from "../../lib/aiUsage";
 import { normalizeVoiceTranscriptionSettings, type VoiceTranscriptionMode } from "../../lib/voiceTranscriptionSettings";
 import { TRANSLATION_LANGUAGES, getTranslationLanguageName, normalizeTranslationLanguage, type TranslationLanguage } from "../../lib/language";
+import { AGENCY_INTENSITIES, type AgencyIntensity } from "../../lib/agency/types";
 import {
   CREATOR_PLATFORM_KEYS,
   CreatorPlatformConfig,
@@ -17,6 +18,7 @@ import {
   formatPlatformLabel,
   normalizeCreatorPlatforms,
 } from "../../lib/creatorPlatforms";
+import type { Offer, OfferTier } from "../../types/offers";
 
 type CreatorAiSettings = {
   id: string;
@@ -93,6 +95,19 @@ type TranslateSettingsForm = {
   creatorLang: TranslationLanguage;
 };
 
+type OfferFormState = {
+  code: string;
+  title: string;
+  tier: OfferTier;
+  priceCents: number | "";
+  currency: string;
+  oneLiner: string;
+  hooksText: string;
+  ctasText: string;
+  intensityMin: AgencyIntensity;
+  active: boolean;
+};
+
 type ActionCount = { actionType: string; count: number };
 type AiUsageSummary = {
   summary: {
@@ -118,6 +133,49 @@ type AiUsageSummary = {
 };
 
 const DEFAULT_TRANSLATE_LANG: TranslationLanguage = "es";
+const OFFER_TIER_LABELS: Record<OfferTier, string> = {
+  MICRO: "Micro",
+  STANDARD: "Standard",
+  PREMIUM: "Premium",
+  MONTHLY: "Monthly",
+};
+const AGENCY_INTENSITY_LABELS: Record<AgencyIntensity, string> = {
+  SOFT: "Soft",
+  MEDIUM: "Medium",
+  INTENSE: "Intense",
+};
+const DEFAULT_OFFER_FORM: OfferFormState = {
+  code: "",
+  title: "",
+  tier: "STANDARD",
+  priceCents: "",
+  currency: "EUR",
+  oneLiner: "",
+  hooksText: "",
+  ctasText: "",
+  intensityMin: "SOFT",
+  active: true,
+};
+const OFFER_LIST_SPLIT_REGEX = /\r?\n|,/g;
+
+function splitOfferLines(value: string): string[] {
+  return value
+    .split(OFFER_LIST_SPLIT_REGEX)
+    .map((entry) => entry.trim())
+    .filter((entry) => entry.length > 0);
+}
+
+function joinOfferLines(items?: string[] | null): string {
+  if (!Array.isArray(items)) return "";
+  return items.join("\n");
+}
+
+function formatOfferPriceLabel(priceCents: number, currency?: string | null): string {
+  const amount = priceCents / 100;
+  const base = amount % 1 === 0 ? amount.toFixed(0) : amount.toFixed(2);
+  const code = (currency || "EUR").toUpperCase();
+  return `${base} ${code}`;
+}
 
 function resolveDefaultTranslateLang(): TranslationLanguage {
   if (typeof navigator === "undefined") return DEFAULT_TRANSLATE_LANG;
@@ -191,6 +249,14 @@ export default function CreatorAiSettingsPage() {
   const [isTestingCortex, setIsTestingCortex] = useState(false);
   const cortexTestTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pageSize = 10;
+  const [offers, setOffers] = useState<Offer[]>([]);
+  const [offersLoading, setOffersLoading] = useState(false);
+  const [offersError, setOffersError] = useState("");
+  const [offerForm, setOfferForm] = useState<OfferFormState>({ ...DEFAULT_OFFER_FORM });
+  const [offerEditingId, setOfferEditingId] = useState<string | null>(null);
+  const [offerSaving, setOfferSaving] = useState(false);
+  const [offerFormError, setOfferFormError] = useState("");
+  const [offerSuccess, setOfferSuccess] = useState("");
 
   const turnModeOptions = AI_TURN_MODE_OPTIONS;
   const voiceModeOptions: { value: VoiceTranscriptionMode; label: string }[] = [
@@ -404,6 +470,24 @@ export default function CreatorAiSettingsPage() {
     }
   }, []);
 
+  const fetchOffers = useCallback(async () => {
+    setOffersLoading(true);
+    setOffersError("");
+    try {
+      const res = await fetch("/api/creator/agency/offers?includeInactive=1", { cache: "no-store" });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || data?.ok !== true) {
+        throw new Error(typeof data?.error === "string" ? data.error : res.statusText);
+      }
+      setOffers(Array.isArray(data.items) ? (data.items as Offer[]) : []);
+    } catch (err) {
+      console.error("Error loading offers", err);
+      setOffersError("No se pudieron cargar las ofertas.");
+    } finally {
+      setOffersLoading(false);
+    }
+  }, []);
+
   const fetchTranslateSettings = useCallback(async () => {
     await fetchSettings({ silent: true });
   }, [fetchSettings]);
@@ -562,7 +646,8 @@ export default function CreatorAiSettingsPage() {
     fetchSettings();
     fetchStatus();
     fetchUsageSummary();
-  }, [fetchSettings, fetchStatus, fetchUsageSummary]);
+    fetchOffers();
+  }, [fetchSettings, fetchStatus, fetchUsageSummary, fetchOffers]);
 
   useEffect(() => {
     setCurrentPage(1);
@@ -713,6 +798,185 @@ export default function CreatorAiSettingsPage() {
     }
   }
 
+  const resetOfferForm = useCallback(() => {
+    setOfferForm({ ...DEFAULT_OFFER_FORM });
+    setOfferEditingId(null);
+    setOfferFormError("");
+    setOfferSuccess("");
+  }, []);
+
+  const applyOfferToForm = useCallback((offer: Offer) => {
+    setOfferForm({
+      code: offer.code ?? "",
+      title: offer.title ?? "",
+      tier: offer.tier ?? "STANDARD",
+      priceCents: Number.isFinite(offer.priceCents) ? offer.priceCents : 0,
+      currency: (offer.currency || "EUR").toUpperCase(),
+      oneLiner: offer.oneLiner ?? "",
+      hooksText: joinOfferLines(offer.hooks),
+      ctasText: joinOfferLines(offer.ctas),
+      intensityMin: offer.intensityMin ?? "SOFT",
+      active: Boolean(offer.active),
+    });
+    setOfferEditingId(offer.id);
+    setOfferFormError("");
+    setOfferSuccess("");
+  }, []);
+
+  const handleOfferSave = useCallback(
+    async (event?: FormEvent<HTMLFormElement>) => {
+      event?.preventDefault();
+      if (offerSaving) return;
+      setOfferFormError("");
+      setOfferSuccess("");
+
+      const code = offerForm.code.trim();
+      const title = offerForm.title.trim();
+      const oneLiner = offerForm.oneLiner.trim();
+      const currency = offerForm.currency.trim().toUpperCase() || "EUR";
+      const priceCents =
+        typeof offerForm.priceCents === "number" && Number.isFinite(offerForm.priceCents)
+          ? Math.round(offerForm.priceCents)
+          : null;
+      const hooks = splitOfferLines(offerForm.hooksText);
+      const ctas = splitOfferLines(offerForm.ctasText);
+
+      if (!code || !title || !oneLiner) {
+        setOfferFormError("Código, título y one-liner son obligatorios.");
+        return;
+      }
+      if (priceCents === null) {
+        setOfferFormError("El precio es obligatorio.");
+        return;
+      }
+      if (priceCents < 0) {
+        setOfferFormError("El precio no puede ser negativo.");
+        return;
+      }
+      if (hooks.length < 3 || hooks.length > 6) {
+        setOfferFormError("Los hooks deben tener entre 3 y 6 opciones.");
+        return;
+      }
+      if (ctas.length < 3 || ctas.length > 6) {
+        setOfferFormError("Los CTAs deben tener entre 3 y 6 opciones.");
+        return;
+      }
+
+      try {
+        setOfferSaving(true);
+        const endpoint = offerEditingId
+          ? `/api/creator/agency/offers/${offerEditingId}`
+          : "/api/creator/agency/offers";
+        const method = offerEditingId ? "PUT" : "POST";
+        const res = await fetch(endpoint, {
+          method,
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            code,
+            title,
+            tier: offerForm.tier,
+            priceCents,
+            currency,
+            oneLiner,
+            hooks,
+            ctas,
+            intensityMin: offerForm.intensityMin,
+            active: offerForm.active,
+          }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok || data?.ok !== true) {
+          const message =
+            data?.error === "OFFER_CODE_TAKEN"
+              ? "Ese código ya existe."
+              : typeof data?.error === "string" && data.error.trim()
+              ? data.error
+              : "No se pudo guardar la oferta.";
+          setOfferFormError(message);
+          return;
+        }
+        const saved = data?.item ?? (Array.isArray(data.items) ? data.items[0] : null);
+        if (saved) {
+          if (offerEditingId) {
+            applyOfferToForm(saved as Offer);
+          } else {
+            resetOfferForm();
+          }
+        } else if (!offerEditingId) {
+          resetOfferForm();
+        }
+        setOfferSuccess(offerEditingId ? "Oferta actualizada." : "Oferta creada.");
+        await fetchOffers();
+      } catch (err) {
+        console.error("Error saving offer", err);
+        setOfferFormError("No se pudo guardar la oferta.");
+      } finally {
+        setOfferSaving(false);
+      }
+    },
+    [applyOfferToForm, fetchOffers, offerEditingId, offerForm, offerSaving, resetOfferForm]
+  );
+
+  const handleOfferDeactivate = useCallback(
+    async (offer: Offer) => {
+      if (offerSaving) return;
+      setOfferFormError("");
+      setOfferSuccess("");
+      try {
+        setOfferSaving(true);
+        const res = await fetch(`/api/creator/agency/offers/${offer.id}`, { method: "DELETE" });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok || data?.ok !== true) {
+          throw new Error(typeof data?.error === "string" ? data.error : res.statusText);
+        }
+        const saved = data?.item;
+        if (saved && offerEditingId === offer.id) {
+          applyOfferToForm(saved as Offer);
+        }
+        setOfferSuccess("Oferta desactivada.");
+        await fetchOffers();
+      } catch (err) {
+        console.error("Error deactivating offer", err);
+        setOfferFormError("No se pudo desactivar la oferta.");
+      } finally {
+        setOfferSaving(false);
+      }
+    },
+    [applyOfferToForm, fetchOffers, offerEditingId, offerSaving]
+  );
+
+  const handleOfferActivate = useCallback(
+    async (offer: Offer) => {
+      if (offerSaving) return;
+      setOfferFormError("");
+      setOfferSuccess("");
+      try {
+        setOfferSaving(true);
+        const res = await fetch(`/api/creator/agency/offers/${offer.id}`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ active: true }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok || data?.ok !== true) {
+          throw new Error(typeof data?.error === "string" ? data.error : res.statusText);
+        }
+        const saved = data?.item;
+        if (saved && offerEditingId === offer.id) {
+          applyOfferToForm(saved as Offer);
+        }
+        setOfferSuccess("Oferta activada.");
+        await fetchOffers();
+      } catch (err) {
+        console.error("Error activating offer", err);
+        setOfferFormError("No se pudo activar la oferta.");
+      } finally {
+        setOfferSaving(false);
+      }
+    },
+    [applyOfferToForm, fetchOffers, offerEditingId, offerSaving]
+  );
+
   function formatDate(value: string) {
     const d = new Date(value);
     if (Number.isNaN(d.getTime())) return value;
@@ -782,6 +1046,12 @@ export default function CreatorAiSettingsPage() {
   const isTranslateFormDisabled = translateLoading || translateSaving;
   const selectedCortexProvider = cortexForm?.provider ?? "ollama";
   const isCortexFormDisabled = cortexSaving || isTestingCortex;
+  const offerHooksCount = splitOfferLines(offerForm.hooksText).length;
+  const offerCtasCount = splitOfferLines(offerForm.ctasText).length;
+  const offerPricePreview =
+    typeof offerForm.priceCents === "number" && Number.isFinite(offerForm.priceCents)
+      ? formatOfferPriceLabel(Math.round(offerForm.priceCents), offerForm.currency)
+      : "";
 
   function AiUsageChart({ data }: { data: { date: string; count: number }[] }) {
     if (!data || data.length === 0 || data.every((d) => !d.count)) {
@@ -1474,6 +1744,306 @@ export default function CreatorAiSettingsPage() {
           {!loading && !form && (
             <div className="text-sm text-[color:var(--muted)]">No hay datos de ajustes disponibles en este momento.</div>
           )}
+        </div>
+
+        <div className="rounded-2xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] p-4 sm:p-6">
+          <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
+            <div>
+              <h2 className="text-lg font-semibold text-[color:var(--text)]">Ofertas</h2>
+              <p className="text-sm text-[color:var(--muted)]">
+                Gestiona el catálogo para insertar ofertas humanas desde el Manager IA.
+              </p>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={resetOfferForm}
+                className="rounded-full border border-[color:var(--surface-border)] px-3 py-1 text-xs font-semibold text-[color:var(--text)] hover:border-[color:var(--brand)]"
+              >
+                Nueva oferta
+              </button>
+              <button
+                type="button"
+                onClick={fetchOffers}
+                disabled={offersLoading}
+                className="rounded-full border border-[color:var(--surface-border)] px-3 py-1 text-xs font-semibold text-[color:var(--text)] hover:border-[color:var(--brand)] disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                Refrescar
+              </button>
+            </div>
+          </div>
+
+          {offersError && <div className="text-sm text-[color:var(--danger)] mb-2">{offersError}</div>}
+          {offerFormError && <div className="text-sm text-[color:var(--danger)] mb-2">{offerFormError}</div>}
+          {offerSuccess && (
+            <div className="text-sm text-[color:rgba(34,197,94,0.9)] mb-2">{offerSuccess}</div>
+          )}
+
+          <div className="grid grid-cols-1 lg:grid-cols-[1.3fr_1fr] gap-4">
+            <div className="rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] p-4">
+              <div className="flex items-center justify-between gap-2">
+                <div className="text-sm font-semibold text-[color:var(--text)]">Listado</div>
+                <div className="text-xs text-[color:var(--muted)]">
+                  {offers.length} {offers.length === 1 ? "oferta" : "ofertas"}
+                </div>
+              </div>
+              {offersLoading && (
+                <div className="mt-3 text-xs text-[color:var(--muted)]">Cargando ofertas...</div>
+              )}
+              {!offersLoading && offers.length === 0 && (
+                <div className="mt-3 text-xs text-[color:var(--muted)]">Aún no has creado ofertas.</div>
+              )}
+              {!offersLoading && offers.length > 0 && (
+                <div className="mt-3 divide-y divide-[color:var(--surface-border)]">
+                  {offers.map((offer) => (
+                    <div
+                      key={offer.id}
+                      className="py-3 flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between"
+                    >
+                      <div className="space-y-1">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="text-sm font-semibold text-[color:var(--text)]">{offer.title}</span>
+                          {!offer.active && (
+                            <span className="rounded-full border border-[color:var(--surface-border)] px-2 py-0.5 text-[10px] font-semibold text-[color:var(--muted)]">
+                              Inactiva
+                            </span>
+                          )}
+                        </div>
+                        <div className="text-xs text-[color:var(--muted)]">
+                          <span className="font-mono">{offer.code}</span> · {OFFER_TIER_LABELS[offer.tier]} ·{" "}
+                          {formatOfferPriceLabel(offer.priceCents, offer.currency)} ·{" "}
+                          {AGENCY_INTENSITY_LABELS[offer.intensityMin]}
+                        </div>
+                        {offer.oneLiner && (
+                          <div className="text-[11px] text-[color:var(--muted)]">{offer.oneLiner}</div>
+                        )}
+                        <div className="text-[10px] text-[color:var(--muted)]">
+                          Hooks: {offer.hooks.length} · CTAs: {offer.ctas.length}
+                        </div>
+                      </div>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => applyOfferToForm(offer)}
+                          className="rounded-full border border-[color:var(--surface-border)] px-3 py-1 text-[11px] font-semibold text-[color:var(--text)] hover:border-[color:var(--brand)]"
+                        >
+                          Editar
+                        </button>
+                        {offer.active ? (
+                          <button
+                            type="button"
+                            onClick={() => handleOfferDeactivate(offer)}
+                            disabled={offerSaving}
+                            className="rounded-full border border-[color:var(--surface-border)] px-3 py-1 text-[11px] font-semibold text-[color:var(--text)] hover:border-[color:var(--brand)] disabled:cursor-not-allowed disabled:opacity-60"
+                          >
+                            Desactivar
+                          </button>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => handleOfferActivate(offer)}
+                            disabled={offerSaving}
+                            className="rounded-full border border-[color:var(--surface-border)] px-3 py-1 text-[11px] font-semibold text-[color:var(--text)] hover:border-[color:var(--brand)] disabled:cursor-not-allowed disabled:opacity-60"
+                          >
+                            Activar
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <div className="rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] p-4">
+              <form onSubmit={handleOfferSave} className="flex flex-col gap-3">
+                <div className="flex items-start justify-between gap-2">
+                  <div>
+                    <div className="text-sm font-semibold text-[color:var(--text)]">
+                      {offerEditingId ? "Editar oferta" : "Nueva oferta"}
+                    </div>
+                    <div className="text-xs text-[color:var(--muted)]">3-6 hooks y CTAs para variar el copy.</div>
+                  </div>
+                  {offerEditingId && (
+                    <button
+                      type="button"
+                      onClick={resetOfferForm}
+                      className="text-[11px] font-semibold text-[color:var(--muted)] hover:text-[color:var(--text)]"
+                    >
+                      Cancelar
+                    </button>
+                  )}
+                </div>
+
+                <label className="flex flex-col gap-1 text-[11px] text-[color:var(--muted)]">
+                  <span className="font-semibold text-[color:var(--text)]">Código</span>
+                  <input
+                    type="text"
+                    value={offerForm.code}
+                    onChange={(event) => setOfferForm((prev) => ({ ...prev, code: event.target.value }))}
+                    placeholder="micro-1"
+                    className="w-full rounded-lg bg-[color:var(--surface-2)] border border-[color:var(--surface-border)] px-3 py-2 text-sm text-[color:var(--text)]"
+                  />
+                </label>
+
+                <label className="flex flex-col gap-1 text-[11px] text-[color:var(--muted)]">
+                  <span className="font-semibold text-[color:var(--text)]">Título</span>
+                  <input
+                    type="text"
+                    value={offerForm.title}
+                    onChange={(event) => setOfferForm((prev) => ({ ...prev, title: event.target.value }))}
+                    placeholder="Extra rápido"
+                    className="w-full rounded-lg bg-[color:var(--surface-2)] border border-[color:var(--surface-border)] px-3 py-2 text-sm text-[color:var(--text)]"
+                  />
+                </label>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <label className="flex flex-col gap-1 text-[11px] text-[color:var(--muted)]">
+                    <span className="font-semibold text-[color:var(--text)]">Tier</span>
+                    <select
+                      value={offerForm.tier}
+                      onChange={(event) =>
+                        setOfferForm((prev) => ({ ...prev, tier: event.target.value as OfferTier }))
+                      }
+                      className="w-full rounded-lg bg-[color:var(--surface-2)] border border-[color:var(--surface-border)] px-3 py-2 text-sm text-[color:var(--text)]"
+                    >
+                      {Object.entries(OFFER_TIER_LABELS).map(([value, label]) => (
+                        <option key={value} value={value}>
+                          {label}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+
+                  <label className="flex flex-col gap-1 text-[11px] text-[color:var(--muted)]">
+                    <span className="font-semibold text-[color:var(--text)]">Intensidad mínima</span>
+                    <select
+                      value={offerForm.intensityMin}
+                      onChange={(event) =>
+                        setOfferForm((prev) => ({ ...prev, intensityMin: event.target.value as AgencyIntensity }))
+                      }
+                      className="w-full rounded-lg bg-[color:var(--surface-2)] border border-[color:var(--surface-border)] px-3 py-2 text-sm text-[color:var(--text)]"
+                    >
+                      {AGENCY_INTENSITIES.map((intensity) => (
+                        <option key={intensity} value={intensity}>
+                          {AGENCY_INTENSITY_LABELS[intensity]}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <label className="flex flex-col gap-1 text-[11px] text-[color:var(--muted)]">
+                    <span className="font-semibold text-[color:var(--text)]">Precio (céntimos)</span>
+                    <input
+                      type="number"
+                      min={0}
+                      step={1}
+                      value={offerForm.priceCents === "" ? "" : offerForm.priceCents}
+                      onChange={(event) => {
+                        const value = event.target.value;
+                        setOfferForm((prev) => ({
+                          ...prev,
+                          priceCents: value === "" ? "" : Number(value),
+                        }));
+                      }}
+                      className="w-full rounded-lg bg-[color:var(--surface-2)] border border-[color:var(--surface-border)] px-3 py-2 text-sm text-[color:var(--text)]"
+                    />
+                    {offerPricePreview && (
+                      <span className="text-[10px] text-[color:var(--muted)]">Vista: {offerPricePreview}</span>
+                    )}
+                  </label>
+
+                  <label className="flex flex-col gap-1 text-[11px] text-[color:var(--muted)]">
+                    <span className="font-semibold text-[color:var(--text)]">Moneda</span>
+                    <input
+                      type="text"
+                      value={offerForm.currency}
+                      onChange={(event) =>
+                        setOfferForm((prev) => ({ ...prev, currency: event.target.value.toUpperCase() }))
+                      }
+                      placeholder="EUR"
+                      className="w-full rounded-lg bg-[color:var(--surface-2)] border border-[color:var(--surface-border)] px-3 py-2 text-sm text-[color:var(--text)]"
+                    />
+                  </label>
+                </div>
+
+                <label className="flex flex-col gap-1 text-[11px] text-[color:var(--muted)]">
+                  <span className="font-semibold text-[color:var(--text)]">One-liner</span>
+                  <input
+                    type="text"
+                    value={offerForm.oneLiner}
+                    onChange={(event) => setOfferForm((prev) => ({ ...prev, oneLiner: event.target.value }))}
+                    placeholder="Te preparo algo corto y con chispa."
+                    className="w-full rounded-lg bg-[color:var(--surface-2)] border border-[color:var(--surface-border)] px-3 py-2 text-sm text-[color:var(--text)]"
+                  />
+                </label>
+
+                <label className="flex flex-col gap-1 text-[11px] text-[color:var(--muted)]">
+                  <span className="font-semibold text-[color:var(--text)]">Hooks ({offerHooksCount}/6)</span>
+                  <textarea
+                    rows={4}
+                    value={offerForm.hooksText}
+                    onChange={(event) => setOfferForm((prev) => ({ ...prev, hooksText: event.target.value }))}
+                    placeholder={
+                      "Hoy te puedo sorprender.\nTengo algo corto y directo.\n¿Te apetece algo con más chispa?"
+                    }
+                    className="w-full rounded-lg bg-[color:var(--surface-2)] border border-[color:var(--surface-border)] px-3 py-2 text-sm text-[color:var(--text)]"
+                  />
+                  <span className="text-[10px] text-[color:var(--muted)]">3-6 líneas, una por hook.</span>
+                </label>
+
+                <label className="flex flex-col gap-1 text-[11px] text-[color:var(--muted)]">
+                  <span className="font-semibold text-[color:var(--text)]">CTAs ({offerCtasCount}/6)</span>
+                  <textarea
+                    rows={4}
+                    value={offerForm.ctasText}
+                    onChange={(event) => setOfferForm((prev) => ({ ...prev, ctasText: event.target.value }))}
+                    placeholder={"¿Te lo preparo?\n¿Quieres que lo deje listo?\n¿Te apetece hoy?"}
+                    className="w-full rounded-lg bg-[color:var(--surface-2)] border border-[color:var(--surface-border)] px-3 py-2 text-sm text-[color:var(--text)]"
+                  />
+                  <span className="text-[10px] text-[color:var(--muted)]">
+                    3-6 líneas, mejor en forma de pregunta.
+                  </span>
+                </label>
+
+                <label className="flex items-center gap-2 text-[11px] text-[color:var(--muted)]">
+                  <input
+                    type="checkbox"
+                    checked={offerForm.active}
+                    onChange={(event) => setOfferForm((prev) => ({ ...prev, active: event.target.checked }))}
+                    className="h-4 w-4 rounded border-[color:var(--surface-border)] bg-[color:var(--surface-2)] text-[color:var(--brand)] focus:ring-[color:var(--ring)]"
+                  />
+                  Activa
+                </label>
+
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    type="submit"
+                    disabled={offerSaving}
+                    className={clsx(
+                      "inline-flex items-center justify-center rounded-full border px-4 py-2 text-[11px] font-semibold transition",
+                      offerSaving
+                        ? "border-[color:var(--surface-border)] bg-[color:var(--surface-2)] text-[color:var(--muted)] cursor-not-allowed"
+                        : "border-[color:var(--brand)] bg-[color:rgba(var(--brand-rgb),0.14)] text-[color:var(--text)] hover:bg-[color:rgba(var(--brand-rgb),0.2)]"
+                    )}
+                  >
+                    {offerSaving ? "Guardando..." : offerEditingId ? "Guardar cambios" : "Crear oferta"}
+                  </button>
+                  {offerEditingId && (
+                    <button
+                      type="button"
+                      onClick={resetOfferForm}
+                      className="inline-flex items-center justify-center rounded-full border border-[color:var(--surface-border)] px-4 py-2 text-[11px] font-semibold text-[color:var(--text)] hover:border-[color:var(--brand)]"
+                    >
+                      Nueva oferta
+                    </button>
+                  )}
+                </div>
+              </form>
+            </div>
+          </div>
         </div>
 
               <div className="rounded-2xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] p-4 sm:p-6">

@@ -8,6 +8,15 @@ import {
   buildManagerUserPrompt,
   normalizeManagerAction,
 } from "../../../../lib/ai/manager/prompts";
+import {
+  normalizeAgencyIntensity,
+  normalizeAgencyObjective,
+  normalizeAgencyStage,
+  type AgencyIntensity,
+  type AgencyObjective,
+  type AgencyStage,
+} from "../../../../lib/agency/types";
+import { buildAgencyDraft } from "../../../../server/agencyTemplates";
 import { buildDemoManagerReply, type ManagerDemoReply } from "../../../../lib/ai/manager/demo";
 import { registerAiUsage } from "../../../../lib/ai/registerAiUsage";
 import { getCortexProviderSelection, requestCortexCompletion } from "../../../../lib/ai/cortexProvider";
@@ -21,7 +30,9 @@ type ChatMessage = { role: "system" | "user" | "assistant"; content: string };
 
 type StandardProvider = "ollama" | "openai_compat" | "mock";
 
-type ChatStatus = "ok" | "refusal" | "provider_down" | "needs_age_gate";
+type ChatStatus = "ok" | "refusal" | "provider_down" | "needs_age_gate" | "crypto_misconfigured";
+
+type HeatLevel = "suave" | "intimo" | "picante";
 
 type ChatMeta = {
   providerUsed: StandardProvider;
@@ -45,7 +56,8 @@ type ChatErrorCode =
   | "ai_error"
   | "method_not_allowed"
   | "REFUSAL"
-  | "PROVIDER_UNAVAILABLE";
+  | "PROVIDER_UNAVAILABLE"
+  | "CRYPTO_MISCONFIGURED";
 
 type ChatOkResponse = {
   ok: true;
@@ -102,22 +114,23 @@ type ChatErrorResponse = {
 const HISTORY_LIMIT = 20;
 const DEFAULT_MAX_TOKENS = 300;
 const AGENCY_SYSTEM_GUARD = [
-  "Hablas como asistente de una agencia de chatter. Idioma español.",
-  "Formato: 1–2 frases + 1 pregunta. 1 emoji máximo.",
+  "Respondes al fan como creadora, en español.",
+  "Formato: 1–2 frases + 1 pregunta. <240 caracteres. 1 emoji máximo.",
   "Tono sugerente adulto, NO explícito (sin anatomía ni pornografía).",
-  "No moralices, no sermonees y no menciones bibliotecas.",
-  "Siempre empuja la escalera PPV (T1/T2/T3) con fases Suave/Picante/Directo/Final.",
-  "Si encaja, invita a mensual de forma suave y sin presión.",
+  "No moralices, no sermonees ni hables de políticas o bibliotecas.",
+  "Escalera suave: Suave → Picante → Directo → Final (sin mencionar tiers/PPV).",
+  "Evita palabras de catálogo (pack/premium/oferta/suscripción/mensual/link) salvo que el fan las use.",
+  "No hagas copy: no repitas literalmente el mensaje del fan.",
   "Si el fan pide privado, ofrece Suave o Picante y pregunta cuál.",
-  "Si el fan pide algo explícito, reconduce a Directo o Final como PPV y pregunta cuál.",
+  "Si el fan pide algo explícito, pon un límite elegante + alternativa sugerente + pregunta.",
   "Solo habla de edad si el fan sugiere que no es +18; entonces pide verificación +18 y corta.",
   "Output: SOLO el mensaje final para enviar al fan.",
 ].join(" ");
 const AGE_VERIFICATION_REPLY =
-  "Antes de seguir: aquí solo +18. Si eres mayor de edad, confírmamelo y seguimos 🙂";
+  "Antes de seguir: aquí solo +18. Si eres mayor de edad, confírmamelo y seguimos, ¿sí? 🙂";
 const EXPLICIT_REQUEST_TEMPLATES = [
   "Uff, vas directo 😈. Aquí voy subiendo poco a poco; si quieres, te mando un extra en Directo o Final. ¿Cuál prefieres?",
-  "Me gusta tu atrevimiento 😌. En el chat me quedo sugerente, pero en PPV puedo ir a Directo o Final. ¿Te va cuál?",
+  "Me gusta tu atrevimiento 😌. En el chat me quedo sugerente, pero en extra puedo ir a Directo o Final. ¿Te va cuál?",
   "Vas fuerte 😏. En abierto lo dejo pícaro; si quieres subir, te preparo un extra en Directo o Final. ¿Qué te apetece?",
 ];
 const PRIVATE_REQUEST_TEMPLATES = [
@@ -127,6 +140,8 @@ const PRIVATE_REQUEST_TEMPLATES = [
 ];
 const PROVIDER_UNAVAILABLE_REPLY = "Ahora mismo no puedo responder. ¿Reintentamos en unos segundos?";
 const GENERIC_ERROR_REPLY = "No pude generar una respuesta ahora. ¿Probamos otra versión?";
+const CRYPTO_MISCONFIGURED_REPLY =
+  'Crypto mal configurado. Define APP_SECRET_KEYS="<newBase64>,hex:<oldHex>" (32 bytes), vuelve a guardar la API key en Ajustes → IA y reinicia el servidor.';
 const PHASE_ACTIONS: Record<string, "suave" | "picante" | "directo" | "final"> = {
   phase_suave: "suave",
   phase_picante: "picante",
@@ -151,6 +166,73 @@ const PHASE_TIER: Record<"suave" | "picante" | "directo" | "final", ExtraTier> =
   directo: "T2",
   final: "T3",
 };
+const BANNED_WORDS = ["pack", "premium", "oferta", "suscripción", "mensual", "link"];
+const FAN_FEW_SHOTS: Array<{ fan: string; objective: string; heat: string; reply: string }> = [
+  {
+    fan: "Hola, ¿estás?",
+    objective: "romper_hielo",
+    heat: "suave",
+    reply: "Hey, me alegra leerte. ¿Cómo te apetece seguir, suave o con un toque de chispa? 🙂",
+  },
+  {
+    fan: "Hoy estoy cansado.",
+    objective: "calentar",
+    heat: "suave",
+    reply: "Ven, te dejo algo suave para relajarte un poco. ¿Lo quieres corto o más lento?",
+  },
+  {
+    fan: "¿Tienes algo más picante?",
+    objective: "subir_nivel",
+    heat: "picante",
+    reply: "Podemos subir un poquito sin ir a lo bruto. ¿Lo hacemos picante o prefieres directo?",
+  },
+  {
+    fan: "Me encantaría verte desnuda.",
+    objective: "limite",
+    heat: "picante",
+    reply: "Aquí me quedo sugerente, pero puedo subir un paso con algo más intenso. ¿Te apetece suave o directo?",
+  },
+  {
+    fan: "¿Podemos hablar en privado?",
+    objective: "privado",
+    heat: "intimo",
+    reply: "Sí, podemos hacerlo más íntimo. ¿Te va algo suave o con más chispa?",
+  },
+  {
+    fan: "Me gustó lo de anoche.",
+    objective: "continuar",
+    heat: "intimo",
+    reply: "Me encanta que te quedaras con ganas. ¿Repetimos suave o subimos un poco hoy?",
+  },
+  {
+    fan: "¿Qué me propones hoy?",
+    objective: "ofrecer_extra",
+    heat: "suave",
+    reply: "Te preparo algo corto y rico para empezar. ¿Te apetece suave o con un toque más atrevido?",
+  },
+  {
+    fan: "Estoy solo y con ganas.",
+    objective: "conectar",
+    heat: "picante",
+    reply: "Entonces te acompaño con algo sugerente y lento. ¿Quieres que suba el tono o lo dejamos suave? 😏",
+  },
+];
+const MARKETING_REPLACEMENTS: Array<{ pattern: RegExp; replacement: string }> = [
+  { pattern: /\bpacks?\b/gi, replacement: "extra" },
+  { pattern: /\bpremium\b/gi, replacement: "algo más especial" },
+  { pattern: /\bofertas?\b/gi, replacement: "propuesta" },
+  { pattern: /\bsuscripci[oó]n(es)?\b/gi, replacement: "seguir por aquí" },
+  { pattern: /\bmensual(idad|es)?\b/gi, replacement: "seguir más seguido" },
+  { pattern: /\blinks?\b/gi, replacement: "por aquí" },
+];
+const GENERIC_RESPONSE_PATTERNS: RegExp[] = [
+  /\bhola[,! ]/i,
+  /\bqu[eé]\s+tal\b/i,
+  /\bcomo\s+est[aá]s\b/i,
+  /\ben\s+qu[eé]\s+puedo\s+ayudar(te)?\b/i,
+  /\bestoy\s+aquí\s+para\s+ayudar(te)?\b/i,
+  /\bgracias\s+por\s+escribir\b/i,
+];
 
 export default async function handler(
   req: NextApiRequest,
@@ -181,6 +263,7 @@ export default async function handler(
   if (!creatorId) {
     return sendBadRequest(res, "creatorId is required");
   }
+  const agencyContext = parseAgencyContext(body);
 
   const rawTab = typeof body.tab === "string" ? body.tab : "";
   const tab = rawTab ? normalizeTab(rawTab) : null;
@@ -212,20 +295,66 @@ export default async function handler(
 
   try {
     const selection = await getCortexProviderSelection({ creatorId });
+    if (selection.decryptFailed) {
+      const provider = mapProvider(selection.provider);
+      const model = selection.model ?? null;
+      const meta = buildChatMeta({
+        provider,
+        model,
+        action: actionLabel,
+        usedFallback: true,
+        latencyMs: 0,
+      });
+      const errorMessage = selection.decryptErrorMessage?.trim() || "crypto_misconfigured";
+      return res
+        .status(200)
+        .json(
+          buildChatErrorResponse(
+            "CRYPTO_MISCONFIGURED",
+            errorMessage,
+            undefined,
+            { usedFallback: true, provider, model, latencyMs: 0 },
+            meta,
+            "crypto_misconfigured",
+            { content: CRYPTO_MISCONFIGURED_REPLY },
+            null
+          )
+        );
+    }
 
     if (!tab) {
       const baseMessages =
         incomingMessages.length > 0 ? incomingMessages : [{ role: "user", content: incomingText }];
-      const phaseAction = resolvePhaseAction(actionLabel);
-      const requestMessages = injectPhaseContext(prependManagerSystemGuard(baseMessages), phaseAction);
       const isRewriteAction = Boolean(actionLabel && actionLabel.toLowerCase().startsWith("rewrite_"));
-      const explicitRequest = !isRewriteAction && resolveExplicitRequest(incomingText, requestMessages);
-      const privateRequest = !isRewriteAction && resolvePrivateRequest(incomingText, requestMessages);
-      const offerSuggestion = resolveOfferSuggestion({ phaseAction, explicitRequest, privateRequest });
+      const explicitRequest = resolveExplicitRequest(incomingText, baseMessages);
+      const privateRequest = resolvePrivateRequest(incomingText, baseMessages);
+      const phaseAction = resolvePhaseAction(actionLabel);
+      const offerSuggestion = resolveOfferSuggestion({
+        phaseAction,
+        explicitRequest: !isRewriteAction && explicitRequest,
+        privateRequest: !isRewriteAction && privateRequest,
+      });
       const offerItem = offerSuggestion
         ? await selectPpvOffer({ creatorId, tier: offerSuggestion.tier, dayPart: offerSuggestion.dayPart })
         : null;
       const offer = offerSuggestion ? buildOfferPayload({ suggestion: offerSuggestion, item: offerItem ?? undefined }) : null;
+      const creatorSettings = await loadCreatorVoiceProfile(creatorId);
+      const fanLastMessage = resolveFanLastMessage(incomingText, baseMessages);
+      const objective = resolveObjective({ actionLabel, phaseAction, explicitRequest, privateRequest });
+      const heatLevel = resolveHeatLevel({ actionLabel, phaseAction, explicitRequest, privateRequest });
+      const creatorVoiceProfile = buildCreatorVoiceProfile(creatorSettings);
+      const requestMessages = buildFanPromptMessages({
+        baseMessages,
+        phaseAction,
+        fanPromptContext: buildFanPromptContext({
+          fanLastMessage,
+          creatorVoiceProfile,
+          objective,
+          heatLevel,
+          bannedWords: BANNED_WORDS,
+          agency: agencyContext ?? undefined,
+        }),
+      });
       const sanitizedMessages = sanitizeMessages(requestMessages);
       const promptLength = getPromptLength(requestMessages);
       if (ageSignal) {
@@ -268,13 +397,13 @@ export default async function handler(
             })
           );
       }
-      if (!phaseAction && explicitRequest) {
+      if (explicitRequest) {
         const assistantText = pickExplicitTemplate();
         const assistantMessage = { role: "assistant" as const, content: assistantText };
         const responseMessages = [...requestMessages, assistantMessage];
-        const provider = mapProvider(selection.provider);
+        const provider: StandardProvider = "mock";
         const model = selection.model ?? null;
-        const usedFallback = selection.provider === "demo" || !selection.configured;
+        const usedFallback = true;
         const meta = buildChatMeta({
           provider,
           model,
@@ -387,7 +516,13 @@ export default async function handler(
       if (!aiResult.ok) {
         const providerUnavailable = isProviderUnavailableError(aiResult);
         const refusalByCode = isRefusalErrorCode(aiResult.errorCode);
-        const fallbackText = phaseAction ? buildPhaseFallback(phaseAction) : SAFE_FALLBACK_MESSAGE;
+        const fallbackText = await buildTemplateFallback({
+          creatorId,
+          fanLastMessage,
+          agency: agencyContext,
+          offer,
+          phaseAction,
+        });
         console.error("manager_ai_provider_error", {
           creatorId,
           fanId,
@@ -396,6 +531,43 @@ export default async function handler(
           code: aiResult.errorCode ?? "ai_error",
           message: aiResult.errorMessage ?? "ai_error",
         });
+        if (refusalByCode) {
+          const assistantMessage = { role: "assistant" as const, content: fallbackText };
+          const responseMessages = [...requestMessages, assistantMessage];
+          const fallbackMeta = buildChatMeta({
+            provider,
+            model,
+            action: actionLabel,
+            usedFallback: true,
+            latencyMs: meta.latencyMs,
+          });
+          logDevManagerRequest({
+            route: "/api/creator/ai-manager/chat",
+            creatorId,
+            fanId,
+            hasText,
+            hasMessages,
+            usedFallback: true,
+            action: actionLabel,
+            promptLength,
+            debug: debugInfo,
+            meta: fallbackMeta,
+          });
+          return res
+            .status(200)
+            .json(
+              buildChatSuccessResponse({
+                assistantMessage,
+                messages: responseMessages,
+                usedFallback: true,
+                provider,
+                model,
+                meta: fallbackMeta,
+                status: "ok",
+                offer: offer ?? undefined,
+              })
+            );
+        }
         logDevManagerRequest({
           route: "/api/creator/ai-manager/chat",
           creatorId,
@@ -408,22 +580,6 @@ export default async function handler(
           debug: debugInfo,
           meta,
         });
-        if (refusalByCode) {
-          return res
-            .status(200)
-            .json(
-              buildChatErrorResponse(
-                "REFUSAL",
-                "REFUSAL",
-                undefined,
-                { usedFallback, provider, model, latencyMs: meta.latencyMs, offer: offer ?? undefined },
-                meta,
-                "refusal",
-                { content: fallbackText },
-                offer
-              )
-            );
-        }
         const details = formatDetails([
           aiResult.provider ? `provider=${aiResult.provider}` : null,
           aiResult.status ? `status=${aiResult.status}` : null,
@@ -458,14 +614,12 @@ export default async function handler(
       }
       if (!ageSignal && hasUnderageTerms(assistantText)) {
         const underageFallback = phaseAction ? buildPhaseFallback(phaseAction) : SAFE_FALLBACK_MESSAGE;
-        const safePrompt = buildSafeRewritePrompt(stripUnderageTerms(assistantText));
-        const safeMessages: ChatMessage[] = [
-          { role: "system", content: AGENCY_SYSTEM_GUARD },
-          { role: "user", content: safePrompt },
-        ];
-        const sanitizedSafeMessages = sanitizeMessages(safeMessages);
+        const safeMessages = injectSystemInstruction(
+          sanitizedMessages,
+          buildUnderageRegenerateInstruction()
+        );
         const retryResult = await requestCortexCompletion({
-          messages: sanitizedSafeMessages,
+          messages: safeMessages,
           creatorId,
           fanId,
           route: "/api/creator/ai-manager/chat",
@@ -474,7 +628,7 @@ export default async function handler(
         if (retryResult.ok) {
           const retryTextRaw = typeof retryResult.text === "string" ? retryResult.text.trim() : "";
           const retryText = sanitizeManagerMessageForFan(retryTextRaw);
-          if (retryText && !hasUnderageTerms(retryText) && !isRefusalLike(retryText)) {
+          if (retryText && !hasUnderageTerms(retryText) && !isRefusalLike(retryText) && !isSoftRefusal(retryText)) {
             assistantText = retryText;
             usedFallback = retryResult.provider === "demo";
             provider = mapProvider(retryResult.provider);
@@ -513,33 +667,48 @@ export default async function handler(
           });
         }
       }
-      if (isRefusalLike(assistantText) || looksMoralizing(assistantText)) {
-        const fallbackText = phaseAction ? buildPhaseFallback(phaseAction) : SAFE_FALLBACK_MESSAGE;
+      if (isRefusalLike(assistantText) || isSoftRefusal(assistantText) || looksMoralizing(assistantText)) {
+        const fallbackText = await buildTemplateFallback({
+          creatorId,
+          fanLastMessage,
+          agency: agencyContext,
+          offer,
+          phaseAction,
+        });
+        const assistantMessage = { role: "assistant" as const, content: fallbackText };
+        const responseMessages = [...requestMessages, assistantMessage];
+        const fallbackMeta = buildChatMeta({
+          provider,
+          model,
+          action: actionLabel,
+          usedFallback: true,
+          latencyMs: meta.latencyMs,
+        });
         logDevManagerRequest({
           route: "/api/creator/ai-manager/chat",
           creatorId,
           fanId,
           hasText,
           hasMessages,
-          usedFallback,
+          usedFallback: true,
           action: actionLabel,
           promptLength,
           debug: debugInfo,
-          meta,
+          meta: fallbackMeta,
         });
         return res
           .status(200)
           .json(
-            buildChatErrorResponse(
-              "REFUSAL",
-              "REFUSAL",
-              undefined,
-              { usedFallback, provider, model, latencyMs: meta.latencyMs, offer: offer ?? undefined },
-              meta,
-              "refusal",
-              { content: fallbackText },
-              offer
-            )
+            buildChatSuccessResponse({
+              assistantMessage,
+              messages: responseMessages,
+              usedFallback: true,
+              provider,
+              model,
+              meta: fallbackMeta,
+              status: "ok",
+              offer: offer ?? undefined,
+            })
           );
       }
       if (!assistantText) {
@@ -569,6 +738,63 @@ export default async function handler(
               offer
             )
           );
+      }
+
+      const genericFallback = buildGenericFallback(heatLevel);
+      let marketingResult = postProcessMarketing(assistantText, fanLastMessage);
+      assistantText = marketingResult.text;
+      if (marketingResult.shouldRegenerate) {
+        const regenMessages = injectSystemInstruction(
+          sanitizedMessages,
+          buildRegenerateInstruction(BANNED_WORDS)
+        );
+        const regenResult = await requestCortexCompletion({
+          messages: regenMessages,
+          creatorId,
+          fanId,
+          route: "/api/creator/ai-manager/chat",
+          selection,
+        });
+        if (regenResult.ok) {
+          const regenTextRaw = typeof regenResult.text === "string" ? regenResult.text.trim() : "";
+          const regenText = mode === "message" ? sanitizeManagerMessageForFan(regenTextRaw) : regenTextRaw;
+          assistantText = regenText || assistantText;
+          usedFallback = regenResult.provider === "demo";
+          provider = mapProvider(regenResult.provider);
+          model = regenResult.model ?? selection.model ?? null;
+          meta = buildChatMeta({
+            provider,
+            model,
+            action: actionLabel,
+            usedFallback,
+            latencyMs: regenResult.latencyMs,
+          });
+        }
+        const postRegen = postProcessMarketing(assistantText, fanLastMessage);
+        assistantText = postRegen.text;
+      }
+      if (isGenericResponse(assistantText)) {
+        assistantText = genericFallback;
+        usedFallback = true;
+        meta = buildChatMeta({
+          provider,
+          model,
+          action: actionLabel,
+          usedFallback,
+          latencyMs: meta.latencyMs,
+        });
+      }
+      const enforcedText = enforceResponseConstraints(assistantText, genericFallback);
+      if (enforcedText !== assistantText) {
+        assistantText = enforcedText;
+        usedFallback = true;
+        meta = buildChatMeta({
+          provider,
+          model,
+          action: actionLabel,
+          usedFallback,
+          latencyMs: meta.latencyMs,
+        });
       }
 
       const assistantMessage = { role: "assistant" as const, content: assistantText };
@@ -1116,8 +1342,54 @@ function pickPrivateTemplate(): string {
 function buildPhaseFallback(phase: "suave" | "picante" | "directo" | "final"): string {
   if (phase === "suave") return "Vamos con algo Suave 😏. ¿Lo dejamos así o subimos a Picante con un extra?";
   if (phase === "picante") return "Subimos a Picante 😏. ¿Te va así o prefieres Directo en privado?";
-  if (phase === "directo") return "Te preparo algo Directo 😏. ¿Lo quieres Directo o Final en PPV?";
+  if (phase === "directo") return "Te preparo algo Directo 😏. ¿Lo quieres Directo o Final?";
   return "Vamos a Final 😏. ¿Te apetece Final o lo dejamos Directo?";
+}
+
+async function buildTemplateFallback(args: {
+  creatorId: string;
+  fanLastMessage: string;
+  agency: AgencyContext | null;
+  offer: ChatOffer | null;
+  phaseAction: "suave" | "picante" | "directo" | "final" | null;
+}): Promise<string> {
+  const fallback = args.phaseAction ? buildPhaseFallback(args.phaseAction) : SAFE_FALLBACK_MESSAGE;
+  try {
+    const defaultStage = args.phaseAction ? "HEAT" : "WARM_UP";
+    const stage =
+      (args.agency?.stage && normalizeAgencyStage(args.agency.stage)) ||
+      (defaultStage as AgencyStage);
+    const normalizedStage = stage === "NEW" ? (defaultStage as AgencyStage) : stage;
+    const objective =
+      (args.agency?.objective && normalizeAgencyObjective(args.agency.objective)) ||
+      ("CONNECT" as AgencyObjective);
+    const intensity =
+      (args.agency?.intensity && normalizeAgencyIntensity(args.agency.intensity)) ||
+      ("MEDIUM" as AgencyIntensity);
+    const offer =
+      args.offer && typeof args.offer === "object"
+        ? {
+            title: args.offer.title ?? null,
+            tier: args.offer.tier ?? null,
+            priceCents: typeof args.offer.price === "number" ? args.offer.price : null,
+            currency: null,
+          }
+        : null;
+    const result = await buildAgencyDraft({
+      creatorId: args.creatorId,
+      fanName: null,
+      lastFanMsg: args.fanLastMessage,
+      stage: normalizedStage,
+      objective,
+      intensity,
+      offer,
+      mode: "full",
+    });
+    return result.text?.trim() || fallback;
+  } catch (err) {
+    console.error("Error building template fallback", err);
+    return fallback;
+  }
 }
 
 function sanitizeForModel(text: string): string {
@@ -1154,15 +1426,6 @@ function hasUnderageTerms(text: string): boolean {
     /\bexploitation\b/i,
   ];
   return patterns.some((pattern) => pattern.test(normalized));
-}
-
-function stripUnderageTerms(text: string): string {
-  if (!text) return text;
-  const withoutTerms = text.replace(
-    /\b(menor(es)?|underage|child|children|explotaci[oó]n|exploitation)\b/gi,
-    ""
-  );
-  return withoutTerms.replace(/\s{2,}/g, " ").trim();
 }
 
 function getPromptLength(messages: ChatMessage[]): number {
@@ -1265,19 +1528,7 @@ async function selectPpvOffer(params: {
   return anyMatch ?? null;
 }
 
-function buildSafeRewritePrompt(text: string): string {
-  const trimmed = text.trim();
-  return (
-    "Reescribe el siguiente mensaje para que sea sugerente y no explícito. " +
-    "No menciones edad ni políticas. Sin moralizar ni sermonear. " +
-    "Si el mensaje pide algo explícito, responde con un límite elegante + una alternativa sugerente + un CTA suave a PPV. " +
-    "Devuelve SOLO el mensaje final (máximo 240 caracteres) y termina con una pregunta. " +
-    `Mensaje: <<<${trimmed}>>>`
-  );
-}
-
-const SAFE_FALLBACK_MESSAGE =
-  "Uff, vas directo 😈. Aquí me gusta subir poco a poco. ¿Suave o picante? Si quieres, te mando un extra ahora.";
+const SAFE_FALLBACK_MESSAGE = "Uff, vas directo 😈. Aquí me gusta subir poco a poco. ¿Suave o picante?";
 
 function sendBadRequest(res: NextApiResponse<ChatErrorResponse>, message: string) {
   return res
@@ -1340,6 +1591,268 @@ function mapProvider(value: unknown): StandardProvider {
   return "mock";
 }
 
+type CreatorVoiceProfile = {
+  tone: string | null;
+  spicinessLevel: number | null;
+  formalityLevel: number | null;
+  emojiUsage: number | null;
+  forbiddenTopics: string | null;
+  forbiddenPromises: string | null;
+  rulesManifest: string | null;
+};
+
+async function loadCreatorVoiceProfile(creatorId: string): Promise<CreatorVoiceProfile> {
+  const settings = await prisma.creatorAiSettings.findUnique({
+    where: { creatorId },
+    select: {
+      tone: true,
+      spicinessLevel: true,
+      formalityLevel: true,
+      emojiUsage: true,
+      forbiddenTopics: true,
+      forbiddenPromises: true,
+      rulesManifest: true,
+    },
+  });
+  return {
+    tone: settings?.tone ?? "cercano",
+    spicinessLevel: typeof settings?.spicinessLevel === "number" ? settings.spicinessLevel : 1,
+    formalityLevel: typeof settings?.formalityLevel === "number" ? settings.formalityLevel : 1,
+    emojiUsage: typeof settings?.emojiUsage === "number" ? settings.emojiUsage : 1,
+    forbiddenTopics: settings?.forbiddenTopics ?? null,
+    forbiddenPromises: settings?.forbiddenPromises ?? null,
+    rulesManifest: settings?.rulesManifest ?? null,
+  };
+}
+
+function buildCreatorVoiceProfile(settings: CreatorVoiceProfile): string {
+  const tone = settings.tone || "cercano";
+  const spiciness = normalizeLevel(settings.spicinessLevel);
+  const formality = normalizeLevel(settings.formalityLevel);
+  const emojiUsage = normalizeLevel(settings.emojiUsage);
+  const parts = [
+    `tono=${tone}`,
+    `picante=${spiciness}/3`,
+    `formalidad=${formality}/3`,
+    `emoji=${emojiUsage}/3`,
+  ];
+  if (settings.forbiddenTopics?.trim()) {
+    parts.push(`temas_prohibidos=${settings.forbiddenTopics.trim()}`);
+  }
+  if (settings.forbiddenPromises?.trim()) {
+    parts.push(`promesas_prohibidas=${settings.forbiddenPromises.trim()}`);
+  }
+  if (settings.rulesManifest?.trim()) {
+    parts.push(`reglas=${settings.rulesManifest.trim()}`);
+  }
+  return parts.join(" | ");
+}
+
+function normalizeLevel(value: number | null): number {
+  if (typeof value !== "number" || !Number.isFinite(value)) return 1;
+  return Math.min(3, Math.max(1, Math.round(value)));
+}
+
+function buildFanPromptContext(params: {
+  fanLastMessage: string;
+  creatorVoiceProfile: string;
+  objective: string;
+  heatLevel: HeatLevel;
+  bannedWords: string[];
+  agency?: {
+    stage?: string | null;
+    objective?: string | null;
+    intensity?: string | null;
+    nextAction?: string | null;
+  };
+}): string {
+  const fanMessage = params.fanLastMessage ? `«${truncateForPrompt(params.fanLastMessage, 220)}»` : "(no detectado)";
+  const agencyLines = buildAgencyPromptLines(params.agency);
+  return [
+    "Contexto útil (no lo repitas):",
+    `fan_last_message: ${fanMessage}`,
+    `creator_voice_profile: ${params.creatorVoiceProfile}`,
+    `objective: ${params.objective}`,
+    `heat_level: ${params.heatLevel}`,
+    ...agencyLines,
+    `banned_words: ${params.bannedWords.join(", ")}`,
+  ].join("\n");
+}
+
+function buildFanFewShotMessages(): ChatMessage[] {
+  return FAN_FEW_SHOTS.flatMap((example) => [
+    {
+      role: "user",
+      content: [
+        `fan_last_message: "${example.fan}"`,
+        `objective: ${example.objective}`,
+        `heat_level: ${example.heat}`,
+        "Responde al fan.",
+      ].join("\n"),
+    },
+    { role: "assistant", content: example.reply },
+  ]);
+}
+
+function buildFanPromptMessages(params: {
+  baseMessages: ChatMessage[];
+  phaseAction: "suave" | "picante" | "directo" | "final" | null;
+  fanPromptContext: string;
+}): ChatMessage[] {
+  const normalizedBaseMessages = params.baseMessages.map((msg) => {
+    if (msg.role !== "user") return msg;
+    return { ...msg, content: normalizeCreatorPrompt(msg.content) };
+  });
+  const messages: ChatMessage[] = [
+    { role: "system", content: AGENCY_SYSTEM_GUARD },
+    { role: "system", content: params.fanPromptContext },
+    ...buildFanFewShotMessages(),
+    ...normalizedBaseMessages,
+  ];
+  return injectPhaseContext(messages, params.phaseAction);
+}
+
+function resolveFanLastMessage(incomingText: string, messages: ChatMessage[]): string {
+  const candidates = [incomingText, ...messages.map((msg) => msg.content).reverse()];
+  for (const candidate of candidates) {
+    const extracted = extractFanLastMessageFromContext(candidate);
+    if (extracted) return extracted;
+  }
+  const fallback = incomingText.trim();
+  if (fallback && !looksLikeCreatorInstruction(fallback)) return fallback;
+  return "";
+}
+
+function extractFanLastMessageFromContext(text: string): string | null {
+  const marker = "Últimos mensajes:";
+  const index = text.toLowerCase().indexOf(marker.toLowerCase());
+  if (index === -1) return null;
+  const after = text.slice(index + marker.length).trim();
+  if (!after) return null;
+  const stopPrefixes = [
+    "Texto seleccionado:",
+    "Borrador actual:",
+    "Borradores internos:",
+    "Perfil del fan:",
+    "Seguimiento activo:",
+  ];
+  const lines = after.split(/\r?\n/);
+  const collected: string[] = [];
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+    if (stopPrefixes.some((prefix) => trimmed.startsWith(prefix))) break;
+    collected.push(trimmed);
+  }
+  for (let i = collected.length - 1; i >= 0; i -= 1) {
+    const match = collected[i].match(/^fan\s*:\s*(.+)$/i);
+    if (match) return match[1].trim();
+  }
+  if (collected.length === 0) return null;
+  const last = collected[collected.length - 1].replace(/^(fan|creador)\s*:\s*/i, "").trim();
+  if (/sin historial/i.test(last)) return null;
+  return last;
+}
+
+function looksLikeCreatorInstruction(text: string): boolean {
+  const normalized = text.trim().toLowerCase();
+  if (!normalized) return false;
+  return (
+    normalized.includes("reescribe") ||
+    normalized.includes("reformula") ||
+    normalized.includes("texto del mensaje") ||
+    normalized.includes("contexto:") ||
+    normalized.includes("qué quiero") ||
+    normalized.includes("que quiero")
+  );
+}
+
+function normalizeCreatorPrompt(text: string): string {
+  if (!looksLikeCreatorInstruction(text)) return text;
+  const lines = text.split(/\r?\n/).map((line) => line.trim());
+  const filtered = lines.filter(
+    (line) => !/^reescribe\b/i.test(line) && !/^reformula\b/i.test(line)
+  );
+  const rest = filtered.filter(Boolean).join("\n").trim();
+  if (!rest) return "Responde al fan.";
+  if (/responde al fan/i.test(rest)) return rest;
+  return `Responde al fan.\n${rest}`;
+}
+
+type AgencyContext = {
+  stage?: string | null;
+  objective?: string | null;
+  intensity?: string | null;
+  nextAction?: string | null;
+};
+
+function parseAgencyContext(body: Record<string, unknown>): AgencyContext | null {
+  const raw = body.agency;
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+  const record = raw as Record<string, unknown>;
+  const stage = normalizeAgencyStage(record.stage);
+  const objective = normalizeAgencyObjective(record.objective);
+  const intensity = normalizeAgencyIntensity(record.intensity);
+  const nextAction = typeof record.nextAction === "string" ? record.nextAction.trim() : "";
+  if (!stage && !objective && !intensity && !nextAction) return null;
+  return {
+    stage,
+    objective,
+    intensity,
+    nextAction: nextAction || null,
+  };
+}
+
+function buildAgencyPromptLines(agency?: AgencyContext | null): string[] {
+  if (!agency) return [];
+  const lines: string[] = [];
+  if (agency.stage) lines.push(`agency_stage: ${agency.stage}`);
+  if (agency.objective) lines.push(`agency_objective: ${agency.objective}`);
+  if (agency.intensity) lines.push(`agency_intensity: ${agency.intensity}`);
+  if (agency.nextAction) {
+    lines.push(`agency_next_action: «${truncateForPrompt(agency.nextAction, 120)}»`);
+  }
+  return lines;
+}
+
+function resolveObjective(params: {
+  actionLabel: string | null;
+  phaseAction: "suave" | "picante" | "directo" | "final" | null;
+  explicitRequest: boolean;
+  privateRequest: boolean;
+}): string {
+  const normalizedAction = (params.actionLabel ?? "").toLowerCase();
+  if (normalizedAction.startsWith("rewrite_")) return "refinar_respuesta";
+  if (normalizedAction === "quote_manager") return "responder_cita";
+  if (normalizedAction === "rephrase_manager") return "reformular";
+  if (params.phaseAction) return `fase_${params.phaseAction}`;
+  if (params.explicitRequest) return "limite_elegante";
+  if (params.privateRequest) return "privado_suave";
+  return "conversar";
+}
+
+function resolveHeatLevel(params: {
+  actionLabel: string | null;
+  phaseAction: "suave" | "picante" | "directo" | "final" | null;
+  explicitRequest: boolean;
+  privateRequest: boolean;
+}): HeatLevel {
+  const normalizedAction = (params.actionLabel ?? "").toLowerCase();
+  if (params.explicitRequest) return "picante";
+  if (params.phaseAction === "picante" || params.phaseAction === "directo" || params.phaseAction === "final") {
+    return "picante";
+  }
+  if (normalizedAction.includes("picante") || normalizedAction.includes("directo")) return "picante";
+  if (params.privateRequest) return "intimo";
+  return "suave";
+}
+
+function truncateForPrompt(text: string, maxLength: number): string {
+  const trimmed = text.trim();
+  if (trimmed.length <= maxLength) return trimmed;
+  return `${trimmed.slice(0, maxLength).trim()}…`;
+}
+
 function sanitizeManagerMessageForFan(raw: string): string {
   const trimmed = raw.trim();
   if (!trimmed) return "";
@@ -1360,6 +1873,21 @@ function sanitizeManagerMessageForFan(raw: string): string {
   const filtered = lines.filter((line) => !metaPrefixes.some((pattern) => pattern.test(line)));
   const candidate = filtered.length > 0 ? filtered : lines;
   return candidate.join("\n").trim();
+}
+
+function isSoftRefusal(text: string): boolean {
+  const trimmed = text.trim();
+  if (!trimmed) return false;
+  const lowered = trimmed.toLowerCase();
+  if (lowered.includes("lo siento") && lowered.includes("no puedo")) return true;
+  const patterns = [
+    /\bno puedo cumplir\b/i,
+    /\bno puedo ayudar(te)?\b/i,
+    /\bno puedo hacer (eso|esto)\b/i,
+    /\bno puedo (proporcionar|ofrecer|brindar) (ayuda|asistencia)?\b/i,
+    /\bno puedo con eso\b/i,
+  ];
+  return patterns.some((pattern) => pattern.test(lowered));
 }
 
 function isRefusalLike(text: string): boolean {
@@ -1415,6 +1943,100 @@ function looksMoralizing(text: string): boolean {
     /pol[ií]tica(s)?/i,
   ];
   return patterns.some((pattern) => pattern.test(lowered));
+}
+
+function postProcessMarketing(
+  text: string,
+  fanLastMessage: string
+): { text: string; shouldRegenerate: boolean } {
+  const fanAsked = containsMarketingWord(fanLastMessage);
+  if (fanAsked) return { text, shouldRegenerate: false };
+  if (!containsMarketingWord(text)) return { text, shouldRegenerate: false };
+  const replaced = applyMarketingReplacements(text);
+  if (!containsMarketingWord(replaced)) {
+    return { text: replaced, shouldRegenerate: false };
+  }
+  return { text: replaced, shouldRegenerate: true };
+}
+
+function containsMarketingWord(text: string): boolean {
+  return MARKETING_REPLACEMENTS.some((entry) => {
+    entry.pattern.lastIndex = 0;
+    return entry.pattern.test(text);
+  });
+}
+
+function applyMarketingReplacements(text: string): string {
+  let updated = text;
+  for (const entry of MARKETING_REPLACEMENTS) {
+    updated = updated.replace(entry.pattern, entry.replacement);
+  }
+  return updated;
+}
+
+function buildRegenerateInstruction(bannedWords: string[]): string {
+  return `Regenera la respuesta al fan: natural, 1–2 frases, termina en pregunta, sin ${bannedWords.join(
+    "/"
+  )}.`;
+}
+
+function buildUnderageRegenerateInstruction(): string {
+  return "Regenera la respuesta al fan sin mencionar edad ni verificación. Sugerente, no explícito, termina con una pregunta.";
+}
+
+function injectSystemInstruction(messages: ChatMessage[], instruction: string): ChatMessage[] {
+  const next: ChatMessage[] = [...messages];
+  const firstSystemIndex = next.findIndex((msg) => msg.role === "system");
+  if (firstSystemIndex === -1) {
+    return [{ role: "system", content: instruction }, ...next];
+  }
+  return [
+    ...next.slice(0, firstSystemIndex + 1),
+    { role: "system", content: instruction },
+    ...next.slice(firstSystemIndex + 1),
+  ];
+}
+
+function isGenericResponse(text: string): boolean {
+  const trimmed = text.trim();
+  if (!trimmed) return true;
+  if (trimmed.length > 140) return false;
+  const lowered = trimmed.toLowerCase();
+  const hasLadderSignal = [
+    "suave",
+    "picante",
+    "directo",
+    "final",
+    "subimos",
+    "subir",
+    "prefieres",
+    "te apetece",
+    "quieres",
+  ].some((signal) => lowered.includes(signal));
+  if (hasLadderSignal) return false;
+  return GENERIC_RESPONSE_PATTERNS.some((pattern) => pattern.test(trimmed));
+}
+
+function buildGenericFallback(heatLevel: HeatLevel): string {
+  if (heatLevel === "picante") {
+    return "Me dejaste con ganas 😏. ¿Lo hacemos suave o subimos un poco? Si quieres, te preparo algo y seguimos aquí, ¿te va?";
+  }
+  if (heatLevel === "intimo") {
+    return "Me apetece seguir contigo, cerquita. ¿Lo hacemos suave o con más chispa? Si quieres, te preparo algo y seguimos aquí, ¿te apetece?";
+  }
+  return "Me alegra leerte. ¿Lo dejamos suave o le damos un toque más juguetón? Si quieres, te preparo algo y seguimos aquí, ¿te va?";
+}
+
+function enforceResponseConstraints(text: string, fallback: string): string {
+  const trimmed = text.trim();
+  if (!trimmed) return fallback;
+  let output = trimmed.replace(/\s+/g, " ");
+  if (!/[?¿][^?¿]*$/.test(output)) {
+    output = output.replace(/[.!?…]+$/, "").trim();
+    output = `${output}?`;
+  }
+  if (output.length > 240) return fallback;
+  return output;
 }
 
 function isRefusalErrorCode(code?: string): boolean {
@@ -1512,12 +2134,12 @@ function buildChatErrorResponse(
   if (details) response.details = details;
   if (data) response.data = data;
   response.reply = reply ?? { content: message };
-  if (offer) {
-    response.offer = offer;
+  if (offer !== undefined) {
+    response.offer = offer ?? null;
     if (response.data) {
-      response.data.offer = offer;
+      response.data.offer = offer ?? null;
     } else {
-      response.data = { offer };
+      response.data = { offer: offer ?? null };
     }
   }
   return response;
@@ -1552,13 +2174,6 @@ function logDevManagerRequest(params: {
     model: params.meta?.modelUsed ?? null,
     latencyMs: params.meta?.latencyMs ?? null,
   });
-}
-
-function prependManagerSystemGuard(messages: ChatMessage[]): ChatMessage[] {
-  if (messages.length > 0 && messages[0].role === "system" && messages[0].content.trim() === AGENCY_SYSTEM_GUARD) {
-    return messages;
-  }
-  return [{ role: "system", content: AGENCY_SYSTEM_GUARD }, ...messages];
 }
 
 function buildPhaseContextMessage(phase: "suave" | "picante" | "directo" | "final"): ChatMessage {

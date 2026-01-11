@@ -238,6 +238,8 @@ export const ContentManagerChatCard = forwardRef<ContentManagerChatCardHandle, P
           normalizedStatus === "provider_down" ||
           errorCode.toUpperCase() === "PROVIDER_UNAVAILABLE" ||
           res.status === 502;
+        const isCryptoMisconfigured =
+          normalizedStatus === "crypto_misconfigured" || errorCode.toUpperCase() === "CRYPTO_MISCONFIGURED";
         if (providerUnavailable) {
           setError("Ollama no responde. Revisa que esté activo.");
           if (!trimmedReplyText) {
@@ -252,6 +254,15 @@ export const ContentManagerChatCard = forwardRef<ContentManagerChatCardHandle, P
             );
             return;
           }
+        } else if (isCryptoMisconfigured) {
+          if (!trimmedReplyText) {
+            const message =
+              typeof (data as any)?.error?.message === "string"
+                ? (data as any).error.message
+                : "Crypto mal configurado.";
+            throw new Error(message);
+          }
+          setError(trimmedReplyText);
         } else if (!trimmedReplyText && (normalizedStatus === "refusal" || errorCode.toUpperCase() === "REFUSAL")) {
           const refusalText =
             "Se bloqueó la generación con este contexto. Prueba \"Otra versión\" o \"Suavizar\".";
@@ -276,7 +287,7 @@ export const ContentManagerChatCard = forwardRef<ContentManagerChatCardHandle, P
               : "Error enviando mensaje";
           throw new Error(message);
         }
-        if (trimmedReplyText && !providerUnavailable) {
+        if (trimmedReplyText && !providerUnavailable && !isCryptoMisconfigured) {
           setError("Respuesta de seguridad / fallback.");
         }
       }
