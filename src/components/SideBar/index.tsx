@@ -259,7 +259,7 @@ function computePriorityScore(fan: FanData): number {
     flags: {
       vip: isVip,
       expired: tag === "expired",
-      atRisk: segmentLabel === "EN_RIESGO" || (riskValue && riskValue !== "LOW"),
+      atRisk: segmentLabel === "EN_RIESGO" || (riskValue !== "" && riskValue !== "LOW"),
       isNew: fan.isNew30d ?? false,
     },
   });

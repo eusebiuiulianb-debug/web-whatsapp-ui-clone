@@ -522,7 +522,9 @@ export default function CreatorAiSettingsPage() {
     try {
       const res = await fetch("/api/creator/cortex/models", { cache: "no-store" });
       const data = await res.json().catch(() => ({}));
-      const models = Array.isArray(data?.models) ? data.models.filter((item) => typeof item === "string") : [];
+      const models = Array.isArray(data?.models)
+        ? data.models.filter((item: unknown): item is string => typeof item === "string")
+        : [];
       setCortexModels(models);
       if (!models.length && typeof data?.error === "string" && data.error.trim()) {
         setCortexModelsError(data.error.trim());

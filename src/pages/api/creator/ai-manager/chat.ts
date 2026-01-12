@@ -47,7 +47,7 @@ type ChatMeta = {
 };
 
 type ChatOffer = {
-  tier: "T0" | "T1" | "T2" | "T3";
+  tier: ExtraTier;
   dayPart: "DAY" | "NIGHT" | "ANY";
   contentId?: string;
   title?: string;
@@ -340,7 +340,7 @@ export default async function handler(
     }
 
     if (!tab) {
-      const baseMessages =
+      const baseMessages: ChatMessage[] =
         incomingMessages.length > 0 ? incomingMessages : [{ role: "user", content: incomingText }];
       const creatorSettings = await loadCreatorVoiceProfile(creatorId);
       const allowExplicitAdultContent = Boolean(creatorSettings.allowExplicitAdultContent);
@@ -2318,7 +2318,6 @@ function buildChatSuccessResponse(params: {
     message: hasContent ? params.assistantMessage : undefined,
     items: hasContent ? [params.assistantMessage] : [],
     messages: params.messages,
-    offer: params.offer ?? undefined,
     replyMeta: params.replyMeta,
     creditsUsed: params.creditsUsed,
     creditsRemaining: params.creditsRemaining,
@@ -2360,11 +2359,11 @@ function buildChatErrorResponse(
   if (data) response.data = data;
   response.reply = reply ?? { content: message };
   if (offer !== undefined) {
-    response.offer = offer ?? null;
+    response.offer = offer ?? undefined;
     if (response.data) {
-      response.data.offer = offer ?? null;
+      response.data.offer = offer ?? undefined;
     } else {
-      response.data = { offer: offer ?? null };
+      response.data = { offer: offer ?? undefined };
     }
   }
   return response;

@@ -48,7 +48,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
         inviteUsedAt: true,
         lastMessageAt: true,
         lastCreatorMessageAt: true,
-        accessGrants: { select: { expiresAt: true, type: true } },
+        accessGrants: { select: { expiresAt: true, type: true, createdAt: true } },
       },
     });
 
@@ -121,14 +121,14 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
         flags: {
           vip: segmentLabel === "VIP" || spent30d >= 200,
           expired: accessSnapshot.accessState === "EXPIRED",
-          atRisk: segmentLabel === "EN_RIESGO" || (riskValue && riskValue !== "LOW"),
+          atRisk: segmentLabel === "EN_RIESGO" || riskValue !== "LOW",
           isNew: isNew30d,
         },
       });
 
       const tags: string[] = [];
       if (segmentLabel === "VIP") tags.push("vip");
-      if (segmentLabel === "EN_RIESGO" || (riskValue && riskValue !== "LOW")) tags.push("en_riesgo");
+      if (segmentLabel === "EN_RIESGO" || riskValue !== "LOW") tags.push("en_riesgo");
       if (accessSnapshot.accessState === "EXPIRED") tags.push("caducado");
       if (isNew30d) tags.push("nuevo");
 

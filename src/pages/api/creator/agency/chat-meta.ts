@@ -1,4 +1,5 @@
 import type { NextApiRequest, NextApiResponse } from "next";
+import type { ChatAgencyMeta } from "@prisma/client";
 import { prisma } from "@/server/prisma";
 import { computeAgencyPriorityScore } from "../../../../lib/agency/priorityScore";
 import {
@@ -291,13 +292,8 @@ const OFFER_TIER_RANK: Record<string, number> = {
 
 async function ensureRecommendedOffer(
   creatorId: string,
-  meta: {
-    id: string;
-    stage: AgencyStage;
-    intensity: AgencyIntensity;
-    recommendedOfferId: string | null;
-  }
-) {
+  meta: ChatAgencyMeta
+): Promise<ChatAgencyMeta> {
   if (meta.stage !== "OFFER" && meta.stage !== "CLOSE") {
     return meta;
   }
@@ -374,7 +370,7 @@ async function loadFanForPriority(
   inviteUsedAt: Date | null;
   lastMessageAt: Date | null;
   lastCreatorMessageAt: Date | null;
-  accessGrants: Array<{ expiresAt: Date; type: string }>;
+  accessGrants: Array<{ expiresAt: Date; type: string; createdAt: Date }>;
 } | null> {
   const fan = await prisma.fan.findUnique({
     where: { id: fanId },
@@ -388,7 +384,7 @@ async function loadFanForPriority(
       inviteUsedAt: true,
       lastMessageAt: true,
       lastCreatorMessageAt: true,
-      accessGrants: { select: { expiresAt: true, type: true } },
+      accessGrants: { select: { expiresAt: true, type: true, createdAt: true } },
     },
   });
   if (!fan || fan.creatorId !== creatorId) return null;
@@ -406,7 +402,7 @@ async function buildPriorityAndSummary(args: {
     inviteUsedAt: Date | null;
     lastMessageAt: Date | null;
     lastCreatorMessageAt: Date | null;
-    accessGrants: Array<{ expiresAt: Date; type: string }>;
+    accessGrants: Array<{ expiresAt: Date; type: string; createdAt: Date }>;
   };
   meta: {
     stage: AgencyStage;
@@ -445,7 +441,7 @@ async function buildPriorityAndSummary(args: {
     flags: {
       vip: segmentLabel === "VIP" || spent30d >= 200,
       expired: accessSnapshot.accessState === "EXPIRED",
-      atRisk: segmentLabel === "EN_RIESGO" || (riskValue && riskValue !== "LOW"),
+      atRisk: segmentLabel === "EN_RIESGO" || riskValue !== "LOW",
       isNew: isNew30d,
     },
   });

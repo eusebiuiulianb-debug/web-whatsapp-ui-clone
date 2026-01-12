@@ -1,4 +1,4 @@
-import { AiUsageOrigin, AiUsageType, type AiTurnMode as PrismaAiTurnMode } from "@prisma/client";
+import { AiUsageOrigin, AiUsageType, Prisma, type AiTurnMode as PrismaAiTurnMode } from "@prisma/client";
 import prisma from "./prisma.server";
 import type { AiTurnMode } from "./aiSettings";
 import { normalizeAiTurnMode } from "./aiSettings";
@@ -108,6 +108,7 @@ export async function logCortexLlmUsage(params: {
     actionType,
     context,
   } = params;
+  const safeContext = context ? (context as Prisma.InputJsonValue) : undefined;
 
   return prisma.aiUsageLog.create({
     data: {
@@ -125,7 +126,7 @@ export async function logCortexLlmUsage(params: {
       ok,
       errorCode: errorCode ?? null,
       actionType: actionType ?? undefined,
-      context: context ?? undefined,
+      context: safeContext,
     },
   });
 }

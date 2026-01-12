@@ -1,8 +1,8 @@
 import {
   type CSSProperties,
   forwardRef,
-  KeyboardEvent,
-  MouseEvent,
+  type KeyboardEvent as ReactKeyboardEvent,
+  type MouseEvent as ReactMouseEvent,
   type PointerEvent as ReactPointerEvent,
   ReactNode,
   useCallback,
@@ -712,6 +712,7 @@ type ApiAiTemplate = {
   name?: string;
   category?: string;
   tone?: string | null;
+  tier?: string | null;
   content?: string;
   isActive?: boolean;
 };
@@ -1748,21 +1749,6 @@ export default function ConversationDetails({ onBackToBoard }: ConversationDetai
     void fetchObjectives();
   }, [conversation.isManager, fetchObjectives, fetchOffers, id, managerPanelOpen]);
 
-  useEffect(() => {
-    setObjectiveCreatorOpen(false);
-  }, [id]);
-
-  useEffect(() => {
-    if (objectiveCreatorOpen) return;
-    setObjectiveNameDraft("");
-    setObjectiveNameEnDraft("");
-    setObjectiveCodeDraft("");
-    setObjectiveCreateError(null);
-    setObjectiveTranslations({});
-    setObjectiveTranslateError(null);
-    setObjectiveTranslateLoading(false);
-  }, [id, objectiveCreatorOpen]);
-
   function formatCurrency(value: number) {
     const rounded = Math.round((value ?? 0) * 100) / 100;
     return `${rounded % 1 === 0 ? rounded.toFixed(0) : rounded.toFixed(2)} €`;
@@ -1878,6 +1864,22 @@ export default function ConversationDetails({ onBackToBoard }: ConversationDetai
   const [ objectiveTranslateLoading, setObjectiveTranslateLoading ] = useState(false);
   const [ objectiveTranslateError, setObjectiveTranslateError ] = useState<string | null>(null);
   const [ historyError, setHistoryError ] = useState("");
+
+  useEffect(() => {
+    setObjectiveCreatorOpen(false);
+  }, [id]);
+
+  useEffect(() => {
+    if (objectiveCreatorOpen) return;
+    setObjectiveNameDraft("");
+    setObjectiveNameEnDraft("");
+    setObjectiveCodeDraft("");
+    setObjectiveCreateError(null);
+    setObjectiveTranslations({});
+    setObjectiveTranslateError(null);
+    setObjectiveTranslateLoading(false);
+  }, [id, objectiveCreatorOpen]);
+
   const [ nextActionDraft, setNextActionDraft ] = useState("");
   const [ nextActionDate, setNextActionDate ] = useState("");
   const [ nextActionTime, setNextActionTime ] = useState("");
@@ -3336,11 +3338,11 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
       fanId: id ?? undefined,
       meta: {
         creatorId: creatorId ?? undefined,
-        contentId: offer.contentId ?? null,
-        title: offer.title ?? null,
-        tier: offer.tier ?? null,
-        slot: offer.slot ?? null,
-        dayPart: offer.dayPart ?? null,
+        contentId: offer.contentId ?? undefined,
+        title: offer.title ?? undefined,
+        tier: offer.tier ?? undefined,
+        slot: offer.slot ?? undefined,
+        dayPart: offer.dayPart ?? undefined,
         phaseLabel,
         source: "MANAGER_AI",
         action,
@@ -3350,11 +3352,11 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
       fanId: id ?? undefined,
       meta: {
         creatorId: creatorId ?? undefined,
-        contentId: offer.contentId ?? null,
-        title: offer.title ?? null,
-        tier: offer.tier ?? null,
-        slot: offer.slot ?? null,
-        dayPart: offer.dayPart ?? null,
+        contentId: offer.contentId ?? undefined,
+        title: offer.title ?? undefined,
+        tier: offer.tier ?? undefined,
+        slot: offer.slot ?? undefined,
+        dayPart: offer.dayPart ?? undefined,
         phaseLabel,
         source: "MANAGER_AI",
         action,
@@ -7142,7 +7144,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
                       <label className="flex items-center gap-2">
                         <span>Tier</span>
                         <select
-                          value={playbookTierFilter}
+                          value={playbookTierFilter ?? "all"}
                           onChange={(event) =>
                             setPlaybookTierFilter(
                               event.target.value === "all" ? "all" : (event.target.value as PlaybookTier)
@@ -9105,7 +9107,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
     [id, openInternalPanelTab, requestTemplateDraft]
   );
 
-  const handleManagerChatKeyDown = (evt: KeyboardEvent<HTMLTextAreaElement>) => {
+  const handleManagerChatKeyDown = (evt: ReactKeyboardEvent<HTMLTextAreaElement>) => {
     if (evt.key === "Enter" && !evt.shiftKey) {
       evt.preventDefault();
       handleSendManagerChat();
@@ -9119,7 +9121,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
     await sendMessageText(trimmed, "INTERNAL", { preserveComposer: true });
   };
 
-  const handleInternalDraftKeyDown = (evt: KeyboardEvent<HTMLTextAreaElement>) => {
+  const handleInternalDraftKeyDown = (evt: ReactKeyboardEvent<HTMLTextAreaElement>) => {
     if (evt.key === "Enter" && !evt.shiftKey) {
       evt.preventDefault();
       void handleSendInternalDraft();
@@ -9339,7 +9341,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
     setOpenPanel("none");
   }
 
-  function handleSelectPackChip(event: MouseEvent<HTMLButtonElement>, type: "trial" | "monthly" | "special") {
+  function handleSelectPackChip(event: ReactMouseEvent<HTMLButtonElement>, type: "trial" | "monthly" | "special") {
     event.stopPropagation();
     setSelectedPackType(type);
     setShowPackSelector(true);
@@ -9347,7 +9349,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
     fillMessageFromPackType(type);
   }
 
-  function changeHandler(evt: KeyboardEvent<HTMLTextAreaElement>) {
+  function changeHandler(evt: ReactKeyboardEvent<HTMLTextAreaElement>) {
     const { key } = evt;
 
     if (isInternalPanelOpen) return;

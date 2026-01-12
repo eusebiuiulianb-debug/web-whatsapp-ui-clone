@@ -626,20 +626,23 @@ async function resolveStyleGuide(params: {
   };
 }
 
-function pickTemplateCandidate(params: {
-  templates: Array<{
+function pickTemplateCandidate<
+  T extends {
     id: string;
     stage: string;
     objective: string;
     intensity: string;
     playbook: string;
+    language: string;
     blocksJson: unknown;
-  }>;
+  }
+>(params: {
+  templates: T[];
   playbook: string | null;
   objective: string | null;
   intensity: string | null;
   stage: string | null;
-}) {
+}): T | null {
   let candidates = [...params.templates];
   const filters: Array<(tpl: (typeof params.templates)[number]) => boolean> = [];
   if (params.playbook) filters.push((tpl) => tpl.playbook === params.playbook);
