@@ -10,7 +10,8 @@ import {
   type AgencyStage,
 } from "@/lib/agency/types";
 import { normalizeObjectiveCode, resolveObjectiveForScoring } from "@/lib/agency/objectives";
-import { normalizeLocaleTag } from "@/lib/language";
+import { normalizeLocaleTag, normalizePreferredLanguage } from "@/lib/language";
+import { sanitizeAiDraftText } from "@/lib/text/sanitizeAiDraft";
 
 type DraftResponse =
   | {
@@ -46,18 +47,20 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
   const fanName = typeof body.fanName === "string" ? body.fanName.trim() : "";
   const lastFanMsg = typeof body.lastFanMsg === "string" ? body.lastFanMsg.trim() : "";
   const fanId = typeof body.fanId === "string" ? body.fanId.trim() : "";
-  let language = typeof body.language === "string" ? body.language.trim() : "";
+  const requestedLanguage = typeof body.language === "string" ? body.language.trim() : "";
+  let language = normalizeLocaleTag(requestedLanguage) || "";
   if (fanId) {
     const fan = await prisma.fan.findUnique({
       where: { id: fanId },
       select: { locale: true, preferredLanguage: true },
     });
-    const rawLocale = fan?.locale ?? fan?.preferredLanguage ?? "";
-    language = normalizeLocaleTag(rawLocale) || language;
-  }
-  language = normalizeLocaleTag(language) || language;
-  if (!language) {
-    language = "es";
+    language = resolveFanLanguage(
+      fan?.preferredLanguage ?? null,
+      fan?.locale ?? null,
+      language || null
+    );
+  } else {
+    language = resolveFanLanguage(null, null, language || null);
   }
   const mode = body.mode === "short" ? "short" : "full";
   const variant = typeof body.variant === "number" && Number.isFinite(body.variant) ? Math.max(0, Math.floor(body.variant)) : 0;
@@ -96,9 +99,11 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
       avoidText,
     });
 
+    const sanitizedDraft = sanitizeAiDraftText(result.text);
+
     return res.status(200).json({
       ok: true,
-      draft: result.text,
+      draft: sanitizedDraft,
       qa: result.qa,
       templateId: result.templateId ?? null,
       variant: result.variant,
@@ -126,4 +131,26 @@ async function resolveCreatorId(): Promise<string> {
     throw new Error("Creator not found");
   }
   return creator.id;
+}
+
+function resolveFanLanguage(
+  preferredLanguage?: string | null,
+  locale?: string | null,
+  fallback?: string | null
+): string {
+  const normalizedPreferred = normalizePreferred(preferredLanguage);
+  if (normalizedPreferred) return normalizedPreferred;
+  const normalizedLocale = normalizePreferred(locale);
+  if (normalizedLocale) return normalizedLocale;
+  const normalizedFallback = normalizePreferred(fallback);
+  if (normalizedFallback) return normalizedFallback;
+  return "es";
+}
+
+function normalizePreferred(value?: string | null): string | null {
+  const normalized = normalizeLocaleTag(value || "");
+  if (!normalized) return null;
+  const base = normalized.split("-")[0]?.toLowerCase() ?? "";
+  if (!base || base === "auto" || base === "un" || base === "?") return null;
+  return normalizePreferredLanguage(base);
 }

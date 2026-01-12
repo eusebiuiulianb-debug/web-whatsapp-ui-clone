@@ -3,6 +3,8 @@ import { z } from "zod";
 import prisma from "../../../../lib/prisma.server";
 import { createDefaultCreatorPlatforms } from "../../../../lib/creatorPlatforms";
 import { getEffectiveTranslateConfig } from "../../../../lib/ai/translateProvider";
+import { normalizePreferredLanguage } from "../../../../lib/language";
+import { sanitizeAiDraftText } from "../../../../lib/text/sanitizeAiDraft";
 import {
   getCortexProviderSelection,
   requestCortexCompletion,
@@ -121,15 +123,19 @@ export default async function handler(
   }
 
   let fanName: string | null = null;
+  let fanPreferredLanguage: string | null = null;
+  let fanLocale: string | null = null;
   if (targetFanId) {
     const fan = await prisma.fan.findUnique({
       where: { id: targetFanId },
-      select: { id: true, creatorId: true, displayName: true, name: true },
+      select: { id: true, creatorId: true, displayName: true, name: true, preferredLanguage: true, locale: true },
     });
     if (!fan || fan.creatorId !== creatorId) {
       return res.status(404).json({ error: "Fan not found", details: `fanId=${targetFanId}` });
     }
     fanName = fan.displayName ?? fan.name ?? null;
+    fanPreferredLanguage = fan.preferredLanguage ?? null;
+    fanLocale = fan.locale ?? null;
   }
 
   const settings =
@@ -139,7 +145,14 @@ export default async function handler(
     }));
 
   const translateConfig = await getEffectiveTranslateConfig(creatorId);
-  const creatorLang = translateConfig.creatorLang ?? "es";
+  const creatorLang = normalizeTargetLang(translateConfig.creatorLang ?? "es") ?? "es";
+  const fanLanguage = resolveFanLanguage({
+    preferredLanguage: fanPreferredLanguage,
+    locale: fanLocale,
+    detectedSource: context?.detected?.src ?? null,
+    detectedTarget: context?.detected?.tgt ?? null,
+    fallback: creatorLang,
+  });
 
   const history = targetFanId ? await loadRecentMessages(targetFanId) : [];
   const allowExplicitAdultContent = Boolean(settings.allowExplicitAdultContent);
@@ -174,10 +187,11 @@ export default async function handler(
     }
     return res.status(403).json({ error: errorMessage, code: "POLICY_BLOCKED", details: policyDecision.reason });
   }
-  const systemPrompt = buildSystemPrompt({ creatorLang, mode, settings });
+  const systemPrompt = buildSystemPrompt({ creatorLang, mode, settings, fanLanguage });
   const userPrompt = buildUserPrompt({
     mode,
     creatorLang,
+    fanLanguage,
     fanName,
     history,
     context,
@@ -221,10 +235,11 @@ export default async function handler(
     };
     parseErrorSnippet = buildErrorSnippet(llmResult.errorMessage ?? "");
   } else {
+    const fallbackMessage = sanitizeAiDraftText(llmResult.text.trim());
     const parsedResult = safeJsonParse(llmResult.text);
     const validated = responseSchema.safeParse(parsedResult.value);
     if (!validated.success) {
-      const fallbackText = resolveFallbackText(parsedResult.value, llmResult.text);
+      const fallbackText = sanitizeAiDraftText(resolveFallbackText(parsedResult.value, llmResult.text) || fallbackMessage);
       if (!fallbackText) {
         status = 500;
         errorCode = "JSON_PARSE";
@@ -236,7 +251,7 @@ export default async function handler(
       } else {
         responseBody = {
           message: fallbackText.trim(),
-          language: creatorLang,
+          language: fanLanguage,
           intent: "reply",
           follow_up_questions: [],
         };
@@ -245,8 +260,8 @@ export default async function handler(
       }
     } else {
       responseBody = {
-        message: validated.data.message.trim(),
-        language: validated.data.language.trim(),
+        message: sanitizeAiDraftText(validated.data.message).trim(),
+        language: fanLanguage,
         intent: validated.data.intent.trim(),
         follow_up_questions: validated.data.follow_up_questions.filter((q) => q && q.trim()),
       };
@@ -273,6 +288,7 @@ export default async function handler(
       context: {
         kind: CORTEX_USAGE_KIND,
         mode,
+        fanLanguage,
         errorSnippet: parseErrorSnippet ?? undefined,
       },
     });
@@ -397,7 +413,7 @@ async function handleMessageSuggestReply(
       responseBody = { ok: false, error: errorCode, message: errorMessage };
       parseErrorSnippet = buildErrorSnippet(llmResult.errorMessage ?? "");
     } else {
-      const fallbackMessage = llmResult.text.trim();
+      const fallbackMessage = sanitizeAiDraftText(llmResult.text.trim());
       const fallbackResponse: SuggestReplyResponse = {
         message: fallbackMessage,
         language: resolvedTargetLang,
@@ -407,7 +423,7 @@ async function handleMessageSuggestReply(
       const parsedResult = safeJsonParse(llmResult.text);
       const validated = responseSchema.safeParse(parsedResult.value);
       if (!validated.success) {
-        const fallbackText = resolveFallbackText(parsedResult.value, llmResult.text) || fallbackMessage;
+        const fallbackText = sanitizeAiDraftText(resolveFallbackText(parsedResult.value, llmResult.text) || fallbackMessage);
         if (!fallbackText) {
           status = 500;
           errorCode = "JSON_PARSE";
@@ -424,7 +440,7 @@ async function handleMessageSuggestReply(
           parseErrorSnippet = buildErrorSnippet(llmResult.text);
         }
       } else {
-        const messageText = normalizeOptional(validated.data.message) ?? fallbackMessage;
+        const messageText = sanitizeAiDraftText(normalizeOptional(validated.data.message) ?? fallbackMessage);
         responseBody = {
           message: messageText,
           language: resolvedTargetLang,
@@ -496,6 +512,34 @@ function normalizeMaxContextMessages(value?: unknown) {
   return DEFAULT_CONTEXT_MESSAGES;
 }
 
+function resolveFanLanguage(params: {
+  preferredLanguage?: string | null;
+  locale?: string | null;
+  detectedSource?: string | null;
+  detectedTarget?: string | null;
+  fallback?: string | null;
+}): string {
+  const preferred = normalizeFanLanguage(params.preferredLanguage);
+  if (preferred) return preferred;
+  const locale = normalizeFanLanguage(params.locale);
+  if (locale) return locale;
+  const detected =
+    normalizeFanLanguage(params.detectedSource) ?? normalizeFanLanguage(params.detectedTarget);
+  if (detected) return detected;
+  const fallback = normalizeFanLanguage(params.fallback);
+  if (fallback) return fallback;
+  return "es";
+}
+
+function normalizeFanLanguage(value?: string | null): string | null {
+  const normalized = normalizeTargetLang(value);
+  if (!normalized) return null;
+  const base = normalized.split("-")[0] || normalized;
+  const clean = base.toLowerCase();
+  if (!clean || clean === "auto" || clean === "un" || clean === "?") return null;
+  return normalizePreferredLanguage(clean) ?? clean;
+}
+
 function normalizeTargetLang(value?: string | null) {
   const trimmed = normalizeOptional(value);
   if (!trimmed) return null;
@@ -565,6 +609,8 @@ function buildCortexSuggestSystemPrompt(targetLang: string, allowExplicitAdultCo
     : "Evita contenido sexual explícito; mantén tono sugerente y consensuado.";
   return [
     `Responde SIEMPRE en ${targetLang}. Natural, corto, tono humano. No digas que eres IA.`,
+    "No incluyas traducciones, notas de idioma ni versiones bilingües.",
+    `El campo "message" debe ser SOLO el mensaje final en ${targetLang}, sin etiquetas ni explicaciones.`,
     explicitRule,
     "Devuelve SOLO un JSON válido (un único objeto). No agregues texto fuera del JSON.",
     'Formato estricto: {"message":string,"language":string,"intent":string,"follow_up_questions":string[]}',
@@ -647,6 +693,7 @@ function truncate(text: string, maxLen: number) {
 
 function buildSystemPrompt(args: {
   creatorLang: string;
+  fanLanguage: string;
   mode: SuggestMode;
   settings: {
     tone?: string | null;
@@ -675,7 +722,8 @@ function buildSystemPrompt(args: {
   return [
     "Eres el Manager IA de NOVSY. Respondes con una sugerencia para escribir al fan.",
     "Devuelve SIEMPRE un JSON válido (un único objeto). No agregues texto fuera del JSON.",
-    `Idioma objetivo del creador: ${args.creatorLang}. Si hay contexto de traducción con idioma detectado, responde en ese idioma.`,
+    `Idioma objetivo del creador: ${args.creatorLang}.`,
+    `Idioma del fan: ${args.fanLanguage}. Responde SOLO en ${args.fanLanguage}. No incluyas traducciones ni otro idioma.`,
     `Modo solicitado: ${args.mode}.`,
     `Tono base: ${tone}. Picante ${spiciness}/3. Formalidad ${formality}/3. Emojis ${emojiUsage}/3.`,
     explicitRule,
@@ -692,6 +740,7 @@ function buildSystemPrompt(args: {
 function buildUserPrompt(args: {
   mode: SuggestMode;
   creatorLang: string;
+  fanLanguage: string;
   fanName?: string | null;
   history: Array<{ role: string; text: string }>;
   context: CortexSuggestContext | null;
@@ -719,6 +768,7 @@ function buildUserPrompt(args: {
     modeHint,
     args.fanName ? `Fan: ${args.fanName}` : null,
     `Idioma objetivo del creador: ${args.creatorLang}`,
+    `Idioma para responder al fan: ${args.fanLanguage}. Responde solo en ${args.fanLanguage}.`,
     "Contexto de traducción:",
     contextBlock,
     "Historial reciente (hasta 40 mensajes):",

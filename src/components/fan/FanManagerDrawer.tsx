@@ -5,6 +5,7 @@ import { IconGlyph } from "../ui/IconGlyph";
 import type { FanManagerSummary } from "../../server/manager/managerService";
 import type { FanManagerChip, FanManagerState, FanTone, ManagerObjective } from "../../types/manager";
 import { scoreDraft } from "../../lib/agency/drafts";
+import { sanitizeAiDraftText } from "../../lib/text/sanitizeAiDraft";
 
 function formatObjectiveLabel(objective?: ManagerObjective | null) {
   switch (objective) {
@@ -157,6 +158,9 @@ type Props = {
   draftOutputLength?: DraftOutputLength;
   onDraftOutputLengthChange?: (length: DraftOutputLength) => void;
   fanLanguage?: string | null;
+  fanLanguageError?: string | null;
+  onPinLanguage?: () => void;
+  pinLanguageLoading?: boolean;
   managerIaMode?: "simple" | "advanced";
   onManagerIaModeChange?: (mode: "simple" | "advanced") => void;
 };
@@ -222,6 +226,9 @@ export default function FanManagerDrawer({
   draftOutputLength = "medium",
   onDraftOutputLengthChange,
   fanLanguage = null,
+  fanLanguageError = null,
+  onPinLanguage,
+  pinLanguageLoading = false,
   managerIaMode = "simple",
   onManagerIaModeChange,
 }: Props) {
@@ -238,6 +245,7 @@ export default function FanManagerDrawer({
   const managerHeadlineText =
     fanManagerHeadline || "Te ayuda a escribir mensajes claros, cercanos y profesionales.";
   const fanLanguageLabel = typeof fanLanguage === "string" && fanLanguage.trim() ? fanLanguage.trim().toUpperCase() : null;
+  const primaryDraftCtaLabel = "Usar en mensaje";
   const stateChips = fanManagerChips ?? [];
   const chipClass = (tone?: FanManagerChip["tone"]) =>
     clsx(
@@ -259,20 +267,14 @@ export default function FanManagerDrawer({
       : formatObjectiveLabel(suggestedObjective ?? null);
   const objectiveDetailLabel = agencyObjectiveLabel ?? suggestedObjectiveLabel;
   const toneLabel = formatToneLabel(tone);
-  const toneControlLabel = isSimpleMode ? "Nivel" : "Tono";
-  const toneOptions: Array<{ value: FanTone; label: string }> = isSimpleMode
-    ? [
-        { value: "suave", label: "Suave" },
-        { value: "intimo", label: "Picante" },
-        { value: "picante", label: "Directo" },
-      ]
-    : [
-        { value: "suave", label: "Suave" },
-        { value: "intimo", label: "Íntimo" },
-        { value: "picante", label: "Picante" },
-      ];
+  const toneControlLabel = "Tono";
+  const toneOptions: Array<{ value: FanTone; label: string }> = [
+    { value: "suave", label: "Suave" },
+    { value: "intimo", label: "Íntimo" },
+    { value: "picante", label: "Picante" },
+  ];
   const canChangeMode = Boolean(onManagerIaModeChange);
-  const showBolderAction = !isSimpleMode || tone !== "picante";
+  const showBolderAction = !isSimpleMode && tone !== "picante";
   const isObjectiveActive = (objective: ManagerObjective) => currentObjective === objective;
   const objectivesLocked = managerDisabled || isAutoPilotLoading || draftActionLoading;
   const isDraftActionLoading = (key: string) => draftActionLoading && draftActionKey === key;
@@ -377,7 +379,7 @@ export default function FanManagerDrawer({
                 ))}
               </div>
             )}
-            {tone && onChangeTone && (
+            {!isSimpleMode && tone && onChangeTone && (
               <div className="flex flex-wrap items-center gap-2">
                 <span className="text-[11px] text-[color:var(--muted)]">{toneControlLabel}</span>
                 {toneOptions.map((option) => (
@@ -488,9 +490,30 @@ export default function FanManagerDrawer({
                   </div>
                 )}
                 {fanLanguageLabel && (
-                  <div className="text-[11px] md:text-xs text-[color:var(--text)]">
-                    Idioma: <span className="text-[color:var(--brand)]">{fanLanguageLabel}</span>
+                  <div className="flex flex-wrap items-center gap-2 text-[11px] md:text-xs text-[color:var(--text)]">
+                    <span>
+                      Idioma: <span className="text-[color:var(--brand)]">{fanLanguageLabel}</span>
+                    </span>
+                    {managerIaMode === "advanced" && onPinLanguage && (
+                      <button
+                        type="button"
+                        onClick={onPinLanguage}
+                        disabled={pinLanguageLoading}
+                        className={clsx(
+                          "inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-[10px] font-semibold transition",
+                          pinLanguageLoading
+                            ? "cursor-wait border-[color:var(--surface-border)] bg-[color:var(--surface-2)] text-[color:var(--muted)]"
+                            : "border-[color:var(--surface-border)] bg-[color:var(--surface-1)] text-[color:var(--text)] hover:border-[color:var(--brand)]"
+                        )}
+                        title="Fija este idioma como preferido del fan."
+                      >
+                        {pinLanguageLoading ? "Guardando…" : "Fijar idioma"}
+                      </button>
+                    )}
                   </div>
+                )}
+                {managerIaMode === "advanced" && fanLanguageError && (
+                  <div className="text-[10px] text-[color:var(--danger)]">{fanLanguageError}</div>
                 )}
                 {summaryLine && (
                   <div className="text-[11px] md:text-xs text-[color:var(--muted)] truncate">{summaryLine}</div>
@@ -772,7 +795,9 @@ export default function FanManagerDrawer({
                   {!isSimpleMode && (
                     <div className="text-[10px] text-[color:var(--muted)]">{buildDraftMetaLine(draft.meta)}</div>
                   )}
-                  <div className="text-[12px] text-[color:var(--text)]">{draft.text}</div>
+                  <div className="text-[12px] text-[color:var(--text)]">
+                    {sanitizeAiDraftText(draft.text)}
+                  </div>
                   {!isSimpleMode && draft.offer && (
                     <div className="flex flex-wrap items-center gap-2">
                       <span className="inline-flex items-center rounded-full border border-[color:rgba(var(--brand-rgb),0.35)] bg-[color:rgba(var(--brand-rgb),0.12)] px-2.5 py-1 text-[10px] font-semibold text-[color:var(--text)]">
@@ -793,25 +818,27 @@ export default function FanManagerDrawer({
                       onClick={() => onApplySuggestion?.(draft.text, draft.label, `draft:${draft.id}`)}
                       className="inline-flex items-center rounded-full border border-[color:var(--brand)] bg-[color:rgba(var(--brand-rgb),0.12)] px-3 py-1 text-[11px] font-medium text-[color:var(--text)] hover:bg-[color:rgba(var(--brand-rgb),0.2)] transition"
                     >
-                      Usar en mensaje
+                      {primaryDraftCtaLabel}
                     </button>
-                    <button
-                      type="button"
-                      onClick={() => onDraftAction?.(draft.id, "alternate")}
-                      disabled={objectivesLocked}
-                      className={clsx(
-                        "inline-flex items-center rounded-full border px-2.5 py-1 text-[10px] font-semibold transition",
-                        objectivesLocked
-                          ? "border-[color:var(--surface-border)] bg-[color:var(--surface-2)] text-[color:var(--muted)] cursor-not-allowed"
-                          : isDraftActionLoading(draftActionKeyFor("draft", draft.id, "alternate"))
-                          ? "border-[color:var(--brand)] bg-[color:rgba(var(--brand-rgb),0.16)] text-[color:var(--text)]"
-                          : "border-[color:var(--surface-border)] bg-[color:var(--surface-2)] text-[color:var(--text)] hover:border-[color:var(--surface-border-hover)]"
-                      )}
-                    >
-                      {isDraftActionLoading(draftActionKeyFor("draft", draft.id, "alternate"))
-                        ? renderLoadingLabel()
-                        : "Otra versión"}
-                    </button>
+                    {!isSimpleMode && (
+                      <button
+                        type="button"
+                        onClick={() => onDraftAction?.(draft.id, "alternate")}
+                        disabled={objectivesLocked}
+                        className={clsx(
+                          "inline-flex items-center rounded-full border px-2.5 py-1 text-[10px] font-semibold transition",
+                          objectivesLocked
+                            ? "border-[color:var(--surface-border)] bg-[color:var(--surface-2)] text-[color:var(--muted)] cursor-not-allowed"
+                            : isDraftActionLoading(draftActionKeyFor("draft", draft.id, "alternate"))
+                            ? "border-[color:var(--brand)] bg-[color:rgba(var(--brand-rgb),0.16)] text-[color:var(--text)]"
+                            : "border-[color:var(--surface-border)] bg-[color:var(--surface-2)] text-[color:var(--text)] hover:border-[color:var(--surface-border-hover)]"
+                        )}
+                      >
+                        {isDraftActionLoading(draftActionKeyFor("draft", draft.id, "alternate"))
+                          ? renderLoadingLabel()
+                          : "Otra versión"}
+                      </button>
+                    )}
                     {!isSimpleMode && (
                       <button
                         type="button"
@@ -911,7 +938,9 @@ export default function FanManagerDrawer({
                 <div className="text-[10px] uppercase tracking-wide text-[color:var(--muted)]">
                   {suggestion.label}
                 </div>
-                <div className="text-[12px] text-[color:var(--text)]">{suggestion.message}</div>
+                <div className="text-[12px] text-[color:var(--text)]">
+                  {sanitizeAiDraftText(suggestion.message)}
+                </div>
                 {(() => {
                   const qa = scoreDraft(suggestion.message);
                   const warnings = qa.warnings.slice(0, 2).join(" · ");
@@ -996,7 +1025,9 @@ export default function FanManagerDrawer({
                   <div className="text-[10px] uppercase tracking-wide text-[color:var(--muted)]">
                     {suggestion.label}
                   </div>
-                  <div className="text-[12px] text-[color:var(--text)]">{suggestion.message}</div>
+                  <div className="text-[12px] text-[color:var(--text)]">
+                    {sanitizeAiDraftText(suggestion.message)}
+                  </div>
                   {(() => {
                     const qa = scoreDraft(suggestion.message);
                     const warnings = qa.warnings.slice(0, 2).join(" · ");

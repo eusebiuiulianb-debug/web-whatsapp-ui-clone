@@ -153,7 +153,7 @@ export default function LibraryPage() {
     setCreateDefaultsOverride({ visibility: "EXTRA", extraTier, extraSlot });
     setShowModal(true);
     void router.replace("/library", undefined, { shallow: true });
-  }, [router.isReady, router.query]);
+  }, [router, router.isReady, router.query]);
 
   useEffect(() => {
     if (!creatorId) return;

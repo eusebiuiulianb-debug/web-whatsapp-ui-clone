@@ -14,6 +14,7 @@ import {
   type SupportedLanguage,
 } from "../../../../lib/language";
 import { normalizeObjectiveCode } from "../../../../lib/agency/objectives";
+import { sanitizeAiDraftText } from "../../../../lib/text/sanitizeAiDraft";
 
 type DraftSuccessResponse = {
   ok: true;
@@ -77,6 +78,7 @@ const requestSchema = z.object({
   length: z.enum(["short", "medium", "long"]).optional(),
   outputLength: z.enum(["short", "medium", "long"]).optional(),
   variationOf: z.string().optional(),
+  uiLevel: z.enum(["simple", "advanced"]).optional(),
 });
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse<DraftResponse>) {
@@ -104,7 +106,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
     length: rawLength,
     outputLength: rawOutputLength,
     variationOf: rawVariationOf,
+    uiLevel,
   } = parsed.data;
+  const managerUiLevel = uiLevel ?? "advanced";
 
   const creatorId = await resolveCreatorId();
   const fan = await prisma.fan.findUnique({
@@ -232,6 +236,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
     playbook: style.playbook,
     intensity: agencyMeta?.intensity ?? null,
     stage: agencyMeta?.stage ?? null,
+    uiLevel: managerUiLevel,
   });
   const userPrompt = buildDraftUserPrompt({
     fanName: fan.displayName || fan.name || "este fan",
@@ -364,6 +369,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
         directness,
         outputLength,
         styleKey: style.styleKey ?? undefined,
+        uiLevel: managerUiLevel,
       },
     });
   } catch (err) {
@@ -571,6 +577,7 @@ function buildDraftSystemPrompt(params: {
   playbook: string | null;
   intensity: string | null;
   stage: string | null;
+  uiLevel: "simple" | "advanced";
 }): string {
   const explicitRule = params.allowExplicitAdultContent
     ? "Se permite lenguaje sexual explícito entre adultos con consentimiento."
@@ -591,6 +598,9 @@ function buildDraftSystemPrompt(params: {
     `Reply ONLY in ${params.language}. Do NOT include translations or bilingual text. No Spanish unless fanLanguage is 'es'.`,
     "If user switches language, follow the latest fanLanguage.",
     `Responde SIEMPRE en ${params.language}. No mezcles idiomas.`,
+    params.uiLevel === "simple"
+      ? "Modo Simple: devuelve 1 solo borrador final, claro y directo, con 1 CTA suave si aplica. No ofrezcas variantes, opciones ni bullets."
+      : "Incluye 1 micro-CTA según el objetivo; evita dar más de una opción.",
     `Longitud objetivo: ${sentences}.`,
     "Estructura sugerida: apertura coqueta + conexión/beneficio + micro-CTA + pregunta final (ajusta según longitud).",
     "Formato de salida base: 3–6 frases + 1 pregunta + 1 CTA opcional según objetivo.",
@@ -609,6 +619,7 @@ function buildDraftSystemPrompt(params: {
     "Si no hay señales de consentimiento/reciprocidad, mantén tono sugerente sin escalar agresivo.",
     "No menciones IA, modelos, prompts ni políticas.",
     "Devuelve SOLO el texto final del mensaje.",
+    "Devuelve SOLO el mensaje final. Sin etiquetas. Sin explicación.",
     `OBJECTIVE_KEY: ${params.objectiveKey}`,
     `OBJECTIVE_DESC: ${objectiveLabel}`,
     `CTA_RULE: ${params.objective.instruction}`,
@@ -1006,8 +1017,9 @@ async function resolveOfferHint(creatorId: string): Promise<string | null> {
 }
 
 function sanitizeDraftText(text: string): string {
-  const trimmed = text.trim();
-  if (!trimmed) return "";
+  const cleaned = sanitizeAiDraftText(text);
+  if (!cleaned) return "";
+  const trimmed = cleaned.trim();
   if (
     (trimmed.startsWith("\"") && trimmed.endsWith("\"")) ||
     (trimmed.startsWith("“") && trimmed.endsWith("”"))

@@ -373,6 +373,37 @@ export default function CreatorAiSettingsPage() {
     [defaultLibreUrl, defaultTranslateLang]
   );
 
+  const applyFormFromSettings = useCallback((next: CreatorAiSettings) => {
+    setSettings(next);
+    setForm({
+      tone: next.tone || "auto",
+      turnMode: next.turnMode || "auto",
+      creditsAvailable: Number.isFinite(next.creditsAvailable) ? next.creditsAvailable : 0,
+      hardLimitPerDay: next.hardLimitPerDay === null ? "" : next.hardLimitPerDay,
+      allowAutoLowPriority: next.allowAutoLowPriority,
+      allowExplicitAdultContent: next.allowExplicitAdultContent,
+      voiceTranscriptionMode: next.voiceTranscriptionMode,
+      voiceTranscriptionMinSeconds: Number.isFinite(next.voiceTranscriptionMinSeconds)
+        ? next.voiceTranscriptionMinSeconds
+        : "",
+      voiceTranscriptionDailyBudgetUsd: Number.isFinite(next.voiceTranscriptionDailyBudgetUsd)
+        ? next.voiceTranscriptionDailyBudgetUsd
+        : "",
+      voiceTranscriptionExtractIntentTags: next.voiceTranscriptionExtractIntentTags,
+      voiceTranscriptionSuggestReply: next.voiceTranscriptionSuggestReply,
+      platforms: normalizeCreatorPlatforms(next.platforms),
+    });
+    const provider = normalizeCortexProviderOption(next.cortexProvider) ?? "ollama";
+    setCortexForm({
+      provider,
+      baseUrl: next.cortexBaseUrl?.trim() || defaultCortexBaseUrl,
+      model: next.cortexModel?.trim() || defaultCortexModel,
+      apiKey: "",
+      apiKeySaved: Boolean(next.cortexApiKeySaved),
+      apiKeyInvalid: Boolean(next.cortexApiKeyInvalid),
+    });
+  }, [defaultCortexBaseUrl, defaultCortexModel]);
+
   const fetchSettings = useCallback(async (opts?: { silent?: boolean }) => {
     try {
       if (!opts?.silent) {
@@ -404,38 +435,7 @@ export default function CreatorAiSettingsPage() {
         setLoading(false);
       }
     }
-  }, [applyTranslateFormFromPayload, normalizeSettings]);
-
-  function applyFormFromSettings(next: CreatorAiSettings) {
-    setSettings(next);
-    setForm({
-      tone: next.tone || "auto",
-      turnMode: next.turnMode || "auto",
-      creditsAvailable: Number.isFinite(next.creditsAvailable) ? next.creditsAvailable : 0,
-      hardLimitPerDay: next.hardLimitPerDay === null ? "" : next.hardLimitPerDay,
-      allowAutoLowPriority: next.allowAutoLowPriority,
-      allowExplicitAdultContent: next.allowExplicitAdultContent,
-      voiceTranscriptionMode: next.voiceTranscriptionMode,
-      voiceTranscriptionMinSeconds: Number.isFinite(next.voiceTranscriptionMinSeconds)
-        ? next.voiceTranscriptionMinSeconds
-        : "",
-      voiceTranscriptionDailyBudgetUsd: Number.isFinite(next.voiceTranscriptionDailyBudgetUsd)
-        ? next.voiceTranscriptionDailyBudgetUsd
-        : "",
-      voiceTranscriptionExtractIntentTags: next.voiceTranscriptionExtractIntentTags,
-      voiceTranscriptionSuggestReply: next.voiceTranscriptionSuggestReply,
-      platforms: normalizeCreatorPlatforms(next.platforms),
-    });
-    const provider = normalizeCortexProviderOption(next.cortexProvider) ?? "ollama";
-    setCortexForm({
-      provider,
-      baseUrl: next.cortexBaseUrl?.trim() || defaultCortexBaseUrl,
-      model: next.cortexModel?.trim() || defaultCortexModel,
-      apiKey: "",
-      apiKeySaved: Boolean(next.cortexApiKeySaved),
-      apiKeyInvalid: Boolean(next.cortexApiKeyInvalid),
-    });
-  }
+  }, [applyFormFromSettings, applyTranslateFormFromPayload, normalizeSettings]);
 
   const fetchStatus = useCallback(async () => {
     try {

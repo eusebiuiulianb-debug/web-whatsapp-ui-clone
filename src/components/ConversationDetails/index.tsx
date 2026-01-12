@@ -85,6 +85,7 @@ import type { ManagerObjective as AutopilotObjective } from "../../lib/managerAu
 import type { FanManagerStateAnalysis } from "../../lib/fanManagerState";
 import type { FanTone, ManagerObjective } from "../../types/manager";
 import { track } from "../../lib/analyticsClient";
+import { sanitizeAiDraftText } from "../../lib/text/sanitizeAiDraft";
 import { ANALYTICS_EVENTS } from "../../lib/analyticsEvents";
 import { deriveAudience, isVisibleToFan, normalizeFrom } from "../../lib/messageAudience";
 import { getNearDuplicateSimilarity } from "../../lib/text/isNearDuplicate";
@@ -3344,43 +3345,49 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
     },
     [autoGrowTextarea]
   );
-  const focusMainMessageInput = (text: string, actionKey?: string | null) => {
-    setComposerTarget("fan");
-    setMessageSend(text);
-    setComposerActionKey(actionKey ?? null);
-    requestAnimationFrame(() => {
-      adjustMessageInputHeight();
-      const input = messageInputRef.current;
-      if (input) {
-        input.focus();
-        const len = text.length;
-        input.setSelectionRange(len, len);
-        input.scrollIntoView({ block: "nearest" });
-      }
-    });
-  };
-  const insertComposerTextWithUndo = (
-    nextText: string,
-    options: { title: string; detail?: string; forceFan?: boolean; actionKey?: string }
-  ) => {
-    const previousText = messageSend;
-    if (!id || !nextText.trim()) return;
-    insertIntoCurrentComposer({
-      target: "fan",
-      fanId: id,
-      mode: "fan",
-      text: nextText,
-      actionKey: options.actionKey,
-    });
-    showInlineAction({
-      kind: "ok",
-      title: options.title,
-      detail: options.detail,
-      undoLabel: "Deshacer",
-      onUndo: () => focusMainMessageInput(previousText, null),
-      ttlMs: 9000,
-    });
-  };
+  const adjustMessageInputHeight = useCallback(() => {
+    autoGrowTextarea(messageInputRef.current, MAX_MAIN_COMPOSER_HEIGHT);
+  }, [autoGrowTextarea]);
+  const focusMainMessageInput = useCallback(
+    (text: string, actionKey?: string | null) => {
+      setComposerTarget("fan");
+      setMessageSend(text);
+      setComposerActionKey(actionKey ?? null);
+      requestAnimationFrame(() => {
+        adjustMessageInputHeight();
+        const input = messageInputRef.current;
+        if (input) {
+          input.focus();
+          const len = text.length;
+          input.setSelectionRange(len, len);
+          input.scrollIntoView({ block: "nearest" });
+        }
+      });
+    },
+    [adjustMessageInputHeight]
+  );
+  const insertComposerTextWithUndo = useCallback(
+    (nextText: string, options: { title: string; detail?: string; forceFan?: boolean; actionKey?: string }) => {
+      const previousText = messageSend;
+      if (!id || !nextText.trim()) return;
+      insertIntoCurrentComposer({
+        target: "fan",
+        fanId: id,
+        mode: "fan",
+        text: nextText,
+        actionKey: options.actionKey,
+      });
+      showInlineAction({
+        kind: "ok",
+        title: options.title,
+        detail: options.detail,
+        undoLabel: "Deshacer",
+        onUndo: () => focusMainMessageInput(previousText, null),
+        ttlMs: 9000,
+      });
+    },
+    [focusMainMessageInput, id, messageSend, showInlineAction]
+  );
   const resolveIntentActionKey = (intent?: string | null) => {
     switch (intent) {
       case "romper_hielo":
@@ -3407,7 +3414,9 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
   };
 
   const handleApplyManagerSuggestion = (text: string, detail?: string, actionKeyOrIntent?: string) => {
-    const filled = text.replace("{nombre}", getFirstName(contactName) || contactName || "");
+    const filled = sanitizeAiDraftText(
+      text.replace("{nombre}", getFirstName(contactName) || contactName || "")
+    );
     const actionKey = resolveActionKeyValue(actionKeyOrIntent);
     handleUseManagerReplyAsMainMessage(filled, detail, actionKey);
   };
@@ -4109,8 +4118,13 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
       usage === "pack_offer" && conversation.extraLadderStatus?.suggestedTier
         ? suggestedText.replace(/Pack especial/gi, `Pack especial ${conversation.extraLadderStatus.suggestedTier}`)
         : suggestedText;
-    await fillMessageForFan(enriched, `template:${usage}`);
-    await logTemplateUsage(enriched, usage);
+    const sanitized = sanitizeAiDraftText(enriched);
+    if (!sanitized) {
+      setIaMessage("No se pudo generar la sugerencia de IA.");
+      return;
+    }
+    await fillMessageForFan(sanitized, `template:${usage}`);
+    await logTemplateUsage(sanitized, usage);
     if (usage === "extra_quick") {
       const nextFilter = timeOfDay === "NIGHT" ? "night" : "day";
       setTimeOfDayFilter(nextFilter as TimeOfDayFilter);
@@ -6664,7 +6678,8 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
               onAutopilotMakeBolder={handleAutopilotMakeBolder}
               agencyObjectiveLabel={agencyObjectiveLabel}
               agencyStyleLabel={agencyStyleLabel}
-              fanLanguage={preferredLanguage ?? null}
+              fanLanguage={effectiveLanguage}
+              fanLanguageError={preferredLanguageError}
               draftActionPhase={draftActionPhase}
               draftActionError={draftActionError}
               onDraftCancel={handleDraftCancel}
@@ -6673,6 +6688,8 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
               draftActionLoading={draftActionState.status === "loading"}
               draftDirectnessById={draftDirectnessById}
               draftOutputLength={draftOutputLength}
+              onPinLanguage={managerIaMode === "advanced" ? () => void handlePinLanguage() : undefined}
+              pinLanguageLoading={preferredLanguageSaving}
               onDraftOutputLengthChange={(nextLength) => {
                 if (!id) return;
                 setDraftOutputLengthById((prev) => ({ ...prev, [id]: nextLength }));
@@ -9050,10 +9067,10 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
     }
   }, []);
 
-  const buildDraftActionKey = (scope: "objective" | "draft", id: string, action?: string) => {
+  const buildDraftActionKey = useCallback((scope: "objective" | "draft", id: string, action?: string) => {
     if (scope === "draft") return `draft:${id}:${action ?? "variant"}`;
     return `objective:${id}`;
-  };
+  }, []);
 
   const resolveDraftObjectiveKey = useCallback((objective: ManagerObjective | null) => {
     if (!objective) return "BREAK_ICE";
@@ -9135,9 +9152,10 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
         offer?: PpvOffer | null;
       }
     ) => {
+      const sanitizedText = sanitizeAiDraftText(text);
       return {
         id: `draft-${Date.now()}-${Math.random().toString(16).slice(2)}`,
-        text,
+        text: sanitizedText,
         label: options.label ?? draftSourceLabel(options.source),
         source: options.source,
         createdAt: new Date().toISOString(),
@@ -9244,6 +9262,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
             directness: resolvedOptions.directness ?? "neutro",
             outputLength: resolvedOptions.outputLength ?? outputLength,
             variationOf: resolvedOptions.variationOf ?? undefined,
+            uiLevel: managerIaMode,
           }),
         });
         const data = await res.json().catch(() => ({}));
@@ -9261,14 +9280,15 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
           throw new Error(errorMessage || fallback);
         }
         const draftText = typeof data?.draft === "string" ? data.draft.trim() : "";
-        if (!draftText) {
+        const sanitizedDraft = sanitizeAiDraftText(draftText);
+        if (!sanitizedDraft) {
           throw new Error("No se pudo generar el borrador.");
         }
         const detectedLanguage = normalizePreferredLanguage(data?.language);
         if (detectedLanguage) {
           setPreferredLanguage((prev) => (prev === detectedLanguage ? prev : detectedLanguage));
         }
-        return draftText;
+        return sanitizedDraft;
       } catch (err) {
         if (draftActionRequestIdRef.current !== requestId) {
           return null;
@@ -9302,6 +9322,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
       draftOutputLength,
       fanTone,
       id,
+      managerIaMode,
       showComposerToast,
       startDraftActionPhaseTimers,
     ]
@@ -9451,6 +9472,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
       setDraftDirectnessById,
       updateDraftCard,
       draftOutputLength,
+      ppvPhase,
     ]
   );
 
@@ -9866,10 +9888,6 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
     setCortexFlowAutoNext(nextValue);
     updateCortexFlowState({ ...cortexFlow, autoNext: nextValue });
   }, [cortexFlow, cortexFlowAutoNext, updateCortexFlowState]);
-
-  const adjustMessageInputHeight = () => {
-    autoGrowTextarea(messageInputRef.current, MAX_MAIN_COMPOSER_HEIGHT);
-  };
 
   const getLastCreatorMessage = useCallback(() => {
     for (let i = messages.length - 1; i >= 0; i -= 1) {
@@ -11198,6 +11216,11 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
     } finally {
       setPreferredLanguageSaving(false);
     }
+  };
+
+  const handlePinLanguage = async () => {
+    const targetLanguage = effectiveLanguage;
+    await handlePreferredLanguageChange(targetLanguage);
   };
 
   const closeEditNameModal = () => {

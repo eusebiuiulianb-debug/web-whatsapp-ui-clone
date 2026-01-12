@@ -1,5 +1,7 @@
 import { Prisma } from "@prisma/client";
 import prisma from "../../lib/prisma.server";
+import { normalizeLocaleTag, normalizePreferredLanguage } from "../../lib/language";
+import { sanitizeAiDraftText } from "../../lib/text/sanitizeAiDraft";
 import { emitCreatorEvent } from "../realtimeHub";
 import { safeOpenAiChatCompletion } from "../ai/openAiClient";
 import { getVoiceTranscriptionProvider } from "./voiceTranscriptionProviders";
@@ -58,7 +60,7 @@ function parseIntentJson(raw: string): VoiceIntentJson | null {
     if (intent) result.intent = intent;
     if (tags.length > 0) result.tags = Array.from(new Set(tags));
     if (needsReply) result.needsReply = true;
-    if (replyDraft) result.replyDraft = replyDraft;
+    if (replyDraft) result.replyDraft = sanitizeAiDraftText(replyDraft);
     if (!result.intent && !result.tags && !result.needsReply && !result.replyDraft) return null;
     return result;
   } catch (_err) {
@@ -66,8 +68,9 @@ function parseIntentJson(raw: string): VoiceIntentJson | null {
   }
 }
 
-async function generateIntentTags(params: { transcriptText: string; creatorId: string; fanId: string }) {
-  const prompt = `Devuelve SOLO JSON con las claves: intent (string), tags (array de strings), needsReply (boolean), replyDraft (string).\n\nTranscripción:\n"""${params.transcriptText}"""`;
+async function generateIntentTags(params: { transcriptText: string; creatorId: string; fanId: string; fanLanguage: string }) {
+  const languageRule = `Idioma del fan: ${params.fanLanguage}. Si generas replyDraft, escribe SOLO en ${params.fanLanguage} sin traducciones ni prefijos.`;
+  const prompt = `Devuelve SOLO JSON con las claves: intent (string), tags (array de strings), needsReply (boolean), replyDraft (string en ${params.fanLanguage}).\n${languageRule}\n\nTranscripción:\n"""${params.transcriptText}"""`;
   const result = await safeOpenAiChatCompletion({
     messages: [
       {
@@ -157,11 +160,13 @@ export async function runVoiceNoteTranscription(job: TranscriptionJob) {
 
   if (result.status === "DONE") {
     const shouldGenerateIntent = Boolean(job.extractIntentTags || job.suggestReply);
+    const fanLanguage = shouldGenerateIntent ? await resolveVoiceFanLanguage(job.fanId) : "es";
     let intentJson = shouldGenerateIntent
       ? await generateIntentTags({
           transcriptText: result.transcriptText,
           creatorId: job.creatorId,
           fanId: job.fanId,
+          fanLanguage,
         })
       : undefined;
     if (intentJson) {
@@ -217,4 +222,24 @@ export async function markTranscriptPending(params: { messageId: string }) {
       intentJson: Prisma.JsonNull,
     },
   });
+}
+
+async function resolveVoiceFanLanguage(fanId: string): Promise<string> {
+  const fan = await prisma.fan.findUnique({
+    where: { id: fanId },
+    select: { preferredLanguage: true, locale: true },
+  });
+  const preferred = normalizeVoiceLanguage(fan?.preferredLanguage);
+  if (preferred) return preferred;
+  const locale = normalizeVoiceLanguage(fan?.locale);
+  if (locale) return locale;
+  return "es";
+}
+
+function normalizeVoiceLanguage(value?: string | null): string | null {
+  const normalized = normalizeLocaleTag(value || "");
+  if (!normalized) return null;
+  const base = normalized.split("-")[0]?.toLowerCase() ?? "";
+  if (!base || base === "auto" || base === "un" || base === "?") return null;
+  return normalizePreferredLanguage(base);
 }
