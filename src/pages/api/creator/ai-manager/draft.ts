@@ -6,7 +6,13 @@ import { getCortexProviderSelection, requestCortexCompletion, type CortexChatMes
 import { logCortexLlmUsage } from "../../../../lib/aiUsage.server";
 import { evaluateAdultPolicy } from "../../../../server/ai/adultPolicy";
 import { buildErrorSnippet, resolveProviderErrorType } from "../../../../server/ai/cortexErrors";
-import { getLabel, normalizeLocale, normalizeLocaleTag, normalizePreferredLanguage } from "../../../../lib/language";
+import {
+  getLabel,
+  normalizeLocale,
+  normalizeLocaleTag,
+  normalizePreferredLanguage,
+  type SupportedLanguage,
+} from "../../../../lib/language";
 import { normalizeObjectiveCode } from "../../../../lib/agency/objectives";
 
 type DraftSuccessResponse = {
@@ -134,10 +140,20 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
   const maxTokens = MAX_TOKENS_BY_LENGTH[outputLength];
   const temperature = resolveTemperature({ directness, variationOf });
 
-  const language = resolveDraftLanguage({
-    locale: fan.locale,
+  const { language: fanLanguage, shouldUpdatePreferredLanguage } = await resolveFanLanguage({
+    fanId: fan.id,
     preferredLanguage: fan.preferredLanguage,
   });
+  if (shouldUpdatePreferredLanguage) {
+    try {
+      await prisma.fan.update({
+        where: { id: fan.id },
+        data: { preferredLanguage: fanLanguage },
+      });
+    } catch (err) {
+      console.warn("fan_language_update_failed", err);
+    }
+  }
   const contextMessages = await loadContextMessages(fan.id, 12);
   const policyDecision = evaluateAdultPolicy({
     text: selectedMessageText ?? variationOf ?? "",
@@ -186,7 +202,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
   const objectiveMeta = await resolveObjectiveMeta({
     creatorId,
     objectiveKey,
-    locale: language,
+    locale: fanLanguage,
   });
   const style = await resolveStyleGuide({
     creatorId,
@@ -196,14 +212,14 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
     intensity: agencyMeta?.intensity ?? null,
     stage: agencyMeta?.stage ?? null,
     tone,
-    locale: language,
+    locale: fanLanguage,
   });
 
   const historyKey = buildDraftHistoryKey({ fanId: fan.id, actionKey, objectiveKey });
   const recentDrafts = readDraftHistory(historyKey);
   const offerHint = await resolveOfferHint(creatorId);
   const systemPrompt = buildDraftSystemPrompt({
-    language,
+    language: fanLanguage,
     tone,
     directness,
     outputLength,
@@ -357,7 +373,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
   return res.status(200).json({
     ok: true,
     draft: draftText,
-    language,
+    language: fanLanguage,
     objective: objectiveMeta.label ?? null,
     styleKey: style.styleKey ?? null,
   });
@@ -443,11 +459,78 @@ function normalizeObjectiveKey(value: string): string {
   return normalized;
 }
 
-function resolveDraftLanguage(params: { locale?: string | null; preferredLanguage?: string | null }): string {
-  const normalizedLocale = normalizeLocaleTag(params.locale ?? "");
-  if (normalizedLocale) return normalizedLocale.split("-")[0];
-  const preferred = normalizePreferredLanguage(params.preferredLanguage ?? "");
-  return preferred ?? "es";
+async function resolveFanLanguage(params: {
+  fanId: string;
+  preferredLanguage?: string | null;
+}): Promise<{ language: SupportedLanguage; shouldUpdatePreferredLanguage: boolean }> {
+  const storedLanguage = normalizeDetectedLanguage(params.preferredLanguage);
+  const { lastMessageLanguage, mostFrequentLanguage } = await detectRecentFanLanguage(params.fanId, 3);
+  const detectedLanguage = lastMessageLanguage ?? mostFrequentLanguage ?? null;
+
+  let resolvedLanguage = storedLanguage ?? detectedLanguage ?? "es";
+  let shouldUpdatePreferredLanguage = false;
+
+  if (detectedLanguage && detectedLanguage !== storedLanguage) {
+    resolvedLanguage = detectedLanguage;
+    shouldUpdatePreferredLanguage = true;
+  } else if (!storedLanguage) {
+    shouldUpdatePreferredLanguage = true;
+  }
+
+  return { language: resolvedLanguage, shouldUpdatePreferredLanguage };
+}
+
+function normalizeDetectedLanguage(value?: string | null): SupportedLanguage | null {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  const normalized = normalizeLocaleTag(trimmed);
+  if (!normalized) return null;
+  const base = normalized.split("-")[0]?.toLowerCase() ?? "";
+  if (!base || base === "auto" || base === "un" || base === "?") return null;
+  return normalizePreferredLanguage(base);
+}
+
+async function detectRecentFanLanguage(
+  fanId: string,
+  limit: number
+): Promise<{ lastMessageLanguage: SupportedLanguage | null; mostFrequentLanguage: SupportedLanguage | null }> {
+  const messages = await prisma.message.findMany({
+    where: { fanId, from: "fan" },
+    orderBy: { id: "desc" },
+    take: limit,
+    select: {
+      transcriptLang: true,
+      messageTranslations: {
+        select: { detectedSourceLang: true },
+        orderBy: { createdAt: "desc" },
+        take: 1,
+      },
+    },
+  });
+
+  const samples = messages.map((message) => {
+    const translationLang = normalizeDetectedLanguage(message.messageTranslations?.[0]?.detectedSourceLang ?? null);
+    return translationLang ?? normalizeDetectedLanguage(message.transcriptLang ?? null);
+  });
+
+  const lastMessageLanguage = samples[0] ?? null;
+  const frequency = new Map<SupportedLanguage, number>();
+  for (const lang of samples) {
+    if (!lang) continue;
+    frequency.set(lang, (frequency.get(lang) ?? 0) + 1);
+  }
+
+  let mostFrequentLanguage: SupportedLanguage | null = null;
+  let highestCount = 0;
+  for (const [lang, count] of frequency.entries()) {
+    if (count > highestCount) {
+      mostFrequentLanguage = lang;
+      highestCount = count;
+    }
+  }
+
+  return { lastMessageLanguage, mostFrequentLanguage };
 }
 
 function resolveTemperature(params: { directness: DraftDirectness; variationOf: string | null }): number {
@@ -505,7 +588,9 @@ function buildDraftSystemPrompt(params: {
       : "OutputLength=MEDIA: 3–6 frases.";
   const lines = [
     "Eres el Manager IA de NOVSY. Escribes un borrador para que el creador responda al fan.",
-    `Responde SIEMPRE en ${params.language}.`,
+    `Reply ONLY in ${params.language}. Do NOT include translations or bilingual text. No Spanish unless fanLanguage is 'es'.`,
+    "If user switches language, follow the latest fanLanguage.",
+    `Responde SIEMPRE en ${params.language}. No mezcles idiomas.`,
     `Longitud objetivo: ${sentences}.`,
     "Estructura sugerida: apertura coqueta + conexión/beneficio + micro-CTA + pregunta final (ajusta según longitud).",
     "Formato de salida base: 3–6 frases + 1 pregunta + 1 CTA opcional según objetivo.",

@@ -156,6 +156,7 @@ type Props = {
   draftDirectnessById?: Record<string, DraftDirectness | null>;
   draftOutputLength?: DraftOutputLength;
   onDraftOutputLengthChange?: (length: DraftOutputLength) => void;
+  fanLanguage?: string | null;
   managerIaMode?: "simple" | "advanced";
   onManagerIaModeChange?: (mode: "simple" | "advanced") => void;
 };
@@ -220,6 +221,7 @@ export default function FanManagerDrawer({
   draftDirectnessById = {},
   draftOutputLength = "medium",
   onDraftOutputLengthChange,
+  fanLanguage = null,
   managerIaMode = "simple",
   onManagerIaModeChange,
 }: Props) {
@@ -235,6 +237,7 @@ export default function FanManagerDrawer({
   const managerDisabled = isBlocked;
   const managerHeadlineText =
     fanManagerHeadline || "Te ayuda a escribir mensajes claros, cercanos y profesionales.";
+  const fanLanguageLabel = typeof fanLanguage === "string" && fanLanguage.trim() ? fanLanguage.trim().toUpperCase() : null;
   const stateChips = fanManagerChips ?? [];
   const chipClass = (tone?: FanManagerChip["tone"]) =>
     clsx(
@@ -287,7 +290,7 @@ export default function FanManagerDrawer({
   const renderLoadingLabel = () => (
     <span className="inline-flex items-center gap-1.5">
       <span className="h-3 w-3 animate-spin rounded-full border-2 border-[color:var(--surface-border)] border-t-transparent" />
-      <span>Generando...</span>
+      <span>{isSimpleMode ? "Pensando..." : "Generando..."}</span>
     </span>
   );
 
@@ -451,8 +454,8 @@ export default function FanManagerDrawer({
               <div className="mt-2 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-3 py-2">
                 <div className="inline-flex items-center gap-2 text-[11px] text-[color:var(--text)]">
                   <span className="h-3 w-3 animate-spin rounded-full border-2 border-[color:var(--surface-border)] border-t-transparent" />
-                  <span>Generando…</span>
-                  {draftActionPhase && (
+                  <span>{isSimpleMode ? "Pensando…" : "Generando…"}</span>
+                  {!isSimpleMode && draftActionPhase && (
                     <span className="text-[color:var(--muted)]">{draftActionPhase}</span>
                   )}
                 </div>
@@ -482,6 +485,11 @@ export default function FanManagerDrawer({
                 {agencyStyleLabel && (
                   <div className="text-[11px] md:text-xs text-[color:var(--text)]">
                     Estilo actual: <span className="text-[color:var(--brand)]">{agencyStyleLabel}</span>
+                  </div>
+                )}
+                {fanLanguageLabel && (
+                  <div className="text-[11px] md:text-xs text-[color:var(--text)]">
+                    Idioma: <span className="text-[color:var(--brand)]">{fanLanguageLabel}</span>
                   </div>
                 )}
                 {summaryLine && (
@@ -750,7 +758,7 @@ export default function FanManagerDrawer({
           {draftActionLoading && (
             <div className="inline-flex items-center gap-2 text-[11px] text-[color:var(--text)]">
               <span className="h-3 w-3 animate-spin rounded-full border-2 border-[color:var(--surface-border)] border-t-transparent" />
-              <span>{hasDrafts ? "Generando…" : "Pensando…"}</span>
+              <span>{isSimpleMode ? "Pensando…" : hasDrafts ? "Generando…" : "Pensando…"}</span>
             </div>
           )}
           {visibleDraftCards.length > 0 && (

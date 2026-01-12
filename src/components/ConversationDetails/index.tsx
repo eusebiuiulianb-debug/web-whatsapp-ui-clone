@@ -6625,6 +6625,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
               onAutopilotMakeBolder={handleAutopilotMakeBolder}
               agencyObjectiveLabel={agencyObjectiveLabel}
               agencyStyleLabel={agencyStyleLabel}
+              fanLanguage={preferredLanguage ?? null}
               draftActionPhase={draftActionPhase}
               draftActionError={draftActionError}
               onDraftCancel={handleDraftCancel}
@@ -9223,6 +9224,10 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
         const draftText = typeof data?.draft === "string" ? data.draft.trim() : "";
         if (!draftText) {
           throw new Error("No se pudo generar el borrador.");
+        }
+        const detectedLanguage = normalizePreferredLanguage(data?.language);
+        if (detectedLanguage) {
+          setPreferredLanguage((prev) => (prev === detectedLanguage ? prev : detectedLanguage));
         }
         return draftText;
       } catch (err) {
