@@ -41,6 +41,14 @@ const MAX_TOKENS_BY_LENGTH: Record<DraftLength, number> = {
   long: 420,
 };
 
+type DraftHistoryEntry = { drafts: string[]; updatedAt: number };
+
+const DRAFT_HISTORY_CACHE = new Map<string, DraftHistoryEntry>();
+const DRAFT_HISTORY_TTL_MS = 60 * 60 * 1000;
+const MAX_DRAFT_HISTORY_KEYS = 200;
+const MAX_DRAFT_HISTORY = 3;
+const MAX_DRAFT_HISTORY_CHARS = 700;
+
 const DEFAULT_STYLE_GUIDES: Record<string, string> = {
   novia_cercana:
     "Cercana, cálida y natural. Usa frases cortas, detalles cotidianos y trato humano. Sin postureo.",
@@ -56,6 +64,7 @@ const requestSchema = z.object({
   conversationId: z.string().min(1),
   messageId: z.string().optional(),
   objectiveKey: z.string().min(1),
+  actionKey: z.string().optional(),
   styleKey: z.string().optional(),
   tone: z.enum(["suave", "intimo", "picante"]).optional(),
   directness: z.enum(["suave", "neutro", "directo"]).optional(),
@@ -82,6 +91,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
     conversationId,
     messageId,
     objectiveKey: rawObjectiveKey,
+    actionKey: rawActionKey,
     styleKey: rawStyleKey,
     tone: rawTone,
     directness: rawDirectness,
@@ -119,6 +129,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
   const directness = resolveDirectness(rawDirectness);
   const outputLength = resolveLength(rawOutputLength ?? rawLength);
   const objectiveKey = normalizeObjectiveKey(rawObjectiveKey);
+  const actionKey = normalizeOptional(rawActionKey);
   const variationOf = normalizeOptional(rawVariationOf);
   const maxTokens = MAX_TOKENS_BY_LENGTH[outputLength];
   const temperature = resolveTemperature({ directness, variationOf });
@@ -188,6 +199,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
     locale: language,
   });
 
+  const historyKey = buildDraftHistoryKey({ fanId: fan.id, actionKey, objectiveKey });
+  const recentDrafts = readDraftHistory(historyKey);
   const offerHint = await resolveOfferHint(creatorId);
   const systemPrompt = buildDraftSystemPrompt({
     language,
@@ -200,6 +213,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
     styleKey: style.styleKey,
     styleGuide: style.styleGuide,
     styleSummary: style.styleSummary,
+    playbook: style.playbook,
+    intensity: agencyMeta?.intensity ?? null,
+    stage: agencyMeta?.stage ?? null,
   });
   const userPrompt = buildDraftUserPrompt({
     fanName: fan.displayName || fan.name || "este fan",
@@ -207,6 +223,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
     selectedMessage: selectedMessageText,
     variationOf,
     offerHint,
+    recentDrafts,
   });
 
   const selection = await getCortexProviderSelection({ creatorId });
@@ -242,6 +259,14 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
     }
     return res.status(501).json({ ok: false, error: "CORTEX_NOT_CONFIGURED", message: errorMessage });
   }
+
+  console.info("manager_draft_debug", {
+    outputLength,
+    resolvedMaxTokens: maxTokens,
+    objectiveKey,
+    playbook: style.playbook ?? null,
+    usedFallback: style.usedFallback,
+  });
 
   const llmResult = await requestCortexCompletion({
     messages: [
@@ -301,6 +326,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
   if (!draftText) {
     return res.status(500).json({ ok: false, error: "CORTEX_FAILED", message: "La IA no devolvió texto." });
   }
+
+  writeDraftHistory(historyKey, draftText);
 
   try {
     await logCortexLlmUsage({
@@ -370,6 +397,34 @@ function normalizeOptional(value?: string | null): string | null {
   return trimmed ? trimmed : null;
 }
 
+function buildDraftHistoryKey(params: { fanId: string; actionKey: string | null; objectiveKey: string }): string {
+  const action = params.actionKey ?? `objective:${params.objectiveKey}`;
+  return `${params.fanId}:${action}`;
+}
+
+function readDraftHistory(key: string): string[] {
+  const entry = DRAFT_HISTORY_CACHE.get(key);
+  if (!entry) return [];
+  if (Date.now() - entry.updatedAt > DRAFT_HISTORY_TTL_MS) {
+    DRAFT_HISTORY_CACHE.delete(key);
+    return [];
+  }
+  return entry.drafts;
+}
+
+function writeDraftHistory(key: string, draft: string): void {
+  const normalized = truncate(draft.trim(), MAX_DRAFT_HISTORY_CHARS);
+  if (!normalized) return;
+  const previous = readDraftHistory(key);
+  const merged = [normalized, ...previous].filter((value, index, arr) => arr.indexOf(value) === index);
+  const next = merged.slice(0, MAX_DRAFT_HISTORY);
+  DRAFT_HISTORY_CACHE.set(key, { drafts: next, updatedAt: Date.now() });
+  if (DRAFT_HISTORY_CACHE.size > MAX_DRAFT_HISTORY_KEYS) {
+    const oldestKey = DRAFT_HISTORY_CACHE.keys().next().value;
+    if (oldestKey) DRAFT_HISTORY_CACHE.delete(oldestKey);
+  }
+}
+
 function normalizeObjectiveKey(value: string): string {
   const normalized = value.trim().toUpperCase().replace(/[^A-Z0-9]+/g, "_");
   if (!normalized) return "BREAK_ICE";
@@ -402,9 +457,9 @@ function resolveTemperature(params: { directness: DraftDirectness; variationOf: 
 }
 
 function resolveSentenceRange(length: DraftLength): string {
-  if (length === "short") return "1–2 frases";
-  if (length === "long") return "5–8 frases";
-  return "2–4 frases";
+  if (length === "short") return "1–3 frases";
+  if (length === "long") return "6–10 frases";
+  return "3–6 frases";
 }
 
 function resolveToneInstruction(tone: DraftTone): string {
@@ -430,28 +485,41 @@ function buildDraftSystemPrompt(params: {
   styleKey: string | null;
   styleGuide: string | null;
   styleSummary: string | null;
+  playbook: string | null;
+  intensity: string | null;
+  stage: string | null;
 }): string {
   const explicitRule = params.allowExplicitAdultContent
     ? "Se permite lenguaje sexual explícito entre adultos con consentimiento."
     : "Evita contenido sexual explícito; mantén tono sugerente y consensuado.";
   const sentences = resolveSentenceRange(params.outputLength);
   const objectiveLabel = params.objective.label ?? params.objectiveKey;
+  const playbookVoice = resolvePlaybookVoice(params.playbook);
+  const intensityGuide = resolveIntensityInstruction(params.intensity);
+  const stageRule = resolveStageInstruction(params.stage);
   const outputLengthHint =
     params.outputLength === "short"
-      ? "Si outputLength=CORTA, reduce a 1–2 frases."
+      ? "Si outputLength=CORTA, reduce a 1–3 frases."
       : params.outputLength === "long"
-      ? "Si outputLength=LARGA, extiende a 5–8 frases."
-      : "OutputLength=NORMAL: 2–4 frases.";
+      ? "Si outputLength=LARGA, extiende a 6–10 frases y desarrolla más sin repetir."
+      : "OutputLength=MEDIA: 3–6 frases.";
   const lines = [
     "Eres el Manager IA de NOVSY. Escribes un borrador para que el creador responda al fan.",
     `Responde SIEMPRE en ${params.language}.`,
     `Longitud objetivo: ${sentences}.`,
-    "Formato de salida base: 2–4 frases + 1 pregunta + 1 CTA opcional según objetivo.",
+    "Estructura sugerida: apertura coqueta + conexión/beneficio + micro-CTA + pregunta final (ajusta según longitud).",
+    "Formato de salida base: 3–6 frases + 1 pregunta + 1 CTA opcional según objetivo.",
     outputLengthHint,
     "Termina con 1 pregunta concreta.",
-    "Incluye 1 micro-CTA solo si el objetivo lo requiere; para BREAK_ICE usa CTA suave o ninguno.",
+    "Incluye 1 micro-CTA según el objetivo; para BREAK_ICE usa CTA suave o ninguno.",
+    "Si el objetivo es venta, empuja la propuesta de forma natural y humana, sin presión.",
+    "No repitas halagos ni arranques; evita frases cliché como “Eres maravilla”.",
+    "No repitas la misma frase dentro del mensaje ni el nombre del fan más de 1 vez.",
+    playbookVoice,
+    intensityGuide,
     resolveToneInstruction(params.tone),
     resolveDirectnessInstruction(params.directness),
+    stageRule,
     explicitRule,
     "Si no hay señales de consentimiento/reciprocidad, mantén tono sugerente sin escalar agresivo.",
     "No menciones IA, modelos, prompts ni políticas.",
@@ -472,14 +540,26 @@ function buildDraftUserPrompt(params: {
   selectedMessage: string | null;
   variationOf: string | null;
   offerHint: string | null;
+  recentDrafts: string[];
 }): string {
   const shouldMentionCatalog = params.objectiveKey === "UPSELL_EXTRA";
+  const recentDrafts = params.recentDrafts
+    .map((draft) => draft.trim())
+    .filter((draft) => draft && draft !== params.variationOf);
+  const recentDraftsBlock =
+    recentDrafts.length > 0
+      ? `ULTIMOS_BORRADORES (NO repetir frases/arranques/halagos similares):\n${recentDrafts
+          .slice(0, MAX_DRAFT_HISTORY)
+          .map((draft) => `- ${truncate(draft, 240)}`)
+          .join("\n")}`
+      : null;
   const lines = [
     `Fan: ${params.fanName}`,
     params.selectedMessage ? `Mensaje seleccionado: ${truncate(params.selectedMessage, 320)}` : null,
     params.variationOf
       ? `NO repitas estas frases ni estructura:\n${truncate(params.variationOf, 420)}`
       : null,
+    recentDraftsBlock,
     shouldMentionCatalog
       ? params.offerHint
         ? `CATALOGO_EXTRA: ${params.offerHint}`
@@ -524,17 +604,17 @@ async function resolveObjectiveMeta(params: {
 function resolveObjectiveInstruction(objectiveKey: string): string {
   switch (objectiveKey) {
     case "BREAK_ICE":
-      return "Invita a responder y propone algo ligero para seguir la conversación.";
+      return "Coqueteo + cercanía + siguiente paso. Invita a responder con un avance suave.";
     case "UPSELL_EXTRA":
-      return "Menciona 1 extra/pack si hay catálogo disponible; si no, usa un CTA genérico tipo “te enseño algo especial”.";
+      return "Ofrece 1 extra/pack concreto (si hay catálogo). No regales explícito gratis; deja claro que el extra es de pago.";
     case "CONVERT_MONTHLY":
-      return "Destaca 1 beneficio del mensual y pregunta si le encaja probarlo.";
+      return "Destaca 1 beneficio del mensual y lanza una invitación clara a probarlo.";
     case "PROPOSE_1ON1":
       return "Propón un 1:1 con ventana de tiempo concreta y pregunta si le va bien.";
     case "REENGAGE":
-      return "Reactiva el hilo con cercanía y una pregunta sencilla para volver a hablar.";
+      return "Reactiva el hilo con cercanía, coqueteo leve y una pregunta sencilla para volver a hablar.";
     case "RENEWAL":
-      return "Recuerda la renovación y pregunta si quiere mantener el acceso.";
+      return "Recuerda la renovación con un beneficio y pregunta si quiere mantener el acceso.";
     default:
       return "Invita a responder con una pregunta concreta y cercana.";
   }
@@ -568,8 +648,15 @@ async function resolveStyleGuide(params: {
   stage: string | null;
   tone: DraftTone;
   locale: string;
-}): Promise<{ styleGuide: string | null; styleKey: string | null; styleSummary: string | null }> {
+}): Promise<{
+  styleGuide: string | null;
+  styleKey: string | null;
+  styleSummary: string | null;
+  playbook: string | null;
+  usedFallback: boolean;
+}> {
   const normalizedStyleKey = normalizeOptional(params.styleKey);
+  const normalizedPlaybook = normalizePlaybookValue(params.playbook);
   const candidates = normalizeLocale(params.locale || "es");
   if (!candidates.includes("es")) candidates.push("es");
 
@@ -591,16 +678,19 @@ async function resolveStyleGuide(params: {
     ? templates.find((template) => template.id === normalizedStyleKey) ?? null
     : null;
 
-  const playbook = resolvePlaybookKey(normalizedStyleKey) ?? params.playbook;
+  const playbookFromStyleKey = resolvePlaybookKey(normalizedStyleKey);
+  const fallbackPlaybook = playbookFromStyleKey ?? normalizedPlaybook;
   if (!selected && templates.length > 0) {
     selected = pickTemplateCandidate({
       templates,
-      playbook,
+      playbook: fallbackPlaybook,
       objective: params.objectiveCode,
       intensity: params.intensity,
       stage: params.stage,
     });
   }
+  const templatePlaybook = normalizePlaybookValue(selected?.playbook ?? null);
+  const playbook = templatePlaybook ?? fallbackPlaybook;
 
   if (selected) {
     const styleGuide = buildStyleGuideFromBlocks(selected.blocksJson);
@@ -609,6 +699,8 @@ async function resolveStyleGuide(params: {
         styleGuide,
         styleKey: selected.id,
         styleSummary: buildStyleSummary(styleGuide),
+        playbook,
+        usedFallback: false,
       };
     }
   }
@@ -623,6 +715,8 @@ async function resolveStyleGuide(params: {
     styleGuide: fallbackGuide ?? null,
     styleKey: fallbackKey ?? null,
     styleSummary: fallbackGuide ? buildStyleSummary(fallbackGuide) : null,
+    playbook,
+    usedFallback: true,
   };
 }
 
@@ -670,10 +764,11 @@ function resolveFallbackStyleKey(params: {
   tone: DraftTone;
 }): string | null {
   if (params.styleKey && DEFAULT_STYLE_GUIDES[params.styleKey]) return params.styleKey;
-  if (params.playbook === "GIRLFRIEND") return "novia_cercana";
-  if (params.playbook === "PLAYFUL") return "juguetona";
-  if (params.playbook === "ELEGANT") return "elegante";
-  if (params.playbook === "SOFT_DOMINANT") return "intensa";
+  const normalizedPlaybook = normalizePlaybookValue(params.playbook);
+  if (normalizedPlaybook === "GIRLFRIEND") return "novia_cercana";
+  if (normalizedPlaybook === "PLAYFUL") return "juguetona";
+  if (normalizedPlaybook === "ELEGANT") return "elegante";
+  if (normalizedPlaybook === "SOFT_DOMINANT") return "intensa";
   if (params.tone === "picante") return "intensa";
   if (params.tone === "suave") return "elegante";
   return "novia_cercana";
@@ -707,6 +802,44 @@ function buildStyleSummary(styleGuide: string | null, maxLen = 160): string | nu
   const firstLine = trimmed.split("\n").map((line) => line.trim()).find(Boolean) ?? trimmed;
   if (firstLine.length <= maxLen) return firstLine;
   return `${firstLine.slice(0, maxLen - 1)}…`;
+}
+
+function normalizePlaybookValue(value?: string | null): string | null {
+  if (!value) return null;
+  const normalized = value.trim().toUpperCase();
+  return normalized ? normalized : null;
+}
+
+function resolvePlaybookVoice(playbook: string | null): string | null {
+  const normalized = normalizePlaybookValue(playbook);
+  if (normalized === "GIRLFRIEND") return "Voz novia cercana: cálida, personal y coqueta, con cercanía cotidiana.";
+  if (normalized === "PLAYFUL") return "Voz juguetona: teasing ligero, chispa y ritmo ágil.";
+  if (normalized === "ELEGANT") return "Voz elegante: sensual contenida, sofisticada y sin prisa.";
+  if (normalized === "SOFT_DOMINANT") return "Voz dominante suave: guía y retadora, segura pero sin agresividad.";
+  return null;
+}
+
+function resolveIntensityInstruction(intensity: string | null): string | null {
+  const normalized = normalizePlaybookValue(intensity);
+  if (!normalized) return null;
+  if (normalized.includes("SOFT") || normalized.includes("LOW")) {
+    return "Intensidad suave: vocabulario tierno, ritmo calmado y cercano.";
+  }
+  if (normalized.includes("INTENSE") || normalized.includes("HIGH")) {
+    return "Intensidad alta: más directo y seguro, sin vulgaridad.";
+  }
+  if (normalized.includes("MED") || normalized.includes("MID")) {
+    return "Intensidad media: coqueteo claro y equilibrado.";
+  }
+  return null;
+}
+
+function resolveStageInstruction(stage: string | null): string | null {
+  const normalized = normalizePlaybookValue(stage);
+  if (normalized === "BOUNDARY") {
+    return "STAGE=BOUNDARY: si el fan pide explícito gratis o insiste en gratis, pon un límite breve y redirige a extra/pack/llamada. Sin moralina ni rechazo duro.";
+  }
+  return null;
 }
 
 async function loadMessageText(messageId: string, fanId: string): Promise<string | null> {

@@ -160,8 +160,18 @@ type ManagerSuggestionIntent = "romper_hielo" | "pregunta_simple" | "cierre_suav
 type SuggestionVariantMode = "alternate" | "shorter";
 type DraftVariantMode = "alternate" | "shorter" | "softer" | "bolder";
 type DraftLength = "short" | "medium" | "long";
+type ManagerIaMode = "simple" | "advanced";
 type DraftDirectness = "suave" | "neutro" | "directo";
+type PpvPhase = "suave" | "picante" | "directo" | "final";
 type DraftActionState = { status: "idle" | "loading"; key: string | null };
+type DraftRequestOptions = {
+  objectiveKey: string;
+  tone?: FanTone | null;
+  directness?: DraftDirectness;
+  outputLength?: DraftLength;
+  variationOf?: string | null;
+  actionKey: string;
+};
 type DraftSource = "reformular" | "citar" | "autosuggest";
 type PpvOffer = {
   contentId?: string;
@@ -186,9 +196,20 @@ type DraftCard = {
   createdAt: string;
   tone?: FanTone | null;
   objective?: ManagerObjective | null;
+  meta?: DraftMeta | null;
   selectedText?: string | null;
   basePrompt?: string | null;
   offer?: PpvOffer | null;
+};
+type DraftMeta = {
+  stageLabel: string;
+  objectiveLabel: string;
+  intensityLabel: string;
+  styleLabel: string;
+  toneLabel: string;
+  lengthLabel: string;
+  primaryActionLabel?: string | null;
+  ppvPhaseLabel?: string | null;
 };
 type FanTemplateTone = "suave" | "intimo" | "picante" | "any";
 type FanTemplateCategory = "greeting" | "question" | "closing";
@@ -277,6 +298,7 @@ const DUPLICATE_ACTION_WINDOW_MS = 6 * 60 * 60 * 1000;
 const DUPLICATE_BYPASS_WINDOW_MS = 5 * 60 * 1000;
 const FAN_SEND_COOLDOWN_MS = 15000;
 const LAST_SENT_STORAGE_PREFIX = "novsy:lastSent:";
+const MANAGER_IA_MODE_STORAGE_KEY = "managerIaMode";
 const VOICE_MAX_DURATION_MS = 120_000;
 const VOICE_MAX_SIZE_BYTES = 10 * 1024 * 1024;
 const VOICE_MIN_SIZE_BYTES = 2 * 1024;
@@ -816,7 +838,7 @@ const buildPlaybooksFromApi = (templates: ApiAiTemplate[] | null | undefined): P
       const content = typeof tpl.content === "string" ? tpl.content.trim() : "";
       if (!content) return null;
       const objective = resolvePlaybookObjective(tpl.category);
-      const title = typeof tpl.name === "string" && tpl.name.trim() ? tpl.name.trim() : "Plantilla personalizada";
+      const title = typeof tpl.name === "string" && tpl.name.trim() ? tpl.name.trim() : "Guion personalizado";
       const categoryTag = typeof tpl.category === "string" ? tpl.category.trim().toLowerCase() : "";
       const toneTag = typeof tpl.tone === "string" ? tpl.tone.trim().toLowerCase() : "";
       const tier = resolveApiPlaybookTier(tpl.tier ?? null);
@@ -824,7 +846,7 @@ const buildPlaybooksFromApi = (templates: ApiAiTemplate[] | null | undefined): P
       return {
         id: `api-${tpl.id ?? `template-${index}`}`,
         title,
-        description: `Plantilla personalizada para ${PLAYBOOK_OBJECTIVE_LABELS[objective]}.`,
+        description: `Guion personalizado para ${PLAYBOOK_OBJECTIVE_LABELS[objective]}.`,
         tier,
         moment: "ANY",
         objective,
@@ -1055,6 +1077,15 @@ function normalizeSearchText(value: string) {
     .toLowerCase()
     .normalize("NFD")
     .replace(/[\u0300-\u036f]/g, "");
+}
+
+function normalizeObjectiveName(value: string) {
+  return value
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 function getReengageTemplate(name: string) {
@@ -1860,6 +1891,9 @@ export default function ConversationDetails({ onBackToBoard }: ConversationDetai
   const [ objectiveCodeDraft, setObjectiveCodeDraft ] = useState("");
   const [ objectiveCreateError, setObjectiveCreateError ] = useState<string | null>(null);
   const [ objectiveCreateSaving, setObjectiveCreateSaving ] = useState(false);
+  const [ objectiveManagerOpen, setObjectiveManagerOpen ] = useState(false);
+  const [ objectiveDeleteId, setObjectiveDeleteId ] = useState<string | null>(null);
+  const [ objectiveDeleteError, setObjectiveDeleteError ] = useState<string | null>(null);
   const [ objectiveTranslations, setObjectiveTranslations ] = useState<ObjectiveLabels>({});
   const [ objectiveTranslateLoading, setObjectiveTranslateLoading ] = useState(false);
   const [ objectiveTranslateError, setObjectiveTranslateError ] = useState<string | null>(null);
@@ -1909,8 +1943,14 @@ export default function ConversationDetails({ onBackToBoard }: ConversationDetai
   const [ draftCardsByFan, setDraftCardsByFan ] = useState<Record<string, DraftCard[]>>({});
   const [ generatedDraftsByFan, setGeneratedDraftsByFan ] = useState<Record<string, DraftCard[]>>({});
   const [ draftActionState, setDraftActionState ] = useState<DraftActionState>({ status: "idle", key: null });
+  const [ draftActionPhase, setDraftActionPhase ] = useState<string | null>(null);
+  const [ draftActionError, setDraftActionError ] = useState<string | null>(null);
   const [ draftDirectnessById, setDraftDirectnessById ] = useState<Record<string, DraftDirectness | null>>({});
   const [ draftOutputLengthById, setDraftOutputLengthById ] = useState<Record<string, DraftLength>>({});
+  const draftActionAbortRef = useRef<AbortController | null>(null);
+  const draftActionPhaseTimersRef = useRef<Array<ReturnType<typeof setTimeout>>>([]);
+  const draftLastRequestRef = useRef<DraftRequestOptions | null>(null);
+  const draftActionRequestIdRef = useRef(0);
   const [ internalPanelTab, setInternalPanelTab ] = useState<InternalPanelTab>("manager");
   const [ , setTranslationPreviewStatus ] = useState<
     "idle" | "loading" | "ready" | "unavailable" | "error"
@@ -2083,8 +2123,54 @@ export default function ConversationDetails({ onBackToBoard }: ConversationDetai
     [conversation, messages]
   );
   const [ fanTone, setFanTone ] = useState<FanTone>(() => getDefaultFanTone(fanManagerAnalysis.state));
+  const [ managerIaMode, setManagerIaMode ] = useState<ManagerIaMode>("simple");
   const [ hasManualTone, setHasManualTone ] = useState(false);
+  const [ ppvPhase, setPpvPhase ] = useState<PpvPhase>("suave");
+  const previousObjectiveRef = useRef<ManagerObjective | null>(null);
   const draftOutputLength = id ? (draftOutputLengthById[id] ?? "medium") : "medium";
+  const isManagerIaSimple = managerIaMode === "simple";
+  const clearDraftActionPhaseTimers = useCallback(() => {
+    draftActionPhaseTimersRef.current.forEach((timer) => clearTimeout(timer));
+    draftActionPhaseTimersRef.current = [];
+  }, []);
+  const startDraftActionPhaseTimers = useCallback(() => {
+    clearDraftActionPhaseTimers();
+    setDraftActionPhase("Pensando…");
+    draftActionPhaseTimersRef.current = [
+      setTimeout(() => setDraftActionPhase("Afinando el tono…"), 2500),
+      setTimeout(() => setDraftActionPhase("Casi listo…"), 6000),
+    ];
+  }, [clearDraftActionPhaseTimers]);
+
+  useEffect(() => {
+    return () => {
+      clearDraftActionPhaseTimers();
+      if (draftActionAbortRef.current) {
+        draftActionAbortRef.current.abort();
+      }
+    };
+  }, [clearDraftActionPhaseTimers]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    try {
+      const storedMode = localStorage.getItem(MANAGER_IA_MODE_STORAGE_KEY);
+      if (storedMode === "simple" || storedMode === "advanced") {
+        setManagerIaMode(storedMode);
+      }
+    } catch (_err) {
+      // ignore storage errors
+    }
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    try {
+      localStorage.setItem(MANAGER_IA_MODE_STORAGE_KEY, managerIaMode);
+    } catch (_err) {
+      // ignore storage errors
+    }
+  }, [managerIaMode]);
   const playbooks = useMemo(() => {
     const merged: Playbook[] = [];
     const seen = new Set<string>();
@@ -2192,31 +2278,43 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
   }, [objectiveOptions]);
   const objectiveSelectOptions = useMemo(() => {
     const options: Array<{ code: string; label: string; active: boolean; isBuiltIn: boolean }> = [];
+    const seenNames = new Map<string, { code: string; label: string; active: boolean; isBuiltIn: boolean }>();
+    const addOption = (entry: { code: string; label: string; active: boolean; isBuiltIn: boolean }) => {
+      const normalizedName = normalizeObjectiveName(entry.label);
+      const existing = seenNames.get(normalizedName);
+      if (existing) {
+        const currentObjective = normalizeObjectiveCode(agencyDraft?.objective) ?? agencyDraft?.objective ?? null;
+        if (currentObjective && entry.code === currentObjective && existing.code !== currentObjective) {
+          existing.code = entry.code;
+          existing.active = entry.active;
+          existing.isBuiltIn = entry.isBuiltIn;
+        }
+        return;
+      }
+      seenNames.set(normalizedName, entry);
+      options.push(entry);
+    };
     BUILT_IN_OBJECTIVES.forEach((code) => {
       const label =
         resolveObjectiveLabel({ code, locale: objectiveLocale, labelsByCode: objectiveLabelsByCode }) ?? code;
-      options.push({ code, label, active: true, isBuiltIn: true });
+      addOption({ code, label, active: true, isBuiltIn: true });
     });
-    const custom: Array<{ code: string; label: string; active: boolean; isBuiltIn: boolean }> = [];
     objectiveOptions.forEach((objective) => {
       const normalized = normalizeObjectiveCode(objective.code) ?? objective.code;
       if (!normalized || isBuiltInObjectiveCode(normalized)) return;
-      if (custom.some((entry) => entry.code === normalized)) return;
       const label =
         resolveObjectiveLabel({ code: normalized, locale: objectiveLocale, labelsByCode: objectiveLabelsByCode }) ??
         normalized;
-      custom.push({ code: normalized, label, active: objective.active, isBuiltIn: false });
+      addOption({ code: normalized, label, active: objective.active, isBuiltIn: false });
     });
-    custom.sort((a, b) => a.label.localeCompare(b.label, objectiveLocale));
-    const combined = [...options, ...custom];
     const currentObjective = normalizeObjectiveCode(agencyDraft?.objective) ?? agencyDraft?.objective ?? null;
-    if (currentObjective && !combined.some((entry) => entry.code === currentObjective)) {
+    if (currentObjective && !options.some((entry) => entry.code === currentObjective)) {
       const label =
         resolveObjectiveLabel({ code: currentObjective, locale: objectiveLocale, labelsByCode: objectiveLabelsByCode }) ??
         currentObjective;
-      combined.push({ code: currentObjective, label, active: true, isBuiltIn: false });
+      addOption({ code: currentObjective, label, active: true, isBuiltIn: false });
     }
-    return combined;
+    return options;
   }, [agencyDraft?.objective, objectiveLabelsByCode, objectiveLocale, objectiveOptions]);
   const agencyObjectiveLabel = useMemo(() => {
     const code = normalizeObjectiveCode(agencyDraft?.objective) ?? agencyDraft?.objective ?? null;
@@ -2466,6 +2564,38 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
     objectiveOptions,
     objectiveTranslations,
   ]);
+
+  const handleDeleteObjective = useCallback(
+    async (objective: ObjectiveOption) => {
+      if (!objective?.id || objectiveDeleteId) return;
+      setObjectiveDeleteError(null);
+      setObjectiveDeleteId(objective.id);
+      try {
+        const res = await fetch(`/api/creator/agency/objectives/${objective.id}`, {
+          method: "DELETE",
+          headers: { "Content-Type": "application/json" },
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok || data?.ok !== true) {
+          throw new Error(data?.error || res.statusText);
+        }
+        const currentCode = normalizeObjectiveCode(agencyDraft?.objective) ?? agencyDraft?.objective ?? null;
+        const deletedCode = normalizeObjectiveCode(objective.code) ?? objective.code;
+        if (currentCode && deletedCode && currentCode === deletedCode) {
+          const fallbackObjective = BUILT_IN_OBJECTIVES[0] ?? "BREAK_ICE";
+          setAgencyDraft((prev) => (prev ? { ...prev, objective: fallbackObjective } : prev));
+        }
+        setObjectiveOptions((prev) => prev.filter((entry) => entry.id !== objective.id));
+        await fetchObjectives();
+      } catch (err) {
+        console.error("Error deleting objective", err);
+        setObjectiveDeleteError("No se pudo eliminar el objetivo.");
+      } finally {
+        setObjectiveDeleteId(null);
+      }
+    },
+    [agencyDraft?.objective, fetchObjectives, objectiveDeleteId]
+  );
 
   const handleObjectiveAutoTranslate = useCallback(async () => {
     if (objectiveTranslateLoading) return;
@@ -3438,6 +3568,21 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
     if (tone === "suave") return "Suave";
     if (tone === "picante") return "Picante";
     if (tone === "intimo") return "Íntimo";
+    return null;
+  }
+
+  function formatLengthLabel(length?: DraftLength | null) {
+    if (length === "short") return "Corta";
+    if (length === "long") return "Larga";
+    if (length === "medium") return "Media";
+    return null;
+  }
+
+  function formatPpvPhaseLabel(phase?: PpvPhase | null) {
+    if (phase === "suave") return "Suave";
+    if (phase === "picante") return "Picante";
+    if (phase === "directo") return "Directo";
+    if (phase === "final") return "Final";
     return null;
   }
 
@@ -6105,6 +6250,8 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
     const renderInternalManagerContent = () => (
       <div className="space-y-3">
         <div className="px-4 py-3 space-y-3">
+          {!isManagerIaSimple && (
+            <>
           <div className="rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] p-3 space-y-2">
             <div className="flex items-center justify-between gap-2 text-[10px] font-semibold text-[color:var(--muted)]">
               <span>Agency OS</span>
@@ -6152,6 +6299,25 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
                       <option value="__create__">+ Crear objetivo</option>
                     </select>
                   </label>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (!objectivesLoading) {
+                        void fetchObjectives();
+                      }
+                      setObjectiveDeleteError(null);
+                      setObjectiveManagerOpen(true);
+                    }}
+                    disabled={agencySaving || objectivesLoading}
+                    className={clsx(
+                      "inline-flex items-center rounded-full border px-3 py-1 text-[10px] font-semibold transition",
+                      agencySaving || objectivesLoading
+                        ? "border-[color:var(--surface-border)] bg-[color:var(--surface-1)] text-[color:var(--muted)] cursor-not-allowed"
+                        : "border-[color:var(--surface-border)] bg-[color:var(--surface-1)] text-[color:var(--text)] hover:border-[color:var(--surface-border-hover)]"
+                    )}
+                  >
+                    Gestionar objetivos
+                  </button>
                   <label className="flex items-center gap-2">
                     <span>Intensidad</span>
                     <select
@@ -6174,7 +6340,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
                     </select>
                   </label>
                   <label className="flex items-center gap-2">
-                    <span>Playbook</span>
+                    <span>Estilo</span>
                     <select
                       value={agencyDraft.playbook}
                       onChange={(event) =>
@@ -6405,6 +6571,8 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
               </div>
             </div>
           )}
+            </>
+          )}
           <div className="rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] p-3">
             <FanManagerDrawer
               managerSuggestions={managerSuggestions}
@@ -6457,6 +6625,10 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
               onAutopilotMakeBolder={handleAutopilotMakeBolder}
               agencyObjectiveLabel={agencyObjectiveLabel}
               agencyStyleLabel={agencyStyleLabel}
+              draftActionPhase={draftActionPhase}
+              draftActionError={draftActionError}
+              onDraftCancel={handleDraftCancel}
+              onDraftRetry={handleDraftRetry}
               draftActionKey={draftActionState.key}
               draftActionLoading={draftActionState.status === "loading"}
               draftDirectnessById={draftDirectnessById}
@@ -6465,105 +6637,110 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
                 if (!id) return;
                 setDraftOutputLengthById((prev) => ({ ...prev, [id]: nextLength }));
               }}
+              managerIaMode={managerIaMode}
+              onManagerIaModeChange={setManagerIaMode}
             />
           </div>
-          <div className="space-y-3">
-            <div className="text-[11px] font-semibold text-[color:var(--muted)]">Conversación con Manager IA</div>
-            <div className="rounded-2xl border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] p-3 space-y-4">
-              {managerChatMessages.length === 0 && (
-                <div className="text-[11px] text-[color:var(--muted)]">Aún no has preguntado al Manager IA.</div>
-              )}
-              {managerChatMessages.map((msg) => {
-                const isCreator = msg.role === "creator";
-                const isManager = msg.role === "manager";
-                const isSystem = msg.role === "system";
-                const bubbleClass = clsx(
-                  "rounded-2xl px-4 py-2.5 text-xs leading-relaxed whitespace-pre-wrap break-words [overflow-wrap:anywhere]",
-                  "[&_a]:underline [&_a]:underline-offset-2",
-                  isCreator
-                    ? "bg-[color:var(--brand-weak)] text-[color:var(--text)] border border-[color:rgba(var(--brand-rgb),0.24)]"
-                    : isManager
-                    ? "bg-[color:var(--surface-1)] text-[color:var(--text)] border border-[color:var(--surface-border)]"
-                    : "bg-[color:var(--surface-2)] text-[color:var(--muted)] border border-[color:var(--surface-border)]"
-                );
-                return (
-                  <div
-                    key={msg.id}
-                    className={clsx(
-                      "flex w-full",
-                      isSystem ? "justify-center" : isCreator ? "justify-end" : "justify-start"
-                    )}
-                  >
+          {!isManagerIaSimple && (
+            <div className="space-y-3">
+              <div className="text-[11px] font-semibold text-[color:var(--muted)]">Conversación con Manager IA</div>
+              <div className="rounded-2xl border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] p-3 space-y-4">
+                {managerChatMessages.length === 0 && (
+                  <div className="text-[11px] text-[color:var(--muted)]">Aún no has preguntado al Manager IA.</div>
+                )}
+                {managerChatMessages.map((msg) => {
+                  const isCreator = msg.role === "creator";
+                  const isManager = msg.role === "manager";
+                  const isSystem = msg.role === "system";
+                  const bubbleClass = clsx(
+                    "rounded-2xl px-4 py-2.5 text-xs leading-relaxed whitespace-pre-wrap break-words [overflow-wrap:anywhere]",
+                    "[&_a]:underline [&_a]:underline-offset-2",
+                    isCreator
+                      ? "bg-[color:var(--brand-weak)] text-[color:var(--text)] border border-[color:rgba(var(--brand-rgb),0.24)]"
+                      : isManager
+                      ? "bg-[color:var(--surface-1)] text-[color:var(--text)] border border-[color:var(--surface-border)]"
+                      : "bg-[color:var(--surface-2)] text-[color:var(--muted)] border border-[color:var(--surface-border)]"
+                  );
+                  return (
                     <div
+                      key={msg.id}
                       className={clsx(
-                        "flex flex-col gap-1",
-                        isSystem ? "items-center max-w-[85%]" : "w-full",
-                        isCreator ? "items-end" : "items-start"
+                        "flex w-full",
+                        isSystem ? "justify-center" : isCreator ? "justify-end" : "justify-start"
                       )}
                     >
-                      {!isSystem && (
-                        <span className="text-[10px] uppercase tracking-wide text-[color:var(--muted)]">
-                          {isCreator ? "Tú" : "Manager IA"}
-                        </span>
-                      )}
-                      {isSystem ? (
-                        <div className="rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-3 py-1 text-[10px] uppercase tracking-wide text-[color:var(--muted)] text-center">
-                          {msg.text}
-                        </div>
-                      ) : (
-                        <div className={clsx(bubbleClass, "max-w-[75%]")}>{msg.text}</div>
-                      )}
-                      {isManager && (
-                        <>
-                          <button
-                            type="button"
-                            onClick={() =>
-                              handleUseManagerReplyAsMainMessage(msg.text, msg.title ?? "Manager IA", `manager:chat:${msg.id}`)
-                            }
-                            className={clsx("mt-1", inlineActionButtonClass)}
-                          >
-                            Usar en mensaje
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => handleTemplateRewrite(msg.text)}
-                            className={clsx("mt-1", inlineActionButtonClass)}
-                          >
-                            Rehacer con plantilla
-                          </button>
-                          {msg.qa && (
-                            <div className="mt-1 flex flex-wrap items-center gap-2 text-[10px] text-[color:var(--muted)]">
-                              <span className="font-semibold">QA: {msg.qa.score}/100</span>
-                              {msg.qa.warnings.length > 0 && (
-                                <span>{msg.qa.warnings.slice(0, 2).join(" · ")}</span>
-                              )}
-                            </div>
-                          )}
-                          {msg.offer && (
-                            <div className="mt-2 flex flex-wrap items-center gap-2">
-                              <span className="inline-flex items-center rounded-full border border-[color:rgba(var(--brand-rgb),0.35)] bg-[color:rgba(var(--brand-rgb),0.12)] px-2.5 py-1 text-[10px] font-semibold text-[color:var(--text)]">
-                                {formatOfferLabel(msg.offer)}
-                              </span>
-                              <button
-                                type="button"
-                                onClick={() => handleInsertOffer(msg.text, msg.offer as PpvOffer, msg.title ?? "Manager IA", "manager_chat")}
-                                className="inline-flex items-center rounded-full border border-[color:var(--warning)] bg-[color:rgba(245,158,11,0.08)] px-3 py-1 text-[10px] font-semibold text-[color:var(--text)] hover:bg-[color:rgba(245,158,11,0.16)]"
-                              >
-                                Insertar + Oferta
-                              </button>
-                            </div>
-                          )}
-                        </>
-                      )}
+                      <div
+                        className={clsx(
+                          "flex flex-col gap-1",
+                          isSystem ? "items-center max-w-[85%]" : "w-full",
+                          isCreator ? "items-end" : "items-start"
+                        )}
+                      >
+                        {!isSystem && (
+                          <span className="text-[10px] uppercase tracking-wide text-[color:var(--muted)]">
+                            {isCreator ? "Tú" : "Manager IA"}
+                          </span>
+                        )}
+                        {isSystem ? (
+                          <div className="rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-3 py-1 text-[10px] uppercase tracking-wide text-[color:var(--muted)] text-center">
+                            {msg.text}
+                          </div>
+                        ) : (
+                          <div className={clsx(bubbleClass, "max-w-[75%]")}>{msg.text}</div>
+                        )}
+                        {isManager && (
+                          <>
+                            <button
+                              type="button"
+                              onClick={() =>
+                                handleUseManagerReplyAsMainMessage(msg.text, msg.title ?? "Manager IA", `manager:chat:${msg.id}`)
+                              }
+                              className={clsx("mt-1", inlineActionButtonClass)}
+                            >
+                              Usar en mensaje
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleTemplateRewrite(msg.text)}
+                              className={clsx("mt-1", inlineActionButtonClass)}
+                            >
+                              Rehacer con plantilla
+                            </button>
+                            {msg.qa && (
+                              <div className="mt-1 flex flex-wrap items-center gap-2 text-[10px] text-[color:var(--muted)]">
+                                <span className="font-semibold">QA: {msg.qa.score}/100</span>
+                                {msg.qa.warnings.length > 0 && (
+                                  <span>{msg.qa.warnings.slice(0, 2).join(" · ")}</span>
+                                )}
+                              </div>
+                            )}
+                            {msg.offer && (
+                              <div className="mt-2 flex flex-wrap items-center gap-2">
+                                <span className="inline-flex items-center rounded-full border border-[color:rgba(var(--brand-rgb),0.35)] bg-[color:rgba(var(--brand-rgb),0.12)] px-2.5 py-1 text-[10px] font-semibold text-[color:var(--text)]">
+                                  {formatOfferLabel(msg.offer)}
+                                </span>
+                                <button
+                                  type="button"
+                                  onClick={() => handleInsertOffer(msg.text, msg.offer as PpvOffer, msg.title ?? "Manager IA", "manager_chat")}
+                                  className="inline-flex items-center rounded-full border border-[color:var(--warning)] bg-[color:rgba(245,158,11,0.08)] px-3 py-1 text-[10px] font-semibold text-[color:var(--text)] hover:bg-[color:rgba(245,158,11,0.16)]"
+                                >
+                                  Insertar + Oferta
+                                </button>
+                              </div>
+                            )}
+                          </>
+                        )}
+                      </div>
                     </div>
-                  </div>
-                );
-              })}
+                  );
+                })}
+              </div>
+              <div ref={managerChatEndRef} />
             </div>
-            <div ref={managerChatEndRef} />
-          </div>
+          )}
         </div>
-        <div className="border-t border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-4 py-3">
+        {!isManagerIaSimple && (
+          <div className="border-t border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-4 py-3">
           <label className="mb-2 flex items-center gap-2 text-[11px] text-[color:var(--muted)]">
             <input
               type="checkbox"
@@ -6598,7 +6775,8 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
             showEmoji
             onEmojiSelect={handleInsertManagerEmoji}
           />
-        </div>
+          </div>
+        )}
       </div>
     );
 
@@ -7080,7 +7258,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
         const templateTabManagerActive = "border-[color:rgba(245,158,11,0.7)] bg-[color:rgba(245,158,11,0.12)] text-[color:var(--text)]";
         return (
           <InlinePanelShell
-            title="Playbooks"
+            title="Guiones"
             onClose={closeDockPanel}
             containerClassName={dockOverlaySheetClassName}
             containerRef={dockOverlaySheetRef}
@@ -7094,7 +7272,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
               <div
                 className="flex flex-wrap items-center gap-2"
                 role="tablist"
-                aria-label="Playbooks"
+                aria-label="Guiones"
               >
                 {templateTabs.map((tabItem) => {
                   const isActive = templateScope === tabItem.id;
@@ -7124,7 +7302,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
                       <input
                         value={playbookSearch}
                         onChange={(event) => setPlaybookSearch(event.target.value)}
-                        placeholder="Buscar playbooks..."
+                        placeholder="Buscar guiones..."
                         className="w-full flex-1 rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-3 py-1.5 text-[11px] text-[color:var(--text)] placeholder:text-[color:var(--muted)]"
                       />
                       <button
@@ -7215,11 +7393,11 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
                     </div>
                     <div className="text-[10px] text-[color:var(--muted)]">
                       {playbookProMode
-                        ? "Modo Pro activo: lista completa de playbooks."
+                        ? "Modo Pro activo: lista completa de guiones."
                         : "Recomendadas: selección corta para hoy."}
                     </div>
                     {visiblePlaybooks.length === 0 ? (
-                      <InlineEmptyState icon="folder" title="Sin playbooks con estos filtros" />
+                      <InlineEmptyState icon="folder" title="Sin guiones con estos filtros" />
                     ) : (
                       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
                         {visiblePlaybooks.map((playbook) => {
@@ -7266,7 +7444,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
                                   type="button"
                                   onClick={() => {
                                     insertComposerTextWithUndo(resolveFanTemplateText(message), {
-                                      title: "Playbook insertado",
+                                      title: "Guion insertado",
                                       detail: playbook.title,
                                       actionKey: `playbook:${playbook.id}`,
                                     });
@@ -7298,11 +7476,11 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
                     )}
                   </div>
                 ) : (
-                  <InlineEmptyState icon="folder" title="Sin playbooks disponibles" />
+                  <InlineEmptyState icon="folder" title="Sin guiones disponibles" />
                 )
               ) : managerPromptTemplate ? (
                 <div className="rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] p-3 space-y-2">
-                  <div className="text-[11px] font-semibold text-[color:var(--muted)]">Plantilla sugerida</div>
+                  <div className="text-[11px] font-semibold text-[color:var(--muted)]">Guion sugerido</div>
                   <p className="text-[11px] text-[color:var(--text)] line-clamp-2">{managerPromptTemplate}</p>
                   <button
                     type="button"
@@ -7313,7 +7491,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
                   </button>
                 </div>
               ) : (
-                <InlineEmptyState icon="folder" title="Sin plantillas para el Manager" />
+                <InlineEmptyState icon="folder" title="Sin guiones para el Manager" />
               )}
             </div>
           </InlinePanelShell>
@@ -7391,7 +7569,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
               aria-controls={panelId}
             >
               <span className="flex items-center gap-1.5">
-                <span>Playbooks</span>
+                <span>Guiones</span>
                 {templatesCount > 0 && (
                   <span className="rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-1.5 py-0.5 text-[10px] text-[color:var(--muted)]">
                     {templatesCount}
@@ -8164,6 +8342,14 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
     setCurrentObjective(objective);
   }, [fanManagerAnalysis, hasManualManagerObjective]);
 
+  useEffect(() => {
+    const previousObjective = previousObjectiveRef.current;
+    if (previousObjective === "ofrecer_extra" && currentObjective !== "ofrecer_extra") {
+      setPpvPhase("suave");
+    }
+    previousObjectiveRef.current = currentObjective;
+  }, [currentObjective]);
+
   const buildManagerContextPrompt = useCallback(
     (options?: { selectedText?: string | null }) => {
       const name = getFirstName(contactName) || contactName || "este fan";
@@ -8846,6 +9032,55 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
     return `Genera un borrador fase ${label}. 1–2 frases + 1 pregunta, tono sugerente adulto, sin ser explícita, y con CTA suave a PPV.`;
   }, []);
 
+  const buildDraftMeta = useCallback(
+    (params: {
+      primaryObjective?: ManagerObjective | null;
+      tone?: FanTone | null;
+      outputLength?: DraftLength;
+      ppvPhase?: PpvPhase | null;
+    }): DraftMeta => {
+      const stage = agencyDraft?.stage ?? agencyMeta?.stage ?? null;
+      const intensity = agencyDraft?.intensity ?? agencyMeta?.intensity ?? null;
+      const playbook =
+        agencyDraft?.playbook ?? agencyMeta?.playbook ?? (conversation.agencyPlaybook as AgencyPlaybook | null);
+      const stageLabel = stage ? formatAgencyStageLabel(stage) : "—";
+      const resolvedObjective = params.primaryObjective ?? currentObjective ?? null;
+      const objectiveLabel = formatObjectiveLabel(resolvedObjective) ?? agencyObjectiveLabel ?? "—";
+      const intensityLabel = intensity ? AGENCY_INTENSITY_LABELS[intensity] ?? intensity : "—";
+      const styleLabel = playbook ? AGENCY_PLAYBOOK_LABELS[playbook] ?? playbook : "—";
+      const toneLabel = formatToneLabel(params.tone ?? fanTone) ?? "—";
+      const lengthLabel = formatLengthLabel(params.outputLength ?? draftOutputLength) ?? "—";
+      const ppvPhaseLabel =
+        resolvedObjective === "ofrecer_extra"
+          ? formatPpvPhaseLabel(params.ppvPhase ?? ppvPhase) ?? "Suave"
+          : null;
+      return {
+        stageLabel,
+        objectiveLabel,
+        intensityLabel,
+        styleLabel,
+        toneLabel,
+        lengthLabel,
+        primaryActionLabel: formatObjectiveLabel(resolvedObjective) ?? null,
+        ppvPhaseLabel,
+      };
+    },
+    [
+      agencyDraft?.intensity,
+      agencyDraft?.playbook,
+      agencyDraft?.stage,
+      agencyMeta?.intensity,
+      agencyMeta?.playbook,
+      agencyMeta?.stage,
+      agencyObjectiveLabel,
+      conversation.agencyPlaybook,
+      currentObjective,
+      draftOutputLength,
+      fanTone,
+      ppvPhase,
+    ]
+  );
+
   const buildDraftCard = useCallback(
     (
       text: string,
@@ -8856,6 +9091,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
         basePrompt?: string | null;
         tone?: FanTone | null;
         objective?: ManagerObjective | null;
+        meta?: DraftMeta | null;
         offer?: PpvOffer | null;
       }
     ) => {
@@ -8867,6 +9103,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
         createdAt: new Date().toISOString(),
         tone: options.tone ?? fanTone,
         objective: options.objective ?? currentObjective ?? null,
+        meta: options.meta ?? null,
         selectedText: options.selectedText ?? null,
         basePrompt: options.basePrompt ?? null,
         offer: options.offer ?? null,
@@ -8903,27 +9140,40 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
         offer?: PpvOffer | null;
         tone?: FanTone | null;
         objective?: ManagerObjective | null;
+        meta?: DraftMeta | null;
       }
     ) => {
-      const card = buildDraftCard(text, options);
+      const resolvedObjective = options.objective ?? currentObjective ?? null;
+      const resolvedMeta =
+        options.meta ??
+        buildDraftMeta({
+          primaryObjective: resolvedObjective,
+          tone: options.tone ?? fanTone,
+          outputLength: draftOutputLength,
+          ppvPhase: resolvedObjective === "ofrecer_extra" ? ppvPhase : null,
+        });
+      const card = buildDraftCard(text, { ...options, meta: resolvedMeta });
       addDraftCard(card);
-      addGeneratedDraft(buildDraftCard(text, options));
+      addGeneratedDraft(buildDraftCard(text, { ...options, meta: resolvedMeta }));
     },
-    [addDraftCard, addGeneratedDraft, buildDraftCard]
+    [addDraftCard, addGeneratedDraft, buildDraftCard, buildDraftMeta, currentObjective, draftOutputLength, fanTone, ppvPhase]
   );
 
   const requestManagerDraft = useCallback(
-    async (options: {
-      objectiveKey: string;
-      tone?: FanTone | null;
-      directness?: DraftDirectness;
-      outputLength?: DraftLength;
-      variationOf?: string | null;
-      actionKey: string;
-    }) => {
+    async (options: DraftRequestOptions) => {
       if (!id) return null;
       if (draftActionState.status === "loading") return null;
+      const requestId = draftActionRequestIdRef.current + 1;
+      draftActionRequestIdRef.current = requestId;
+      setDraftActionError(null);
       setDraftActionState({ status: "loading", key: options.actionKey });
+      startDraftActionPhaseTimers();
+
+      const controller = new AbortController();
+      if (draftActionAbortRef.current) {
+        draftActionAbortRef.current.abort();
+      }
+      draftActionAbortRef.current = controller;
 
       try {
         const styleKey =
@@ -8931,18 +9181,29 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
           (typeof conversation.agencyPlaybook === "string" ? conversation.agencyPlaybook : "") ||
           null;
         const outputLength = options.outputLength ?? draftOutputLength;
+        const resolvedOptions: DraftRequestOptions = {
+          objectiveKey: options.objectiveKey,
+          tone: options.tone ?? fanTone,
+          directness: options.directness ?? "neutro",
+          outputLength,
+          variationOf: options.variationOf ?? null,
+          actionKey: options.actionKey,
+        };
+        draftLastRequestRef.current = resolvedOptions;
         const res = await fetch("/api/creator/ai-manager/draft", {
           method: "POST",
           headers: { "Content-Type": "application/json", "x-novsy-viewer": "creator" },
           cache: "no-store",
+          signal: controller.signal,
           body: JSON.stringify({
             conversationId: id,
-            objectiveKey: options.objectiveKey,
+            objectiveKey: resolvedOptions.objectiveKey,
+            actionKey: resolvedOptions.actionKey,
             styleKey: styleKey || undefined,
-            tone: options.tone ?? fanTone,
-            directness: options.directness ?? "neutro",
-            outputLength,
-            variationOf: options.variationOf ?? undefined,
+            tone: resolvedOptions.tone ?? fanTone,
+            directness: resolvedOptions.directness ?? "neutro",
+            outputLength: resolvedOptions.outputLength ?? outputLength,
+            variationOf: resolvedOptions.variationOf ?? undefined,
           }),
         });
         const data = await res.json().catch(() => ({}));
@@ -8965,31 +9226,100 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
         }
         return draftText;
       } catch (err) {
+        if (draftActionRequestIdRef.current !== requestId) {
+          return null;
+        }
+        const isAbortError =
+          controller.signal.aborted ||
+          (err instanceof DOMException && err.name === "AbortError") ||
+          ((err as { name?: string } | null)?.name === "AbortError");
+        if (isAbortError) {
+          return null;
+        }
         const message = err instanceof Error && err.message ? err.message : "No se pudo generar el borrador.";
         showComposerToast(message);
+        setDraftActionError("No se pudo generar. Reintentar.");
         return null;
       } finally {
+        if (draftActionRequestIdRef.current !== requestId) {
+          return;
+        }
+        clearDraftActionPhaseTimers();
+        setDraftActionPhase(null);
         setDraftActionState({ status: "idle", key: null });
+        draftActionAbortRef.current = null;
       }
     },
-    [agencyDraft?.playbook, conversation.agencyPlaybook, draftActionState.status, draftOutputLength, fanTone, id, showComposerToast]
+    [
+      agencyDraft?.playbook,
+      conversation.agencyPlaybook,
+      clearDraftActionPhaseTimers,
+      draftActionState.status,
+      draftOutputLength,
+      fanTone,
+      id,
+      showComposerToast,
+      startDraftActionPhaseTimers,
+    ]
   );
 
-  const updateDraftCard = useCallback((draftId: string, nextText: string) => {
+  const handleDraftCancel = useCallback(() => {
+    if (draftActionState.status !== "loading") return;
+    draftActionRequestIdRef.current += 1;
+    if (draftActionAbortRef.current) {
+      draftActionAbortRef.current.abort();
+      draftActionAbortRef.current = null;
+    }
+    clearDraftActionPhaseTimers();
+    setDraftActionPhase(null);
+    setDraftActionError(null);
+    setDraftActionState({ status: "idle", key: null });
+    showComposerToast("Cancelado");
+  }, [clearDraftActionPhaseTimers, draftActionState.status, showComposerToast]);
+
+  const handleDraftRetry = useCallback(async () => {
+    if (draftActionState.status === "loading") return;
+    const lastRequest = draftLastRequestRef.current;
+    if (!lastRequest) return;
+    await requestManagerDraft(lastRequest);
+  }, [draftActionState.status, requestManagerDraft]);
+
+  const updateDraftCard = useCallback((draftId: string, nextText: string, meta?: DraftMeta | null) => {
     if (!id) return;
     setDraftCardsByFan((prev) => {
       const existing = prev[id] ?? [];
       const next = existing.map((item) =>
-        item.id === draftId ? { ...item, text: nextText, createdAt: new Date().toISOString() } : item
+        item.id === draftId
+          ? { ...item, text: nextText, createdAt: new Date().toISOString(), meta: meta ?? item.meta ?? null }
+          : item
       );
       return { ...prev, [id]: next };
     });
   }, [id]);
 
   const requestDraftCardFromPrompt = useCallback(
-    (options: { prompt: string; source: DraftSource; label?: string; selectedText?: string | null; action?: string }) => {
+    (options: {
+      prompt: string;
+      source: DraftSource;
+      label?: string;
+      selectedText?: string | null;
+      action?: string;
+      tone?: FanTone | null;
+      objective?: ManagerObjective | null;
+      meta?: DraftMeta | null;
+    }) => {
       const trimmed = options.prompt.trim();
       if (!trimmed) return;
+      const resolvedObjective = options.objective ?? currentObjective ?? null;
+      const resolvedTone = options.tone ?? fanTone;
+      const resolvedMeta =
+        options.meta ??
+        buildDraftMeta({
+          primaryObjective: resolvedObjective,
+          tone: resolvedTone,
+          outputLength: draftOutputLength,
+          ppvPhase: resolvedObjective === "ofrecer_extra" ? ppvPhase : null,
+        });
       openInternalPanel("manager");
       askInternalManager(trimmed, undefined, undefined, {
         selectedText: options.selectedText ?? null,
@@ -9004,11 +9334,14 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
             selectedText: options.selectedText ?? null,
             basePrompt: trimmed,
             offer: bundle.offer ?? null,
+            tone: resolvedTone,
+            objective: resolvedObjective,
+            meta: resolvedMeta,
           });
         },
       });
     },
-    [addDraftPair, askInternalManager, openInternalPanel]
+    [addDraftPair, askInternalManager, buildDraftMeta, currentObjective, draftOutputLength, fanTone, openInternalPanel, ppvPhase]
   );
 
   const handleDraftCardVariant = useCallback(
@@ -9018,12 +9351,19 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
       const cards = draftCardsByFan[id] ?? [];
       const target = cards.find((item) => item.id === draftId);
       if (!target) return;
-      const objectiveKey = resolveDraftObjectiveKey(target.objective ?? currentObjective ?? null);
+      const resolvedObjective = target.objective ?? currentObjective ?? null;
+      const objectiveKey = resolveDraftObjectiveKey(resolvedObjective);
       const directness: DraftDirectness =
         mode === "bolder" ? "directo" : mode === "softer" ? "suave" : "neutro";
       const outputLength: DraftLength = mode === "shorter" ? "short" : draftOutputLength;
       const variationOf = mode === "alternate" ? target.text : null;
       const actionKey = buildDraftActionKey("draft", draftId, mode);
+      const draftMeta = buildDraftMeta({
+        primaryObjective: resolvedObjective,
+        tone: target.tone ?? fanTone,
+        outputLength,
+        ppvPhase: resolvedObjective === "ofrecer_extra" ? ppvPhase : null,
+      });
       const nextText = await requestManagerDraft({
         objectiveKey,
         tone: target.tone ?? fanTone,
@@ -9033,7 +9373,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
         actionKey,
       });
       if (!nextText) return;
-      updateDraftCard(draftId, nextText);
+      updateDraftCard(draftId, nextText, draftMeta);
       addGeneratedDraft(
         buildDraftCard(nextText, {
           source: target.source,
@@ -9042,7 +9382,8 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
           basePrompt: target.basePrompt ?? null,
           offer: target.offer ?? null,
           tone: target.tone ?? fanTone,
-          objective: target.objective ?? currentObjective ?? null,
+          objective: resolvedObjective,
+          meta: draftMeta,
         })
       );
       if (mode === "bolder") {
@@ -9055,6 +9396,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
       addGeneratedDraft,
       buildDraftCard,
       buildDraftActionKey,
+      buildDraftMeta,
       currentObjective,
       draftCardsByFan,
       draftActionState.status,
@@ -9248,6 +9590,14 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
     }
     const shouldGenerateDraft =
       !(options?.skipInternalChat && autoPilotEnabled && isAutopilotObjective(intent));
+    const draftMeta = shouldGenerateDraft
+      ? buildDraftMeta({
+          primaryObjective: intent,
+          tone: toneToUse,
+          outputLength: draftOutputLength,
+          ppvPhase: intent === "ofrecer_extra" ? ppvPhase : null,
+        })
+      : null;
     const draftPromise = shouldGenerateDraft
       ? requestManagerDraft({
           objectiveKey: resolveDraftObjectiveKey(intent),
@@ -9274,6 +9624,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
           label: formatObjectiveLabel(intent) ?? "Borrador IA",
           tone: toneToUse,
           objective: intent,
+          meta: draftMeta,
         });
       }
     }
@@ -9293,14 +9644,24 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
           : phase === "directo"
           ? "Directo"
           : "Final";
+      setPpvPhase(phase);
+      const draftMeta = buildDraftMeta({
+        primaryObjective: "ofrecer_extra",
+        tone: fanTone,
+        outputLength: "short",
+        ppvPhase: phase,
+      });
       requestDraftCardFromPrompt({
         prompt: buildPhasePrompt(phase),
         source: "autosuggest",
         label: `Fase ${label}`,
         action: `phase_${phase}`,
+        tone: fanTone,
+        objective: "ofrecer_extra",
+        meta: draftMeta,
       });
     },
-    [buildPhasePrompt, requestDraftCardFromPrompt]
+    [buildDraftMeta, buildPhasePrompt, fanTone, requestDraftCardFromPrompt]
   );
 
   const handleAutopilotSoften = () => {
@@ -13369,6 +13730,85 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
                     : `Enviar ${selectedContentIds.length} elementos`}
                 </button>
               )}
+            </div>
+          </div>
+        </div>
+      )}
+      {objectiveManagerOpen && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-[color:var(--surface-overlay)] px-4">
+          <div className="w-full max-w-md rounded-2xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] p-5 shadow-xl space-y-4">
+            <div className="flex items-center justify-between gap-2">
+              <h3 className="text-sm font-semibold text-[color:var(--text)]">Gestionar objetivos</h3>
+              <button
+                type="button"
+                onClick={() => {
+                  setObjectiveManagerOpen(false);
+                  setObjectiveDeleteError(null);
+                }}
+                className="inline-flex items-center justify-center rounded-full p-1.5 hover:bg-[color:var(--surface-2)] text-[color:var(--text)]"
+              >
+                <span className="sr-only">Cerrar</span>
+                ✕
+              </button>
+            </div>
+            <p className="text-[11px] text-[color:var(--muted)]">
+              Elimina objetivos duplicados o antiguos. No afecta a los objetivos predefinidos.
+            </p>
+            {objectiveOptions.length === 0 ? (
+              <div className="rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] p-3 text-[11px] text-[color:var(--muted)]">
+                No hay objetivos personalizados.
+              </div>
+            ) : (
+              <div className="max-h-60 space-y-2 overflow-auto pr-1">
+                {objectiveOptions.map((objective) => {
+                  const normalizedCode = normalizeObjectiveCode(objective.code) ?? objective.code;
+                  const label =
+                    resolveObjectiveLabel({
+                      code: normalizedCode,
+                      locale: objectiveLocale,
+                      labelsByCode: objectiveLabelsByCode,
+                    }) ?? normalizedCode;
+                  return (
+                    <div
+                      key={objective.id}
+                      className="flex items-center justify-between gap-2 rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-3 py-2"
+                    >
+                      <div className="min-w-0">
+                        <div className="text-[11px] font-semibold text-[color:var(--text)] truncate">{label}</div>
+                        <div className="text-[10px] text-[color:var(--muted)] truncate">{objective.id}</div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => handleDeleteObjective(objective)}
+                        disabled={objectiveDeleteId === objective.id}
+                        className={clsx(
+                          "inline-flex items-center rounded-full border px-3 py-1 text-[10px] font-semibold transition",
+                          objectiveDeleteId === objective.id
+                            ? "border-[color:var(--surface-border)] bg-[color:var(--surface-1)] text-[color:var(--muted)] cursor-not-allowed"
+                            : "border-[color:rgba(244,63,94,0.6)] bg-[color:rgba(244,63,94,0.08)] text-[color:var(--text)] hover:bg-[color:rgba(244,63,94,0.16)]"
+                        )}
+                      >
+                        {objectiveDeleteId === objective.id ? "Eliminando…" : "Eliminar"}
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+            {objectiveDeleteError && (
+              <div className="text-[10px] text-[color:var(--danger)]">{objectiveDeleteError}</div>
+            )}
+            <div className="flex items-center justify-end">
+              <button
+                type="button"
+                onClick={() => {
+                  setObjectiveManagerOpen(false);
+                  setObjectiveDeleteError(null);
+                }}
+                className="rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-3 py-1 text-xs font-semibold text-[color:var(--text)] hover:border-[color:var(--surface-border-hover)] hover:bg-[color:var(--surface-1)]"
+              >
+                Cerrar
+              </button>
             </div>
           </div>
         </div>
