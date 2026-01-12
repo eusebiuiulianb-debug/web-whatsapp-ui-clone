@@ -20,10 +20,13 @@ import { normalizeObjectiveCode, resolveObjectiveForScoring } from "../../../../
 import { buildAgencyDraft } from "../../../../server/agencyTemplates";
 import { buildDemoManagerReply, type ManagerDemoReply } from "../../../../lib/ai/manager/demo";
 import { registerAiUsage } from "../../../../lib/ai/registerAiUsage";
+import { logCortexLlmUsage } from "../../../../lib/aiUsage.server";
 import { getCortexProviderSelection, requestCortexCompletion } from "../../../../lib/ai/cortexProvider";
 import { buildOllamaOpenAiRequest } from "../../../../lib/ai/providers/ollama";
 import { sanitizeForOpenAi } from "../../../../server/ai/sanitizeForOpenAi";
 import { toSafeErrorMessage } from "../../../../server/ai/openAiError";
+import { evaluateAdultPolicy } from "../../../../server/ai/adultPolicy";
+import { buildErrorSnippet, resolveProviderErrorType } from "../../../../server/ai/cortexErrors";
 
 type ManagerReply = ManagerDemoReply & { mode: "STRATEGY" | "CONTENT" | "GROWTH"; text: string };
 
@@ -58,7 +61,12 @@ type ChatErrorCode =
   | "method_not_allowed"
   | "REFUSAL"
   | "PROVIDER_UNAVAILABLE"
-  | "CRYPTO_MISCONFIGURED";
+  | "CRYPTO_MISCONFIGURED"
+  | "POLICY_BLOCKED"
+  | "MODEL_NOT_FOUND"
+  | "TIMEOUT"
+  | "PROVIDER_ERROR"
+  | "JSON_PARSE";
 
 type ChatOkResponse = {
   ok: true;
@@ -114,19 +122,27 @@ type ChatErrorResponse = {
 
 const HISTORY_LIMIT = 20;
 const DEFAULT_MAX_TOKENS = 300;
-const AGENCY_SYSTEM_GUARD = [
-  "Respondes al fan como creadora, en español.",
-  "Formato: 1–2 frases + 1 pregunta. <240 caracteres. 1 emoji máximo.",
-  "Tono sugerente adulto, NO explícito (sin anatomía ni pornografía).",
-  "No moralices, no sermonees ni hables de políticas o bibliotecas.",
-  "Escalera suave: Suave → Picante → Directo → Final (sin mencionar tiers/PPV).",
-  "Evita palabras de catálogo (pack/premium/oferta/suscripción/mensual/link) salvo que el fan las use.",
-  "No hagas copy: no repitas literalmente el mensaje del fan.",
-  "Si el fan pide privado, ofrece Suave o Picante y pregunta cuál.",
-  "Si el fan pide algo explícito, pon un límite elegante + alternativa sugerente + pregunta.",
-  "Solo habla de edad si el fan sugiere que no es +18; entonces pide verificación +18 y corta.",
-  "Output: SOLO el mensaje final para enviar al fan.",
-].join(" ");
+const buildAgencySystemGuard = (allowExplicitAdultContent: boolean) => {
+  const explicitRule = allowExplicitAdultContent
+    ? "Tono adulto; lenguaje explícito permitido si hay consentimiento."
+    : "Tono sugerente adulto, NO explícito (sin anatomía ni pornografía).";
+  const explicitRequestRule = allowExplicitAdultContent
+    ? "Si el fan pide algo explícito, responde de forma explícita y consensuada."
+    : "Si el fan pide algo explícito, pon un límite elegante + alternativa sugerente + pregunta.";
+  return [
+    "Respondes al fan como creadora, en español.",
+    "Formato: 1–2 frases + 1 pregunta. <240 caracteres. 1 emoji máximo.",
+    explicitRule,
+    "No moralices, no sermonees ni hables de políticas o bibliotecas.",
+    "Escalera suave: Suave → Picante → Directo → Final (sin mencionar tiers/PPV).",
+    "Evita palabras de catálogo (pack/premium/oferta/suscripción/mensual/link) salvo que el fan las use.",
+    "No hagas copy: no repitas literalmente el mensaje del fan.",
+    "Si el fan pide privado, ofrece Suave o Picante y pregunta cuál.",
+    explicitRequestRule,
+    "Solo habla de edad si el fan sugiere que no es +18; entonces pide verificación +18 y corta.",
+    "Output: SOLO el mensaje final para enviar al fan.",
+  ].join(" ");
+};
 const AGE_VERIFICATION_REPLY =
   "Antes de seguir: aquí solo +18. Si eres mayor de edad, confírmamelo y seguimos, ¿sí? 🙂";
 const EXPLICIT_REQUEST_TEMPLATES = [
@@ -326,9 +342,53 @@ export default async function handler(
     if (!tab) {
       const baseMessages =
         incomingMessages.length > 0 ? incomingMessages : [{ role: "user", content: incomingText }];
+      const creatorSettings = await loadCreatorVoiceProfile(creatorId);
+      const allowExplicitAdultContent = Boolean(creatorSettings.allowExplicitAdultContent);
+      const policyDecision = evaluateAdultPolicy({
+        text: incomingText,
+        messages: baseMessages,
+        allowExplicitAdultContent,
+      });
+      if (!policyDecision.allowed) {
+        const provider: StandardProvider = "mock";
+        const model = selection.model ?? null;
+        const meta = buildChatMeta({
+          provider,
+          model,
+          action: actionLabel,
+          usedFallback: true,
+          latencyMs: 0,
+        });
+        logDevManagerRequest({
+          route: "/api/creator/ai-manager/chat",
+          creatorId,
+          fanId,
+          hasText,
+          hasMessages,
+          usedFallback: true,
+          action: actionLabel,
+          promptLength: getPromptLength(baseMessages),
+          debug: null,
+          meta,
+        });
+        return res
+          .status(200)
+          .json(
+            buildChatErrorResponse(
+              "POLICY_BLOCKED",
+              "No permitido: menores o no consentimiento.",
+              policyDecision.reason,
+              { usedFallback: true, provider, model, latencyMs: 0 },
+              meta,
+              "refusal",
+              { content: "No permitido: menores o no consentimiento." }
+            )
+          );
+      }
       const isRewriteAction = Boolean(actionLabel && actionLabel.toLowerCase().startsWith("rewrite_"));
       const explicitRequest = resolveExplicitRequest(incomingText, baseMessages);
       const privateRequest = resolvePrivateRequest(incomingText, baseMessages);
+      const enforceExplicitLimit = explicitRequest && !allowExplicitAdultContent;
       const phaseAction = resolvePhaseAction(actionLabel);
       const offerSuggestion = resolveOfferSuggestion({
         phaseAction,
@@ -339,9 +399,13 @@ export default async function handler(
         ? await selectPpvOffer({ creatorId, tier: offerSuggestion.tier, dayPart: offerSuggestion.dayPart })
         : null;
       const offer = offerSuggestion ? buildOfferPayload({ suggestion: offerSuggestion, item: offerItem ?? undefined }) : null;
-      const creatorSettings = await loadCreatorVoiceProfile(creatorId);
       const fanLastMessage = resolveFanLastMessage(incomingText, baseMessages);
-      const objective = resolveObjective({ actionLabel, phaseAction, explicitRequest, privateRequest });
+      const objective = resolveObjective({
+        actionLabel,
+        phaseAction,
+        explicitRequest: enforceExplicitLimit,
+        privateRequest,
+      });
       const heatLevel = resolveHeatLevel({ actionLabel, phaseAction, explicitRequest, privateRequest });
       const creatorVoiceProfile = buildCreatorVoiceProfile(creatorSettings);
       const requestMessages = buildFanPromptMessages({
@@ -355,8 +419,9 @@ export default async function handler(
           bannedWords: BANNED_WORDS,
           agency: agencyContext ?? undefined,
         }),
+        allowExplicitAdultContent,
       });
-      const sanitizedMessages = sanitizeMessages(requestMessages);
+      const sanitizedMessages = sanitizeMessages(requestMessages, allowExplicitAdultContent);
       const promptLength = getPromptLength(requestMessages);
       if (ageSignal) {
         const assistantText = AGE_VERIFICATION_REPLY.trim();
@@ -398,7 +463,7 @@ export default async function handler(
             })
           );
       }
-      if (explicitRequest) {
+      if (explicitRequest && !allowExplicitAdultContent) {
         const assistantText = pickExplicitTemplate();
         const assistantMessage = { role: "assistant" as const, content: assistantText };
         const responseMessages = [...requestMessages, assistantMessage];
@@ -515,6 +580,11 @@ export default async function handler(
       });
 
       if (!aiResult.ok) {
+        const providerErrorType = resolveProviderErrorType({
+          errorCode: aiResult.errorCode,
+          errorMessage: aiResult.errorMessage,
+          status: aiResult.status,
+        });
         const providerUnavailable = isProviderUnavailableError(aiResult);
         const refusalByCode = isRefusalErrorCode(aiResult.errorCode);
         const fallbackText = await buildTemplateFallback({
@@ -569,6 +639,27 @@ export default async function handler(
               })
             );
         }
+        try {
+          await logCortexLlmUsage({
+            creatorId,
+            fanId,
+            endpoint: "/api/creator/ai-manager/chat",
+            provider: aiResult.provider,
+            model: aiResult.model ?? selection.model ?? null,
+            tokensIn: aiResult.tokensIn,
+            tokensOut: aiResult.tokensOut,
+            latencyMs: aiResult.latencyMs,
+            ok: false,
+            errorCode: providerErrorType,
+            actionType: "manager_chat",
+            context: {
+              kind: "manager_chat",
+              errorSnippet: buildErrorSnippet(aiResult.errorMessage ?? ""),
+            },
+          });
+        } catch (err) {
+          console.warn("cortex_usage_log_failed", err);
+        }
         logDevManagerRequest({
           route: "/api/creator/ai-manager/chat",
           creatorId,
@@ -587,12 +678,34 @@ export default async function handler(
           aiResult.errorCode ? `code=${aiResult.errorCode}` : null,
           aiResult.errorMessage ? `message=${aiResult.errorMessage}` : null,
         ]);
-        const errorCode: ChatErrorCode = providerUnavailable ? "PROVIDER_UNAVAILABLE" : "ai_error";
-        const errorMessage = providerUnavailable
-          ? "Proveedor de IA no disponible."
-          : "No se pudo procesar el chat del Manager IA";
-        const reply = providerUnavailable ? PROVIDER_UNAVAILABLE_REPLY : GENERIC_ERROR_REPLY;
-        const status: ChatStatus = providerUnavailable ? "provider_down" : "refusal";
+        const errorCode: ChatErrorCode =
+          providerErrorType === "MODEL_NOT_FOUND"
+            ? "MODEL_NOT_FOUND"
+            : providerErrorType === "TIMEOUT"
+            ? "TIMEOUT"
+            : providerErrorType === "PROVIDER_ERROR"
+            ? "PROVIDER_ERROR"
+            : providerUnavailable
+            ? "PROVIDER_UNAVAILABLE"
+            : "ai_error";
+        const errorMessage =
+          providerErrorType === "MODEL_NOT_FOUND"
+            ? `Modelo no encontrado (AI_MODEL=${model ?? "?"}).`
+            : providerErrorType === "TIMEOUT"
+            ? "Timeout hablando con Ollama."
+            : providerErrorType === "PROVIDER_ERROR"
+            ? "IA local no disponible (Ollama)."
+            : providerUnavailable
+            ? "IA local no disponible (Ollama)."
+            : "No se pudo procesar el chat del Manager IA";
+        const reply =
+          providerErrorType === "MODEL_NOT_FOUND" || providerErrorType === "TIMEOUT" || providerErrorType === "PROVIDER_ERROR"
+            ? errorMessage
+            : providerUnavailable
+            ? PROVIDER_UNAVAILABLE_REPLY
+            : GENERIC_ERROR_REPLY;
+        const status: ChatStatus =
+          providerErrorType === "MODEL_NOT_FOUND" ? "refusal" : providerUnavailable ? "provider_down" : "refusal";
         return res
           .status(200)
           .json(
@@ -1027,6 +1140,11 @@ export default async function handler(
     });
 
     if (!aiResult.ok) {
+      const providerErrorType = resolveProviderErrorType({
+        errorCode: aiResult.errorCode,
+        errorMessage: aiResult.errorMessage,
+        status: aiResult.status,
+      });
       const providerUnavailable = isProviderUnavailableError(aiResult);
       console.error("manager_ai_provider_error", {
         creatorId,
@@ -1035,6 +1153,28 @@ export default async function handler(
         code: aiResult.errorCode ?? "ai_error",
         message: aiResult.errorMessage ?? "ai_error",
       });
+      try {
+        await logCortexLlmUsage({
+          creatorId,
+          fanId: null,
+          endpoint: "/api/creator/ai-manager/chat",
+          provider: aiResult.provider,
+          model: aiResult.model ?? selection.model ?? null,
+          tokensIn: aiResult.tokensIn,
+          tokensOut: aiResult.tokensOut,
+          latencyMs: aiResult.latencyMs,
+          ok: false,
+          errorCode: providerErrorType,
+          actionType: "manager_chat",
+          context: {
+            kind: "manager_chat",
+            tab: tabToString(tab),
+            errorSnippet: buildErrorSnippet(aiResult.errorMessage ?? ""),
+          },
+        });
+      } catch (err) {
+        console.warn("cortex_usage_log_failed", err);
+      }
       logDevManagerRequest({
         route: "/api/creator/ai-manager/chat",
         creatorId,
@@ -1053,12 +1193,34 @@ export default async function handler(
         aiResult.errorCode ? `code=${aiResult.errorCode}` : null,
         aiResult.errorMessage ? `message=${aiResult.errorMessage}` : null,
       ]);
-      const errorCode: ChatErrorCode = providerUnavailable ? "PROVIDER_UNAVAILABLE" : "ai_error";
-      const errorMessage = providerUnavailable
-        ? "Proveedor de IA no disponible."
-        : "No se pudo procesar el chat del Manager IA";
-      const reply = providerUnavailable ? PROVIDER_UNAVAILABLE_REPLY : GENERIC_ERROR_REPLY;
-      const status: ChatStatus = providerUnavailable ? "provider_down" : "refusal";
+      const errorCode: ChatErrorCode =
+        providerErrorType === "MODEL_NOT_FOUND"
+          ? "MODEL_NOT_FOUND"
+          : providerErrorType === "TIMEOUT"
+          ? "TIMEOUT"
+          : providerErrorType === "PROVIDER_ERROR"
+          ? "PROVIDER_ERROR"
+          : providerUnavailable
+          ? "PROVIDER_UNAVAILABLE"
+          : "ai_error";
+      const errorMessage =
+        providerErrorType === "MODEL_NOT_FOUND"
+          ? `Modelo no encontrado (AI_MODEL=${model ?? "?"}).`
+          : providerErrorType === "TIMEOUT"
+          ? "Timeout hablando con Ollama."
+          : providerErrorType === "PROVIDER_ERROR"
+          ? "IA local no disponible (Ollama)."
+          : providerUnavailable
+          ? "IA local no disponible (Ollama)."
+          : "No se pudo procesar el chat del Manager IA";
+      const reply =
+        providerErrorType === "MODEL_NOT_FOUND" || providerErrorType === "TIMEOUT" || providerErrorType === "PROVIDER_ERROR"
+          ? errorMessage
+          : providerUnavailable
+          ? PROVIDER_UNAVAILABLE_REPLY
+          : GENERIC_ERROR_REPLY;
+      const status: ChatStatus =
+        providerErrorType === "MODEL_NOT_FOUND" ? "refusal" : providerUnavailable ? "provider_down" : "refusal";
       return res
         .status(200)
         .json(
@@ -1075,6 +1237,30 @@ export default async function handler(
     }
 
     const reply: ManagerReply = parseManagerReply(aiResult.text ?? "", tab);
+    if (reply?.meta && (reply.meta as any).parseError) {
+      try {
+        await logCortexLlmUsage({
+          creatorId,
+          fanId: null,
+          endpoint: "/api/creator/ai-manager/chat",
+          provider: aiResult.provider,
+          model: aiResult.model ?? selection.model ?? null,
+          tokensIn: aiResult.tokensIn,
+          tokensOut: aiResult.tokensOut,
+          latencyMs: aiResult.latencyMs,
+          ok: true,
+          errorCode: "JSON_PARSE",
+          actionType: "manager_chat",
+          context: {
+            kind: "manager_chat",
+            tab: tabToString(tab),
+            errorSnippet: buildErrorSnippet(aiResult.text ?? ""),
+          },
+        });
+      } catch (err) {
+        console.warn("cortex_usage_log_failed", err);
+      }
+    }
     const assistantText = typeof reply.text === "string" ? reply.text.trim() : "";
     if (!assistantText) {
       logDevManagerRequest({
@@ -1397,8 +1583,9 @@ async function buildTemplateFallback(args: {
   }
 }
 
-function sanitizeForModel(text: string): string {
+function sanitizeForModel(text: string, allowExplicitAdultContent: boolean): string {
   if (!text) return text;
+  if (allowExplicitAdultContent) return text;
   const patterns: RegExp[] = [
     /\b(tetas|pechos|pezones|polla|pene|vagina|clitoris|clítoris|culo)\b/gi,
     /\b(sexo|sex|follar|anal|oral|mamada|corrida|masturbar|masturbando|masturbaci[oó]n)\b/gi,
@@ -1412,10 +1599,11 @@ function sanitizeForModel(text: string): string {
   return sanitized;
 }
 
-function sanitizeMessages(messages: ChatMessage[]): ChatMessage[] {
+function sanitizeMessages(messages: ChatMessage[], allowExplicitAdultContent: boolean): ChatMessage[] {
+  if (allowExplicitAdultContent) return messages;
   return messages.map((msg) => ({
     ...msg,
-    content: sanitizeForModel(msg.content),
+    content: sanitizeForModel(msg.content, allowExplicitAdultContent),
   }));
 }
 
@@ -1545,15 +1733,8 @@ function parseManagerReply(raw: string, tab: ManagerAiTab): ManagerReply {
   if (tab === ManagerAiTab.GROWTH) {
     return { mode: "GROWTH", text: raw, meta: {} } as ManagerReply;
   }
-  try {
-    const parsed = JSON.parse(raw) as Partial<ManagerReply>;
-    const text = typeof parsed.text === "string" && parsed.text.trim().length > 0 ? parsed.text : raw;
-    return {
-      ...(parsed as any),
-      mode: tabToString(tab),
-      text,
-    };
-  } catch (_err) {
+  const parsedResult = safeJsonParse(raw);
+  if (!parsedResult.value || typeof parsedResult.value !== "object") {
     return {
       mode: tabToString(tab),
       text: raw,
@@ -1562,6 +1743,34 @@ function parseManagerReply(raw: string, tab: ManagerAiTab): ManagerReply {
       packIdeas: [],
       meta: { parseError: true },
     } as ManagerReply;
+  }
+  const parsed = parsedResult.value as Partial<ManagerReply>;
+  const text = typeof parsed.text === "string" && parsed.text.trim().length > 0 ? parsed.text : raw;
+  const reply: ManagerReply = {
+    ...(parsed as any),
+    mode: tabToString(tab),
+    text,
+  };
+  if (parsedResult.parsedFrom !== "direct") {
+    reply.meta = { ...(reply.meta ?? {}), parseError: true };
+  }
+  return reply;
+}
+
+function safeJsonParse(input: string): { value: unknown; parsedFrom: "direct" | "extracted" | "fallback" } {
+  try {
+    return { value: JSON.parse(input), parsedFrom: "direct" };
+  } catch (_err) {
+    const start = input.indexOf("{");
+    const end = input.lastIndexOf("}");
+    if (start >= 0 && end > start) {
+      try {
+        return { value: JSON.parse(input.slice(start, end + 1)), parsedFrom: "extracted" };
+      } catch (_err2) {
+        // fall through
+      }
+    }
+    return { value: { text: input.trim() }, parsedFrom: "fallback" };
   }
 }
 
@@ -1604,6 +1813,7 @@ type CreatorVoiceProfile = {
   forbiddenTopics: string | null;
   forbiddenPromises: string | null;
   rulesManifest: string | null;
+  allowExplicitAdultContent: boolean;
 };
 
 async function loadCreatorVoiceProfile(creatorId: string): Promise<CreatorVoiceProfile> {
@@ -1617,6 +1827,7 @@ async function loadCreatorVoiceProfile(creatorId: string): Promise<CreatorVoiceP
       forbiddenTopics: true,
       forbiddenPromises: true,
       rulesManifest: true,
+      allowExplicitAdultContent: true,
     },
   });
   return {
@@ -1627,6 +1838,7 @@ async function loadCreatorVoiceProfile(creatorId: string): Promise<CreatorVoiceP
     forbiddenTopics: settings?.forbiddenTopics ?? null,
     forbiddenPromises: settings?.forbiddenPromises ?? null,
     rulesManifest: settings?.rulesManifest ?? null,
+    allowExplicitAdultContent: Boolean(settings?.allowExplicitAdultContent),
   };
 }
 
@@ -1704,13 +1916,14 @@ function buildFanPromptMessages(params: {
   baseMessages: ChatMessage[];
   phaseAction: "suave" | "picante" | "directo" | "final" | null;
   fanPromptContext: string;
+  allowExplicitAdultContent: boolean;
 }): ChatMessage[] {
   const normalizedBaseMessages = params.baseMessages.map((msg) => {
     if (msg.role !== "user") return msg;
     return { ...msg, content: normalizeCreatorPrompt(msg.content) };
   });
   const messages: ChatMessage[] = [
-    { role: "system", content: AGENCY_SYSTEM_GUARD },
+    { role: "system", content: buildAgencySystemGuard(params.allowExplicitAdultContent) },
     { role: "system", content: params.fanPromptContext },
     ...buildFanFewShotMessages(),
     ...normalizedBaseMessages,

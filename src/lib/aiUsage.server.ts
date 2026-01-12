@@ -91,6 +91,8 @@ export async function logCortexLlmUsage(params: {
   latencyMs?: number | null;
   ok: boolean;
   errorCode?: string | null;
+  actionType?: string | null;
+  context?: Record<string, unknown> | null;
 }) {
   const {
     creatorId,
@@ -103,6 +105,8 @@ export async function logCortexLlmUsage(params: {
     latencyMs,
     ok,
     errorCode,
+    actionType,
+    context,
   } = params;
 
   return prisma.aiUsageLog.create({
@@ -120,6 +124,8 @@ export async function logCortexLlmUsage(params: {
       latencyMs: latencyMs ?? null,
       ok,
       errorCode: errorCode ?? null,
+      actionType: actionType ?? undefined,
+      context: context ?? undefined,
     },
   });
 }

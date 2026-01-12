@@ -603,6 +603,7 @@ model CreatorAiSettings {
   allowSuggestReplies                  Boolean @default(true)
   allowSuggestExtras                   Boolean @default(true)
   allowSuggestRenewals                 Boolean @default(true)
+  allowExplicitAdultContent            Boolean @default(false)
   allowAutoLowPriority                 Boolean @default(false)
   voiceTranscriptionMode               String  @default("MANUAL")
   voiceTranscriptionMinSeconds         Int     @default(8)

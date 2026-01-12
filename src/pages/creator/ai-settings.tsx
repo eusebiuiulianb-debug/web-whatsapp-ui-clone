@@ -25,6 +25,7 @@ type CreatorAiSettings = {
   creatorId: string;
   tone: AiBaseTone;
   allowAutoLowPriority: boolean;
+  allowExplicitAdultContent: boolean;
   voiceTranscriptionMode: VoiceTranscriptionMode;
   voiceTranscriptionMinSeconds: number;
   voiceTranscriptionDailyBudgetUsd: number;
@@ -49,6 +50,7 @@ type FormState = {
   creditsAvailable: number | "";
   hardLimitPerDay: number | "" | null;
   allowAutoLowPriority: boolean;
+  allowExplicitAdultContent: boolean;
   voiceTranscriptionMode: VoiceTranscriptionMode;
   voiceTranscriptionMinSeconds: number | "";
   voiceTranscriptionDailyBudgetUsd: number | "";
@@ -195,7 +197,7 @@ export default function CreatorAiSettingsPage() {
   const creatorInitial = config.creatorName?.trim().charAt(0) || "E";
   const defaultLibreUrl = "http://127.0.0.1:5000";
   const defaultCortexBaseUrl = "http://127.0.0.1:11434/v1";
-  const defaultCortexModel = "llama3.1:8b";
+  const defaultCortexModel = "deepseek-r1:7b";
   const defaultTranslateLang = resolveDefaultTranslateLang();
 
   const [settings, setSettings] = useState<CreatorAiSettings | null>(null);
@@ -248,6 +250,9 @@ export default function CreatorAiSettingsPage() {
   );
   const [isTestingCortex, setIsTestingCortex] = useState(false);
   const cortexTestTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [cortexModels, setCortexModels] = useState<string[]>([]);
+  const [cortexModelsLoading, setCortexModelsLoading] = useState(false);
+  const [cortexModelsError, setCortexModelsError] = useState("");
   const pageSize = 10;
   const [offers, setOffers] = useState<Offer[]>([]);
   const [offersLoading, setOffersLoading] = useState(false);
@@ -295,6 +300,7 @@ export default function CreatorAiSettingsPage() {
       creatorId: raw.creatorId,
       tone: normalizeAiBaseTone(raw.tone),
       allowAutoLowPriority: Boolean(raw.allowAutoLowPriority),
+      allowExplicitAdultContent: Boolean(raw.allowExplicitAdultContent),
       voiceTranscriptionMode: voiceSettings.mode,
       voiceTranscriptionMinSeconds: voiceSettings.minSeconds,
       voiceTranscriptionDailyBudgetUsd: voiceSettings.dailyBudgetUsd,
@@ -408,6 +414,7 @@ export default function CreatorAiSettingsPage() {
       creditsAvailable: Number.isFinite(next.creditsAvailable) ? next.creditsAvailable : 0,
       hardLimitPerDay: next.hardLimitPerDay === null ? "" : next.hardLimitPerDay,
       allowAutoLowPriority: next.allowAutoLowPriority,
+      allowExplicitAdultContent: next.allowExplicitAdultContent,
       voiceTranscriptionMode: next.voiceTranscriptionMode,
       voiceTranscriptionMinSeconds: Number.isFinite(next.voiceTranscriptionMinSeconds)
         ? next.voiceTranscriptionMinSeconds
@@ -508,6 +515,27 @@ export default function CreatorAiSettingsPage() {
     cortexTestTimerRef.current = setTimeout(() => setCortexTestToast(null), 3000);
   }, []);
 
+  const handleDetectCortexModels = useCallback(async () => {
+    if (cortexModelsLoading) return;
+    setCortexModelsError("");
+    setCortexModelsLoading(true);
+    try {
+      const res = await fetch("/api/creator/cortex/models", { cache: "no-store" });
+      const data = await res.json().catch(() => ({}));
+      const models = Array.isArray(data?.models) ? data.models.filter((item) => typeof item === "string") : [];
+      setCortexModels(models);
+      if (!models.length && typeof data?.error === "string" && data.error.trim()) {
+        setCortexModelsError(data.error.trim());
+      }
+    } catch (err) {
+      const message = err instanceof Error && err.message ? err.message : "No se pudieron detectar modelos.";
+      setCortexModels([]);
+      setCortexModelsError(message);
+    } finally {
+      setCortexModelsLoading(false);
+    }
+  }, [cortexModelsLoading]);
+
   const handleTestCortex = useCallback(async () => {
     if (isTestingCortex || cortexSaving) return;
     setCortexError("");
@@ -520,6 +548,14 @@ export default function CreatorAiSettingsPage() {
         const message =
           typeof data?.error === "string" && data.error.trim().length > 0
             ? data.error
+            : "No se pudo probar la conexión.";
+        showCortexTestToast(message, "error");
+        return;
+      }
+      if (data?.ok === false) {
+        const message =
+          typeof data?.message === "string" && data.message.trim().length > 0
+            ? data.message
             : "No se pudo probar la conexión.";
         showCortexTestToast(message, "error");
         return;
@@ -767,6 +803,7 @@ export default function CreatorAiSettingsPage() {
       creditsAvailable: typeof form.creditsAvailable === "number" ? form.creditsAvailable : 0,
       hardLimitPerDay: form.hardLimitPerDay === "" ? null : form.hardLimitPerDay ?? null,
       allowAutoLowPriority: form.allowAutoLowPriority,
+      allowExplicitAdultContent: form.allowExplicitAdultContent,
       voiceTranscriptionMode: form.voiceTranscriptionMode,
       voiceTranscriptionMinSeconds: typeof minSecondsValue === "number" ? minSecondsValue : 0,
       voiceTranscriptionDailyBudgetUsd: typeof budgetValue === "number" ? budgetValue : 0,
@@ -1046,6 +1083,9 @@ export default function CreatorAiSettingsPage() {
   const isTranslateFormDisabled = translateLoading || translateSaving;
   const selectedCortexProvider = cortexForm?.provider ?? "ollama";
   const isCortexFormDisabled = cortexSaving || isTestingCortex;
+  const cortexModelValue = cortexForm?.model?.trim() ?? "";
+  const cortexModelNotDetected =
+    cortexModels.length > 0 && cortexModelValue.length > 0 && !cortexModels.includes(cortexModelValue);
   const offerHooksCount = splitOfferLines(offerForm.hooksText).length;
   const offerCtasCount = splitOfferLines(offerForm.ctasText).length;
   const offerPricePreview =
@@ -1221,6 +1261,8 @@ export default function CreatorAiSettingsPage() {
                         );
                         setCortexError("");
                         setCortexSuccess("");
+                        setCortexModels([]);
+                        setCortexModelsError("");
                       }}
                       disabled={isCortexFormDisabled}
                       className="w-full rounded-lg bg-[color:var(--surface-2)] border border-[color:var(--surface-border)] px-3 py-2 text-sm text-[color:var(--text)] focus:border-[color:var(--border-a)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--ring)] disabled:cursor-not-allowed disabled:opacity-70"
@@ -1259,6 +1301,50 @@ export default function CreatorAiSettingsPage() {
                       className="w-full rounded-lg bg-[color:var(--surface-2)] border border-[color:var(--surface-border)] px-3 py-2 text-sm text-[color:var(--text)] focus:border-[color:var(--border-a)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--ring)] disabled:cursor-not-allowed disabled:opacity-70"
                     />
                   </label>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={handleDetectCortexModels}
+                      disabled={isCortexFormDisabled || cortexModelsLoading}
+                      className={clsx(
+                        "inline-flex items-center justify-center rounded-full border px-3 py-1 text-[11px] font-semibold transition",
+                        isCortexFormDisabled || cortexModelsLoading
+                          ? "border-[color:var(--surface-border)] bg-[color:var(--surface-2)] text-[color:var(--muted)] cursor-not-allowed"
+                          : "border-[color:var(--surface-border)] bg-[color:var(--surface-2)] text-[color:var(--text)] hover:bg-[color:var(--surface-1)]"
+                      )}
+                    >
+                      {cortexModelsLoading ? "Detectando..." : "Detectar modelos"}
+                    </button>
+                    {cortexModels.length > 0 && (
+                      <select
+                        value=""
+                        onChange={(event) => {
+                          const nextValue = event.target.value;
+                          if (!nextValue) return;
+                          setCortexForm((prev) =>
+                            prev ? { ...prev, model: nextValue } : prev
+                          );
+                        }}
+                        disabled={isCortexFormDisabled}
+                        className="min-w-[220px] rounded-lg bg-[color:var(--surface-2)] border border-[color:var(--surface-border)] px-3 py-2 text-sm text-[color:var(--text)] focus:border-[color:var(--border-a)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--ring)] disabled:cursor-not-allowed disabled:opacity-70"
+                      >
+                        <option value="">Selecciona un modelo detectado</option>
+                        {cortexModels.map((model) => (
+                          <option key={model} value={model}>
+                            {model}
+                          </option>
+                        ))}
+                      </select>
+                    )}
+                  </div>
+                  {cortexModelsError && (
+                    <div className="text-[11px] text-[color:var(--danger)]">{cortexModelsError}</div>
+                  )}
+                  {cortexModelNotDetected && (
+                    <div className="text-[11px] text-[color:var(--danger)]">
+                      Modelo no encontrado en el proveedor. Revisa el nombre o detecta modelos.
+                    </div>
+                  )}
                   <label className="flex flex-col gap-1">
                     <span className="text-[11px] font-semibold text-[color:var(--text)]">
                       AI_API_KEY {selectedCortexProvider === "ollama" ? "(opcional)" : "(obligatoria)"}
@@ -1616,6 +1702,28 @@ export default function CreatorAiSettingsPage() {
                     </label>
                     <p className="text-xs text-[color:var(--muted)]">
                       Si está activado, la IA puede contestar por ti cuando la cola esté muy llena. Solo se usa con fans marcados como baja prioridad.
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-3 border border-[color:var(--surface-border)] rounded-xl px-4 py-3 bg-[color:var(--surface-1)]">
+                  <input
+                    id="allowExplicitAdultContent"
+                    type="checkbox"
+                    checked={form.allowExplicitAdultContent}
+                    onChange={(e) =>
+                      setForm((prev) =>
+                        prev ? { ...prev, allowExplicitAdultContent: e.target.checked } : prev
+                      )
+                    }
+                    className="h-5 w-5 rounded border-[color:var(--surface-border)] bg-[color:var(--surface-2)] text-[color:var(--brand)] focus:ring-[color:var(--ring)]"
+                  />
+                  <div className="flex flex-col">
+                    <label htmlFor="allowExplicitAdultContent" className="text-sm font-medium text-[color:var(--text)]">
+                      Modo +18 explícito
+                    </label>
+                    <p className="text-xs text-[color:var(--muted)]">
+                      Permite lenguaje sexual explícito entre adultos (consentido). Se bloquean menores y no-consentimiento.
                     </p>
                   </div>
                 </div>

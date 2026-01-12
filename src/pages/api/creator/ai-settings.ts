@@ -81,6 +81,7 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
     allowSuggestReplies,
     allowSuggestExtras,
     allowSuggestRenewals,
+    allowExplicitAdultContent,
     allowAutoLowPriority,
     voiceTranscriptionMode,
     voiceTranscriptionMinSeconds,
@@ -164,6 +165,13 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
     if (typeof allowSuggestRenewals !== "boolean") return sendBadRequest(res, "allowSuggestRenewals must be a boolean");
     updateData.allowSuggestRenewals = allowSuggestRenewals;
     createData.allowSuggestRenewals = allowSuggestRenewals;
+  }
+  if (allowExplicitAdultContent !== undefined) {
+    if (typeof allowExplicitAdultContent !== "boolean") {
+      return sendBadRequest(res, "allowExplicitAdultContent must be a boolean");
+    }
+    updateData.allowExplicitAdultContent = allowExplicitAdultContent;
+    createData.allowExplicitAdultContent = allowExplicitAdultContent;
   }
   if (allowAutoLowPriority !== undefined) {
     if (typeof allowAutoLowPriority !== "boolean") return sendBadRequest(res, "allowAutoLowPriority must be a boolean");

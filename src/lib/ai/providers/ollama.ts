@@ -7,6 +7,8 @@ type OllamaDebugInfo = {
   url: string;
   maxTokensType: string;
   maxTokensValue: unknown;
+  resolvedMaxTokens?: number;
+  outputLength?: string | null;
 };
 
 export type OllamaOpenAiRequest = {
@@ -37,9 +39,10 @@ type OllamaRequestParams = {
   maxTokens?: number;
   timeoutMs?: number;
   creatorId?: string;
+  outputLength?: string;
 };
 
-const DEFAULT_TIMEOUT_MS = 20_000;
+const DEFAULT_TIMEOUT_MS = 120_000;
 const DEFAULT_MAX_TOKENS = 300;
 
 function coerceInt(value: unknown): number | undefined {
@@ -97,6 +100,10 @@ export async function requestOllamaChatCompletion(params: OllamaRequestParams): 
   const startedAt = Date.now();
   const controller = new AbortController();
   const timeoutMs = params.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+  const resolvedMaxTokens =
+    typeof params.maxTokens === "number" && Number.isFinite(params.maxTokens)
+      ? Math.trunc(params.maxTokens)
+      : DEFAULT_MAX_TOKENS;
   const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
   const prepared = buildOllamaOpenAiRequest({
     baseUrl: params.baseUrl,
@@ -105,12 +112,16 @@ export async function requestOllamaChatCompletion(params: OllamaRequestParams): 
       model: params.model,
       messages: params.messages,
       temperature: params.temperature ?? 0.4,
-      max_tokens: params.maxTokens ?? DEFAULT_MAX_TOKENS,
+      max_tokens: resolvedMaxTokens,
     },
     creatorId: params.creatorId,
   });
   const payload = prepared.payload ?? {};
-  const debug = prepared.debug;
+  const debug: OllamaDebugInfo = {
+    ...prepared.debug,
+    resolvedMaxTokens,
+    outputLength: params.outputLength ?? null,
+  };
 
   if (process.env.NODE_ENV === "development") {
     console.debug("ollama_chat_request_debug", debug);

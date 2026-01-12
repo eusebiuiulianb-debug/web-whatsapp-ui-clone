@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import clsx from "clsx";
 import FanManagerPanel from "../chat/FanManagerPanel";
 import { IconGlyph } from "../ui/IconGlyph";
@@ -69,6 +69,9 @@ type PpvOffer = {
   currency?: string;
 };
 
+type DraftDirectness = "suave" | "neutro" | "directo";
+type DraftOutputLength = "short" | "medium" | "long";
+
 type Props = {
   managerSuggestions?: { id: string; label: string; message: string; intent?: string }[];
   reengageSuggestions?: { id: string; label: string; message: string; intent?: string }[];
@@ -118,6 +121,13 @@ type Props = {
   hasAutopilotContext?: boolean;
   onAutopilotSoften?: () => void;
   onAutopilotMakeBolder?: () => void;
+  agencyObjectiveLabel?: string | null;
+  agencyStyleLabel?: string | null;
+  draftActionKey?: string | null;
+  draftActionLoading?: boolean;
+  draftDirectnessById?: Record<string, DraftDirectness | null>;
+  draftOutputLength?: DraftOutputLength;
+  onDraftOutputLengthChange?: (length: DraftOutputLength) => void;
 };
 
 export default function FanManagerDrawer({
@@ -169,8 +179,18 @@ export default function FanManagerDrawer({
   hasAutopilotContext = false,
   onAutopilotSoften,
   onAutopilotMakeBolder,
+  agencyObjectiveLabel,
+  agencyStyleLabel,
+  draftActionKey = null,
+  draftActionLoading = false,
+  draftDirectnessById = {},
+  draftOutputLength = "medium",
+  onDraftOutputLengthChange,
 }: Props) {
   const [showMore, setShowMore] = useState(false);
+  const draftSectionRef = useRef<HTMLDivElement | null>(null);
+  const prevDraftCountRef = useRef(0);
+  const prevDraftLoadingRef = useRef(false);
   const summaryLine = closedSummary || planSummary || statusLine;
   const planSummaryText = planSummary ? planSummary.replace(/^Plan de hoy:\s*/i, "").trim() : null;
   const managerDisabled = isBlocked;
@@ -195,14 +215,34 @@ export default function FanManagerDrawer({
     suggestedObjective === "renovacion" && isCriticalExpiry
       ? "Renovación hoy"
       : formatObjectiveLabel(suggestedObjective ?? null);
+  const objectiveDetailLabel = agencyObjectiveLabel ?? suggestedObjectiveLabel;
   const toneLabel = formatToneLabel(tone);
   const isObjectiveActive = (objective: ManagerObjective) => currentObjective === objective;
-  const objectivesLocked = managerDisabled || isAutoPilotLoading;
+  const objectivesLocked = managerDisabled || isAutoPilotLoading || draftActionLoading;
+  const isDraftActionLoading = (key: string) => draftActionLoading && draftActionKey === key;
+  const draftActionKeyFor = (scope: "objective" | "draft", id: string, action?: string) =>
+    scope === "draft" ? `draft:${id}:${action ?? "variant"}` : `objective:${id}`;
   const showAutopilotAdjust = autoPilotEnabled && hasAutopilotContext;
   const monetizationData = monetization ?? null;
   const formatCount = (value?: number | null) => (typeof value === "number" ? `${value}` : "—");
   const formatEuro = (value?: number | null) =>
     typeof value === "number" && Number.isFinite(value) ? `${Math.round(value)}€` : "—";
+  const renderLoadingLabel = () => (
+    <span className="inline-flex items-center gap-1.5">
+      <span className="h-3 w-3 animate-spin rounded-full border-2 border-[color:var(--surface-border)] border-t-transparent" />
+      <span>Generando...</span>
+    </span>
+  );
+
+  useEffect(() => {
+    const count = draftCards?.length ?? 0;
+    const finishedLoading = prevDraftLoadingRef.current && !draftActionLoading;
+    if ((finishedLoading && count > 0) || (!draftActionLoading && count > prevDraftCountRef.current)) {
+      draftSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+    prevDraftCountRef.current = count;
+    prevDraftLoadingRef.current = draftActionLoading;
+  }, [draftActionLoading, draftCards?.length]);
   const fallbackSubscriptionLabel = monetizationData
     ? monetizationData.subscription.active
       ? "Suscripción activa"
@@ -283,11 +323,68 @@ export default function FanManagerDrawer({
                 </button>
               </div>
             )}
+            {onDraftOutputLengthChange && (
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="text-[11px] text-[color:var(--muted)]">Longitud</span>
+                <button
+                  type="button"
+                  disabled={objectivesLocked}
+                  onClick={() => onDraftOutputLengthChange("short")}
+                  className={clsx(
+                    "rounded-full px-3 py-1 text-[11px] border transition",
+                    draftOutputLength === "short"
+                      ? "bg-[color:var(--brand-strong)] text-[color:var(--text)] border-[color:var(--brand)]"
+                      : "bg-[color:var(--surface-2)] text-[color:var(--text)] border-[color:var(--surface-border)] hover:border-[color:var(--brand)]",
+                    objectivesLocked && "opacity-60 cursor-not-allowed"
+                  )}
+                >
+                  Corta
+                </button>
+                <button
+                  type="button"
+                  disabled={objectivesLocked}
+                  onClick={() => onDraftOutputLengthChange("medium")}
+                  className={clsx(
+                    "rounded-full px-3 py-1 text-[11px] border transition",
+                    draftOutputLength === "medium"
+                      ? "bg-[color:var(--brand-strong)] text-[color:var(--text)] border-[color:var(--brand)]"
+                      : "bg-[color:var(--surface-2)] text-[color:var(--text)] border-[color:var(--surface-border)] hover:border-[color:var(--brand)]",
+                    objectivesLocked && "opacity-60 cursor-not-allowed"
+                  )}
+                >
+                  Normal
+                </button>
+                <button
+                  type="button"
+                  disabled={objectivesLocked}
+                  onClick={() => onDraftOutputLengthChange("long")}
+                  className={clsx(
+                    "rounded-full px-3 py-1 text-[11px] border transition",
+                    draftOutputLength === "long"
+                      ? "bg-[color:var(--brand-strong)] text-[color:var(--text)] border-[color:var(--brand)]"
+                      : "bg-[color:var(--surface-2)] text-[color:var(--text)] border-[color:var(--surface-border)] hover:border-[color:var(--brand)]",
+                    objectivesLocked && "opacity-60 cursor-not-allowed"
+                  )}
+                >
+                  Larga
+                </button>
+              </div>
+            )}
             <div className="text-xs md:text-sm leading-relaxed text-[color:var(--muted)]">{managerHeadlineText}</div>
             <div className="text-[11px] md:text-xs text-[color:var(--muted)]">Tú decides qué se envía.</div>
             {suggestedObjectiveLabel && (
               <div className="text-[11px] md:text-xs text-[color:var(--brand)]">
                 Objetivo sugerido: {suggestedObjectiveLabel}
+              </div>
+            )}
+            {agencyObjectiveLabel && (
+              <div className="text-[11px] md:text-xs text-[color:var(--text)]">
+                Objetivo actual: <span className="text-[color:var(--brand)]">{agencyObjectiveLabel}</span>
+              </div>
+            )}
+            {agencyStyleLabel && (
+              <div className="text-[11px] md:text-xs text-[color:var(--text)]">
+                Estilo actual: <span className="text-[color:var(--brand)]">{agencyStyleLabel}</span>
               </div>
             )}
             {summaryLine && <div className="text-[11px] md:text-xs text-[color:var(--muted)] truncate">{summaryLine}</div>}
@@ -407,7 +504,10 @@ export default function FanManagerDrawer({
             type="button"
             className={clsx(
               "inline-flex items-center justify-center whitespace-nowrap rounded-full border px-6 py-2 text-sm font-medium transition",
-              isObjectiveActive("bienvenida") || isObjectiveActive("romper_hielo") || isRecommended("saludo_rapido")
+              isObjectiveActive("bienvenida") ||
+                isObjectiveActive("romper_hielo") ||
+                isRecommended("saludo_rapido") ||
+                isDraftActionLoading(draftActionKeyFor("objective", "romper_hielo"))
                 ? "border-[color:var(--brand)] bg-[color:rgba(var(--brand-rgb),0.18)] text-[color:var(--text)]"
                 : "border-[color:var(--surface-border)] bg-[color:var(--surface-2)] text-[color:var(--text)] hover:border-[color:var(--brand)] hover:text-[color:var(--text)]",
               objectivesLocked && "opacity-60 cursor-not-allowed"
@@ -419,14 +519,18 @@ export default function FanManagerDrawer({
             title="Mensaje breve para iniciar conversación o retomar contacto de forma natural."
             disabled={objectivesLocked}
           >
-            Romper el hielo
+            {isDraftActionLoading(draftActionKeyFor("objective", "romper_hielo"))
+              ? renderLoadingLabel()
+              : "Romper el hielo"}
           </button>
           {showRenewAction && (
             <button
               type="button"
               className={clsx(
               "inline-flex items-center justify-center whitespace-nowrap rounded-full border px-6 py-2 text-sm font-medium transition",
-              isObjectiveActive("reactivar_fan_frio") || isRecommended("renenganche")
+              isObjectiveActive("reactivar_fan_frio") ||
+                isRecommended("renenganche") ||
+                isDraftActionLoading(draftActionKeyFor("objective", "reactivar_fan_frio"))
                   ? "border-[color:var(--brand)] bg-[color:rgba(var(--brand-rgb),0.18)] text-[color:var(--text)]"
                   : "border-[color:var(--surface-border)] bg-[color:var(--surface-2)] text-[color:var(--text)] hover:border-[color:var(--brand)] hover:text-[color:var(--text)]",
                 objectivesLocked && "opacity-60 cursor-not-allowed"
@@ -438,14 +542,18 @@ export default function FanManagerDrawer({
               title="Pide feedback de lo que más le ha ayudado hasta ahora y adelanta que en unos días llegará el enlace de renovación."
               disabled={objectivesLocked}
             >
-              Reactivar fan frío
+              {isDraftActionLoading(draftActionKeyFor("objective", "reactivar_fan_frio"))
+                ? renderLoadingLabel()
+                : "Reactivar fan frío"}
             </button>
           )}
           <button
             type="button"
             className={clsx(
                 "inline-flex items-center justify-center whitespace-nowrap rounded-full border px-6 py-2 text-sm font-medium transition",
-                isObjectiveActive("ofrecer_extra") || isRecommended("extra_rapido")
+                isObjectiveActive("ofrecer_extra") ||
+                  isRecommended("extra_rapido") ||
+                  isDraftActionLoading(draftActionKeyFor("objective", "ofrecer_extra"))
                   ? "border-[color:var(--brand)] bg-[color:rgba(var(--brand-rgb),0.18)] text-[color:var(--text)]"
                   : "border-[color:var(--surface-border)] bg-[color:var(--surface-2)] text-[color:var(--text)] hover:border-[color:var(--brand)] hover:text-[color:var(--text)]",
               quickExtraDisabled || objectivesLocked ? "opacity-60 cursor-not-allowed" : ""
@@ -457,13 +565,18 @@ export default function FanManagerDrawer({
             disabled={quickExtraDisabled || objectivesLocked}
             title="Propuesta suave para ofrecer un contenido extra o actividad puntual."
           >
-            Ofrecer un extra
+            {isDraftActionLoading(draftActionKeyFor("objective", "ofrecer_extra"))
+              ? renderLoadingLabel()
+              : "Ofrecer un extra"}
           </button>
           <button
             type="button"
             className={clsx(
                 "inline-flex items-center justify-center whitespace-nowrap rounded-full border px-6 py-2 text-sm font-medium transition",
-                isObjectiveActive("llevar_a_mensual") || isObjectiveActive("renovacion") || isRecommended("elegir_pack")
+                isObjectiveActive("llevar_a_mensual") ||
+                  isObjectiveActive("renovacion") ||
+                  isRecommended("elegir_pack") ||
+                  isDraftActionLoading(draftActionKeyFor("objective", "llevar_a_mensual"))
                   ? "border-[color:var(--brand)] bg-[color:rgba(var(--brand-rgb),0.18)] text-[color:var(--text)]"
                   : "border-[color:var(--surface-border)] bg-[color:var(--surface-2)] text-[color:var(--text)] hover:border-[color:var(--brand)] hover:text-[color:var(--text)]",
               objectivesLocked && "opacity-60 cursor-not-allowed"
@@ -475,7 +588,9 @@ export default function FanManagerDrawer({
             title="Invitación clara para pasar al pack mensual sin presión."
             disabled={objectivesLocked}
           >
-            Llevar a mensual
+            {isDraftActionLoading(draftActionKeyFor("objective", "llevar_a_mensual"))
+              ? renderLoadingLabel()
+              : "Llevar a mensual"}
           </button>
         </div>
         <div className="mt-3 flex flex-wrap items-center gap-2">
@@ -523,73 +638,128 @@ export default function FanManagerDrawer({
           </button>
         </div>
       </div>
-      {draftCards && draftCards.length > 0 && (
-        <div className="mt-3 rounded-xl border border-[color:rgba(var(--brand-rgb),0.25)] bg-[color:rgba(var(--brand-rgb),0.06)] p-3 flex flex-col gap-2">
+      {(draftActionLoading || (draftCards && draftCards.length > 0)) && (
+        <div
+          ref={draftSectionRef}
+          className="mt-3 rounded-xl border border-[color:rgba(var(--brand-rgb),0.25)] bg-[color:rgba(var(--brand-rgb),0.06)] p-3 flex flex-col gap-2"
+        >
           <div className="text-[11px] font-semibold uppercase tracking-wide text-[color:var(--brand)]">
             Borradores generados
           </div>
-          <div className="space-y-2">
-            {draftCards.map((draft) => (
-              <div
-                key={draft.id}
-                className="rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-3 py-2 space-y-2"
-              >
-                <div className="text-[10px] uppercase tracking-wide text-[color:var(--muted)]">{draft.label}</div>
-                <div className="text-[12px] text-[color:var(--text)]">{draft.text}</div>
-                {draft.offer && (
+          {draftActionLoading && (
+            <div className="inline-flex items-center gap-2 text-[11px] text-[color:var(--text)]">
+              <span className="h-3 w-3 animate-spin rounded-full border-2 border-[color:var(--surface-border)] border-t-transparent" />
+              <span>Generando…</span>
+            </div>
+          )}
+          {draftCards && draftCards.length > 0 && (
+            <div className="space-y-2">
+              {draftCards.map((draft) => (
+                <div
+                  key={draft.id}
+                  className="rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-3 py-2 space-y-2"
+                >
+                  <div className="text-[10px] uppercase tracking-wide text-[color:var(--muted)]">{draft.label}</div>
+                  <div className="text-[12px] text-[color:var(--text)]">{draft.text}</div>
+                  {draft.offer && (
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="inline-flex items-center rounded-full border border-[color:rgba(var(--brand-rgb),0.35)] bg-[color:rgba(var(--brand-rgb),0.12)] px-2.5 py-1 text-[10px] font-semibold text-[color:var(--text)]">
+                        {formatOfferLabel(draft.offer)}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => draft.offer && onInsertOffer?.(draft.text, draft.offer, draft.label)}
+                        className="inline-flex items-center rounded-full border border-[color:var(--warning)] bg-[color:rgba(245,158,11,0.08)] px-3 py-1 text-[10px] font-semibold text-[color:var(--text)] hover:bg-[color:rgba(245,158,11,0.16)]"
+                      >
+                        Insertar + Oferta
+                      </button>
+                    </div>
+                  )}
                   <div className="flex flex-wrap items-center gap-2">
-                    <span className="inline-flex items-center rounded-full border border-[color:rgba(var(--brand-rgb),0.35)] bg-[color:rgba(var(--brand-rgb),0.12)] px-2.5 py-1 text-[10px] font-semibold text-[color:var(--text)]">
-                      {formatOfferLabel(draft.offer)}
-                    </span>
                     <button
                       type="button"
-                      onClick={() => draft.offer && onInsertOffer?.(draft.text, draft.offer, draft.label)}
-                      className="inline-flex items-center rounded-full border border-[color:var(--warning)] bg-[color:rgba(245,158,11,0.08)] px-3 py-1 text-[10px] font-semibold text-[color:var(--text)] hover:bg-[color:rgba(245,158,11,0.16)]"
+                      onClick={() => onApplySuggestion?.(draft.text, draft.label, `draft:${draft.id}`)}
+                      className="inline-flex items-center rounded-full border border-[color:var(--brand)] bg-[color:rgba(var(--brand-rgb),0.12)] px-3 py-1 text-[11px] font-medium text-[color:var(--text)] hover:bg-[color:rgba(var(--brand-rgb),0.2)] transition"
                     >
-                      Insertar + Oferta
+                      Usar en mensaje
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => onDraftAction?.(draft.id, "alternate")}
+                      disabled={objectivesLocked}
+                      className={clsx(
+                        "inline-flex items-center rounded-full border px-2.5 py-1 text-[10px] font-semibold transition",
+                        objectivesLocked
+                          ? "border-[color:var(--surface-border)] bg-[color:var(--surface-2)] text-[color:var(--muted)] cursor-not-allowed"
+                          : isDraftActionLoading(draftActionKeyFor("draft", draft.id, "alternate"))
+                          ? "border-[color:var(--brand)] bg-[color:rgba(var(--brand-rgb),0.16)] text-[color:var(--text)]"
+                          : "border-[color:var(--surface-border)] bg-[color:var(--surface-2)] text-[color:var(--text)] hover:border-[color:var(--surface-border-hover)]"
+                      )}
+                    >
+                      {isDraftActionLoading(draftActionKeyFor("draft", draft.id, "alternate"))
+                        ? renderLoadingLabel()
+                        : "Otra versión"}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => onDraftAction?.(draft.id, "shorter")}
+                      disabled={objectivesLocked}
+                      className={clsx(
+                        "inline-flex items-center rounded-full border px-2.5 py-1 text-[10px] font-semibold transition",
+                        objectivesLocked
+                          ? "border-[color:var(--surface-border)] bg-[color:var(--surface-2)] text-[color:var(--muted)] cursor-not-allowed"
+                          : isDraftActionLoading(draftActionKeyFor("draft", draft.id, "shorter"))
+                          ? "border-[color:var(--brand)] bg-[color:rgba(var(--brand-rgb),0.16)] text-[color:var(--text)]"
+                          : "border-[color:var(--surface-border)] bg-[color:var(--surface-2)] text-[color:var(--text)] hover:border-[color:var(--surface-border-hover)]"
+                      )}
+                    >
+                      {isDraftActionLoading(draftActionKeyFor("draft", draft.id, "shorter"))
+                        ? renderLoadingLabel()
+                        : "Más corta"}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => onDraftAction?.(draft.id, "softer")}
+                      disabled={objectivesLocked}
+                      className={clsx(
+                        "inline-flex items-center rounded-full border px-2.5 py-1 text-[10px] font-semibold transition",
+                        objectivesLocked
+                          ? "border-[color:var(--surface-border)] bg-[color:var(--surface-2)] text-[color:var(--muted)] cursor-not-allowed"
+                          : isDraftActionLoading(draftActionKeyFor("draft", draft.id, "softer"))
+                          ? "border-[color:var(--brand)] bg-[color:rgba(var(--brand-rgb),0.16)] text-[color:var(--text)]"
+                          : draftDirectnessById[draft.id] === "suave"
+                          ? "border-[color:var(--brand)] bg-[color:rgba(var(--brand-rgb),0.18)] text-[color:var(--text)]"
+                          : "border-[color:var(--surface-border)] bg-[color:var(--surface-2)] text-[color:var(--text)] hover:border-[color:var(--surface-border-hover)]"
+                      )}
+                    >
+                      {isDraftActionLoading(draftActionKeyFor("draft", draft.id, "softer"))
+                        ? renderLoadingLabel()
+                        : "Suavizar"}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => onDraftAction?.(draft.id, "bolder")}
+                      disabled={objectivesLocked}
+                      className={clsx(
+                        "inline-flex items-center rounded-full border px-2.5 py-1 text-[10px] font-semibold transition",
+                        objectivesLocked
+                          ? "border-[color:var(--surface-border)] bg-[color:var(--surface-2)] text-[color:var(--muted)] cursor-not-allowed"
+                          : isDraftActionLoading(draftActionKeyFor("draft", draft.id, "bolder"))
+                          ? "border-[color:var(--brand)] bg-[color:rgba(var(--brand-rgb),0.16)] text-[color:var(--text)]"
+                          : draftDirectnessById[draft.id] === "directo"
+                          ? "border-[color:var(--brand)] bg-[color:rgba(var(--brand-rgb),0.18)] text-[color:var(--text)]"
+                          : "border-[color:var(--surface-border)] bg-[color:var(--surface-2)] text-[color:var(--text)] hover:border-[color:var(--surface-border-hover)]"
+                      )}
+                    >
+                      {isDraftActionLoading(draftActionKeyFor("draft", draft.id, "bolder"))
+                        ? renderLoadingLabel()
+                        : "Más directo"}
                     </button>
                   </div>
-                )}
-                <div className="flex flex-wrap items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={() => onApplySuggestion?.(draft.text, draft.label, `draft:${draft.id}`)}
-                    className="inline-flex items-center rounded-full border border-[color:var(--brand)] bg-[color:rgba(var(--brand-rgb),0.12)] px-3 py-1 text-[11px] font-medium text-[color:var(--text)] hover:bg-[color:rgba(var(--brand-rgb),0.2)] transition"
-                  >
-                    Usar en mensaje
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => onDraftAction?.(draft.id, "alternate")}
-                    className="inline-flex items-center rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-2.5 py-1 text-[10px] font-semibold text-[color:var(--text)] hover:border-[color:var(--surface-border-hover)]"
-                  >
-                    Otra versión
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => onDraftAction?.(draft.id, "shorter")}
-                    className="inline-flex items-center rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-2.5 py-1 text-[10px] font-semibold text-[color:var(--text)] hover:border-[color:var(--surface-border-hover)]"
-                  >
-                    Más corta
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => onDraftAction?.(draft.id, "softer")}
-                    className="inline-flex items-center rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-2.5 py-1 text-[10px] font-semibold text-[color:var(--text)] hover:border-[color:var(--surface-border-hover)]"
-                  >
-                    Suavizar
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => onDraftAction?.(draft.id, "bolder")}
-                    className="inline-flex items-center rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-2.5 py-1 text-[10px] font-semibold text-[color:var(--text)] hover:border-[color:var(--surface-border-hover)]"
-                  >
-                    Más directo
-                  </button>
                 </div>
-              </div>
-            ))}
-          </div>
+              ))}
+            </div>
+          )}
         </div>
       )}
       {managerSuggestions && managerSuggestions.length > 0 && (
@@ -739,9 +909,9 @@ export default function FanManagerDrawer({
               {iaSummary && <div className="text-[color:var(--text)]">{iaSummary}</div>}
             </div>
           )}
-          {suggestedObjectiveLabel && (
+          {objectiveDetailLabel && (
             <div className="text-xs md:text-sm text-[color:var(--muted)]">
-              Objetivo actual del Manager: <span className="text-[color:var(--text)]">{suggestedObjectiveLabel}</span>
+              Objetivo actual del Manager: <span className="text-[color:var(--text)]">{objectiveDetailLabel}</span>
             </div>
           )}
           {toneLabel && (

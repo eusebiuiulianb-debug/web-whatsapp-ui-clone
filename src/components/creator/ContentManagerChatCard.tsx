@@ -238,15 +238,77 @@ export const ContentManagerChatCard = forwardRef<ContentManagerChatCardHandle, P
           normalizedStatus === "provider_down" ||
           errorCode.toUpperCase() === "PROVIDER_UNAVAILABLE" ||
           res.status === 502;
+        const isModelNotFound = errorCode.toUpperCase() === "MODEL_NOT_FOUND";
+        const isTimeout = errorCode.toUpperCase() === "TIMEOUT";
+        const isProviderError = errorCode.toUpperCase() === "PROVIDER_ERROR";
+        const isJsonParse = errorCode.toUpperCase() === "JSON_PARSE";
+        const policyBlocked = errorCode.toUpperCase() === "POLICY_BLOCKED";
         const isCryptoMisconfigured =
           normalizedStatus === "crypto_misconfigured" || errorCode.toUpperCase() === "CRYPTO_MISCONFIGURED";
-        if (providerUnavailable) {
-          setError("Ollama no responde. Revisa que esté activo.");
+        if (isModelNotFound) {
+          const modelMessage =
+            typeof (data as any)?.error?.message === "string"
+              ? (data as any).error.message
+              : "Modelo no encontrado (AI_MODEL=...).";
+          setError(modelMessage);
           if (!trimmedReplyText) {
             const assistantMessage: ContentManagerChatMessage = {
               id: `assistant-${Date.now()}`,
               role: "ASSISTANT",
-              content: "Ollama no responde. Reintenta en unos segundos.",
+              content: modelMessage,
+              createdAt: new Date().toISOString(),
+            };
+            setMessages((prev) =>
+              [...prev.filter((m) => m.id !== optimisticId), assistantMessage].slice(-50)
+            );
+            return;
+          }
+        } else if (isTimeout) {
+          const timeoutMessage =
+            typeof (data as any)?.error?.message === "string"
+              ? (data as any).error.message
+              : "Timeout hablando con Ollama.";
+          setError(timeoutMessage);
+          if (!trimmedReplyText) {
+            const assistantMessage: ContentManagerChatMessage = {
+              id: `assistant-${Date.now()}`,
+              role: "ASSISTANT",
+              content: timeoutMessage,
+              createdAt: new Date().toISOString(),
+            };
+            setMessages((prev) =>
+              [...prev.filter((m) => m.id !== optimisticId), assistantMessage].slice(-50)
+            );
+            return;
+          }
+        } else if (isProviderError || isJsonParse) {
+          const providerMessage =
+            typeof (data as any)?.error?.message === "string"
+              ? (data as any).error.message
+              : isJsonParse
+              ? "La IA respondió pero no en formato esperado (JSON)."
+              : "IA local no disponible (Ollama).";
+          setError(providerMessage);
+          if (!trimmedReplyText) {
+            const assistantMessage: ContentManagerChatMessage = {
+              id: `assistant-${Date.now()}`,
+              role: "ASSISTANT",
+              content: providerMessage,
+              createdAt: new Date().toISOString(),
+            };
+            setMessages((prev) =>
+              [...prev.filter((m) => m.id !== optimisticId), assistantMessage].slice(-50)
+            );
+            return;
+          }
+        }
+        if (!isModelNotFound && !isTimeout && !isProviderError && !isJsonParse && providerUnavailable) {
+          setError("IA local no disponible (Ollama).");
+          if (!trimmedReplyText) {
+            const assistantMessage: ContentManagerChatMessage = {
+              id: `assistant-${Date.now()}`,
+              role: "ASSISTANT",
+              content: "IA local no disponible (Ollama).",
               createdAt: new Date().toISOString(),
             };
             setMessages((prev) =>
@@ -263,6 +325,24 @@ export const ContentManagerChatCard = forwardRef<ContentManagerChatCardHandle, P
             throw new Error(message);
           }
           setError(trimmedReplyText);
+        } else if (policyBlocked) {
+          const policyMessage =
+            typeof (data as any)?.error?.message === "string"
+              ? (data as any).error.message
+              : "No permitido: menores o no consentimiento.";
+          setError(policyMessage);
+          if (!trimmedReplyText) {
+            const assistantMessage: ContentManagerChatMessage = {
+              id: `assistant-${Date.now()}`,
+              role: "ASSISTANT",
+              content: policyMessage,
+              createdAt: new Date().toISOString(),
+            };
+            setMessages((prev) =>
+              [...prev.filter((m) => m.id !== optimisticId), assistantMessage].slice(-50)
+            );
+            return;
+          }
         } else if (!trimmedReplyText && (normalizedStatus === "refusal" || errorCode.toUpperCase() === "REFUSAL")) {
           const refusalText =
             "Se bloqueó la generación con este contexto. Prueba \"Otra versión\" o \"Suavizar\".";

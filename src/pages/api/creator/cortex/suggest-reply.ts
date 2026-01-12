@@ -3,8 +3,15 @@ import { z } from "zod";
 import prisma from "../../../../lib/prisma.server";
 import { createDefaultCreatorPlatforms } from "../../../../lib/creatorPlatforms";
 import { getEffectiveTranslateConfig } from "../../../../lib/ai/translateProvider";
-import { requestCortexCompletion, type CortexSuggestContext } from "../../../../lib/ai/cortexProvider";
+import {
+  getCortexProviderSelection,
+  requestCortexCompletion,
+  type CortexChatMessage,
+  type CortexSuggestContext,
+} from "../../../../lib/ai/cortexProvider";
 import { logCortexLlmUsage } from "../../../../lib/aiUsage.server";
+import { evaluateAdultPolicy } from "../../../../server/ai/adultPolicy";
+import { buildErrorSnippet, resolveProviderErrorType } from "../../../../server/ai/cortexErrors";
 
 type SuggestMode = "reply" | "sales" | "clarify";
 
@@ -15,7 +22,20 @@ type SuggestReplyResponse = {
   follow_up_questions: string[];
 };
 
-type ErrorResponse = { error: string; details?: string };
+type SuggestReplyErrorResponse = {
+  ok: false;
+  error:
+    | "CORTEX_NOT_CONFIGURED"
+    | "CORTEX_FAILED"
+    | "POLICY_BLOCKED"
+    | "MODEL_NOT_FOUND"
+    | "TIMEOUT"
+    | "PROVIDER_ERROR"
+    | "JSON_PARSE";
+  message: string;
+};
+
+type ErrorResponse = { error: string; details?: string; code?: string };
 
 const requestSchema = z.object({
   creatorId: z.string().min(1),
@@ -45,6 +65,9 @@ const responseSchema = z.object({
 
 const HISTORY_LIMIT = 40;
 const MAX_MESSAGE_CHARS = 700;
+const DEFAULT_CONTEXT_MESSAGES = 12;
+const MAX_CONTEXT_MESSAGES = 40;
+const CORTEX_USAGE_KIND = "cortex_suggest_reply";
 
 const MODE_LABELS: Record<SuggestMode, string> = {
   reply: "Responder al fan de forma clara y natural.",
@@ -54,7 +77,7 @@ const MODE_LABELS: Record<SuggestMode, string> = {
 
 export default async function handler(
   req: NextApiRequest,
-  res: NextApiResponse<SuggestReplyResponse | ErrorResponse>
+  res: NextApiResponse<SuggestReplyResponse | SuggestReplyErrorResponse | ErrorResponse>
 ) {
   if (req.method !== "POST") {
     res.setHeader("Allow", "POST");
@@ -66,6 +89,11 @@ export default async function handler(
 
   if (resolveViewerRole(req) !== "creator") {
     return res.status(403).json({ error: "Forbidden", details: "Creator access required." });
+  }
+
+  const messageId = normalizeOptional(req.body?.messageId);
+  if (messageId) {
+    return handleMessageSuggestReply(req, res, messageId);
   }
 
   const parsed = requestSchema.safeParse(req.body);
@@ -114,6 +142,38 @@ export default async function handler(
   const creatorLang = translateConfig.creatorLang ?? "es";
 
   const history = targetFanId ? await loadRecentMessages(targetFanId) : [];
+  const allowExplicitAdultContent = Boolean(settings.allowExplicitAdultContent);
+  const policyDecision = evaluateAdultPolicy({
+    text: [context?.original, context?.translation].filter(Boolean).join("\n"),
+    messages: history.map((item) => ({ content: item.text })),
+    allowExplicitAdultContent,
+  });
+  if (!policyDecision.allowed) {
+    const errorMessage = "No permitido: menores o no consentimiento.";
+    try {
+      await logCortexLlmUsage({
+        creatorId,
+        fanId: targetFanId,
+        endpoint: "/api/creator/cortex/suggest-reply",
+        provider: "policy",
+        model: null,
+        tokensIn: null,
+        tokensOut: null,
+        latencyMs: null,
+        ok: false,
+        errorCode: "POLICY_BLOCKED",
+        actionType: CORTEX_USAGE_KIND,
+        context: {
+          kind: CORTEX_USAGE_KIND,
+          mode,
+          policy: policyDecision.code,
+        },
+      });
+    } catch (err) {
+      console.warn("cortex_usage_log_failed", err);
+    }
+    return res.status(403).json({ error: errorMessage, code: "POLICY_BLOCKED", details: policyDecision.reason });
+  }
   const systemPrompt = buildSystemPrompt({ creatorLang, mode, settings });
   const userPrompt = buildUserPrompt({
     mode,
@@ -138,12 +198,20 @@ export default async function handler(
   let status = 200;
   let responseBody: SuggestReplyResponse | ErrorResponse | null = null;
   let errorCode: string | null = null;
+  let parseErrorSnippet: string | null = null;
 
   if (!llmResult.ok || !llmResult.text) {
     status = 500;
-    errorCode = llmResult.errorCode ?? "llm_failed";
+    const providerErrorType = resolveProviderErrorType({
+      errorCode: llmResult.errorCode,
+      errorMessage: llmResult.errorMessage,
+      status: llmResult.status,
+    });
+    errorCode = providerErrorType;
+    const errorLabel = buildProviderErrorMessage(providerErrorType, llmResult.provider, llmResult.model);
     responseBody = {
-      error: "No se pudo generar la sugerencia.",
+      error: errorLabel,
+      code: errorCode,
       details: formatDetails([
         llmResult.provider ? `provider=${llmResult.provider}` : null,
         llmResult.status ? `status=${llmResult.status}` : null,
@@ -151,16 +219,30 @@ export default async function handler(
         llmResult.errorMessage ? `message=${llmResult.errorMessage}` : null,
       ]),
     };
+    parseErrorSnippet = buildErrorSnippet(llmResult.errorMessage ?? "");
   } else {
-    const parsedJson = safeParseJson(llmResult.text);
-    const validated = responseSchema.safeParse(parsedJson);
+    const parsedResult = safeJsonParse(llmResult.text);
+    const validated = responseSchema.safeParse(parsedResult.value);
     if (!validated.success) {
-      status = 500;
-      errorCode = "invalid_llm_response";
-      responseBody = {
-        error: "La respuesta de IA no tiene formato válido.",
-        details: formatDetails([`code=${errorCode}`]),
-      };
+      const fallbackText = resolveFallbackText(parsedResult.value, llmResult.text);
+      if (!fallbackText) {
+        status = 500;
+        errorCode = "JSON_PARSE";
+        responseBody = {
+          error: "La IA respondió pero no en formato esperado (JSON).",
+          code: errorCode,
+          details: formatDetails([`code=${errorCode}`]),
+        };
+      } else {
+        responseBody = {
+          message: fallbackText.trim(),
+          language: creatorLang,
+          intent: "reply",
+          follow_up_questions: [],
+        };
+        errorCode = "JSON_PARSE";
+        parseErrorSnippet = buildErrorSnippet(llmResult.text);
+      }
     } else {
       responseBody = {
         message: validated.data.message.trim(),
@@ -168,6 +250,10 @@ export default async function handler(
         intent: validated.data.intent.trim(),
         follow_up_questions: validated.data.follow_up_questions.filter((q) => q && q.trim()),
       };
+    }
+    if (!errorCode && parsedResult.parsedFrom !== "direct") {
+      errorCode = "JSON_PARSE";
+      parseErrorSnippet = buildErrorSnippet(llmResult.text);
     }
   }
 
@@ -183,6 +269,12 @@ export default async function handler(
       latencyMs: llmResult.latencyMs,
       ok: status === 200,
       errorCode,
+      actionType: CORTEX_USAGE_KIND,
+      context: {
+        kind: CORTEX_USAGE_KIND,
+        mode,
+        errorSnippet: parseErrorSnippet ?? undefined,
+      },
     });
   } catch (err) {
     console.warn("cortex_usage_log_failed", err);
@@ -195,10 +287,294 @@ export default async function handler(
   return res.status(status).json(responseBody);
 }
 
+async function handleMessageSuggestReply(
+  req: NextApiRequest,
+  res: NextApiResponse<SuggestReplyResponse | SuggestReplyErrorResponse>,
+  messageId: string
+): Promise<void> {
+  const targetLangRaw = normalizeOptional(req.body?.targetLang);
+  const maxContextMessages = normalizeMaxContextMessages(req.body?.maxContextMessages);
+
+  const message = await prisma.message.findUnique({
+    where: { id: messageId },
+    select: {
+      id: true,
+      fanId: true,
+      from: true,
+      text: true,
+      type: true,
+      transcriptText: true,
+      transcriptStatus: true,
+      fan: { select: { id: true, creatorId: true, preferredLanguage: true } },
+      messageTranslations: {
+        select: { detectedSourceLang: true },
+        orderBy: { createdAt: "desc" },
+        take: 1,
+      },
+    },
+  });
+
+  if (!message) {
+    res.status(404).json({ ok: false, error: "CORTEX_FAILED", message: "Mensaje no encontrado." });
+    return;
+  }
+
+  const creatorId = await resolveCreatorId();
+  if (message.fan.creatorId !== creatorId) {
+    res.status(403).json({ ok: false, error: "CORTEX_FAILED", message: "Forbidden." });
+    return;
+  }
+
+  const detectedSourceLang = normalizeOptional(message.messageTranslations?.[0]?.detectedSourceLang);
+  const resolvedTargetLang =
+    normalizeTargetLang(
+      targetLangRaw ??
+        normalizeOptional(message.fan.preferredLanguage) ??
+        detectedSourceLang ??
+        "en"
+    ) ?? "en";
+
+  const creatorSettings =
+    (await prisma.creatorAiSettings.findUnique({ where: { creatorId } })) ??
+    (await prisma.creatorAiSettings.create({
+      data: { creatorId, platforms: createDefaultCreatorPlatforms() },
+    }));
+  const allowExplicitAdultContent = Boolean(creatorSettings.allowExplicitAdultContent);
+
+  const selectedMessageText = resolveCortexMessageContent(message) ?? "";
+  const contextMessages = await loadContextMessages(message.fanId, maxContextMessages);
+  const systemPrompt = buildCortexSuggestSystemPrompt(resolvedTargetLang, allowExplicitAdultContent);
+  const userPrompt = buildCortexSuggestUserPrompt(selectedMessageText);
+  const selection = await getCortexProviderSelection({ creatorId });
+  const policyDecision = evaluateAdultPolicy({
+    text: selectedMessageText,
+    messages: contextMessages,
+    allowExplicitAdultContent,
+  });
+
+  let status = 200;
+  let responseBody: SuggestReplyResponse | SuggestReplyErrorResponse | null = null;
+  let llmResult: Awaited<ReturnType<typeof requestCortexCompletion>> | null = null;
+  let errorCode: SuggestReplyErrorResponse["error"] | null = null;
+  let errorMessage: string | null = null;
+  let parseErrorSnippet: string | null = null;
+
+  if (!policyDecision.allowed) {
+    status = 403;
+    errorCode = "POLICY_BLOCKED";
+    errorMessage = "No permitido: menores o no consentimiento.";
+    responseBody = { ok: false, error: errorCode, message: errorMessage };
+  } else if (!selection.configured || selection.provider === "demo") {
+    status = 501;
+    errorCode = "CORTEX_NOT_CONFIGURED";
+    errorMessage =
+      selection.missingVars.length > 0
+        ? `Cortex no está configurado. Faltan: ${selection.missingVars.join(", ")}.`
+        : "Cortex no está configurado.";
+    responseBody = { ok: false, error: errorCode, message: errorMessage };
+  } else {
+    llmResult = await requestCortexCompletion({
+      messages: [
+        { role: "system", content: systemPrompt },
+        ...contextMessages,
+        { role: "user", content: userPrompt },
+      ],
+      creatorId,
+      fanId: message.fanId,
+      route: "/api/creator/cortex/suggest-reply",
+      selection,
+    });
+
+    if (!llmResult.ok || !llmResult.text) {
+      status = 502;
+      const providerErrorType = resolveProviderErrorType({
+        errorCode: llmResult.errorCode,
+        errorMessage: llmResult.errorMessage,
+        status: llmResult.status,
+      });
+      errorCode = providerErrorType;
+      errorMessage = buildProviderErrorMessage(providerErrorType, selection.desiredProvider, selection.model);
+      responseBody = { ok: false, error: errorCode, message: errorMessage };
+      parseErrorSnippet = buildErrorSnippet(llmResult.errorMessage ?? "");
+    } else {
+      const fallbackMessage = llmResult.text.trim();
+      const fallbackResponse: SuggestReplyResponse = {
+        message: fallbackMessage,
+        language: resolvedTargetLang,
+        intent: "reply",
+        follow_up_questions: [],
+      };
+      const parsedResult = safeJsonParse(llmResult.text);
+      const validated = responseSchema.safeParse(parsedResult.value);
+      if (!validated.success) {
+        const fallbackText = resolveFallbackText(parsedResult.value, llmResult.text) || fallbackMessage;
+        if (!fallbackText) {
+          status = 500;
+          errorCode = "JSON_PARSE";
+          errorMessage = "La IA respondió pero no en formato esperado (JSON).";
+          responseBody = { ok: false, error: errorCode, message: errorMessage };
+        } else {
+          responseBody = {
+            message: fallbackText.trim(),
+            language: resolvedTargetLang,
+            intent: "reply",
+            follow_up_questions: [],
+          };
+          errorCode = "JSON_PARSE";
+          parseErrorSnippet = buildErrorSnippet(llmResult.text);
+        }
+      } else {
+        const messageText = normalizeOptional(validated.data.message) ?? fallbackMessage;
+        responseBody = {
+          message: messageText,
+          language: resolvedTargetLang,
+          intent: normalizeOptional(validated.data.intent) ?? "reply",
+          follow_up_questions: validated.data.follow_up_questions.filter((q) => q && q.trim()),
+        };
+      }
+      if (!errorCode && parsedResult.parsedFrom !== "direct") {
+        errorCode = "JSON_PARSE";
+        parseErrorSnippet = buildErrorSnippet(llmResult.text);
+      }
+    }
+  }
+
+  try {
+    await logCortexLlmUsage({
+      creatorId,
+      fanId: message.fanId,
+      endpoint: "/api/creator/cortex/suggest-reply",
+      provider: llmResult?.provider ?? selection.desiredProvider,
+      model: llmResult?.model ?? selection.model,
+      tokensIn: llmResult?.tokensIn,
+      tokensOut: llmResult?.tokensOut,
+      latencyMs: llmResult?.latencyMs,
+      ok: status === 200,
+      errorCode,
+      actionType: CORTEX_USAGE_KIND,
+      context: {
+        kind: CORTEX_USAGE_KIND,
+        messageId: message.id,
+        targetLang: resolvedTargetLang,
+        maxContextMessages,
+        errorMessage: errorMessage ?? undefined,
+        errorSnippet: parseErrorSnippet ?? undefined,
+      },
+    });
+  } catch (err) {
+    console.warn("cortex_usage_log_failed", err);
+  }
+
+  if (!responseBody) {
+    res.status(500).json({
+      ok: false,
+      error: "CORTEX_FAILED",
+      message: "No se pudo generar la sugerencia.",
+    });
+    return;
+  }
+
+  res.status(status).json(responseBody);
+}
+
 function normalizeOptional(value?: string | null): string | null {
   if (typeof value !== "string") return null;
   const trimmed = value.trim();
   return trimmed ? trimmed : null;
+}
+
+function normalizeMaxContextMessages(value?: unknown) {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return Math.max(1, Math.min(Math.floor(value), MAX_CONTEXT_MESSAGES));
+  }
+  if (typeof value === "string") {
+    const parsed = Number(value);
+    if (Number.isFinite(parsed)) {
+      return Math.max(1, Math.min(Math.floor(parsed), MAX_CONTEXT_MESSAGES));
+    }
+  }
+  return DEFAULT_CONTEXT_MESSAGES;
+}
+
+function normalizeTargetLang(value?: string | null) {
+  const trimmed = normalizeOptional(value);
+  if (!trimmed) return null;
+  const normalized = trimmed.replace(/_/g, "-").trim();
+  if (!normalized) return null;
+  const base = normalized.split("-")[0] || normalized;
+  if (base.length === 2) return base.toLowerCase();
+  return normalized;
+}
+
+function isVoiceMessageType(type?: string | null) {
+  const normalized = (type ?? "").trim().toUpperCase();
+  return normalized === "VOICE" || normalized === "AUDIO";
+}
+
+function resolveCortexMessageContent(message: {
+  text?: string | null;
+  type?: string | null;
+  transcriptText?: string | null;
+  transcriptStatus?: string | null;
+}) {
+  if (isVoiceMessageType(message.type)) {
+    const status = (message.transcriptStatus ?? "").toUpperCase();
+    if (status === "DONE") {
+      return normalizeOptional(message.transcriptText) ?? normalizeOptional(message.text) ?? "[voice]";
+    }
+    return normalizeOptional(message.text) ?? "[voice]";
+  }
+  return normalizeOptional(message.text);
+}
+
+async function loadContextMessages(fanId: string, limit: number): Promise<CortexChatMessage[]> {
+  const messages = await prisma.message.findMany({
+    where: {
+      fanId,
+      audience: { in: ["FAN", "CREATOR"] },
+    },
+    orderBy: { id: "desc" },
+    take: limit,
+    select: {
+      from: true,
+      text: true,
+      type: true,
+      transcriptText: true,
+      transcriptStatus: true,
+    },
+  });
+
+  const mapped = messages
+    .map((msg) => {
+      const content = resolveCortexMessageContent(msg);
+      if (!content) return null;
+      return {
+        role: msg.from === "creator" ? "assistant" : "user",
+        content: truncate(content, MAX_MESSAGE_CHARS),
+      };
+    })
+    .filter((msg): msg is CortexChatMessage => Boolean(msg && msg.content))
+    .reverse();
+
+  return mapped.slice(-limit);
+}
+
+function buildCortexSuggestSystemPrompt(targetLang: string, allowExplicitAdultContent: boolean) {
+  const explicitRule = allowExplicitAdultContent
+    ? "Se permite lenguaje sexual explícito entre adultos con consentimiento."
+    : "Evita contenido sexual explícito; mantén tono sugerente y consensuado.";
+  return [
+    `Responde SIEMPRE en ${targetLang}. Natural, corto, tono humano. No digas que eres IA.`,
+    explicitRule,
+    "Devuelve SOLO un JSON válido (un único objeto). No agregues texto fuera del JSON.",
+    'Formato estricto: {"message":string,"language":string,"intent":string,"follow_up_questions":string[]}',
+    `language debe ser ${targetLang} (ISO 639-1 si es posible; si no, repite ${targetLang}).`,
+  ].join("\n");
+}
+
+function buildCortexSuggestUserPrompt(selectedMessageText: string) {
+  const messageText = selectedMessageText.trim() ? selectedMessageText.trim() : "[sin texto]";
+  return `Mensaje seleccionado:\n${messageText}\n\nResponde con una sugerencia breve al fan.`;
 }
 
 function normalizeContext(raw?: CortexSuggestContext | null): CortexSuggestContext | null {
@@ -281,6 +657,7 @@ function buildSystemPrompt(args: {
     forbiddenPromises?: string | null;
     rulesManifest?: string | null;
     turnMode?: string | null;
+    allowExplicitAdultContent?: boolean | null;
   };
 }) {
   const tone = args.settings.tone ?? "cercano";
@@ -290,6 +667,10 @@ function buildSystemPrompt(args: {
   const rules = normalizeOptional(args.settings.rulesManifest) ?? "";
   const forbiddenTopics = normalizeOptional(args.settings.forbiddenTopics) ?? "";
   const forbiddenPromises = normalizeOptional(args.settings.forbiddenPromises) ?? "";
+  const allowExplicitAdultContent = Boolean(args.settings.allowExplicitAdultContent);
+  const explicitRule = allowExplicitAdultContent
+    ? "Se permite lenguaje sexual explícito entre adultos con consentimiento."
+    : "Evita contenido sexual explícito; mantén tono sugerente y consensuado.";
 
   return [
     "Eres el Manager IA de NOVSY. Respondes con una sugerencia para escribir al fan.",
@@ -297,6 +678,7 @@ function buildSystemPrompt(args: {
     `Idioma objetivo del creador: ${args.creatorLang}. Si hay contexto de traducción con idioma detectado, responde en ese idioma.`,
     `Modo solicitado: ${args.mode}.`,
     `Tono base: ${tone}. Picante ${spiciness}/3. Formalidad ${formality}/3. Emojis ${emojiUsage}/3.`,
+    explicitRule,
     forbiddenTopics ? `Temas prohibidos: ${forbiddenTopics}.` : null,
     forbiddenPromises ? `Promesas prohibidas: ${forbiddenPromises}.` : null,
     rules ? `Reglas del creador:\n${rules}` : null,
@@ -346,27 +728,52 @@ function buildUserPrompt(args: {
     .join("\n\n");
 }
 
-function safeParseJson(input: string) {
+function safeJsonParse(input: string): { value: unknown; parsedFrom: "direct" | "extracted" | "fallback" } {
   try {
-    return JSON.parse(input);
+    return { value: JSON.parse(input), parsedFrom: "direct" };
   } catch (_err) {
     const start = input.indexOf("{");
     const end = input.lastIndexOf("}");
     if (start >= 0 && end > start) {
       try {
-        return JSON.parse(input.slice(start, end + 1));
+        return { value: JSON.parse(input.slice(start, end + 1)), parsedFrom: "extracted" };
       } catch (_err2) {
-        return null;
+        // fall through
       }
     }
-    return null;
+    return { value: { text: input.trim() }, parsedFrom: "fallback" };
   }
+}
+
+function resolveFallbackText(parsedValue: unknown, rawText: string): string {
+  if (parsedValue && typeof parsedValue === "object") {
+    const record = parsedValue as Record<string, unknown>;
+    if (typeof record.text === "string" && record.text.trim()) {
+      return record.text.trim();
+    }
+  }
+  return rawText?.trim() ?? "";
+}
+
+function buildProviderErrorMessage(
+  code: "MODEL_NOT_FOUND" | "TIMEOUT" | "PROVIDER_ERROR",
+  provider?: string | null,
+  model?: string | null
+) {
+  if (code === "MODEL_NOT_FOUND") {
+    return `Modelo no encontrado (AI_MODEL=${model ?? "?"}).`;
+  }
+  if (code === "TIMEOUT") {
+    return provider === "ollama" ? "Timeout hablando con Ollama." : "Timeout en el proveedor de IA.";
+  }
+  return provider === "ollama" ? "IA local no disponible (Ollama)." : "Proveedor de IA no disponible.";
 }
 
 function formatDetails(parts: Array<string | null | undefined>) {
   const filtered = parts.filter((part) => typeof part === "string" && part.trim());
   return filtered.length ? filtered.join(" | ") : undefined;
 }
+
 
 function resolveViewerRole(req: NextApiRequest): "creator" | "fan" {
   const headerRaw = req.headers["x-novsy-viewer"];
@@ -376,4 +783,19 @@ function resolveViewerRole(req: NextApiRequest): "creator" | "fan" {
   const viewerParam = Array.isArray(viewerParamRaw) ? viewerParamRaw[0] : viewerParamRaw;
   if (typeof viewerParam === "string" && viewerParam.trim().toLowerCase() === "creator") return "creator";
   return "fan";
+}
+
+async function resolveCreatorId() {
+  if (process.env.CREATOR_ID) return process.env.CREATOR_ID;
+
+  const creator = await prisma.creator.findFirst({
+    select: { id: true },
+    orderBy: { id: "asc" },
+  });
+
+  if (!creator) {
+    throw new Error("No creator found");
+  }
+
+  return creator.id;
 }

@@ -159,6 +159,9 @@ type ManagerQuickIntent = ManagerObjective;
 type ManagerSuggestionIntent = "romper_hielo" | "pregunta_simple" | "cierre_suave" | "upsell_mensual_suave";
 type SuggestionVariantMode = "alternate" | "shorter";
 type DraftVariantMode = "alternate" | "shorter" | "softer" | "bolder";
+type DraftLength = "short" | "medium" | "long";
+type DraftDirectness = "suave" | "neutro" | "directo";
+type DraftActionState = { status: "idle" | "loading"; key: string | null };
 type DraftSource = "reformular" | "citar" | "autosuggest";
 type PpvOffer = {
   contentId?: string;
@@ -258,6 +261,14 @@ const PACK_ESPECIAL_UPSELL_TEXT =
   "Veo que lo que estás pidiendo entra ya en el terreno de mi Pack especial: incluye todo lo de tu suscripción mensual + fotos y escenas extra más intensas. Si quieres subir de nivel, son 49 € y te lo dejo desbloqueado en este chat.";
 const PACK_MONTHLY_UPSELL_TEXT =
   'Te propongo subir al siguiente nivel: la suscripción mensual. Incluye fotos, vídeos y guías extra para seguir trabajando en tu relación. Si te interesa, dime "MENSUAL" y te paso el enlace.';
+const MANAGER_OBJECTIVE_TO_DRAFT_KEY: Record<ManagerObjective, string> = {
+  bienvenida: "BREAK_ICE",
+  romper_hielo: "BREAK_ICE",
+  reactivar_fan_frio: "REENGAGE",
+  ofrecer_extra: "UPSELL_EXTRA",
+  llevar_a_mensual: "CONVERT_MONTHLY",
+  renovacion: "RENEWAL",
+};
 const DUPLICATE_SIMILARITY_THRESHOLD = 0.88;
 const DUPLICATE_STRICT_SIMILARITY = 0.93;
 const DUPLICATE_RECENT_HOURS = 6;
@@ -332,10 +343,16 @@ type MessageTranslationState = {
   error?: string;
 };
 
+type MessageSuggestReplyState = {
+  status: "idle" | "loading";
+};
+
 type MessageActionSheetState = {
   messageId?: string;
   text: string;
   canTranslate: boolean;
+  canSuggestReply?: boolean;
+  suggestTargetLang?: string;
 };
 
 const normalizeActionKey = (key?: string | null) => {
@@ -368,6 +385,13 @@ const formatTranslationLang = (value: string | null | undefined, fallback: strin
   const upper = trimmed.toUpperCase();
   if (upper === "AUTO" || upper === "UN" || upper === "?") return fallback;
   return upper;
+};
+
+const normalizeDetectedLang = (value: string | null | undefined) => {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim().toLowerCase();
+  if (!trimmed || trimmed === "auto" || trimmed === "un" || trimmed === "?") return null;
+  return trimmed.split(/[-_]/)[0] || null;
 };
 
 const buildManagerTranslationPayload = (
@@ -1882,6 +1906,9 @@ export default function ConversationDetails({ onBackToBoard }: ConversationDetai
   const [ playbookProMode, setPlaybookProMode ] = useState(false);
   const [ draftCardsByFan, setDraftCardsByFan ] = useState<Record<string, DraftCard[]>>({});
   const [ generatedDraftsByFan, setGeneratedDraftsByFan ] = useState<Record<string, DraftCard[]>>({});
+  const [ draftActionState, setDraftActionState ] = useState<DraftActionState>({ status: "idle", key: null });
+  const [ draftDirectnessById, setDraftDirectnessById ] = useState<Record<string, DraftDirectness | null>>({});
+  const [ draftOutputLengthById, setDraftOutputLengthById ] = useState<Record<string, DraftLength>>({});
   const [ internalPanelTab, setInternalPanelTab ] = useState<InternalPanelTab>("manager");
   const [ , setTranslationPreviewStatus ] = useState<
     "idle" | "loading" | "ready" | "unavailable" | "error"
@@ -1889,6 +1916,9 @@ export default function ConversationDetails({ onBackToBoard }: ConversationDetai
   const [ , setTranslationPreviewText ] = useState<string | null>(null);
   const [ , setTranslationPreviewNotice ] = useState<string | null>(null);
   const [ messageTranslationState, setMessageTranslationState ] = useState<Record<string, MessageTranslationState>>({});
+  const [ messageSuggestReplyState, setMessageSuggestReplyState ] = useState<
+    Record<string, MessageSuggestReplyState>
+  >({});
   const [ inviteCopyState, setInviteCopyState ] = useState<"idle" | "loading" | "copied" | "error">("idle");
   const [ inviteCopyError, setInviteCopyError ] = useState<string | null>(null);
   const [ inviteCopyUrl, setInviteCopyUrl ] = useState<string | null>(null);
@@ -1907,6 +1937,7 @@ export default function ConversationDetails({ onBackToBoard }: ConversationDetai
   const translationPreviewRequestId = useRef(0);
   const translationPreviewKeyRef = useRef<string | null>(null);
   const messageTranslationInFlightRef = useRef(new Map<string, Promise<MessageTranslationResponse>>());
+  const messageSuggestReplyInFlightRef = useRef(new Set<string>());
   const [ showContentModal, setShowContentModal ] = useState(false);
   const [ ppvTierMenuOpen, setPpvTierMenuOpen ] = useState(false);
   const [ ppvTierFilter, setPpvTierFilter ] = useState<ChatPpvTierValue>("CHAT_T1");
@@ -2051,6 +2082,7 @@ export default function ConversationDetails({ onBackToBoard }: ConversationDetai
   );
   const [ fanTone, setFanTone ] = useState<FanTone>(() => getDefaultFanTone(fanManagerAnalysis.state));
   const [ hasManualTone, setHasManualTone ] = useState(false);
+  const draftOutputLength = id ? (draftOutputLengthById[id] ?? "medium") : "medium";
   const playbooks = useMemo(() => {
     const merged: Playbook[] = [];
     const seen = new Set<string>();
@@ -2184,6 +2216,17 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
     }
     return combined;
   }, [agencyDraft?.objective, objectiveLabelsByCode, objectiveLocale, objectiveOptions]);
+  const agencyObjectiveLabel = useMemo(() => {
+    const code = normalizeObjectiveCode(agencyDraft?.objective) ?? agencyDraft?.objective ?? null;
+    if (!code) return null;
+    const match = objectiveSelectOptions.find((entry) => entry.code === code);
+    return match?.label ?? code;
+  }, [agencyDraft?.objective, objectiveSelectOptions]);
+  const agencyStyleLabel = useMemo(() => {
+    const playbook = agencyDraft?.playbook ?? conversation.agencyPlaybook ?? null;
+    if (!playbook) return null;
+    return AGENCY_PLAYBOOK_LABELS[playbook as AgencyPlaybook] ?? playbook;
+  }, [agencyDraft?.playbook, conversation.agencyPlaybook]);
 
   function parseNextActionValue(value?: string | null) {
     if (!value) return { text: "", date: "", time: "" };
@@ -5234,6 +5277,18 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
   const isTranslateConfigured = aiStatus?.translateConfigured !== false;
   const translateTargetLang = aiStatus?.creatorLang ?? "es";
   const translateTargetLabel = formatTranslationLang(translateTargetLang, "ES");
+  const resolveSuggestReplyTargetLang = useCallback(
+    (messageConversation: ConversationMessage) => {
+      const rawPreferred =
+        typeof conversation.preferredLanguage === "string" ? conversation.preferredLanguage.trim() : "";
+      if (rawPreferred) return rawPreferred;
+      if (preferredLanguage) return preferredLanguage;
+      const detected = normalizeDetectedLang(messageConversation.translationSourceLang);
+      if (detected) return detected;
+      return translateTargetLang;
+    },
+    [conversation.preferredLanguage, preferredLanguage, translateTargetLang]
+  );
   const isTranslationPreviewAvailable =
     !!id && !conversation.isManager && effectiveLanguage !== "es" && isTranslateConfigured;
   const hasComposerText = messageSend.trim().length > 0;
@@ -5248,6 +5303,13 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
     : "idle";
   const messageSheetTranslateDisabled = messageSheetTranslationStatus === "loading";
   const messageSheetTranslateLabel = messageSheetTranslateDisabled ? "Traduciendo..." : "Traducir";
+  const messageSheetSuggestStatus = messageActionSheet?.messageId
+    ? messageSuggestReplyState[messageActionSheet.messageId]?.status ?? "idle"
+    : "idle";
+  const messageSheetSuggestDisabled = messageSheetSuggestStatus === "loading";
+  const messageSheetSuggestLabel = messageSheetSuggestDisabled
+    ? "Generando..."
+    : `Responder con IA (${formatTranslationLang(messageActionSheet?.suggestTargetLang, translateTargetLabel)})`;
   const hasAutopilotContext = !!(lastAutopilotObjective && lastAutopilotTone);
   const purchaseNoticeUi = purchaseNotice
     ? formatPurchaseUI({
@@ -5626,6 +5688,62 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
     [aiStatus, handleMessageTranslationSaved, openMessageTranslationPopover, showTranslateConfigToast, translateTargetLang]
   );
 
+  const handleSuggestReply = useCallback(
+    async (messageId: string, targetLang: string) => {
+      if (!messageId) return;
+      if (messageSuggestReplyInFlightRef.current.has(messageId)) return;
+      messageSuggestReplyInFlightRef.current.add(messageId);
+      setMessageSuggestReplyState((prev) => ({
+        ...prev,
+        [messageId]: { status: "loading" },
+      }));
+
+      try {
+        const res = await fetch("/api/creator/cortex/suggest-reply", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "x-novsy-viewer": "creator" },
+          cache: "no-store",
+          body: JSON.stringify({ messageId, targetLang }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok || data?.ok === false) {
+          const errorCode = typeof data?.error === "string" ? data.error : "";
+          const errorMessage =
+            typeof data?.message === "string" && data.message.trim().length > 0
+              ? data.message
+              : "";
+          let fallback = "No se pudo generar la respuesta.";
+          if (errorCode === "CORTEX_NOT_CONFIGURED") fallback = "IA no configurada.";
+          if (errorCode === "CORTEX_FAILED") fallback = "IA local no disponible (Ollama).";
+          if (errorCode === "POLICY_BLOCKED") fallback = "No permitido: menores o no consentimiento.";
+          if (errorCode === "MODEL_NOT_FOUND") fallback = "Modelo no encontrado (AI_MODEL=...).";
+          if (errorCode === "TIMEOUT") fallback = "Timeout hablando con Ollama.";
+          if (errorCode === "PROVIDER_ERROR") fallback = "IA local no disponible (Ollama).";
+          if (errorCode === "JSON_PARSE") fallback = "La IA respondió pero no en formato esperado (JSON).";
+          throw new Error(errorMessage || fallback);
+        }
+        const suggestedText = typeof data?.message === "string" ? data.message.trim() : "";
+        if (!suggestedText) {
+          throw new Error("No se pudo generar la respuesta.");
+        }
+        insertComposerTextWithUndo(suggestedText, {
+          title: "Sugerencia IA insertada",
+          detail: `Idioma ${formatTranslationLang(targetLang, translateTargetLabel)}`,
+        });
+      } catch (err) {
+        const message = err instanceof Error && err.message ? err.message : "No se pudo generar la respuesta.";
+        showComposerToast(message);
+      } finally {
+        messageSuggestReplyInFlightRef.current.delete(messageId);
+        setMessageSuggestReplyState((prev) => ({
+          ...prev,
+          [messageId]: { status: "idle" },
+        }));
+      }
+    },
+    [insertComposerTextWithUndo, showComposerToast, translateTargetLabel]
+  );
+
   const buildManagerQuotePrompt = (text: string) => {
     return (
       `Texto del mensaje: «${text}»\n\n` +
@@ -5641,30 +5759,6 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
       "Devuélveme 2 versiones."
     );
   };
-
-  const buildRewritePrompt = useCallback((style: string, text: string) => {
-    const base = text.trim();
-    if (!base) return text;
-    return (
-      `Reescribe el siguiente mensaje con el estilo ${style}. ` +
-      "Reglas: máximo 240 caracteres; termina con una pregunta; no seas explícito. " +
-      "No añadas disclaimers ni temas de edad salvo que el input lo sugiera. Sin moralizar ni sermonear. " +
-      "Si el mensaje pide algo explícito, responde con un límite elegante + una alternativa sugerente + un CTA suave. " +
-      `Mensaje: <<<${base}>>>`
-    );
-  }, []);
-
-  const buildSafeRewritePrompt = useCallback((text: string) => {
-    const base = text.trim();
-    if (!base) return text;
-    return (
-      "Reescribe el siguiente mensaje para que sea sugerente y no explícito. " +
-      "No menciones edad ni políticas. Sin moralizar ni sermonear. " +
-      "Si el mensaje pide algo explícito, pon un límite elegante + alternativa sugerente + CTA suave. " +
-      "Devuelve SOLO el mensaje final (máximo 240 caracteres) y termina con una pregunta. " +
-      `Mensaje: <<<${base}>>>`
-    );
-  }, []);
 
   const copyTextToClipboard = useCallback(async (text: string) => {
     if (typeof navigator !== "undefined" && navigator.clipboard?.writeText) {
@@ -5777,12 +5871,20 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
   }, []);
 
   const openMessageActionSheet = useCallback(
-    (options: { messageId?: string; text: string; canTranslate: boolean }) => {
+    (options: {
+      messageId?: string;
+      text: string;
+      canTranslate: boolean;
+      canSuggestReply?: boolean;
+      suggestTargetLang?: string;
+    }) => {
       if (!isCoarsePointer) return;
       setMessageActionSheet({
         messageId: options.messageId,
         text: options.text,
         canTranslate: options.canTranslate,
+        canSuggestReply: options.canSuggestReply,
+        suggestTargetLang: options.suggestTargetLang,
       });
     },
     [isCoarsePointer]
@@ -6351,6 +6453,16 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
               hasAutopilotContext={hasAutopilotContext}
               onAutopilotSoften={handleAutopilotSoften}
               onAutopilotMakeBolder={handleAutopilotMakeBolder}
+              agencyObjectiveLabel={agencyObjectiveLabel}
+              agencyStyleLabel={agencyStyleLabel}
+              draftActionKey={draftActionState.key}
+              draftActionLoading={draftActionState.status === "loading"}
+              draftDirectnessById={draftDirectnessById}
+              draftOutputLength={draftOutputLength}
+              onDraftOutputLengthChange={(nextLength) => {
+                if (!id) return;
+                setDraftOutputLengthById((prev) => ({ ...prev, [id]: nextLength }));
+              }}
             />
           </div>
           <div className="space-y-3">
@@ -8254,80 +8366,123 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
         responseData = await res.json().catch(() => ({}));
         replyContent = extractReplyContent(responseData);
         const responseOffer = extractOffer(responseData);
-      const errorCode =
-        typeof responseData?.error?.code === "string"
-          ? responseData.error.code
-          : typeof responseData?.code === "string"
-          ? responseData.code
-          : typeof responseData?.error === "string"
-          ? responseData.error
-          : "";
-      const errorMessage =
-        typeof responseData?.error?.message === "string"
-          ? responseData.error.message
-          : typeof responseData?.message === "string"
-          ? responseData.message
-          : "No se pudo consultar al Manager IA.";
-      const statusValue =
-        typeof responseData?.status === "string"
-          ? responseData.status
-          : typeof responseData?.data?.status === "string"
-          ? responseData.data.status
-          : "";
-      const normalizedStatus = statusValue.trim().toLowerCase();
-      const providerUnavailable =
-        normalizedStatus === "provider_down" ||
-        errorCode.toUpperCase() === "PROVIDER_UNAVAILABLE" ||
-        responseStatus === 502;
-      const isRefusal = normalizedStatus === "refusal" || errorCode.toUpperCase() === "REFUSAL";
-      const isCryptoMisconfigured =
-        normalizedStatus === "crypto_misconfigured" || errorCode.toUpperCase() === "CRYPTO_MISCONFIGURED";
-      const needsAgeGate = normalizedStatus === "needs_age_gate";
-      if (responseData?.ok === false || providerUnavailable || isRefusal || isCryptoMisconfigured) {
-        if (isCryptoMisconfigured) {
-          const replyText = replyContent || errorMessage || "Crypto mal configurado.";
-          if (options?.skipChat) {
-            showComposerToast(replyText);
-          } else {
-            pushManagerMessage(replyText);
-          }
-          return { ok: false, errorCode: "CRYPTO_MISCONFIGURED", errorMessage: replyText };
-        }
-        if (providerUnavailable) {
-          showComposerToast("Ollama no responde. Revisa que esté activo.");
-          if (replyContent && !options?.skipChat) {
-            const managerMessage: ManagerChatMessage = {
-              id: `${fanKey}-${Date.now()}-manager`,
-              role: "manager",
-              text: replyContent,
-              createdAt: new Date().toISOString(),
-              offer: responseOffer,
-            };
-            setManagerChatByFan((prev) => {
-              const prevMsgs = prev[fanKey] ?? [];
-              return { ...prev, [fanKey]: [...prevMsgs, managerMessage] };
-            });
-          }
-          return { ok: false, errorCode: "PROVIDER_UNAVAILABLE", errorMessage };
-        } else if (replyContent) {
-          showComposerToast("Respuesta de seguridad / fallback.");
-        } else if (isRefusal) {
-          if (!options?.silentOnRefusal) {
+        const errorCode =
+          typeof responseData?.error?.code === "string"
+            ? responseData.error.code
+            : typeof responseData?.code === "string"
+            ? responseData.code
+            : typeof responseData?.error === "string"
+            ? responseData.error
+            : "";
+        const errorMessage =
+          typeof responseData?.error?.message === "string"
+            ? responseData.error.message
+            : typeof responseData?.message === "string"
+            ? responseData.message
+            : "No se pudo consultar al Manager IA.";
+        const statusValue =
+          typeof responseData?.status === "string"
+            ? responseData.status
+            : typeof responseData?.data?.status === "string"
+            ? responseData.data.status
+            : "";
+        const normalizedStatus = statusValue.trim().toLowerCase();
+        const providerUnavailable =
+          normalizedStatus === "provider_down" ||
+          errorCode.toUpperCase() === "PROVIDER_UNAVAILABLE" ||
+          responseStatus === 502;
+        const isRefusal = normalizedStatus === "refusal" || errorCode.toUpperCase() === "REFUSAL";
+        const isPolicyBlocked = errorCode.toUpperCase() === "POLICY_BLOCKED";
+        const isModelNotFound = errorCode.toUpperCase() === "MODEL_NOT_FOUND";
+        const isTimeout = errorCode.toUpperCase() === "TIMEOUT";
+        const isProviderError = errorCode.toUpperCase() === "PROVIDER_ERROR";
+        const isJsonParse = errorCode.toUpperCase() === "JSON_PARSE";
+        const isCryptoMisconfigured =
+          normalizedStatus === "crypto_misconfigured" || errorCode.toUpperCase() === "CRYPTO_MISCONFIGURED";
+        const needsAgeGate = normalizedStatus === "needs_age_gate";
+        if (responseData?.ok === false || providerUnavailable || isRefusal || isCryptoMisconfigured) {
+          if (isCryptoMisconfigured) {
+            const replyText = replyContent || errorMessage || "Crypto mal configurado.";
             if (options?.skipChat) {
-              showComposerToast(refusalBubbleText);
+              showComposerToast(replyText);
             } else {
-              pushManagerMessage(refusalBubbleText);
+              pushManagerMessage(replyText);
             }
+            return { ok: false, errorCode: "CRYPTO_MISCONFIGURED", errorMessage: replyText };
           }
-          return { ok: false, errorCode: "REFUSAL", errorMessage };
-        } else {
-          showComposerToast(errorMessage);
-          return { ok: false, errorCode: errorCode || "ERROR", errorMessage };
+          if (isPolicyBlocked) {
+            const policyMessage = errorMessage || "No permitido: menores o no consentimiento.";
+            if (options?.skipChat) {
+              showComposerToast(policyMessage);
+            } else {
+              pushManagerMessage(policyMessage);
+            }
+            return { ok: false, errorCode: "POLICY_BLOCKED", errorMessage: policyMessage };
+          }
+          if (isModelNotFound) {
+            const modelMessage = errorMessage || "Modelo no encontrado (AI_MODEL=...).";
+            if (options?.skipChat) {
+              showComposerToast(modelMessage);
+            } else {
+              pushManagerMessage(modelMessage);
+            }
+            return { ok: false, errorCode: "MODEL_NOT_FOUND", errorMessage: modelMessage };
+          }
+          if (isTimeout) {
+            const timeoutMessage = errorMessage || "Timeout hablando con Ollama.";
+            if (options?.skipChat) {
+              showComposerToast(timeoutMessage);
+            } else {
+              pushManagerMessage(timeoutMessage);
+            }
+            return { ok: false, errorCode: "TIMEOUT", errorMessage: timeoutMessage };
+          }
+          if (isProviderError || isJsonParse) {
+            const providerMessage =
+              errorMessage ||
+              (isJsonParse ? "La IA respondió pero no en formato esperado (JSON)." : "IA local no disponible (Ollama).");
+            if (options?.skipChat) {
+              showComposerToast(providerMessage);
+            } else {
+              pushManagerMessage(providerMessage);
+            }
+            return { ok: false, errorCode: isJsonParse ? "JSON_PARSE" : "PROVIDER_ERROR", errorMessage: providerMessage };
+          }
+          if (providerUnavailable) {
+            showComposerToast("IA local no disponible (Ollama).");
+            if (replyContent && !options?.skipChat) {
+              const managerMessage: ManagerChatMessage = {
+                id: `${fanKey}-${Date.now()}-manager`,
+                role: "manager",
+                text: replyContent,
+                createdAt: new Date().toISOString(),
+                offer: responseOffer,
+              };
+              setManagerChatByFan((prev) => {
+                const prevMsgs = prev[fanKey] ?? [];
+                return { ...prev, [fanKey]: [...prevMsgs, managerMessage] };
+              });
+            }
+            return { ok: false, errorCode: "PROVIDER_UNAVAILABLE", errorMessage };
+          } else if (replyContent) {
+            showComposerToast("Respuesta de seguridad / fallback.");
+          } else if (isRefusal) {
+            if (!options?.silentOnRefusal) {
+              if (options?.skipChat) {
+                showComposerToast(refusalBubbleText);
+              } else {
+                pushManagerMessage(refusalBubbleText);
+              }
+            }
+            return { ok: false, errorCode: "REFUSAL", errorMessage };
+          } else {
+            showComposerToast(errorMessage);
+            return { ok: false, errorCode: errorCode || "ERROR", errorMessage };
+          }
         }
-      }
-      if (needsAgeGate) {
-        showComposerToast("Se requiere confirmar +18.");
-      }
+        if (needsAgeGate) {
+          showComposerToast("Se requiere confirmar +18.");
+        }
       } catch (err) {
         console.error("Error sending manager chat", err);
         showComposerToast("No se pudo consultar al Manager IA.");
@@ -8667,20 +8822,15 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
     }
   }, []);
 
-  const buildDraftVariantPrompt = useCallback(
-    (mode: DraftVariantMode, draftText: string) => {
-      const style =
-        mode === "shorter"
-          ? "más corta y directa"
-          : mode === "softer"
-          ? "más suave y cercana"
-          : mode === "bolder"
-          ? "más directa y segura (sin ser explícita)"
-          : "otra versión distinta manteniendo el tono y la intención";
-      return buildRewritePrompt(style, draftText);
-    },
-    [buildRewritePrompt]
-  );
+  const buildDraftActionKey = (scope: "objective" | "draft", id: string, action?: string) => {
+    if (scope === "draft") return `draft:${id}:${action ?? "variant"}`;
+    return `objective:${id}`;
+  };
+
+  const resolveDraftObjectiveKey = useCallback((objective: ManagerObjective | null) => {
+    if (!objective) return "BREAK_ICE";
+    return MANAGER_OBJECTIVE_TO_DRAFT_KEY[objective] ?? "BREAK_ICE";
+  }, []);
 
   const buildPhasePrompt = useCallback((phase: "suave" | "picante" | "directo" | "final") => {
     const label =
@@ -8749,6 +8899,8 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
         selectedText?: string | null;
         basePrompt?: string | null;
         offer?: PpvOffer | null;
+        tone?: FanTone | null;
+        objective?: ManagerObjective | null;
       }
     ) => {
       const card = buildDraftCard(text, options);
@@ -8756,6 +8908,69 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
       addGeneratedDraft(buildDraftCard(text, options));
     },
     [addDraftCard, addGeneratedDraft, buildDraftCard]
+  );
+
+  const requestManagerDraft = useCallback(
+    async (options: {
+      objectiveKey: string;
+      tone?: FanTone | null;
+      directness?: DraftDirectness;
+      outputLength?: DraftLength;
+      variationOf?: string | null;
+      actionKey: string;
+    }) => {
+      if (!id) return null;
+      if (draftActionState.status === "loading") return null;
+      setDraftActionState({ status: "loading", key: options.actionKey });
+
+      try {
+        const styleKey =
+          agencyDraft?.playbook?.toString() ||
+          (typeof conversation.agencyPlaybook === "string" ? conversation.agencyPlaybook : "") ||
+          null;
+        const outputLength = options.outputLength ?? draftOutputLength;
+        const res = await fetch("/api/creator/ai-manager/draft", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "x-novsy-viewer": "creator" },
+          cache: "no-store",
+          body: JSON.stringify({
+            conversationId: id,
+            objectiveKey: options.objectiveKey,
+            styleKey: styleKey || undefined,
+            tone: options.tone ?? fanTone,
+            directness: options.directness ?? "neutro",
+            outputLength,
+            variationOf: options.variationOf ?? undefined,
+          }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok || data?.ok === false) {
+          const errorCode = typeof data?.error === "string" ? data.error : "";
+          const errorMessage =
+            typeof data?.message === "string" && data.message.trim().length > 0 ? data.message : "";
+          let fallback = "No se pudo generar el borrador.";
+          if (errorCode === "CORTEX_NOT_CONFIGURED") fallback = "IA no configurada.";
+          if (errorCode === "CORTEX_FAILED") fallback = "No se pudo generar el borrador.";
+          if (errorCode === "POLICY_BLOCKED") fallback = "No permitido: menores o no consentimiento.";
+          if (errorCode === "MODEL_NOT_FOUND") fallback = "Modelo no encontrado (AI_MODEL=...).";
+          if (errorCode === "TIMEOUT") fallback = "Timeout hablando con Ollama.";
+          if (errorCode === "PROVIDER_ERROR") fallback = "IA local no disponible (Ollama).";
+          throw new Error(errorMessage || fallback);
+        }
+        const draftText = typeof data?.draft === "string" ? data.draft.trim() : "";
+        if (!draftText) {
+          throw new Error("No se pudo generar el borrador.");
+        }
+        return draftText;
+      } catch (err) {
+        const message = err instanceof Error && err.message ? err.message : "No se pudo generar el borrador.";
+        showComposerToast(message);
+        return null;
+      } finally {
+        setDraftActionState({ status: "idle", key: null });
+      }
+    },
+    [agencyDraft?.playbook, conversation.agencyPlaybook, draftActionState.status, draftOutputLength, fanTone, id, showComposerToast]
   );
 
   const updateDraftCard = useCallback((draftId: string, nextText: string) => {
@@ -8797,72 +9012,57 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
   const handleDraftCardVariant = useCallback(
     async (draftId: string, mode: DraftVariantMode) => {
       if (!id) return;
+      if (draftActionState.status === "loading") return;
       const cards = draftCardsByFan[id] ?? [];
       const target = cards.find((item) => item.id === draftId);
       if (!target) return;
-      const prompt = buildDraftVariantPrompt(mode, target.text);
-      const action =
-        mode === "bolder"
-          ? "rewrite_more_direct"
-          : mode === "softer"
-          ? "rewrite_softer"
-          : mode === "shorter"
-          ? "rewrite_shorter"
-          : "rewrite_alt";
-      const result = await askInternalManager(prompt, undefined, undefined, {
-        selectedText: target.selectedText ?? null,
-        skipChat: true,
-        skipContext: true,
-        skipHistory: true,
-        action,
-        silentOnRefusal: true,
-        onSuggestions: (bundle) => {
-          const nextText = bundle.suggestions[0] ?? target.text;
-          if (!nextText.trim()) return;
-          updateDraftCard(draftId, nextText);
-          addGeneratedDraft(
-            buildDraftCard(nextText, {
-              source: target.source,
-              label: target.label,
-              selectedText: target.selectedText ?? null,
-              basePrompt: target.basePrompt ?? null,
-              offer: target.offer ?? null,
-            })
-          );
-        },
+      const objectiveKey = resolveDraftObjectiveKey(target.objective ?? currentObjective ?? null);
+      const directness: DraftDirectness =
+        mode === "bolder" ? "directo" : mode === "softer" ? "suave" : "neutro";
+      const outputLength: DraftLength = mode === "shorter" ? "short" : draftOutputLength;
+      const variationOf = mode === "alternate" ? target.text : null;
+      const actionKey = buildDraftActionKey("draft", draftId, mode);
+      const nextText = await requestManagerDraft({
+        objectiveKey,
+        tone: target.tone ?? fanTone,
+        directness,
+        outputLength,
+        variationOf,
+        actionKey,
       });
-      if (result?.ok || result?.errorCode !== "REFUSAL") return;
-      await askInternalManager(buildSafeRewritePrompt(target.text), undefined, undefined, {
-        selectedText: target.selectedText ?? null,
-        skipChat: true,
-        skipContext: true,
-        skipHistory: true,
-        action: "rewrite_safe",
-        onSuggestions: (bundle) => {
-          const nextText = bundle.suggestions[0] ?? target.text;
-          if (!nextText.trim()) return;
-          updateDraftCard(draftId, nextText);
-          addGeneratedDraft(
-            buildDraftCard(nextText, {
-              source: target.source,
-              label: target.label,
-              selectedText: target.selectedText ?? null,
-              basePrompt: target.basePrompt ?? null,
-              offer: target.offer ?? null,
-            })
-          );
-        },
-      });
+      if (!nextText) return;
+      updateDraftCard(draftId, nextText);
+      addGeneratedDraft(
+        buildDraftCard(nextText, {
+          source: target.source,
+          label: target.label,
+          selectedText: target.selectedText ?? null,
+          basePrompt: target.basePrompt ?? null,
+          offer: target.offer ?? null,
+          tone: target.tone ?? fanTone,
+          objective: target.objective ?? currentObjective ?? null,
+        })
+      );
+      if (mode === "bolder") {
+        setDraftDirectnessById((prev) => ({ ...prev, [draftId]: "directo" }));
+      } else if (mode === "softer") {
+        setDraftDirectnessById((prev) => ({ ...prev, [draftId]: "suave" }));
+      }
     },
     [
       addGeneratedDraft,
-      askInternalManager,
       buildDraftCard,
-      buildDraftVariantPrompt,
-      buildSafeRewritePrompt,
+      buildDraftActionKey,
+      currentObjective,
       draftCardsByFan,
+      draftActionState.status,
+      fanTone,
       id,
+      resolveDraftObjectiveKey,
+      requestManagerDraft,
+      setDraftDirectnessById,
       updateDraftCard,
+      draftOutputLength,
     ]
   );
 
@@ -9033,6 +9233,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
     options?: { toneOverride?: FanTone; skipInternalChat?: boolean }
   ) => {
     if (isAutoPilotLoading) return;
+    if (draftActionState.status === "loading") return;
     setHasManualManagerObjective(true);
     setCurrentObjective(intent);
     const toneToUse = options?.toneOverride ?? fanTone;
@@ -9043,6 +9244,18 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
         setFanToneById((prev) => ({ ...prev, [id]: options.toneOverride as FanTone }));
       }
     }
+    const shouldGenerateDraft =
+      !(options?.skipInternalChat && autoPilotEnabled && isAutopilotObjective(intent));
+    const draftPromise = shouldGenerateDraft
+      ? requestManagerDraft({
+          objectiveKey: resolveDraftObjectiveKey(intent),
+          tone: toneToUse,
+          directness: "neutro",
+          outputLength: draftOutputLength,
+          variationOf: null,
+          actionKey: buildDraftActionKey("objective", intent),
+        })
+      : null;
     const newSuggestions = await buildTemplateVariants();
     if (newSuggestions) {
       setManagerSuggestions(newSuggestions.slice(0, 3));
@@ -9050,6 +9263,17 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
     const question = buildQuickIntentQuestion(intent, contactName);
     if (options?.skipInternalChat === false) {
       askInternalManager(question, intent, toneToUse);
+    }
+    if (draftPromise) {
+      const draftText = await draftPromise;
+      if (draftText) {
+        addDraftPair(draftText, {
+          source: "autosuggest",
+          label: formatObjectiveLabel(intent) ?? "Borrador IA",
+          tone: toneToUse,
+          objective: intent,
+        });
+      }
     }
 
     if (autoPilotEnabled && isAutopilotObjective(intent)) {
@@ -11720,6 +11944,11 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
               const reactionsSummary = messageConversation.reactionsSummary ?? [];
               const translationState = messageConversation.id ? messageTranslationState[messageConversation.id] : undefined;
               const translationStatus = translationState?.status ?? "idle";
+              const suggestReplyState = messageConversation.id
+                ? messageSuggestReplyState[messageConversation.id]
+                : undefined;
+              const suggestReplyStatus = suggestReplyState?.status ?? "idle";
+              const suggestReplyLoading = suggestReplyStatus === "loading";
               const canTranslateText = Boolean(
                 messageConversation.id &&
                   !me &&
@@ -11727,8 +11956,13 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
                   isTextMessage
               );
               const canShowTranslationBlock = Boolean(!me && !isInternalMessage && isTextMessage && translatedText);
-              const canShowMessageActions =
-                isFanMode && isTextMessage && !isInternalMessage && hasMessageText;
+              const canShowMessageActions = isFanMode && isTextMessage && !isInternalMessage && hasMessageText;
+              const canSuggestReply =
+                Boolean(messageConversation.id) && !me && canShowMessageActions;
+              const suggestReplyTargetLang = canSuggestReply
+                ? resolveSuggestReplyTargetLang(messageConversation)
+                : translateTargetLang;
+              const suggestReplyTargetLabel = formatTranslationLang(suggestReplyTargetLang, translateTargetLabel);
               const messageActionItems = canShowMessageActions
                 ? [
                     {
@@ -11744,6 +11978,21 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
                             icon: "globe",
                             disabled: translationStatus === "loading",
                             onClick: () => handleTranslateMessage(messageConversation.id as string),
+                          },
+                        ]
+                      : []),
+                    ...(canSuggestReply
+                      ? [
+                          {
+                            label: suggestReplyLoading
+                              ? "Generando..."
+                              : `Responder con IA (${suggestReplyTargetLabel})`,
+                            disabled: suggestReplyLoading,
+                            onClick: () =>
+                              handleSuggestReply(
+                                messageConversation.id as string,
+                                suggestReplyTargetLang
+                              ),
                           },
                         ]
                       : []),
@@ -11809,6 +12058,8 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
                               messageId: messageConversation.id ?? undefined,
                               text: messageText,
                               canTranslate: canTranslateText,
+                              canSuggestReply,
+                              suggestTargetLang: suggestReplyTargetLang,
                             })
                         : undefined
                     }
@@ -12447,6 +12698,22 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
                   className="flex items-center justify-between rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-4 py-3 text-sm text-[color:var(--text)] hover:bg-[color:var(--surface-2)]"
                 >
                   <span>{messageSheetTranslateLabel}</span>
+                </button>
+              )}
+              {messageActionSheet.canSuggestReply && messageActionSheet.messageId && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    handleSuggestReply(
+                      messageActionSheet.messageId as string,
+                      messageActionSheet.suggestTargetLang ?? translateTargetLang
+                    );
+                    closeMessageActionSheet();
+                  }}
+                  disabled={messageSheetSuggestDisabled}
+                  className="flex items-center justify-between rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-4 py-3 text-sm text-[color:var(--text)] hover:bg-[color:var(--surface-2)]"
+                >
+                  <span>{messageSheetSuggestLabel}</span>
                 </button>
               )}
               <button

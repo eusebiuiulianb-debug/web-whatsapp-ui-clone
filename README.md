@@ -69,17 +69,19 @@ En Windows, si ves errores raros de `.next` (p. ej. `__webpack_require__.a is no
 5. Usa "Probar conexión" y luego "Traducir" en el chat.
 
 ## Ollama (local)
-1. Instala Ollama y arráncalo en local.
-2. Descarga un modelo: `ollama pull llama3.2:3b` (o `ollama pull llama3.1:8b`).
-3. Crea `.env.local` con:
+1. Instala Ollama y arráncalo en local (`winget install Ollama.Ollama`).
+2. Descarga el modelo por defecto: `ollama pull deepseek-r1:7b`.
+3. (Opcional) Lánzalo una vez: `ollama run deepseek-r1:7b`.
+4. Crea `.env.local` con:
    ```
    AI_PROVIDER=ollama
    AI_BASE_URL=http://127.0.0.1:11434/v1
-   AI_MODEL=llama3.2:3b
+   AI_MODEL=deepseek-r1:7b
    AI_API_KEY=dummy
+   AI_TIMEOUT_MS=120000
    ```
-4. `npm run dev`
-5. IMPORTANTE: reinicia `npm run dev` tras cambios en `.env.local`.
+5. `npm run dev`
+6. IMPORTANTE: reinicia `npm run dev` tras cambios en `.env.local`.
 
 Notas:
 - Si Ollama no está levantado o falta configuración, se usa el provider demo.

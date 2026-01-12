@@ -42,6 +42,9 @@ type CortexProviderParams = {
   mockContext?: CortexSuggestContext | null;
   mockMode?: string | null;
   selection?: CortexProviderSelection;
+  temperature?: number;
+  maxTokens?: number;
+  outputLength?: "short" | "medium" | "long";
 };
 
 export type CortexProviderSelection = {
@@ -59,8 +62,9 @@ export type CortexProviderSelection = {
 };
 
 const DEFAULT_MODEL = "gpt-4o-mini";
+const DEFAULT_OLLAMA_MODEL = "deepseek-r1:7b";
 const DEFAULT_MAX_TOKENS = 300;
-const DEFAULT_TIMEOUT_MS = 20_000;
+const DEFAULT_TIMEOUT_MS = 120_000;
 
 function normalizeProvider(raw?: string | null): CortexProviderName {
   const normalized = (raw || "").trim().toLowerCase();
@@ -82,10 +86,29 @@ function resolveTemperature(): number {
   return 0.4;
 }
 
+function resolveTimeoutMs(): number {
+  const raw = process.env.AI_TIMEOUT_MS ?? process.env.CORTEX_AI_TIMEOUT_MS;
+  const parsed = raw ? Number(raw) : NaN;
+  if (Number.isFinite(parsed) && parsed > 0) {
+    return Math.max(1000, Math.trunc(parsed));
+  }
+  return DEFAULT_TIMEOUT_MS;
+}
+
 function normalizeOptionalString(value?: string | null): string | null {
   if (typeof value !== "string") return null;
   const trimmed = value.trim();
   return trimmed ? trimmed : null;
+}
+
+function resolveOllamaEnvModel(): string {
+  return (
+    process.env.AI_MODEL?.trim() ||
+    process.env.OLLAMA_MODEL?.trim() ||
+    process.env.CORTEX_MODEL?.trim() ||
+    process.env.CORTEX_AI_MODEL?.trim() ||
+    DEFAULT_OLLAMA_MODEL
+  );
 }
 
 function resolveEnvProviderSelection(params: { creatorId?: string }): CortexProviderSelection {
@@ -93,7 +116,7 @@ function resolveEnvProviderSelection(params: { creatorId?: string }): CortexProv
 
   if (desiredProvider === "ollama") {
     const baseUrl = process.env.AI_BASE_URL?.trim() ?? "";
-    const model = process.env.AI_MODEL?.trim() ?? process.env.CORTEX_AI_MODEL?.trim() ?? "";
+    const model = resolveOllamaEnvModel();
     const missingVars: string[] = [];
     if (!baseUrl) missingVars.push("AI_BASE_URL");
     if (!model) missingVars.push("AI_MODEL");
@@ -128,6 +151,7 @@ function resolveEnvProviderSelection(params: { creatorId?: string }): CortexProv
     const apiKeyRaw = process.env.CORTEX_OPENAI_API_KEY ?? process.env.OPENAI_API_KEY ?? "";
     const apiKey = maybeDecrypt(apiKeyRaw, { creatorId: params.creatorId, label: "OPENAI_API_KEY" });
     const model = process.env.CORTEX_AI_MODEL ?? process.env.OPENAI_MODEL ?? DEFAULT_MODEL;
+    const baseUrl = process.env.AI_BASE_URL?.trim() || null;
     const missingVars: string[] = [];
 
     if (!apiKey || !apiKey.trim()) missingVars.push("OPENAI_API_KEY");
@@ -139,6 +163,7 @@ function resolveEnvProviderSelection(params: { creatorId?: string }): CortexProv
         configured: false,
         missingVars,
         model,
+        baseUrl,
         source: "env",
       };
     }
@@ -150,6 +175,7 @@ function resolveEnvProviderSelection(params: { creatorId?: string }): CortexProv
       missingVars: [],
       model,
       apiKey,
+      baseUrl,
       source: "env",
     };
   }
@@ -190,7 +216,7 @@ async function resolveDbProviderSelection(creatorId: string): Promise<CortexProv
     }
 
     const baseUrl = normalizeOptionalString(settings.cortexBaseUrl);
-    const model = normalizeOptionalString(settings.cortexModel);
+    const model = normalizeOptionalString(settings.cortexModel) ?? DEFAULT_OLLAMA_MODEL;
     let apiKey: string | null = null;
     let decryptFailed = false;
     let decryptFailureReason: CortexProviderSelection["decryptFailureReason"] = undefined;
@@ -229,14 +255,13 @@ async function resolveDbProviderSelection(creatorId: string): Promise<CortexProv
     if (desiredProvider === "ollama") {
       const missingVars: string[] = [];
       if (!baseUrl) missingVars.push("CORTEX_BASE_URL");
-      if (!model) missingVars.push("CORTEX_MODEL");
       const configured = missingVars.length === 0;
       return {
         provider: configured ? "ollama" : "demo",
         desiredProvider,
         configured,
         missingVars,
-        model: model ?? null,
+        model,
         baseUrl: baseUrl ?? null,
         apiKey: apiKey ?? "ollama",
         source: "db",
@@ -254,6 +279,7 @@ async function resolveDbProviderSelection(creatorId: string): Promise<CortexProv
       missingVars,
       model: resolvedModel,
       apiKey: apiKey ?? null,
+      baseUrl: baseUrl ?? null,
       source: "db",
     };
   } catch (err) {
@@ -329,6 +355,10 @@ export async function requestCortexCompletion(params: CortexProviderParams): Pro
   const selection =
     params.selection ?? (await resolveProviderSelection({ creatorId: params.creatorId }));
   const startedAt = Date.now();
+  const temperature = typeof params.temperature === "number" ? params.temperature : resolveTemperature();
+  const maxTokens =
+    typeof params.maxTokens === "number" && Number.isFinite(params.maxTokens) ? Math.trunc(params.maxTokens) : undefined;
+  const resolvedMaxTokens = maxTokens ?? DEFAULT_MAX_TOKENS;
 
   if (selection.provider === "demo") {
     if (selection.desiredProvider !== "demo" && selection.missingVars.length > 0) {
@@ -350,8 +380,8 @@ export async function requestCortexCompletion(params: CortexProviderParams): Pro
       path: "chat/completions",
       payload: {
         model: selection.model ?? "ollama",
-        temperature: resolveTemperature(),
-        max_tokens: DEFAULT_MAX_TOKENS,
+        temperature,
+        max_tokens: resolvedMaxTokens,
         messages: params.messages,
       },
       creatorId: params.creatorId,
@@ -365,9 +395,10 @@ export async function requestCortexCompletion(params: CortexProviderParams): Pro
       apiKey: selection.apiKey ?? "ollama",
       model: selection.model ?? "ollama",
       messages: params.messages,
-      temperature: resolveTemperature(),
-      maxTokens: DEFAULT_MAX_TOKENS,
-      timeoutMs: DEFAULT_TIMEOUT_MS,
+      temperature,
+      maxTokens: resolvedMaxTokens,
+      outputLength: params.outputLength,
+      timeoutMs: resolveTimeoutMs(),
       creatorId: params.creatorId,
     });
 
@@ -404,8 +435,9 @@ export async function requestCortexCompletion(params: CortexProviderParams): Pro
   const payload = sanitizeForOpenAi(
     {
       model,
-      temperature: resolveTemperature(),
+      temperature,
       messages: params.messages,
+      ...(maxTokens !== undefined ? { max_tokens: maxTokens } : {}),
     },
     { creatorId: params.creatorId }
   );
