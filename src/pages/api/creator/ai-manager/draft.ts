@@ -523,12 +523,12 @@ async function detectRecentFanLanguage(
 
   let mostFrequentLanguage: SupportedLanguage | null = null;
   let highestCount = 0;
-  for (const [lang, count] of frequency.entries()) {
+  frequency.forEach((count, lang) => {
     if (count > highestCount) {
       mostFrequentLanguage = lang;
       highestCount = count;
     }
-  }
+  });
 
   return { lastMessageLanguage, mostFrequentLanguage };
 }

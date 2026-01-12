@@ -3250,6 +3250,45 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
     setMessageSend(template);
     setComposerActionKey(actionKey ?? null);
   }
+
+  async function fillMessageForFan(text: string, actionKey?: string | null) {
+    const fanLanguage = (preferredLanguage ?? "en") as SupportedLanguage;
+
+    if (fanLanguage === "es") {
+      fillMessage(text, actionKey);
+      return;
+    }
+
+    const payload: { text: string; targetLanguage: string; fanId?: string } = {
+      text,
+      targetLanguage: fanLanguage,
+    };
+    if (id) {
+      payload.fanId = id;
+    }
+
+    try {
+      const res = await fetch("/api/messages/translate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      const data: any = await res.json().catch(() => ({}));
+      if (res.status === 501 && data?.code === "TRANSLATE_NOT_CONFIGURED") {
+        fillMessage(text, actionKey);
+        return;
+      }
+      const translatedText = typeof data?.translatedText === "string" ? data.translatedText.trim() : "";
+      if (translatedText) {
+        fillMessage(translatedText, actionKey);
+        return;
+      }
+    } catch (err) {
+      console.warn("fillMessageForFan_translate_error", err);
+    }
+
+    fillMessage(text, actionKey);
+  }
   const handleInsertEmoji = useCallback(
     (emoji: string) => {
       const input = messageInputRef.current;
@@ -3748,10 +3787,10 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
     await handleQuickTemplateClick("welcome");
   }
 
-  function handleWelcomePack() {
+  async function handleWelcomePack() {
     const welcomePackMessage =
       "Te propongo el Pack bienvenida (9 €): primer contacto + 3 audios base personalizados. Si te encaja, te envío el enlace de pago.";
-    fillMessage(welcomePackMessage, "pack:welcome");
+    await fillMessageForFan(welcomePackMessage, "pack:welcome");
     setShowPackSelector(false);
     setOpenPanel("none");
   }
@@ -3794,7 +3833,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
     }
   }
 
-  function handleSubscriptionLink(options?: { focus?: boolean }) {
+  async function handleSubscriptionLink(options?: { focus?: boolean }) {
     const subscriptionLinkMessage =
       "Aquí tienes el enlace para la suscripción mensual (25 €):\n\n" +
       "👉 [pega aquí tu enlace]\n\n" +
@@ -3803,7 +3842,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
     if (options?.focus) {
       focusMainMessageInput(subscriptionLinkMessage, "pack:subscription_link");
     } else {
-      fillMessage(subscriptionLinkMessage, "pack:subscription_link");
+      await fillMessageForFan(subscriptionLinkMessage, "pack:subscription_link");
     }
     setShowPackSelector(false);
     setOpenPanel("none");
@@ -4070,7 +4109,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
       usage === "pack_offer" && conversation.extraLadderStatus?.suggestedTier
         ? suggestedText.replace(/Pack especial/gi, `Pack especial ${conversation.extraLadderStatus.suggestedTier}`)
         : suggestedText;
-    fillMessage(enriched, `template:${usage}`);
+    await fillMessageForFan(enriched, `template:${usage}`);
     await logTemplateUsage(enriched, usage);
     if (usage === "extra_quick") {
       const nextFilter = timeOfDay === "NIGHT" ? "night" : "day";
@@ -4120,10 +4159,10 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
     return CHAT_PPV_DEFAULT_COPY[tier] ?? CHAT_PPV_DEFAULT_COPY.CHAT_T1;
   };
 
-  const handleSelectPpvItem = (item: ContentWithFlags) => {
+  const handleSelectPpvItem = async (item: ContentWithFlags) => {
     const resolvedTier = resolveChatTierForItem(item) ?? ppvTierFilter;
     const copy = resolvePpvCopyForItem(item, ppvTierFilter);
-    fillMessage(copy, `ppv:${item.id}`);
+    await fillMessageForFan(copy, `ppv:${item.id}`);
     const extraTier = item.extraTier ?? resolveExtraTierFromChatTier(resolvedTier);
     setPpvTierMenuOpen(false);
     openContentModal({
@@ -4141,10 +4180,10 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
     openContentModal({ mode: "extras", tier: null, defaultRegisterExtras: false, registerSource: null });
   }
 
-  function fillMessageFromPackType(type: "trial" | "monthly" | "special") {
+  async function fillMessageFromPackType(type: "trial" | "monthly" | "special") {
     const pack = findPackByType(type);
     if (pack) {
-      fillMessage(buildPackProposalMessage(pack), `pack:${type}`);
+      await fillMessageForFan(buildPackProposalMessage(pack), `pack:${type}`);
     }
   }
 
@@ -6528,11 +6567,11 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
                 <div className="flex flex-wrap items-center gap-2">
                   <button
                     type="button"
-                    onClick={() => {
+                    onClick={async () => {
                       if (!selectedOffer) return;
                       const message = buildOfferMessage(selectedOffer);
                       if (!message.trim()) return;
-                      fillMessage(message, `offer:${selectedOffer.id}`);
+                      await fillMessageForFan(message, `offer:${selectedOffer.id}`);
                     }}
                     disabled={!selectedOffer || offerSelectionSaving}
                     className={clsx(
@@ -9692,7 +9731,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
   };
 
 
-  function handleSelectPack(packId: string) {
+  async function handleSelectPack(packId: string) {
     const selectedPack = config.packs.find(pack => pack.id === packId);
     if (!selectedPack) return;
 
@@ -9702,17 +9741,17 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
       selectedPack.name.toLowerCase().includes("especial") ? "special" : selectedPackType;
 
     setSelectedPackType(mappedType as "trial" | "monthly" | "special");
-    fillMessage(buildPackProposalMessage(selectedPack), `pack:${selectedPack.id}`);
+    await fillMessageForFan(buildPackProposalMessage(selectedPack), `pack:${selectedPack.id}`);
     setShowPackSelector(true);
     setOpenPanel("none");
   }
 
-  function handleSelectPackChip(event: ReactMouseEvent<HTMLButtonElement>, type: "trial" | "monthly" | "special") {
+  async function handleSelectPackChip(event: ReactMouseEvent<HTMLButtonElement>, type: "trial" | "monthly" | "special") {
     event.stopPropagation();
     setSelectedPackType(type);
     setShowPackSelector(true);
     setOpenPanel("none");
-    fillMessageFromPackType(type);
+    await fillMessageFromPackType(type);
   }
 
   function changeHandler(evt: ReactKeyboardEvent<HTMLTextAreaElement>) {
@@ -11312,10 +11351,10 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
     }
   }, [id]);
 
-  const handleRenewAction = () => {
+  const handleRenewAction = async () => {
     const first = getFirstName(contactName) || contactName;
     const text = buildFollowUpExpiredMessage(first);
-    fillMessage(text, resolveIntentActionKey("renovacion"));
+    await fillMessageForFan(text, resolveIntentActionKey("renovacion"));
     adjustMessageInputHeight();
     requestAnimationFrame(() => {
       messageInputRef.current?.focus();
@@ -12173,7 +12212,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
                   <button
                     key={tpl.id}
                     type="button"
-                    onClick={() => fillMessage(tpl.text)}
+                    onClick={() => void fillMessageForFan(tpl.text)}
                     className="inline-flex items-center rounded-full border border-[color:rgba(245,158,11,0.8)] bg-[color:rgba(245,158,11,0.08)] px-3 py-1 text-[11px] font-medium text-[color:var(--text)] hover:bg-[color:rgba(245,158,11,0.16)] transition"
                   >
                     {tpl.label}
