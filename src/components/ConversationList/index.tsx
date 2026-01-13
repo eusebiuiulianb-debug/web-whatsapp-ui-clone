@@ -15,6 +15,39 @@ import { Badge, type BadgeTone } from "../ui/Badge";
 import { IconGlyph, type IconName } from "../ui/IconGlyph";
 import { ConversationActionsMenu } from "../conversations/ConversationActionsMenu";
 
+const INTENT_BADGE_LABELS: Record<string, string> = {
+  BUY_NOW: "Compra",
+  PRICE_ASK: "Precio",
+  CONTENT_REQUEST: "Contenido",
+  CUSTOM_REQUEST: "Custom",
+  SUBSCRIBE: "Suscribir",
+  CANCEL: "Cancelar",
+  OFF_PLATFORM: "Off-platform",
+  SUPPORT: "Soporte",
+  OBJECTION: "Objeción",
+  RUDE_OR_HARASS: "Grosero",
+  UNSAFE_MINOR: "Menor",
+  FLIRT: "Coqueteo",
+  GREETING: "Saludo",
+  OTHER: "Otro",
+};
+
+const SUGGESTED_ACTION_KEYS = new Set([
+  "BREAK_ICE",
+  "BUILD_RAPPORT",
+  "OFFER_EXTRA",
+  "PUSH_MONTHLY",
+  "SEND_PAYMENT_LINK",
+  "SUPPORT",
+  "SAFETY",
+]);
+
+function normalizeSuggestedActionKey(value?: string | null): string | null {
+  if (!value) return null;
+  const normalized = value.trim().toUpperCase();
+  return SUGGESTED_ACTION_KEYS.has(normalized) ? normalized : null;
+}
+
 interface ConversationListProps {
   isFirstConversation?: boolean;
   data: ConversationListData;
@@ -138,17 +171,20 @@ export default function ConversationList(props: ConversationListProps) {
   const followUpDueAt = followUpOpen?.dueAt ?? null;
   const nextActionNote = typeof data.nextActionNote === "string" ? data.nextActionNote : null;
   const nextActionAt = data.nextActionAt ?? null;
+  const manualNextActionValue = normalizeSuggestedActionKey(data.nextAction)
+    ? ""
+    : (typeof data.nextAction === "string" ? data.nextAction.trim() : "");
   const hasNextAction = Boolean(
     followUpOpen ||
       Boolean(nextActionAt) ||
       Boolean(nextActionNote?.trim()) ||
-      (typeof data.nextAction === "string" && data.nextAction.trim().length > 0)
+      manualNextActionValue.length > 0
   );
   const nextActionNoteValue =
     (typeof data.nextActionNote === "string" ? data.nextActionNote.trim() : "") ||
     (typeof followUpTitle === "string" ? followUpTitle.trim() : "") ||
     (typeof followUpNote === "string" ? followUpNote.trim() : "") ||
-    (typeof data.nextAction === "string" ? data.nextAction.trim() : "") ||
+    manualNextActionValue ||
     (typeof data.nextActionSummary === "string" ? data.nextActionSummary.trim() : "") ||
     (typeof data.nextActionSnippet === "string" ? data.nextActionSnippet.trim() : "") ||
     "";
@@ -156,6 +192,28 @@ export default function ConversationList(props: ConversationListProps) {
   const novsyStatus = (data as any).novsyStatus ?? null;
   const preferredLanguage = normalizePreferredLanguage(data.preferredLanguage);
   const languageBadgeLabel = !isManagerChat && preferredLanguage ? preferredLanguage.toUpperCase() : null;
+  const temperatureBucketRaw = (data as any).temperatureBucket ?? (data as any).heatLabel ?? null;
+  const temperatureBucket = temperatureBucketRaw ? String(temperatureBucketRaw).toUpperCase() : null;
+  const normalizedTemperatureBucket = temperatureBucket === "READY" ? "HOT" : temperatureBucket;
+  const temperatureScore =
+    typeof (data as any).temperatureScore === "number"
+      ? (data as any).temperatureScore
+      : typeof (data as any).heatScore === "number"
+      ? (data as any).heatScore
+      : null;
+  const lastIntentKey =
+    (data as any).lastIntentKey && String((data as any).lastIntentKey).trim().length > 0
+      ? String((data as any).lastIntentKey).toUpperCase()
+      : null;
+  const intentLabel = lastIntentKey ? INTENT_BADGE_LABELS[lastIntentKey] ?? lastIntentKey : null;
+  const heatBadge =
+    normalizedTemperatureBucket === "HOT"
+      ? "🔥"
+      : normalizedTemperatureBucket === "WARM"
+      ? "🌡"
+      : normalizedTemperatureBucket === "COLD"
+      ? "❄"
+      : null;
   const agencyStageKey = typeof data.agencyStage === "string" ? data.agencyStage.toUpperCase() : null;
   const agencyStageLabel = agencyStageKey ? AGENCY_STAGE_LABELS[agencyStageKey] ?? agencyStageKey : null;
   const agencyStageTone: BadgeTone = agencyStageKey
@@ -274,6 +332,17 @@ export default function ConversationList(props: ConversationListProps) {
               {languageBadgeLabel && (
                 <Badge tone={badgeToneForLabel(languageBadgeLabel)} size="sm">
                   {languageBadgeLabel}
+                </Badge>
+              )}
+              {heatBadge && (
+                <Badge tone="muted" size="sm">
+                  {heatBadge} {normalizedTemperatureBucket}
+                  {temperatureScore !== null ? ` ${temperatureScore}` : ""}
+                </Badge>
+              )}
+              {!isManagerChat && intentLabel && (
+                <Badge tone="muted" size="sm">
+                  Int: {intentLabel}
                 </Badge>
               )}
               {novsyStatus === "NOVSY" && (

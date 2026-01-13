@@ -122,6 +122,17 @@ interface Conversation {
   segment?: string | null;
   riskLevel?: "LOW" | "MEDIUM" | "HIGH" | string | null;
   healthScore?: number | null;
+  temperatureScore?: number | null;
+  temperatureBucket?: "COLD" | "WARM" | "HOT" | string | null;
+  heatScore?: number | null;
+  heatLabel?: "COLD" | "WARM" | "HOT" | string | null;
+  heatUpdatedAt?: string | null;
+  heatMeta?: unknown;
+  lastIntentKey?: string | null;
+  lastIntentConfidence?: number | null;
+  lastIntentAt?: string | null;
+  lastInboundAt?: string | null;
+  signalsUpdatedAt?: string | null;
   lastGrantType?: string | null;
   extraLadderStatus?: {
     totalSpent: number;
@@ -222,6 +233,17 @@ interface ConversationListData {
   segment?: string | null;
   riskLevel?: "LOW" | "MEDIUM" | "HIGH" | string | null;
   healthScore?: number | null;
+  temperatureScore?: number | null;
+  temperatureBucket?: "COLD" | "WARM" | "HOT" | string | null;
+  heatScore?: number | null;
+  heatLabel?: "COLD" | "WARM" | "HOT" | string | null;
+  heatUpdatedAt?: string | null;
+  heatMeta?: unknown;
+  lastIntentKey?: string | null;
+  lastIntentConfidence?: number | null;
+  lastIntentAt?: string | null;
+  lastInboundAt?: string | null;
+  signalsUpdatedAt?: string | null;
   lastGrantType?: string | null;
   extraLadderStatus?: {
     totalSpent: number;

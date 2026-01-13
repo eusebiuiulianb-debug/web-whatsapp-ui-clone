@@ -40,6 +40,7 @@ import { IconGlyph } from "../ui/IconGlyph";
 import { Chip } from "../ui/Chip";
 import { computeAgencyPriorityScore } from "../../lib/agency/priorityScore";
 import type { AgencyIntensity, AgencyStage } from "../../lib/agency/types";
+import { DB_SCHEMA_OUT_OF_SYNC_CODE } from "../../lib/dbSchemaGuard";
 
 class SideBarBoundary extends Component<{ children: React.ReactNode }, { hasError: boolean }> {
   constructor(props: { children: React.ReactNode }) {
@@ -222,6 +223,37 @@ function hasRiskFlag(fan: FanData): boolean {
   return risk !== "" && risk !== "LOW";
 }
 
+function getTemperatureBucket(fan: FanData): "COLD" | "WARM" | "HOT" | "" {
+  const raw = (fan as any).temperatureBucket ?? (fan as any).heatLabel ?? "";
+  const normalized = String(raw).toUpperCase();
+  if (normalized === "READY") return "HOT";
+  if (normalized === "COLD" || normalized === "WARM" || normalized === "HOT") return normalized;
+  return "";
+}
+
+function normalizeSuggestedActionKey(value?: string | null): string | null {
+  if (!value) return null;
+  const normalized = value.trim().toUpperCase();
+  if (!normalized) return null;
+  if (
+    normalized === "BREAK_ICE" ||
+    normalized === "BUILD_RAPPORT" ||
+    normalized === "OFFER_EXTRA" ||
+    normalized === "PUSH_MONTHLY" ||
+    normalized === "SEND_PAYMENT_LINK" ||
+    normalized === "SUPPORT" ||
+    normalized === "SAFETY"
+  ) {
+    return normalized;
+  }
+  return null;
+}
+
+function getManualNextActionValue(fan: FanData): string {
+  const raw = typeof fan.nextAction === "string" ? fan.nextAction.trim() : "";
+  return normalizeSuggestedActionKey(raw) ? "" : raw;
+}
+
 function hasExtrasSignal(fan: FanData): boolean {
   const extrasSpent = fan.extrasSpentTotal ?? 0;
   const extrasCount = fan.extrasCount ?? 0;
@@ -281,11 +313,28 @@ function SideBarInner() {
   const [ isSettingsOpen, setIsSettingsOpen ] = useState(false);
   const [ fans, setFans ] = useState<ConversationListData[]>([]);
   const [ fansError, setFansError ] = useState("");
+  const [ fansErrorCode, setFansErrorCode ] = useState<string | null>(null);
+  const [ fansErrorFix, setFansErrorFix ] = useState<string[] | null>(null);
   const [ followUpMode, setFollowUpMode ] = useState<"all" | "today" | "expired" | "priority">("all");
   const [ showOnlyWithNotes, setShowOnlyWithNotes ] = useState(false);
   const [ tierFilter, setTierFilter ] = useState<"all" | "new" | "regular" | "vip">("all");
   const [ onlyWithFollowUp, setOnlyWithFollowUp ] = useState(false);
   const [ onlyWithExtras, setOnlyWithExtras ] = useState(false);
+  const [ heatFilter, setHeatFilter ] = useState<"all" | "cold" | "warm" | "hot">("all");
+  const [ intentFilter, setIntentFilter ] = useState<
+    | "all"
+    | "BUY_NOW"
+    | "PRICE_ASK"
+    | "CONTENT_REQUEST"
+    | "CUSTOM_REQUEST"
+    | "SUBSCRIBE"
+    | "CANCEL"
+    | "OFF_PLATFORM"
+    | "SUPPORT"
+    | "OBJECTION"
+    | "RUDE_OR_HARASS"
+    | "OTHER"
+  >("all");
   const [ showLegend, setShowLegend ] = useState(false);
   const [ showAllTodayMetrics, setShowAllTodayMetrics ] = useState(false);
   const [ focusMode, setFocusMode ] = useState(false);
@@ -382,6 +431,17 @@ function SideBarInner() {
       segment: (fan as any).segment ?? null,
       riskLevel: (fan as any).riskLevel ?? "LOW",
       healthScore: (fan as any).healthScore ?? 0,
+      temperatureScore: (fan as any).temperatureScore ?? null,
+      temperatureBucket: (fan as any).temperatureBucket ?? null,
+      heatScore: (fan as any).heatScore ?? null,
+      heatLabel: (fan as any).heatLabel ?? null,
+      heatUpdatedAt: (fan as any).heatUpdatedAt ?? null,
+      heatMeta: (fan as any).heatMeta ?? null,
+      lastIntentKey: (fan as any).lastIntentKey ?? null,
+      lastIntentConfidence: (fan as any).lastIntentConfidence ?? null,
+      lastIntentAt: (fan as any).lastIntentAt ?? null,
+      lastInboundAt: (fan as any).lastInboundAt ?? null,
+      signalsUpdatedAt: (fan as any).signalsUpdatedAt ?? null,
       customerTier: normalizeTier(fan.customerTier),
       nextAction: fan.nextAction ?? null,
       nextActionAt: fan.nextActionAt ?? null,
@@ -465,6 +525,9 @@ function SideBarInner() {
         "giftsSpentTotal",
         "notesCount",
         "notePreview",
+        "temperatureBucket",
+        "temperatureScore",
+        "lastIntentKey",
         "nextAction",
         "nextActionAt",
         "nextActionNote",
@@ -697,7 +760,7 @@ function SideBarInner() {
       fan.followUpOpen ||
         Boolean(fan.nextActionAt) ||
         Boolean(fan.nextActionNote?.trim()) ||
-        Boolean(fan.nextAction?.trim())
+        Boolean(getManualNextActionValue(fan))
     );
 
     return {
@@ -891,7 +954,26 @@ function SideBarInner() {
     [buildQueueMetaList, getQueueSignals]
   );
 
-  const totalCount = fans.length;
+  const totalCountLocal = fans.length;
+  const heatCountsLocal = {
+    all: totalCountLocal,
+    cold: fans.filter((fan) => getTemperatureBucket(fan) === "COLD").length,
+    warm: fans.filter((fan) => getTemperatureBucket(fan) === "WARM").length,
+    hot: fans.filter((fan) => getTemperatureBucket(fan) === "HOT").length,
+  };
+  const intentCountsLocal = {
+    BUY_NOW: fans.filter((fan) => String((fan as any).lastIntentKey || "").toUpperCase() === "BUY_NOW").length,
+    PRICE_ASK: fans.filter((fan) => String((fan as any).lastIntentKey || "").toUpperCase() === "PRICE_ASK").length,
+    CONTENT_REQUEST: fans.filter((fan) => String((fan as any).lastIntentKey || "").toUpperCase() === "CONTENT_REQUEST").length,
+    CUSTOM_REQUEST: fans.filter((fan) => String((fan as any).lastIntentKey || "").toUpperCase() === "CUSTOM_REQUEST").length,
+    SUBSCRIBE: fans.filter((fan) => String((fan as any).lastIntentKey || "").toUpperCase() === "SUBSCRIBE").length,
+    CANCEL: fans.filter((fan) => String((fan as any).lastIntentKey || "").toUpperCase() === "CANCEL").length,
+    OFF_PLATFORM: fans.filter((fan) => String((fan as any).lastIntentKey || "").toUpperCase() === "OFF_PLATFORM").length,
+    SUPPORT: fans.filter((fan) => String((fan as any).lastIntentKey || "").toUpperCase() === "SUPPORT").length,
+    OBJECTION: fans.filter((fan) => String((fan as any).lastIntentKey || "").toUpperCase() === "OBJECTION").length,
+    RUDE_OR_HARASS: fans.filter((fan) => String((fan as any).lastIntentKey || "").toUpperCase() === "RUDE_OR_HARASS").length,
+    OTHER: fans.filter((fan) => String((fan as any).lastIntentKey || "").toUpperCase() === "OTHER").length,
+  };
   const followUpTodayCount = fans.filter((fan) =>
     shouldFollowUpToday({
       membershipStatus: fan.membershipStatus,
@@ -915,7 +997,7 @@ function SideBarInner() {
       Boolean(fan.followUpOpen) ||
       Boolean(fan.nextActionAt) ||
       Boolean(fan.nextActionNote?.trim()) ||
-      Boolean(fan.nextAction?.trim());
+      Boolean(getManualNextActionValue(fan));
     return hasTag || hasNextAction;
   }).length;
   const archivedCount = fans.filter((fan) => fan.isArchived === true).length;
@@ -1132,6 +1214,21 @@ function SideBarInner() {
           if (statusFilter === "blocked") return fan.isBlocked === true;
           return fan.isArchived !== true && fan.isBlocked !== true;
         })
+        .filter((fan) => {
+          if (heatFilter === "all") return true;
+          const label = getTemperatureBucket(fan);
+          if (!label) return false;
+          if (heatFilter === "cold") return label === "COLD";
+          if (heatFilter === "warm") return label === "WARM";
+          if (heatFilter === "hot") return label === "HOT";
+          return true;
+        })
+        .filter((fan) => {
+          if (intentFilter === "all") return true;
+          const key = (fan as any).lastIntentKey ? String((fan as any).lastIntentKey).toUpperCase() : "";
+          if (!key) return false;
+          return key === intentFilter;
+        })
         .filter((fan) => (followUpMode === "priority" ? (fan.isHighPriority ?? false) : true))
         .filter((fan) => (!showOnlyWithNotes ? true : (fan.notesCount ?? 0) > 0))
         .filter((fan) => (!onlyWithExtras ? true : (fan.extrasSpentTotal ?? 0) > 0))
@@ -1141,7 +1238,7 @@ function SideBarInner() {
             fan.followUpOpen ||
               Boolean(fan.nextActionAt) ||
               Boolean(fan.nextActionNote?.trim()) ||
-              Boolean(fan.nextAction?.trim())
+              Boolean(getManualNextActionValue(fan))
           );
         })
         .filter((fan) => {
@@ -1226,6 +1323,8 @@ function SideBarInner() {
       followUpMode,
       statusFilter,
       tierFilter,
+      heatFilter,
+      intentFilter,
     ]
   );
 
@@ -1357,18 +1456,41 @@ function SideBarInner() {
       params.set("limit", "30");
       params.set("filter", apiFilter);
       if (search.trim()) params.set("q", search.trim());
+      if (heatFilter !== "all") params.set("temp", heatFilter);
+      if (intentFilter !== "all") params.set("intent", intentFilter);
       if (cursor) params.set("cursor", cursor);
       return params;
     },
-    [apiFilter, search]
+    [apiFilter, search, heatFilter, intentFilter]
   );
 
   const fetchChatsPage = useCallback(
     async (url: string) => {
       recordDevRequest("fans");
       const res = await fetch(url, { cache: "no-store" });
-      if (!res.ok) throw new Error("Error fetching fans");
-      const data = await res.json();
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || data?.ok === false) {
+        const errorMessage =
+          typeof data?.message === "string" && data.message.trim().length > 0
+            ? data.message
+            : "Error cargando fans";
+        const error = new Error(errorMessage) as Error & {
+          code?: string | null;
+          fix?: string[] | null;
+          details?: string | null;
+        };
+        error.code =
+          typeof data?.code === "string"
+            ? data.code
+            : typeof data?.errorCode === "string"
+            ? data.errorCode
+            : typeof data?.error === "string"
+            ? data.error
+            : null;
+        error.fix = Array.isArray(data?.fix) ? data.fix : null;
+        error.details = typeof data?.details === "string" ? data.details : null;
+        throw error;
+      }
       const rawItems = Array.isArray(data.items)
         ? (data.items as Fan[])
         : Array.isArray(data.fans)
@@ -1409,9 +1531,38 @@ function SideBarInner() {
   }, [chatPages]);
 
   const hasMore = Boolean(chatPages?.[chatPages.length - 1]?.hasMore);
+  const apiHeatCounts = chatPages?.[0]?.counts as { all: number; cold: number; warm: number; hot: number } | undefined;
+  const heatCounts = apiHeatCounts ?? heatCountsLocal;
+  const apiIntentCounts = chatPages?.[0]?.intentCounts as Record<string, number> | undefined;
+  const intentCounts = apiIntentCounts ?? intentCountsLocal;
+  const totalCount = typeof heatCounts.all === "number" ? heatCounts.all : totalCountLocal;
 
   useEffect(() => {
-    setFansError(chatError ? "Error cargando fans" : "");
+    if (!chatError) {
+      setFansError("");
+      setFansErrorCode(null);
+      setFansErrorFix(null);
+      return;
+    }
+    const code =
+      typeof (chatError as any)?.code === "string"
+        ? (chatError as any).code
+        : typeof (chatError as any)?.errorCode === "string"
+        ? (chatError as any).errorCode
+        : null;
+    const fix = Array.isArray((chatError as any)?.fix) ? ((chatError as any).fix as string[]) : null;
+    const isMigrationError = code === DB_SCHEMA_OUT_OF_SYNC_CODE;
+    const isCreatorMissing = code === "CREATOR_NOT_FOUND";
+    const message = isMigrationError
+      ? "Base de datos desactualizada."
+      : isCreatorMissing
+      ? "No se pudo resolver el creator."
+      : chatError instanceof Error && chatError.message
+      ? chatError.message
+      : "Error cargando fans";
+    setFansError(message);
+    setFansErrorCode(code);
+    setFansErrorFix(fix);
   }, [chatError]);
 
   useEffect(() => {
@@ -1984,6 +2135,7 @@ function SideBarInner() {
 
   const isLoading = !chatPages && !chatError;
   const isError = Boolean(fansError);
+  const isCreatorMissing = fansErrorCode === "CREATOR_NOT_FOUND";
   const filterRowClass =
     "flex items-center justify-between gap-3 rounded-lg px-2 py-1.5 text-left transition hover:bg-[color:var(--surface-2)] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[color:var(--ring)]";
   const countPillClass =
@@ -2039,16 +2191,65 @@ function SideBarInner() {
       <div className="mb-2 px-3">
         {isError && (
           <div className="mb-2 rounded-xl border border-[color:rgba(244,63,94,0.5)] bg-[color:rgba(244,63,94,0.12)] px-3 py-2 text-[12px] text-[color:var(--text)]">
-            <div className="flex items-center justify-between">
+            <div className="flex items-center justify-between gap-2">
               <span>{fansError || "No se pudo cargar la lista de fans."}</span>
-              <button
-                type="button"
-                className="rounded-md border border-[color:rgba(244,63,94,0.4)] bg-[color:rgba(244,63,94,0.2)] px-2 py-1 text-[11px] font-semibold hover:bg-[color:rgba(244,63,94,0.28)]"
-                onClick={() => mutateChats()}
-              >
-                Reintentar
-              </button>
+              <div className="flex items-center gap-2">
+                {isCreatorMissing ? (
+                  <button
+                    type="button"
+                    className="rounded-md border border-[color:rgba(244,63,94,0.4)] bg-[color:rgba(244,63,94,0.2)] px-2 py-1 text-[11px] font-semibold hover:bg-[color:rgba(244,63,94,0.28)]"
+                    onClick={() => {
+                      if (typeof window !== "undefined") window.location.reload();
+                    }}
+                  >
+                    Reiniciar sesión
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    className="rounded-md border border-[color:rgba(244,63,94,0.4)] bg-[color:rgba(244,63,94,0.2)] px-2 py-1 text-[11px] font-semibold hover:bg-[color:rgba(244,63,94,0.28)]"
+                    onClick={() => mutateChats()}
+                  >
+                    Reintentar
+                  </button>
+                )}
+                {isCreatorMissing && process.env.NODE_ENV !== "production" && (
+                  <button
+                    type="button"
+                    className="rounded-md border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-2 py-1 text-[11px] font-semibold text-[color:var(--text)] hover:bg-[color:var(--surface-1)]"
+                    onClick={() => mutateChats()}
+                  >
+                    Crear creator demo
+                  </button>
+                )}
+              </div>
             </div>
+            {fansErrorCode === DB_SCHEMA_OUT_OF_SYNC_CODE && process.env.NODE_ENV !== "production" && (
+              <div className="mt-2 flex items-center justify-between text-[11px] text-[color:var(--muted)]">
+                <span>
+                  Ejecuta:{" "}
+                  <span className="font-mono">
+                    {(fansErrorFix && fansErrorFix.length > 0 ? fansErrorFix[0] : "npm run db:reset")}
+                  </span>{" "}
+                  <span>(dev)</span>
+                </span>
+                <button
+                  type="button"
+                  className="rounded-md border border-[color:var(--surface-border)] px-2 py-0.5 text-[10px] font-semibold hover:bg-[color:var(--surface-2)]"
+                  onClick={async () => {
+                    const command =
+                      fansErrorFix && fansErrorFix.length > 0 ? fansErrorFix[0] : "npm run db:reset";
+                    try {
+                      await navigator.clipboard.writeText(command);
+                    } catch (err) {
+                      console.warn("No se pudo copiar el comando", err);
+                    }
+                  }}
+                >
+                  Copiar
+                </button>
+              </div>
+            )}
           </div>
         )}
         {openFanToast && (
@@ -2656,6 +2857,44 @@ function SideBarInner() {
                     scrollListToTop();
                   }}
                 />
+                <select
+                  className="rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-2 py-1 text-[11px] text-[color:var(--text)] focus:border-[color:var(--border-a)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--ring)] shrink-0"
+                  value={heatFilter}
+                  onChange={(e) => {
+                    const next = e.target.value as typeof heatFilter;
+                    setHeatFilter(next);
+                    scrollListToTop();
+                  }}
+                  title="Filtrar por temperatura"
+                >
+                  <option value="all">Temp: todas ({heatCounts.all})</option>
+                  <option value="cold">Frío ({heatCounts.cold})</option>
+                  <option value="warm">Templado ({heatCounts.warm})</option>
+                  <option value="hot">Caliente ({heatCounts.hot})</option>
+                </select>
+                <select
+                  className="rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-2 py-1 text-[11px] text-[color:var(--text)] focus:border-[color:var(--border-a)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--ring)] shrink-0"
+                  value={intentFilter}
+                  onChange={(e) => {
+                    const next = e.target.value as typeof intentFilter;
+                    setIntentFilter(next);
+                    scrollListToTop();
+                  }}
+                  title="Filtrar por intención"
+                >
+                  <option value="all">Intención: todas ({totalCount})</option>
+                  <option value="BUY_NOW">Compra ({intentCounts.BUY_NOW ?? 0})</option>
+                  <option value="PRICE_ASK">Precio ({intentCounts.PRICE_ASK ?? 0})</option>
+                  <option value="CONTENT_REQUEST">Contenido ({intentCounts.CONTENT_REQUEST ?? 0})</option>
+                  <option value="CUSTOM_REQUEST">Custom ({intentCounts.CUSTOM_REQUEST ?? 0})</option>
+                  <option value="SUBSCRIBE">Suscribir ({intentCounts.SUBSCRIBE ?? 0})</option>
+                  <option value="CANCEL">Cancelar ({intentCounts.CANCEL ?? 0})</option>
+                  <option value="OFF_PLATFORM">Off-platform ({intentCounts.OFF_PLATFORM ?? 0})</option>
+                  <option value="SUPPORT">Soporte ({intentCounts.SUPPORT ?? 0})</option>
+                  <option value="OBJECTION">Objeción ({intentCounts.OBJECTION ?? 0})</option>
+                  <option value="RUDE_OR_HARASS">Grosero ({intentCounts.RUDE_OR_HARASS ?? 0})</option>
+                  <option value="OTHER">Otro ({intentCounts.OTHER ?? 0})</option>
+                </select>
                 {listSegment === "all" && (
                   <button
                     type="button"

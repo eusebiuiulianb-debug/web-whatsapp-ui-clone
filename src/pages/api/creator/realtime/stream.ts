@@ -16,12 +16,13 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     return res.status(405).json({ error: "Method not allowed" });
   }
 
-  let creatorId: string;
-  try {
-    creatorId = await resolveCreatorId();
-  } catch (err) {
-    console.error("Error resolving creator for realtime stream", err);
-    return res.status(500).json({ error: "creator_unavailable" });
+  const creatorId = await resolveCreatorId();
+  if (!creatorId) {
+    const accept = req.headers.accept || "";
+    if (accept.includes("text/event-stream")) {
+      return res.status(204).end();
+    }
+    return res.status(401).json({ error: "CREATOR_NOT_FOUND" });
   }
 
   res.setHeader("Content-Type", "text/event-stream; charset=utf-8");
@@ -57,8 +58,26 @@ async function resolveCreatorId() {
     select: { id: true },
     orderBy: { id: "asc" },
   });
-  if (!creator) {
-    throw new Error("Creator not found");
+  if (creator) return creator.id;
+  if (process.env.NODE_ENV === "development" || process.env.DEV_BYPASS_AUTH === "true") {
+    try {
+      const created = await prisma.creator.create({
+        data: {
+          id: "creator-1",
+          name: "Creator demo",
+          subtitle: "Demo",
+          description: "Perfil demo generado automáticamente.",
+        },
+        select: { id: true },
+      });
+      return created.id;
+    } catch (err) {
+      const existing = await prisma.creator.findFirst({
+        select: { id: true },
+        orderBy: { id: "asc" },
+      });
+      return existing?.id ?? null;
+    }
   }
-  return creator.id;
+  return null;
 }

@@ -15,6 +15,7 @@ import { saveVoice } from "../../lib/voiceStorage";
 import { buildReactionSummary, type ReactionActor } from "../../lib/messageReactions";
 import { detectIntentWithFallback } from "../../lib/ai/intentClassifier";
 import type { IntentResult } from "../../lib/ai/intents";
+import { computeTemperatureFromMessage, resolveNextAction } from "../../lib/ai/temperature";
 
 export const config = {
   api: {
@@ -420,10 +421,23 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse<MessageRespo
   } | null = null;
 
   try {
-    const fan = await prisma.fan.findUnique({
+    const fan = (await prisma.fan.findUnique({
       where: { id: normalizedFanId },
-      select: { isBlocked: true, preferredLanguage: true, creatorId: true, inviteUsedAt: true, inviteToken: true },
-    });
+      select: {
+        isBlocked: true,
+        preferredLanguage: true,
+        creatorId: true,
+        inviteUsedAt: true,
+        inviteToken: true,
+        membershipStatus: true,
+        lastMessageAt: true,
+        lastInboundAt: true,
+        lastPurchaseAt: true,
+        daysLeft: true,
+        temperatureScore: true,
+        temperatureBucket: true,
+      } as any,
+    })) as any;
     if (!fan) {
       return res.status(404).json({ ok: false, error: "Fan not found" });
     }
@@ -571,6 +585,36 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse<MessageRespo
       },
     });
 
+    if (normalizedFrom === "fan" && normalizedAudience !== "INTERNAL") {
+      try {
+        const now = new Date();
+        const temperature = computeTemperatureFromMessage({
+          previousScore: typeof fan.temperatureScore === "number" ? fan.temperatureScore : 0,
+          lastInboundAt: fan.lastInboundAt ?? fan.lastMessageAt ?? null,
+          intentKey: intentResult?.intent ?? null,
+          lastPurchaseAt: fan.lastPurchaseAt ?? null,
+          now,
+        });
+        const nextAction = resolveNextAction({
+          intentKey: intentResult?.intent ?? null,
+          temperatureBucket: temperature.bucket,
+        });
+        await prisma.fan.update({
+          where: { id: normalizedFanId },
+          data: {
+            temperatureScore: temperature.score,
+            temperatureBucket: temperature.bucket,
+            nextAction,
+            lastIntentConfidence:
+              typeof intentResult?.confidence === "number" ? intentResult.confidence : null,
+            signalsUpdatedAt: now,
+          },
+        });
+      } catch (temperatureErr) {
+        console.warn("temperature_compute_failed", temperatureErr);
+      }
+    }
+
     if (shouldUpdateThread) {
       const previewSource =
         normalizedType === "CONTENT"
@@ -592,6 +636,14 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse<MessageRespo
       };
       if (normalizedFrom === "fan") {
         fanUpdate.isArchived = false;
+        fanUpdate.lastInboundAt = now;
+        if (intentResult?.intent) {
+          fanUpdate.lastIntentKey = intentResult.intent;
+          fanUpdate.lastIntentAt = now;
+        }
+        if (typeof intentResult?.confidence === "number") {
+          fanUpdate.lastIntentConfidence = intentResult.confidence;
+        }
         if (fan.inviteToken && !fan.inviteUsedAt) {
           fanUpdate.inviteUsedAt = now;
         }

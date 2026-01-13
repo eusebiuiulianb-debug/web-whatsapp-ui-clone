@@ -125,6 +125,7 @@ import {
   type SupportedLanguage,
   type TranslationLanguage,
 } from "../../lib/language";
+import { getFanSuggestions, type FanSuggestionChip } from "../../lib/manager/suggestions";
 import clsx from "clsx";
 import { useRouter } from "next/router";
 import { useIsomorphicLayoutEffect } from "../../hooks/useIsomorphicLayoutEffect";
@@ -181,10 +182,13 @@ type DraftRequestOptions = {
     currency?: string | null;
     tier?: string | null;
   } | null;
+  intent?: string | null;
+  temperatureBucket?: string | null;
   targetLanguage?: string | null;
   rewriteMode?: "alt" | "shorter" | "softer" | "more_direct";
   avoid?: string[];
   regenerateNonce?: number | null;
+  variationNonce?: number | null;
 };
 type DraftSource = "reformular" | "citar" | "autosuggest";
 type PpvOffer = {
@@ -585,6 +589,22 @@ const AGENCY_PLAYBOOK_LABELS: Record<AgencyPlaybook, string> = {
   ELEGANT: "Elegante",
   SOFT_DOMINANT: "Dominante sutil",
 };
+
+const SUGGESTED_ACTION_KEYS = new Set([
+  "SEND_PAYMENT_LINK",
+  "OFFER_EXTRA",
+  "BREAK_ICE",
+  "BUILD_RAPPORT",
+  "PUSH_MONTHLY",
+  "SUPPORT",
+  "SAFETY",
+]);
+
+function normalizeSuggestedActionKey(value?: string | null): string | null {
+  if (!value) return null;
+  const normalized = value.trim().toUpperCase();
+  return SUGGESTED_ACTION_KEYS.has(normalized) ? normalized : null;
+}
 
 function formatAgencyStageLabel(value: AgencyStage) {
   return value.replace(/_/g, " ");
@@ -1258,7 +1278,7 @@ export default function ConversationDetails({ onBackToBoard }: ConversationDetai
       typeof payload.message === "string" && payload.message.trim().length > 0
         ? payload.message
         : DB_SCHEMA_OUT_OF_SYNC_MESSAGE;
-    setSchemaError({ errorCode: payload.errorCode, message, fix });
+    setSchemaError({ errorCode: payload.errorCode, code: payload.code ?? payload.errorCode, message, fix });
     setSchemaCopyState("idle");
     return true;
   }, [setSchemaCopyState, setSchemaError]);
@@ -2361,6 +2381,9 @@ const INTENT_BADGE_LABELS: Record<string, string> = {
 
   function parseNextActionValue(value?: string | null) {
     if (!value) return { text: "", date: "", time: "" };
+    if (normalizeSuggestedActionKey(value)) {
+      return { text: "", date: "", time: "" };
+    }
     const match = value.match(/\(para\s+(\d{4}-\d{2}-\d{2})(?:\s+(\d{2}:\d{2}))?\)/i);
     const date = match?.[1] ?? "";
     const time = match?.[2] ?? "";
@@ -4586,6 +4609,27 @@ const INTENT_BADGE_LABELS: Record<string, string> = {
           novsyStatus: (targetFan as any).novsyStatus ?? prev.novsyStatus ?? null,
           isHighPriority: (targetFan as any).isHighPriority ?? prev.isHighPriority ?? false,
           highPriorityAt: (targetFan as any).highPriorityAt ?? prev.highPriorityAt ?? null,
+          temperatureScore:
+            (targetFan as any).temperatureScore ??
+            prev.temperatureScore ??
+            (targetFan as any).heatScore ??
+            prev.heatScore ??
+            null,
+          temperatureBucket:
+            (targetFan as any).temperatureBucket ??
+            prev.temperatureBucket ??
+            (targetFan as any).heatLabel ??
+            prev.heatLabel ??
+            null,
+          heatScore: (targetFan as any).heatScore ?? prev.heatScore ?? null,
+          heatLabel: (targetFan as any).heatLabel ?? prev.heatLabel ?? null,
+          heatUpdatedAt: (targetFan as any).heatUpdatedAt ?? prev.heatUpdatedAt ?? null,
+          heatMeta: (targetFan as any).heatMeta ?? prev.heatMeta ?? null,
+          lastIntentKey: (targetFan as any).lastIntentKey ?? prev.lastIntentKey ?? null,
+          lastIntentConfidence: (targetFan as any).lastIntentConfidence ?? prev.lastIntentConfidence ?? null,
+          lastIntentAt: (targetFan as any).lastIntentAt ?? prev.lastIntentAt ?? null,
+          lastInboundAt: (targetFan as any).lastInboundAt ?? prev.lastInboundAt ?? null,
+          signalsUpdatedAt: (targetFan as any).signalsUpdatedAt ?? prev.signalsUpdatedAt ?? null,
           extraLadderStatus:
             "extraLadderStatus" in targetFan
               ? ((targetFan as any).extraLadderStatus ?? null)
@@ -6656,6 +6700,27 @@ const INTENT_BADGE_LABELS: Record<string, string> = {
           )}
             </>
           )}
+          {nextActionSuggestion && (
+            <div className="rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] p-3 space-y-2">
+              <div className="flex items-center justify-between gap-2 text-[10px] font-semibold text-[color:var(--muted)]">
+                <span>Siguiente acción sugerida</span>
+                {nextActionCta && (
+                  <button
+                    type="button"
+                    onClick={nextActionCta.onClick}
+                    className="rounded-full border border-[color:rgba(245,158,11,0.7)] bg-[color:rgba(245,158,11,0.08)] px-2.5 py-0.5 text-[10px] font-semibold text-[color:var(--text)] hover:bg-[color:rgba(245,158,11,0.16)]"
+                  >
+                    {nextActionCta.label}
+                  </button>
+                )}
+              </div>
+              <div className="text-[11px] text-[color:var(--text)]">{nextActionSuggestion.label}</div>
+              <div className="text-[10px] text-[color:var(--muted)]">{nextActionSuggestion.text}</div>
+              <div className="text-[10px] text-[color:var(--muted)]">
+                Se inserta en el mensaje; no se envía automáticamente.
+              </div>
+            </div>
+          )}
           <div className="rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] p-3">
             <FanManagerDrawer
               managerSuggestions={managerSuggestions}
@@ -8459,8 +8524,11 @@ const INTENT_BADGE_LABELS: Record<string, string> = {
           const dueLabel = due.date ? ` (para ${due.date}${due.time ? ` ${due.time}` : ""})` : "";
           return `${scheduledNote || "Seguimiento"}${dueLabel}`.trim();
         }
-        if (conversation.nextAction && conversation.nextAction.trim()) {
-          return conversation.nextAction.trim();
+        const manualNextAction = normalizeSuggestedActionKey(conversation.nextAction)
+          ? ""
+          : (conversation.nextAction || "").trim();
+        if (manualNextAction) {
+          return manualNextAction;
         }
         return "Sin seguimiento activo";
       })();
@@ -9308,10 +9376,17 @@ const INTENT_BADGE_LABELS: Record<string, string> = {
           serverActionKey: options.serverActionKey ?? null,
           historyKey: options.historyKey ?? null,
           offer: options.offer ?? null,
+          intent:
+            options.intent ??
+            (typeof conversation.lastIntentKey === "string" && conversation.lastIntentKey.trim().length > 0
+              ? conversation.lastIntentKey
+              : null),
+          temperatureBucket: options.temperatureBucket ?? normalizedTemperatureBucket ?? null,
           targetLanguage: options.targetLanguage ?? effectiveLanguage,
           rewriteMode: options.rewriteMode,
           avoid: options.avoid,
           regenerateNonce: options.regenerateNonce ?? null,
+          variationNonce: options.variationNonce ?? null,
         };
         const historyKey =
           resolvedOptions.historyKey ??
@@ -9341,6 +9416,7 @@ const INTENT_BADGE_LABELS: Record<string, string> = {
           avoid: avoidList,
           serverActionKey: resolvedOptions.serverActionKey ?? null,
           regenerateNonce,
+          variationNonce: resolvedOptions.variationNonce ?? null,
         };
         const res = await fetch("/api/creator/ai-manager/draft", {
           method: "POST",
@@ -9351,6 +9427,8 @@ const INTENT_BADGE_LABELS: Record<string, string> = {
             conversationId: id,
             objectiveKey: resolvedOptions.objectiveKey,
             actionKey: actionKeyForRequest ?? undefined,
+            intent: resolvedOptions.intent ?? undefined,
+            temperatureBucket: resolvedOptions.temperatureBucket ?? undefined,
             styleKey: styleKey || undefined,
             tone: resolvedOptions.tone ?? fanTone,
             directness: resolvedOptions.directness ?? "neutro",
@@ -9365,6 +9443,7 @@ const INTENT_BADGE_LABELS: Record<string, string> = {
             avoid: avoidList,
             rewriteMode: resolvedOptions.rewriteMode,
             regenerateNonce,
+            variationNonce: resolvedOptions.variationNonce ?? regenerateNonce,
           }),
         });
         const data = await res.json().catch(() => ({}));
@@ -9420,6 +9499,7 @@ const INTENT_BADGE_LABELS: Record<string, string> = {
     [
       agencyDraft?.playbook,
       conversation.agencyPlaybook,
+      conversation.lastIntentKey,
       clearDraftActionPhaseTimers,
       draftActionState.status,
       draftHistoryByActionKey,
@@ -11097,6 +11177,68 @@ const INTENT_BADGE_LABELS: Record<string, string> = {
       : "bg-[color:var(--muted)]";
   const languageBadgeLabel =
     !conversation.isManager && preferredLanguage ? preferredLanguage.toUpperCase() : null;
+  const temperatureBucketRaw = (conversation as any).temperatureBucket ?? conversation.heatLabel ?? null;
+  const temperatureBucket = temperatureBucketRaw ? String(temperatureBucketRaw).toUpperCase() : null;
+  const normalizedTemperatureBucket = temperatureBucket === "READY" ? "HOT" : temperatureBucket;
+  const temperatureScore =
+    typeof (conversation as any).temperatureScore === "number"
+      ? (conversation as any).temperatureScore
+      : typeof conversation.heatScore === "number"
+      ? conversation.heatScore
+      : null;
+  const lastIntentKey =
+    typeof conversation.lastIntentKey === "string" && conversation.lastIntentKey.trim().length > 0
+      ? conversation.lastIntentKey.toUpperCase()
+      : null;
+  const suggestionLanguage = (() => {
+    const preferred = normalizePreferredLanguage(preferredLanguage);
+    if (preferred === "en" || preferred === "es") return preferred;
+    if (typeof conversation.locale === "string") {
+      const base = conversation.locale.trim().toLowerCase().split(/[-_]/)[0];
+      if (base === "en" || base === "es") return base;
+    }
+    return "es";
+  })();
+  const lastPurchaseAt =
+    conversation.extraSessionToday?.todayLastPurchaseAt ??
+    conversation.extraLadderStatus?.lastPurchaseAt ??
+    null;
+  const smartSuggestions = useMemo(
+    () =>
+      getFanSuggestions({
+        language: suggestionLanguage,
+        temperatureBucket: normalizedTemperatureBucket,
+        temperatureScore: typeof temperatureScore === "number" ? temperatureScore : null,
+        lastIntentKey,
+        nextAction: conversation.nextAction ?? null,
+        membershipStatus: membershipStatus ?? null,
+        daysLeft: typeof effectiveDaysLeft === "number" ? effectiveDaysLeft : daysLeft ?? null,
+        lastPurchaseAt,
+        lastInboundAt: conversation.lastInboundAt ?? null,
+      }),
+    [
+      suggestionLanguage,
+      normalizedTemperatureBucket,
+      temperatureScore,
+      lastIntentKey,
+      conversation.nextAction,
+      membershipStatus,
+      effectiveDaysLeft,
+      daysLeft,
+      lastPurchaseAt,
+      conversation.lastInboundAt,
+    ]
+  );
+  const intentLabel = smartSuggestions.intentLabel;
+  const nextActionSuggestionLabel = smartSuggestions.nextActionLabel;
+  const nextActionSuggestion =
+    smartSuggestions.nextActionKey && smartSuggestions.nextActionText
+      ? {
+          key: smartSuggestions.nextActionKey,
+          label: smartSuggestions.nextActionLabel ?? smartSuggestions.nextActionKey,
+          text: smartSuggestions.nextActionText,
+        }
+      : null;
   const languageSelectValue = preferredLanguage ?? "auto";
   const isInternalPanelOpen = managerPanelOpen && managerPanelTab === "manager";
   const cortexFlowNext = cortexFlow ? getNextFanFromFlow(cortexFlow) : { nextFanId: null, nextFanName: null };
@@ -11181,11 +11323,14 @@ const INTENT_BADGE_LABELS: Record<string, string> = {
   const packBadgeTone: BadgeTone = badgeToneForLabel(packLabel);
   const nextActionNoteValue =
     typeof conversation.nextActionNote === "string" ? conversation.nextActionNote.trim() : "";
+  const manualNextActionValue = normalizeSuggestedActionKey(conversation.nextAction)
+    ? ""
+    : (conversation.nextAction?.trim() || "");
   const followUpNoteRaw =
     nextActionNoteValue ||
     (typeof followUpOpen?.title === "string" ? followUpOpen.title.trim() : "") ||
     (typeof followUpOpen?.note === "string" ? followUpOpen.note.trim() : "") ||
-    (conversation.nextAction?.trim() || "");
+    manualNextActionValue;
   const followUpDueAt = followUpOpen?.dueAt ?? conversation.nextActionAt ?? null;
   const followUpLabel = formatNextActionLabel(followUpDueAt, followUpNoteRaw);
   const isFollowUpNoteMissing = Boolean(followUpDueAt) && isGenericNextActionNote(followUpNoteRaw);
@@ -11546,6 +11691,56 @@ const INTENT_BADGE_LABELS: Record<string, string> = {
     setComposerTarget("fan");
     handleSubscriptionLink({ focus: true });
   };
+
+  const handleQuickActionInsert = useCallback(
+    async (chip: FanSuggestionChip) => {
+      await fillMessageForFan(chip.insertText, `chip:${chip.key}`);
+      adjustMessageInputHeight();
+      requestAnimationFrame(() => {
+        messageInputRef.current?.focus();
+      });
+    },
+    [adjustMessageInputHeight, fillMessageForFan]
+  );
+
+  const handleInsertSuggestedAction = useCallback(async () => {
+    if (!nextActionSuggestion) return;
+    await fillMessageForFan(nextActionSuggestion.text, `suggested:${nextActionSuggestion.key}`);
+    adjustMessageInputHeight();
+    requestAnimationFrame(() => {
+      messageInputRef.current?.focus();
+    });
+  }, [adjustMessageInputHeight, fillMessageForFan, nextActionSuggestion]);
+
+  const quickActionChips = smartSuggestions.chips;
+
+  const quickActionDisabled = isChatBlocked || isInternalPanelOpen;
+  const showQuickActions = !conversation.isManager && quickActionChips.length > 0;
+  const showSuggestedAction = isFanTarget && !conversation.isManager && !!nextActionSuggestion;
+
+  const nextActionObjective = useMemo<ManagerObjective | null>(() => {
+    if (!nextActionSuggestion) return null;
+    switch (nextActionSuggestion.key) {
+      case "BREAK_ICE":
+        return "romper_hielo";
+      case "BUILD_RAPPORT":
+        return "romper_hielo";
+      case "OFFER_EXTRA":
+        return "ofrecer_extra";
+      case "PUSH_MONTHLY":
+        return "llevar_a_mensual";
+      default:
+        return null;
+    }
+  }, [nextActionSuggestion]);
+
+  const nextActionCta = (() => {
+    if (!nextActionSuggestion) return null;
+    if (nextActionObjective) {
+      return { label: "Generar borrador", onClick: () => handleManagerQuickAction(nextActionObjective) };
+    }
+    return { label: "Insertar", onClick: () => void handleInsertSuggestedAction() };
+  })();
 
   const lifetimeValueDisplay = Math.round(conversation.lifetimeValue ?? 0);
   const notesCountDisplay = conversation.notesCount ?? 0;
@@ -11940,6 +12135,21 @@ const INTENT_BADGE_LABELS: Record<string, string> = {
                 {languageBadgeLabel}
               </Badge>
             )}
+            {normalizedTemperatureBucket && (
+              <Badge tone="muted" size="md">
+                Temp: {normalizedTemperatureBucket} {temperatureScore !== null ? temperatureScore : ""}
+              </Badge>
+            )}
+            {intentLabel && (
+              <Badge tone="muted" size="md">
+                Intención: {intentLabel}
+              </Badge>
+            )}
+            {nextActionSuggestionLabel && (
+              <Badge tone="muted" size="md">
+                Siguiente: {nextActionSuggestionLabel}
+              </Badge>
+            )}
             {(conversation.isHighPriority || (conversation.extrasCount ?? 0) > 0) && (
               conversation.isHighPriority ? (
                 <Badge tone={badgeToneForLabel("Alta")} size="md" leftGlyph="pin">
@@ -11973,6 +12183,21 @@ const INTENT_BADGE_LABELS: Record<string, string> = {
                   {languageBadgeLabel && (
                     <Badge tone={badgeToneForLabel(languageBadgeLabel)} size="md">
                       {languageBadgeLabel}
+                    </Badge>
+                  )}
+                  {normalizedTemperatureBucket && (
+                    <Badge tone="muted" size="md">
+                      Temp: {normalizedTemperatureBucket} {temperatureScore !== null ? temperatureScore : ""}
+                    </Badge>
+                  )}
+                  {intentLabel && (
+                    <Badge tone="muted" size="md">
+                      Intención: {intentLabel}
+                    </Badge>
+                  )}
+                  {nextActionSuggestionLabel && (
+                    <Badge tone="muted" size="md">
+                      Siguiente: {nextActionSuggestionLabel}
                     </Badge>
                   )}
                   {conversation.isHighPriority && (
@@ -12043,6 +12268,26 @@ const INTENT_BADGE_LABELS: Record<string, string> = {
               </Badge>
             )}
           </div>
+          {showQuickActions && (
+            <div className="flex w-full items-center gap-2 overflow-x-auto pb-1">
+              {quickActionChips.map((chip) => (
+                <button
+                  key={chip.key}
+                  type="button"
+                  disabled={quickActionDisabled}
+                  onClick={() => void handleQuickActionInsert(chip)}
+                  className={clsx(
+                    "inline-flex items-center rounded-full border px-3 py-1 text-[11px] font-semibold transition whitespace-nowrap",
+                    quickActionDisabled
+                      ? "cursor-not-allowed border-[color:var(--surface-border)] bg-[color:var(--surface-2)] text-[color:var(--muted)]"
+                      : "border-[color:rgba(245,158,11,0.7)] bg-[color:rgba(245,158,11,0.08)] text-[color:var(--text)] hover:bg-[color:rgba(245,158,11,0.16)]"
+                  )}
+                >
+                  {chip.label}
+                </button>
+              ))}
+            </div>
+          )}
 
           {/* Piso 3 */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-y-1 md:gap-x-6 text-xs text-[color:var(--text)] min-w-0">
@@ -13123,6 +13368,28 @@ const INTENT_BADGE_LABELS: Record<string, string> = {
                       </div>
                     ) : null}
                   </div>
+                </div>
+              )}
+              {showSuggestedAction && nextActionSuggestion && (
+                <div className="mb-2 rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-3 py-2">
+                  <div className="flex flex-wrap items-center justify-between gap-2 text-[10px] font-semibold text-[color:var(--muted)]">
+                    <span>Siguiente acción sugerida</span>
+                    <button
+                      type="button"
+                      disabled={quickActionDisabled}
+                      onClick={() => void handleInsertSuggestedAction()}
+                      className={clsx(
+                        "rounded-full border px-2.5 py-0.5 text-[10px] font-semibold transition",
+                        quickActionDisabled
+                          ? "cursor-not-allowed border-[color:var(--surface-border)] bg-[color:var(--surface-1)] text-[color:var(--muted)]"
+                          : "border-[color:rgba(245,158,11,0.7)] bg-[color:rgba(245,158,11,0.08)] text-[color:var(--text)] hover:bg-[color:rgba(245,158,11,0.16)]"
+                      )}
+                    >
+                      Insertar
+                    </button>
+                  </div>
+                  <div className="mt-1 text-[11px] text-[color:var(--text)]">{nextActionSuggestion.label}</div>
+                  <div className="text-[10px] text-[color:var(--muted)]">{nextActionSuggestion.text}</div>
                 </div>
               )}
               {composerDock?.chips}

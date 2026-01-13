@@ -84,6 +84,14 @@ const MAX_VARIATION_ATTEMPTS = 2;
 const MAX_AVOID_ENTRIES = 6;
 const GENERIC_OPENERS_ES = ["hola amor", "hey amor", "me encanta que", "eres maravilla", "eres increíble", "me fascina que"];
 const GENERIC_OPENERS_EN = ["hey there", "hi there", "i love that", "you're amazing", "you are amazing", "i love how"];
+const GENERIC_OPENERS_RO = ["salut", "hey", "imi place", "esti minunat", "esti minunata"];
+const OPENERS: Record<string, string[]> = {
+  es: ["Hey! estaba pensando en ti", "Te cuento algo rapidito", "Tengo una idea para ti", "Traigo una propuesta coqueta", "Vengo con un plan loco", "¿Probamos algo juntos?"],
+  en: ["Hey, thinking of you", "Quick thought for you", "Got a cute idea for us", "I have a playful plan", "Wanna try something now?", "I brought you a surprise"],
+  ro: ["Salut, ma gândeam la tine", "Am o idee pentru noi", "Ți-am adus o propunere", "Vrei să încercăm ceva?", "Am un plan jucăuș", "O idee rapidă pentru tine"],
+};
+const STRUCTURES = ["Pregunta directa", "Afirmación + pregunta", "Opción A/B"];
+const LAST_DRAFT_HASHES = new Map<string, string[]>();
 
 const requestSchema = z.object({
   conversationId: z.string().min(1),
@@ -99,11 +107,16 @@ const requestSchema = z.object({
   uiLevel: z.enum(["simple", "advanced"]).optional(),
   targetLanguage: z.string().optional(),
   intent: z.string().optional(),
+  temperatureBucket: z.string().optional(),
   offerId: z.string().optional(),
   offerTitle: z.string().optional(),
   offerPriceCents: z.number().optional(),
   offerCurrency: z.string().optional(),
   regenerateNonce: z.preprocess(
+    (val) => (typeof val === "string" || typeof val === "number" ? Number(val) : val),
+    z.number().int().min(0).optional()
+  ),
+  variationNonce: z.preprocess(
     (val) => (typeof val === "string" || typeof val === "number" ? Number(val) : val),
     z.number().int().min(0).optional()
   ),
@@ -145,6 +158,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
     offerPriceCents,
     offerCurrency,
     regenerateNonce,
+    variationNonce,
     avoid: rawAvoid,
     rewriteMode: rawRewriteMode,
   } = parsed.data;
@@ -261,23 +275,34 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
     locale: fanLanguage,
   });
 
-  const historyKey = buildDraftHistoryKey({ fanId: fan.id, actionKey, objectiveKey });
+  const historyKey = buildDraftHistoryKey({ creatorId, fanId: fan.id, actionKey, objectiveKey });
   const recentDrafts = readDraftHistory(historyKey);
-  const fanRecentDrafts = readFanDraftHistory(fan.id);
+  const fanRecentDrafts = readFanDraftHistory(fan.id, creatorId);
   const normalizedAvoid = normalizeAvoidList(rawAvoid);
   const normalizedRecentDrafts = recentDrafts.map((entry) => sanitizeAiDraftText(entry)).filter(Boolean) as string[];
   const normalizedFanDrafts = fanRecentDrafts.map((entry) => sanitizeAiDraftText(entry)).filter(Boolean) as string[];
   const historyAvoid =
     normalizedRecentDrafts.length > 0 ? normalizedRecentDrafts : normalizedFanDrafts.slice(0, MAX_DRAFT_HISTORY);
+  const lastDraftKey = `${creatorId}:${fan.id}:${actionKey ?? objectiveKey}`;
+  const lastDraftHashes = readLastDraftHashes(lastDraftKey);
   const avoidCandidates = [
     ...normalizedAvoid,
     ...historyAvoid,
     ...resolveGenericOpeners(fanLanguage, MAX_AVOID_ENTRIES),
-  ].filter(Boolean).slice(0, MAX_AVOID_ENTRIES);
-  // Variation guardrail: seed angle with fan + objective + regenerateNonce and avoid recent drafts + generic openers.
-  const strategySeed = `${fan.id}:${objectiveKey}:${tone}:${outputLength}:${regenerateNonce ?? 0}`;
+    ...lastDraftHashes,
+  ]
+    .filter(Boolean)
+    .slice(0, MAX_AVOID_ENTRIES);
+  // Variation guardrail: seed angle with creator + fan + action + regenerateNonce and avoid recent drafts + generic openers.
+  const todayKey = new Date().toISOString().slice(0, 10).replace(/-/g, "");
+  const variationValue = typeof variationNonce === "number" ? variationNonce : regenerateNonce ?? 0;
+  const seedActionKey = actionKey ?? objectiveKey;
+  const strategySeed = `${creatorId}:${fan.id}:${seedActionKey}:${tone}:${outputLength}:${variationValue}:${todayKey}`;
   const angles = resolveAnglesForObjective();
   let strategyIndex = hashToInt(strategySeed) % angles.length;
+  const openers = resolveOpenersForLanguage(fanLanguage);
+  const opener = openers[hashToInt(`${strategySeed}:opener`)% openers.length];
+  const structure = STRUCTURES[hashToInt(`${strategySeed}:struct`)% STRUCTURES.length];
   const rewriteMode = rawRewriteMode ?? null;
   const offerHint = await resolveOfferHint(creatorId);
   const systemPrompt = buildDraftSystemPrompt({
@@ -368,6 +393,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
       avoid: avoidCandidates,
       rewriteMode,
       targetLanguage: fanLanguage,
+      opener,
+      structure,
     });
     llmResult = await requestCortexCompletion({
       messages: [
@@ -445,6 +472,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
   }
 
   writeDraftHistory(historyKey, draftText);
+  pushLastDraftHash(lastDraftKey, draftText);
 
   try {
     await logCortexLlmUsage({
@@ -517,9 +545,14 @@ function normalizeOptional(value?: string | null): string | null {
   return trimmed ? trimmed : null;
 }
 
-function buildDraftHistoryKey(params: { fanId: string; actionKey: string | null; objectiveKey: string }): string {
+function buildDraftHistoryKey(params: {
+  creatorId: string;
+  fanId: string;
+  actionKey: string | null;
+  objectiveKey: string;
+}): string {
   const action = params.actionKey ?? `objective:${params.objectiveKey}`;
-  return `${params.fanId}:${action}`;
+  return `${params.creatorId}:${params.fanId}:${action}`;
 }
 
 function readDraftHistory(key: string): string[] {
@@ -532,14 +565,28 @@ function readDraftHistory(key: string): string[] {
   return entry.drafts;
 }
 
-function readFanDraftHistory(fanId: string): string[] {
+function readFanDraftHistory(fanId: string, creatorId?: string): string[] {
   const drafts: string[] = [];
+  const prefix = creatorId ? `${creatorId}:${fanId}:` : `${fanId}:`;
   DRAFT_HISTORY_CACHE.forEach((value, key) => {
-    if (!key.startsWith(`${fanId}:`)) return;
+    if (!key.startsWith(prefix)) return;
     if (Date.now() - value.updatedAt > DRAFT_HISTORY_TTL_MS) return;
     drafts.push(...value.drafts);
   });
   return drafts.slice(0, MAX_DRAFT_HISTORY);
+}
+
+function readLastDraftHashes(key: string): string[] {
+  return LAST_DRAFT_HASHES.get(key) ?? [];
+}
+
+function pushLastDraftHash(key: string, draft: string): void {
+  if (!key || !draft) return;
+  const normalized = sanitizeDraftText(draft).slice(0, 120);
+  if (!normalized) return;
+  const existing = readLastDraftHashes(key);
+  const next = [normalized, ...existing.filter((entry) => entry !== normalized)].slice(0, 10);
+  LAST_DRAFT_HASHES.set(key, next);
 }
 
 function writeDraftHistory(key: string, draft: string): void {
@@ -756,6 +803,8 @@ function buildDraftUserPrompt(params: {
   avoid: string[];
   rewriteMode: RewriteMode | null;
   targetLanguage: string;
+  opener: string | null;
+  structure: string | null;
 }): string {
   const shouldMentionCatalog = params.objectiveKey === "UPSELL_EXTRA";
   const recentDrafts = params.recentDrafts
@@ -786,6 +835,8 @@ function buildDraftUserPrompt(params: {
     recentDraftsBlock,
     avoidBlock,
     params.angle ? `ENFOQUE: ${params.angle}` : null,
+    params.structure ? `ESTRUCTURA: ${params.structure}` : null,
+    params.opener ? `OPENER sugerido: "${params.opener}". No repitas openers anteriores ni la misma primera frase.` : null,
     params.angle ? "Usa SOLO ese ángulo; no uses otros enfoques." : null,
     rewriteInstruction,
     shouldMentionCatalog
@@ -1158,6 +1209,13 @@ function resolveAnglesForObjective(): string[] {
   return ANGLES;
 }
 
+function resolveOpenersForLanguage(language: string): string[] {
+  const normalized = (language || "").toLowerCase();
+  if (normalized.startsWith("es")) return OPENERS.es;
+  if (normalized.startsWith("ro")) return OPENERS.ro;
+  return OPENERS.en;
+}
+
 function hashToInt(str: string): number {
   let hash = 0;
   for (let i = 0; i < str.length; i += 1) {
@@ -1171,9 +1229,11 @@ function resolveGenericOpeners(language: string, limit: number): string[] {
   const normalized = (language || "").toLowerCase();
   const isSpanish = normalized.startsWith("es");
   const isEnglish = normalized.startsWith("en");
+  const isRomanian = normalized.startsWith("ro");
   if (isSpanish) return GENERIC_OPENERS_ES.slice(0, limit);
   if (isEnglish) return GENERIC_OPENERS_EN.slice(0, limit);
-  return [...GENERIC_OPENERS_EN, ...GENERIC_OPENERS_ES].slice(0, limit);
+  if (isRomanian) return GENERIC_OPENERS_RO.slice(0, limit);
+  return [...GENERIC_OPENERS_EN, ...GENERIC_OPENERS_ES, ...GENERIC_OPENERS_RO].slice(0, limit);
 }
 
 function normalizeAvoidList(value?: string[] | null): string[] {

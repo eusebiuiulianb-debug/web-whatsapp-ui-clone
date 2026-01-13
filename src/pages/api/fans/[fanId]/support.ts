@@ -4,6 +4,7 @@ import { sendBadRequest, sendServerError } from "../../../../lib/apiError";
 import { PACKS } from "../../../../config/packs";
 import { upsertAccessGrant, type GrantType } from "../../../../lib/accessGrants";
 import { emitCreatorEvent as emitRealtimeEvent } from "../../../../server/realtimeHub";
+import { resolveNextAction, type TemperatureBucket } from "../../../../lib/ai/temperature";
 
 type SupportKind = "TIP" | "GIFT";
 
@@ -167,7 +168,19 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   try {
     const fan = await prisma.fan.findUnique({
       where: { id: fanId },
-      select: { id: true, creatorId: true, displayName: true, name: true },
+      select: {
+        id: true,
+        creatorId: true,
+        displayName: true,
+        name: true,
+        membershipStatus: true,
+        lastMessageAt: true,
+        lastInboundAt: true,
+        lastIntentKey: true,
+        lastPurchaseAt: true,
+        daysLeft: true,
+        temperatureBucket: true,
+      },
     });
     if (!fan) return res.status(404).json({ error: "Fan not found" });
 
@@ -222,6 +235,16 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       minute: "2-digit",
       hour12: false,
     });
+    const bucketValue =
+      typeof fan.temperatureBucket === "string" ? fan.temperatureBucket.trim().toUpperCase() : "";
+    const previousScore = bucketValue === "HOT" ? 80 : bucketValue === "WARM" ? 45 : 10;
+    const boostedScore = Math.min(100, Math.max(0, previousScore + 50));
+    const boostedBucket: TemperatureBucket =
+      boostedScore >= 70 ? "HOT" : boostedScore >= 35 ? "WARM" : "COLD";
+    const nextAction = resolveNextAction({
+      intentKey: fan.lastIntentKey ?? null,
+      temperatureBucket: boostedBucket,
+    });
     await prisma.fan.update({
       where: { id: fanId },
       data: {
@@ -229,6 +252,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         lastPurchaseAt: now,
         preview: formatSupportPreview(kind, typeof packName === "string" ? packName : null, amount),
         time,
+        temperatureScore: boostedScore,
+        temperatureBucket: boostedBucket,
+        nextAction,
+        signalsUpdatedAt: now,
       },
     });
 

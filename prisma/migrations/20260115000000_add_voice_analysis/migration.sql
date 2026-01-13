@@ -1,3 +1,1 @@
--- AlterTable
-ALTER TABLE "Message" ADD COLUMN "voiceAnalysisJson" TEXT;
-ALTER TABLE "Message" ADD COLUMN "voiceAnalysisUpdatedAt" DATETIME;
+-- No-op: voiceAnalysisJson/voiceAnalysisUpdatedAt already added in earlier migration.

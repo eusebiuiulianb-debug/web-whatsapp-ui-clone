@@ -123,6 +123,17 @@ model Fan {
   firstUtmCampaign      String?
   firstUtmContent       String?
   firstUtmTerm          String?
+  heatScore             Int              @default(0)
+  heatLabel             String?
+  heatUpdatedAt         DateTime?
+  heatMeta              Json?
+  lastIntentKey         String?
+  lastIntentConfidence  Float?
+  lastIntentAt          DateTime?
+  lastInboundAt         DateTime?
+  signalsUpdatedAt      DateTime?
+  temperatureScore      Float?
+  temperatureBucket     String?
   agencyMetas           ChatAgencyMeta[]
 }
 
