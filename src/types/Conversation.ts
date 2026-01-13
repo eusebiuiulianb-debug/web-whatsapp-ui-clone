@@ -153,6 +153,9 @@ interface Conversation {
     todayHighestTier: string | null;
     todayLastPurchaseAt: string | null;
   } | null;
+  needsAction?: boolean;
+  nextActionKey?: string | null;
+  nextActionLabel?: string | null;
   isBlocked?: boolean;
   isArchived?: boolean;
   isManager?: boolean;
@@ -264,6 +267,9 @@ interface ConversationListData {
     todayHighestTier: string | null;
     todayLastPurchaseAt: string | null;
   } | null;
+  needsAction?: boolean;
+  nextActionKey?: string | null;
+  nextActionLabel?: string | null;
   isBlocked?: boolean;
   isArchived?: boolean;
   isManager?: boolean;

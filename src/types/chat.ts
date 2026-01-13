@@ -115,6 +115,9 @@ export interface Fan {
     todayHighestTier: string | null;
     todayLastPurchaseAt: string | null;
   } | null;
+  needsAction?: boolean;
+  nextActionKey?: string | null;
+  nextActionLabel?: string | null;
   isBlocked?: boolean;
   isArchived?: boolean;
   locale?: string | null;

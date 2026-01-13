@@ -21,6 +21,26 @@ import { computeAgencyPriorityScore } from "../../lib/agency/priorityScore";
 import { resolveObjectiveForScoring, resolveObjectiveLabel } from "../../lib/agency/objectives";
 import type { AgencyIntensity, AgencyPlaybook, AgencyStage } from "../../lib/agency/types";
 import { computeHeatFromSignals } from "../../lib/ai/heat";
+import { getNextActionSummary } from "../../lib/manager/nextAction";
+
+const fanFieldNames = new Set<string>(
+  ((Prisma as any).dmmf?.datamodel?.models?.find((model: any) => model.name === "Fan")?.fields ?? []).map(
+    (field: any) => field.name
+  )
+);
+const optionalFanFields = [
+  "temperatureScore",
+  "temperatureBucket",
+  "heatScore",
+  "heatLabel",
+  "heatUpdatedAt",
+  "heatMeta",
+  "lastIntentKey",
+  "lastIntentConfidence",
+  "lastIntentAt",
+  "lastInboundAt",
+  "signalsUpdatedAt",
+] as const;
 
 function parseMessageTimestamp(messageId: string): Date | null {
   const parts = messageId.split("-");
@@ -318,17 +338,6 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       segment: true,
       riskLevel: true,
       healthScore: true,
-      temperatureScore: true,
-      temperatureBucket: true,
-      heatScore: true,
-      heatLabel: true,
-      heatUpdatedAt: true,
-      heatMeta: true,
-      lastIntentKey: true,
-      lastIntentConfidence: true,
-      lastIntentAt: true,
-      lastInboundAt: true,
-      signalsUpdatedAt: true,
       lastMessageAt: true,
       lastActivityAt: true,
       lastReadAtCreator: true,
@@ -374,6 +383,11 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       inviteUsedAt: true,
       _count: { select: { notes: true } },
     } as any;
+    for (const field of optionalFanFields) {
+      if (fanFieldNames.has(field)) {
+        baseSelect[field] = true;
+      }
+    }
 
     const findManyArgs = {
       select: baseSelect,
@@ -739,6 +753,38 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       const isNovsy = hasMonthly || hasSpecial || (extrasTotal ?? 0) >= NOVSY_EXTRA_THRESHOLD;
       const novsyStatus: "NOVSY" | null = isNovsy ? "NOVSY" : null;
       const isHighPriority = fan.isHighPriority ?? false;
+      const extraLadderStatus = ladderByFan.get(fan.id) ?? null;
+      const extraSessionToday = sessionTodayByFan.get(fan.id) ?? {
+        todayCount: 0,
+        todaySpent: 0,
+        todayHighestTier: null,
+        todayLastPurchaseAt: null,
+      };
+      const lastInboundAt = fan.lastInboundAt ?? null;
+      const hasUnreadInbound =
+        !!lastInboundAt &&
+        (!lastCreatorMessage || lastInboundAt.getTime() > lastCreatorMessage.getTime());
+      const nextActionDetails = getNextActionSummary({
+        fan: {
+          locale: fan.locale ?? null,
+          preferredLanguage: fan.preferredLanguage ?? null,
+          temperatureBucket: resolvedTemperatureBucket,
+          temperatureScore: resolvedTemperatureScore,
+          heatScore: resolvedHeatScore,
+          heatLabel: resolvedHeatLabel,
+          lastIntentKey: resolvedLastIntentKey,
+          nextAction: rawNextAction || null,
+          nextActionNote,
+          nextActionSnippet,
+          nextActionSummary,
+          membershipStatus,
+          daysLeft,
+          lastInboundAt,
+          extraLadderStatus,
+          extraSessionToday,
+        },
+        hasUnreadInbound,
+      });
 
       // Campos clave que consume el CRM:
       // - membershipStatus: "active" | "expired" | "none"
@@ -799,6 +845,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         nextActionSnippet,
         lastNoteSummary,
         nextActionSummary,
+        needsAction: nextActionDetails.needsAction,
+        nextActionKey: nextActionDetails.nextActionKey,
+        nextActionLabel: nextActionDetails.nextActionLabel,
         extrasCount: monetization.extras.count,
         extrasSpentTotal: purchaseTotals.extrasAmount,
         tipsCount: monetization.tips.count,
@@ -822,15 +871,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         lastIntentKey: resolvedLastIntentKey,
         lastIntentConfidence: typeof (fan as any).lastIntentConfidence === "number" ? (fan as any).lastIntentConfidence : null,
         lastIntentAt: resolvedLastIntentAt,
-        lastInboundAt: fan.lastInboundAt ? fan.lastInboundAt.toISOString() : null,
+        lastInboundAt: lastInboundAt ? lastInboundAt.toISOString() : null,
         signalsUpdatedAt: fan.signalsUpdatedAt ? fan.signalsUpdatedAt.toISOString() : null,
-        extraLadderStatus: ladderByFan.get(fan.id) ?? null,
-        extraSessionToday: sessionTodayByFan.get(fan.id) ?? {
-          todayCount: 0,
-          todaySpent: 0,
-          todayHighestTier: null,
-          todayLastPurchaseAt: null,
-        },
+        extraLadderStatus,
+        extraSessionToday,
         isBlocked: fan.isBlocked ?? false,
         isArchived: fan.isArchived ?? false,
         firstUtmSource: (fan as any).firstUtmSource ?? null,
@@ -854,15 +898,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     }
 
     if (!isArchivedFilter && filter === "followup") {
-      mappedFans = mappedFans.filter((fan) => {
-        const hasTag = fan.followUpTag && fan.followUpTag !== "none";
-        const hasNextAction =
-          Boolean(fan.followUpOpen) ||
-          Boolean(fan.nextActionAt) ||
-          Boolean(fan.nextActionNote?.trim()) ||
-          Boolean(fan.nextAction?.trim());
-        return hasTag || hasNextAction;
-      });
+      mappedFans = mappedFans.filter((fan) => fan.needsAction === true);
     }
 
     if (!isArchivedFilter && filter === "new") {

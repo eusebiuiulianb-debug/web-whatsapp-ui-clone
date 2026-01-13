@@ -446,6 +446,9 @@ function SideBarInner() {
       nextAction: fan.nextAction ?? null,
       nextActionAt: fan.nextActionAt ?? null,
       nextActionNote: fan.nextActionNote ?? null,
+      needsAction: fan.needsAction ?? false,
+      nextActionKey: fan.nextActionKey ?? null,
+      nextActionLabel: fan.nextActionLabel ?? null,
       priorityScore: fan.priorityScore,
       agencyStage: fan.agencyStage ?? null,
       agencyObjective: fan.agencyObjective ?? null,
@@ -531,6 +534,9 @@ function SideBarInner() {
         "nextAction",
         "nextActionAt",
         "nextActionNote",
+        "needsAction",
+        "nextActionKey",
+        "nextActionLabel",
         "agencyStage",
         "agencyObjective",
         "agencyIntensity",
@@ -990,16 +996,7 @@ function SideBarInner() {
     })
   ).length;
   const withNotesCount = fans.filter((fan) => (fan.notesCount ?? 0) > 0).length;
-  const withFollowUpCount = fans.filter((fan) => {
-    const tag = fan.followUpTag ?? getFollowUpTag(fan.membershipStatus, fan.daysLeft, fan.activeGrantTypes);
-    const hasTag = tag && tag !== "none";
-    const hasNextAction =
-      Boolean(fan.followUpOpen) ||
-      Boolean(fan.nextActionAt) ||
-      Boolean(fan.nextActionNote?.trim()) ||
-      Boolean(getManualNextActionValue(fan));
-    return hasTag || hasNextAction;
-  }).length;
+  const withFollowUpCount = fans.filter((fan) => fan.needsAction === true).length;
   const archivedCount = fans.filter((fan) => fan.isArchived === true).length;
   const blockedCount = fans.filter((fan) => fan.isBlocked === true).length;
   const priorityCount = fans.filter((fan) => (fan as any).isHighPriority === true).length;
@@ -1234,12 +1231,7 @@ function SideBarInner() {
         .filter((fan) => (!onlyWithExtras ? true : (fan.extrasSpentTotal ?? 0) > 0))
         .filter((fan) => {
           if (!onlyWithFollowUp) return true;
-          return Boolean(
-            fan.followUpOpen ||
-              Boolean(fan.nextActionAt) ||
-              Boolean(fan.nextActionNote?.trim()) ||
-              Boolean(getManualNextActionValue(fan))
-          );
+          return fan.needsAction === true;
         })
         .filter((fan) => {
           const tag = fan.followUpTag ?? getFollowUpTag(fan.membershipStatus, fan.daysLeft, fan.activeGrantTypes);
