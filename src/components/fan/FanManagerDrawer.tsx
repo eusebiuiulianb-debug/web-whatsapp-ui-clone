@@ -4,6 +4,7 @@ import FanManagerPanel from "../chat/FanManagerPanel";
 import { IconGlyph } from "../ui/IconGlyph";
 import type { FanManagerSummary } from "../../server/manager/managerService";
 import type { FanManagerChip, FanManagerState, FanTone, ManagerObjective } from "../../types/manager";
+import type { Offer } from "../../types/offers";
 import { scoreDraft } from "../../lib/agency/drafts";
 import { sanitizeAiDraftText } from "../../lib/text/sanitizeAiDraft";
 
@@ -161,6 +162,10 @@ type Props = {
   fanLanguageError?: string | null;
   onPinLanguage?: () => void;
   pinLanguageLoading?: boolean;
+  simpleOffers?: Offer[];
+  simpleOffersLoading?: boolean;
+  onGenerateSimpleOfferDraft?: (offer: Offer) => Promise<string | null>;
+  onOpenCatalog?: () => void;
   managerIaMode?: "simple" | "advanced";
   onManagerIaModeChange?: (mode: "simple" | "advanced") => void;
 };
@@ -229,10 +234,18 @@ export default function FanManagerDrawer({
   fanLanguageError = null,
   onPinLanguage,
   pinLanguageLoading = false,
+  simpleOffers = [],
+  simpleOffersLoading = false,
+  onGenerateSimpleOfferDraft,
+  onOpenCatalog,
   managerIaMode = "simple",
   onManagerIaModeChange,
 }: Props) {
   const [showMore, setShowMore] = useState(false);
+  const [showSimpleOfferPicker, setShowSimpleOfferPicker] = useState(false);
+  const [simpleOfferDraft, setSimpleOfferDraft] = useState<{ text: string; offer: Offer } | null>(null);
+  const [simpleOfferError, setSimpleOfferError] = useState<string | null>(null);
+  const [simpleOfferLoading, setSimpleOfferLoading] = useState(false);
   const isSimpleMode = managerIaMode === "simple";
   const draftSectionRef = useRef<HTMLDivElement | null>(null);
   const prevDraftCountRef = useRef(0);
@@ -246,6 +259,38 @@ export default function FanManagerDrawer({
     fanManagerHeadline || "Te ayuda a escribir mensajes claros, cercanos y profesionales.";
   const fanLanguageLabel = typeof fanLanguage === "string" && fanLanguage.trim() ? fanLanguage.trim().toUpperCase() : null;
   const primaryDraftCtaLabel = "Usar en mensaje";
+  const simpleOffersLimited = simpleOffers.slice(0, 3);
+  const formatOfferPrice = (offer: Offer) => {
+    if (typeof offer.priceCents !== "number") return "";
+    const currency = offer.currency || "EUR";
+    const amount = (offer.priceCents / 100).toFixed(0);
+    return `${amount} ${currency}`;
+  };
+
+  const handleOpenSimpleOfferPicker = () => {
+    setShowSimpleOfferPicker(true);
+    setSimpleOfferDraft(null);
+    setSimpleOfferError(null);
+  };
+
+  const handleSimpleOfferSelect = async (offer: Offer) => {
+    if (!onGenerateSimpleOfferDraft) return;
+    setSimpleOfferError(null);
+    setSimpleOfferDraft(null);
+    setSimpleOfferLoading(true);
+    try {
+      const draft = await onGenerateSimpleOfferDraft(offer);
+      if (!draft) {
+        setSimpleOfferError("No se pudo generar el borrador.");
+        return;
+      }
+      setSimpleOfferDraft({ text: sanitizeAiDraftText(draft), offer });
+    } catch (_err) {
+      setSimpleOfferError("No se pudo generar el borrador.");
+    } finally {
+      setSimpleOfferLoading(false);
+    }
+  };
   const stateChips = fanManagerChips ?? [];
   const chipClass = (tone?: FanManagerChip["tone"]) =>
     clsx(
@@ -690,6 +735,10 @@ export default function FanManagerDrawer({
             )}
             onClick={() => {
               if (objectivesLocked || quickExtraDisabled) return;
+              if (isSimpleMode) {
+                handleOpenSimpleOfferPicker();
+                return;
+              }
               onQuickExtra();
             }}
             disabled={quickExtraDisabled || objectivesLocked}
@@ -770,7 +819,10 @@ export default function FanManagerDrawer({
           </div>
         )}
       </div>
-      {(draftActionLoading || draftActionError || (draftCards && draftCards.length > 0)) && (
+      {(draftActionLoading ||
+        draftActionError ||
+        (draftCards && draftCards.length > 0) ||
+        (isSimpleMode && showSimpleOfferPicker)) && (
         <div
           ref={draftSectionRef}
           className="mt-3 rounded-xl border border-[color:rgba(var(--brand-rgb),0.25)] bg-[color:rgba(var(--brand-rgb),0.06)] p-3 flex flex-col gap-2"
@@ -778,6 +830,71 @@ export default function FanManagerDrawer({
           <div className="text-[11px] font-semibold uppercase tracking-wide text-[color:var(--brand)]">
             Borradores generados
           </div>
+          {isSimpleMode && showSimpleOfferPicker && (
+            <div className="space-y-2">
+              <div className="text-[11px] text-[color:var(--muted)]">Elige una oferta</div>
+              {simpleOffersLoading && <div className="text-[11px] text-[color:var(--muted)]">Cargando ofertas…</div>}
+              {!simpleOffersLoading && simpleOffersLimited.length === 0 && (
+                <div className="flex items-center justify-between gap-2 rounded-lg border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-3 py-2 text-[11px] text-[color:var(--muted)]">
+                  <span>No tienes ofertas aún.</span>
+                  {onOpenCatalog && (
+                    <button
+                      type="button"
+                      onClick={onOpenCatalog}
+                      className="rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-3 py-1 text-[10px] font-semibold text-[color:var(--text)] hover:border-[color:var(--brand)]"
+                    >
+                      Crear oferta
+                    </button>
+                  )}
+                </div>
+              )}
+              <div className="flex flex-col gap-2">
+                {simpleOffersLimited.map((offer) => (
+                  <button
+                    key={offer.id}
+                    type="button"
+                    onClick={() => handleSimpleOfferSelect(offer)}
+                    className={clsx(
+                      "flex items-center justify-between gap-2 rounded-lg border px-3 py-2 text-left text-[11px] font-semibold transition",
+                      "border-[color:var(--surface-border)] bg-[color:var(--surface-2)] text-[color:var(--text)] hover:border-[color:var(--brand)]",
+                      simpleOfferLoading && "opacity-70 cursor-wait"
+                    )}
+                    disabled={simpleOfferLoading}
+                  >
+                    <span className="truncate">{offer.title}</span>
+                    <span className="text-[10px] text-[color:var(--muted)]">{formatOfferPrice(offer)}</span>
+                  </button>
+                ))}
+              </div>
+              {simpleOfferLoading && (
+                <div className="text-[11px] text-[color:var(--muted)]">Generando borrador…</div>
+              )}
+              {simpleOfferError && (
+                <div className="text-[11px] text-[color:var(--danger)]">{simpleOfferError}</div>
+              )}
+              {simpleOfferDraft && (
+                <div className="space-y-2 rounded-lg border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-3 py-2">
+                  <div className="text-[10px] uppercase tracking-wide text-[color:var(--muted)]">
+                    {simpleOfferDraft.offer.title} · {formatOfferPrice(simpleOfferDraft.offer)}
+                  </div>
+                  <div className="text-[12px] text-[color:var(--text)]">{sanitizeAiDraftText(simpleOfferDraft.text)}</div>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      onApplySuggestion?.(
+                        sanitizeAiDraftText(simpleOfferDraft.text),
+                        simpleOfferDraft.offer.title,
+                        `offer:${simpleOfferDraft.offer.id}`
+                      )
+                    }
+                    className="inline-flex items-center rounded-full border border-[color:var(--brand)] bg-[color:rgba(var(--brand-rgb),0.12)] px-3 py-1 text-[11px] font-medium text-[color:var(--text)] hover:bg-[color:rgba(var(--brand-rgb),0.2)] transition"
+                  >
+                    {primaryDraftCtaLabel}
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
           {draftActionLoading && (
             <div className="inline-flex items-center gap-2 text-[11px] text-[color:var(--text)]">
               <span className="h-3 w-3 animate-spin rounded-full border-2 border-[color:var(--surface-border)] border-t-transparent" />

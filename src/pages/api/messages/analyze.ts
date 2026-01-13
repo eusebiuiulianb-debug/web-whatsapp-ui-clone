@@ -3,6 +3,9 @@ import prisma from "../../../lib/prisma.server";
 import { dedupeGet, dedupeSet, hashText, rateLimitOrThrow } from "../../../lib/ai/guardrails";
 import { runAiCompletion } from "../../../server/ai/aiAdapter";
 import { maybeDecrypt } from "../../../server/crypto/maybeDecrypt";
+import { normalizePreferredLanguage } from "../../../lib/language";
+import { detectIntentWithFallback } from "../../../lib/ai/intentClassifier";
+import type { IntentResult } from "../../../lib/ai/intents";
 import {
   mergeVoiceInsightsJson,
   safeParseVoiceAnalysis,
@@ -37,10 +40,14 @@ type AnalyzeRequest = {
   messageId?: string;
   variant?: "default" | "shorter" | "alternate";
   tone?: "suave" | "intimo" | "picante";
+  text?: string;
+  lang?: string;
+  contextMessages?: string[];
+  includeIntent?: boolean;
 };
 
 type AnalyzeResponse =
-  | { ok: true; analysis: VoiceAnalysis; cached?: boolean }
+  | { ok: true; analysis?: VoiceAnalysis; cached?: boolean; intent?: IntentResult }
   | { ok: false; error: string; reason?: string; retryAfterSec?: number };
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse<AnalyzeResponse>) {
@@ -56,8 +63,22 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
     return res.status(403).json({ ok: false, error: "Forbidden" });
   }
 
-  const { messageId, variant, tone } = (req.body || {}) as AnalyzeRequest;
+  const { messageId, variant, tone, text, lang, contextMessages, includeIntent } = (req.body || {}) as AnalyzeRequest;
   const normalizedId = typeof messageId === "string" ? messageId.trim() : "";
+
+  if (includeIntent) {
+    const intent = await detectIntentForAnalyze({
+      messageId: normalizedId || null,
+      text: typeof text === "string" ? text : null,
+      lang,
+      contextMessages,
+    });
+    if (!intent) {
+      return res.status(400).json({ ok: false, error: "text is required" });
+    }
+    return res.status(200).json({ ok: true, intent });
+  }
+
   if (!normalizedId) {
     return res.status(400).json({ ok: false, error: "messageId is required" });
   }
@@ -111,6 +132,55 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
   } finally {
     inFlight.delete(key);
   }
+}
+
+async function detectIntentForAnalyze(params: {
+  messageId: string | null;
+  text: string | null;
+  lang?: string;
+  contextMessages?: string[];
+}): Promise<IntentResult | null> {
+  let baseText = typeof params.text === "string" ? params.text.trim() : "";
+  let creatorId: string | null = null;
+  let fanId: string | null = null;
+  let inferredLang = normalizePreferredLanguage(params.lang ?? null) ?? null;
+
+  if (!baseText && params.messageId) {
+    const message = await prisma.message.findUnique({
+      where: { id: params.messageId },
+      select: {
+        text: true,
+        transcriptText: true,
+        transcriptStatus: true,
+        fanId: true,
+        fan: { select: { preferredLanguage: true, creatorId: true } },
+      },
+    });
+    if (!message) return null;
+    baseText =
+      typeof message.text === "string" && message.text.trim()
+        ? message.text
+        : message.transcriptStatus === "DONE" && typeof message.transcriptText === "string"
+        ? message.transcriptText
+        : "";
+    inferredLang = inferredLang ?? normalizePreferredLanguage(message.fan?.preferredLanguage);
+    creatorId = message.fan?.creatorId ?? null;
+    fanId = message.fanId ?? null;
+  }
+
+  if (!baseText.trim()) return null;
+  const context =
+    Array.isArray(params.contextMessages) && params.contextMessages.length
+      ? params.contextMessages.filter((entry) => typeof entry === "string" && entry.trim())
+      : [];
+  const lang = inferredLang ?? "es";
+  return detectIntentWithFallback({
+    text: baseText,
+    lang,
+    context,
+    creatorId: creatorId ?? undefined,
+    fanId: fanId ?? undefined,
+  });
 }
 
 class VoiceAnalysisError extends Error {

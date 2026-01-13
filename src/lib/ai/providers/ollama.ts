@@ -40,6 +40,9 @@ type OllamaRequestParams = {
   timeoutMs?: number;
   creatorId?: string;
   outputLength?: string;
+  presencePenalty?: number;
+  frequencyPenalty?: number;
+  topP?: number;
 };
 
 const DEFAULT_TIMEOUT_MS = 120_000;
@@ -69,6 +72,9 @@ export function buildOllamaOpenAiRequest(params: {
   path: string;
   payload?: Record<string, unknown>;
   creatorId?: string;
+  presencePenalty?: number;
+  frequencyPenalty?: number;
+  topP?: number;
 }): OllamaOpenAiRequest {
   const baseUrl = normalizeOllamaBaseUrl(params.baseUrl);
   const cleanPath = params.path.replace(/^\/+/, "");
@@ -113,6 +119,9 @@ export async function requestOllamaChatCompletion(params: OllamaRequestParams): 
       messages: params.messages,
       temperature: params.temperature ?? 0.4,
       max_tokens: resolvedMaxTokens,
+      ...(typeof params.presencePenalty === "number" ? { presence_penalty: params.presencePenalty } : {}),
+      ...(typeof params.frequencyPenalty === "number" ? { frequency_penalty: params.frequencyPenalty } : {}),
+      ...(typeof params.topP === "number" ? { top_p: params.topP } : {}),
     },
     creatorId: params.creatorId,
   });

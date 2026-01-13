@@ -45,6 +45,9 @@ type CortexProviderParams = {
   temperature?: number;
   maxTokens?: number;
   outputLength?: "short" | "medium" | "long";
+  presencePenalty?: number;
+  frequencyPenalty?: number;
+  topP?: number;
 };
 
 export type CortexProviderSelection = {
@@ -383,6 +386,9 @@ export async function requestCortexCompletion(params: CortexProviderParams): Pro
         temperature,
         max_tokens: resolvedMaxTokens,
         messages: params.messages,
+        ...(typeof params.presencePenalty === "number" ? { presence_penalty: params.presencePenalty } : {}),
+        ...(typeof params.frequencyPenalty === "number" ? { frequency_penalty: params.frequencyPenalty } : {}),
+        ...(typeof params.topP === "number" ? { top_p: params.topP } : {}),
       },
       creatorId: params.creatorId,
     });
@@ -398,6 +404,9 @@ export async function requestCortexCompletion(params: CortexProviderParams): Pro
       temperature,
       maxTokens: resolvedMaxTokens,
       outputLength: params.outputLength,
+      presencePenalty: params.presencePenalty,
+      frequencyPenalty: params.frequencyPenalty,
+      topP: params.topP,
       timeoutMs: resolveTimeoutMs(),
       creatorId: params.creatorId,
     });
@@ -438,6 +447,9 @@ export async function requestCortexCompletion(params: CortexProviderParams): Pro
       temperature,
       messages: params.messages,
       ...(maxTokens !== undefined ? { max_tokens: maxTokens } : {}),
+      ...(typeof params.presencePenalty === "number" ? { presence_penalty: params.presencePenalty } : {}),
+      ...(typeof params.frequencyPenalty === "number" ? { frequency_penalty: params.frequencyPenalty } : {}),
+      ...(typeof params.topP === "number" ? { top_p: params.topP } : {}),
     },
     { creatorId: params.creatorId }
   );

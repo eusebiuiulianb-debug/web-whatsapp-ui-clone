@@ -15,6 +15,7 @@ import {
 } from "../../../../lib/language";
 import { normalizeObjectiveCode } from "../../../../lib/agency/objectives";
 import { sanitizeAiDraftText } from "../../../../lib/text/sanitizeAiDraft";
+import { isTooSimilarDraft } from "../../../../lib/text/isTooSimilarDraft";
 
 type DraftSuccessResponse = {
   ok: true;
@@ -41,6 +42,7 @@ type DraftResponse = DraftSuccessResponse | DraftErrorResponse;
 type DraftLength = "short" | "medium" | "long";
 type DraftDirectness = "suave" | "neutro" | "directo";
 type DraftTone = "suave" | "intimo" | "picante";
+type RewriteMode = "alt" | "shorter" | "softer" | "more_direct";
 
 const MAX_TOKENS_BY_LENGTH: Record<DraftLength, number> = {
   short: 140,
@@ -53,7 +55,7 @@ type DraftHistoryEntry = { drafts: string[]; updatedAt: number };
 const DRAFT_HISTORY_CACHE = new Map<string, DraftHistoryEntry>();
 const DRAFT_HISTORY_TTL_MS = 60 * 60 * 1000;
 const MAX_DRAFT_HISTORY_KEYS = 200;
-const MAX_DRAFT_HISTORY = 3;
+const MAX_DRAFT_HISTORY = 6;
 const MAX_DRAFT_HISTORY_CHARS = 700;
 
 const DEFAULT_STYLE_GUIDES: Record<string, string> = {
@@ -67,6 +69,22 @@ const DEFAULT_STYLE_GUIDES: Record<string, string> = {
     "Intensa y segura. Directa, firme y magnética, sin ser agresiva.",
 };
 
+const ANGLES: string[] = [
+  "Pregunta directa con consentimiento",
+  "Dos opciones A/B",
+  "Afirmación breve + pregunta concreta",
+  "Teaser de extra con límite suave",
+  "Juego/retos ligero (1 paso)",
+  "Validación emocional + propuesta",
+  "Curiosidad + microdetalle sensorial",
+  "Cierre con CTA claro",
+];
+
+const MAX_VARIATION_ATTEMPTS = 2;
+const MAX_AVOID_ENTRIES = 6;
+const GENERIC_OPENERS_ES = ["hola amor", "hey amor", "me encanta que", "eres maravilla", "eres increíble", "me fascina que"];
+const GENERIC_OPENERS_EN = ["hey there", "hi there", "i love that", "you're amazing", "you are amazing", "i love how"];
+
 const requestSchema = z.object({
   conversationId: z.string().min(1),
   messageId: z.string().optional(),
@@ -79,6 +97,18 @@ const requestSchema = z.object({
   outputLength: z.enum(["short", "medium", "long"]).optional(),
   variationOf: z.string().optional(),
   uiLevel: z.enum(["simple", "advanced"]).optional(),
+  targetLanguage: z.string().optional(),
+  intent: z.string().optional(),
+  offerId: z.string().optional(),
+  offerTitle: z.string().optional(),
+  offerPriceCents: z.number().optional(),
+  offerCurrency: z.string().optional(),
+  regenerateNonce: z.preprocess(
+    (val) => (typeof val === "string" || typeof val === "number" ? Number(val) : val),
+    z.number().int().min(0).optional()
+  ),
+  avoid: z.array(z.string()).optional(),
+  rewriteMode: z.enum(["alt", "shorter", "softer", "more_direct"]).optional(),
 });
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse<DraftResponse>) {
@@ -86,6 +116,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
     res.setHeader("Allow", "POST");
     return res.status(405).json({ ok: false, error: "CORTEX_FAILED", message: "Method not allowed" });
   }
+  res.setHeader("Cache-Control", "no-store");
   if (!prisma) {
     return res.status(500).json({ ok: false, error: "CORTEX_FAILED", message: "PRISMA_NOT_INITIALIZED" });
   }
@@ -107,6 +138,15 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
     outputLength: rawOutputLength,
     variationOf: rawVariationOf,
     uiLevel,
+    targetLanguage,
+    intent,
+    offerId,
+    offerTitle,
+    offerPriceCents,
+    offerCurrency,
+    regenerateNonce,
+    avoid: rawAvoid,
+    rewriteMode: rawRewriteMode,
   } = parsed.data;
   const managerUiLevel = uiLevel ?? "advanced";
 
@@ -142,12 +182,14 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
   const actionKey = normalizeOptional(rawActionKey);
   const variationOf = normalizeOptional(rawVariationOf);
   const maxTokens = MAX_TOKENS_BY_LENGTH[outputLength];
-  const temperature = resolveTemperature({ directness, variationOf });
+  const baseTemperature = 0.85;
 
-  const { language: fanLanguage, shouldUpdatePreferredLanguage } = await resolveFanLanguage({
+  const resolvedFanLanguage = await resolveFanLanguage({
     fanId: fan.id,
     preferredLanguage: fan.preferredLanguage,
   });
+  let fanLanguage = normalizePreferredLanguage(targetLanguage ?? null) ?? resolvedFanLanguage.language;
+  const shouldUpdatePreferredLanguage = resolvedFanLanguage.shouldUpdatePreferredLanguage;
   if (shouldUpdatePreferredLanguage) {
     try {
       await prisma.fan.update({
@@ -221,6 +263,22 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
 
   const historyKey = buildDraftHistoryKey({ fanId: fan.id, actionKey, objectiveKey });
   const recentDrafts = readDraftHistory(historyKey);
+  const fanRecentDrafts = readFanDraftHistory(fan.id);
+  const normalizedAvoid = normalizeAvoidList(rawAvoid);
+  const normalizedRecentDrafts = recentDrafts.map((entry) => sanitizeAiDraftText(entry)).filter(Boolean) as string[];
+  const normalizedFanDrafts = fanRecentDrafts.map((entry) => sanitizeAiDraftText(entry)).filter(Boolean) as string[];
+  const historyAvoid =
+    normalizedRecentDrafts.length > 0 ? normalizedRecentDrafts : normalizedFanDrafts.slice(0, MAX_DRAFT_HISTORY);
+  const avoidCandidates = [
+    ...normalizedAvoid,
+    ...historyAvoid,
+    ...resolveGenericOpeners(fanLanguage, MAX_AVOID_ENTRIES),
+  ].filter(Boolean).slice(0, MAX_AVOID_ENTRIES);
+  // Variation guardrail: seed angle with fan + objective + regenerateNonce and avoid recent drafts + generic openers.
+  const strategySeed = `${fan.id}:${objectiveKey}:${tone}:${outputLength}:${regenerateNonce ?? 0}`;
+  const angles = resolveAnglesForObjective();
+  let strategyIndex = hashToInt(strategySeed) % angles.length;
+  const rewriteMode = rawRewriteMode ?? null;
   const offerHint = await resolveOfferHint(creatorId);
   const systemPrompt = buildDraftSystemPrompt({
     language: fanLanguage,
@@ -237,14 +295,6 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
     intensity: agencyMeta?.intensity ?? null,
     stage: agencyMeta?.stage ?? null,
     uiLevel: managerUiLevel,
-  });
-  const userPrompt = buildDraftUserPrompt({
-    fanName: fan.displayName || fan.name || "este fan",
-    objectiveKey,
-    selectedMessage: selectedMessageText,
-    variationOf,
-    offerHint,
-    recentDrafts,
   });
 
   const selection = await getCortexProviderSelection({ creatorId });
@@ -289,26 +339,73 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
     usedFallback: style.usedFallback,
   });
 
-  const llmResult = await requestCortexCompletion({
-    messages: [
-      { role: "system", content: systemPrompt },
-      ...contextMessages,
-      { role: "user", content: userPrompt },
-    ],
-    creatorId,
-    fanId: fan.id,
-    route: "/api/creator/ai-manager/draft",
-    selection,
-    temperature,
-    maxTokens,
-    outputLength,
-  });
+  let llmResult = null as Awaited<ReturnType<typeof requestCortexCompletion>> | null;
+  let draftText = "";
+  let usedAngle = angles[strategyIndex] ?? angles[0];
 
-  if (!llmResult.ok || !llmResult.text) {
+  // regenerateNonce -> angle seed -> avoid list; retry once with next angle + higher temp if too similar.
+  for (let attempt = 0; attempt < MAX_VARIATION_ATTEMPTS; attempt++) {
+    usedAngle = angles[strategyIndex] ?? angles[0];
+    const attemptTemperature = attempt === 0 ? baseTemperature : 0.95;
+    const userPrompt = buildDraftUserPrompt({
+      fanName: fan.displayName || fan.name || "este fan",
+      objectiveKey,
+      selectedMessage: selectedMessageText,
+      variationOf,
+      offerHint,
+      recentDrafts,
+      intent: intent ?? null,
+      offer:
+        offerId || offerTitle || offerPriceCents
+          ? {
+              id: offerId ?? null,
+              title: offerTitle ?? null,
+              priceCents: offerPriceCents ?? null,
+              currency: offerCurrency ?? null,
+            }
+          : null,
+      angle: usedAngle,
+      avoid: avoidCandidates,
+      rewriteMode,
+      targetLanguage: fanLanguage,
+    });
+    llmResult = await requestCortexCompletion({
+      messages: [
+        { role: "system", content: systemPrompt },
+        ...contextMessages,
+        { role: "user", content: userPrompt },
+      ],
+      creatorId,
+      fanId: fan.id,
+      route: "/api/creator/ai-manager/draft",
+      selection,
+      temperature: attemptTemperature,
+      maxTokens,
+      outputLength,
+      presencePenalty: 0.6,
+      frequencyPenalty: 0.4,
+      topP: 0.9,
+    });
+
+    if (!llmResult.ok || !llmResult.text) {
+      break;
+    }
+    draftText = sanitizeDraftText(llmResult.text);
+    if (!draftText) {
+      break;
+    }
+    const tooSimilar = avoidCandidates.length > 0 ? isTooSimilarDraft(draftText, avoidCandidates) : false;
+    if (!tooSimilar) {
+      break;
+    }
+    strategyIndex = (strategyIndex + 1) % Math.max(angles.length, 1);
+  }
+
+  if (!llmResult || !llmResult.ok || !llmResult.text) {
     const providerErrorType = resolveProviderErrorType({
-      errorCode: llmResult.errorCode,
-      errorMessage: llmResult.errorMessage,
-      status: llmResult.status,
+      errorCode: llmResult?.errorCode,
+      errorMessage: llmResult?.errorMessage,
+      status: llmResult?.status,
     });
     const errorMessage = buildProviderErrorMessage(providerErrorType, selection.desiredProvider, selection.model);
     try {
@@ -316,11 +413,11 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
         creatorId,
         fanId: fan.id,
         endpoint: "/api/creator/ai-manager/draft",
-        provider: llmResult.provider,
-        model: llmResult.model ?? selection.model ?? null,
-        tokensIn: llmResult.tokensIn,
-        tokensOut: llmResult.tokensOut,
-        latencyMs: llmResult.latencyMs,
+        provider: llmResult?.provider ?? selection.desiredProvider,
+        model: llmResult?.model ?? selection.model ?? null,
+        tokensIn: llmResult?.tokensIn ?? null,
+        tokensOut: llmResult?.tokensOut ?? null,
+        latencyMs: llmResult?.latencyMs ?? null,
         ok: false,
         errorCode: providerErrorType,
         actionType: "manager_draft",
@@ -330,7 +427,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
           tone,
           directness,
           outputLength,
-          errorSnippet: buildErrorSnippet(llmResult.errorMessage ?? ""),
+          errorSnippet: buildErrorSnippet(llmResult?.errorMessage ?? ""),
         },
       });
     } catch (err) {
@@ -343,7 +440,6 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
     });
   }
 
-  const draftText = sanitizeDraftText(llmResult.text);
   if (!draftText) {
     return res.status(500).json({ ok: false, error: "CORTEX_FAILED", message: "La IA no devolvió texto." });
   }
@@ -370,6 +466,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
         outputLength,
         styleKey: style.styleKey ?? undefined,
         uiLevel: managerUiLevel,
+        angle: usedAngle,
+        rewriteMode: rewriteMode ?? undefined,
       },
     });
   } catch (err) {
@@ -432,6 +530,16 @@ function readDraftHistory(key: string): string[] {
     return [];
   }
   return entry.drafts;
+}
+
+function readFanDraftHistory(fanId: string): string[] {
+  const drafts: string[] = [];
+  DRAFT_HISTORY_CACHE.forEach((value, key) => {
+    if (!key.startsWith(`${fanId}:`)) return;
+    if (Date.now() - value.updatedAt > DRAFT_HISTORY_TTL_MS) return;
+    drafts.push(...value.drafts);
+  });
+  return drafts.slice(0, MAX_DRAFT_HISTORY);
 }
 
 function writeDraftHistory(key: string, draft: string): void {
@@ -539,12 +647,6 @@ async function detectRecentFanLanguage(
   return { lastMessageLanguage, mostFrequentLanguage };
 }
 
-function resolveTemperature(params: { directness: DraftDirectness; variationOf: string | null }): number {
-  if (params.variationOf) return 0.85;
-  if (params.directness === "directo" || params.directness === "suave") return 0.6;
-  return 0.65;
-}
-
 function resolveSentenceRange(length: DraftLength): string {
   if (length === "short") return "1–3 frases";
   if (length === "long") return "6–10 frases";
@@ -561,6 +663,14 @@ function resolveDirectnessInstruction(directness: DraftDirectness): string {
   if (directness === "suave") return "Habla con delicadeza, evita frases tajantes.";
   if (directness === "directo") return "Sé más directo y claro, sin brusquedad ni presión.";
   return "Directo pero equilibrado, sin sonar vendedor.";
+}
+
+function resolveRewriteInstruction(mode: RewriteMode | null): string | null {
+  if (!mode) return null;
+  if (mode === "shorter") return "Hazlo más breve (reduce 25–40%) manteniendo claridad y cercanía.";
+  if (mode === "softer") return "Suaviza el tono, más cariñoso y menos agresivo.";
+  if (mode === "more_direct") return "Hazlo más directo y claro, sin sonar brusco ni vendedor pesado.";
+  return "Genera una versión distinta con arranque y estructura nuevos (no repitas el mismo patrón).";
 }
 
 function buildDraftSystemPrompt(params: {
@@ -595,9 +705,7 @@ function buildDraftSystemPrompt(params: {
       : "OutputLength=MEDIA: 3–6 frases.";
   const lines = [
     "Eres el Manager IA de NOVSY. Escribes un borrador para que el creador responda al fan.",
-    `Reply ONLY in ${params.language}. Do NOT include translations or bilingual text. No Spanish unless fanLanguage is 'es'.`,
-    "If user switches language, follow the latest fanLanguage.",
-    `Responde SIEMPRE en ${params.language}. No mezcles idiomas.`,
+    `Responde SOLO en ${params.language}. Prohibido mezclar idiomas, traducciones o texto bilingüe. No uses saludos en otro idioma.`,
     params.uiLevel === "simple"
       ? "Modo Simple: devuelve 1 solo borrador final, claro y directo, con 1 CTA suave si aplica. No ofrezcas variantes, opciones ni bullets."
       : "Incluye 1 micro-CTA según el objetivo; evita dar más de una opción.",
@@ -618,7 +726,7 @@ function buildDraftSystemPrompt(params: {
     explicitRule,
     "Si no hay señales de consentimiento/reciprocidad, mantén tono sugerente sin escalar agresivo.",
     "No menciones IA, modelos, prompts ni políticas.",
-    "Devuelve SOLO el texto final del mensaje.",
+    "No incluyas encabezados, etiquetas, markdown ni prefijos (no \"Borrador\", \"Mensaje final\", \"Eres el Manager…\").",
     "Devuelve SOLO el mensaje final. Sin etiquetas. Sin explicación.",
     `OBJECTIVE_KEY: ${params.objectiveKey}`,
     `OBJECTIVE_DESC: ${objectiveLabel}`,
@@ -637,6 +745,17 @@ function buildDraftUserPrompt(params: {
   variationOf: string | null;
   offerHint: string | null;
   recentDrafts: string[];
+  intent: string | null;
+  offer: {
+    id: string | null;
+    title: string | null;
+    priceCents: number | null;
+    currency: string | null;
+  } | null;
+  angle: string;
+  avoid: string[];
+  rewriteMode: RewriteMode | null;
+  targetLanguage: string;
 }): string {
   const shouldMentionCatalog = params.objectiveKey === "UPSELL_EXTRA";
   const recentDrafts = params.recentDrafts
@@ -649,20 +768,39 @@ function buildDraftUserPrompt(params: {
           .map((draft) => `- ${truncate(draft, 240)}`)
           .join("\n")}`
       : null;
+  const avoidBlock =
+    params.avoid.length > 0
+      ? `NO REPITAS (cambia arranque y estructura, evita frases copiadas):\n${params.avoid
+          .slice(0, MAX_AVOID_ENTRIES)
+          .map((draft) => `- ${truncate(draft, 240)}`)
+          .join("\n")}`
+      : null;
+  const rewriteInstruction = resolveRewriteInstruction(params.rewriteMode);
   const lines = [
     `Fan: ${params.fanName}`,
+    `Idioma objetivo: ${params.targetLanguage}. Devuelve SOLO en este idioma.`,
     params.selectedMessage ? `Mensaje seleccionado: ${truncate(params.selectedMessage, 320)}` : null,
     params.variationOf
       ? `NO repitas estas frases ni estructura:\n${truncate(params.variationOf, 420)}`
       : null,
     recentDraftsBlock,
+    avoidBlock,
+    params.angle ? `ENFOQUE: ${params.angle}` : null,
+    params.angle ? "Usa SOLO ese ángulo; no uses otros enfoques." : null,
+    rewriteInstruction,
     shouldMentionCatalog
       ? params.offerHint
         ? `CATALOGO_EXTRA: ${params.offerHint}`
         : "CATALOGO_EXTRA: (no disponible)"
       : null,
+    params.offer
+      ? `OFERTA_SELECCIONADA: ${params.offer.title ?? params.offer.id ?? "Oferta"}${
+          typeof params.offer.priceCents === "number" ? ` · ${(params.offer.priceCents / 100).toFixed(0)} ${params.offer.currency ?? "EUR"}` : ""
+        }`
+      : null,
+    params.intent ? `INTENT: ${params.intent}` : null,
     `Objetivo solicitado: ${params.objectiveKey}`,
-    "Escribe el borrador final.",
+    "Escribe el borrador final. Devuelve SOLO el mensaje final, sin etiquetas ni explicación.",
   ].filter(Boolean);
   return lines.join("\n");
 }
@@ -1014,6 +1152,36 @@ async function resolveOfferHint(creatorId: string): Promise<string | null> {
   });
   if (item?.title) return item.title.trim();
   return null;
+}
+
+function resolveAnglesForObjective(): string[] {
+  return ANGLES;
+}
+
+function hashToInt(str: string): number {
+  let hash = 0;
+  for (let i = 0; i < str.length; i += 1) {
+    hash = (hash << 5) - hash + str.charCodeAt(i);
+    hash |= 0;
+  }
+  return Math.abs(hash);
+}
+
+function resolveGenericOpeners(language: string, limit: number): string[] {
+  const normalized = (language || "").toLowerCase();
+  const isSpanish = normalized.startsWith("es");
+  const isEnglish = normalized.startsWith("en");
+  if (isSpanish) return GENERIC_OPENERS_ES.slice(0, limit);
+  if (isEnglish) return GENERIC_OPENERS_EN.slice(0, limit);
+  return [...GENERIC_OPENERS_EN, ...GENERIC_OPENERS_ES].slice(0, limit);
+}
+
+function normalizeAvoidList(value?: string[] | null): string[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((entry) => (typeof entry === "string" ? sanitizeAiDraftText(entry) : ""))
+    .filter((entry): entry is string => Boolean(entry && entry.trim()))
+    .slice(0, MAX_AVOID_ENTRIES);
 }
 
 function sanitizeDraftText(text: string): string {

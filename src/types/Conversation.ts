@@ -31,6 +31,10 @@ interface Message {
   transcriptError?: string | null;
   transcribedAt?: string | null;
   transcriptLang?: string | null;
+  intentKey?: string | null;
+  intentConfidence?: number | null;
+  intentMeta?: unknown;
+  intentUpdatedAt?: string | null;
   intentJson?: {
     intent?: string;
     tags?: string[];

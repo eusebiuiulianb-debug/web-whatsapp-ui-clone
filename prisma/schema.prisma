@@ -292,6 +292,10 @@ model Message {
   transcriptError        String?
   transcribedAt          DateTime?
   transcriptLang         String?
+  intentKey              String?
+  intentConfidence       Float?
+  intentMeta             Json?
+  intentUpdatedAt        DateTime?
   intentJson             Json?
   voiceAnalysisJson      String?
   voiceAnalysisUpdatedAt DateTime?

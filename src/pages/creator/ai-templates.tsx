@@ -1,5 +1,6 @@
 import Head from "next/head";
 import { useCallback, useEffect, useState } from "react";
+import { useRouter } from "next/router";
 import CreatorHeader from "../../components/CreatorHeader";
 import { useCreatorConfig } from "../../context/CreatorConfigContext";
 import { AiTemplateUsage, AiTurnMode, AI_TEMPLATE_USAGES, AI_TURN_MODES, USAGE_LABELS } from "../../lib/aiTemplateTypes";
@@ -39,6 +40,7 @@ const TURN_MODE_LABELS: Record<AiTurnMode, string> = {
 
 export default function CreatorAiTemplatesPage() {
   const { config } = useCreatorConfig();
+  const router = useRouter();
   const creatorInitial = config.creatorName?.trim().charAt(0) || "E";
 
   const [templates, setTemplates] = useState<Template[]>([]);
@@ -68,6 +70,16 @@ export default function CreatorAiTemplatesPage() {
   useEffect(() => {
     fetchTemplates();
   }, [fetchTemplates]);
+
+  useEffect(() => {
+    const tab = Array.isArray(router.query.tab) ? router.query.tab[0] : router.query.tab;
+    if (tab === "offers") {
+      const section = document.getElementById("offers-section");
+      if (section) {
+        section.scrollIntoView({ behavior: "smooth", block: "start" });
+      }
+    }
+  }, [router.query.tab]);
 
   function mapServerTemplate(tpl: ServerTemplate): Template {
     return {
@@ -165,7 +177,7 @@ export default function CreatorAiTemplatesPage() {
           onOpenSettings={() => {}}
         />
 
-        <div className="flex items-center justify-between">
+        <div id="offers-section" className="flex items-center justify-between">
           <div>
             <h1 className="text-2xl font-semibold">Plantillas de IA</h1>
             <p className="text-sm text-[color:var(--muted)]">Define tus propios mensajes para el botón Extra rápido.</p>

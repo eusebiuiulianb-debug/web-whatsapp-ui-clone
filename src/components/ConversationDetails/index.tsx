@@ -172,6 +172,19 @@ type DraftRequestOptions = {
   outputLength?: DraftLength;
   variationOf?: string | null;
   actionKey: string;
+  serverActionKey?: string | null;
+  historyKey?: string | null;
+  offer?: {
+    id: string;
+    title?: string | null;
+    priceCents?: number | null;
+    currency?: string | null;
+    tier?: string | null;
+  } | null;
+  targetLanguage?: string | null;
+  rewriteMode?: "alt" | "shorter" | "softer" | "more_direct";
+  avoid?: string[];
+  regenerateNonce?: number | null;
 };
 type DraftSource = "reformular" | "citar" | "autosuggest";
 type PpvOffer = {
@@ -1948,6 +1961,8 @@ export default function ConversationDetails({ onBackToBoard }: ConversationDetai
   const [ draftActionError, setDraftActionError ] = useState<string | null>(null);
   const [ draftDirectnessById, setDraftDirectnessById ] = useState<Record<string, DraftDirectness | null>>({});
   const [ draftOutputLengthById, setDraftOutputLengthById ] = useState<Record<string, DraftLength>>({});
+  const [ draftHistoryByActionKey, setDraftHistoryByActionKey ] = useState<Record<string, string[]>>({});
+  const [ draftRegenerateNonceByActionKey, setDraftRegenerateNonceByActionKey ] = useState<Record<string, number>>({});
   const draftActionAbortRef = useRef<AbortController | null>(null);
   const draftActionPhaseTimersRef = useRef<Array<ReturnType<typeof setTimeout>>>([]);
   const draftLastRequestRef = useRef<DraftRequestOptions | null>(null);
@@ -2229,6 +2244,21 @@ const EXTRA_PRICES: Record<"T0" | "T1" | "T2" | "T3", number> = {
   T3: 60,
 }; // TODO: leer estos precios desde config
 const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
+const INTENT_BADGE_LABELS: Record<string, string> = {
+  PRICE_ASK: "Precio",
+  BUY_NOW: "Compra",
+  SUBSCRIBE: "Suscripción",
+  CANCEL: "Cancelar",
+  OFF_PLATFORM: "Off-platform",
+  SUPPORT: "Soporte",
+  OBJECTION: "Objeción",
+  CONTENT_REQUEST: "Contenido",
+  CUSTOM_REQUEST: "Custom",
+  GREETING: "Saludo",
+  FLIRT: "Flirt",
+  RUDE_OR_HARASS: "Ofensivo",
+  UNSAFE_MINOR: "Menor",
+};
   const [ showQuickSheet, setShowQuickSheet ] = useState(false);
   const [ isDesktop, setIsDesktop ] = useState(false);
   const hasWelcome = normalizedGrants.includes("welcome") || normalizedGrants.includes("trial");
@@ -6690,6 +6720,10 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
               draftOutputLength={draftOutputLength}
               onPinLanguage={managerIaMode === "advanced" ? () => void handlePinLanguage() : undefined}
               pinLanguageLoading={preferredLanguageSaving}
+              simpleOffers={offersForDropdown}
+              simpleOffersLoading={offersLoading}
+              onGenerateSimpleOfferDraft={handleGenerateSimpleOfferDraft}
+              onOpenCatalog={() => router.push("/creator/ai-templates?tab=offers")}
               onDraftOutputLengthChange={(nextLength) => {
                 if (!id) return;
                 setDraftOutputLengthById((prev) => ({ ...prev, [id]: nextLength }));
@@ -9072,6 +9106,29 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
     return `objective:${id}`;
   }, []);
 
+  const resolveDraftHistoryKey = useCallback(
+    (params: { actionKey?: string | null; objectiveKey?: string | null; offerId?: string | null }) => {
+      if (params.offerId) return `offer:${params.offerId}`;
+      const objectiveKey = params.objectiveKey ? params.objectiveKey.toLowerCase() : null;
+      const actionKey = params.actionKey ? params.actionKey.toLowerCase() : null;
+      if (actionKey && actionKey.startsWith("draft:") && objectiveKey) {
+        return `objective:${objectiveKey}`;
+      }
+      return actionKey ?? (objectiveKey ? `objective:${objectiveKey}` : "objective:default");
+    },
+    []
+  );
+
+  const pushDraftHistory = useCallback((historyKey: string, draft: string) => {
+    const cleaned = sanitizeAiDraftText(draft);
+    if (!cleaned || !historyKey) return;
+    setDraftHistoryByActionKey((prev) => {
+      const existing = prev[historyKey] ?? [];
+      const next = [cleaned, ...existing.filter((entry) => entry !== cleaned)].slice(0, 6);
+      return { ...prev, [historyKey]: next };
+    });
+  }, []);
+
   const resolveDraftObjectiveKey = useCallback((objective: ManagerObjective | null) => {
     if (!objective) return "BREAK_ICE";
     return MANAGER_OBJECTIVE_TO_DRAFT_KEY[objective] ?? "BREAK_ICE";
@@ -9223,8 +9280,10 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
       if (draftActionState.status === "loading") return null;
       const requestId = draftActionRequestIdRef.current + 1;
       draftActionRequestIdRef.current = requestId;
+      const actionKeyForUi =
+        options.actionKey ?? options.historyKey ?? options.serverActionKey ?? options.objectiveKey;
       setDraftActionError(null);
-      setDraftActionState({ status: "loading", key: options.actionKey });
+      setDraftActionState({ status: "loading", key: actionKeyForUi ?? null });
       startDraftActionPhaseTimers();
 
       const controller = new AbortController();
@@ -9246,8 +9305,43 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
           outputLength,
           variationOf: options.variationOf ?? null,
           actionKey: options.actionKey,
+          serverActionKey: options.serverActionKey ?? null,
+          historyKey: options.historyKey ?? null,
+          offer: options.offer ?? null,
+          targetLanguage: options.targetLanguage ?? effectiveLanguage,
+          rewriteMode: options.rewriteMode,
+          avoid: options.avoid,
+          regenerateNonce: options.regenerateNonce ?? null,
         };
-        draftLastRequestRef.current = resolvedOptions;
+        const historyKey =
+          resolvedOptions.historyKey ??
+          resolveDraftHistoryKey({
+            actionKey: resolvedOptions.serverActionKey ?? resolvedOptions.actionKey,
+            objectiveKey: resolvedOptions.objectiveKey,
+            offerId: resolvedOptions.offer?.id ?? null,
+          });
+        const existingNonce = draftRegenerateNonceByActionKey[historyKey] ?? 0;
+        const regenerateNonce =
+          typeof resolvedOptions.regenerateNonce === "number" && Number.isFinite(resolvedOptions.regenerateNonce)
+            ? resolvedOptions.regenerateNonce
+            : existingNonce;
+        if ((draftRegenerateNonceByActionKey[historyKey] ?? -1) !== regenerateNonce) {
+          setDraftRegenerateNonceByActionKey((prev) => ({ ...prev, [historyKey]: regenerateNonce }));
+        }
+        const avoidList =
+          resolvedOptions.avoid && Array.isArray(resolvedOptions.avoid)
+            ? resolvedOptions.avoid.filter((entry) => typeof entry === "string" && entry.trim()).slice(0, 6)
+            : (draftHistoryByActionKey[historyKey] ?? []).slice(0, 6);
+        const actionKeyForRequest =
+          resolvedOptions.serverActionKey ?? historyKey ?? resolvedOptions.actionKey ?? resolvedOptions.objectiveKey;
+        draftLastRequestRef.current = {
+          ...resolvedOptions,
+          actionKey: resolvedOptions.actionKey ?? historyKey ?? "",
+          historyKey,
+          avoid: avoidList,
+          serverActionKey: resolvedOptions.serverActionKey ?? null,
+          regenerateNonce,
+        };
         const res = await fetch("/api/creator/ai-manager/draft", {
           method: "POST",
           headers: { "Content-Type": "application/json", "x-novsy-viewer": "creator" },
@@ -9256,13 +9350,21 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
           body: JSON.stringify({
             conversationId: id,
             objectiveKey: resolvedOptions.objectiveKey,
-            actionKey: resolvedOptions.actionKey,
+            actionKey: actionKeyForRequest ?? undefined,
             styleKey: styleKey || undefined,
             tone: resolvedOptions.tone ?? fanTone,
             directness: resolvedOptions.directness ?? "neutro",
             outputLength: resolvedOptions.outputLength ?? outputLength,
             variationOf: resolvedOptions.variationOf ?? undefined,
             uiLevel: managerIaMode,
+            targetLanguage: resolvedOptions.targetLanguage ?? effectiveLanguage,
+            offerId: resolvedOptions.offer?.id,
+            offerTitle: resolvedOptions.offer?.title,
+            offerPriceCents: resolvedOptions.offer?.priceCents,
+            offerCurrency: resolvedOptions.offer?.currency,
+            avoid: avoidList,
+            rewriteMode: resolvedOptions.rewriteMode,
+            regenerateNonce,
           }),
         });
         const data = await res.json().catch(() => ({}));
@@ -9284,6 +9386,7 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
         if (!sanitizedDraft) {
           throw new Error("No se pudo generar el borrador.");
         }
+        pushDraftHistory(historyKey, sanitizedDraft);
         const detectedLanguage = normalizePreferredLanguage(data?.language);
         if (detectedLanguage) {
           setPreferredLanguage((prev) => (prev === detectedLanguage ? prev : detectedLanguage));
@@ -9319,13 +9422,47 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
       conversation.agencyPlaybook,
       clearDraftActionPhaseTimers,
       draftActionState.status,
+      draftHistoryByActionKey,
       draftOutputLength,
       fanTone,
       id,
       managerIaMode,
+      effectiveLanguage,
+      resolveDraftHistoryKey,
       showComposerToast,
       startDraftActionPhaseTimers,
+      pushDraftHistory,
+      draftRegenerateNonceByActionKey,
     ]
+  );
+
+  const handleGenerateSimpleOfferDraft = useCallback(
+    async (offer: Offer) => {
+      if (!id) return null;
+      const objectiveKey = resolveDraftObjectiveKey("ofrecer_extra");
+      const actionKey = `offer:${offer.id}`;
+      const historyKey = resolveDraftHistoryKey({ actionKey, objectiveKey, offerId: offer.id });
+      const draftText = await requestManagerDraft({
+        objectiveKey,
+        tone: fanTone,
+        directness: "neutro",
+        outputLength: draftOutputLength,
+        variationOf: null,
+        actionKey,
+        serverActionKey: actionKey,
+        historyKey,
+        offer: {
+          id: offer.id,
+          title: offer.title,
+          priceCents: offer.priceCents,
+          currency: offer.currency,
+          tier: offer.tier,
+        },
+        targetLanguage: effectiveLanguage,
+      });
+      return draftText ?? null;
+    },
+    [draftOutputLength, effectiveLanguage, fanTone, id, requestManagerDraft, resolveDraftHistoryKey, resolveDraftObjectiveKey]
   );
 
   const handleDraftCancel = useCallback(() => {
@@ -9418,6 +9555,11 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
       if (!target) return;
       const resolvedObjective = target.objective ?? currentObjective ?? null;
       const objectiveKey = resolveDraftObjectiveKey(resolvedObjective);
+      const baseHistoryKey = resolveDraftHistoryKey({
+        actionKey: target.offer?.contentId ? `offer:${target.offer.contentId}` : buildDraftActionKey("objective", resolvedObjective ?? draftId),
+        objectiveKey,
+        offerId: target.offer?.contentId ?? null,
+      });
       const directness: DraftDirectness =
         mode === "bolder" ? "directo" : mode === "softer" ? "suave" : "neutro";
       const outputLength: DraftLength = mode === "shorter" ? "short" : draftOutputLength;
@@ -9429,6 +9571,10 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
         outputLength,
         ppvPhase: resolvedObjective === "ofrecer_extra" ? ppvPhase : null,
       });
+      const rewriteMode =
+        mode === "alternate" ? "alt" : mode === "shorter" ? "shorter" : mode === "softer" ? "softer" : "more_direct";
+      const regenerateNonce = (draftRegenerateNonceByActionKey[baseHistoryKey] ?? 0) + 1;
+      setDraftRegenerateNonceByActionKey((prev) => ({ ...prev, [baseHistoryKey]: regenerateNonce }));
       const nextText = await requestManagerDraft({
         objectiveKey,
         tone: target.tone ?? fanTone,
@@ -9436,6 +9582,10 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
         outputLength,
         variationOf,
         actionKey,
+        serverActionKey: baseHistoryKey,
+        historyKey: baseHistoryKey,
+        rewriteMode,
+        regenerateNonce,
       });
       if (!nextText) return;
       updateDraftCard(draftId, nextText, draftMeta);
@@ -9465,6 +9615,8 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
       currentObjective,
       draftCardsByFan,
       draftActionState.status,
+      resolveDraftHistoryKey,
+      draftRegenerateNonceByActionKey,
       fanTone,
       id,
       resolveDraftObjectiveKey,
@@ -9664,14 +9816,19 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
           ppvPhase: intent === "ofrecer_extra" ? ppvPhase : null,
         })
       : null;
+    const objectiveKey = resolveDraftObjectiveKey(intent);
+    const actionKey = buildDraftActionKey("objective", intent);
+    const historyKey = resolveDraftHistoryKey({ actionKey, objectiveKey, offerId: null });
     const draftPromise = shouldGenerateDraft
       ? requestManagerDraft({
-          objectiveKey: resolveDraftObjectiveKey(intent),
+          objectiveKey,
           tone: toneToUse,
           directness: "neutro",
           outputLength: draftOutputLength,
           variationOf: null,
-          actionKey: buildDraftActionKey("objective", intent),
+          actionKey,
+          serverActionKey: actionKey,
+          historyKey,
         })
       : null;
     const newSuggestions = await buildTemplateVariants();
@@ -12460,6 +12617,10 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
                 />
               ) : null;
               const canOpenActionSheet = isCoarsePointer && canShowMessageActions;
+              const intentBadge =
+                !me && messageConversation.intentKey
+                  ? INTENT_BADGE_LABELS[messageConversation.intentKey] ?? messageConversation.intentKey
+                  : null;
               return (
                 <div key={messageConversation.id || index} className="space-y-1">
                   <MessageBalloon
@@ -12496,6 +12657,13 @@ const DEFAULT_EXTRA_TIER: "T0" | "T1" | "T2" | "T3" = "T1";
                     forceReactionButton={isCoarsePointer}
                     anchorId={messageKey}
                   />
+                  {intentBadge && (
+                    <div className={clsx("flex", me ? "justify-end" : "justify-start")}>
+                      <span className="inline-flex items-center rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-[color:var(--muted)]">
+                        {intentBadge}
+                      </span>
+                    </div>
+                  )}
                   {canShowTranslationBlock && (
                     <div className={clsx("flex flex-col gap-2", me ? "items-end" : "items-start")}>
                       {translatedText && (
