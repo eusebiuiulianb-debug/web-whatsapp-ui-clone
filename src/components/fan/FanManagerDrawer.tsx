@@ -267,6 +267,10 @@ export default function FanManagerDrawer({
     fanManagerHeadline || "Te ayuda a escribir mensajes claros, cercanos y profesionales.";
   const fanLanguageLabel = typeof fanLanguage === "string" && fanLanguage.trim() ? fanLanguage.trim().toUpperCase() : null;
   const primaryDraftCtaLabel = "Usar en mensaje";
+  const showQuickOffers = isSimpleMode && showSimpleOfferPicker;
+  const showSimpleOfferDraft = Boolean(simpleOfferDraft || simpleOfferError || simpleOfferLoading);
+  const showAiDraft = draftActionLoading || draftActionError || hasDrafts || showSimpleOfferDraft;
+  const canClearSimpleOfferDraft = Boolean(simpleOfferDraft || simpleOfferError);
   const quickOffers: OfferDraft[] = [
     {
       id: "extra_light",
@@ -314,6 +318,11 @@ export default function FanManagerDrawer({
         detail: { text: draft.message, offer: draft.offerMeta, skipTranslate: true },
       })
     );
+  };
+
+  const clearSimpleOfferDraft = () => {
+    setSimpleOfferDraft(null);
+    setSimpleOfferError(null);
   };
 
   const handleSimpleOfferSelect = async (offer: Offer) => {
@@ -862,114 +871,116 @@ export default function FanManagerDrawer({
           </div>
         )}
       </div>
-      {(draftActionLoading ||
-        draftActionError ||
-        (draftCards && draftCards.length > 0) ||
-        (isSimpleMode && showSimpleOfferPicker)) && (
+      {showQuickOffers && (
+        <div className="mt-3 rounded-xl border border-[color:rgba(var(--brand-rgb),0.25)] bg-[color:rgba(var(--brand-rgb),0.06)] p-3 flex flex-col gap-2">
+          <div className="flex items-center justify-between gap-2">
+            <div className="text-[11px] font-semibold tracking-wide text-[color:var(--brand)]">Ofertas rápidas</div>
+            {onOpenCatalog && (
+              <button
+                type="button"
+                onClick={onOpenCatalog}
+                className="rounded-full border border-[color:var(--surface-border)] bg-transparent px-3 py-1 text-[10px] font-semibold text-[color:var(--muted)] hover:border-[color:var(--brand)] hover:text-[color:var(--text)]"
+              >
+                Editar plantillas
+              </button>
+            )}
+          </div>
+          <div className="flex flex-col gap-2">
+            {quickOffers.map((draft) => (
+              <div
+                key={draft.id}
+                className="rounded-lg border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-3 py-2 space-y-2"
+              >
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-[11px] font-semibold text-[color:var(--text)]">{draft.title}</span>
+                  {draft.price ? <span className="text-[10px] text-[color:var(--muted)]">{draft.price}</span> : null}
+                </div>
+                <div className="text-[11px] text-[color:var(--muted)]">{draft.message}</div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => emitQuickOffer(draft, "insert")}
+                    className="inline-flex items-center rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-3 py-1 text-[10px] font-semibold text-[color:var(--text)] hover:border-[color:var(--brand)]"
+                  >
+                    Insertar
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => emitQuickOffer(draft, "send")}
+                    className="inline-flex items-center rounded-full border border-[color:var(--brand)] bg-[color:rgba(var(--brand-rgb),0.12)] px-3 py-1 text-[10px] font-semibold text-[color:var(--text)] hover:bg-[color:rgba(var(--brand-rgb),0.2)] transition"
+                  >
+                    Enviar
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+          {simpleOffersLoading && <div className="text-[11px] text-[color:var(--muted)]">Cargando ofertas…</div>}
+          {simpleOffersLimited.length > 0 && (
+            <div className="space-y-2">
+              <div className="text-[11px] text-[color:var(--muted)]">Tus ofertas</div>
+              <div className="flex flex-col gap-2">
+                {simpleOffersLimited.map((offer) => (
+                  <button
+                    key={offer.id}
+                    type="button"
+                    onClick={() => handleSimpleOfferSelect(offer)}
+                    className={clsx(
+                      "flex items-center justify-between gap-2 rounded-lg border px-3 py-2 text-left text-[11px] font-semibold transition",
+                      "border-[color:var(--surface-border)] bg-[color:var(--surface-2)] text-[color:var(--text)] hover:border-[color:var(--brand)]",
+                      simpleOfferLoading && "opacity-70 cursor-wait"
+                    )}
+                    disabled={simpleOfferLoading}
+                  >
+                    <span className="truncate">{offer.title}</span>
+                    <span className="text-[10px] text-[color:var(--muted)]">{formatOfferPrice(offer)}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+      {showAiDraft && (
         <div
           ref={draftSectionRef}
           className="mt-3 rounded-xl border border-[color:rgba(var(--brand-rgb),0.25)] bg-[color:rgba(var(--brand-rgb),0.06)] p-3 flex flex-col gap-2"
         >
-          <div className="text-[11px] font-semibold uppercase tracking-wide text-[color:var(--brand)]">
-            Borradores generados
+          <div className="flex items-center justify-between gap-2">
+            <div className="text-[11px] font-semibold tracking-wide text-[color:var(--brand)]">Borrador IA</div>
+            {canClearSimpleOfferDraft && (
+              <button
+                type="button"
+                onClick={clearSimpleOfferDraft}
+                className="rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-2.5 py-0.5 text-[10px] font-semibold text-[color:var(--text)] hover:border-[color:var(--brand)]"
+              >
+                Limpiar borrador IA
+              </button>
+            )}
           </div>
-          {isSimpleMode && showSimpleOfferPicker && (
-            <div className="space-y-2">
-              <div className="flex items-center justify-between gap-2">
-                <div className="text-[11px] text-[color:var(--muted)]">Ofertas rápidas</div>
-                {onOpenCatalog && (
-                  <button
-                    type="button"
-                    onClick={onOpenCatalog}
-                    className="rounded-full border border-[color:var(--surface-border)] bg-transparent px-3 py-1 text-[10px] font-semibold text-[color:var(--muted)] hover:border-[color:var(--brand)] hover:text-[color:var(--text)]"
-                  >
-                    Editar plantillas
-                  </button>
-                )}
+          {simpleOfferLoading && (
+            <div className="text-[11px] text-[color:var(--muted)]">Generando borrador…</div>
+          )}
+          {simpleOfferError && <div className="text-[11px] text-[color:var(--danger)]">{simpleOfferError}</div>}
+          {simpleOfferDraft && (
+            <div className="space-y-2 rounded-lg border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-3 py-2">
+              <div className="text-[10px] uppercase tracking-wide text-[color:var(--muted)]">
+                {simpleOfferDraft.offer.title} · {formatOfferPrice(simpleOfferDraft.offer)}
               </div>
-              <div className="flex flex-col gap-2">
-                {quickOffers.map((draft) => (
-                  <div
-                    key={draft.id}
-                    className="rounded-lg border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-3 py-2 space-y-2"
-                  >
-                    <div className="flex items-center justify-between gap-2">
-                      <span className="text-[11px] font-semibold text-[color:var(--text)]">{draft.title}</span>
-                      {draft.price ? (
-                        <span className="text-[10px] text-[color:var(--muted)]">{draft.price}</span>
-                      ) : null}
-                    </div>
-                    <div className="text-[11px] text-[color:var(--muted)]">{draft.message}</div>
-                    <div className="flex flex-wrap items-center gap-2">
-                      <button
-                        type="button"
-                        onClick={() => emitQuickOffer(draft, "insert")}
-                        className="inline-flex items-center rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-3 py-1 text-[10px] font-semibold text-[color:var(--text)] hover:border-[color:var(--brand)]"
-                      >
-                        Insertar
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => emitQuickOffer(draft, "send")}
-                        className="inline-flex items-center rounded-full border border-[color:var(--brand)] bg-[color:rgba(var(--brand-rgb),0.12)] px-3 py-1 text-[10px] font-semibold text-[color:var(--text)] hover:bg-[color:rgba(var(--brand-rgb),0.2)] transition"
-                      >
-                        Enviar
-                      </button>
-                    </div>
-                  </div>
-                ))}
-              </div>
-              {simpleOffersLoading && <div className="text-[11px] text-[color:var(--muted)]">Cargando ofertas…</div>}
-              {simpleOffersLimited.length > 0 && (
-                <div className="space-y-2">
-                  <div className="text-[11px] text-[color:var(--muted)]">Tus ofertas</div>
-                  <div className="flex flex-col gap-2">
-                    {simpleOffersLimited.map((offer) => (
-                      <button
-                        key={offer.id}
-                        type="button"
-                        onClick={() => handleSimpleOfferSelect(offer)}
-                        className={clsx(
-                          "flex items-center justify-between gap-2 rounded-lg border px-3 py-2 text-left text-[11px] font-semibold transition",
-                          "border-[color:var(--surface-border)] bg-[color:var(--surface-2)] text-[color:var(--text)] hover:border-[color:var(--brand)]",
-                          simpleOfferLoading && "opacity-70 cursor-wait"
-                        )}
-                        disabled={simpleOfferLoading}
-                      >
-                        <span className="truncate">{offer.title}</span>
-                        <span className="text-[10px] text-[color:var(--muted)]">{formatOfferPrice(offer)}</span>
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              )}
-              {simpleOfferLoading && (
-                <div className="text-[11px] text-[color:var(--muted)]">Generando borrador…</div>
-              )}
-              {simpleOfferError && (
-                <div className="text-[11px] text-[color:var(--danger)]">{simpleOfferError}</div>
-              )}
-              {simpleOfferDraft && (
-                <div className="space-y-2 rounded-lg border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-3 py-2">
-                  <div className="text-[10px] uppercase tracking-wide text-[color:var(--muted)]">
-                    {simpleOfferDraft.offer.title} · {formatOfferPrice(simpleOfferDraft.offer)}
-                  </div>
-                  <div className="text-[12px] text-[color:var(--text)]">{sanitizeAiDraftText(simpleOfferDraft.text)}</div>
-                  <button
-                    type="button"
-                    onClick={() =>
-                      onApplySuggestion?.(
-                        sanitizeAiDraftText(simpleOfferDraft.text),
-                        simpleOfferDraft.offer.title,
-                        `offer:${simpleOfferDraft.offer.id}`
-                      )
-                    }
-                    className="inline-flex items-center rounded-full border border-[color:var(--brand)] bg-[color:rgba(var(--brand-rgb),0.12)] px-3 py-1 text-[11px] font-medium text-[color:var(--text)] hover:bg-[color:rgba(var(--brand-rgb),0.2)] transition"
-                  >
-                    {primaryDraftCtaLabel}
-                  </button>
-                </div>
-              )}
+              <div className="text-[12px] text-[color:var(--text)]">{sanitizeAiDraftText(simpleOfferDraft.text)}</div>
+              <button
+                type="button"
+                onClick={() =>
+                  onApplySuggestion?.(
+                    sanitizeAiDraftText(simpleOfferDraft.text),
+                    simpleOfferDraft.offer.title,
+                    `offer:${simpleOfferDraft.offer.id}`
+                  )
+                }
+                className="inline-flex items-center rounded-full border border-[color:var(--brand)] bg-[color:rgba(var(--brand-rgb),0.12)] px-3 py-1 text-[11px] font-medium text-[color:var(--text)] hover:bg-[color:rgba(var(--brand-rgb),0.2)] transition"
+              >
+                {primaryDraftCtaLabel}
+              </button>
             </div>
           )}
           {draftActionLoading && (
