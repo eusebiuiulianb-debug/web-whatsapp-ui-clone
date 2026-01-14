@@ -21,7 +21,7 @@ const isOfferMeta = (value: unknown): value is OfferMeta => {
   const candidate = value as Partial<OfferMeta>;
   if (typeof candidate.id !== "string" || !candidate.id.trim()) return false;
   if (typeof candidate.title !== "string" || !candidate.title.trim()) return false;
-  if (typeof candidate.price !== "string" || !candidate.price.trim()) return false;
+  if (typeof candidate.price !== "string") return false;
   if (candidate.thumb !== undefined && candidate.thumb !== null && typeof candidate.thumb !== "string") return false;
   return true;
 };
@@ -89,7 +89,9 @@ const LockedContentCard = ({
         )}
         <div className="min-w-0 flex-1">
           <div className="truncate text-[12px] font-semibold text-[color:var(--text)]">{title}</div>
-          <div className="text-[11px] text-[color:var(--muted)]">{price}</div>
+          {price.trim() ? (
+            <div className="text-[11px] text-[color:var(--muted)]">{price}</div>
+          ) : null}
         </div>
         <div className="flex flex-col items-end gap-1">
           <span className={clsx("rounded-full border px-2 py-0.5 text-[9px] font-semibold uppercase tracking-wide", statusClass)}>

@@ -85,6 +85,14 @@ type PpvOffer = {
   currency?: string;
 };
 
+type OfferDraft = {
+  id: string;
+  title: string;
+  price: string;
+  message: string;
+  offerMeta?: { id: string; title: string; price: string; thumb?: string | null };
+};
+
 type DraftDirectness = "suave" | "neutro" | "directo";
 type DraftOutputLength = "short" | "medium" | "long";
 type DraftMeta = {
@@ -259,6 +267,30 @@ export default function FanManagerDrawer({
     fanManagerHeadline || "Te ayuda a escribir mensajes claros, cercanos y profesionales.";
   const fanLanguageLabel = typeof fanLanguage === "string" && fanLanguage.trim() ? fanLanguage.trim().toUpperCase() : null;
   const primaryDraftCtaLabel = "Usar en mensaje";
+  const quickOffers: OfferDraft[] = [
+    {
+      id: "extra_light",
+      title: "Oferta ligera",
+      price: "6,99 €",
+      message: "Tengo un extra rápido para ti. Si te apetece, te lo dejo por 6,99 €.",
+      offerMeta: { id: "extra_light", title: "Extra rápido", price: "6,99 €" },
+    },
+    {
+      id: "pack_special",
+      title: "Pack especial",
+      price: "9,99 €",
+      message: "Tengo un Pack especial con contenido extra pensado para ti. Si te apetece, te lo dejo por 9,99 €.",
+      offerMeta: { id: "pack_special", title: "Pack especial", price: "9,99 €" },
+    },
+    {
+      id: "monthly_push",
+      title: "Pasarte a mensual",
+      price: "",
+      message:
+        "Si quieres ver lo nuevo sin preocuparte por desbloqueos, te conviene la suscripción mensual. ¿Te paso el acceso?",
+      offerMeta: { id: "monthly_push", title: "Suscripción mensual", price: "" },
+    },
+  ];
   const simpleOffersLimited = simpleOffers.slice(0, 3);
   const formatOfferPrice = (offer: Offer) => {
     if (typeof offer.priceCents !== "number") return "";
@@ -271,6 +303,17 @@ export default function FanManagerDrawer({
     setShowSimpleOfferPicker(true);
     setSimpleOfferDraft(null);
     setSimpleOfferError(null);
+  };
+
+  const emitQuickOffer = (draft: OfferDraft, action: "insert" | "send") => {
+    if (typeof window === "undefined") return;
+    if (!draft.message.trim()) return;
+    const eventName = action === "send" ? "novsy:composer-send" : "novsy:composer-insert";
+    window.dispatchEvent(
+      new CustomEvent(eventName, {
+        detail: { text: draft.message, offer: draft.offerMeta, skipTranslate: true },
+      })
+    );
   };
 
   const handleSimpleOfferSelect = async (offer: Offer) => {
@@ -832,40 +875,74 @@ export default function FanManagerDrawer({
           </div>
           {isSimpleMode && showSimpleOfferPicker && (
             <div className="space-y-2">
-              <div className="text-[11px] text-[color:var(--muted)]">Elige una oferta</div>
-              {simpleOffersLoading && <div className="text-[11px] text-[color:var(--muted)]">Cargando ofertas…</div>}
-              {!simpleOffersLoading && simpleOffersLimited.length === 0 && (
-                <div className="flex items-center justify-between gap-2 rounded-lg border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-3 py-2 text-[11px] text-[color:var(--muted)]">
-                  <span>No tienes ofertas aún.</span>
-                  {onOpenCatalog && (
-                    <button
-                      type="button"
-                      onClick={onOpenCatalog}
-                      className="rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-3 py-1 text-[10px] font-semibold text-[color:var(--text)] hover:border-[color:var(--brand)]"
-                    >
-                      Crear oferta
-                    </button>
-                  )}
-                </div>
-              )}
-              <div className="flex flex-col gap-2">
-                {simpleOffersLimited.map((offer) => (
+              <div className="flex items-center justify-between gap-2">
+                <div className="text-[11px] text-[color:var(--muted)]">Ofertas rápidas</div>
+                {onOpenCatalog && (
                   <button
-                    key={offer.id}
                     type="button"
-                    onClick={() => handleSimpleOfferSelect(offer)}
-                    className={clsx(
-                      "flex items-center justify-between gap-2 rounded-lg border px-3 py-2 text-left text-[11px] font-semibold transition",
-                      "border-[color:var(--surface-border)] bg-[color:var(--surface-2)] text-[color:var(--text)] hover:border-[color:var(--brand)]",
-                      simpleOfferLoading && "opacity-70 cursor-wait"
-                    )}
-                    disabled={simpleOfferLoading}
+                    onClick={onOpenCatalog}
+                    className="rounded-full border border-[color:var(--surface-border)] bg-transparent px-3 py-1 text-[10px] font-semibold text-[color:var(--muted)] hover:border-[color:var(--brand)] hover:text-[color:var(--text)]"
                   >
-                    <span className="truncate">{offer.title}</span>
-                    <span className="text-[10px] text-[color:var(--muted)]">{formatOfferPrice(offer)}</span>
+                    Editar plantillas
                   </button>
+                )}
+              </div>
+              <div className="flex flex-col gap-2">
+                {quickOffers.map((draft) => (
+                  <div
+                    key={draft.id}
+                    className="rounded-lg border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-3 py-2 space-y-2"
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-[11px] font-semibold text-[color:var(--text)]">{draft.title}</span>
+                      {draft.price ? (
+                        <span className="text-[10px] text-[color:var(--muted)]">{draft.price}</span>
+                      ) : null}
+                    </div>
+                    <div className="text-[11px] text-[color:var(--muted)]">{draft.message}</div>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => emitQuickOffer(draft, "insert")}
+                        className="inline-flex items-center rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-3 py-1 text-[10px] font-semibold text-[color:var(--text)] hover:border-[color:var(--brand)]"
+                      >
+                        Insertar
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => emitQuickOffer(draft, "send")}
+                        className="inline-flex items-center rounded-full border border-[color:var(--brand)] bg-[color:rgba(var(--brand-rgb),0.12)] px-3 py-1 text-[10px] font-semibold text-[color:var(--text)] hover:bg-[color:rgba(var(--brand-rgb),0.2)] transition"
+                      >
+                        Enviar
+                      </button>
+                    </div>
+                  </div>
                 ))}
               </div>
+              {simpleOffersLoading && <div className="text-[11px] text-[color:var(--muted)]">Cargando ofertas…</div>}
+              {simpleOffersLimited.length > 0 && (
+                <div className="space-y-2">
+                  <div className="text-[11px] text-[color:var(--muted)]">Tus ofertas</div>
+                  <div className="flex flex-col gap-2">
+                    {simpleOffersLimited.map((offer) => (
+                      <button
+                        key={offer.id}
+                        type="button"
+                        onClick={() => handleSimpleOfferSelect(offer)}
+                        className={clsx(
+                          "flex items-center justify-between gap-2 rounded-lg border px-3 py-2 text-left text-[11px] font-semibold transition",
+                          "border-[color:var(--surface-border)] bg-[color:var(--surface-2)] text-[color:var(--text)] hover:border-[color:var(--brand)]",
+                          simpleOfferLoading && "opacity-70 cursor-wait"
+                        )}
+                        disabled={simpleOfferLoading}
+                      >
+                        <span className="truncate">{offer.title}</span>
+                        <span className="text-[10px] text-[color:var(--muted)]">{formatOfferPrice(offer)}</span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
               {simpleOfferLoading && (
                 <div className="text-[11px] text-[color:var(--muted)]">Generando borrador…</div>
               )}

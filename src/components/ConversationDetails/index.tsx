@@ -1904,7 +1904,7 @@ export default function ConversationDetails({ onBackToBoard }: ConversationDetai
     const candidate = value as Partial<OfferMeta>;
     if (typeof candidate.id !== "string" || !candidate.id.trim()) return null;
     if (typeof candidate.title !== "string" || !candidate.title.trim()) return null;
-    if (typeof candidate.price !== "string" || !candidate.price.trim()) return null;
+    if (typeof candidate.price !== "string") return null;
     if (candidate.thumb !== undefined && candidate.thumb !== null && typeof candidate.thumb !== "string") return null;
     return {
       id: candidate.id,
@@ -3036,7 +3036,10 @@ const INTENT_BADGE_LABELS: Record<string, string> = {
       const detail = (event as CustomEvent)?.detail as ComposerOfferEventDetail | undefined;
       if (conversation.isManager || !id) return;
       if (!detail) return;
-      applyOfferComposerDraft(detail);
+      const applied = applyOfferComposerDraft(detail);
+      if (!applied) return;
+      closeInlinePanel({ focus: true });
+      showComposerToast("Insertado");
     };
     const handleComposerSend = (event: Event) => {
       const detail = (event as CustomEvent)?.detail as ComposerOfferEventDetail | undefined;
@@ -3044,6 +3047,7 @@ const INTENT_BADGE_LABELS: Record<string, string> = {
       if (!detail) return;
       const applied = applyOfferComposerDraft(detail);
       if (!applied) return;
+      closeInlinePanel({ focus: true });
       void sendFanMessage(applied.text, {
         fromComposer: true,
         skipTranslation: applied.skipTranslate,
@@ -3052,6 +3056,7 @@ const INTENT_BADGE_LABELS: Record<string, string> = {
         if (ok) {
           setDraftOffer(null);
           setDraftSkipTranslate(false);
+          showComposerToast("Enviado");
         }
       });
     };
@@ -3061,7 +3066,14 @@ const INTENT_BADGE_LABELS: Record<string, string> = {
       window.removeEventListener("novsy:composer-insert", handleComposerInsert as EventListener);
       window.removeEventListener("novsy:composer-send", handleComposerSend as EventListener);
     };
-  }, [applyOfferComposerDraft, conversation.isManager, id, sendFanMessage]);
+  }, [
+    applyOfferComposerDraft,
+    closeInlinePanel,
+    conversation.isManager,
+    id,
+    sendFanMessage,
+    showComposerToast,
+  ]);
 
   useEffect(() => {
     if (!router.isReady) return;
