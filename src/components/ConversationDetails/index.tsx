@@ -2011,6 +2011,7 @@ export default function ConversationDetails({ onBackToBoard }: ConversationDetai
   const pendingComposerDraftFanIdRef = useRef<string | null>(null);
   const pendingFocusComposerRef = useRef<string | null>(null);
   const draftAppliedFanIdRef = useRef<string | null>(null);
+  const fanLanguageCacheRef = useRef<Record<string, SupportedLanguage>>({});
   const translationPreviewTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const translationPreviewAbortRef = useRef<AbortController | null>(null);
   const translationPreviewRequestId = useRef(0);
@@ -3316,10 +3317,44 @@ const INTENT_BADGE_LABELS: Record<string, string> = {
     [id, setComposerActionKey, setComposerTarget, setMessageSend]
   );
 
+  const detectedInboundLanguage = useMemo<SupportedLanguage | null>(() => {
+    if (!activeFanId) return null;
+    const items = Array.isArray(messages) ? messages : [];
+    for (let i = items.length - 1; i >= 0; i -= 1) {
+      const msg = items[i];
+      if (msg.audience === "INTERNAL") continue;
+      if (msg.kind && msg.kind !== "text") continue;
+      if (msg.me) continue;
+      const detected = normalizeDetectedLang(msg.translationSourceLang);
+      const normalized = normalizePreferredLanguage(detected);
+      if (normalized) return normalized;
+    }
+    return null;
+  }, [activeFanId, messages]);
+
+  const localeLanguage = useMemo<SupportedLanguage | null>(() => {
+    if (typeof conversation.locale !== "string") return null;
+    const base = conversation.locale.trim().toLowerCase().split(/[-_]/)[0] || "";
+    return normalizePreferredLanguage(base);
+  }, [conversation.locale]);
+
+  const fanLanguage = useMemo<SupportedLanguage>(() => {
+    if (!activeFanId) return "es";
+    if (preferredLanguage) return preferredLanguage;
+    if (detectedInboundLanguage) return detectedInboundLanguage;
+    const cached = fanLanguageCacheRef.current[activeFanId];
+    if (cached) return cached;
+    if (localeLanguage) return localeLanguage;
+    return "es";
+  }, [activeFanId, detectedInboundLanguage, localeLanguage, preferredLanguage]);
+
+  useEffect(() => {
+    if (!activeFanId) return;
+    fanLanguageCacheRef.current[activeFanId] = fanLanguage;
+  }, [activeFanId, fanLanguage]);
+
   const fillMessageForFan = useCallback(
     async (text: string, actionKey?: string | null) => {
-      const fanLanguage = (preferredLanguage ?? "en") as SupportedLanguage;
-
       if (fanLanguage === "es") {
         fillMessage(text, actionKey);
         return;
@@ -3355,7 +3390,7 @@ const INTENT_BADGE_LABELS: Record<string, string> = {
 
       fillMessage(text, actionKey);
     },
-    [fillMessage, id, preferredLanguage]
+    [fanLanguage, fillMessage, id]
   );
   const handleInsertEmoji = useCallback(
     (emoji: string) => {
@@ -5570,7 +5605,7 @@ const INTENT_BADGE_LABELS: Record<string, string> = {
     setProfileDraft(profileText);
   }, [profileText]);
   const hasInternalThreadMessages = internalNotes.length > 0 || managerChatMessages.length > 0;
-  const effectiveLanguage = (preferredLanguage ?? "en") as SupportedLanguage;
+  const effectiveLanguage = fanLanguage;
   const isTranslateConfigured = aiStatus?.translateConfigured !== false;
   const translateTargetLang = aiStatus?.creatorLang ?? "es";
   const translateTargetLabel = formatTranslationLang(translateTargetLang, "ES");
@@ -6817,7 +6852,7 @@ const INTENT_BADGE_LABELS: Record<string, string> = {
               onAutopilotMakeBolder={handleAutopilotMakeBolder}
               agencyObjectiveLabel={agencyObjectiveLabel}
               agencyStyleLabel={agencyStyleLabel}
-              fanLanguage={effectiveLanguage}
+              fanLanguage={fanLanguage}
               fanLanguageError={preferredLanguageError}
               draftActionPhase={draftActionPhase}
               draftActionError={draftActionError}
@@ -7894,6 +7929,13 @@ const INTENT_BADGE_LABELS: Record<string, string> = {
     setLastAutopilotObjective(null);
     setLastAutopilotTone(null);
     setIsAutoPilotLoading(false);
+    if (draftActionAbortRef.current) {
+      draftActionAbortRef.current.abort();
+      draftActionAbortRef.current = null;
+    }
+    setDraftActionPhase(null);
+    setDraftActionError(null);
+    setDraftActionState({ status: "idle", key: null });
   }, [conversation.id, fanManagerAnalysis.state, fanToneById, id]);
 
   useEffect(() => {
@@ -9385,6 +9427,10 @@ const INTENT_BADGE_LABELS: Record<string, string> = {
     },
     [addDraftCard, addGeneratedDraft, buildDraftCard, buildDraftMeta, currentObjective, draftOutputLength, fanTone, ppvPhase]
   );
+
+  const temperatureBucketRaw = (conversation as any).temperatureBucket ?? conversation.heatLabel ?? null;
+  const temperatureBucket = temperatureBucketRaw ? String(temperatureBucketRaw).toUpperCase() : null;
+  const normalizedTemperatureBucket = temperatureBucket === "READY" ? "HOT" : temperatureBucket;
 
   const requestManagerDraft = useCallback(
     async (options: DraftRequestOptions) => {
@@ -11222,9 +11268,6 @@ const INTENT_BADGE_LABELS: Record<string, string> = {
       : "bg-[color:var(--muted)]";
   const languageBadgeLabel =
     !conversation.isManager && preferredLanguage ? preferredLanguage.toUpperCase() : null;
-  const temperatureBucketRaw = (conversation as any).temperatureBucket ?? conversation.heatLabel ?? null;
-  const temperatureBucket = temperatureBucketRaw ? String(temperatureBucketRaw).toUpperCase() : null;
-  const normalizedTemperatureBucket = temperatureBucket === "READY" ? "HOT" : temperatureBucket;
   const temperatureScore =
     typeof (conversation as any).temperatureScore === "number"
       ? (conversation as any).temperatureScore
@@ -11235,15 +11278,7 @@ const INTENT_BADGE_LABELS: Record<string, string> = {
     typeof conversation.lastIntentKey === "string" && conversation.lastIntentKey.trim().length > 0
       ? conversation.lastIntentKey.toUpperCase()
       : null;
-  const suggestionLanguage = (() => {
-    const preferred = normalizePreferredLanguage(preferredLanguage);
-    if (preferred === "en" || preferred === "es") return preferred;
-    if (typeof conversation.locale === "string") {
-      const base = conversation.locale.trim().toLowerCase().split(/[-_]/)[0];
-      if (base === "en" || base === "es") return base;
-    }
-    return "es";
-  })();
+  const suggestionLanguage = fanLanguage === "en" ? "en" : "es";
   const lastPurchaseAt =
     conversation.extraSessionToday?.todayLastPurchaseAt ??
     conversation.extraLadderStatus?.lastPurchaseAt ??
@@ -11815,6 +11850,12 @@ const INTENT_BADGE_LABELS: Record<string, string> = {
     }
   }, [nextActionDraftKey]);
 
+  useEffect(() => {
+    if (hasManualManagerObjective) return;
+    if (!nextActionObjective) return;
+    setCurrentObjective(nextActionObjective);
+  }, [hasManualManagerObjective, id, nextActionObjective]);
+
   const handleGenerateNextActionDraft = useCallback(async () => {
     if (!nextActionDraftKey) return;
     if (draftActionState.status === "loading") return;
@@ -11832,6 +11873,7 @@ const INTENT_BADGE_LABELS: Record<string, string> = {
       actionKey,
       serverActionKey: actionKey,
       historyKey,
+      targetLanguage: fanLanguage,
     });
     if (!draftText) return;
     const meta = nextActionObjective
@@ -11860,6 +11902,7 @@ const INTENT_BADGE_LABELS: Record<string, string> = {
     currentObjective,
     draftActionState.status,
     draftOutputLength,
+    fanLanguage,
     fanTone,
     nextActionDraftKey,
     nextActionDraftLabel,

@@ -1154,7 +1154,7 @@ function SideBarInner() {
     [scrollListToTop, setActiveQueueFilter]
   );
 
-  function selectStatusFilter(next: "active" | "archived" | "blocked") {
+  const selectStatusFilter = useCallback((next: "active" | "archived" | "blocked") => {
     setListSegment("all");
     setActiveQueueFilter(null);
     setStatusFilter(next);
@@ -1168,7 +1168,19 @@ function SideBarInner() {
       setOnlyAtRisk(false);
     }
     scrollListToTop();
-  }
+  }, [
+    scrollListToTop,
+    setActiveQueueFilter,
+    setFollowUpMode,
+    setListSegment,
+    setOnlyAtRisk,
+    setOnlyNeedsReply,
+    setOnlyWithExtras,
+    setOnlyWithFollowUp,
+    setShowOnlyWithNotes,
+    setStatusFilter,
+    setTierFilter,
+  ]);
 
   const getFilterSnapshot = useCallback(
     (): FiltersDraft => ({
