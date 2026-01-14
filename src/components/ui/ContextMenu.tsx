@@ -11,6 +11,7 @@ type ContextMenuItem = {
   danger?: boolean;
   closeOnSelect?: boolean;
   divider?: boolean;
+  title?: string;
 };
 
 type ContextMenuButtonRenderProps = {
@@ -149,6 +150,7 @@ export function ContextMenu({
                 type="button"
                 role="menuitem"
                 disabled={item.disabled}
+                title={item.title ?? item.label}
                 onClick={(event) => {
                   event.stopPropagation();
                   if (item.disabled) return;

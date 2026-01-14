@@ -37,7 +37,9 @@ import { useCreatorRealtime } from "../../hooks/useCreatorRealtime";
 import { DevRequestCounters } from "../DevRequestCounters";
 import { recordDevRequest } from "../../lib/devRequestStats";
 import { IconGlyph } from "../ui/IconGlyph";
-import { Chip } from "../ui/Chip";
+import { computeAgencyPriorityScore } from "../../lib/agency/priorityScore";
+import type { AgencyIntensity, AgencyStage } from "../../lib/agency/types";
+import { DB_SCHEMA_OUT_OF_SYNC_CODE } from "../../lib/dbSchemaGuard";
 
 class SideBarBoundary extends Component<{ children: React.ReactNode }, { hasError: boolean }> {
   constructor(props: { children: React.ReactNode }) {
@@ -174,6 +176,132 @@ type QueueSignals = {
   extrasSignal: boolean;
   hasNextAction: boolean;
 };
+type FiltersDraft = {
+  listSegment: "all" | "queue";
+  followUpMode: "all" | "today" | "expired" | "priority";
+  statusFilter: "active" | "archived" | "blocked";
+  tierFilter: "all" | "new" | "regular" | "vip";
+  showOnlyWithNotes: boolean;
+  onlyWithExtras: boolean;
+  onlyWithFollowUp: boolean;
+  onlyNeedsReply: boolean;
+  onlyAtRisk: boolean;
+};
+const FILTERS_STORAGE_KEY = "novsy:creator:sidebar_filters";
+const FILTERS_STORAGE_VERSION = 1;
+const HEAT_FILTER_VALUES = [ "all", "cold", "warm", "hot" ] as const;
+const INTENT_FILTER_VALUES = [
+  "all",
+  "BUY_NOW",
+  "PRICE_ASK",
+  "CONTENT_REQUEST",
+  "CUSTOM_REQUEST",
+  "SUBSCRIBE",
+  "CANCEL",
+  "OFF_PLATFORM",
+  "SUPPORT",
+  "OBJECTION",
+  "RUDE_OR_HARASS",
+  "OTHER",
+] as const;
+
+type HeatFilter = (typeof HEAT_FILTER_VALUES)[number];
+type IntentFilter = (typeof INTENT_FILTER_VALUES)[number];
+
+const INITIAL_FILTERS_DRAFT: FiltersDraft = {
+  listSegment: "all",
+  followUpMode: "all",
+  statusFilter: "active",
+  tierFilter: "all",
+  showOnlyWithNotes: false,
+  onlyWithExtras: false,
+  onlyWithFollowUp: false,
+  onlyNeedsReply: false,
+  onlyAtRisk: false,
+};
+
+const isHeatFilter = (value: unknown): value is HeatFilter =>
+  HEAT_FILTER_VALUES.includes(value as HeatFilter);
+const isIntentFilter = (value: unknown): value is IntentFilter =>
+  INTENT_FILTER_VALUES.includes(value as IntentFilter);
+const isListSegment = (value: unknown): value is FiltersDraft["listSegment"] =>
+  value === "all" || value === "queue";
+const isFollowUpMode = (value: unknown): value is FiltersDraft["followUpMode"] =>
+  value === "all" || value === "today" || value === "expired" || value === "priority";
+const isStatusFilter = (value: unknown): value is FiltersDraft["statusFilter"] =>
+  value === "active" || value === "archived" || value === "blocked";
+const isTierFilter = (value: unknown): value is FiltersDraft["tierFilter"] =>
+  value === "all" || value === "new" || value === "regular" || value === "vip";
+
+function buildDraftWithFilter(
+  base: FiltersDraft,
+  filter: FiltersDraft["followUpMode"],
+  onlyNotes = false,
+  tier: FiltersDraft["tierFilter"] = "all",
+  onlyFollowUp = false
+): FiltersDraft {
+  return {
+    ...base,
+    listSegment: "all",
+    statusFilter: "active",
+    followUpMode: filter,
+    showOnlyWithNotes: onlyNotes,
+    tierFilter: tier,
+    onlyWithFollowUp: onlyFollowUp,
+  };
+}
+
+function buildDraftWithFollowUpMode(
+  base: FiltersDraft,
+  mode: "today" | "expired" | "priority"
+): FiltersDraft {
+  const next = base.followUpMode === mode ? "all" : mode;
+  return {
+    ...base,
+    listSegment: "all",
+    statusFilter: "active",
+    followUpMode: next,
+    showOnlyWithNotes: false,
+    tierFilter: "all",
+    onlyWithFollowUp: false,
+  };
+}
+
+function buildDraftWithTierFilter(base: FiltersDraft, tier: "new" | "regular"): FiltersDraft {
+  const nextTier = base.tierFilter === tier ? "all" : tier;
+  return {
+    ...base,
+    listSegment: "all",
+    statusFilter: "active",
+    tierFilter: nextTier,
+    onlyWithFollowUp: false,
+  };
+}
+
+function buildDraftWithStatusFilter(
+  base: FiltersDraft,
+  next: FiltersDraft["statusFilter"]
+): FiltersDraft {
+  if (next === "active") {
+    return {
+      ...base,
+      listSegment: "all",
+      statusFilter: "active",
+    };
+  }
+  return {
+    ...base,
+    listSegment: "all",
+    statusFilter: next,
+    followUpMode: "all",
+    showOnlyWithNotes: false,
+    tierFilter: "all",
+    onlyWithFollowUp: false,
+    onlyWithExtras: false,
+    onlyNeedsReply: false,
+    onlyAtRisk: false,
+  };
+}
 
 function daysSince(dateStr: string | null | undefined): number | null {
   if (!dateStr) return null;
@@ -220,6 +348,37 @@ function hasRiskFlag(fan: FanData): boolean {
   return risk !== "" && risk !== "LOW";
 }
 
+function getTemperatureBucket(fan: FanData): "COLD" | "WARM" | "HOT" | "" {
+  const raw = (fan as any).temperatureBucket ?? (fan as any).heatLabel ?? "";
+  const normalized = String(raw).toUpperCase();
+  if (normalized === "READY") return "HOT";
+  if (normalized === "COLD" || normalized === "WARM" || normalized === "HOT") return normalized;
+  return "";
+}
+
+function normalizeSuggestedActionKey(value?: string | null): string | null {
+  if (!value) return null;
+  const normalized = value.trim().toUpperCase();
+  if (!normalized) return null;
+  if (
+    normalized === "BREAK_ICE" ||
+    normalized === "BUILD_RAPPORT" ||
+    normalized === "OFFER_EXTRA" ||
+    normalized === "PUSH_MONTHLY" ||
+    normalized === "SEND_PAYMENT_LINK" ||
+    normalized === "SUPPORT" ||
+    normalized === "SAFETY"
+  ) {
+    return normalized;
+  }
+  return null;
+}
+
+function getManualNextActionValue(fan: FanData): string {
+  const raw = typeof fan.nextAction === "string" ? fan.nextAction.trim() : "";
+  return normalizeSuggestedActionKey(raw) ? "" : raw;
+}
+
 function hasExtrasSignal(fan: FanData): boolean {
   const extrasSpent = fan.extrasSpentTotal ?? 0;
   const extrasCount = fan.extrasCount ?? 0;
@@ -238,24 +397,29 @@ function normalizeTier(tier?: string | null): "new" | "regular" | "vip" {
 
 function computePriorityScore(fan: FanData): number {
   const tag = fan.followUpTag ?? getFollowUpTag(fan.membershipStatus, fan.daysLeft, fan.activeGrantTypes);
-  const isExpiredToday = tag === "expired" && (fan.daysLeft ?? 0) === 0;
-  let urgencyScore = 0;
-  switch (isExpiredToday ? "expired_today" : tag) {
-    case "trial_soon":
-    case "monthly_soon":
-      urgencyScore = 3;
-      break;
-    case "expired_today":
-      urgencyScore = 2;
-      break;
-    default:
-      urgencyScore = 0;
-  }
+  const stage = (fan.agencyStage ?? "NEW") as AgencyStage;
+  const objective = fan.agencyObjective ?? "CONNECT";
+  const intensity = (fan.agencyIntensity ?? "MEDIUM") as AgencyIntensity;
+  const segmentLabel = ((fan.segment || "") as string).toUpperCase();
+  const riskValue = (fan.riskLevel || "").toString().toUpperCase();
+  const isVip = normalizeTier(fan.customerTier) === "vip" || segmentLabel === "VIP";
+  const spent30d = typeof fan.recent30dSpent === "number" ? fan.recent30dSpent : 0;
 
-  const tier = normalizeTier(fan.customerTier);
-  const tierScore = tier === "vip" ? 2 : tier === "regular" ? 1 : 0;
-
-  return urgencyScore * 10 + tierScore;
+  return computeAgencyPriorityScore({
+    lastIncomingAt: fan.lastMessageAt ?? null,
+    lastOutgoingAt: fan.lastCreatorMessageAt ?? null,
+    spent7d: 0,
+    spent30d,
+    stage,
+    objective,
+    intensity,
+    flags: {
+      vip: isVip,
+      expired: tag === "expired",
+      atRisk: segmentLabel === "EN_RIESGO" || (riskValue !== "" && riskValue !== "LOW"),
+      isNew: fan.isNew30d ?? false,
+    },
+  });
 }
 
 export default function SideBar() {
@@ -274,13 +438,21 @@ function SideBarInner() {
   const [ isSettingsOpen, setIsSettingsOpen ] = useState(false);
   const [ fans, setFans ] = useState<ConversationListData[]>([]);
   const [ fansError, setFansError ] = useState("");
+  const [ fansErrorCode, setFansErrorCode ] = useState<string | null>(null);
+  const [ fansErrorFix, setFansErrorFix ] = useState<string[] | null>(null);
   const [ followUpMode, setFollowUpMode ] = useState<"all" | "today" | "expired" | "priority">("all");
   const [ showOnlyWithNotes, setShowOnlyWithNotes ] = useState(false);
   const [ tierFilter, setTierFilter ] = useState<"all" | "new" | "regular" | "vip">("all");
   const [ onlyWithFollowUp, setOnlyWithFollowUp ] = useState(false);
   const [ onlyWithExtras, setOnlyWithExtras ] = useState(false);
+  const [ onlyNeedsReply, setOnlyNeedsReply ] = useState(false);
+  const [ onlyAtRisk, setOnlyAtRisk ] = useState(false);
+  const [ heatFilter, setHeatFilter ] = useState<HeatFilter>("all");
+  const [ intentFilter, setIntentFilter ] = useState<IntentFilter>("all");
   const [ showLegend, setShowLegend ] = useState(false);
-  const [ showAllTodayMetrics, setShowAllTodayMetrics ] = useState(false);
+  const [ showFiltersPanel, setShowFiltersPanel ] = useState(false);
+  const [ showMoreSegments, setShowMoreSegments ] = useState(false);
+  const [ showEmptyFilters, setShowEmptyFilters ] = useState(false);
   const [ focusMode, setFocusMode ] = useState(false);
   const [ showPacksPanel, setShowPacksPanel ] = useState(false);
   const [ listSegment, setListSegment ] = useState<"all" | "queue">("all");
@@ -301,6 +473,7 @@ function SideBarInner() {
   const [ extrasSummary, setExtrasSummary ] = useState<ExtrasSummary | null>(null);
   const [ extrasSummaryError, setExtrasSummaryError ] = useState<string | null>(null);
   const [ statusFilter, setStatusFilter ] = useState<"active" | "archived" | "blocked">("active");
+  const [ filtersDraft, setFiltersDraft ] = useState<FiltersDraft>(INITIAL_FILTERS_DRAFT);
   const [ isNewFanOpen, setIsNewFanOpen ] = useState(false);
   const [ newFanName, setNewFanName ] = useState("");
   const [ newFanNote, setNewFanNote ] = useState("");
@@ -313,11 +486,8 @@ function SideBarInner() {
   const [ openFanToast, setOpenFanToast ] = useState("");
   const openFanToastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const openFanNotFoundRef = useRef<string | null>(null);
-  const fansRefetchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const fansRefetchInFlightRef = useRef(false);
-  const lastFansRefetchAtRef = useRef(0);
-  const lastFansSuccessAtRef = useRef(0);
-  const lastFansSuccessQueryRef = useRef<string | null>(null);
+  const chatPollIntervalMs = 6000;
+  const chatPollDedupeMs = 4000;
   const [ unseenPurchaseByFan, setUnseenPurchaseByFan ] = useState<Record<string, PurchaseNotice>>({});
   const [ unseenVoiceByFan, setUnseenVoiceByFan ] = useState<Record<string, VoiceNoteNotice>>({});
 
@@ -328,6 +498,7 @@ function SideBarInner() {
       contactName: getFanDisplayNameForCreator(fan),
       displayName: fan.displayName ?? null,
       creatorLabel: fan.creatorLabel ?? null,
+      locale: fan.locale ?? null,
       preferredLanguage: normalizePreferredLanguage(fan.preferredLanguage) ?? null,
       lastMessage: fan.preview,
       lastTime: fan.time,
@@ -377,15 +548,36 @@ function SideBarInner() {
       segment: (fan as any).segment ?? null,
       riskLevel: (fan as any).riskLevel ?? "LOW",
       healthScore: (fan as any).healthScore ?? 0,
+      temperatureScore: (fan as any).temperatureScore ?? null,
+      temperatureBucket: (fan as any).temperatureBucket ?? null,
+      heatScore: (fan as any).heatScore ?? null,
+      heatLabel: (fan as any).heatLabel ?? null,
+      heatUpdatedAt: (fan as any).heatUpdatedAt ?? null,
+      heatMeta: (fan as any).heatMeta ?? null,
+      lastIntentKey: (fan as any).lastIntentKey ?? null,
+      lastIntentConfidence: (fan as any).lastIntentConfidence ?? null,
+      lastIntentAt: (fan as any).lastIntentAt ?? null,
+      lastInboundAt: (fan as any).lastInboundAt ?? null,
+      signalsUpdatedAt: (fan as any).signalsUpdatedAt ?? null,
       customerTier: normalizeTier(fan.customerTier),
       nextAction: fan.nextAction ?? null,
       nextActionAt: fan.nextActionAt ?? null,
       nextActionNote: fan.nextActionNote ?? null,
+      needsAction: fan.needsAction ?? false,
+      nextActionKey: fan.nextActionKey ?? null,
+      nextActionLabel: fan.nextActionLabel ?? null,
       priorityScore: fan.priorityScore,
+      agencyStage: fan.agencyStage ?? null,
+      agencyObjective: fan.agencyObjective ?? null,
+      agencyIntensity: fan.agencyIntensity ?? null,
+      agencyNextAction: fan.agencyNextAction ?? null,
+      agencyRecommendedOfferId: fan.agencyRecommendedOfferId ?? null,
       lastNoteSnippet: fan.lastNoteSnippet ?? null,
       nextActionSnippet: fan.nextActionSnippet ?? null,
       lastNoteSummary: fan.lastNoteSummary ?? fan.lastNoteSnippet ?? null,
       nextActionSummary: fan.nextActionSummary ?? fan.nextActionSnippet ?? null,
+      nextActionText: fan.nextActionText ?? null,
+      nextActionSource: fan.nextActionSource ?? null,
       extraLadderStatus: fan.extraLadderStatus ?? null,
       extraSessionToday: (fan as any).extraSessionToday ?? null,
       isBlocked: (fan as any).isBlocked ?? false,
@@ -455,9 +647,22 @@ function SideBarInner() {
         "giftsSpentTotal",
         "notesCount",
         "notePreview",
+        "temperatureBucket",
+        "temperatureScore",
+        "lastIntentKey",
         "nextAction",
         "nextActionAt",
         "nextActionNote",
+        "needsAction",
+        "nextActionKey",
+        "nextActionLabel",
+        "nextActionText",
+        "nextActionSource",
+        "agencyStage",
+        "agencyObjective",
+        "agencyIntensity",
+        "agencyNextAction",
+        "agencyRecommendedOfferId",
       ];
       const changed = fields.some((field) => (prevFan as any)?.[field] !== (fan as any)?.[field]);
       if (changed) return true;
@@ -498,9 +703,6 @@ function SideBarInner() {
     return () => {
       if (openFanToastTimerRef.current) {
         clearTimeout(openFanToastTimerRef.current);
-      }
-      if (fansRefetchTimerRef.current) {
-        clearTimeout(fansRefetchTimerRef.current);
       }
     };
   }, []);
@@ -685,7 +887,7 @@ function SideBarInner() {
       fan.followUpOpen ||
         Boolean(fan.nextActionAt) ||
         Boolean(fan.nextActionNote?.trim()) ||
-        Boolean(fan.nextAction?.trim())
+        Boolean(getManualNextActionValue(fan))
     );
 
     return {
@@ -879,7 +1081,26 @@ function SideBarInner() {
     [buildQueueMetaList, getQueueSignals]
   );
 
-  const totalCount = fans.length;
+  const totalCountLocal = fans.length;
+  const heatCountsLocal = {
+    all: totalCountLocal,
+    cold: fans.filter((fan) => getTemperatureBucket(fan) === "COLD").length,
+    warm: fans.filter((fan) => getTemperatureBucket(fan) === "WARM").length,
+    hot: fans.filter((fan) => getTemperatureBucket(fan) === "HOT").length,
+  };
+  const intentCountsLocal = {
+    BUY_NOW: fans.filter((fan) => String((fan as any).lastIntentKey || "").toUpperCase() === "BUY_NOW").length,
+    PRICE_ASK: fans.filter((fan) => String((fan as any).lastIntentKey || "").toUpperCase() === "PRICE_ASK").length,
+    CONTENT_REQUEST: fans.filter((fan) => String((fan as any).lastIntentKey || "").toUpperCase() === "CONTENT_REQUEST").length,
+    CUSTOM_REQUEST: fans.filter((fan) => String((fan as any).lastIntentKey || "").toUpperCase() === "CUSTOM_REQUEST").length,
+    SUBSCRIBE: fans.filter((fan) => String((fan as any).lastIntentKey || "").toUpperCase() === "SUBSCRIBE").length,
+    CANCEL: fans.filter((fan) => String((fan as any).lastIntentKey || "").toUpperCase() === "CANCEL").length,
+    OFF_PLATFORM: fans.filter((fan) => String((fan as any).lastIntentKey || "").toUpperCase() === "OFF_PLATFORM").length,
+    SUPPORT: fans.filter((fan) => String((fan as any).lastIntentKey || "").toUpperCase() === "SUPPORT").length,
+    OBJECTION: fans.filter((fan) => String((fan as any).lastIntentKey || "").toUpperCase() === "OBJECTION").length,
+    RUDE_OR_HARASS: fans.filter((fan) => String((fan as any).lastIntentKey || "").toUpperCase() === "RUDE_OR_HARASS").length,
+    OTHER: fans.filter((fan) => String((fan as any).lastIntentKey || "").toUpperCase() === "OTHER").length,
+  };
   const followUpTodayCount = fans.filter((fan) =>
     shouldFollowUpToday({
       membershipStatus: fan.membershipStatus,
@@ -896,22 +1117,15 @@ function SideBarInner() {
     })
   ).length;
   const withNotesCount = fans.filter((fan) => (fan.notesCount ?? 0) > 0).length;
-  const withFollowUpCount = fans.filter((fan) => {
-    const tag = fan.followUpTag ?? getFollowUpTag(fan.membershipStatus, fan.daysLeft, fan.activeGrantTypes);
-    const hasTag = tag && tag !== "none";
-    const hasNextAction =
-      Boolean(fan.followUpOpen) ||
-      Boolean(fan.nextActionAt) ||
-      Boolean(fan.nextActionNote?.trim()) ||
-      Boolean(fan.nextAction?.trim());
-    return hasTag || hasNextAction;
-  }).length;
+  const withFollowUpCount = fans.filter((fan) => fan.needsAction === true).length;
+  const needsReplyCount = fans.filter((fan) => String(fan.nextActionKey ?? "").toUpperCase() === "REPLY").length;
   const archivedCount = fans.filter((fan) => fan.isArchived === true).length;
   const blockedCount = fans.filter((fan) => fan.isBlocked === true).length;
   const priorityCount = fans.filter((fan) => (fan as any).isHighPriority === true).length;
   const regularCount = fans.filter((fan) => ((fan as any).segment || "").toUpperCase() === "LEAL_ESTABLE").length;
   const newCount = fans.filter((fan) => fan.isArchived !== true && fan.isBlocked !== true && fan.isNew30d === true).length;
   const withExtrasCount = fans.filter((fan) => (fan.extrasSpentTotal ?? 0) > 0).length;
+  const atRiskCount = fans.filter((fan) => hasRiskFlag(fan)).length;
   const listScrollRef = useRef<HTMLDivElement | null>(null);
   const scrollListToTop = useCallback(() => {
     const el = listScrollRef.current;
@@ -940,28 +1154,7 @@ function SideBarInner() {
     [scrollListToTop, setActiveQueueFilter]
   );
 
-  const toggleFollowUpMode = useCallback(
-    (mode: "today" | "expired" | "priority") => {
-      const next = followUpMode === mode ? "all" : mode;
-      applyFilter(next, false, "all", false);
-    },
-    [applyFilter, followUpMode]
-  );
-
-  const handleSegmentChange = useCallback(
-    (next: "all" | "queue") => {
-      setListSegment(next);
-      if (next === "queue") {
-        setActiveQueueFilter("ventas_hoy");
-      } else {
-        setActiveQueueFilter(null);
-      }
-      scrollListToTop();
-    },
-    [scrollListToTop, setActiveQueueFilter]
-  );
-
-  function selectStatusFilter(next: "active" | "archived" | "blocked") {
+  const selectStatusFilter = useCallback((next: "active" | "archived" | "blocked") => {
     setListSegment("all");
     setActiveQueueFilter(null);
     setStatusFilter(next);
@@ -971,9 +1164,178 @@ function SideBarInner() {
       setTierFilter("all");
       setOnlyWithFollowUp(false);
       setOnlyWithExtras(false);
+      setOnlyNeedsReply(false);
+      setOnlyAtRisk(false);
     }
     scrollListToTop();
-  }
+  }, [
+    scrollListToTop,
+    setActiveQueueFilter,
+    setFollowUpMode,
+    setListSegment,
+    setOnlyAtRisk,
+    setOnlyNeedsReply,
+    setOnlyWithExtras,
+    setOnlyWithFollowUp,
+    setShowOnlyWithNotes,
+    setStatusFilter,
+    setTierFilter,
+  ]);
+
+  const getFilterSnapshot = useCallback(
+    (): FiltersDraft => ({
+      listSegment,
+      followUpMode,
+      statusFilter,
+      tierFilter,
+      showOnlyWithNotes,
+      onlyWithExtras,
+      onlyWithFollowUp,
+      onlyNeedsReply,
+      onlyAtRisk,
+    }),
+    [
+      followUpMode,
+      listSegment,
+      onlyAtRisk,
+      onlyNeedsReply,
+      onlyWithExtras,
+      onlyWithFollowUp,
+      showOnlyWithNotes,
+      statusFilter,
+      tierFilter,
+    ]
+  );
+
+  const applyDraftFilter = useCallback(
+    (
+      filter: "all" | "today" | "expired" | "priority",
+      onlyNotes = false,
+      tier: "all" | "new" | "regular" | "vip" = "all",
+      onlyFollowUp = false
+    ) => {
+      setFiltersDraft((prev) =>
+        buildDraftWithFilter(prev, filter, onlyNotes, tier, onlyFollowUp)
+      );
+    },
+    []
+  );
+
+  const selectDraftStatusFilter = useCallback((next: "active" | "archived" | "blocked") => {
+    setFiltersDraft((prev) => buildDraftWithStatusFilter(prev, next));
+  }, []);
+
+  const applyDraftState = useCallback((draft: FiltersDraft) => {
+    if (draft.statusFilter !== "active") {
+      selectStatusFilter(draft.statusFilter);
+    } else {
+      applyFilter(
+        draft.followUpMode,
+        draft.showOnlyWithNotes,
+        draft.tierFilter,
+        draft.onlyWithFollowUp
+      );
+      setOnlyWithExtras(draft.onlyWithExtras);
+      setOnlyNeedsReply(draft.onlyNeedsReply);
+      setOnlyAtRisk(draft.onlyAtRisk);
+    }
+    if (draft.listSegment === "queue") {
+      setListSegment("queue");
+      setActiveQueueFilter("ventas_hoy");
+    } else {
+      setListSegment("all");
+      setActiveQueueFilter(null);
+    }
+    setShowFiltersPanel(false);
+  }, [
+    applyFilter,
+    selectStatusFilter,
+    setActiveQueueFilter,
+    setListSegment,
+    setOnlyAtRisk,
+    setOnlyNeedsReply,
+    setOnlyWithExtras,
+    setShowFiltersPanel,
+  ]);
+
+  const applyFiltersDraft = useCallback(() => {
+    applyDraftState(filtersDraft);
+  }, [applyDraftState, filtersDraft]);
+
+  const resetFilters = useCallback(() => {
+    applyFilter("all", false, "all", false);
+    setOnlyWithExtras(false);
+    setOnlyNeedsReply(false);
+    setOnlyAtRisk(false);
+    setHeatFilter("all");
+    setIntentFilter("all");
+    setSearch("");
+    setShowLegend(false);
+    setShowFiltersPanel(false);
+  }, [
+    applyFilter,
+    setHeatFilter,
+    setIntentFilter,
+    setOnlyAtRisk,
+    setOnlyNeedsReply,
+    setOnlyWithExtras,
+    setSearch,
+    setShowLegend,
+    setShowFiltersPanel,
+  ]);
+
+  const filterSummary = useMemo(() => {
+    const labels: string[] = [];
+    const heatLabels: Record<string, string> = {
+      cold: "Frío",
+      warm: "Templado",
+      hot: "Caliente",
+    };
+    const intentLabels: Record<string, string> = {
+      BUY_NOW: "Compra",
+      PRICE_ASK: "Precio",
+      CONTENT_REQUEST: "Contenido",
+      CUSTOM_REQUEST: "Custom",
+      SUBSCRIBE: "Suscribir",
+      CANCEL: "Cancelar",
+      OFF_PLATFORM: "Off-platform",
+      SUPPORT: "Soporte",
+      OBJECTION: "Objeción",
+      RUDE_OR_HARASS: "Grosero",
+      OTHER: "Otro",
+    };
+
+    if (listSegment === "queue") labels.push("Cola");
+    if (followUpMode === "today") labels.push("Hoy");
+    if (followUpMode === "expired") labels.push("Caducados");
+    if (followUpMode === "priority") labels.push("Alta prioridad");
+    if (showOnlyWithNotes) labels.push("Con notas");
+    if (statusFilter === "archived") labels.push("Archivados");
+    if (statusFilter === "blocked") labels.push("Bloqueados");
+    if (tierFilter === "new") labels.push("Nuevos");
+    if (tierFilter === "regular") labels.push("Habituales");
+    if (tierFilter === "vip") labels.push("VIP");
+    if (onlyAtRisk) labels.push("En riesgo");
+    if (onlyWithExtras) labels.push("Con extras");
+    if (onlyWithFollowUp) labels.push("Con próxima acción");
+    if (onlyNeedsReply) labels.push("Responder");
+    if (heatFilter !== "all") labels.push(`Temp: ${heatLabels[heatFilter] ?? heatFilter}`);
+    if (intentFilter !== "all") labels.push(`Intención: ${intentLabels[intentFilter] ?? intentFilter}`);
+
+    return labels;
+  }, [
+    followUpMode,
+    heatFilter,
+    intentFilter,
+    listSegment,
+    onlyAtRisk,
+    onlyNeedsReply,
+    onlyWithExtras,
+    onlyWithFollowUp,
+    showOnlyWithNotes,
+    statusFilter,
+    tierFilter,
+  ]);
 
   async function handleCreateNewFan() {
     const label = newFanName.trim();
@@ -1120,18 +1482,30 @@ function SideBarInner() {
           if (statusFilter === "blocked") return fan.isBlocked === true;
           return fan.isArchived !== true && fan.isBlocked !== true;
         })
+        .filter((fan) => {
+          if (heatFilter === "all") return true;
+          const label = getTemperatureBucket(fan);
+          if (!label) return false;
+          if (heatFilter === "cold") return label === "COLD";
+          if (heatFilter === "warm") return label === "WARM";
+          if (heatFilter === "hot") return label === "HOT";
+          return true;
+        })
+        .filter((fan) => {
+          if (intentFilter === "all") return true;
+          const key = (fan as any).lastIntentKey ? String((fan as any).lastIntentKey).toUpperCase() : "";
+          if (!key) return false;
+          return key === intentFilter;
+        })
         .filter((fan) => (followUpMode === "priority" ? (fan.isHighPriority ?? false) : true))
         .filter((fan) => (!showOnlyWithNotes ? true : (fan.notesCount ?? 0) > 0))
         .filter((fan) => (!onlyWithExtras ? true : (fan.extrasSpentTotal ?? 0) > 0))
         .filter((fan) => {
           if (!onlyWithFollowUp) return true;
-          return Boolean(
-            fan.followUpOpen ||
-              Boolean(fan.nextActionAt) ||
-              Boolean(fan.nextActionNote?.trim()) ||
-              Boolean(fan.nextAction?.trim())
-          );
+          return fan.needsAction === true;
         })
+        .filter((fan) => (!onlyNeedsReply ? true : String(fan.nextActionKey ?? "").toUpperCase() === "REPLY"))
+        .filter((fan) => (!onlyAtRisk ? true : hasRiskFlag(fan)))
         .filter((fan) => {
           const tag = fan.followUpTag ?? getFollowUpTag(fan.membershipStatus, fan.daysLeft, fan.activeGrantTypes);
           if (followUpMode === "all" || followUpMode === "priority") return true;
@@ -1158,6 +1532,14 @@ function SideBarInner() {
           return tier === tierFilter;
         })
         .sort((a, b) => {
+          if (followUpMode === "priority") {
+            const pa = a.priorityScore ?? 0;
+            const pb = b.priorityScore ?? 0;
+            if (pa !== pb) return pb - pa;
+            const la = getLastActivityTimestamp(a);
+            const lb = getLastActivityTimestamp(b);
+            if (la !== lb) return lb - la;
+          }
           const highPriorityDelta = Number(!!b.isHighPriority) - Number(!!a.isHighPriority);
           if (highPriorityDelta !== 0) return highPriorityDelta;
           if (a.isHighPriority && b.isHighPriority) {
@@ -1199,13 +1581,17 @@ function SideBarInner() {
       fansWithScore,
       getHighPriorityTimestamp,
       getLastActivityTimestamp,
+      onlyAtRisk,
       onlyWithExtras,
       onlyWithFollowUp,
+      onlyNeedsReply,
       search,
       showOnlyWithNotes,
       followUpMode,
       statusFilter,
       tierFilter,
+      heatFilter,
+      intentFilter,
     ]
   );
 
@@ -1260,6 +1646,11 @@ function SideBarInner() {
   const extrasLast7Count = extrasLast7BaseCount;
   const extrasLast7Amount = extrasLast7BaseAmount;
   const legendRef = useRef<HTMLDivElement | null>(null);
+  const filtersPanelRef = useRef<HTMLDivElement | null>(null);
+  const filtersButtonRef = useRef<HTMLButtonElement | null>(null);
+  const filtersLastFocusRef = useRef<HTMLElement | null>(null);
+  const hasRestoredFiltersRef = useRef(false);
+  const skipPersistFiltersRef = useRef(false);
   const priorityQueue = useMemo(
     () => getPriorityQueue(fans as FanData[]),
     [fans, getPriorityQueue]
@@ -1272,6 +1663,47 @@ function SideBarInner() {
     () => queueList.map((entry) => entry.fan),
     [queueList]
   );
+
+  const handleAttendNext = useCallback(() => {
+    const baseList = listSegment === "queue" ? priorityQueueList : safeFilteredConversationsList;
+    const candidates = baseList.filter((fan) => !!fan?.id && !fan.isManager);
+    if (candidates.length === 0) {
+      showOpenFanToast("No hay fans disponibles.");
+      return;
+    }
+    const isReplyCandidate = (fan: FanData) => {
+      const key = typeof fan.nextActionKey === "string" ? fan.nextActionKey.trim().toUpperCase() : "";
+      if (key === "REPLY") return true;
+      if (!fan.lastInboundAt) return false;
+      const inboundTime = new Date(fan.lastInboundAt).getTime();
+      if (Number.isNaN(inboundTime)) return false;
+      const creatorTime = fan.lastCreatorMessageAt ? new Date(fan.lastCreatorMessageAt).getTime() : null;
+      return creatorTime === null || Number.isNaN(creatorTime) ? true : inboundTime > creatorTime;
+    };
+    const isExtrasCandidate = (fan: FanData) => (fan.extrasSpentTotal ?? 0) > 0;
+    const isAtRiskCandidate = (fan: FanData) => hasRiskFlag(fan);
+    const target =
+      candidates.find(isReplyCandidate) ??
+      candidates.find(isExtrasCandidate) ??
+      candidates.find(isAtRiskCandidate) ??
+      candidates[0];
+    if (!target?.id) {
+      showOpenFanToast("No hay fans disponibles.");
+      return;
+    }
+    if (typeof window !== "undefined") {
+      window.dispatchEvent(new CustomEvent("novsy:conversation:changing"));
+    }
+    const targetPath = router.pathname.startsWith("/creator/manager") ? "/creator" : router.pathname || "/creator";
+    openFanChat(router, target.id, {
+      shallow: true,
+      scroll: false,
+      pathname: targetPath,
+      focusComposer: true,
+      source: "attend_next",
+    });
+    setConversation(target as any);
+  }, [listSegment, priorityQueueList, safeFilteredConversationsList, router, setConversation, showOpenFanToast]);
 
   useEffect(() => {
     const sameLength = queueFans.length === priorityQueueList.length;
@@ -1337,18 +1769,41 @@ function SideBarInner() {
       params.set("limit", "30");
       params.set("filter", apiFilter);
       if (search.trim()) params.set("q", search.trim());
+      if (heatFilter !== "all") params.set("temp", heatFilter);
+      if (intentFilter !== "all") params.set("intent", intentFilter);
       if (cursor) params.set("cursor", cursor);
       return params;
     },
-    [apiFilter, search]
+    [apiFilter, search, heatFilter, intentFilter]
   );
 
   const fetchChatsPage = useCallback(
     async (url: string) => {
       recordDevRequest("fans");
       const res = await fetch(url, { cache: "no-store" });
-      if (!res.ok) throw new Error("Error fetching fans");
-      const data = await res.json();
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || data?.ok === false) {
+        const errorMessage =
+          typeof data?.message === "string" && data.message.trim().length > 0
+            ? data.message
+            : "Error cargando fans";
+        const error = new Error(errorMessage) as Error & {
+          code?: string | null;
+          fix?: string[] | null;
+          details?: string | null;
+        };
+        error.code =
+          typeof data?.code === "string"
+            ? data.code
+            : typeof data?.errorCode === "string"
+            ? data.errorCode
+            : typeof data?.error === "string"
+            ? data.error
+            : null;
+        error.fix = Array.isArray(data?.fix) ? data.fix : null;
+        error.details = typeof data?.details === "string" ? data.details : null;
+        throw error;
+      }
       const rawItems = Array.isArray(data.items)
         ? (data.items as Fan[])
         : Array.isArray(data.fans)
@@ -1374,7 +1829,11 @@ function SideBarInner() {
       return `/api/creator/chats?${params.toString()}`;
     },
     fetchChatsPage,
-    { refreshInterval: 0 }
+    {
+      refreshInterval: chatPollIntervalMs,
+      dedupingInterval: chatPollDedupeMs,
+      revalidateOnFocus: false,
+    }
   );
 
   const fetchedFans: ConversationListData[] = useMemo(() => {
@@ -1385,9 +1844,38 @@ function SideBarInner() {
   }, [chatPages]);
 
   const hasMore = Boolean(chatPages?.[chatPages.length - 1]?.hasMore);
+  const apiHeatCounts = chatPages?.[0]?.counts as { all: number; cold: number; warm: number; hot: number } | undefined;
+  const heatCounts = apiHeatCounts ?? heatCountsLocal;
+  const apiIntentCounts = chatPages?.[0]?.intentCounts as Record<string, number> | undefined;
+  const intentCounts = apiIntentCounts ?? intentCountsLocal;
+  const totalCount = typeof heatCounts.all === "number" ? heatCounts.all : totalCountLocal;
 
   useEffect(() => {
-    setFansError(chatError ? "Error cargando fans" : "");
+    if (!chatError) {
+      setFansError("");
+      setFansErrorCode(null);
+      setFansErrorFix(null);
+      return;
+    }
+    const code =
+      typeof (chatError as any)?.code === "string"
+        ? (chatError as any).code
+        : typeof (chatError as any)?.errorCode === "string"
+        ? (chatError as any).errorCode
+        : null;
+    const fix = Array.isArray((chatError as any)?.fix) ? ((chatError as any).fix as string[]) : null;
+    const isMigrationError = code === DB_SCHEMA_OUT_OF_SYNC_CODE;
+    const isCreatorMissing = code === "CREATOR_NOT_FOUND";
+    const message = isMigrationError
+      ? "Base de datos desactualizada."
+      : isCreatorMissing
+      ? "No se pudo resolver el creator."
+      : chatError instanceof Error && chatError.message
+      ? chatError.message
+      : "Error cargando fans";
+    setFansError(message);
+    setFansErrorCode(code);
+    setFansErrorFix(fix);
   }, [chatError]);
 
   useEffect(() => {
@@ -1428,59 +1916,6 @@ function SideBarInner() {
       }, { revalidate: false });
     },
     [mutateChats]
-  );
-
-  useEffect(() => {
-    if (!chatPages) return;
-    lastFansSuccessAtRef.current = Date.now();
-    lastFansSuccessQueryRef.current = buildFansQuery(null).toString();
-  }, [buildFansQuery, chatPages]);
-
-  const scheduleFansRefetch = useCallback(
-    (reason?: string, options?: { realtime?: boolean }) => {
-      const logSkip = (skipReason: string) => {
-        if (process.env.NODE_ENV !== "production") {
-          console.debug(`[fans] refetch skipped reason=${skipReason}`);
-        }
-      };
-      if (options?.realtime) {
-        const normalizedReason = typeof reason === "string" ? reason.trim().toLowerCase() : "";
-        if (normalizedReason === "heartbeat" || normalizedReason === "noop" || normalizedReason === "no-op") {
-          logSkip("realtime_noop");
-          return;
-        }
-      }
-      if (fansRefetchTimerRef.current) {
-        clearTimeout(fansRefetchTimerRef.current);
-      }
-      const run = () => {
-        const now = Date.now();
-        if (fansRefetchInFlightRef.current) {
-          logSkip("in_flight");
-          fansRefetchTimerRef.current = setTimeout(run, 1000);
-          return;
-        }
-        const sinceLast = now - lastFansRefetchAtRef.current;
-        if (sinceLast < 1000) {
-          logSkip("throttle_recent_fetch");
-          fansRefetchTimerRef.current = setTimeout(run, 1000 - sinceLast);
-          return;
-        }
-        const queryString = buildFansQuery(null).toString();
-        const lastSuccessAt = lastFansSuccessAtRef.current;
-        if (queryString === lastFansSuccessQueryRef.current && now - lastSuccessAt < 1000) {
-          logSkip("same_query_recent_success");
-          return;
-        }
-        fansRefetchInFlightRef.current = true;
-        lastFansRefetchAtRef.current = now;
-        void mutateChats().finally(() => {
-          fansRefetchInFlightRef.current = false;
-        });
-      };
-      fansRefetchTimerRef.current = setTimeout(run, 1000);
-    },
-    [buildFansQuery, mutateChats]
   );
 
   const fetchFanById = useCallback(
@@ -1610,10 +2045,7 @@ function SideBarInner() {
   const handleFanMessageSent = useCallback(
     (detail: FanMessageSentPayload) => {
       const fanId = typeof detail?.fanId === "string" ? detail.fanId : "";
-      if (!fanId) {
-        scheduleFansRefetch("fan_message_sent", { realtime: true });
-        return;
-      }
+      if (!fanId) return;
       const now = new Date();
       const sentAt = typeof detail?.sentAt === "string" ? new Date(detail.sentAt) : now;
       const safeSentAt = Number.isNaN(sentAt.getTime()) ? now : sentAt;
@@ -1667,7 +2099,7 @@ function SideBarInner() {
       });
       void refreshExtrasSummary();
     },
-    [conversation?.id, conversation?.isManager, refreshExtrasSummary, scheduleFansRefetch]
+    [conversation?.id, conversation?.isManager, refreshExtrasSummary]
   );
 
   const handlePurchaseCreated = useCallback(
@@ -1730,10 +2162,9 @@ function SideBarInner() {
         };
         return [updated, ...prev.slice(0, index), ...prev.slice(index + 1)];
       });
-      scheduleFansRefetch("purchase_created", { realtime: true });
       void refreshExtrasSummary();
     },
-    [conversation?.id, conversation?.isManager, playPurchaseSound, refreshExtrasSummary, scheduleFansRefetch, updateChatPages]
+    [conversation?.id, conversation?.isManager, playPurchaseSound, refreshExtrasSummary, updateChatPages]
   );
 
   const handleVoiceTranscriptUpdated = useCallback(
@@ -1759,9 +2190,8 @@ function SideBarInner() {
         };
         return [updated, ...prev.slice(0, index), ...prev.slice(index + 1)];
       });
-      scheduleFansRefetch("voice_transcript", { realtime: true });
     },
-    [scheduleFansRefetch, updateChatPages]
+    [updateChatPages]
   );
 
   const handlePurchaseSeen = useCallback((detail: { fanId?: string; purchaseIds?: string[] }) => {
@@ -1787,6 +2217,108 @@ function SideBarInner() {
   );
 
   useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (hasRestoredFiltersRef.current) return;
+    try {
+      const raw = window.localStorage.getItem(FILTERS_STORAGE_KEY);
+      if (!raw) {
+        hasRestoredFiltersRef.current = true;
+        return;
+      }
+      const parsed = JSON.parse(raw) as Record<string, unknown> & { version?: number };
+      if (typeof parsed.version === "number" && parsed.version !== FILTERS_STORAGE_VERSION) {
+        hasRestoredFiltersRef.current = true;
+        return;
+      }
+      const nextDraft: FiltersDraft = {
+        ...INITIAL_FILTERS_DRAFT,
+        listSegment: isListSegment(parsed.listSegment) ? parsed.listSegment : INITIAL_FILTERS_DRAFT.listSegment,
+        followUpMode: isFollowUpMode(parsed.followUpMode) ? parsed.followUpMode : INITIAL_FILTERS_DRAFT.followUpMode,
+        statusFilter: isStatusFilter(parsed.statusFilter) ? parsed.statusFilter : INITIAL_FILTERS_DRAFT.statusFilter,
+        tierFilter: isTierFilter(parsed.tierFilter) ? parsed.tierFilter : INITIAL_FILTERS_DRAFT.tierFilter,
+        showOnlyWithNotes:
+          typeof parsed.showOnlyWithNotes === "boolean"
+            ? parsed.showOnlyWithNotes
+            : INITIAL_FILTERS_DRAFT.showOnlyWithNotes,
+        onlyWithExtras:
+          typeof parsed.onlyWithExtras === "boolean"
+            ? parsed.onlyWithExtras
+            : INITIAL_FILTERS_DRAFT.onlyWithExtras,
+        onlyWithFollowUp:
+          typeof parsed.onlyWithFollowUp === "boolean"
+            ? parsed.onlyWithFollowUp
+            : INITIAL_FILTERS_DRAFT.onlyWithFollowUp,
+        onlyNeedsReply:
+          typeof parsed.onlyNeedsReply === "boolean"
+            ? parsed.onlyNeedsReply
+            : INITIAL_FILTERS_DRAFT.onlyNeedsReply,
+        onlyAtRisk:
+          typeof parsed.onlyAtRisk === "boolean"
+            ? parsed.onlyAtRisk
+            : INITIAL_FILTERS_DRAFT.onlyAtRisk,
+      };
+      skipPersistFiltersRef.current = true;
+      applyDraftState(nextDraft);
+      if (isHeatFilter(parsed.heatFilter)) {
+        setHeatFilter(parsed.heatFilter);
+      }
+      if (isIntentFilter(parsed.intentFilter)) {
+        setIntentFilter(parsed.intentFilter);
+      }
+      if (typeof parsed.showEmptyFilters === "boolean") {
+        setShowEmptyFilters(parsed.showEmptyFilters);
+      }
+      if (typeof parsed.showMoreSegments === "boolean") {
+        setShowMoreSegments(parsed.showMoreSegments);
+      }
+    } catch (_err) {
+      // ignore invalid storage payloads
+    } finally {
+      hasRestoredFiltersRef.current = true;
+    }
+  }, [applyDraftState, setHeatFilter, setIntentFilter, setShowEmptyFilters, setShowMoreSegments]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (!hasRestoredFiltersRef.current) return;
+    if (skipPersistFiltersRef.current) {
+      skipPersistFiltersRef.current = false;
+      return;
+    }
+    const payload = {
+      version: FILTERS_STORAGE_VERSION,
+      listSegment,
+      followUpMode,
+      statusFilter,
+      tierFilter,
+      showOnlyWithNotes,
+      onlyWithExtras,
+      onlyWithFollowUp,
+      onlyNeedsReply,
+      onlyAtRisk,
+      heatFilter,
+      intentFilter,
+      showEmptyFilters,
+      showMoreSegments,
+    };
+    window.localStorage.setItem(FILTERS_STORAGE_KEY, JSON.stringify(payload));
+  }, [
+    followUpMode,
+    heatFilter,
+    intentFilter,
+    listSegment,
+    onlyAtRisk,
+    onlyNeedsReply,
+    onlyWithExtras,
+    onlyWithFollowUp,
+    showEmptyFilters,
+    showMoreSegments,
+    showOnlyWithNotes,
+    statusFilter,
+    tierFilter,
+  ]);
+
+  useEffect(() => {
     function handleFanDataUpdated(event: Event) {
       const custom = event as CustomEvent;
       const rawFans = Array.isArray(custom.detail?.fans) ? (custom.detail.fans as Fan[]) : null;
@@ -1806,7 +2338,7 @@ function SideBarInner() {
         setFansError("");
         return;
       }
-      scheduleFansRefetch("fan_data_updated");
+      void mutateChats();
     }
 
     window.addEventListener("fanDataUpdated", handleFanDataUpdated as EventListener);
@@ -1845,7 +2377,7 @@ function SideBarInner() {
       window.removeEventListener("fanDataUpdated", handleFanDataUpdated as EventListener);
       window.removeEventListener("applyChatFilter", handleExternalFilter as EventListener);
     };
-  }, [applyFilter, mapFans, mutateChats, scheduleFansRefetch]);
+  }, [applyFilter, mapFans, mutateChats]);
 
   useCreatorRealtime({
     onExtrasUpdated: handleExtrasUpdated,
@@ -1889,9 +2421,15 @@ function SideBarInner() {
             lastCreatorMessageAt: event.isIncoming ? current.lastCreatorMessageAt : event.createdAt,
             unreadCount: nextUnread,
           };
-          return [updated, ...prev.slice(0, index), ...prev.slice(index + 1)];
+          const hasActivityChange =
+            current.lastActivityAt !== event.createdAt ||
+            current.lastMessageAt !== event.createdAt ||
+            updated.lastMessage !== current.lastMessage;
+          if (!hasActivityChange && updated.unreadCount === current.unreadCount) return prev;
+          const next = prev.slice();
+          next.splice(index, 1);
+          return [updated, ...next];
         });
-        scheduleFansRefetch("message_created", { realtime: true });
         return;
       }
       if (event.type === "thread_read") {
@@ -1907,10 +2445,9 @@ function SideBarInner() {
               : fan
           )
         );
-        scheduleFansRefetch("thread_read", { realtime: true });
       }
     });
-  }, [conversation?.id, conversation?.isManager, scheduleFansRefetch, updateChatPages]);
+  }, [conversation?.id, conversation?.isManager, updateChatPages]);
 
   useEffect(() => {
     const fanIdFromQuery = getFanIdFromQuery({ fan: queryFan, fanId: queryFanId });
@@ -1968,6 +2505,34 @@ function SideBarInner() {
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, [showLegend]);
 
+  useEffect(() => {
+    if (!showFiltersPanel) return;
+    setFiltersDraft(getFilterSnapshot());
+  }, [getFilterSnapshot, showFiltersPanel]);
+
+  useEffect(() => {
+    if (!showFiltersPanel) {
+      const target = filtersLastFocusRef.current ?? filtersButtonRef.current;
+      target?.focus();
+      filtersLastFocusRef.current = null;
+      return;
+    }
+    if (typeof document !== "undefined") {
+      filtersLastFocusRef.current = document.activeElement as HTMLElement | null;
+    }
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        setShowFiltersPanel(false);
+      }
+    };
+    document.addEventListener("keydown", handleKeyDown);
+    requestAnimationFrame(() => {
+      filtersPanelRef.current?.focus();
+    });
+    return () => document.removeEventListener("keydown", handleKeyDown);
+  }, [showFiltersPanel, setShowFiltersPanel]);
+
   function formatVoiceDuration(durationMs: number) {
     if (!Number.isFinite(durationMs) || durationMs <= 0) return "";
     const totalSeconds = Math.max(0, Math.round(durationMs / 1000));
@@ -2013,6 +2578,7 @@ function SideBarInner() {
 
   const isLoading = !chatPages && !chatError;
   const isError = Boolean(fansError);
+  const isCreatorMissing = fansErrorCode === "CREATOR_NOT_FOUND";
   const filterRowClass =
     "flex items-center justify-between gap-3 rounded-lg px-2 py-1.5 text-left transition hover:bg-[color:var(--surface-2)] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[color:var(--ring)]";
   const countPillClass =
@@ -2050,6 +2616,87 @@ function SideBarInner() {
     const extraCount = Math.max(0, boardPurchaseSummary.totalCount - 1);
     return { label, icon: ui.icon, extraCount };
   }, [boardPurchaseSummary, fans]);
+  const isFiltersDirty = useMemo(() => {
+    const snapshot = getFilterSnapshot();
+    return (
+      snapshot.listSegment !== filtersDraft.listSegment ||
+      snapshot.followUpMode !== filtersDraft.followUpMode ||
+      snapshot.statusFilter !== filtersDraft.statusFilter ||
+      snapshot.tierFilter !== filtersDraft.tierFilter ||
+      snapshot.showOnlyWithNotes !== filtersDraft.showOnlyWithNotes ||
+      snapshot.onlyWithExtras !== filtersDraft.onlyWithExtras ||
+      snapshot.onlyWithFollowUp !== filtersDraft.onlyWithFollowUp ||
+      snapshot.onlyNeedsReply !== filtersDraft.onlyNeedsReply ||
+      snapshot.onlyAtRisk !== filtersDraft.onlyAtRisk
+    );
+  }, [filtersDraft, getFilterSnapshot]);
+  const hasActiveFilters = filterSummary.length > 0;
+  const hasActiveFiltersOrSearch = hasActiveFilters || search.trim().length > 0;
+  const filterBadgeLabel = filterSummary.length > 9 ? "9+" : String(filterSummary.length);
+  const filterSummaryLabel = filterSummary.join(" · ");
+  const shouldShowFilterRow = (count: number, isActive = false) =>
+    showEmptyFilters || count > 0 || (isActive && showEmptyFilters);
+  const hasSecondarySegments =
+    showEmptyFilters ||
+    withNotesCount > 0 ||
+    archivedCount > 0 ||
+    blockedCount > 0 ||
+    packsCount > 0 ||
+    filtersDraft.showOnlyWithNotes ||
+    filtersDraft.statusFilter !== "active" ||
+    showPacksPanel;
+  const isDraftTodos =
+    filtersDraft.listSegment === "all" &&
+    filtersDraft.statusFilter === "active" &&
+    filtersDraft.followUpMode === "all" &&
+    !filtersDraft.showOnlyWithNotes &&
+    filtersDraft.tierFilter === "all";
+  const isDraftQueue = filtersDraft.listSegment === "queue";
+  const isDraftToday =
+    filtersDraft.listSegment === "all" &&
+    filtersDraft.statusFilter === "active" &&
+    filtersDraft.followUpMode === "today" &&
+    !filtersDraft.showOnlyWithNotes;
+  const isDraftExpired =
+    filtersDraft.listSegment === "all" &&
+    filtersDraft.statusFilter === "active" &&
+    filtersDraft.followUpMode === "expired" &&
+    !filtersDraft.showOnlyWithNotes;
+  const isDraftPriority =
+    filtersDraft.listSegment === "all" &&
+    filtersDraft.statusFilter === "active" &&
+    filtersDraft.followUpMode === "priority";
+  const isDraftNew =
+    filtersDraft.listSegment === "all" &&
+    filtersDraft.statusFilter === "active" &&
+    filtersDraft.tierFilter === "new";
+  const isDraftRegular =
+    filtersDraft.listSegment === "all" &&
+    filtersDraft.statusFilter === "active" &&
+    filtersDraft.tierFilter === "regular";
+  const isDraftNotes =
+    filtersDraft.listSegment === "all" &&
+    filtersDraft.statusFilter === "active" &&
+    filtersDraft.showOnlyWithNotes;
+  const isDraftArchived = filtersDraft.statusFilter === "archived";
+  const isDraftBlocked = filtersDraft.statusFilter === "blocked";
+  const renderSwitch = (active: boolean) => (
+    <span
+      className={clsx(
+        "relative inline-flex h-5 w-9 items-center rounded-full border px-0.5 transition",
+        active
+          ? "border-[color:var(--brand)] bg-[color:rgba(var(--brand-rgb),0.2)]"
+          : "border-[color:var(--surface-border)] bg-[color:var(--surface-2)]"
+      )}
+    >
+      <span
+        className={clsx(
+          "inline-block h-4 w-4 rounded-full bg-[color:var(--text)] transition",
+          active ? "translate-x-4" : "translate-x-0"
+        )}
+      />
+    </span>
+  );
   return (
     <div
       data-creator-board="true"
@@ -2068,16 +2715,65 @@ function SideBarInner() {
       <div className="mb-2 px-3">
         {isError && (
           <div className="mb-2 rounded-xl border border-[color:rgba(244,63,94,0.5)] bg-[color:rgba(244,63,94,0.12)] px-3 py-2 text-[12px] text-[color:var(--text)]">
-            <div className="flex items-center justify-between">
+            <div className="flex items-center justify-between gap-2">
               <span>{fansError || "No se pudo cargar la lista de fans."}</span>
-              <button
-                type="button"
-                className="rounded-md border border-[color:rgba(244,63,94,0.4)] bg-[color:rgba(244,63,94,0.2)] px-2 py-1 text-[11px] font-semibold hover:bg-[color:rgba(244,63,94,0.28)]"
-                onClick={() => mutateChats()}
-              >
-                Reintentar
-              </button>
+              <div className="flex items-center gap-2">
+                {isCreatorMissing ? (
+                  <button
+                    type="button"
+                    className="rounded-md border border-[color:rgba(244,63,94,0.4)] bg-[color:rgba(244,63,94,0.2)] px-2 py-1 text-[11px] font-semibold hover:bg-[color:rgba(244,63,94,0.28)]"
+                    onClick={() => {
+                      if (typeof window !== "undefined") window.location.reload();
+                    }}
+                  >
+                    Reiniciar sesión
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    className="rounded-md border border-[color:rgba(244,63,94,0.4)] bg-[color:rgba(244,63,94,0.2)] px-2 py-1 text-[11px] font-semibold hover:bg-[color:rgba(244,63,94,0.28)]"
+                    onClick={() => mutateChats()}
+                  >
+                    Reintentar
+                  </button>
+                )}
+                {isCreatorMissing && process.env.NODE_ENV !== "production" && (
+                  <button
+                    type="button"
+                    className="rounded-md border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-2 py-1 text-[11px] font-semibold text-[color:var(--text)] hover:bg-[color:var(--surface-1)]"
+                    onClick={() => mutateChats()}
+                  >
+                    Crear creator demo
+                  </button>
+                )}
+              </div>
             </div>
+            {fansErrorCode === DB_SCHEMA_OUT_OF_SYNC_CODE && process.env.NODE_ENV !== "production" && (
+              <div className="mt-2 flex items-center justify-between text-[11px] text-[color:var(--muted)]">
+                <span>
+                  Ejecuta:{" "}
+                  <span className="font-mono">
+                    {(fansErrorFix && fansErrorFix.length > 0 ? fansErrorFix[0] : "npm run db:reset")}
+                  </span>{" "}
+                  <span>(dev)</span>
+                </span>
+                <button
+                  type="button"
+                  className="rounded-md border border-[color:var(--surface-border)] px-2 py-0.5 text-[10px] font-semibold hover:bg-[color:var(--surface-2)]"
+                  onClick={async () => {
+                    const command =
+                      fansErrorFix && fansErrorFix.length > 0 ? fansErrorFix[0] : "npm run db:reset";
+                    try {
+                      await navigator.clipboard.writeText(command);
+                    } catch (err) {
+                      console.warn("No se pudo copiar el comando", err);
+                    }
+                  }}
+                >
+                  Copiar
+                </button>
+              </div>
+            )}
           </div>
         )}
         {openFanToast && (
@@ -2236,339 +2932,6 @@ function SideBarInner() {
             )}
           </>
         )}
-        <LeftSectionCard className="mb-2">
-          <div className="flex flex-col gap-2 text-[11px] text-[color:var(--muted)]">
-            <div className="flex items-center justify-between">
-              <button
-                type="button"
-                onClick={() => {
-                  applyFilter("all", false);
-                }}
-                className={clsx(filterRowClass, "flex-1")}
-              >
-                <span className={clsx("text-[color:var(--muted)]", followUpMode === "all" && !showOnlyWithNotes && "font-semibold text-[color:var(--warning)]")}>
-                  Hoy
-                </span>
-                <span
-                  className={clsx(
-                    countPillClass,
-                    totalCount > 0 ? "bg-[color:var(--surface-2)] text-[color:var(--text)]" : "bg-[color:var(--surface-2)] text-[color:var(--muted)]"
-                  )}
-                >
-                  {totalCount} fan{totalCount === 1 ? "" : "s"}
-                </span>
-              </button>
-              <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  aria-label="Qué significa cada etiqueta"
-                  onClick={() => setShowLegend((prev) => !prev)}
-                  className={clsx(
-                    "inline-flex h-6 w-6 items-center justify-center rounded-full border text-xs font-bold transition focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[color:var(--ring)]",
-                    showLegend
-                      ? "border-[color:var(--brand)] bg-[color:rgba(var(--brand-rgb),0.18)] text-[color:var(--text)]"
-                      : "border-[color:var(--surface-border)] bg-[color:var(--surface-2)] text-[color:var(--text)] hover:border-[color:var(--brand)] hover:text-[color:var(--text)]"
-                  )}
-                >
-                  i
-                </button>
-                <button
-                  type="button"
-                  className="rounded-md border border-[color:rgba(var(--brand-rgb),0.4)] bg-[color:rgba(var(--brand-rgb),0.1)] px-2 py-1 text-[10px] font-semibold text-[color:var(--text)] hover:bg-[color:rgba(var(--brand-rgb),0.2)] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[color:var(--ring)]"
-                  onClick={() => setShowAllTodayMetrics((prev) => !prev)}
-                >
-                  {showAllTodayMetrics ? "Ver menos" : "Ver más"}
-                </button>
-              </div>
-            </div>
-            {showLegend && (
-              <div
-                ref={legendRef}
-                className="mt-2 rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-3 py-3 text-[11px] text-[color:var(--text)] shadow-lg"
-              >
-                <div className="flex items-center justify-between mb-1">
-                  <span className="text-[12px] font-semibold text-[color:var(--text)]">Qué significa cada etiqueta</span>
-                  <button
-                    type="button"
-                    className="text-[11px] text-[color:var(--muted)] hover:text-[color:var(--text)]"
-                    onClick={() => setShowLegend(false)}
-                  >
-                    Cerrar
-                  </button>
-                </div>
-                <ul className="space-y-1 text-[color:var(--muted)]">
-                  <li><span className="font-semibold">VIP</span> → Ha gastado más de {HIGH_PRIORITY_LIMIT} € en total contigo.</li>
-                  <li>
-                    <span className="inline-flex items-center gap-1 font-semibold">
-                      <IconGlyph name="pin" className="h-3.5 w-3.5 text-[color:var(--warning)]" />
-                      <span>Alta prioridad</span>
-                    </span>{" "}
-                    → Marcados por ti para atender primero.
-                  </li>
-                  <li><span className="font-semibold">Extras</span> → Ya te han comprado contenido extra (PPV).</li>
-                  <li>
-                    <span className="inline-flex items-center gap-1 font-semibold">
-                      <IconGlyph name="clock" className="h-3.5 w-3.5 text-[color:var(--warning)]" />
-                      <span>Próxima acción</span>
-                    </span>{" "}
-                    → Le debes un mensaje o seguimiento hoy.
-                  </li>
-                  <li><span className="font-semibold">Seguimiento hoy</span> → Suscripción a punto de renovarse o tarea marcada para hoy.</li>
-                  <li><span className="font-semibold">Cola</span> → Lista de chats importantes para hoy, ordenados por prioridad.</li>
-                </ul>
-                <div className="mt-3 border-t border-[color:var(--surface-border)] pt-2">
-                  <div className="text-[12px] font-semibold text-[color:var(--text)] mb-1">Cómo usarlo hoy</div>
-                  <ol className="list-decimal list-inside space-y-1 text-[color:var(--muted)]">
-                    <li>Abre «Cola» para ver tu cola del día.</li>
-                    <li>Usa «Siguiente venta» hasta vaciar la cola.</li>
-                    <li>Revisa «Alta prioridad» y «Con extras» para cerrar el día.</li>
-                  </ol>
-                </div>
-              </div>
-            )}
-            <button
-              type="button"
-              onClick={() => {
-                toggleFollowUpMode("today");
-              }}
-              className={clsx(filterRowClass, "w-full")}
-            >
-              <span className={clsx(followUpMode === "today" && !showOnlyWithNotes && "font-semibold text-[color:var(--warning)]")}>
-                Seguimiento hoy
-                <span
-                  className="ml-1 inline-flex h-4 w-4 items-center justify-center rounded-full border border-[color:var(--surface-border-hover)] text-[9px] text-[color:var(--muted)]"
-                  title="Chats con renovación o tarea marcada para hoy."
-                >
-                  i
-                </span>
-              </span>
-              <span
-                className={clsx(
-                  countPillClass,
-                  followUpTodayCount > 0
-                    ? "bg-[color:rgba(var(--brand-rgb),0.18)] text-[color:var(--text)]"
-                    : "bg-[color:var(--surface-2)] text-[color:var(--muted)]",
-                  followUpMode === "today" && !showOnlyWithNotes && "ring-1 ring-[color:var(--ring)]"
-                )}
-              >
-                {followUpTodayCount}
-              </span>
-            </button>
-            {showAllTodayMetrics && (
-              <>
-                <button
-                  type="button"
-                  onClick={() => {
-                    toggleFollowUpMode("expired");
-                  }}
-                  className={clsx(filterRowClass, "w-full")}
-                >
-                  <span className={clsx(followUpMode === "expired" && !showOnlyWithNotes && "font-semibold text-[color:var(--warning)]")}>Caducados</span>
-                  <span
-                    className={clsx(
-                      countPillClass,
-                      expiredCount > 0 ? "bg-[color:rgba(244,63,94,0.16)] text-[color:var(--text)]" : "bg-[color:var(--surface-2)] text-[color:var(--muted)]",
-                      followUpMode === "expired" && !showOnlyWithNotes && "ring-1 ring-[color:var(--ring)]"
-                    )}
-                  >
-                    {expiredCount}
-                  </span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => applyFilter("all", true)}
-                  className={clsx(filterRowClass, "w-full")}
-                >
-                  <span className={clsx(showOnlyWithNotes && "font-semibold text-[color:var(--warning)]")}>Con notas</span>
-                  <span
-                    className={clsx(
-                      countPillClass,
-                      withNotesCount > 0 ? "bg-[color:var(--surface-2)] text-[color:var(--text)]" : "bg-[color:var(--surface-2)] text-[color:var(--muted)]",
-                      showOnlyWithNotes && "ring-1 ring-[color:var(--ring)]"
-                    )}
-                  >
-                    {withNotesCount}
-                  </span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    selectStatusFilter("archived");
-                    setShowAllTodayMetrics(false);
-                  }}
-                  className={clsx(filterRowClass, "w-full")}
-                >
-                  <span className={clsx(statusFilter === "archived" && "font-semibold text-[color:var(--warning)]")}>Archivados</span>
-                  <span
-                    className={clsx(
-                      countPillClass,
-                      archivedCount > 0 ? "bg-[color:var(--surface-2)] text-[color:var(--text)]" : "bg-[color:var(--surface-2)] text-[color:var(--muted)]",
-                      statusFilter === "archived" && "ring-1 ring-[color:var(--ring)]"
-                    )}
-                  >
-                    {archivedCount}
-                  </span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    selectStatusFilter("blocked");
-                    setShowAllTodayMetrics(false);
-                  }}
-                  className={clsx(filterRowClass, "w-full")}
-                >
-                  <span className={clsx(statusFilter === "blocked" && "font-semibold text-[color:var(--warning)]")}>Bloqueados</span>
-                  <span
-                    className={clsx(
-                      countPillClass,
-                      blockedCount > 0 ? "bg-[color:rgba(244,63,94,0.16)] text-[color:var(--text)]" : "bg-[color:var(--surface-2)] text-[color:var(--muted)]",
-                      statusFilter === "blocked" && "ring-1 ring-[color:var(--ring)]"
-                    )}
-                  >
-                    {blockedCount}
-                  </span>
-                </button>
-              </>
-            )}
-            <button
-              type="button"
-              onClick={() => applyFilter(followUpMode, showOnlyWithNotes, tierFilter, !onlyWithFollowUp)}
-              className={clsx(filterRowClass, "w-full")}
-            >
-              <span className={clsx(onlyWithFollowUp && "font-semibold text-[color:var(--warning)]")}>
-                <span className="inline-flex items-center gap-1">
-                  <IconGlyph name="clock" className="h-3.5 w-3.5 text-[color:var(--warning)]" />
-                  <span>Con próxima acción</span>
-                </span>
-                <span
-                  className="ml-1 inline-flex h-4 w-4 items-center justify-center rounded-full border border-[color:var(--surface-border-hover)] text-[9px] text-[color:var(--muted)]"
-                  title="Tienes una tarea anotada para este fan (nota con rayo)."
-                >
-                  i
-                </span>
-              </span>
-              <span
-                className={clsx(
-                  countPillClass,
-                  withFollowUpCount > 0 ? "bg-[color:rgba(245,158,11,0.16)] text-[color:var(--text)]" : "bg-[color:var(--surface-2)] text-[color:var(--muted)]",
-                  onlyWithFollowUp && "ring-1 ring-[color:var(--ring)]"
-                )}
-              >
-                {withFollowUpCount}
-              </span>
-            </button>
-            {showAllTodayMetrics && (
-              <>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setOnlyWithExtras((prev) => !prev);
-                    setListSegment("all");
-                    setActiveQueueFilter(null);
-                    scrollListToTop();
-                  }}
-                  className={clsx(filterRowClass, "w-full")}
-                >
-                  <span className={clsx(onlyWithExtras && "font-semibold text-[color:var(--warning)]")}>
-                    <span className="inline-flex items-center gap-1">
-                      <IconGlyph name="coin" className="h-3.5 w-3.5 text-[color:var(--warning)]" />
-                      <span>Con extras</span>
-                    </span>
-                    <span
-                      className="ml-1 inline-flex h-4 w-4 items-center justify-center rounded-full border border-[color:var(--surface-border-hover)] text-[9px] text-[color:var(--muted)]"
-                      title="Este fan ya te ha comprado contenido extra (PPV)."
-                    >
-                      i
-                    </span>
-                  </span>
-                  <span
-                    className={clsx(
-                      countPillClass,
-                      withExtrasCount > 0 ? "bg-[color:rgba(245,158,11,0.16)] text-[color:var(--text)]" : "bg-[color:var(--surface-2)] text-[color:var(--muted)]",
-                      onlyWithExtras && "ring-1 ring-[color:var(--ring)]"
-                    )}
-                  >
-                    {withExtrasCount}
-                  </span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    const next = followUpMode === "priority" ? "all" : "priority";
-                    setFollowUpMode(next);
-                    setTierFilter("all");
-                    setListSegment("all");
-                    setActiveQueueFilter(null);
-                    scrollListToTop();
-                  }}
-                  className={clsx(filterRowClass, "w-full")}
-                >
-                  <span className={clsx(followUpMode === "priority" && "font-semibold text-[color:var(--warning)]")}>
-                    <span className="inline-flex items-center gap-1">
-                      <IconGlyph name="pin" className="h-3.5 w-3.5 text-[color:var(--warning)]" />
-                      <span>Alta prioridad</span>
-                    </span>
-                    <span
-                      className="ml-1 inline-flex h-4 w-4 items-center justify-center rounded-full border border-[color:var(--surface-border-hover)] text-[9px] text-[color:var(--muted)]"
-                      title="Marcados por ti para atender primero."
-                    >
-                      i
-                    </span>
-                  </span>
-                  <span
-                    className={clsx(
-                      countPillClass,
-                      priorityCount > 0 ? "bg-[color:rgba(245,158,11,0.16)] text-[color:var(--text)]" : "bg-[color:var(--surface-2)] text-[color:var(--muted)]",
-                      followUpMode === "priority" && "ring-1 ring-[color:var(--ring)]"
-                    )}
-                  >
-                    {priorityCount}
-                  </span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => applyFilter(followUpMode, showOnlyWithNotes, tierFilter === "regular" ? "all" : "regular")}
-                  className={clsx(filterRowClass, "w-full")}
-                >
-                  <span className={clsx(tierFilter === "regular" && "font-semibold text-[color:var(--warning)]")}>Habituales</span>
-                  <span
-                    className={clsx(
-                      countPillClass,
-                      regularCount > 0 ? "bg-[color:var(--surface-2)] text-[color:var(--text)]" : "bg-[color:var(--surface-2)] text-[color:var(--muted)]",
-                      tierFilter === "regular" && "ring-1 ring-[color:var(--ring)]"
-                    )}
-                  >
-                    {regularCount}
-                  </span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => applyFilter(followUpMode, showOnlyWithNotes, tierFilter === "new" ? "all" : "new")}
-                  className={clsx(filterRowClass, "w-full")}
-                >
-                  <span className={clsx(tierFilter === "new" && "font-semibold text-[color:var(--warning)]")}>Nuevos</span>
-                  <span
-                    className={clsx(
-                      countPillClass,
-                      newCount > 0 ? "bg-[color:var(--surface-2)] text-[color:var(--text)]" : "bg-[color:var(--surface-2)] text-[color:var(--muted)]",
-                      tierFilter === "new" && "ring-1 ring-[color:var(--ring)]"
-                    )}
-                  >
-                    {newCount}
-                  </span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setShowPacksPanel((prev) => !prev)}
-                  className={clsx(filterRowClass, "w-full")}
-                >
-                  <span className={clsx(showPacksPanel && "font-semibold text-[color:var(--warning)]")}>Packs disponibles ({packsCount})</span>
-                  <span className={clsx(showPacksPanel && "font-semibold text-[color:var(--warning)]")}>⋯</span>
-                </button>
-              </>
-            )}
-          </div>
-        </LeftSectionCard>
       </div>
       {showPacksPanel && (
         <div className="mb-2 px-3">
@@ -2603,75 +2966,17 @@ function SideBarInner() {
       >
         <div className="sticky top-0 z-30 bg-[color:var(--surface-1)] pb-2">
           <div className="relative">
-            <div className="px-3 pt-2">
-              <div
-                className={clsx(
-                  "flex items-center gap-2 text-xs",
-                  listSegment === "all" ? "overflow-x-auto whitespace-nowrap flex-nowrap" : "justify-end"
-                )}
-              >
-                {listSegment === "all" && (
-                  <>
-                    <Chip
-                      variant={followUpMode === "today" ? "accent" : "subtle"}
-                      tone="amber"
-                      size="sm"
-                      active={followUpMode === "today"}
-                      onClick={() => toggleFollowUpMode("today")}
-                      className="shrink-0"
-                    >
-                      Seguimiento hoy{followUpTodayCount > 0 ? ` (${followUpTodayCount})` : ""}
-                    </Chip>
-                    <Chip
-                      variant={followUpMode === "expired" ? "accent" : "subtle"}
-                      tone="danger"
-                      size="sm"
-                      active={followUpMode === "expired"}
-                      onClick={() => toggleFollowUpMode("expired")}
-                      className="shrink-0"
-                    >
-                      Caducados{expiredCount > 0 ? ` (${expiredCount})` : ""}
-                    </Chip>
-                    <Chip
-                      variant={followUpMode === "priority" ? "accent" : "subtle"}
-                      tone="amber"
-                      size="sm"
-                      active={followUpMode === "priority"}
-                      onClick={() => toggleFollowUpMode("priority")}
-                      className="shrink-0"
-                    >
-                      Alta prioridad{priorityCount > 0 ? ` (${priorityCount})` : ""}
-                    </Chip>
-                  </>
-                )}
-                <div
-                  className={clsx(
-                    "inline-flex items-center gap-2 shrink-0",
-                    listSegment === "all" && "ml-auto"
-                  )}
+            <div className="px-3 pt-2 w-full">
+              <div className="flex items-center justify-end mb-2">
+                <button
+                  type="button"
+                  onClick={handleAttendNext}
+                  className="inline-flex items-center gap-2 rounded-full border border-[color:var(--brand)] bg-[color:rgba(var(--brand-rgb),0.12)] px-3 py-1.5 text-[11px] font-semibold text-[color:var(--text)] hover:bg-[color:rgba(var(--brand-rgb),0.2)]"
                 >
-                  <Chip
-                    variant={listSegment === "all" ? "accent" : "subtle"}
-                    tone={listSegment === "all" ? "emerald" : "neutral"}
-                    size="sm"
-                    active={listSegment === "all"}
-                    onClick={() => handleSegmentChange("all")}
-                  >
-                    Todos ({totalCount})
-                  </Chip>
-                  <Chip
-                    variant={listSegment === "queue" ? "accent" : "subtle"}
-                    tone={listSegment === "queue" ? "amber" : "neutral"}
-                    size="sm"
-                    active={listSegment === "queue"}
-                    onClick={() => handleSegmentChange("queue")}
-                  >
-                    Cola ({queueCount})
-                  </Chip>
-                </div>
+                  <IconGlyph name="spark" className="h-3.5 w-3.5" />
+                  <span>Atender siguiente</span>
+                </button>
               </div>
-            </div>
-            <div className="mt-2 px-3 w-full">
               <div className="flex items-center gap-3 w-full rounded-full bg-[color:var(--surface-1)] border border-[color:var(--surface-border)] px-3 py-2 shadow-sm transition focus-within:border-[color:var(--border-a)] focus-within:ring-1 focus-within:ring-[color:var(--ring)]">
                 <svg viewBox="0 0 24 24" width="20" height="20" className="text-[color:var(--muted)]">
                   <path fill="currentColor" d="M15.009 13.805h-.636l-.22-.219a5.184 5.184 0 0 0 1.256-3.386 5.207 5.207 0 1 0-5.207 5.208 5.183 5.183 0 0 0 3.385-1.255l.221.22v.635l4.004 3.999 1.194-1.195-3.997-4.007zm-4.808 0a3.605 3.605 0 1 1 0-7.21 3.605 3.605 0 0 1 0 7.21z" />
@@ -2685,6 +2990,74 @@ function SideBarInner() {
                     scrollListToTop();
                   }}
                 />
+                <select
+                  className="rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-2 py-1 text-[11px] text-[color:var(--text)] focus:border-[color:var(--border-a)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--ring)] shrink-0"
+                  value={heatFilter}
+                  onChange={(e) => {
+                    const next = e.target.value as typeof heatFilter;
+                    setHeatFilter(next);
+                    scrollListToTop();
+                  }}
+                  title="Filtrar por temperatura"
+                >
+                  <option value="all">Temp: todas ({heatCounts.all})</option>
+                  <option value="cold">Frío ({heatCounts.cold})</option>
+                  <option value="warm">Templado ({heatCounts.warm})</option>
+                  <option value="hot">Caliente ({heatCounts.hot})</option>
+                </select>
+                <select
+                  className="rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-2 py-1 text-[11px] text-[color:var(--text)] focus:border-[color:var(--border-a)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--ring)] shrink-0"
+                  value={intentFilter}
+                  onChange={(e) => {
+                    const next = e.target.value as typeof intentFilter;
+                    setIntentFilter(next);
+                    scrollListToTop();
+                  }}
+                  title="Filtrar por intención"
+                >
+                  <option value="all">Intención: todas ({totalCount})</option>
+                  <option value="BUY_NOW">Compra ({intentCounts.BUY_NOW ?? 0})</option>
+                  <option value="PRICE_ASK">Precio ({intentCounts.PRICE_ASK ?? 0})</option>
+                  <option value="CONTENT_REQUEST">Contenido ({intentCounts.CONTENT_REQUEST ?? 0})</option>
+                  <option value="CUSTOM_REQUEST">Custom ({intentCounts.CUSTOM_REQUEST ?? 0})</option>
+                  <option value="SUBSCRIBE">Suscribir ({intentCounts.SUBSCRIBE ?? 0})</option>
+                  <option value="CANCEL">Cancelar ({intentCounts.CANCEL ?? 0})</option>
+                  <option value="OFF_PLATFORM">Off-platform ({intentCounts.OFF_PLATFORM ?? 0})</option>
+                  <option value="SUPPORT">Soporte ({intentCounts.SUPPORT ?? 0})</option>
+                  <option value="OBJECTION">Objeción ({intentCounts.OBJECTION ?? 0})</option>
+                  <option value="RUDE_OR_HARASS">Grosero ({intentCounts.RUDE_OR_HARASS ?? 0})</option>
+                  <option value="OTHER">Otro ({intentCounts.OTHER ?? 0})</option>
+                </select>
+                <button
+                  ref={filtersButtonRef}
+                  type="button"
+                  onClick={() => setShowFiltersPanel((prev) => !prev)}
+                  className={clsx(
+                    "inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-[11px] font-semibold text-[color:var(--text)] transition shrink-0",
+                    showFiltersPanel
+                      ? "border-[color:var(--brand)] bg-[color:rgba(var(--brand-rgb),0.2)]"
+                      : "border-[color:var(--surface-border)] bg-[color:var(--surface-2)] hover:bg-[color:var(--surface-1)]"
+                  )}
+                  aria-pressed={showFiltersPanel}
+                  aria-label="Filtros"
+                >
+                  <IconGlyph name="settings" className="h-3.5 w-3.5" />
+                  <span className="hidden sm:inline">Filtros</span>
+                  {hasActiveFilters && (
+                    <span className="inline-flex h-4 min-w-[16px] items-center justify-center rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-1 text-[10px] font-semibold text-[color:var(--text)]">
+                      {filterBadgeLabel}
+                    </span>
+                  )}
+                </button>
+                {hasActiveFiltersOrSearch && (
+                  <button
+                    type="button"
+                    onClick={resetFilters}
+                    className="inline-flex items-center rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-3 py-1.5 text-[11px] font-semibold text-[color:var(--text)] hover:bg-[color:var(--surface-1)] shrink-0"
+                  >
+                    Reset
+                  </button>
+                )}
                 {listSegment === "all" && (
                   <button
                     type="button"
@@ -2721,7 +3094,536 @@ function SideBarInner() {
                   </svg>
                 </button>
               </div>
+              {hasActiveFilters && (
+                <div className="mt-2 text-[11px] text-[color:var(--muted)]">
+                  Filtros: {filterSummaryLabel}
+                </div>
+              )}
             </div>
+            {showFiltersPanel && (
+              <div
+                className="fixed inset-0 z-40"
+                onClick={() => setShowFiltersPanel(false)}
+              >
+                <div className="absolute inset-0 bg-[color:var(--surface-overlay)]" />
+                <div
+                  className="absolute bottom-0 left-0 right-0 md:right-4 md:left-auto md:top-24 md:bottom-auto md:w-[360px]"
+                  onClick={(event) => event.stopPropagation()}
+                >
+                  <div
+                    ref={filtersPanelRef}
+                    tabIndex={-1}
+                    className="rounded-t-2xl md:rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] shadow-xl max-h-[80vh] overflow-hidden outline-none flex flex-col"
+                  >
+                    <div className="flex items-center justify-between px-4 pt-4 pb-3 border-b border-[color:var(--surface-border)] shrink-0">
+                      <span className="text-sm font-semibold text-[color:var(--text)]">Filtros</span>
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          aria-label="Qué significa cada etiqueta"
+                          onClick={() => setShowLegend((prev) => !prev)}
+                          className={clsx(
+                            "inline-flex h-7 w-7 items-center justify-center rounded-full border text-xs font-bold transition focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[color:var(--ring)]",
+                            showLegend
+                              ? "border-[color:var(--brand)] bg-[color:rgba(var(--brand-rgb),0.18)] text-[color:var(--text)]"
+                              : "border-[color:var(--surface-border)] bg-[color:var(--surface-2)] text-[color:var(--text)] hover:border-[color:var(--brand)] hover:text-[color:var(--text)]"
+                          )}
+                        >
+                          i
+                        </button>
+                      </div>
+                    </div>
+                    <div className="px-4 pt-3 pb-4 flex-1 overflow-y-auto">
+                      {showLegend && (
+                        <div
+                          ref={legendRef}
+                          className="mt-3 rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-3 py-3 text-[11px] text-[color:var(--text)] shadow-lg"
+                        >
+                          <div className="flex items-center justify-between mb-1">
+                            <span className="text-[12px] font-semibold text-[color:var(--text)]">Qué significa cada etiqueta</span>
+                            <button
+                              type="button"
+                              className="text-[11px] text-[color:var(--muted)] hover:text-[color:var(--text)]"
+                              onClick={() => setShowLegend(false)}
+                            >
+                              Cerrar
+                            </button>
+                          </div>
+                          <ul className="space-y-1 text-[color:var(--muted)]">
+                            <li><span className="font-semibold">VIP</span> → Ha gastado más de {HIGH_PRIORITY_LIMIT} € en total contigo.</li>
+                            <li>
+                              <span className="inline-flex items-center gap-1 font-semibold">
+                                <IconGlyph name="pin" className="h-3.5 w-3.5 text-[color:var(--warning)]" />
+                                <span>Alta prioridad</span>
+                              </span>{" "}
+                              → Marcados por ti para atender primero.
+                            </li>
+                            <li><span className="font-semibold">Extras</span> → Ya te han comprado contenido extra (PPV).</li>
+                            <li>
+                              <span className="inline-flex items-center gap-1 font-semibold">
+                                <IconGlyph name="clock" className="h-3.5 w-3.5 text-[color:var(--warning)]" />
+                                <span>Próxima acción</span>
+                              </span>{" "}
+                              → Le debes un mensaje o seguimiento hoy.
+                            </li>
+                            <li><span className="font-semibold">Seguimiento hoy</span> → Suscripción a punto de renovarse o tarea marcada para hoy.</li>
+                            <li><span className="font-semibold">Cola</span> → Lista de chats importantes para hoy, ordenados por prioridad.</li>
+                          </ul>
+                          <div className="mt-3 border-t border-[color:var(--surface-border)] pt-2">
+                            <div className="text-[12px] font-semibold text-[color:var(--text)] mb-1">Cómo usarlo hoy</div>
+                            <ol className="list-decimal list-inside space-y-1 text-[color:var(--muted)]">
+                              <li>Abre «Cola» para ver tu cola del día.</li>
+                              <li>Revisa «Alta prioridad» y «Con extras» para cerrar el día.</li>
+                              <li>Marca «Próxima acción» en quienes necesiten seguimiento.</li>
+                            </ol>
+                          </div>
+                        </div>
+                      )}
+                      <div className="mt-3 space-y-4 text-[11px] text-[color:var(--muted)]">
+                        <button
+                          type="button"
+                          onClick={() => setShowEmptyFilters((prev) => !prev)}
+                          className="flex items-center justify-between rounded-lg border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-3 py-2 text-[11px] text-[color:var(--text)] hover:bg-[color:var(--surface-1)]"
+                          aria-pressed={showEmptyFilters}
+                        >
+                          <span className="font-semibold">Mostrar vacíos</span>
+                          {renderSwitch(showEmptyFilters)}
+                        </button>
+                        <div>
+                          <div className="text-[10px] font-semibold uppercase tracking-wide text-[color:var(--muted)]">Segmento</div>
+                          <div className="mt-2 flex flex-col gap-2">
+                            {shouldShowFilterRow(totalCount, isDraftTodos) && (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  const base = getFilterSnapshot();
+                                  applyDraftState(buildDraftWithFilter(base, "all", false));
+                                }}
+                                className={clsx(filterRowClass, "w-full")}
+                              >
+                                <span className={clsx(isDraftTodos && "font-semibold text-[color:var(--warning)]")}>
+                                  Todos
+                                </span>
+                                <span
+                                  className={clsx(
+                                    countPillClass,
+                                    totalCount > 0 ? "bg-[color:var(--surface-2)] text-[color:var(--text)]" : "bg-[color:var(--surface-2)] text-[color:var(--muted)]",
+                                    isDraftTodos && "ring-1 ring-[color:var(--ring)]"
+                                  )}
+                                >
+                                  {totalCount}
+                                </span>
+                              </button>
+                            )}
+                            {shouldShowFilterRow(queueCount, isDraftQueue) && (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  const base = getFilterSnapshot();
+                                  applyDraftState({ ...base, listSegment: "queue" });
+                                }}
+                                className={clsx(filterRowClass, "w-full")}
+                              >
+                                <span className={clsx(isDraftQueue && "font-semibold text-[color:var(--warning)]")}>
+                                  Cola
+                                </span>
+                                <span
+                                  className={clsx(
+                                    countPillClass,
+                                    queueCount > 0 ? "bg-[color:rgba(245,158,11,0.16)] text-[color:var(--text)]" : "bg-[color:var(--surface-2)] text-[color:var(--muted)]",
+                                    isDraftQueue && "ring-1 ring-[color:var(--ring)]"
+                                  )}
+                                >
+                                  {queueCount}
+                                </span>
+                              </button>
+                            )}
+                            {shouldShowFilterRow(followUpTodayCount, isDraftToday) && (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  const base = getFilterSnapshot();
+                                  applyDraftState(buildDraftWithFollowUpMode(base, "today"));
+                                }}
+                                className={clsx(filterRowClass, "w-full")}
+                              >
+                                <span className={clsx(isDraftToday && "font-semibold text-[color:var(--warning)]")}>
+                                  Hoy
+                                  <span
+                                    className="ml-1 inline-flex h-4 w-4 items-center justify-center rounded-full border border-[color:var(--surface-border-hover)] text-[9px] text-[color:var(--muted)]"
+                                    title="Chats con renovación o tarea marcada para hoy."
+                                  >
+                                    i
+                                  </span>
+                                </span>
+                                <span
+                                  className={clsx(
+                                    countPillClass,
+                                    followUpTodayCount > 0
+                                      ? "bg-[color:rgba(var(--brand-rgb),0.18)] text-[color:var(--text)]"
+                                      : "bg-[color:var(--surface-2)] text-[color:var(--muted)]",
+                                    isDraftToday && "ring-1 ring-[color:var(--ring)]"
+                                  )}
+                                >
+                                  {followUpTodayCount}
+                                </span>
+                              </button>
+                            )}
+                            {shouldShowFilterRow(expiredCount, isDraftExpired) && (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  const base = getFilterSnapshot();
+                                  applyDraftState(buildDraftWithFollowUpMode(base, "expired"));
+                                }}
+                                className={clsx(filterRowClass, "w-full")}
+                              >
+                                <span className={clsx(isDraftExpired && "font-semibold text-[color:var(--warning)]")}>Caducados</span>
+                                <span
+                                  className={clsx(
+                                    countPillClass,
+                                    expiredCount > 0 ? "bg-[color:rgba(244,63,94,0.16)] text-[color:var(--text)]" : "bg-[color:var(--surface-2)] text-[color:var(--muted)]",
+                                    isDraftExpired && "ring-1 ring-[color:var(--ring)]"
+                                  )}
+                                >
+                                  {expiredCount}
+                                </span>
+                              </button>
+                            )}
+                            {shouldShowFilterRow(priorityCount, isDraftPriority) && (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  const base = getFilterSnapshot();
+                                  applyDraftState(buildDraftWithFollowUpMode(base, "priority"));
+                                }}
+                                className={clsx(filterRowClass, "w-full")}
+                              >
+                                <span className={clsx(isDraftPriority && "font-semibold text-[color:var(--warning)]")}>
+                                  <span className="inline-flex items-center gap-1">
+                                    <IconGlyph name="pin" className="h-3.5 w-3.5 text-[color:var(--warning)]" />
+                                    <span>Alta prioridad</span>
+                                  </span>
+                                  <span
+                                    className="ml-1 inline-flex h-4 w-4 items-center justify-center rounded-full border border-[color:var(--surface-border-hover)] text-[9px] text-[color:var(--muted)]"
+                                    title="Marcados por ti para atender primero."
+                                  >
+                                    i
+                                  </span>
+                                </span>
+                                <span
+                                  className={clsx(
+                                    countPillClass,
+                                    priorityCount > 0 ? "bg-[color:rgba(245,158,11,0.16)] text-[color:var(--text)]" : "bg-[color:var(--surface-2)] text-[color:var(--muted)]",
+                                    isDraftPriority && "ring-1 ring-[color:var(--ring)]"
+                                  )}
+                                >
+                                  {priorityCount}
+                                </span>
+                              </button>
+                            )}
+                            {shouldShowFilterRow(newCount, isDraftNew) && (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  const base = getFilterSnapshot();
+                                  applyDraftState(buildDraftWithTierFilter(base, "new"));
+                                }}
+                                className={clsx(filterRowClass, "w-full")}
+                              >
+                                <span className={clsx(isDraftNew && "font-semibold text-[color:var(--warning)]")}>Nuevos</span>
+                                <span
+                                  className={clsx(
+                                    countPillClass,
+                                    newCount > 0 ? "bg-[color:var(--surface-2)] text-[color:var(--text)]" : "bg-[color:var(--surface-2)] text-[color:var(--muted)]",
+                                    isDraftNew && "ring-1 ring-[color:var(--ring)]"
+                                  )}
+                                >
+                                  {newCount}
+                                </span>
+                              </button>
+                            )}
+                            {shouldShowFilterRow(regularCount, isDraftRegular) && (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  const base = getFilterSnapshot();
+                                  applyDraftState(buildDraftWithTierFilter(base, "regular"));
+                                }}
+                                className={clsx(filterRowClass, "w-full")}
+                              >
+                                <span className={clsx(isDraftRegular && "font-semibold text-[color:var(--warning)]")}>Habituales</span>
+                                <span
+                                  className={clsx(
+                                    countPillClass,
+                                    regularCount > 0 ? "bg-[color:var(--surface-2)] text-[color:var(--text)]" : "bg-[color:var(--surface-2)] text-[color:var(--muted)]",
+                                    isDraftRegular && "ring-1 ring-[color:var(--ring)]"
+                                  )}
+                                >
+                                  {regularCount}
+                                </span>
+                              </button>
+                            )}
+                            {hasSecondarySegments && (
+                              <button
+                                type="button"
+                                onClick={() => setShowMoreSegments((prev) => !prev)}
+                                className={clsx(filterRowClass, "w-full")}
+                                aria-expanded={showMoreSegments}
+                              >
+                                <span className="inline-flex items-center gap-2">
+                                  <IconGlyph name={showMoreSegments ? "chevronDown" : "chevronRight"} className="h-3.5 w-3.5 text-[color:var(--muted)]" />
+                                  <span>Más</span>
+                                </span>
+                                <span className="text-[10px] text-[color:var(--muted)]">
+                                  {showMoreSegments ? "Ocultar" : "Ver"}
+                                </span>
+                              </button>
+                            )}
+                            {showMoreSegments && (
+                              <>
+                                {shouldShowFilterRow(withNotesCount, isDraftNotes) && (
+                                  <button
+                                    type="button"
+                                    onClick={() => applyDraftFilter("all", true)}
+                                    className={clsx(filterRowClass, "w-full")}
+                                  >
+                                    <span className={clsx(isDraftNotes && "font-semibold text-[color:var(--warning)]")}>Con notas</span>
+                                    <span
+                                      className={clsx(
+                                        countPillClass,
+                                        withNotesCount > 0 ? "bg-[color:var(--surface-2)] text-[color:var(--text)]" : "bg-[color:var(--surface-2)] text-[color:var(--muted)]",
+                                        isDraftNotes && "ring-1 ring-[color:var(--ring)]"
+                                      )}
+                                    >
+                                      {withNotesCount}
+                                    </span>
+                                  </button>
+                                )}
+                                {shouldShowFilterRow(archivedCount, isDraftArchived) && (
+                                  <button
+                                    type="button"
+                                    onClick={() => selectDraftStatusFilter("archived")}
+                                    className={clsx(filterRowClass, "w-full")}
+                                  >
+                                    <span className={clsx(isDraftArchived && "font-semibold text-[color:var(--warning)]")}>Archivados</span>
+                                    <span
+                                      className={clsx(
+                                        countPillClass,
+                                        archivedCount > 0 ? "bg-[color:var(--surface-2)] text-[color:var(--text)]" : "bg-[color:var(--surface-2)] text-[color:var(--muted)]",
+                                        isDraftArchived && "ring-1 ring-[color:var(--ring)]"
+                                      )}
+                                    >
+                                      {archivedCount}
+                                    </span>
+                                  </button>
+                                )}
+                                {shouldShowFilterRow(blockedCount, isDraftBlocked) && (
+                                  <button
+                                    type="button"
+                                    onClick={() => selectDraftStatusFilter("blocked")}
+                                    className={clsx(filterRowClass, "w-full")}
+                                  >
+                                    <span className={clsx(isDraftBlocked && "font-semibold text-[color:var(--warning)]")}>Bloqueados</span>
+                                    <span
+                                      className={clsx(
+                                        countPillClass,
+                                        blockedCount > 0 ? "bg-[color:rgba(244,63,94,0.16)] text-[color:var(--text)]" : "bg-[color:var(--surface-2)] text-[color:var(--muted)]",
+                                        isDraftBlocked && "ring-1 ring-[color:var(--ring)]"
+                                      )}
+                                    >
+                                      {blockedCount}
+                                    </span>
+                                  </button>
+                                )}
+                                {shouldShowFilterRow(packsCount, showPacksPanel) && (
+                                  <button
+                                    type="button"
+                                    onClick={() => setShowPacksPanel((prev) => !prev)}
+                                    className={clsx(filterRowClass, "w-full")}
+                                  >
+                                    <span className={clsx(showPacksPanel && "font-semibold text-[color:var(--warning)]")}>Packs disponibles ({packsCount})</span>
+                                    <span className={clsx(showPacksPanel && "font-semibold text-[color:var(--warning)]")}>⋯</span>
+                                  </button>
+                                )}
+                              </>
+                            )}
+                          </div>
+                        </div>
+                        <div>
+                          <div className="text-[10px] font-semibold uppercase tracking-wide text-[color:var(--muted)]">Toggles</div>
+                          <div className="mt-2 flex flex-col gap-2">
+                            {shouldShowFilterRow(atRiskCount, filtersDraft.onlyAtRisk) && (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setFiltersDraft((prev) => ({
+                                    ...prev,
+                                    listSegment: "all",
+                                    onlyAtRisk: !prev.onlyAtRisk,
+                                  }));
+                                }}
+                                className={clsx(filterRowClass, "w-full")}
+                              >
+                                <span className={clsx(filtersDraft.onlyAtRisk && "font-semibold text-[color:var(--warning)]")}>
+                                  <span className="inline-flex items-center gap-1">
+                                    <IconGlyph name="alert" className="h-3.5 w-3.5 text-[color:var(--danger)]" />
+                                    <span>En riesgo</span>
+                                  </span>
+                                </span>
+                                <span className="flex items-center gap-2">
+                                  {renderSwitch(filtersDraft.onlyAtRisk)}
+                                  <span
+                                    className={clsx(
+                                      countPillClass,
+                                      atRiskCount > 0 ? "bg-[color:rgba(244,63,94,0.16)] text-[color:var(--text)]" : "bg-[color:var(--surface-2)] text-[color:var(--muted)]",
+                                      filtersDraft.onlyAtRisk && "ring-1 ring-[color:var(--ring)]"
+                                    )}
+                                  >
+                                    {atRiskCount}
+                                  </span>
+                                </span>
+                              </button>
+                            )}
+                            {shouldShowFilterRow(withExtrasCount, filtersDraft.onlyWithExtras) && (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setFiltersDraft((prev) => ({
+                                    ...prev,
+                                    listSegment: "all",
+                                    onlyWithExtras: !prev.onlyWithExtras,
+                                  }));
+                                }}
+                                className={clsx(filterRowClass, "w-full")}
+                              >
+                                <span className={clsx(filtersDraft.onlyWithExtras && "font-semibold text-[color:var(--warning)]")}>
+                                  <span className="inline-flex items-center gap-1">
+                                    <IconGlyph name="coin" className="h-3.5 w-3.5 text-[color:var(--warning)]" />
+                                    <span>Con extras</span>
+                                  </span>
+                                  <span
+                                    className="ml-1 inline-flex h-4 w-4 items-center justify-center rounded-full border border-[color:var(--surface-border-hover)] text-[9px] text-[color:var(--muted)]"
+                                    title="Este fan ya te ha comprado contenido extra (PPV)."
+                                  >
+                                    i
+                                  </span>
+                                </span>
+                                <span className="flex items-center gap-2">
+                                  {renderSwitch(filtersDraft.onlyWithExtras)}
+                                  <span
+                                    className={clsx(
+                                      countPillClass,
+                                      withExtrasCount > 0 ? "bg-[color:rgba(245,158,11,0.16)] text-[color:var(--text)]" : "bg-[color:var(--surface-2)] text-[color:var(--muted)]",
+                                      filtersDraft.onlyWithExtras && "ring-1 ring-[color:var(--ring)]"
+                                    )}
+                                  >
+                                    {withExtrasCount}
+                                  </span>
+                                </span>
+                              </button>
+                            )}
+                            {shouldShowFilterRow(withFollowUpCount, filtersDraft.onlyWithFollowUp) && (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setFiltersDraft((prev) => ({
+                                    ...prev,
+                                    listSegment: "all",
+                                    statusFilter: "active",
+                                    onlyWithFollowUp: !prev.onlyWithFollowUp,
+                                  }));
+                                }}
+                                className={clsx(filterRowClass, "w-full")}
+                              >
+                                <span className={clsx(filtersDraft.onlyWithFollowUp && "font-semibold text-[color:var(--warning)]")}>
+                                  <span className="inline-flex items-center gap-1">
+                                    <IconGlyph name="clock" className="h-3.5 w-3.5 text-[color:var(--warning)]" />
+                                    <span>Con próxima acción</span>
+                                  </span>
+                                  <span
+                                    className="ml-1 inline-flex h-4 w-4 items-center justify-center rounded-full border border-[color:var(--surface-border-hover)] text-[9px] text-[color:var(--muted)]"
+                                    title="Tienes una tarea anotada para este fan (nota con rayo)."
+                                  >
+                                    i
+                                  </span>
+                                </span>
+                                <span className="flex items-center gap-2">
+                                  {renderSwitch(filtersDraft.onlyWithFollowUp)}
+                                  <span
+                                    className={clsx(
+                                      countPillClass,
+                                      withFollowUpCount > 0 ? "bg-[color:rgba(245,158,11,0.16)] text-[color:var(--text)]" : "bg-[color:var(--surface-2)] text-[color:var(--muted)]",
+                                      filtersDraft.onlyWithFollowUp && "ring-1 ring-[color:var(--ring)]"
+                                    )}
+                                  >
+                                    {withFollowUpCount}
+                                  </span>
+                                </span>
+                              </button>
+                            )}
+                            {shouldShowFilterRow(needsReplyCount, filtersDraft.onlyNeedsReply) && (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setFiltersDraft((prev) => ({
+                                    ...prev,
+                                    listSegment: "all",
+                                    onlyNeedsReply: !prev.onlyNeedsReply,
+                                  }));
+                                }}
+                                className={clsx(filterRowClass, "w-full")}
+                              >
+                                <span className={clsx(filtersDraft.onlyNeedsReply && "font-semibold text-[color:var(--warning)]")}>
+                                  <span className="inline-flex items-center gap-1">
+                                    <IconGlyph name="inbox" className="h-3.5 w-3.5 text-[color:var(--warning)]" />
+                                    <span>Responder</span>
+                                  </span>
+                                </span>
+                                <span className="flex items-center gap-2">
+                                  {renderSwitch(filtersDraft.onlyNeedsReply)}
+                                  <span
+                                    className={clsx(
+                                      countPillClass,
+                                      needsReplyCount > 0 ? "bg-[color:rgba(var(--brand-rgb),0.18)] text-[color:var(--text)]" : "bg-[color:var(--surface-2)] text-[color:var(--muted)]",
+                                      filtersDraft.onlyNeedsReply && "ring-1 ring-[color:var(--ring)]"
+                                    )}
+                                  >
+                                    {needsReplyCount}
+                                  </span>
+                                </span>
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                    <div className="flex items-center justify-end gap-2 border-t border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-4 pt-2 pb-[calc(env(safe-area-inset-bottom)+16px)] shrink-0">
+                      <button
+                        type="button"
+                        className="rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-3 py-1.5 text-[11px] font-semibold text-[color:var(--text)] hover:bg-[color:var(--surface-1)]"
+                        onClick={() => setShowFiltersPanel(false)}
+                      >
+                        Cerrar
+                      </button>
+                      <button
+                        type="button"
+                        onClick={applyFiltersDraft}
+                        disabled={!isFiltersDirty}
+                        className={clsx(
+                          "rounded-full border px-3 py-1.5 text-[11px] font-semibold transition",
+                          isFiltersDirty
+                            ? "border-[color:rgba(var(--brand-rgb),0.4)] bg-[color:rgba(var(--brand-rgb),0.16)] text-[color:var(--text)] hover:bg-[color:rgba(var(--brand-rgb),0.22)]"
+                            : "border-[color:var(--surface-border)] bg-[color:var(--surface-2)] text-[color:var(--muted)] cursor-not-allowed"
+                        )}
+                      >
+                        Aplicar
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
         </div>
         <ConversationList

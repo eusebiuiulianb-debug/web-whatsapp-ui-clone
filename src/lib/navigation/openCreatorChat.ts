@@ -6,6 +6,7 @@ type OpenFanChatOptions = {
   segmentNote?: string;
   panel?: string;
   source?: string;
+  focusComposer?: boolean;
   shallow?: boolean;
   scroll?: boolean;
   pathname?: string;
@@ -56,6 +57,7 @@ export function openFanChat(router: NextRouter, fanId: string, options: OpenFanC
   if (options.segmentNote) query.segmentNote = options.segmentNote;
   if (options.panel) query.panel = options.panel;
   if (options.source) query.source = options.source;
+  if (options.focusComposer) query.focusComposer = "1";
   void router.push(
     {
       pathname: options.pathname ?? DEFAULT_CHAT_PATH,
@@ -236,10 +238,13 @@ export function openCortexAndPrefill(
     source: options.source,
   });
   const targetPath = options.pathname ?? DEFAULT_CORTEX_PATH;
-  if (router.pathname === targetPath) return;
+  const currentFanId = getFanIdFromQuery(router.query);
+  const nextQuery = fanId ? { fan: fanId } : undefined;
+  if (router.pathname === targetPath && (!fanId || currentFanId === fanId)) return;
   void router.push(
     {
       pathname: targetPath,
+      query: nextQuery,
     },
     undefined,
     { shallow: options.shallow, scroll: options.scroll }

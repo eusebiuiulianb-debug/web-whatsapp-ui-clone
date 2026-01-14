@@ -35,6 +35,7 @@ export function CreatorConfigProvider({ children }: { children: ReactNode }) {
             slugifyHandle(data.creator?.name || DEFAULT_CREATOR_CONFIG.creatorName) ||
             DEFAULT_CREATOR_CONFIG.creatorHandle,
           creatorSubtitle: data.creator?.subtitle || DEFAULT_CREATOR_CONFIG.creatorSubtitle,
+          uiLocale: data.creator?.uiLocale || DEFAULT_CREATOR_CONFIG.uiLocale,
           creatorDescription: data.creator?.description || DEFAULT_CREATOR_CONFIG.creatorDescription,
           avatarUrl: data.creator?.avatarUrl || DEFAULT_CREATOR_CONFIG.avatarUrl || "",
           quickReplies: DEFAULT_CREATOR_CONFIG.quickReplies,

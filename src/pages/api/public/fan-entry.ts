@@ -1,7 +1,7 @@
 import type { NextApiRequest, NextApiResponse } from "next";
 import { ANALYTICS_EVENTS, type AnalyticsEventName } from "../../../lib/analyticsEvents";
 import { ensureAnalyticsCookie, readAnalyticsCookie } from "../../../lib/analyticsCookie";
-import { inferPreferredLanguage, normalizePreferredLanguage } from "../../../lib/language";
+import { inferLocale, inferPreferredLanguage, normalizePreferredLanguage } from "../../../lib/language";
 import { getDbSchemaOutOfSyncPayload, isDbSchemaOutOfSyncError } from "../../../lib/dbSchemaGuard";
 import { translateText } from "../../../server/ai/translateText";
 
@@ -65,6 +65,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         id: true,
         isBlocked: true,
         preferredLanguage: true,
+        locale: true,
         firstUtmSource: true,
         firstUtmMedium: true,
         firstUtmCampaign: true,
@@ -86,8 +87,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     };
 
     const inferredLanguage = inferPreferredLanguage(req.headers["accept-language"]);
+    const inferredLocale = inferLocale(req.headers["accept-language"]);
     const storedLanguage = normalizePreferredLanguage(existing?.preferredLanguage);
     const preferredLanguage = storedLanguage ?? inferredLanguage;
+    const resolvedLocale = existing?.locale ?? inferredLocale ?? preferredLanguage;
 
     if (existing) {
       fanId = existing.id;
@@ -98,6 +101,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         !existing.firstUtmContent ||
         !existing.firstUtmTerm;
       const shouldUpdateLanguage = !storedLanguage;
+      const shouldUpdateLocale = !existing.locale && Boolean(resolvedLocale);
 
       await prisma.fan.update({
         where: { id: fanId },
@@ -108,6 +112,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           lastMessageAt: now,
           lastActivityAt: now,
           ...(shouldUpdateLanguage ? { preferredLanguage } : {}),
+          ...(shouldUpdateLocale ? { locale: resolvedLocale } : {}),
           ...(needsAttribution
             ? {
                 firstUtmSource: existing.firstUtmSource || attribution.firstUtmSource,
@@ -132,6 +137,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           lastActivityAt: now,
           isNew: true,
           preferredLanguage,
+          locale: resolvedLocale,
           ...attribution,
         },
       });

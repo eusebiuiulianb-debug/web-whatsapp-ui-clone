@@ -15,6 +15,7 @@ import { ManagerMobilePanels } from "./ManagerMobilePanels";
 import { IconGlyph } from "../ui/IconGlyph";
 import { KpiCard } from "../ui/KpiCard";
 import { SectionCard } from "../ui/SectionCard";
+import { useCortexProviderStatus } from "../../hooks/useCortexProviderStatus";
 
 function useIsDesktop() {
   const [isDesktop, setIsDesktop] = useState(false);
@@ -88,7 +89,10 @@ export function IaWorkspaceCard({
   const [insightsOpen, setInsightsOpen] = useState(false);
   const [mobilePanel, setMobilePanel] = useState<"priority" | null>(null);
   const [pendingPrompt, setPendingPrompt] = useState<{ tab: SecondaryTab; text: string } | null>(null);
-  const isDemo = !process.env.NEXT_PUBLIC_OPENAI_API_KEY;
+  const cortexStatus = useCortexProviderStatus();
+  const isDemo = cortexStatus
+    ? cortexStatus.provider === "demo" || !cortexStatus.configured
+    : !process.env.NEXT_PUBLIC_OPENAI_API_KEY;
   const chatRef = useRef<ManagerChatCardHandle | null>(null);
   const contentChatRef = useRef<ContentManagerChatCardHandle | null>(null);
 
@@ -447,7 +451,7 @@ export function IaWorkspaceCard({
           <div className="rounded-lg border border-[color:rgba(245,158,11,0.4)] bg-[color:rgba(245,158,11,0.12)] px-3 py-2 text-[color:var(--text)] flex items-start justify-between gap-2">
             <div>
               <p className="text-sm font-semibold">Modo demo activo</p>
-              <p className="text-[12px] text-[color:var(--text)]/90">Conecta tu OPENAI_API_KEY para respuestas con tus datos reales.</p>
+              <p className="text-[12px] text-[color:var(--text)]/90">Configura el proveedor de IA para respuestas con tus datos reales.</p>
             </div>
             <div className="flex items-center gap-2">
               <Link

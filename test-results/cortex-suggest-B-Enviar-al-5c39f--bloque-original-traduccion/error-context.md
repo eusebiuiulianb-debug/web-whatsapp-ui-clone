@@ -1,0 +1,207 @@
+# Page snapshot
+
+```yaml
+- generic [active] [ref=e1]:
+  - generic [ref=e5]:
+    - generic [ref=e7]:
+      - generic [ref=e9]:
+        - generic [ref=e10]:
+          - img "Eusebiu" [ref=e12]
+          - generic [ref=e13]:
+            - generic [ref=e14]: Eusebiu
+            - generic [ref=e15]: Creador
+            - generic [ref=e16]: Responde en menos de 24h
+        - generic [ref=e18]:
+          - link "Chat privado" [ref=e19] [cursor=pointer]:
+            - /url: /
+          - link "Cortex" [ref=e20] [cursor=pointer]:
+            - /url: /creator/manager
+          - link "Bio-link" [ref=e21] [cursor=pointer]:
+            - /url: /creator/bio-link
+          - link "Analítica" [ref=e22] [cursor=pointer]:
+            - /url: /creator/analytics
+          - button "Más opciones" [ref=e24] [cursor=pointer]:
+            - img [ref=e26]
+      - generic [ref=e27]:
+        - generic [ref=e28]:
+          - generic [ref=e29]: Fans req/min 12
+          - generic [ref=e30]: Messages req/min 0
+        - generic [ref=e31]:
+          - generic [ref=e33]:
+            - generic [ref=e34]: Resumen de hoy
+            - generic [ref=e35]: Ventas y actividad
+          - generic [ref=e36]:
+            - generic [ref=e37]:
+              - generic [ref=e38]: Chats atendidos
+              - generic [ref=e39]: "0"
+            - generic [ref=e40]:
+              - generic [ref=e41]: Cola
+              - generic [ref=e42]: "4"
+            - generic [ref=e43]:
+              - generic [ref=e44]: VIP en cola
+              - generic [ref=e45]: "0"
+            - generic [ref=e46]:
+              - generic [ref=e47]: Ingresos hoy
+              - generic [ref=e48]: 0 cobros · 0 €
+              - generic [ref=e51]: suscripciones + ventas + propinas
+        - generic [ref=e52]:
+          - generic [ref=e53]:
+            - generic [ref=e54]: Extras hoy
+            - generic [ref=e55]: 0 ventas · 0 €
+          - generic [ref=e56]:
+            - generic [ref=e57]: Últimos 7 días
+            - generic [ref=e58]: 2 ventas · 69 €
+        - generic [ref=e60]:
+          - generic [ref=e61]:
+            - button "Hoy 4 fans" [ref=e62] [cursor=pointer]:
+              - generic [ref=e63]: Hoy
+              - generic [ref=e64]: 4 fans
+            - generic [ref=e65]:
+              - button "Qué significa cada etiqueta" [ref=e66] [cursor=pointer]: i
+              - button "Ver más" [ref=e67] [cursor=pointer]
+          - button "Seguimiento hoy i 0" [ref=e68] [cursor=pointer]:
+            - generic [ref=e69]:
+              - text: Seguimiento hoy
+              - generic "Chats con renovación o tarea marcada para hoy." [ref=e70]: i
+            - generic [ref=e71]: "0"
+          - button "Con próxima acción i 1" [ref=e72] [cursor=pointer]:
+            - generic [ref=e73]:
+              - generic [ref=e74]:
+                - img [ref=e75]
+                - generic [ref=e78]: Con próxima acción
+              - generic "Tienes una tarea anotada para este fan (nota con rayo)." [ref=e79]: i
+            - generic [ref=e80]: "1"
+      - generic:
+        - generic [ref=e82]:
+          - generic [ref=e84]:
+            - button "Seguimiento hoy" [ref=e85] [cursor=pointer]:
+              - generic [ref=e86]: Seguimiento hoy
+            - button "Caducados" [ref=e87] [cursor=pointer]:
+              - generic [ref=e88]: Caducados
+            - button "Alta prioridad" [ref=e89] [cursor=pointer]:
+              - generic [ref=e90]: Alta prioridad
+            - generic [ref=e91]:
+              - button "Todos (4)" [pressed] [ref=e92] [cursor=pointer]:
+                - generic [ref=e93]: Todos (4)
+              - button "Cola (4)" [ref=e94] [cursor=pointer]:
+                - generic [ref=e95]: Cola (4)
+          - generic [ref=e97]:
+            - img [ref=e98]
+            - textbox "Buscar o iniciar un nuevo chat" [ref=e100]
+            - button "Crear invitación" [ref=e101] [cursor=pointer]:
+              - generic [ref=e102]: +
+              - generic [ref=e103]: Crear invitación
+            - button "Activar modo enfoque" [ref=e104] [cursor=pointer]:
+              - img [ref=e105]
+        - generic [ref=e108] [cursor=pointer]:
+          - generic [ref=e110]:
+            - img [ref=e112]
+            - img "Avatar Image" [ref=e113]
+          - generic [ref=e115]:
+            - generic [ref=e116]: Cortex
+            - generic [ref=e117]: IA
+        - generic [ref=e119] [cursor=pointer]:
+          - generic [ref=e121]:
+            - img [ref=e123]
+            - img "Avatar Image" [ref=e124]
+          - generic [ref=e125]:
+            - generic [ref=e126]:
+              - generic [ref=e127]:
+                - generic [ref=e128]: lucia
+                - generic [ref=e129]: Nuevo
+                - generic [ref=e130]: EN
+              - generic [ref=e132]:
+                - generic [ref=e133]:
+                  - button "Perfil" [ref=e134]:
+                    - img [ref=e136]
+                  - tooltip: Perfil
+                - generic "Responde mejor cuando el tono es íntimo pero breve. Le gusta el humor suave." [ref=e139]
+              - generic [ref=e141]: 49 €
+              - generic [ref=e142]:
+                - generic [ref=e143]: Prueba 7 días
+                - generic [ref=e144]: 14 d
+            - generic [ref=e146]:
+              - heading "22:38" [level=1] [ref=e147]
+              - button "Abrir acciones" [ref=e149]:
+                - img [ref=e151]
+        - generic [ref=e154] [cursor=pointer]:
+          - generic [ref=e156]:
+            - img [ref=e158]
+            - img "Avatar Image" [ref=e159]
+          - generic [ref=e160]:
+            - generic [ref=e161]:
+              - generic [ref=e162]:
+                - generic [ref=e163]: Diego
+                - generic [ref=e164]: Nuevo
+                - generic [ref=e165]: EN
+                - generic [ref=e166]: Extras
+              - generic [ref=e167]: नमस्ते सुंदरी, कैसा है?.
+              - generic [ref=e169]: 0 €
+              - generic [ref=e170]:
+                - generic [ref=e171]: Suscripción mensual
+                - generic [ref=e172]: 5 d
+            - generic [ref=e174]:
+              - heading "05:38" [level=1] [ref=e175]
+              - button "Abrir acciones" [ref=e177]:
+                - img [ref=e179]
+        - generic [ref=e182] [cursor=pointer]:
+          - generic [ref=e184]:
+            - img [ref=e186]
+            - img "Avatar Image" [ref=e187]
+          - generic [ref=e188]:
+            - generic [ref=e189]:
+              - generic [ref=e190]:
+                - generic [ref=e191]: javierr
+                - generic [ref=e192]: En riesgo
+                - generic [ref=e193]: EN
+                - generic [ref=e194]: Extras
+              - generic [ref=e195]: ce faci frumoaso?
+              - generic [ref=e197]: 0 €
+              - generic [ref=e198]:
+                - generic [ref=e199]: Pack especial
+                - generic [ref=e200]: 1 d
+            - generic [ref=e202]:
+              - heading "05:21" [level=1] [ref=e203]
+              - button "Abrir acciones" [ref=e205]:
+                - img [ref=e207]
+        - generic [ref=e210] [cursor=pointer]:
+          - generic [ref=e212]:
+            - img [ref=e214]
+            - img "Avatar Image" [ref=e215]
+          - generic [ref=e216]:
+            - generic [ref=e217]:
+              - generic [ref=e218]:
+                - generic [ref=e219]: Ana
+                - generic [ref=e220]: Nuevo
+                - generic [ref=e221]: EN
+                - generic [ref=e222]: Extras
+              - generic [ref=e223]: Hoe gaat het, schat? Ik wil je beter leren kennen.
+              - generic [ref=e225]:
+                - generic [ref=e226]:
+                  - button "Perfil" [ref=e227]:
+                    - img [ref=e229]
+                  - tooltip: Perfil
+                - generic "Le gustan los mensajes cálidos y directos. Prefiere propuestas suaves y sin presión." [ref=e232]
+              - generic [ref=e233]:
+                - generic [ref=e234]: 69 €
+                - generic [ref=e237]:
+                  - button "Proponer pack especial · 2026-01-09" [ref=e238]:
+                    - img [ref=e240]
+                  - tooltip: Proponer pack especial · 2026-01-09
+              - generic [ref=e243]:
+                - generic [ref=e244]: Suscripción mensual
+                - generic [ref=e245]: 12 d
+            - generic [ref=e247]:
+              - heading "03:39" [level=1] [ref=e248]
+              - button "Abrir acciones" [ref=e250]:
+                - img [ref=e252]
+    - generic [ref=e255]:
+      - img [ref=e256]
+      - generic [ref=e271]:
+        - heading "Selecciona un fan para iniciar el chat" [level=1] [ref=e272]
+        - generic [ref=e273]:
+          - paragraph [ref=e274]: Aquí verás los mensajes privados y podrás responder con texto, audio y enlaces a tu contenido.
+          - paragraph [ref=e275]: Activa a tu comunidad en NOVSY sin depender del móvil.
+        - generic [ref=e278]: Gestiona tu comunidad desde escritorio y mantén la conversación activa con tus fans.
+  - alert [ref=e279]
+```

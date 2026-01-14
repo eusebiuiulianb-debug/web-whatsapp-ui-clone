@@ -72,12 +72,6 @@ export default function Home() {
       const detail = (event as CustomEvent)?.detail as
         | { fanId?: string; source?: string }
         | undefined;
-      if (process.env.NODE_ENV !== "production") {
-        console.debug("[openInternalPanel:event]", {
-          fanId: detail?.fanId ?? null,
-          source: detail?.source ?? null,
-        });
-      }
       const targetFanId = detail?.fanId ?? null;
       openManagerPanel({
         tab: "manager",

@@ -8,6 +8,7 @@ import { AiBaseTone, AiTurnMode, AI_TURN_MODE_OPTIONS, AI_TURN_MODES, normalizeA
 import { buildDailyUsageFromLogs } from "../../lib/aiUsage";
 import { normalizeVoiceTranscriptionSettings, type VoiceTranscriptionMode } from "../../lib/voiceTranscriptionSettings";
 import { TRANSLATION_LANGUAGES, getTranslationLanguageName, normalizeTranslationLanguage, type TranslationLanguage } from "../../lib/language";
+import { AGENCY_INTENSITIES, type AgencyIntensity } from "../../lib/agency/types";
 import {
   CREATOR_PLATFORM_KEYS,
   CreatorPlatformConfig,
@@ -17,12 +18,14 @@ import {
   formatPlatformLabel,
   normalizeCreatorPlatforms,
 } from "../../lib/creatorPlatforms";
+import type { Offer, OfferTier } from "../../types/offers";
 
 type CreatorAiSettings = {
   id: string;
   creatorId: string;
   tone: AiBaseTone;
   allowAutoLowPriority: boolean;
+  allowExplicitAdultContent: boolean;
   voiceTranscriptionMode: VoiceTranscriptionMode;
   voiceTranscriptionMinSeconds: number;
   voiceTranscriptionDailyBudgetUsd: number;
@@ -34,6 +37,11 @@ type CreatorAiSettings = {
   updatedAt: string;
   turnMode: AiTurnMode;
   platforms: CreatorPlatforms;
+  cortexProvider?: string | null;
+  cortexBaseUrl?: string | null;
+  cortexModel?: string | null;
+  cortexApiKeySaved?: boolean;
+  cortexApiKeyInvalid?: boolean;
 };
 
 type FormState = {
@@ -42,6 +50,7 @@ type FormState = {
   creditsAvailable: number | "";
   hardLimitPerDay: number | "" | null;
   allowAutoLowPriority: boolean;
+  allowExplicitAdultContent: boolean;
   voiceTranscriptionMode: VoiceTranscriptionMode;
   voiceTranscriptionMinSeconds: number | "";
   voiceTranscriptionDailyBudgetUsd: number | "";
@@ -64,15 +73,41 @@ type AiStatus = {
 
 type TranslateProviderOption = "none" | "libretranslate" | "deepl";
 
+type CortexProviderOption = "ollama" | "openai";
+
+type CortexSettingsForm = {
+  provider: CortexProviderOption;
+  baseUrl: string;
+  model: string;
+  apiKey: string;
+  apiKeySaved: boolean;
+  apiKeyInvalid: boolean;
+};
+
 type TranslateSettingsForm = {
   provider: TranslateProviderOption;
   libretranslateUrl: string;
   libretranslateApiKey: string;
   deeplApiUrl: string;
   deeplApiKey: string;
-  hasLibreKey: boolean;
-  hasDeeplKey: boolean;
+  libretranslateKeySaved: boolean;
+  libretranslateKeyInvalid: boolean;
+  deeplKeySaved: boolean;
+  deeplKeyInvalid: boolean;
   creatorLang: TranslationLanguage;
+};
+
+type OfferFormState = {
+  code: string;
+  title: string;
+  tier: OfferTier;
+  priceCents: number | "";
+  currency: string;
+  oneLiner: string;
+  hooksText: string;
+  ctasText: string;
+  intensityMin: AgencyIntensity;
+  active: boolean;
 };
 
 type ActionCount = { actionType: string; count: number };
@@ -100,6 +135,49 @@ type AiUsageSummary = {
 };
 
 const DEFAULT_TRANSLATE_LANG: TranslationLanguage = "es";
+const OFFER_TIER_LABELS: Record<OfferTier, string> = {
+  MICRO: "Micro",
+  STANDARD: "Standard",
+  PREMIUM: "Premium",
+  MONTHLY: "Monthly",
+};
+const AGENCY_INTENSITY_LABELS: Record<AgencyIntensity, string> = {
+  SOFT: "Soft",
+  MEDIUM: "Medium",
+  INTENSE: "Intense",
+};
+const DEFAULT_OFFER_FORM: OfferFormState = {
+  code: "",
+  title: "",
+  tier: "STANDARD",
+  priceCents: "",
+  currency: "EUR",
+  oneLiner: "",
+  hooksText: "",
+  ctasText: "",
+  intensityMin: "SOFT",
+  active: true,
+};
+const OFFER_LIST_SPLIT_REGEX = /\r?\n|,/g;
+
+function splitOfferLines(value: string): string[] {
+  return value
+    .split(OFFER_LIST_SPLIT_REGEX)
+    .map((entry) => entry.trim())
+    .filter((entry) => entry.length > 0);
+}
+
+function joinOfferLines(items?: string[] | null): string {
+  if (!Array.isArray(items)) return "";
+  return items.join("\n");
+}
+
+function formatOfferPriceLabel(priceCents: number, currency?: string | null): string {
+  const amount = priceCents / 100;
+  const base = amount % 1 === 0 ? amount.toFixed(0) : amount.toFixed(2);
+  const code = (currency || "EUR").toUpperCase();
+  return `${base} ${code}`;
+}
 
 function resolveDefaultTranslateLang(): TranslationLanguage {
   if (typeof navigator === "undefined") return DEFAULT_TRANSLATE_LANG;
@@ -118,6 +196,8 @@ export default function CreatorAiSettingsPage() {
   const router = useRouter();
   const creatorInitial = config.creatorName?.trim().charAt(0) || "E";
   const defaultLibreUrl = "http://127.0.0.1:5000";
+  const defaultCortexBaseUrl = "http://127.0.0.1:11434/v1";
+  const defaultCortexModel = "deepseek-r1:7b";
   const defaultTranslateLang = resolveDefaultTranslateLang();
 
   const [settings, setSettings] = useState<CreatorAiSettings | null>(null);
@@ -137,8 +217,10 @@ export default function CreatorAiSettingsPage() {
     libretranslateApiKey: "",
     deeplApiUrl: "",
     deeplApiKey: "",
-    hasLibreKey: false,
-    hasDeeplKey: false,
+    libretranslateKeySaved: false,
+    libretranslateKeyInvalid: false,
+    deeplKeySaved: false,
+    deeplKeyInvalid: false,
     creatorLang: defaultTranslateLang,
   });
   const [translateLoading, setTranslateLoading] = useState(true);
@@ -152,7 +234,34 @@ export default function CreatorAiSettingsPage() {
   const [isTestingTranslate, setIsTestingTranslate] = useState(false);
   const [showDeeplAdvanced, setShowDeeplAdvanced] = useState(false);
   const translateTestTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [cortexForm, setCortexForm] = useState<CortexSettingsForm | null>({
+    provider: "ollama",
+    baseUrl: defaultCortexBaseUrl,
+    model: defaultCortexModel,
+    apiKey: "",
+    apiKeySaved: false,
+    apiKeyInvalid: false,
+  });
+  const [cortexSaving, setCortexSaving] = useState(false);
+  const [cortexError, setCortexError] = useState("");
+  const [cortexSuccess, setCortexSuccess] = useState("");
+  const [cortexTestToast, setCortexTestToast] = useState<{ message: string; variant: "success" | "error" } | null>(
+    null
+  );
+  const [isTestingCortex, setIsTestingCortex] = useState(false);
+  const cortexTestTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [cortexModels, setCortexModels] = useState<string[]>([]);
+  const [cortexModelsLoading, setCortexModelsLoading] = useState(false);
+  const [cortexModelsError, setCortexModelsError] = useState("");
   const pageSize = 10;
+  const [offers, setOffers] = useState<Offer[]>([]);
+  const [offersLoading, setOffersLoading] = useState(false);
+  const [offersError, setOffersError] = useState("");
+  const [offerForm, setOfferForm] = useState<OfferFormState>({ ...DEFAULT_OFFER_FORM });
+  const [offerEditingId, setOfferEditingId] = useState<string | null>(null);
+  const [offerSaving, setOfferSaving] = useState(false);
+  const [offerFormError, setOfferFormError] = useState("");
+  const [offerSuccess, setOfferSuccess] = useState("");
 
   const turnModeOptions = AI_TURN_MODE_OPTIONS;
   const voiceModeOptions: { value: VoiceTranscriptionMode; label: string }[] = [
@@ -184,13 +293,14 @@ export default function CreatorAiSettingsPage() {
     });
   }
 
-  const normalizeSettings = useCallback((raw: any): CreatorAiSettings => {
+  const normalizeSettings = useCallback((raw: any, cortexKey?: { saved?: boolean; invalid?: boolean }): CreatorAiSettings => {
     const voiceSettings = normalizeVoiceTranscriptionSettings(raw);
     return {
       id: String(raw.id),
       creatorId: raw.creatorId,
       tone: normalizeAiBaseTone(raw.tone),
       allowAutoLowPriority: Boolean(raw.allowAutoLowPriority),
+      allowExplicitAdultContent: Boolean(raw.allowExplicitAdultContent),
       voiceTranscriptionMode: voiceSettings.mode,
       voiceTranscriptionMinSeconds: voiceSettings.minSeconds,
       voiceTranscriptionDailyBudgetUsd: voiceSettings.dailyBudgetUsd,
@@ -208,6 +318,11 @@ export default function CreatorAiSettingsPage() {
       updatedAt: raw.updatedAt,
       turnMode: turnModeFromRaw(raw.turnMode),
       platforms: normalizeCreatorPlatforms(raw.platforms),
+      cortexProvider: normalizeCortexProviderOption(raw.cortexProvider),
+      cortexBaseUrl: typeof raw.cortexBaseUrl === "string" ? raw.cortexBaseUrl : null,
+      cortexModel: typeof raw.cortexModel === "string" ? raw.cortexModel : null,
+      cortexApiKeySaved: Boolean(cortexKey?.saved),
+      cortexApiKeyInvalid: Boolean(cortexKey?.invalid),
     };
   }, []);
 
@@ -219,24 +334,46 @@ export default function CreatorAiSettingsPage() {
     return valid || "auto";
   }
 
-  const fetchSettings = useCallback(async () => {
-    try {
-      setLoading(true);
-      setError("");
-      const res = await fetch("/api/creator/ai-settings");
-      if (!res.ok) throw new Error("Error fetching settings");
-      const data = await res.json();
-      const normalized = normalizeSettings(data.settings);
-      applyFormFromSettings(normalized);
-    } catch (err) {
-      console.error("Error loading AI settings", err);
-      setError("No se pudieron cargar los ajustes.");
-    } finally {
-      setLoading(false);
-    }
-  }, [normalizeSettings]);
+  const applyTranslateFormFromPayload = useCallback(
+    (payload?: any) => {
+      const provider = normalizeTranslateProviderOption(payload?.provider);
+      const libreUrlRaw =
+        typeof payload?.libretranslate?.url === "string"
+          ? payload.libretranslate.url
+          : typeof payload?.libretranslateUrl === "string"
+          ? payload.libretranslateUrl
+          : "";
+      const libretranslateUrl = libreUrlRaw.trim() ? libreUrlRaw : defaultLibreUrl;
+      const deeplUrlRaw =
+        typeof payload?.deepl?.apiUrl === "string"
+          ? payload.deepl.apiUrl
+          : typeof payload?.deeplApiUrl === "string"
+          ? payload.deeplApiUrl
+          : "";
+      const deeplApiUrl = deeplUrlRaw.trim() ? deeplUrlRaw : "";
+      const libreKey = payload?.libretranslate?.apiKey ?? payload?.libretranslateApiKey ?? {};
+      const deeplKey = payload?.deepl?.apiKey ?? payload?.deeplApiKey ?? {};
+      const creatorLangRaw = payload?.creatorLanguage ?? payload?.creatorLang;
+      const creatorLang = normalizeTranslationLanguage(creatorLangRaw) ?? defaultTranslateLang;
 
-  function applyFormFromSettings(next: CreatorAiSettings) {
+      setTranslateForm({
+        provider,
+        libretranslateUrl,
+        libretranslateApiKey: "",
+        deeplApiUrl,
+        deeplApiKey: "",
+        libretranslateKeySaved: Boolean(libreKey?.saved),
+        libretranslateKeyInvalid: Boolean(libreKey?.invalid),
+        deeplKeySaved: Boolean(deeplKey?.saved),
+        deeplKeyInvalid: Boolean(deeplKey?.invalid),
+        creatorLang,
+      });
+      setShowDeeplAdvanced(provider === "deepl" && deeplApiUrl.length > 0);
+    },
+    [defaultLibreUrl, defaultTranslateLang]
+  );
+
+  const applyFormFromSettings = useCallback((next: CreatorAiSettings) => {
     setSettings(next);
     setForm({
       tone: next.tone || "auto",
@@ -244,6 +381,7 @@ export default function CreatorAiSettingsPage() {
       creditsAvailable: Number.isFinite(next.creditsAvailable) ? next.creditsAvailable : 0,
       hardLimitPerDay: next.hardLimitPerDay === null ? "" : next.hardLimitPerDay,
       allowAutoLowPriority: next.allowAutoLowPriority,
+      allowExplicitAdultContent: next.allowExplicitAdultContent,
       voiceTranscriptionMode: next.voiceTranscriptionMode,
       voiceTranscriptionMinSeconds: Number.isFinite(next.voiceTranscriptionMinSeconds)
         ? next.voiceTranscriptionMinSeconds
@@ -255,13 +393,56 @@ export default function CreatorAiSettingsPage() {
       voiceTranscriptionSuggestReply: next.voiceTranscriptionSuggestReply,
       platforms: normalizeCreatorPlatforms(next.platforms),
     });
-  }
+    const provider = normalizeCortexProviderOption(next.cortexProvider) ?? "ollama";
+    setCortexForm({
+      provider,
+      baseUrl: next.cortexBaseUrl?.trim() || defaultCortexBaseUrl,
+      model: next.cortexModel?.trim() || defaultCortexModel,
+      apiKey: "",
+      apiKeySaved: Boolean(next.cortexApiKeySaved),
+      apiKeyInvalid: Boolean(next.cortexApiKeyInvalid),
+    });
+  }, [defaultCortexBaseUrl, defaultCortexModel]);
+
+  const fetchSettings = useCallback(async (opts?: { silent?: boolean }) => {
+    try {
+      if (!opts?.silent) {
+        setLoading(true);
+        setError("");
+      }
+      setTranslateLoading(true);
+      setTranslateLoadError("");
+      const res = await fetch("/api/creator/ai-settings", { cache: "no-store" });
+      if (!res.ok) throw new Error("Error fetching settings");
+      const data = await res.json();
+      const payload = data?.data ?? data;
+      const rawSettings = payload?.settings ?? data?.settings;
+      if (!rawSettings) {
+        throw new Error("Missing settings payload");
+      }
+      const normalized = normalizeSettings(rawSettings, payload?.ai?.apiKey);
+      applyFormFromSettings(normalized);
+      applyTranslateFormFromPayload(payload?.translation);
+    } catch (err) {
+      console.error("Error loading AI settings", err);
+      if (!opts?.silent) {
+        setError("No se pudieron cargar los ajustes.");
+      }
+      setTranslateLoadError("No se pudieron cargar los ajustes de traducción.");
+    } finally {
+      setTranslateLoading(false);
+      if (!opts?.silent) {
+        setLoading(false);
+      }
+    }
+  }, [applyFormFromSettings, applyTranslateFormFromPayload, normalizeSettings]);
 
   const fetchStatus = useCallback(async () => {
     try {
-      const res = await fetch("/api/creator/ai/status");
+      const res = await fetch("/api/creator/ai/status", { cache: "no-store" });
       if (!res.ok) throw new Error("Error fetching status");
-      const data = await res.json();
+      const raw = await res.json();
+      const data = raw?.data ?? raw;
       setStatus({
         creditsAvailable: data.creditsAvailable ?? 0,
         hardLimitPerDay: data.hardLimitPerDay ?? null,
@@ -296,37 +477,27 @@ export default function CreatorAiSettingsPage() {
     }
   }, []);
 
-  const fetchTranslateSettings = useCallback(async () => {
-    setTranslateLoading(true);
-    setTranslateLoadError("");
+  const fetchOffers = useCallback(async () => {
+    setOffersLoading(true);
+    setOffersError("");
     try {
-      const res = await fetch("/api/creator/ai/translate-settings", { cache: "no-store" });
-      if (!res.ok) throw new Error("Error fetching translate settings");
-      const data = await res.json();
-      const normalizedProvider = normalizeTranslateProviderOption(data.provider);
-      const deeplApiUrl =
-        typeof data.deeplApiUrl === "string" && data.deeplApiUrl.trim().length > 0 ? data.deeplApiUrl : "";
-      setTranslateForm({
-        provider: normalizedProvider,
-        libretranslateUrl:
-          typeof data.libretranslateUrl === "string" && data.libretranslateUrl.trim().length > 0
-            ? data.libretranslateUrl
-            : defaultLibreUrl,
-        libretranslateApiKey: "",
-        deeplApiUrl,
-        deeplApiKey: "",
-        hasLibreKey: Boolean(data.hasLibreKey),
-        hasDeeplKey: Boolean(data.hasDeeplKey),
-        creatorLang: normalizeTranslationLanguage(data.creatorLang) ?? defaultTranslateLang,
-      });
-      setShowDeeplAdvanced(normalizedProvider === "deepl" && deeplApiUrl.length > 0);
+      const res = await fetch("/api/creator/agency/offers?includeInactive=1", { cache: "no-store" });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || data?.ok !== true) {
+        throw new Error(typeof data?.error === "string" ? data.error : res.statusText);
+      }
+      setOffers(Array.isArray(data.items) ? (data.items as Offer[]) : []);
     } catch (err) {
-      console.error("Error loading translate settings", err);
-      setTranslateLoadError("No se pudieron cargar los ajustes de traducción.");
+      console.error("Error loading offers", err);
+      setOffersError("No se pudieron cargar las ofertas.");
     } finally {
-      setTranslateLoading(false);
+      setOffersLoading(false);
     }
-  }, [defaultLibreUrl, defaultTranslateLang]);
+  }, []);
+
+  const fetchTranslateSettings = useCallback(async () => {
+    await fetchSettings({ silent: true });
+  }, [fetchSettings]);
 
   const showTranslateTestToast = useCallback((message: string, variant: "success" | "error") => {
     setTranslateTestToast({ message, variant });
@@ -335,6 +506,76 @@ export default function CreatorAiSettingsPage() {
     }
     translateTestTimerRef.current = setTimeout(() => setTranslateTestToast(null), 3000);
   }, []);
+
+  const showCortexTestToast = useCallback((message: string, variant: "success" | "error") => {
+    setCortexTestToast({ message, variant });
+    if (cortexTestTimerRef.current) {
+      clearTimeout(cortexTestTimerRef.current);
+    }
+    cortexTestTimerRef.current = setTimeout(() => setCortexTestToast(null), 3000);
+  }, []);
+
+  const handleDetectCortexModels = useCallback(async () => {
+    if (cortexModelsLoading) return;
+    setCortexModelsError("");
+    setCortexModelsLoading(true);
+    try {
+      const res = await fetch("/api/creator/cortex/models", { cache: "no-store" });
+      const data = await res.json().catch(() => ({}));
+      const models = Array.isArray(data?.models)
+        ? data.models.filter((item: unknown): item is string => typeof item === "string")
+        : [];
+      setCortexModels(models);
+      if (!models.length && typeof data?.error === "string" && data.error.trim()) {
+        setCortexModelsError(data.error.trim());
+      }
+    } catch (err) {
+      const message = err instanceof Error && err.message ? err.message : "No se pudieron detectar modelos.";
+      setCortexModels([]);
+      setCortexModelsError(message);
+    } finally {
+      setCortexModelsLoading(false);
+    }
+  }, [cortexModelsLoading]);
+
+  const handleTestCortex = useCallback(async () => {
+    if (isTestingCortex || cortexSaving) return;
+    setCortexError("");
+    setCortexSuccess("");
+    setIsTestingCortex(true);
+    try {
+      const res = await fetch("/api/creator/cortex/health", { cache: "no-store" });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        const message =
+          typeof data?.error === "string" && data.error.trim().length > 0
+            ? data.error
+            : "No se pudo probar la conexión.";
+        showCortexTestToast(message, "error");
+        return;
+      }
+      if (data?.ok === false) {
+        const message =
+          typeof data?.message === "string" && data.message.trim().length > 0
+            ? data.message
+            : "No se pudo probar la conexión.";
+        showCortexTestToast(message, "error");
+        return;
+      }
+      if (!data?.reachable) {
+        showCortexTestToast("Proveedor no accesible. Revisa base URL y modelo.", "error");
+        return;
+      }
+      const label =
+        typeof data?.provider === "string" ? data.provider.toUpperCase() : "Proveedor";
+      showCortexTestToast(`${label} responde OK.`, "success");
+    } catch (err) {
+      console.error("Error testing cortex provider", err);
+      showCortexTestToast("No se pudo probar la conexión.", "error");
+    } finally {
+      setIsTestingCortex(false);
+    }
+  }, [cortexSaving, isTestingCortex, showCortexTestToast]);
 
   const handleTestTranslate = useCallback(async () => {
     if (isTestingTranslate || translateLoading || translateSaving) return;
@@ -349,7 +590,7 @@ export default function CreatorAiSettingsPage() {
     if (
       translateForm.provider === "deepl" &&
       !translateForm.deeplApiKey.trim() &&
-      !translateForm.hasDeeplKey
+      !translateForm.deeplKeySaved
     ) {
       showTranslateTestToast("Falta DEEPL_API_KEY.", "error");
       return;
@@ -382,12 +623,69 @@ export default function CreatorAiSettingsPage() {
     }
   }, [isTestingTranslate, showTranslateTestToast, translateForm, translateLoading, translateSaving]);
 
+  const handleSaveCortexSettings = useCallback(async () => {
+    if (!cortexForm) return;
+    setCortexError("");
+    setCortexSuccess("");
+
+    if (cortexForm.provider === "ollama" && !cortexForm.baseUrl.trim()) {
+      setCortexError("AI_BASE_URL es obligatorio.");
+      return;
+    }
+    if (!cortexForm.model.trim()) {
+      setCortexError("AI_MODEL es obligatorio.");
+      return;
+    }
+    if (cortexForm.provider === "openai" && !cortexForm.apiKey.trim() && !cortexForm.apiKeySaved) {
+      setCortexError("OPENAI_API_KEY es obligatorio.");
+      return;
+    }
+
+    setCortexSaving(true);
+    try {
+      const payload: Record<string, string> = {
+        cortexProvider: cortexForm.provider,
+        cortexBaseUrl: cortexForm.baseUrl.trim(),
+        cortexModel: cortexForm.model.trim(),
+      };
+      if (cortexForm.apiKey.trim()) {
+        payload.cortexApiKey = cortexForm.apiKey.trim();
+      }
+
+      const res = await fetch("/api/creator/ai-settings", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || data?.ok === false) {
+        const message =
+          typeof data?.error?.message === "string"
+            ? data.error.message
+            : typeof data?.error === "string" && data.error.trim().length > 0
+            ? data.error
+            : "No se pudo guardar la configuración del proveedor.";
+        setCortexError(message);
+        return;
+      }
+      await fetchSettings({ silent: true });
+      await fetchStatus();
+      setCortexSuccess("Proveedor guardado.");
+      showCortexTestToast("Ajustes guardados.", "success");
+    } catch (err) {
+      console.error("Error saving cortex settings", err);
+      setCortexError("No se pudo guardar la configuración del proveedor.");
+    } finally {
+      setCortexSaving(false);
+    }
+  }, [cortexForm, fetchSettings, fetchStatus, showCortexTestToast]);
+
   useEffect(() => {
     fetchSettings();
     fetchStatus();
     fetchUsageSummary();
-    fetchTranslateSettings();
-  }, [fetchSettings, fetchStatus, fetchTranslateSettings, fetchUsageSummary]);
+    fetchOffers();
+  }, [fetchSettings, fetchStatus, fetchUsageSummary, fetchOffers]);
 
   useEffect(() => {
     setCurrentPage(1);
@@ -415,7 +713,7 @@ export default function CreatorAiSettingsPage() {
     if (
       translateForm.provider === "deepl" &&
       !translateForm.deeplApiKey.trim() &&
-      !translateForm.hasDeeplKey
+      !translateForm.deeplKeySaved
     ) {
       setTranslateError("DEEPL_API_KEY es obligatorio.");
       return;
@@ -448,9 +746,11 @@ export default function CreatorAiSettingsPage() {
         body: JSON.stringify(payload),
       });
       const data = await res.json().catch(() => ({}));
-      if (!res.ok) {
+      if (!res.ok || data?.ok === false) {
         const message =
-          typeof data?.error === "string" && data.error.trim().length > 0
+          typeof data?.error?.message === "string"
+            ? data.error.message
+            : typeof data?.error === "string" && data.error.trim().length > 0
             ? data.error
             : "No se pudo guardar la configuración de traducción.";
         setTranslateError(message);
@@ -458,45 +758,15 @@ export default function CreatorAiSettingsPage() {
       }
       setTranslateSuccess("Configuración de traducción guardada.");
       showTranslateTestToast("Ajustes guardados.", "success");
-      setTranslateForm((prev) =>
-            prev
-              ? {
-                  ...prev,
-                  provider: normalizeTranslateProviderOption(data.provider),
-                  libretranslateUrl:
-                    typeof data.libretranslateUrl === "string" && data.libretranslateUrl.trim().length > 0
-                      ? data.libretranslateUrl
-                      : prev.libretranslateUrl,
-                  libretranslateApiKey: "",
-                  deeplApiUrl:
-                    typeof data.deeplApiUrl === "string" && data.deeplApiUrl.trim().length > 0
-                      ? data.deeplApiUrl
-                      : "",
-                  deeplApiKey: "",
-                  hasLibreKey: Boolean(data.hasLibreKey),
-                  hasDeeplKey: Boolean(data.hasDeeplKey),
-                  creatorLang:
-                    normalizeTranslationLanguage(data.creatorLang) ??
-                    prev.creatorLang ??
-                    defaultTranslateLang,
-                }
-              : prev
-          );
-      const nextProvider = normalizeTranslateProviderOption(data.provider);
-      if (nextProvider !== "deepl") {
-        setShowDeeplAdvanced(false);
-      } else if (typeof data?.deeplApiUrl === "string" && data.deeplApiUrl.trim().length > 0) {
-        setShowDeeplAdvanced(true);
-      }
+      await fetchSettings({ silent: true });
       await fetchStatus();
-      await fetchTranslateSettings();
     } catch (err) {
       console.error("Error saving translate settings", err);
       setTranslateError("No se pudo guardar la configuración de traducción.");
     } finally {
       setTranslateSaving(false);
     }
-  }, [defaultTranslateLang, fetchStatus, fetchTranslateSettings, showTranslateTestToast, translateForm]);
+  }, [fetchSettings, fetchStatus, showTranslateTestToast, translateForm]);
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -535,6 +805,7 @@ export default function CreatorAiSettingsPage() {
       creditsAvailable: typeof form.creditsAvailable === "number" ? form.creditsAvailable : 0,
       hardLimitPerDay: form.hardLimitPerDay === "" ? null : form.hardLimitPerDay ?? null,
       allowAutoLowPriority: form.allowAutoLowPriority,
+      allowExplicitAdultContent: form.allowExplicitAdultContent,
       voiceTranscriptionMode: form.voiceTranscriptionMode,
       voiceTranscriptionMinSeconds: typeof minSecondsValue === "number" ? minSecondsValue : 0,
       voiceTranscriptionDailyBudgetUsd: typeof budgetValue === "number" ? budgetValue : 0,
@@ -551,15 +822,11 @@ export default function CreatorAiSettingsPage() {
         body: JSON.stringify(payload),
       });
 
-      if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || data?.ok === false) {
         throw new Error("Error saving settings");
       }
-
-      const data = await res.json();
-      if (data.settings) {
-        const normalized = normalizeSettings(data.settings);
-        applyFormFromSettings(normalized);
-      }
+      await fetchSettings({ silent: true });
       fetchStatus();
       setSuccess("Ajustes guardados.");
     } catch (err) {
@@ -569,6 +836,185 @@ export default function CreatorAiSettingsPage() {
       setSaving(false);
     }
   }
+
+  const resetOfferForm = useCallback(() => {
+    setOfferForm({ ...DEFAULT_OFFER_FORM });
+    setOfferEditingId(null);
+    setOfferFormError("");
+    setOfferSuccess("");
+  }, []);
+
+  const applyOfferToForm = useCallback((offer: Offer) => {
+    setOfferForm({
+      code: offer.code ?? "",
+      title: offer.title ?? "",
+      tier: offer.tier ?? "STANDARD",
+      priceCents: Number.isFinite(offer.priceCents) ? offer.priceCents : 0,
+      currency: (offer.currency || "EUR").toUpperCase(),
+      oneLiner: offer.oneLiner ?? "",
+      hooksText: joinOfferLines(offer.hooks),
+      ctasText: joinOfferLines(offer.ctas),
+      intensityMin: offer.intensityMin ?? "SOFT",
+      active: Boolean(offer.active),
+    });
+    setOfferEditingId(offer.id);
+    setOfferFormError("");
+    setOfferSuccess("");
+  }, []);
+
+  const handleOfferSave = useCallback(
+    async (event?: FormEvent<HTMLFormElement>) => {
+      event?.preventDefault();
+      if (offerSaving) return;
+      setOfferFormError("");
+      setOfferSuccess("");
+
+      const code = offerForm.code.trim();
+      const title = offerForm.title.trim();
+      const oneLiner = offerForm.oneLiner.trim();
+      const currency = offerForm.currency.trim().toUpperCase() || "EUR";
+      const priceCents =
+        typeof offerForm.priceCents === "number" && Number.isFinite(offerForm.priceCents)
+          ? Math.round(offerForm.priceCents)
+          : null;
+      const hooks = splitOfferLines(offerForm.hooksText);
+      const ctas = splitOfferLines(offerForm.ctasText);
+
+      if (!code || !title || !oneLiner) {
+        setOfferFormError("Código, título y one-liner son obligatorios.");
+        return;
+      }
+      if (priceCents === null) {
+        setOfferFormError("El precio es obligatorio.");
+        return;
+      }
+      if (priceCents < 0) {
+        setOfferFormError("El precio no puede ser negativo.");
+        return;
+      }
+      if (hooks.length < 3 || hooks.length > 6) {
+        setOfferFormError("Los hooks deben tener entre 3 y 6 opciones.");
+        return;
+      }
+      if (ctas.length < 3 || ctas.length > 6) {
+        setOfferFormError("Los CTAs deben tener entre 3 y 6 opciones.");
+        return;
+      }
+
+      try {
+        setOfferSaving(true);
+        const endpoint = offerEditingId
+          ? `/api/creator/agency/offers/${offerEditingId}`
+          : "/api/creator/agency/offers";
+        const method = offerEditingId ? "PUT" : "POST";
+        const res = await fetch(endpoint, {
+          method,
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            code,
+            title,
+            tier: offerForm.tier,
+            priceCents,
+            currency,
+            oneLiner,
+            hooks,
+            ctas,
+            intensityMin: offerForm.intensityMin,
+            active: offerForm.active,
+          }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok || data?.ok !== true) {
+          const message =
+            data?.error === "OFFER_CODE_TAKEN"
+              ? "Ese código ya existe."
+              : typeof data?.error === "string" && data.error.trim()
+              ? data.error
+              : "No se pudo guardar la oferta.";
+          setOfferFormError(message);
+          return;
+        }
+        const saved = data?.item ?? (Array.isArray(data.items) ? data.items[0] : null);
+        if (saved) {
+          if (offerEditingId) {
+            applyOfferToForm(saved as Offer);
+          } else {
+            resetOfferForm();
+          }
+        } else if (!offerEditingId) {
+          resetOfferForm();
+        }
+        setOfferSuccess(offerEditingId ? "Oferta actualizada." : "Oferta creada.");
+        await fetchOffers();
+      } catch (err) {
+        console.error("Error saving offer", err);
+        setOfferFormError("No se pudo guardar la oferta.");
+      } finally {
+        setOfferSaving(false);
+      }
+    },
+    [applyOfferToForm, fetchOffers, offerEditingId, offerForm, offerSaving, resetOfferForm]
+  );
+
+  const handleOfferDeactivate = useCallback(
+    async (offer: Offer) => {
+      if (offerSaving) return;
+      setOfferFormError("");
+      setOfferSuccess("");
+      try {
+        setOfferSaving(true);
+        const res = await fetch(`/api/creator/agency/offers/${offer.id}`, { method: "DELETE" });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok || data?.ok !== true) {
+          throw new Error(typeof data?.error === "string" ? data.error : res.statusText);
+        }
+        const saved = data?.item;
+        if (saved && offerEditingId === offer.id) {
+          applyOfferToForm(saved as Offer);
+        }
+        setOfferSuccess("Oferta desactivada.");
+        await fetchOffers();
+      } catch (err) {
+        console.error("Error deactivating offer", err);
+        setOfferFormError("No se pudo desactivar la oferta.");
+      } finally {
+        setOfferSaving(false);
+      }
+    },
+    [applyOfferToForm, fetchOffers, offerEditingId, offerSaving]
+  );
+
+  const handleOfferActivate = useCallback(
+    async (offer: Offer) => {
+      if (offerSaving) return;
+      setOfferFormError("");
+      setOfferSuccess("");
+      try {
+        setOfferSaving(true);
+        const res = await fetch(`/api/creator/agency/offers/${offer.id}`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ active: true }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok || data?.ok !== true) {
+          throw new Error(typeof data?.error === "string" ? data.error : res.statusText);
+        }
+        const saved = data?.item;
+        if (saved && offerEditingId === offer.id) {
+          applyOfferToForm(saved as Offer);
+        }
+        setOfferSuccess("Oferta activada.");
+        await fetchOffers();
+      } catch (err) {
+        console.error("Error activating offer", err);
+        setOfferFormError("No se pudo activar la oferta.");
+      } finally {
+        setOfferSaving(false);
+      }
+    },
+    [applyOfferToForm, fetchOffers, offerEditingId, offerSaving]
+  );
 
   function formatDate(value: string) {
     const d = new Date(value);
@@ -597,6 +1043,13 @@ export default function CreatorAiSettingsPage() {
     if (value === "libretranslate") return "libretranslate";
     if (value === "deepl") return "deepl";
     return "none";
+  }
+
+  function normalizeCortexProviderOption(raw: unknown): CortexProviderOption | null {
+    const value = typeof raw === "string" ? raw.trim().toLowerCase() : "";
+    if (value === "ollama") return "ollama";
+    if (value === "openai") return "openai";
+    return null;
   }
 
   const dailyUsageForChart = (() => {
@@ -630,6 +1083,17 @@ export default function CreatorAiSettingsPage() {
   const showLibreFields = selectedTranslateProvider === "libretranslate";
   const showDeeplFields = selectedTranslateProvider === "deepl";
   const isTranslateFormDisabled = translateLoading || translateSaving;
+  const selectedCortexProvider = cortexForm?.provider ?? "ollama";
+  const isCortexFormDisabled = cortexSaving || isTestingCortex;
+  const cortexModelValue = cortexForm?.model?.trim() ?? "";
+  const cortexModelNotDetected =
+    cortexModels.length > 0 && cortexModelValue.length > 0 && !cortexModels.includes(cortexModelValue);
+  const offerHooksCount = splitOfferLines(offerForm.hooksText).length;
+  const offerCtasCount = splitOfferLines(offerForm.ctasText).length;
+  const offerPricePreview =
+    typeof offerForm.priceCents === "number" && Number.isFinite(offerForm.priceCents)
+      ? formatOfferPriceLabel(Math.round(offerForm.priceCents), offerForm.currency)
+      : "";
 
   function AiUsageChart({ data }: { data: { date: string; count: number }[] }) {
     if (!data || data.length === 0 || data.every((d) => !d.count)) {
@@ -772,6 +1236,193 @@ export default function CreatorAiSettingsPage() {
                 </div>
               </div>
 
+              <div className="rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-4 py-4">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div>
+                    <h3 className="text-sm font-semibold text-[color:var(--text)]">Proveedor de IA (Cortex/Manager)</h3>
+                    <p className="text-xs text-[color:var(--muted)]">
+                      Configura el modelo que responde en el Cortex y el Manager.
+                    </p>
+                  </div>
+                </div>
+
+                <div className="mt-4 grid gap-3 text-xs text-[color:var(--muted)]">
+                  <label className="flex flex-col gap-1">
+                    <span className="text-[11px] font-semibold text-[color:var(--text)]">Proveedor</span>
+                    <select
+                      value={cortexForm?.provider ?? "ollama"}
+                      onChange={(event) => {
+                        const nextProvider = normalizeCortexProviderOption(event.target.value) ?? "ollama";
+                        setCortexForm((prev) =>
+                          prev
+                            ? {
+                                ...prev,
+                                provider: nextProvider,
+                              }
+                            : prev
+                        );
+                        setCortexError("");
+                        setCortexSuccess("");
+                        setCortexModels([]);
+                        setCortexModelsError("");
+                      }}
+                      disabled={isCortexFormDisabled}
+                      className="w-full rounded-lg bg-[color:var(--surface-2)] border border-[color:var(--surface-border)] px-3 py-2 text-sm text-[color:var(--text)] focus:border-[color:var(--border-a)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--ring)] disabled:cursor-not-allowed disabled:opacity-70"
+                    >
+                      <option value="ollama">Ollama (local)</option>
+                      <option value="openai">OpenAI</option>
+                    </select>
+                  </label>
+                  <label className="flex flex-col gap-1">
+                    <span className="text-[11px] font-semibold text-[color:var(--text)]">AI_BASE_URL</span>
+                    <input
+                      type="text"
+                      value={cortexForm?.baseUrl ?? defaultCortexBaseUrl}
+                      onChange={(event) =>
+                        setCortexForm((prev) =>
+                          prev ? { ...prev, baseUrl: event.target.value } : prev
+                        )
+                      }
+                      disabled={isCortexFormDisabled}
+                      placeholder={defaultCortexBaseUrl}
+                      className="w-full rounded-lg bg-[color:var(--surface-2)] border border-[color:var(--surface-border)] px-3 py-2 text-sm text-[color:var(--text)] focus:border-[color:var(--border-a)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--ring)] disabled:cursor-not-allowed disabled:opacity-70"
+                    />
+                  </label>
+                  <label className="flex flex-col gap-1">
+                    <span className="text-[11px] font-semibold text-[color:var(--text)]">AI_MODEL</span>
+                    <input
+                      type="text"
+                      value={cortexForm?.model ?? defaultCortexModel}
+                      onChange={(event) =>
+                        setCortexForm((prev) =>
+                          prev ? { ...prev, model: event.target.value } : prev
+                        )
+                      }
+                      disabled={isCortexFormDisabled}
+                      placeholder={defaultCortexModel}
+                      className="w-full rounded-lg bg-[color:var(--surface-2)] border border-[color:var(--surface-border)] px-3 py-2 text-sm text-[color:var(--text)] focus:border-[color:var(--border-a)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--ring)] disabled:cursor-not-allowed disabled:opacity-70"
+                    />
+                  </label>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={handleDetectCortexModels}
+                      disabled={isCortexFormDisabled || cortexModelsLoading}
+                      className={clsx(
+                        "inline-flex items-center justify-center rounded-full border px-3 py-1 text-[11px] font-semibold transition",
+                        isCortexFormDisabled || cortexModelsLoading
+                          ? "border-[color:var(--surface-border)] bg-[color:var(--surface-2)] text-[color:var(--muted)] cursor-not-allowed"
+                          : "border-[color:var(--surface-border)] bg-[color:var(--surface-2)] text-[color:var(--text)] hover:bg-[color:var(--surface-1)]"
+                      )}
+                    >
+                      {cortexModelsLoading ? "Detectando..." : "Detectar modelos"}
+                    </button>
+                    {cortexModels.length > 0 && (
+                      <select
+                        value=""
+                        onChange={(event) => {
+                          const nextValue = event.target.value;
+                          if (!nextValue) return;
+                          setCortexForm((prev) =>
+                            prev ? { ...prev, model: nextValue } : prev
+                          );
+                        }}
+                        disabled={isCortexFormDisabled}
+                        className="min-w-[220px] rounded-lg bg-[color:var(--surface-2)] border border-[color:var(--surface-border)] px-3 py-2 text-sm text-[color:var(--text)] focus:border-[color:var(--border-a)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--ring)] disabled:cursor-not-allowed disabled:opacity-70"
+                      >
+                        <option value="">Selecciona un modelo detectado</option>
+                        {cortexModels.map((model) => (
+                          <option key={model} value={model}>
+                            {model}
+                          </option>
+                        ))}
+                      </select>
+                    )}
+                  </div>
+                  {cortexModelsError && (
+                    <div className="text-[11px] text-[color:var(--danger)]">{cortexModelsError}</div>
+                  )}
+                  {cortexModelNotDetected && (
+                    <div className="text-[11px] text-[color:var(--danger)]">
+                      Modelo no encontrado en el proveedor. Revisa el nombre o detecta modelos.
+                    </div>
+                  )}
+                  <label className="flex flex-col gap-1">
+                    <span className="text-[11px] font-semibold text-[color:var(--text)]">
+                      AI_API_KEY {selectedCortexProvider === "ollama" ? "(opcional)" : "(obligatoria)"}
+                    </span>
+                    <input
+                      type="password"
+                      value={cortexForm?.apiKey ?? ""}
+                      onChange={(event) =>
+                        setCortexForm((prev) =>
+                          prev ? { ...prev, apiKey: event.target.value } : prev
+                        )
+                      }
+                      disabled={isCortexFormDisabled}
+                      placeholder={
+                        cortexForm?.apiKeySaved
+                          ? "Key guardada"
+                          : selectedCortexProvider === "ollama"
+                          ? "Opcional"
+                          : "Obligatoria"
+                      }
+                      className="w-full rounded-lg bg-[color:var(--surface-2)] border border-[color:var(--surface-border)] px-3 py-2 text-sm text-[color:var(--text)] focus:border-[color:var(--border-a)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--ring)] disabled:cursor-not-allowed disabled:opacity-70"
+                    />
+                    {cortexForm?.apiKeyInvalid && !cortexForm.apiKey && (
+                      <span className="text-[10px] text-[color:var(--danger)]">Key inválida. Vuelve a guardarla.</span>
+                    )}
+                    {cortexForm?.apiKeySaved && !cortexForm.apiKey && !cortexForm.apiKeyInvalid && (
+                      <span className="text-[10px] text-[color:var(--muted)]">Key guardada en servidor.</span>
+                    )}
+                  </label>
+
+                  {cortexError && <div className="text-[11px] text-[color:var(--danger)]">{cortexError}</div>}
+                  {cortexSuccess && <div className="text-[11px] text-[color:rgba(34,197,94,0.9)]">{cortexSuccess}</div>}
+                </div>
+
+                <div className="mt-4 flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    onClick={handleTestCortex}
+                    disabled={isTestingCortex || cortexSaving}
+                    className={clsx(
+                      "inline-flex items-center justify-center rounded-full border px-4 py-2 text-[11px] font-semibold transition",
+                      isTestingCortex || cortexSaving
+                        ? "border-[color:var(--surface-border)] bg-[color:var(--surface-2)] text-[color:var(--muted)] cursor-not-allowed"
+                        : "border-[color:var(--surface-border)] bg-[color:var(--surface-2)] text-[color:var(--text)] hover:bg-[color:var(--surface-1)]"
+                    )}
+                  >
+                    {isTestingCortex ? "Probando..." : "Probar conexión"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleSaveCortexSettings}
+                    disabled={cortexSaving || !cortexForm}
+                    className={clsx(
+                      "inline-flex items-center justify-center rounded-full border px-4 py-2 text-[11px] font-semibold transition",
+                      cortexSaving || !cortexForm
+                        ? "border-[color:var(--surface-border)] bg-[color:var(--surface-2)] text-[color:var(--muted)] cursor-not-allowed"
+                        : "border-[color:var(--brand)] bg-[color:rgba(var(--brand-rgb),0.14)] text-[color:var(--text)] hover:bg-[color:rgba(var(--brand-rgb),0.2)]"
+                    )}
+                  >
+                    {cortexSaving ? "Guardando..." : "Guardar ajustes"}
+                  </button>
+                </div>
+                {cortexTestToast && (
+                  <div
+                    className={clsx(
+                      "mt-2 text-[11px] whitespace-pre-wrap",
+                      cortexTestToast.variant === "success"
+                        ? "text-[color:rgba(34,197,94,0.9)]"
+                        : "text-[color:var(--danger)]"
+                    )}
+                  >
+                    {cortexTestToast.message}
+                  </div>
+                )}
+              </div>
+
               <div
                 id="translation"
                 className="rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-4 py-4"
@@ -892,12 +1543,19 @@ export default function CreatorAiSettingsPage() {
                             )
                           }
                           disabled={isTranslateFormDisabled}
-                          placeholder={translateForm?.hasLibreKey ? "Key guardada" : "Opcional"}
+                          placeholder={translateForm?.libretranslateKeySaved ? "Key guardada" : "Opcional"}
                           className="w-full rounded-lg bg-[color:var(--surface-2)] border border-[color:var(--surface-border)] px-3 py-2 text-sm text-[color:var(--text)] focus:border-[color:var(--border-a)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--ring)] disabled:cursor-not-allowed disabled:opacity-70"
                         />
-                        {translateForm?.hasLibreKey && !translateForm.libretranslateApiKey && (
-                          <span className="text-[10px] text-[color:var(--muted)]">Key guardada en servidor.</span>
+                        {translateForm?.libretranslateKeyInvalid && !translateForm.libretranslateApiKey && (
+                          <span className="text-[10px] text-[color:var(--danger)]">
+                            Key inválida. Vuelve a guardarla.
+                          </span>
                         )}
+                        {translateForm?.libretranslateKeySaved &&
+                          !translateForm.libretranslateApiKey &&
+                          !translateForm.libretranslateKeyInvalid && (
+                            <span className="text-[10px] text-[color:var(--muted)]">Key guardada en servidor.</span>
+                          )}
                       </label>
                     </>
                   )}
@@ -915,12 +1573,19 @@ export default function CreatorAiSettingsPage() {
                             )
                           }
                           disabled={isTranslateFormDisabled}
-                          placeholder={translateForm?.hasDeeplKey ? "Key guardada" : "Obligatoria"}
+                          placeholder={translateForm?.deeplKeySaved ? "Key guardada" : "Obligatoria"}
                           className="w-full rounded-lg bg-[color:var(--surface-2)] border border-[color:var(--surface-border)] px-3 py-2 text-sm text-[color:var(--text)] focus:border-[color:var(--border-a)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--ring)] disabled:cursor-not-allowed disabled:opacity-70"
                         />
-                        {translateForm?.hasDeeplKey && !translateForm.deeplApiKey && (
-                          <span className="text-[10px] text-[color:var(--muted)]">Key guardada en servidor.</span>
+                        {translateForm?.deeplKeyInvalid && !translateForm.deeplApiKey && (
+                          <span className="text-[10px] text-[color:var(--danger)]">
+                            Key inválida. Vuelve a guardarla.
+                          </span>
                         )}
+                        {translateForm?.deeplKeySaved &&
+                          !translateForm.deeplApiKey &&
+                          !translateForm.deeplKeyInvalid && (
+                            <span className="text-[10px] text-[color:var(--muted)]">Key guardada en servidor.</span>
+                          )}
                       </label>
                       <button
                         type="button"
@@ -1039,6 +1704,28 @@ export default function CreatorAiSettingsPage() {
                     </label>
                     <p className="text-xs text-[color:var(--muted)]">
                       Si está activado, la IA puede contestar por ti cuando la cola esté muy llena. Solo se usa con fans marcados como baja prioridad.
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-3 border border-[color:var(--surface-border)] rounded-xl px-4 py-3 bg-[color:var(--surface-1)]">
+                  <input
+                    id="allowExplicitAdultContent"
+                    type="checkbox"
+                    checked={form.allowExplicitAdultContent}
+                    onChange={(e) =>
+                      setForm((prev) =>
+                        prev ? { ...prev, allowExplicitAdultContent: e.target.checked } : prev
+                      )
+                    }
+                    className="h-5 w-5 rounded border-[color:var(--surface-border)] bg-[color:var(--surface-2)] text-[color:var(--brand)] focus:ring-[color:var(--ring)]"
+                  />
+                  <div className="flex flex-col">
+                    <label htmlFor="allowExplicitAdultContent" className="text-sm font-medium text-[color:var(--text)]">
+                      Modo +18 explícito
+                    </label>
+                    <p className="text-xs text-[color:var(--muted)]">
+                      Permite lenguaje sexual explícito entre adultos (consentido). Se bloquean menores y no-consentimiento.
                     </p>
                   </div>
                 </div>
@@ -1167,6 +1854,306 @@ export default function CreatorAiSettingsPage() {
           {!loading && !form && (
             <div className="text-sm text-[color:var(--muted)]">No hay datos de ajustes disponibles en este momento.</div>
           )}
+        </div>
+
+        <div className="rounded-2xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] p-4 sm:p-6">
+          <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
+            <div>
+              <h2 className="text-lg font-semibold text-[color:var(--text)]">Ofertas</h2>
+              <p className="text-sm text-[color:var(--muted)]">
+                Gestiona el catálogo para insertar ofertas humanas desde el Manager IA.
+              </p>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={resetOfferForm}
+                className="rounded-full border border-[color:var(--surface-border)] px-3 py-1 text-xs font-semibold text-[color:var(--text)] hover:border-[color:var(--brand)]"
+              >
+                Nueva oferta
+              </button>
+              <button
+                type="button"
+                onClick={fetchOffers}
+                disabled={offersLoading}
+                className="rounded-full border border-[color:var(--surface-border)] px-3 py-1 text-xs font-semibold text-[color:var(--text)] hover:border-[color:var(--brand)] disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                Refrescar
+              </button>
+            </div>
+          </div>
+
+          {offersError && <div className="text-sm text-[color:var(--danger)] mb-2">{offersError}</div>}
+          {offerFormError && <div className="text-sm text-[color:var(--danger)] mb-2">{offerFormError}</div>}
+          {offerSuccess && (
+            <div className="text-sm text-[color:rgba(34,197,94,0.9)] mb-2">{offerSuccess}</div>
+          )}
+
+          <div className="grid grid-cols-1 lg:grid-cols-[1.3fr_1fr] gap-4">
+            <div className="rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] p-4">
+              <div className="flex items-center justify-between gap-2">
+                <div className="text-sm font-semibold text-[color:var(--text)]">Listado</div>
+                <div className="text-xs text-[color:var(--muted)]">
+                  {offers.length} {offers.length === 1 ? "oferta" : "ofertas"}
+                </div>
+              </div>
+              {offersLoading && (
+                <div className="mt-3 text-xs text-[color:var(--muted)]">Cargando ofertas...</div>
+              )}
+              {!offersLoading && offers.length === 0 && (
+                <div className="mt-3 text-xs text-[color:var(--muted)]">Aún no has creado ofertas.</div>
+              )}
+              {!offersLoading && offers.length > 0 && (
+                <div className="mt-3 divide-y divide-[color:var(--surface-border)]">
+                  {offers.map((offer) => (
+                    <div
+                      key={offer.id}
+                      className="py-3 flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between"
+                    >
+                      <div className="space-y-1">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="text-sm font-semibold text-[color:var(--text)]">{offer.title}</span>
+                          {!offer.active && (
+                            <span className="rounded-full border border-[color:var(--surface-border)] px-2 py-0.5 text-[10px] font-semibold text-[color:var(--muted)]">
+                              Inactiva
+                            </span>
+                          )}
+                        </div>
+                        <div className="text-xs text-[color:var(--muted)]">
+                          <span className="font-mono">{offer.code}</span> · {OFFER_TIER_LABELS[offer.tier]} ·{" "}
+                          {formatOfferPriceLabel(offer.priceCents, offer.currency)} ·{" "}
+                          {AGENCY_INTENSITY_LABELS[offer.intensityMin]}
+                        </div>
+                        {offer.oneLiner && (
+                          <div className="text-[11px] text-[color:var(--muted)]">{offer.oneLiner}</div>
+                        )}
+                        <div className="text-[10px] text-[color:var(--muted)]">
+                          Hooks: {offer.hooks.length} · CTAs: {offer.ctas.length}
+                        </div>
+                      </div>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => applyOfferToForm(offer)}
+                          className="rounded-full border border-[color:var(--surface-border)] px-3 py-1 text-[11px] font-semibold text-[color:var(--text)] hover:border-[color:var(--brand)]"
+                        >
+                          Editar
+                        </button>
+                        {offer.active ? (
+                          <button
+                            type="button"
+                            onClick={() => handleOfferDeactivate(offer)}
+                            disabled={offerSaving}
+                            className="rounded-full border border-[color:var(--surface-border)] px-3 py-1 text-[11px] font-semibold text-[color:var(--text)] hover:border-[color:var(--brand)] disabled:cursor-not-allowed disabled:opacity-60"
+                          >
+                            Desactivar
+                          </button>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => handleOfferActivate(offer)}
+                            disabled={offerSaving}
+                            className="rounded-full border border-[color:var(--surface-border)] px-3 py-1 text-[11px] font-semibold text-[color:var(--text)] hover:border-[color:var(--brand)] disabled:cursor-not-allowed disabled:opacity-60"
+                          >
+                            Activar
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <div className="rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] p-4">
+              <form onSubmit={handleOfferSave} className="flex flex-col gap-3">
+                <div className="flex items-start justify-between gap-2">
+                  <div>
+                    <div className="text-sm font-semibold text-[color:var(--text)]">
+                      {offerEditingId ? "Editar oferta" : "Nueva oferta"}
+                    </div>
+                    <div className="text-xs text-[color:var(--muted)]">3-6 hooks y CTAs para variar el copy.</div>
+                  </div>
+                  {offerEditingId && (
+                    <button
+                      type="button"
+                      onClick={resetOfferForm}
+                      className="text-[11px] font-semibold text-[color:var(--muted)] hover:text-[color:var(--text)]"
+                    >
+                      Cancelar
+                    </button>
+                  )}
+                </div>
+
+                <label className="flex flex-col gap-1 text-[11px] text-[color:var(--muted)]">
+                  <span className="font-semibold text-[color:var(--text)]">Código</span>
+                  <input
+                    type="text"
+                    value={offerForm.code}
+                    onChange={(event) => setOfferForm((prev) => ({ ...prev, code: event.target.value }))}
+                    placeholder="micro-1"
+                    className="w-full rounded-lg bg-[color:var(--surface-2)] border border-[color:var(--surface-border)] px-3 py-2 text-sm text-[color:var(--text)]"
+                  />
+                </label>
+
+                <label className="flex flex-col gap-1 text-[11px] text-[color:var(--muted)]">
+                  <span className="font-semibold text-[color:var(--text)]">Título</span>
+                  <input
+                    type="text"
+                    value={offerForm.title}
+                    onChange={(event) => setOfferForm((prev) => ({ ...prev, title: event.target.value }))}
+                    placeholder="Extra rápido"
+                    className="w-full rounded-lg bg-[color:var(--surface-2)] border border-[color:var(--surface-border)] px-3 py-2 text-sm text-[color:var(--text)]"
+                  />
+                </label>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <label className="flex flex-col gap-1 text-[11px] text-[color:var(--muted)]">
+                    <span className="font-semibold text-[color:var(--text)]">Tier</span>
+                    <select
+                      value={offerForm.tier}
+                      onChange={(event) =>
+                        setOfferForm((prev) => ({ ...prev, tier: event.target.value as OfferTier }))
+                      }
+                      className="w-full rounded-lg bg-[color:var(--surface-2)] border border-[color:var(--surface-border)] px-3 py-2 text-sm text-[color:var(--text)]"
+                    >
+                      {Object.entries(OFFER_TIER_LABELS).map(([value, label]) => (
+                        <option key={value} value={value}>
+                          {label}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+
+                  <label className="flex flex-col gap-1 text-[11px] text-[color:var(--muted)]">
+                    <span className="font-semibold text-[color:var(--text)]">Intensidad mínima</span>
+                    <select
+                      value={offerForm.intensityMin}
+                      onChange={(event) =>
+                        setOfferForm((prev) => ({ ...prev, intensityMin: event.target.value as AgencyIntensity }))
+                      }
+                      className="w-full rounded-lg bg-[color:var(--surface-2)] border border-[color:var(--surface-border)] px-3 py-2 text-sm text-[color:var(--text)]"
+                    >
+                      {AGENCY_INTENSITIES.map((intensity) => (
+                        <option key={intensity} value={intensity}>
+                          {AGENCY_INTENSITY_LABELS[intensity]}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <label className="flex flex-col gap-1 text-[11px] text-[color:var(--muted)]">
+                    <span className="font-semibold text-[color:var(--text)]">Precio (céntimos)</span>
+                    <input
+                      type="number"
+                      min={0}
+                      step={1}
+                      value={offerForm.priceCents === "" ? "" : offerForm.priceCents}
+                      onChange={(event) => {
+                        const value = event.target.value;
+                        setOfferForm((prev) => ({
+                          ...prev,
+                          priceCents: value === "" ? "" : Number(value),
+                        }));
+                      }}
+                      className="w-full rounded-lg bg-[color:var(--surface-2)] border border-[color:var(--surface-border)] px-3 py-2 text-sm text-[color:var(--text)]"
+                    />
+                    {offerPricePreview && (
+                      <span className="text-[10px] text-[color:var(--muted)]">Vista: {offerPricePreview}</span>
+                    )}
+                  </label>
+
+                  <label className="flex flex-col gap-1 text-[11px] text-[color:var(--muted)]">
+                    <span className="font-semibold text-[color:var(--text)]">Moneda</span>
+                    <input
+                      type="text"
+                      value={offerForm.currency}
+                      onChange={(event) =>
+                        setOfferForm((prev) => ({ ...prev, currency: event.target.value.toUpperCase() }))
+                      }
+                      placeholder="EUR"
+                      className="w-full rounded-lg bg-[color:var(--surface-2)] border border-[color:var(--surface-border)] px-3 py-2 text-sm text-[color:var(--text)]"
+                    />
+                  </label>
+                </div>
+
+                <label className="flex flex-col gap-1 text-[11px] text-[color:var(--muted)]">
+                  <span className="font-semibold text-[color:var(--text)]">One-liner</span>
+                  <input
+                    type="text"
+                    value={offerForm.oneLiner}
+                    onChange={(event) => setOfferForm((prev) => ({ ...prev, oneLiner: event.target.value }))}
+                    placeholder="Te preparo algo corto y con chispa."
+                    className="w-full rounded-lg bg-[color:var(--surface-2)] border border-[color:var(--surface-border)] px-3 py-2 text-sm text-[color:var(--text)]"
+                  />
+                </label>
+
+                <label className="flex flex-col gap-1 text-[11px] text-[color:var(--muted)]">
+                  <span className="font-semibold text-[color:var(--text)]">Hooks ({offerHooksCount}/6)</span>
+                  <textarea
+                    rows={4}
+                    value={offerForm.hooksText}
+                    onChange={(event) => setOfferForm((prev) => ({ ...prev, hooksText: event.target.value }))}
+                    placeholder={
+                      "Hoy te puedo sorprender.\nTengo algo corto y directo.\n¿Te apetece algo con más chispa?"
+                    }
+                    className="w-full rounded-lg bg-[color:var(--surface-2)] border border-[color:var(--surface-border)] px-3 py-2 text-sm text-[color:var(--text)]"
+                  />
+                  <span className="text-[10px] text-[color:var(--muted)]">3-6 líneas, una por hook.</span>
+                </label>
+
+                <label className="flex flex-col gap-1 text-[11px] text-[color:var(--muted)]">
+                  <span className="font-semibold text-[color:var(--text)]">CTAs ({offerCtasCount}/6)</span>
+                  <textarea
+                    rows={4}
+                    value={offerForm.ctasText}
+                    onChange={(event) => setOfferForm((prev) => ({ ...prev, ctasText: event.target.value }))}
+                    placeholder={"¿Te lo preparo?\n¿Quieres que lo deje listo?\n¿Te apetece hoy?"}
+                    className="w-full rounded-lg bg-[color:var(--surface-2)] border border-[color:var(--surface-border)] px-3 py-2 text-sm text-[color:var(--text)]"
+                  />
+                  <span className="text-[10px] text-[color:var(--muted)]">
+                    3-6 líneas, mejor en forma de pregunta.
+                  </span>
+                </label>
+
+                <label className="flex items-center gap-2 text-[11px] text-[color:var(--muted)]">
+                  <input
+                    type="checkbox"
+                    checked={offerForm.active}
+                    onChange={(event) => setOfferForm((prev) => ({ ...prev, active: event.target.checked }))}
+                    className="h-4 w-4 rounded border-[color:var(--surface-border)] bg-[color:var(--surface-2)] text-[color:var(--brand)] focus:ring-[color:var(--ring)]"
+                  />
+                  Activa
+                </label>
+
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    type="submit"
+                    disabled={offerSaving}
+                    className={clsx(
+                      "inline-flex items-center justify-center rounded-full border px-4 py-2 text-[11px] font-semibold transition",
+                      offerSaving
+                        ? "border-[color:var(--surface-border)] bg-[color:var(--surface-2)] text-[color:var(--muted)] cursor-not-allowed"
+                        : "border-[color:var(--brand)] bg-[color:rgba(var(--brand-rgb),0.14)] text-[color:var(--text)] hover:bg-[color:rgba(var(--brand-rgb),0.2)]"
+                    )}
+                  >
+                    {offerSaving ? "Guardando..." : offerEditingId ? "Guardar cambios" : "Crear oferta"}
+                  </button>
+                  {offerEditingId && (
+                    <button
+                      type="button"
+                      onClick={resetOfferForm}
+                      className="inline-flex items-center justify-center rounded-full border border-[color:var(--surface-border)] px-4 py-2 text-[11px] font-semibold text-[color:var(--text)] hover:border-[color:var(--brand)]"
+                    >
+                      Nueva oferta
+                    </button>
+                  )}
+                </div>
+              </form>
+            </div>
+          </div>
         </div>
 
               <div className="rounded-2xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] p-4 sm:p-6">

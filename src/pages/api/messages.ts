@@ -13,6 +13,9 @@ import { getStickerById } from "../../lib/emoji/stickers";
 import { emitCreatorEvent as emitRealtimeEvent } from "../../server/realtimeHub";
 import { saveVoice } from "../../lib/voiceStorage";
 import { buildReactionSummary, type ReactionActor } from "../../lib/messageReactions";
+import { detectIntentWithFallback } from "../../lib/ai/intentClassifier";
+import type { IntentResult } from "../../lib/ai/intents";
+import { computeTemperatureFromMessage, resolveNextAction } from "../../lib/ai/temperature";
 
 export const config = {
   api: {
@@ -23,8 +26,8 @@ export const config = {
 };
 
 type MessageResponse =
-  | { ok: true; items: any[]; messages?: any[] }
-  | { ok: true; message: any; items?: any[]; messages?: any[] }
+  | { ok: true; items: any[]; messages?: any[]; shouldBlock?: boolean }
+  | { ok: true; message: any; items?: any[]; messages?: any[]; shouldBlock?: boolean }
   | { ok: false; error: string; errorCode?: string; message?: string; fix?: string[] };
 
 type MessageTimestampCandidate = {
@@ -103,6 +106,10 @@ function sanitizeMessageForFan(message: Record<string, unknown>) {
     transcriptError,
     transcribedAt,
     transcriptLang,
+    intentKey,
+    intentConfidence,
+    intentMeta,
+    intentUpdatedAt,
     intentJson,
     voiceAnalysisJson,
     voiceAnalysisUpdatedAt,
@@ -414,10 +421,23 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse<MessageRespo
   } | null = null;
 
   try {
-    const fan = await prisma.fan.findUnique({
+    const fan = (await prisma.fan.findUnique({
       where: { id: normalizedFanId },
-      select: { isBlocked: true, preferredLanguage: true, creatorId: true, inviteUsedAt: true, inviteToken: true },
-    });
+      select: {
+        isBlocked: true,
+        preferredLanguage: true,
+        creatorId: true,
+        inviteUsedAt: true,
+        inviteToken: true,
+        membershipStatus: true,
+        lastMessageAt: true,
+        lastInboundAt: true,
+        lastPurchaseAt: true,
+        daysLeft: true,
+        temperatureScore: true,
+        temperatureBucket: true,
+      } as any,
+    })) as any;
     if (!fan) {
       return res.status(404).json({ ok: false, error: "Fan not found" });
     }
@@ -450,6 +470,8 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse<MessageRespo
     const preferredLanguage = normalizePreferredLanguage(fan.preferredLanguage) ?? "en";
     let deliveredText: string | null = null;
     let creatorTranslatedText: string | null = null;
+    let intentResult: IntentResult | null = null;
+    let shouldBlock = false;
 
     const shouldTranslate =
       normalizedAudience !== "INTERNAL" &&
@@ -473,6 +495,20 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse<MessageRespo
         creatorId: fan.creatorId,
         fanId: normalizedFanId,
       });
+    }
+
+    if (normalizedFrom === "fan" && normalizedType === "TEXT" && typeof messageText === "string" && messageText.trim()) {
+      try {
+        intentResult = await detectIntentWithFallback({
+          text: messageText,
+          lang: preferredLanguage,
+          creatorId: fan.creatorId,
+          fanId: normalizedFanId,
+        });
+        shouldBlock = intentResult.intent === "UNSAFE_MINOR";
+      } catch (intentErr) {
+        intentResult = { intent: "OTHER", confidence: 0.3, signals: { error: "intent_failed" } };
+      }
     }
 
     const shouldUpdateThread = normalizedAudience !== "INTERNAL";
@@ -501,11 +537,15 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse<MessageRespo
         audioDurationMs: voicePayload?.audioDurationMs ?? null,
         audioMime: voicePayload?.audioMime ?? null,
         audioSizeBytes: voicePayload?.audioSizeBytes ?? null,
-      },
+        intentKey: intentResult?.intent ?? null,
+        intentConfidence: intentResult?.confidence ?? null,
+        intentMeta: intentResult?.signals ?? null,
+        intentUpdatedAt: intentResult ? new Date() : null,
+      } as any,
       include: { contentItem: true },
     });
 
-    const createdMessage = { ...created, reactionsSummary: [] };
+    const createdMessage = { ...created, reactionsSummary: [] } as any;
 
     emitRealtimeEvent({
       eventId: created.id,
@@ -535,11 +575,45 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse<MessageRespo
           transcriptError: createdMessage.transcriptError,
           transcribedAt: createdMessage.transcribedAt,
           transcriptLang: createdMessage.transcriptLang,
+          intentKey: createdMessage.intentKey,
+          intentConfidence: createdMessage.intentConfidence,
+          intentMeta: createdMessage.intentMeta,
+          intentUpdatedAt: createdMessage.intentUpdatedAt,
           intentJson: createdMessage.intentJson,
           reactionsSummary: createdMessage.reactionsSummary,
         },
       },
     });
+
+    if (normalizedFrom === "fan" && normalizedAudience !== "INTERNAL") {
+      try {
+        const now = new Date();
+        const temperature = computeTemperatureFromMessage({
+          previousScore: typeof fan.temperatureScore === "number" ? fan.temperatureScore : 0,
+          lastInboundAt: fan.lastInboundAt ?? fan.lastMessageAt ?? null,
+          intentKey: intentResult?.intent ?? null,
+          lastPurchaseAt: fan.lastPurchaseAt ?? null,
+          now,
+        });
+        const nextAction = resolveNextAction({
+          intentKey: intentResult?.intent ?? null,
+          temperatureBucket: temperature.bucket,
+        });
+        await prisma.fan.update({
+          where: { id: normalizedFanId },
+          data: {
+            temperatureScore: temperature.score,
+            temperatureBucket: temperature.bucket,
+            nextAction,
+            lastIntentConfidence:
+              typeof intentResult?.confidence === "number" ? intentResult.confidence : null,
+            signalsUpdatedAt: now,
+          },
+        });
+      } catch (temperatureErr) {
+        console.warn("temperature_compute_failed", temperatureErr);
+      }
+    }
 
     if (shouldUpdateThread) {
       const previewSource =
@@ -562,6 +636,14 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse<MessageRespo
       };
       if (normalizedFrom === "fan") {
         fanUpdate.isArchived = false;
+        fanUpdate.lastInboundAt = now;
+        if (intentResult?.intent) {
+          fanUpdate.lastIntentKey = intentResult.intent;
+          fanUpdate.lastIntentAt = now;
+        }
+        if (typeof intentResult?.confidence === "number") {
+          fanUpdate.lastIntentConfidence = intentResult.confidence;
+        }
         if (fan.inviteToken && !fan.inviteUsedAt) {
           fanUpdate.inviteUsedAt = now;
         }
@@ -591,6 +673,7 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse<MessageRespo
       message: responseMessage,
       items: [responseMessage],
       messages: [responseMessage],
+      shouldBlock,
     });
   } catch (err) {
     if (isDbSchemaOutOfSyncError(err)) {

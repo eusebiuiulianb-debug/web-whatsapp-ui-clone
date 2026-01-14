@@ -1,26 +1,29 @@
 import type { NextApiRequest, NextApiResponse } from "next";
 import { Prisma } from "@prisma/client";
 import prisma from "../../../../lib/prisma.server";
-import { encryptSecret } from "../../../../lib/crypto/secrets";
-import { getEffectiveTranslateConfig } from "../../../../lib/ai/translateProvider";
+import { decryptSecretSafe, encryptSecret, isCryptoConfigError } from "../../../../lib/crypto/secrets";
 import { normalizeTranslationLanguage, type TranslationLanguage } from "../../../../lib/language";
 
 type TranslateProvider = "none" | "libretranslate" | "deepl";
 
-type TranslateSettingsResponse = {
+type KeyStatus = { saved: boolean; invalid: boolean };
+
+type TranslateSettingsPayload = {
   provider: TranslateProvider;
   libretranslateUrl: string | null;
   deeplApiUrl: string | null;
-  hasLibreKey: boolean;
-  hasDeeplKey: boolean;
+  libretranslateApiKey: KeyStatus;
+  deeplApiKey: KeyStatus;
   creatorLang: TranslationLanguage;
 };
 
-type ErrorResponse = { error: string; message?: string };
+type TranslateSettingsResponse =
+  | { ok: true; data: TranslateSettingsPayload; settings?: TranslateSettingsPayload }
+  | { ok: false; error: string; message?: string };
 
 export default async function handler(
   req: NextApiRequest,
-  res: NextApiResponse<TranslateSettingsResponse | ErrorResponse>
+  res: NextApiResponse<TranslateSettingsResponse>
 ) {
   if (req.method === "GET") {
     return handleGet(req, res);
@@ -31,18 +34,21 @@ export default async function handler(
   }
 
   res.setHeader("Allow", "GET, POST");
-  return res.status(405).json({ error: "Method not allowed" });
+  return res
+    .status(405)
+    .json({ ok: false, error: "METHOD_NOT_ALLOWED", message: "Method not allowed" });
 }
 
 async function handleGet(
   req: NextApiRequest,
-  res: NextApiResponse<TranslateSettingsResponse | ErrorResponse>
+  res: NextApiResponse<TranslateSettingsResponse>
 ) {
   if (resolveViewerRole(req) !== "creator") {
-    return res.status(403).json({ error: "Forbidden" });
+    return res.status(403).json({ ok: false, error: "Forbidden" });
   }
 
   try {
+    res.setHeader("Cache-Control", "no-store");
     const creatorId = await resolveCreatorId();
     const settings = await prisma.creatorAiSettings.findUnique({
       where: { creatorId },
@@ -56,48 +62,30 @@ async function handleGet(
       },
     });
 
-    if (!settings || settings.translateProvider === null) {
-      const effective = await getEffectiveTranslateConfig(creatorId);
-      return res.status(200).json({
-        provider: normalizeProvider(effective.provider),
-        libretranslateUrl: effective.libretranslateUrl ?? null,
-        deeplApiUrl: normalizeDeepLApiUrl(effective.deeplApiUrl ?? null),
-        hasLibreKey: Boolean(effective.libretranslateApiKey),
-        hasDeeplKey: Boolean(effective.deeplApiKey),
-        creatorLang: effective.creatorLang,
-      });
-    }
-
-    return res.status(200).json({
-      provider: normalizeProvider(settings.translateProvider),
-      libretranslateUrl: normalizeUrl(settings.libretranslateUrl),
-      deeplApiUrl: normalizeDeepLApiUrl(settings.deeplApiUrl),
-      hasLibreKey: Boolean(settings.libretranslateApiKeyEnc),
-      hasDeeplKey: Boolean(settings.deeplApiKeyEnc),
-      creatorLang: resolveCreatorLangFromPriority(settings.priorityOrderJson),
-    });
+    const payload = buildTranslatePayload(settings);
+    return res.status(200).json({ ok: true, data: payload, settings: payload });
   } catch (err) {
     console.error("Error loading translate settings", err);
-    return res.status(500).json({ error: "INTERNAL_ERROR" });
+    return res.status(500).json({ ok: false, error: "INTERNAL_ERROR" });
   }
 }
 
 async function handlePost(
   req: NextApiRequest,
-  res: NextApiResponse<TranslateSettingsResponse | ErrorResponse>
+  res: NextApiResponse<TranslateSettingsResponse>
 ) {
   if (resolveViewerRole(req) !== "creator") {
-    return res.status(403).json({ error: "Forbidden" });
+    return res.status(403).json({ ok: false, error: "Forbidden" });
   }
 
   if (!req.body || typeof req.body !== "object" || Array.isArray(req.body)) {
-    return res.status(400).json({ error: "Payload must be an object" });
+    return res.status(400).json({ ok: false, error: "Payload must be an object" });
   }
 
   const rawProvider = typeof req.body?.provider === "string" ? req.body.provider : "";
   const provider = normalizeProvider(rawProvider);
   if (!["none", "libretranslate", "deepl"].includes(provider)) {
-    return res.status(400).json({ error: "provider is invalid" });
+    return res.status(400).json({ ok: false, error: "provider is invalid" });
   }
 
   const creatorId = await resolveCreatorId();
@@ -127,20 +115,23 @@ async function handlePost(
     creatorLangRaw !== undefined ? normalizeTranslationLanguage(creatorLangRaw) : null;
 
   if (provider === "libretranslate" && !libretranslateUrl) {
-    return res.status(400).json({ error: "LIBRETRANSLATE_URL is required" });
+    return res.status(400).json({ ok: false, error: "LIBRETRANSLATE_URL is required" });
   }
 
   if (provider === "deepl") {
     if (deeplApiKeyRaw && isPlaceholderKey(deeplApiKeyRaw)) {
-      return res.status(400).json({ error: "DEEPL_API_KEY is invalid" });
+      return res.status(400).json({ ok: false, error: "DEEPL_API_KEY is invalid" });
     }
-    if (!deeplApiKeyRaw && !existing?.deeplApiKeyEnc) {
-      return res.status(400).json({ error: "DEEPL_API_KEY is required" });
+    const existingKeyValid = existing?.deeplApiKeyEnc
+      ? decryptSecretSafe(existing.deeplApiKeyEnc).ok
+      : false;
+    if (!deeplApiKeyRaw && !existingKeyValid) {
+      return res.status(400).json({ ok: false, error: "DEEPL_API_KEY is required" });
     }
   }
 
   if (creatorLangRaw !== undefined && !creatorLang) {
-    return res.status(400).json({ error: "creatorLang is invalid" });
+    return res.status(400).json({ ok: false, error: "creatorLang is invalid" });
   }
 
   const updateData: Prisma.CreatorAiSettingsUncheckedUpdateInput = {
@@ -170,15 +161,37 @@ async function handlePost(
   }
 
   if (libretranslateApiKeyRaw !== undefined) {
-    updateData.libretranslateApiKeyEnc = libretranslateApiKeyRaw
-      ? encryptSecret(libretranslateApiKeyRaw)
-      : null;
-    createData.libretranslateApiKeyEnc = updateData.libretranslateApiKeyEnc as string | null;
+    if (libretranslateApiKeyRaw) {
+      if (!hasSecretKeyEnv() && process.env.NODE_ENV === "production") {
+        return res.status(400).json({ ok: false, error: "APP_SECRET_KEYS is required to store LibreTranslate key" });
+      }
+      try {
+        updateData.libretranslateApiKeyEnc = encryptSecret(libretranslateApiKeyRaw);
+        createData.libretranslateApiKeyEnc = updateData.libretranslateApiKeyEnc as string | null;
+      } catch (err) {
+        if (isCryptoConfigError(err)) {
+          return res.status(400).json({ ok: false, error: err.message });
+        }
+        throw err;
+      }
+    }
   }
 
   if (deeplApiKeyRaw !== undefined) {
-    updateData.deeplApiKeyEnc = deeplApiKeyRaw ? encryptSecret(deeplApiKeyRaw) : null;
-    createData.deeplApiKeyEnc = updateData.deeplApiKeyEnc as string | null;
+    if (deeplApiKeyRaw) {
+      if (!hasSecretKeyEnv() && process.env.NODE_ENV === "production") {
+        return res.status(400).json({ ok: false, error: "APP_SECRET_KEYS is required to store DeepL key" });
+      }
+      try {
+        updateData.deeplApiKeyEnc = encryptSecret(deeplApiKeyRaw);
+        createData.deeplApiKeyEnc = updateData.deeplApiKeyEnc as string | null;
+      } catch (err) {
+        if (isCryptoConfigError(err)) {
+          return res.status(400).json({ ok: false, error: err.message });
+        }
+        throw err;
+      }
+    }
   }
 
   if (creatorLangRaw !== undefined) {
@@ -202,17 +215,11 @@ async function handlePost(
       },
     });
 
-    return res.status(200).json({
-      provider: normalizeProvider(settings.translateProvider),
-      libretranslateUrl: normalizeUrl(settings.libretranslateUrl),
-      deeplApiUrl: normalizeDeepLApiUrl(settings.deeplApiUrl),
-      hasLibreKey: Boolean(settings.libretranslateApiKeyEnc),
-      hasDeeplKey: Boolean(settings.deeplApiKeyEnc),
-      creatorLang: resolveCreatorLangFromPriority(settings.priorityOrderJson),
-    });
+    const payload = buildTranslatePayload(settings);
+    return res.status(200).json({ ok: true, data: payload, settings: payload });
   } catch (err) {
     console.error("Error saving translate settings", err);
-    return res.status(500).json({ error: "INTERNAL_ERROR" });
+    return res.status(500).json({ ok: false, error: "INTERNAL_ERROR" });
   }
 }
 
@@ -228,12 +235,57 @@ function resolveViewerRole(req: NextApiRequest): "creator" | "fan" {
   return "fan";
 }
 
+function hasSecretKeyEnv(): boolean {
+  return Boolean(
+    (typeof process.env.APP_SECRET_KEYS === "string" && process.env.APP_SECRET_KEYS.trim()) ||
+      (typeof process.env.APP_SECRET_KEY === "string" && process.env.APP_SECRET_KEY.trim())
+  );
+}
+
 function normalizeProvider(raw?: string | null): TranslateProvider {
   const normalized = typeof raw === "string" ? raw.trim().toLowerCase() : "";
   if (normalized === "libre") return "libretranslate";
   if (normalized === "deepl") return "deepl";
   if (normalized === "libretranslate") return "libretranslate";
   return "none";
+}
+
+function buildKeyStatus(payload?: string | null): KeyStatus {
+  if (!payload) return { saved: false, invalid: false };
+  const decrypted = decryptSecretSafe(payload);
+  if (decrypted.ok) return { saved: true, invalid: false };
+  return { saved: false, invalid: true };
+}
+
+function buildTranslatePayload(
+  settings: {
+    translateProvider?: string | null;
+    libretranslateUrl?: string | null;
+    deeplApiUrl?: string | null;
+    libretranslateApiKeyEnc?: string | null;
+    deeplApiKeyEnc?: string | null;
+    priorityOrderJson?: Prisma.JsonValue | null;
+  } | null
+): TranslateSettingsPayload {
+  if (!settings) {
+    return {
+      provider: "none",
+      libretranslateUrl: null,
+      deeplApiUrl: null,
+      libretranslateApiKey: { saved: false, invalid: false },
+      deeplApiKey: { saved: false, invalid: false },
+      creatorLang: DEFAULT_CREATOR_LANG,
+    };
+  }
+
+  return {
+    provider: normalizeProvider(settings.translateProvider),
+    libretranslateUrl: normalizeUrl(settings.libretranslateUrl),
+    deeplApiUrl: normalizeDeepLApiUrl(settings.deeplApiUrl),
+    libretranslateApiKey: buildKeyStatus(settings.libretranslateApiKeyEnc),
+    deeplApiKey: buildKeyStatus(settings.deeplApiKeyEnc),
+    creatorLang: resolveCreatorLangFromPriority(settings.priorityOrderJson),
+  };
 }
 
 function normalizeUrl(raw?: string | null): string | null {

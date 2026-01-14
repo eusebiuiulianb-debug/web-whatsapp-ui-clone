@@ -1,0 +1,9 @@
+-- AlterTable
+ALTER TABLE "AiUsageLog" ADD COLUMN "endpoint" TEXT;
+ALTER TABLE "AiUsageLog" ADD COLUMN "errorCode" TEXT;
+ALTER TABLE "AiUsageLog" ADD COLUMN "latencyMs" INTEGER;
+ALTER TABLE "AiUsageLog" ADD COLUMN "model" TEXT;
+ALTER TABLE "AiUsageLog" ADD COLUMN "ok" BOOLEAN;
+ALTER TABLE "AiUsageLog" ADD COLUMN "provider" TEXT;
+ALTER TABLE "AiUsageLog" ADD COLUMN "tokensIn" INTEGER;
+ALTER TABLE "AiUsageLog" ADD COLUMN "tokensOut" INTEGER;

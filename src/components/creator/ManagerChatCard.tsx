@@ -78,24 +78,70 @@ type ManagerChatMessage = {
   createdAt: string;
   drafts?: CortexDraftGroup[];
   actions?: CortexActionCard[];
+  offer?: ManagerChatOffer | null;
 };
 
 type ManagerChatGetResponse = {
-  messages: ManagerChatMessage[];
+  ok?: boolean;
+  data?: { messages?: ManagerChatMessage[] };
+  messages?: ManagerChatMessage[];
 };
 
 type ManagerChatPostResponse = {
-  reply: { text: string };
-  creditsUsed: number;
-  creditsRemaining: number;
+  ok?: boolean;
+  status?: string;
+  meta?: { providerUsed?: string; modelUsed?: string; latencyMs?: number };
+  offer?: ManagerChatOffer;
+  error?: { code?: string; message?: string };
+  data?: {
+    reply?: { role?: string; content?: string };
+    usedFallback?: boolean;
+    settingsStatus?: "ok" | "settings_missing" | "decrypt_failed";
+    status?: string;
+    offer?: ManagerChatOffer;
+  };
+  reply?: { content?: string; text?: string };
+  message?: { role?: string; content?: string };
+  items?: Array<{ role?: string; content?: string }>;
+  creditsUsed?: number;
+  creditsRemaining?: number;
   usedFallback?: boolean;
-  settingsStatus?: "ok" | "settings_missing";
+  settingsStatus?: "ok" | "settings_missing" | "decrypt_failed";
+};
+
+type ManagerChatOffer = {
+  tier?: string | null;
+  dayPart?: string | null;
+  contentId?: string;
+  title?: string;
+  price?: number;
+};
+
+const formatDayPartLabel = (dayPart?: string | null) => {
+  if (dayPart === "DAY") return "Día";
+  if (dayPart === "NIGHT") return "Noche";
+  if (dayPart === "ANY") return "Cualquiera";
+  return null;
+};
+
+const formatOfferLabel = (offer?: ManagerChatOffer | null) => {
+  if (!offer) return null;
+  const tier = offer.tier ?? "T?";
+  const dayPartLabel = formatDayPartLabel(offer.dayPart ?? null);
+  const slotLabel = dayPartLabel ?? "Cualquiera";
+  return `Oferta: ${tier} · ${slotLabel}`;
 };
 
 type ManagerActionIntent = "ROMPER_EL_HIELO" | "REACTIVAR_FAN_FRIO" | "OFRECER_UN_EXTRA" | "LLEVAR_A_MENSUAL" | "RESUMEN_PULSO_HOY";
 
 type SalesRange = "today" | "7d" | "30d";
 type FollowUpRangeDays = 1 | 3 | 7 | 30;
+type CortexSuggestMode = "reply" | "sales" | "clarify";
+type CortexSuggestContext = {
+  original?: string;
+  translation?: string;
+  detected?: { src?: string; tgt?: string };
+};
 
 type CreatorSalesResponse = {
   ok: boolean;
@@ -181,6 +227,33 @@ type CortexSegmentsResponse = {
     }>;
   };
 };
+
+function normalizeContextValue(value: string | null | undefined) {
+  if (!value) return null;
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : null;
+}
+
+function parseTranslationContext(input: string): CortexSuggestContext | null {
+  const source = typeof input === "string" ? input : "";
+  if (!source.trim()) return null;
+  const originalMatch = source.match(/Original\s*\(([^)]+)\):\s*([\s\S]*?)(?:\n\n|$)/i);
+  const translationMatch = source.match(/Traducci[oó]n\s*\(([^)]+)\):\s*([\s\S]*?)(?:\n\n|$)/i);
+  const detectedMatch = source.match(/Idioma detectado:\s*([^\n]+)/i);
+
+  const original = normalizeContextValue(originalMatch?.[2]);
+  const translation = normalizeContextValue(translationMatch?.[2]);
+  const src = normalizeContextValue(detectedMatch?.[1] ?? originalMatch?.[1]);
+  const tgt = normalizeContextValue(translationMatch?.[1]);
+  const hasDetected = Boolean(src || tgt);
+
+  if (!original && !translation && !hasDetected) return null;
+  return {
+    original: original ?? undefined,
+    translation: translation ?? undefined,
+    detected: hasDetected ? { src: src ?? undefined, tgt: tgt ?? undefined } : undefined,
+  };
+}
 
 export type CortexOverviewMetrics = {
   todayCount?: number;
@@ -471,7 +544,8 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
   const [error, setError] = useState<string | null>(null);
   const [input, setInput] = useState("");
   const [usedFallback, setUsedFallback] = useState(false);
-  const [settingsStatus, setSettingsStatus] = useState<"ok" | "settings_missing" | null>(null);
+  const [settingsStatus, setSettingsStatus] = useState<"ok" | "settings_missing" | "decrypt_failed" | null>(null);
+  const [pendingOffer, setPendingOffer] = useState<ManagerChatOffer | null>(null);
   const [globalMode, setGlobalMode] = useState<GlobalMode>("HOY");
   const [growthPlatform, setGrowthPlatform] = useState<CreatorPlatformKey>("tiktok");
   const [salesRange, setSalesRange] = useState<SalesRange>("7d");
@@ -518,6 +592,11 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
   const [localCatalogItems, setLocalCatalogItems] = useState<CatalogItem[]>(() => catalogItems ?? []);
   const [showAllCatalogItems, setShowAllCatalogItems] = useState(false);
   const [catalogToast, setCatalogToast] = useState<string | null>(null);
+  const [suggestionMode, setSuggestionMode] = useState<CortexSuggestMode>("reply");
+  const [suggestionLoading, setSuggestionLoading] = useState(false);
+  const [suggestionError, setSuggestionError] = useState<string | null>(null);
+  const [suggestionToast, setSuggestionToast] = useState<string | null>(null);
+  const [resolvedCreatorId, setResolvedCreatorId] = useState<string | null>(creatorId ?? null);
   const [popClips, setPopClips] = useState<PopClip[]>([]);
   const [popClipsLoading, setPopClipsLoading] = useState(false);
   const [popClipsError, setPopClipsError] = useState<string | null>(null);
@@ -543,7 +622,7 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
   const catalogFanPickerModalRef = useRef<HTMLDivElement | null>(null);
   const catalogFanPickerSheetRef = useRef<HTMLDivElement | null>(null);
   const catalogToastTimeoutRef = useRef<number | null>(null);
-  const isDemo = !process.env.NEXT_PUBLIC_OPENAI_API_KEY;
+  const suggestionToastTimeoutRef = useRef<number | null>(null);
   const activeTabKey = useMemo(() => (scope === "global" ? toCortexTab(globalMode) : "hoy"), [globalMode, scope]);
   const activeTabStorageKey = useMemo(
     () => `${ACTIVE_TAB_KEY_PREFIX}:${creatorId ?? "default"}`,
@@ -572,13 +651,27 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
     [popClips]
   );
   const scrollerPaddingRight = isNarrowMobile ? 12 : Math.max(actionsWidth + 12, 64);
-  const expiringFans = overviewData?.expiringFans ?? [];
   const resizeComposer = useCallback((el: HTMLTextAreaElement | null) => {
     if (!el) return;
     el.style.height = "auto";
     const nextHeight = Math.min(el.scrollHeight, MAX_MAIN_COMPOSER_HEIGHT);
     el.style.height = `${nextHeight}px`;
   }, []);
+  const resolveCreatorId = useCallback(async () => {
+    if (resolvedCreatorId) return resolvedCreatorId;
+    try {
+      const res = await fetch("/api/creator");
+      if (!res.ok) return null;
+      const data = await res.json().catch(() => ({}));
+      const idValue = typeof data?.creator?.id === "string" ? data.creator.id : null;
+      if (idValue) {
+        setResolvedCreatorId(idValue);
+      }
+      return idValue;
+    } catch (_err) {
+      return null;
+    }
+  }, [resolvedCreatorId]);
   const fetchPopClips = useCallback(async () => {
     if (!creatorId) return;
     try {
@@ -763,6 +856,28 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
   }, [catalogToast]);
 
   useEffect(() => {
+    if (creatorId) {
+      setResolvedCreatorId(creatorId);
+    }
+  }, [creatorId]);
+
+  useEffect(() => {
+    if (!suggestionToast || typeof window === "undefined") return;
+    if (suggestionToastTimeoutRef.current) {
+      window.clearTimeout(suggestionToastTimeoutRef.current);
+    }
+    suggestionToastTimeoutRef.current = window.setTimeout(() => {
+      setSuggestionToast(null);
+      suggestionToastTimeoutRef.current = null;
+    }, 2400);
+    return () => {
+      if (suggestionToastTimeoutRef.current) {
+        window.clearTimeout(suggestionToastTimeoutRef.current);
+      }
+    };
+  }, [suggestionToast]);
+
+  useEffect(() => {
     return () => {
       if (salesUpdatedTimeoutRef.current && typeof window !== "undefined") {
         window.clearTimeout(salesUpdatedTimeoutRef.current);
@@ -928,12 +1043,13 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
         setLoading(true);
       }
       setError(null);
-      const res = await fetch("/api/creator/ai-manager/messages?tab=STRATEGY");
+      const res = await fetch("/api/creator/ai-manager/messages?tab=STRATEGY", { cache: "no-store" });
       if (!res.ok) {
         throw new Error("No se pudo cargar el historial");
       }
       const data = (await res.json()) as ManagerChatGetResponse;
-      setMessages((data?.messages ?? []).slice(-50));
+      const payload = data?.data ?? data;
+      setMessages((payload?.messages ?? []).slice(-50));
       if (!opts?.silent) {
         setUsedFallback(false);
       }
@@ -945,53 +1061,6 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
         setLoading(false);
       }
     }
-  }
-
-  function buildRescueDrafts() {
-    if (expiringFans.length === 0) return [];
-    return expiringFans.slice(0, 5).map((fan) => {
-      const firstName = getFirstName(fan.displayName || "");
-      const safeName = firstName || "allí";
-      const fanLabel = fan.displayName?.trim() || safeName || "Fan";
-      const expiresIn = fan.expiresInDays;
-      const isExpired = Boolean(fan.flags?.expired);
-      const isExpiringSoon =
-        Boolean(fan.flags?.expiredSoon) ||
-        (isFiniteNumber(expiresIn) && expiresIn <= 7);
-      const when =
-        isFiniteNumber(expiresIn)
-          ? expiresIn <= 0
-            ? "hoy"
-            : expiresIn === 1
-            ? "en 1 día"
-            : `en ${Math.round(expiresIn)} días`
-          : "pronto";
-      let drafts: string[];
-      if (isExpired) {
-        drafts = [
-          `Hola ${safeName}, vi que tu acceso terminó.\nSi quieres, lo reactivamos hoy y te preparo algo especial.`,
-          `Hola ${safeName}, se cerró tu acceso.\n¿Quieres que lo dejemos activo otra vez?`,
-          `Hola ${safeName}, si te apetece volver, lo activamos hoy mismo.\nTe paso lo nuevo al reactivar.`,
-        ];
-      } else if (isExpiringSoon) {
-        drafts = [
-          `Hola ${safeName}, tu acceso vence ${when}.\nSi te apetece, lo renovamos y te guardo lo nuevo.`,
-          `Hola ${safeName}, te queda poco de acceso.\n¿Quieres que lo deje activo y te preparo algo especial?`,
-          `Hola ${safeName}, si te viene bien renovamos ahora y así no pierdes nada.`,
-        ];
-      } else {
-        drafts = [
-          `Hola ${safeName}, ¿cómo vas?\nSi te apetece, te cuento lo nuevo que tengo.`,
-          `Hola ${safeName}, quería hacer un check-in rápido.\n¿Te apetece ver algo nuevo hoy?`,
-          `Hola ${safeName}, si te apetece, te paso una recomendación personalizada.`,
-        ];
-      }
-      return {
-        fanId: fan.fanId,
-        fanName: fanLabel,
-        drafts,
-      };
-    });
   }
 
   const buildActionCard = (actionId: string): CortexActionCard | null => {
@@ -1096,118 +1165,6 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
     return `${header}\n${lines.join("\n")}\n${metricsLine}`.trim();
   }
 
-  function isRescueRequest(text: string) {
-    if (lastQuickPromptRef.current === RESCUE_ACTION_ID) return true;
-    const normalized = normalizeText(text);
-    if (normalized.includes("rescatar") && normalized.includes("caducan pronto")) return true;
-    return normalized.includes("redacta mensajes") && normalized.includes("caducan pronto");
-  }
-
-  function isRecommendationRequest(text: string) {
-    const normalized = normalizeText(text);
-    if (normalized.includes("accion concreta")) return true;
-    if (normalized.includes("accion para subir ingresos")) return true;
-    if (normalized.includes("subir ingresos")) return true;
-    if (normalized.includes("ingresos hoy")) return true;
-    return false;
-  }
-
-  function buildDemoReply(text: string, rescueDrafts?: CortexDraftGroup[]) {
-    const metrics = overviewData?.metrics;
-    let cleanedText = text;
-    if (metricsLine) cleanedText = cleanedText.replace(metricsLine, "");
-    if (expiringFansContext) cleanedText = cleanedText.replace(expiringFansContext, "");
-    const normalized = normalizeText(cleanedText);
-    const contextLine = metricsLine ? `\n${metricsLine}` : "";
-    const expiringCount = isFiniteNumber(metrics?.expiringSoonCount) ? metrics?.expiringSoonCount : null;
-    const atRiskCount = isFiniteNumber(metrics?.atRiskCount) ? metrics?.atRiskCount : null;
-    const queueCount = isFiniteNumber(metrics?.queueCount) ? metrics?.queueCount : null;
-    const todayCount = isFiniteNumber(metrics?.todayCount) ? metrics?.todayCount : null;
-    const revenue7d = isFiniteNumber(metrics?.revenue7d) ? metrics?.revenue7d : null;
-    const revenue30d = isFiniteNumber(metrics?.revenue30d) ? metrics?.revenue30d : null;
-    const extras30d = isFiniteNumber(metrics?.extras30d) ? metrics?.extras30d : null;
-    const newFans30d = isFiniteNumber(metrics?.newFans30d) ? metrics?.newFans30d : null;
-
-    if (isRescueRequest(cleanedText)) {
-      const names = expiringFans
-        .slice(0, 3)
-        .map((fan) => getFirstName(fan.displayName || fan.fanId))
-        .filter(Boolean)
-        .join(", ");
-      const summary = rescueDrafts?.length
-        ? `Preparé borradores para ${rescueDrafts.length} fan${rescueDrafts.length === 1 ? "" : "s"}.`
-        : "No tengo caducidades próximas para preparar borradores.";
-      const lines = [
-        names ? `Fans prioritarios: ${names}.` : null,
-        expiringCount !== null ? `Caducan pronto: ${formatCount(expiringCount)}.` : null,
-      ].filter((line): line is string => Boolean(line));
-      return {
-        text: `${summary}${lines.length ? `\n${lines.join("\n")}` : ""}${contextLine}`.trim(),
-        drafts: rescueDrafts?.length ? rescueDrafts : undefined,
-      };
-    }
-
-    if (normalized.includes("numeros") || normalized.includes("resumen") || normalized.includes("resumeme")) {
-      const lines = [
-        revenue7d !== null ? `• Ingresos 7d: ${formatCurrency(revenue7d)}` : null,
-        revenue30d !== null ? `• Ingresos 30d: ${formatCurrency(revenue30d)}` : null,
-        extras30d !== null ? `• Extras 30d: ${formatCount(extras30d)}` : null,
-        newFans30d !== null ? `• Fans nuevos 30d: ${formatCount(newFans30d)}` : null,
-        atRiskCount !== null ? `• En riesgo: ${formatCount(atRiskCount)}` : null,
-      ].filter((line): line is string => Boolean(line));
-      const header = lines.length ? "Tus números actuales:" : "No tengo suficientes datos para un resumen ahora mismo.";
-      return { text: `${header}${lines.length ? `\n${lines.join("\n")}` : ""}${contextLine}`.trim() };
-    }
-
-    if (normalized.includes("diagnostico")) {
-      const bullets = [
-        revenue7d !== null
-          ? `• Va bien: ingresos 7d en ${formatCurrency(revenue7d)}.`
-          : "• Va bien: actividad estable.",
-        expiringCount !== null && expiringCount > 0
-          ? `• Bloquea: ${formatCount(expiringCount)} caducidades próximas.`
-          : atRiskCount !== null && atRiskCount > 0
-          ? `• Bloquea: ${formatCount(atRiskCount)} fans en riesgo.`
-          : "• Bloquea: falta de reactivación reciente.",
-        "• Cambio mínimo: envía 3 mensajes cortos a caducan pronto y 2 a en riesgo.",
-      ];
-      return { text: `Diagnóstico rápido:\n${bullets.join("\n")}${contextLine}`.trim() };
-    }
-
-    if (normalized.includes("plan 7 dias") || normalized.includes("plan de 7 dias")) {
-      const planLines = [
-        "Días 1-2: rescate caducan pronto + CTA de renovación suave.",
-        "Días 3-4: reactivar en riesgo con mensaje corto y personalizado.",
-        "Días 5-7: empuja extras y mensual con oferta simple.",
-      ];
-      return { text: `Plan 7 días (demo):\n${planLines.join("\n")}${contextLine}`.trim() };
-    }
-
-    if (isRecommendationRequest(cleanedText)) {
-      const actions = buildRecommendationActions(activeTabKey);
-      return {
-        text: buildRecommendationMessage(actions, activeTabKey),
-        actions,
-      };
-    }
-
-    if (normalized.includes("priorizo") || normalized.includes("prioridad")) {
-      const priorities = [
-        expiringCount !== null ? `1) Caducan pronto (${formatCount(expiringCount)}).` : "1) Caducan pronto.",
-        atRiskCount !== null ? `2) En riesgo (${formatCount(atRiskCount)}).` : "2) En riesgo.",
-        queueCount !== null ? `3) Cola (${formatCount(queueCount)}).` : "3) Cola.",
-      ];
-      const todayLine = todayCount !== null ? `Hoy: ${formatCount(todayCount)} prioridades.` : null;
-      return {
-        text: `Prioridades de hoy:\n${priorities.join("\n")}${todayLine ? `\n${todayLine}` : ""}${contextLine}`.trim(),
-      };
-    }
-
-    return {
-      text: `Modo demo activo: conecta tu OPENAI_API_KEY para respuestas con tus datos reales.${contextLine}`.trim(),
-    };
-  }
-
   function inferAction(message: string): ManagerActionIntent | null {
     const normalized = message.toLowerCase();
     if (normalized.includes("hielo") || normalized.includes("primer") || normalized.includes("rompe")) return "ROMPER_EL_HIELO";
@@ -1222,11 +1179,13 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
     const text = typeof externalMessage === "string" ? externalMessage.trim() : input.trim();
     if (!text || sending) return;
     const action = forcedAction ?? inferAction(text);
-    const shouldRecommend = scope === "global" && isRecommendationRequest(text);
-    const rescueDrafts = isRescueRequest(text) ? buildRescueDrafts() : undefined;
     try {
       setSending(true);
       setError(null);
+      const creatorIdValue = await resolveCreatorId();
+      if (!creatorIdValue) {
+        throw new Error("No se pudo detectar el creador.");
+      }
       const now = new Date().toISOString();
       const optimisticId = `local-${Date.now()}`;
       setMessages((prev) => [
@@ -1234,78 +1193,228 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
         { id: optimisticId, role: "CREATOR", content: text, createdAt: now },
       ]);
 
-      if (shouldRecommend) {
-        const actions = buildRecommendationActions(activeTabKey);
-        setMessages((prev) => [
-          ...prev.filter((m) => m.id !== optimisticId),
-          {
-            id: `assistant-${Date.now()}`,
-            role: "ASSISTANT",
-            content: buildRecommendationMessage(actions, activeTabKey),
-            createdAt: new Date().toISOString(),
-            actions,
-          },
-        ]);
-        setUsedFallback(isDemo);
-        setInput("");
-        lastQuickPromptRef.current = null;
-        setSending(false);
-        return;
-      }
-
-      if (isDemo) {
-        const demoReply = buildDemoReply(text, rescueDrafts);
-        setMessages((prev) => [
-          ...prev.filter((m) => m.id !== optimisticId),
-          {
-            id: `assistant-${Date.now()}`,
-            role: "ASSISTANT",
-            content: demoReply.text,
-            createdAt: new Date().toISOString(),
-            drafts: demoReply.drafts,
-            actions: demoReply.actions,
-          },
-        ]);
-        setUsedFallback(true);
-        setInput("");
-        lastQuickPromptRef.current = null;
-        setSending(false);
-        return;
-      }
-
       const res = await fetch("/api/creator/ai-manager/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ tab: "STRATEGY", message: text, action }),
+        body: JSON.stringify({ creatorId: creatorIdValue, tab: "STRATEGY", text, action, mode: "analysis" }),
       });
 
-      if (!res.ok) {
-        const body = await res.json().catch(() => ({}));
-        throw new Error(body?.error ?? "Error enviando mensaje");
+      const body = (await res.json().catch(() => ({}))) as ManagerChatPostResponse;
+      const extractOffer = (payload: any): ManagerChatOffer | null => {
+        const raw = payload?.offer ?? payload?.data?.offer;
+        if (!raw || typeof raw !== "object") return null;
+        const record = raw as Record<string, unknown>;
+        const tier = typeof record.tier === "string" ? record.tier : null;
+        const dayPart = typeof record.dayPart === "string" ? record.dayPart : null;
+        const contentId = typeof record.contentId === "string" ? record.contentId : undefined;
+        const title = typeof record.title === "string" ? record.title : undefined;
+        const price = typeof record.price === "number" ? record.price : undefined;
+        if (!tier && !dayPart && !contentId && !title) return null;
+        return { tier, dayPart, contentId, title, price };
+      };
+      const replyText =
+        typeof body?.data?.reply?.content === "string"
+          ? body.data.reply.content
+          : typeof body?.reply?.content === "string"
+          ? body.reply.content
+          : typeof body?.message?.content === "string"
+          ? body.message.content
+          : typeof body?.items?.[0]?.content === "string"
+          ? body.items[0].content
+          : typeof body?.reply?.text === "string"
+          ? body.reply.text
+          : "";
+      const trimmedReplyText = replyText.trim();
+      const responseOffer = extractOffer(body);
+      const statusValue =
+        typeof body?.status === "string"
+          ? body.status
+          : typeof body?.data?.status === "string"
+          ? body.data.status
+          : "";
+      const normalizedStatus = statusValue.trim().toLowerCase();
+      if (body?.ok === false || normalizedStatus === "provider_down" || normalizedStatus === "refusal") {
+        const errorCode =
+          typeof (body as any)?.error?.code === "string"
+            ? (body as any).error.code
+            : typeof (body as any)?.code === "string"
+            ? (body as any).code
+            : "";
+        const providerUnavailable =
+          normalizedStatus === "provider_down" ||
+          errorCode.toUpperCase() === "PROVIDER_UNAVAILABLE" ||
+          res.status === 502;
+        const isModelNotFound = errorCode.toUpperCase() === "MODEL_NOT_FOUND";
+        const isTimeout = errorCode.toUpperCase() === "TIMEOUT";
+        const isProviderError = errorCode.toUpperCase() === "PROVIDER_ERROR";
+        const isJsonParse = errorCode.toUpperCase() === "JSON_PARSE";
+        const policyBlocked = errorCode.toUpperCase() === "POLICY_BLOCKED";
+        const isCryptoMisconfigured =
+          normalizedStatus === "crypto_misconfigured" || errorCode.toUpperCase() === "CRYPTO_MISCONFIGURED";
+        if (isModelNotFound) {
+          const modelMessage =
+            typeof (body as any)?.error?.message === "string"
+              ? (body as any).error.message
+              : "Modelo no encontrado (AI_MODEL=...).";
+          setError(modelMessage);
+          if (!trimmedReplyText) {
+            const assistantMessage: ManagerChatMessage = {
+              id: `assistant-${Date.now()}`,
+              role: "ASSISTANT",
+              content: modelMessage,
+              createdAt: new Date().toISOString(),
+            };
+            setMessages((prev) =>
+              [...prev.filter((m) => m.id !== optimisticId), assistantMessage].slice(-50)
+            );
+            return;
+          }
+        } else if (isTimeout) {
+          const timeoutMessage =
+            typeof (body as any)?.error?.message === "string"
+              ? (body as any).error.message
+              : "Timeout hablando con Ollama.";
+          setError(timeoutMessage);
+          if (!trimmedReplyText) {
+            const assistantMessage: ManagerChatMessage = {
+              id: `assistant-${Date.now()}`,
+              role: "ASSISTANT",
+              content: timeoutMessage,
+              createdAt: new Date().toISOString(),
+            };
+            setMessages((prev) =>
+              [...prev.filter((m) => m.id !== optimisticId), assistantMessage].slice(-50)
+            );
+            return;
+          }
+        } else if (isProviderError || isJsonParse) {
+          const providerMessage =
+            typeof (body as any)?.error?.message === "string"
+              ? (body as any).error.message
+              : isJsonParse
+              ? "La IA respondió pero no en formato esperado (JSON)."
+              : "IA local no disponible (Ollama).";
+          setError(providerMessage);
+          if (!trimmedReplyText) {
+            const assistantMessage: ManagerChatMessage = {
+              id: `assistant-${Date.now()}`,
+              role: "ASSISTANT",
+              content: providerMessage,
+              createdAt: new Date().toISOString(),
+            };
+            setMessages((prev) =>
+              [...prev.filter((m) => m.id !== optimisticId), assistantMessage].slice(-50)
+            );
+            return;
+          }
+        }
+        if (!isModelNotFound && !isTimeout && !isProviderError && !isJsonParse && providerUnavailable) {
+          setError("IA local no disponible (Ollama).");
+          if (!trimmedReplyText) {
+            const assistantMessage: ManagerChatMessage = {
+              id: `assistant-${Date.now()}`,
+              role: "ASSISTANT",
+              content: "IA local no disponible (Ollama).",
+              createdAt: new Date().toISOString(),
+            };
+            setMessages((prev) =>
+              [...prev.filter((m) => m.id !== optimisticId), assistantMessage].slice(-50)
+            );
+            return;
+          }
+        } else if (isCryptoMisconfigured) {
+          if (!trimmedReplyText) {
+            const message =
+              typeof (body as any)?.error?.message === "string"
+                ? (body as any).error.message
+                : "Crypto mal configurado.";
+            throw new Error(formatRequestError(message, res.status));
+          }
+          setError(trimmedReplyText);
+        } else if (policyBlocked) {
+          const policyMessage =
+            typeof (body as any)?.error?.message === "string"
+              ? (body as any).error.message
+              : "No permitido: menores o no consentimiento.";
+          setError(policyMessage);
+          if (!trimmedReplyText) {
+            const assistantMessage: ManagerChatMessage = {
+              id: `assistant-${Date.now()}`,
+              role: "ASSISTANT",
+              content: policyMessage,
+              createdAt: new Date().toISOString(),
+            };
+            setMessages((prev) =>
+              [...prev.filter((m) => m.id !== optimisticId), assistantMessage].slice(-50)
+            );
+            return;
+          }
+        } else if (!trimmedReplyText && (normalizedStatus === "refusal" || errorCode.toUpperCase() === "REFUSAL")) {
+          const refusalText =
+            "Se bloqueó la generación con este contexto. Prueba \"Otra versión\" o \"Suavizar\".";
+          const assistantMessage: ManagerChatMessage = {
+            id: `assistant-${Date.now()}`,
+            role: "ASSISTANT",
+            content: refusalText,
+            createdAt: new Date().toISOString(),
+          };
+          setMessages((prev) =>
+            [...prev.filter((m) => m.id !== optimisticId), assistantMessage].slice(-50)
+          );
+          return;
+        } else if (!trimmedReplyText) {
+          const message =
+            typeof (body as any)?.error?.message === "string"
+              ? (body as any).error.message
+            : typeof (body as any)?.error === "string"
+            ? (body as any).error
+              : typeof body?.message === "string"
+              ? body.message
+              : "Error enviando mensaje";
+          const details = typeof (body as any)?.details === "string" ? (body as any).details : null;
+          throw new Error(formatRequestError(message, res.status, details));
+        }
+        if (trimmedReplyText && !providerUnavailable && !isCryptoMisconfigured) {
+          setError("Respuesta de seguridad / fallback.");
+        }
       }
 
-      const data = (await res.json()) as ManagerChatPostResponse;
+      const data = body as ManagerChatPostResponse;
+      const normalizedReplyText = trimmedReplyText || "Sin respuesta";
       const assistantMessage: ManagerChatMessage = {
         id: `assistant-${Date.now()}`,
         role: "ASSISTANT",
-        content: data?.reply?.text ?? "Sin respuesta",
+        content: normalizedReplyText,
         createdAt: new Date().toISOString(),
-        drafts: rescueDrafts?.length ? rescueDrafts : undefined,
+        offer: responseOffer ?? undefined,
       };
       setMessages((prev) =>
         [...prev.filter((m) => m.id !== optimisticId), assistantMessage].slice(-50)
       );
-      setUsedFallback(Boolean(data?.usedFallback));
-      setSettingsStatus(data?.settingsStatus ?? null);
-      if (!rescueDrafts?.length) {
-        void loadMessages({ silent: true });
+      setUsedFallback(Boolean(data?.data?.usedFallback ?? data?.usedFallback));
+      setSettingsStatus(data?.data?.settingsStatus ?? data?.settingsStatus ?? null);
+      if (normalizedStatus === "needs_age_gate") {
+        setError("Se requiere confirmar +18.");
+      } else if (!normalizedStatus || normalizedStatus === "ok") {
+        setError(null);
       }
+      void loadMessages({ silent: true });
       setInput("");
       lastQuickPromptRef.current = null;
     } catch (err) {
       console.error(err);
-      setMessages((prev) => prev.filter((m) => !m.id.startsWith("local-")));
-      setError("No se pudo enviar el mensaje al Manager IA.");
+      const message =
+        err instanceof Error && err.message ? err.message : "No se pudo enviar el mensaje al Manager IA.";
+      setMessages((prev) => {
+        const nextMessages = prev.filter((m) => !m.id.startsWith("local-"));
+        const errorMessage: ManagerChatMessage = {
+          id: `assistant-error-${Date.now()}`,
+          role: "ASSISTANT",
+          content: `Error: ${message}`,
+          createdAt: new Date().toISOString(),
+        };
+        return [...nextMessages, errorMessage].slice(-50);
+      });
     } finally {
       setSending(false);
     }
@@ -1339,16 +1448,27 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
         : enabledPlatforms[0]
       : growthPlatform;
 
-  const fallbackBanner = settingsStatus === "settings_missing"
-    ? (
-        <span>
-          Revisar ajustes: falta `OPENAI_API_KEY` o no se pudo descifrar.{" "}
-          <Link href="/creator/ai-settings">
-            <a className="underline hover:text-[color:var(--text)]">Abrir ajustes</a>
-          </Link>
-        </span>
-      )
-    : "Modo demo activo: conecta tu OPENAI_API_KEY para respuestas con tus datos reales.";
+  const fallbackBanner =
+    settingsStatus === "decrypt_failed"
+      ? (
+          <span>
+            Revisar ajustes: no se pudo descifrar la clave del proveedor IA.{" "}
+            <Link href="/creator/ai-settings">
+              <a className="underline hover:text-[color:var(--text)]">Abrir ajustes</a>
+            </Link>
+          </span>
+        )
+      : settingsStatus === "settings_missing"
+      ? (
+          <span>
+            Revisar ajustes: falta configurar el proveedor de IA.{" "}
+            <Link href="/creator/ai-settings">
+              <a className="underline hover:text-[color:var(--text)]">Abrir ajustes</a>
+            </Link>
+          </span>
+        )
+      : "Modo demo activo: configura el proveedor de IA para respuestas con tus datos reales.";
+  const showFallbackBanner = usedFallback;
   const globalModes: GlobalMode[] = ["HOY", "VENTAS", "CATALOGO", "CRECIMIENTO"];
   const growthActiveList = enabledPlatforms.length
     ? enabledPlatforms
@@ -1657,6 +1777,68 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
     },
     [resizeComposer]
   );
+  const handleInsertOffer = useCallback(
+    (draftText: string, offer: ManagerChatOffer) => {
+      const inserted = applyCortexDraft(draftText, "replace");
+      if (!inserted) return;
+      setPendingOffer(offer);
+    },
+    [applyCortexDraft]
+  );
+  const handleGenerateSuggestion = useCallback(async () => {
+    if (suggestionLoading) return;
+    setSuggestionError(null);
+    const creatorIdValue = await resolveCreatorId();
+    if (!creatorIdValue) {
+      setSuggestionError("creator_missing");
+      setSuggestionToast("No se pudo detectar el creador.");
+      return;
+    }
+
+    const activeFanId = getFanIdFromQuery(router.query);
+    const context = parseTranslationContext(input);
+    setSuggestionLoading(true);
+    try {
+      const res = await fetch("/api/creator/cortex/suggest-reply", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "x-novsy-viewer": "creator" },
+        body: JSON.stringify({
+          creatorId: creatorIdValue,
+          fanId: activeFanId ?? undefined,
+          mode: suggestionMode,
+          context: context ?? undefined,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        const errorCode = typeof data?.code === "string" ? data.code : "";
+        let message = typeof data?.error === "string" ? data.error : "No se pudo generar la sugerencia.";
+        if (errorCode === "MODEL_NOT_FOUND") message = "Modelo no encontrado (AI_MODEL=...).";
+        if (errorCode === "TIMEOUT") message = "Timeout hablando con Ollama.";
+        if (errorCode === "PROVIDER_ERROR") message = "IA local no disponible (Ollama).";
+        if (errorCode === "JSON_PARSE") message = "La IA respondió pero no en formato esperado (JSON).";
+        const details = typeof data?.details === "string" ? data.details : null;
+        throw new Error(formatRequestError(message, res.status, details));
+      }
+      const message = typeof data?.message === "string" ? data.message.trim() : "";
+      if (!message) {
+        throw new Error("La sugerencia llegó vacía.");
+      }
+      const intent = typeof data?.intent === "string" ? data.intent.trim() : "";
+      const language = typeof data?.language === "string" ? data.language.trim() : "";
+      const meta = intent || language ? `(intent=${intent || "?"}, language=${language || "?"})` : "";
+      const header = `Sugerencia IA${meta ? ` ${meta}` : ""}`.trim();
+      const nextText = `${header}\n${message}`.trim();
+      applyCortexDraft(nextText, "replace");
+    } catch (err) {
+      const message =
+        err instanceof Error && err.message ? err.message : "No se pudo generar la sugerencia.";
+      setSuggestionError(message);
+      setSuggestionToast(message);
+    } finally {
+      setSuggestionLoading(false);
+    }
+  }, [applyCortexDraft, input, resolveCreatorId, router.query, suggestionLoading, suggestionMode]);
   const insertAndFocus = (prompt: string, autoSend = false, sourceActionId?: string) => {
     const trimmedPrompt = prompt.trim();
     if (!trimmedPrompt) return;
@@ -4429,6 +4611,20 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
                       fromLabel="Manager IA"
                       meLabel="Tú"
                     />
+                    {!isCreator && msg.offer && (
+                      <div className="mt-1 flex flex-wrap items-center gap-2">
+                        <span className="inline-flex items-center rounded-full border border-[color:rgba(var(--brand-rgb),0.35)] bg-[color:rgba(var(--brand-rgb),0.12)] px-2.5 py-1 text-[10px] font-semibold text-[color:var(--text)]">
+                          {formatOfferLabel(msg.offer)}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => handleInsertOffer(msg.content, msg.offer as ManagerChatOffer)}
+                          className="inline-flex items-center rounded-full border border-[color:var(--warning)] bg-[color:rgba(245,158,11,0.08)] px-3 py-1 text-[10px] font-semibold text-[color:var(--text)] hover:bg-[color:rgba(245,158,11,0.16)]"
+                        >
+                          Insertar + Oferta
+                        </button>
+                      </div>
+                    )}
                     {!isCreator && (
                       <>
                         {renderActionCards(msg.actions, "max-w-2xl")}
@@ -4440,7 +4636,7 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
               })}
             </div>
           </div>
-          {usedFallback && (
+          {showFallbackBanner && (
             <div className="px-4 pt-2 text-[12px] text-[color:var(--warning)] bg-[color:rgba(245,158,11,0.08)] border-t border-[color:rgba(245,158,11,0.3)]">
               {fallbackBanner}
             </div>
@@ -4619,6 +4815,20 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
                     </div>
                   )}
                 </div>
+                {pendingOffer && (
+                  <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-[color:rgba(var(--brand-rgb),0.35)] bg-[color:rgba(var(--brand-rgb),0.08)] px-3 py-2 text-[11px] text-[color:var(--text)]">
+                    <span className="font-medium">
+                      Oferta sugerida: {(formatOfferLabel(pendingOffer) || "").replace(/^Oferta:\s*/, "")}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setPendingOffer(null)}
+                      className="rounded-full border border-[color:var(--surface-border)] px-2.5 py-0.5 text-[10px] font-semibold text-[color:var(--muted)] hover:text-[color:var(--text)]"
+                    >
+                      Quitar
+                    </button>
+                  </div>
+                )}
                 <textarea
                   ref={inputRef}
                   rows={1}
@@ -4691,12 +4901,15 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
                     disabled={sendDisabled}
                     aria-label="Enviar"
                     className={clsx(
-                      "h-9 px-4 rounded-full text-sm font-semibold shrink-0 transition-colors focus-visible:outline-none focus-visible:ring-2",
+                      "h-9 px-4 rounded-full text-sm font-semibold shrink-0 inline-flex items-center gap-2 transition-colors focus-visible:outline-none focus-visible:ring-2",
                       "bg-[color:var(--brand-strong)] text-[color:var(--text)] hover:bg-[color:var(--brand)] focus-visible:ring-[color:var(--ring)]",
                       "disabled:opacity-50 disabled:cursor-not-allowed"
                     )}
                   >
-                    Enviar
+                    {sending && (
+                      <span className="h-4 w-4 animate-spin rounded-full border-2 border-[color:var(--surface-border)] border-t-transparent" />
+                    )}
+                    <span>{sending ? "Enviando..." : "Enviar"}</span>
                   </button>
                 </div>
               </div>
@@ -4746,7 +4959,7 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
                 <span className="ui-muted">Preparando resumen del negocio...</span>
               )}
             </div>
-            {usedFallback && (
+            {showFallbackBanner && (
               <div className="text-[11px] text-[color:var(--warning)]">
                 {fallbackBanner}
               </div>
@@ -4844,6 +5057,39 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
           })}
         </div>
         <div className="pt-2 border-t border-[color:var(--surface-border)]">
+          {suggestionToast && (
+            <div className="mb-2 rounded-lg border border-[color:rgba(244,63,94,0.4)] bg-[color:rgba(244,63,94,0.12)] px-3 py-2 text-[11px] text-[color:var(--text)]">
+              {suggestionToast}
+            </div>
+          )}
+          <div className="mb-2 flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={() => void handleGenerateSuggestion()}
+              disabled={suggestionLoading}
+              className={clsx(
+                "inline-flex items-center gap-2 rounded-full border px-3 py-1 text-[11px] font-semibold transition",
+                suggestionLoading
+                  ? "border-[color:var(--surface-border)] bg-[color:var(--surface-2)] text-[color:var(--muted)] cursor-not-allowed"
+                  : "border-[color:var(--brand)] bg-[color:rgba(var(--brand-rgb),0.16)] text-[color:var(--text)] hover:bg-[color:rgba(var(--brand-rgb),0.25)]"
+              )}
+              aria-label="Generar sugerencia"
+            >
+              {suggestionLoading ? "Generando..." : suggestionError ? "Reintentar sugerencia" : "Generar sugerencia"}
+            </button>
+            <label className="flex items-center gap-2 text-[11px] text-[color:var(--muted)]">
+              <span>Modo</span>
+              <select
+                value={suggestionMode}
+                onChange={(event) => setSuggestionMode(event.target.value as CortexSuggestMode)}
+                className="rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-2 py-1 text-[11px] text-[color:var(--text)]"
+              >
+                <option value="reply">Responder</option>
+                <option value="sales">Ventas</option>
+                <option value="clarify">Aclarar</option>
+              </select>
+            </label>
+          </div>
           <ChatComposerBar
             value={input}
             onChange={(event) => {
@@ -4858,6 +5104,8 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
             sendDisabled={sendDisabled}
             placeholder="Cuéntale al Manager IA en qué necesitas ayuda."
             actionLabel="Enviar"
+            isSending={sending}
+            sendingLabel="Enviando..."
             audience="CREATOR"
             onAudienceChange={() => {}}
             canAttach={false}
@@ -4873,6 +5121,12 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
     </section>
   );
 });
+
+function formatRequestError(message: string, status?: number | null, details?: string | null) {
+  const statusLabel = typeof status === "number" ? ` (HTTP ${status})` : "";
+  const detailsLabel = details ? ` - ${details}` : "";
+  return `${message}${statusLabel}${detailsLabel}`.trim();
+}
 
 function formatCurrency(amount: number) {
   return `${Math.round(amount)} €`;

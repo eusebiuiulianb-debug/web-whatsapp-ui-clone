@@ -135,10 +135,11 @@ async function fetchSettings(): Promise<VoiceTranscriptionSettings> {
 
   inflightSettings = (async () => {
     try {
-      const res = await fetch("/api/creator/ai-settings");
+      const res = await fetch("/api/creator/ai-settings", { cache: "no-store" });
       if (res.ok) {
         const data = await res.json();
-        const normalized = normalizeVoiceTranscriptionSettings(data.settings ?? {});
+        const payload = data?.data ?? data;
+        const normalized = normalizeVoiceTranscriptionSettings(payload?.settings ?? data?.settings ?? {});
         cachedSettings = { value: normalized, ts: Date.now() };
         writeJsonStorage(SETTINGS_STORAGE_KEY, normalized);
         return normalized;

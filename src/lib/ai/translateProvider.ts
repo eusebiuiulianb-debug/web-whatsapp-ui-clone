@@ -1,6 +1,6 @@
 import { translateText as translateWithOpenAi } from "../../server/ai/translateText";
 import prisma from "../prisma.server";
-import { decryptSecret } from "../crypto/secrets";
+import { decryptSecretSafe } from "../crypto/secrets";
 import { normalizeTranslationLanguage, type TranslationLanguage } from "../language";
 
 export type TranslateProvider = "deepl" | "google" | "openai" | "libretranslate" | "none";
@@ -76,19 +76,17 @@ async function getDbTranslateConfig(creatorId: string): Promise<ResolvedTranslat
 
     let libretranslateApiKey: string | null = null;
     if (settings.libretranslateApiKeyEnc) {
-      try {
-        libretranslateApiKey = decryptSecret(settings.libretranslateApiKeyEnc);
-      } catch (err) {
-        console.warn("Failed to decrypt LibreTranslate API key.", err);
+      const decrypted = decryptSecretSafe(settings.libretranslateApiKeyEnc);
+      if (decrypted.ok) {
+        libretranslateApiKey = decrypted.value;
       }
     }
 
     let deeplApiKey: string | null = null;
     if (settings.deeplApiKeyEnc) {
-      try {
-        deeplApiKey = decryptSecret(settings.deeplApiKeyEnc);
-      } catch (err) {
-        console.warn("Failed to decrypt DeepL API key.", err);
+      const decrypted = decryptSecretSafe(settings.deeplApiKeyEnc);
+      if (decrypted.ok) {
+        deeplApiKey = decrypted.value;
       }
     }
 
@@ -416,7 +414,8 @@ function resolveCreatorLangFromPriority(raw?: unknown): TranslationLanguage {
 export function resolveDeepLBaseUrl(apiKey: string, apiUrlOverride?: string | null): string {
   const normalizedOverride = normalizeDeepLApiUrl(apiUrlOverride);
   if (normalizedOverride) return normalizedOverride;
-  return apiKey.endsWith(":fx") ? "https://api-free.deepl.com" : "https://api.deepl.com";
+  const normalizedKey = apiKey.trim().toLowerCase();
+  return normalizedKey.endsWith(":fx") ? "https://api-free.deepl.com" : "https://api.deepl.com";
 }
 
 async function translateWithGoogle(params: {
@@ -476,7 +475,7 @@ async function translateWithDeepL(params: {
   apiKey: string;
   apiUrlOverride?: string | null;
 }): Promise<TranslateResult> {
-  const apiKey = params.apiKey;
+  const apiKey = params.apiKey.trim();
   if (!apiKey) {
     throw new Error("translation_failed");
   }

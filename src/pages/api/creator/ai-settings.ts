@@ -1,15 +1,17 @@
 import type { NextApiRequest, NextApiResponse } from "next";
-import { Prisma } from "@prisma/client";
+import { Prisma, type CreatorAiSettings } from "@prisma/client";
 import prisma from "../../../lib/prisma.server";
 import { sendBadRequest, sendServerError } from "../../../lib/apiError";
 import { AI_TURN_MODES, type AiTurnMode } from "../../../lib/aiTemplateTypes";
 import { normalizeAiBaseTone, normalizeAiTurnMode } from "../../../lib/aiSettings";
+import { decryptSecretSafe, encryptSecret, isCryptoConfigError } from "../../../lib/crypto/secrets";
 import {
   createDefaultCreatorPlatforms,
   creatorPlatformsToJsonValue,
   normalizeCreatorPlatforms,
 } from "../../../lib/creatorPlatforms";
 import { DEFAULT_VOICE_TRANSCRIPTION_SETTINGS } from "../../../lib/voiceTranscriptionSettings";
+import { normalizeTranslationLanguage, type TranslationLanguage } from "../../../lib/language";
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method === "GET") {
@@ -25,6 +27,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 }
 
 async function handleGet(_req: NextApiRequest, res: NextApiResponse) {
+  res.setHeader("Cache-Control", "no-store");
   try {
     const creatorId = await resolveCreatorId();
 
@@ -46,9 +49,9 @@ async function handleGet(_req: NextApiRequest, res: NextApiResponse) {
       });
     }
 
-    const platforms = normalizeCreatorPlatforms((settings as any).platforms);
+    const data = buildSettingsPayload(settings);
 
-    return res.status(200).json({ settings: { ...settings, platforms } });
+    return res.status(200).json({ ok: true, data, settings: data.settings });
   } catch (err) {
     console.error("Error loading creator AI settings", err);
     if (err instanceof Error && err.message === "Creator not found") {
@@ -59,6 +62,7 @@ async function handleGet(_req: NextApiRequest, res: NextApiResponse) {
 }
 
 async function handlePost(req: NextApiRequest, res: NextApiResponse) {
+  res.setHeader("Cache-Control", "no-store");
   const body = req.body;
 
   if (!body || typeof body !== "object" || Array.isArray(body)) {
@@ -77,6 +81,7 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
     allowSuggestReplies,
     allowSuggestExtras,
     allowSuggestRenewals,
+    allowExplicitAdultContent,
     allowAutoLowPriority,
     voiceTranscriptionMode,
     voiceTranscriptionMinSeconds,
@@ -88,6 +93,10 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
     creditsAvailable,
     hardLimitPerDay,
     turnMode,
+    cortexProvider,
+    cortexBaseUrl,
+    cortexModel,
+    cortexApiKey,
     platforms,
   } = body as Record<string, unknown>;
 
@@ -101,19 +110,22 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
     createData.tone = normalizedTone as any;
   }
   if (spicinessLevel !== undefined) {
-    if (!Number.isInteger(spicinessLevel)) return sendBadRequest(res, "spicinessLevel must be a number");
-    updateData.spicinessLevel = spicinessLevel as number;
-    createData.spicinessLevel = spicinessLevel as number;
+    const normalized = coerceInteger(spicinessLevel);
+    if (normalized === null) return sendBadRequest(res, "spicinessLevel must be a number");
+    updateData.spicinessLevel = normalized;
+    createData.spicinessLevel = normalized;
   }
   if (formalityLevel !== undefined) {
-    if (!Number.isInteger(formalityLevel)) return sendBadRequest(res, "formalityLevel must be a number");
-    updateData.formalityLevel = formalityLevel as number;
-    createData.formalityLevel = formalityLevel as number;
+    const normalized = coerceInteger(formalityLevel);
+    if (normalized === null) return sendBadRequest(res, "formalityLevel must be a number");
+    updateData.formalityLevel = normalized;
+    createData.formalityLevel = normalized;
   }
   if (emojiUsage !== undefined) {
-    if (!Number.isInteger(emojiUsage)) return sendBadRequest(res, "emojiUsage must be a number");
-    updateData.emojiUsage = emojiUsage as number;
-    createData.emojiUsage = emojiUsage as number;
+    const normalized = coerceInteger(emojiUsage);
+    if (normalized === null) return sendBadRequest(res, "emojiUsage must be a number");
+    updateData.emojiUsage = normalized;
+    createData.emojiUsage = normalized;
   }
   if (priorityOrderJson !== undefined) {
     if (priorityOrderJson !== null && typeof priorityOrderJson !== "object") {
@@ -153,6 +165,13 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
     if (typeof allowSuggestRenewals !== "boolean") return sendBadRequest(res, "allowSuggestRenewals must be a boolean");
     updateData.allowSuggestRenewals = allowSuggestRenewals;
     createData.allowSuggestRenewals = allowSuggestRenewals;
+  }
+  if (allowExplicitAdultContent !== undefined) {
+    if (typeof allowExplicitAdultContent !== "boolean") {
+      return sendBadRequest(res, "allowExplicitAdultContent must be a boolean");
+    }
+    updateData.allowExplicitAdultContent = allowExplicitAdultContent;
+    createData.allowExplicitAdultContent = allowExplicitAdultContent;
   }
   if (allowAutoLowPriority !== undefined) {
     if (typeof allowAutoLowPriority !== "boolean") return sendBadRequest(res, "allowAutoLowPriority must be a boolean");
@@ -212,16 +231,21 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
     createData.voiceTranscriptionSuggestReply = voiceTranscriptionSuggestReply;
   }
   if (creditsAvailable !== undefined) {
-    if (!Number.isInteger(creditsAvailable)) return sendBadRequest(res, "creditsAvailable must be a number");
-    updateData.creditsAvailable = creditsAvailable as number;
-    createData.creditsAvailable = creditsAvailable as number;
+    const normalized = coerceInteger(creditsAvailable);
+    if (normalized === null) return sendBadRequest(res, "creditsAvailable must be a number");
+    updateData.creditsAvailable = normalized;
+    createData.creditsAvailable = normalized;
   }
   if (hardLimitPerDay !== undefined) {
-    if (hardLimitPerDay !== null && !Number.isInteger(hardLimitPerDay)) {
-      return sendBadRequest(res, "hardLimitPerDay must be a number or null");
+    if (hardLimitPerDay === null) {
+      updateData.hardLimitPerDay = null;
+      createData.hardLimitPerDay = null;
+    } else {
+      const normalized = coerceInteger(hardLimitPerDay);
+      if (normalized === null) return sendBadRequest(res, "hardLimitPerDay must be a number or null");
+      updateData.hardLimitPerDay = normalized;
+      createData.hardLimitPerDay = normalized;
     }
-    updateData.hardLimitPerDay = hardLimitPerDay as number | null;
-    createData.hardLimitPerDay = hardLimitPerDay as number | null;
   }
   if (turnMode !== undefined) {
     const validModes = AI_TURN_MODES as readonly string[];
@@ -232,6 +256,45 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
     updateData.turnMode = (normalizedMode as any) ?? "auto";
     createData.turnMode = (normalizedMode as any) ?? "auto";
   }
+  const cortexProviderNormalized =
+    cortexProvider !== undefined ? normalizeCortexProvider(cortexProvider) : null;
+  if (cortexProvider !== undefined && !cortexProviderNormalized) {
+    return sendBadRequest(res, "cortexProvider must be 'ollama' or 'openai'");
+  }
+  if (cortexProviderNormalized) {
+    updateData.cortexProvider = cortexProviderNormalized;
+    createData.cortexProvider = cortexProviderNormalized;
+  }
+  if (cortexBaseUrl !== undefined) {
+    if (typeof cortexBaseUrl !== "string") return sendBadRequest(res, "cortexBaseUrl must be a string");
+    const normalized = cortexBaseUrl.trim();
+    updateData.cortexBaseUrl = normalized ? normalized : null;
+    createData.cortexBaseUrl = updateData.cortexBaseUrl;
+  }
+  if (cortexModel !== undefined) {
+    if (typeof cortexModel !== "string") return sendBadRequest(res, "cortexModel must be a string");
+    const normalized = cortexModel.trim();
+    updateData.cortexModel = normalized ? normalized : null;
+    createData.cortexModel = updateData.cortexModel;
+  }
+  if (cortexApiKey !== undefined) {
+    if (typeof cortexApiKey !== "string") return sendBadRequest(res, "cortexApiKey must be a string");
+    const trimmed = cortexApiKey.trim();
+    if (trimmed) {
+      if (!hasSecretKeyEnv() && process.env.NODE_ENV === "production") {
+        return sendBadRequest(res, "APP_SECRET_KEYS is required to store cortexApiKey");
+      }
+      try {
+        updateData.cortexApiKeyEnc = encryptSecret(trimmed);
+        createData.cortexApiKeyEnc = updateData.cortexApiKeyEnc as string | null;
+      } catch (err) {
+        if (isCryptoConfigError(err)) {
+          return sendBadRequest(res, err.message);
+        }
+        throw err;
+      }
+    }
+  }
   if (platforms !== undefined) {
     const normalizedPlatforms = normalizeCreatorPlatforms(platforms);
     updateData.platforms = creatorPlatformsToJsonValue(normalizedPlatforms) as Prisma.InputJsonValue;
@@ -240,6 +303,27 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
 
   try {
     const creatorId = await resolveCreatorId();
+    if (cortexProviderNormalized === "ollama") {
+      if (typeof cortexBaseUrl !== "string" || !cortexBaseUrl.trim()) {
+        return sendBadRequest(res, "cortexBaseUrl is required for ollama");
+      }
+      if (typeof cortexModel !== "string" || !cortexModel.trim()) {
+        return sendBadRequest(res, "cortexModel is required for ollama");
+      }
+    }
+    if (cortexProviderNormalized === "openai") {
+      const existing = await prisma.creatorAiSettings.findUnique({
+        where: { creatorId },
+        select: { cortexApiKeyEnc: true },
+      });
+      const incomingKey = typeof cortexApiKey === "string" ? cortexApiKey.trim() : "";
+      const existingKeyValid = existing?.cortexApiKeyEnc
+        ? decryptSecretSafe(existing.cortexApiKeyEnc).ok
+        : false;
+      if (!incomingKey && !existingKeyValid) {
+        return sendBadRequest(res, "cortexApiKey is required for openai");
+      }
+    }
     if (createData.voiceTranscriptionMode === undefined) {
       createData.voiceTranscriptionMode = DEFAULT_VOICE_TRANSCRIPTION_SETTINGS.mode;
     }
@@ -262,9 +346,9 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
       create: { creatorId, platforms: createDefaultCreatorPlatforms(), ...createData },
     });
 
-    const platformsPayload = normalizeCreatorPlatforms((settings as any).platforms);
+    const data = buildSettingsPayload(settings);
 
-    return res.status(200).json({ settings: { ...settings, platforms: platformsPayload } });
+    return res.status(200).json({ ok: true, data, settings: data.settings });
   } catch (err) {
     console.error("Error saving creator AI settings", err);
     if (err instanceof Error && err.message === "Creator not found") {
@@ -272,6 +356,129 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
     }
     return sendServerError(res, "Error saving AI settings");
   }
+}
+
+function coerceInteger(value: unknown): number | null {
+  if (typeof value === "string" && !value.trim()) return null;
+  if (typeof value !== "number" && typeof value !== "string") return null;
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || !Number.isInteger(parsed)) return null;
+  return parsed;
+}
+
+function normalizeCortexProvider(value: unknown): "ollama" | "openai" | null {
+  if (typeof value !== "string") return null;
+  const normalized = value.trim().toLowerCase();
+  if (normalized === "ollama") return "ollama";
+  if (normalized === "openai") return "openai";
+  return null;
+}
+
+type KeyStatus = { saved: boolean; invalid: boolean };
+
+function buildKeyStatus(payload?: string | null): KeyStatus {
+  if (!payload) return { saved: false, invalid: false };
+  const decrypted = decryptSecretSafe(payload);
+  if (decrypted.ok) return { saved: true, invalid: false };
+  return { saved: false, invalid: true };
+}
+
+function normalizeOptionalString(value?: string | null): string | null {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  return trimmed ? trimmed : null;
+}
+
+function hasSecretKeyEnv(): boolean {
+  return Boolean(
+    (typeof process.env.APP_SECRET_KEYS === "string" && process.env.APP_SECRET_KEYS.trim()) ||
+      (typeof process.env.APP_SECRET_KEY === "string" && process.env.APP_SECRET_KEY.trim())
+  );
+}
+
+function normalizeTranslateProvider(raw?: string | null): "deepl" | "libretranslate" | "none" {
+  const normalized = typeof raw === "string" ? raw.trim().toLowerCase() : "";
+  if (normalized === "deepl") return "deepl";
+  if (normalized === "libre" || normalized === "libretranslate") return "libretranslate";
+  return "none";
+}
+
+function normalizeUrl(raw?: string | null): string | null {
+  const trimmed = typeof raw === "string" ? raw.trim() : "";
+  if (!trimmed) return null;
+  return trimmed.replace(/\/+$/, "");
+}
+
+function normalizeDeepLApiUrl(raw?: string | null): string | null {
+  const trimmed = typeof raw === "string" ? raw.trim() : "";
+  if (!trimmed) return null;
+  let normalized = trimmed.replace(/\/+$/, "");
+  if (normalized.endsWith("/v2/translate")) {
+    normalized = normalized.slice(0, -"/v2/translate".length);
+  } else if (normalized.endsWith("/v2")) {
+    normalized = normalized.slice(0, -"/v2".length);
+  }
+  return normalized.replace(/\/+$/, "");
+}
+
+const DEFAULT_CREATOR_LANG: TranslationLanguage = "es";
+
+function resolveCreatorLangFromPriority(raw?: unknown): TranslationLanguage {
+  if (!raw || typeof raw !== "object") return DEFAULT_CREATOR_LANG;
+  const record = raw as Record<string, unknown>;
+  const translation = record.translation;
+  if (translation && typeof translation === "object" && !Array.isArray(translation)) {
+    const nested = (translation as Record<string, unknown>).creatorLang;
+    const normalized = normalizeTranslationLanguage(nested);
+    if (normalized) return normalized;
+  }
+  const normalized = normalizeTranslationLanguage(record.creatorLang);
+  return normalized ?? DEFAULT_CREATOR_LANG;
+}
+
+function toIso(value: unknown): string | null {
+  if (value instanceof Date) return value.toISOString();
+  if (typeof value === "string") return value;
+  return null;
+}
+
+function buildSettingsPayload(settings: CreatorAiSettings) {
+  const {
+    cortexApiKeyEnc: _cortexApiKeyEnc,
+    libretranslateApiKeyEnc: _libretranslateApiKeyEnc,
+    deeplApiKeyEnc: _deeplApiKeyEnc,
+    ...rest
+  } = settings as any;
+
+  const platforms = normalizeCreatorPlatforms((settings as any).platforms);
+
+  return {
+    ai: {
+      provider: normalizeCortexProvider((settings as any).cortexProvider),
+      baseUrl: normalizeOptionalString((settings as any).cortexBaseUrl),
+      model: normalizeOptionalString((settings as any).cortexModel),
+      apiKey: buildKeyStatus((settings as any).cortexApiKeyEnc),
+    },
+    translation: {
+      provider: normalizeTranslateProvider((settings as any).translateProvider),
+      creatorLanguage: resolveCreatorLangFromPriority((settings as any).priorityOrderJson),
+      deepl: {
+        apiKey: buildKeyStatus((settings as any).deeplApiKeyEnc),
+        apiUrl: normalizeDeepLApiUrl((settings as any).deeplApiUrl),
+      },
+      libretranslate: {
+        url: normalizeUrl((settings as any).libretranslateUrl),
+        apiKey: buildKeyStatus((settings as any).libretranslateApiKeyEnc),
+      },
+    },
+    settings: {
+      ...rest,
+      platforms,
+    },
+    meta: {
+      updatedAt: toIso((settings as any).updatedAt),
+    },
+  };
 }
 
 async function resolveCreatorId(): Promise<string> {

@@ -2,6 +2,7 @@ import type { FollowUpTag, UrgencyLevel } from "../utils/followUp";
 import type { ReactionSummaryEntry } from "../lib/messageReactions";
 import type { ContentType, ContentVisibility } from "./content";
 import type { VoiceTranslation } from "./voiceAnalysis";
+import type { AgencyIntensity, AgencyPlaybook, AgencyStage } from "../lib/agency/types";
 
 interface Message {
   fanId?: string;
@@ -30,6 +31,10 @@ interface Message {
   transcriptError?: string | null;
   transcribedAt?: string | null;
   transcriptLang?: string | null;
+  intentKey?: string | null;
+  intentConfidence?: number | null;
+  intentMeta?: unknown;
+  intentUpdatedAt?: string | null;
   intentJson?: {
     intent?: string;
     tags?: string[];
@@ -54,6 +59,7 @@ interface Conversation {
   contactName: string;
   displayName?: string | null;
   creatorLabel?: string | null;
+  locale?: string | null;
   preferredLanguage?: "es" | "en" | "ro" | null;
   messageHistory: Message[];
   image: string;
@@ -92,6 +98,13 @@ interface Conversation {
   nextActionSnippet?: string | null;
   lastNoteSummary?: string | null;
   nextActionSummary?: string | null;
+  agencyStage?: AgencyStage | null;
+  agencyObjective?: string | null;
+  agencyObjectiveLabel?: string | null;
+  agencyIntensity?: AgencyIntensity | null;
+  agencyPlaybook?: AgencyPlaybook | null;
+  agencyNextAction?: string | null;
+  agencyRecommendedOfferId?: string | null;
   lifetimeSpend?: number;
   totalSpent?: number;
   recent30dSpent?: number;
@@ -109,6 +122,17 @@ interface Conversation {
   segment?: string | null;
   riskLevel?: "LOW" | "MEDIUM" | "HIGH" | string | null;
   healthScore?: number | null;
+  temperatureScore?: number | null;
+  temperatureBucket?: "COLD" | "WARM" | "HOT" | string | null;
+  heatScore?: number | null;
+  heatLabel?: "COLD" | "WARM" | "HOT" | string | null;
+  heatUpdatedAt?: string | null;
+  heatMeta?: unknown;
+  lastIntentKey?: string | null;
+  lastIntentConfidence?: number | null;
+  lastIntentAt?: string | null;
+  lastInboundAt?: string | null;
+  signalsUpdatedAt?: string | null;
   lastGrantType?: string | null;
   extraLadderStatus?: {
     totalSpent: number;
@@ -129,6 +153,11 @@ interface Conversation {
     todayHighestTier: string | null;
     todayLastPurchaseAt: string | null;
   } | null;
+  needsAction?: boolean;
+  nextActionKey?: string | null;
+  nextActionLabel?: string | null;
+  nextActionText?: string | null;
+  nextActionSource?: "reply" | "manual" | "suggested" | "none" | null;
   isBlocked?: boolean;
   isArchived?: boolean;
   isManager?: boolean;
@@ -145,6 +174,7 @@ interface ConversationListData {
   contactName: string;
   displayName?: string | null;
   creatorLabel?: string | null;
+  locale?: string | null;
   preferredLanguage?: "es" | "en" | "ro" | null;
   lastMessage: string;
   lastTime: string;
@@ -184,6 +214,13 @@ interface ConversationListData {
   nextActionSnippet?: string | null;
   lastNoteSummary?: string | null;
   nextActionSummary?: string | null;
+  agencyStage?: AgencyStage | null;
+  agencyObjective?: string | null;
+  agencyObjectiveLabel?: string | null;
+  agencyIntensity?: AgencyIntensity | null;
+  agencyPlaybook?: AgencyPlaybook | null;
+  agencyNextAction?: string | null;
+  agencyRecommendedOfferId?: string | null;
   lifetimeSpend?: number;
   totalSpent?: number;
   recent30dSpent?: number;
@@ -201,6 +238,17 @@ interface ConversationListData {
   segment?: string | null;
   riskLevel?: "LOW" | "MEDIUM" | "HIGH" | string | null;
   healthScore?: number | null;
+  temperatureScore?: number | null;
+  temperatureBucket?: "COLD" | "WARM" | "HOT" | string | null;
+  heatScore?: number | null;
+  heatLabel?: "COLD" | "WARM" | "HOT" | string | null;
+  heatUpdatedAt?: string | null;
+  heatMeta?: unknown;
+  lastIntentKey?: string | null;
+  lastIntentConfidence?: number | null;
+  lastIntentAt?: string | null;
+  lastInboundAt?: string | null;
+  signalsUpdatedAt?: string | null;
   lastGrantType?: string | null;
   extraLadderStatus?: {
     totalSpent: number;
@@ -221,6 +269,11 @@ interface ConversationListData {
     todayHighestTier: string | null;
     todayLastPurchaseAt: string | null;
   } | null;
+  needsAction?: boolean;
+  nextActionKey?: string | null;
+  nextActionLabel?: string | null;
+  nextActionText?: string | null;
+  nextActionSource?: "reply" | "manual" | "suggested" | "none" | null;
   isBlocked?: boolean;
   isArchived?: boolean;
   isManager?: boolean;

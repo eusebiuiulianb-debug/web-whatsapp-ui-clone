@@ -174,9 +174,10 @@ export default function CreatorAnalyticsPage() {
 
   async function loadPlatforms() {
     try {
-      const res = await fetch("/api/creator/ai-settings");
+      const res = await fetch("/api/creator/ai-settings", { cache: "no-store" });
       const json = await res.json();
-      setPlatforms(normalizeCreatorPlatforms(json?.settings?.platforms));
+      const settingsPayload = json?.data?.settings ?? json?.settings;
+      setPlatforms(normalizeCreatorPlatforms(settingsPayload?.platforms));
     } catch (_err) {
       setPlatforms(null);
     }

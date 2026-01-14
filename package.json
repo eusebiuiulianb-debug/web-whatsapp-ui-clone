@@ -7,8 +7,9 @@
     "predev": "node scripts/guard-prisma.js && node scripts/guard-next.js",
     "dev": "next dev -p 3005",
     "dev:reset": "node scripts/dev-reset.mjs",
-    "db:reset": "prisma migrate reset --force --skip-seed --skip-generate && prisma generate",
-    "db:reset:seed": "prisma migrate reset --force --skip-seed --skip-generate && prisma generate && prisma db seed",
+    "db:generate": "prisma generate",
+    "db:reset": "prisma migrate reset --force --skip-generate && prisma generate && prisma db seed",
+    "db:reset:seed": "npm run db:reset",
     "lint": "next lint",
     "typecheck": "tsc --noEmit",
     "smoke": "node scripts/smoke-api.mjs",
@@ -17,6 +18,7 @@
     "clean": "node scripts/clean-next.js",
     "clean:next": "node scripts/clean-next.js",
     "build": "next build",
+    "test:e2e": "playwright test",
     "start": "next start",
     "lt:up": "docker compose -f docker-compose.libretranslate.yml up -d",
     "lt:down": "docker compose -f docker-compose.libretranslate.yml down",
@@ -40,6 +42,7 @@
     "zod": "^4.1.13"
   },
   "devDependencies": {
+    "@playwright/test": "^1.57.0",
     "@types/formidable": "^3.4.6",
     "@types/node": "18.7.5",
     "@types/react": "18.0.17",
@@ -52,5 +55,8 @@
     "postcss": "^8.4.16",
     "tailwindcss": "^3.1.8",
     "typescript": "5.4.5"
+  },
+  "prisma": {
+    "seed": "node prisma/seed.js"
   }
 }

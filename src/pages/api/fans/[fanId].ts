@@ -1,6 +1,6 @@
 import type { NextApiRequest, NextApiResponse } from "next";
 import prisma from "../../../lib/prisma.server";
-import { normalizePreferredLanguage } from "../../../lib/language";
+import { normalizeLocaleTag, normalizePreferredLanguage } from "../../../lib/language";
 import { getDbSchemaOutOfSyncPayload, isDbSchemaOutOfSyncError } from "../../../lib/dbSchemaGuard";
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
@@ -24,11 +24,17 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   if (req.body?.preferredLanguage !== undefined && !preferredLanguage) {
     return res.status(400).json({ ok: false, error: "invalid preferredLanguage" });
   }
+  const localeRaw = req.body?.locale;
+  const locale = localeRaw !== undefined ? normalizeLocaleTag(String(localeRaw)) : null;
+  if (req.body?.locale !== undefined && !locale) {
+    return res.status(400).json({ ok: false, error: "invalid locale" });
+  }
 
   const updates: {
     creatorLabel?: string | null;
     displayName?: string | null;
     preferredLanguage?: string;
+    locale?: string | null;
     isHighPriority?: boolean;
     highPriorityAt?: Date | null;
     inviteUsedAt?: Date | null;
@@ -45,6 +51,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   if (preferredLanguage) {
     updates.preferredLanguage = preferredLanguage;
   }
+  if (req.body?.locale !== undefined) {
+    updates.locale = locale;
+  }
 
   if (Object.keys(updates).length === 0) {
     return res.status(400).json({ ok: false, error: "No fields to update" });
@@ -60,6 +69,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         displayName: true,
         creatorLabel: true,
         preferredLanguage: true,
+        locale: true,
         isHighPriority: true,
         highPriorityAt: true,
         inviteUsedAt: true,

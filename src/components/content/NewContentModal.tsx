@@ -1,6 +1,15 @@
 import { FormEvent, useEffect, useState } from "react";
 import { useRouter } from "next/router";
-import type { ContentPack, ContentType, ContentVisibility, ExtraTier, TimeOfDay, ContentItem as PrismaContentItem } from "@prisma/client";
+import type {
+  ChatPpvTier,
+  ContentPack,
+  ContentType,
+  ContentVisibility,
+  ExtraSlot,
+  ExtraTier,
+  TimeOfDay,
+  ContentItem as PrismaContentItem,
+} from "@prisma/client";
 
 type ContentItem = PrismaContentItem;
 
@@ -10,7 +19,7 @@ type NewContentModalProps = {
   createDefaults?: {
     visibility?: ContentVisibility;
     extraTier?: ExtraTier;
-    timeOfDay?: TimeOfDay;
+    extraSlot?: ExtraSlot;
   };
   onClose: () => void;
 };
@@ -19,7 +28,19 @@ const typeOptions: ContentType[] = ["IMAGE", "VIDEO", "AUDIO", "TEXT"];
 const packOptions: ContentPack[] = ["WELCOME", "MONTHLY", "SPECIAL"];
 const visibilityOptions: ContentVisibility[] = ["INCLUDED_MONTHLY", "VIP", "EXTRA"];
 const extraTierOptions: ExtraTier[] = ["T0", "T1", "T2", "T3"];
-const timeOfDayOptions: TimeOfDay[] = ["ANY", "DAY", "NIGHT"];
+const chatTierOptions: ChatPpvTier[] = ["CHAT_T0", "CHAT_T1", "CHAT_T2", "CHAT_T3"];
+const extraSlotOptions: ExtraSlot[] = ["DAY_1", "DAY_2", "NIGHT_1", "NIGHT_2", "ANY"];
+const resolveSlotFromLegacy = (slot?: ExtraSlot | null, timeOfDay?: TimeOfDay | null) => {
+  if (slot) return slot;
+  if (timeOfDay === "DAY") return "DAY_1";
+  if (timeOfDay === "NIGHT") return "NIGHT_1";
+  return "ANY";
+};
+const resolveTimeOfDayFromSlot = (slot: ExtraSlot): TimeOfDay => {
+  if (slot === "DAY_1" || slot === "DAY_2") return "DAY";
+  if (slot === "NIGHT_1" || slot === "NIGHT_2") return "NIGHT";
+  return "ANY";
+};
 
 export function NewContentModal({ onClose, mode, initialContent, createDefaults }: NewContentModalProps) {
   const router = useRouter();
@@ -29,7 +50,13 @@ export function NewContentModal({ onClose, mode, initialContent, createDefaults 
   const [pack, setPack] = useState<ContentPack>(initialContent?.pack ?? packOptions[0]);
   const [visibility, setVisibility] = useState<ContentVisibility>(initialContent?.visibility ?? createDefaults?.visibility ?? visibilityOptions[0]);
   const [extraTier, setExtraTier] = useState<ExtraTier>(initialContent?.extraTier ?? createDefaults?.extraTier ?? "T1");
-  const [timeOfDay, setTimeOfDay] = useState<TimeOfDay>(initialContent?.timeOfDay ?? createDefaults?.timeOfDay ?? "ANY");
+  const [chatTier, setChatTier] = useState<ChatPpvTier | "">(initialContent?.chatTier ?? "");
+  const [extraSlot, setExtraSlot] = useState<ExtraSlot>(
+    resolveSlotFromLegacy(initialContent?.extraSlot ?? null, initialContent?.timeOfDay ?? null) ??
+      createDefaults?.extraSlot ??
+      "ANY"
+  );
+  const [defaultCopy, setDefaultCopy] = useState(initialContent?.defaultCopy ?? "");
   const [mediaPath, setMediaPath] = useState(initialContent?.mediaPath ?? "");
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
@@ -42,7 +69,9 @@ export function NewContentModal({ onClose, mode, initialContent, createDefaults 
       setPack(initialContent.pack);
       setVisibility(initialContent.visibility);
       setExtraTier(initialContent.extraTier ?? "T1");
-      setTimeOfDay(initialContent.timeOfDay ?? "ANY");
+      setChatTier(initialContent.chatTier ?? "");
+      setExtraSlot(resolveSlotFromLegacy(initialContent.extraSlot ?? null, initialContent.timeOfDay ?? null));
+      setDefaultCopy(initialContent.defaultCopy ?? "");
       setMediaPath(initialContent.mediaPath ?? "");
     }
     if (mode === "create") {
@@ -52,7 +81,9 @@ export function NewContentModal({ onClose, mode, initialContent, createDefaults 
       setPack(packOptions[0]);
       setVisibility(createDefaults?.visibility ?? visibilityOptions[0]);
       setExtraTier(createDefaults?.extraTier ?? "T1");
-      setTimeOfDay(createDefaults?.timeOfDay ?? "ANY");
+      setChatTier("");
+      setExtraSlot(createDefaults?.extraSlot ?? "ANY");
+      setDefaultCopy("");
       setMediaPath("");
     }
   }, [mode, initialContent, createDefaults]);
@@ -76,7 +107,10 @@ export function NewContentModal({ onClose, mode, initialContent, createDefaults 
           pack,
           visibility,
           extraTier: visibility === "EXTRA" ? extraTier : undefined,
-          timeOfDay: visibility === "EXTRA" ? timeOfDay : undefined,
+          extraSlot: visibility === "EXTRA" ? extraSlot : undefined,
+          chatTier: visibility === "EXTRA" && chatTier ? chatTier : undefined,
+          defaultCopy: visibility === "EXTRA" ? defaultCopy : undefined,
+          timeOfDay: visibility === "EXTRA" ? resolveTimeOfDayFromSlot(extraSlot) : undefined,
           mediaPath,
         }),
       });
@@ -177,7 +211,7 @@ export function NewContentModal({ onClose, mode, initialContent, createDefaults 
                   setVisibility(nextVisibility);
                   if (nextVisibility === "EXTRA") {
                     setExtraTier((prev) => prev || "T1");
-                    setTimeOfDay((prev) => prev || "ANY");
+                    setExtraSlot((prev) => prev || "ANY");
                   }
                 }}
               >
@@ -222,21 +256,49 @@ export function NewContentModal({ onClose, mode, initialContent, createDefaults 
                 </select>
               </div>
               <div>
-                <label className="mb-1 block text-xs text-[color:var(--muted)]">Momento del día</label>
+                <label className="mb-1 block text-xs text-[color:var(--muted)]">Tier PPV (chat)</label>
                 <select
                   className="w-full rounded-md bg-[color:var(--surface-2)] px-2 py-2 text-sm text-[color:var(--text)] outline-none ring-1 ring-[color:var(--surface-border)] focus:ring-[color:var(--ring)]"
-                  value={timeOfDay}
-                  onChange={(e) => setTimeOfDay(e.target.value as TimeOfDay)}
+                  value={chatTier}
+                  onChange={(e) => setChatTier(e.target.value as ChatPpvTier | "")}
                 >
-                  {timeOfDayOptions.map((option) => (
+                  <option value="">Sin tier</option>
+                  {chatTierOptions.map((option) => (
                     <option key={option} value={option}>
-                      {option === "ANY" && "Cualquiera"}
-                      {option === "DAY" && "Día"}
-                      {option === "NIGHT" && "Noche"}
+                      {option.replace("CHAT_", "")}
                     </option>
                   ))}
                 </select>
               </div>
+              <div>
+                <label className="mb-1 block text-xs text-[color:var(--muted)]">Fase</label>
+                <select
+                  className="w-full rounded-md bg-[color:var(--surface-2)] px-2 py-2 text-sm text-[color:var(--text)] outline-none ring-1 ring-[color:var(--surface-border)] focus:ring-[color:var(--ring)]"
+                  value={extraSlot}
+                  onChange={(e) => setExtraSlot(e.target.value as ExtraSlot)}
+                >
+                  {extraSlotOptions.map((option) => (
+                    <option key={option} value={option}>
+                      {option === "DAY_1" && "Suave · Día"}
+                      {option === "DAY_2" && "Picante · Día"}
+                      {option === "NIGHT_1" && "Directo · Noche"}
+                      {option === "NIGHT_2" && "Final · Noche"}
+                      {option === "ANY" && "Cualquiera"}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+          )}
+          {visibility === "EXTRA" && (
+            <div>
+              <label className="mb-1 block text-sm text-[color:var(--muted)]">Copy por defecto (opcional)</label>
+              <textarea
+                className="w-full resize-none rounded-md bg-[color:var(--surface-2)] px-3 py-2 text-sm text-[color:var(--text)] outline-none ring-1 ring-[color:var(--surface-border)] focus:ring-[color:var(--ring)]"
+                rows={3}
+                value={defaultCopy}
+                onChange={(e) => setDefaultCopy(e.target.value)}
+              />
             </div>
           )}
 

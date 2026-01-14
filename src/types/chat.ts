@@ -1,6 +1,7 @@
 import type { FollowUpTag, UrgencyLevel } from "../utils/followUp";
 import type { ReactionSummaryEntry } from "../lib/messageReactions";
 import type { ContentType, ContentVisibility } from "./content";
+import type { AgencyIntensity, AgencyPlaybook, AgencyStage } from "../lib/agency/types";
 
 export interface Creator {
   id: string;
@@ -60,6 +61,13 @@ export interface Fan {
   nextActionSnippet?: string | null;
   lastNoteSummary?: string | null;
   nextActionSummary?: string | null;
+  agencyStage?: AgencyStage | null;
+  agencyObjective?: string | null;
+  agencyObjectiveLabel?: string | null;
+  agencyIntensity?: AgencyIntensity | null;
+  agencyPlaybook?: AgencyPlaybook | null;
+  agencyNextAction?: string | null;
+  agencyRecommendedOfferId?: string | null;
   lifetimeSpend?: number;
   totalSpent?: number;
   recent30dSpent?: number;
@@ -77,6 +85,17 @@ export interface Fan {
   segment?: string | null;
   riskLevel?: "LOW" | "MEDIUM" | "HIGH" | string | null;
   healthScore?: number | null;
+  temperatureScore?: number | null;
+  temperatureBucket?: "COLD" | "WARM" | "HOT" | string | null;
+  heatScore?: number | null;
+  heatLabel?: "COLD" | "WARM" | "HOT" | string | null;
+  heatUpdatedAt?: string | null;
+  heatMeta?: unknown;
+  lastIntentKey?: string | null;
+  lastIntentConfidence?: number | null;
+  lastIntentAt?: string | null;
+  lastInboundAt?: string | null;
+  signalsUpdatedAt?: string | null;
   extraLadderStatus?: {
     totalSpent: number;
     lastPurchaseAt: string | null;
@@ -96,8 +115,14 @@ export interface Fan {
     todayHighestTier: string | null;
     todayLastPurchaseAt: string | null;
   } | null;
+  needsAction?: boolean;
+  nextActionKey?: string | null;
+  nextActionLabel?: string | null;
+  nextActionText?: string | null;
+  nextActionSource?: "reply" | "manual" | "suggested" | "none" | null;
   isBlocked?: boolean;
   isArchived?: boolean;
+  locale?: string | null;
   preferredLanguage?: "es" | "en" | "ro" | null;
   firstUtmSource?: string | null;
   firstUtmMedium?: string | null;
@@ -151,6 +176,10 @@ export interface Message {
   transcriptError?: string | null;
   transcribedAt?: string | null;
   transcriptLang?: string | null;
+  intentKey?: string | null;
+  intentConfidence?: number | null;
+  intentMeta?: unknown;
+  intentUpdatedAt?: string | null;
   intentJson?: {
     intent?: string;
     tags?: string[];

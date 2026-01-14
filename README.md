@@ -68,6 +68,25 @@ En Windows, si ves errores raros de `.next` (p. ej. `__webpack_require__.a is no
 4. Si usas `.env.local`, asegúrate de tener `LIBRETRANSLATE_URL=http://127.0.0.1:5000`.
 5. Usa "Probar conexión" y luego "Traducir" en el chat.
 
+## Ollama (local)
+1. Instala Ollama y arráncalo en local (`winget install Ollama.Ollama`).
+2. Descarga el modelo por defecto: `ollama pull deepseek-r1:7b`.
+3. (Opcional) Lánzalo una vez: `ollama run deepseek-r1:7b`.
+4. Crea `.env.local` con:
+   ```
+   AI_PROVIDER=ollama
+   AI_BASE_URL=http://127.0.0.1:11434/v1
+   AI_MODEL=deepseek-r1:7b
+   AI_API_KEY=dummy
+   AI_TIMEOUT_MS=120000
+   ```
+5. `npm run dev`
+6. IMPORTANTE: reinicia `npm run dev` tras cambios en `.env.local`.
+
+Notas:
+- Si Ollama no está levantado o falta configuración, se usa el provider demo.
+- Los E2E no requieren OpenAI y usan `AI_PROVIDER=demo` por defecto.
+
 ### Puerto ocupado (Windows)
 - Detectar proceso: `netstat -ano | findstr :3005`
 - Forzar cierre: `taskkill /PID <pid> /F`

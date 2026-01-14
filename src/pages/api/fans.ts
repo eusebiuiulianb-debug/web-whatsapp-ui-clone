@@ -1,6 +1,6 @@
 import type { NextApiRequest, NextApiResponse } from "next";
 import { Prisma } from "@prisma/client";
-import prisma from "../../lib/prisma.server";
+import { prisma } from "@/server/prisma";
 import { getFollowUpTag, shouldFollowUpToday } from "../../utils/followUp";
 import {
   getExtraLadderStatusForFan,
@@ -11,12 +11,36 @@ import {
 import { isNewWithinDays } from "../../lib/fanNewness";
 import { createInviteTokenForFan } from "../../utils/createInviteToken";
 import { isVisibleToFan, normalizeFrom } from "../../lib/messageAudience";
-import { normalizePreferredLanguage } from "../../lib/language";
+import { normalizeLocaleTag, normalizePreferredLanguage, normalizeUiLocale } from "../../lib/language";
 import { getDbSchemaOutOfSyncPayload, isDbSchemaOutOfSyncError } from "../../lib/dbSchemaGuard";
 import { buildAccessStateFromGrants } from "../../lib/accessState";
 import { computeFanTotals } from "../../lib/fanTotals";
 import { getStickerById } from "../../lib/emoji/stickers";
 import { buildFanMonetizationSummaryFromFan } from "../../lib/analytics/revenue";
+import { computeAgencyPriorityScore } from "../../lib/agency/priorityScore";
+import { resolveObjectiveForScoring, resolveObjectiveLabel } from "../../lib/agency/objectives";
+import type { AgencyIntensity, AgencyPlaybook, AgencyStage } from "../../lib/agency/types";
+import { computeHeatFromSignals } from "../../lib/ai/heat";
+import { getNextActionSummary } from "../../lib/manager/nextAction";
+
+const fanFieldNames = new Set<string>(
+  ((Prisma as any).dmmf?.datamodel?.models?.find((model: any) => model.name === "Fan")?.fields ?? []).map(
+    (field: any) => field.name
+  )
+);
+const optionalFanFields = [
+  "temperatureScore",
+  "temperatureBucket",
+  "heatScore",
+  "heatLabel",
+  "heatUpdatedAt",
+  "heatMeta",
+  "lastIntentKey",
+  "lastIntentConfidence",
+  "lastIntentAt",
+  "lastInboundAt",
+  "signalsUpdatedAt",
+] as const;
 
 function parseMessageTimestamp(messageId: string): Date | null {
   const parts = messageId.split("-");
@@ -90,6 +114,28 @@ function formatNextActionFromSchedule(note?: string | null, dueAt?: string | nul
   return `${safeNote} (para ${date}${suffix})`;
 }
 
+function isSuggestedActionKey(value?: string | null): boolean {
+  if (!value) return false;
+  const normalized = value.trim().toUpperCase();
+  if (!normalized) return false;
+  return (
+    normalized === "BREAK_ICE" ||
+    normalized === "BUILD_RAPPORT" ||
+    normalized === "OFFER_EXTRA" ||
+    normalized === "PUSH_MONTHLY" ||
+    normalized === "SEND_PAYMENT_LINK" ||
+    normalized === "SUPPORT" ||
+    normalized === "SAFETY"
+  );
+}
+
+function sumPurchasesSince(purchases: Array<{ amount: number | null; createdAt: Date }>, since: Date): number {
+  return purchases.reduce((sum, purchase) => {
+    if (purchase.createdAt < since) return sum;
+    return sum + (purchase.amount ?? 0);
+  }, 0);
+}
+
 function mapFollowUp(followUp: {
   id: string;
   title: string;
@@ -124,10 +170,14 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     return res.status(405).json({ ok: false, error: "Method not allowed" });
   }
 
+  if (!prisma) {
+    return res.status(500).json({ ok: false, error: "PRISMA_NOT_INITIALIZED" });
+  }
+
   res.setHeader("Cache-Control", "no-store");
   const viewerRole = resolveViewerRole(req);
 
-  const { limit: limitParam, cursor, filter = "all", q, fanId, source } = req.query;
+  const { limit: limitParam, cursor, filter = "all", q, fanId, source, temp, intent } = req.query;
   const normalizedSource = typeof source === "string" && source.trim() ? source.trim().toLowerCase() : (process.env.FANS_SOURCE ?? "db").toLowerCase();
   const allowedSources = new Set(["db", "demo"]);
   if (!allowedSources.has(normalizedSource)) {
@@ -146,8 +196,38 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   const cursorId = typeof cursor === "string" ? cursor : undefined;
   const search = typeof q === "string" && q.trim().length > 0 ? q.trim() : null;
   const fanIdFilter = typeof fanId === "string" && fanId.trim().length > 0 ? fanId.trim() : null;
+  const tempFilter = typeof temp === "string" && temp.trim().length > 0 ? temp.trim().toLowerCase() : null;
+  const intentFilter = typeof intent === "string" && intent.trim().length > 0 ? intent.trim().toUpperCase() : null;
 
   try {
+    const creator = await prisma.creator.findFirst({
+      select: { id: true },
+      orderBy: { id: "asc" },
+    });
+    if (!creator) {
+      if (process.env.NODE_ENV === "development" || process.env.DEV_BYPASS_AUTH === "true") {
+        try {
+          await prisma.creator.create({
+            data: {
+              id: "creator-1",
+              name: "Creator demo",
+              subtitle: "Demo",
+              description: "Perfil demo generado automáticamente.",
+            },
+          });
+        } catch (_err) {
+          // ignore create failures
+        }
+      } else {
+        return res.status(401).json({
+          ok: false,
+          error: "CREATOR_NOT_FOUND",
+          code: "CREATOR_NOT_FOUND",
+          message: "No se pudo resolver el creator.",
+        });
+      }
+    }
+
     const where: Prisma.FanWhereInput = {};
     const isArchivedFilter = filter === "archived";
     const isBlockedFilter = filter === "blocked";
@@ -198,6 +278,19 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       where.id = fanIdFilter;
     }
 
+    const countWhere: Prisma.FanWhereInput = { ...where };
+
+    if (tempFilter && tempFilter !== "all") {
+      const label = tempFilter.toUpperCase();
+      if (label === "COLD" || label === "WARM" || label === "HOT") {
+        where.temperatureBucket = label;
+      }
+    }
+
+    if (intentFilter && intentFilter !== "ANY" && intentFilter !== "ALL") {
+      where.lastIntentKey = intentFilter;
+    }
+
     let cursorFilter: Prisma.FanWhereInput | null = null;
     if (cursorId && !fanIdFilter) {
       const cursorFan = await prisma.fan.findUnique({
@@ -221,59 +314,59 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
     const finalWhere = cursorFilter ? { AND: [where, cursorFilter] } : where;
 
-    const fans = await prisma.fan.findMany({
-      select: {
-        id: true,
-        name: true,
-        displayName: true,
-        creatorLabel: true,
-        avatar: true,
-        preview: true,
-        time: true,
-        unreadCount: true,
-        isNew: true,
-        isHighPriority: true,
-        highPriorityAt: true,
-        membershipStatus: true,
-        daysLeft: true,
-        lastSeen: true,
-        nextAction: true,
-        nextActionAt: true,
-        nextActionNote: true,
-        profileText: true,
-        quickNote: true,
-        creatorId: true,
-        segment: true,
-        riskLevel: true,
-        healthScore: true,
-        lastMessageAt: true,
-        lastActivityAt: true,
-        lastReadAtCreator: true,
-        lastReadAtFan: true,
-        isBlocked: true,
-        isArchived: true,
-        preferredLanguage: true,
-        accessGrants: true,
-        notes: {
-          orderBy: { createdAt: "desc" },
-          take: 1,
-          select: { content: true },
+    const baseSelect = {
+      id: true,
+      name: true,
+      displayName: true,
+      creatorLabel: true,
+      avatar: true,
+      preview: true,
+      time: true,
+      unreadCount: true,
+      isNew: true,
+      isHighPriority: true,
+      highPriorityAt: true,
+      membershipStatus: true,
+      daysLeft: true,
+      lastSeen: true,
+      nextAction: true,
+      nextActionAt: true,
+      nextActionNote: true,
+      profileText: true,
+      quickNote: true,
+      creatorId: true,
+      segment: true,
+      riskLevel: true,
+      healthScore: true,
+      lastMessageAt: true,
+      lastActivityAt: true,
+      lastReadAtCreator: true,
+      lastReadAtFan: true,
+      isBlocked: true,
+      isArchived: true,
+      locale: true,
+      preferredLanguage: true,
+      accessGrants: true,
+      notes: {
+        orderBy: { createdAt: "desc" },
+        take: 1,
+        select: { content: true },
+      },
+      followUps: {
+        where: { status: "OPEN" },
+        orderBy: { updatedAt: "desc" },
+        take: 1,
+        select: {
+          id: true,
+          title: true,
+          note: true,
+          dueAt: true,
+          status: true,
+          createdAt: true,
+          updatedAt: true,
+          doneAt: true,
         },
-        followUps: {
-          where: { status: "OPEN" },
-          orderBy: { updatedAt: "desc" },
-          take: 1,
-          select: {
-            id: true,
-            title: true,
-            note: true,
-            dueAt: true,
-            status: true,
-            createdAt: true,
-            updatedAt: true,
-            doneAt: true,
-          },
-        },
+      },
         messages: {
           select: {
             id: true,
@@ -282,26 +375,68 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
             text: true,
             type: true,
             audience: true,
+            intentKey: true,
             contentItem: { select: { title: true } },
           },
         },
-        inviteCreatedAt: true,
-        inviteUsedAt: true,
-        _count: { select: { notes: true } },
-      },
-      orderBy: [{ lastMessageAt: "desc" }, { id: "desc" }],
+      inviteCreatedAt: true,
+      inviteUsedAt: true,
+      _count: { select: { notes: true } },
+    } as any;
+    for (const field of optionalFanFields) {
+      if (fanFieldNames.has(field)) {
+        baseSelect[field] = true;
+      }
+    }
+
+    const findManyArgs = {
+      select: baseSelect,
+      orderBy: [{ lastMessageAt: "desc" as const }, { id: "desc" as const }],
       take: limit + 1,
       where: finalWhere,
-    });
+    };
+
+    let fans: any[] = [];
+    try {
+      fans = (await prisma.fan.findMany(findManyArgs)) as any[];
+    } catch (err: any) {
+      const message = typeof err?.message === "string" ? err.message : "";
+      const isValidationError =
+        err?.name === "PrismaClientValidationError" && message.includes("Unknown field");
+      if (!isValidationError) {
+        throw err;
+      }
+      const payload = getDbSchemaOutOfSyncPayload(message);
+      return res.status(500).json({
+        ok: false,
+        error: payload.code,
+        ...payload,
+      });
+    }
 
     const now = new Date();
 
     const fanIds = fans.map((fan) => fan.id);
     const creatorId = fans[0]?.creatorId || "creator-1";
+    const creatorLocale = await prisma.creator
+      .findUnique({ where: { id: creatorId }, select: { uiLocale: true } })
+      .then((creator) => normalizeUiLocale(creator?.uiLocale) ?? "es")
+      .catch(() => "es");
     type ExtraPurchaseRow = { amount: number | null; createdAt: Date; tier: string; kind?: string | null };
     type ExtraStats = { purchases: ExtraPurchaseRow[]; maxTier: string | null };
     const extrasByFan = new Map<string, ExtraStats>();
     const purchasesByFan = new Map<string, ExtraPurchaseRow[]>();
+    const agencyMetaByFan = new Map<
+      string,
+      {
+        stage: string;
+        objectiveCode: string;
+        intensity: string;
+        playbook: string;
+        nextAction: string | null;
+        lastTouchAt: Date | null;
+      }
+    >();
 
     if (fanIds.length > 0) {
       try {
@@ -330,6 +465,52 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         }
       } catch (err) {
         console.error("Error calculating extra metrics", err);
+      }
+    }
+
+    if (fanIds.length > 0) {
+      try {
+        const agencyMetas = await prisma.chatAgencyMeta.findMany({
+          where: { fanId: { in: fanIds }, creatorId },
+          select: {
+            fanId: true,
+            stage: true,
+            objectiveCode: true,
+            intensity: true,
+            playbook: true,
+            nextAction: true,
+            lastTouchAt: true,
+          },
+        });
+        agencyMetas.forEach((meta) => {
+          agencyMetaByFan.set(meta.fanId, {
+            stage: meta.stage,
+            objectiveCode: meta.objectiveCode,
+            intensity: meta.intensity,
+            playbook: meta.playbook,
+            nextAction: meta.nextAction ?? null,
+            lastTouchAt: meta.lastTouchAt ?? null,
+          });
+        });
+      } catch (err) {
+        console.error("Error loading agency meta", err);
+      }
+    }
+
+    const objectiveLabelsByCode = new Map<string, Record<string, string>>();
+    if (creatorId) {
+      try {
+        const objectives = await prisma.agencyObjective.findMany({
+          where: { creatorId, active: true },
+          select: { code: true, labels: true },
+        });
+        objectives.forEach((objective) => {
+          const labels = objective.labels;
+          if (!labels || typeof labels !== "object" || Array.isArray(labels)) return;
+          objectiveLabelsByCode.set(objective.code, labels as Record<string, string>);
+        });
+      } catch (err) {
+        console.error("Error loading agency objectives", err);
       }
     }
 
@@ -398,7 +579,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         hasActiveAccess,
       } = accessSnapshot;
 
-      const paidGrants = fan.accessGrants.filter((grant) => grant.type === "monthly" || grant.type === "special" || grant.type === "single");
+      const paidGrants = (fan.accessGrants as any[]).filter(
+        (grant: any) => grant.type === "monthly" || grant.type === "special" || grant.type === "single"
+      );
       const paidGrantsCount = paidGrants.length;
       const extrasInfo = extrasByFan.get(fan.id) ?? { purchases: [], maxTier: null };
       const allPurchases = purchasesByFan.get(fan.id) ?? [];
@@ -425,42 +608,90 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         30,
         now
       );
+      const agencyMeta = agencyMetaByFan.get(fan.id);
+      const agencyStage = (agencyMeta?.stage ?? "NEW") as AgencyStage;
+      const agencyObjective = agencyMeta?.objectiveCode ?? "CONNECT";
+      const agencyIntensity = (agencyMeta?.intensity ?? "MEDIUM") as AgencyIntensity;
+      const agencyPlaybook = (agencyMeta?.playbook ?? "GIRLFRIEND") as AgencyPlaybook;
+      const agencyNextAction = agencyMeta?.nextAction ?? null;
+      const objectiveLocale = creatorLocale;
+      const agencyObjectiveLabel =
+        resolveObjectiveLabel({
+          code: agencyObjective,
+          locale: objectiveLocale,
+          labelsByCode: objectiveLabelsByCode,
+        }) ?? agencyObjective;
+      const spent7d = sumPurchasesSince(allPurchases, new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000));
+      const spent30d = sumPurchasesSince(allPurchases, new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000));
+      const segmentLabel = (fan.segment ?? "").toUpperCase();
+      const riskValue = ((fan as any).riskLevel ?? "LOW").toString().toUpperCase();
+      const isVip = customerTier === "vip" || segmentLabel === "VIP";
+      const isAtRisk = segmentLabel === "EN_RIESGO" || (riskValue && riskValue !== "LOW");
+      const isExpired = followUpTag === "expired";
 
-      function computePriorityScore() {
-        let urgencyScore = 0;
-        const isExpiredToday = followUpTag === "expired" && (daysLeft ?? 0) === 0;
-        switch (isExpiredToday ? "expired_today" : followUpTag) {
-          case "trial_soon":
-          case "monthly_soon":
-            urgencyScore = 3;
-            break;
-          case "expired_today":
-            urgencyScore = 2;
-            break;
-          default:
-            urgencyScore = 0;
-        }
-
-        let tierScore = 0;
-        if (customerTier === "vip") tierScore = 2;
-        else if (customerTier === "regular") tierScore = 1;
-
-        return urgencyScore * 10 + tierScore;
-      }
-
-      const priorityScore = computePriorityScore();
-
-      const visibleMessages = (fan.messages ?? []).filter((msg) => isVisibleToFan(msg));
-      const creatorMessages = visibleMessages.filter((msg) => normalizeFrom(msg.from) === "creator");
-      const fanMessages = visibleMessages.filter((msg) => normalizeFrom(msg.from) === "fan");
+      const visibleMessages = (fan.messages ?? []).filter((msg: any) => isVisibleToFan(msg));
+      const creatorMessages = visibleMessages.filter((msg: any) => normalizeFrom(msg.from) === "creator");
+      const fanMessages = visibleMessages.filter((msg: any) => normalizeFrom(msg.from) === "fan");
       const hasMessages = visibleMessages.length > 0;
+      const lastIntentFromMessages = fanMessages
+        .filter((msg: any) => typeof msg.intentKey === "string" && msg.intentKey.trim().length > 0)
+        .map((msg: any) => ({
+          intentKey: msg.intentKey,
+          ts: parseMessageTimestamp(msg.id)?.getTime() ?? 0,
+        }))
+        .sort((a: any, b: any) => b.ts - a.ts)[0];
+      const resolvedLastIntentKey = (fan as any).lastIntentKey ?? lastIntentFromMessages?.intentKey ?? null;
+      const resolvedLastIntentAt =
+        (fan as any).lastIntentAt ??
+        (lastIntentFromMessages?.ts ? new Date(lastIntentFromMessages.ts).toISOString() : null);
+      const resolvedTemperatureScore =
+        typeof (fan as any).temperatureScore === "number"
+          ? (fan as any).temperatureScore
+          : typeof (fan as any).heatScore === "number"
+          ? (fan as any).heatScore
+          : 0;
+      const resolvedTemperatureBucketRaw =
+        typeof (fan as any).temperatureBucket === "string" && (fan as any).temperatureBucket.trim()
+          ? (fan as any).temperatureBucket
+          : typeof (fan as any).heatLabel === "string" && (fan as any).heatLabel.trim()
+          ? (fan as any).heatLabel === "READY"
+            ? "HOT"
+            : (fan as any).heatLabel
+          : "COLD";
+      const resolvedTemperatureBucket = String(resolvedTemperatureBucketRaw).toUpperCase();
+      const fallbackHeat =
+        !fan.heatUpdatedAt && visibleMessages.length > 0
+          ? computeHeatFromSignals({
+              recentMessages: visibleMessages,
+              recentPurchases: allPurchases,
+              subscriptionStatus: fan.membershipStatus ?? null,
+              lastSeenAt: fan.lastMessageAt ?? null,
+            })
+          : null;
+      const resolvedHeatScore =
+        fallbackHeat?.score ?? (typeof (fan as any).heatScore === "number" ? (fan as any).heatScore : null);
+      const resolvedHeatLabel = fallbackHeat?.label ?? (fan as any).heatLabel ?? null;
+      const resolvedHeatMeta =
+        fallbackHeat && !fan.heatUpdatedAt
+          ? { ...((fan as any).heatMeta ?? {}), reasons: fallbackHeat.reasons }
+          : (fan as any).heatMeta ?? null;
 
       const lastVisibleMessage = visibleMessages
-        .map((msg) => ({
+        .map((msg: any) => ({
           msg,
           ts: parseMessageTimestamp(msg.id)?.getTime() ?? 0,
         }))
-        .sort((a, b) => b.ts - a.ts)[0]?.msg;
+        .sort((a: any, b: any) => b.ts - a.ts)[0]?.msg;
+      const lastInboundMessage = fanMessages
+        .map((msg: any) => ({
+          msg,
+          ts: parseMessageTimestamp(msg.id)?.getTime() ?? 0,
+        }))
+        .sort((a: any, b: any) => b.ts - a.ts)[0]?.msg;
+      const lastInboundText =
+        lastInboundMessage && typeof lastInboundMessage.text === "string"
+          ? lastInboundMessage.text.trim()
+          : null;
       const lastVisibleType = lastVisibleMessage ? ((lastVisibleMessage as any).type as string | undefined) : undefined;
       const previewSource = lastVisibleMessage
         ? lastVisibleType === "CONTENT"
@@ -475,13 +706,23 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       const lastVisibleTime = lastVisibleMessage?.time || "";
 
       const lastCreatorMessage = creatorMessages
-        .map((msg) => parseMessageTimestamp(msg.id))
-        .filter((d): d is Date => !!d)
-        .sort((a, b) => b.getTime() - a.getTime())[0];
+        .map((msg: any) => parseMessageTimestamp(msg.id))
+        .filter((d: Date | null): d is Date => !!d)
+        .sort((a: any, b: any) => b.getTime() - a.getTime())[0];
       const lastFanActivity = fanMessages
-        .map((msg) => parseMessageTimestamp(msg.id))
-        .filter((d): d is Date => !!d)
-        .sort((a, b) => b.getTime() - a.getTime())[0];
+        .map((msg: any) => parseMessageTimestamp(msg.id))
+        .filter((d: Date | null): d is Date => !!d)
+        .sort((a: any, b: any) => b.getTime() - a.getTime())[0];
+      const priorityScore = computeAgencyPriorityScore({
+        lastIncomingAt: lastFanActivity,
+        lastOutgoingAt: lastCreatorMessage,
+        spent7d,
+        spent30d,
+        stage: agencyStage,
+        objective: resolveObjectiveForScoring(agencyObjective),
+        intensity: agencyIntensity,
+        flags: { vip: isVip, expired: isExpired, atRisk: isAtRisk, isNew: isNew30d },
+      });
 
       const lastVisibleAt = lastVisibleMessage ? parseMessageTimestamp(lastVisibleMessage.id) : null;
       const lastMessageAt = fan.lastMessageAt ?? lastVisibleAt ?? null;
@@ -490,7 +731,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       const lastReadAt = viewerRole === "creator" ? fan.lastReadAtCreator : fan.lastReadAtFan;
       const lastReadMs = lastReadAt ? lastReadAt.getTime() : null;
       const unreadCount = hasMessages
-        ? visibleMessages.filter((msg) => {
+        ? visibleMessages.filter((msg: any) => {
             if (normalizeFrom(msg.from) === viewerRole) return false;
             const ts = msg.id ? parseMessageTimestamp(msg.id) : null;
             if (!ts) return false;
@@ -507,9 +748,11 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       const followUpOpen = openFollowUp ? mapFollowUp(openFollowUp) : null;
       const nextActionAt = fan.nextActionAt ? fan.nextActionAt.toISOString() : null;
       const nextActionNote = normalizeNoteValue(fan.nextActionNote);
+      const rawNextAction = typeof fan.nextAction === "string" ? fan.nextAction.trim() : "";
+      const nextActionIsSuggested = isSuggestedActionKey(rawNextAction);
       const nextActionValue =
         formatNextActionFromSchedule(nextActionNote, nextActionAt) ||
-        fan.nextAction ||
+        (!nextActionIsSuggested && rawNextAction ? rawNextAction : null) ||
         formatNextActionFromFollowUp(openFollowUp);
       const nextActionSnippet = truncateSnippet(nextActionNote ?? nextActionValue);
       const lastNoteSummary = lastNoteSnippet;
@@ -520,6 +763,40 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       const isNovsy = hasMonthly || hasSpecial || (extrasTotal ?? 0) >= NOVSY_EXTRA_THRESHOLD;
       const novsyStatus: "NOVSY" | null = isNovsy ? "NOVSY" : null;
       const isHighPriority = fan.isHighPriority ?? false;
+      const extraLadderStatus = ladderByFan.get(fan.id) ?? null;
+      const extraSessionToday = sessionTodayByFan.get(fan.id) ?? {
+        todayCount: 0,
+        todaySpent: 0,
+        todayHighestTier: null,
+        todayLastPurchaseAt: null,
+      };
+      const lastInboundAt = fan.lastInboundAt ?? null;
+      const hasUnreadInbound =
+        !!lastInboundAt &&
+        (!lastCreatorMessage || lastInboundAt.getTime() > lastCreatorMessage.getTime());
+      const nextActionDetails = getNextActionSummary({
+        fan: {
+          language: (fan as any).language ?? null,
+          locale: fan.locale ?? null,
+          preferredLanguage: fan.preferredLanguage ?? null,
+          lastInboundText,
+          temperatureBucket: resolvedTemperatureBucket,
+          temperatureScore: resolvedTemperatureScore,
+          heatScore: resolvedHeatScore,
+          heatLabel: resolvedHeatLabel,
+          lastIntentKey: resolvedLastIntentKey,
+          nextAction: rawNextAction || null,
+          nextActionNote,
+          nextActionSnippet,
+          nextActionSummary,
+          membershipStatus,
+          daysLeft,
+          lastInboundAt,
+          extraLadderStatus,
+          extraSessionToday,
+        },
+        hasUnreadInbound,
+      });
 
       // Campos clave que consume el CRM:
       // - membershipStatus: "active" | "expired" | "none"
@@ -531,6 +808,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         name: fan.name,
         displayName: fan.displayName ?? null,
         creatorLabel: fan.creatorLabel ?? null,
+        locale: fan.locale ? normalizeLocaleTag(fan.locale) : null,
         preferredLanguage: normalizePreferredLanguage(fan.preferredLanguage) ?? null,
         avatar: fan.avatar || "",
         preview: hasMessages ? preview : "",
@@ -561,7 +839,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         profileText: fan.profileText ?? null,
         quickNote: fan.quickNote ?? null,
         followUpOpen,
-        nextAction: nextActionValue || null,
+        nextAction: rawNextAction || null,
         nextActionAt,
         nextActionNote,
         activeGrantTypes,
@@ -569,10 +847,21 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         lastGrantType,
         followUpTag,
         priorityScore,
+        agencyStage,
+        agencyObjective,
+        agencyObjectiveLabel,
+        agencyIntensity,
+        agencyPlaybook,
+        agencyNextAction,
         lastNoteSnippet,
         nextActionSnippet,
         lastNoteSummary,
         nextActionSummary,
+        needsAction: nextActionDetails.needsAction,
+        nextActionKey: nextActionDetails.nextActionKey,
+        nextActionLabel: nextActionDetails.nextActionLabel,
+        nextActionText: nextActionDetails.nextActionText,
+        nextActionSource: nextActionDetails.nextActionSource,
         extrasCount: monetization.extras.count,
         extrasSpentTotal: purchaseTotals.extrasAmount,
         tipsCount: monetization.tips.count,
@@ -587,13 +876,19 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         segment: fan.segment ?? "NUEVO",
         riskLevel: (fan as any).riskLevel ?? "LOW",
         healthScore: (fan as any).healthScore ?? 0,
-        extraLadderStatus: ladderByFan.get(fan.id) ?? null,
-        extraSessionToday: sessionTodayByFan.get(fan.id) ?? {
-          todayCount: 0,
-          todaySpent: 0,
-          todayHighestTier: null,
-          todayLastPurchaseAt: null,
-        },
+        temperatureScore: resolvedTemperatureScore,
+        temperatureBucket: resolvedTemperatureBucket,
+        heatScore: resolvedHeatScore,
+        heatLabel: resolvedHeatLabel,
+        heatUpdatedAt: fan.heatUpdatedAt ? fan.heatUpdatedAt.toISOString() : null,
+        heatMeta: resolvedHeatMeta,
+        lastIntentKey: resolvedLastIntentKey,
+        lastIntentConfidence: typeof (fan as any).lastIntentConfidence === "number" ? (fan as any).lastIntentConfidence : null,
+        lastIntentAt: resolvedLastIntentAt,
+        lastInboundAt: lastInboundAt ? lastInboundAt.toISOString() : null,
+        signalsUpdatedAt: fan.signalsUpdatedAt ? fan.signalsUpdatedAt.toISOString() : null,
+        extraLadderStatus,
+        extraSessionToday,
         isBlocked: fan.isBlocked ?? false,
         isArchived: fan.isArchived ?? false,
         firstUtmSource: (fan as any).firstUtmSource ?? null,
@@ -617,15 +912,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     }
 
     if (!isArchivedFilter && filter === "followup") {
-      mappedFans = mappedFans.filter((fan) => {
-        const hasTag = fan.followUpTag && fan.followUpTag !== "none";
-        const hasNextAction =
-          Boolean(fan.followUpOpen) ||
-          Boolean(fan.nextActionAt) ||
-          Boolean(fan.nextActionNote?.trim()) ||
-          Boolean(fan.nextAction?.trim());
-        return hasTag || hasNextAction;
-      });
+      mappedFans = mappedFans.filter((fan) => fan.needsAction === true);
     }
 
     if (!isArchivedFilter && filter === "new") {
@@ -640,7 +927,51 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     const items = mappedFans.slice(0, limit);
     const nextCursor = hasMore ? items[items.length - 1]?.id ?? null : null;
 
-    return res.status(200).json({ ok: true, items, fans: items, nextCursor, hasMore });
+    const intentKeys = [
+      "BUY_NOW",
+      "PRICE_ASK",
+      "CONTENT_REQUEST",
+      "CUSTOM_REQUEST",
+      "SUBSCRIBE",
+      "CANCEL",
+      "OFF_PLATFORM",
+      "SUPPORT",
+      "OBJECTION",
+      "RUDE_OR_HARASS",
+      "OTHER",
+    ] as const;
+    const [countAll, countCold, countWarm, countHot, intentCounts] = await Promise.all([
+      prisma.fan.count({ where: countWhere }),
+      prisma.fan.count({ where: { ...countWhere, temperatureBucket: "COLD" } }),
+      prisma.fan.count({ where: { ...countWhere, temperatureBucket: "WARM" } }),
+      prisma.fan.count({ where: { ...countWhere, temperatureBucket: "HOT" } }),
+      Promise.all(
+        intentKeys.map(async (key) => ({
+          key,
+          count: await prisma.fan.count({ where: { ...countWhere, lastIntentKey: key } }),
+        }))
+      ),
+    ]);
+    const intentCountsByKey = intentCounts.reduce<Record<string, number>>((acc, entry) => {
+      acc[entry.key] = entry.count;
+      return acc;
+    }, {});
+    const counts = {
+      all: countAll,
+      cold: countCold,
+      warm: countWarm,
+      hot: countHot,
+    };
+
+    return res.status(200).json({
+      ok: true,
+      items,
+      fans: items,
+      nextCursor,
+      hasMore,
+      counts,
+      intentCounts: intentCountsByKey,
+    });
   } catch (error) {
     if (isDbSchemaOutOfSyncError(error)) {
       const payload = getDbSchemaOutOfSyncPayload();
@@ -652,6 +983,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 }
 
 async function handlePost(req: NextApiRequest, res: NextApiResponse) {
+  if (!prisma) {
+    return res.status(500).json({ ok: false, error: "PRISMA_NOT_INITIALIZED" });
+  }
   const creatorLabel = normalizeInput(req.body?.nameOrAlias ?? req.body?.creatorLabel, 80);
   const note = normalizeInput(req.body?.initialNote ?? req.body?.note, 500);
 

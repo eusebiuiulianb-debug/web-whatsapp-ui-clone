@@ -1,0 +1,344 @@
+# Page snapshot
+
+```yaml
+- generic [active] [ref=e1]:
+  - generic [ref=e5]:
+    - generic [ref=e7]:
+      - generic [ref=e9]:
+        - generic [ref=e10]:
+          - img "Eusebiu" [ref=e12]
+          - generic [ref=e13]:
+            - generic [ref=e14]: Eusebiu
+            - generic [ref=e15]: Creador
+            - generic [ref=e16]: Responde en menos de 24h
+        - generic [ref=e18]:
+          - link "Chat privado" [ref=e19] [cursor=pointer]:
+            - /url: /
+          - link "Cortex" [ref=e20] [cursor=pointer]:
+            - /url: /creator/manager
+          - link "Bio-link" [ref=e21] [cursor=pointer]:
+            - /url: /creator/bio-link
+          - link "Analítica" [ref=e22] [cursor=pointer]:
+            - /url: /creator/analytics
+          - button "Más opciones" [ref=e24] [cursor=pointer]:
+            - img [ref=e26]
+      - generic [ref=e27]:
+        - generic [ref=e28]:
+          - generic [ref=e29]: Fans req/min 12
+          - generic [ref=e30]: Messages req/min 0
+        - generic [ref=e31]:
+          - generic [ref=e33]:
+            - generic [ref=e34]: Resumen de hoy
+            - generic [ref=e35]: Ventas y actividad
+          - generic [ref=e36]:
+            - generic [ref=e37]:
+              - generic [ref=e38]: Chats atendidos
+              - generic [ref=e39]: "0"
+            - generic [ref=e40]:
+              - generic [ref=e41]: Cola
+              - generic [ref=e42]: "4"
+            - generic [ref=e43]:
+              - generic [ref=e44]: VIP en cola
+              - generic [ref=e45]: "0"
+            - generic [ref=e46]:
+              - generic [ref=e47]: Ingresos hoy
+              - generic [ref=e48]: 0 cobros · 0 €
+              - generic [ref=e51]: suscripciones + ventas + propinas
+        - generic [ref=e52]:
+          - generic [ref=e53]:
+            - generic [ref=e54]: Extras hoy
+            - generic [ref=e55]: 0 ventas · 0 €
+          - generic [ref=e56]:
+            - generic [ref=e57]: Últimos 7 días
+            - generic [ref=e58]: 2 ventas · 69 €
+        - generic [ref=e60]:
+          - generic [ref=e61]:
+            - button "Hoy 4 fans" [ref=e62] [cursor=pointer]:
+              - generic [ref=e63]: Hoy
+              - generic [ref=e64]: 4 fans
+            - generic [ref=e65]:
+              - button "Qué significa cada etiqueta" [ref=e66] [cursor=pointer]: i
+              - button "Ver más" [ref=e67] [cursor=pointer]
+          - button "Seguimiento hoy i 0" [ref=e68] [cursor=pointer]:
+            - generic [ref=e69]:
+              - text: Seguimiento hoy
+              - generic "Chats con renovación o tarea marcada para hoy." [ref=e70]: i
+            - generic [ref=e71]: "0"
+          - button "Con próxima acción i 1" [ref=e72] [cursor=pointer]:
+            - generic [ref=e73]:
+              - generic [ref=e74]:
+                - img [ref=e75]
+                - generic [ref=e78]: Con próxima acción
+              - generic "Tienes una tarea anotada para este fan (nota con rayo)." [ref=e79]: i
+            - generic [ref=e80]: "1"
+      - generic:
+        - generic [ref=e82]:
+          - generic [ref=e84]:
+            - button "Seguimiento hoy" [ref=e85] [cursor=pointer]:
+              - generic [ref=e86]: Seguimiento hoy
+            - button "Caducados" [ref=e87] [cursor=pointer]:
+              - generic [ref=e88]: Caducados
+            - button "Alta prioridad" [ref=e89] [cursor=pointer]:
+              - generic [ref=e90]: Alta prioridad
+            - generic [ref=e91]:
+              - button "Todos (4)" [pressed] [ref=e92] [cursor=pointer]:
+                - generic [ref=e93]: Todos (4)
+              - button "Cola (4)" [ref=e94] [cursor=pointer]:
+                - generic [ref=e95]: Cola (4)
+          - generic [ref=e97]:
+            - img [ref=e98]
+            - textbox "Buscar o iniciar un nuevo chat" [ref=e100]
+            - button "Crear invitación" [ref=e101] [cursor=pointer]:
+              - generic [ref=e102]: +
+              - generic [ref=e103]: Crear invitación
+            - button "Activar modo enfoque" [ref=e104] [cursor=pointer]:
+              - img [ref=e105]
+        - generic [ref=e108] [cursor=pointer]:
+          - generic [ref=e110]:
+            - img [ref=e112]
+            - img "Avatar Image" [ref=e113]
+          - generic [ref=e115]:
+            - generic [ref=e116]: Cortex
+            - generic [ref=e117]: IA
+        - generic [ref=e118] [cursor=pointer]:
+          - generic:
+            - generic [ref=e120]:
+              - img [ref=e122]
+              - img "Avatar Image" [ref=e123]
+            - generic [ref=e124]:
+              - generic [ref=e125]:
+                - generic [ref=e126]:
+                  - generic [ref=e127]: lucia
+                  - generic [ref=e128]: Nuevo
+                  - generic [ref=e129]: EN
+                - generic [ref=e131]:
+                  - generic [ref=e132]:
+                    - button "Perfil" [ref=e133]:
+                      - img [ref=e135]
+                    - tooltip: Perfil
+                  - generic "Responde mejor cuando el tono es íntimo pero breve. Le gusta el humor suave." [ref=e138]
+                - generic [ref=e140]: 49 €
+                - generic [ref=e141]:
+                  - generic [ref=e142]: Prueba 7 días
+                  - generic [ref=e143]: 14 d
+              - generic [ref=e145]:
+                - heading "22:38" [level=1] [ref=e146]
+                - button "Abrir acciones" [ref=e148]:
+                  - img [ref=e150]
+        - generic [ref=e152] [cursor=pointer]:
+          - generic:
+            - generic [ref=e154]:
+              - img [ref=e156]
+              - img "Avatar Image" [ref=e157]
+            - generic [ref=e158]:
+              - generic [ref=e159]:
+                - generic [ref=e160]:
+                  - generic [ref=e161]: Diego
+                  - generic [ref=e162]: Nuevo
+                  - generic [ref=e163]: EN
+                  - generic [ref=e164]: Extras
+                - generic [ref=e165]: नमस्ते सुंदरी, कैसा है?.
+                - generic [ref=e167]: 0 €
+                - generic [ref=e168]:
+                  - generic [ref=e169]: Suscripción mensual
+                  - generic [ref=e170]: 5 d
+              - generic [ref=e172]:
+                - heading "05:38" [level=1] [ref=e173]
+                - button "Abrir acciones" [ref=e175]:
+                  - img [ref=e177]
+        - generic [ref=e179] [cursor=pointer]:
+          - generic:
+            - generic [ref=e181]:
+              - img [ref=e183]
+              - img "Avatar Image" [ref=e184]
+            - generic [ref=e185]:
+              - generic [ref=e186]:
+                - generic [ref=e187]:
+                  - generic [ref=e188]: javierr
+                  - generic [ref=e189]: En riesgo
+                  - generic [ref=e190]: EN
+                  - generic [ref=e191]: Extras
+                - generic [ref=e192]: ce faci frumoaso?
+                - generic [ref=e194]: 0 €
+                - generic [ref=e195]:
+                  - generic [ref=e196]: Pack especial
+                  - generic [ref=e197]: 1 d
+              - generic [ref=e199]:
+                - heading "05:21" [level=1] [ref=e200]
+                - button "Abrir acciones" [ref=e202]:
+                  - img [ref=e204]
+        - generic [ref=e206] [cursor=pointer]:
+          - generic:
+            - generic [ref=e208]:
+              - img [ref=e210]
+              - img "Avatar Image" [ref=e211]
+            - generic [ref=e212]:
+              - generic [ref=e213]:
+                - generic [ref=e214]:
+                  - generic [ref=e215]: Ana
+                  - generic [ref=e216]: Nuevo
+                  - generic [ref=e217]: EN
+                  - generic [ref=e218]: Extras
+                - generic [ref=e219]: Hoe gaat het, schat? Ik wil je beter leren kennen.
+                - generic [ref=e221]:
+                  - generic [ref=e222]:
+                    - button "Perfil" [ref=e223]:
+                      - img [ref=e225]
+                    - tooltip: Perfil
+                  - generic "Le gustan los mensajes cálidos y directos. Prefiere propuestas suaves y sin presión." [ref=e228]
+                - generic [ref=e229]:
+                  - generic [ref=e230]: 69 €
+                  - generic [ref=e233]:
+                    - button "Proponer pack especial · 2026-01-09" [ref=e234]:
+                      - img [ref=e236]
+                    - tooltip: Proponer pack especial · 2026-01-09
+                - generic [ref=e239]:
+                  - generic [ref=e240]: Suscripción mensual
+                  - generic [ref=e241]: 12 d
+              - generic [ref=e243]:
+                - heading "03:39" [level=1] [ref=e244]
+                - button "Abrir acciones" [ref=e246]:
+                  - img [ref=e248]
+    - generic [ref=e253]:
+      - generic [ref=e254]:
+        - generic [ref=e255]:
+          - paragraph [ref=e256]: Cortex
+          - heading "Cortex" [level=1] [ref=e257]:
+            - img [ref=e258]
+            - generic [ref=e262]: Cortex
+          - paragraph [ref=e263]: Centro de mando del creador
+        - generic [ref=e264]:
+          - button "Ver panel" [ref=e265] [cursor=pointer]
+          - button "Enfocar chat" [ref=e266] [cursor=pointer]
+          - button "Opciones" [ref=e268] [cursor=pointer]: ⋮
+      - generic [ref=e269]:
+        - generic [ref=e270]:
+          - button "Hoy 4 fans Prioridades del día" [ref=e271] [cursor=pointer]:
+            - generic [ref=e273]: Hoy
+            - generic [ref=e274]: 4 fans
+            - generic [ref=e276]: Prioridades del día
+          - button "Cola 4 fans En espera" [ref=e277] [cursor=pointer]:
+            - generic [ref=e279]: Cola
+            - generic [ref=e280]: 4 fans
+            - generic [ref=e282]: En espera
+          - button "Pulso 217 € 0 € en riesgo 7d" [ref=e283] [cursor=pointer]:
+            - generic [ref=e285]: Pulso
+            - generic [ref=e286]: 217 €
+            - generic [ref=e288]: 0 € en riesgo 7d
+          - button "Catálogo 2 extras Packs activos · últimas 4 semanas" [ref=e289] [cursor=pointer]:
+            - generic [ref=e291]: Catálogo
+            - generic [ref=e292]: 2 extras
+            - generic [ref=e294]: Packs activos · últimas 4 semanas
+        - generic [ref=e296]:
+          - generic [ref=e297]:
+            - button "Estrategia y números" [ref=e298] [cursor=pointer]
+            - button "Contenido y catálogo" [ref=e299] [cursor=pointer]
+          - generic [ref=e300]:
+            - generic [ref=e301]:
+              - generic [ref=e303]: Ingresos 30d
+              - generic [ref=e304]: 217 €
+              - generic [ref=e306]: Mes en curso
+            - generic [ref=e307]:
+              - generic [ref=e309]: Ingresos 7d
+              - generic [ref=e310]: 217 €
+              - generic [ref=e312]: Pulso corto
+            - generic [ref=e313]:
+              - generic [ref=e315]: Extras 30d
+              - generic [ref=e316]: 69 €
+              - generic [ref=e318]: Ventas extras
+            - generic [ref=e319]:
+              - generic [ref=e321]: Fans nuevos 30d
+              - generic [ref=e322]: "4"
+              - generic [ref=e324]: Altas recientes
+      - generic [ref=e329]:
+        - generic [ref=e331]:
+          - generic [ref=e332]:
+            - button "Hoy 4" [ref=e333] [cursor=pointer]:
+              - generic [ref=e334]: Hoy
+              - generic [ref=e335]: "4"
+            - button "Cola 4" [ref=e336] [cursor=pointer]:
+              - generic [ref=e337]: Cola
+              - generic [ref=e338]: "4"
+            - button "Caducan pronto 0" [ref=e339] [cursor=pointer]:
+              - generic [ref=e340]: Caducan pronto
+              - generic [ref=e341]: "0"
+            - button "En riesgo 2" [ref=e342] [cursor=pointer]:
+              - generic [ref=e343]: En riesgo
+              - generic [ref=e344]: "2"
+          - button "Ver más" [ref=e345] [cursor=pointer]
+        - generic [ref=e347]:
+          - generic [ref=e349]:
+            - generic [ref=e350]:
+              - generic [ref=e351]:
+                - generic [ref=e352]: Seguimientos
+                - generic [ref=e353]: Vencidos, hoy y próximos
+                - generic [ref=e354]: "Rango próximos: 7d"
+              - generic [ref=e355]:
+                - button "1d" [ref=e356] [cursor=pointer]
+                - button "3d" [ref=e357] [cursor=pointer]
+                - button "7d" [ref=e358] [cursor=pointer]
+                - button "30d" [ref=e359] [cursor=pointer]
+            - generic [ref=e361]:
+              - generic [ref=e362]:
+                - generic [ref=e363]: Ana
+                - generic [ref=e364]:
+                  - img [ref=e365]
+                  - generic [ref=e368]: Le interesa contenido más intenso si hay contexto. · 9 de 1 de 2026
+              - generic [ref=e369]:
+                - generic [ref=e370]: Hoy
+                - button "Abrir chat" [ref=e371] [cursor=pointer]
+          - generic [ref=e372]:
+            - generic [ref=e374]:
+              - paragraph [ref=e375]:
+                - generic [ref=e376]: Manager IA • 02:39 AM
+              - generic [ref=e378]: "Plan recomendado · Hoy: 1. Oferta extra a en riesgo 2. Diagnóstico 3 bullets 3. Plan 7 días Datos: hoy=4, cola=4, caducan=0, riesgo=2, 7d=217€, 30d=217€"
+            - generic [ref=e379]:
+              - generic [ref=e381]:
+                - generic [ref=e382]:
+                  - generic [ref=e383]: Oferta extra a en riesgo
+                  - generic [ref=e384]: Reactivar con oferta simple.
+                - button "Insertar" [ref=e385] [cursor=pointer]
+              - generic [ref=e387]:
+                - generic [ref=e388]:
+                  - generic [ref=e389]: Diagnóstico 3 bullets
+                  - generic [ref=e390]: Detecta bloqueos y el cambio mínimo.
+                - button "Insertar" [ref=e391] [cursor=pointer]
+              - generic [ref=e393]:
+                - generic [ref=e394]:
+                  - generic [ref=e395]: Plan 7 días
+                  - generic [ref=e396]: Secuencia diaria con objetivo y KPI.
+                - button "Insertar" [ref=e397] [cursor=pointer]
+        - generic [ref=e400]:
+          - generic [ref=e401]:
+            - generic [ref=e403]:
+              - button "Hoy" [ref=e404] [cursor=pointer]
+              - button "Ventas" [ref=e405] [cursor=pointer]
+              - button "Catálogo" [ref=e406] [cursor=pointer]
+              - button "Crecimiento" [ref=e407] [cursor=pointer]
+            - generic [ref=e408]:
+              - generic [ref=e409]:
+                - img [ref=e410]
+                - text: Atajos · Hoy
+              - generic [ref=e413]:
+                - generic [ref=e414]:
+                  - button "Diagnóstico 3 bullets" [ref=e415] [cursor=pointer]
+                  - button "Plan 7 días" [ref=e416] [cursor=pointer]
+                - generic: Diagnóstico 3 bulletsPlan 7 díasRescatar caducan pronto3 acciones rápidas
+              - generic [ref=e417]:
+                - button "Más atajos" [ref=e418] [cursor=pointer]:
+                  - generic [ref=e419]: Más
+                  - generic [ref=e420]: "+2"
+                - button "Editar" [ref=e421] [cursor=pointer]
+            - generic [ref=e422]: Pulsa un atajo para insertarlo en el mensaje.
+          - textbox "Mensaje a Cortex..." [ref=e423]
+          - generic [ref=e424]:
+            - generic [ref=e425]:
+              - button "Adjuntar" [disabled] [ref=e426]:
+                - img [ref=e427]
+              - button "Insertar emoji" [ref=e429] [cursor=pointer]:
+                - img [ref=e430]
+              - button "Stickers" [disabled] [ref=e433]
+            - button "Enviar" [disabled] [ref=e434]:
+              - generic [ref=e435]: Enviar
+  - alert [ref=e436]
+```

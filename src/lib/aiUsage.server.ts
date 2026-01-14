@@ -1,4 +1,4 @@
-import { AiUsageOrigin, AiUsageType, type AiTurnMode as PrismaAiTurnMode } from "@prisma/client";
+import { AiUsageOrigin, AiUsageType, Prisma, type AiTurnMode as PrismaAiTurnMode } from "@prisma/client";
 import prisma from "./prisma.server";
 import type { AiTurnMode } from "./aiSettings";
 import { normalizeAiTurnMode } from "./aiSettings";
@@ -76,6 +76,57 @@ export async function logAiUsage(params: {
       finalText,
       creditsUsed,
       turnMode: modeToUse as any,
+    },
+  });
+}
+
+export async function logCortexLlmUsage(params: {
+  creatorId: string;
+  fanId?: string | null;
+  endpoint: string;
+  provider: string;
+  model?: string | null;
+  tokensIn?: number | null;
+  tokensOut?: number | null;
+  latencyMs?: number | null;
+  ok: boolean;
+  errorCode?: string | null;
+  actionType?: string | null;
+  context?: Record<string, unknown> | null;
+}) {
+  const {
+    creatorId,
+    fanId,
+    endpoint,
+    provider,
+    model,
+    tokensIn,
+    tokensOut,
+    latencyMs,
+    ok,
+    errorCode,
+    actionType,
+    context,
+  } = params;
+  const safeContext = context ? (context as Prisma.InputJsonValue) : undefined;
+
+  return prisma.aiUsageLog.create({
+    data: {
+      creatorId,
+      fanId: fanId ?? undefined,
+      type: AiUsageType.MANAGER,
+      origin: AiUsageOrigin.MANAGER_STRATEGY,
+      creditsUsed: 0,
+      endpoint,
+      provider,
+      model: model ?? null,
+      tokensIn: tokensIn ?? null,
+      tokensOut: tokensOut ?? null,
+      latencyMs: latencyMs ?? null,
+      ok,
+      errorCode: errorCode ?? null,
+      actionType: actionType ?? undefined,
+      context: safeContext,
     },
   });
 }

@@ -1,0 +1,5 @@
+-- Add fan heat fields
+ALTER TABLE "Fan" ADD COLUMN "heatScore" INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE "Fan" ADD COLUMN "heatLabel" TEXT;
+ALTER TABLE "Fan" ADD COLUMN "heatUpdatedAt" DATETIME;
+ALTER TABLE "Fan" ADD COLUMN "heatMeta" JSONB;

@@ -2,24 +2,65 @@ import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useSta
 import clsx from "clsx";
 import Link from "next/link";
 import type { CreatorContentSnapshot } from "../../lib/creatorContentManager";
+import { useCortexProviderStatus } from "../../hooks/useCortexProviderStatus";
 
 type ContentManagerChatMessage = {
   id: string;
   role: "CREATOR" | "ASSISTANT";
   content: string;
   createdAt: string;
+  offer?: ContentManagerChatOffer | null;
 };
 
 type ContentChatGetResponse = {
-  messages: ContentManagerChatMessage[];
+  ok?: boolean;
+  data?: { messages?: ContentManagerChatMessage[] };
+  messages?: ContentManagerChatMessage[];
 };
 
 type ContentChatPostResponse = {
-  reply: { text: string };
-  creditsUsed: number;
-  creditsRemaining: number;
+  ok?: boolean;
+  status?: string;
+  meta?: { providerUsed?: string; modelUsed?: string; latencyMs?: number };
+  offer?: ContentManagerChatOffer;
+  error?: { code?: string; message?: string };
+  data?: {
+    reply?: { role?: string; content?: string };
+    usedFallback?: boolean;
+    settingsStatus?: "ok" | "settings_missing" | "decrypt_failed";
+    status?: string;
+    offer?: ContentManagerChatOffer;
+  };
+  reply?: { content?: string; text?: string };
+  message?: { role?: string; content?: string };
+  items?: Array<{ role?: string; content?: string }>;
+  creditsUsed?: number;
+  creditsRemaining?: number;
   usedFallback?: boolean;
-  settingsStatus?: "ok" | "settings_missing";
+  settingsStatus?: "ok" | "settings_missing" | "decrypt_failed";
+};
+
+type ContentManagerChatOffer = {
+  tier?: string | null;
+  dayPart?: string | null;
+  contentId?: string;
+  title?: string;
+  price?: number;
+};
+
+const formatDayPartLabel = (dayPart?: string | null) => {
+  if (dayPart === "DAY") return "Día";
+  if (dayPart === "NIGHT") return "Noche";
+  if (dayPart === "ANY") return "Cualquiera";
+  return null;
+};
+
+const formatOfferLabel = (offer?: ContentManagerChatOffer | null) => {
+  if (!offer) return null;
+  const tier = offer.tier ?? "T?";
+  const dayPartLabel = formatDayPartLabel(offer.dayPart ?? null);
+  const slotLabel = dayPartLabel ?? "Cualquiera";
+  return `Oferta: ${tier} · ${slotLabel}`;
 };
 
 const contentSuggestions = [
@@ -52,10 +93,31 @@ export const ContentManagerChatCard = forwardRef<ContentManagerChatCardHandle, P
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [usedFallback, setUsedFallback] = useState(false);
-  const [settingsStatus, setSettingsStatus] = useState<"ok" | "settings_missing" | null>(null);
+  const [settingsStatus, setSettingsStatus] = useState<"ok" | "settings_missing" | "decrypt_failed" | null>(null);
   const [input, setInput] = useState("");
+  const [pendingOffer, setPendingOffer] = useState<ContentManagerChatOffer | null>(null);
+  const [resolvedCreatorId, setResolvedCreatorId] = useState<string | null>(null);
   const listRef = useRef<HTMLDivElement | null>(null);
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
+  const cortexStatus = useCortexProviderStatus();
+  const showDemoBanner = cortexStatus
+    ? cortexStatus.provider === "demo" || !cortexStatus.configured
+    : !process.env.NEXT_PUBLIC_OPENAI_API_KEY;
+  const resolveCreatorId = useCallback(async () => {
+    if (resolvedCreatorId) return resolvedCreatorId;
+    try {
+      const res = await fetch("/api/creator");
+      if (!res.ok) return null;
+      const data = await res.json().catch(() => ({}));
+      const idValue = typeof data?.creator?.id === "string" ? data.creator.id : null;
+      if (idValue) {
+        setResolvedCreatorId(idValue);
+      }
+      return idValue;
+    } catch (_err) {
+      return null;
+    }
+  }, [resolvedCreatorId]);
 
   const loadMessages = useCallback(
     async (opts?: { silent?: boolean }) => {
@@ -64,10 +126,11 @@ export const ContentManagerChatCard = forwardRef<ContentManagerChatCardHandle, P
           setLoading(true);
         }
         setError(null);
-        const res = await fetch(`/api/creator/ai-manager/messages?tab=${mode}`);
+        const res = await fetch(`/api/creator/ai-manager/messages?tab=${mode}`, { cache: "no-store" });
         if (!res.ok) throw new Error("No se pudo cargar el historial");
         const data = (await res.json()) as ContentChatGetResponse;
-        setMessages((data?.messages ?? []).slice(-50));
+        const payload = data?.data ?? data;
+        setMessages((payload?.messages ?? []).slice(-50));
         if (!opts?.silent) {
           setUsedFallback(false);
         }
@@ -98,12 +161,26 @@ export const ContentManagerChatCard = forwardRef<ContentManagerChatCardHandle, P
     }
   }, [initialSnapshot]);
 
+  const handleInsertOffer = useCallback((message: string, offer: ContentManagerChatOffer) => {
+    const trimmed = message.trim();
+    if (!trimmed) return;
+    setInput(trimmed);
+    setPendingOffer(offer);
+    requestAnimationFrame(() => {
+      inputRef.current?.focus();
+    });
+  }, []);
+
   async function handleSend(externalText?: string, action?: string | null) {
     const text = (typeof externalText === "string" ? externalText : input).trim();
     if (!text || sending) return;
     try {
       setSending(true);
       setError(null);
+      const creatorIdValue = await resolveCreatorId();
+      if (!creatorIdValue) {
+        throw new Error("No se pudo detectar el creador.");
+      }
       const now = new Date().toISOString();
       const optimisticId = `local-${Date.now()}`;
       setMessages((prev) => [
@@ -114,24 +191,204 @@ export const ContentManagerChatCard = forwardRef<ContentManagerChatCardHandle, P
       const res = await fetch("/api/creator/ai-manager/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ tab: mode, message: text, action }),
+        body: JSON.stringify({ creatorId: creatorIdValue, tab: mode, text, action, mode: "analysis" }),
       });
-      if (!res.ok) {
-        const body = await res.json().catch(() => ({}));
-        throw new Error(body?.error ?? "Error enviando mensaje");
+      const data = (await res.json().catch(() => ({}))) as ContentChatPostResponse;
+      const extractOffer = (payload: any): ContentManagerChatOffer | null => {
+        const raw = payload?.offer ?? payload?.data?.offer;
+        if (!raw || typeof raw !== "object") return null;
+        const record = raw as Record<string, unknown>;
+        const tier = typeof record.tier === "string" ? record.tier : null;
+        const dayPart = typeof record.dayPart === "string" ? record.dayPart : null;
+        const contentId = typeof record.contentId === "string" ? record.contentId : undefined;
+        const title = typeof record.title === "string" ? record.title : undefined;
+        const price = typeof record.price === "number" ? record.price : undefined;
+        if (!tier && !dayPart && !contentId && !title) return null;
+        return { tier, dayPart, contentId, title, price };
+      };
+      const replyText =
+        typeof data?.data?.reply?.content === "string"
+          ? data.data.reply.content
+          : typeof data?.reply?.content === "string"
+          ? data.reply.content
+          : typeof data?.message?.content === "string"
+          ? data.message.content
+          : typeof data?.items?.[0]?.content === "string"
+          ? data.items[0].content
+          : typeof data?.reply?.text === "string"
+          ? data.reply.text
+          : "";
+      const trimmedReplyText = replyText.trim();
+      const responseOffer = extractOffer(data);
+      const statusValue =
+        typeof data?.status === "string"
+          ? data.status
+          : typeof data?.data?.status === "string"
+          ? data.data.status
+          : "";
+      const normalizedStatus = statusValue.trim().toLowerCase();
+      if (data?.ok === false || normalizedStatus === "provider_down" || normalizedStatus === "refusal") {
+        const errorCode =
+          typeof (data as any)?.error?.code === "string"
+            ? (data as any).error.code
+            : typeof (data as any)?.code === "string"
+            ? (data as any).code
+            : "";
+        const providerUnavailable =
+          normalizedStatus === "provider_down" ||
+          errorCode.toUpperCase() === "PROVIDER_UNAVAILABLE" ||
+          res.status === 502;
+        const isModelNotFound = errorCode.toUpperCase() === "MODEL_NOT_FOUND";
+        const isTimeout = errorCode.toUpperCase() === "TIMEOUT";
+        const isProviderError = errorCode.toUpperCase() === "PROVIDER_ERROR";
+        const isJsonParse = errorCode.toUpperCase() === "JSON_PARSE";
+        const policyBlocked = errorCode.toUpperCase() === "POLICY_BLOCKED";
+        const isCryptoMisconfigured =
+          normalizedStatus === "crypto_misconfigured" || errorCode.toUpperCase() === "CRYPTO_MISCONFIGURED";
+        if (isModelNotFound) {
+          const modelMessage =
+            typeof (data as any)?.error?.message === "string"
+              ? (data as any).error.message
+              : "Modelo no encontrado (AI_MODEL=...).";
+          setError(modelMessage);
+          if (!trimmedReplyText) {
+            const assistantMessage: ContentManagerChatMessage = {
+              id: `assistant-${Date.now()}`,
+              role: "ASSISTANT",
+              content: modelMessage,
+              createdAt: new Date().toISOString(),
+            };
+            setMessages((prev) =>
+              [...prev.filter((m) => m.id !== optimisticId), assistantMessage].slice(-50)
+            );
+            return;
+          }
+        } else if (isTimeout) {
+          const timeoutMessage =
+            typeof (data as any)?.error?.message === "string"
+              ? (data as any).error.message
+              : "Timeout hablando con Ollama.";
+          setError(timeoutMessage);
+          if (!trimmedReplyText) {
+            const assistantMessage: ContentManagerChatMessage = {
+              id: `assistant-${Date.now()}`,
+              role: "ASSISTANT",
+              content: timeoutMessage,
+              createdAt: new Date().toISOString(),
+            };
+            setMessages((prev) =>
+              [...prev.filter((m) => m.id !== optimisticId), assistantMessage].slice(-50)
+            );
+            return;
+          }
+        } else if (isProviderError || isJsonParse) {
+          const providerMessage =
+            typeof (data as any)?.error?.message === "string"
+              ? (data as any).error.message
+              : isJsonParse
+              ? "La IA respondió pero no en formato esperado (JSON)."
+              : "IA local no disponible (Ollama).";
+          setError(providerMessage);
+          if (!trimmedReplyText) {
+            const assistantMessage: ContentManagerChatMessage = {
+              id: `assistant-${Date.now()}`,
+              role: "ASSISTANT",
+              content: providerMessage,
+              createdAt: new Date().toISOString(),
+            };
+            setMessages((prev) =>
+              [...prev.filter((m) => m.id !== optimisticId), assistantMessage].slice(-50)
+            );
+            return;
+          }
+        }
+        if (!isModelNotFound && !isTimeout && !isProviderError && !isJsonParse && providerUnavailable) {
+          setError("IA local no disponible (Ollama).");
+          if (!trimmedReplyText) {
+            const assistantMessage: ContentManagerChatMessage = {
+              id: `assistant-${Date.now()}`,
+              role: "ASSISTANT",
+              content: "IA local no disponible (Ollama).",
+              createdAt: new Date().toISOString(),
+            };
+            setMessages((prev) =>
+              [...prev.filter((m) => m.id !== optimisticId), assistantMessage].slice(-50)
+            );
+            return;
+          }
+        } else if (isCryptoMisconfigured) {
+          if (!trimmedReplyText) {
+            const message =
+              typeof (data as any)?.error?.message === "string"
+                ? (data as any).error.message
+                : "Crypto mal configurado.";
+            throw new Error(message);
+          }
+          setError(trimmedReplyText);
+        } else if (policyBlocked) {
+          const policyMessage =
+            typeof (data as any)?.error?.message === "string"
+              ? (data as any).error.message
+              : "No permitido: menores o no consentimiento.";
+          setError(policyMessage);
+          if (!trimmedReplyText) {
+            const assistantMessage: ContentManagerChatMessage = {
+              id: `assistant-${Date.now()}`,
+              role: "ASSISTANT",
+              content: policyMessage,
+              createdAt: new Date().toISOString(),
+            };
+            setMessages((prev) =>
+              [...prev.filter((m) => m.id !== optimisticId), assistantMessage].slice(-50)
+            );
+            return;
+          }
+        } else if (!trimmedReplyText && (normalizedStatus === "refusal" || errorCode.toUpperCase() === "REFUSAL")) {
+          const refusalText =
+            "Se bloqueó la generación con este contexto. Prueba \"Otra versión\" o \"Suavizar\".";
+          const assistantMessage: ContentManagerChatMessage = {
+            id: `assistant-${Date.now()}`,
+            role: "ASSISTANT",
+            content: refusalText,
+            createdAt: new Date().toISOString(),
+          };
+          setMessages((prev) =>
+            [...prev.filter((m) => m.id !== optimisticId), assistantMessage].slice(-50)
+          );
+          return;
+        } else if (!trimmedReplyText) {
+          const message =
+            typeof (data as any)?.error?.message === "string"
+              ? (data as any).error.message
+            : typeof (data as any)?.error === "string"
+            ? (data as any).error
+              : typeof data?.message === "string"
+              ? data.message
+              : "Error enviando mensaje";
+          throw new Error(message);
+        }
+        if (trimmedReplyText && !providerUnavailable && !isCryptoMisconfigured) {
+          setError("Respuesta de seguridad / fallback.");
+        }
       }
-      const data = (await res.json()) as ContentChatPostResponse;
+      const normalizedReplyText = trimmedReplyText || "Sin respuesta";
       const assistantMessage: ContentManagerChatMessage = {
         id: `assistant-${Date.now()}`,
         role: "ASSISTANT",
-        content: data?.reply?.text ?? "Sin respuesta",
+        content: normalizedReplyText,
         createdAt: new Date().toISOString(),
+        offer: responseOffer ?? undefined,
       };
       setMessages((prev) =>
         [...prev.filter((m) => m.id !== optimisticId), assistantMessage].slice(-50)
       );
-      setUsedFallback(Boolean(data?.usedFallback));
-      setSettingsStatus(data?.settingsStatus ?? null);
+      setUsedFallback(Boolean(data?.data?.usedFallback ?? data?.usedFallback));
+      setSettingsStatus(data?.data?.settingsStatus ?? data?.settingsStatus ?? null);
+      if (normalizedStatus === "needs_age_gate") {
+        setError("Se requiere confirmar +18.");
+      } else if (!normalizedStatus || normalizedStatus === "ok") {
+        setError(null);
+      }
       void loadMessages({ silent: true });
       if (!externalText) setInput("");
     } catch (err) {
@@ -139,8 +396,8 @@ export const ContentManagerChatCard = forwardRef<ContentManagerChatCardHandle, P
       setMessages((prev) => prev.filter((m) => !m.id.startsWith("local-")));
       const fallback =
         mode === "GROWTH"
-          ? "Modo demo crecimiento: aquí verías un resumen de métricas y 3 movimientos para crecer. Conecta tu OPENAI_API_KEY para recomendaciones reales."
-          : "Modo demo: conecta tu OPENAI_API_KEY para respuestas con tus datos de catálogo.";
+          ? "Modo demo crecimiento: aquí verías un resumen de métricas y 3 movimientos para crecer. Configura el proveedor de IA para recomendaciones reales."
+          : "Modo demo: configura el proveedor de IA para respuestas con tus datos de catálogo.";
       setMessages((prev) => [
         ...prev,
         { id: `assistant-${Date.now()}`, role: "ASSISTANT", content: fallback, createdAt: new Date().toISOString() },
@@ -183,14 +440,15 @@ export const ContentManagerChatCard = forwardRef<ContentManagerChatCardHandle, P
   const fallbackBanner =
     settingsStatus === "settings_missing" ? (
       <span>
-        Revisar ajustes: falta `OPENAI_API_KEY` o no se pudo descifrar.{" "}
+        Revisar ajustes: falta configurar el proveedor de IA o no se pudo descifrar.{" "}
         <Link href="/creator/ai-settings">
           <a className="underline hover:text-[color:var(--text)]">Abrir ajustes</a>
         </Link>
       </span>
     ) : (
-      "Modo demo: conecta tu OPENAI_API_KEY para respuestas con tus datos reales."
+      "Modo demo: configura el proveedor de IA para respuestas con tus datos reales."
     );
+  const showFallbackBanner = usedFallback && showDemoBanner;
 
   return (
     <section className={containerClass}>
@@ -207,7 +465,7 @@ export const ContentManagerChatCard = forwardRef<ContentManagerChatCardHandle, P
 
       <div className="rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-3 py-2 text-xs text-[color:var(--text)] space-y-2">
         <div className="text-[12px] text-[color:var(--text)]">{summaryText}</div>
-        {usedFallback && (
+        {showFallbackBanner && (
           <div className="text-[11px] text-[color:var(--warning)]">
             {fallbackBanner}
           </div>
@@ -241,6 +499,20 @@ export const ContentManagerChatCard = forwardRef<ContentManagerChatCardHandle, P
                     >
                       {msg.content}
                     </div>
+                    {!isCreator && msg.offer && (
+                      <div className="mt-2 flex flex-wrap items-center gap-2">
+                        <span className="inline-flex items-center rounded-full border border-[color:rgba(var(--brand-rgb),0.35)] bg-[color:rgba(var(--brand-rgb),0.12)] px-2.5 py-1 text-[10px] font-semibold text-[color:var(--text)]">
+                          {formatOfferLabel(msg.offer)}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => handleInsertOffer(msg.content, msg.offer as ContentManagerChatOffer)}
+                          className="inline-flex items-center rounded-full border border-[color:var(--warning)] bg-[color:rgba(245,158,11,0.08)] px-3 py-1 text-[10px] font-semibold text-[color:var(--text)] hover:bg-[color:rgba(245,158,11,0.16)]"
+                        >
+                          Insertar + Oferta
+                        </button>
+                      </div>
+                    )}
                   </div>
                 </div>
               );
@@ -284,28 +556,44 @@ export const ContentManagerChatCard = forwardRef<ContentManagerChatCardHandle, P
           e.preventDefault();
           void handleSend();
         }}
-        className="flex gap-2"
+        className="flex flex-col gap-2"
       >
-        <textarea
-          ref={inputRef}
-          value={input}
-          onChange={(e) => setInput(e.target.value)}
-          disabled={sending}
-          placeholder={
-            mode === "CONTENT"
-              ? "Pregúntale al Manager IA de catálogo."
-              : "Pega aquí tus métricas de la semana (seguidores, visitas, ingresos, etc.) o cuéntame qué ha pasado…"
-          }
-          className="flex-1 resize-none rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-3 py-2 text-sm text-[color:var(--text)] focus:outline-none focus:ring-2 focus:ring-[color:var(--ring)] disabled:cursor-not-allowed disabled:opacity-70"
-          rows={2}
-        />
-        <button
-          type="submit"
-          disabled={sending || !input.trim()}
-          className="self-end rounded-xl bg-[color:var(--brand-strong)] px-4 py-2 text-sm font-semibold text-[color:var(--text)] hover:bg-[color:var(--brand-strong)] disabled:opacity-50"
-        >
-          {sending ? "Enviando..." : "Enviar"}
-        </button>
+        {pendingOffer && (
+          <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-[color:rgba(var(--brand-rgb),0.35)] bg-[color:rgba(var(--brand-rgb),0.08)] px-3 py-2 text-[11px] text-[color:var(--text)]">
+            <span className="font-medium">
+              Oferta sugerida: {(formatOfferLabel(pendingOffer) || "").replace(/^Oferta:\s*/, "")}
+            </span>
+            <button
+              type="button"
+              onClick={() => setPendingOffer(null)}
+              className="rounded-full border border-[color:var(--surface-border)] px-2.5 py-0.5 text-[10px] font-semibold text-[color:var(--muted)] hover:text-[color:var(--text)]"
+            >
+              Quitar
+            </button>
+          </div>
+        )}
+        <div className="flex gap-2">
+          <textarea
+            ref={inputRef}
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            disabled={sending}
+            placeholder={
+              mode === "CONTENT"
+                ? "Pregúntale al Manager IA de catálogo."
+                : "Pega aquí tus métricas de la semana (seguidores, visitas, ingresos, etc.) o cuéntame qué ha pasado…"
+            }
+            className="flex-1 resize-none rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-3 py-2 text-sm text-[color:var(--text)] focus:outline-none focus:ring-2 focus:ring-[color:var(--ring)] disabled:cursor-not-allowed disabled:opacity-70"
+            rows={2}
+          />
+          <button
+            type="submit"
+            disabled={sending || !input.trim()}
+            className="self-end rounded-xl bg-[color:var(--brand-strong)] px-4 py-2 text-sm font-semibold text-[color:var(--text)] hover:bg-[color:var(--brand-strong)] disabled:opacity-50"
+          >
+            {sending ? "Enviando..." : "Enviar"}
+          </button>
+        </div>
       </form>
     </section>
   );

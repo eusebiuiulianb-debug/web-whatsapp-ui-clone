@@ -14,6 +14,290 @@ function addDays(base: Date, days: number) {
   return result;
 }
 
+const AGENCY_STAGES = [
+  "NEW",
+  "WARM_UP",
+  "HEAT",
+  "OFFER",
+  "CLOSE",
+  "AFTERCARE",
+  "RECOVERY",
+  "BOUNDARY",
+] as const;
+
+const AGENCY_INTENSITIES = ["SOFT", "MEDIUM", "INTENSE"] as const;
+const AGENCY_PLAYBOOKS = ["GIRLFRIEND", "PLAYFUL", "ELEGANT", "SOFT_DOMINANT"] as const;
+
+type AgencyStageSeed = (typeof AGENCY_STAGES)[number];
+type AgencyIntensitySeed = (typeof AGENCY_INTENSITIES)[number];
+type AgencyPlaybookSeed = (typeof AGENCY_PLAYBOOKS)[number];
+const DEFAULT_PLAYBOOK: AgencyPlaybookSeed = "GIRLFRIEND";
+
+const OPENERS_BY_INTENSITY: Record<AgencyIntensitySeed, string[]> = {
+  SOFT: [
+    "Hey {fanName}{hook} {style}",
+    "Hola {fanName}{hook} {style}",
+    "Ey {fanName}{hook} {style}",
+    "{fanName}, te leo{hook} {style}",
+    "Aquí estoy, {fanName}{hook} {style}",
+  ],
+  MEDIUM: [
+    "Hey {fanName}{hook} {style}",
+    "Ey {fanName}{hook} {style}",
+    "{fanName}, me gusta leerte{hook} {style}",
+    "Hey, {fanName}{hook} {style}",
+    "{fanName}, te tengo en mente{hook} {style}",
+  ],
+  INTENSE: [
+    "Ey {fanName}{hook} {style}",
+    "{fanName}, me enciendes{hook} {style}",
+    "Hey, {fanName}{hook} {style}",
+    "{fanName}, me dejas con ganas{hook} {style}",
+    "Ey {fanName}, ven{hook} {style}",
+  ],
+};
+
+const STAGE_OPENER_HOOKS: Record<AgencyStageSeed, string[]> = {
+  NEW: [", me encanta conocerte", ", vamos paso a paso", ", dime tu ritmo"],
+  WARM_UP: [", vamos suave", ", me quedé con ganas", ", cerquita y sin prisa"],
+  HEAT: [", subamos la tensión", ", me gusta cómo vamos", ", juguemos un poco más"],
+  OFFER: [", tengo un plan en mente", ", puedo prepararte algo rico", ", se me ocurrió algo"],
+  CLOSE: [", si quieres lo dejamos listo", ", lo cerramos cuando digas", ", lo dejamos hecho hoy"],
+  AFTERCARE: [", me gusta cuidarte", ", te leo con calma", ", respiramos un poco"],
+  RECOVERY: [", retomemos suave", ", sin presión", ", volvemos con calma"],
+  BOUNDARY: [", con límites claros", ", sin ir a lo explícito", ", cuidando el ritmo"],
+};
+
+const BRIDGES_BY_INTENSITY: Record<AgencyIntensitySeed, string[]> = {
+  SOFT: [
+    "Sobre lo de {context}, me quedé pensando{hook} {style}",
+    "Lo de {context} me dejó con curiosidad{hook} {style}",
+    "Me quedé con {context}{hook} {style}",
+    "Lo de {context} me gustó{hook} {style}",
+    "Sobre {context}, me apetece seguir{hook} {style}",
+  ],
+  MEDIUM: [
+    "Lo de {context} me dejó con ganas{hook} {style}",
+    "Sobre {context}, me encendió la curiosidad{hook} {style}",
+    "Me quedé con {context} en la cabeza{hook} {style}",
+    "Lo de {context} me hizo sonreír{hook} {style}",
+    "Sobre lo de {context}, me quedé con ganas{hook} {style}",
+  ],
+  INTENSE: [
+    "Lo de {context} me dejó con tensión{hook} {style}",
+    "Sobre {context}, me quedé con ganas de más{hook} {style}",
+    "Me quedé con {context} muy en la piel{hook} {style}",
+    "Lo de {context} me encendió{hook} {style}",
+    "Sobre {context}, me quedé con fuego{hook} {style}",
+  ],
+};
+
+const STAGE_BRIDGE_HOOKS: Record<AgencyStageSeed, string[]> = {
+  NEW: [" y con calma", " para ir poco a poco", " sin prisa"],
+  WARM_UP: [" y despacio", " con ganas", " a fuego lento"],
+  HEAT: [" y subiendo", " con más chispa", " con un poco más"],
+  OFFER: [" y se me ocurrió algo", " y te tengo un plan", " y puedo prepararte algo"],
+  CLOSE: [" y lo dejamos listo", " y lo cerramos", " y lo resolvemos hoy"],
+  AFTERCARE: [" y te cuido", " y te leo cerca", " y quedo pendiente"],
+  RECOVERY: [" y retomamos suave", " sin presión", " y volvemos poco a poco"],
+  BOUNDARY: [" con límites", " sin cruzar líneas", " con respeto"],
+};
+
+const TEASES_BY_INTENSITY: Record<AgencyIntensitySeed, string[]> = {
+  SOFT: [
+    "Podemos ir suave y subir si te apetece{hook} {sensory} {style}",
+    "Te propongo algo suave y cercano{hook} {sensory} {style}",
+    "Vamos con ritmo lento y rico{hook} {sensory} {style}",
+    "Puedo guiarte con calma y picardía{hook} {sensory} {style}",
+    "Me gusta empezar suave y jugar un poco{hook} {sensory} {style}",
+  ],
+  MEDIUM: [
+    "Podemos subir un poco el tono{hook} {sensory} {style}",
+    "Te preparo algo con chispa{hook} {sensory} {style}",
+    "Subimos la tensión sin ir a lo explícito{hook} {sensory} {style}",
+    "Me apetece jugar más contigo{hook} {sensory} {style}",
+    "Vamos a un punto más atrevido{hook} {sensory} {style}",
+  ],
+  INTENSE: [
+    "Puedo subir el tono con control{hook} {sensory} {style}",
+    "Vamos con más fuego, sin pasarnos{hook} {sensory} {style}",
+    "Te dejo en tensión y lo subo un paso{hook} {sensory} {style}",
+    "Me apetece un punto más intenso{hook} {sensory} {style}",
+    "Subimos claro y con cuidado{hook} {sensory} {style}",
+  ],
+};
+
+const STAGE_TEASE_HOOKS: Record<AgencyStageSeed, string[]> = {
+  NEW: [", para empezar bien", ", paso a paso", ", sin correr"],
+  WARM_UP: [", calentando despacio", ", poco a poco", ", para ir entrando"],
+  HEAT: [", con más chispa", ", sin frenar", ", subiendo rico"],
+  OFFER: [", y lo dejo listo", ", si quieres te lo preparo", ", y te lo paso"],
+  CLOSE: [", y lo cerramos ya", ", si quieres lo cerramos", ", y lo dejamos hecho"],
+  AFTERCARE: [", y luego te cuido", ", y luego bajamos", ", con calma después"],
+  RECOVERY: [", y retomamos bien", ", sin presión", ", cuidando el ritmo"],
+  BOUNDARY: [", con límites claros", ", sin cruzar líneas", ", siempre con respeto"],
+};
+
+const CTAS_BY_INTENSITY: Record<AgencyIntensitySeed, string[]> = {
+  SOFT: [
+    "¿Te apetece seguir{hook}?",
+    "¿Lo hacemos con calma{hook}?",
+    "¿Te va algo suave{hook}?",
+    "¿Quieres que lo lleve despacio{hook}?",
+    "¿Te apetece que empecemos{hook}?",
+  ],
+  MEDIUM: [
+    "¿Te apetece subir un poco{hook}?",
+    "¿Lo dejamos suave o subimos{hook}?",
+    "¿Te va un toque de chispa{hook}?",
+    "¿Quieres que lo haga más intenso{hook}?",
+    "¿Te apetece jugar un poco más{hook}?",
+  ],
+  INTENSE: [
+    "¿Quieres que suba el tono{hook}?",
+    "¿Te va algo más intenso{hook}?",
+    "¿Subimos un paso más{hook}?",
+    "¿Te apetece ir más fuerte{hook}?",
+    "¿Lo llevamos a otro nivel{hook}?",
+  ],
+};
+
+const STAGE_CTA_HOOKS: Record<AgencyStageSeed, string[]> = {
+  NEW: [" ahora", " aquí", " conmigo"],
+  WARM_UP: [" ahora", " aquí", " un poquito"],
+  HEAT: [" ahora", " esta noche", " un poco más"],
+  OFFER: [" ahora", " aquí", " hoy"],
+  CLOSE: [" ya", " ahora", " hoy"],
+  AFTERCARE: [" ahora", " aquí", " con calma"],
+  RECOVERY: [" ahora", " aquí", " con calma"],
+  BOUNDARY: [" ahora", " aquí", " con calma"],
+};
+
+const PLAYBOOK_STYLES: Record<
+  AgencyPlaybookSeed,
+  {
+    openers: string[];
+    bridges: string[];
+    teases: string[];
+    sensory: string[];
+  }
+> = {
+  GIRLFRIEND: {
+    openers: ["me encanta cuidarte", "te tengo cerquita", "me gusta estar contigo"],
+    bridges: ["me nace seguirte", "me sale cuidarte", "me quedé con ganas"],
+    teases: ["me apetece mimarte", "quiero ir despacio", "me gusta tu calma"],
+    sensory: ["con tu voz cerquita", "con tu risa suave", "con ese calor en la piel"],
+  },
+  PLAYFUL: {
+    openers: ["me apetece jugar", "hoy vengo traviesa", "me gusta provocarte"],
+    bridges: ["me pica la curiosidad", "me dan ganas de jugar", "me pongo juguetona"],
+    teases: ["te doy un guiño", "me apetece picarte", "quiero un toque travieso"],
+    sensory: ["con tu risa de lado", "con tu mirada traviesa", "con ese guiño que imagino"],
+  },
+  ELEGANT: {
+    openers: ["con calma y clase", "me gusta lo sutil", "te leo con cariño"],
+    bridges: ["me inspira seguir", "me gusta tu tono", "me quedé con el detalle"],
+    teases: ["con estilo suave", "me gusta lo lento", "quiero algo delicado"],
+    sensory: ["con tu voz suave", "con tu ritmo tranquilo", "con esa calma elegante"],
+  },
+  SOFT_DOMINANT: {
+    openers: ["déjame guiarte", "yo marco el ritmo", "sigue mi paso"],
+    bridges: ["deja que te lleve", "confía en mí", "yo conduzco"],
+    teases: ["te llevo despacio", "te marco el ritmo", "control suave y rico"],
+    sensory: ["con tu respiración cerca", "con tu ritmo bajo control", "con ese calor que sube"],
+  },
+};
+
+function buildFallbackPools(stage: AgencyStageSeed, intensity: AgencyIntensitySeed, playbook: AgencyPlaybookSeed) {
+  const style = PLAYBOOK_STYLES[playbook] ?? PLAYBOOK_STYLES[DEFAULT_PLAYBOOK];
+  return {
+    openers: expandTemplates(OPENERS_BY_INTENSITY[intensity], {
+      hooks: STAGE_OPENER_HOOKS[stage],
+      styles: style.openers,
+    }),
+    bridges: expandTemplates(BRIDGES_BY_INTENSITY[intensity], {
+      hooks: STAGE_BRIDGE_HOOKS[stage],
+      styles: style.bridges,
+    }),
+    teases: expandTemplates(TEASES_BY_INTENSITY[intensity], {
+      hooks: STAGE_TEASE_HOOKS[stage],
+      styles: style.teases,
+      sensory: style.sensory,
+    }),
+    ctas: expandTemplates(CTAS_BY_INTENSITY[intensity], {
+      hooks: STAGE_CTA_HOOKS[stage],
+    }),
+  };
+}
+
+function expandTemplates(
+  base: string[],
+  replacements: { hooks?: string[]; styles?: string[]; sensory?: string[] }
+): string[] {
+  const hooks = replacements.hooks && replacements.hooks.length > 0 ? replacements.hooks : [""];
+  const styles = replacements.styles && replacements.styles.length > 0 ? replacements.styles : [""];
+  const sensory = replacements.sensory && replacements.sensory.length > 0 ? replacements.sensory : [""];
+  const results: string[] = [];
+
+  for (const baseItem of base) {
+    const hookVariants = baseItem.includes("{hook}") ? hooks : [""];
+    for (const hook of hookVariants) {
+      const withHook = baseItem.replace("{hook}", hook).trim();
+      const styleVariants = withHook.includes("{style}") ? styles : [""];
+      for (const style of styleVariants) {
+        const withStyle = withHook.replace("{style}", style).trim();
+        const sensoryVariants = withStyle.includes("{sensory}") ? sensory : [""];
+        for (const sense of sensoryVariants) {
+          const combined = withStyle.replace("{sensory}", sense);
+          const normalized = normalizePhrase(combined);
+          if (normalized.length > 0) results.push(normalized);
+        }
+      }
+    }
+  }
+  return uniquePool(results);
+}
+
+function normalizePhrase(value: string): string {
+  return value.replace(/\s+/g, " ").replace(/\s+([.,!?])/g, "$1").trim();
+}
+
+function uniquePool(pool: string[]) {
+  const seen = new Set<string>();
+  return pool.filter((item) => {
+    if (!item || seen.has(item)) return false;
+    seen.add(item);
+    return true;
+  });
+}
+
+function buildAgencyTemplateSeeds() {
+  const seeds: Array<{
+    stage: AgencyStageSeed;
+    objective: "CONNECT";
+    intensity: AgencyIntensitySeed;
+    playbook: AgencyPlaybookSeed;
+    language: string;
+    blocksJson: ReturnType<typeof buildFallbackPools>;
+    active: boolean;
+  }> = [];
+
+  for (const stage of AGENCY_STAGES) {
+    for (const intensity of AGENCY_INTENSITIES) {
+      seeds.push({
+        stage,
+        objective: "CONNECT",
+        intensity,
+        playbook: DEFAULT_PLAYBOOK,
+        language: "es",
+        blocksJson: buildFallbackPools(stage, intensity, DEFAULT_PLAYBOOK),
+        active: true,
+      });
+    }
+  }
+  return seeds;
+}
+
 async function main() {
   const isSqlite = isSqliteDatabase();
   if (isSqlite) {
@@ -37,11 +321,13 @@ async function main() {
       prisma.campaignLink.deleteMany(),
       prisma.discoveryFeedback.deleteMany(),
       prisma.creatorAiTemplate.deleteMany(),
+      prisma.agencyTemplate.deleteMany(),
       prisma.creatorAiSettings.deleteMany(),
       prisma.generatedAsset.deleteMany(),
       prisma.popClip.deleteMany(),
       prisma.catalogItem.deleteMany(),
       prisma.contentItem.deleteMany(),
+      prisma.offer.deleteMany(),
       prisma.campaignMeta.deleteMany(),
       prisma.creatorDiscoveryProfile.deleteMany(),
       prisma.creatorProfile.deleteMany(),
@@ -68,6 +354,15 @@ async function main() {
         "Bienvenido a mi espacio en NOVSY. Aquí comparto avances, envío audios personalizados y respondo tus ideas para crear contenido hecho a tu medida. Únete para acceder a sesiones 1:1, material exclusivo y priorizar tus pedidos.",
       bioLinkAvatarUrl: "/avatar.jpg",
     },
+  });
+
+  const agencyTemplateSeeds = buildAgencyTemplateSeeds();
+
+  await prisma.agencyTemplate.createMany({
+    data: agencyTemplateSeeds.map((tpl) => ({
+      ...tpl,
+      creatorId: creator.id,
+    })),
   });
 
   const extraCreators = await Promise.all(

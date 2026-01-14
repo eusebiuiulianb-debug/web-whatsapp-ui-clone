@@ -4,14 +4,42 @@ import { useRouter } from "next/router";
 import { useCreatorConfig } from "../context/CreatorConfigContext";
 import CreatorHeader from "../components/CreatorHeader";
 import { ContentType } from "../types/content";
-import type { ContentItem as PrismaContentItem, ContentType as PrismaContentType, ContentPack } from "@prisma/client";
+import type {
+  ContentItem as PrismaContentItem,
+  ContentType as PrismaContentType,
+  ContentPack,
+  ExtraSlot as PrismaExtraSlot,
+  TimeOfDay as PrismaTimeOfDay,
+} from "@prisma/client";
 import { NewContentModal } from "../components/content/NewContentModal";
 import type { PopClip } from "../lib/popclips";
 
 type PackKey = "WELCOME" | "MONTHLY" | "SPECIAL";
 type ContentTypeKey = ContentType | "TEXT";
 type ExtraTier = "T0" | "T1" | "T2" | "T3";
-type TimeOfDay = "DAY" | "NIGHT" | "ANY";
+type ExtraSlot = "DAY_1" | "DAY_2" | "NIGHT_1" | "NIGHT_2" | "ANY";
+type TimeOfDay = PrismaTimeOfDay;
+
+const EXTRA_SLOT_ORDER: ExtraSlot[] = ["DAY_1", "DAY_2", "NIGHT_1", "NIGHT_2", "ANY"];
+const EXTRA_SLOT_LABELS: Record<ExtraSlot, { phase: string; moment: string }> = {
+  DAY_1: { phase: "Suave", moment: "Día" },
+  DAY_2: { phase: "Picante", moment: "Día" },
+  NIGHT_1: { phase: "Directo", moment: "Noche" },
+  NIGHT_2: { phase: "Final", moment: "Noche" },
+  ANY: { phase: "Cualquiera", moment: "" },
+};
+const resolveExtraSlot = (item: PrismaContentItem): ExtraSlot => {
+  const slot = ((item as any).extraSlot as PrismaExtraSlot | null) ?? null;
+  if (slot) return slot as ExtraSlot;
+  const legacy = ((item as any).timeOfDay as TimeOfDay | null) ?? null;
+  if (legacy === "DAY") return "DAY_1";
+  if (legacy === "NIGHT") return "NIGHT_1";
+  return "ANY";
+};
+const formatExtraSlotLabel = (slot: ExtraSlot) => {
+  const meta = EXTRA_SLOT_LABELS[slot];
+  return meta.moment ? `${meta.phase} · ${meta.moment}` : meta.phase;
+};
 
 const PACK_LABELS: Record<PackKey, string> = {
   WELCOME: "Pack bienvenida",
@@ -79,12 +107,25 @@ export default function LibraryPage() {
   const [showModal, setShowModal] = useState(false);
   const [modalMode, setModalMode] = useState<"create" | "edit">("create");
   const [selectedContent, setSelectedContent] = useState<PrismaContentItem | undefined>();
+  const [createDefaultsOverride, setCreateDefaultsOverride] = useState<{
+    visibility?: "EXTRA";
+    extraTier?: ExtraTier;
+    extraSlot?: ExtraSlot;
+  } | null>(null);
   const router = useRouter();
   const [activePack, setActivePack] = useState<PackKey | null>(null);
   const [mode, setMode] = useState<"packs" | "extras">("packs");
   const createDefaults = useMemo(
-    () => (mode === "extras" ? { visibility: "EXTRA" as const, extraTier: "T1" as ExtraTier, timeOfDay: "ANY" as TimeOfDay } : undefined),
-    [mode]
+    () =>
+      mode === "extras"
+        ? {
+            visibility: "EXTRA" as const,
+            extraTier: "T1" as ExtraTier,
+            extraSlot: "ANY" as ExtraSlot,
+            ...createDefaultsOverride,
+          }
+        : undefined,
+    [mode, createDefaultsOverride]
   );
 
   useEffect(() => {
@@ -94,6 +135,25 @@ export default function LibraryPage() {
   useEffect(() => {
     fetchCreator();
   }, []);
+
+  useEffect(() => {
+    if (!router.isReady) return;
+    const createParam = typeof router.query.create === "string" ? router.query.create : "";
+    if (createParam !== "1") return;
+    const tierParam = typeof router.query.tier === "string" ? router.query.tier.toUpperCase() : "";
+    const momentParam = typeof router.query.moment === "string" ? router.query.moment.toUpperCase() : "";
+    const allowedTiers: ExtraTier[] = ["T0", "T1", "T2", "T3"];
+    const extraTier = allowedTiers.includes(tierParam as ExtraTier) ? (tierParam as ExtraTier) : "T1";
+    const extraSlot: ExtraSlot =
+      momentParam === "DAY" ? "DAY_1" : momentParam === "NIGHT" ? "NIGHT_1" : "ANY";
+    setMode("extras");
+    setActivePack(null);
+    setModalMode("create");
+    setSelectedContent(undefined);
+    setCreateDefaultsOverride({ visibility: "EXTRA", extraTier, extraSlot });
+    setShowModal(true);
+    void router.replace("/library", undefined, { shallow: true });
+  }, [router, router.isReady, router.query]);
 
   useEffect(() => {
     if (!creatorId) return;
@@ -169,15 +229,16 @@ export default function LibraryPage() {
   );
 
   const extrasByTier = useMemo(() => {
-    const base: Record<ExtraTier, PrismaContentItem[]> = {
-      T0: [],
-      T1: [],
-      T2: [],
-      T3: [],
+    const base: Record<ExtraTier, Record<ExtraSlot, PrismaContentItem[]>> = {
+      T0: { DAY_1: [], DAY_2: [], NIGHT_1: [], NIGHT_2: [], ANY: [] },
+      T1: { DAY_1: [], DAY_2: [], NIGHT_1: [], NIGHT_2: [], ANY: [] },
+      T2: { DAY_1: [], DAY_2: [], NIGHT_1: [], NIGHT_2: [], ANY: [] },
+      T3: { DAY_1: [], DAY_2: [], NIGHT_1: [], NIGHT_2: [], ANY: [] },
     };
     extraItems.forEach((item) => {
       const tier = ((item as any).extraTier as ExtraTier) || "T1";
-      base[tier as ExtraTier]?.push(item);
+      const slot = resolveExtraSlot(item);
+      base[tier]?.[slot]?.push(item);
     });
     return base;
   }, [extraItems]);
@@ -418,6 +479,7 @@ export default function LibraryPage() {
           onClick={() => {
             setSelectedContent(undefined);
             setModalMode("create");
+            setCreateDefaultsOverride(null);
             setShowModal(true);
           }}
           className="inline-flex items-center rounded-lg border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-3 py-2 text-sm font-semibold text-[color:var(--text)] hover:border-[color:var(--brand)] hover:text-[color:var(--text)] transition"
@@ -486,6 +548,7 @@ export default function LibraryPage() {
                   onEdit={(content) => {
                     setSelectedContent(content);
                     setModalMode("edit");
+                    setCreateDefaultsOverride(null);
                     setShowModal(true);
                   }}
                   onDelete={async (content) => {
@@ -509,17 +572,11 @@ export default function LibraryPage() {
         {mode === "extras" && (
           <div className="mt-6 space-y-6">
             {(Object.keys(tierTitles) as ExtraTier[]).map((tierKey) => {
-              const tierItems = extrasByTier[tierKey] || [];
-              if (!tierItems.length) return null;
-
-              const dayItems = tierItems.filter((item) => {
-                const tod = ((item as any).timeOfDay as TimeOfDay) || "ANY";
-                return tod === "DAY" || tod === "ANY";
-              });
-              const nightItems = tierItems.filter((item) => {
-                const tod = ((item as any).timeOfDay as TimeOfDay) || "ANY";
-                return tod === "NIGHT" || tod === "ANY";
-              });
+              const tierGroups = extrasByTier[tierKey];
+              const totalItems = tierGroups
+                ? Object.values(tierGroups).reduce((sum, group) => sum + group.length, 0)
+                : 0;
+              if (!tierGroups || totalItems === 0) return null;
 
               const renderGroup = (group: PrismaContentItem[], label: string) => {
                 if (!group.length) return null;
@@ -544,6 +601,7 @@ export default function LibraryPage() {
                             onEdit={(content) => {
                               setSelectedContent(content);
                               setModalMode("edit");
+                              setCreateDefaultsOverride(null);
                               setShowModal(true);
                             }}
                             onDelete={async (content) => {
@@ -577,6 +635,7 @@ export default function LibraryPage() {
                             onEdit={(content) => {
                               setSelectedContent(content);
                               setModalMode("edit");
+                              setCreateDefaultsOverride(null);
                               setShowModal(true);
                             }}
                             onDelete={async (content) => {
@@ -603,10 +662,12 @@ export default function LibraryPage() {
                 <section key={tierKey} className="rounded-2xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] p-4 space-y-3">
                   <div className="flex items-center justify-between">
                     <h3 className="text-lg font-semibold text-[color:var(--text)]">{tierTitles[tierKey]}</h3>
-                    <span className="text-xs text-[color:var(--muted)]">{tierItems.length} ítem{tierItems.length === 1 ? "" : "s"}</span>
+                    <span className="text-xs text-[color:var(--muted)]">{totalItems} ítem{totalItems === 1 ? "" : "s"}</span>
                   </div>
-                  {renderGroup(dayItems, "Día")}
-                  {renderGroup(nightItems, "Noche")}
+                  {EXTRA_SLOT_ORDER.map((slot) => {
+                    if (slot === "ANY" && tierGroups[slot].length === 0) return null;
+                    return renderGroup(tierGroups[slot], formatExtraSlotLabel(slot));
+                  })}
                 </section>
               );
             })}
@@ -705,6 +766,7 @@ export default function LibraryPage() {
           onClose={() => {
             setShowModal(false);
             setSelectedContent(undefined);
+            setCreateDefaultsOverride(null);
           }}
         />
       )}
@@ -819,6 +881,7 @@ function ContentCard({
   const typeLabel = mapTypeToLabel(content.type as PrismaContentType);
   const packLabel = mapPackToLabel(content.pack as ContentPack);
   const visibilityLabel = isExtra ? "Extra de pago" : "Incluido en tu suscripción";
+  const extraSlotLabel = isExtra ? formatExtraSlotLabel(resolveExtraSlot(content)) : null;
   const formattedDate = formatDate(content.createdAt as unknown as string);
   const isPopClipActive = Boolean(popClip?.isActive);
   const canTogglePopClip = typeof onTogglePopClip === "function";
@@ -837,6 +900,9 @@ function ContentCard({
             <p className="text-xs text-[color:var(--muted)]">
               {isExtra ? `${typeLabel} · Extra por chat` : `${typeLabel} · ${packLabel}`}
             </p>
+            {extraSlotLabel && (
+              <p className="text-[11px] text-[color:var(--muted)]">{extraSlotLabel}</p>
+            )}
           </div>
           <div className="flex flex-col items-end gap-1 text-[11px] text-[color:var(--muted)]">
             {badge && (
