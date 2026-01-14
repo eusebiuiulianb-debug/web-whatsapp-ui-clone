@@ -37,7 +37,6 @@ import { useCreatorRealtime } from "../../hooks/useCreatorRealtime";
 import { DevRequestCounters } from "../DevRequestCounters";
 import { recordDevRequest } from "../../lib/devRequestStats";
 import { IconGlyph } from "../ui/IconGlyph";
-import { Chip } from "../ui/Chip";
 import { computeAgencyPriorityScore } from "../../lib/agency/priorityScore";
 import type { AgencyIntensity, AgencyStage } from "../../lib/agency/types";
 import { DB_SCHEMA_OUT_OF_SYNC_CODE } from "../../lib/dbSchemaGuard";
@@ -338,7 +337,8 @@ function SideBarInner() {
     | "OTHER"
   >("all");
   const [ showLegend, setShowLegend ] = useState(false);
-  const [ showAllTodayMetrics, setShowAllTodayMetrics ] = useState(false);
+  const [ showAllTodayMetrics, setShowAllTodayMetrics ] = useState(true);
+  const [ showFiltersPanel, setShowFiltersPanel ] = useState(false);
   const [ focusMode, setFocusMode ] = useState(false);
   const [ showPacksPanel, setShowPacksPanel ] = useState(false);
   const [ listSegment, setListSegment ] = useState<"all" | "queue">("all");
@@ -1075,6 +1075,77 @@ function SideBarInner() {
     }
     scrollListToTop();
   }
+
+  const resetFilters = useCallback(() => {
+    applyFilter("all", false, "all", false);
+    setOnlyWithExtras(false);
+    setOnlyNeedsReply(false);
+    setOnlyAtRisk(false);
+    setHeatFilter("all");
+    setIntentFilter("all");
+    setShowLegend(false);
+  }, [
+    applyFilter,
+    setHeatFilter,
+    setIntentFilter,
+    setOnlyAtRisk,
+    setOnlyNeedsReply,
+    setOnlyWithExtras,
+    setShowLegend,
+  ]);
+
+  const filterSummary = useMemo(() => {
+    const labels: string[] = [];
+    const heatLabels: Record<string, string> = {
+      cold: "Frío",
+      warm: "Templado",
+      hot: "Caliente",
+    };
+    const intentLabels: Record<string, string> = {
+      BUY_NOW: "Compra",
+      PRICE_ASK: "Precio",
+      CONTENT_REQUEST: "Contenido",
+      CUSTOM_REQUEST: "Custom",
+      SUBSCRIBE: "Suscribir",
+      CANCEL: "Cancelar",
+      OFF_PLATFORM: "Off-platform",
+      SUPPORT: "Soporte",
+      OBJECTION: "Objeción",
+      RUDE_OR_HARASS: "Grosero",
+      OTHER: "Otro",
+    };
+
+    if (listSegment === "queue") labels.push("Cola");
+    if (followUpMode === "today") labels.push("Hoy");
+    if (followUpMode === "expired") labels.push("Caducados");
+    if (followUpMode === "priority") labels.push("Alta prioridad");
+    if (showOnlyWithNotes) labels.push("Con notas");
+    if (statusFilter === "archived") labels.push("Archivados");
+    if (statusFilter === "blocked") labels.push("Bloqueados");
+    if (tierFilter === "new") labels.push("Nuevos");
+    if (tierFilter === "regular") labels.push("Habituales");
+    if (tierFilter === "vip") labels.push("VIP");
+    if (onlyAtRisk) labels.push("En riesgo");
+    if (onlyWithExtras) labels.push("Con extras");
+    if (onlyWithFollowUp) labels.push("Con próxima acción");
+    if (onlyNeedsReply) labels.push("Responder");
+    if (heatFilter !== "all") labels.push(`Temp: ${heatLabels[heatFilter] ?? heatFilter}`);
+    if (intentFilter !== "all") labels.push(`Intención: ${intentLabels[intentFilter] ?? intentFilter}`);
+
+    return labels;
+  }, [
+    followUpMode,
+    heatFilter,
+    intentFilter,
+    listSegment,
+    onlyAtRisk,
+    onlyNeedsReply,
+    onlyWithExtras,
+    onlyWithFollowUp,
+    showOnlyWithNotes,
+    statusFilter,
+    tierFilter,
+  ]);
 
   async function handleCreateNewFan() {
     const label = newFanName.trim();
@@ -2220,6 +2291,8 @@ function SideBarInner() {
     const extraCount = Math.max(0, boardPurchaseSummary.totalCount - 1);
     return { label, icon: ui.icon, extraCount };
   }, [boardPurchaseSummary, fans]);
+  const hasActiveFilters = filterSummary.length > 0;
+  const filterSummaryLabel = filterSummary.join(" · ");
   return (
     <div
       data-creator-board="true"
@@ -2455,391 +2528,6 @@ function SideBarInner() {
             )}
           </>
         )}
-        <LeftSectionCard className="mb-2">
-          <div className="flex flex-col gap-2 text-[11px] text-[color:var(--muted)]">
-            <div className="flex items-center justify-between">
-              <button
-                type="button"
-                onClick={() => {
-                  applyFilter("all", false);
-                }}
-                className={clsx(filterRowClass, "flex-1")}
-              >
-                <span className={clsx("text-[color:var(--muted)]", followUpMode === "all" && !showOnlyWithNotes && "font-semibold text-[color:var(--warning)]")}>
-                  Hoy
-                </span>
-                <span
-                  className={clsx(
-                    countPillClass,
-                    totalCount > 0 ? "bg-[color:var(--surface-2)] text-[color:var(--text)]" : "bg-[color:var(--surface-2)] text-[color:var(--muted)]"
-                  )}
-                >
-                  {totalCount} fan{totalCount === 1 ? "" : "s"}
-                </span>
-              </button>
-              <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  aria-label="Qué significa cada etiqueta"
-                  onClick={() => setShowLegend((prev) => !prev)}
-                  className={clsx(
-                    "inline-flex h-6 w-6 items-center justify-center rounded-full border text-xs font-bold transition focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[color:var(--ring)]",
-                    showLegend
-                      ? "border-[color:var(--brand)] bg-[color:rgba(var(--brand-rgb),0.18)] text-[color:var(--text)]"
-                      : "border-[color:var(--surface-border)] bg-[color:var(--surface-2)] text-[color:var(--text)] hover:border-[color:var(--brand)] hover:text-[color:var(--text)]"
-                  )}
-                >
-                  i
-                </button>
-                <button
-                  type="button"
-                  className="rounded-md border border-[color:rgba(var(--brand-rgb),0.4)] bg-[color:rgba(var(--brand-rgb),0.1)] px-2 py-1 text-[10px] font-semibold text-[color:var(--text)] hover:bg-[color:rgba(var(--brand-rgb),0.2)] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[color:var(--ring)]"
-                  onClick={() => setShowAllTodayMetrics((prev) => !prev)}
-                >
-                  {showAllTodayMetrics ? "Ver menos" : "Ver más"}
-                </button>
-              </div>
-            </div>
-            {showLegend && (
-              <div
-                ref={legendRef}
-                className="mt-2 rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-3 py-3 text-[11px] text-[color:var(--text)] shadow-lg"
-              >
-                <div className="flex items-center justify-between mb-1">
-                  <span className="text-[12px] font-semibold text-[color:var(--text)]">Qué significa cada etiqueta</span>
-                  <button
-                    type="button"
-                    className="text-[11px] text-[color:var(--muted)] hover:text-[color:var(--text)]"
-                    onClick={() => setShowLegend(false)}
-                  >
-                    Cerrar
-                  </button>
-                </div>
-                <ul className="space-y-1 text-[color:var(--muted)]">
-                  <li><span className="font-semibold">VIP</span> → Ha gastado más de {HIGH_PRIORITY_LIMIT} € en total contigo.</li>
-                  <li>
-                    <span className="inline-flex items-center gap-1 font-semibold">
-                      <IconGlyph name="pin" className="h-3.5 w-3.5 text-[color:var(--warning)]" />
-                      <span>Alta prioridad</span>
-                    </span>{" "}
-                    → Marcados por ti para atender primero.
-                  </li>
-                  <li><span className="font-semibold">Extras</span> → Ya te han comprado contenido extra (PPV).</li>
-                  <li>
-                    <span className="inline-flex items-center gap-1 font-semibold">
-                      <IconGlyph name="clock" className="h-3.5 w-3.5 text-[color:var(--warning)]" />
-                      <span>Próxima acción</span>
-                    </span>{" "}
-                    → Le debes un mensaje o seguimiento hoy.
-                  </li>
-                  <li><span className="font-semibold">Seguimiento hoy</span> → Suscripción a punto de renovarse o tarea marcada para hoy.</li>
-                  <li><span className="font-semibold">Cola</span> → Lista de chats importantes para hoy, ordenados por prioridad.</li>
-                </ul>
-                <div className="mt-3 border-t border-[color:var(--surface-border)] pt-2">
-                  <div className="text-[12px] font-semibold text-[color:var(--text)] mb-1">Cómo usarlo hoy</div>
-                  <ol className="list-decimal list-inside space-y-1 text-[color:var(--muted)]">
-                    <li>Abre «Cola» para ver tu cola del día.</li>
-                    <li>Usa «Siguiente venta» hasta vaciar la cola.</li>
-                    <li>Revisa «Alta prioridad» y «Con extras» para cerrar el día.</li>
-                  </ol>
-                </div>
-              </div>
-            )}
-            <button
-              type="button"
-              onClick={() => {
-                toggleFollowUpMode("today");
-              }}
-              className={clsx(filterRowClass, "w-full")}
-            >
-              <span className={clsx(followUpMode === "today" && !showOnlyWithNotes && "font-semibold text-[color:var(--warning)]")}>
-                Seguimiento hoy
-                <span
-                  className="ml-1 inline-flex h-4 w-4 items-center justify-center rounded-full border border-[color:var(--surface-border-hover)] text-[9px] text-[color:var(--muted)]"
-                  title="Chats con renovación o tarea marcada para hoy."
-                >
-                  i
-                </span>
-              </span>
-              <span
-                className={clsx(
-                  countPillClass,
-                  followUpTodayCount > 0
-                    ? "bg-[color:rgba(var(--brand-rgb),0.18)] text-[color:var(--text)]"
-                    : "bg-[color:var(--surface-2)] text-[color:var(--muted)]",
-                  followUpMode === "today" && !showOnlyWithNotes && "ring-1 ring-[color:var(--ring)]"
-                )}
-              >
-                {followUpTodayCount}
-              </span>
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                setOnlyNeedsReply((prev) => !prev);
-                setListSegment("all");
-                setActiveQueueFilter(null);
-                scrollListToTop();
-              }}
-              className={clsx(filterRowClass, "w-full")}
-            >
-              <span className={clsx(onlyNeedsReply && "font-semibold text-[color:var(--warning)]")}>
-                <span className="inline-flex items-center gap-1">
-                  <IconGlyph name="inbox" className="h-3.5 w-3.5 text-[color:var(--warning)]" />
-                  <span>Responder</span>
-                </span>
-              </span>
-              <span
-                className={clsx(
-                  countPillClass,
-                  needsReplyCount > 0 ? "bg-[color:rgba(var(--brand-rgb),0.18)] text-[color:var(--text)]" : "bg-[color:var(--surface-2)] text-[color:var(--muted)]",
-                  onlyNeedsReply && "ring-1 ring-[color:var(--ring)]"
-                )}
-              >
-                {needsReplyCount}
-              </span>
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                setOnlyWithExtras((prev) => !prev);
-                setListSegment("all");
-                setActiveQueueFilter(null);
-                scrollListToTop();
-              }}
-              className={clsx(filterRowClass, "w-full")}
-            >
-              <span className={clsx(onlyWithExtras && "font-semibold text-[color:var(--warning)]")}>
-                <span className="inline-flex items-center gap-1">
-                  <IconGlyph name="coin" className="h-3.5 w-3.5 text-[color:var(--warning)]" />
-                  <span>Con extras</span>
-                </span>
-                <span
-                  className="ml-1 inline-flex h-4 w-4 items-center justify-center rounded-full border border-[color:var(--surface-border-hover)] text-[9px] text-[color:var(--muted)]"
-                  title="Este fan ya te ha comprado contenido extra (PPV)."
-                >
-                  i
-                </span>
-              </span>
-              <span
-                className={clsx(
-                  countPillClass,
-                  withExtrasCount > 0 ? "bg-[color:rgba(245,158,11,0.16)] text-[color:var(--text)]" : "bg-[color:var(--surface-2)] text-[color:var(--muted)]",
-                  onlyWithExtras && "ring-1 ring-[color:var(--ring)]"
-                )}
-              >
-                {withExtrasCount}
-              </span>
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                setOnlyAtRisk((prev) => !prev);
-                setListSegment("all");
-                setActiveQueueFilter(null);
-                scrollListToTop();
-              }}
-              className={clsx(filterRowClass, "w-full")}
-            >
-              <span className={clsx(onlyAtRisk && "font-semibold text-[color:var(--warning)]")}>
-                <span className="inline-flex items-center gap-1">
-                  <IconGlyph name="alert" className="h-3.5 w-3.5 text-[color:var(--danger)]" />
-                  <span>En riesgo</span>
-                </span>
-              </span>
-              <span
-                className={clsx(
-                  countPillClass,
-                  atRiskCount > 0 ? "bg-[color:rgba(244,63,94,0.16)] text-[color:var(--text)]" : "bg-[color:var(--surface-2)] text-[color:var(--muted)]",
-                  onlyAtRisk && "ring-1 ring-[color:var(--ring)]"
-                )}
-              >
-                {atRiskCount}
-              </span>
-            </button>
-            {showAllTodayMetrics && (
-              <>
-                <button
-                  type="button"
-                  onClick={() => {
-                    toggleFollowUpMode("expired");
-                  }}
-                  className={clsx(filterRowClass, "w-full")}
-                >
-                  <span className={clsx(followUpMode === "expired" && !showOnlyWithNotes && "font-semibold text-[color:var(--warning)]")}>Caducados</span>
-                  <span
-                    className={clsx(
-                      countPillClass,
-                      expiredCount > 0 ? "bg-[color:rgba(244,63,94,0.16)] text-[color:var(--text)]" : "bg-[color:var(--surface-2)] text-[color:var(--muted)]",
-                      followUpMode === "expired" && !showOnlyWithNotes && "ring-1 ring-[color:var(--ring)]"
-                    )}
-                  >
-                    {expiredCount}
-                  </span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => applyFilter("all", true)}
-                  className={clsx(filterRowClass, "w-full")}
-                >
-                  <span className={clsx(showOnlyWithNotes && "font-semibold text-[color:var(--warning)]")}>Con notas</span>
-                  <span
-                    className={clsx(
-                      countPillClass,
-                      withNotesCount > 0 ? "bg-[color:var(--surface-2)] text-[color:var(--text)]" : "bg-[color:var(--surface-2)] text-[color:var(--muted)]",
-                      showOnlyWithNotes && "ring-1 ring-[color:var(--ring)]"
-                    )}
-                  >
-                    {withNotesCount}
-                  </span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    selectStatusFilter("archived");
-                    setShowAllTodayMetrics(false);
-                  }}
-                  className={clsx(filterRowClass, "w-full")}
-                >
-                  <span className={clsx(statusFilter === "archived" && "font-semibold text-[color:var(--warning)]")}>Archivados</span>
-                  <span
-                    className={clsx(
-                      countPillClass,
-                      archivedCount > 0 ? "bg-[color:var(--surface-2)] text-[color:var(--text)]" : "bg-[color:var(--surface-2)] text-[color:var(--muted)]",
-                      statusFilter === "archived" && "ring-1 ring-[color:var(--ring)]"
-                    )}
-                  >
-                    {archivedCount}
-                  </span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    selectStatusFilter("blocked");
-                    setShowAllTodayMetrics(false);
-                  }}
-                  className={clsx(filterRowClass, "w-full")}
-                >
-                  <span className={clsx(statusFilter === "blocked" && "font-semibold text-[color:var(--warning)]")}>Bloqueados</span>
-                  <span
-                    className={clsx(
-                      countPillClass,
-                      blockedCount > 0 ? "bg-[color:rgba(244,63,94,0.16)] text-[color:var(--text)]" : "bg-[color:var(--surface-2)] text-[color:var(--muted)]",
-                      statusFilter === "blocked" && "ring-1 ring-[color:var(--ring)]"
-                    )}
-                  >
-                    {blockedCount}
-                  </span>
-                </button>
-              </>
-            )}
-            <button
-              type="button"
-              onClick={() => applyFilter(followUpMode, showOnlyWithNotes, tierFilter, !onlyWithFollowUp)}
-              className={clsx(filterRowClass, "w-full")}
-            >
-              <span className={clsx(onlyWithFollowUp && "font-semibold text-[color:var(--warning)]")}>
-                <span className="inline-flex items-center gap-1">
-                  <IconGlyph name="clock" className="h-3.5 w-3.5 text-[color:var(--warning)]" />
-                  <span>Con próxima acción</span>
-                </span>
-                <span
-                  className="ml-1 inline-flex h-4 w-4 items-center justify-center rounded-full border border-[color:var(--surface-border-hover)] text-[9px] text-[color:var(--muted)]"
-                  title="Tienes una tarea anotada para este fan (nota con rayo)."
-                >
-                  i
-                </span>
-              </span>
-              <span
-                className={clsx(
-                  countPillClass,
-                  withFollowUpCount > 0 ? "bg-[color:rgba(245,158,11,0.16)] text-[color:var(--text)]" : "bg-[color:var(--surface-2)] text-[color:var(--muted)]",
-                  onlyWithFollowUp && "ring-1 ring-[color:var(--ring)]"
-                )}
-              >
-                {withFollowUpCount}
-              </span>
-            </button>
-            {showAllTodayMetrics && (
-              <>
-                <button
-                  type="button"
-                  onClick={() => {
-                    const next = followUpMode === "priority" ? "all" : "priority";
-                    setFollowUpMode(next);
-                    setTierFilter("all");
-                    setListSegment("all");
-                    setActiveQueueFilter(null);
-                    scrollListToTop();
-                  }}
-                  className={clsx(filterRowClass, "w-full")}
-                >
-                  <span className={clsx(followUpMode === "priority" && "font-semibold text-[color:var(--warning)]")}>
-                    <span className="inline-flex items-center gap-1">
-                      <IconGlyph name="pin" className="h-3.5 w-3.5 text-[color:var(--warning)]" />
-                      <span>Alta prioridad</span>
-                    </span>
-                    <span
-                      className="ml-1 inline-flex h-4 w-4 items-center justify-center rounded-full border border-[color:var(--surface-border-hover)] text-[9px] text-[color:var(--muted)]"
-                      title="Marcados por ti para atender primero."
-                    >
-                      i
-                    </span>
-                  </span>
-                  <span
-                    className={clsx(
-                      countPillClass,
-                      priorityCount > 0 ? "bg-[color:rgba(245,158,11,0.16)] text-[color:var(--text)]" : "bg-[color:var(--surface-2)] text-[color:var(--muted)]",
-                      followUpMode === "priority" && "ring-1 ring-[color:var(--ring)]"
-                    )}
-                  >
-                    {priorityCount}
-                  </span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => applyFilter(followUpMode, showOnlyWithNotes, tierFilter === "regular" ? "all" : "regular")}
-                  className={clsx(filterRowClass, "w-full")}
-                >
-                  <span className={clsx(tierFilter === "regular" && "font-semibold text-[color:var(--warning)]")}>Habituales</span>
-                  <span
-                    className={clsx(
-                      countPillClass,
-                      regularCount > 0 ? "bg-[color:var(--surface-2)] text-[color:var(--text)]" : "bg-[color:var(--surface-2)] text-[color:var(--muted)]",
-                      tierFilter === "regular" && "ring-1 ring-[color:var(--ring)]"
-                    )}
-                  >
-                    {regularCount}
-                  </span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => applyFilter(followUpMode, showOnlyWithNotes, tierFilter === "new" ? "all" : "new")}
-                  className={clsx(filterRowClass, "w-full")}
-                >
-                  <span className={clsx(tierFilter === "new" && "font-semibold text-[color:var(--warning)]")}>Nuevos</span>
-                  <span
-                    className={clsx(
-                      countPillClass,
-                      newCount > 0 ? "bg-[color:var(--surface-2)] text-[color:var(--text)]" : "bg-[color:var(--surface-2)] text-[color:var(--muted)]",
-                      tierFilter === "new" && "ring-1 ring-[color:var(--ring)]"
-                    )}
-                  >
-                    {newCount}
-                  </span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setShowPacksPanel((prev) => !prev)}
-                  className={clsx(filterRowClass, "w-full")}
-                >
-                  <span className={clsx(showPacksPanel && "font-semibold text-[color:var(--warning)]")}>Packs disponibles ({packsCount})</span>
-                  <span className={clsx(showPacksPanel && "font-semibold text-[color:var(--warning)]")}>⋯</span>
-                </button>
-              </>
-            )}
-          </div>
-        </LeftSectionCard>
       </div>
       {showPacksPanel && (
         <div className="mb-2 px-3">
@@ -2874,75 +2562,7 @@ function SideBarInner() {
       >
         <div className="sticky top-0 z-30 bg-[color:var(--surface-1)] pb-2">
           <div className="relative">
-            <div className="px-3 pt-2">
-              <div
-                className={clsx(
-                  "flex items-center gap-2 text-xs",
-                  listSegment === "all" ? "overflow-x-auto whitespace-nowrap flex-nowrap" : "justify-end"
-                )}
-              >
-                {listSegment === "all" && (
-                  <>
-                    <Chip
-                      variant={followUpMode === "today" ? "accent" : "subtle"}
-                      tone="amber"
-                      size="sm"
-                      active={followUpMode === "today"}
-                      onClick={() => toggleFollowUpMode("today")}
-                      className="shrink-0"
-                    >
-                      Seguimiento hoy{followUpTodayCount > 0 ? ` (${followUpTodayCount})` : ""}
-                    </Chip>
-                    <Chip
-                      variant={followUpMode === "expired" ? "accent" : "subtle"}
-                      tone="danger"
-                      size="sm"
-                      active={followUpMode === "expired"}
-                      onClick={() => toggleFollowUpMode("expired")}
-                      className="shrink-0"
-                    >
-                      Caducados{expiredCount > 0 ? ` (${expiredCount})` : ""}
-                    </Chip>
-                    <Chip
-                      variant={followUpMode === "priority" ? "accent" : "subtle"}
-                      tone="amber"
-                      size="sm"
-                      active={followUpMode === "priority"}
-                      onClick={() => toggleFollowUpMode("priority")}
-                      className="shrink-0"
-                    >
-                      Alta prioridad{priorityCount > 0 ? ` (${priorityCount})` : ""}
-                    </Chip>
-                  </>
-                )}
-                <div
-                  className={clsx(
-                    "inline-flex items-center gap-2 shrink-0",
-                    listSegment === "all" && "ml-auto"
-                  )}
-                >
-                  <Chip
-                    variant={listSegment === "all" ? "accent" : "subtle"}
-                    tone={listSegment === "all" ? "emerald" : "neutral"}
-                    size="sm"
-                    active={listSegment === "all"}
-                    onClick={() => handleSegmentChange("all")}
-                  >
-                    Todos ({totalCount})
-                  </Chip>
-                  <Chip
-                    variant={listSegment === "queue" ? "accent" : "subtle"}
-                    tone={listSegment === "queue" ? "amber" : "neutral"}
-                    size="sm"
-                    active={listSegment === "queue"}
-                    onClick={() => handleSegmentChange("queue")}
-                  >
-                    Cola ({queueCount})
-                  </Chip>
-                </div>
-              </div>
-            </div>
-            <div className="mt-2 px-3 w-full">
+            <div className="px-3 pt-2 w-full">
               <div className="flex items-center justify-end mb-2">
                 <button
                   type="button"
@@ -3004,6 +2624,29 @@ function SideBarInner() {
                   <option value="RUDE_OR_HARASS">Grosero ({intentCounts.RUDE_OR_HARASS ?? 0})</option>
                   <option value="OTHER">Otro ({intentCounts.OTHER ?? 0})</option>
                 </select>
+                <button
+                  type="button"
+                  onClick={() => setShowFiltersPanel((prev) => !prev)}
+                  className={clsx(
+                    "inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-[11px] font-semibold text-[color:var(--text)] transition shrink-0",
+                    showFiltersPanel
+                      ? "border-[color:var(--brand)] bg-[color:rgba(var(--brand-rgb),0.2)]"
+                      : "border-[color:var(--surface-border)] bg-[color:var(--surface-2)] hover:bg-[color:var(--surface-1)]"
+                  )}
+                  aria-pressed={showFiltersPanel}
+                >
+                  <IconGlyph name="settings" className="h-3.5 w-3.5" />
+                  <span className="hidden sm:inline">Filtros</span>
+                </button>
+                {hasActiveFilters && (
+                  <button
+                    type="button"
+                    onClick={resetFilters}
+                    className="inline-flex items-center rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-3 py-1.5 text-[11px] font-semibold text-[color:var(--text)] hover:bg-[color:var(--surface-1)] shrink-0"
+                  >
+                    Reset
+                  </button>
+                )}
                 {listSegment === "all" && (
                   <button
                     type="button"
@@ -3040,7 +2683,452 @@ function SideBarInner() {
                   </svg>
                 </button>
               </div>
+              {hasActiveFilters && (
+                <div className="mt-2 text-[11px] text-[color:var(--muted)]">
+                  Filtros: {filterSummaryLabel}
+                </div>
+              )}
             </div>
+            {showFiltersPanel && (
+              <div
+                className="fixed inset-0 z-40"
+                onClick={() => setShowFiltersPanel(false)}
+              >
+                <div className="absolute inset-0 bg-[color:var(--surface-overlay)]" />
+                <div
+                  className="absolute bottom-0 left-0 right-0 md:right-4 md:left-auto md:top-24 md:bottom-auto md:w-[360px]"
+                  onClick={(event) => event.stopPropagation()}
+                >
+                  <div className="rounded-t-2xl md:rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] shadow-xl">
+                    <div className="flex items-center justify-between px-4 pt-4">
+                      <span className="text-sm font-semibold text-[color:var(--text)]">Filtros</span>
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          aria-label="Qué significa cada etiqueta"
+                          onClick={() => setShowLegend((prev) => !prev)}
+                          className={clsx(
+                            "inline-flex h-7 w-7 items-center justify-center rounded-full border text-xs font-bold transition focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[color:var(--ring)]",
+                            showLegend
+                              ? "border-[color:var(--brand)] bg-[color:rgba(var(--brand-rgb),0.18)] text-[color:var(--text)]"
+                              : "border-[color:var(--surface-border)] bg-[color:var(--surface-2)] text-[color:var(--text)] hover:border-[color:var(--brand)] hover:text-[color:var(--text)]"
+                          )}
+                        >
+                          i
+                        </button>
+                        <button
+                          type="button"
+                          className="rounded-full border border-[color:rgba(var(--brand-rgb),0.4)] bg-[color:rgba(var(--brand-rgb),0.1)] px-2.5 py-1 text-[10px] font-semibold text-[color:var(--text)] hover:bg-[color:rgba(var(--brand-rgb),0.2)] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[color:var(--ring)]"
+                          onClick={() => setShowAllTodayMetrics((prev) => !prev)}
+                        >
+                          {showAllTodayMetrics ? "Ver menos" : "Ver más"}
+                        </button>
+                      </div>
+                    </div>
+                    <div className="px-4 pb-4">
+                      {showLegend && (
+                        <div
+                          ref={legendRef}
+                          className="mt-3 rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-3 py-3 text-[11px] text-[color:var(--text)] shadow-lg"
+                        >
+                          <div className="flex items-center justify-between mb-1">
+                            <span className="text-[12px] font-semibold text-[color:var(--text)]">Qué significa cada etiqueta</span>
+                            <button
+                              type="button"
+                              className="text-[11px] text-[color:var(--muted)] hover:text-[color:var(--text)]"
+                              onClick={() => setShowLegend(false)}
+                            >
+                              Cerrar
+                            </button>
+                          </div>
+                          <ul className="space-y-1 text-[color:var(--muted)]">
+                            <li><span className="font-semibold">VIP</span> → Ha gastado más de {HIGH_PRIORITY_LIMIT} € en total contigo.</li>
+                            <li>
+                              <span className="inline-flex items-center gap-1 font-semibold">
+                                <IconGlyph name="pin" className="h-3.5 w-3.5 text-[color:var(--warning)]" />
+                                <span>Alta prioridad</span>
+                              </span>{" "}
+                              → Marcados por ti para atender primero.
+                            </li>
+                            <li><span className="font-semibold">Extras</span> → Ya te han comprado contenido extra (PPV).</li>
+                            <li>
+                              <span className="inline-flex items-center gap-1 font-semibold">
+                                <IconGlyph name="clock" className="h-3.5 w-3.5 text-[color:var(--warning)]" />
+                                <span>Próxima acción</span>
+                              </span>{" "}
+                              → Le debes un mensaje o seguimiento hoy.
+                            </li>
+                            <li><span className="font-semibold">Seguimiento hoy</span> → Suscripción a punto de renovarse o tarea marcada para hoy.</li>
+                            <li><span className="font-semibold">Cola</span> → Lista de chats importantes para hoy, ordenados por prioridad.</li>
+                          </ul>
+                          <div className="mt-3 border-t border-[color:var(--surface-border)] pt-2">
+                            <div className="text-[12px] font-semibold text-[color:var(--text)] mb-1">Cómo usarlo hoy</div>
+                            <ol className="list-decimal list-inside space-y-1 text-[color:var(--muted)]">
+                              <li>Abre «Cola» para ver tu cola del día.</li>
+                              <li>Revisa «Alta prioridad» y «Con extras» para cerrar el día.</li>
+                              <li>Marca «Próxima acción» en quienes necesiten seguimiento.</li>
+                            </ol>
+                          </div>
+                        </div>
+                      )}
+                      <div className="mt-3 space-y-4 text-[11px] text-[color:var(--muted)]">
+                        <div>
+                          <div className="text-[10px] font-semibold uppercase tracking-wide text-[color:var(--muted)]">Segmento</div>
+                          <div className="mt-2 flex flex-col gap-2">
+                            <button
+                              type="button"
+                              onClick={() => handleSegmentChange("all")}
+                              className={clsx(filterRowClass, "w-full")}
+                            >
+                              <span className={clsx(listSegment === "all" && "font-semibold text-[color:var(--warning)]")}>
+                                Todos
+                              </span>
+                              <span
+                                className={clsx(
+                                  countPillClass,
+                                  totalCount > 0 ? "bg-[color:var(--surface-2)] text-[color:var(--text)]" : "bg-[color:var(--surface-2)] text-[color:var(--muted)]",
+                                  listSegment === "all" && "ring-1 ring-[color:var(--ring)]"
+                                )}
+                              >
+                                {totalCount}
+                              </span>
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleSegmentChange("queue")}
+                              className={clsx(filterRowClass, "w-full")}
+                            >
+                              <span className={clsx(listSegment === "queue" && "font-semibold text-[color:var(--warning)]")}>
+                                Cola
+                              </span>
+                              <span
+                                className={clsx(
+                                  countPillClass,
+                                  queueCount > 0 ? "bg-[color:rgba(245,158,11,0.16)] text-[color:var(--text)]" : "bg-[color:var(--surface-2)] text-[color:var(--muted)]",
+                                  listSegment === "queue" && "ring-1 ring-[color:var(--ring)]"
+                                )}
+                              >
+                                {queueCount}
+                              </span>
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                toggleFollowUpMode("today");
+                              }}
+                              className={clsx(filterRowClass, "w-full")}
+                            >
+                              <span className={clsx(followUpMode === "today" && !showOnlyWithNotes && "font-semibold text-[color:var(--warning)]")}>
+                                Hoy
+                                <span
+                                  className="ml-1 inline-flex h-4 w-4 items-center justify-center rounded-full border border-[color:var(--surface-border-hover)] text-[9px] text-[color:var(--muted)]"
+                                  title="Chats con renovación o tarea marcada para hoy."
+                                >
+                                  i
+                                </span>
+                              </span>
+                              <span
+                                className={clsx(
+                                  countPillClass,
+                                  followUpTodayCount > 0
+                                    ? "bg-[color:rgba(var(--brand-rgb),0.18)] text-[color:var(--text)]"
+                                    : "bg-[color:var(--surface-2)] text-[color:var(--muted)]",
+                                  followUpMode === "today" && !showOnlyWithNotes && "ring-1 ring-[color:var(--ring)]"
+                                )}
+                              >
+                                {followUpTodayCount}
+                              </span>
+                            </button>
+                            {showAllTodayMetrics && (
+                              <>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    toggleFollowUpMode("expired");
+                                  }}
+                                  className={clsx(filterRowClass, "w-full")}
+                                >
+                                  <span className={clsx(followUpMode === "expired" && !showOnlyWithNotes && "font-semibold text-[color:var(--warning)]")}>Caducados</span>
+                                  <span
+                                    className={clsx(
+                                      countPillClass,
+                                      expiredCount > 0 ? "bg-[color:rgba(244,63,94,0.16)] text-[color:var(--text)]" : "bg-[color:var(--surface-2)] text-[color:var(--muted)]",
+                                      followUpMode === "expired" && !showOnlyWithNotes && "ring-1 ring-[color:var(--ring)]"
+                                    )}
+                                  >
+                                    {expiredCount}
+                                  </span>
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => applyFilter("all", true)}
+                                  className={clsx(filterRowClass, "w-full")}
+                                >
+                                  <span className={clsx(showOnlyWithNotes && "font-semibold text-[color:var(--warning)]")}>Con notas</span>
+                                  <span
+                                    className={clsx(
+                                      countPillClass,
+                                      withNotesCount > 0 ? "bg-[color:var(--surface-2)] text-[color:var(--text)]" : "bg-[color:var(--surface-2)] text-[color:var(--muted)]",
+                                      showOnlyWithNotes && "ring-1 ring-[color:var(--ring)]"
+                                    )}
+                                  >
+                                    {withNotesCount}
+                                  </span>
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    selectStatusFilter("archived");
+                                    setShowAllTodayMetrics(false);
+                                  }}
+                                  className={clsx(filterRowClass, "w-full")}
+                                >
+                                  <span className={clsx(statusFilter === "archived" && "font-semibold text-[color:var(--warning)]")}>Archivados</span>
+                                  <span
+                                    className={clsx(
+                                      countPillClass,
+                                      archivedCount > 0 ? "bg-[color:var(--surface-2)] text-[color:var(--text)]" : "bg-[color:var(--surface-2)] text-[color:var(--muted)]",
+                                      statusFilter === "archived" && "ring-1 ring-[color:var(--ring)]"
+                                    )}
+                                  >
+                                    {archivedCount}
+                                  </span>
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    selectStatusFilter("blocked");
+                                    setShowAllTodayMetrics(false);
+                                  }}
+                                  className={clsx(filterRowClass, "w-full")}
+                                >
+                                  <span className={clsx(statusFilter === "blocked" && "font-semibold text-[color:var(--warning)]")}>Bloqueados</span>
+                                  <span
+                                    className={clsx(
+                                      countPillClass,
+                                      blockedCount > 0 ? "bg-[color:rgba(244,63,94,0.16)] text-[color:var(--text)]" : "bg-[color:var(--surface-2)] text-[color:var(--muted)]",
+                                      statusFilter === "blocked" && "ring-1 ring-[color:var(--ring)]"
+                                    )}
+                                  >
+                                    {blockedCount}
+                                  </span>
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    const next = followUpMode === "priority" ? "all" : "priority";
+                                    setFollowUpMode(next);
+                                    setTierFilter("all");
+                                    setListSegment("all");
+                                    setActiveQueueFilter(null);
+                                    scrollListToTop();
+                                  }}
+                                  className={clsx(filterRowClass, "w-full")}
+                                >
+                                  <span className={clsx(followUpMode === "priority" && "font-semibold text-[color:var(--warning)]")}>
+                                    <span className="inline-flex items-center gap-1">
+                                      <IconGlyph name="pin" className="h-3.5 w-3.5 text-[color:var(--warning)]" />
+                                      <span>Alta prioridad</span>
+                                    </span>
+                                    <span
+                                      className="ml-1 inline-flex h-4 w-4 items-center justify-center rounded-full border border-[color:var(--surface-border-hover)] text-[9px] text-[color:var(--muted)]"
+                                      title="Marcados por ti para atender primero."
+                                    >
+                                      i
+                                    </span>
+                                  </span>
+                                  <span
+                                    className={clsx(
+                                      countPillClass,
+                                      priorityCount > 0 ? "bg-[color:rgba(245,158,11,0.16)] text-[color:var(--text)]" : "bg-[color:var(--surface-2)] text-[color:var(--muted)]",
+                                      followUpMode === "priority" && "ring-1 ring-[color:var(--ring)]"
+                                    )}
+                                  >
+                                    {priorityCount}
+                                  </span>
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => applyFilter(followUpMode, showOnlyWithNotes, tierFilter === "regular" ? "all" : "regular")}
+                                  className={clsx(filterRowClass, "w-full")}
+                                >
+                                  <span className={clsx(tierFilter === "regular" && "font-semibold text-[color:var(--warning)]")}>Habituales</span>
+                                  <span
+                                    className={clsx(
+                                      countPillClass,
+                                      regularCount > 0 ? "bg-[color:var(--surface-2)] text-[color:var(--text)]" : "bg-[color:var(--surface-2)] text-[color:var(--muted)]",
+                                      tierFilter === "regular" && "ring-1 ring-[color:var(--ring)]"
+                                    )}
+                                  >
+                                    {regularCount}
+                                  </span>
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => applyFilter(followUpMode, showOnlyWithNotes, tierFilter === "new" ? "all" : "new")}
+                                  className={clsx(filterRowClass, "w-full")}
+                                >
+                                  <span className={clsx(tierFilter === "new" && "font-semibold text-[color:var(--warning)]")}>Nuevos</span>
+                                  <span
+                                    className={clsx(
+                                      countPillClass,
+                                      newCount > 0 ? "bg-[color:var(--surface-2)] text-[color:var(--text)]" : "bg-[color:var(--surface-2)] text-[color:var(--muted)]",
+                                      tierFilter === "new" && "ring-1 ring-[color:var(--ring)]"
+                                    )}
+                                  >
+                                    {newCount}
+                                  </span>
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => setShowPacksPanel((prev) => !prev)}
+                                  className={clsx(filterRowClass, "w-full")}
+                                >
+                                  <span className={clsx(showPacksPanel && "font-semibold text-[color:var(--warning)]")}>Packs disponibles ({packsCount})</span>
+                                  <span className={clsx(showPacksPanel && "font-semibold text-[color:var(--warning)]")}>⋯</span>
+                                </button>
+                              </>
+                            )}
+                          </div>
+                        </div>
+                        <div>
+                          <div className="text-[10px] font-semibold uppercase tracking-wide text-[color:var(--muted)]">Toggles</div>
+                          <div className="mt-2 flex flex-col gap-2">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setOnlyAtRisk((prev) => !prev);
+                                setListSegment("all");
+                                setActiveQueueFilter(null);
+                                scrollListToTop();
+                              }}
+                              className={clsx(filterRowClass, "w-full")}
+                            >
+                              <span className={clsx(onlyAtRisk && "font-semibold text-[color:var(--warning)]")}>
+                                <span className="inline-flex items-center gap-1">
+                                  <IconGlyph name="alert" className="h-3.5 w-3.5 text-[color:var(--danger)]" />
+                                  <span>En riesgo</span>
+                                </span>
+                              </span>
+                              <span
+                                className={clsx(
+                                  countPillClass,
+                                  atRiskCount > 0 ? "bg-[color:rgba(244,63,94,0.16)] text-[color:var(--text)]" : "bg-[color:var(--surface-2)] text-[color:var(--muted)]",
+                                  onlyAtRisk && "ring-1 ring-[color:var(--ring)]"
+                                )}
+                              >
+                                {atRiskCount}
+                              </span>
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setOnlyWithExtras((prev) => !prev);
+                                setListSegment("all");
+                                setActiveQueueFilter(null);
+                                scrollListToTop();
+                              }}
+                              className={clsx(filterRowClass, "w-full")}
+                            >
+                              <span className={clsx(onlyWithExtras && "font-semibold text-[color:var(--warning)]")}>
+                                <span className="inline-flex items-center gap-1">
+                                  <IconGlyph name="coin" className="h-3.5 w-3.5 text-[color:var(--warning)]" />
+                                  <span>Con extras</span>
+                                </span>
+                                <span
+                                  className="ml-1 inline-flex h-4 w-4 items-center justify-center rounded-full border border-[color:var(--surface-border-hover)] text-[9px] text-[color:var(--muted)]"
+                                  title="Este fan ya te ha comprado contenido extra (PPV)."
+                                >
+                                  i
+                                </span>
+                              </span>
+                              <span
+                                className={clsx(
+                                  countPillClass,
+                                  withExtrasCount > 0 ? "bg-[color:rgba(245,158,11,0.16)] text-[color:var(--text)]" : "bg-[color:var(--surface-2)] text-[color:var(--muted)]",
+                                  onlyWithExtras && "ring-1 ring-[color:var(--ring)]"
+                                )}
+                              >
+                                {withExtrasCount}
+                              </span>
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => applyFilter(followUpMode, showOnlyWithNotes, tierFilter, !onlyWithFollowUp)}
+                              className={clsx(filterRowClass, "w-full")}
+                            >
+                              <span className={clsx(onlyWithFollowUp && "font-semibold text-[color:var(--warning)]")}>
+                                <span className="inline-flex items-center gap-1">
+                                  <IconGlyph name="clock" className="h-3.5 w-3.5 text-[color:var(--warning)]" />
+                                  <span>Con próxima acción</span>
+                                </span>
+                                <span
+                                  className="ml-1 inline-flex h-4 w-4 items-center justify-center rounded-full border border-[color:var(--surface-border-hover)] text-[9px] text-[color:var(--muted)]"
+                                  title="Tienes una tarea anotada para este fan (nota con rayo)."
+                                >
+                                  i
+                                </span>
+                              </span>
+                              <span
+                                className={clsx(
+                                  countPillClass,
+                                  withFollowUpCount > 0 ? "bg-[color:rgba(245,158,11,0.16)] text-[color:var(--text)]" : "bg-[color:var(--surface-2)] text-[color:var(--muted)]",
+                                  onlyWithFollowUp && "ring-1 ring-[color:var(--ring)]"
+                                )}
+                              >
+                                {withFollowUpCount}
+                              </span>
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setOnlyNeedsReply((prev) => !prev);
+                                setListSegment("all");
+                                setActiveQueueFilter(null);
+                                scrollListToTop();
+                              }}
+                              className={clsx(filterRowClass, "w-full")}
+                            >
+                              <span className={clsx(onlyNeedsReply && "font-semibold text-[color:var(--warning)]")}>
+                                <span className="inline-flex items-center gap-1">
+                                  <IconGlyph name="inbox" className="h-3.5 w-3.5 text-[color:var(--warning)]" />
+                                  <span>Responder</span>
+                                </span>
+                              </span>
+                              <span
+                                className={clsx(
+                                  countPillClass,
+                                  needsReplyCount > 0 ? "bg-[color:rgba(var(--brand-rgb),0.18)] text-[color:var(--text)]" : "bg-[color:var(--surface-2)] text-[color:var(--muted)]",
+                                  onlyNeedsReply && "ring-1 ring-[color:var(--ring)]"
+                                )}
+                              >
+                                {needsReplyCount}
+                              </span>
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                      <div className="mt-4 flex items-center justify-end gap-2">
+                        <button
+                          type="button"
+                          className="rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-3 py-1.5 text-[11px] font-semibold text-[color:var(--text)] hover:bg-[color:var(--surface-1)]"
+                          onClick={() => setShowFiltersPanel(false)}
+                        >
+                          Cerrar
+                        </button>
+                        <button
+                          type="button"
+                          className="rounded-full border border-[color:rgba(var(--brand-rgb),0.4)] bg-[color:rgba(var(--brand-rgb),0.16)] px-3 py-1.5 text-[11px] font-semibold text-[color:var(--text)] hover:bg-[color:rgba(var(--brand-rgb),0.22)]"
+                          onClick={() => setShowFiltersPanel(false)}
+                        >
+                          Aplicar
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
         </div>
         <ConversationList
