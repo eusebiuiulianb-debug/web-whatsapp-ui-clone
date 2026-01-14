@@ -1994,6 +1994,7 @@ export default function ConversationDetails({ onBackToBoard }: ConversationDetai
   const [ , setTranslationPreviewText ] = useState<string | null>(null);
   const [ , setTranslationPreviewNotice ] = useState<string | null>(null);
   const [ messageTranslationState, setMessageTranslationState ] = useState<Record<string, MessageTranslationState>>({});
+  const [ messageOriginalView, setMessageOriginalView ] = useState<Record<string, boolean>>({});
   const [ messageSuggestReplyState, setMessageSuggestReplyState ] = useState<
     Record<string, MessageSuggestReplyState>
   >({});
@@ -2012,6 +2013,8 @@ export default function ConversationDetails({ onBackToBoard }: ConversationDetai
   const pendingFocusComposerRef = useRef<string | null>(null);
   const draftAppliedFanIdRef = useRef<string | null>(null);
   const fanLanguageCacheRef = useRef<Record<string, SupportedLanguage>>({});
+  const autoTranslateMessageIdsRef = useRef(new Set<string>());
+  const pendingFanTranslationRef = useRef<{ uiText: string; fanText: string } | null>(null);
   const translationPreviewTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const translationPreviewAbortRef = useRef<AbortController | null>(null);
   const translationPreviewRequestId = useRef(0);
@@ -3353,45 +3356,45 @@ const INTENT_BADGE_LABELS: Record<string, string> = {
     fanLanguageCacheRef.current[activeFanId] = fanLanguage;
   }, [activeFanId, fanLanguage]);
 
+  const uiLanguage = useMemo<SupportedLanguage>(() => {
+    const resolveUiLanguage = (value?: string | null) => {
+      if (typeof value !== "string") return null;
+      const normalized = normalizeLocaleTag(value);
+      const base = normalized.split("-")[0] || "";
+      return normalizePreferredLanguage(base);
+    };
+    const fromConfig = resolveUiLanguage(config?.uiLocale ?? null);
+    if (fromConfig) return fromConfig;
+    if (typeof navigator !== "undefined") {
+      const fromNavigator = resolveUiLanguage(navigator.language ?? null);
+      if (fromNavigator) return fromNavigator;
+    }
+    return "es";
+  }, [config?.uiLocale]);
+
   const fillMessageForFan = useCallback(
     async (text: string, actionKey?: string | null) => {
-      if (fanLanguage === "es") {
-        fillMessage(text, actionKey);
-        return;
-      }
-
-      const payload: { text: string; targetLanguage: string; fanId?: string } = {
-        text,
-        targetLanguage: fanLanguage,
-      };
-      if (id) {
-        payload.fanId = id;
-      }
-
-      try {
-        const res = await fetch("/api/messages/translate", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(payload),
-        });
-        const data: any = await res.json().catch(() => ({}));
-        if (res.status === 501 && data?.code === "TRANSLATE_NOT_CONFIGURED") {
-          fillMessage(text, actionKey);
-          return;
-        }
-        const translatedText = typeof data?.translatedText === "string" ? data.translatedText.trim() : "";
-        if (translatedText) {
-          fillMessage(translatedText, actionKey);
-          return;
-        }
-      } catch (err) {
-        console.warn("fillMessageForFan_translate_error", err);
-      }
-
       fillMessage(text, actionKey);
     },
-    [fanLanguage, fillMessage, id]
+    [fillMessage]
   );
+
+  useEffect(() => {
+    const pending = pendingFanTranslationRef.current;
+    if (!pending) return;
+    if (messageSend.trim() !== pending.uiText) {
+      pendingFanTranslationRef.current = null;
+    }
+  }, [messageSend]);
+
+  useEffect(() => {
+    pendingFanTranslationRef.current = null;
+  }, [composerTarget, id]);
+
+  useEffect(() => {
+    autoTranslateMessageIdsRef.current.clear();
+    setMessageOriginalView({});
+  }, [id, uiLanguage]);
   const handleInsertEmoji = useCallback(
     (emoji: string) => {
       const input = messageInputRef.current;
@@ -5607,8 +5610,8 @@ const INTENT_BADGE_LABELS: Record<string, string> = {
   const hasInternalThreadMessages = internalNotes.length > 0 || managerChatMessages.length > 0;
   const effectiveLanguage = fanLanguage;
   const isTranslateConfigured = aiStatus?.translateConfigured !== false;
-  const translateTargetLang = aiStatus?.creatorLang ?? "es";
-  const translateTargetLabel = formatTranslationLang(translateTargetLang, "ES");
+  const translateTargetLang = normalizeTranslationLanguage(uiLanguage) ?? "es";
+  const translateTargetLabel = formatTranslationLang(translateTargetLang, uiLanguage.toUpperCase());
   const resolveSuggestReplyTargetLang = useCallback(
     (messageConversation: ConversationMessage) => {
       const rawPreferred =
@@ -5617,12 +5620,12 @@ const INTENT_BADGE_LABELS: Record<string, string> = {
       if (preferredLanguage) return preferredLanguage;
       const detected = normalizeDetectedLang(messageConversation.translationSourceLang);
       if (detected) return detected;
-      return translateTargetLang;
+      return fanLanguage;
     },
-    [conversation.preferredLanguage, preferredLanguage, translateTargetLang]
+    [conversation.preferredLanguage, fanLanguage, preferredLanguage]
   );
   const isTranslationPreviewAvailable =
-    !!id && !conversation.isManager && effectiveLanguage !== "es" && isTranslateConfigured;
+    !!id && !conversation.isManager && uiLanguage !== fanLanguage && isTranslateConfigured;
   const hasComposerText = messageSend.trim().length > 0;
   const isFanTarget = composerTarget === "fan";
   const isInternalTarget = composerTarget === "internal";
@@ -6019,6 +6022,26 @@ const INTENT_BADGE_LABELS: Record<string, string> = {
     },
     [aiStatus, handleMessageTranslationSaved, openMessageTranslationPopover, showTranslateConfigToast, translateTargetLang]
   );
+
+  useEffect(() => {
+    if (!aiStatus || aiStatus.translateConfigured === false) return;
+    const items = Array.isArray(messages) ? messages : [];
+    if (items.length === 0) return;
+    items.forEach((message) => {
+      if (!message.id) return;
+      if (message.me) return;
+      if (message.audience === "INTERNAL") return;
+      if (message.kind && message.kind !== "text") return;
+      const detected = normalizeDetectedLang(message.translationSourceLang);
+      const normalized = normalizePreferredLanguage(detected) ?? fanLanguage;
+      if (normalized === uiLanguage) return;
+      const targetLang = normalizeDetectedLang(message.translationTargetLang);
+      if (message.translatedText && targetLang === uiLanguage) return;
+      if (autoTranslateMessageIdsRef.current.has(message.id)) return;
+      autoTranslateMessageIdsRef.current.add(message.id);
+      void handleTranslateMessage(message.id);
+    });
+  }, [aiStatus, fanLanguage, handleTranslateMessage, messages, uiLanguage]);
 
   const handleSuggestReply = useCallback(
     async (messageId: string, targetLang: string) => {
@@ -6779,10 +6802,10 @@ const INTENT_BADGE_LABELS: Record<string, string> = {
                   <button
                     type="button"
                     onClick={() => void handleInsertSuggestedAction()}
-                    disabled={quickActionDisabled || !nextActionCardText}
+                    disabled={quickActionDisabled || !(nextActionCardTextUi ?? nextActionCardText)}
                     className={clsx(
                       "rounded-full border px-2.5 py-0.5 text-[10px] font-semibold transition",
-                      quickActionDisabled || !nextActionCardText
+                      quickActionDisabled || !(nextActionCardTextUi ?? nextActionCardText)
                         ? "cursor-not-allowed border-[color:var(--surface-border)] bg-[color:var(--surface-1)] text-[color:var(--muted)]"
                         : "border-[color:rgba(245,158,11,0.7)] bg-[color:rgba(245,158,11,0.08)] text-[color:var(--text)] hover:bg-[color:rgba(245,158,11,0.16)]"
                     )}
@@ -6793,7 +6816,7 @@ const INTENT_BADGE_LABELS: Record<string, string> = {
               </div>
               <div className="text-[11px] text-[color:var(--text)]">{nextActionDraftLabel}</div>
               <div className="text-[10px] text-[color:var(--muted)]">
-                {nextActionCardText ?? "Acción definida manualmente."}
+                {nextActionCardTextUi ?? nextActionCardText ?? "Acción definida manualmente."}
               </div>
               <div className="text-[10px] text-[color:var(--muted)]">
                 Se inserta en el mensaje; no se envía automáticamente.
@@ -10513,9 +10536,59 @@ const INTENT_BADGE_LABELS: Record<string, string> = {
     }
   }
 
-  async function sendFanMessage(text: string, options?: { bypassDuplicateCheck?: boolean }) {
+  const translateOutgoingMessage = useCallback(
+    async (text: string) => {
+      const trimmed = text.trim();
+      if (!trimmed) return trimmed;
+      if (uiLanguage === fanLanguage) return trimmed;
+      if (!isTranslateConfigured) return trimmed;
+      const payload: { text: string; targetLanguage: string; fanId?: string } = {
+        text: trimmed,
+        targetLanguage: fanLanguage,
+      };
+      if (id) {
+        payload.fanId = id;
+      }
+
+      try {
+        const res = await fetch("/api/messages/translate", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+        const data: any = await res.json().catch(() => ({}));
+        if (res.status === 501 && data?.code === "TRANSLATE_NOT_CONFIGURED") {
+          return trimmed;
+        }
+        const translatedText = typeof data?.translatedText === "string" ? data.translatedText.trim() : "";
+        return translatedText || trimmed;
+      } catch (err) {
+        console.warn("translateOutgoingMessage_error", err);
+        return trimmed;
+      }
+    },
+    [fanLanguage, id, isTranslateConfigured, uiLanguage]
+  );
+
+  async function sendFanMessage(
+    text: string,
+    options?: { bypassDuplicateCheck?: boolean; skipTranslation?: boolean; fromComposer?: boolean }
+  ) {
     if (isInternalPanelOpen) return false;
-    const trimmed = text.trim();
+    const raw = text.trim();
+    if (!raw) return false;
+    let resolvedText = raw;
+    let usedPendingTranslation = false;
+    if (!options?.skipTranslation) {
+      const pending = options?.fromComposer ? pendingFanTranslationRef.current : null;
+      if (pending && normalizeTextForHash(pending.uiText) === normalizeTextForHash(raw)) {
+        resolvedText = pending.fanText;
+        usedPendingTranslation = true;
+      } else if (uiLanguage !== fanLanguage) {
+        resolvedText = await translateOutgoingMessage(raw);
+      }
+    }
+    const trimmed = resolvedText.trim();
     if (!trimmed) return false;
     const currentActionKey = normalizeActionKey(composerActionKeyRef.current);
     const bypassWindowActive =
@@ -10552,6 +10625,9 @@ const INTENT_BADGE_LABELS: Record<string, string> = {
     try {
       const ok = await sendMessageText(trimmed, "CREATOR", { actionKey: currentActionKey });
       if (ok && id) {
+        if (usedPendingTranslation) {
+          pendingFanTranslationRef.current = null;
+        }
         writeLastSentRecord(id, {
           actionKey: currentActionKey,
           textHash,
@@ -10662,7 +10738,7 @@ const INTENT_BADGE_LABELS: Record<string, string> = {
       }, 700);
       return;
     }
-    const sentText = await sendFanMessage(trimmed);
+    const sentText = await sendFanMessage(trimmed, { fromComposer: true });
     if (!sentText && messagesError) {
       setComposerError(messagesError || "No se pudo enviar el mensaje.");
     }
@@ -10672,7 +10748,7 @@ const INTENT_BADGE_LABELS: Record<string, string> = {
     if (!duplicateConfirm?.candidate) return;
     const candidate = duplicateConfirm.candidate;
     setDuplicateConfirm(null);
-    await sendFanMessage(candidate, { bypassDuplicateCheck: true });
+    await sendFanMessage(candidate, { bypassDuplicateCheck: true, fromComposer: true });
   }
 
   const buildDuplicateRephrasePrompt = (text: string) => {
@@ -11279,6 +11355,7 @@ const INTENT_BADGE_LABELS: Record<string, string> = {
       ? conversation.lastIntentKey.toUpperCase()
       : null;
   const suggestionLanguage = fanLanguage === "en" ? "en" : "es";
+  const uiSuggestionLanguage = uiLanguage === "en" ? "en" : "es";
   const lastPurchaseAt =
     conversation.extraSessionToday?.todayLastPurchaseAt ??
     conversation.extraLadderStatus?.lastPurchaseAt ??
@@ -11309,7 +11386,33 @@ const INTENT_BADGE_LABELS: Record<string, string> = {
       conversation.lastInboundAt,
     ]
   );
-  const intentLabel = smartSuggestions.intentLabel;
+  const uiSuggestions = useMemo(
+    () =>
+      getFanSuggestions({
+        language: uiSuggestionLanguage,
+        temperatureBucket: normalizedTemperatureBucket,
+        temperatureScore: typeof temperatureScore === "number" ? temperatureScore : null,
+        lastIntentKey,
+        nextAction: conversation.nextAction ?? null,
+        membershipStatus: membershipStatus ?? null,
+        daysLeft: typeof effectiveDaysLeft === "number" ? effectiveDaysLeft : daysLeft ?? null,
+        lastPurchaseAt,
+        lastInboundAt: conversation.lastInboundAt ?? null,
+      }),
+    [
+      uiSuggestionLanguage,
+      normalizedTemperatureBucket,
+      temperatureScore,
+      lastIntentKey,
+      conversation.nextAction,
+      membershipStatus,
+      effectiveDaysLeft,
+      daysLeft,
+      lastPurchaseAt,
+      conversation.lastInboundAt,
+    ]
+  );
+  const intentLabel = uiLanguage === fanLanguage ? smartSuggestions.intentLabel : uiSuggestions.intentLabel;
   const nextActionSuggestion = useMemo(() => {
     if (!smartSuggestions.nextActionKey || !smartSuggestions.nextActionText) return null;
     return {
@@ -11352,10 +11455,43 @@ const INTENT_BADGE_LABELS: Record<string, string> = {
     conversation.nextActionSource,
     nextActionSuggestion,
   ]);
+  const replyActionCopy = useMemo(
+    () =>
+      uiLanguage === "en"
+        ? {
+            label: "Reply",
+            text: "Thanks for your message! What are you in the mood for today?",
+          }
+        : {
+            label: "Responder",
+            text: "¡Gracias por escribirme! ¿Qué te apetece hoy?",
+          },
+    [uiLanguage]
+  );
+  const isManualNextAction =
+    nextActionSummary.source === "manual" ||
+    (nextActionSummary.source === "none" && nextActionSummary.label !== "—");
+  const nextActionDisplayLabel = useMemo(() => {
+    if (isManualNextAction) return nextActionSummary.label;
+    if (nextActionSummary.source === "reply") return replyActionCopy.label;
+    if (nextActionSummary.source === "suggested" && uiSuggestions.nextActionLabel) {
+      return uiSuggestions.nextActionLabel;
+    }
+    return nextActionSummary.label;
+  }, [isManualNextAction, nextActionSummary.label, nextActionSummary.source, replyActionCopy.label, uiSuggestions]);
+  const nextActionDisplayText = useMemo(() => {
+    if (isManualNextAction) return nextActionSummary.text;
+    if (nextActionSummary.source === "reply") return replyActionCopy.text;
+    if (nextActionSummary.source === "suggested" && uiSuggestions.nextActionText) {
+      return uiSuggestions.nextActionText;
+    }
+    return nextActionSummary.text;
+  }, [isManualNextAction, nextActionSummary.source, nextActionSummary.text, replyActionCopy.text, uiSuggestions]);
   const nextActionDraftKey = nextActionSummary.key;
-  const nextActionDraftLabel = nextActionSummary.label;
+  const nextActionDraftLabel = nextActionDisplayLabel;
   const nextActionCardText = nextActionSummary.text;
-  const hasNextActionLabel = nextActionSummary.label.trim() !== "" && nextActionSummary.label !== "—";
+  const nextActionCardTextUi = nextActionDisplayText ?? nextActionSummary.text;
+  const hasNextActionLabel = nextActionDraftLabel.trim() !== "" && nextActionDraftLabel !== "—";
   const languageSelectValue = preferredLanguage ?? "auto";
   const isInternalPanelOpen = managerPanelOpen && managerPanelTab === "manager";
   const cortexFlowNext = cortexFlow ? getNextFanFromFlow(cortexFlow) : { nextFanId: null, nextFanName: null };
@@ -11811,24 +11947,51 @@ const INTENT_BADGE_LABELS: Record<string, string> = {
 
   const handleQuickActionInsert = useCallback(
     async (chip: FanSuggestionChip) => {
+      if (uiLanguage !== fanLanguage) {
+        const fanChip = smartSuggestions.chips.find((entry) => entry.key === chip.key);
+        const uiText = chip.insertText?.trim() || "";
+        const fanText = fanChip?.insertText?.trim() || "";
+        if (uiText && fanText && uiText !== fanText) {
+          pendingFanTranslationRef.current = { uiText, fanText };
+        } else {
+          pendingFanTranslationRef.current = null;
+        }
+      } else {
+        pendingFanTranslationRef.current = null;
+      }
       await fillMessageForFan(chip.insertText, `chip:${chip.key}`);
       adjustMessageInputHeight();
       requestAnimationFrame(() => {
         messageInputRef.current?.focus();
       });
     },
-    [adjustMessageInputHeight, fillMessageForFan]
+    [adjustMessageInputHeight, fanLanguage, fillMessageForFan, smartSuggestions, uiLanguage]
   );
 
   const handleInsertSuggestedAction = useCallback(async () => {
-    if (!nextActionCardText) return;
+    if (!nextActionCardText && !nextActionCardTextUi) return;
     const actionKey = nextActionDraftKey ? `nextAction:${nextActionDraftKey.toLowerCase()}` : null;
-    await fillMessageForFan(nextActionCardText, actionKey);
+    const uiText = nextActionCardTextUi || nextActionCardText || "";
+    const fanText = nextActionCardText || "";
+    if (uiText && fanText && uiLanguage !== fanLanguage && uiText.trim() !== fanText.trim()) {
+      pendingFanTranslationRef.current = { uiText: uiText.trim(), fanText: fanText.trim() };
+    } else {
+      pendingFanTranslationRef.current = null;
+    }
+    await fillMessageForFan(uiText, actionKey);
     adjustMessageInputHeight();
     requestAnimationFrame(() => {
       messageInputRef.current?.focus();
     });
-  }, [adjustMessageInputHeight, fillMessageForFan, nextActionCardText, nextActionDraftKey]);
+  }, [
+    adjustMessageInputHeight,
+    fanLanguage,
+    fillMessageForFan,
+    nextActionCardText,
+    nextActionCardTextUi,
+    nextActionDraftKey,
+    uiLanguage,
+  ]);
 
   const nextActionObjective = useMemo<ManagerObjective | null>(() => {
     if (!nextActionDraftKey) return null;
@@ -11912,7 +12075,7 @@ const INTENT_BADGE_LABELS: Record<string, string> = {
     resolveDraftHistoryKey,
   ]);
 
-  const quickActionChips = smartSuggestions.chips;
+  const quickActionChips = uiLanguage === fanLanguage ? smartSuggestions.chips : uiSuggestions.chips;
 
   const quickActionDisabled = isChatBlocked || isInternalPanelOpen;
   const showQuickActions = !conversation.isManager && quickActionChips.length > 0;
@@ -12952,6 +13115,21 @@ const INTENT_BADGE_LABELS: Record<string, string> = {
               const reactionsSummary = messageConversation.reactionsSummary ?? [];
               const translationState = messageConversation.id ? messageTranslationState[messageConversation.id] : undefined;
               const translationStatus = translationState?.status ?? "idle";
+              const messageLanguage =
+                normalizePreferredLanguage(normalizeDetectedLang(messageConversation.translationSourceLang)) ??
+                fanLanguage;
+              const translationTargetBase = normalizeDetectedLang(messageConversation.translationTargetLang);
+              const hasUiTranslation = Boolean(translatedText && translationTargetBase === uiLanguage);
+              const shouldTranslateForUi =
+                Boolean(!me && !isInternalMessage && isTextMessage && messageLanguage !== uiLanguage);
+              const showOriginal =
+                messageConversation.id ? messageOriginalView[messageConversation.id] ?? false : false;
+              const displayTranslated = shouldTranslateForUi && hasUiTranslation && !showOriginal;
+              const displayMessageText = displayTranslated ? translatedText ?? messageText : messageText;
+              const showTranslationToggle =
+                Boolean(shouldTranslateForUi && hasUiTranslation && messageConversation.id);
+              const showTranslationPending =
+                Boolean(shouldTranslateForUi && !hasUiTranslation && translationStatus === "loading");
               const suggestReplyState = messageConversation.id
                 ? messageSuggestReplyState[messageConversation.id]
                 : undefined;
@@ -12963,7 +13141,9 @@ const INTENT_BADGE_LABELS: Record<string, string> = {
                   !isInternalMessage &&
                   isTextMessage
               );
-              const canShowTranslationBlock = Boolean(!me && !isInternalMessage && isTextMessage && translatedText);
+              const canShowTranslationBlock = Boolean(
+                !me && !isInternalMessage && isTextMessage && translatedText && !displayTranslated
+              );
               const canShowMessageActions = isFanMode && isTextMessage && !isInternalMessage && hasMessageText;
               const canSuggestReply =
                 Boolean(messageConversation.id) && !me && canShowMessageActions;
@@ -13046,7 +13226,7 @@ const INTENT_BADGE_LABELS: Record<string, string> = {
                 <div key={messageConversation.id || index} className="space-y-1">
                   <MessageBalloon
                     me={me}
-                    message={message}
+                    message={displayMessageText}
                     messageId={messageConversation.id}
                     seen={seen}
                     time={time}
@@ -13135,6 +13315,29 @@ const INTENT_BADGE_LABELS: Record<string, string> = {
                       )}
                     </div>
                   )}
+                  {showTranslationPending && (
+                    <div className={clsx("flex", me ? "justify-end" : "justify-start")}>
+                      <span className="text-[10px] text-[color:var(--muted)]">Traduciendo...</span>
+                    </div>
+                  )}
+                  {showTranslationToggle && (
+                    <div className={clsx("flex", me ? "justify-end" : "justify-start")}>
+                      <button
+                        type="button"
+                        className="rounded-full border border-[color:var(--surface-border)] px-2 py-0.5 text-[10px] font-semibold text-[color:var(--text)] hover:bg-[color:var(--surface-1)]"
+                        onClick={() => {
+                          const messageId = messageConversation.id;
+                          if (!messageId) return;
+                          setMessageOriginalView((prev) => ({
+                            ...prev,
+                            [messageId]: !prev[messageId],
+                          }));
+                        }}
+                      >
+                        {showOriginal ? "Ver traducción" : "Ver original"}
+                      </button>
+                    </div>
+                  )}
                   {messageConversation.status === "failed" && (
                     <div className="flex justify-end">
                       <button
@@ -13145,7 +13348,7 @@ const INTENT_BADGE_LABELS: Record<string, string> = {
                             void sendStickerMessage(retrySticker);
                             return;
                           }
-                          void sendFanMessage(messageConversation.message);
+                          void sendFanMessage(messageConversation.message, { skipTranslation: true });
                         }}
                       >
                         Reintentar
@@ -13566,11 +13769,11 @@ const INTENT_BADGE_LABELS: Record<string, string> = {
                       </button>
                       <button
                         type="button"
-                        disabled={quickActionDisabled || !nextActionCardText}
+                        disabled={quickActionDisabled || !(nextActionCardTextUi ?? nextActionCardText)}
                         onClick={() => void handleInsertSuggestedAction()}
                         className={clsx(
                           "rounded-full border px-2.5 py-0.5 text-[10px] font-semibold transition",
-                          quickActionDisabled || !nextActionCardText
+                          quickActionDisabled || !(nextActionCardTextUi ?? nextActionCardText)
                             ? "cursor-not-allowed border-[color:var(--surface-border)] bg-[color:var(--surface-1)] text-[color:var(--muted)]"
                             : "border-[color:rgba(245,158,11,0.7)] bg-[color:rgba(245,158,11,0.08)] text-[color:var(--text)] hover:bg-[color:rgba(245,158,11,0.16)]"
                         )}
@@ -13581,7 +13784,7 @@ const INTENT_BADGE_LABELS: Record<string, string> = {
                   </div>
                   <div className="mt-1 text-[11px] text-[color:var(--text)]">{nextActionDraftLabel}</div>
                   <div className="text-[10px] text-[color:var(--muted)]">
-                    {nextActionCardText ?? "Acción definida manualmente."}
+                    {nextActionCardTextUi ?? nextActionCardText ?? "Acción definida manualmente."}
                   </div>
                 </div>
               )}
