@@ -156,6 +156,8 @@ interface Conversation {
   needsAction?: boolean;
   nextActionKey?: string | null;
   nextActionLabel?: string | null;
+  nextActionText?: string | null;
+  nextActionSource?: "reply" | "manual" | "suggested" | "none" | null;
   isBlocked?: boolean;
   isArchived?: boolean;
   isManager?: boolean;
@@ -270,6 +272,8 @@ interface ConversationListData {
   needsAction?: boolean;
   nextActionKey?: string | null;
   nextActionLabel?: string | null;
+  nextActionText?: string | null;
+  nextActionSource?: "reply" | "manual" | "suggested" | "none" | null;
   isBlocked?: boolean;
   isArchived?: boolean;
   isManager?: boolean;

@@ -2009,6 +2009,7 @@ export default function ConversationDetails({ onBackToBoard }: ConversationDetai
   const inlineActionTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pendingComposerDraftRef = useRef<string | null>(null);
   const pendingComposerDraftFanIdRef = useRef<string | null>(null);
+  const pendingFocusComposerRef = useRef<string | null>(null);
   const draftAppliedFanIdRef = useRef<string | null>(null);
   const translationPreviewTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const translationPreviewAbortRef = useRef<AbortController | null>(null);
@@ -2796,9 +2797,6 @@ const INTENT_BADGE_LABELS: Record<string, string> = {
 
   const closeInlinePanel = useCallback(
     (options?: { focus?: boolean }) => {
-      if (process.env.NODE_ENV !== "production") {
-        console.trace("CLOSE_INLINE_PANEL");
-      }
       if (managerPanelOpen) {
         captureChatScrollForPanelToggle();
         closeManagerPanel();
@@ -2977,6 +2975,16 @@ const INTENT_BADGE_LABELS: Record<string, string> = {
         pendingFollowUpPanelRef.current = fanIdValue;
       }
       delete nextQuery.panel;
+      shouldReplace = true;
+    }
+
+    const rawFocusComposer = router.query.focusComposer;
+    if (typeof rawFocusComposer !== "undefined") {
+      const focusValue = Array.isArray(rawFocusComposer) ? rawFocusComposer[0] : rawFocusComposer;
+      if (focusValue === "1" && fanIdValue) {
+        pendingFocusComposerRef.current = fanIdValue;
+      }
+      delete nextQuery.focusComposer;
       shouldReplace = true;
     }
 
@@ -3289,60 +3297,66 @@ const INTENT_BADGE_LABELS: Record<string, string> = {
     return { index: idx, size: queueFans.length };
   }
 
-  function fillMessage(template: string, actionKey?: string | null) {
-    if (id) {
-      insertIntoCurrentComposer({
-        target: "fan",
-        fanId: id,
-        mode: "fan",
-        text: template,
-        actionKey: actionKey ?? undefined,
-      });
-      return;
-    }
-    setComposerTarget("fan");
-    setMessageSend(template);
-    setComposerActionKey(actionKey ?? null);
-  }
+  const fillMessage = useCallback(
+    (template: string, actionKey?: string | null) => {
+      if (id) {
+        insertIntoCurrentComposer({
+          target: "fan",
+          fanId: id,
+          mode: "fan",
+          text: template,
+          actionKey: actionKey ?? undefined,
+        });
+        return;
+      }
+      setComposerTarget("fan");
+      setMessageSend(template);
+      setComposerActionKey(actionKey ?? null);
+    },
+    [id, setComposerActionKey, setComposerTarget, setMessageSend]
+  );
 
-  async function fillMessageForFan(text: string, actionKey?: string | null) {
-    const fanLanguage = (preferredLanguage ?? "en") as SupportedLanguage;
+  const fillMessageForFan = useCallback(
+    async (text: string, actionKey?: string | null) => {
+      const fanLanguage = (preferredLanguage ?? "en") as SupportedLanguage;
 
-    if (fanLanguage === "es") {
-      fillMessage(text, actionKey);
-      return;
-    }
-
-    const payload: { text: string; targetLanguage: string; fanId?: string } = {
-      text,
-      targetLanguage: fanLanguage,
-    };
-    if (id) {
-      payload.fanId = id;
-    }
-
-    try {
-      const res = await fetch("/api/messages/translate", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      });
-      const data: any = await res.json().catch(() => ({}));
-      if (res.status === 501 && data?.code === "TRANSLATE_NOT_CONFIGURED") {
+      if (fanLanguage === "es") {
         fillMessage(text, actionKey);
         return;
       }
-      const translatedText = typeof data?.translatedText === "string" ? data.translatedText.trim() : "";
-      if (translatedText) {
-        fillMessage(translatedText, actionKey);
-        return;
-      }
-    } catch (err) {
-      console.warn("fillMessageForFan_translate_error", err);
-    }
 
-    fillMessage(text, actionKey);
-  }
+      const payload: { text: string; targetLanguage: string; fanId?: string } = {
+        text,
+        targetLanguage: fanLanguage,
+      };
+      if (id) {
+        payload.fanId = id;
+      }
+
+      try {
+        const res = await fetch("/api/messages/translate", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+        const data: any = await res.json().catch(() => ({}));
+        if (res.status === 501 && data?.code === "TRANSLATE_NOT_CONFIGURED") {
+          fillMessage(text, actionKey);
+          return;
+        }
+        const translatedText = typeof data?.translatedText === "string" ? data.translatedText.trim() : "";
+        if (translatedText) {
+          fillMessage(translatedText, actionKey);
+          return;
+        }
+      } catch (err) {
+        console.warn("fillMessageForFan_translate_error", err);
+      }
+
+      fillMessage(text, actionKey);
+    },
+    [fillMessage, id, preferredLanguage]
+  );
   const handleInsertEmoji = useCallback(
     (emoji: string) => {
       const input = messageInputRef.current;
@@ -4887,6 +4901,15 @@ const INTENT_BADGE_LABELS: Record<string, string> = {
       );
     }
   }, [applyComposerDraft, id]);
+
+  useEffect(() => {
+    if (!id || conversation.isManager) return;
+    if (pendingFocusComposerRef.current !== id) return;
+    pendingFocusComposerRef.current = null;
+    requestAnimationFrame(() => {
+      messageInputRef.current?.focus();
+    });
+  }, [conversation.isManager, id]);
 
   useEffect(() => {
     const normalized = normalizePreferredLanguage(conversation.preferredLanguage) ?? null;
@@ -6700,22 +6723,43 @@ const INTENT_BADGE_LABELS: Record<string, string> = {
           )}
             </>
           )}
-          {nextActionSuggestion && (
+          {showSuggestedAction && (
             <div className="rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] p-3 space-y-2">
               <div className="flex items-center justify-between gap-2 text-[10px] font-semibold text-[color:var(--muted)]">
                 <span>Siguiente acción sugerida</span>
-                {nextActionCta && (
+                <div className="flex items-center gap-1.5">
                   <button
                     type="button"
-                    onClick={nextActionCta.onClick}
-                    className="rounded-full border border-[color:rgba(245,158,11,0.7)] bg-[color:rgba(245,158,11,0.08)] px-2.5 py-0.5 text-[10px] font-semibold text-[color:var(--text)] hover:bg-[color:rgba(245,158,11,0.16)]"
+                    onClick={() => void handleGenerateNextActionDraft()}
+                    disabled={!nextActionDraftKey || draftActionState.status === "loading"}
+                    className={clsx(
+                      "rounded-full border px-2.5 py-0.5 text-[10px] font-semibold transition",
+                      !nextActionDraftKey || draftActionState.status === "loading"
+                        ? "cursor-not-allowed border-[color:var(--surface-border)] bg-[color:var(--surface-1)] text-[color:var(--muted)]"
+                        : "border-[color:rgba(245,158,11,0.7)] bg-[color:rgba(245,158,11,0.08)] text-[color:var(--text)] hover:bg-[color:rgba(245,158,11,0.16)]"
+                    )}
                   >
-                    {nextActionCta.label}
+                    Generar
                   </button>
-                )}
+                  <button
+                    type="button"
+                    onClick={() => void handleInsertSuggestedAction()}
+                    disabled={quickActionDisabled || !nextActionCardText}
+                    className={clsx(
+                      "rounded-full border px-2.5 py-0.5 text-[10px] font-semibold transition",
+                      quickActionDisabled || !nextActionCardText
+                        ? "cursor-not-allowed border-[color:var(--surface-border)] bg-[color:var(--surface-1)] text-[color:var(--muted)]"
+                        : "border-[color:rgba(245,158,11,0.7)] bg-[color:rgba(245,158,11,0.08)] text-[color:var(--text)] hover:bg-[color:rgba(245,158,11,0.16)]"
+                    )}
+                  >
+                    Insertar
+                  </button>
+                </div>
               </div>
-              <div className="text-[11px] text-[color:var(--text)]">{nextActionSuggestion.label}</div>
-              <div className="text-[10px] text-[color:var(--muted)]">{nextActionSuggestion.text}</div>
+              <div className="text-[11px] text-[color:var(--text)]">{nextActionDraftLabel}</div>
+              <div className="text-[10px] text-[color:var(--muted)]">
+                {nextActionCardText ?? "Acción definida manualmente."}
+              </div>
               <div className="text-[10px] text-[color:var(--muted)]">
                 Se inserta en el mensaje; no se envía automáticamente.
               </div>
@@ -9508,6 +9552,7 @@ const INTENT_BADGE_LABELS: Record<string, string> = {
       id,
       managerIaMode,
       effectiveLanguage,
+      normalizedTemperatureBucket,
       resolveDraftHistoryKey,
       showComposerToast,
       startDraftActionPhaseTimers,
@@ -11230,15 +11275,52 @@ const INTENT_BADGE_LABELS: Record<string, string> = {
     ]
   );
   const intentLabel = smartSuggestions.intentLabel;
-  const nextActionSuggestionLabel = smartSuggestions.nextActionLabel;
-  const nextActionSuggestion =
-    smartSuggestions.nextActionKey && smartSuggestions.nextActionText
-      ? {
-          key: smartSuggestions.nextActionKey,
-          label: smartSuggestions.nextActionLabel ?? smartSuggestions.nextActionKey,
-          text: smartSuggestions.nextActionText,
-        }
-      : null;
+  const nextActionSuggestion = useMemo(() => {
+    if (!smartSuggestions.nextActionKey || !smartSuggestions.nextActionText) return null;
+    return {
+      key: smartSuggestions.nextActionKey,
+      label: smartSuggestions.nextActionLabel ?? smartSuggestions.nextActionKey,
+      text: smartSuggestions.nextActionText,
+    };
+  }, [smartSuggestions.nextActionKey, smartSuggestions.nextActionLabel, smartSuggestions.nextActionText]);
+  const nextActionSummary = useMemo(() => {
+    const label =
+      typeof conversation.nextActionLabel === "string" ? conversation.nextActionLabel.trim() : "";
+    const keyRaw =
+      typeof conversation.nextActionKey === "string" ? conversation.nextActionKey.trim() : "";
+    const key = keyRaw ? keyRaw.toUpperCase() : null;
+    const text =
+      typeof conversation.nextActionText === "string" ? conversation.nextActionText.trim() : "";
+    const sourceRaw =
+      typeof conversation.nextActionSource === "string" ? conversation.nextActionSource.trim() : "";
+    if (label || key || text || sourceRaw) {
+      return {
+        label: label || key || "—",
+        key,
+        text: text || null,
+        source: sourceRaw || "none",
+      };
+    }
+    if (nextActionSuggestion) {
+      return {
+        label: nextActionSuggestion.label,
+        key: nextActionSuggestion.key.toUpperCase(),
+        text: nextActionSuggestion.text,
+        source: "suggested",
+      };
+    }
+    return { label: "—", key: null, text: null, source: "none" };
+  }, [
+    conversation.nextActionLabel,
+    conversation.nextActionKey,
+    conversation.nextActionText,
+    conversation.nextActionSource,
+    nextActionSuggestion,
+  ]);
+  const nextActionDraftKey = nextActionSummary.key;
+  const nextActionDraftLabel = nextActionSummary.label;
+  const nextActionCardText = nextActionSummary.text;
+  const hasNextActionLabel = nextActionSummary.label.trim() !== "" && nextActionSummary.label !== "—";
   const languageSelectValue = preferredLanguage ?? "auto";
   const isInternalPanelOpen = managerPanelOpen && managerPanelTab === "manager";
   const cortexFlowNext = cortexFlow ? getNextFanFromFlow(cortexFlow) : { nextFanId: null, nextFanName: null };
@@ -11704,23 +11786,18 @@ const INTENT_BADGE_LABELS: Record<string, string> = {
   );
 
   const handleInsertSuggestedAction = useCallback(async () => {
-    if (!nextActionSuggestion) return;
-    await fillMessageForFan(nextActionSuggestion.text, `suggested:${nextActionSuggestion.key}`);
+    if (!nextActionCardText) return;
+    const actionKey = nextActionDraftKey ? `nextAction:${nextActionDraftKey.toLowerCase()}` : null;
+    await fillMessageForFan(nextActionCardText, actionKey);
     adjustMessageInputHeight();
     requestAnimationFrame(() => {
       messageInputRef.current?.focus();
     });
-  }, [adjustMessageInputHeight, fillMessageForFan, nextActionSuggestion]);
-
-  const quickActionChips = smartSuggestions.chips;
-
-  const quickActionDisabled = isChatBlocked || isInternalPanelOpen;
-  const showQuickActions = !conversation.isManager && quickActionChips.length > 0;
-  const showSuggestedAction = isFanTarget && !conversation.isManager && !!nextActionSuggestion;
+  }, [adjustMessageInputHeight, fillMessageForFan, nextActionCardText, nextActionDraftKey]);
 
   const nextActionObjective = useMemo<ManagerObjective | null>(() => {
-    if (!nextActionSuggestion) return null;
-    switch (nextActionSuggestion.key) {
+    if (!nextActionDraftKey) return null;
+    switch (nextActionDraftKey) {
       case "BREAK_ICE":
         return "romper_hielo";
       case "BUILD_RAPPORT":
@@ -11729,18 +11806,74 @@ const INTENT_BADGE_LABELS: Record<string, string> = {
         return "ofrecer_extra";
       case "PUSH_MONTHLY":
         return "llevar_a_mensual";
+      case "REENGAGE":
+        return "reactivar_fan_frio";
+      case "RENEWAL":
+        return "renovacion";
       default:
         return null;
     }
-  }, [nextActionSuggestion]);
+  }, [nextActionDraftKey]);
 
-  const nextActionCta = (() => {
-    if (!nextActionSuggestion) return null;
-    if (nextActionObjective) {
-      return { label: "Generar borrador", onClick: () => handleManagerQuickAction(nextActionObjective) };
-    }
-    return { label: "Insertar", onClick: () => void handleInsertSuggestedAction() };
-  })();
+  const handleGenerateNextActionDraft = useCallback(async () => {
+    if (!nextActionDraftKey) return;
+    if (draftActionState.status === "loading") return;
+    const actionKey = `nextAction:${nextActionDraftKey.toLowerCase()}`;
+    const historyKey = resolveDraftHistoryKey({
+      actionKey,
+      objectiveKey: nextActionDraftKey,
+      offerId: null,
+    });
+    const draftText = await requestManagerDraft({
+      objectiveKey: nextActionDraftKey,
+      tone: fanTone,
+      directness: "neutro",
+      outputLength: draftOutputLength,
+      actionKey,
+      serverActionKey: actionKey,
+      historyKey,
+    });
+    if (!draftText) return;
+    const meta = nextActionObjective
+      ? buildDraftMeta({
+          primaryObjective: nextActionObjective,
+          tone: fanTone,
+          outputLength: draftOutputLength,
+          ppvPhase: nextActionObjective === "ofrecer_extra" ? ppvPhase : null,
+        })
+      : null;
+    const draftLabel = nextActionDraftLabel || "Borrador IA";
+    const draftOptions = {
+      source: "autosuggest" as const,
+      label: draftLabel,
+      tone: fanTone,
+      objective: nextActionObjective ?? currentObjective ?? null,
+      meta,
+    };
+    addDraftCard(buildDraftCard(draftText, draftOptions));
+    addGeneratedDraft(buildDraftCard(draftText, draftOptions));
+  }, [
+    addDraftCard,
+    addGeneratedDraft,
+    buildDraftCard,
+    buildDraftMeta,
+    currentObjective,
+    draftActionState.status,
+    draftOutputLength,
+    fanTone,
+    nextActionDraftKey,
+    nextActionDraftLabel,
+    nextActionObjective,
+    ppvPhase,
+    requestManagerDraft,
+    resolveDraftHistoryKey,
+  ]);
+
+  const quickActionChips = smartSuggestions.chips;
+
+  const quickActionDisabled = isChatBlocked || isInternalPanelOpen;
+  const showQuickActions = !conversation.isManager && quickActionChips.length > 0;
+  const showSuggestedAction = isFanTarget && !conversation.isManager && hasNextActionLabel;
 
   const lifetimeValueDisplay = Math.round(conversation.lifetimeValue ?? 0);
   const notesCountDisplay = conversation.notesCount ?? 0;
@@ -12145,9 +12278,9 @@ const INTENT_BADGE_LABELS: Record<string, string> = {
                 Intención: {intentLabel}
               </Badge>
             )}
-            {nextActionSuggestionLabel && (
+            {hasNextActionLabel && (
               <Badge tone="muted" size="md">
-                Siguiente: {nextActionSuggestionLabel}
+                Siguiente: {nextActionDraftLabel}
               </Badge>
             )}
             {(conversation.isHighPriority || (conversation.extrasCount ?? 0) > 0) && (
@@ -12195,9 +12328,9 @@ const INTENT_BADGE_LABELS: Record<string, string> = {
                       Intención: {intentLabel}
                     </Badge>
                   )}
-                  {nextActionSuggestionLabel && (
+                  {hasNextActionLabel && (
                     <Badge tone="muted" size="md">
-                      Siguiente: {nextActionSuggestionLabel}
+                      Siguiente: {nextActionDraftLabel}
                     </Badge>
                   )}
                   {conversation.isHighPriority && (
@@ -13370,26 +13503,43 @@ const INTENT_BADGE_LABELS: Record<string, string> = {
                   </div>
                 </div>
               )}
-              {showSuggestedAction && nextActionSuggestion && (
+              {showSuggestedAction && (
                 <div className="mb-2 rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-3 py-2">
                   <div className="flex flex-wrap items-center justify-between gap-2 text-[10px] font-semibold text-[color:var(--muted)]">
                     <span>Siguiente acción sugerida</span>
-                    <button
-                      type="button"
-                      disabled={quickActionDisabled}
-                      onClick={() => void handleInsertSuggestedAction()}
-                      className={clsx(
-                        "rounded-full border px-2.5 py-0.5 text-[10px] font-semibold transition",
-                        quickActionDisabled
-                          ? "cursor-not-allowed border-[color:var(--surface-border)] bg-[color:var(--surface-1)] text-[color:var(--muted)]"
-                          : "border-[color:rgba(245,158,11,0.7)] bg-[color:rgba(245,158,11,0.08)] text-[color:var(--text)] hover:bg-[color:rgba(245,158,11,0.16)]"
-                      )}
-                    >
-                      Insertar
-                    </button>
+                    <div className="flex items-center gap-1.5">
+                      <button
+                        type="button"
+                        disabled={!nextActionDraftKey || draftActionState.status === "loading"}
+                        onClick={() => void handleGenerateNextActionDraft()}
+                        className={clsx(
+                          "rounded-full border px-2.5 py-0.5 text-[10px] font-semibold transition",
+                          !nextActionDraftKey || draftActionState.status === "loading"
+                            ? "cursor-not-allowed border-[color:var(--surface-border)] bg-[color:var(--surface-1)] text-[color:var(--muted)]"
+                            : "border-[color:rgba(245,158,11,0.7)] bg-[color:rgba(245,158,11,0.08)] text-[color:var(--text)] hover:bg-[color:rgba(245,158,11,0.16)]"
+                        )}
+                      >
+                        Generar
+                      </button>
+                      <button
+                        type="button"
+                        disabled={quickActionDisabled || !nextActionCardText}
+                        onClick={() => void handleInsertSuggestedAction()}
+                        className={clsx(
+                          "rounded-full border px-2.5 py-0.5 text-[10px] font-semibold transition",
+                          quickActionDisabled || !nextActionCardText
+                            ? "cursor-not-allowed border-[color:var(--surface-border)] bg-[color:var(--surface-1)] text-[color:var(--muted)]"
+                            : "border-[color:rgba(245,158,11,0.7)] bg-[color:rgba(245,158,11,0.08)] text-[color:var(--text)] hover:bg-[color:rgba(245,158,11,0.16)]"
+                        )}
+                      >
+                        Insertar
+                      </button>
+                    </div>
                   </div>
-                  <div className="mt-1 text-[11px] text-[color:var(--text)]">{nextActionSuggestion.label}</div>
-                  <div className="text-[10px] text-[color:var(--muted)]">{nextActionSuggestion.text}</div>
+                  <div className="mt-1 text-[11px] text-[color:var(--text)]">{nextActionDraftLabel}</div>
+                  <div className="text-[10px] text-[color:var(--muted)]">
+                    {nextActionCardText ?? "Acción definida manualmente."}
+                  </div>
                 </div>
               )}
               {composerDock?.chips}

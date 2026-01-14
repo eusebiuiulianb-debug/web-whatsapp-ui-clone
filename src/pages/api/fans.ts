@@ -682,6 +682,16 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           ts: parseMessageTimestamp(msg.id)?.getTime() ?? 0,
         }))
         .sort((a: any, b: any) => b.ts - a.ts)[0]?.msg;
+      const lastInboundMessage = fanMessages
+        .map((msg: any) => ({
+          msg,
+          ts: parseMessageTimestamp(msg.id)?.getTime() ?? 0,
+        }))
+        .sort((a: any, b: any) => b.ts - a.ts)[0]?.msg;
+      const lastInboundText =
+        lastInboundMessage && typeof lastInboundMessage.text === "string"
+          ? lastInboundMessage.text.trim()
+          : null;
       const lastVisibleType = lastVisibleMessage ? ((lastVisibleMessage as any).type as string | undefined) : undefined;
       const previewSource = lastVisibleMessage
         ? lastVisibleType === "CONTENT"
@@ -766,8 +776,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         (!lastCreatorMessage || lastInboundAt.getTime() > lastCreatorMessage.getTime());
       const nextActionDetails = getNextActionSummary({
         fan: {
+          language: (fan as any).language ?? null,
           locale: fan.locale ?? null,
           preferredLanguage: fan.preferredLanguage ?? null,
+          lastInboundText,
           temperatureBucket: resolvedTemperatureBucket,
           temperatureScore: resolvedTemperatureScore,
           heatScore: resolvedHeatScore,
@@ -848,6 +860,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         needsAction: nextActionDetails.needsAction,
         nextActionKey: nextActionDetails.nextActionKey,
         nextActionLabel: nextActionDetails.nextActionLabel,
+        nextActionText: nextActionDetails.nextActionText,
+        nextActionSource: nextActionDetails.nextActionSource,
         extrasCount: monetization.extras.count,
         extrasSpentTotal: purchaseTotals.extrasAmount,
         tipsCount: monetization.tips.count,

@@ -2381,23 +2381,7 @@ function logDevManagerRequest(params: {
   debug: { url: string; maxTokensType: string; maxTokensValue: unknown } | null;
   meta?: ChatMeta;
 }) {
-  if (process.env.NODE_ENV !== "development") return;
-  console.debug("manager_ai_request_debug", {
-    route: params.route,
-    creatorId: params.creatorId,
-    fanId: params.fanId,
-    action: params.action ?? null,
-    hasText: params.hasText,
-    hasMessages: params.hasMessages,
-    promptLength: params.promptLength,
-    finalUrl: params.debug?.url ?? null,
-    maxTokensType: params.debug?.maxTokensType ?? null,
-    maxTokensValue: params.debug?.maxTokensValue ?? null,
-    usedFallback: params.usedFallback,
-    provider: params.meta?.providerUsed ?? null,
-    model: params.meta?.modelUsed ?? null,
-    latencyMs: params.meta?.latencyMs ?? null,
-  });
+  void params;
 }
 
 function buildPhaseContextMessage(phase: "suave" | "picante" | "directo" | "final"): ChatMessage {

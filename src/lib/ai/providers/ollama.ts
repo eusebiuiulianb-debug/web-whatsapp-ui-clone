@@ -132,10 +132,6 @@ export async function requestOllamaChatCompletion(params: OllamaRequestParams): 
     outputLength: params.outputLength ?? null,
   };
 
-  if (process.env.NODE_ENV === "development") {
-    console.debug("ollama_chat_request_debug", debug);
-  }
-
   try {
     const response = await fetch(prepared.url, {
       method: "POST",

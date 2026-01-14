@@ -6,6 +6,7 @@ type OpenFanChatOptions = {
   segmentNote?: string;
   panel?: string;
   source?: string;
+  focusComposer?: boolean;
   shallow?: boolean;
   scroll?: boolean;
   pathname?: string;
@@ -56,6 +57,7 @@ export function openFanChat(router: NextRouter, fanId: string, options: OpenFanC
   if (options.segmentNote) query.segmentNote = options.segmentNote;
   if (options.panel) query.panel = options.panel;
   if (options.source) query.source = options.source;
+  if (options.focusComposer) query.focusComposer = "1";
   void router.push(
     {
       pathname: options.pathname ?? DEFAULT_CHAT_PATH,

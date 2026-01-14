@@ -2,10 +2,11 @@ import { normalizeNextActionNote } from "../nextActionLabel";
 import { getFanSuggestions } from "./suggestions";
 
 type NextActionFan = {
+  language?: string | null;
   locale?: string | null;
   preferredLanguage?: string | null;
   lang?: string | null;
-  language?: string | null;
+  lastInboundText?: string | null;
   temperatureBucket?: string | null;
   temperatureScore?: number | null;
   heatScore?: number | null;
@@ -36,6 +37,9 @@ type NextActionSummary = {
   needsAction: boolean;
   nextActionKey: string | null;
   nextActionLabel: string;
+  nextActionText: string | null;
+  nextActionSource: "reply" | "manual" | "suggested" | "none";
+  nextActionLanguage: "es" | "en";
 };
 
 const SUGGESTED_ACTION_KEYS = new Set([
@@ -55,18 +59,42 @@ function normalizeLocaleBase(value?: string | null): string {
   return trimmed.replace(/_/g, "-").split("-")[0] || "";
 }
 
+function inferLanguageFromText(value?: string | null): "es" | "en" | null {
+  if (!value) return null;
+  const text = value.toLowerCase();
+  if (!text.trim()) return null;
+  let scoreEs = 0;
+  let scoreEn = 0;
+  if (/\b(hola|gracias|buenas|por favor|quiero|cuando|donde|porque|pero|vale)\b/.test(text)) {
+    scoreEs += 2;
+  }
+  if (/\b(the|and|you|thanks|hello|hi|please|want|when|where|because|but|ok|okay)\b/.test(text)) {
+    scoreEn += 2;
+  }
+  if (/\b(que|para|como|esta|estoy|tengo|puedo)\b/.test(text)) {
+    scoreEs += 1;
+  }
+  if (/\b(what|how|i am|im|are you|do you|can you|i have)\b/.test(text)) {
+    scoreEn += 1;
+  }
+  if (scoreEs === scoreEn) return null;
+  return scoreEs > scoreEn ? "es" : "en";
+}
+
 function resolveLanguage(lang: string | null | undefined, fan: NextActionFan): "es" | "en" {
   const candidates = [
     lang,
+    fan.language,
     fan.preferredLanguage,
     fan.locale,
     fan.lang,
-    fan.language,
   ];
   for (const candidate of candidates) {
     const base = normalizeLocaleBase(candidate);
     if (base === "es" || base === "en") return base;
   }
+  const inferred = inferLanguageFromText(fan.lastInboundText);
+  if (inferred) return inferred;
   return "es";
 }
 
@@ -100,6 +128,12 @@ export function getNextActionSummary({
       needsAction: true,
       nextActionKey: "REPLY",
       nextActionLabel: language === "en" ? "Reply" : "Responder",
+      nextActionText:
+        language === "en"
+          ? "Thanks for your message! What are you in the mood for today?"
+          : "¡Gracias por escribirme! ¿Qué te apetece hoy?",
+      nextActionSource: "reply",
+      nextActionLanguage: language,
     };
   }
 
@@ -109,6 +143,9 @@ export function getNextActionSummary({
       needsAction: true,
       nextActionKey: null,
       nextActionLabel: manualLabel,
+      nextActionText: null,
+      nextActionSource: "manual",
+      nextActionLanguage: language,
     };
   }
 
@@ -133,9 +170,13 @@ export function getNextActionSummary({
     lastInboundAt: fan.lastInboundAt ?? null,
   });
 
+  const hasSuggestion = Boolean(suggestions.nextActionKey);
   return {
-    needsAction: Boolean(suggestions.nextActionKey),
+    needsAction: hasSuggestion,
     nextActionKey: suggestions.nextActionKey ?? null,
     nextActionLabel: suggestions.nextActionLabel ?? "—",
+    nextActionText: suggestions.nextActionText ?? null,
+    nextActionSource: hasSuggestion ? "suggested" : "none",
+    nextActionLanguage: language,
   };
 }

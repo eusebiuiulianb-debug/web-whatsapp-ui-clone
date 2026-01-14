@@ -118,6 +118,8 @@ export interface Fan {
   needsAction?: boolean;
   nextActionKey?: string | null;
   nextActionLabel?: string | null;
+  nextActionText?: string | null;
+  nextActionSource?: "reply" | "manual" | "suggested" | "none" | null;
   isBlocked?: boolean;
   isArchived?: boolean;
   locale?: string | null;

@@ -320,6 +320,8 @@ function SideBarInner() {
   const [ tierFilter, setTierFilter ] = useState<"all" | "new" | "regular" | "vip">("all");
   const [ onlyWithFollowUp, setOnlyWithFollowUp ] = useState(false);
   const [ onlyWithExtras, setOnlyWithExtras ] = useState(false);
+  const [ onlyNeedsReply, setOnlyNeedsReply ] = useState(false);
+  const [ onlyAtRisk, setOnlyAtRisk ] = useState(false);
   const [ heatFilter, setHeatFilter ] = useState<"all" | "cold" | "warm" | "hot">("all");
   const [ intentFilter, setIntentFilter ] = useState<
     | "all"
@@ -459,6 +461,8 @@ function SideBarInner() {
       nextActionSnippet: fan.nextActionSnippet ?? null,
       lastNoteSummary: fan.lastNoteSummary ?? fan.lastNoteSnippet ?? null,
       nextActionSummary: fan.nextActionSummary ?? fan.nextActionSnippet ?? null,
+      nextActionText: fan.nextActionText ?? null,
+      nextActionSource: fan.nextActionSource ?? null,
       extraLadderStatus: fan.extraLadderStatus ?? null,
       extraSessionToday: (fan as any).extraSessionToday ?? null,
       isBlocked: (fan as any).isBlocked ?? false,
@@ -537,6 +541,8 @@ function SideBarInner() {
         "needsAction",
         "nextActionKey",
         "nextActionLabel",
+        "nextActionText",
+        "nextActionSource",
         "agencyStage",
         "agencyObjective",
         "agencyIntensity",
@@ -997,12 +1003,14 @@ function SideBarInner() {
   ).length;
   const withNotesCount = fans.filter((fan) => (fan.notesCount ?? 0) > 0).length;
   const withFollowUpCount = fans.filter((fan) => fan.needsAction === true).length;
+  const needsReplyCount = fans.filter((fan) => String(fan.nextActionKey ?? "").toUpperCase() === "REPLY").length;
   const archivedCount = fans.filter((fan) => fan.isArchived === true).length;
   const blockedCount = fans.filter((fan) => fan.isBlocked === true).length;
   const priorityCount = fans.filter((fan) => (fan as any).isHighPriority === true).length;
   const regularCount = fans.filter((fan) => ((fan as any).segment || "").toUpperCase() === "LEAL_ESTABLE").length;
   const newCount = fans.filter((fan) => fan.isArchived !== true && fan.isBlocked !== true && fan.isNew30d === true).length;
   const withExtrasCount = fans.filter((fan) => (fan.extrasSpentTotal ?? 0) > 0).length;
+  const atRiskCount = fans.filter((fan) => hasRiskFlag(fan)).length;
   const listScrollRef = useRef<HTMLDivElement | null>(null);
   const scrollListToTop = useCallback(() => {
     const el = listScrollRef.current;
@@ -1062,6 +1070,8 @@ function SideBarInner() {
       setTierFilter("all");
       setOnlyWithFollowUp(false);
       setOnlyWithExtras(false);
+      setOnlyNeedsReply(false);
+      setOnlyAtRisk(false);
     }
     scrollListToTop();
   }
@@ -1233,6 +1243,8 @@ function SideBarInner() {
           if (!onlyWithFollowUp) return true;
           return fan.needsAction === true;
         })
+        .filter((fan) => (!onlyNeedsReply ? true : String(fan.nextActionKey ?? "").toUpperCase() === "REPLY"))
+        .filter((fan) => (!onlyAtRisk ? true : hasRiskFlag(fan)))
         .filter((fan) => {
           const tag = fan.followUpTag ?? getFollowUpTag(fan.membershipStatus, fan.daysLeft, fan.activeGrantTypes);
           if (followUpMode === "all" || followUpMode === "priority") return true;
@@ -1308,8 +1320,10 @@ function SideBarInner() {
       fansWithScore,
       getHighPriorityTimestamp,
       getLastActivityTimestamp,
+      onlyAtRisk,
       onlyWithExtras,
       onlyWithFollowUp,
+      onlyNeedsReply,
       search,
       showOnlyWithNotes,
       followUpMode,
@@ -1383,6 +1397,47 @@ function SideBarInner() {
     () => queueList.map((entry) => entry.fan),
     [queueList]
   );
+
+  const handleAttendNext = useCallback(() => {
+    const baseList = listSegment === "queue" ? priorityQueueList : safeFilteredConversationsList;
+    const candidates = baseList.filter((fan) => !!fan?.id && !fan.isManager);
+    if (candidates.length === 0) {
+      showOpenFanToast("No hay fans disponibles.");
+      return;
+    }
+    const isReplyCandidate = (fan: FanData) => {
+      const key = typeof fan.nextActionKey === "string" ? fan.nextActionKey.trim().toUpperCase() : "";
+      if (key === "REPLY") return true;
+      if (!fan.lastInboundAt) return false;
+      const inboundTime = new Date(fan.lastInboundAt).getTime();
+      if (Number.isNaN(inboundTime)) return false;
+      const creatorTime = fan.lastCreatorMessageAt ? new Date(fan.lastCreatorMessageAt).getTime() : null;
+      return creatorTime === null || Number.isNaN(creatorTime) ? true : inboundTime > creatorTime;
+    };
+    const isExtrasCandidate = (fan: FanData) => (fan.extrasSpentTotal ?? 0) > 0;
+    const isAtRiskCandidate = (fan: FanData) => hasRiskFlag(fan);
+    const target =
+      candidates.find(isReplyCandidate) ??
+      candidates.find(isExtrasCandidate) ??
+      candidates.find(isAtRiskCandidate) ??
+      candidates[0];
+    if (!target?.id) {
+      showOpenFanToast("No hay fans disponibles.");
+      return;
+    }
+    if (typeof window !== "undefined") {
+      window.dispatchEvent(new CustomEvent("novsy:conversation:changing"));
+    }
+    const targetPath = router.pathname.startsWith("/creator/manager") ? "/creator" : router.pathname || "/creator";
+    openFanChat(router, target.id, {
+      shallow: true,
+      scroll: false,
+      pathname: targetPath,
+      focusComposer: true,
+      source: "attend_next",
+    });
+    setConversation(target as any);
+  }, [listSegment, priorityQueueList, safeFilteredConversationsList, router, setConversation, showOpenFanToast]);
 
   useEffect(() => {
     const sameLength = queueFans.length === priorityQueueList.length;
@@ -2518,6 +2573,90 @@ function SideBarInner() {
                 {followUpTodayCount}
               </span>
             </button>
+            <button
+              type="button"
+              onClick={() => {
+                setOnlyNeedsReply((prev) => !prev);
+                setListSegment("all");
+                setActiveQueueFilter(null);
+                scrollListToTop();
+              }}
+              className={clsx(filterRowClass, "w-full")}
+            >
+              <span className={clsx(onlyNeedsReply && "font-semibold text-[color:var(--warning)]")}>
+                <span className="inline-flex items-center gap-1">
+                  <IconGlyph name="inbox" className="h-3.5 w-3.5 text-[color:var(--warning)]" />
+                  <span>Responder</span>
+                </span>
+              </span>
+              <span
+                className={clsx(
+                  countPillClass,
+                  needsReplyCount > 0 ? "bg-[color:rgba(var(--brand-rgb),0.18)] text-[color:var(--text)]" : "bg-[color:var(--surface-2)] text-[color:var(--muted)]",
+                  onlyNeedsReply && "ring-1 ring-[color:var(--ring)]"
+                )}
+              >
+                {needsReplyCount}
+              </span>
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setOnlyWithExtras((prev) => !prev);
+                setListSegment("all");
+                setActiveQueueFilter(null);
+                scrollListToTop();
+              }}
+              className={clsx(filterRowClass, "w-full")}
+            >
+              <span className={clsx(onlyWithExtras && "font-semibold text-[color:var(--warning)]")}>
+                <span className="inline-flex items-center gap-1">
+                  <IconGlyph name="coin" className="h-3.5 w-3.5 text-[color:var(--warning)]" />
+                  <span>Con extras</span>
+                </span>
+                <span
+                  className="ml-1 inline-flex h-4 w-4 items-center justify-center rounded-full border border-[color:var(--surface-border-hover)] text-[9px] text-[color:var(--muted)]"
+                  title="Este fan ya te ha comprado contenido extra (PPV)."
+                >
+                  i
+                </span>
+              </span>
+              <span
+                className={clsx(
+                  countPillClass,
+                  withExtrasCount > 0 ? "bg-[color:rgba(245,158,11,0.16)] text-[color:var(--text)]" : "bg-[color:var(--surface-2)] text-[color:var(--muted)]",
+                  onlyWithExtras && "ring-1 ring-[color:var(--ring)]"
+                )}
+              >
+                {withExtrasCount}
+              </span>
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setOnlyAtRisk((prev) => !prev);
+                setListSegment("all");
+                setActiveQueueFilter(null);
+                scrollListToTop();
+              }}
+              className={clsx(filterRowClass, "w-full")}
+            >
+              <span className={clsx(onlyAtRisk && "font-semibold text-[color:var(--warning)]")}>
+                <span className="inline-flex items-center gap-1">
+                  <IconGlyph name="alert" className="h-3.5 w-3.5 text-[color:var(--danger)]" />
+                  <span>En riesgo</span>
+                </span>
+              </span>
+              <span
+                className={clsx(
+                  countPillClass,
+                  atRiskCount > 0 ? "bg-[color:rgba(244,63,94,0.16)] text-[color:var(--text)]" : "bg-[color:var(--surface-2)] text-[color:var(--muted)]",
+                  onlyAtRisk && "ring-1 ring-[color:var(--ring)]"
+                )}
+              >
+                {atRiskCount}
+              </span>
+            </button>
             {showAllTodayMetrics && (
               <>
                 <button
@@ -2623,38 +2762,6 @@ function SideBarInner() {
             </button>
             {showAllTodayMetrics && (
               <>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setOnlyWithExtras((prev) => !prev);
-                    setListSegment("all");
-                    setActiveQueueFilter(null);
-                    scrollListToTop();
-                  }}
-                  className={clsx(filterRowClass, "w-full")}
-                >
-                  <span className={clsx(onlyWithExtras && "font-semibold text-[color:var(--warning)]")}>
-                    <span className="inline-flex items-center gap-1">
-                      <IconGlyph name="coin" className="h-3.5 w-3.5 text-[color:var(--warning)]" />
-                      <span>Con extras</span>
-                    </span>
-                    <span
-                      className="ml-1 inline-flex h-4 w-4 items-center justify-center rounded-full border border-[color:var(--surface-border-hover)] text-[9px] text-[color:var(--muted)]"
-                      title="Este fan ya te ha comprado contenido extra (PPV)."
-                    >
-                      i
-                    </span>
-                  </span>
-                  <span
-                    className={clsx(
-                      countPillClass,
-                      withExtrasCount > 0 ? "bg-[color:rgba(245,158,11,0.16)] text-[color:var(--text)]" : "bg-[color:var(--surface-2)] text-[color:var(--muted)]",
-                      onlyWithExtras && "ring-1 ring-[color:var(--ring)]"
-                    )}
-                  >
-                    {withExtrasCount}
-                  </span>
-                </button>
                 <button
                   type="button"
                   onClick={() => {
@@ -2836,6 +2943,16 @@ function SideBarInner() {
               </div>
             </div>
             <div className="mt-2 px-3 w-full">
+              <div className="flex items-center justify-end mb-2">
+                <button
+                  type="button"
+                  onClick={handleAttendNext}
+                  className="inline-flex items-center gap-2 rounded-full border border-[color:var(--brand)] bg-[color:rgba(var(--brand-rgb),0.12)] px-3 py-1.5 text-[11px] font-semibold text-[color:var(--text)] hover:bg-[color:rgba(var(--brand-rgb),0.2)]"
+                >
+                  <IconGlyph name="spark" className="h-3.5 w-3.5" />
+                  <span>Atender siguiente</span>
+                </button>
+              </div>
               <div className="flex items-center gap-3 w-full rounded-full bg-[color:var(--surface-1)] border border-[color:var(--surface-border)] px-3 py-2 shadow-sm transition focus-within:border-[color:var(--border-a)] focus-within:ring-1 focus-within:ring-[color:var(--ring)]">
                 <svg viewBox="0 0 24 24" width="20" height="20" className="text-[color:var(--muted)]">
                   <path fill="currentColor" d="M15.009 13.805h-.636l-.22-.219a5.184 5.184 0 0 0 1.256-3.386 5.207 5.207 0 1 0-5.207 5.208 5.183 5.183 0 0 0 3.385-1.255l.221.22v.635l4.004 3.999 1.194-1.195-3.997-4.007zm-4.808 0a3.605 3.605 0 1 1 0-7.21 3.605 3.605 0 0 1 0 7.21z" />

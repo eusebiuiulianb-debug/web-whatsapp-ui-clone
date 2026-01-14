@@ -217,7 +217,7 @@ export default function ConversationList(props: ConversationListProps) {
   const manualNextActionValue = nextActionKey
     ? ""
     : (typeof data.nextAction === "string" ? data.nextAction.trim() : "");
-  const nextActionKeyLabel = nextActionKey ? NEXT_ACTION_LABELS[nextActionKey] ?? nextActionKey : "";
+  const legacyNextActionKeyLabel = nextActionKey ? NEXT_ACTION_LABELS[nextActionKey] ?? nextActionKey : "";
   const nextActionRaw =
     (typeof data.nextActionSummary === "string" ? data.nextActionSummary.trim() : "") ||
     (typeof data.nextActionSnippet === "string" ? data.nextActionSnippet.trim() : "") ||
@@ -225,7 +225,7 @@ export default function ConversationList(props: ConversationListProps) {
     (typeof followUpTitle === "string" ? followUpTitle.trim() : "") ||
     (typeof followUpNote === "string" ? followUpNote.trim() : "") ||
     manualNextActionValue ||
-    nextActionKeyLabel ||
+    legacyNextActionKeyLabel ||
     "";
   const lastInboundMs = parseTimestamp(data.lastInboundAt);
   const lastCreatorMs = parseTimestamp(data.lastCreatorMessageAt);
@@ -242,13 +242,22 @@ export default function ConversationList(props: ConversationListProps) {
     typeof data.locale === "string" ? data.locale.trim().toLowerCase().split(/[-_]/)[0] : "";
   const replyLanguage = preferredLanguage === "en" || preferredLanguage === "es" ? preferredLanguage : localeBase;
   const replyFallbackLabel = replyLanguage === "en" ? "Reply" : "Responder";
-  const nextActionLabel =
+  const nextActionKeyFromData = typeof data.nextActionKey === "string" ? data.nextActionKey.trim() : "";
+  const normalizedNextActionKey = nextActionKeyFromData ? nextActionKeyFromData.toUpperCase() : "";
+  const nextActionKeyLabel =
+    normalizedNextActionKey === "REPLY"
+      ? replyFallbackLabel
+      : normalizedNextActionKey
+      ? NEXT_ACTION_LABELS[normalizedNextActionKey] ?? nextActionKeyFromData
+      : "";
+  const inferredNextActionLabel =
     nextActionLabelFromData ||
     (hasUnreadInbound ? replyFallbackLabel : "") ||
     normalizeNextActionNote(nextActionRaw) ||
-    (intentLabel ?? "") ||
-    "—";
-  const shouldShowNextAction = nextActionLabel !== "—" && nextActionLabel.trim().length > 0;
+    nextActionKeyLabel ||
+    (intentLabel ?? "");
+  const nextActionLabel = inferredNextActionLabel || "—";
+  const shouldShowNextAction = data.needsAction === true || inferredNextActionLabel.trim().length > 0;
 
   return (
     <div 
