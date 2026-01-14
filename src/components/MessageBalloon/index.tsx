@@ -7,6 +7,103 @@ import { IconGlyph } from "../ui/IconGlyph";
 import { readEmojiRecents, recordEmojiRecent } from "../../lib/emoji/recents";
 import { getMineEmoji, type ReactionSummaryEntry } from "../../lib/messageReactions";
 
+const OFFER_MARKER = "\n\n__NOVSY_OFFER__:";
+
+export type OfferMeta = {
+  id: string;
+  title: string;
+  price: string;
+  thumb?: string | null;
+};
+
+const isOfferMeta = (value: unknown): value is OfferMeta => {
+  if (!value || typeof value !== "object") return false;
+  const candidate = value as Partial<OfferMeta>;
+  if (typeof candidate.id !== "string" || !candidate.id.trim()) return false;
+  if (typeof candidate.title !== "string" || !candidate.title.trim()) return false;
+  if (typeof candidate.price !== "string" || !candidate.price.trim()) return false;
+  if (candidate.thumb !== undefined && candidate.thumb !== null && typeof candidate.thumb !== "string") return false;
+  return true;
+};
+
+export function splitOffer(content: string): { textVisible: string; offerMeta: OfferMeta | null } {
+  const idx = content.indexOf(OFFER_MARKER);
+  if (idx === -1) {
+    return { textVisible: content, offerMeta: null };
+  }
+  const textVisible = content.slice(0, idx);
+  const raw = content.slice(idx + OFFER_MARKER.length).trim();
+  if (!raw) {
+    return { textVisible, offerMeta: null };
+  }
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    return { textVisible, offerMeta: isOfferMeta(parsed) ? parsed : null };
+  } catch (_err) {
+    return { textVisible, offerMeta: null };
+  }
+}
+
+type LockedContentCardProps = {
+  title: string;
+  price: string;
+  thumb?: string | null;
+  status: "locked" | "unlocked";
+  ctaLabel: string;
+  onClick: () => void;
+};
+
+const LockedContentCard = ({
+  title,
+  price,
+  thumb,
+  status,
+  ctaLabel,
+  onClick,
+}: LockedContentCardProps) => {
+  const statusLabel = status === "locked" ? "Bloqueado" : "Desbloqueado";
+  const statusClass =
+    status === "locked"
+      ? "border-[color:rgba(245,158,11,0.7)] bg-[color:rgba(245,158,11,0.12)] text-[color:var(--warning)]"
+      : "border-[color:rgba(34,197,94,0.6)] bg-[color:rgba(34,197,94,0.14)] text-[color:rgb(22,163,74)]";
+  const ctaClass =
+    status === "locked"
+      ? "border-[color:var(--brand)] bg-[color:rgba(var(--brand-rgb),0.18)] text-[color:var(--text)]"
+      : "border-[color:var(--surface-border)] bg-[color:var(--surface-2)] text-[color:var(--text)]";
+
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="w-full rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-3 py-2 text-left shadow-sm transition hover:border-[color:var(--surface-border-hover)] hover:bg-[color:var(--surface-2)]"
+    >
+      <div className="flex items-center gap-3">
+        {thumb ? (
+          <div className="relative h-11 w-11 overflow-hidden rounded-lg border border-[color:var(--surface-border)] bg-[color:var(--surface-2)]">
+            <Image src={thumb} alt={title} fill sizes="44px" className="object-cover" />
+          </div>
+        ) : (
+          <div className="flex h-11 w-11 items-center justify-center rounded-lg border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] text-[13px]">
+            {status === "locked" ? "🔒" : "✅"}
+          </div>
+        )}
+        <div className="min-w-0 flex-1">
+          <div className="truncate text-[12px] font-semibold text-[color:var(--text)]">{title}</div>
+          <div className="text-[11px] text-[color:var(--muted)]">{price}</div>
+        </div>
+        <div className="flex flex-col items-end gap-1">
+          <span className={clsx("rounded-full border px-2 py-0.5 text-[9px] font-semibold uppercase tracking-wide", statusClass)}>
+            {statusLabel}
+          </span>
+          <span className={clsx("rounded-full border px-2 py-0.5 text-[10px] font-semibold", ctaClass)}>
+            {ctaLabel}
+          </span>
+        </div>
+      </div>
+    </button>
+  );
+};
+
 interface MessageBalloonProps {
   me: boolean;
   message: string;
@@ -30,6 +127,8 @@ interface MessageBalloonProps {
   onTouchLongPress?: () => void;
   forceReactionButton?: boolean;
   anchorId?: string;
+  unlockedOfferIds?: Set<string>;
+  onOfferClick?: (offer: OfferMeta, status: "locked" | "unlocked") => void;
 }
 
 const MessageBalloon = memo(function MessageBalloon(props: MessageBalloonProps) {
@@ -57,8 +156,16 @@ const MessageBalloon = memo(function MessageBalloon(props: MessageBalloonProps) 
     onTouchLongPress,
     forceReactionButton = false,
     anchorId,
+    unlockedOfferIds,
+    onOfferClick,
   } = props;
   const isSticker = Boolean(stickerSrc);
+  const { textVisible, offerMeta } = useMemo(
+    () => (isSticker ? { textVisible: message, offerMeta: null } : splitOffer(message)),
+    [isSticker, message]
+  );
+  const offerStatus = offerMeta && unlockedOfferIds?.has(offerMeta.id) ? "unlocked" : "locked";
+  const offerCtaLabel = offerStatus === "unlocked" ? "Ver" : "Desbloquear";
   const bubbleClass =
     variant === "internal"
       ? "bg-[color:rgba(245,158,11,0.12)] text-[color:var(--text)] border border-[color:rgba(245,158,11,0.6)]"
@@ -333,9 +440,23 @@ const MessageBalloon = memo(function MessageBalloon(props: MessageBalloonProps) 
                 className="h-36 w-36 object-contain"
               />
             ) : (
-              message
+              textVisible
             )}
           </div>
+          {!isSticker && offerMeta && (
+            <div className="mt-2">
+              <LockedContentCard
+                title={offerMeta.title}
+                price={offerMeta.price}
+                thumb={offerMeta.thumb ?? null}
+                status={offerStatus}
+                ctaLabel={offerCtaLabel}
+                onClick={() => {
+                  onOfferClick?.(offerMeta, offerStatus);
+                }}
+              />
+            </div>
+          )}
         </div>
         {translatedText ? (
           <div className={`mt-1 text-[11px] text-[color:var(--muted)] ${me ? "text-right" : ""}`}>

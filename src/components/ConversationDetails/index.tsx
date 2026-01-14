@@ -21,7 +21,7 @@ import { format, formatDistanceToNow } from "date-fns";
 import { es } from "date-fns/locale";
 import { ConversationContext } from "../../context/ConversationContext";
 import Avatar from "../Avatar";
-import MessageBalloon from "../MessageBalloon";
+import MessageBalloon, { splitOffer, type OfferMeta } from "../MessageBalloon";
 import { EmojiPicker } from "../EmojiPicker";
 import { useCreatorConfig } from "../../context/CreatorConfigContext";
 import { Message as ApiMessage, Fan, FanFollowUp } from "../../types/chat";
@@ -156,6 +156,18 @@ import {
   writeCortexFlow,
   type CortexFlowState,
 } from "../../lib/cortexFlow";
+
+const OFFER_MARKER = "\n\n__NOVSY_OFFER__:";
+
+type OfferOverlayState = {
+  offer: OfferMeta;
+};
+
+type ComposerOfferEventDetail = {
+  text?: string;
+  offer?: OfferMeta;
+  skipTranslate?: boolean;
+};
 
 type ManagerQuickIntent = ManagerObjective;
 type ManagerSuggestionIntent = "romper_hielo" | "pregunta_simple" | "cierre_suave" | "upsell_mensual_suave";
@@ -1154,6 +1166,8 @@ export default function ConversationDetails({ onBackToBoard }: ConversationDetai
   } = conversation;
   const activeFanId = conversation?.isManager ? null : id ?? null;
   const [ messageSend, setMessageSend ] = useState("");
+  const [ draftOffer, setDraftOffer ] = useState<OfferMeta | null>(null);
+  const [ draftSkipTranslate, setDraftSkipTranslate ] = useState(false);
   const [ composerActionKey, setComposerActionKey ] = useState<string | null>(null);
   const [ pendingInsert, setPendingInsert ] = useState<{ text: string; detail?: string } | null>(null);
   const [ isSending, setIsSending ] = useState(false);
@@ -1174,6 +1188,8 @@ export default function ConversationDetails({ onBackToBoard }: ConversationDetai
   const [ fanSendCooldownById, setFanSendCooldownById ] = useState<
     Record<string, { until: number; phase: "sent" | "cooldown" }>
   >({});
+  const [ unlockedOfferIds, setUnlockedOfferIds ] = useState<Set<string>>(() => new Set());
+  const [ offerOverlay, setOfferOverlay ] = useState<OfferOverlayState | null>(null);
   const [ purchaseNotice, setPurchaseNotice ] = useState<PurchaseNoticeState | null>(null);
   const [ voiceNotice, setVoiceNotice ] = useState<{ fanName: string; durationMs?: number; createdAt: string } | null>(null);
   const [ internalToast, setInternalToast ] = useState<string | null>(null);
@@ -1383,6 +1399,31 @@ export default function ConversationDetails({ onBackToBoard }: ConversationDetai
     actionToastTimer.current = setTimeout(() => {
       setActionToast(null);
     }, 3500);
+  }, []);
+
+  const unlockOfferId = useCallback((offerId: string) => {
+    if (!offerId) return;
+    setUnlockedOfferIds((prev) => {
+      if (prev.has(offerId)) return prev;
+      const next = new Set(prev);
+      next.add(offerId);
+      return next;
+    });
+  }, []);
+
+  const handleSimulatePurchase = useCallback(
+    (offer: OfferMeta) => {
+      if (!offer?.id) return;
+      unlockOfferId(offer.id);
+      showComposerToast(`Compra simulada: ${offer.title} desbloqueado`);
+      setOfferOverlay(null);
+    },
+    [showComposerToast, unlockOfferId]
+  );
+
+  const handleOfferClick = useCallback((offer: OfferMeta, _status: "locked" | "unlocked") => {
+    if (!offer?.id) return;
+    setOfferOverlay({ offer });
   }, []);
 
   const handleReactToMessage = useCallback(
@@ -1856,6 +1897,30 @@ export default function ConversationDetails({ onBackToBoard }: ConversationDetai
     const offerRank = OFFER_INTENSITY_RANK[offer.intensityMin] ?? 0;
     const intensityRank = OFFER_INTENSITY_RANK[intensity] ?? 0;
     return offerRank <= intensityRank;
+  }
+
+  function normalizeOfferMeta(value: unknown): OfferMeta | null {
+    if (!value || typeof value !== "object") return null;
+    const candidate = value as Partial<OfferMeta>;
+    if (typeof candidate.id !== "string" || !candidate.id.trim()) return null;
+    if (typeof candidate.title !== "string" || !candidate.title.trim()) return null;
+    if (typeof candidate.price !== "string" || !candidate.price.trim()) return null;
+    if (candidate.thumb !== undefined && candidate.thumb !== null && typeof candidate.thumb !== "string") return null;
+    return {
+      id: candidate.id,
+      title: candidate.title,
+      price: candidate.price,
+      thumb: typeof candidate.thumb === "string" ? candidate.thumb : null,
+    };
+  }
+
+  function attachOfferMarker(text: string, offer: OfferMeta | null): string {
+    if (!offer) return text;
+    try {
+      return `${text}${OFFER_MARKER}${JSON.stringify(offer)}`;
+    } catch (_err) {
+      return text;
+    }
   }
 
 
@@ -2894,6 +2959,8 @@ const INTENT_BADGE_LABELS: Record<string, string> = {
       setComposerTarget("fan");
       setMessageSend(nextText);
       setComposerActionKey(actionKey ?? null);
+      setDraftOffer(null);
+      setDraftSkipTranslate(false);
       draftAppliedFanIdRef.current = id;
       requestAnimationFrame(() => {
         const input = messageInputRef.current;
@@ -2906,6 +2973,30 @@ const INTENT_BADGE_LABELS: Record<string, string> = {
       return true;
     },
     [autoGrowTextarea, id, messageSend]
+  );
+
+  const applyOfferComposerDraft = useCallback(
+    (detail: ComposerOfferEventDetail) => {
+      if (!detail || typeof detail.text !== "string") return null;
+      const trimmed = detail.text.trim();
+      if (!trimmed) return null;
+      const offer = normalizeOfferMeta(detail.offer);
+      const skipTranslate = Boolean(detail.skipTranslate);
+      setComposerTarget("fan");
+      setMessageSend(detail.text);
+      setDraftOffer(offer);
+      setDraftSkipTranslate(skipTranslate);
+      requestAnimationFrame(() => {
+        const input = messageInputRef.current;
+        if (!input) return;
+        input.focus();
+        const len = detail.text.length;
+        input.setSelectionRange(len, len);
+        autoGrowTextarea(input, MAX_MAIN_COMPOSER_HEIGHT);
+      });
+      return { text: detail.text, offer, skipTranslate };
+    },
+    [autoGrowTextarea]
   );
 
   useEffect(() => {
@@ -2938,6 +3029,39 @@ const INTENT_BADGE_LABELS: Record<string, string> = {
       window.removeEventListener(COMPOSER_DRAFT_EVENT, handleComposerDraft as EventListener);
     };
   }, [applyComposerDraft, id]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const handleComposerInsert = (event: Event) => {
+      const detail = (event as CustomEvent)?.detail as ComposerOfferEventDetail | undefined;
+      if (conversation.isManager || !id) return;
+      if (!detail) return;
+      applyOfferComposerDraft(detail);
+    };
+    const handleComposerSend = (event: Event) => {
+      const detail = (event as CustomEvent)?.detail as ComposerOfferEventDetail | undefined;
+      if (conversation.isManager || !id) return;
+      if (!detail) return;
+      const applied = applyOfferComposerDraft(detail);
+      if (!applied) return;
+      void sendFanMessage(applied.text, {
+        fromComposer: true,
+        skipTranslation: applied.skipTranslate,
+        offer: applied.offer,
+      }).then((ok) => {
+        if (ok) {
+          setDraftOffer(null);
+          setDraftSkipTranslate(false);
+        }
+      });
+    };
+    window.addEventListener("novsy:composer-insert", handleComposerInsert as EventListener);
+    window.addEventListener("novsy:composer-send", handleComposerSend as EventListener);
+    return () => {
+      window.removeEventListener("novsy:composer-insert", handleComposerInsert as EventListener);
+      window.removeEventListener("novsy:composer-send", handleComposerSend as EventListener);
+    };
+  }, [applyOfferComposerDraft, conversation.isManager, id, sendFanMessage]);
 
   useEffect(() => {
     if (!router.isReady) return;
@@ -3235,6 +3359,24 @@ const INTENT_BADGE_LABELS: Record<string, string> = {
     return `Te propongo el ${pack.name} (${pack.price}): ${pack.description} Si te encaja, te envío el enlace de pago: [pega aquí tu enlace].`;
   }
 
+  const PACK_SPECIAL_OFFER: OfferMeta = {
+    id: "pack_special",
+    title: "Pack especial",
+    price: "9,99 €",
+    thumb: null,
+  };
+
+  function buildPackSpecialOfferText(language: SupportedLanguage): string {
+    switch (language) {
+      case "en":
+        return `I have a special pack with extra content just for you. If you want it, I can unlock it for ${PACK_SPECIAL_OFFER.price}.`;
+      case "ro":
+        return `Am un pachet special cu continut extra pentru tine. Daca vrei, ti-l deblochez la ${PACK_SPECIAL_OFFER.price}.`;
+      default:
+        return `Tengo un Pack especial con contenido extra pensado para ti. Si te apetece, te lo dejo por ${PACK_SPECIAL_OFFER.price}.`;
+    }
+  }
+
   function mapGrantType(type: string) {
     if (type === "trial") return { label: "Prueba 7 días", amount: 0 };
     if (type === "monthly") return { label: "Suscripción mensual", amount: 25 };
@@ -3316,6 +3458,8 @@ const INTENT_BADGE_LABELS: Record<string, string> = {
       setComposerTarget("fan");
       setMessageSend(template);
       setComposerActionKey(actionKey ?? null);
+      setDraftOffer(null);
+      setDraftSkipTranslate(false);
     },
     [id, setComposerActionKey, setComposerTarget, setMessageSend]
   );
@@ -4884,7 +5028,11 @@ const INTENT_BADGE_LABELS: Record<string, string> = {
     if (!preserveDraft) {
       setMessageSend("");
       setComposerActionKey(null);
+      setDraftOffer(null);
+      setDraftSkipTranslate(false);
     }
+    setUnlockedOfferIds(new Set());
+    setOfferOverlay(null);
     setInternalDraftInput("");
     setShowPackSelector(false);
     setOpenPanel("none");
@@ -5131,6 +5279,17 @@ const INTENT_BADGE_LABELS: Record<string, string> = {
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [managerPanelOpen, inlineAction, closeInlinePanel, clearInlineAction]);
+
+  useEffect(() => {
+    if (!offerOverlay) return;
+    const handleKeyDown = (event: globalThis.KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setOfferOverlay(null);
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [offerOverlay]);
 
   useEffect(() => {
     if (!managerPanelOpen) return;
@@ -5390,10 +5549,24 @@ const INTENT_BADGE_LABELS: Record<string, string> = {
     [setMessage]
   );
 
+  function extractOfferIdFromPurchase(detail: PurchaseCreatedPayload): string | null {
+    const candidates = [detail.clientTxnId, detail.purchaseId];
+    for (const candidate of candidates) {
+      if (typeof candidate !== "string") continue;
+      const match = candidate.match(/offer[:_-]([a-z0-9_-]+)/i);
+      if (match?.[1]) return match[1];
+    }
+    return null;
+  }
+
   const handlePurchaseCreated = useCallback(
     (detail: PurchaseCreatedPayload) => {
       if (!detail?.fanId || typeof detail.amountCents !== "number" || !detail.kind) return;
       if (conversation.isManager || detail.fanId !== id) return;
+      const offerId = extractOfferIdFromPurchase(detail);
+      if (offerId) {
+        unlockOfferId(offerId);
+      }
       const eventId = resolvePurchaseEventId(detail);
       showPurchaseNotice({
         count: 1,
@@ -5405,7 +5578,7 @@ const INTENT_BADGE_LABELS: Record<string, string> = {
         purchaseIds: eventId ? [eventId] : [],
       });
     },
-    [conversation.isManager, id, showPurchaseNotice]
+    [conversation.isManager, id, showPurchaseNotice, unlockOfferId]
   );
 
   useCreatorRealtime({
@@ -5681,6 +5854,8 @@ const INTENT_BADGE_LABELS: Record<string, string> = {
     if (Number.isNaN(parsed.getTime())) return "hace un momento";
     return formatDistanceToNow(parsed, { addSuffix: true, locale: es });
   })();
+  const offerOverlayStatus =
+    offerOverlay && unlockedOfferIds.has(offerOverlay.offer.id) ? "unlocked" : "locked";
   const voiceRecordingLabel = formatRecordingLabel(voiceRecordingMs);
   const openInternalPanel = useCallback(
     (
@@ -6820,6 +6995,61 @@ const INTENT_BADGE_LABELS: Record<string, string> = {
               </div>
               <div className="text-[10px] text-[color:var(--muted)]">
                 Se inserta en el mensaje; no se envía automáticamente.
+              </div>
+            </div>
+          )}
+          {!conversation.isManager && id && (
+            <div className="rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] p-3 space-y-2">
+              <div className="flex items-center justify-between gap-2 text-[10px] font-semibold text-[color:var(--muted)]">
+                <span>Proponer pack especial</span>
+                <div className="flex items-center gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (typeof window === "undefined") return;
+                      const text = buildPackSpecialOfferText(fanLanguage);
+                      window.dispatchEvent(
+                        new CustomEvent("novsy:composer-insert", {
+                          detail: { text, offer: PACK_SPECIAL_OFFER, skipTranslate: true },
+                        })
+                      );
+                    }}
+                    className={clsx(
+                      "rounded-full border px-2.5 py-0.5 text-[10px] font-semibold transition",
+                      quickActionDisabled
+                        ? "cursor-not-allowed border-[color:var(--surface-border)] bg-[color:var(--surface-1)] text-[color:var(--muted)]"
+                        : "border-[color:rgba(245,158,11,0.7)] bg-[color:rgba(245,158,11,0.08)] text-[color:var(--text)] hover:bg-[color:rgba(245,158,11,0.16)]"
+                    )}
+                    disabled={quickActionDisabled}
+                  >
+                    Insertar
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (typeof window === "undefined") return;
+                      const text = buildPackSpecialOfferText(fanLanguage);
+                      window.dispatchEvent(
+                        new CustomEvent("novsy:composer-send", {
+                          detail: { text, offer: PACK_SPECIAL_OFFER, skipTranslate: true },
+                        })
+                      );
+                    }}
+                    className={clsx(
+                      "rounded-full border px-2.5 py-0.5 text-[10px] font-semibold transition",
+                      quickActionDisabled
+                        ? "cursor-not-allowed border-[color:var(--surface-border)] bg-[color:var(--surface-1)] text-[color:var(--muted)]"
+                        : "border-[color:var(--brand)] bg-[color:rgba(var(--brand-rgb),0.18)] text-[color:var(--text)] hover:bg-[color:rgba(var(--brand-rgb),0.28)]"
+                    )}
+                    disabled={quickActionDisabled}
+                  >
+                    Enviar
+                  </button>
+                </div>
+              </div>
+              <div className="text-[11px] text-[color:var(--text)]">{buildPackSpecialOfferText(fanLanguage)}</div>
+              <div className="text-[10px] text-[color:var(--muted)]">
+                Se envía tal cual al fan (sin traducción).
               </div>
             </div>
           )}
@@ -10298,7 +10528,8 @@ const INTENT_BADGE_LABELS: Record<string, string> = {
     (candidate: string) => {
       const lastMessage = getLastCreatorMessage();
       if (!lastMessage?.message) return null;
-      const similarity = getNearDuplicateSimilarity(candidate, lastMessage.message);
+      const lastVisible = splitOffer(lastMessage.message).textVisible;
+      const similarity = getNearDuplicateSimilarity(candidate, lastVisible);
       if (similarity < DUPLICATE_SIMILARITY_THRESHOLD) return null;
       const lastTs = getMessageTimestamp(lastMessage);
       if (!lastTs) return null;
@@ -10572,11 +10803,18 @@ const INTENT_BADGE_LABELS: Record<string, string> = {
 
   async function sendFanMessage(
     text: string,
-    options?: { bypassDuplicateCheck?: boolean; skipTranslation?: boolean; fromComposer?: boolean }
+    options?: {
+      bypassDuplicateCheck?: boolean;
+      skipTranslation?: boolean;
+      fromComposer?: boolean;
+      offer?: OfferMeta | null;
+    }
   ) {
     if (isInternalPanelOpen) return false;
-    const raw = text.trim();
+    const { textVisible: rawVisible, offerMeta: embeddedOffer } = splitOffer(text);
+    const raw = rawVisible.trim();
     if (!raw) return false;
+    const resolvedOffer = options?.offer ?? embeddedOffer ?? null;
     let resolvedText = raw;
     let usedPendingTranslation = false;
     if (!options?.skipTranslation) {
@@ -10588,7 +10826,10 @@ const INTENT_BADGE_LABELS: Record<string, string> = {
         resolvedText = await translateOutgoingMessage(raw);
       }
     }
-    const trimmed = resolvedText.trim();
+    const visibleTrimmed = resolvedText.trim();
+    if (!visibleTrimmed) return false;
+    const finalText = attachOfferMarker(visibleTrimmed, resolvedOffer);
+    const trimmed = finalText.trim();
     if (!trimmed) return false;
     const currentActionKey = normalizeActionKey(composerActionKeyRef.current);
     const bypassWindowActive =
@@ -10597,15 +10838,15 @@ const INTENT_BADGE_LABELS: Record<string, string> = {
       duplicateBypassRef.current = null;
     }
     if (!options?.bypassDuplicateCheck && !bypassWindowActive) {
-      const storedDuplicate = getStoredDuplicateWarning(trimmed, currentActionKey);
+      const storedDuplicate = getStoredDuplicateWarning(visibleTrimmed, currentActionKey);
       if (storedDuplicate) {
-        setDuplicateConfirm({ candidate: trimmed, ...storedDuplicate });
+        setDuplicateConfirm({ candidate: visibleTrimmed, ...storedDuplicate });
         return false;
       }
-      const duplicate = getDuplicateWarning(trimmed);
+      const duplicate = getDuplicateWarning(visibleTrimmed);
       if (duplicate) {
         setDuplicateConfirm({
-          candidate: trimmed,
+          candidate: visibleTrimmed,
           reason: "similarity",
           lastSentPreview: duplicate.lastMessage,
           lastSentAt: getMessageTimestamp(getLastCreatorMessage()),
@@ -10620,8 +10861,8 @@ const INTENT_BADGE_LABELS: Record<string, string> = {
     if (isSendingRef.current) return false;
     isSendingRef.current = true;
     setIsSending(true);
-    const textHash = hashText(trimmed);
-    const preview = trimmed.slice(0, 140);
+    const textHash = hashText(visibleTrimmed);
+    const preview = visibleTrimmed.slice(0, 140);
     try {
       const ok = await sendMessageText(trimmed, "CREATOR", { actionKey: currentActionKey });
       if (ok && id) {
@@ -10642,7 +10883,7 @@ const INTENT_BADGE_LABELS: Record<string, string> = {
         emitFanMessageSent({
           fanId: id,
           actionKey: currentActionKey ?? undefined,
-          text: trimmed,
+          text: visibleTrimmed,
           kind: "text",
           sentAt: new Date().toISOString(),
           from: "creator",
@@ -10738,7 +10979,15 @@ const INTENT_BADGE_LABELS: Record<string, string> = {
       }, 700);
       return;
     }
-    const sentText = await sendFanMessage(trimmed, { fromComposer: true });
+    const sentText = await sendFanMessage(trimmed, {
+      fromComposer: true,
+      skipTranslation: draftSkipTranslate,
+      offer: draftOffer,
+    });
+    if (sentText) {
+      setDraftOffer(null);
+      setDraftSkipTranslate(false);
+    }
     if (!sentText && messagesError) {
       setComposerError(messagesError || "No se pudo enviar el mensaje.");
     }
@@ -10748,7 +10997,16 @@ const INTENT_BADGE_LABELS: Record<string, string> = {
     if (!duplicateConfirm?.candidate) return;
     const candidate = duplicateConfirm.candidate;
     setDuplicateConfirm(null);
-    await sendFanMessage(candidate, { bypassDuplicateCheck: true, fromComposer: true });
+    const ok = await sendFanMessage(candidate, {
+      bypassDuplicateCheck: true,
+      fromComposer: true,
+      skipTranslation: draftSkipTranslate,
+      offer: draftOffer,
+    });
+    if (ok) {
+      setDraftOffer(null);
+      setDraftSkipTranslate(false);
+    }
   }
 
   const buildDuplicateRephrasePrompt = (text: string) => {
@@ -13104,7 +13362,8 @@ const INTENT_BADGE_LABELS: Record<string, string> = {
               const messageKey = messageConversation.id ?? `temp-${index}`;
               const isTextMessage = messageConversation.kind === "text" || !messageConversation.kind;
               const messageText = message ?? "";
-              const hasMessageText = messageText.trim().length > 0;
+              const { textVisible: messageVisibleText } = splitOffer(messageText);
+              const hasMessageText = messageVisibleText.trim().length > 0;
               const translatedText = !me ? messageConversation.translatedText ?? undefined : undefined;
               const translationSourceLabel = formatTranslationLang(messageConversation.translationSourceLang, "?");
               const translationTargetLabel = formatTranslationLang(messageConversation.translationTargetLang, translateTargetLabel);
@@ -13156,7 +13415,7 @@ const INTENT_BADGE_LABELS: Record<string, string> = {
                     {
                       label: "Copiar",
                       onClick: () => {
-                        void handleMessageCopy(messageText);
+                        void handleMessageCopy(messageVisibleText);
                       },
                     },
                     ...(canTranslateText
@@ -13188,21 +13447,21 @@ const INTENT_BADGE_LABELS: Record<string, string> = {
                       label: "Citar al Manager",
                       disabled: !canUseManagerActions,
                       title: !canUseManagerActions ? "Necesitas un fan activo para usar el Manager." : undefined,
-                      onClick: () => handleMessageQuote(messageText),
+                      onClick: () => handleMessageQuote(messageVisibleText),
                     },
                     {
                       label: "Reformular",
                       disabled: !canUseManagerActions,
                       title: !canUseManagerActions ? "Necesitas un fan activo para usar el Manager." : undefined,
-                      onClick: () => handleMessageRephrase(messageText),
+                      onClick: () => handleMessageRephrase(messageVisibleText),
                     },
                     {
                       label: "Guardar en perfil",
-                      onClick: () => handleMessageSaveProfile(messageText),
+                      onClick: () => handleMessageSaveProfile(messageVisibleText),
                     },
                     {
                       label: "Crear seguimiento",
-                      onClick: () => handleMessageCreateFollowUp(messageText),
+                      onClick: () => handleMessageCreateFollowUp(messageVisibleText),
                     },
                   ]
                 : [];
@@ -13243,12 +13502,14 @@ const INTENT_BADGE_LABELS: Record<string, string> = {
                     }}
                     actionMenu={actionMenu}
                     actionMenuAlign={me ? "right" : "left"}
+                    unlockedOfferIds={unlockedOfferIds}
+                    onOfferClick={handleOfferClick}
                     onTouchLongPress={
                       canOpenActionSheet
                         ? () =>
                             openMessageActionSheet({
                               messageId: messageConversation.id ?? undefined,
-                              text: messageText,
+                              text: messageVisibleText,
                               canTranslate: canTranslateText,
                               canSuggestReply,
                               suggestTargetLang: suggestReplyTargetLang,
@@ -14024,6 +14285,76 @@ const INTENT_BADGE_LABELS: Record<string, string> = {
                 <span>Crear seguimiento</span>
               </button>
             </div>
+          </div>
+        </div>
+      )}
+      {offerOverlay && (
+        <div
+          className="fixed inset-0 z-[75] flex items-end justify-center bg-[color:var(--surface-overlay)] backdrop-blur-sm"
+          onClick={(event) => {
+            if (event.target === event.currentTarget) {
+              setOfferOverlay(null);
+            }
+          }}
+        >
+          <div
+            className="w-full max-w-md ui-overlay rounded-t-3xl rounded-b-none p-5 space-y-4"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="flex items-center justify-between gap-3">
+              <h2 className="text-sm font-semibold text-[color:var(--text)]">
+                {offerOverlayStatus === "locked" ? "Contenido bloqueado" : "Contenido desbloqueado"}
+              </h2>
+              <button
+                type="button"
+                onClick={() => setOfferOverlay(null)}
+                className="inline-flex items-center justify-center rounded-full p-1.5 hover:bg-[color:var(--surface-2)] text-[color:var(--text)]"
+              >
+                <span className="sr-only">Cerrar</span>
+                ✕
+              </button>
+            </div>
+            <div className="flex items-center gap-3">
+              {offerOverlay.offer.thumb ? (
+                <div className="relative h-14 w-14 overflow-hidden rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-2)]">
+                  <Image src={offerOverlay.offer.thumb} alt={offerOverlay.offer.title} fill sizes="56px" className="object-cover" />
+                </div>
+              ) : (
+                <div className="flex h-14 w-14 items-center justify-center rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] text-[16px]">
+                  {offerOverlayStatus === "locked" ? "🔒" : "✅"}
+                </div>
+              )}
+              <div className="min-w-0 flex-1">
+                <div className="text-[14px] font-semibold text-[color:var(--text)] truncate">{offerOverlay.offer.title}</div>
+                <div className="text-[12px] text-[color:var(--muted)]">{offerOverlay.offer.price}</div>
+              </div>
+              <span
+                className={clsx(
+                  "rounded-full border px-2 py-0.5 text-[9px] font-semibold uppercase tracking-wide",
+                  offerOverlayStatus === "locked"
+                    ? "border-[color:rgba(245,158,11,0.7)] bg-[color:rgba(245,158,11,0.12)] text-[color:var(--warning)]"
+                    : "border-[color:rgba(34,197,94,0.6)] bg-[color:rgba(34,197,94,0.14)] text-[color:rgb(22,163,74)]"
+                )}
+              >
+                {offerOverlayStatus === "locked" ? "Bloqueado" : "Desbloqueado"}
+              </span>
+            </div>
+            {offerOverlayStatus === "locked" ? (
+              <div className="space-y-2">
+                <button
+                  type="button"
+                  onClick={() => handleSimulatePurchase(offerOverlay.offer)}
+                  className="w-full rounded-full border border-[color:var(--brand)] bg-[color:rgba(var(--brand-rgb),0.18)] px-4 py-2 text-sm font-semibold text-[color:var(--text)] hover:bg-[color:rgba(var(--brand-rgb),0.28)]"
+                >
+                  Simular compra
+                </button>
+                <div className="text-[10px] text-[color:var(--muted)]">MVP sin pago real.</div>
+              </div>
+            ) : (
+              <div className="rounded-lg border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-3 py-2 text-[12px] text-[color:var(--text)]">
+                Viewer: {offerOverlay.offer.title}
+              </div>
+            )}
           </div>
         </div>
       )}
