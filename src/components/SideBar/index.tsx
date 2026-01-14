@@ -187,6 +187,121 @@ type FiltersDraft = {
   onlyNeedsReply: boolean;
   onlyAtRisk: boolean;
 };
+const FILTERS_STORAGE_KEY = "novsy:creator:sidebar_filters";
+const FILTERS_STORAGE_VERSION = 1;
+const HEAT_FILTER_VALUES = [ "all", "cold", "warm", "hot" ] as const;
+const INTENT_FILTER_VALUES = [
+  "all",
+  "BUY_NOW",
+  "PRICE_ASK",
+  "CONTENT_REQUEST",
+  "CUSTOM_REQUEST",
+  "SUBSCRIBE",
+  "CANCEL",
+  "OFF_PLATFORM",
+  "SUPPORT",
+  "OBJECTION",
+  "RUDE_OR_HARASS",
+  "OTHER",
+] as const;
+
+type HeatFilter = (typeof HEAT_FILTER_VALUES)[number];
+type IntentFilter = (typeof INTENT_FILTER_VALUES)[number];
+
+const INITIAL_FILTERS_DRAFT: FiltersDraft = {
+  listSegment: "all",
+  followUpMode: "all",
+  statusFilter: "active",
+  tierFilter: "all",
+  showOnlyWithNotes: false,
+  onlyWithExtras: false,
+  onlyWithFollowUp: false,
+  onlyNeedsReply: false,
+  onlyAtRisk: false,
+};
+
+const isHeatFilter = (value: unknown): value is HeatFilter =>
+  HEAT_FILTER_VALUES.includes(value as HeatFilter);
+const isIntentFilter = (value: unknown): value is IntentFilter =>
+  INTENT_FILTER_VALUES.includes(value as IntentFilter);
+const isListSegment = (value: unknown): value is FiltersDraft["listSegment"] =>
+  value === "all" || value === "queue";
+const isFollowUpMode = (value: unknown): value is FiltersDraft["followUpMode"] =>
+  value === "all" || value === "today" || value === "expired" || value === "priority";
+const isStatusFilter = (value: unknown): value is FiltersDraft["statusFilter"] =>
+  value === "active" || value === "archived" || value === "blocked";
+const isTierFilter = (value: unknown): value is FiltersDraft["tierFilter"] =>
+  value === "all" || value === "new" || value === "regular" || value === "vip";
+
+function buildDraftWithFilter(
+  base: FiltersDraft,
+  filter: FiltersDraft["followUpMode"],
+  onlyNotes = false,
+  tier: FiltersDraft["tierFilter"] = "all",
+  onlyFollowUp = false
+): FiltersDraft {
+  return {
+    ...base,
+    listSegment: "all",
+    statusFilter: "active",
+    followUpMode: filter,
+    showOnlyWithNotes: onlyNotes,
+    tierFilter: tier,
+    onlyWithFollowUp: onlyFollowUp,
+  };
+}
+
+function buildDraftWithFollowUpMode(
+  base: FiltersDraft,
+  mode: "today" | "expired" | "priority"
+): FiltersDraft {
+  const next = base.followUpMode === mode ? "all" : mode;
+  return {
+    ...base,
+    listSegment: "all",
+    statusFilter: "active",
+    followUpMode: next,
+    showOnlyWithNotes: false,
+    tierFilter: "all",
+    onlyWithFollowUp: false,
+  };
+}
+
+function buildDraftWithTierFilter(base: FiltersDraft, tier: "new" | "regular"): FiltersDraft {
+  const nextTier = base.tierFilter === tier ? "all" : tier;
+  return {
+    ...base,
+    listSegment: "all",
+    statusFilter: "active",
+    tierFilter: nextTier,
+    onlyWithFollowUp: false,
+  };
+}
+
+function buildDraftWithStatusFilter(
+  base: FiltersDraft,
+  next: FiltersDraft["statusFilter"]
+): FiltersDraft {
+  if (next === "active") {
+    return {
+      ...base,
+      listSegment: "all",
+      statusFilter: "active",
+    };
+  }
+  return {
+    ...base,
+    listSegment: "all",
+    statusFilter: next,
+    followUpMode: "all",
+    showOnlyWithNotes: false,
+    tierFilter: "all",
+    onlyWithFollowUp: false,
+    onlyWithExtras: false,
+    onlyNeedsReply: false,
+    onlyAtRisk: false,
+  };
+}
 
 function daysSince(dateStr: string | null | undefined): number | null {
   if (!dateStr) return null;
@@ -332,21 +447,8 @@ function SideBarInner() {
   const [ onlyWithExtras, setOnlyWithExtras ] = useState(false);
   const [ onlyNeedsReply, setOnlyNeedsReply ] = useState(false);
   const [ onlyAtRisk, setOnlyAtRisk ] = useState(false);
-  const [ heatFilter, setHeatFilter ] = useState<"all" | "cold" | "warm" | "hot">("all");
-  const [ intentFilter, setIntentFilter ] = useState<
-    | "all"
-    | "BUY_NOW"
-    | "PRICE_ASK"
-    | "CONTENT_REQUEST"
-    | "CUSTOM_REQUEST"
-    | "SUBSCRIBE"
-    | "CANCEL"
-    | "OFF_PLATFORM"
-    | "SUPPORT"
-    | "OBJECTION"
-    | "RUDE_OR_HARASS"
-    | "OTHER"
-  >("all");
+  const [ heatFilter, setHeatFilter ] = useState<HeatFilter>("all");
+  const [ intentFilter, setIntentFilter ] = useState<IntentFilter>("all");
   const [ showLegend, setShowLegend ] = useState(false);
   const [ showFiltersPanel, setShowFiltersPanel ] = useState(false);
   const [ showMoreSegments, setShowMoreSegments ] = useState(false);
@@ -371,17 +473,7 @@ function SideBarInner() {
   const [ extrasSummary, setExtrasSummary ] = useState<ExtrasSummary | null>(null);
   const [ extrasSummaryError, setExtrasSummaryError ] = useState<string | null>(null);
   const [ statusFilter, setStatusFilter ] = useState<"active" | "archived" | "blocked">("active");
-  const [ filtersDraft, setFiltersDraft ] = useState<FiltersDraft>({
-    listSegment: "all",
-    followUpMode: "all",
-    statusFilter: "active",
-    tierFilter: "all",
-    showOnlyWithNotes: false,
-    onlyWithExtras: false,
-    onlyWithFollowUp: false,
-    onlyNeedsReply: false,
-    onlyAtRisk: false,
-  });
+  const [ filtersDraft, setFiltersDraft ] = useState<FiltersDraft>(INITIAL_FILTERS_DRAFT);
   const [ isNewFanOpen, setIsNewFanOpen ] = useState(false);
   const [ newFanName, setNewFanName ] = useState("");
   const [ newFanNote, setNewFanNote ] = useState("");
@@ -1110,92 +1202,32 @@ function SideBarInner() {
       tier: "all" | "new" | "regular" | "vip" = "all",
       onlyFollowUp = false
     ) => {
-      setFiltersDraft((prev) => ({
-        ...prev,
-        listSegment: "all",
-        statusFilter: "active",
-        followUpMode: filter,
-        showOnlyWithNotes: onlyNotes,
-        tierFilter: tier,
-        onlyWithFollowUp: onlyFollowUp,
-      }));
-    },
-    []
-  );
-
-  const toggleDraftFollowUpMode = useCallback(
-    (mode: "today" | "expired" | "priority") => {
-      setFiltersDraft((prev) => {
-        const next = prev.followUpMode === mode ? "all" : mode;
-        return {
-          ...prev,
-          listSegment: "all",
-          statusFilter: "active",
-          followUpMode: next,
-          showOnlyWithNotes: false,
-          tierFilter: "all",
-          onlyWithFollowUp: false,
-        };
-      });
-    },
-    []
-  );
-
-  const toggleDraftTierFilter = useCallback(
-    (tier: "new" | "regular") => {
-      setFiltersDraft((prev) => {
-        const nextTier = prev.tierFilter === tier ? "all" : tier;
-        return {
-          ...prev,
-          listSegment: "all",
-          statusFilter: "active",
-          tierFilter: nextTier,
-          onlyWithFollowUp: false,
-        };
-      });
+      setFiltersDraft((prev) =>
+        buildDraftWithFilter(prev, filter, onlyNotes, tier, onlyFollowUp)
+      );
     },
     []
   );
 
   const selectDraftStatusFilter = useCallback((next: "active" | "archived" | "blocked") => {
-    setFiltersDraft((prev) => {
-      if (next === "active") {
-        return {
-          ...prev,
-          listSegment: "all",
-          statusFilter: "active",
-        };
-      }
-      return {
-        ...prev,
-        listSegment: "all",
-        statusFilter: next,
-        followUpMode: "all",
-        showOnlyWithNotes: false,
-        tierFilter: "all",
-        onlyWithFollowUp: false,
-        onlyWithExtras: false,
-        onlyNeedsReply: false,
-        onlyAtRisk: false,
-      };
-    });
+    setFiltersDraft((prev) => buildDraftWithStatusFilter(prev, next));
   }, []);
 
-  const applyFiltersDraft = useCallback(() => {
-    if (filtersDraft.statusFilter !== "active") {
-      selectStatusFilter(filtersDraft.statusFilter);
+  const applyDraftState = useCallback((draft: FiltersDraft) => {
+    if (draft.statusFilter !== "active") {
+      selectStatusFilter(draft.statusFilter);
     } else {
       applyFilter(
-        filtersDraft.followUpMode,
-        filtersDraft.showOnlyWithNotes,
-        filtersDraft.tierFilter,
-        filtersDraft.onlyWithFollowUp
+        draft.followUpMode,
+        draft.showOnlyWithNotes,
+        draft.tierFilter,
+        draft.onlyWithFollowUp
       );
-      setOnlyWithExtras(filtersDraft.onlyWithExtras);
-      setOnlyNeedsReply(filtersDraft.onlyNeedsReply);
-      setOnlyAtRisk(filtersDraft.onlyAtRisk);
+      setOnlyWithExtras(draft.onlyWithExtras);
+      setOnlyNeedsReply(draft.onlyNeedsReply);
+      setOnlyAtRisk(draft.onlyAtRisk);
     }
-    if (filtersDraft.listSegment === "queue") {
+    if (draft.listSegment === "queue") {
       setListSegment("queue");
       setActiveQueueFilter("ventas_hoy");
     } else {
@@ -1205,7 +1237,6 @@ function SideBarInner() {
     setShowFiltersPanel(false);
   }, [
     applyFilter,
-    filtersDraft,
     selectStatusFilter,
     setActiveQueueFilter,
     setListSegment,
@@ -1214,6 +1245,10 @@ function SideBarInner() {
     setOnlyWithExtras,
     setShowFiltersPanel,
   ]);
+
+  const applyFiltersDraft = useCallback(() => {
+    applyDraftState(filtersDraft);
+  }, [applyDraftState, filtersDraft]);
 
   const resetFilters = useCallback(() => {
     applyFilter("all", false, "all", false);
@@ -1602,6 +1637,8 @@ function SideBarInner() {
   const filtersPanelRef = useRef<HTMLDivElement | null>(null);
   const filtersButtonRef = useRef<HTMLButtonElement | null>(null);
   const filtersLastFocusRef = useRef<HTMLElement | null>(null);
+  const hasRestoredFiltersRef = useRef(false);
+  const skipPersistFiltersRef = useRef(false);
   const priorityQueue = useMemo(
     () => getPriorityQueue(fans as FanData[]),
     [fans, getPriorityQueue]
@@ -2168,6 +2205,108 @@ function SideBarInner() {
   );
 
   useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (hasRestoredFiltersRef.current) return;
+    try {
+      const raw = window.localStorage.getItem(FILTERS_STORAGE_KEY);
+      if (!raw) {
+        hasRestoredFiltersRef.current = true;
+        return;
+      }
+      const parsed = JSON.parse(raw) as Record<string, unknown> & { version?: number };
+      if (typeof parsed.version === "number" && parsed.version !== FILTERS_STORAGE_VERSION) {
+        hasRestoredFiltersRef.current = true;
+        return;
+      }
+      const nextDraft: FiltersDraft = {
+        ...INITIAL_FILTERS_DRAFT,
+        listSegment: isListSegment(parsed.listSegment) ? parsed.listSegment : INITIAL_FILTERS_DRAFT.listSegment,
+        followUpMode: isFollowUpMode(parsed.followUpMode) ? parsed.followUpMode : INITIAL_FILTERS_DRAFT.followUpMode,
+        statusFilter: isStatusFilter(parsed.statusFilter) ? parsed.statusFilter : INITIAL_FILTERS_DRAFT.statusFilter,
+        tierFilter: isTierFilter(parsed.tierFilter) ? parsed.tierFilter : INITIAL_FILTERS_DRAFT.tierFilter,
+        showOnlyWithNotes:
+          typeof parsed.showOnlyWithNotes === "boolean"
+            ? parsed.showOnlyWithNotes
+            : INITIAL_FILTERS_DRAFT.showOnlyWithNotes,
+        onlyWithExtras:
+          typeof parsed.onlyWithExtras === "boolean"
+            ? parsed.onlyWithExtras
+            : INITIAL_FILTERS_DRAFT.onlyWithExtras,
+        onlyWithFollowUp:
+          typeof parsed.onlyWithFollowUp === "boolean"
+            ? parsed.onlyWithFollowUp
+            : INITIAL_FILTERS_DRAFT.onlyWithFollowUp,
+        onlyNeedsReply:
+          typeof parsed.onlyNeedsReply === "boolean"
+            ? parsed.onlyNeedsReply
+            : INITIAL_FILTERS_DRAFT.onlyNeedsReply,
+        onlyAtRisk:
+          typeof parsed.onlyAtRisk === "boolean"
+            ? parsed.onlyAtRisk
+            : INITIAL_FILTERS_DRAFT.onlyAtRisk,
+      };
+      skipPersistFiltersRef.current = true;
+      applyDraftState(nextDraft);
+      if (isHeatFilter(parsed.heatFilter)) {
+        setHeatFilter(parsed.heatFilter);
+      }
+      if (isIntentFilter(parsed.intentFilter)) {
+        setIntentFilter(parsed.intentFilter);
+      }
+      if (typeof parsed.showEmptyFilters === "boolean") {
+        setShowEmptyFilters(parsed.showEmptyFilters);
+      }
+      if (typeof parsed.showMoreSegments === "boolean") {
+        setShowMoreSegments(parsed.showMoreSegments);
+      }
+    } catch (_err) {
+      // ignore invalid storage payloads
+    } finally {
+      hasRestoredFiltersRef.current = true;
+    }
+  }, [applyDraftState, setHeatFilter, setIntentFilter, setShowEmptyFilters, setShowMoreSegments]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (!hasRestoredFiltersRef.current) return;
+    if (skipPersistFiltersRef.current) {
+      skipPersistFiltersRef.current = false;
+      return;
+    }
+    const payload = {
+      version: FILTERS_STORAGE_VERSION,
+      listSegment,
+      followUpMode,
+      statusFilter,
+      tierFilter,
+      showOnlyWithNotes,
+      onlyWithExtras,
+      onlyWithFollowUp,
+      onlyNeedsReply,
+      onlyAtRisk,
+      heatFilter,
+      intentFilter,
+      showEmptyFilters,
+      showMoreSegments,
+    };
+    window.localStorage.setItem(FILTERS_STORAGE_KEY, JSON.stringify(payload));
+  }, [
+    followUpMode,
+    heatFilter,
+    intentFilter,
+    listSegment,
+    onlyAtRisk,
+    onlyNeedsReply,
+    onlyWithExtras,
+    onlyWithFollowUp,
+    showEmptyFilters,
+    showMoreSegments,
+    showOnlyWithNotes,
+    statusFilter,
+    tierFilter,
+  ]);
+
+  useEffect(() => {
     function handleFanDataUpdated(event: Event) {
       const custom = event as CustomEvent;
       const rawFans = Array.isArray(custom.detail?.fans) ? (custom.detail.fans as Fan[]) : null;
@@ -2357,7 +2496,6 @@ function SideBarInner() {
   useEffect(() => {
     if (!showFiltersPanel) return;
     setFiltersDraft(getFilterSnapshot());
-    setShowMoreSegments(false);
   }, [getFilterSnapshot, showFiltersPanel]);
 
   useEffect(() => {
@@ -3045,7 +3183,10 @@ function SideBarInner() {
                             {shouldShowFilterRow(totalCount, isDraftTodos) && (
                               <button
                                 type="button"
-                                onClick={() => applyDraftFilter("all", false)}
+                                onClick={() => {
+                                  const base = getFilterSnapshot();
+                                  applyDraftState(buildDraftWithFilter(base, "all", false));
+                                }}
                                 className={clsx(filterRowClass, "w-full")}
                               >
                                 <span className={clsx(isDraftTodos && "font-semibold text-[color:var(--warning)]")}>
@@ -3065,7 +3206,10 @@ function SideBarInner() {
                             {shouldShowFilterRow(queueCount, isDraftQueue) && (
                               <button
                                 type="button"
-                                onClick={() => setFiltersDraft((prev) => ({ ...prev, listSegment: "queue" }))}
+                                onClick={() => {
+                                  const base = getFilterSnapshot();
+                                  applyDraftState({ ...base, listSegment: "queue" });
+                                }}
                                 className={clsx(filterRowClass, "w-full")}
                               >
                                 <span className={clsx(isDraftQueue && "font-semibold text-[color:var(--warning)]")}>
@@ -3085,7 +3229,10 @@ function SideBarInner() {
                             {shouldShowFilterRow(followUpTodayCount, isDraftToday) && (
                               <button
                                 type="button"
-                                onClick={() => toggleDraftFollowUpMode("today")}
+                                onClick={() => {
+                                  const base = getFilterSnapshot();
+                                  applyDraftState(buildDraftWithFollowUpMode(base, "today"));
+                                }}
                                 className={clsx(filterRowClass, "w-full")}
                               >
                                 <span className={clsx(isDraftToday && "font-semibold text-[color:var(--warning)]")}>
@@ -3113,7 +3260,10 @@ function SideBarInner() {
                             {shouldShowFilterRow(expiredCount, isDraftExpired) && (
                               <button
                                 type="button"
-                                onClick={() => toggleDraftFollowUpMode("expired")}
+                                onClick={() => {
+                                  const base = getFilterSnapshot();
+                                  applyDraftState(buildDraftWithFollowUpMode(base, "expired"));
+                                }}
                                 className={clsx(filterRowClass, "w-full")}
                               >
                                 <span className={clsx(isDraftExpired && "font-semibold text-[color:var(--warning)]")}>Caducados</span>
@@ -3131,7 +3281,10 @@ function SideBarInner() {
                             {shouldShowFilterRow(priorityCount, isDraftPriority) && (
                               <button
                                 type="button"
-                                onClick={() => toggleDraftFollowUpMode("priority")}
+                                onClick={() => {
+                                  const base = getFilterSnapshot();
+                                  applyDraftState(buildDraftWithFollowUpMode(base, "priority"));
+                                }}
                                 className={clsx(filterRowClass, "w-full")}
                               >
                                 <span className={clsx(isDraftPriority && "font-semibold text-[color:var(--warning)]")}>
@@ -3160,7 +3313,10 @@ function SideBarInner() {
                             {shouldShowFilterRow(newCount, isDraftNew) && (
                               <button
                                 type="button"
-                                onClick={() => toggleDraftTierFilter("new")}
+                                onClick={() => {
+                                  const base = getFilterSnapshot();
+                                  applyDraftState(buildDraftWithTierFilter(base, "new"));
+                                }}
                                 className={clsx(filterRowClass, "w-full")}
                               >
                                 <span className={clsx(isDraftNew && "font-semibold text-[color:var(--warning)]")}>Nuevos</span>
@@ -3178,7 +3334,10 @@ function SideBarInner() {
                             {shouldShowFilterRow(regularCount, isDraftRegular) && (
                               <button
                                 type="button"
-                                onClick={() => toggleDraftTierFilter("regular")}
+                                onClick={() => {
+                                  const base = getFilterSnapshot();
+                                  applyDraftState(buildDraftWithTierFilter(base, "regular"));
+                                }}
                                 className={clsx(filterRowClass, "w-full")}
                               >
                                 <span className={clsx(isDraftRegular && "font-semibold text-[color:var(--warning)]")}>Habituales</span>
