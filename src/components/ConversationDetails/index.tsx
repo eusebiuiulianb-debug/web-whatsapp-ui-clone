@@ -2990,7 +2990,7 @@ const INTENT_BADGE_LABELS: Record<string, string> = {
         const input = messageInputRef.current;
         if (!input) return;
         input.focus();
-        const len = detail.text.length;
+        const len = input.value.length;
         input.setSelectionRange(len, len);
         autoGrowTextarea(input, MAX_MAIN_COMPOSER_HEIGHT);
       });
@@ -14329,7 +14329,13 @@ const INTENT_BADGE_LABELS: Record<string, string> = {
             <div className="flex items-center gap-3">
               {offerOverlay.offer.thumb ? (
                 <div className="relative h-14 w-14 overflow-hidden rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-2)]">
-                  <Image src={offerOverlay.offer.thumb} alt={offerOverlay.offer.title} fill sizes="56px" className="object-cover" />
+                  <Image
+                    src={offerOverlay.offer.thumb}
+                    alt={offerOverlay.offer.title}
+                    width={56}
+                    height={56}
+                    className="h-14 w-14 object-cover"
+                  />
                 </div>
               ) : (
                 <div className="flex h-14 w-14 items-center justify-center rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] text-[16px]">

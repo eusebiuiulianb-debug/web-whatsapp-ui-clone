@@ -80,7 +80,7 @@ const LockedContentCard = ({
       <div className="flex items-center gap-3">
         {thumb ? (
           <div className="relative h-11 w-11 overflow-hidden rounded-lg border border-[color:var(--surface-border)] bg-[color:var(--surface-2)]">
-            <Image src={thumb} alt={title} fill sizes="44px" className="object-cover" />
+            <Image src={thumb} alt={title} width={44} height={44} className="h-11 w-11 object-cover" />
           </div>
         ) : (
           <div className="flex h-11 w-11 items-center justify-center rounded-lg border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] text-[13px]">
