@@ -22,6 +22,7 @@ import { buildDemoManagerReply, type ManagerDemoReply } from "../../../../lib/ai
 import { registerAiUsage } from "../../../../lib/ai/registerAiUsage";
 import { logCortexLlmUsage } from "../../../../lib/aiUsage.server";
 import { getCortexProviderSelection, requestCortexCompletion } from "../../../../lib/ai/cortexProvider";
+import { getEffectiveTranslateConfig } from "../../../../lib/ai/translateProvider";
 import { buildOllamaOpenAiRequest } from "../../../../lib/ai/providers/ollama";
 import { sanitizeForOpenAi } from "../../../../server/ai/sanitizeForOpenAi";
 import { toSafeErrorMessage } from "../../../../server/ai/openAiError";
@@ -951,6 +952,8 @@ export default async function handler(
     const growthAction = actionLabel && actionLabel.startsWith("growth_") ? actionLabel : null;
 
     const context = await buildManagerContext(creatorId);
+    const translateConfig = await getEffectiveTranslateConfig(creatorId);
+    const creatorLang = translateConfig.creatorLang ?? "es";
     const safeContext = sanitizeForOpenAi(context, { creatorId }) as any;
 
     await logMessage({
@@ -1085,11 +1088,12 @@ export default async function handler(
             context: safeContext,
             metrics: incomingMessage,
             action: growthAction as any,
+            language: creatorLang,
           });
           return { systemPrompt: prompts.system, userPrompt: prompts.user };
         })()
       : {
-          systemPrompt: buildManagerSystemPrompt(tabToString(tab), safeContext.settings, action),
+          systemPrompt: buildManagerSystemPrompt(tabToString(tab), safeContext.settings, action, creatorLang),
           userPrompt: buildManagerUserPrompt(safeContext, incomingMessage, action),
         };
 

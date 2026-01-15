@@ -1,9 +1,9 @@
 import type { NextApiRequest, NextApiResponse } from "next";
 import { ANALYTICS_EVENTS, type AnalyticsEventName } from "../../../lib/analyticsEvents";
 import { ensureAnalyticsCookie, readAnalyticsCookie } from "../../../lib/analyticsCookie";
-import { inferLocale, inferPreferredLanguage, normalizePreferredLanguage } from "../../../lib/language";
+import { inferLocale, inferPreferredLanguage, normalizePreferredLanguage, normalizeTranslationLanguage } from "../../../lib/language";
 import { getDbSchemaOutOfSyncPayload, isDbSchemaOutOfSyncError } from "../../../lib/dbSchemaGuard";
-import { translateText } from "../../../server/ai/translateText";
+import { getEffectiveTranslateConfig, translateText } from "../../../lib/ai/translateProvider";
 
 type Body = {
   handle?: string;
@@ -144,10 +144,23 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       isNewFan = true;
     }
 
-    const creatorTranslatedText =
-      preferredLanguage !== "es"
-        ? await translateText({ text: message, targetLanguage: "es", creatorId: match.id, fanId })
-        : null;
+    let creatorTranslatedText: string | null = null;
+    const translateConfig = await getEffectiveTranslateConfig(match.id);
+    const creatorLang = normalizeTranslationLanguage(translateConfig.creatorLang ?? "es") ?? "es";
+    if (translateConfig.configured && message.trim()) {
+      try {
+        const result = await translateText({
+          text: message,
+          targetLang: creatorLang,
+          creatorId: match.id,
+          fanId,
+          configOverride: translateConfig,
+        });
+        creatorTranslatedText = result.translatedText;
+      } catch (err) {
+        console.warn("public fan-entry translation failed", err);
+      }
+    }
 
     await prisma.message.create({
       data: {

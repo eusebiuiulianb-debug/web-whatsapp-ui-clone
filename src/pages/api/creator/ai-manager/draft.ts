@@ -13,6 +13,7 @@ import {
   normalizePreferredLanguage,
   type SupportedLanguage,
 } from "../../../../lib/language";
+import { getEffectiveTranslateConfig } from "../../../../lib/ai/translateProvider";
 import { normalizeObjectiveCode } from "../../../../lib/agency/objectives";
 import { sanitizeAiDraftText } from "../../../../lib/text/sanitizeAiDraft";
 import { isTooSimilarDraft } from "../../../../lib/text/isTooSimilarDraft";
@@ -198,11 +199,14 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
   const maxTokens = MAX_TOKENS_BY_LENGTH[outputLength];
   const baseTemperature = 0.85;
 
+  const translateConfig = await getEffectiveTranslateConfig(creatorId);
+  const creatorLang = normalizePreferredLanguage(translateConfig.creatorLang ?? "es") ?? "es";
   const resolvedFanLanguage = await resolveFanLanguage({
     fanId: fan.id,
     preferredLanguage: fan.preferredLanguage,
   });
-  let fanLanguage = normalizePreferredLanguage(targetLanguage ?? null) ?? resolvedFanLanguage.language;
+  const fanLanguage = resolvedFanLanguage.language;
+  const outputLanguage = normalizePreferredLanguage(targetLanguage ?? null) ?? creatorLang;
   const shouldUpdatePreferredLanguage = resolvedFanLanguage.shouldUpdatePreferredLanguage;
   if (shouldUpdatePreferredLanguage) {
     try {
@@ -262,7 +266,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
   const objectiveMeta = await resolveObjectiveMeta({
     creatorId,
     objectiveKey,
-    locale: fanLanguage,
+    locale: outputLanguage,
   });
   const style = await resolveStyleGuide({
     creatorId,
@@ -272,7 +276,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
     intensity: agencyMeta?.intensity ?? null,
     stage: agencyMeta?.stage ?? null,
     tone,
-    locale: fanLanguage,
+    locale: outputLanguage,
   });
 
   const historyKey = buildDraftHistoryKey({ creatorId, fanId: fan.id, actionKey, objectiveKey });
@@ -288,7 +292,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
   const avoidCandidates = [
     ...normalizedAvoid,
     ...historyAvoid,
-    ...resolveGenericOpeners(fanLanguage, MAX_AVOID_ENTRIES),
+    ...resolveGenericOpeners(outputLanguage, MAX_AVOID_ENTRIES),
     ...lastDraftHashes,
   ]
     .filter(Boolean)
@@ -300,13 +304,13 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
   const strategySeed = `${creatorId}:${fan.id}:${seedActionKey}:${tone}:${outputLength}:${variationValue}:${todayKey}`;
   const angles = resolveAnglesForObjective();
   let strategyIndex = hashToInt(strategySeed) % angles.length;
-  const openers = resolveOpenersForLanguage(fanLanguage);
+  const openers = resolveOpenersForLanguage(outputLanguage);
   const opener = openers[hashToInt(`${strategySeed}:opener`)% openers.length];
   const structure = STRUCTURES[hashToInt(`${strategySeed}:struct`)% STRUCTURES.length];
   const rewriteMode = rawRewriteMode ?? null;
   const offerHint = await resolveOfferHint(creatorId);
   const systemPrompt = buildDraftSystemPrompt({
-    language: fanLanguage,
+    language: outputLanguage,
     tone,
     directness,
     outputLength,
@@ -392,7 +396,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
       angle: usedAngle,
       avoid: avoidCandidates,
       rewriteMode,
-      targetLanguage: fanLanguage,
+      targetLanguage: outputLanguage,
       opener,
       structure,
     });
@@ -505,7 +509,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
   return res.status(200).json({
     ok: true,
     draft: draftText,
-    language: fanLanguage,
+    language: outputLanguage,
     objective: objectiveMeta.label ?? null,
     styleKey: style.styleKey ?? null,
   });

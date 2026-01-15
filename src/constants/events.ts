@@ -6,3 +6,4 @@ export const PURCHASE_SEEN_EVENT = "novsy:purchaseSeen";
 export const CREATOR_DATA_CHANGED_EVENT = "novsy:creatorDataChanged";
 export const VOICE_TRANSCRIPT_UPDATED_EVENT = "novsy:voiceTranscriptUpdated";
 export const VOICE_TRANSCRIPTION_BUDGET_EVENT = "novsy:voiceTranscriptBudgetPaused";
+export const TYPING_EVENT = "novsy:typing";

@@ -30,15 +30,21 @@ export function normalizeManagerAction(value: string | null | undefined): Manage
   return map[normalized] ?? null;
 }
 
-export function buildManagerSystemPrompt(tab: ManagerTab, settings: CreatorAiSettings, action?: ManagerStrategyAction | null) {
+export function buildManagerSystemPrompt(
+  tab: ManagerTab,
+  settings: CreatorAiSettings,
+  action?: ManagerStrategyAction | null,
+  language: string = "es"
+) {
   const tone = settings?.tone ?? "cercano";
   const turnMode = settings?.turnMode ?? "auto";
+  const responseLanguage = language || "es";
 
   if (tab === "STRATEGY") {
     const requestedAction = action ? action : "LIBRE";
     return [
       "Eres el Manager IA de NOVSY en el PANEL DEL CREADOR.",
-      "Hablas solo con el creador (nunca con fans) en español, tono directo y accionable.",
+      `Hablas solo con el creador (nunca con fans). Responde SOLO en ${responseLanguage}, tono directo y accionable.`,
       `Tono base del creador: ${tone}. Modo de turno: ${turnMode}.`,
       `Acción solicitada ahora: ${requestedAction}. Si no hay acción clara, elige la que más impacto tenga hoy.`,
       "Tu trabajo es priorizar a quién escribir y con qué enfoque, sin redactar mensajes para copiar/pegar.",
@@ -98,7 +104,8 @@ export function buildManagerSystemPrompt(tab: ManagerTab, settings: CreatorAiSet
   if (tab === "GROWTH") {
     return [
       "Eres el Manager IA de NOVSY especializado en CRECIMIENTO para redes (YouTube, TikTok, Instagram).",
-      "Hablas solo con el creador, nunca con fans. Responde en texto plano, estructurado y accionable.",
+      `Hablas solo con el creador, nunca con fans. Responde SOLO en ${responseLanguage}.`,
+      "Responde en texto plano, estructurado y accionable.",
       `Tono base del creador: ${tone}.`,
       "Tu trabajo: leer métricas pegadas o peticiones de crecimiento y devolver diagnóstico + acciones claras para 7 días.",
       "Siempre termina con 3 movimientos concretos. Si faltan datos, pídelo en 1 línea y propone un plan basado en supuestos.",
@@ -108,7 +115,7 @@ export function buildManagerSystemPrompt(tab: ManagerTab, settings: CreatorAiSet
 
   const base = [
     "Eres el Manager IA de NOVSY para un creador. Solo hablas con el creador (nunca con fans).",
-    "Habla en español, directo y accionable. Respeta el tono configurado por el creador.",
+    `Responde SOLO en ${responseLanguage}, directo y accionable. Respeta el tono configurado por el creador.`,
     `Tono base del creador: ${tone}. Modo de turno: ${turnMode}.`,
     "Responde SIEMPRE en JSON válido (un único objeto). No añadas texto fuera del JSON.",
     `Formato de respuesta: {"mode":"CONTENT","text":string,"dailyScripts":Array<{title:string,idea:string}>,"packIdeas":Array<{name:string,why:string}>,"meta":object}`,
@@ -158,8 +165,10 @@ export function buildGrowthPrompts(args: {
   context: any;
   metrics: string;
   action?: ManagerGrowthAction | null;
+  language?: string | null;
 }) {
   const { context, metrics, action } = args;
+  const responseLanguage = args.language || "es";
   const actionLabel =
     action === "growth_3_moves"
       ? "Tres movimientos para crecer en 7 días."
@@ -186,7 +195,8 @@ export function buildGrowthPrompts(args: {
   const system = [
     "Eres el Manager IA de NOVSY especializado en CRECIMIENTO.",
     "Analiza métricas de redes (YouTube, TikTok, Instagram) y propone acciones concretas para 7 días.",
-    "Hablas con el creador, tono directo y accionable. No inventes datos; si faltan, acláralo y usa supuestos prudentes.",
+    `Hablas con el creador. Responde SOLO en ${responseLanguage}, tono directo y accionable.`,
+    "No inventes datos; si faltan, acláralo y usa supuestos prudentes.",
     "Estructura siempre:",
     "1) Resumen: 1 frase con diagnóstico.",
     "2) Acciones (3 bullets cortos y claros).",

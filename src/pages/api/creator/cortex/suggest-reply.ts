@@ -308,7 +308,6 @@ async function handleMessageSuggestReply(
   res: NextApiResponse<SuggestReplyResponse | SuggestReplyErrorResponse>,
   messageId: string
 ): Promise<void> {
-  const targetLangRaw = normalizeOptional(req.body?.targetLang);
   const maxContextMessages = normalizeMaxContextMessages(req.body?.maxContextMessages);
 
   const message = await prisma.message.findUnique({
@@ -321,12 +320,8 @@ async function handleMessageSuggestReply(
       type: true,
       transcriptText: true,
       transcriptStatus: true,
+      creatorTranslatedText: true,
       fan: { select: { id: true, creatorId: true, preferredLanguage: true } },
-      messageTranslations: {
-        select: { detectedSourceLang: true },
-        orderBy: { createdAt: "desc" },
-        take: 1,
-      },
     },
   });
 
@@ -341,14 +336,9 @@ async function handleMessageSuggestReply(
     return;
   }
 
-  const detectedSourceLang = normalizeOptional(message.messageTranslations?.[0]?.detectedSourceLang);
-  const resolvedTargetLang =
-    normalizeTargetLang(
-      targetLangRaw ??
-        normalizeOptional(message.fan.preferredLanguage) ??
-        detectedSourceLang ??
-        "en"
-    ) ?? "en";
+  const translateConfig = await getEffectiveTranslateConfig(creatorId);
+  const creatorLang = normalizeTargetLang(translateConfig.creatorLang ?? "es") ?? "es";
+  const resolvedTargetLang = creatorLang;
 
   const creatorSettings =
     (await prisma.creatorAiSettings.findUnique({ where: { creatorId } })) ??
@@ -358,9 +348,13 @@ async function handleMessageSuggestReply(
   const allowExplicitAdultContent = Boolean(creatorSettings.allowExplicitAdultContent);
 
   const selectedMessageText = resolveCortexMessageContent(message) ?? "";
+  const selectedMessageForPrompt =
+    message.from === "fan" && typeof message.creatorTranslatedText === "string" && message.creatorTranslatedText.trim()
+      ? message.creatorTranslatedText
+      : selectedMessageText;
   const contextMessages = await loadContextMessages(message.fanId, maxContextMessages);
   const systemPrompt = buildCortexSuggestSystemPrompt(resolvedTargetLang, allowExplicitAdultContent);
-  const userPrompt = buildCortexSuggestUserPrompt(selectedMessageText);
+  const userPrompt = buildCortexSuggestUserPrompt(selectedMessageForPrompt);
   const selection = await getCortexProviderSelection({ creatorId });
   const policyDecision = evaluateAdultPolicy({
     text: selectedMessageText,
@@ -585,6 +579,7 @@ async function loadContextMessages(fanId: string, limit: number): Promise<Cortex
       type: true,
       transcriptText: true,
       transcriptStatus: true,
+      creatorTranslatedText: true,
     },
   });
 
@@ -592,9 +587,13 @@ async function loadContextMessages(fanId: string, limit: number): Promise<Cortex
     .map((msg) => {
       const content = resolveCortexMessageContent(msg);
       if (!content) return null;
+      const creatorViewText =
+        msg.from === "fan" && typeof msg.creatorTranslatedText === "string" && msg.creatorTranslatedText.trim()
+          ? msg.creatorTranslatedText
+          : content;
       return {
         role: msg.from === "creator" ? "assistant" : "user",
-        content: truncate(content, MAX_MESSAGE_CHARS),
+        content: truncate(creatorViewText, MAX_MESSAGE_CHARS),
       };
     })
     .filter((msg): msg is CortexChatMessage => Boolean(msg && msg.content))
@@ -664,11 +663,16 @@ async function loadRecentMessages(fanId: string) {
       if (!baseText) return null;
       const translation = normalizeOptional(msg.creatorTranslatedText) ?? null;
       const delivered = normalizeOptional(msg.deliveredText) ?? null;
-      const content = translation && translation !== baseText ? `${baseText} (traducción: ${translation})` : baseText;
-      const finalText = delivered && delivered !== baseText ? `${content} (entregado: ${delivered})` : content;
+      let content = baseText;
+      if (msg.from === "fan" && translation) {
+        content = translation !== baseText ? `${translation} (original: ${baseText})` : translation;
+      }
+      if (msg.from === "creator" && delivered && delivered !== baseText) {
+        content = `${content} (enviado: ${delivered})`;
+      }
       return {
         role: msg.from === "creator" ? "CREATOR" : "FAN",
-        text: truncate(finalText, MAX_MESSAGE_CHARS),
+        text: truncate(content, MAX_MESSAGE_CHARS),
       };
     })
     .filter((msg): msg is { role: string; text: string } => Boolean(msg && msg.text))
@@ -722,8 +726,8 @@ function buildSystemPrompt(args: {
   return [
     "Eres el Manager IA de NOVSY. Respondes con una sugerencia para escribir al fan.",
     "Devuelve SIEMPRE un JSON válido (un único objeto). No agregues texto fuera del JSON.",
-    `Idioma objetivo del creador: ${args.creatorLang}.`,
-    `Idioma del fan: ${args.fanLanguage}. Responde SOLO en ${args.fanLanguage}. No incluyas traducciones ni otro idioma.`,
+    `Idioma objetivo del creador: ${args.creatorLang}. Responde SOLO en ${args.creatorLang}.`,
+    `Idioma del fan: ${args.fanLanguage}. La traducción al fan se hace al enviar; no respondas en ${args.fanLanguage}.`,
     `Modo solicitado: ${args.mode}.`,
     `Tono base: ${tone}. Picante ${spiciness}/3. Formalidad ${formality}/3. Emojis ${emojiUsage}/3.`,
     explicitRule,

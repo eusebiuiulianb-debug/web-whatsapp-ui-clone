@@ -75,6 +75,8 @@ const buildDraftMetaLine = (meta?: DraftMeta | null) => {
   return `Usando: ${segments.join(" · ")}`;
 };
 
+const QUICK_OFFER_TRANSLATE_STORAGE_KEY = "novsy.quick-offers.auto-translate";
+
 type PpvOffer = {
   contentId?: string;
   title?: string;
@@ -254,6 +256,7 @@ export default function FanManagerDrawer({
   const [simpleOfferDraft, setSimpleOfferDraft] = useState<{ text: string; offer: Offer } | null>(null);
   const [simpleOfferError, setSimpleOfferError] = useState<string | null>(null);
   const [simpleOfferLoading, setSimpleOfferLoading] = useState(false);
+  const [autoTranslateQuickOffers, setAutoTranslateQuickOffers] = useState(true);
   const isSimpleMode = managerIaMode === "simple";
   const draftSectionRef = useRef<HTMLDivElement | null>(null);
   const prevDraftCountRef = useRef(0);
@@ -309,13 +312,15 @@ export default function FanManagerDrawer({
     setSimpleOfferError(null);
   };
 
-  const emitQuickOffer = (draft: OfferDraft, action: "insert" | "send") => {
+  const emitQuickOffer = async (draft: OfferDraft, action: "insert" | "send") => {
     if (typeof window === "undefined") return;
-    if (!draft.message.trim()) return;
+    const baseText = draft.message.trim();
+    if (!baseText) return;
+    const skipTranslate = !autoTranslateQuickOffers;
     const eventName = action === "send" ? "novsy:composer-send" : "novsy:composer-insert";
     window.dispatchEvent(
       new CustomEvent(eventName, {
-        detail: { text: draft.message, offer: draft.offerMeta, skipTranslate: true },
+        detail: { text: baseText, offer: draft.offerMeta, skipTranslate },
       })
     );
   };
@@ -392,6 +397,24 @@ export default function FanManagerDrawer({
       <span>{isSimpleMode ? "Pensando..." : "Generando..."}</span>
     </span>
   );
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const stored = window.localStorage.getItem(QUICK_OFFER_TRANSLATE_STORAGE_KEY);
+    if (stored === "0") {
+      setAutoTranslateQuickOffers(false);
+    } else if (stored === "1") {
+      setAutoTranslateQuickOffers(true);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    window.localStorage.setItem(
+      QUICK_OFFER_TRANSLATE_STORAGE_KEY,
+      autoTranslateQuickOffers ? "1" : "0"
+    );
+  }, [autoTranslateQuickOffers]);
 
   useEffect(() => {
     const count = draftCards?.length ?? 0;
@@ -885,6 +908,15 @@ export default function FanManagerDrawer({
               </button>
             )}
           </div>
+          <label className="flex items-center justify-between gap-3 rounded-lg border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-3 py-2 text-[11px] text-[color:var(--text)]">
+            <span>Enviar en idioma del fan</span>
+            <input
+              type="checkbox"
+              checked={autoTranslateQuickOffers}
+              onChange={(event) => setAutoTranslateQuickOffers(event.target.checked)}
+              className="h-4 w-4 accent-[color:var(--brand)]"
+            />
+          </label>
           <div className="flex flex-col gap-2">
             {quickOffers.map((draft) => (
               <div
@@ -896,6 +928,11 @@ export default function FanManagerDrawer({
                   {draft.price ? <span className="text-[10px] text-[color:var(--muted)]">{draft.price}</span> : null}
                 </div>
                 <div className="text-[11px] text-[color:var(--muted)]">{draft.message}</div>
+                {autoTranslateQuickOffers && (
+                  <div className="text-[10px] text-[color:var(--muted)]">
+                    Se enviará en: {fanLanguageLabel ?? "—"}
+                  </div>
+                )}
                 <div className="flex flex-wrap items-center gap-2">
                   <button
                     type="button"
