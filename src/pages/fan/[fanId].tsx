@@ -177,6 +177,7 @@ export function FanChatPage({
     lastStartAt: 0,
   });
   const typingStopTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const lastCreatorMessageIdRef = useRef<string | null>(null);
   const [actionMenuOpen, setActionMenuOpen] = useState(false);
   const [contentSheetOpen, setContentSheetOpen] = useState(false);
   const [contentSheetTab, setContentSheetTab] = useState<"content" | "packs">("content");
@@ -503,6 +504,7 @@ export function FanChatPage({
 
   useEffect(() => {
     setCreatorTyping({ isTyping: false, ts: 0 });
+    lastCreatorMessageIdRef.current = null;
     if (!fanId || typeof EventSource === "undefined") return;
     const source = new EventSource(`/api/realtime/stream?fanId=${encodeURIComponent(fanId)}`);
     const handleTyping = (event: Event) => {
@@ -550,6 +552,16 @@ export function FanChatPage({
     }, waitMs);
     return () => window.clearTimeout(timer);
   }, [creatorTyping.isTyping, creatorTyping.ts]);
+
+  useEffect(() => {
+    const latestCreatorMessage = [...messages]
+      .reverse()
+      .find((msg) => msg.from === "creator");
+    const latestId = latestCreatorMessage?.id ?? null;
+    if (!latestId || latestId === lastCreatorMessageIdRef.current) return;
+    lastCreatorMessageIdRef.current = latestId;
+    setCreatorTyping((prev) => (prev.isTyping ? { ...prev, isTyping: false } : prev));
+  }, [messages]);
 
   const sendFanMessage = useCallback(
     async (text: string) => {
@@ -1516,22 +1528,22 @@ export function FanChatPage({
                 </div>
               )}
               {creatorTyping.isTyping && (
-                <div className="mb-2 flex items-center gap-1 text-[11px] text-[color:var(--muted)]">
-                  <span>{creatorFirstName} está escribiendo</span>
-                  <span className="inline-flex items-center gap-1" aria-hidden="true">
+                <div className="mb-2 flex">
+                  <div className="inline-flex items-center gap-1.5 rounded-2xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-3 py-1.5 text-[11px] text-[color:var(--muted)] shadow-[0_1px_0_rgba(0,0,0,0.12)]">
+                    <span className="sr-only">{`${creatorFirstName} está escribiendo`}</span>
                     <span
-                      className="h-1 w-1 animate-bounce rounded-full bg-[color:var(--muted)]"
+                      className="h-1.5 w-1.5 animate-bounce rounded-full bg-[color:var(--muted)]"
                       style={{ animationDelay: "0ms" }}
                     />
                     <span
-                      className="h-1 w-1 animate-bounce rounded-full bg-[color:var(--muted)]"
+                      className="h-1.5 w-1.5 animate-bounce rounded-full bg-[color:var(--muted)]"
                       style={{ animationDelay: "140ms" }}
                     />
                     <span
-                      className="h-1 w-1 animate-bounce rounded-full bg-[color:var(--muted)]"
+                      className="h-1.5 w-1.5 animate-bounce rounded-full bg-[color:var(--muted)]"
                       style={{ animationDelay: "280ms" }}
                     />
-                  </span>
+                  </div>
                 </div>
               )}
               <div

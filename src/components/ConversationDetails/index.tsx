@@ -206,6 +206,11 @@ type DraftRequestOptions = {
   regenerateNonce?: number | null;
   variationNonce?: number | null;
 };
+type SendFanMessageOptions = {
+  bypassDuplicateCheck?: boolean;
+  skipTranslation?: boolean;
+  offer?: OfferMeta | null;
+};
 type DraftSource = "reformular" | "citar" | "autosuggest";
 type PpvOffer = {
   contentId?: string;
@@ -1216,6 +1221,12 @@ export default function ConversationDetails({ onBackToBoard }: ConversationDetai
     lastStartAt: 0,
   });
   const creatorTypingStopTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const sendFanMessageRef = useRef<
+    ((text: string, options?: SendFanMessageOptions) => Promise<boolean>) | null
+  >(null);
+  const sendFanMessageStable = useCallback((text: string, options?: SendFanMessageOptions) => {
+    return sendFanMessageRef.current?.(text, options) ?? Promise.resolve(false);
+  }, []);
   const [ isVoiceUploading, setIsVoiceUploading ] = useState(false);
   const [ voiceUploadError, setVoiceUploadError ] = useState("");
   const [ voiceRetryPayload, setVoiceRetryPayload ] = useState<VoiceUploadPayload | null>(null);
@@ -3147,7 +3158,7 @@ const INTENT_BADGE_LABELS: Record<string, string> = {
       const applied = applyOfferComposerDraft(detail);
       if (!applied) return;
       closeInlinePanel({ focus: true });
-      void sendFanMessage(applied.text, {
+      void sendFanMessageStable(applied.text, {
         skipTranslation: applied.skipTranslate,
         offer: applied.offer,
       }).then((ok) => {
@@ -3169,7 +3180,7 @@ const INTENT_BADGE_LABELS: Record<string, string> = {
     closeInlinePanel,
     conversation.isManager,
     id,
-    sendFanMessage,
+    sendFanMessageStable,
     showComposerToast,
   ]);
 
@@ -5447,6 +5458,9 @@ const INTENT_BADGE_LABELS: Record<string, string> = {
       if (!detail?.fanId || detail.fanId !== id) return;
       if (conversation.isManager) return;
       if (detail.eventId && messageEventIdsRef.current.has(detail.eventId)) return;
+      if (detail.from === "fan") {
+        setTypingIndicator((prev) => (prev.isTyping ? { ...prev, isTyping: false } : prev));
+      }
       const rawMessage = detail.message as ApiMessage | undefined;
       if (detail.kind === "audio" && detail.from === "fan") {
         const durationMs =
@@ -10883,14 +10897,7 @@ const INTENT_BADGE_LABELS: Record<string, string> = {
     }
   }
 
-  async function sendFanMessage(
-    text: string,
-    options?: {
-      bypassDuplicateCheck?: boolean;
-      skipTranslation?: boolean;
-      offer?: OfferMeta | null;
-    }
-  ) {
+  async function sendFanMessage(text: string, options?: SendFanMessageOptions) {
     if (isInternalPanelOpen) return false;
     const { textVisible: rawVisible, offerMeta: embeddedOffer } = splitOffer(text);
     const raw = rawVisible.trim();
@@ -11003,6 +11010,7 @@ const INTENT_BADGE_LABELS: Record<string, string> = {
       setIsSending(false);
     }
   }
+  sendFanMessageRef.current = sendFanMessage;
 
   async function handleSendMessage() {
     const trimmed = messageSend.trim();
@@ -14110,22 +14118,22 @@ const INTENT_BADGE_LABELS: Record<string, string> = {
                 </div>
               )}
               {!conversation.isManager && typingIndicator.isTyping && id && (
-                <div className="mb-2 flex items-center gap-1 text-[11px] text-[color:var(--muted)]">
-                  <span>{typingDisplayName} está escribiendo</span>
-                  <span className="inline-flex items-center gap-1" aria-hidden="true">
+                <div className="mb-2 flex">
+                  <div className="inline-flex items-center gap-1.5 rounded-2xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-3 py-1.5 text-[11px] text-[color:var(--muted)] shadow-[0_1px_0_rgba(0,0,0,0.12)]">
+                    <span className="sr-only">{`${typingDisplayName} está escribiendo`}</span>
                     <span
-                      className="h-1 w-1 animate-bounce rounded-full bg-[color:var(--muted)]"
+                      className="h-1.5 w-1.5 animate-bounce rounded-full bg-[color:var(--muted)]"
                       style={{ animationDelay: "0ms" }}
                     />
                     <span
-                      className="h-1 w-1 animate-bounce rounded-full bg-[color:var(--muted)]"
+                      className="h-1.5 w-1.5 animate-bounce rounded-full bg-[color:var(--muted)]"
                       style={{ animationDelay: "140ms" }}
                     />
                     <span
-                      className="h-1 w-1 animate-bounce rounded-full bg-[color:var(--muted)]"
+                      className="h-1.5 w-1.5 animate-bounce rounded-full bg-[color:var(--muted)]"
                       style={{ animationDelay: "280ms" }}
                     />
-                  </span>
+                  </div>
                 </div>
               )}
               {showSuggestedAction && (
