@@ -9,6 +9,8 @@ import { getMineEmoji, type ReactionSummaryEntry } from "../../lib/messageReacti
 
 const OFFER_MARKER = "\n\n__NOVSY_OFFER__:";
 
+type ViewerRole = "creator" | "fan";
+
 export type OfferMeta = {
   id: string;
   title: string;
@@ -131,6 +133,7 @@ interface MessageBalloonProps {
   anchorId?: string;
   unlockedOfferIds?: Set<string>;
   onOfferClick?: (offer: OfferMeta, status: "locked" | "unlocked") => void;
+  viewerRole: ViewerRole;
 }
 
 const MessageBalloon = memo(function MessageBalloon(props: MessageBalloonProps) {
@@ -160,7 +163,9 @@ const MessageBalloon = memo(function MessageBalloon(props: MessageBalloonProps) 
     anchorId,
     unlockedOfferIds,
     onOfferClick,
+    viewerRole,
   } = props;
+  const isCreator = viewerRole === "creator";
   const isSticker = Boolean(stickerSrc);
   const { textVisible, offerMeta } = useMemo(
     () => (isSticker ? { textVisible: message, offerMeta: null } : splitOffer(message)),
@@ -460,7 +465,7 @@ const MessageBalloon = memo(function MessageBalloon(props: MessageBalloonProps) 
             </div>
           )}
         </div>
-        {translatedText ? (
+        {isCreator && translatedText ? (
           <div className={`mt-1 text-[11px] text-[color:var(--muted)] ${me ? "text-right" : ""}`}>
             <button
               type="button"

@@ -9,9 +9,15 @@ interface Message {
   id?: string;
   me: boolean;
   message: string;
+  originalText?: string | null;
+  originalLang?: string | null;
   translatedText?: string | null;
   translationSourceLang?: string | null;
   translationTargetLang?: string | null;
+  deliveredText?: string | null;
+  deliveredLang?: string | null;
+  creatorTranslatedText?: string | null;
+  creatorLang?: string | null;
   audience?: "FAN" | "CREATOR" | "INTERNAL";
   seen?: boolean;
   time?: string;

@@ -6,9 +6,14 @@ import {
   normalizeFrom,
   type MessageAudience,
 } from "../../lib/messageAudience";
-import { normalizePreferredLanguage } from "../../lib/language";
+import {
+  normalizeLocaleTag,
+  normalizePreferredLanguage,
+  normalizeTranslationLanguage,
+  type TranslationLanguage,
+} from "../../lib/language";
 import { getDbSchemaOutOfSyncPayload, isDbSchemaOutOfSyncError } from "../../lib/dbSchemaGuard";
-import { translateText } from "../../server/ai/translateText";
+import { getEffectiveTranslateConfig, translateText } from "../../lib/ai/translateProvider";
 import { getStickerById } from "../../lib/emoji/stickers";
 import { emitCreatorEvent as emitRealtimeEvent } from "../../server/realtimeHub";
 import { saveVoice } from "../../lib/voiceStorage";
@@ -84,6 +89,53 @@ function normalizeList(value: string | string[] | undefined): string[] {
   return arr.flatMap((entry) => entry.split(",")).map((entry) => entry.trim()).filter(Boolean);
 }
 
+const OFFER_MARKER = "\n\n__NOVSY_OFFER__:";
+
+function splitOfferMarker(text: string): { visibleText: string; marker: string } {
+  const idx = text.indexOf(OFFER_MARKER);
+  if (idx === -1) return { visibleText: text, marker: "" };
+  return {
+    visibleText: text.slice(0, idx),
+    marker: text.slice(idx + OFFER_MARKER.length),
+  };
+}
+
+function attachOfferMarker(text: string, marker: string): string {
+  if (!marker) return text;
+  return `${text}${OFFER_MARKER}${marker}`;
+}
+
+function resolveFanLanguage(preferredLanguage?: string | null, locale?: string | null): TranslationLanguage {
+  const preferred = normalizePreferredLanguage(preferredLanguage);
+  if (preferred) return preferred as TranslationLanguage;
+  const normalizedLocale = typeof locale === "string" ? normalizeLocaleTag(locale) : "";
+  const base = normalizedLocale.split("-")[0] || normalizedLocale;
+  const localeLang = normalizeTranslationLanguage(base);
+  return localeLang ?? "en";
+}
+
+type LanguageMeta = {
+  creatorLang: TranslationLanguage;
+  fanLang: TranslationLanguage;
+};
+
+function attachMessageLanguageMeta(message: Record<string, unknown>, meta: LanguageMeta) {
+  const fromValue = typeof message.from === "string" ? message.from.toLowerCase() : "";
+  const audienceValue = typeof message.audience === "string" ? message.audience.toUpperCase() : "";
+  const isCreator = fromValue === "creator";
+  const isInternal = audienceValue === "INTERNAL";
+  const originalText = typeof message.text === "string" ? message.text : "";
+  const originalLang = isCreator ? meta.creatorLang : meta.fanLang;
+  const deliveredLang = isCreator && !isInternal ? meta.fanLang : null;
+  return {
+    ...message,
+    originalText,
+    originalLang,
+    deliveredLang,
+    creatorLang: meta.creatorLang,
+  };
+}
+
 type ViewerRole = "creator" | "fan";
 
 function resolveViewerRole(req: NextApiRequest): ViewerRole {
@@ -123,10 +175,19 @@ function sanitizeMessageForFan(message: Record<string, unknown>) {
     voiceInsightsJson,
     voiceInsightsUpdatedAt,
     creatorTranslatedText,
+    originalText,
+    originalLang,
+    creatorLang,
     messageTranslations,
     ...rest
   } = message as Record<string, unknown>;
-  return rest;
+  const sanitized = { ...rest };
+  const fromValue = typeof sanitized.from === "string" ? sanitized.from.toLowerCase() : "";
+  const delivered = typeof sanitized.deliveredText === "string" ? sanitized.deliveredText : "";
+  if (fromValue === "creator" && delivered.trim()) {
+    sanitized.text = delivered;
+  }
+  return sanitized;
 }
 
 async function loadReactionSummaries(
@@ -210,6 +271,14 @@ async function handleGet(req: NextApiRequest, res: NextApiResponse<MessageRespon
   res.setHeader("Pragma", "no-cache");
 
   try {
+    const fan = await prisma.fan.findUnique({
+      where: { id: normalizedFanId },
+      select: { creatorId: true, preferredLanguage: true, locale: true },
+    });
+    const translateConfig = fan?.creatorId ? await getEffectiveTranslateConfig(fan.creatorId) : null;
+    const creatorLang = normalizeTranslationLanguage(translateConfig?.creatorLang ?? "es") ?? "es";
+    const fanLang = resolveFanLanguage(fan?.preferredLanguage ?? null, fan?.locale ?? null);
+    const languageMeta: LanguageMeta = { creatorLang, fanLang };
     const baseWhere = {
       OR: [
         { fanId: normalizedFanId },
@@ -284,11 +353,14 @@ async function handleGet(req: NextApiRequest, res: NextApiResponse<MessageRespon
       ...message,
       reactionsSummary: reactionSummaries[message.id] ?? [],
     }));
+    const withLanguageMeta = withReactions.map((message) =>
+      attachMessageLanguageMeta(message as Record<string, unknown>, languageMeta)
+    );
 
     const responseMessages =
       viewerRole === "fan"
-        ? withReactions.map((message) => sanitizeMessageForFan(message as Record<string, unknown>))
-        : withReactions;
+        ? withLanguageMeta.map((message) => sanitizeMessageForFan(message as Record<string, unknown>))
+        : withLanguageMeta;
 
     return res.status(200).json({ ok: true, items: responseMessages, messages: responseMessages });
   } catch (err) {
@@ -315,6 +387,7 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse<MessageRespo
     mimeType,
     durationMs,
   } = req.body || {};
+  const skipTranslation = Boolean(req.body?.skipTranslation);
 
   if (!fanId || typeof fanId !== "string") {
     return res.status(400).json({ ok: false, error: "fanId is required" });
@@ -423,11 +496,12 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse<MessageRespo
   try {
     const fan = (await prisma.fan.findUnique({
       where: { id: normalizedFanId },
-      select: {
-        isBlocked: true,
-        preferredLanguage: true,
-        creatorId: true,
-        inviteUsedAt: true,
+        select: {
+          isBlocked: true,
+          preferredLanguage: true,
+          locale: true,
+          creatorId: true,
+          inviteUsedAt: true,
         inviteToken: true,
         membershipStatus: true,
         lastMessageAt: true,
@@ -467,7 +541,10 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse<MessageRespo
       };
     }
 
-    const preferredLanguage = normalizePreferredLanguage(fan.preferredLanguage) ?? "en";
+    const translateConfig = await getEffectiveTranslateConfig(fan.creatorId);
+    const creatorLang = normalizeTranslationLanguage(translateConfig.creatorLang ?? "es") ?? "es";
+    const fanLang = resolveFanLanguage(fan.preferredLanguage, fan.locale);
+    const languageMeta: LanguageMeta = { creatorLang, fanLang };
     let deliveredText: string | null = null;
     let creatorTranslatedText: string | null = null;
     let intentResult: IntentResult | null = null;
@@ -476,32 +553,54 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse<MessageRespo
     const shouldTranslate =
       normalizedAudience !== "INTERNAL" &&
       normalizedType === "TEXT" &&
-      typeof text === "string" &&
-      text.trim().length > 0;
+      typeof messageText === "string" &&
+      messageText.trim().length > 0;
+    const { visibleText, marker } = splitOfferMarker(messageText);
+    const translationSource = visibleText.trim();
 
-    if (shouldTranslate && normalizedFrom === "creator" && preferredLanguage !== "es") {
-      deliveredText = await translateText({
-        text,
-        targetLanguage: preferredLanguage,
-        creatorId: fan.creatorId,
-        fanId: normalizedFanId,
-      });
-    }
+    if (shouldTranslate && translateConfig.configured && translationSource) {
+      if (normalizedFrom === "creator" && !skipTranslation && fanLang !== creatorLang) {
+        try {
+          const result = await translateText({
+            text: translationSource,
+            targetLang: fanLang,
+            creatorId: fan.creatorId,
+            fanId: normalizedFanId,
+            configOverride: translateConfig,
+          });
+          deliveredText = attachOfferMarker(result.translatedText, marker);
+        } catch (err) {
+          console.warn("api/messages translate creator->fan failed", {
+            fanId: normalizedFanId,
+            error: (err as Error)?.message,
+          });
+        }
+      }
 
-    if (shouldTranslate && normalizedFrom === "fan" && preferredLanguage !== "es") {
-      creatorTranslatedText = await translateText({
-        text,
-        targetLanguage: "es",
-        creatorId: fan.creatorId,
-        fanId: normalizedFanId,
-      });
+      if (normalizedFrom === "fan") {
+        try {
+          const result = await translateText({
+            text: translationSource,
+            targetLang: creatorLang,
+            creatorId: fan.creatorId,
+            fanId: normalizedFanId,
+            configOverride: translateConfig,
+          });
+          creatorTranslatedText = attachOfferMarker(result.translatedText, marker);
+        } catch (err) {
+          console.warn("api/messages translate fan->creator failed", {
+            fanId: normalizedFanId,
+            error: (err as Error)?.message,
+          });
+        }
+      }
     }
 
     if (normalizedFrom === "fan" && normalizedType === "TEXT" && typeof messageText === "string" && messageText.trim()) {
       try {
         intentResult = await detectIntentWithFallback({
-          text: messageText,
-          lang: preferredLanguage,
+          text: translationSource || messageText,
+          lang: fanLang,
           creatorId: fan.creatorId,
           fanId: normalizedFanId,
         });
@@ -546,6 +645,7 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse<MessageRespo
     });
 
     const createdMessage = { ...created, reactionsSummary: [] } as any;
+    const messageWithMeta = attachMessageLanguageMeta(createdMessage as Record<string, unknown>, languageMeta) as any;
 
     emitRealtimeEvent({
       eventId: created.id,
@@ -555,32 +655,36 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse<MessageRespo
       createdAt: new Date().toISOString(),
       payload: {
         message: {
-          id: createdMessage.id,
+          id: messageWithMeta.id,
           fanId: normalizedFanId,
-          from: createdMessage.from,
-          audience: createdMessage.audience,
-          text: createdMessage.text,
-          deliveredText: createdMessage.deliveredText,
-          creatorTranslatedText: createdMessage.creatorTranslatedText,
-          time: createdMessage.time,
-          type: createdMessage.type,
-          stickerId: createdMessage.stickerId,
-          contentItem: createdMessage.contentItem,
-          audioUrl: createdMessage.audioUrl,
-          audioDurationMs: createdMessage.audioDurationMs,
-          audioMime: createdMessage.audioMime,
-          audioSizeBytes: createdMessage.audioSizeBytes,
-          transcriptText: createdMessage.transcriptText,
-          transcriptStatus: createdMessage.transcriptStatus,
-          transcriptError: createdMessage.transcriptError,
-          transcribedAt: createdMessage.transcribedAt,
-          transcriptLang: createdMessage.transcriptLang,
-          intentKey: createdMessage.intentKey,
-          intentConfidence: createdMessage.intentConfidence,
-          intentMeta: createdMessage.intentMeta,
-          intentUpdatedAt: createdMessage.intentUpdatedAt,
-          intentJson: createdMessage.intentJson,
-          reactionsSummary: createdMessage.reactionsSummary,
+          from: messageWithMeta.from,
+          audience: messageWithMeta.audience,
+          text: messageWithMeta.text,
+          originalText: messageWithMeta.originalText,
+          originalLang: messageWithMeta.originalLang,
+          deliveredText: messageWithMeta.deliveredText,
+          deliveredLang: messageWithMeta.deliveredLang,
+          creatorTranslatedText: messageWithMeta.creatorTranslatedText,
+          creatorLang: messageWithMeta.creatorLang,
+          time: messageWithMeta.time,
+          type: messageWithMeta.type,
+          stickerId: messageWithMeta.stickerId,
+          contentItem: messageWithMeta.contentItem,
+          audioUrl: messageWithMeta.audioUrl,
+          audioDurationMs: messageWithMeta.audioDurationMs,
+          audioMime: messageWithMeta.audioMime,
+          audioSizeBytes: messageWithMeta.audioSizeBytes,
+          transcriptText: messageWithMeta.transcriptText,
+          transcriptStatus: messageWithMeta.transcriptStatus,
+          transcriptError: messageWithMeta.transcriptError,
+          transcribedAt: messageWithMeta.transcribedAt,
+          transcriptLang: messageWithMeta.transcriptLang,
+          intentKey: messageWithMeta.intentKey,
+          intentConfidence: messageWithMeta.intentConfidence,
+          intentMeta: messageWithMeta.intentMeta,
+          intentUpdatedAt: messageWithMeta.intentUpdatedAt,
+          intentJson: messageWithMeta.intentJson,
+          reactionsSummary: messageWithMeta.reactionsSummary,
         },
       },
     });
@@ -666,8 +770,8 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse<MessageRespo
 
     const responseMessage =
       viewerRole === "fan"
-        ? sanitizeMessageForFan(createdMessage as Record<string, unknown>)
-        : createdMessage;
+        ? sanitizeMessageForFan(messageWithMeta as Record<string, unknown>)
+        : messageWithMeta;
     return res.status(200).json({
       ok: true,
       message: responseMessage,

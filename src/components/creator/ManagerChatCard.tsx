@@ -4595,6 +4595,7 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
                     time={new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
                     fromLabel="Manager IA"
                     meLabel="Tú"
+                    viewerRole="creator"
                   />
                   {renderActionCards(recommendationActions, "max-w-2xl")}
                 </div>
@@ -4610,6 +4611,7 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
                       time={time}
                       fromLabel="Manager IA"
                       meLabel="Tú"
+                      viewerRole="creator"
                     />
                     {!isCreator && msg.offer && (
                       <div className="mt-1 flex flex-wrap items-center gap-2">

@@ -161,8 +161,12 @@ export interface Message {
   from: "creator" | "fan";
   audience?: "FAN" | "CREATOR" | "INTERNAL";
   text: string;
+  originalText?: string | null;
+  originalLang?: string | null;
   deliveredText?: string | null;
+  deliveredLang?: string | null;
   creatorTranslatedText?: string | null;
+  creatorLang?: string | null;
   time: string;
   isLastFromCreator?: boolean;
   type?: "TEXT" | "CONTENT" | "STICKER" | "SYSTEM" | "AUDIO" | "VOICE";

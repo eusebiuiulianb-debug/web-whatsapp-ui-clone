@@ -49,8 +49,12 @@ type ApiMessage = {
   from: "creator" | "fan";
   audience?: "FAN" | "CREATOR" | "INTERNAL" | null;
   text: string | null;
+  originalText?: string | null;
+  originalLang?: string | null;
   deliveredText?: string | null;
+  deliveredLang?: string | null;
   creatorTranslatedText?: string | null;
+  creatorLang?: string | null;
   time?: string | null;
   isLastFromCreator?: boolean | null;
   type?: "TEXT" | "CONTENT" | "STICKER" | "SYSTEM" | "AUDIO" | "VOICE";
@@ -1220,30 +1224,34 @@ export function FanChatPage({
                 const sticker = msg.type === "STICKER" ? getStickerById(msg.stickerId ?? null) : null;
                 const stickerSrc = msg.type === "STICKER" ? sticker?.file ?? null : tokenSticker?.src ?? null;
                 const stickerAlt = msg.type === "STICKER" ? sticker?.label || "Sticker" : tokenSticker?.label ?? null;
+                const baseText = msg.originalText ?? msg.text ?? "";
+                const deliveredText = msg.deliveredText ?? "";
                 const displayText =
                   isSticker
                     ? ""
                     : msg.from === "creator"
-                    ? (msg.deliveredText ?? msg.text ?? "")
-                    : msg.text ?? "";
+                    ? (deliveredText.trim() ? deliveredText : baseText)
+                    : baseText;
                 return (
-                  <MessageBalloon
-                    key={messageId}
-                    me={msg.from === "fan"}
-                    message={displayText}
-                    messageId={msg.id}
-                    seen={!!msg.isLastFromCreator}
-                    time={msg.time || undefined}
-                    status={msg.status}
-                    stickerSrc={isSticker ? stickerSrc : null}
-                    stickerAlt={isSticker ? stickerAlt : null}
-                    enableReactions
-                    reactionsSummary={msg.reactionsSummary ?? []}
-                    onReact={(emoji) => {
-                      if (!msg.id) return;
-                      handleReactToMessage(msg.id, emoji);
-                    }}
-                  />
+                  <div key={messageId} className="space-y-1">
+                    <MessageBalloon
+                      me={msg.from === "fan"}
+                      message={displayText}
+                      messageId={msg.id}
+                      seen={!!msg.isLastFromCreator}
+                      time={msg.time || undefined}
+                      status={msg.status}
+                      viewerRole="fan"
+                      stickerSrc={isSticker ? stickerSrc : null}
+                      stickerAlt={isSticker ? stickerAlt : null}
+                      enableReactions
+                      reactionsSummary={msg.reactionsSummary ?? []}
+                      onReact={(emoji) => {
+                        if (!msg.id) return;
+                        handleReactToMessage(msg.id, emoji);
+                      }}
+                    />
+                  </div>
                 );
               })}
             </div>
