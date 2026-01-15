@@ -1,7 +1,7 @@
 import Head from "next/head";
 import { GetServerSideProps } from "next";
 import { useRouter } from "next/router";
-import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent, type KeyboardEvent, type ReactNode } from "react";
 import { ChatComposerBar } from "../../components/ChatComposerBar";
 import MessageBalloon from "../../components/MessageBalloon";
 import { EmojiPicker } from "../../components/EmojiPicker";
@@ -101,6 +101,9 @@ const VOICE_MIME_PREFERENCES = [
   "audio/ogg",
   "audio/mp4",
 ];
+const TYPING_START_THROTTLE_MS = 800;
+const TYPING_STOP_IDLE_MS = 1200;
+const TYPING_HIDE_MS = 7000;
 
 export function FanChatPage({
   includedContent,
@@ -121,6 +124,7 @@ export function FanChatPage({
   }, [inviteOverride, router.query.invite]);
   const { config } = useCreatorConfig();
   const creatorName = config.creatorName || "Tu creador";
+  const creatorFirstName = creatorName.trim().split(" ")[0] || creatorName;
   const creatorInitial = creatorName.trim().charAt(0).toUpperCase() || "C";
   const availablePacks = useMemo<PackSummary[]>(
     () =>
@@ -164,6 +168,15 @@ export function FanChatPage({
   const pollAbortRef = useRef<AbortController | null>(null);
   const pollIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const reactionInFlightRef = useRef<Set<string>>(new Set());
+  const [creatorTyping, setCreatorTyping] = useState<{ isTyping: boolean; ts: number }>({
+    isTyping: false,
+    ts: 0,
+  });
+  const typingStateRef = useRef<{ isTyping: boolean; lastStartAt: number }>({
+    isTyping: false,
+    lastStartAt: 0,
+  });
+  const typingStopTimerRef = useRef<NodeJS.Timeout | null>(null);
   const [actionMenuOpen, setActionMenuOpen] = useState(false);
   const [contentSheetOpen, setContentSheetOpen] = useState(false);
   const [contentSheetTab, setContentSheetTab] = useState<"content" | "packs">("content");
@@ -488,6 +501,56 @@ export function FanChatPage({
     setOnboardingLanguage(getFallbackLanguage());
   }, [fanId, getFallbackLanguage]);
 
+  useEffect(() => {
+    setCreatorTyping({ isTyping: false, ts: 0 });
+    if (!fanId || typeof EventSource === "undefined") return;
+    const source = new EventSource(`/api/realtime/stream?fanId=${encodeURIComponent(fanId)}`);
+    const handleTyping = (event: Event) => {
+      const data = (event as MessageEvent).data;
+      if (typeof data !== "string") return;
+      try {
+        const parsed = JSON.parse(data) as {
+          conversationId?: unknown;
+          fanId?: unknown;
+          isTyping?: unknown;
+          senderRole?: unknown;
+          ts?: unknown;
+        };
+        const conversationId =
+          typeof parsed.conversationId === "string" ? parsed.conversationId.trim() : "";
+        const targetFanId = typeof parsed.fanId === "string" ? parsed.fanId.trim() : "";
+        const isTyping = typeof parsed.isTyping === "boolean" ? parsed.isTyping : null;
+        const senderRole =
+          parsed.senderRole === "creator" || parsed.senderRole === "fan" ? parsed.senderRole : null;
+        if (!conversationId && !targetFanId) return;
+        if (conversationId !== fanId && targetFanId !== fanId) return;
+        if (senderRole !== "creator" || isTyping === null) return;
+        const ts = typeof parsed.ts === "number" ? parsed.ts : Date.now();
+        setCreatorTyping({ isTyping, ts });
+      } catch (_err) {
+        // ignore parse errors
+      }
+    };
+    source.addEventListener("typing", handleTyping as EventListener);
+    source.onerror = () => {
+      // EventSource reconnects automatically.
+    };
+    return () => {
+      source.removeEventListener("typing", handleTyping as EventListener);
+      source.close();
+    };
+  }, [fanId]);
+
+  useEffect(() => {
+    if (!creatorTyping.isTyping) return;
+    const now = Date.now();
+    const waitMs = Math.max(0, TYPING_HIDE_MS - (now - creatorTyping.ts));
+    const timer = window.setTimeout(() => {
+      setCreatorTyping((prev) => (prev.isTyping ? { ...prev, isTyping: false } : prev));
+    }, waitMs);
+    return () => window.clearTimeout(timer);
+  }, [creatorTyping.isTyping, creatorTyping.ts]);
+
   const sendFanMessage = useCallback(
     async (text: string) => {
       if (!fanId) return false;
@@ -539,6 +602,62 @@ export function FanChatPage({
     [fanId, sortMessages]
   );
 
+  const sendTypingSignal = useCallback(
+    (isTyping: boolean) => {
+      if (!fanId) return;
+      void fetch("/api/realtime/typing", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ conversationId: fanId, isTyping, senderRole: "fan" }),
+      }).catch(() => {});
+    },
+    [fanId]
+  );
+
+  const stopTyping = useCallback(() => {
+    if (!typingStateRef.current.isTyping) return;
+    typingStateRef.current.isTyping = false;
+    if (typingStopTimerRef.current) {
+      clearTimeout(typingStopTimerRef.current);
+      typingStopTimerRef.current = null;
+    }
+    sendTypingSignal(false);
+  }, [sendTypingSignal]);
+
+  const scheduleTypingStop = useCallback(() => {
+    if (typingStopTimerRef.current) {
+      clearTimeout(typingStopTimerRef.current);
+    }
+    typingStopTimerRef.current = setTimeout(() => {
+      typingStopTimerRef.current = null;
+      stopTyping();
+    }, TYPING_STOP_IDLE_MS);
+  }, [stopTyping]);
+
+  const handleTypingStart = useCallback(() => {
+    const now = Date.now();
+    const current = typingStateRef.current;
+    if (!current.isTyping || now - current.lastStartAt >= TYPING_START_THROTTLE_MS) {
+      current.isTyping = true;
+      current.lastStartAt = now;
+      sendTypingSignal(true);
+    }
+  }, [sendTypingSignal]);
+
+  useEffect(() => {
+    typingStateRef.current = { isTyping: false, lastStartAt: 0 };
+    if (typingStopTimerRef.current) {
+      clearTimeout(typingStopTimerRef.current);
+      typingStopTimerRef.current = null;
+    }
+    return () => {
+      if (typingStopTimerRef.current) {
+        clearTimeout(typingStopTimerRef.current);
+        typingStopTimerRef.current = null;
+      }
+    };
+  }, [fanId]);
+
   const focusComposer = useCallback(() => {
     const input = composerInputRef.current;
     if (!input) return;
@@ -558,14 +677,29 @@ export function FanChatPage({
     shouldPromptForName;
   const isComposerDisabled = sending || isOnboardingVisible || onboardingSaving;
 
+  const handleComposerChange = useCallback(
+    (event: ChangeEvent<HTMLTextAreaElement>) => {
+      setDraft(event.target.value);
+      if (isComposerDisabled) return;
+      handleTypingStart();
+      scheduleTypingStop();
+    },
+    [handleTypingStart, isComposerDisabled, scheduleTypingStop]
+  );
+
+  const handleComposerBlur = useCallback(() => {
+    stopTyping();
+  }, [stopTyping]);
+
   const handleSendMessage = useCallback(async () => {
     if (isOnboardingVisible) return;
+    stopTyping();
     const ok = await sendFanMessage(draft);
     if (ok) {
       setDraft("");
       requestAnimationFrame(() => focusComposer());
     }
-  }, [draft, focusComposer, isOnboardingVisible, sendFanMessage]);
+  }, [draft, focusComposer, isOnboardingVisible, sendFanMessage, stopTyping]);
 
   const handleComposerKeyDown = useCallback(
     (event: KeyboardEvent<HTMLTextAreaElement>) => {
@@ -1381,13 +1515,33 @@ export function FanChatPage({
                   </div>
                 </div>
               )}
+              {creatorTyping.isTyping && (
+                <div className="mb-2 flex items-center gap-1 text-[11px] text-[color:var(--muted)]">
+                  <span>{creatorFirstName} está escribiendo</span>
+                  <span className="inline-flex items-center gap-1" aria-hidden="true">
+                    <span
+                      className="h-1 w-1 animate-bounce rounded-full bg-[color:var(--muted)]"
+                      style={{ animationDelay: "0ms" }}
+                    />
+                    <span
+                      className="h-1 w-1 animate-bounce rounded-full bg-[color:var(--muted)]"
+                      style={{ animationDelay: "140ms" }}
+                    />
+                    <span
+                      className="h-1 w-1 animate-bounce rounded-full bg-[color:var(--muted)]"
+                      style={{ animationDelay: "280ms" }}
+                    />
+                  </span>
+                </div>
+              )}
               <div
                 className="flex flex-col gap-2 rounded-2xl border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-3 py-2.5 shadow-[0_-12px_22px_-16px_rgba(0,0,0,0.55)] focus-within:border-[color:rgba(var(--brand-rgb),0.45)] focus-within:ring-1 focus-within:ring-[color:var(--ring)]"
               >
                 <ChatComposerBar
                   value={draft}
-                  onChange={(event) => setDraft(event.target.value)}
+                  onChange={handleComposerChange}
                   onKeyDown={handleComposerKeyDown}
+                  onBlur={handleComposerBlur}
                   onSend={handleSendMessage}
                   sendDisabled={sendDisabled}
                   placeholder="Escribe un mensaje..."

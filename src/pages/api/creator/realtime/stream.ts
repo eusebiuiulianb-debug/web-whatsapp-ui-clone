@@ -1,6 +1,11 @@
 import type { NextApiRequest, NextApiResponse } from "next";
 import prisma from "../../../../lib/prisma.server";
-import { onCreatorEvent, type CreatorRealtimeEvent } from "../../../../server/realtimeHub";
+import {
+  onCreatorEvent,
+  onCreatorTypingEvent,
+  type CreatorRealtimeEvent,
+  type CreatorTypingEvent,
+} from "../../../../server/realtimeHub";
 
 export const config = {
   api: {
@@ -36,10 +41,26 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     res.write("event: creator_event\n");
     res.write(`data: ${JSON.stringify(event)}\n\n`);
   };
+  const sendTypingEvent = (event: CreatorTypingEvent) => {
+    res.write("event: typing\n");
+    res.write(
+      `data: ${JSON.stringify({
+        conversationId: event.conversationId,
+        fanId: event.fanId,
+        isTyping: event.isTyping,
+        senderRole: event.senderRole,
+        ts: event.ts,
+      })}\n\n`
+    );
+  };
 
   const off = onCreatorEvent((event) => {
     if (event.creatorId !== creatorId) return;
     sendEvent(event);
+  });
+  const offTyping = onCreatorTypingEvent((event) => {
+    if (event.creatorId !== creatorId) return;
+    sendTypingEvent(event);
   });
 
   const heartbeat = setInterval(() => {
@@ -49,6 +70,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   req.on("close", () => {
     clearInterval(heartbeat);
     off();
+    offTyping();
   });
 }
 

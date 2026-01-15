@@ -24,6 +24,7 @@ type ChatComposerBarProps = {
   value: string;
   onChange: (event: React.ChangeEvent<HTMLTextAreaElement>) => void;
   onKeyDown: (event: React.KeyboardEvent<HTMLTextAreaElement>) => void;
+  onBlur?: (event: React.FocusEvent<HTMLTextAreaElement>) => void;
   onSend: () => void;
   sendDisabled: boolean;
   placeholder: string;
@@ -60,6 +61,7 @@ export function ChatComposerBar({
   value,
   onChange,
   onKeyDown,
+  onBlur,
   onSend,
   sendDisabled,
   placeholder,
@@ -400,6 +402,7 @@ export function ChatComposerBar({
         placeholder={placeholder}
         onKeyDown={onKeyDown}
         onChange={onChange}
+        onBlur={onBlur}
         value={value}
         disabled={isInputDisabled}
         style={{ maxHeight: `${maxHeight}px` }}

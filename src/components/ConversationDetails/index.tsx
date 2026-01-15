@@ -41,6 +41,7 @@ import {
   emitPurchaseCreated,
   emitPurchaseSeen,
   type FanMessageSentPayload,
+  type TypingPayload,
 } from "../../lib/events";
 import { publishChatEvent } from "../../lib/chatEvents";
 import { useCreatorRealtime } from "../../hooks/useCreatorRealtime";
@@ -158,6 +159,9 @@ import {
 } from "../../lib/cortexFlow";
 
 const OFFER_MARKER = "\n\n__NOVSY_OFFER__:";
+const TYPING_HIDE_MS = 7000;
+const TYPING_START_THROTTLE_MS = 800;
+const TYPING_STOP_IDLE_MS = 1200;
 
 type OfferOverlayState = {
   offer: OfferMeta;
@@ -1192,6 +1196,10 @@ export default function ConversationDetails({ onBackToBoard }: ConversationDetai
   const [ offerOverlay, setOfferOverlay ] = useState<OfferOverlayState | null>(null);
   const [ purchaseNotice, setPurchaseNotice ] = useState<PurchaseNoticeState | null>(null);
   const [ voiceNotice, setVoiceNotice ] = useState<{ fanName: string; durationMs?: number; createdAt: string } | null>(null);
+  const [ typingIndicator, setTypingIndicator ] = useState<{ isTyping: boolean; ts: number }>({
+    isTyping: false,
+    ts: 0,
+  });
   const [ internalToast, setInternalToast ] = useState<string | null>(null);
   const [ actionToast, setActionToast ] = useState<{ message: string; actionLabel: string; actionHref: string } | null>(
     null
@@ -1203,6 +1211,11 @@ export default function ConversationDetails({ onBackToBoard }: ConversationDetai
   const internalToastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const actionToastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const reactionInFlightRef = useRef<Set<string>>(new Set());
+  const creatorTypingRef = useRef<{ isTyping: boolean; lastStartAt: number }>({
+    isTyping: false,
+    lastStartAt: 0,
+  });
+  const creatorTypingStopTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [ isVoiceUploading, setIsVoiceUploading ] = useState(false);
   const [ voiceUploadError, setVoiceUploadError ] = useState("");
   const [ voiceRetryPayload, setVoiceRetryPayload ] = useState<VoiceUploadPayload | null>(null);
@@ -1243,6 +1256,82 @@ export default function ConversationDetails({ onBackToBoard }: ConversationDetai
   useEffect(() => {
     purchaseNoticeFallbackNameRef.current = getFanDisplayNameForCreator(conversation) || contactName || "Fan";
   }, [conversation, contactName]);
+
+  const typingDisplayName = useMemo(() => {
+    const baseName = (getFanDisplayNameForCreator(conversation) || contactName || "Fan").trim() || "Fan";
+    return getFirstName(baseName) || baseName;
+  }, [conversation, contactName]);
+
+  useEffect(() => {
+    setTypingIndicator({ isTyping: false, ts: 0 });
+  }, [conversation.isManager, id]);
+
+  useEffect(() => {
+    if (!typingIndicator.isTyping) return;
+    const now = Date.now();
+    const waitMs = Math.max(0, TYPING_HIDE_MS - (now - typingIndicator.ts));
+    const timer = window.setTimeout(() => {
+      setTypingIndicator((prev) => (prev.isTyping ? { ...prev, isTyping: false } : prev));
+    }, waitMs);
+    return () => window.clearTimeout(timer);
+  }, [typingIndicator.isTyping, typingIndicator.ts]);
+
+  const sendCreatorTypingSignal = useCallback(
+    (isTyping: boolean) => {
+      if (!id || conversation.isManager) return;
+      void fetch("/api/realtime/typing", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ conversationId: id, isTyping, senderRole: "creator" }),
+      }).catch(() => {});
+    },
+    [conversation.isManager, id]
+  );
+
+  const stopCreatorTyping = useCallback(() => {
+    if (!creatorTypingRef.current.isTyping) return;
+    creatorTypingRef.current.isTyping = false;
+    if (creatorTypingStopTimerRef.current) {
+      clearTimeout(creatorTypingStopTimerRef.current);
+      creatorTypingStopTimerRef.current = null;
+    }
+    sendCreatorTypingSignal(false);
+  }, [sendCreatorTypingSignal]);
+
+  const scheduleCreatorTypingStop = useCallback(() => {
+    if (creatorTypingStopTimerRef.current) {
+      clearTimeout(creatorTypingStopTimerRef.current);
+    }
+    creatorTypingStopTimerRef.current = setTimeout(() => {
+      creatorTypingStopTimerRef.current = null;
+      stopCreatorTyping();
+    }, TYPING_STOP_IDLE_MS);
+  }, [stopCreatorTyping]);
+
+  const handleCreatorTypingStart = useCallback(() => {
+    if (!id || conversation.isManager) return;
+    const now = Date.now();
+    const current = creatorTypingRef.current;
+    if (!current.isTyping || now - current.lastStartAt >= TYPING_START_THROTTLE_MS) {
+      current.isTyping = true;
+      current.lastStartAt = now;
+      sendCreatorTypingSignal(true);
+    }
+  }, [conversation.isManager, id, sendCreatorTypingSignal]);
+
+  useEffect(() => {
+    creatorTypingRef.current = { isTyping: false, lastStartAt: 0 };
+    if (creatorTypingStopTimerRef.current) {
+      clearTimeout(creatorTypingStopTimerRef.current);
+      creatorTypingStopTimerRef.current = null;
+    }
+    return () => {
+      if (creatorTypingStopTimerRef.current) {
+        clearTimeout(creatorTypingStopTimerRef.current);
+        creatorTypingStopTimerRef.current = null;
+      }
+    };
+  }, [conversation.isManager, id]);
 
   const dismissPurchaseNotice = useCallback(() => {
     if (purchaseNoticeTimerRef.current) {
@@ -5591,10 +5680,22 @@ const INTENT_BADGE_LABELS: Record<string, string> = {
     [conversation.isManager, id, showPurchaseNotice, unlockOfferId]
   );
 
+  const handleTypingEvent = useCallback(
+    (detail: TypingPayload) => {
+      if (!detail || !id || conversation.isManager) return;
+      if (detail.conversationId !== id && detail.fanId !== id) return;
+      if (detail.senderRole !== "fan") return;
+      const ts = typeof detail.ts === "number" ? detail.ts : Date.now();
+      setTypingIndicator({ isTyping: detail.isTyping, ts });
+    },
+    [conversation.isManager, id]
+  );
+
   useCreatorRealtime({
     onPurchaseCreated: handlePurchaseCreated,
     onFanMessageSent: handleRealtimeMessage,
     onVoiceTranscriptUpdated: handleVoiceTranscriptUpdated,
+    onTyping: handleTypingEvent,
   });
 
   useEffect(() => {
@@ -10914,6 +11015,7 @@ const INTENT_BADGE_LABELS: Record<string, string> = {
       }
       return;
     }
+    stopCreatorTyping();
     dismissPurchaseNotice();
     setComposerError(null);
     if (messagesError) {
@@ -14007,6 +14109,25 @@ const INTENT_BADGE_LABELS: Record<string, string> = {
                   </div>
                 </div>
               )}
+              {!conversation.isManager && typingIndicator.isTyping && id && (
+                <div className="mb-2 flex items-center gap-1 text-[11px] text-[color:var(--muted)]">
+                  <span>{typingDisplayName} está escribiendo</span>
+                  <span className="inline-flex items-center gap-1" aria-hidden="true">
+                    <span
+                      className="h-1 w-1 animate-bounce rounded-full bg-[color:var(--muted)]"
+                      style={{ animationDelay: "0ms" }}
+                    />
+                    <span
+                      className="h-1 w-1 animate-bounce rounded-full bg-[color:var(--muted)]"
+                      style={{ animationDelay: "140ms" }}
+                    />
+                    <span
+                      className="h-1 w-1 animate-bounce rounded-full bg-[color:var(--muted)]"
+                      style={{ animationDelay: "280ms" }}
+                    />
+                  </span>
+                </div>
+              )}
               {showSuggestedAction && (
                 <div className="mb-2 rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-3 py-2">
                   <div className="flex flex-wrap items-center justify-between gap-2 text-[10px] font-semibold text-[color:var(--muted)]">
@@ -14092,8 +14213,13 @@ const INTENT_BADGE_LABELS: Record<string, string> = {
                   setMessageSend(evt.target.value);
                   if (composerError) setComposerError(null);
                   autoGrowTextarea(evt.currentTarget, MAX_MAIN_COMPOSER_HEIGHT);
+                  if (isFanTarget && !isChatBlocked && !isInternalPanelOpen) {
+                    handleCreatorTypingStart();
+                    scheduleCreatorTypingStop();
+                  }
                 }}
                 onKeyDown={(evt) => changeHandler(evt)}
+                onBlur={() => stopCreatorTyping()}
                 onSend={handleSendMessage}
                 sendDisabled={sendDisabled}
                 placeholder={mainComposerPlaceholder}

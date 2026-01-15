@@ -5,6 +5,7 @@ import {
   FAN_MESSAGE_SENT_EVENT,
   PURCHASE_CREATED_EVENT,
   PURCHASE_SEEN_EVENT,
+  TYPING_EVENT,
   VOICE_TRANSCRIPT_UPDATED_EVENT,
 } from "../constants/events";
 import type {
@@ -13,6 +14,7 @@ import type {
   FanMessageSentPayload,
   PurchaseCreatedPayload,
   PurchaseSeenPayload,
+  TypingPayload,
   VoiceTranscriptPayload,
 } from "../lib/events";
 import { initCreatorRealtimeBus } from "../lib/creatorRealtimeBus";
@@ -27,6 +29,7 @@ type CreatorRealtimeHandlers = {
   onCreatorDataChanged?: (payload: CreatorDataChangedPayload) => void;
   onExtrasUpdated?: (payload: ExtrasUpdatedPayload) => void;
   onVoiceTranscriptUpdated?: (payload: VoiceTranscriptPayload) => void;
+  onTyping?: (payload: TypingPayload) => void;
 };
 
 export function useCreatorRealtime(handlers: CreatorRealtimeHandlers, options?: { enabled?: boolean }) {
@@ -85,12 +88,19 @@ export function useCreatorRealtime(handlers: CreatorRealtimeHandlers, options?: 
       handlersRef.current.onVoiceTranscriptUpdated?.(detail);
     };
 
+    const handleTyping = (event: Event) => {
+      const detail = (event as CustomEvent).detail as TypingPayload | undefined;
+      if (!detail) return;
+      handlersRef.current.onTyping?.(detail);
+    };
+
     window.addEventListener(FAN_MESSAGE_SENT_EVENT, handleFanMessageSent as EventListener);
     window.addEventListener(PURCHASE_CREATED_EVENT, handlePurchaseCreated as EventListener);
     window.addEventListener(PURCHASE_SEEN_EVENT, handlePurchaseSeen as EventListener);
     window.addEventListener(CREATOR_DATA_CHANGED_EVENT, handleCreatorDataChanged as EventListener);
     window.addEventListener(EXTRAS_UPDATED_EVENT, handleExtrasUpdated as EventListener);
     window.addEventListener(VOICE_TRANSCRIPT_UPDATED_EVENT, handleVoiceTranscriptUpdated as EventListener);
+    window.addEventListener(TYPING_EVENT, handleTyping as EventListener);
 
     return () => {
       window.removeEventListener(FAN_MESSAGE_SENT_EVENT, handleFanMessageSent as EventListener);
@@ -99,6 +109,7 @@ export function useCreatorRealtime(handlers: CreatorRealtimeHandlers, options?: 
       window.removeEventListener(CREATOR_DATA_CHANGED_EVENT, handleCreatorDataChanged as EventListener);
       window.removeEventListener(EXTRAS_UPDATED_EVENT, handleExtrasUpdated as EventListener);
       window.removeEventListener(VOICE_TRANSCRIPT_UPDATED_EVENT, handleVoiceTranscriptUpdated as EventListener);
+      window.removeEventListener(TYPING_EVENT, handleTyping as EventListener);
     };
   }, [options?.enabled]);
 }

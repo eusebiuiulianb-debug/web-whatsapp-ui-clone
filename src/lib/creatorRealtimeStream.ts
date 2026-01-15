@@ -2,9 +2,11 @@ import {
   CREATOR_DATA_CHANGED_EVENT,
   FAN_MESSAGE_SENT_EVENT,
   PURCHASE_CREATED_EVENT,
+  TYPING_EVENT,
   VOICE_TRANSCRIPT_UPDATED_EVENT,
 } from "../constants/events";
-import type { FanMessageSentPayload, PurchaseCreatedPayload, VoiceTranscriptPayload } from "./events";
+import type { FanMessageSentPayload, PurchaseCreatedPayload, TypingPayload, VoiceTranscriptPayload } from "./events";
+import { emitCreatorEvent as emitCreatorBusEvent } from "./creatorRealtimeBus";
 import { createEventIdDedupe } from "./realtimeEventDedupe";
 import { maybeAutoTranscribeVoiceNote } from "./voiceTranscriptionAuto";
 
@@ -98,6 +100,26 @@ function shouldOwnLock() {
 
 function dispatchLocal(eventName: string, detail: unknown) {
   window.dispatchEvent(new CustomEvent(eventName, { detail }));
+}
+
+function normalizeTypingPayload(raw: unknown): TypingPayload | null {
+  if (!raw || typeof raw !== "object") return null;
+  const payload = raw as {
+    conversationId?: unknown;
+    fanId?: unknown;
+    isTyping?: unknown;
+    senderRole?: unknown;
+    ts?: unknown;
+  };
+  const conversationId =
+    typeof payload.conversationId === "string" ? payload.conversationId.trim() : "";
+  const fanId = typeof payload.fanId === "string" ? payload.fanId.trim() : "";
+  const isTyping = typeof payload.isTyping === "boolean" ? payload.isTyping : null;
+  const senderRole =
+    payload.senderRole === "fan" || payload.senderRole === "creator" ? payload.senderRole : null;
+  const ts = typeof payload.ts === "number" ? payload.ts : Date.now();
+  if (!conversationId || !fanId || isTyping === null || !senderRole) return null;
+  return { conversationId, fanId, isTyping, senderRole, ts };
 }
 
 function normalizeMessageKind(type?: string | null) {
@@ -207,6 +229,10 @@ function handleVoiceTranscriptEvent(event: CreatorRealtimeEvent) {
   dispatchLocal(VOICE_TRANSCRIPT_UPDATED_EVENT, detail);
 }
 
+function handleTypingEvent(detail: TypingPayload) {
+  emitCreatorBusEvent(TYPING_EVENT, detail);
+}
+
 function extractVoiceNoteAutoPayload(event: CreatorRealtimeEvent) {
   if (event.type !== "voice_note_created" && event.type !== "voice_note") return null;
   const payload = event.payload ?? {};
@@ -299,6 +325,18 @@ function connectEventSource() {
       const parsed = JSON.parse(data) as CreatorRealtimeEvent;
       if (!parsed?.eventId || !parsed?.type) return;
       handleIncomingEvent(parsed, true);
+    } catch (_err) {
+      // ignore parse errors
+    }
+  });
+  eventSource.addEventListener("typing", (evt) => {
+    const data = (evt as MessageEvent).data;
+    if (typeof data !== "string") return;
+    try {
+      const parsed = JSON.parse(data) as unknown;
+      const detail = normalizeTypingPayload(parsed);
+      if (!detail) return;
+      handleTypingEvent(detail);
     } catch (_err) {
       // ignore parse errors
     }

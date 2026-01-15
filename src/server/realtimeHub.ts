@@ -19,6 +19,15 @@ export type CreatorRealtimeEvent = {
   createdAt: string;
 };
 
+export type CreatorTypingEvent = {
+  creatorId: string;
+  conversationId: string;
+  fanId: string;
+  isTyping: boolean;
+  senderRole: "fan" | "creator";
+  ts: number;
+};
+
 type RealtimeHubGlobal = typeof globalThis & {
   __novsyCreatorRealtimeHub?: EventEmitter;
 };
@@ -40,4 +49,13 @@ export function emitCreatorEvent(event: CreatorRealtimeEvent) {
 export function onCreatorEvent(listener: (event: CreatorRealtimeEvent) => void) {
   hub.on("creator_event", listener);
   return () => hub.off("creator_event", listener);
+}
+
+export function emitCreatorTypingEvent(event: CreatorTypingEvent) {
+  hub.emit("typing", event);
+}
+
+export function onCreatorTypingEvent(listener: (event: CreatorTypingEvent) => void) {
+  hub.on("typing", listener);
+  return () => hub.off("typing", listener);
 }

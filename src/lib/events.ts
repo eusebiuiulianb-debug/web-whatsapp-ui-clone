@@ -7,6 +7,7 @@ import {
   PURCHASE_SEEN_EVENT,
   VOICE_TRANSCRIPT_UPDATED_EVENT,
   VOICE_TRANSCRIPTION_BUDGET_EVENT,
+  TYPING_EVENT,
 } from "../constants/events";
 import { emitCreatorEvent } from "./creatorRealtimeBus";
 import { resolvePurchaseEventId } from "./purchaseEventDedupe";
@@ -70,6 +71,14 @@ export type VoiceTranscriptPayload = {
   eventId?: string;
 };
 
+export type TypingPayload = {
+  conversationId: string;
+  fanId: string;
+  isTyping: boolean;
+  senderRole: "fan" | "creator";
+  ts: number;
+};
+
 export function emitFanMessageSent(payload: FanMessageSentPayload) {
   emitCreatorEvent(FAN_MESSAGE_SENT_EVENT, payload);
 }
@@ -121,4 +130,5 @@ export {
   PURCHASE_SEEN_EVENT,
   VOICE_TRANSCRIPT_UPDATED_EVENT,
   VOICE_TRANSCRIPTION_BUDGET_EVENT,
+  TYPING_EVENT,
 };
