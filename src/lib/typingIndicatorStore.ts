@@ -1,4 +1,9 @@
 import type { TypingPayload } from "./events";
+import {
+  FAN_DRAFT_PREVIEW_TTL_MS,
+  isFanDraftPreviewEnabled,
+  normalizeFanDraftText,
+} from "./fanDraftPreview";
 
 export type TypingIndicatorState = {
   isTyping: boolean;
@@ -8,20 +13,14 @@ export type TypingIndicatorState = {
 
 type Listener = () => void;
 
-const TYPING_HIDE_MS = 7000;
-const MAX_DRAFT_LEN = 240;
+const TYPING_HIDE_MS = FAN_DRAFT_PREVIEW_TTL_MS;
+const FAN_DRAFT_PREVIEW_ENABLED = isFanDraftPreviewEnabled();
 
 const store = {
   entries: new Map<string, TypingIndicatorState>(),
   listeners: new Set<Listener>(),
   cleanupTimer: null as ReturnType<typeof setInterval> | null,
 };
-
-function normalizeDraftText(value: string) {
-  const cleaned = value.replace(/[\r\n]+/g, " ").trim();
-  if (!cleaned) return "";
-  return cleaned.slice(0, MAX_DRAFT_LEN);
-}
 
 function notify() {
   store.listeners.forEach((listener) => listener());
@@ -95,7 +94,9 @@ export function updateTypingIndicator(detail: TypingPayload) {
   if (!conversationId) return;
   const ts = typeof detail.ts === "number" ? detail.ts : Date.now();
   const normalizedDraftText =
-    typeof detail.draftText === "string" ? normalizeDraftText(detail.draftText) : undefined;
+    FAN_DRAFT_PREVIEW_ENABLED && typeof detail.draftText === "string"
+      ? normalizeFanDraftText(detail.draftText)
+      : undefined;
   if (!detail.isTyping || (normalizedDraftText !== undefined && normalizedDraftText.length === 0)) {
     if (store.entries.delete(conversationId)) {
       notify();
@@ -103,8 +104,11 @@ export function updateTypingIndicator(detail: TypingPayload) {
     return;
   }
   const existing = store.entries.get(conversationId);
-  const nextDraftText =
-    normalizedDraftText !== undefined ? normalizedDraftText : existing?.draftText;
+  const nextDraftText = FAN_DRAFT_PREVIEW_ENABLED
+    ? normalizedDraftText !== undefined
+      ? normalizedDraftText
+      : existing?.draftText
+    : undefined;
   const nextEntry: TypingIndicatorState = {
     isTyping: true,
     ts,

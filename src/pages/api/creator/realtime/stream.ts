@@ -1,5 +1,6 @@
 import type { NextApiRequest, NextApiResponse } from "next";
 import prisma from "../../../../lib/prisma.server";
+import { isFanDraftPreviewEnabled } from "../../../../lib/fanDraftPreview";
 import {
   onCreatorEvent,
   onCreatorTypingEvent,
@@ -14,6 +15,7 @@ export const config = {
 };
 
 const HEARTBEAT_MS = 20_000;
+const FAN_DRAFT_PREVIEW_ENABLED = isFanDraftPreviewEnabled();
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== "GET") {
@@ -49,7 +51,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         fanId: event.fanId,
         isTyping: event.isTyping,
         senderRole: event.senderRole,
-        draftText: event.senderRole === "fan" ? event.draftText : undefined,
+        draftText:
+          FAN_DRAFT_PREVIEW_ENABLED && event.senderRole === "fan" ? event.draftText : undefined,
         ts: event.ts,
       })}\n\n`
     );

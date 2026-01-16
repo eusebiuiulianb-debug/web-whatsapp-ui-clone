@@ -88,6 +88,11 @@ import type { FanManagerStateAnalysis } from "../../lib/fanManagerState";
 import type { FanTone, ManagerObjective } from "../../types/manager";
 import { track } from "../../lib/analyticsClient";
 import { sanitizeAiDraftText } from "../../lib/text/sanitizeAiDraft";
+import {
+  FAN_DRAFT_PREVIEW_TTL_MS,
+  isFanDraftPreviewEnabled,
+  normalizeFanDraftText,
+} from "../../lib/fanDraftPreview";
 import { ANALYTICS_EVENTS } from "../../lib/analyticsEvents";
 import { deriveAudience, isVisibleToFan, normalizeFrom } from "../../lib/messageAudience";
 import { getNearDuplicateSimilarity } from "../../lib/text/isNearDuplicate";
@@ -160,16 +165,10 @@ import {
 } from "../../lib/cortexFlow";
 
 const OFFER_MARKER = "\n\n__NOVSY_OFFER__:";
-const TYPING_HIDE_MS = 7000;
+const TYPING_HIDE_MS = FAN_DRAFT_PREVIEW_TTL_MS;
 const TYPING_START_THROTTLE_MS = 800;
 const TYPING_STOP_IDLE_MS = 1200;
-const DRAFT_CONTEXT_MAX_LEN = 240;
-
-function normalizeDraftContext(value: string) {
-  const cleaned = value.replace(/[\r\n]+/g, " ").trim();
-  if (!cleaned) return "";
-  return cleaned.slice(0, DRAFT_CONTEXT_MAX_LEN);
-}
+const FAN_DRAFT_PREVIEW_ENABLED = isFanDraftPreviewEnabled();
 
 function formatCurrency(value: number) {
   const rounded = Math.round((value ?? 0) * 100) / 100;
@@ -5789,13 +5788,16 @@ const INTENT_BADGE_LABELS: Record<string, string> = {
       if (detail.conversationId !== id && detail.fanId !== id) return;
       if (detail.senderRole !== "fan") return;
       const ts = typeof detail.ts === "number" ? detail.ts : Date.now();
-      const rawDraftText = typeof detail.draftText === "string" ? detail.draftText : null;
       if (!detail.isTyping) {
         setTypingIndicator({ isTyping: false, ts, draftText: "" });
         return;
       }
-      if (rawDraftText !== null) {
-        const normalizedDraftText = rawDraftText.replace(/[\r\n]+/g, " ").trim().slice(0, 240);
+      if (!FAN_DRAFT_PREVIEW_ENABLED) {
+        setTypingIndicator({ isTyping: true, ts, draftText: "" });
+        return;
+      }
+      if (typeof detail.draftText === "string") {
+        const normalizedDraftText = normalizeFanDraftText(detail.draftText);
         if (!normalizedDraftText) {
           setTypingIndicator({ isTyping: false, ts, draftText: "" });
           return;
@@ -5803,7 +5805,7 @@ const INTENT_BADGE_LABELS: Record<string, string> = {
         setTypingIndicator({ isTyping: true, ts, draftText: normalizedDraftText });
         return;
       }
-      setTypingIndicator((prev) => ({ ...prev, isTyping: true, ts }));
+      setTypingIndicator({ isTyping: true, ts, draftText: "" });
     },
     [conversation.isManager, id]
   );
@@ -9983,7 +9985,9 @@ const INTENT_BADGE_LABELS: Record<string, string> = {
           fanIsTyping: options.fanIsTyping,
         };
         const normalizedFanDraftText =
-          typeof resolvedOptions.fanDraftText === "string" ? normalizeDraftContext(resolvedOptions.fanDraftText) : "";
+          FAN_DRAFT_PREVIEW_ENABLED && typeof resolvedOptions.fanDraftText === "string"
+            ? normalizeFanDraftText(resolvedOptions.fanDraftText)
+            : "";
         const shouldSendFanDraft = Boolean(normalizedFanDraftText) && resolvedOptions.fanIsTyping === true;
         const historyKey =
           resolvedOptions.historyKey ??
@@ -12535,8 +12539,8 @@ const INTENT_BADGE_LABELS: Record<string, string> = {
       offerId: null,
     });
     const fanDraftText =
-      typingIndicator.isTyping && typingIndicator.draftText
-        ? normalizeDraftContext(typingIndicator.draftText)
+      FAN_DRAFT_PREVIEW_ENABLED && typingIndicator.isTyping && typingIndicator.draftText
+        ? normalizeFanDraftText(typingIndicator.draftText)
         : "";
     const draftText = await requestManagerDraft({
       objectiveKey: nextActionDraftKey,
@@ -14358,17 +14362,10 @@ const INTENT_BADGE_LABELS: Record<string, string> = {
                       style={{ animationDelay: "280ms" }}
                     />
                   </div>
-                  {typingIndicator.draftText ? (
-                    <div
-                      className="mt-1 max-w-[320px] text-[10px] text-[color:var(--muted)] leading-snug"
-                      style={{
-                        display: "-webkit-box",
-                        WebkitLineClamp: 2,
-                        WebkitBoxOrient: "vertical",
-                        overflow: "hidden",
-                      }}
-                    >
-                      <span className="font-semibold">Borrador:</span> {typingIndicator.draftText}
+                  {FAN_DRAFT_PREVIEW_ENABLED ? (
+                    <div className="mt-1 max-w-[320px] truncate text-[10px] text-[color:var(--muted)]">
+                      {typingDisplayName} está escribiendo
+                      {typingIndicator.draftText ? `: "${typingIndicator.draftText}"` : "..."}
                     </div>
                   ) : null}
                 </div>

@@ -62,6 +62,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   const off = onCreatorTypingEvent((event) => {
     if (event.creatorId !== fan.creatorId) return;
     if (event.fanId !== fan.id && event.conversationId !== fan.id) return;
+    if (event.senderRole !== "creator") return;
     sendTypingEvent(event);
   });
 

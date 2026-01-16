@@ -23,6 +23,11 @@ import { buildFanChatProps } from "../../lib/fanChatProps";
 import { generateClientTxnId } from "../../lib/clientTxn";
 import { emitPurchaseCreated } from "../../lib/events";
 import { recordDevRequest } from "../../lib/devRequestStats";
+import {
+  FAN_DRAFT_PREVIEW_THROTTLE_MS,
+  isFanDraftPreviewEnabled,
+  normalizeFanDraftText,
+} from "../../lib/fanDraftPreview";
 import { buildStickerTokenFromItem, getStickerByToken, type StickerItem } from "../../lib/stickers";
 import { useVoiceRecorder } from "../../lib/useVoiceRecorder";
 import { readEmojiRecents, recordEmojiRecent } from "../../lib/emoji/recents";
@@ -106,17 +111,11 @@ const VOICE_MIME_PREFERENCES = [
   "audio/mp4",
 ];
 const TYPING_START_THROTTLE_MS = 800;
-const TYPING_DRAFT_THROTTLE_MS = 800;
+const TYPING_DRAFT_THROTTLE_MS = FAN_DRAFT_PREVIEW_THROTTLE_MS;
 const TYPING_STOP_IDLE_MS = 1200;
 const TYPING_HIDE_MS = 7000;
-const DRAFT_TEXT_MAX_LEN = 240;
+const FAN_DRAFT_PREVIEW_ENABLED = isFanDraftPreviewEnabled();
 const WALLET_TOPUP_PRESETS = [1000, 2500, 5000];
-
-function normalizeDraftPreviewText(value: string) {
-  const cleaned = value.replace(/[\r\n]+/g, " ").trim();
-  if (!cleaned) return "";
-  return cleaned.slice(0, DRAFT_TEXT_MAX_LEN);
-}
 
 const PACK_TYPE_TOKENS: Record<"trial" | "monthly" | "special", string[]> = {
   trial: ["trial", "welcome", "bienvenida", "prueba"],
@@ -934,13 +933,17 @@ export function FanChatPage({
   );
 
   const flushDraftPreview = useCallback(() => {
+    if (!FAN_DRAFT_PREVIEW_ENABLED) return;
     const pending = draftSendStateRef.current.pendingText;
     if (!pending) return;
+    const now = Date.now();
+    typingStateRef.current.isTyping = true;
+    typingStateRef.current.lastStartAt = now;
     if (pending === draftSendStateRef.current.lastSentText) {
-      draftSendStateRef.current.lastSentAt = Date.now();
+      draftSendStateRef.current.lastSentAt = now;
       return;
     }
-    draftSendStateRef.current.lastSentAt = Date.now();
+    draftSendStateRef.current.lastSentAt = now;
     draftSendStateRef.current.lastSentText = pending;
     sendTypingSignal(true, pending);
   }, [sendTypingSignal]);
@@ -977,6 +980,7 @@ export function FanChatPage({
 
   const scheduleDraftPreview = useCallback(
     (normalizedDraft: string) => {
+      if (!FAN_DRAFT_PREVIEW_ENABLED) return;
       if (!normalizedDraft) return;
       draftSendStateRef.current.pendingText = normalizedDraft;
       const now = Date.now();
@@ -1000,6 +1004,7 @@ export function FanChatPage({
   );
 
   const handleTypingStart = useCallback(() => {
+    if (FAN_DRAFT_PREVIEW_ENABLED) return;
     const now = Date.now();
     const current = typingStateRef.current;
     if (!current.isTyping || now - current.lastStartAt >= TYPING_START_THROTTLE_MS) {
@@ -1057,14 +1062,17 @@ export function FanChatPage({
       const nextDraft = event.target.value;
       setDraft(nextDraft);
       if (isComposerDisabled) return;
-      const normalizedDraft = normalizeDraftPreviewText(nextDraft);
+      const normalizedDraft = normalizeFanDraftText(nextDraft);
       if (!normalizedDraft) {
         stopTyping();
         return;
       }
-      handleTypingStart();
+      if (FAN_DRAFT_PREVIEW_ENABLED) {
+        scheduleDraftPreview(normalizedDraft);
+      } else {
+        handleTypingStart();
+      }
       scheduleTypingStop();
-      scheduleDraftPreview(normalizedDraft);
     },
     [handleTypingStart, isComposerDisabled, scheduleDraftPreview, scheduleTypingStop, stopTyping]
   );

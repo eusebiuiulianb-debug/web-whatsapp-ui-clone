@@ -47,19 +47,10 @@ const NEXT_ACTION_LABELS: Record<string, string> = {
   SAFETY: "Seguridad",
 };
 
-const SIDEBAR_DRAFT_MAX_LEN = 140;
-
 function normalizeSuggestedActionKey(value?: string | null): string | null {
   if (!value) return null;
   const normalized = value.trim().toUpperCase();
   return SUGGESTED_ACTION_KEYS.has(normalized) ? normalized : null;
-}
-
-function normalizeSidebarDraftText(value?: string | null) {
-  if (!value) return "";
-  const cleaned = value.replace(/[\r\n]+/g, " ").trim();
-  if (!cleaned) return "";
-  return cleaned.slice(0, SIDEBAR_DRAFT_MAX_LEN);
 }
 
 interface ConversationListProps {
@@ -94,7 +85,6 @@ export default function ConversationList(props: ConversationListProps) {
   const isManagerChat = data.isManager === true;
   const typingIndicator = useTypingIndicator(data.id);
   const isTyping = !isManagerChat && Boolean(typingIndicator?.isTyping);
-  const typingDraftPreview = isTyping ? normalizeSidebarDraftText(typingIndicator?.draftText) : "";
   const previewMessage =
     typeof lastMessage === "string" && isStickerToken(lastMessage) ? "Sticker" : lastMessage;
   const hasUnread = !isManagerChat && !!unreadCount && unreadCount > 0;
@@ -349,11 +339,6 @@ export default function ConversationList(props: ConversationListProps) {
                   </Badge>
                 ) : null}
               </div>
-              {isTyping && typingDraftPreview ? (
-                <div className={`truncate ${isCompact ? "text-[10px]" : "text-[11px]"}`}>
-                  <span className="font-semibold">Borrador:</span> {typingDraftPreview}
-                </div>
-              ) : null}
             </div>
           </div>
           <div className="flex items-start gap-2 shrink-0">

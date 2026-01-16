@@ -9,6 +9,7 @@ import type { FanMessageSentPayload, PurchaseCreatedPayload, TypingPayload, Voic
 import { emitCreatorEvent as emitCreatorBusEvent } from "./creatorRealtimeBus";
 import { createEventIdDedupe } from "./realtimeEventDedupe";
 import { maybeAutoTranscribeVoiceNote } from "./voiceTranscriptionAuto";
+import { isFanDraftPreviewEnabled, normalizeFanDraftText } from "./fanDraftPreview";
 
 type CreatorRealtimeEventType =
   | "MESSAGE_CREATED"
@@ -37,6 +38,7 @@ const CHANNEL_NAME = "novsy_creator_realtime";
 const LOCK_KEY = "novsy_creator_realtime_owner";
 const OWNER_TTL_MS = 12_000;
 const OWNER_PING_MS = 4_000;
+const FAN_DRAFT_PREVIEW_ENABLED = isFanDraftPreviewEnabled();
 
 const eventDedupe = createEventIdDedupe({ ttlMs: 10 * 60 * 1000, maxEntries: 400 });
 
@@ -119,8 +121,8 @@ function normalizeTypingPayload(raw: unknown): TypingPayload | null {
   const senderRole =
     payload.senderRole === "fan" || payload.senderRole === "creator" ? payload.senderRole : null;
   const draftText =
-    typeof payload.draftText === "string"
-      ? payload.draftText.replace(/[\r\n]+/g, " ").trim().slice(0, 240)
+    FAN_DRAFT_PREVIEW_ENABLED && typeof payload.draftText === "string"
+      ? normalizeFanDraftText(payload.draftText)
       : undefined;
   const ts = typeof payload.ts === "number" ? payload.ts : Date.now();
   if (!conversationId || !fanId || isTyping === null || !senderRole) return null;

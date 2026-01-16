@@ -1,16 +1,9 @@
 import type { NextApiRequest, NextApiResponse } from "next";
 import prisma from "../../../lib/prisma.server";
+import { isFanDraftPreviewEnabled, normalizeFanDraftText } from "../../../lib/fanDraftPreview";
 import { emitCreatorTypingEvent } from "../../../server/realtimeHub";
 
 type TypingResponse = { ok: true } | { ok: false; error: string };
-
-const DRAFT_TEXT_MAX_LEN = 240;
-
-function normalizeDraftText(value: string) {
-  const cleaned = value.replace(/[\r\n]+/g, " ").trim();
-  if (!cleaned) return "";
-  return cleaned.slice(0, DRAFT_TEXT_MAX_LEN);
-}
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse<TypingResponse>) {
   if (req.method !== "POST") {
@@ -31,13 +24,12 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
     return res.status(400).json({ ok: false, error: "Invalid typing payload" });
   }
 
-  if (draftText !== undefined && draftText !== null && typeof draftText !== "string") {
-    return res.status(400).json({ ok: false, error: "Invalid typing payload" });
-  }
+  const draftPreviewEnabled = isFanDraftPreviewEnabled();
   const rawDraftText = typeof draftText === "string" ? draftText : null;
-  let normalizedDraftText = rawDraftText === null ? undefined : normalizeDraftText(rawDraftText);
+  let normalizedDraftText: string | undefined = undefined;
   let resolvedIsTyping = isTyping;
-  if (normalizedDraftText !== undefined) {
+  if (draftPreviewEnabled && rawDraftText !== null) {
+    normalizedDraftText = normalizeFanDraftText(rawDraftText);
     if (!normalizedDraftText) {
       resolvedIsTyping = false;
       normalizedDraftText = "";
