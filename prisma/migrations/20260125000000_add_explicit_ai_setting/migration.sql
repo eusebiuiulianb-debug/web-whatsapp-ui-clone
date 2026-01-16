@@ -1,2 +1,1 @@
--- AlterTable
-ALTER TABLE "CreatorAiSettings" ADD COLUMN "allowExplicitAdultContent" BOOLEAN NOT NULL DEFAULT false;
+-- no-op (allowExplicitAdultContent already exists from earlier migrations)
