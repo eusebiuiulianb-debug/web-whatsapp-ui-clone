@@ -4,6 +4,7 @@ import prisma from "../../lib/prisma.server";
 import { sendBadRequest, sendServerError } from "../../lib/apiError";
 import { emitCreatorEvent as emitRealtimeEvent } from "../../server/realtimeHub";
 import { resolveNextAction, type TemperatureBucket } from "../../lib/ai/temperature";
+import { buildWalletPayload, getOrCreateWallet } from "../../lib/wallet";
 
 const EXTRA_TIERS = ["T0", "T1", "T2", "T3"] as const;
 const MAX_CLIENT_TXN_ID = 120;
@@ -117,23 +118,80 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
         where: { fanId, kind: "EXTRA", clientTxnId },
       });
       if (existing) {
-        return res.status(200).json({ ok: true, purchase: existing, reused: true });
+        const wallet = await getOrCreateWallet(prisma, fanId);
+        return res.status(200).json({
+          ok: true,
+          purchase: existing,
+          reused: true,
+          ...buildWalletPayload(wallet),
+        });
       }
     }
 
-    const purchase = await prisma.extraPurchase.create({
-      data: {
-        fanId,
-        contentItemId,
-        tier,
-        amount: amountNumber,
-        kind: "EXTRA",
-        productId: contentItemId,
-        productType: "EXTRA",
-        sessionTag: typeof sessionTag === "string" && sessionTag.trim().length > 0 ? sessionTag.trim() : null,
-        clientTxnId,
-      },
-      include: { contentItem: { select: { title: true } } },
+    const wallet = await getOrCreateWallet(prisma, fanId);
+    const walletEnabled = Boolean(wallet);
+    if (walletEnabled && amountNumber > 0 && (wallet?.balanceCents ?? 0) < Math.round(amountNumber * 100)) {
+      return res.status(400).json({
+        ok: false,
+        error: "INSUFFICIENT_BALANCE",
+        requiredCents: Math.round(amountNumber * 100),
+        ...buildWalletPayload(wallet),
+      });
+    }
+
+    const result = await prisma.$transaction(async (tx) => {
+      const txWallet = walletEnabled ? await getOrCreateWallet(tx, fanId) : null;
+      if (walletEnabled && amountNumber > 0) {
+        if (!txWallet || txWallet.balanceCents < Math.round(amountNumber * 100)) {
+          const err = new Error("INSUFFICIENT_BALANCE");
+          (err as any).code = "INSUFFICIENT_BALANCE";
+          throw err;
+        }
+      }
+      let nextWallet = txWallet;
+      if (walletEnabled && amountNumber > 0 && txWallet) {
+        const amountCents = Math.round(amountNumber * 100);
+        const nextBalance = txWallet.balanceCents - amountCents;
+        await (tx as any).walletTransaction.create({
+          data: {
+            walletId: txWallet.id,
+            kind: "EXTRA_PURCHASE",
+            amountCents: -amountCents,
+            balanceAfterCents: nextBalance,
+            idempotencyKey: clientTxnId ?? undefined,
+            meta: {
+              extraId: contentItemId,
+              tier,
+              sessionTag: typeof sessionTag === "string" ? sessionTag : null,
+            },
+          },
+        });
+        const updatedWallet = await (tx as any).wallet.update({
+          where: { id: txWallet.id },
+          data: { balanceCents: nextBalance },
+        });
+        nextWallet = {
+          id: updatedWallet.id,
+          fanId: updatedWallet.fanId,
+          currency: updatedWallet.currency || "EUR",
+          balanceCents: updatedWallet.balanceCents ?? nextBalance,
+        };
+      }
+      const purchase = await tx.extraPurchase.create({
+        data: {
+          fanId,
+          contentItemId,
+          tier,
+          amount: amountNumber,
+          kind: "EXTRA",
+          productId: contentItemId,
+          productType: "EXTRA",
+          sessionTag: typeof sessionTag === "string" && sessionTag.trim().length > 0 ? sessionTag.trim() : null,
+          clientTxnId,
+        },
+        include: { contentItem: { select: { title: true } } },
+      });
+      return { purchase, wallet: nextWallet };
     });
     const now = new Date();
     const time = now.toLocaleTimeString("es-ES", {
@@ -151,7 +209,7 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
       intentKey: fan.lastIntentKey ?? null,
       temperatureBucket: boostedBucket,
     });
-    const preview = formatPurchasePreview(purchase.contentItem?.title ?? null, amountNumber);
+    const preview = formatPurchasePreview(result.purchase.contentItem?.title ?? null, amountNumber);
     await prisma.fan.update({
       where: { id: fanId },
       data: {
@@ -167,30 +225,53 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
     });
 
     emitRealtimeEvent({
-      eventId: purchase.id,
+      eventId: result.purchase.id,
       type: "PURCHASE_CREATED",
       creatorId: fan.creatorId,
       fanId,
-      createdAt: purchase.createdAt.toISOString(),
+      createdAt: result.purchase.createdAt.toISOString(),
       payload: {
-        purchaseId: purchase.id,
-        kind: purchase.kind,
-        amountCents: Math.round((purchase.amount ?? amountNumber) * 100),
-        title: purchase.contentItem?.title ?? null,
-        createdAt: purchase.createdAt.toISOString(),
+        purchaseId: result.purchase.id,
+        kind: result.purchase.kind,
+        amountCents: Math.round((result.purchase.amount ?? amountNumber) * 100),
+        title: result.purchase.contentItem?.title ?? null,
+        createdAt: result.purchase.createdAt.toISOString(),
         fanName: fan.displayName ?? fan.name ?? null,
       },
     });
 
-    return res.status(201).json({ ok: true, purchase, reused: false });
+    return res.status(201).json({
+      ok: true,
+      purchase: result.purchase,
+      reused: false,
+      ...buildWalletPayload(result.wallet),
+    });
   } catch (error) {
     const code = (error as { code?: string }).code;
+    if (code === "INSUFFICIENT_BALANCE") {
+      try {
+        const wallet = await getOrCreateWallet(prisma, fanId);
+        return res.status(400).json({
+          ok: false,
+          error: "INSUFFICIENT_BALANCE",
+          ...buildWalletPayload(wallet),
+        });
+      } catch (_err) {
+        return res.status(400).json({ ok: false, error: "INSUFFICIENT_BALANCE" });
+      }
+    }
     if (code === "P2002" && clientTxnId) {
       const existing = await prisma.extraPurchase.findFirst({
         where: { fanId, kind: "EXTRA", clientTxnId },
       });
       if (existing) {
-        return res.status(200).json({ ok: true, purchase: existing, reused: true });
+        const wallet = await getOrCreateWallet(prisma, fanId);
+        return res.status(200).json({
+          ok: true,
+          purchase: existing,
+          reused: true,
+          ...buildWalletPayload(wallet),
+        });
       }
     }
     console.error("Error creating extra purchase", error);

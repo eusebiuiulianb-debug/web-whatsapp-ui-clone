@@ -185,8 +185,33 @@ function handlePurchaseEvent(event: CreatorRealtimeEvent) {
 }
 
 function handleChatUpdated(event: CreatorRealtimeEvent) {
-  const fanId = typeof event.fanId === "string" ? event.fanId : undefined;
-  dispatchLocal(CREATOR_DATA_CHANGED_EVENT, { reason: "chat_updated", fanId });
+  const payload = event.payload ?? {};
+  const payloadFanId =
+    typeof (payload as { fanId?: unknown }).fanId === "string"
+      ? ((payload as { fanId?: string }).fanId ?? "")
+      : "";
+  const fanId =
+    (typeof event.fanId === "string" ? event.fanId : "") ||
+    (payloadFanId.trim() ? payloadFanId.trim() : undefined);
+  const adultConfirmedAt =
+    typeof (payload as { adultConfirmedAt?: unknown }).adultConfirmedAt === "string"
+      ? ((payload as { adultConfirmedAt?: string }).adultConfirmedAt ?? null)
+      : null;
+  const adultConfirmVersion =
+    typeof (payload as { adultConfirmVersion?: unknown }).adultConfirmVersion === "string"
+      ? ((payload as { adultConfirmVersion?: string }).adultConfirmVersion ?? null)
+      : null;
+  const isAdultConfirmed =
+    typeof (payload as { isAdultConfirmed?: unknown }).isAdultConfirmed === "boolean"
+      ? ((payload as { isAdultConfirmed?: boolean }).isAdultConfirmed ?? false)
+      : undefined;
+  dispatchLocal(CREATOR_DATA_CHANGED_EVENT, {
+    reason: "chat_updated",
+    fanId,
+    adultConfirmedAt,
+    adultConfirmVersion,
+    isAdultConfirmed,
+  });
 }
 
 function handleVoiceTranscriptEvent(event: CreatorRealtimeEvent) {

@@ -5,6 +5,8 @@ import type { IncludedContent } from "./fanContent";
 export type FanChatSSRProps = {
   includedContent: IncludedContent[];
   initialAccessSummary: AccessSummary;
+  adultConfirmedAt: string | null;
+  adultConfirmVersion: string | null;
 };
 
 export async function buildFanChatProps(fanId: string): Promise<FanChatSSRProps> {
@@ -17,6 +19,9 @@ export async function buildFanChatProps(fanId: string): Promise<FanChatSSRProps>
   let daysLeft: number | null = null;
   let hasAccessHistory = false;
   let activeGrantTypes: string[] = [];
+
+  let adultConfirmedAt: string | null = null;
+  let adultConfirmVersion: string | null = null;
 
   if (fanId) {
     const fan = await prisma.fan.findUnique({
@@ -34,6 +39,9 @@ export async function buildFanChatProps(fanId: string): Promise<FanChatSSRProps>
       daysLeft = accessState.daysLeft;
       hasAccessHistory = accessState.hasAccessHistory;
       activeGrantTypes = accessState.activeGrantTypes;
+      const confirmedAtValue = (fan as any).adultConfirmedAt as Date | null | undefined;
+      adultConfirmedAt = confirmedAtValue ? confirmedAtValue.toISOString() : null;
+      adultConfirmVersion = (fan as any).adultConfirmVersion ?? null;
     }
   }
 
@@ -49,5 +57,7 @@ export async function buildFanChatProps(fanId: string): Promise<FanChatSSRProps>
   return {
     includedContent,
     initialAccessSummary: accessSummary,
+    adultConfirmedAt,
+    adultConfirmVersion,
   };
 }

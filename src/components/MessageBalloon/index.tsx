@@ -16,6 +16,7 @@ export type OfferMeta = {
   title: string;
   price: string;
   thumb?: string | null;
+  kind?: "offer" | "pack";
 };
 
 const isOfferMeta = (value: unknown): value is OfferMeta => {
@@ -25,6 +26,7 @@ const isOfferMeta = (value: unknown): value is OfferMeta => {
   if (typeof candidate.title !== "string" || !candidate.title.trim()) return false;
   if (typeof candidate.price !== "string") return false;
   if (candidate.thumb !== undefined && candidate.thumb !== null && typeof candidate.thumb !== "string") return false;
+  if (candidate.kind !== undefined && candidate.kind !== "offer" && candidate.kind !== "pack") return false;
   return true;
 };
 
@@ -52,6 +54,7 @@ type LockedContentCardProps = {
   thumb?: string | null;
   status: "locked" | "unlocked";
   ctaLabel: string;
+  disabled?: boolean;
   onClick: () => void;
 };
 
@@ -61,6 +64,7 @@ const LockedContentCard = ({
   thumb,
   status,
   ctaLabel,
+  disabled = false,
   onClick,
 }: LockedContentCardProps) => {
   const statusLabel = status === "locked" ? "Bloqueado" : "Desbloqueado";
@@ -77,7 +81,13 @@ const LockedContentCard = ({
     <button
       type="button"
       onClick={onClick}
-      className="w-full rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-3 py-2 text-left shadow-sm transition hover:border-[color:var(--surface-border-hover)] hover:bg-[color:var(--surface-2)]"
+      disabled={disabled}
+      className={clsx(
+        "w-full rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-3 py-2 text-left shadow-sm transition",
+        disabled
+          ? "cursor-not-allowed opacity-70"
+          : "hover:border-[color:var(--surface-border-hover)] hover:bg-[color:var(--surface-2)]"
+      )}
     >
       <div className="flex items-center gap-3">
         {thumb ? (
@@ -99,7 +109,7 @@ const LockedContentCard = ({
           <span className={clsx("rounded-full border px-2 py-0.5 text-[9px] font-semibold uppercase tracking-wide", statusClass)}>
             {statusLabel}
           </span>
-          <span className={clsx("rounded-full border px-2 py-0.5 text-[10px] font-semibold", ctaClass)}>
+          <span className={clsx("rounded-full border px-2 py-0.5 text-[10px] font-semibold", ctaClass, disabled && "opacity-70")}>
             {ctaLabel}
           </span>
         </div>
@@ -132,6 +142,7 @@ interface MessageBalloonProps {
   forceReactionButton?: boolean;
   anchorId?: string;
   unlockedOfferIds?: Set<string>;
+  unlockingOfferIds?: Set<string>;
   onOfferClick?: (offer: OfferMeta, status: "locked" | "unlocked") => void;
   viewerRole: ViewerRole;
 }
@@ -162,6 +173,7 @@ const MessageBalloon = memo(function MessageBalloon(props: MessageBalloonProps) 
     forceReactionButton = false,
     anchorId,
     unlockedOfferIds,
+    unlockingOfferIds,
     onOfferClick,
     viewerRole,
   } = props;
@@ -172,7 +184,14 @@ const MessageBalloon = memo(function MessageBalloon(props: MessageBalloonProps) 
     [isSticker, message]
   );
   const offerStatus = offerMeta && unlockedOfferIds?.has(offerMeta.id) ? "unlocked" : "locked";
-  const offerCtaLabel = offerStatus === "unlocked" ? "Ver" : "Desbloquear";
+  const offerCtaLabel =
+    offerStatus === "unlocked"
+      ? viewerRole === "fan"
+        ? "Ver contenido"
+        : "Ver"
+      : "Desbloquear";
+  const isOfferUnlocking = Boolean(offerMeta && unlockingOfferIds?.has(offerMeta.id));
+  const resolvedOfferCtaLabel = isOfferUnlocking ? "Desbloqueando..." : offerCtaLabel;
   const bubbleClass =
     variant === "internal"
       ? "bg-[color:rgba(245,158,11,0.12)] text-[color:var(--text)] border border-[color:rgba(245,158,11,0.6)]"
@@ -457,8 +476,10 @@ const MessageBalloon = memo(function MessageBalloon(props: MessageBalloonProps) 
                 price={offerMeta.price}
                 thumb={offerMeta.thumb ?? null}
                 status={offerStatus}
-                ctaLabel={offerCtaLabel}
+                ctaLabel={resolvedOfferCtaLabel}
+                disabled={isOfferUnlocking}
                 onClick={() => {
+                  if (isOfferUnlocking) return;
                   onOfferClick?.(offerMeta, offerStatus);
                 }}
               />

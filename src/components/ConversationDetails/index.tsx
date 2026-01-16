@@ -40,6 +40,7 @@ import {
   emitFanMessageSent,
   emitPurchaseCreated,
   emitPurchaseSeen,
+  type CreatorDataChangedPayload,
   type FanMessageSentPayload,
   type TypingPayload,
 } from "../../lib/events";
@@ -168,6 +169,40 @@ function normalizeDraftContext(value: string) {
   const cleaned = value.replace(/[\r\n]+/g, " ").trim();
   if (!cleaned) return "";
   return cleaned.slice(0, DRAFT_CONTEXT_MAX_LEN);
+}
+
+function formatCurrency(value: number) {
+  const rounded = Math.round((value ?? 0) * 100) / 100;
+  return `${rounded % 1 === 0 ? rounded.toFixed(0) : rounded.toFixed(2)} €`;
+}
+
+function formatOfferPrice(priceCents: number, currency?: string | null) {
+  const amount = priceCents / 100;
+  const base = formatCurrency(amount);
+  const code = (currency || "EUR").toUpperCase();
+  return code === "EUR" ? base : `${base} ${code}`;
+}
+
+function normalizePriceLabel(value: string) {
+  const trimmed = (value || "").trim();
+  if (!trimmed) return "0 €";
+  if (/[€$£]/.test(trimmed)) return trimmed;
+  return `${trimmed} €`;
+}
+
+function attachOfferMarker(text: string, offer: OfferMeta | null): string {
+  if (!offer) return text;
+  try {
+    return `${text}${OFFER_MARKER}${JSON.stringify(offer)}`;
+  } catch (_err) {
+    return text;
+  }
+}
+
+function buildOfferMessageText(offer: OfferMeta, introText?: string | null): string {
+  const intro = typeof introText === "string" ? introText.trim() : "";
+  const baseText = intro || offer.title.trim() || "Oferta";
+  return attachOfferMarker(baseText, offer);
 }
 
 type OfferOverlayState = {
@@ -1975,18 +2010,6 @@ export default function ConversationDetails({ onBackToBoard }: ConversationDetai
     void fetchObjectives();
   }, [conversation.isManager, fetchObjectives, fetchOffers, id, managerPanelOpen]);
 
-  function formatCurrency(value: number) {
-    const rounded = Math.round((value ?? 0) * 100) / 100;
-    return `${rounded % 1 === 0 ? rounded.toFixed(0) : rounded.toFixed(2)} €`;
-  }
-
-  function formatOfferPrice(priceCents: number, currency?: string | null) {
-    const amount = priceCents / 100;
-    const base = formatCurrency(amount);
-    const code = (currency || "EUR").toUpperCase();
-    return code === "EUR" ? base : `${base} ${code}`;
-  }
-
   function pickRandom<T>(items: T[]): T | null {
     if (!Array.isArray(items) || items.length === 0) return null;
     const index = Math.floor(Math.random() * items.length);
@@ -2032,15 +2055,6 @@ export default function ConversationDetails({ onBackToBoard }: ConversationDetai
       price: candidate.price,
       thumb: typeof candidate.thumb === "string" ? candidate.thumb : null,
     };
-  }
-
-  function attachOfferMarker(text: string, offer: OfferMeta | null): string {
-    if (!offer) return text;
-    try {
-      return `${text}${OFFER_MARKER}${JSON.stringify(offer)}`;
-    } catch (_err) {
-      return text;
-    }
   }
 
 
@@ -2470,6 +2484,9 @@ const INTENT_BADGE_LABELS: Record<string, string> = {
   UNSAFE_MINOR: "Menor",
 };
   const [ showQuickSheet, setShowQuickSheet ] = useState(false);
+  const [ offerSheetOpen, setOfferSheetOpen ] = useState(false);
+  const [ offerSheetError, setOfferSheetError ] = useState<string | null>(null);
+  const [ offerSheetSendingId, setOfferSheetSendingId ] = useState<string | null>(null);
   const [ isDesktop, setIsDesktop ] = useState(false);
   const hasWelcome = normalizedGrants.includes("welcome") || normalizedGrants.includes("trial");
   const hasMonthly = normalizedGrants.includes("monthly");
@@ -2502,6 +2519,63 @@ const INTENT_BADGE_LABELS: Record<string, string> = {
   const offersForDropdown = compatibleOffers.length > 0 ? compatibleOffers : activeOffers;
   const selectedOfferId = agencyDraft?.recommendedOfferId ?? null;
   const selectedOffer = offersForDropdown.find((offer) => offer.id === selectedOfferId) ?? null;
+  const offerSheetOffers = useMemo(() => {
+    const formatPackPrice = (amount: number) => formatCurrency(amount);
+    const fallback: OfferMeta[] = [
+      { id: "monthly", title: PACKS.monthly.name, price: formatPackPrice(PACKS.monthly.price), kind: "offer" },
+      { id: "trial", title: "Pack bienvenida", price: formatPackPrice(PACKS.trial.price), kind: "offer" },
+      { id: "special", title: PACKS.special.name, price: formatPackPrice(PACKS.special.price), kind: "offer" },
+    ];
+    const candidates = offers.filter((offer) => offer.active);
+    if (!candidates.length) return fallback;
+
+    const findByTokens = (tokens: string[]) =>
+      candidates.find((offer) => {
+        const haystack = `${offer.code} ${offer.title} ${offer.tier}`.toLowerCase();
+        return tokens.some((token) => haystack.includes(token));
+      });
+    const mapOffer = (offer: Offer): OfferMeta => ({
+      id: (offer.code || offer.id).trim(),
+      title: offer.title,
+      price: formatOfferPrice(offer.priceCents, offer.currency),
+      kind: "offer",
+    });
+    const monthlyOffer =
+      candidates.find((offer) => offer.tier === "MONTHLY") ?? findByTokens(["monthly", "mensual"]);
+    const trialOffer = findByTokens(["trial", "welcome", "bienvenida", "prueba"]);
+    const specialOffer = findByTokens(["special", "especial", "pareja"]);
+
+    const resolved = [
+      monthlyOffer ? mapOffer(monthlyOffer) : fallback[0],
+      trialOffer ? mapOffer(trialOffer) : fallback[1],
+      specialOffer ? mapOffer(specialOffer) : fallback[2],
+    ];
+    const unique = new Map(resolved.map((offer) => [offer.id, offer]));
+    return Array.from(unique.values()).slice(0, 3);
+  }, [offers]);
+  const packSheetOptions = useMemo<OfferMeta[]>(() => {
+    if (Array.isArray(config.packs) && config.packs.length > 0) {
+      return config.packs.map((pack) => ({
+        id: pack.id,
+        title: pack.name,
+        price: normalizePriceLabel(pack.price),
+        kind: "pack",
+      }));
+    }
+    return [
+      { id: "welcome", title: "Pack bienvenida", price: formatCurrency(PACKS.trial.price), kind: "pack" },
+      { id: "monthly", title: PACKS.monthly.name, price: formatCurrency(PACKS.monthly.price), kind: "pack" },
+      { id: "special", title: PACKS.special.name, price: formatCurrency(PACKS.special.price), kind: "pack" },
+    ];
+  }, [config.packs]);
+  const offerSheetSections = useMemo(
+    () =>
+      [
+        { key: "packs", label: "Packs", items: packSheetOptions },
+        { key: "offers", label: "Ofertas", items: offerSheetOffers },
+      ].filter((section) => section.items.length > 0),
+    [offerSheetOffers, packSheetOptions]
+  );
   const objectiveLocale = normalizeUiLocale(config?.uiLocale) ?? "es";
   const objectiveLabelsByCode = useMemo(() => {
     const map = new Map<string, ObjectiveLabels>();
@@ -5095,6 +5169,9 @@ const INTENT_BADGE_LABELS: Record<string, string> = {
     if (actionToastTimer.current) {
       clearTimeout(actionToastTimer.current);
     }
+    setOfferSheetOpen(false);
+    setOfferSheetError(null);
+    setOfferSheetSendingId(null);
     setVoiceNotice(null);
     if (voiceNoticeTimerRef.current) {
       clearTimeout(voiceNoticeTimerRef.current);
@@ -5678,7 +5755,7 @@ const INTENT_BADGE_LABELS: Record<string, string> = {
     const candidates = [detail.clientTxnId, detail.purchaseId];
     for (const candidate of candidates) {
       if (typeof candidate !== "string") continue;
-      const match = candidate.match(/offer[:_-]([a-z0-9_-]+)/i);
+      const match = candidate.match(/(?:offer|pack)[:_-]([a-z0-9_-]+)/i);
       if (match?.[1]) return match[1];
     }
     return null;
@@ -5731,11 +5808,30 @@ const INTENT_BADGE_LABELS: Record<string, string> = {
     [conversation.isManager, id]
   );
 
+  const handleCreatorDataChanged = (detail: CreatorDataChangedPayload) => {
+    const fanId = typeof detail?.fanId === "string" ? detail.fanId : "";
+    if (!fanId || conversation.isManager || fanId !== id) return;
+    const adultConfirmedAt =
+      typeof detail.adultConfirmedAt === "string" ? detail.adultConfirmedAt : null;
+    const adultConfirmVersion =
+      typeof detail.adultConfirmVersion === "string" ? detail.adultConfirmVersion : null;
+    const confirmedAtValue = adultConfirmedAt ?? (detail?.isAdultConfirmed ? new Date().toISOString() : null);
+    if (confirmedAtValue) {
+      setConversation({
+        ...conversation,
+        adultConfirmedAt: confirmedAtValue,
+        adultConfirmVersion: adultConfirmVersion ?? conversation.adultConfirmVersion ?? null,
+      } as any);
+    }
+    void refreshFanData(fanId);
+  };
+
   useCreatorRealtime({
     onPurchaseCreated: handlePurchaseCreated,
     onFanMessageSent: handleRealtimeMessage,
     onVoiceTranscriptUpdated: handleVoiceTranscriptUpdated,
     onTyping: handleTypingEvent,
+    onCreatorDataChanged: handleCreatorDataChanged,
   });
 
   useEffect(() => {
@@ -11712,6 +11808,9 @@ const INTENT_BADGE_LABELS: Record<string, string> = {
       : "bg-[color:var(--muted)]";
   const languageBadgeLabel =
     !conversation.isManager && preferredLanguage ? preferredLanguage.toUpperCase() : null;
+  const adultConfirmedAt = typeof conversation.adultConfirmedAt === "string" ? conversation.adultConfirmedAt : null;
+  const adultBadgeLabel = conversation.isManager ? null : adultConfirmedAt ? "18+ OK" : "18+ sin confirmar";
+  const adultBadgeTone: BadgeTone = adultConfirmedAt ? "accent" : "warn";
   const temperatureScore =
     typeof (conversation as any).temperatureScore === "number"
       ? (conversation as any).temperatureScore
@@ -12307,21 +12406,80 @@ const INTENT_BADGE_LABELS: Record<string, string> = {
     });
   };
 
+  const openOfferSheet = useCallback(() => {
+    if (!id || conversation.isManager) {
+      showComposerToast("Selecciona un fan activo para enviar ofertas.");
+      return;
+    }
+    setComposerTarget("fan");
+    setOfferSheetError(null);
+    setOfferSheetOpen(true);
+    if (!offers.length && !offersLoading) {
+      void fetchOffers();
+    }
+  }, [conversation.isManager, fetchOffers, id, offers.length, offersLoading, showComposerToast]);
+
+  const closeOfferSheet = useCallback(() => {
+    if (offerSheetSendingId) return;
+    setOfferSheetOpen(false);
+    setOfferSheetError(null);
+  }, [offerSheetSendingId]);
+
+  const handleSendOffer = useCallback(
+    async (offer: OfferMeta) => {
+      if (!id || conversation.isManager) {
+        showComposerToast("Selecciona un fan activo para enviar ofertas.");
+        return;
+      }
+      if (isChatBlocked) {
+        showComposerToast("Chat bloqueado. No puedes enviar ofertas.");
+        return;
+      }
+      if (!offer?.id || offerSheetSendingId) return;
+      setOfferSheetSendingId(offer.id);
+      setOfferSheetError(null);
+      try {
+        const messageText = buildOfferMessageText(offer);
+        const ok = await sendFanMessageStable(messageText, { bypassDuplicateCheck: true });
+        if (!ok) {
+          setOfferSheetError("No se pudo enviar la oferta.");
+          return;
+        }
+        setOfferSheetOpen(false);
+        showComposerToast("Oferta enviada");
+      } finally {
+        setOfferSheetSendingId(null);
+      }
+    },
+    [
+      conversation.isManager,
+      id,
+      isChatBlocked,
+      offerSheetSendingId,
+      sendFanMessageStable,
+      showComposerToast,
+    ]
+  );
+
   const handleSendLinkFromManager = () => {
     closeInlinePanel();
     setComposerTarget("fan");
-    handleSubscriptionLink({ focus: true });
+    openOfferSheet();
   };
 
   const handleQuickActionInsert = useCallback(
     async (chip: FanSuggestionChip) => {
+      if (chip.key === "send_link") {
+        openOfferSheet();
+        return;
+      }
       await fillMessageForFan(chip.insertText, `chip:${chip.key}`);
       adjustMessageInputHeight();
       requestAnimationFrame(() => {
         messageInputRef.current?.focus();
       });
     },
-    [adjustMessageInputHeight, fillMessageForFan]
+    [adjustMessageInputHeight, fillMessageForFan, openOfferSheet]
   );
 
   const handleInsertSuggestedAction = useCallback(async () => {
@@ -12431,7 +12589,22 @@ const INTENT_BADGE_LABELS: Record<string, string> = {
     typingIndicator.isTyping,
   ]);
 
-  const quickActionChips = uiLanguage === fanLanguage ? smartSuggestions.chips : uiSuggestions.chips;
+  const adultConfirmChip = useMemo<FanSuggestionChip | null>(() => {
+    if (conversation.isManager) return null;
+    if (adultConfirmedAt) return null;
+    const label = uiLanguage === "en" ? "Request 18+ confirmation" : "Pedir confirmación 18+";
+    const insertText =
+      uiLanguage === "en"
+        ? "Before we continue, confirm you're 18+. You'll see a confirmation on screen."
+        : "Antes de seguir, confirma que eres mayor de 18. Te saldrá una confirmación en pantalla.";
+    return { key: "adult_confirm", label, insertText };
+  }, [adultConfirmedAt, conversation.isManager, uiLanguage]);
+  const quickActionChips = useMemo(() => {
+    const base = uiLanguage === fanLanguage ? smartSuggestions.chips : uiSuggestions.chips;
+    if (!adultConfirmChip) return base;
+    if (base.some((chip) => chip.key === adultConfirmChip.key)) return base;
+    return [adultConfirmChip, ...base];
+  }, [adultConfirmChip, fanLanguage, smartSuggestions.chips, uiSuggestions.chips, uiLanguage]);
 
   const quickActionDisabled = isChatBlocked || isInternalPanelOpen;
   const showQuickActions = !conversation.isManager && quickActionChips.length > 0;
@@ -12830,6 +13003,11 @@ const INTENT_BADGE_LABELS: Record<string, string> = {
                 {languageBadgeLabel}
               </Badge>
             )}
+            {adultBadgeLabel && (
+              <Badge tone={adultBadgeTone} size="md">
+                {adultBadgeLabel}
+              </Badge>
+            )}
             {normalizedTemperatureBucket && (
               <Badge tone="muted" size="md">
                 Temp: {normalizedTemperatureBucket} {temperatureScore !== null ? temperatureScore : ""}
@@ -12878,6 +13056,11 @@ const INTENT_BADGE_LABELS: Record<string, string> = {
                   {languageBadgeLabel && (
                     <Badge tone={badgeToneForLabel(languageBadgeLabel)} size="md">
                       {languageBadgeLabel}
+                    </Badge>
+                  )}
+                  {adultBadgeLabel && (
+                    <Badge tone={adultBadgeTone} size="md">
+                      {adultBadgeLabel}
                     </Badge>
                   )}
                   {normalizedTemperatureBucket && (
@@ -14470,6 +14653,73 @@ const INTENT_BADGE_LABELS: Record<string, string> = {
                 <span>Crear seguimiento</span>
               </button>
             </div>
+          </div>
+        </div>
+      )}
+      {offerSheetOpen && (
+        <div className="fixed inset-0 z-[70]">
+          <div className="absolute inset-0 bg-[color:var(--surface-overlay)]" onClick={closeOfferSheet} />
+          <div className="absolute inset-x-0 bottom-0 max-h-[85vh] overflow-y-auto rounded-t-3xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-4 pb-6 pt-4">
+            <div className="mx-auto mb-3 h-1.5 w-12 rounded-full bg-[color:var(--surface-2)]/80" />
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <h3 className="text-base font-semibold text-[color:var(--text)]">Elegir oferta o pack</h3>
+                <p className="text-xs text-[color:var(--muted)]">
+                  Se enviará como tarjeta de desbloqueo al fan.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={closeOfferSheet}
+                disabled={Boolean(offerSheetSendingId)}
+                className="rounded-full border border-[color:var(--surface-border)] px-3 py-1 text-[10px] font-semibold text-[color:var(--text)] hover:bg-[color:var(--surface-2)] disabled:opacity-60"
+              >
+                Cerrar
+              </button>
+            </div>
+            {offersLoading && (
+              <div className="mt-2 text-[11px] text-[color:var(--muted)]">Cargando ofertas…</div>
+            )}
+            {offersError && (
+              <div className="mt-2 text-[11px] text-[color:var(--danger)]">{offersError}</div>
+            )}
+            {offerSheetError && (
+              <div className="mt-2 text-[11px] text-[color:var(--danger)]">{offerSheetError}</div>
+            )}
+            {offerSheetSections.map((section) => (
+              <div key={section.key} className="mt-3 space-y-2">
+                <div className="text-[10px] uppercase tracking-wide text-[color:var(--muted)]">
+                  {section.label}
+                </div>
+                <div className="grid gap-2">
+                  {section.items.map((offer) => {
+                    const isSending = offerSheetSendingId === offer.id;
+                    return (
+                      <button
+                        key={offer.id}
+                        type="button"
+                        onClick={() => void handleSendOffer(offer)}
+                        disabled={isSending}
+                        className={clsx(
+                          "flex items-center justify-between rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-4 py-3 text-left text-sm text-[color:var(--text)] transition",
+                          isSending
+                            ? "cursor-not-allowed opacity-70"
+                            : "hover:border-[color:var(--surface-border-hover)] hover:bg-[color:var(--surface-2)]"
+                        )}
+                      >
+                        <div className="min-w-0">
+                          <div className="truncate text-[13px] font-semibold">{offer.title}</div>
+                          <div className="text-[11px] text-[color:var(--muted)]">{offer.price}</div>
+                        </div>
+                        <span className="text-[11px] text-[color:var(--muted)]">
+                          {isSending ? "Enviando..." : "Enviar"}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            ))}
           </div>
         </div>
       )}

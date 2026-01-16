@@ -111,6 +111,8 @@ model Fan {
   isArchived            Boolean          @default(false)
   isHighPriority        Boolean          @default(false)
   highPriorityAt        DateTime?
+  adultConfirmedAt      DateTime?
+  adultConfirmVersion   String?
   inviteToken           String?          @unique
   inviteCreatedAt       DateTime?
   inviteUsedAt          DateTime?
@@ -135,6 +137,7 @@ model Fan {
   temperatureScore      Float?
   temperatureBucket     String?
   agencyMetas           ChatAgencyMeta[]
+  wallet                Wallet?
 }
 
 enum FanFollowUpStatus {
@@ -430,6 +433,13 @@ enum ExtraPurchaseProductType {
   SUBSCRIPTION
 }
 
+enum WalletTransactionKind {
+  FAKE_TOPUP
+  PACK_PURCHASE
+  EXTRA_PURCHASE
+  REFUND
+}
+
 enum CatalogItemType {
   EXTRA
   BUNDLE
@@ -585,6 +595,31 @@ model ExtraPurchase {
   isArchived    Boolean                   @default(false)
 
   @@unique([fanId, kind, clientTxnId])
+}
+
+model Wallet {
+  id           String              @id @default(cuid())
+  fanId        String              @unique
+  fan          Fan                 @relation(fields: [fanId], references: [id])
+  currency     String              @default("EUR")
+  balanceCents Int                 @default(0)
+  createdAt    DateTime            @default(now())
+  updatedAt    DateTime            @updatedAt
+  transactions WalletTransaction[]
+}
+
+model WalletTransaction {
+  id                String                 @id @default(cuid())
+  walletId          String
+  wallet            Wallet                 @relation(fields: [walletId], references: [id])
+  kind              WalletTransactionKind
+  amountCents       Int
+  balanceAfterCents Int
+  idempotencyKey    String?                @unique
+  meta              Json?
+  createdAt         DateTime               @default(now())
+
+  @@index([walletId, createdAt])
 }
 
 model GeneratedAsset {

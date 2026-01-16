@@ -30,7 +30,13 @@ import {
   type VoiceNoteNotice,
 } from "../../lib/unseenVoiceNotes";
 import { setSmartTranscriptionTargets } from "../../lib/voiceTranscriptionSmartTargets";
-import type { FanMessageSentPayload, PurchaseCreatedPayload, TypingPayload, VoiceTranscriptPayload } from "../../lib/events";
+import type {
+  CreatorDataChangedPayload,
+  FanMessageSentPayload,
+  PurchaseCreatedPayload,
+  TypingPayload,
+  VoiceTranscriptPayload,
+} from "../../lib/events";
 import { formatPurchaseUI } from "../../lib/purchaseUi";
 import { publishChatEvent, subscribeChatEvents } from "../../lib/chatEvents";
 import { useCreatorRealtime } from "../../hooks/useCreatorRealtime";
@@ -545,6 +551,8 @@ function SideBarInner() {
       novsyStatus: fan.novsyStatus ?? null,
       isHighPriority: fan.isHighPriority ?? false,
       highPriorityAt: fan.highPriorityAt ?? null,
+      adultConfirmedAt: fan.adultConfirmedAt ?? null,
+      adultConfirmVersion: fan.adultConfirmVersion ?? null,
       inviteUsedAt: fan.inviteUsedAt ?? null,
       segment: (fan as any).segment ?? null,
       riskLevel: (fan as any).riskLevel ?? "LOW",
@@ -638,6 +646,7 @@ function SideBarInner() {
         "lastMessage",
         "isHighPriority",
         "highPriorityAt",
+        "adultConfirmedAt",
         "inviteUsedAt",
         "totalSpent",
         "extrasCount",
@@ -2211,13 +2220,40 @@ function SideBarInner() {
   }, []);
 
   const handleCreatorDataChanged = useCallback(
-    (detail: { fanId?: string } = {}) => {
-      if (detail?.fanId) {
-        void fetchFanById(detail.fanId);
+    (detail: CreatorDataChangedPayload | undefined) => {
+      const fanId = typeof detail?.fanId === "string" ? detail.fanId : "";
+      const adultConfirmedAt =
+        typeof detail?.adultConfirmedAt === "string" ? detail.adultConfirmedAt : null;
+      const adultConfirmVersion =
+        typeof detail?.adultConfirmVersion === "string" ? detail.adultConfirmVersion : null;
+      const isAdultConfirmed = detail?.isAdultConfirmed === true;
+      const confirmedAtValue = adultConfirmedAt ?? (isAdultConfirmed ? new Date().toISOString() : null);
+      if (fanId && confirmedAtValue) {
+        updateChatPages((prev) =>
+          prev.map((fan) =>
+            fan.id === fanId
+              ? {
+                  ...fan,
+                  adultConfirmedAt: confirmedAtValue,
+                  adultConfirmVersion: adultConfirmVersion ?? fan.adultConfirmVersion ?? null,
+                }
+              : fan
+          )
+        );
+        if (conversation?.id === fanId && !conversation?.isManager) {
+          setConversation({
+            ...conversation,
+            adultConfirmedAt: confirmedAtValue,
+            adultConfirmVersion: adultConfirmVersion ?? conversation.adultConfirmVersion ?? null,
+          } as any);
+        }
+      }
+      if (fanId) {
+        void fetchFanById(fanId);
       }
       void refreshExtrasSummary();
     },
-    [fetchFanById, refreshExtrasSummary]
+    [conversation, fetchFanById, refreshExtrasSummary, setConversation, updateChatPages]
   );
 
   useEffect(() => {

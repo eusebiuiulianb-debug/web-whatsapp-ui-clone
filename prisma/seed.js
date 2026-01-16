@@ -395,6 +395,20 @@ async function main() {
     }),
   ]);
 
+  const seededFans = [ana, javier, lucia, diego].filter(Boolean);
+  if (seededFans.length > 0) {
+    const now = new Date();
+    await prisma.wallet.createMany({
+      data: seededFans.map((fan) => ({
+        fanId: fan.id,
+        currency: "EUR",
+        balanceCents: 0,
+        updatedAt: now,
+      })),
+      skipDuplicates: true,
+    });
+  }
+
   await prisma.fanFollowUp.createMany({
     data: [
       {

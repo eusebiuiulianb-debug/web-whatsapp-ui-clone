@@ -82,6 +82,8 @@ export interface Fan {
   isHighPriority?: boolean;
   inviteUsedAt?: string | Date | null;
   highPriorityAt?: string | null;
+  adultConfirmedAt?: string | null;
+  adultConfirmVersion?: string | null;
   segment?: string | null;
   riskLevel?: "LOW" | "MEDIUM" | "HIGH" | string | null;
   healthScore?: number | null;

@@ -71,6 +71,8 @@ type ApiMessage = {
 export type FanChatPageProps = {
   includedContent: IncludedContent[];
   initialAccessSummary: AccessSummary;
+  adultConfirmedAt?: string | null;
+  adultConfirmVersion?: string | null;
   fanIdOverride?: string;
   inviteOverride?: boolean;
   forceAccessRefresh?: boolean;
@@ -82,6 +84,8 @@ type PackSummary = {
   price: string;
   description: string;
 };
+
+type PackStatus = "LOCKED" | "UNLOCKED" | "ACTIVE";
 
 type VoiceUploadPayload = {
   blob: Blob;
@@ -106,6 +110,7 @@ const TYPING_DRAFT_THROTTLE_MS = 800;
 const TYPING_STOP_IDLE_MS = 1200;
 const TYPING_HIDE_MS = 7000;
 const DRAFT_TEXT_MAX_LEN = 240;
+const WALLET_TOPUP_PRESETS = [1000, 2500, 5000];
 
 function normalizeDraftPreviewText(value: string) {
   const cleaned = value.replace(/[\r\n]+/g, " ").trim();
@@ -113,9 +118,25 @@ function normalizeDraftPreviewText(value: string) {
   return cleaned.slice(0, DRAFT_TEXT_MAX_LEN);
 }
 
+const PACK_TYPE_TOKENS: Record<"trial" | "monthly" | "special", string[]> = {
+  trial: ["trial", "welcome", "bienvenida", "prueba"],
+  monthly: ["monthly", "mensual"],
+  special: ["special", "especial", "pareja"],
+};
+
+function resolvePackTypeFromLabel(id: string, name: string): "trial" | "monthly" | "special" | null {
+  const haystack = `${id} ${name}`.toLowerCase();
+  if (PACK_TYPE_TOKENS.monthly.some((token) => haystack.includes(token))) return "monthly";
+  if (PACK_TYPE_TOKENS.special.some((token) => haystack.includes(token))) return "special";
+  if (PACK_TYPE_TOKENS.trial.some((token) => haystack.includes(token))) return "trial";
+  return null;
+}
+
 export function FanChatPage({
   includedContent,
   initialAccessSummary,
+  adultConfirmedAt: initialAdultConfirmedAt,
+  adultConfirmVersion: initialAdultConfirmVersion,
   fanIdOverride,
   inviteOverride,
   forceAccessRefresh,
@@ -146,6 +167,7 @@ export function FanChatPage({
         : [],
     [config.packs]
   );
+  const availablePackIds = useMemo(() => new Set(availablePacks.map((pack) => pack.id)), [availablePacks]);
 
   const [messages, setMessages] = useState<ApiMessage[]>([]);
   const [loading, setLoading] = useState(false);
@@ -155,6 +177,17 @@ export function FanChatPage({
   const [sending, setSending] = useState(false);
   const [accessSummary, setAccessSummary] = useState<AccessSummary | null>(initialAccessSummary || null);
   const [accessLoading, setAccessLoading] = useState(false);
+  const [walletBalanceCents, setWalletBalanceCents] = useState<number | null>(null);
+  const [walletCurrency, setWalletCurrency] = useState("EUR");
+  const [walletEnabled, setWalletEnabled] = useState<boolean | null>(null);
+  const [walletLoading, setWalletLoading] = useState(false);
+  const [walletTopupOpen, setWalletTopupOpen] = useState(false);
+  const [walletTopupLoading, setWalletTopupLoading] = useState(false);
+  const [walletTopupError, setWalletTopupError] = useState("");
+  const [walletTopupAmount, setWalletTopupAmount] = useState<number | null>(null);
+  const [walletTopupCustom, setWalletTopupCustom] = useState("");
+  const walletTopupTxnRef = useRef<string | null>(null);
+  const walletTopupAmountRef = useRef<number | null>(null);
   const [included, setIncluded] = useState<IncludedContent[]>(includedContent || []);
   const [fanProfile, setFanProfile] = useState<{
     name?: string | null;
@@ -162,6 +195,16 @@ export function FanChatPage({
     creatorLabel?: string | null;
     preferredLanguage?: SupportedLanguage | null;
   }>({});
+  const [adultConfirmedAt, setAdultConfirmedAt] = useState<string | null>(
+    typeof initialAdultConfirmedAt === "string" ? initialAdultConfirmedAt : null
+  );
+  const [, setAdultConfirmVersion] = useState<string | null>(
+    typeof initialAdultConfirmVersion === "string" ? initialAdultConfirmVersion : null
+  );
+  const [adultStatusLoaded, setAdultStatusLoaded] = useState(
+    typeof initialAdultConfirmedAt !== "undefined" || typeof initialAdultConfirmVersion !== "undefined"
+  );
+  const [adultConfirming, setAdultConfirming] = useState(false);
   const [fanProfileLoaded, setFanProfileLoaded] = useState(false);
   const [onboardingDismissed, setOnboardingDismissed] = useState(false);
   const [onboardingName, setOnboardingName] = useState("");
@@ -195,8 +238,13 @@ export function FanChatPage({
   const [actionMenuOpen, setActionMenuOpen] = useState(false);
   const [contentSheetOpen, setContentSheetOpen] = useState(false);
   const [contentSheetTab, setContentSheetTab] = useState<"content" | "packs">("content");
-  const [packView, setPackView] = useState<"list" | "details">("list");
-  const [selectedPack, setSelectedPack] = useState<PackSummary | null>(null);
+  const [packStatusById, setPackStatusById] = useState<Record<string, PackStatus>>({});
+  const [packPurchase, setPackPurchase] = useState<PackSummary | null>(null);
+  const [packPurchasingIds, setPackPurchasingIds] = useState<Set<string>>(() => new Set());
+  const packPurchasingIdsRef = useRef<Set<string>>(new Set());
+  const packTxnByIdRef = useRef<Record<string, string>>({});
+  const packAccessFetchedRef = useRef(false);
+  const [packAccessLoading, setPackAccessLoading] = useState(false);
   const [moneyModal, setMoneyModal] = useState<null | "tip" | "gift">(null);
   const [tipAmountPreset, setTipAmountPreset] = useState<number | null>(null);
   const [tipAmountCustom, setTipAmountCustom] = useState("");
@@ -430,6 +478,121 @@ export function FanChatPage({
     return inferPreferredLanguage(navigator.language);
   }, []);
 
+  const updateUnlockedOfferIdsFromPackStatus = useCallback(
+    (nextStatusById: Record<string, PackStatus>) => {
+      if (!availablePacks.length || Object.keys(nextStatusById).length === 0) return;
+      setUnlockedOfferIds((prev) => {
+        const next = new Set(prev);
+        availablePacks.forEach((pack) => {
+          const status = nextStatusById[pack.id];
+          if (status === "UNLOCKED" || status === "ACTIVE") {
+            next.add(pack.id);
+          } else if (status === "LOCKED") {
+            next.delete(pack.id);
+          }
+        });
+        return next;
+      });
+    },
+    [availablePacks]
+  );
+
+  const updateUnlockedOfferIdsFromPackList = useCallback(
+    (unlockedPacks: string[]) => {
+      if (!availablePacks.length) return;
+      const unlockedSet = new Set(unlockedPacks);
+      setUnlockedOfferIds((prev) => {
+        const next = new Set(prev);
+        availablePacks.forEach((pack) => {
+          if (unlockedSet.has(pack.id)) {
+            next.add(pack.id);
+          } else {
+            next.delete(pack.id);
+          }
+        });
+        return next;
+      });
+    },
+    [availablePacks]
+  );
+
+  const applyWalletSnapshot = useCallback(
+    (snapshot: { enabled?: unknown; currency?: unknown; balanceCents?: unknown } | null | undefined) => {
+      if (!snapshot || typeof snapshot !== "object") return;
+      const enabledRaw = (snapshot as { enabled?: unknown }).enabled;
+      const enabled = typeof enabledRaw === "boolean" ? enabledRaw : null;
+      if (enabled !== null) {
+        setWalletEnabled(enabled);
+        if (!enabled) {
+          setWalletBalanceCents(null);
+          return;
+        }
+      }
+      const currency =
+        typeof snapshot.currency === "string" && snapshot.currency.trim()
+          ? snapshot.currency.trim().toUpperCase()
+          : null;
+      const balanceRaw = snapshot.balanceCents;
+      const balance =
+        typeof balanceRaw === "number" && Number.isFinite(balanceRaw) ? Math.max(0, Math.round(balanceRaw)) : null;
+      if (currency) setWalletCurrency(currency);
+      if (balance !== null) {
+        setWalletBalanceCents(balance);
+        if (enabled === null) {
+          setWalletEnabled(true);
+        }
+      }
+    },
+    []
+  );
+
+  const applyWalletPayload = useCallback(
+    (payload: unknown) => {
+      if (!payload || typeof payload !== "object") return;
+      const wallet = (payload as { wallet?: unknown }).wallet;
+      applyWalletSnapshot(wallet as { enabled?: unknown; currency?: unknown; balanceCents?: unknown } | null | undefined);
+    },
+    [applyWalletSnapshot]
+  );
+
+  const fetchWallet = useCallback(
+    async (targetFanId: string) => {
+      if (!targetFanId) return;
+      setWalletLoading(true);
+      try {
+        const res = await fetch(`/api/fans/${encodeURIComponent(targetFanId)}/wallet`, { cache: "no-store" });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          throw new Error(data?.error || "wallet_error");
+        }
+        const enabled =
+          typeof (data as { enabled?: unknown }).enabled === "boolean"
+            ? (data as { enabled?: boolean }).enabled ?? null
+            : null;
+        if (enabled === false) {
+          setWalletEnabled(false);
+          setWalletBalanceCents(null);
+          return;
+        }
+        if (enabled === true) {
+          setWalletEnabled(true);
+          applyWalletSnapshot({
+            enabled: true,
+            currency: (data as { currency?: unknown }).currency,
+            balanceCents: (data as { balanceCents?: unknown }).balanceCents,
+          });
+          return;
+        }
+        applyWalletPayload(data);
+      } catch (_err) {
+        // Silent failure; wallet can retry on next interaction.
+      } finally {
+        setWalletLoading(false);
+      }
+    },
+    [applyWalletPayload, applyWalletSnapshot]
+  );
+
   const fetchAccessInfo = useCallback(
     async (targetFanId: string) => {
       try {
@@ -454,6 +617,15 @@ export function FanChatPage({
         });
         setOnboardingLanguage(normalizedLanguage);
         setFanProfileLoaded(true);
+        const confirmedAtValue =
+          typeof target?.adultConfirmedAt === "string"
+            ? target.adultConfirmedAt
+            : target?.adultConfirmedAt instanceof Date
+            ? target.adultConfirmedAt.toISOString()
+            : null;
+        setAdultConfirmedAt(confirmedAtValue);
+        setAdultConfirmVersion(typeof target?.adultConfirmVersion === "string" ? target.adultConfirmVersion : null);
+        setAdultStatusLoaded(true);
         const hasHistory =
           typeof target?.hasAccessHistory === "boolean"
             ? target.hasAccessHistory
@@ -480,17 +652,20 @@ export function FanChatPage({
           activeGrantTypes: Array.isArray(target?.activeGrantTypes) ? target.activeGrantTypes : undefined,
         });
         setAccessSummary(summary);
-      } catch (_err) {
-        setFanProfile({
-          name: "Invitado",
-          displayName: null,
-          creatorLabel: null,
-          preferredLanguage: getFallbackLanguage(),
-        });
-        setFanProfileLoaded(true);
-        setAccessSummary(
-          getAccessSummary({
-            membershipStatus: null,
+    } catch (_err) {
+      setFanProfile({
+        name: "Invitado",
+        displayName: null,
+        creatorLabel: null,
+        preferredLanguage: getFallbackLanguage(),
+      });
+      setFanProfileLoaded(true);
+      setAdultConfirmedAt(null);
+      setAdultConfirmVersion(null);
+      setAdultStatusLoaded(true);
+      setAccessSummary(
+        getAccessSummary({
+          membershipStatus: null,
             daysLeft: 0,
             hasAccessHistory: false,
           })
@@ -515,11 +690,35 @@ export function FanChatPage({
       if (items) {
         setIncluded(items);
       }
+      const nextPackStatus =
+        data?.packStatusById && typeof data.packStatusById === "object"
+          ? (data.packStatusById as Record<string, PackStatus>)
+          : null;
+      if (nextPackStatus && Object.keys(nextPackStatus).length > 0) {
+        setPackStatusById(nextPackStatus);
+        packAccessFetchedRef.current = true;
+      }
+      if (Array.isArray(data?.unlockedPacks)) {
+        updateUnlockedOfferIdsFromPackList(data.unlockedPacks as string[]);
+      }
       return { ok: true, includedCount: items ? items.length : 0 };
     } catch (_err) {
       return { ok: false, includedCount: 0 };
     }
-  }, []);
+  }, [updateUnlockedOfferIdsFromPackList]);
+
+  const refreshPackAccess = useCallback(async () => {
+    if (!fanId || packAccessLoading) return;
+    setPackAccessLoading(true);
+    try {
+      const result = await refreshAccessAndContent(fanId);
+      if (result.ok) {
+        packAccessFetchedRef.current = true;
+      }
+    } finally {
+      setPackAccessLoading(false);
+    }
+  }, [fanId, packAccessLoading, refreshAccessAndContent]);
 
   useEffect(() => {
     if (!fanId) return;
@@ -532,8 +731,36 @@ export function FanChatPage({
   }, [fanId, fetchAccessInfo, forceAccessRefresh]);
 
   useEffect(() => {
+    if (!fanId) return;
+    void fetchWallet(fanId);
+  }, [fanId, fetchWallet]);
+
+  useEffect(() => {
+    if (walletEnabled !== false) return;
+    setWalletTopupOpen(false);
+    setWalletTopupLoading(false);
+    setWalletTopupError("");
+    setWalletTopupAmount(null);
+    setWalletTopupCustom("");
+    walletTopupTxnRef.current = null;
+    walletTopupAmountRef.current = null;
+  }, [walletEnabled]);
+
+  useEffect(() => {
+    if (!contentSheetOpen || contentSheetTab !== "packs") return;
+    if (packAccessFetchedRef.current) return;
+    void refreshPackAccess();
+  }, [contentSheetOpen, contentSheetTab, refreshPackAccess]);
+
+  useEffect(() => {
     setFanProfile({});
     setFanProfileLoaded(false);
+    setAdultConfirmedAt(typeof initialAdultConfirmedAt === "string" ? initialAdultConfirmedAt : null);
+    setAdultConfirmVersion(typeof initialAdultConfirmVersion === "string" ? initialAdultConfirmVersion : null);
+    setAdultStatusLoaded(
+      typeof initialAdultConfirmedAt !== "undefined" || typeof initialAdultConfirmVersion !== "undefined"
+    );
+    setAdultConfirming(false);
     setOnboardingDismissed(false);
     setOnboardingName("");
     setOnboardingMessage("");
@@ -551,7 +778,30 @@ export function FanChatPage({
       fanToastTimerRef.current = null;
     }
     purchaseTxnByOfferIdRef.current = {};
-  }, [fanId, getFallbackLanguage]);
+    packTxnByIdRef.current = {};
+    packPurchasingIdsRef.current = new Set();
+    setPackPurchasingIds(new Set());
+    setPackPurchase(null);
+    setPackStatusById({});
+    setPackAccessLoading(false);
+    packAccessFetchedRef.current = false;
+    setWalletBalanceCents(null);
+    setWalletCurrency("EUR");
+    setWalletEnabled(null);
+    setWalletLoading(false);
+    setWalletTopupOpen(false);
+    setWalletTopupLoading(false);
+    setWalletTopupError("");
+    setWalletTopupAmount(null);
+    setWalletTopupCustom("");
+    walletTopupTxnRef.current = null;
+    walletTopupAmountRef.current = null;
+  }, [fanId, getFallbackLanguage, initialAdultConfirmedAt, initialAdultConfirmVersion]);
+
+  useEffect(() => {
+    if (Object.keys(packStatusById).length === 0) return;
+    updateUnlockedOfferIdsFromPackStatus(packStatusById);
+  }, [packStatusById, updateUnlockedOfferIdsFromPackStatus]);
 
   useEffect(() => {
     setCreatorTyping({ isTyping: false, ts: 0 });
@@ -799,7 +1049,8 @@ export function FanChatPage({
     !loading &&
     visibleMessages.length === 0 &&
     shouldPromptForName;
-  const isComposerDisabled = sending || isOnboardingVisible || onboardingSaving;
+  const isAdultGateActive = adultStatusLoaded && !adultConfirmedAt;
+  const isComposerDisabled = sending || isOnboardingVisible || onboardingSaving || isAdultGateActive;
 
   const handleComposerChange = useCallback(
     (event: ChangeEvent<HTMLTextAreaElement>) => {
@@ -823,14 +1074,14 @@ export function FanChatPage({
   }, [stopTyping]);
 
   const handleSendMessage = useCallback(async () => {
-    if (isOnboardingVisible) return;
+    if (isOnboardingVisible || isAdultGateActive) return;
     stopTyping();
     const ok = await sendFanMessage(draft);
     if (ok) {
       setDraft("");
       requestAnimationFrame(() => focusComposer());
     }
-  }, [draft, focusComposer, isOnboardingVisible, sendFanMessage, stopTyping]);
+  }, [draft, focusComposer, isAdultGateActive, isOnboardingVisible, sendFanMessage, stopTyping]);
 
   const handleComposerKeyDown = useCallback(
     (event: KeyboardEvent<HTMLTextAreaElement>) => {
@@ -874,17 +1125,17 @@ export function FanChatPage({
     [isComposerDisabled, sendFanMessage]
   );
 
-  const openContentSheet = useCallback((tab: "content" | "packs") => {
-    setContentSheetTab(tab);
-    setContentSheetOpen(true);
-    setPackView("list");
-    setSelectedPack(null);
-  }, []);
+  const openContentSheet = useCallback(
+    (tab: "content" | "packs") => {
+      if (isAdultGateActive) return;
+      setContentSheetTab(tab);
+      setContentSheetOpen(true);
+    },
+    [isAdultGateActive]
+  );
 
   const closeContentSheet = useCallback(() => {
     setContentSheetOpen(false);
-    setPackView("list");
-    setSelectedPack(null);
     requestAnimationFrame(() => focusComposer());
   }, [focusComposer]);
 
@@ -892,6 +1143,11 @@ export function FanChatPage({
     setActionMenuOpen(false);
     requestAnimationFrame(() => focusComposer());
   }, [focusComposer]);
+
+  const handleOpenActionMenu = useCallback(() => {
+    if (isAdultGateActive) return;
+    setActionMenuOpen(true);
+  }, [isAdultGateActive]);
 
   const showFanToast = useCallback((message: string) => {
     setFanToast(message);
@@ -901,26 +1157,171 @@ export function FanChatPage({
     fanToastTimerRef.current = window.setTimeout(() => setFanToast(""), 2200);
   }, []);
 
+  const openWalletTopup = useCallback(() => {
+    setWalletTopupError("");
+    setWalletTopupAmount(null);
+    setWalletTopupCustom("");
+    setWalletTopupOpen(true);
+  }, []);
+
+  const closeWalletTopup = useCallback(() => {
+    if (walletTopupLoading) return;
+    setWalletTopupOpen(false);
+    setWalletTopupError("");
+    setWalletTopupAmount(null);
+    setWalletTopupCustom("");
+    walletTopupTxnRef.current = null;
+    walletTopupAmountRef.current = null;
+  }, [walletTopupLoading]);
+
+  const handleWalletTopup = useCallback(
+    async (amountCents: number) => {
+      if (!fanId || walletTopupLoading || walletEnabled === false) return;
+      if (!Number.isFinite(amountCents) || amountCents <= 0) return;
+      setWalletTopupLoading(true);
+      setWalletTopupError("");
+      setWalletTopupAmount(amountCents);
+      setWalletTopupCustom("");
+      const existingKey = walletTopupTxnRef.current;
+      const existingAmount = walletTopupAmountRef.current;
+      const idempotencyKey =
+        existingKey && existingAmount === amountCents
+          ? existingKey
+          : `topup:${generateClientTxnId()}`;
+      walletTopupTxnRef.current = idempotencyKey;
+      walletTopupAmountRef.current = amountCents;
+      try {
+        const res = await fetch(`/api/fans/${encodeURIComponent(fanId)}/wallet/topup`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ amountCents, idempotencyKey }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          if (data?.error === "WALLET_DISABLED") {
+            setWalletEnabled(false);
+          }
+          setWalletTopupError(data?.error || "No se pudo recargar.");
+          return;
+        }
+        applyWalletPayload(data);
+        if (!data?.wallet) {
+          void fetchWallet(fanId);
+        }
+        showFanToast("Saldo actualizado.");
+        setWalletTopupOpen(false);
+        walletTopupTxnRef.current = null;
+        walletTopupAmountRef.current = null;
+      } catch (_err) {
+        setWalletTopupError("No se pudo recargar.");
+      } finally {
+        setWalletTopupLoading(false);
+        setWalletTopupAmount(null);
+      }
+    },
+    [applyWalletPayload, fanId, fetchWallet, showFanToast, walletEnabled, walletTopupLoading]
+  );
+
+  const handleWalletTopupCustom = useCallback(() => {
+    if (walletTopupLoading || walletEnabled === false) return;
+    const amountValue = parseAmountToNumber(walletTopupCustom);
+    const amountCents = Math.round(amountValue * 100);
+    if (!Number.isFinite(amountValue) || amountValue <= 0 || amountValue > 500) {
+      setWalletTopupError("Introduce un importe válido.");
+      return;
+    }
+    void handleWalletTopup(amountCents);
+  }, [handleWalletTopup, walletEnabled, walletTopupCustom, walletTopupLoading]);
+
+  useEffect(() => {
+    if (!isAdultGateActive) return;
+    stopTyping();
+    setActionMenuOpen(false);
+    setUnlockOffer(null);
+    setPackPurchase(null);
+    setMoneyModal(null);
+    setContentSheetOpen(false);
+    setWalletTopupOpen(false);
+    setWalletTopupLoading(false);
+    setWalletTopupError("");
+    setWalletTopupAmount(null);
+    setWalletTopupCustom("");
+    walletTopupTxnRef.current = null;
+    walletTopupAmountRef.current = null;
+  }, [isAdultGateActive, stopTyping]);
+
+  const handleAdultConfirm = useCallback(async () => {
+    if (!fanId || adultConfirming) return;
+    setAdultConfirming(true);
+    try {
+      const res = await fetch(`/api/fans/${encodeURIComponent(fanId)}/confirm-adult`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        showFanToast(data?.error || "No se pudo confirmar la edad.");
+        return;
+      }
+      const confirmedAt =
+        typeof data?.adultConfirmedAt === "string" ? data.adultConfirmedAt : new Date().toISOString();
+      setAdultConfirmedAt(confirmedAt);
+      setAdultConfirmVersion(typeof data?.adultConfirmVersion === "string" ? data.adultConfirmVersion : "v1");
+      setAdultStatusLoaded(true);
+      showFanToast("Confirmado. Puedes continuar.");
+    } catch (_err) {
+      showFanToast("No se pudo confirmar la edad.");
+    } finally {
+      setAdultConfirming(false);
+    }
+  }, [adultConfirming, fanId, showFanToast]);
+
+  const handleAdultExit = useCallback(() => {
+    void router.replace("/");
+  }, [router]);
+
   const openTipModal = useCallback(() => {
+    if (isAdultGateActive) return;
     setActionMenuOpen(false);
     setTipError("");
     setTipAmountPreset(null);
     setTipAmountCustom("");
     setMoneyModal("tip");
-  }, []);
+  }, [isAdultGateActive]);
 
   const openGiftModal = useCallback(() => {
+    if (isAdultGateActive) return;
     setActionMenuOpen(false);
     setGiftError("");
     setGiftView("list");
     setSelectedGiftPack(null);
     setMoneyModal("gift");
-  }, []);
+  }, [isAdultGateActive]);
 
   const openPacksSheet = useCallback(() => {
+    if (isAdultGateActive) return;
     setActionMenuOpen(false);
     openContentSheet("packs");
-  }, [openContentSheet]);
+  }, [isAdultGateActive, openContentSheet]);
+
+  const setPackPurchasing = useCallback((packId: string, isPurchasing: boolean) => {
+    if (!packId) return;
+    const next = new Set(packPurchasingIdsRef.current);
+    const has = next.has(packId);
+    if (isPurchasing === has) return;
+    if (isPurchasing) {
+      next.add(packId);
+    } else {
+      next.delete(packId);
+    }
+    packPurchasingIdsRef.current = next;
+    setPackPurchasingIds(next);
+  }, []);
+
+  const isPackPurchasing = useCallback((packId: string) => {
+    if (!packId) return false;
+    return packPurchasingIdsRef.current.has(packId);
+  }, []);
 
   const setOfferUnlocking = useCallback((offerId: string, isUnlocking: boolean) => {
     if (!offerId) return;
@@ -941,17 +1342,42 @@ export function FanChatPage({
     return unlockingOfferIdsRef.current.has(offerId);
   }, []);
 
+  const resolvePackFromOffer = useCallback(
+    (offer: OfferMeta): PackSummary | null => {
+      const match = availablePacks.find((pack) => pack.id === offer.id);
+      if (match) return match;
+      if (!offer?.id) return null;
+      return {
+        id: offer.id,
+        name: offer.title,
+        price: offer.price,
+        description: "",
+      };
+    },
+    [availablePacks]
+  );
+
   const handleOfferClick = useCallback(
     (offer: OfferMeta, status: "locked" | "unlocked") => {
+      if (isAdultGateActive) return;
       if (!offer?.id) return;
+      const isPackOffer =
+        offer.kind === "pack" || (offer.kind !== "offer" && availablePackIds.has(offer.id));
       if (status === "unlocked") {
         openContentSheet("content");
+        return;
+      }
+      if (isPackOffer) {
+        if (isPackPurchasing(offer.id)) return;
+        const pack = resolvePackFromOffer(offer);
+        if (!pack) return;
+        setPackPurchase(pack);
         return;
       }
       if (isOfferUnlocking(offer.id)) return;
       setUnlockOffer(offer);
     },
-    [isOfferUnlocking, openContentSheet]
+    [availablePackIds, isAdultGateActive, isOfferUnlocking, isPackPurchasing, openContentSheet, resolvePackFromOffer]
   );
 
   const closeUnlockSheet = useCallback(() => {
@@ -959,6 +1385,12 @@ export function FanChatPage({
     if (offerId && isOfferUnlocking(offerId)) return;
     setUnlockOffer(null);
   }, [isOfferUnlocking, unlockOffer]);
+
+  const closePackPurchaseSheet = useCallback(() => {
+    const packId = packPurchase?.id;
+    if (packId && isPackPurchasing(packId)) return;
+    setPackPurchase(null);
+  }, [isPackPurchasing, packPurchase]);
 
   const markOfferUnlocked = useCallback((offerId: string) => {
     if (!offerId) return;
@@ -979,6 +1411,18 @@ export function FanChatPage({
     const base = normalized ? `offer:${normalized}` : `offer:${generateClientTxnId()}`;
     const clientTxnId = base.slice(0, 120);
     purchaseTxnByOfferIdRef.current[key] = clientTxnId;
+    return clientTxnId;
+  }, []);
+
+  const getPackClientTxnId = useCallback((packId: string) => {
+    const key = packId.trim();
+    if (!key) return generateClientTxnId();
+    const existing = packTxnByIdRef.current[key];
+    if (existing) return existing;
+    const normalized = key.replace(/[^a-z0-9_-]+/gi, "-").replace(/^-+|-+$/g, "").slice(0, 60);
+    const base = normalized ? `pack:${normalized}` : `pack:${generateClientTxnId()}`;
+    const clientTxnId = base.slice(0, 120);
+    packTxnByIdRef.current[key] = clientTxnId;
     return clientTxnId;
   }, []);
 
@@ -1004,26 +1448,79 @@ export function FanChatPage({
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
+            kind: "OFFER",
             offerId,
             clientTxnId,
           }),
         });
         const data = await res.json().catch(() => ({}));
+        applyWalletPayload(data);
         if (!res.ok) {
-          return { ok: false, error: data?.error || "No se pudo desbloquear." };
+          const errorCode = typeof data?.error === "string" ? data.error : "";
+          const errorMessage =
+            errorCode === "INSUFFICIENT_BALANCE" ? "Saldo insuficiente." : data?.error || "No se pudo desbloquear.";
+          return { ok: false, error: errorMessage, errorCode, requiredCents: data?.requiredCents };
         }
         return {
           ok: true,
           purchaseId: data?.purchaseId,
           accessGranted: data?.accessGranted === true,
           reused: data?.reused === true,
+          accessSummary: data?.accessSummary,
+          packStatusById: data?.packStatusById,
+          unlockedPacks: data?.unlockedPacks,
+          includedContentCount: data?.includedContentCount,
         };
       } catch (err) {
         console.error("Error creating offer purchase", err);
         return { ok: false, error: "No se pudo desbloquear." };
       }
     },
-    [fanId, getOfferClientTxnId]
+    [applyWalletPayload, fanId, getOfferClientTxnId]
+  );
+
+  const createPackPurchase = useCallback(
+    async (pack: PackSummary) => {
+      if (!fanId) return { ok: false, error: "Missing fanId" };
+      const packId = pack.id?.trim() ?? "";
+      if (!packId) return { ok: false, error: "Missing packId" };
+      const clientTxnId = getPackClientTxnId(packId);
+      try {
+        const res = await fetch(`/api/fans/${fanId}/purchase`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            kind: "PACK",
+            packId,
+            clientTxnId,
+          }),
+        });
+        const data = await res.json().catch(() => ({}));
+        applyWalletPayload(data);
+        if (!res.ok) {
+          const errorCode = typeof data?.error === "string" ? data.error : "";
+          const errorMessage =
+            errorCode === "INSUFFICIENT_BALANCE"
+              ? "Saldo insuficiente."
+              : data?.error || "No se pudo completar la compra.";
+          return { ok: false, error: errorMessage, errorCode, requiredCents: data?.requiredCents };
+        }
+        return {
+          ok: true,
+          purchaseId: data?.purchaseId,
+          accessGranted: data?.accessGranted === true,
+          reused: data?.reused === true,
+          accessSummary: data?.accessSummary,
+          packStatusById: data?.packStatusById,
+          unlockedPacks: data?.unlockedPacks,
+          includedContentCount: data?.includedContentCount,
+        };
+      } catch (err) {
+        console.error("Error creating pack purchase", err);
+        return { ok: false, error: "No se pudo completar la compra." };
+      }
+    },
+    [applyWalletPayload, fanId, getPackClientTxnId]
   );
 
   const createSupportPurchase = useCallback(
@@ -1068,6 +1565,7 @@ export function FanChatPage({
 
   const handleTipConfirm = useCallback(async () => {
     if (!fanId) return;
+    if (isAdultGateActive) return;
     if (supportSubmitting || supportSubmitRef.current) return;
     const amountValue = tipAmountPreset ?? parseAmountToNumber(tipAmountCustom);
     if (!Number.isFinite(amountValue) || amountValue <= 0 || amountValue > 500) {
@@ -1115,6 +1613,7 @@ export function FanChatPage({
     fanId,
     fanProfile.displayName,
     fanProfile.name,
+    isAdultGateActive,
     supportSubmitRef,
     supportTxnRef,
     tipAmountCustom,
@@ -1125,6 +1624,7 @@ export function FanChatPage({
   const handleGiftConfirm = useCallback(
     async (pack: PackSummary) => {
       if (!fanId) return;
+      if (isAdultGateActive) return;
       if (supportSubmitting || supportSubmitRef.current) return;
       const amountValue = parseAmountToNumber(pack.price);
       if (!Number.isFinite(amountValue) || amountValue <= 0 || amountValue > 500) {
@@ -1179,22 +1679,72 @@ export function FanChatPage({
       fanProfile.displayName,
       fanProfile.name,
       fetchAccessInfo,
+      isAdultGateActive,
       supportSubmitRef,
       supportTxnRef,
       supportSubmitting,
     ]
   );
 
+  const walletBalanceLabel = useMemo(() => {
+    if (walletBalanceCents === null) return "—";
+    return formatCurrencyCents(walletBalanceCents, walletCurrency);
+  }, [walletBalanceCents, walletCurrency]);
+  const walletStatusLabel =
+    walletEnabled === false
+      ? "—"
+      : walletLoading && walletBalanceCents === null
+      ? "..."
+      : walletBalanceLabel;
+  const unlockRequiredCents = useMemo(() => {
+    if (!unlockOffer?.price) return 0;
+    const amount = parseAmountToNumber(unlockOffer.price);
+    return Math.max(0, Math.round(amount * 100));
+  }, [unlockOffer?.price]);
+  const packRequiredCents = useMemo(() => {
+    if (!packPurchase?.price) return 0;
+    const amount = parseAmountToNumber(packPurchase.price);
+    return Math.max(0, Math.round(amount * 100));
+  }, [packPurchase?.price]);
+  const unlockNeedsTopup =
+    walletEnabled === true &&
+    unlockRequiredCents > 0 &&
+    walletBalanceCents !== null &&
+    walletBalanceCents < unlockRequiredCents;
+  const packNeedsTopup =
+    walletEnabled === true &&
+    packRequiredCents > 0 &&
+    walletBalanceCents !== null &&
+    walletBalanceCents < packRequiredCents;
+
   const handleUnlockConfirm = useCallback(async () => {
     if (!fanId || !unlockOffer) return;
+    if (isAdultGateActive) return;
     const offerId = unlockOffer.id;
     if (!offerId || isOfferUnlocking(offerId)) return;
+    if (unlockNeedsTopup && walletEnabled === true) {
+      openWalletTopup();
+      showFanToast("Saldo insuficiente.");
+      return;
+    }
     setOfferUnlocking(offerId, true);
     try {
       const result = await createOfferPurchase(unlockOffer);
       if (!result.ok) {
+        if (result.errorCode === "INSUFFICIENT_BALANCE") {
+          openWalletTopup();
+        }
         showFanToast(result.error ?? "No se pudo desbloquear.");
         return;
+      }
+      if (result.accessSummary) {
+        setAccessSummary(result.accessSummary as AccessSummary);
+      }
+      if (result.packStatusById && typeof result.packStatusById === "object") {
+        setPackStatusById(result.packStatusById as Record<string, PackStatus>);
+      }
+      if (Array.isArray(result.unlockedPacks)) {
+        updateUnlockedOfferIdsFromPackList(result.unlockedPacks as string[]);
       }
       markOfferUnlocked(offerId);
       const refresh = await refreshAccessAndContent(fanId);
@@ -1211,25 +1761,101 @@ export function FanChatPage({
     fanId,
     fetchAccessInfo,
     isOfferUnlocking,
+    isAdultGateActive,
     markOfferUnlocked,
     openContentSheet,
+    openWalletTopup,
     refreshAccessAndContent,
     setOfferUnlocking,
     showFanToast,
+    updateUnlockedOfferIdsFromPackList,
     unlockOffer,
+    unlockNeedsTopup,
+    walletEnabled,
   ]);
 
-  const handlePackRequest = useCallback(
-    (pack: PackSummary) => {
-      const draftText = buildPackDraft(pack);
-      setDraft(draftText);
-      closeContentSheet();
-      requestAnimationFrame(() => focusComposer());
+  const resolvePackStatus = useCallback(
+    (pack: PackSummary): PackStatus => {
+      const stored = packStatusById[pack.id];
+      if (stored) return stored;
+      const packType = resolvePackTypeFromLabel(pack.id, pack.name);
+      if (!packType || !accessSummary) return "LOCKED";
+      if (packType === "monthly" && accessSummary.hasActiveMonthly) return "ACTIVE";
+      if (packType === "special" && accessSummary.hasActiveSpecial) return "ACTIVE";
+      if (packType === "trial" && accessSummary.hasActiveTrial) return "ACTIVE";
+      if (accessSummary.state === "EXPIRED") {
+        const label = (accessSummary.primaryLabel || "").toLowerCase();
+        if (packType === "monthly" && label.includes("mensual")) return "UNLOCKED";
+        if (packType === "special" && label.includes("especial")) return "UNLOCKED";
+        if (packType === "trial" && label.includes("prueba")) return "UNLOCKED";
+      }
+      return "LOCKED";
     },
-    [closeContentSheet, focusComposer]
+    [accessSummary, packStatusById]
   );
 
+  const handlePackPurchaseConfirm = useCallback(async () => {
+    if (!fanId || !packPurchase) return;
+    if (isAdultGateActive) return;
+    const packId = packPurchase.id;
+    if (!packId || isPackPurchasing(packId)) return;
+    if (packNeedsTopup && walletEnabled === true) {
+      openWalletTopup();
+      showFanToast("Saldo insuficiente.");
+      return;
+    }
+    setPackPurchasing(packId, true);
+    try {
+      const result = await createPackPurchase(packPurchase);
+      if (!result.ok) {
+        if (result.errorCode === "INSUFFICIENT_BALANCE") {
+          openWalletTopup();
+        }
+        showFanToast(result.error ?? "No se pudo completar la compra.");
+        return;
+      }
+      if (result.accessSummary) {
+        setAccessSummary(result.accessSummary as AccessSummary);
+      }
+      if (result.packStatusById && typeof result.packStatusById === "object") {
+        setPackStatusById(result.packStatusById as Record<string, PackStatus>);
+      }
+      if (Array.isArray(result.unlockedPacks)) {
+        updateUnlockedOfferIdsFromPackList(result.unlockedPacks as string[]);
+      }
+      markOfferUnlocked(packId);
+      const refresh = await refreshAccessAndContent(fanId);
+      if (!refresh.ok) {
+        await fetchAccessInfo(fanId);
+      }
+      setPackPurchase(null);
+      showFanToast("Pack desbloqueado.");
+      openContentSheet("content");
+    } finally {
+      setPackPurchasing(packId, false);
+    }
+  }, [
+    createPackPurchase,
+    fanId,
+    fetchAccessInfo,
+    isPackPurchasing,
+    isAdultGateActive,
+    markOfferUnlocked,
+    openContentSheet,
+    openWalletTopup,
+    packPurchase,
+    packNeedsTopup,
+    refreshAccessAndContent,
+    setPackPurchasing,
+    showFanToast,
+    updateUnlockedOfferIdsFromPackList,
+    walletEnabled,
+  ]);
+
   const unlockSubmitting = Boolean(unlockOffer?.id && unlockingOfferIds.has(unlockOffer.id));
+  const packPurchaseSubmitting = Boolean(packPurchase?.id && packPurchasingIds.has(packPurchase.id));
+  const unlockConfirmDisabled = unlockSubmitting;
+  const packConfirmDisabled = packPurchaseSubmitting;
   const sendDisabled = isComposerDisabled || draft.trim().length === 0;
   const voiceRecordingLabel = formatAudioTime(Math.max(0, Math.floor(voiceRecordingMs / 1000)));
 
@@ -1239,7 +1865,7 @@ export function FanChatPage({
   };
 
   const handleOnboardingEnter = async () => {
-    if (!fanId) return;
+    if (!fanId || isAdultGateActive) return;
     setOnboardingSaving(true);
     setOnboardingError("");
     try {
@@ -1550,14 +2176,31 @@ export function FanChatPage({
         <title>{`Chat con ${creatorName} · NOVSY`}</title>
       </Head>
 
-      <header className="flex items-center gap-3 px-4 py-3 bg-[color:var(--surface-1)] border-b border-[color:var(--border)]">
-        <div className="flex items-center justify-center w-10 h-10 rounded-full bg-[color:var(--surface-2)] text-[color:var(--text)] font-semibold">
-          {creatorInitial}
+      <header className="flex items-center justify-between gap-3 px-4 py-3 bg-[color:var(--surface-1)] border-b border-[color:var(--border)]">
+        <div className="flex items-center gap-3 min-w-0">
+          <div className="flex items-center justify-center w-10 h-10 rounded-full bg-[color:var(--surface-2)] text-[color:var(--text)] font-semibold">
+            {creatorInitial}
+          </div>
+          <div className="flex flex-col leading-tight min-w-0">
+            <span className="text-[color:var(--text)] font-medium text-sm truncate">{creatorName}</span>
+            <span className="ui-muted text-sm truncate">{headerSubtitle}</span>
+          </div>
         </div>
-        <div className="flex flex-col leading-tight">
-          <span className="text-[color:var(--text)] font-medium text-sm">{creatorName}</span>
-          <span className="ui-muted text-sm">{headerSubtitle}</span>
-        </div>
+        {walletEnabled === true ? (
+          <div className="flex items-center gap-2 shrink-0">
+            <span className="rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-3 py-1 text-[11px] font-semibold text-[color:var(--text)]">
+              Saldo: {walletStatusLabel}
+            </span>
+            <button
+              type="button"
+              onClick={openWalletTopup}
+              disabled={walletLoading}
+              className="rounded-full border border-[color:rgba(var(--brand-rgb),0.45)] bg-[color:rgba(var(--brand-rgb),0.12)] px-3 py-1 text-[11px] font-semibold text-[color:var(--text)] hover:bg-[color:rgba(var(--brand-rgb),0.2)] disabled:opacity-60"
+            >
+              Recargar
+            </button>
+          </div>
+        ) : null}
       </header>
       {fanToast && (
         <div className="pointer-events-none fixed inset-x-0 bottom-24 z-40 flex justify-center px-4">
@@ -1826,10 +2469,10 @@ export function FanChatPage({
                   audience="CREATOR"
                   onAudienceChange={() => {}}
                   canAttach={!isComposerDisabled}
-                  onAttach={() => setActionMenuOpen(true)}
+                  onAttach={handleOpenActionMenu}
                   inputRef={composerInputRef}
                   maxHeight={140}
-                  isChatBlocked={false}
+                  isChatBlocked={isAdultGateActive}
                   isInternalPanelOpen={false}
                   showAudienceToggle={false}
                   showAttach
@@ -1899,6 +2542,25 @@ export function FanChatPage({
               {unlockOffer?.price ? normalizePriceLabel(unlockOffer.price) : ""}
             </span>
           </div>
+          {walletEnabled === true ? (
+            <>
+              <div className="flex items-center justify-between text-xs text-[color:var(--muted)]">
+                <span>Saldo: {walletStatusLabel}</span>
+                {unlockNeedsTopup ? (
+                  <button
+                    type="button"
+                    onClick={openWalletTopup}
+                    className="rounded-full border border-[color:rgba(var(--brand-rgb),0.4)] px-3 py-1 text-[11px] font-semibold text-[color:var(--text)] hover:bg-[color:rgba(var(--brand-rgb),0.16)]"
+                  >
+                    Recargar
+                  </button>
+                ) : null}
+              </div>
+              {unlockNeedsTopup && (
+                <div className="text-[11px] text-[color:var(--danger)]">Saldo insuficiente para desbloquear.</div>
+              )}
+            </>
+          ) : null}
           <div className="flex items-center justify-end gap-2">
             <button
               type="button"
@@ -1911,12 +2573,144 @@ export function FanChatPage({
             <button
               type="button"
               onClick={handleUnlockConfirm}
-              disabled={unlockSubmitting}
+              disabled={unlockConfirmDisabled}
               className="rounded-full bg-[color:rgba(var(--brand-rgb),0.16)] px-4 py-1.5 text-xs font-semibold text-[color:var(--text)] hover:bg-[color:rgba(var(--brand-rgb),0.24)] disabled:opacity-60"
             >
               {unlockSubmitting ? "Desbloqueando..." : "Confirmar y desbloquear"}
             </button>
           </div>
+        </div>
+      </BottomSheet>
+      <BottomSheet open={Boolean(packPurchase)} onClose={closePackPurchaseSheet}>
+        <div className="space-y-4">
+          <div>
+            <h3 className="text-base font-semibold text-[color:var(--text)]">
+              {packPurchase?.name ? `Desbloquear: ${packPurchase.name}` : "Desbloquear"}
+            </h3>
+            <p className="text-xs text-[color:var(--muted)]">Se desbloquea al instante dentro del chat.</p>
+          </div>
+          <div className="rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-4 py-3 space-y-1">
+            <div className="flex items-center justify-between gap-3">
+              <div className="min-w-0">
+                <div className="truncate text-sm font-semibold text-[color:var(--text)]">{packPurchase?.name}</div>
+                {packPurchase?.description ? (
+                  <div className="text-xs text-[color:var(--muted)]">{packPurchase.description}</div>
+                ) : null}
+              </div>
+              <span className="text-sm font-semibold text-[color:var(--warning)]">
+                {packPurchase?.price ? normalizePriceLabel(packPurchase.price) : ""}
+              </span>
+            </div>
+            <div className="text-[11px] text-[color:var(--muted)]">Acceso inmediato dentro del chat.</div>
+          </div>
+          {walletEnabled === true ? (
+            <>
+              <div className="flex items-center justify-between text-xs text-[color:var(--muted)]">
+                <span>Saldo: {walletStatusLabel}</span>
+                {packNeedsTopup ? (
+                  <button
+                    type="button"
+                    onClick={openWalletTopup}
+                    className="rounded-full border border-[color:rgba(var(--brand-rgb),0.4)] px-3 py-1 text-[11px] font-semibold text-[color:var(--text)] hover:bg-[color:rgba(var(--brand-rgb),0.16)]"
+                  >
+                    Recargar
+                  </button>
+                ) : null}
+              </div>
+              {packNeedsTopup && (
+                <div className="text-[11px] text-[color:var(--danger)]">Saldo insuficiente para comprar el pack.</div>
+              )}
+            </>
+          ) : null}
+          <div className="flex items-center justify-end gap-2">
+            <button
+              type="button"
+              onClick={closePackPurchaseSheet}
+              disabled={packPurchaseSubmitting}
+              className="rounded-full border border-[color:var(--surface-border)] px-4 py-1.5 text-xs text-[color:var(--text)] hover:bg-[color:var(--surface-2)] disabled:opacity-60"
+            >
+              Cancelar
+            </button>
+            <button
+              type="button"
+              onClick={handlePackPurchaseConfirm}
+              disabled={packConfirmDisabled}
+              className="rounded-full bg-[color:rgba(var(--brand-rgb),0.16)] px-4 py-1.5 text-xs font-semibold text-[color:var(--text)] hover:bg-[color:rgba(var(--brand-rgb),0.24)] disabled:opacity-60"
+            >
+              {packPurchaseSubmitting ? "Desbloqueando..." : "Confirmar y desbloquear"}
+            </button>
+          </div>
+        </div>
+      </BottomSheet>
+      <BottomSheet open={walletTopupOpen} onClose={closeWalletTopup}>
+        <div className="flex items-center justify-between gap-3">
+          <div>
+            <h3 className="text-base font-semibold text-[color:var(--text)]">Recargar saldo</h3>
+            <p className="text-xs text-[color:var(--muted)]">Recarga simulada para continuar comprando.</p>
+          </div>
+          <button
+            type="button"
+            onClick={closeWalletTopup}
+            disabled={walletTopupLoading}
+            className="rounded-full border border-[color:var(--surface-border)] px-3 py-1 text-xs text-[color:var(--text)] hover:bg-[color:var(--surface-2)] disabled:opacity-60"
+          >
+            Cerrar
+          </button>
+        </div>
+        <div className="mt-4 space-y-3">
+          <div className="flex items-center justify-between rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-4 py-2 text-xs text-[color:var(--muted)]">
+            <span>Saldo actual</span>
+            <span className="font-semibold text-[color:var(--text)]">{walletStatusLabel}</span>
+          </div>
+          {walletTopupError && <p className="text-xs text-[color:var(--danger)]">{walletTopupError}</p>}
+          <div className="flex flex-wrap gap-2">
+            {WALLET_TOPUP_PRESETS.map((amountCents) => {
+              const isLoading = walletTopupLoading && walletTopupAmount === amountCents;
+              return (
+                <button
+                  key={`topup-${amountCents}`}
+                  type="button"
+                  onClick={() => handleWalletTopup(amountCents)}
+                  disabled={walletTopupLoading}
+                  className={`rounded-full border px-4 py-1.5 text-xs font-semibold ${
+                    walletTopupLoading
+                      ? "border-[color:var(--surface-border)] text-[color:var(--muted)]"
+                      : "border-[color:rgba(var(--brand-rgb),0.45)] text-[color:var(--text)] hover:bg-[color:rgba(var(--brand-rgb),0.16)]"
+                  }`}
+                >
+                  {isLoading ? "Recargando..." : formatCurrencyCents(amountCents, walletCurrency)}
+                </button>
+              );
+            })}
+          </div>
+          <div className="space-y-2">
+            <label className="text-xs text-[color:var(--muted)]">Otro importe</label>
+            <div className="flex items-center gap-2">
+              <input
+                type="number"
+                min={1}
+                max={500}
+                inputMode="decimal"
+                className="w-full rounded-lg bg-[color:var(--surface-1)] border border-[color:var(--surface-border)] px-3 py-2 text-sm text-[color:var(--text)] focus:border-[color:var(--brand)]"
+                placeholder="Ej: 15"
+                value={walletTopupCustom}
+                onChange={(event) => {
+                  setWalletTopupCustom(event.target.value);
+                  setWalletTopupError("");
+                }}
+                disabled={walletTopupLoading}
+              />
+              <button
+                type="button"
+                onClick={handleWalletTopupCustom}
+                disabled={walletTopupLoading}
+                className="shrink-0 rounded-full border border-[color:rgba(var(--brand-rgb),0.45)] bg-[color:rgba(var(--brand-rgb),0.12)] px-4 py-2 text-xs font-semibold text-[color:var(--text)] hover:bg-[color:rgba(var(--brand-rgb),0.2)] disabled:opacity-60"
+              >
+                Recargar
+              </button>
+            </div>
+          </div>
+          <p className="text-[11px] text-[color:var(--muted)]">Esta recarga es solo para la demo.</p>
         </div>
       </BottomSheet>
       <BottomSheet open={contentSheetOpen} onClose={closeContentSheet}>
@@ -1940,10 +2734,6 @@ export function FanChatPage({
               type="button"
               onClick={() => {
                 setContentSheetTab(tab);
-                if (tab === "packs") {
-                  setPackView("list");
-                  setSelectedPack(null);
-                }
               }}
               className={`rounded-full px-4 py-1.5 text-xs font-semibold ${
                 contentSheetTab === tab
@@ -1967,72 +2757,78 @@ export function FanChatPage({
           </div>
         ) : (
           <div className="mt-4 space-y-3">
+            {packAccessLoading && (
+              <div className="rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-4 py-2 text-xs text-[color:var(--muted)]">
+                Actualizando packs...
+              </div>
+            )}
             {availablePacks.length === 0 && (
               <div className="rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-4 py-4 text-sm text-[color:var(--muted)]">
                 No hay packs públicos todavía.
               </div>
             )}
-            {packView === "list" &&
-              availablePacks.map((pack) => (
-                <div key={pack.id} className="rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-4 py-3 space-y-2">
+            {availablePacks.map((pack) => {
+              const status = resolvePackStatus(pack);
+              const isLocked = status === "LOCKED";
+              const isActive = status === "ACTIVE";
+              const isPurchasing = isPackPurchasing(pack.id);
+              const statusLabel =
+                status === "ACTIVE" ? "Activo" : status === "UNLOCKED" ? "Desbloqueado" : "Bloqueado";
+              const statusClass =
+                status === "LOCKED"
+                  ? "border-[color:rgba(245,158,11,0.7)] bg-[color:rgba(245,158,11,0.12)] text-[color:var(--warning)]"
+                  : "border-[color:rgba(34,197,94,0.6)] bg-[color:rgba(34,197,94,0.14)] text-[color:rgb(22,163,74)]";
+              const ctaLabel = isPurchasing
+                ? "Comprando..."
+                : isLocked
+                ? "Comprar"
+                : isActive
+                ? "Activo"
+                : "Ver contenido";
+              const ctaDisabled = isPurchasing || isActive;
+              return (
+                <div
+                  key={pack.id}
+                  className="rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-4 py-3 space-y-2"
+                >
                   <div className="flex items-start justify-between gap-3">
-                    <div>
-                      <p className="text-sm font-semibold text-[color:var(--text)]">{pack.name}</p>
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-semibold text-[color:var(--text)]">{pack.name}</p>
                       <p className="text-xs text-[color:var(--muted)]">{pack.description}</p>
                     </div>
-                    <span className="text-sm font-semibold text-[color:var(--warning)]">{normalizePriceLabel(pack.price)}</span>
+                    <span className="text-sm font-semibold text-[color:var(--warning)]">
+                      {normalizePriceLabel(pack.price)}
+                    </span>
                   </div>
-                  <div className="flex flex-wrap items-center gap-2">
-                    <button
-                      type="button"
-                      onClick={() => handlePackRequest(pack)}
-                      className="rounded-full bg-[color:rgba(var(--brand-rgb),0.16)] px-4 py-1.5 text-xs font-semibold text-[color:var(--text)] hover:bg-[color:rgba(var(--brand-rgb),0.24)]"
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <span
+                      className={`rounded-full border px-2 py-0.5 text-[9px] font-semibold uppercase tracking-wide ${statusClass}`}
                     >
-                      Pedir
-                    </button>
+                      {statusLabel}
+                    </span>
                     <button
                       type="button"
                       onClick={() => {
-                        setSelectedPack(pack);
-                        setPackView("details");
+                        if (ctaDisabled) return;
+                        if (isLocked) {
+                          setPackPurchase(pack);
+                        } else {
+                          openContentSheet("content");
+                        }
                       }}
-                      className="rounded-full border border-[color:var(--surface-border)] px-4 py-1.5 text-xs text-[color:var(--text)] hover:bg-[color:var(--surface-2)]"
+                      disabled={ctaDisabled}
+                      className={`rounded-full border px-4 py-1.5 text-xs font-semibold ${
+                        ctaDisabled
+                          ? "border-[color:var(--surface-border)] bg-[color:var(--surface-2)] text-[color:var(--muted)]"
+                          : "border-[color:var(--brand)] bg-[color:rgba(var(--brand-rgb),0.16)] text-[color:var(--text)] hover:bg-[color:rgba(var(--brand-rgb),0.24)]"
+                      }`}
                     >
-                      Ver pack
+                      {ctaLabel}
                     </button>
                   </div>
                 </div>
-              ))}
-            {packView === "details" && selectedPack && (
-              <div className="rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-4 py-4 space-y-3">
-                <div className="flex items-start justify-between gap-3">
-                  <div>
-                    <p className="text-sm font-semibold text-[color:var(--text)]">{selectedPack.name}</p>
-                    <p className="text-xs text-[color:var(--muted)]">{selectedPack.description}</p>
-                  </div>
-                  <span className="text-sm font-semibold text-[color:var(--warning)]">{normalizePriceLabel(selectedPack.price)}</span>
-                </div>
-                <div className="flex flex-wrap items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={() => handlePackRequest(selectedPack)}
-                    className="rounded-full bg-[color:rgba(var(--brand-rgb),0.16)] px-4 py-1.5 text-xs font-semibold text-[color:var(--text)] hover:bg-[color:rgba(var(--brand-rgb),0.24)]"
-                  >
-                    Pedir
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setPackView("list");
-                      setSelectedPack(null);
-                    }}
-                    className="rounded-full border border-[color:var(--surface-border)] px-4 py-1.5 text-xs text-[color:var(--text)] hover:bg-[color:var(--surface-2)]"
-                  >
-                    Volver
-                  </button>
-                </div>
-              </div>
-            )}
+              );
+            })}
           </div>
         )}
       </BottomSheet>
@@ -2183,6 +2979,33 @@ export function FanChatPage({
               </div>
             </div>
           )}
+        </div>
+      </BottomSheet>
+      <BottomSheet open={isAdultGateActive} onClose={() => {}} dismissible={false}>
+        <div className="space-y-4">
+          <div>
+            <h3 className="text-base font-semibold text-[color:var(--text)]">Confirmación 18+</h3>
+            <p className="text-xs text-[color:var(--muted)]">
+              Este espacio es solo para mayores de 18. Confirma para continuar.
+            </p>
+          </div>
+          <div className="flex items-center justify-end gap-2">
+            <button
+              type="button"
+              onClick={handleAdultExit}
+              className="rounded-full border border-[color:var(--surface-border)] px-4 py-1.5 text-xs text-[color:var(--text)] hover:bg-[color:var(--surface-2)]"
+            >
+              Salir
+            </button>
+            <button
+              type="button"
+              onClick={handleAdultConfirm}
+              disabled={adultConfirming}
+              className="rounded-full bg-[color:rgba(var(--brand-rgb),0.16)] px-4 py-1.5 text-xs font-semibold text-[color:var(--text)] hover:bg-[color:rgba(var(--brand-rgb),0.24)] disabled:opacity-60"
+            >
+              {adultConfirming ? "Confirmando..." : "Tengo 18+"}
+            </button>
+          </div>
         </div>
       </BottomSheet>
     </div>
@@ -2642,16 +3465,21 @@ function SystemMessage({ text }: { text: string }) {
 function BottomSheet({
   open,
   onClose,
+  dismissible = true,
   children,
 }: {
   open: boolean;
   onClose: () => void;
+  dismissible?: boolean;
   children: ReactNode;
 }) {
   if (!open) return null;
   return (
     <div className="fixed inset-0 z-50">
-      <div className="absolute inset-0 bg-[color:var(--surface-overlay)]" onClick={onClose} />
+      <div
+        className="absolute inset-0 bg-[color:var(--surface-overlay)]"
+        onClick={dismissible ? onClose : undefined}
+      />
       <div className="absolute inset-x-0 bottom-0 max-h-[85vh] overflow-y-auto rounded-t-3xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-4 pb-6 pt-4">
         <div className="mx-auto mb-3 h-1.5 w-12 rounded-full bg-[color:var(--surface-2)]/80" />
         {children}
@@ -2667,6 +3495,23 @@ function normalizePriceLabel(value: string) {
   return `${trimmed} €`;
 }
 
+function formatCurrencyCents(cents: number, currency = "EUR") {
+  const safeCents = Number.isFinite(cents) ? Math.max(0, Math.round(cents)) : 0;
+  const amount = safeCents / 100;
+  const hasDecimals = safeCents % 100 !== 0;
+  try {
+    return new Intl.NumberFormat("es-ES", {
+      style: "currency",
+      currency,
+      minimumFractionDigits: hasDecimals ? 2 : 0,
+      maximumFractionDigits: hasDecimals ? 2 : 0,
+    }).format(amount);
+  } catch {
+    const fixed = hasDecimals ? amount.toFixed(2) : Math.round(amount).toString();
+    return `${fixed} ${currency}`;
+  }
+}
+
 function parseAmountToNumber(value: string) {
   const raw = (value || "").toString().trim();
   if (!raw) return 0;
@@ -2680,11 +3525,6 @@ function formatAmountLabel(amount: number) {
   const hasDecimals = Math.round(amount * 100) % 100 !== 0;
   const label = hasDecimals ? amount.toFixed(2) : amount.toFixed(0);
   return `${label} €`;
-}
-
-function buildPackDraft(pack: PackSummary) {
-  const priceLabel = normalizePriceLabel(pack.price);
-  return `Hola, me interesa el pack «${pack.name}» (${priceLabel}). ¿Cómo empezamos?\n\nRef pack: ${pack.id}`;
 }
 
 function getMessageSortKey(message: ApiMessage, fallbackIndex: number) {

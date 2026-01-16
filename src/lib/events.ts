@@ -52,6 +52,9 @@ export type PurchaseSeenPayload = {
 export type CreatorDataChangedPayload = {
   reason: string;
   fanId?: string;
+  adultConfirmedAt?: string | null;
+  adultConfirmVersion?: string | null;
+  isAdultConfirmed?: boolean;
 };
 
 export type ExtrasUpdatedPayload = {
