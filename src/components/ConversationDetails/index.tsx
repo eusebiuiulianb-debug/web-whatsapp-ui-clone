@@ -162,6 +162,13 @@ const OFFER_MARKER = "\n\n__NOVSY_OFFER__:";
 const TYPING_HIDE_MS = 7000;
 const TYPING_START_THROTTLE_MS = 800;
 const TYPING_STOP_IDLE_MS = 1200;
+const DRAFT_CONTEXT_MAX_LEN = 240;
+
+function normalizeDraftContext(value: string) {
+  const cleaned = value.replace(/[\r\n]+/g, " ").trim();
+  if (!cleaned) return "";
+  return cleaned.slice(0, DRAFT_CONTEXT_MAX_LEN);
+}
 
 type OfferOverlayState = {
   offer: OfferMeta;
@@ -205,6 +212,8 @@ type DraftRequestOptions = {
   avoid?: string[];
   regenerateNonce?: number | null;
   variationNonce?: number | null;
+  fanDraftText?: string | null;
+  fanIsTyping?: boolean;
 };
 type SendFanMessageOptions = {
   bypassDuplicateCheck?: boolean;
@@ -1201,9 +1210,10 @@ export default function ConversationDetails({ onBackToBoard }: ConversationDetai
   const [ offerOverlay, setOfferOverlay ] = useState<OfferOverlayState | null>(null);
   const [ purchaseNotice, setPurchaseNotice ] = useState<PurchaseNoticeState | null>(null);
   const [ voiceNotice, setVoiceNotice ] = useState<{ fanName: string; durationMs?: number; createdAt: string } | null>(null);
-  const [ typingIndicator, setTypingIndicator ] = useState<{ isTyping: boolean; ts: number }>({
+  const [ typingIndicator, setTypingIndicator ] = useState<{ isTyping: boolean; ts: number; draftText: string }>({
     isTyping: false,
     ts: 0,
+    draftText: "",
   });
   const [ internalToast, setInternalToast ] = useState<string | null>(null);
   const [ actionToast, setActionToast ] = useState<{ message: string; actionLabel: string; actionHref: string } | null>(
@@ -1274,7 +1284,7 @@ export default function ConversationDetails({ onBackToBoard }: ConversationDetai
   }, [conversation, contactName]);
 
   useEffect(() => {
-    setTypingIndicator({ isTyping: false, ts: 0 });
+    setTypingIndicator({ isTyping: false, ts: 0, draftText: "" });
   }, [conversation.isManager, id]);
 
   useEffect(() => {
@@ -1282,7 +1292,7 @@ export default function ConversationDetails({ onBackToBoard }: ConversationDetai
     const now = Date.now();
     const waitMs = Math.max(0, TYPING_HIDE_MS - (now - typingIndicator.ts));
     const timer = window.setTimeout(() => {
-      setTypingIndicator((prev) => (prev.isTyping ? { ...prev, isTyping: false } : prev));
+      setTypingIndicator((prev) => (prev.isTyping ? { ...prev, isTyping: false, draftText: "" } : prev));
     }, waitMs);
     return () => window.clearTimeout(timer);
   }, [typingIndicator.isTyping, typingIndicator.ts]);
@@ -5459,7 +5469,9 @@ const INTENT_BADGE_LABELS: Record<string, string> = {
       if (conversation.isManager) return;
       if (detail.eventId && messageEventIdsRef.current.has(detail.eventId)) return;
       if (detail.from === "fan") {
-        setTypingIndicator((prev) => (prev.isTyping ? { ...prev, isTyping: false } : prev));
+        setTypingIndicator((prev) =>
+          prev.isTyping ? { ...prev, isTyping: false, draftText: "" } : prev
+        );
       }
       const rawMessage = detail.message as ApiMessage | undefined;
       if (detail.kind === "audio" && detail.from === "fan") {
@@ -5700,7 +5712,21 @@ const INTENT_BADGE_LABELS: Record<string, string> = {
       if (detail.conversationId !== id && detail.fanId !== id) return;
       if (detail.senderRole !== "fan") return;
       const ts = typeof detail.ts === "number" ? detail.ts : Date.now();
-      setTypingIndicator({ isTyping: detail.isTyping, ts });
+      const rawDraftText = typeof detail.draftText === "string" ? detail.draftText : null;
+      if (!detail.isTyping) {
+        setTypingIndicator({ isTyping: false, ts, draftText: "" });
+        return;
+      }
+      if (rawDraftText !== null) {
+        const normalizedDraftText = rawDraftText.replace(/[\r\n]+/g, " ").trim().slice(0, 240);
+        if (!normalizedDraftText) {
+          setTypingIndicator({ isTyping: false, ts, draftText: "" });
+          return;
+        }
+        setTypingIndicator({ isTyping: true, ts, draftText: normalizedDraftText });
+        return;
+      }
+      setTypingIndicator((prev) => ({ ...prev, isTyping: true, ts }));
     },
     [conversation.isManager, id]
   );
@@ -9857,7 +9883,12 @@ const INTENT_BADGE_LABELS: Record<string, string> = {
           avoid: options.avoid,
           regenerateNonce: options.regenerateNonce ?? null,
           variationNonce: options.variationNonce ?? null,
+          fanDraftText: options.fanDraftText ?? null,
+          fanIsTyping: options.fanIsTyping,
         };
+        const normalizedFanDraftText =
+          typeof resolvedOptions.fanDraftText === "string" ? normalizeDraftContext(resolvedOptions.fanDraftText) : "";
+        const shouldSendFanDraft = Boolean(normalizedFanDraftText) && resolvedOptions.fanIsTyping === true;
         const historyKey =
           resolvedOptions.historyKey ??
           resolveDraftHistoryKey({
@@ -9914,6 +9945,8 @@ const INTENT_BADGE_LABELS: Record<string, string> = {
             rewriteMode: resolvedOptions.rewriteMode,
             regenerateNonce,
             variationNonce: resolvedOptions.variationNonce ?? regenerateNonce,
+            fanDraftText: shouldSendFanDraft ? normalizedFanDraftText : undefined,
+            fanIsTyping: shouldSendFanDraft ? true : undefined,
           }),
         });
         const data = await res.json().catch(() => ({}));
@@ -12343,6 +12376,10 @@ const INTENT_BADGE_LABELS: Record<string, string> = {
       objectiveKey: nextActionDraftKey,
       offerId: null,
     });
+    const fanDraftText =
+      typingIndicator.isTyping && typingIndicator.draftText
+        ? normalizeDraftContext(typingIndicator.draftText)
+        : "";
     const draftText = await requestManagerDraft({
       objectiveKey: nextActionDraftKey,
       tone: fanTone,
@@ -12352,6 +12389,8 @@ const INTENT_BADGE_LABELS: Record<string, string> = {
       serverActionKey: actionKey,
       historyKey,
       targetLanguage: managerLanguage,
+      fanDraftText: fanDraftText || null,
+      fanIsTyping: Boolean(fanDraftText),
     });
     if (!draftText) return;
     const meta = nextActionObjective
@@ -12388,6 +12427,8 @@ const INTENT_BADGE_LABELS: Record<string, string> = {
     requestManagerDraft,
     resolveDraftHistoryKey,
     managerLanguage,
+    typingIndicator.draftText,
+    typingIndicator.isTyping,
   ]);
 
   const quickActionChips = uiLanguage === fanLanguage ? smartSuggestions.chips : uiSuggestions.chips;
@@ -14118,7 +14159,7 @@ const INTENT_BADGE_LABELS: Record<string, string> = {
                 </div>
               )}
               {!conversation.isManager && typingIndicator.isTyping && id && (
-                <div className="mb-2 flex">
+                <div className="mb-2 flex flex-col items-start">
                   <div className="inline-flex items-center gap-1.5 rounded-2xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-3 py-1.5 text-[11px] text-[color:var(--muted)] shadow-[0_1px_0_rgba(0,0,0,0.12)]">
                     <span className="sr-only">{`${typingDisplayName} está escribiendo`}</span>
                     <span
@@ -14134,6 +14175,19 @@ const INTENT_BADGE_LABELS: Record<string, string> = {
                       style={{ animationDelay: "280ms" }}
                     />
                   </div>
+                  {typingIndicator.draftText ? (
+                    <div
+                      className="mt-1 max-w-[320px] text-[10px] text-[color:var(--muted)] leading-snug"
+                      style={{
+                        display: "-webkit-box",
+                        WebkitLineClamp: 2,
+                        WebkitBoxOrient: "vertical",
+                        overflow: "hidden",
+                      }}
+                    >
+                      <span className="font-semibold">Borrador:</span> {typingIndicator.draftText}
+                    </div>
+                  ) : null}
                 </div>
               )}
               {showSuggestedAction && (
