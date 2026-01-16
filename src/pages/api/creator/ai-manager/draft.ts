@@ -50,6 +50,7 @@ const MAX_TOKENS_BY_LENGTH: Record<DraftLength, number> = {
   medium: 260,
   long: 420,
 };
+const FAN_DRAFT_MAX_LEN = 240;
 
 type DraftHistoryEntry = { drafts: string[]; updatedAt: number };
 
@@ -123,7 +124,16 @@ const requestSchema = z.object({
   ),
   avoid: z.array(z.string()).optional(),
   rewriteMode: z.enum(["alt", "shorter", "softer", "more_direct"]).optional(),
+  fanDraftText: z.string().optional(),
+  fanIsTyping: z.boolean().optional(),
 });
+
+function normalizeFanDraftText(value?: string | null) {
+  if (typeof value !== "string") return "";
+  const cleaned = value.replace(/[\r\n]+/g, " ").trim();
+  if (!cleaned) return "";
+  return cleaned.slice(0, FAN_DRAFT_MAX_LEN);
+}
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse<DraftResponse>) {
   if (req.method !== "POST") {
@@ -162,6 +172,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
     variationNonce,
     avoid: rawAvoid,
     rewriteMode: rawRewriteMode,
+    fanDraftText: rawFanDraftText,
+    fanIsTyping: rawFanIsTyping,
   } = parsed.data;
   const managerUiLevel = uiLevel ?? "advanced";
 
@@ -309,6 +321,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
   const structure = STRUCTURES[hashToInt(`${strategySeed}:struct`)% STRUCTURES.length];
   const rewriteMode = rawRewriteMode ?? null;
   const offerHint = await resolveOfferHint(creatorId);
+  const normalizedFanDraftText = normalizeFanDraftText(rawFanDraftText);
+  const hasFanDraftContext = rawFanIsTyping === true && normalizedFanDraftText.length > 0;
   const systemPrompt = buildDraftSystemPrompt({
     language: outputLanguage,
     tone,
@@ -399,6 +413,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
       targetLanguage: outputLanguage,
       opener,
       structure,
+      fanDraftText: hasFanDraftContext ? normalizedFanDraftText : null,
     });
     llmResult = await requestCortexCompletion({
       messages: [
@@ -797,6 +812,7 @@ function buildDraftUserPrompt(params: {
   offerHint: string | null;
   recentDrafts: string[];
   intent: string | null;
+  fanDraftText: string | null;
   offer: {
     id: string | null;
     title: string | null;
@@ -833,6 +849,9 @@ function buildDraftUserPrompt(params: {
     `Fan: ${params.fanName}`,
     `Idioma objetivo: ${params.targetLanguage}. Devuelve SOLO en este idioma.`,
     params.selectedMessage ? `Mensaje seleccionado: ${truncate(params.selectedMessage, 320)}` : null,
+    params.fanDraftText
+      ? `Borrador actual del fan (sin enviar): ${truncate(params.fanDraftText, 240)}`
+      : null,
     params.variationOf
       ? `NO repitas estas frases ni estructura:\n${truncate(params.variationOf, 420)}`
       : null,

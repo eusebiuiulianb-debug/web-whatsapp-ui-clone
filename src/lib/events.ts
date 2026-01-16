@@ -76,6 +76,7 @@ export type TypingPayload = {
   fanId: string;
   isTyping: boolean;
   senderRole: "fan" | "creator";
+  draftText?: string;
   ts: number;
 };
 

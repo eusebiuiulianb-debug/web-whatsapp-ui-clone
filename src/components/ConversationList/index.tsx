@@ -8,6 +8,7 @@ import { isStickerToken } from "../../lib/stickers";
 import { badgeToneForLabel } from "../../lib/badgeTone";
 import { Badge, type BadgeTone } from "../ui/Badge";
 import { ConversationActionsMenu } from "../conversations/ConversationActionsMenu";
+import { useTypingIndicator } from "../../hooks/useTypingIndicator";
 
 const INTENT_BADGE_LABELS: Record<string, string> = {
   BUY_NOW: "Compra",
@@ -46,10 +47,19 @@ const NEXT_ACTION_LABELS: Record<string, string> = {
   SAFETY: "Seguridad",
 };
 
+const SIDEBAR_DRAFT_MAX_LEN = 140;
+
 function normalizeSuggestedActionKey(value?: string | null): string | null {
   if (!value) return null;
   const normalized = value.trim().toUpperCase();
   return SUGGESTED_ACTION_KEYS.has(normalized) ? normalized : null;
+}
+
+function normalizeSidebarDraftText(value?: string | null) {
+  if (!value) return "";
+  const cleaned = value.replace(/[\r\n]+/g, " ").trim();
+  if (!cleaned) return "";
+  return cleaned.slice(0, SIDEBAR_DRAFT_MAX_LEN);
 }
 
 interface ConversationListProps {
@@ -82,6 +92,9 @@ export default function ConversationList(props: ConversationListProps) {
   } = data;
   const borderClass = isFirstConversation ? "border-transparent" : "border-[color:var(--border)]";
   const isManagerChat = data.isManager === true;
+  const typingIndicator = useTypingIndicator(data.id);
+  const isTyping = !isManagerChat && Boolean(typingIndicator?.isTyping);
+  const typingDraftPreview = isTyping ? normalizeSidebarDraftText(typingIndicator?.draftText) : "";
   const previewMessage =
     typeof lastMessage === "string" && isStickerToken(lastMessage) ? "Sticker" : lastMessage;
   const hasUnread = !isManagerChat && !!unreadCount && unreadCount > 0;
@@ -294,27 +307,52 @@ export default function ConversationList(props: ConversationListProps) {
               )}
             </div>
             <div
-              className={`flex items-center gap-2 min-w-0 ${isCompact ? "text-[11px]" : "text-xs"} text-[color:var(--muted)]`}
+              className={`flex flex-col gap-1 min-w-0 ${isCompact ? "text-[11px]" : "text-xs"} text-[color:var(--muted)]`}
             >
-              {shouldShowNextAction ? (
-                <span className="truncate min-w-0">Siguiente: {nextActionLabel}</span>
-              ) : (
-                <span className="truncate min-w-0 opacity-60">Siguiente: —</span>
-              )}
-              {showRelativeTime && (
-                <>
-                  <span
-                    className={`w-1 h-1 rounded-full shrink-0 ${
-                      hasUnreadInbound ? "bg-[color:var(--text)]" : "bg-[color:var(--muted)]"
-                    }`}
-                  />
-                  <span className="shrink-0">{relativeTimeLabel}</span>
-                </>
-              )}
-              {unreadBadgeLabel ? (
-                <Badge tone="accent" size="sm" className="shrink-0">
-                  {unreadBadgeLabel}
-                </Badge>
+              <div className="flex items-center gap-2 min-w-0">
+                {isTyping ? (
+                  <span className="inline-flex items-center gap-1.5 min-w-0">
+                    <span className="truncate">Escribiendo</span>
+                    <span className="flex items-center gap-0.5 shrink-0" aria-hidden="true">
+                      <span
+                        className="h-1 w-1 animate-bounce rounded-full bg-[color:var(--muted)]"
+                        style={{ animationDelay: "0ms" }}
+                      />
+                      <span
+                        className="h-1 w-1 animate-bounce rounded-full bg-[color:var(--muted)]"
+                        style={{ animationDelay: "140ms" }}
+                      />
+                      <span
+                        className="h-1 w-1 animate-bounce rounded-full bg-[color:var(--muted)]"
+                        style={{ animationDelay: "280ms" }}
+                      />
+                    </span>
+                  </span>
+                ) : shouldShowNextAction ? (
+                  <span className="truncate min-w-0">Siguiente: {nextActionLabel}</span>
+                ) : (
+                  <span className="truncate min-w-0 opacity-60">Siguiente: —</span>
+                )}
+                {showRelativeTime && (
+                  <>
+                    <span
+                      className={`w-1 h-1 rounded-full shrink-0 ${
+                        hasUnreadInbound ? "bg-[color:var(--text)]" : "bg-[color:var(--muted)]"
+                      }`}
+                    />
+                    <span className="shrink-0">{relativeTimeLabel}</span>
+                  </>
+                )}
+                {unreadBadgeLabel ? (
+                  <Badge tone="accent" size="sm" className="shrink-0">
+                    {unreadBadgeLabel}
+                  </Badge>
+                ) : null}
+              </div>
+              {isTyping && typingDraftPreview ? (
+                <div className={`truncate ${isCompact ? "text-[10px]" : "text-[11px]"}`}>
+                  <span className="font-semibold">Borrador:</span> {typingDraftPreview}
+                </div>
               ) : null}
             </div>
           </div>

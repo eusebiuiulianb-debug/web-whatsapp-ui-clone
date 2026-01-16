@@ -53,6 +53,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         fanId: event.fanId,
         isTyping: event.isTyping,
         senderRole: event.senderRole,
+        draftText: event.senderRole === "fan" ? event.draftText : undefined,
         ts: event.ts,
       })}\n\n`
     );

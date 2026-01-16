@@ -102,8 +102,16 @@ const VOICE_MIME_PREFERENCES = [
   "audio/mp4",
 ];
 const TYPING_START_THROTTLE_MS = 800;
+const TYPING_DRAFT_THROTTLE_MS = 800;
 const TYPING_STOP_IDLE_MS = 1200;
 const TYPING_HIDE_MS = 7000;
+const DRAFT_TEXT_MAX_LEN = 240;
+
+function normalizeDraftPreviewText(value: string) {
+  const cleaned = value.replace(/[\r\n]+/g, " ").trim();
+  if (!cleaned) return "";
+  return cleaned.slice(0, DRAFT_TEXT_MAX_LEN);
+}
 
 export function FanChatPage({
   includedContent,
@@ -177,6 +185,12 @@ export function FanChatPage({
     lastStartAt: 0,
   });
   const typingStopTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const draftSendTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const draftSendStateRef = useRef<{ lastSentAt: number; lastSentText: string; pendingText: string }>({
+    lastSentAt: 0,
+    lastSentText: "",
+    pendingText: "",
+  });
   const lastCreatorMessageIdRef = useRef<string | null>(null);
   const [actionMenuOpen, setActionMenuOpen] = useState(false);
   const [contentSheetOpen, setContentSheetOpen] = useState(false);
@@ -615,25 +629,53 @@ export function FanChatPage({
   );
 
   const sendTypingSignal = useCallback(
-    (isTyping: boolean) => {
+    (isTyping: boolean, draftText?: string) => {
       if (!fanId) return;
+      const payload = {
+        conversationId: fanId,
+        isTyping,
+        senderRole: "fan",
+        ...(draftText !== undefined ? { draftText } : {}),
+      };
       void fetch("/api/realtime/typing", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ conversationId: fanId, isTyping, senderRole: "fan" }),
+        body: JSON.stringify(payload),
       }).catch(() => {});
     },
     [fanId]
   );
 
+  const flushDraftPreview = useCallback(() => {
+    const pending = draftSendStateRef.current.pendingText;
+    if (!pending) return;
+    if (pending === draftSendStateRef.current.lastSentText) {
+      draftSendStateRef.current.lastSentAt = Date.now();
+      return;
+    }
+    draftSendStateRef.current.lastSentAt = Date.now();
+    draftSendStateRef.current.lastSentText = pending;
+    sendTypingSignal(true, pending);
+  }, [sendTypingSignal]);
+
   const stopTyping = useCallback(() => {
-    if (!typingStateRef.current.isTyping) return;
+    const shouldSendClear =
+      typingStateRef.current.isTyping ||
+      draftSendStateRef.current.pendingText.length > 0 ||
+      draftSendStateRef.current.lastSentText.length > 0;
     typingStateRef.current.isTyping = false;
     if (typingStopTimerRef.current) {
       clearTimeout(typingStopTimerRef.current);
       typingStopTimerRef.current = null;
     }
-    sendTypingSignal(false);
+    if (draftSendTimerRef.current) {
+      clearTimeout(draftSendTimerRef.current);
+      draftSendTimerRef.current = null;
+    }
+    draftSendStateRef.current = { lastSentAt: 0, lastSentText: "", pendingText: "" };
+    if (shouldSendClear) {
+      sendTypingSignal(false, "");
+    }
   }, [sendTypingSignal]);
 
   const scheduleTypingStop = useCallback(() => {
@@ -645,6 +687,30 @@ export function FanChatPage({
       stopTyping();
     }, TYPING_STOP_IDLE_MS);
   }, [stopTyping]);
+
+  const scheduleDraftPreview = useCallback(
+    (normalizedDraft: string) => {
+      if (!normalizedDraft) return;
+      draftSendStateRef.current.pendingText = normalizedDraft;
+      const now = Date.now();
+      const elapsed = now - draftSendStateRef.current.lastSentAt;
+      if (elapsed >= TYPING_DRAFT_THROTTLE_MS) {
+        if (draftSendTimerRef.current) {
+          clearTimeout(draftSendTimerRef.current);
+          draftSendTimerRef.current = null;
+        }
+        flushDraftPreview();
+        return;
+      }
+      if (!draftSendTimerRef.current) {
+        draftSendTimerRef.current = setTimeout(() => {
+          draftSendTimerRef.current = null;
+          flushDraftPreview();
+        }, TYPING_DRAFT_THROTTLE_MS - elapsed);
+      }
+    },
+    [flushDraftPreview]
+  );
 
   const handleTypingStart = useCallback(() => {
     const now = Date.now();
@@ -662,10 +728,19 @@ export function FanChatPage({
       clearTimeout(typingStopTimerRef.current);
       typingStopTimerRef.current = null;
     }
+    if (draftSendTimerRef.current) {
+      clearTimeout(draftSendTimerRef.current);
+      draftSendTimerRef.current = null;
+    }
+    draftSendStateRef.current = { lastSentAt: 0, lastSentText: "", pendingText: "" };
     return () => {
       if (typingStopTimerRef.current) {
         clearTimeout(typingStopTimerRef.current);
         typingStopTimerRef.current = null;
+      }
+      if (draftSendTimerRef.current) {
+        clearTimeout(draftSendTimerRef.current);
+        draftSendTimerRef.current = null;
       }
     };
   }, [fanId]);
@@ -691,12 +766,19 @@ export function FanChatPage({
 
   const handleComposerChange = useCallback(
     (event: ChangeEvent<HTMLTextAreaElement>) => {
-      setDraft(event.target.value);
+      const nextDraft = event.target.value;
+      setDraft(nextDraft);
       if (isComposerDisabled) return;
+      const normalizedDraft = normalizeDraftPreviewText(nextDraft);
+      if (!normalizedDraft) {
+        stopTyping();
+        return;
+      }
       handleTypingStart();
       scheduleTypingStop();
+      scheduleDraftPreview(normalizedDraft);
     },
-    [handleTypingStart, isComposerDisabled, scheduleTypingStop]
+    [handleTypingStart, isComposerDisabled, scheduleDraftPreview, scheduleTypingStop, stopTyping]
   );
 
   const handleComposerBlur = useCallback(() => {

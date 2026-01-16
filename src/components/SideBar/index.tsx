@@ -30,10 +30,11 @@ import {
   type VoiceNoteNotice,
 } from "../../lib/unseenVoiceNotes";
 import { setSmartTranscriptionTargets } from "../../lib/voiceTranscriptionSmartTargets";
-import type { FanMessageSentPayload, PurchaseCreatedPayload, VoiceTranscriptPayload } from "../../lib/events";
+import type { FanMessageSentPayload, PurchaseCreatedPayload, TypingPayload, VoiceTranscriptPayload } from "../../lib/events";
 import { formatPurchaseUI } from "../../lib/purchaseUi";
 import { publishChatEvent, subscribeChatEvents } from "../../lib/chatEvents";
 import { useCreatorRealtime } from "../../hooks/useCreatorRealtime";
+import { clearTypingIndicator, updateTypingIndicator } from "../../lib/typingIndicatorStore";
 import { DevRequestCounters } from "../DevRequestCounters";
 import { recordDevRequest } from "../../lib/devRequestStats";
 import { IconGlyph } from "../ui/IconGlyph";
@@ -2074,6 +2075,9 @@ function SideBarInner() {
       const isActiveConversation = !conversation?.isManager && activeConversationId === fanId;
       const existing = fansRef.current.find((fan) => fan.id === fanId) ?? null;
       const fanLabel = (existing?.contactName || "").trim();
+      if (isFromFan) {
+        clearTypingIndicator(fanId);
+      }
       if (detail?.kind === "audio" && detail?.from === "fan" && !isActiveConversation) {
         const notice = recordUnseenVoiceNote({
           fanId,
@@ -2379,6 +2383,11 @@ function SideBarInner() {
     };
   }, [applyFilter, mapFans, mutateChats]);
 
+  const handleTyping = useCallback((detail: TypingPayload) => {
+    if (!detail) return;
+    updateTypingIndicator(detail);
+  }, []);
+
   useCreatorRealtime({
     onExtrasUpdated: handleExtrasUpdated,
     onFanMessageSent: handleFanMessageSent,
@@ -2386,6 +2395,7 @@ function SideBarInner() {
     onPurchaseSeen: handlePurchaseSeen,
     onCreatorDataChanged: handleCreatorDataChanged,
     onVoiceTranscriptUpdated: handleVoiceTranscriptUpdated,
+    onTyping: handleTyping,
   });
 
   useEffect(() => {
