@@ -3,7 +3,7 @@ import { GetServerSideProps } from "next";
 import { useRouter } from "next/router";
 import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent, type KeyboardEvent, type ReactNode } from "react";
 import { ChatComposerBar } from "../../components/ChatComposerBar";
-import MessageBalloon from "../../components/MessageBalloon";
+import MessageBalloon, { type OfferMeta } from "../../components/MessageBalloon";
 import { EmojiPicker } from "../../components/EmojiPicker";
 import { useCreatorConfig } from "../../context/CreatorConfigContext";
 import {
@@ -204,6 +204,11 @@ export function FanChatPage({
   const [giftError, setGiftError] = useState("");
   const [giftView, setGiftView] = useState<"list" | "details">("list");
   const [selectedGiftPack, setSelectedGiftPack] = useState<PackSummary | null>(null);
+  const [unlockedOfferIds, setUnlockedOfferIds] = useState<Set<string>>(() => new Set());
+  const [unlockOffer, setUnlockOffer] = useState<OfferMeta | null>(null);
+  const [unlockError, setUnlockError] = useState("");
+  const [unlockSubmitting, setUnlockSubmitting] = useState(false);
+  const unlockSubmittingRef = useRef(false);
   const [supportSubmitting, setSupportSubmitting] = useState(false);
   const supportSubmitRef = useRef(false);
   const supportTxnRef = useRef<string | null>(null);
@@ -877,6 +882,28 @@ export function FanChatPage({
     openContentSheet("packs");
   }, [openContentSheet]);
 
+  const openUnlockSheet = useCallback((offer: OfferMeta, status: "locked" | "unlocked") => {
+    if (!offer?.id || status !== "locked") return;
+    setUnlockError("");
+    setUnlockOffer(offer);
+  }, []);
+
+  const closeUnlockSheet = useCallback(() => {
+    if (unlockSubmittingRef.current) return;
+    setUnlockOffer(null);
+    setUnlockError("");
+  }, []);
+
+  const markOfferUnlocked = useCallback((offerId: string) => {
+    if (!offerId) return;
+    setUnlockedOfferIds((prev) => {
+      if (prev.has(offerId)) return prev;
+      const next = new Set(prev);
+      next.add(offerId);
+      return next;
+    });
+  }, []);
+
   const closeMoneyModal = useCallback(() => {
     setMoneyModal(null);
     setTipAmountPreset(null);
@@ -887,6 +914,32 @@ export function FanChatPage({
     setSelectedGiftPack(null);
     requestAnimationFrame(() => focusComposer());
   }, [focusComposer]);
+
+  const createUnlockPurchase = useCallback(
+    async (offer: OfferMeta) => {
+      if (!fanId) return { ok: false, error: "Missing fanId" };
+      try {
+        const res = await fetch(`/api/fans/${fanId}/unlock`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            offerId: offer.id,
+            title: offer.title,
+            price: offer.price,
+          }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          return { ok: false, error: data?.error || "No se pudo desbloquear." };
+        }
+        return { ok: true, purchase: data?.purchase, reused: data?.reused === true };
+      } catch (err) {
+        console.error("Error creating unlock purchase", err);
+        return { ok: false, error: "No se pudo desbloquear." };
+      }
+    },
+    [fanId]
+  );
 
   const createSupportPurchase = useCallback(
     async (payload: { kind: "TIP" | "GIFT"; amount: number; packId?: string; packName?: string; clientTxnId?: string }) => {
@@ -1046,6 +1099,34 @@ export function FanChatPage({
       supportSubmitting,
     ]
   );
+
+  const handleUnlockConfirm = useCallback(async () => {
+    if (!fanId || !unlockOffer) return;
+    if (unlockSubmitting || unlockSubmittingRef.current) return;
+    setUnlockSubmitting(true);
+    unlockSubmittingRef.current = true;
+    try {
+      const result = await createUnlockPurchase(unlockOffer);
+      if (!result.ok) {
+        setUnlockError(result.error ?? "No se pudo desbloquear.");
+        return;
+      }
+      markOfferUnlocked(unlockOffer.id);
+      await fetchAccessInfo(fanId);
+      setUnlockOffer(null);
+      setUnlockError("");
+    } finally {
+      setUnlockSubmitting(false);
+      unlockSubmittingRef.current = false;
+    }
+  }, [
+    createUnlockPurchase,
+    fanId,
+    fetchAccessInfo,
+    markOfferUnlocked,
+    unlockOffer,
+    unlockSubmitting,
+  ]);
 
   const handlePackRequest = useCallback(
     (pack: PackSummary) => {
@@ -1470,6 +1551,8 @@ export function FanChatPage({
                       time={msg.time || undefined}
                       status={msg.status}
                       viewerRole="fan"
+                      unlockedOfferIds={unlockedOfferIds}
+                      onOfferClick={openUnlockSheet}
                       stickerSrc={isSticker ? stickerSrc : null}
                       stickerAlt={isSticker ? stickerAlt : null}
                       enableReactions
@@ -1695,6 +1778,44 @@ export function FanChatPage({
             >
               <span>Regalo</span>
               <span className="text-xs text-[color:var(--muted)]">Simulación</span>
+            </button>
+          </div>
+        </div>
+      </BottomSheet>
+      <BottomSheet open={Boolean(unlockOffer)} onClose={closeUnlockSheet}>
+        <div className="space-y-4">
+          <div>
+            <h3 className="text-base font-semibold text-[color:var(--text)]">
+              {unlockOffer?.title || "Desbloquear"}
+            </h3>
+            <p className="text-xs text-[color:var(--muted)]">Confirma para desbloquear este acceso.</p>
+          </div>
+          <div className="flex items-center justify-between gap-3 rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-4 py-3">
+            <div className="min-w-0">
+              <div className="truncate text-sm font-semibold text-[color:var(--text)]">{unlockOffer?.title}</div>
+              <div className="text-xs text-[color:var(--muted)]">Precio</div>
+            </div>
+            <span className="text-sm font-semibold text-[color:var(--warning)]">
+              {unlockOffer?.price ? normalizePriceLabel(unlockOffer.price) : ""}
+            </span>
+          </div>
+          {unlockError && <div className="text-xs text-[color:var(--danger)]">{unlockError}</div>}
+          <div className="flex items-center justify-end gap-2">
+            <button
+              type="button"
+              onClick={closeUnlockSheet}
+              disabled={unlockSubmitting}
+              className="rounded-full border border-[color:var(--surface-border)] px-4 py-1.5 text-xs text-[color:var(--text)] hover:bg-[color:var(--surface-2)] disabled:opacity-60"
+            >
+              Cancelar
+            </button>
+            <button
+              type="button"
+              onClick={handleUnlockConfirm}
+              disabled={unlockSubmitting}
+              className="rounded-full bg-[color:rgba(var(--brand-rgb),0.16)] px-4 py-1.5 text-xs font-semibold text-[color:var(--text)] hover:bg-[color:rgba(var(--brand-rgb),0.24)] disabled:opacity-60"
+            >
+              {unlockSubmitting ? "Procesando..." : "Desbloquear ahora"}
             </button>
           </div>
         </div>
