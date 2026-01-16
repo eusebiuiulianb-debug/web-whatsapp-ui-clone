@@ -205,10 +205,12 @@ export function FanChatPage({
   const [giftView, setGiftView] = useState<"list" | "details">("list");
   const [selectedGiftPack, setSelectedGiftPack] = useState<PackSummary | null>(null);
   const [unlockedOfferIds, setUnlockedOfferIds] = useState<Set<string>>(() => new Set());
+  const [unlockingOfferIds, setUnlockingOfferIds] = useState<Set<string>>(() => new Set());
+  const unlockingOfferIdsRef = useRef<Set<string>>(new Set());
+  const purchaseTxnByOfferIdRef = useRef<Record<string, string>>({});
   const [unlockOffer, setUnlockOffer] = useState<OfferMeta | null>(null);
-  const [unlockError, setUnlockError] = useState("");
-  const [unlockSubmitting, setUnlockSubmitting] = useState(false);
-  const unlockSubmittingRef = useRef(false);
+  const [fanToast, setFanToast] = useState("");
+  const fanToastTimerRef = useRef<number | null>(null);
   const [supportSubmitting, setSupportSubmitting] = useState(false);
   const supportSubmitRef = useRef(false);
   const supportTxnRef = useRef<string | null>(null);
@@ -500,6 +502,25 @@ export function FanChatPage({
     [getFallbackLanguage]
   );
 
+  const refreshAccessAndContent = useCallback(async (targetFanId: string) => {
+    try {
+      const res = await fetch(`/api/fans/${encodeURIComponent(targetFanId)}/access`, { cache: "no-store" });
+      if (!res.ok) throw new Error("error");
+      const data = await res.json();
+      const summary = data?.accessSummary ?? null;
+      if (summary) {
+        setAccessSummary(summary as AccessSummary);
+      }
+      const items = Array.isArray(data?.includedContent) ? (data.includedContent as IncludedContent[]) : null;
+      if (items) {
+        setIncluded(items);
+      }
+      return { ok: true, includedCount: items ? items.length : 0 };
+    } catch (_err) {
+      return { ok: false, includedCount: 0 };
+    }
+  }, []);
+
   useEffect(() => {
     if (!fanId) return;
     fetchAccessInfo(fanId);
@@ -519,6 +540,17 @@ export function FanChatPage({
     setOnboardingError("");
     setOnboardingSaving(false);
     setOnboardingLanguage(getFallbackLanguage());
+    setUnlockedOfferIds(new Set());
+    const resetUnlocking = new Set<string>();
+    unlockingOfferIdsRef.current = resetUnlocking;
+    setUnlockingOfferIds(resetUnlocking);
+    setUnlockOffer(null);
+    setFanToast("");
+    if (fanToastTimerRef.current) {
+      window.clearTimeout(fanToastTimerRef.current);
+      fanToastTimerRef.current = null;
+    }
+    purchaseTxnByOfferIdRef.current = {};
   }, [fanId, getFallbackLanguage]);
 
   useEffect(() => {
@@ -861,6 +893,14 @@ export function FanChatPage({
     requestAnimationFrame(() => focusComposer());
   }, [focusComposer]);
 
+  const showFanToast = useCallback((message: string) => {
+    setFanToast(message);
+    if (fanToastTimerRef.current) {
+      window.clearTimeout(fanToastTimerRef.current);
+    }
+    fanToastTimerRef.current = window.setTimeout(() => setFanToast(""), 2200);
+  }, []);
+
   const openTipModal = useCallback(() => {
     setActionMenuOpen(false);
     setTipError("");
@@ -882,17 +922,43 @@ export function FanChatPage({
     openContentSheet("packs");
   }, [openContentSheet]);
 
-  const openUnlockSheet = useCallback((offer: OfferMeta, status: "locked" | "unlocked") => {
-    if (!offer?.id || status !== "locked") return;
-    setUnlockError("");
-    setUnlockOffer(offer);
+  const setOfferUnlocking = useCallback((offerId: string, isUnlocking: boolean) => {
+    if (!offerId) return;
+    const next = new Set(unlockingOfferIdsRef.current);
+    const has = next.has(offerId);
+    if (isUnlocking === has) return;
+    if (isUnlocking) {
+      next.add(offerId);
+    } else {
+      next.delete(offerId);
+    }
+    unlockingOfferIdsRef.current = next;
+    setUnlockingOfferIds(next);
   }, []);
 
-  const closeUnlockSheet = useCallback(() => {
-    if (unlockSubmittingRef.current) return;
-    setUnlockOffer(null);
-    setUnlockError("");
+  const isOfferUnlocking = useCallback((offerId: string) => {
+    if (!offerId) return false;
+    return unlockingOfferIdsRef.current.has(offerId);
   }, []);
+
+  const handleOfferClick = useCallback(
+    (offer: OfferMeta, status: "locked" | "unlocked") => {
+      if (!offer?.id) return;
+      if (status === "unlocked") {
+        openContentSheet("content");
+        return;
+      }
+      if (isOfferUnlocking(offer.id)) return;
+      setUnlockOffer(offer);
+    },
+    [isOfferUnlocking, openContentSheet]
+  );
+
+  const closeUnlockSheet = useCallback(() => {
+    const offerId = unlockOffer?.id;
+    if (offerId && isOfferUnlocking(offerId)) return;
+    setUnlockOffer(null);
+  }, [isOfferUnlocking, unlockOffer]);
 
   const markOfferUnlocked = useCallback((offerId: string) => {
     if (!offerId) return;
@@ -902,6 +968,18 @@ export function FanChatPage({
       next.add(offerId);
       return next;
     });
+  }, []);
+
+  const getOfferClientTxnId = useCallback((offerId: string) => {
+    const key = offerId.trim();
+    if (!key) return generateClientTxnId();
+    const existing = purchaseTxnByOfferIdRef.current[key];
+    if (existing) return existing;
+    const normalized = key.replace(/[^a-z0-9_-]+/gi, "-").replace(/^-+|-+$/g, "").slice(0, 60);
+    const base = normalized ? `offer:${normalized}` : `offer:${generateClientTxnId()}`;
+    const clientTxnId = base.slice(0, 120);
+    purchaseTxnByOfferIdRef.current[key] = clientTxnId;
+    return clientTxnId;
   }, []);
 
   const closeMoneyModal = useCallback(() => {
@@ -915,30 +993,37 @@ export function FanChatPage({
     requestAnimationFrame(() => focusComposer());
   }, [focusComposer]);
 
-  const createUnlockPurchase = useCallback(
+  const createOfferPurchase = useCallback(
     async (offer: OfferMeta) => {
       if (!fanId) return { ok: false, error: "Missing fanId" };
+      const offerId = offer.id?.trim() ?? "";
+      if (!offerId) return { ok: false, error: "Missing offerId" };
+      const clientTxnId = getOfferClientTxnId(offerId);
       try {
-        const res = await fetch(`/api/fans/${fanId}/unlock`, {
+        const res = await fetch(`/api/fans/${fanId}/purchase`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            offerId: offer.id,
-            title: offer.title,
-            price: offer.price,
+            offerId,
+            clientTxnId,
           }),
         });
         const data = await res.json().catch(() => ({}));
         if (!res.ok) {
           return { ok: false, error: data?.error || "No se pudo desbloquear." };
         }
-        return { ok: true, purchase: data?.purchase, reused: data?.reused === true };
+        return {
+          ok: true,
+          purchaseId: data?.purchaseId,
+          accessGranted: data?.accessGranted === true,
+          reused: data?.reused === true,
+        };
       } catch (err) {
-        console.error("Error creating unlock purchase", err);
+        console.error("Error creating offer purchase", err);
         return { ok: false, error: "No se pudo desbloquear." };
       }
     },
-    [fanId]
+    [fanId, getOfferClientTxnId]
   );
 
   const createSupportPurchase = useCallback(
@@ -1102,30 +1187,36 @@ export function FanChatPage({
 
   const handleUnlockConfirm = useCallback(async () => {
     if (!fanId || !unlockOffer) return;
-    if (unlockSubmitting || unlockSubmittingRef.current) return;
-    setUnlockSubmitting(true);
-    unlockSubmittingRef.current = true;
+    const offerId = unlockOffer.id;
+    if (!offerId || isOfferUnlocking(offerId)) return;
+    setOfferUnlocking(offerId, true);
     try {
-      const result = await createUnlockPurchase(unlockOffer);
+      const result = await createOfferPurchase(unlockOffer);
       if (!result.ok) {
-        setUnlockError(result.error ?? "No se pudo desbloquear.");
+        showFanToast(result.error ?? "No se pudo desbloquear.");
         return;
       }
-      markOfferUnlocked(unlockOffer.id);
-      await fetchAccessInfo(fanId);
+      markOfferUnlocked(offerId);
+      const refresh = await refreshAccessAndContent(fanId);
+      if (!refresh.ok) {
+        await fetchAccessInfo(fanId);
+      }
       setUnlockOffer(null);
-      setUnlockError("");
+      openContentSheet("content");
     } finally {
-      setUnlockSubmitting(false);
-      unlockSubmittingRef.current = false;
+      setOfferUnlocking(offerId, false);
     }
   }, [
-    createUnlockPurchase,
+    createOfferPurchase,
     fanId,
     fetchAccessInfo,
+    isOfferUnlocking,
     markOfferUnlocked,
+    openContentSheet,
+    refreshAccessAndContent,
+    setOfferUnlocking,
+    showFanToast,
     unlockOffer,
-    unlockSubmitting,
   ]);
 
   const handlePackRequest = useCallback(
@@ -1138,6 +1229,7 @@ export function FanChatPage({
     [closeContentSheet, focusComposer]
   );
 
+  const unlockSubmitting = Boolean(unlockOffer?.id && unlockingOfferIds.has(unlockOffer.id));
   const sendDisabled = isComposerDisabled || draft.trim().length === 0;
   const voiceRecordingLabel = formatAudioTime(Math.max(0, Math.floor(voiceRecordingMs / 1000)));
 
@@ -1467,6 +1559,13 @@ export function FanChatPage({
           <span className="ui-muted text-sm">{headerSubtitle}</span>
         </div>
       </header>
+      {fanToast && (
+        <div className="pointer-events-none fixed inset-x-0 bottom-24 z-40 flex justify-center px-4">
+          <div className="pointer-events-auto rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-4 py-2 text-xs text-[color:var(--text)] shadow-[0_12px_30px_-20px_rgba(0,0,0,0.5)]">
+            {fanToast}
+          </div>
+        </div>
+      )}
 
       {error && (
         <div className="px-4 py-2 text-sm text-[color:var(--danger)] bg-[color:rgba(244,63,94,0.12)] border-b border-[color:rgba(244,63,94,0.5)] flex items-center justify-between">
@@ -1552,7 +1651,8 @@ export function FanChatPage({
                       status={msg.status}
                       viewerRole="fan"
                       unlockedOfferIds={unlockedOfferIds}
-                      onOfferClick={openUnlockSheet}
+                      unlockingOfferIds={unlockingOfferIds}
+                      onOfferClick={handleOfferClick}
                       stickerSrc={isSticker ? stickerSrc : null}
                       stickerAlt={isSticker ? stickerAlt : null}
                       enableReactions
@@ -1786,9 +1886,9 @@ export function FanChatPage({
         <div className="space-y-4">
           <div>
             <h3 className="text-base font-semibold text-[color:var(--text)]">
-              {unlockOffer?.title || "Desbloquear"}
+              {unlockOffer?.title ? `Desbloquear: ${unlockOffer.title}` : "Desbloquear"}
             </h3>
-            <p className="text-xs text-[color:var(--muted)]">Confirma para desbloquear este acceso.</p>
+            <p className="text-xs text-[color:var(--muted)]">Se desbloquea al instante dentro del chat.</p>
           </div>
           <div className="flex items-center justify-between gap-3 rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-4 py-3">
             <div className="min-w-0">
@@ -1799,7 +1899,6 @@ export function FanChatPage({
               {unlockOffer?.price ? normalizePriceLabel(unlockOffer.price) : ""}
             </span>
           </div>
-          {unlockError && <div className="text-xs text-[color:var(--danger)]">{unlockError}</div>}
           <div className="flex items-center justify-end gap-2">
             <button
               type="button"
@@ -1815,7 +1914,7 @@ export function FanChatPage({
               disabled={unlockSubmitting}
               className="rounded-full bg-[color:rgba(var(--brand-rgb),0.16)] px-4 py-1.5 text-xs font-semibold text-[color:var(--text)] hover:bg-[color:rgba(var(--brand-rgb),0.24)] disabled:opacity-60"
             >
-              {unlockSubmitting ? "Procesando..." : "Desbloquear ahora"}
+              {unlockSubmitting ? "Desbloqueando..." : "Confirmar y desbloquear"}
             </button>
           </div>
         </div>
