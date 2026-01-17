@@ -111,9 +111,13 @@ function buildPpvOfferMeta(ppv: {
   purchaseCount?: number;
   purchasedByFan?: boolean;
   purchasedAt?: string | null;
+  isUnlockedForViewer?: boolean;
+  canViewContent?: boolean;
+  canPurchase?: boolean;
 }) {
   return {
     id: ppv.id,
+    ppvMessageId: ppv.id,
     ...(ppv.messageId ? { messageId: ppv.messageId } : {}),
     title: (ppv.title || "").trim() || PPV_OFFER_FALLBACK_TITLE,
     price: formatPriceFromCents(ppv.priceCents, ppv.currency ?? "EUR"),
@@ -124,6 +128,9 @@ function buildPpvOfferMeta(ppv: {
     ...(typeof ppv.purchaseCount === "number" ? { purchaseCount: ppv.purchaseCount } : {}),
     ...(typeof ppv.purchasedByFan === "boolean" ? { purchasedByFan: ppv.purchasedByFan } : {}),
     ...(ppv.purchasedAt ? { purchasedAt: ppv.purchasedAt } : {}),
+    ...(typeof ppv.isUnlockedForViewer === "boolean" ? { isUnlockedForViewer: ppv.isUnlockedForViewer } : {}),
+    ...(typeof ppv.canViewContent === "boolean" ? { canViewContent: ppv.canViewContent } : {}),
+    ...(typeof ppv.canPurchase === "boolean" ? { canPurchase: ppv.canPurchase } : {}),
   };
 }
 
@@ -409,6 +416,7 @@ async function handleGet(req: NextApiRequest, res: NextApiResponse<MessageRespon
       attachMessageLanguageMeta(message as Record<string, unknown>, languageMeta)
     );
 
+    const isAdultConfirmed = Boolean(fan?.adultConfirmedAt);
     const responseMessages = withLanguageMeta.map((message) => {
       const raw = message as Record<string, unknown>;
       const ppv = raw.ppvMessage as {
@@ -431,6 +439,10 @@ async function handleGet(req: NextApiRequest, res: NextApiResponse<MessageRespon
           : typeof purchase?.createdAt === "string"
           ? purchase.createdAt
           : null;
+      const canViewContent =
+        viewerRole === "creator" ? true : isUnlocked && isAdultConfirmed;
+      const canPurchase =
+        viewerRole === "fan" ? !isUnlocked && isAdultConfirmed : false;
       const offerMeta = buildPpvOfferMeta({
         id: ppv.id,
         messageId: typeof ppv.messageId === "string" ? ppv.messageId : null,
@@ -441,6 +453,9 @@ async function handleGet(req: NextApiRequest, res: NextApiResponse<MessageRespon
         purchaseCount: isUnlocked ? 1 : 0,
         purchasedByFan: isUnlocked,
         purchasedAt,
+        isUnlockedForViewer: isUnlocked,
+        canViewContent,
+        canPurchase,
       });
       const baseText =
         viewerRole === "fan"

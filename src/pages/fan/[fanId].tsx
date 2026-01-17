@@ -266,6 +266,11 @@ export function FanChatPage({
   const unlockingOfferIdsRef = useRef<Set<string>>(new Set());
   const purchaseTxnByOfferIdRef = useRef<Record<string, string>>({});
   const [unlockOffer, setUnlockOffer] = useState<OfferMeta | null>(null);
+  const [viewPpvOffer, setViewPpvOffer] = useState<OfferMeta | null>(null);
+  const [viewPpvContent, setViewPpvContent] = useState<string | null>(null);
+  const [viewPpvLoading, setViewPpvLoading] = useState(false);
+  const [viewPpvError, setViewPpvError] = useState<string | null>(null);
+  const viewPpvRequestRef = useRef(0);
   const [fanToast, setFanToast] = useState("");
   const fanToastTimerRef = useRef<number | null>(null);
   const [supportSubmitting, setSupportSubmitting] = useState(false);
@@ -805,6 +810,11 @@ export function FanChatPage({
     unlockingOfferIdsRef.current = resetUnlocking;
     setUnlockingOfferIds(resetUnlocking);
     setUnlockOffer(null);
+    setViewPpvOffer(null);
+    setViewPpvContent(null);
+    setViewPpvLoading(false);
+    setViewPpvError(null);
+    viewPpvRequestRef.current = 0;
     setFanToast("");
     if (fanToastTimerRef.current) {
       window.clearTimeout(fanToastTimerRef.current);
@@ -1438,8 +1448,15 @@ export function FanChatPage({
       if (!offer?.id) return;
       const isPackOffer =
         offer.kind === "pack" || (offer.kind !== "offer" && offer.kind !== "ppv" && availablePackIds.has(offer.id));
-      if (status === "unlocked") {
-        if (offer.kind === "ppv") return;
+      if (status === "unlocked" || offer.canViewContent === true) {
+        if (offer.kind === "ppv") {
+          if (isAdultGatePurchaseBlocked) {
+            showFanToast("Confirma 18+ para ver este extra.");
+            return;
+          }
+          setViewPpvOffer(offer);
+          return;
+        }
         openContentSheet("content");
         return;
       }
@@ -1453,7 +1470,16 @@ export function FanChatPage({
       if (isOfferUnlocking(offer.id)) return;
       setUnlockOffer(offer);
     },
-    [availablePackIds, isAdultGateStrict, isOfferUnlocking, isPackPurchasing, openContentSheet, resolvePackFromOffer]
+    [
+      availablePackIds,
+      isAdultGatePurchaseBlocked,
+      isAdultGateStrict,
+      isOfferUnlocking,
+      isPackPurchasing,
+      openContentSheet,
+      resolvePackFromOffer,
+      showFanToast,
+    ]
   );
 
   const closeUnlockSheet = useCallback(() => {
@@ -1462,11 +1488,65 @@ export function FanChatPage({
     setUnlockOffer(null);
   }, [isOfferUnlocking, unlockOffer]);
 
+  const closeViewPpvSheet = useCallback(() => {
+    setViewPpvOffer(null);
+    setViewPpvContent(null);
+    setViewPpvError(null);
+    setViewPpvLoading(false);
+  }, []);
+
   const closePackPurchaseSheet = useCallback(() => {
     const packId = packPurchase?.id;
     if (packId && isPackPurchasing(packId)) return;
     setPackPurchase(null);
   }, [isPackPurchasing, packPurchase]);
+
+  const viewPpvOfferId = (viewPpvOffer?.ppvMessageId ?? viewPpvOffer?.id ?? "").trim();
+
+  useEffect(() => {
+    const offerId = viewPpvOfferId;
+    if (!offerId) {
+      setViewPpvLoading(false);
+      setViewPpvError(null);
+      setViewPpvContent(null);
+      return;
+    }
+    const controller = new AbortController();
+    const requestId = viewPpvRequestRef.current + 1;
+    viewPpvRequestRef.current = requestId;
+    setViewPpvLoading(true);
+    setViewPpvError(null);
+    setViewPpvContent(null);
+    void fetch(`/api/ppv/${encodeURIComponent(offerId)}`, { signal: controller.signal })
+      .then(async (res) => {
+        const data = await res.json().catch(() => ({}));
+        if (viewPpvRequestRef.current !== requestId) return;
+        if (!res.ok || !data?.ok) {
+          const errorCode = typeof data?.error === "string" ? data.error : "";
+          const errorMessage =
+            errorCode === "ADULT_NOT_CONFIRMED"
+              ? "Confirma 18+ para ver este extra."
+              : errorCode === "PPV_LOCKED"
+              ? "Compra este extra para verlo."
+              : data?.error || "No se pudo cargar el extra.";
+          setViewPpvError(errorMessage);
+          return;
+        }
+        const content = typeof data?.ppv?.content === "string" ? data.ppv.content : null;
+        setViewPpvContent(content);
+      })
+      .catch((err) => {
+        if (controller.signal.aborted) return;
+        if (viewPpvRequestRef.current !== requestId) return;
+        setViewPpvError((err as Error)?.message || "No se pudo cargar el extra.");
+      })
+      .finally(() => {
+        if (controller.signal.aborted) return;
+        if (viewPpvRequestRef.current !== requestId) return;
+        setViewPpvLoading(false);
+      });
+    return () => controller.abort();
+  }, [viewPpvOfferId]);
 
   const getOfferClientTxnId = useCallback((offerId: string) => {
     const key = offerId.trim();
@@ -1552,7 +1632,7 @@ export function FanChatPage({
   const createPpvPurchase = useCallback(
     async (offer: OfferMeta) => {
       if (!fanId) return { ok: false, error: "Missing fanId" };
-      const offerId = offer.id?.trim() ?? "";
+      const offerId = (offer.ppvMessageId ?? offer.id)?.trim() ?? "";
       if (!offerId) return { ok: false, error: "Missing ppvId" };
       try {
         const res = await fetch(`/api/ppv/${encodeURIComponent(offerId)}/purchase`, {
@@ -1832,6 +1912,21 @@ export function FanChatPage({
     if (unlockOffer.price) return normalizePriceLabel(unlockOffer.price);
     return "";
   }, [unlockOffer, walletCurrency]);
+  const viewPpvPriceLabel = useMemo(() => {
+    if (!viewPpvOffer) return "";
+    if (typeof viewPpvOffer.priceCents === "number" && Number.isFinite(viewPpvOffer.priceCents)) {
+      const currency = viewPpvOffer.currency ?? walletCurrency;
+      return formatCurrencyCents(viewPpvOffer.priceCents, currency);
+    }
+    if (viewPpvOffer.price) return normalizePriceLabel(viewPpvOffer.price);
+    return "";
+  }, [viewPpvOffer, walletCurrency]);
+  const viewPpvContentLabel = useMemo(() => {
+    if (viewPpvLoading) return "Cargando contenido...";
+    if (viewPpvError) return viewPpvError;
+    if (typeof viewPpvContent === "string" && viewPpvContent.trim()) return viewPpvContent;
+    return "Contenido no disponible.";
+  }, [viewPpvContent, viewPpvError, viewPpvLoading]);
   const unlockCtaLabel = unlockNeedsTopup
     ? "Recargar"
     : unlockPriceLabel
@@ -1885,6 +1980,9 @@ export function FanChatPage({
       }
       markOfferUnlocked(offerId);
       setUnlockOffer(null);
+      if (isPpvUnlock && fanId) {
+        void fetchMessages(fanId, { silent: true });
+      }
       if (isPpvUnlock) {
         showFanToast("Extra desbloqueado.");
       } else {
@@ -1902,6 +2000,7 @@ export function FanChatPage({
     createPpvPurchase,
     fanId,
     fetchAccessInfo,
+    fetchMessages,
     isOfferUnlocking,
     isAdultGateStrict,
     isAdultGatePurchaseBlocked,
@@ -2770,6 +2869,38 @@ export function FanChatPage({
               className="rounded-full bg-[color:rgba(var(--brand-rgb),0.16)] px-4 py-1.5 text-xs font-semibold text-[color:var(--text)] hover:bg-[color:rgba(var(--brand-rgb),0.24)] disabled:opacity-60"
             >
               {unlockSubmitting ? "Procesando..." : unlockCtaLabel}
+            </button>
+          </div>
+        </div>
+      </BottomSheet>
+      <BottomSheet open={Boolean(viewPpvOffer)} onClose={closeViewPpvSheet}>
+        <div className="space-y-4">
+          <div>
+            <h3 className="text-base font-semibold text-[color:var(--text)]">
+              {viewPpvOffer?.title ? `Extra desbloqueado: ${viewPpvOffer.title}` : "Extra desbloqueado"}
+            </h3>
+            <p className="text-xs text-[color:var(--muted)]">Contenido del extra comprado.</p>
+          </div>
+          <div className="flex items-center justify-between gap-3 rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-4 py-3">
+            <div className="min-w-0">
+              <div className="truncate text-sm font-semibold text-[color:var(--text)]">{viewPpvOffer?.title}</div>
+              <div className="text-xs text-[color:var(--muted)]">Precio del extra</div>
+            </div>
+            <span className="text-sm font-semibold text-[color:var(--warning)]">
+              {viewPpvPriceLabel}
+            </span>
+          </div>
+          <div className="rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-4 py-3 text-sm text-[color:var(--text)] whitespace-pre-wrap">
+            {viewPpvContentLabel}
+          </div>
+          <div className="flex items-center justify-end gap-2">
+            <button
+              type="button"
+              onClick={closeViewPpvSheet}
+              disabled={viewPpvLoading}
+              className="rounded-full border border-[color:var(--surface-border)] px-4 py-1.5 text-xs text-[color:var(--text)] hover:bg-[color:var(--surface-2)] disabled:opacity-60"
+            >
+              Cerrar
             </button>
           </div>
         </div>

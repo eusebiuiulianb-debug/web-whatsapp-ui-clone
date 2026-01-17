@@ -1252,6 +1252,10 @@ export default function ConversationDetails({ onBackToBoard }: ConversationDetai
   >({});
   const [ unlockedOfferIds, setUnlockedOfferIds ] = useState<Set<string>>(() => new Set());
   const [ offerOverlay, setOfferOverlay ] = useState<OfferOverlayState | null>(null);
+  const [ ppvOverlayContent, setPpvOverlayContent ] = useState<string | null>(null);
+  const [ ppvOverlayLoading, setPpvOverlayLoading ] = useState(false);
+  const [ ppvOverlayError, setPpvOverlayError ] = useState<string | null>(null);
+  const ppvOverlayRequestRef = useRef(0);
   const [ purchaseNotice, setPurchaseNotice ] = useState<PurchaseNoticeState | null>(null);
   const [ voiceNotice, setVoiceNotice ] = useState<{ fanName: string; durationMs?: number; createdAt: string } | null>(null);
   const [ typingIndicator, setTypingIndicator ] = useState<{ isTyping: boolean; ts: number; draftText: string }>({
@@ -2054,7 +2058,14 @@ export default function ConversationDetails({ onBackToBoard }: ConversationDetai
 
   function normalizeOfferMeta(value: unknown): OfferMeta | null {
     if (!value || typeof value !== "object") return null;
-    const candidate = value as Partial<OfferMeta> & { kind?: string; status?: string };
+    const candidate = value as Partial<OfferMeta> & {
+      kind?: string;
+      status?: string;
+      ppvMessageId?: unknown;
+      isUnlockedForViewer?: unknown;
+      canViewContent?: unknown;
+      canPurchase?: unknown;
+    };
     if (typeof candidate.id !== "string" || !candidate.id.trim()) return null;
     if (typeof candidate.title !== "string" || !candidate.title.trim()) return null;
     if (typeof candidate.price !== "string") return null;
@@ -2066,15 +2077,23 @@ export default function ConversationDetails({ onBackToBoard }: ConversationDetai
     const purchaseCount = typeof candidate.purchaseCount === "number" ? candidate.purchaseCount : undefined;
     const purchasedByFan = typeof candidate.purchasedByFan === "boolean" ? candidate.purchasedByFan : undefined;
     const messageId = typeof candidate.messageId === "string" ? candidate.messageId.trim() : undefined;
+    const ppvMessageId = typeof candidate.ppvMessageId === "string" ? candidate.ppvMessageId.trim() : undefined;
     const priceCents =
       typeof candidate.priceCents === "number" && Number.isFinite(candidate.priceCents)
         ? Math.round(candidate.priceCents)
         : undefined;
     const currency = typeof candidate.currency === "string" ? candidate.currency : undefined;
     const purchasedAt = typeof candidate.purchasedAt === "string" ? candidate.purchasedAt : undefined;
+    const isUnlockedForViewer =
+      typeof candidate.isUnlockedForViewer === "boolean" ? candidate.isUnlockedForViewer : undefined;
+    const canViewContent =
+      typeof candidate.canViewContent === "boolean" ? candidate.canViewContent : undefined;
+    const canPurchase =
+      typeof candidate.canPurchase === "boolean" ? candidate.canPurchase : undefined;
     return {
       id: candidate.id,
       messageId,
+      ppvMessageId,
       title: candidate.title,
       price: candidate.price,
       thumb: typeof candidate.thumb === "string" ? candidate.thumb : null,
@@ -2085,6 +2104,9 @@ export default function ConversationDetails({ onBackToBoard }: ConversationDetai
       ...(purchaseCount !== undefined ? { purchaseCount } : {}),
       ...(purchasedByFan !== undefined ? { purchasedByFan } : {}),
       ...(purchasedAt ? { purchasedAt } : {}),
+      ...(isUnlockedForViewer !== undefined ? { isUnlockedForViewer } : {}),
+      ...(canViewContent !== undefined ? { canViewContent } : {}),
+      ...(canPurchase !== undefined ? { canPurchase } : {}),
     };
   }
 
@@ -5116,6 +5138,7 @@ const INTENT_BADGE_LABELS: Record<string, string> = {
         recordDevRequest("messages");
         const res = await fetch(`/api/messages?${params.toString()}`, {
           signal: controller.signal,
+          cache: "no-store",
           headers: { "x-novsy-viewer": "creator" },
         });
         const data = await res.json().catch(() => ({}));
@@ -5162,6 +5185,7 @@ const INTENT_BADGE_LABELS: Record<string, string> = {
         recordDevRequest("messages");
         const res = await fetch(`/api/messages?${params.toString()}`, {
           signal: controller.signal,
+          cache: "no-store",
           headers: { "x-novsy-viewer": "creator" },
         });
         const data = await res.json().catch(() => ({}));
@@ -5527,6 +5551,46 @@ const INTENT_BADGE_LABELS: Record<string, string> = {
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [offerOverlay]);
+
+  const ppvOverlayOfferId = offerOverlay?.offer?.ppvMessageId ?? offerOverlay?.offer?.id ?? "";
+  const ppvOverlayOfferKind = offerOverlay?.offer?.kind ?? "";
+
+  useEffect(() => {
+    if (!ppvOverlayOfferId || ppvOverlayOfferKind !== "ppv") {
+      setPpvOverlayContent(null);
+      setPpvOverlayError(null);
+      setPpvOverlayLoading(false);
+      return;
+    }
+    const controller = new AbortController();
+    const requestId = ppvOverlayRequestRef.current + 1;
+    ppvOverlayRequestRef.current = requestId;
+    setPpvOverlayLoading(true);
+    setPpvOverlayError(null);
+    setPpvOverlayContent(null);
+    void fetch(`/api/ppv/${encodeURIComponent(ppvOverlayOfferId)}?viewer=creator`, { signal: controller.signal })
+      .then(async (res) => {
+        const data = await res.json().catch(() => ({}));
+        if (ppvOverlayRequestRef.current !== requestId) return;
+        if (!res.ok || !data?.ok) {
+          setPpvOverlayError(data?.error || "No se pudo cargar el extra.");
+          return;
+        }
+        const content = typeof data?.ppv?.content === "string" ? data.ppv.content : null;
+        setPpvOverlayContent(content);
+      })
+      .catch((err) => {
+        if (controller.signal.aborted) return;
+        if (ppvOverlayRequestRef.current !== requestId) return;
+        setPpvOverlayError((err as Error)?.message || "No se pudo cargar el extra.");
+      })
+      .finally(() => {
+        if (controller.signal.aborted) return;
+        if (ppvOverlayRequestRef.current !== requestId) return;
+        setPpvOverlayLoading(false);
+      });
+    return () => controller.abort();
+  }, [ppvOverlayOfferId, ppvOverlayOfferKind]);
 
   useEffect(() => {
     if (!managerPanelOpen) return;
@@ -6152,8 +6216,11 @@ const INTENT_BADGE_LABELS: Record<string, string> = {
     return formatDistanceToNow(parsed, { addSuffix: true, locale: es });
   })();
   const offerOverlayStatus =
-    offerOverlay?.offer.status ??
-    (offerOverlay && unlockedOfferIds.has(offerOverlay.offer.id) ? "unlocked" : "locked");
+    offerOverlay?.offer.kind === "ppv"
+      ? offerOverlay.offer.status ?? "locked"
+      : offerOverlay?.offer.status ??
+        (offerOverlay && unlockedOfferIds.has(offerOverlay.offer.id) ? "unlocked" : "locked");
+  const isPpvOverlay = offerOverlay?.offer.kind === "ppv";
   const offerOverlayMessageText = useMemo(() => {
     if (!offerOverlay?.offer.messageId) return "";
     const items = Array.isArray(messages) ? messages : [];
@@ -6168,6 +6235,14 @@ const INTENT_BADGE_LABELS: Record<string, string> = {
     if (!raw) return "";
     return splitOffer(raw).textVisible.trim();
   }, [messages, offerOverlay]);
+  const offerOverlayContentText = useMemo(() => {
+    if (!isPpvOverlay) return offerOverlayMessageText;
+    if (ppvOverlayLoading) return "Cargando contenido...";
+    if (ppvOverlayError) return ppvOverlayError;
+    if (typeof ppvOverlayContent === "string" && ppvOverlayContent.trim()) return ppvOverlayContent;
+    if (offerOverlayMessageText) return offerOverlayMessageText;
+    return "Contenido no disponible.";
+  }, [isPpvOverlay, offerOverlayMessageText, ppvOverlayContent, ppvOverlayError, ppvOverlayLoading]);
   const offerOverlayPurchasedAtLabel = useMemo(() => {
     const raw = offerOverlay?.offer.purchasedAt;
     if (!raw) return "";
@@ -6175,7 +6250,6 @@ const INTENT_BADGE_LABELS: Record<string, string> = {
     if (Number.isNaN(parsed.getTime())) return raw;
     return format(parsed, "dd/MM HH:mm");
   }, [offerOverlay]);
-  const isPpvOverlay = offerOverlay?.offer.kind === "ppv";
   const offerOverlayStatusLabel = isPpvOverlay
     ? offerOverlayStatus === "unlocked"
       ? "VENDIDO"
@@ -15111,7 +15185,7 @@ const INTENT_BADGE_LABELS: Record<string, string> = {
             {isPpvOverlay ? (
               <div className="space-y-2">
                 <div className="rounded-lg border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-3 py-2 text-[12px] text-[color:var(--text)] whitespace-pre-wrap">
-                  {offerOverlayMessageText || "Contenido no disponible."}
+                  {offerOverlayContentText}
                 </div>
                 {offerOverlayStatus === "unlocked" ? (
                   <div className="text-[10px] text-[color:var(--muted)]">

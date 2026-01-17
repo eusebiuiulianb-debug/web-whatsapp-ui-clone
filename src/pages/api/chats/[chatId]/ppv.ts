@@ -36,9 +36,13 @@ function buildPpvOfferMeta(ppv: {
   purchaseCount?: number;
   purchasedByFan?: boolean;
   purchasedAt?: string | null;
+  isUnlockedForViewer?: boolean;
+  canViewContent?: boolean;
+  canPurchase?: boolean;
 }) {
   return {
     id: ppv.id,
+    ppvMessageId: ppv.id,
     ...(ppv.messageId ? { messageId: ppv.messageId } : {}),
     title: (ppv.title || "").trim() || PPV_OFFER_FALLBACK_TITLE,
     price: formatPriceFromCents(ppv.priceCents, ppv.currency ?? "EUR"),
@@ -49,6 +53,9 @@ function buildPpvOfferMeta(ppv: {
     ...(typeof ppv.purchaseCount === "number" ? { purchaseCount: ppv.purchaseCount } : {}),
     ...(typeof ppv.purchasedByFan === "boolean" ? { purchasedByFan: ppv.purchasedByFan } : {}),
     ...(ppv.purchasedAt ? { purchasedAt: ppv.purchasedAt } : {}),
+    ...(typeof ppv.isUnlockedForViewer === "boolean" ? { isUnlockedForViewer: ppv.isUnlockedForViewer } : {}),
+    ...(typeof ppv.canViewContent === "boolean" ? { canViewContent: ppv.canViewContent } : {}),
+    ...(typeof ppv.canPurchase === "boolean" ? { canPurchase: ppv.canPurchase } : {}),
   };
 }
 
@@ -178,6 +185,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
       status: "locked",
       purchaseCount: 0,
       purchasedByFan: false,
+      isUnlockedForViewer: false,
+      canViewContent: false,
+      canPurchase: true,
     });
     const messageText = attachOfferMarker(created.message.text || "", JSON.stringify(offerMeta));
     const responseMessage = { ...created.message, text: messageText, reactionsSummary: [] };

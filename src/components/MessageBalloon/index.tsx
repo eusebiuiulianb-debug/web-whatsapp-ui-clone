@@ -14,6 +14,7 @@ type ViewerRole = "creator" | "fan";
 export type OfferMeta = {
   id: string;
   messageId?: string;
+  ppvMessageId?: string;
   title: string;
   price: string;
   priceCents?: number;
@@ -24,6 +25,9 @@ export type OfferMeta = {
   purchaseCount?: number;
   purchasedByFan?: boolean;
   purchasedAt?: string;
+  isUnlockedForViewer?: boolean;
+  canViewContent?: boolean;
+  canPurchase?: boolean;
 };
 
 function normalizeOfferMeta(value: unknown): OfferMeta | null {
@@ -32,9 +36,13 @@ function normalizeOfferMeta(value: unknown): OfferMeta | null {
     kind?: string;
     status?: string;
     messageId?: unknown;
+    ppvMessageId?: unknown;
     priceCents?: unknown;
     currency?: unknown;
     purchasedAt?: unknown;
+    isUnlockedForViewer?: unknown;
+    canViewContent?: unknown;
+    canPurchase?: unknown;
   };
   const id = typeof candidate.id === "string" ? candidate.id.trim() : "";
   if (!id) return null;
@@ -49,15 +57,23 @@ function normalizeOfferMeta(value: unknown): OfferMeta | null {
   const purchaseCount = typeof candidate.purchaseCount === "number" ? candidate.purchaseCount : undefined;
   const purchasedByFan = typeof candidate.purchasedByFan === "boolean" ? candidate.purchasedByFan : undefined;
   const messageId = typeof candidate.messageId === "string" ? candidate.messageId.trim() : undefined;
+  const ppvMessageId = typeof candidate.ppvMessageId === "string" ? candidate.ppvMessageId.trim() : undefined;
   const priceCents =
     typeof candidate.priceCents === "number" && Number.isFinite(candidate.priceCents)
       ? Math.round(candidate.priceCents)
       : undefined;
   const currency = typeof candidate.currency === "string" ? candidate.currency : undefined;
   const purchasedAt = typeof candidate.purchasedAt === "string" ? candidate.purchasedAt : undefined;
+  const isUnlockedForViewer =
+    typeof candidate.isUnlockedForViewer === "boolean" ? candidate.isUnlockedForViewer : undefined;
+  const canViewContent =
+    typeof candidate.canViewContent === "boolean" ? candidate.canViewContent : undefined;
+  const canPurchase =
+    typeof candidate.canPurchase === "boolean" ? candidate.canPurchase : undefined;
   return {
     id,
     messageId,
+    ppvMessageId,
     title,
     price: candidate.price,
     priceCents,
@@ -68,6 +84,9 @@ function normalizeOfferMeta(value: unknown): OfferMeta | null {
     ...(purchaseCount !== undefined ? { purchaseCount } : {}),
     ...(purchasedByFan !== undefined ? { purchasedByFan } : {}),
     ...(purchasedAt ? { purchasedAt } : {}),
+    ...(isUnlockedForViewer !== undefined ? { isUnlockedForViewer } : {}),
+    ...(canViewContent !== undefined ? { canViewContent } : {}),
+    ...(canPurchase !== undefined ? { canPurchase } : {}),
   };
 }
 
@@ -236,11 +255,15 @@ const MessageBalloon = memo(function MessageBalloon(props: MessageBalloonProps) 
     () => (isSticker ? { textVisible: message, offerMeta: null } : splitOffer(message)),
     [isSticker, message]
   );
+  const ppvUnlocked = offerMeta?.isUnlockedForViewer === true || offerMeta?.status === "unlocked";
   const offerStatus =
     offerMeta?.kind === "ppv"
-      ? offerMeta.status ?? "locked"
+      ? ppvUnlocked
+        ? "unlocked"
+        : "locked"
       : offerMeta?.status ?? (offerMeta && unlockedOfferIds?.has(offerMeta.id) ? "unlocked" : "locked");
   const isPpvOffer = offerMeta?.kind === "ppv";
+  const showMessageBubble = !isPpvOffer;
   const offerKindLabel =
     offerMeta?.kind === "ppv" ? "EXTRA (PPV)" : offerMeta?.kind === "pack" ? "PACK" : "OFERTA";
   const offerDescription =
@@ -530,26 +553,28 @@ const MessageBalloon = memo(function MessageBalloon(props: MessageBalloonProps) 
               mode="reaction"
             />
           )}
-          <div
-            className={clsx(
-              "rounded-2xl text-sm shadow whitespace-pre-wrap",
-              bubblePadding,
-              bubbleTone
-            )}
-          >
-            {isSticker ? (
-              <Image
-                src={stickerSrc ?? ""}
-                alt={stickerAlt ?? "Sticker"}
-                width={144}
-                height={144}
-                unoptimized
-                className="h-36 w-36 object-contain"
-              />
-            ) : (
-              textVisible
-            )}
-          </div>
+          {showMessageBubble && (
+            <div
+              className={clsx(
+                "rounded-2xl text-sm shadow whitespace-pre-wrap",
+                bubblePadding,
+                bubbleTone
+              )}
+            >
+              {isSticker ? (
+                <Image
+                  src={stickerSrc ?? ""}
+                  alt={stickerAlt ?? "Sticker"}
+                  width={144}
+                  height={144}
+                  unoptimized
+                  className="h-36 w-36 object-contain"
+                />
+              ) : (
+                textVisible
+              )}
+            </div>
+          )}
           {!isSticker && offerMeta && (
             <div className="mt-2">
               <LockedContentCard
