@@ -8,8 +8,9 @@ function prismaClientExists() {
 }
 
 function runPrismaGenerate() {
-  const command = process.platform === "win32" ? "npx.cmd" : "npx";
-  const result = spawnSync(command, ["prisma", "generate"], { stdio: "inherit" });
+  const nodeCommand = process.execPath;
+  const scriptPath = path.join(__dirname, "prisma-generate.js");
+  const result = spawnSync(nodeCommand, [scriptPath], { stdio: "inherit" });
   if (result.status && result.status !== 0) {
     process.exit(result.status);
   }

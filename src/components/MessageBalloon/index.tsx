@@ -13,22 +13,63 @@ type ViewerRole = "creator" | "fan";
 
 export type OfferMeta = {
   id: string;
+  messageId?: string;
   title: string;
   price: string;
+  priceCents?: number;
+  currency?: string;
   thumb?: string | null;
   kind?: "offer" | "pack" | "ppv";
+  status?: "locked" | "unlocked";
+  purchaseCount?: number;
+  purchasedByFan?: boolean;
+  purchasedAt?: string;
 };
 
-const isOfferMeta = (value: unknown): value is OfferMeta => {
-  if (!value || typeof value !== "object") return false;
-  const candidate = value as Partial<OfferMeta>;
-  if (typeof candidate.id !== "string" || !candidate.id.trim()) return false;
-  if (typeof candidate.title !== "string" || !candidate.title.trim()) return false;
-  if (typeof candidate.price !== "string") return false;
-  if (candidate.thumb !== undefined && candidate.thumb !== null && typeof candidate.thumb !== "string") return false;
-  if (candidate.kind !== undefined && candidate.kind !== "offer" && candidate.kind !== "pack" && candidate.kind !== "ppv") return false;
-  return true;
-};
+function normalizeOfferMeta(value: unknown): OfferMeta | null {
+  if (!value || typeof value !== "object") return null;
+  const candidate = value as Partial<OfferMeta> & {
+    kind?: string;
+    status?: string;
+    messageId?: unknown;
+    priceCents?: unknown;
+    currency?: unknown;
+    purchasedAt?: unknown;
+  };
+  const id = typeof candidate.id === "string" ? candidate.id.trim() : "";
+  if (!id) return null;
+  const title = typeof candidate.title === "string" ? candidate.title.trim() : "";
+  if (!title) return null;
+  if (typeof candidate.price !== "string") return null;
+  if (candidate.thumb !== undefined && candidate.thumb !== null && typeof candidate.thumb !== "string") return null;
+  const kindRaw = typeof candidate.kind === "string" ? candidate.kind.toLowerCase() : "";
+  const kind = kindRaw === "offer" || kindRaw === "pack" || kindRaw === "ppv" ? kindRaw : undefined;
+  const statusRaw = typeof candidate.status === "string" ? candidate.status.toLowerCase() : "";
+  const status = statusRaw === "locked" || statusRaw === "unlocked" ? statusRaw : undefined;
+  const purchaseCount = typeof candidate.purchaseCount === "number" ? candidate.purchaseCount : undefined;
+  const purchasedByFan = typeof candidate.purchasedByFan === "boolean" ? candidate.purchasedByFan : undefined;
+  const messageId = typeof candidate.messageId === "string" ? candidate.messageId.trim() : undefined;
+  const priceCents =
+    typeof candidate.priceCents === "number" && Number.isFinite(candidate.priceCents)
+      ? Math.round(candidate.priceCents)
+      : undefined;
+  const currency = typeof candidate.currency === "string" ? candidate.currency : undefined;
+  const purchasedAt = typeof candidate.purchasedAt === "string" ? candidate.purchasedAt : undefined;
+  return {
+    id,
+    messageId,
+    title,
+    price: candidate.price,
+    priceCents,
+    currency,
+    thumb: typeof candidate.thumb === "string" ? candidate.thumb : null,
+    ...(kind ? { kind } : {}),
+    ...(status ? { status } : {}),
+    ...(purchaseCount !== undefined ? { purchaseCount } : {}),
+    ...(purchasedByFan !== undefined ? { purchasedByFan } : {}),
+    ...(purchasedAt ? { purchasedAt } : {}),
+  };
+}
 
 export function splitOffer(content: string): { textVisible: string; offerMeta: OfferMeta | null } {
   const idx = content.indexOf(OFFER_MARKER);
@@ -42,7 +83,7 @@ export function splitOffer(content: string): { textVisible: string; offerMeta: O
   }
   try {
     const parsed = JSON.parse(raw) as unknown;
-    return { textVisible, offerMeta: isOfferMeta(parsed) ? parsed : null };
+    return { textVisible, offerMeta: normalizeOfferMeta(parsed) };
   } catch (_err) {
     return { textVisible, offerMeta: null };
   }
@@ -55,6 +96,7 @@ type LockedContentCardProps = {
   price: string;
   thumb?: string | null;
   status: "locked" | "unlocked";
+  statusLabel?: string;
   ctaLabel: string;
   disabled?: boolean;
   onClick: () => void;
@@ -67,11 +109,12 @@ const LockedContentCard = ({
   price,
   thumb,
   status,
+  statusLabel: statusLabelProp,
   ctaLabel,
   disabled = false,
   onClick,
 }: LockedContentCardProps) => {
-  const statusLabel = status === "locked" ? "Bloqueado" : "Desbloqueado";
+  const statusLabel = statusLabelProp ?? (status === "locked" ? "Bloqueado" : "Desbloqueado");
   const statusClass =
     status === "locked"
       ? "border-[color:rgba(245,158,11,0.7)] bg-[color:rgba(245,158,11,0.12)] text-[color:var(--warning)]"
@@ -193,17 +236,40 @@ const MessageBalloon = memo(function MessageBalloon(props: MessageBalloonProps) 
     () => (isSticker ? { textVisible: message, offerMeta: null } : splitOffer(message)),
     [isSticker, message]
   );
-  const offerStatus = offerMeta && unlockedOfferIds?.has(offerMeta.id) ? "unlocked" : "locked";
+  const offerStatus =
+    offerMeta?.kind === "ppv"
+      ? offerMeta.status ?? "locked"
+      : offerMeta?.status ?? (offerMeta && unlockedOfferIds?.has(offerMeta.id) ? "unlocked" : "locked");
   const isPpvOffer = offerMeta?.kind === "ppv";
-  const offerKindLabel = isPpvOffer ? "EXTRA (PPV)" : "PACK";
-  const offerDescription = isPpvOffer ? "Texto bloqueado hasta compra." : "Desbloquea contenido del pack.";
+  const offerKindLabel =
+    offerMeta?.kind === "ppv" ? "EXTRA (PPV)" : offerMeta?.kind === "pack" ? "PACK" : "OFERTA";
+  const offerDescription =
+    offerMeta?.kind === "ppv"
+      ? "Texto bloqueado hasta compra."
+      : offerMeta?.kind === "pack"
+      ? "Desbloquea contenido del pack."
+      : "Desbloquea contenido.";
+  const statusLabel =
+    isPpvOffer
+      ? isCreator
+        ? offerStatus === "unlocked"
+          ? "VENDIDO"
+          : "PENDIENTE"
+        : offerStatus === "unlocked"
+        ? "DESBLOQUEADO"
+        : "BLOQUEADO"
+      : offerStatus === "unlocked"
+      ? "Desbloqueado"
+      : "Bloqueado";
   const offerCtaLabel =
-    offerStatus === "unlocked"
-      ? viewerRole === "fan"
-        ? "Ver contenido"
-        : "Ver"
+    viewerRole === "creator"
+      ? "Ver"
+      : offerStatus === "unlocked"
+      ? "Ver contenido"
       : isPpvOffer
-      ? "Comprar"
+      ? "Desbloquear"
+      : offerMeta?.kind === "pack"
+      ? "Desbloquear pack"
       : "Desbloquear";
   const isOfferUnlocking = Boolean(offerMeta && unlockingOfferIds?.has(offerMeta.id));
   const resolvedOfferCtaLabel = isOfferUnlocking ? "Desbloqueando..." : offerCtaLabel;
@@ -493,6 +559,7 @@ const MessageBalloon = memo(function MessageBalloon(props: MessageBalloonProps) 
                 price={offerMeta.price}
                 thumb={offerMeta.thumb ?? null}
                 status={offerStatus}
+                statusLabel={statusLabel}
                 ctaLabel={resolvedOfferCtaLabel}
                 disabled={isOfferUnlocking}
                 onClick={() => {

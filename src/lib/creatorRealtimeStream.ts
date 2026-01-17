@@ -309,7 +309,8 @@ function dispatchCreatorRealtimeEvent(event: CreatorRealtimeEvent) {
     event.type === "MESSAGE_CREATED" ||
     event.type === "VOICE_CREATED" ||
     event.type === "voice_note" ||
-    event.type === "voice_note_created"
+    event.type === "voice_note_created" ||
+    event.type === "PPV_UNLOCKED"
   ) {
     handleMessageEvent(event);
     return;

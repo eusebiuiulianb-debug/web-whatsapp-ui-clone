@@ -844,9 +844,9 @@ export function FanChatPage({
       messages.forEach((msg) => {
         const rawText = typeof msg.text === "string" ? msg.text : "";
         if (!rawText) return;
-        const { textVisible, offerMeta } = splitOffer(rawText);
+        const { offerMeta } = splitOffer(rawText);
         if (offerMeta?.kind !== "ppv") return;
-        if (!textVisible.trim()) return;
+        if (offerMeta.status !== "unlocked") return;
         if (!next.has(offerMeta.id)) {
           next.add(offerMeta.id);
           changed = true;
@@ -906,8 +906,8 @@ export function FanChatPage({
         if (!rawMessage || rawMessage.fanId !== fanId) return;
         setMessages((prev) => reconcileMessages(prev, [rawMessage], sortMessages, fanId));
         const rawText = typeof rawMessage.text === "string" ? rawMessage.text : "";
-        const { textVisible, offerMeta } = splitOffer(rawText);
-        if (offerMeta?.kind === "ppv" && textVisible.trim()) {
+        const { offerMeta } = splitOffer(rawText);
+        if (offerMeta?.kind === "ppv" && offerMeta.status === "unlocked") {
           markOfferUnlocked(offerMeta.id);
         }
       } catch (_err) {
@@ -1805,10 +1805,13 @@ export function FanChatPage({
       ? "..."
       : walletBalanceLabel;
   const unlockRequiredCents = useMemo(() => {
+    if (typeof unlockOffer?.priceCents === "number" && Number.isFinite(unlockOffer.priceCents)) {
+      return Math.max(0, Math.round(unlockOffer.priceCents));
+    }
     if (!unlockOffer?.price) return 0;
     const amount = parseAmountToNumber(unlockOffer.price);
     return Math.max(0, Math.round(amount * 100));
-  }, [unlockOffer?.price]);
+  }, [unlockOffer?.price, unlockOffer?.priceCents]);
   const packRequiredCents = useMemo(() => {
     if (!packPurchase?.price) return 0;
     const amount = parseAmountToNumber(packPurchase.price);
@@ -1820,6 +1823,20 @@ export function FanChatPage({
     walletBalanceCents !== null &&
     walletBalanceCents < unlockRequiredCents;
   const isPpvUnlock = unlockOffer?.kind === "ppv";
+  const unlockPriceLabel = useMemo(() => {
+    if (!unlockOffer) return "";
+    if (typeof unlockOffer.priceCents === "number" && Number.isFinite(unlockOffer.priceCents)) {
+      const currency = unlockOffer.currency ?? walletCurrency;
+      return formatCurrencyCents(unlockOffer.priceCents, currency);
+    }
+    if (unlockOffer.price) return normalizePriceLabel(unlockOffer.price);
+    return "";
+  }, [unlockOffer, walletCurrency]);
+  const unlockCtaLabel = unlockNeedsTopup
+    ? "Recargar"
+    : unlockPriceLabel
+    ? `Pagar ${unlockPriceLabel}`
+    : "Desbloquear";
   const packNeedsTopup =
     walletEnabled === true &&
     packRequiredCents > 0 &&
@@ -2693,10 +2710,10 @@ export function FanChatPage({
           <div>
             <h3 className="text-base font-semibold text-[color:var(--text)]">
               {unlockOffer?.title
-                ? `${isPpvUnlock ? "Extra (PPV)" : "Pack"}: ${unlockOffer.title}`
+                ? `${isPpvUnlock ? "Desbloquear extra (PPV)" : "Desbloquear pack"}: ${unlockOffer.title}`
                 : isPpvUnlock
-                ? "Extra (PPV)"
-                : "Pack"}
+                ? "Desbloquear extra (PPV)"
+                : "Desbloquear pack"}
             </h3>
             <p className="text-xs text-[color:var(--muted)]">
               {isPpvUnlock ? "Texto bloqueado hasta compra." : "Desbloquea contenido del pack."}
@@ -2708,7 +2725,7 @@ export function FanChatPage({
               <div className="text-xs text-[color:var(--muted)]">{isPpvUnlock ? "Precio del extra" : "Precio del pack"}</div>
             </div>
             <span className="text-sm font-semibold text-[color:var(--warning)]">
-              {unlockOffer?.price ? normalizePriceLabel(unlockOffer.price) : ""}
+              {unlockPriceLabel}
             </span>
           </div>
           {walletEnabled === true ? (
@@ -2752,7 +2769,7 @@ export function FanChatPage({
               disabled={unlockConfirmDisabled}
               className="rounded-full bg-[color:rgba(var(--brand-rgb),0.16)] px-4 py-1.5 text-xs font-semibold text-[color:var(--text)] hover:bg-[color:rgba(var(--brand-rgb),0.24)] disabled:opacity-60"
             >
-              {unlockSubmitting ? "Comprando..." : isPpvUnlock ? "Comprar extra" : "Comprar pack"}
+              {unlockSubmitting ? "Procesando..." : unlockCtaLabel}
             </button>
           </div>
         </div>
@@ -2761,7 +2778,7 @@ export function FanChatPage({
         <div className="space-y-4">
           <div>
             <h3 className="text-base font-semibold text-[color:var(--text)]">
-              {packPurchase?.name ? `Pack: ${packPurchase.name}` : "Pack"}
+              {packPurchase?.name ? `Desbloquear pack: ${packPurchase.name}` : "Desbloquear pack"}
             </h3>
             <p className="text-xs text-[color:var(--muted)]">Desbloquea contenido del pack.</p>
           </div>
@@ -2816,7 +2833,7 @@ export function FanChatPage({
               disabled={packConfirmDisabled}
               className="rounded-full bg-[color:rgba(var(--brand-rgb),0.16)] px-4 py-1.5 text-xs font-semibold text-[color:var(--text)] hover:bg-[color:rgba(var(--brand-rgb),0.24)] disabled:opacity-60"
             >
-              {packPurchaseSubmitting ? "Comprando..." : "Comprar pack"}
+              {packPurchaseSubmitting ? "Desbloqueando..." : "Desbloquear pack"}
             </button>
           </div>
         </div>
@@ -2963,7 +2980,7 @@ export function FanChatPage({
                 : purchaseBlocked
                 ? "Confirma 18+ para comprar"
                 : isLocked
-                ? "Comprar pack"
+                ? "Desbloquear pack"
                 : isActive
                 ? "Activo"
                 : "Ver contenido";

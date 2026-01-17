@@ -91,6 +91,7 @@ function normalizeList(value: string | string[] | undefined): string[] {
 
 const OFFER_MARKER = "\n\n__NOVSY_OFFER__:";
 const PPV_OFFER_FALLBACK_TITLE = "Extra";
+const PPV_LOCKED_PLACEHOLDER = "Texto bloqueado hasta compra.";
 
 function formatPriceFromCents(value: number, currency?: string | null) {
   const amount = value / 100;
@@ -100,12 +101,29 @@ function formatPriceFromCents(value: number, currency?: string | null) {
   return code === "EUR" ? `${label} €` : `${label} ${code}`;
 }
 
-function buildPpvOfferMeta(ppv: { id: string; title?: string | null; priceCents: number; currency?: string | null }) {
+function buildPpvOfferMeta(ppv: {
+  id: string;
+  messageId?: string | null;
+  title?: string | null;
+  priceCents: number;
+  currency?: string | null;
+  status?: "locked" | "unlocked";
+  purchaseCount?: number;
+  purchasedByFan?: boolean;
+  purchasedAt?: string | null;
+}) {
   return {
     id: ppv.id,
+    ...(ppv.messageId ? { messageId: ppv.messageId } : {}),
     title: (ppv.title || "").trim() || PPV_OFFER_FALLBACK_TITLE,
     price: formatPriceFromCents(ppv.priceCents, ppv.currency ?? "EUR"),
+    priceCents: ppv.priceCents,
+    currency: (ppv.currency ?? "EUR").toUpperCase(),
     kind: "ppv",
+    ...(ppv.status ? { status: ppv.status } : {}),
+    ...(typeof ppv.purchaseCount === "number" ? { purchaseCount: ppv.purchaseCount } : {}),
+    ...(typeof ppv.purchasedByFan === "boolean" ? { purchasedByFan: ppv.purchasedByFan } : {}),
+    ...(ppv.purchasedAt ? { purchasedAt: ppv.purchasedAt } : {}),
   };
 }
 
@@ -324,10 +342,13 @@ async function handleGet(req: NextApiRequest, res: NextApiResponse<MessageRespon
         ppvMessage: {
           select: {
             id: true,
+            messageId: true,
             title: true,
             priceCents: true,
             currency: true,
-            purchase: { select: { id: true } },
+            purchase: {
+              select: { id: true, amountCents: true, currency: true, createdAt: true, fanId: true },
+            },
           },
         },
         ...(includeTranslations
@@ -388,39 +409,55 @@ async function handleGet(req: NextApiRequest, res: NextApiResponse<MessageRespon
       attachMessageLanguageMeta(message as Record<string, unknown>, languageMeta)
     );
 
-    const responseMessages =
-      viewerRole === "fan"
-        ? withLanguageMeta.map((message) => {
-            const raw = message as Record<string, unknown>;
-            const ppv = raw.ppvMessage as {
-              id?: string;
-              title?: string | null;
-              priceCents?: number;
-              currency?: string | null;
-              purchase?: { id?: string } | null;
-            } | null;
-            if (!ppv?.id || typeof ppv.priceCents !== "number") {
-              return sanitizeMessageForFan(raw);
-            }
-            const isUnlocked = Boolean(ppv.purchase?.id);
-            const offerMeta = buildPpvOfferMeta({
-              id: ppv.id,
-              title: ppv.title ?? null,
-              priceCents: ppv.priceCents,
-              currency: ppv.currency ?? "EUR",
-            });
-            const baseText = isUnlocked && typeof raw.text === "string" ? raw.text : offerMeta.title;
-            const withOffer = {
-              ...raw,
-              text: attachOfferMarker(baseText, JSON.stringify(offerMeta)),
-              deliveredText: null,
-            };
-            return sanitizeMessageForFan(withOffer);
-          })
-        : withLanguageMeta.map((message) => {
-            const { ppvMessage, ...rest } = message as Record<string, unknown>;
-            return rest;
-          });
+    const responseMessages = withLanguageMeta.map((message) => {
+      const raw = message as Record<string, unknown>;
+      const ppv = raw.ppvMessage as {
+        id?: string;
+        messageId?: string;
+        title?: string | null;
+        priceCents?: number;
+        currency?: string | null;
+        purchase?: { id?: string; createdAt?: Date | string; fanId?: string };
+      } | null;
+      if (!ppv?.id || typeof ppv.priceCents !== "number") {
+        const { ppvMessage, ...rest } = raw;
+        return viewerRole === "fan" ? sanitizeMessageForFan(rest) : rest;
+      }
+      const purchase = ppv.purchase ?? null;
+      const isUnlocked = Boolean(purchase?.id) && (viewerRole === "creator" || purchase?.fanId === normalizedFanId);
+      const purchasedAt =
+        purchase?.createdAt instanceof Date
+          ? purchase.createdAt.toISOString()
+          : typeof purchase?.createdAt === "string"
+          ? purchase.createdAt
+          : null;
+      const offerMeta = buildPpvOfferMeta({
+        id: ppv.id,
+        messageId: typeof ppv.messageId === "string" ? ppv.messageId : null,
+        title: ppv.title ?? null,
+        priceCents: ppv.priceCents,
+        currency: ppv.currency ?? "EUR",
+        status: isUnlocked ? "unlocked" : "locked",
+        purchaseCount: isUnlocked ? 1 : 0,
+        purchasedByFan: isUnlocked,
+        purchasedAt,
+      });
+      const baseText =
+        viewerRole === "fan"
+          ? isUnlocked && typeof raw.text === "string"
+            ? raw.text
+            : PPV_LOCKED_PLACEHOLDER
+          : typeof raw.text === "string"
+          ? raw.text
+          : offerMeta.title;
+      const withOffer = {
+        ...raw,
+        text: attachOfferMarker(baseText, JSON.stringify(offerMeta)),
+        deliveredText: null,
+      };
+      const { ppvMessage, ...rest } = withOffer as Record<string, unknown>;
+      return viewerRole === "fan" ? sanitizeMessageForFan(rest) : rest;
+    });
 
     return res.status(200).json({ ok: true, items: responseMessages, messages: responseMessages });
   } catch (err) {

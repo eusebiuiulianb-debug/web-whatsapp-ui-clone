@@ -3,11 +3,11 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "postinstall": "prisma generate",
+    "postinstall": "node scripts/prisma-generate.js",
     "predev": "node scripts/guard-prisma.js && node scripts/guard-next.js",
     "dev": "next dev -p 3005",
     "dev:reset": "node scripts/dev-reset.mjs",
-    "db:generate": "prisma generate",
+    "db:generate": "node scripts/prisma-generate.js",
     "db:reset": "prisma migrate reset --force",
     "db:reset:seed": "npm run db:reset",
     "lint": "next lint",

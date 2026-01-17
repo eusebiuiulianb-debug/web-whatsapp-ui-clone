@@ -10,6 +10,47 @@ type PpvResponse =
 const MAX_TITLE_LEN = 120;
 const MAX_TEXT_LEN = 4000;
 const MAX_PRICE_CENTS = 50000;
+const OFFER_MARKER = "\n\n__NOVSY_OFFER__:";
+const PPV_OFFER_FALLBACK_TITLE = "Extra";
+
+function formatPriceFromCents(value: number, currency?: string | null) {
+  const amount = value / 100;
+  const rounded = Math.round(amount * 100) / 100;
+  const label = rounded % 1 === 0 ? rounded.toFixed(0) : rounded.toFixed(2);
+  const code = (currency || "EUR").toUpperCase();
+  return code === "EUR" ? `${label} €` : `${label} ${code}`;
+}
+
+function attachOfferMarker(text: string, marker: string): string {
+  if (!marker) return text;
+  return `${text}${OFFER_MARKER}${marker}`;
+}
+
+function buildPpvOfferMeta(ppv: {
+  id: string;
+  messageId?: string | null;
+  title?: string | null;
+  priceCents: number;
+  currency?: string | null;
+  status?: "locked" | "unlocked";
+  purchaseCount?: number;
+  purchasedByFan?: boolean;
+  purchasedAt?: string | null;
+}) {
+  return {
+    id: ppv.id,
+    ...(ppv.messageId ? { messageId: ppv.messageId } : {}),
+    title: (ppv.title || "").trim() || PPV_OFFER_FALLBACK_TITLE,
+    price: formatPriceFromCents(ppv.priceCents, ppv.currency ?? "EUR"),
+    priceCents: ppv.priceCents,
+    currency: (ppv.currency ?? "EUR").toUpperCase(),
+    kind: "ppv",
+    ...(ppv.status ? { status: ppv.status } : {}),
+    ...(typeof ppv.purchaseCount === "number" ? { purchaseCount: ppv.purchaseCount } : {}),
+    ...(typeof ppv.purchasedByFan === "boolean" ? { purchasedByFan: ppv.purchasedByFan } : {}),
+    ...(ppv.purchasedAt ? { purchasedAt: ppv.purchasedAt } : {}),
+  };
+}
 
 function isSafeChatId(chatId: string) {
   return !chatId.includes("/") && !chatId.includes("\\") && chatId.trim().length > 0;
@@ -98,7 +139,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
           type: "TEXT",
         },
       });
-      await tx.ppvMessage.create({
+      const ppv = await tx.ppvMessage.create({
         data: {
           messageId: message.id,
           fanId: chatId,
@@ -108,7 +149,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
           currency: "EUR",
         },
       });
-      return message;
+      return { message, ppv };
     });
 
     const preview = text.trim().slice(0, 120);
@@ -128,9 +169,20 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
       console.error("api/chats/ppv fan-update error", { fanId: chatId, error: (updateErr as Error)?.message });
     }
 
-    const responseMessage = { ...created, reactionsSummary: [] };
+    const offerMeta = buildPpvOfferMeta({
+      id: created.ppv.id,
+      messageId: created.message.id,
+      title,
+      priceCents,
+      currency: "EUR",
+      status: "locked",
+      purchaseCount: 0,
+      purchasedByFan: false,
+    });
+    const messageText = attachOfferMarker(created.message.text || "", JSON.stringify(offerMeta));
+    const responseMessage = { ...created.message, text: messageText, reactionsSummary: [] };
     emitRealtimeEvent({
-      eventId: created.id,
+      eventId: created.message.id,
       type: "MESSAGE_CREATED",
       creatorId: fan.creatorId,
       fanId: chatId,

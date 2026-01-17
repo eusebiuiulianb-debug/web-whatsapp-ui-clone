@@ -38,18 +38,51 @@ function formatPriceFromCents(value: number, currency?: string | null) {
   return code === "EUR" ? `${label} €` : `${label} ${code}`;
 }
 
-function buildPpvOfferMeta(ppv: { id: string; title?: string | null; priceCents: number; currency?: string | null }) {
+function buildPpvOfferMeta(ppv: {
+  id: string;
+  messageId?: string | null;
+  title?: string | null;
+  priceCents: number;
+  currency?: string | null;
+  status?: "locked" | "unlocked";
+  purchaseCount?: number;
+  purchasedByFan?: boolean;
+  purchasedAt?: string | null;
+}) {
   return {
     id: ppv.id,
+    ...(ppv.messageId ? { messageId: ppv.messageId } : {}),
     title: (ppv.title || "").trim() || PPV_OFFER_FALLBACK_TITLE,
     price: formatPriceFromCents(ppv.priceCents, ppv.currency ?? "EUR"),
+    priceCents: ppv.priceCents,
+    currency: (ppv.currency ?? "EUR").toUpperCase(),
     kind: "ppv",
+    ...(ppv.status ? { status: ppv.status } : {}),
+    ...(typeof ppv.purchaseCount === "number" ? { purchaseCount: ppv.purchaseCount } : {}),
+    ...(typeof ppv.purchasedByFan === "boolean" ? { purchasedByFan: ppv.purchasedByFan } : {}),
+    ...(ppv.purchasedAt ? { purchasedAt: ppv.purchasedAt } : {}),
   };
 }
 
-function buildPpvMessagePayload(message: Record<string, unknown>, ppvMeta: { id: string; title?: string | null; priceCents: number; currency?: string | null }) {
+function buildPpvMessagePayload(
+  message: Record<string, unknown>,
+  ppvMeta: {
+    id: string;
+    messageId?: string | null;
+    title?: string | null;
+    priceCents: number;
+    currency?: string | null;
+    status?: "locked" | "unlocked";
+    purchasedAt?: string | null;
+  }
+) {
   const baseText = typeof message.text === "string" ? message.text : "";
-  const offerMeta = buildPpvOfferMeta(ppvMeta);
+  const offerMeta = buildPpvOfferMeta({
+    ...ppvMeta,
+    status: ppvMeta.status,
+    purchasedByFan: ppvMeta.status === "unlocked",
+    purchaseCount: ppvMeta.status === "unlocked" ? 1 : 0,
+  });
   const textWithOffer = attachOfferMarker(baseText, JSON.stringify(offerMeta));
   return {
     ...message,
@@ -138,9 +171,12 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
     if (existingPurchase) {
       const messagePayload = buildPpvMessagePayload(ppvMessage.message, {
         id: ppvMessage.id,
+        messageId: ppvMessage.messageId,
         title: ppvMessage.title ?? null,
         priceCents: ppvMessage.priceCents,
         currency: ppvMessage.currency ?? "EUR",
+        status: "unlocked",
+        purchasedAt: existingPurchase.createdAt.toISOString(),
       });
       return res.status(200).json({
         ok: true,
@@ -225,9 +261,12 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
 
     const messagePayload = buildPpvMessagePayload(ppvMessage.message, {
       id: ppvMessage.id,
+      messageId: ppvMessage.messageId,
       title: ppvMessage.title ?? null,
       priceCents: ppvMessage.priceCents,
       currency: ppvMessage.currency ?? "EUR",
+      status: "unlocked",
+      purchasedAt: result.purchase.createdAt.toISOString(),
     });
 
     emitRealtimeEvent({

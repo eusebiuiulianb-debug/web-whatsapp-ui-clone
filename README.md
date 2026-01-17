@@ -61,6 +61,8 @@ En Windows, si ves errores raros de `.next` (p. ej. `__webpack_require__.a is no
 5. `npm run dev` (http://localhost:3005)
 6. `npm run build` para validar que el build pasa.
 
+Nota Windows: si `prisma generate`/`migrate` falla con `EPERM` al renombrar `query_engine`, cierra `npm run dev` y cualquier proceso Node antes de reintentar.
+
 ## Traducción (LibreTranslate local)
 1. `npm run lt:up`
 2. Abre `http://127.0.0.1:5000` para verificar que responde.

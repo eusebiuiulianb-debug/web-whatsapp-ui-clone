@@ -2054,19 +2054,37 @@ export default function ConversationDetails({ onBackToBoard }: ConversationDetai
 
   function normalizeOfferMeta(value: unknown): OfferMeta | null {
     if (!value || typeof value !== "object") return null;
-    const candidate = value as Partial<OfferMeta>;
+    const candidate = value as Partial<OfferMeta> & { kind?: string; status?: string };
     if (typeof candidate.id !== "string" || !candidate.id.trim()) return null;
     if (typeof candidate.title !== "string" || !candidate.title.trim()) return null;
     if (typeof candidate.price !== "string") return null;
     if (candidate.thumb !== undefined && candidate.thumb !== null && typeof candidate.thumb !== "string") return null;
-    const kind =
-      candidate.kind === "offer" || candidate.kind === "pack" || candidate.kind === "ppv" ? candidate.kind : undefined;
+    const kindRaw = typeof candidate.kind === "string" ? candidate.kind.toLowerCase() : "";
+    const kind = kindRaw === "offer" || kindRaw === "pack" || kindRaw === "ppv" ? kindRaw : undefined;
+    const statusRaw = typeof candidate.status === "string" ? candidate.status.toLowerCase() : "";
+    const status = statusRaw === "locked" || statusRaw === "unlocked" ? statusRaw : undefined;
+    const purchaseCount = typeof candidate.purchaseCount === "number" ? candidate.purchaseCount : undefined;
+    const purchasedByFan = typeof candidate.purchasedByFan === "boolean" ? candidate.purchasedByFan : undefined;
+    const messageId = typeof candidate.messageId === "string" ? candidate.messageId.trim() : undefined;
+    const priceCents =
+      typeof candidate.priceCents === "number" && Number.isFinite(candidate.priceCents)
+        ? Math.round(candidate.priceCents)
+        : undefined;
+    const currency = typeof candidate.currency === "string" ? candidate.currency : undefined;
+    const purchasedAt = typeof candidate.purchasedAt === "string" ? candidate.purchasedAt : undefined;
     return {
       id: candidate.id,
+      messageId,
       title: candidate.title,
       price: candidate.price,
       thumb: typeof candidate.thumb === "string" ? candidate.thumb : null,
+      ...(priceCents !== undefined ? { priceCents } : {}),
+      ...(currency ? { currency } : {}),
       ...(kind ? { kind } : {}),
+      ...(status ? { status } : {}),
+      ...(purchaseCount !== undefined ? { purchaseCount } : {}),
+      ...(purchasedByFan !== undefined ? { purchasedByFan } : {}),
+      ...(purchasedAt ? { purchasedAt } : {}),
     };
   }
 
@@ -6134,7 +6152,37 @@ const INTENT_BADGE_LABELS: Record<string, string> = {
     return formatDistanceToNow(parsed, { addSuffix: true, locale: es });
   })();
   const offerOverlayStatus =
-    offerOverlay && unlockedOfferIds.has(offerOverlay.offer.id) ? "unlocked" : "locked";
+    offerOverlay?.offer.status ??
+    (offerOverlay && unlockedOfferIds.has(offerOverlay.offer.id) ? "unlocked" : "locked");
+  const offerOverlayMessageText = useMemo(() => {
+    if (!offerOverlay?.offer.messageId) return "";
+    const items = Array.isArray(messages) ? messages : [];
+    const match = items.find((msg) => msg.id === offerOverlay.offer.messageId) ?? null;
+    if (!match) return "";
+    const raw =
+      typeof match.originalText === "string"
+        ? match.originalText
+        : typeof match.message === "string"
+        ? match.message
+        : "";
+    if (!raw) return "";
+    return splitOffer(raw).textVisible.trim();
+  }, [messages, offerOverlay]);
+  const offerOverlayPurchasedAtLabel = useMemo(() => {
+    const raw = offerOverlay?.offer.purchasedAt;
+    if (!raw) return "";
+    const parsed = new Date(raw);
+    if (Number.isNaN(parsed.getTime())) return raw;
+    return format(parsed, "dd/MM HH:mm");
+  }, [offerOverlay]);
+  const isPpvOverlay = offerOverlay?.offer.kind === "ppv";
+  const offerOverlayStatusLabel = isPpvOverlay
+    ? offerOverlayStatus === "unlocked"
+      ? "VENDIDO"
+      : "PENDIENTE"
+    : offerOverlayStatus === "unlocked"
+    ? "Desbloqueado"
+    : "Bloqueado";
   const voiceRecordingLabel = formatRecordingLabel(voiceRecordingMs);
   const openInternalPanel = useCallback(
     (
@@ -15018,7 +15066,7 @@ const INTENT_BADGE_LABELS: Record<string, string> = {
           >
             <div className="flex items-center justify-between gap-3">
               <h2 className="text-sm font-semibold text-[color:var(--text)]">
-                {offerOverlayStatus === "locked" ? "Contenido bloqueado" : "Contenido desbloqueado"}
+                {isPpvOverlay ? "Extra (PPV)" : offerOverlayStatus === "locked" ? "Contenido bloqueado" : "Contenido desbloqueado"}
               </h2>
               <button
                 type="button"
@@ -15057,10 +15105,24 @@ const INTENT_BADGE_LABELS: Record<string, string> = {
                     : "border-[color:rgba(34,197,94,0.6)] bg-[color:rgba(34,197,94,0.14)] text-[color:rgb(22,163,74)]"
                 )}
               >
-                {offerOverlayStatus === "locked" ? "Bloqueado" : "Desbloqueado"}
+                {offerOverlayStatusLabel}
               </span>
             </div>
-            {offerOverlayStatus === "locked" ? (
+            {isPpvOverlay ? (
+              <div className="space-y-2">
+                <div className="rounded-lg border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-3 py-2 text-[12px] text-[color:var(--text)] whitespace-pre-wrap">
+                  {offerOverlayMessageText || "Contenido no disponible."}
+                </div>
+                {offerOverlayStatus === "unlocked" ? (
+                  <div className="text-[10px] text-[color:var(--muted)]">
+                    {offerOverlayPurchasedAtLabel ? `Vendido ${offerOverlayPurchasedAtLabel}` : "Vendido"}
+                    {id ? ` · Fan ${id}` : ""}
+                  </div>
+                ) : (
+                  <div className="text-[10px] text-[color:var(--muted)]">Aún no comprado.</div>
+                )}
+              </div>
+            ) : offerOverlayStatus === "locked" ? (
               <div className="space-y-2">
                 <button
                   type="button"
