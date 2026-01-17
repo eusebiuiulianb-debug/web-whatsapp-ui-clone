@@ -78,6 +78,7 @@ export type FanChatPageProps = {
   initialAccessSummary: AccessSummary;
   adultConfirmedAt?: string | null;
   adultConfirmVersion?: string | null;
+  adultGatePolicy?: "STRICT" | "LEAD_CAPTURE";
   fanIdOverride?: string;
   inviteOverride?: boolean;
   forceAccessRefresh?: boolean;
@@ -91,6 +92,7 @@ type PackSummary = {
 };
 
 type PackStatus = "LOCKED" | "UNLOCKED" | "ACTIVE";
+type AdultGatePolicy = "STRICT" | "LEAD_CAPTURE";
 
 type VoiceUploadPayload = {
   blob: Blob;
@@ -131,11 +133,19 @@ function resolvePackTypeFromLabel(id: string, name: string): "trial" | "monthly"
   return null;
 }
 
+function normalizeAdultGatePolicy(value?: string | null): AdultGatePolicy {
+  if (typeof value === "string" && value.trim().toUpperCase() === "LEAD_CAPTURE") {
+    return "LEAD_CAPTURE";
+  }
+  return "STRICT";
+}
+
 export function FanChatPage({
   includedContent,
   initialAccessSummary,
   adultConfirmedAt: initialAdultConfirmedAt,
   adultConfirmVersion: initialAdultConfirmVersion,
+  adultGatePolicy,
   fanIdOverride,
   inviteOverride,
   forceAccessRefresh,
@@ -289,6 +299,29 @@ export function FanChatPage({
     // TODO: Expand visibility rules beyond Message.audience (tiers/segments).
     return messages.filter((message) => isVisibleToFan(message));
   }, [messages]);
+
+  const shouldPromptForName = inviteFlag
+    ? !fanProfile.displayName
+    : getFanDisplayName(fanProfile) === "Invitado";
+  const isOnboardingVisible =
+    fanProfileLoaded &&
+    !onboardingDismissed &&
+    !loading &&
+    visibleMessages.length === 0 &&
+    shouldPromptForName;
+  const resolvedAdultGatePolicy = normalizeAdultGatePolicy(adultGatePolicy);
+  const isAdultGateActive = adultStatusLoaded && !adultConfirmedAt;
+  const isAdultGateStrict = isAdultGateActive && resolvedAdultGatePolicy === "STRICT";
+  const isAdultGateLeadCapture = isAdultGateActive && resolvedAdultGatePolicy === "LEAD_CAPTURE";
+  const isComposerDisabled = sending || isOnboardingVisible || onboardingSaving || isAdultGateStrict;
+
+  const showFanToast = useCallback((message: string) => {
+    setFanToast(message);
+    if (fanToastTimerRef.current) {
+      window.clearTimeout(fanToastTimerRef.current);
+    }
+    fanToastTimerRef.current = window.setTimeout(() => setFanToast(""), 2200);
+  }, []);
 
   const fetchMessages = useCallback(
     async (targetFanId: string, options?: { showLoading?: boolean; silent?: boolean }) => {
@@ -900,6 +933,9 @@ export function FanChatPage({
             return reconcileMessages(withoutTemp, newMessages, sortMessages, fanId);
           });
         }
+        if (isAdultGateLeadCapture) {
+          showFanToast("Mensaje enviado. Confirma 18+ para ver respuestas.");
+        }
         return true;
       } catch (_err) {
         setSendError("Error enviando mensaje");
@@ -911,7 +947,7 @@ export function FanChatPage({
         setSending(false);
       }
     },
-    [fanId, sortMessages]
+    [fanId, isAdultGateLeadCapture, showFanToast, sortMessages]
   );
 
   const sendTypingSignal = useCallback(
@@ -1045,18 +1081,6 @@ export function FanChatPage({
     input.setSelectionRange(len, len);
   }, []);
 
-  const shouldPromptForName = inviteFlag
-    ? !fanProfile.displayName
-    : getFanDisplayName(fanProfile) === "Invitado";
-  const isOnboardingVisible =
-    fanProfileLoaded &&
-    !onboardingDismissed &&
-    !loading &&
-    visibleMessages.length === 0 &&
-    shouldPromptForName;
-  const isAdultGateActive = adultStatusLoaded && !adultConfirmedAt;
-  const isComposerDisabled = sending || isOnboardingVisible || onboardingSaving || isAdultGateActive;
-
   const handleComposerChange = useCallback(
     (event: ChangeEvent<HTMLTextAreaElement>) => {
       const nextDraft = event.target.value;
@@ -1118,19 +1142,19 @@ export function FanChatPage({
 
   const handleEmojiSelect = useCallback(
     (emoji: string) => {
-      if (isComposerDisabled) return;
+      if (isComposerDisabled || isAdultGateActive) return;
       insertIntoDraft(emoji);
     },
-    [insertIntoDraft, isComposerDisabled]
+    [insertIntoDraft, isAdultGateActive, isComposerDisabled]
   );
 
   const handleStickerSelect = useCallback(
     (sticker: StickerItem) => {
-      if (isComposerDisabled) return;
+      if (isComposerDisabled || isAdultGateActive) return;
       const token = buildStickerTokenFromItem(sticker);
       void sendFanMessage(token);
     },
-    [isComposerDisabled, sendFanMessage]
+    [isAdultGateActive, isComposerDisabled, sendFanMessage]
   );
 
   const openContentSheet = useCallback(
@@ -1157,20 +1181,13 @@ export function FanChatPage({
     setActionMenuOpen(true);
   }, [isAdultGateActive]);
 
-  const showFanToast = useCallback((message: string) => {
-    setFanToast(message);
-    if (fanToastTimerRef.current) {
-      window.clearTimeout(fanToastTimerRef.current);
-    }
-    fanToastTimerRef.current = window.setTimeout(() => setFanToast(""), 2200);
-  }, []);
-
   const openWalletTopup = useCallback(() => {
+    if (isAdultGateActive) return;
     setWalletTopupError("");
     setWalletTopupAmount(null);
     setWalletTopupCustom("");
     setWalletTopupOpen(true);
-  }, []);
+  }, [isAdultGateActive]);
 
   const closeWalletTopup = useCallback(() => {
     if (walletTopupLoading) return;
@@ -2202,7 +2219,7 @@ export function FanChatPage({
             <button
               type="button"
               onClick={openWalletTopup}
-              disabled={walletLoading}
+              disabled={walletLoading || isAdultGateActive}
               className="rounded-full border border-[color:rgba(var(--brand-rgb),0.45)] bg-[color:rgba(var(--brand-rgb),0.12)] px-3 py-1 text-[11px] font-semibold text-[color:var(--text)] hover:bg-[color:rgba(var(--brand-rgb),0.2)] disabled:opacity-60"
             >
               Recargar
@@ -2241,7 +2258,7 @@ export function FanChatPage({
             <AccessBanner
               summary={accessSummary}
               contentCount={included?.length ?? 0}
-              onOpenContent={() => openContentSheet("content")}
+              onOpenContent={!isAdultGateActive ? () => openContentSheet("content") : undefined}
             />
           ) : null}
         </div>
@@ -2251,71 +2268,101 @@ export function FanChatPage({
             style={{ backgroundImage: "var(--chat-pattern)" }}
           >
             <div className="min-h-full flex flex-col justify-end gap-2">
-              {loading && <div className="text-center ui-muted text-sm mt-2">Cargando mensajes...</div>}
-              {error && !loading && <div className="text-center text-[color:var(--danger)] text-sm mt-2">{error}</div>}
-              {!loading && !error && visibleMessages.length === 0 && (
-                <div className="text-center ui-muted text-sm mt-2">Aún no hay mensajes.</div>
-              )}
-              {visibleMessages.map((msg, idx) => {
-                const messageId = msg.id || `message-${idx}`;
-                const isContent = msg.type === "CONTENT" && !!msg.contentItem;
-                if (isContent) {
-                  return <ContentCard key={msg.id} message={msg} />;
-                }
-                if (msg.type === "SYSTEM") {
-                  return <SystemMessage key={messageId} text={msg.text || ""} />;
-                }
-                if (msg.type === "AUDIO" || msg.type === "VOICE") {
-                  return (
-                    <AudioMessage
-                      key={messageId}
-                      message={msg}
-                      onReact={(emoji) => {
-                        if (!msg.id) return;
-                        handleReactToMessage(msg.id, emoji);
-                      }}
-                    />
-                  );
-                }
-                const tokenSticker =
-                  msg.type !== "STICKER" ? getStickerByToken(msg.text ?? "") : null;
-                const isSticker = msg.type === "STICKER" || Boolean(tokenSticker);
-                const sticker = msg.type === "STICKER" ? getStickerById(msg.stickerId ?? null) : null;
-                const stickerSrc = msg.type === "STICKER" ? sticker?.file ?? null : tokenSticker?.src ?? null;
-                const stickerAlt = msg.type === "STICKER" ? sticker?.label || "Sticker" : tokenSticker?.label ?? null;
-                const baseText = msg.originalText ?? msg.text ?? "";
-                const deliveredText = msg.deliveredText ?? "";
-                const displayText =
-                  isSticker
-                    ? ""
-                    : msg.from === "creator"
-                    ? (deliveredText.trim() ? deliveredText : baseText)
-                    : baseText;
-                return (
-                  <div key={messageId} className="space-y-1">
-                    <MessageBalloon
-                      me={msg.from === "fan"}
-                      message={displayText}
-                      messageId={msg.id}
-                      seen={!!msg.isLastFromCreator}
-                      time={msg.time || undefined}
-                      status={msg.status}
-                      viewerRole="fan"
-                      unlockedOfferIds={unlockedOfferIds}
-                      unlockingOfferIds={unlockingOfferIds}
-                      onOfferClick={handleOfferClick}
-                      stickerSrc={isSticker ? stickerSrc : null}
-                      stickerAlt={isSticker ? stickerAlt : null}
-                      enableReactions
-                      reactionsSummary={msg.reactionsSummary ?? []}
-                      onReact={(emoji) => {
-                        if (!msg.id) return;
-                        handleReactToMessage(msg.id, emoji);
-                      }}
-                    />
+              {isAdultGateLeadCapture ? (
+                <div className="min-h-full flex items-center justify-center py-6">
+                  <div className="w-full max-w-md rounded-2xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-5 py-4 text-center">
+                    <h3 className="text-sm font-semibold text-[color:var(--text)]">Confirmación 18+</h3>
+                    <p className="mt-2 text-xs text-[color:var(--muted)]">
+                      Puedes enviar un mensaje, pero para ver el chat debes confirmar 18+.
+                    </p>
+                    <div className="mt-4 flex flex-wrap items-center justify-center gap-2">
+                      <button
+                        type="button"
+                        onClick={handleAdultExit}
+                        className="rounded-full border border-[color:var(--surface-border)] px-4 py-1.5 text-xs text-[color:var(--text)] hover:bg-[color:var(--surface-2)]"
+                      >
+                        Salir
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleAdultConfirm}
+                        disabled={adultConfirming}
+                        className="rounded-full bg-[color:rgba(var(--brand-rgb),0.16)] px-4 py-1.5 text-xs font-semibold text-[color:var(--text)] hover:bg-[color:rgba(var(--brand-rgb),0.24)] disabled:opacity-60"
+                      >
+                        {adultConfirming ? "Confirmando..." : "Confirmar 18+"}
+                      </button>
+                    </div>
                   </div>
-                );
-              })}
+                </div>
+              ) : (
+                <>
+                  {loading && <div className="text-center ui-muted text-sm mt-2">Cargando mensajes...</div>}
+                  {error && !loading && <div className="text-center text-[color:var(--danger)] text-sm mt-2">{error}</div>}
+                  {!loading && !error && visibleMessages.length === 0 && (
+                    <div className="text-center ui-muted text-sm mt-2">Aún no hay mensajes.</div>
+                  )}
+                  {visibleMessages.map((msg, idx) => {
+                    const messageId = msg.id || `message-${idx}`;
+                    const isContent = msg.type === "CONTENT" && !!msg.contentItem;
+                    if (isContent) {
+                      return <ContentCard key={msg.id} message={msg} />;
+                    }
+                    if (msg.type === "SYSTEM") {
+                      return <SystemMessage key={messageId} text={msg.text || ""} />;
+                    }
+                    if (msg.type === "AUDIO" || msg.type === "VOICE") {
+                      return (
+                        <AudioMessage
+                          key={messageId}
+                          message={msg}
+                          onReact={(emoji) => {
+                            if (!msg.id) return;
+                            handleReactToMessage(msg.id, emoji);
+                          }}
+                        />
+                      );
+                    }
+                    const tokenSticker =
+                      msg.type !== "STICKER" ? getStickerByToken(msg.text ?? "") : null;
+                    const isSticker = msg.type === "STICKER" || Boolean(tokenSticker);
+                    const sticker = msg.type === "STICKER" ? getStickerById(msg.stickerId ?? null) : null;
+                    const stickerSrc = msg.type === "STICKER" ? sticker?.file ?? null : tokenSticker?.src ?? null;
+                    const stickerAlt = msg.type === "STICKER" ? sticker?.label || "Sticker" : tokenSticker?.label ?? null;
+                    const baseText = msg.originalText ?? msg.text ?? "";
+                    const deliveredText = msg.deliveredText ?? "";
+                    const displayText =
+                      isSticker
+                        ? ""
+                        : msg.from === "creator"
+                        ? (deliveredText.trim() ? deliveredText : baseText)
+                        : baseText;
+                    return (
+                      <div key={messageId} className="space-y-1">
+                        <MessageBalloon
+                          me={msg.from === "fan"}
+                          message={displayText}
+                          messageId={msg.id}
+                          seen={!!msg.isLastFromCreator}
+                          time={msg.time || undefined}
+                          status={msg.status}
+                          viewerRole="fan"
+                          unlockedOfferIds={unlockedOfferIds}
+                          unlockingOfferIds={unlockingOfferIds}
+                          onOfferClick={handleOfferClick}
+                          stickerSrc={isSticker ? stickerSrc : null}
+                          stickerAlt={isSticker ? stickerAlt : null}
+                          enableReactions
+                          reactionsSummary={msg.reactionsSummary ?? []}
+                          onReact={(emoji) => {
+                            if (!msg.id) return;
+                            handleReactToMessage(msg.id, emoji);
+                          }}
+                        />
+                      </div>
+                    );
+                  })}
+                </>
+              )}
             </div>
           </div>
         </div>
@@ -2476,21 +2523,21 @@ export function FanChatPage({
                   actionLabel="Enviar"
                   audience="CREATOR"
                   onAudienceChange={() => {}}
-                  canAttach={!isComposerDisabled}
+                  canAttach={!isComposerDisabled && !isAdultGateActive}
                   onAttach={handleOpenActionMenu}
                   inputRef={composerInputRef}
                   maxHeight={140}
-                  isChatBlocked={isAdultGateActive}
+                  isChatBlocked={isAdultGateStrict}
                   isInternalPanelOpen={false}
                   showAudienceToggle={false}
                   showAttach
                   showVoice
                   onVoiceStart={startVoiceRecording}
-                  voiceDisabled={isComposerDisabled || isVoiceRecording || isVoiceUploading}
+                  voiceDisabled={isAdultGateActive || isComposerDisabled || isVoiceRecording || isVoiceUploading}
                   isVoiceRecording={isVoiceRecording}
                   showEmoji
                   onEmojiSelect={handleEmojiSelect}
-                  showStickers
+                  showStickers={!isAdultGateActive}
                   onStickerSelect={handleStickerSelect}
                 />
               </div>
@@ -2989,7 +3036,7 @@ export function FanChatPage({
           )}
         </div>
       </BottomSheet>
-      <BottomSheet open={isAdultGateActive} onClose={() => {}} dismissible={false}>
+      <BottomSheet open={isAdultGateStrict} onClose={() => {}} dismissible={false}>
         <div className="space-y-4">
           <div>
             <h3 className="text-base font-semibold text-[color:var(--text)]">Confirmación 18+</h3>
@@ -3011,7 +3058,7 @@ export function FanChatPage({
               disabled={adultConfirming}
               className="rounded-full bg-[color:rgba(var(--brand-rgb),0.16)] px-4 py-1.5 text-xs font-semibold text-[color:var(--text)] hover:bg-[color:rgba(var(--brand-rgb),0.24)] disabled:opacity-60"
             >
-              {adultConfirming ? "Confirmando..." : "Confirmo que soy +18"}
+              {adultConfirming ? "Confirmando..." : "Tengo 18+"}
             </button>
           </div>
         </div>
