@@ -313,6 +313,7 @@ export function FanChatPage({
   const isAdultGateActive = adultStatusLoaded && !adultConfirmedAt;
   const isAdultGateStrict = isAdultGateActive && resolvedAdultGatePolicy === "STRICT";
   const isAdultGateLeadCapture = isAdultGateActive && resolvedAdultGatePolicy === "LEAD_CAPTURE";
+  const isAdultGatePurchaseBlocked = isAdultGateLeadCapture;
   const isComposerDisabled = sending || isOnboardingVisible || onboardingSaving || isAdultGateStrict;
 
   const showFanToast = useCallback((message: string) => {
@@ -1373,10 +1374,10 @@ export function FanChatPage({
   }, [isAdultGateActive]);
 
   const openPacksSheet = useCallback(() => {
-    if (isAdultGateActive) return;
+    if (isAdultGateStrict) return;
     setActionMenuOpen(false);
     openContentSheet("packs");
-  }, [isAdultGateActive, openContentSheet]);
+  }, [isAdultGateStrict, openContentSheet]);
 
   const setPackPurchasing = useCallback((packId: string, isPurchasing: boolean) => {
     if (!packId) return;
@@ -1433,7 +1434,7 @@ export function FanChatPage({
 
   const handleOfferClick = useCallback(
     (offer: OfferMeta, status: "locked" | "unlocked") => {
-      if (isAdultGateActive) return;
+      if (isAdultGateStrict) return;
       if (!offer?.id) return;
       const isPackOffer =
         offer.kind === "pack" || (offer.kind !== "offer" && offer.kind !== "ppv" && availablePackIds.has(offer.id));
@@ -1452,7 +1453,7 @@ export function FanChatPage({
       if (isOfferUnlocking(offer.id)) return;
       setUnlockOffer(offer);
     },
-    [availablePackIds, isAdultGateActive, isOfferUnlocking, isPackPurchasing, openContentSheet, resolvePackFromOffer]
+    [availablePackIds, isAdultGateStrict, isOfferUnlocking, isPackPurchasing, openContentSheet, resolvePackFromOffer]
   );
 
   const closeUnlockSheet = useCallback(() => {
@@ -1523,7 +1524,11 @@ export function FanChatPage({
         if (!res.ok) {
           const errorCode = typeof data?.error === "string" ? data.error : "";
           const errorMessage =
-            errorCode === "INSUFFICIENT_BALANCE" ? "Saldo insuficiente." : data?.error || "No se pudo desbloquear.";
+            errorCode === "INSUFFICIENT_BALANCE"
+              ? "Saldo insuficiente."
+              : errorCode === "ADULT_NOT_CONFIRMED"
+              ? "Confirma 18+ para comprar."
+              : data?.error || "No se pudo desbloquear.";
           return { ok: false, error: errorMessage, errorCode, requiredCents: data?.requiredCents };
         }
         return {
@@ -1603,6 +1608,8 @@ export function FanChatPage({
           const errorMessage =
             errorCode === "INSUFFICIENT_BALANCE"
               ? "Saldo insuficiente."
+              : errorCode === "ADULT_NOT_CONFIRMED"
+              ? "Confirma 18+ para comprar."
               : data?.error || "No se pudo completar la compra.";
           return { ok: false, error: errorMessage, errorCode, requiredCents: data?.requiredCents };
         }
@@ -1821,15 +1828,19 @@ export function FanChatPage({
 
   const handleUnlockConfirm = useCallback(async () => {
     if (!fanId || !unlockOffer) return;
-    if (isAdultGateActive) return;
+    if (isAdultGateStrict) return;
     const offerId = unlockOffer.id;
     if (!offerId || isOfferUnlocking(offerId)) return;
+    const isPpvUnlock = unlockOffer.kind === "ppv";
+    if (isAdultGatePurchaseBlocked) {
+      showFanToast(isPpvUnlock ? "Confirma 18+ para comprar este extra." : "Confirma 18+ para desbloquear este pack.");
+      return;
+    }
     if (unlockNeedsTopup && walletEnabled === true) {
       openWalletTopup();
       showFanToast("Saldo insuficiente.");
       return;
     }
-    const isPpvUnlock = unlockOffer.kind === "ppv";
     setOfferUnlocking(offerId, true);
     try {
       const result = isPpvUnlock ? await createPpvPurchase(unlockOffer) : await createOfferPurchase(unlockOffer);
@@ -1875,7 +1886,8 @@ export function FanChatPage({
     fanId,
     fetchAccessInfo,
     isOfferUnlocking,
-    isAdultGateActive,
+    isAdultGateStrict,
+    isAdultGatePurchaseBlocked,
     markOfferUnlocked,
     openContentSheet,
     openWalletTopup,
@@ -1912,9 +1924,13 @@ export function FanChatPage({
 
   const handlePackPurchaseConfirm = useCallback(async () => {
     if (!fanId || !packPurchase) return;
-    if (isAdultGateActive) return;
+    if (isAdultGateStrict) return;
     const packId = packPurchase.id;
     if (!packId || isPackPurchasing(packId)) return;
+    if (isAdultGatePurchaseBlocked) {
+      showFanToast("Confirma 18+ para comprar este pack.");
+      return;
+    }
     if (packNeedsTopup && walletEnabled === true) {
       openWalletTopup();
       showFanToast("Saldo insuficiente.");
@@ -1955,7 +1971,8 @@ export function FanChatPage({
     fanId,
     fetchAccessInfo,
     isPackPurchasing,
-    isAdultGateActive,
+    isAdultGateStrict,
+    isAdultGatePurchaseBlocked,
     markOfferUnlocked,
     openContentSheet,
     openWalletTopup,
@@ -1970,8 +1987,8 @@ export function FanChatPage({
 
   const unlockSubmitting = Boolean(unlockOffer?.id && unlockingOfferIds.has(unlockOffer.id));
   const packPurchaseSubmitting = Boolean(packPurchase?.id && packPurchasingIds.has(packPurchase.id));
-  const unlockConfirmDisabled = unlockSubmitting;
-  const packConfirmDisabled = packPurchaseSubmitting;
+  const unlockConfirmDisabled = unlockSubmitting || isAdultGatePurchaseBlocked;
+  const packConfirmDisabled = packPurchaseSubmitting || isAdultGatePurchaseBlocked;
   const sendDisabled = isComposerDisabled || draft.trim().length === 0;
   const voiceRecordingLabel = formatAudioTime(Math.max(0, Math.floor(voiceRecordingMs / 1000)));
 
@@ -2676,17 +2693,19 @@ export function FanChatPage({
           <div>
             <h3 className="text-base font-semibold text-[color:var(--text)]">
               {unlockOffer?.title
-                ? `${isPpvUnlock ? "Comprar extra" : "Desbloquear"}: ${unlockOffer.title}`
+                ? `${isPpvUnlock ? "Extra (PPV)" : "Pack"}: ${unlockOffer.title}`
                 : isPpvUnlock
-                ? "Comprar extra"
-                : "Desbloquear"}
+                ? "Extra (PPV)"
+                : "Pack"}
             </h3>
-            <p className="text-xs text-[color:var(--muted)]">Se desbloquea al instante dentro del chat.</p>
+            <p className="text-xs text-[color:var(--muted)]">
+              {isPpvUnlock ? "Texto bloqueado hasta compra." : "Desbloquea contenido del pack."}
+            </p>
           </div>
           <div className="flex items-center justify-between gap-3 rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-4 py-3">
             <div className="min-w-0">
               <div className="truncate text-sm font-semibold text-[color:var(--text)]">{unlockOffer?.title}</div>
-              <div className="text-xs text-[color:var(--muted)]">Precio</div>
+              <div className="text-xs text-[color:var(--muted)]">{isPpvUnlock ? "Precio del extra" : "Precio del pack"}</div>
             </div>
             <span className="text-sm font-semibold text-[color:var(--warning)]">
               {unlockOffer?.price ? normalizePriceLabel(unlockOffer.price) : ""}
@@ -2707,10 +2726,17 @@ export function FanChatPage({
                 ) : null}
               </div>
               {unlockNeedsTopup && (
-                <div className="text-[11px] text-[color:var(--danger)]">Saldo insuficiente para desbloquear.</div>
+                <div className="text-[11px] text-[color:var(--danger)]">
+                  {isPpvUnlock ? "Saldo insuficiente para comprar este extra." : "Saldo insuficiente para desbloquear este pack."}
+                </div>
               )}
             </>
           ) : null}
+          {isAdultGatePurchaseBlocked && (
+            <div className="text-[11px] text-[color:var(--warning)]">
+              {isPpvUnlock ? "Confirma 18+ para comprar este extra." : "Confirma 18+ para desbloquear este pack."}
+            </div>
+          )}
           <div className="flex items-center justify-end gap-2">
             <button
               type="button"
@@ -2726,7 +2752,7 @@ export function FanChatPage({
               disabled={unlockConfirmDisabled}
               className="rounded-full bg-[color:rgba(var(--brand-rgb),0.16)] px-4 py-1.5 text-xs font-semibold text-[color:var(--text)] hover:bg-[color:rgba(var(--brand-rgb),0.24)] disabled:opacity-60"
             >
-              {unlockSubmitting ? (isPpvUnlock ? "Comprando..." : "Desbloqueando...") : isPpvUnlock ? "Confirmar compra" : "Confirmar y desbloquear"}
+              {unlockSubmitting ? "Comprando..." : isPpvUnlock ? "Comprar extra" : "Comprar pack"}
             </button>
           </div>
         </div>
@@ -2735,9 +2761,9 @@ export function FanChatPage({
         <div className="space-y-4">
           <div>
             <h3 className="text-base font-semibold text-[color:var(--text)]">
-              {packPurchase?.name ? `Desbloquear: ${packPurchase.name}` : "Desbloquear"}
+              {packPurchase?.name ? `Pack: ${packPurchase.name}` : "Pack"}
             </h3>
-            <p className="text-xs text-[color:var(--muted)]">Se desbloquea al instante dentro del chat.</p>
+            <p className="text-xs text-[color:var(--muted)]">Desbloquea contenido del pack.</p>
           </div>
           <div className="rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-4 py-3 space-y-1">
             <div className="flex items-center justify-between gap-3">
@@ -2751,7 +2777,7 @@ export function FanChatPage({
                 {packPurchase?.price ? normalizePriceLabel(packPurchase.price) : ""}
               </span>
             </div>
-            <div className="text-[11px] text-[color:var(--muted)]">Acceso inmediato dentro del chat.</div>
+            <div className="text-[11px] text-[color:var(--muted)]">Desbloquea contenido del pack dentro del chat.</div>
           </div>
           {walletEnabled === true ? (
             <>
@@ -2772,6 +2798,9 @@ export function FanChatPage({
               )}
             </>
           ) : null}
+          {isAdultGatePurchaseBlocked && (
+            <div className="text-[11px] text-[color:var(--warning)]">Confirma 18+ para comprar este pack.</div>
+          )}
           <div className="flex items-center justify-end gap-2">
             <button
               type="button"
@@ -2787,7 +2816,7 @@ export function FanChatPage({
               disabled={packConfirmDisabled}
               className="rounded-full bg-[color:rgba(var(--brand-rgb),0.16)] px-4 py-1.5 text-xs font-semibold text-[color:var(--text)] hover:bg-[color:rgba(var(--brand-rgb),0.24)] disabled:opacity-60"
             >
-              {packPurchaseSubmitting ? "Desbloqueando..." : "Confirmar y desbloquear"}
+              {packPurchaseSubmitting ? "Comprando..." : "Comprar pack"}
             </button>
           </div>
         </div>
@@ -2922,6 +2951,7 @@ export function FanChatPage({
               const isLocked = status === "LOCKED";
               const isActive = status === "ACTIVE";
               const isPurchasing = isPackPurchasing(pack.id);
+              const purchaseBlocked = isAdultGatePurchaseBlocked && isLocked;
               const statusLabel =
                 status === "ACTIVE" ? "Activo" : status === "UNLOCKED" ? "Desbloqueado" : "Bloqueado";
               const statusClass =
@@ -2930,12 +2960,14 @@ export function FanChatPage({
                   : "border-[color:rgba(34,197,94,0.6)] bg-[color:rgba(34,197,94,0.14)] text-[color:rgb(22,163,74)]";
               const ctaLabel = isPurchasing
                 ? "Comprando..."
+                : purchaseBlocked
+                ? "Confirma 18+ para comprar"
                 : isLocked
-                ? "Comprar"
+                ? "Comprar pack"
                 : isActive
                 ? "Activo"
                 : "Ver contenido";
-              const ctaDisabled = isPurchasing || isActive;
+              const ctaDisabled = isPurchasing || isActive || purchaseBlocked;
               return (
                 <div
                   key={pack.id}
@@ -2956,25 +2988,31 @@ export function FanChatPage({
                     >
                       {statusLabel}
                     </span>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        if (ctaDisabled) return;
-                        if (isLocked) {
-                          setPackPurchase(pack);
-                        } else {
-                          openContentSheet("content");
-                        }
-                      }}
-                      disabled={ctaDisabled}
-                      className={`rounded-full border px-4 py-1.5 text-xs font-semibold ${
-                        ctaDisabled
-                          ? "border-[color:var(--surface-border)] bg-[color:var(--surface-2)] text-[color:var(--muted)]"
-                          : "border-[color:var(--brand)] bg-[color:rgba(var(--brand-rgb),0.16)] text-[color:var(--text)] hover:bg-[color:rgba(var(--brand-rgb),0.24)]"
-                      }`}
-                    >
-                      {ctaLabel}
-                    </button>
+                    <div className="flex flex-col items-end gap-1">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (ctaDisabled) return;
+                          if (isLocked) {
+                            setPackPurchase(pack);
+                          } else {
+                            openContentSheet("content");
+                          }
+                        }}
+                        disabled={ctaDisabled}
+                        title={purchaseBlocked ? "Confirma 18+ para comprar este pack." : undefined}
+                        className={`rounded-full border px-4 py-1.5 text-xs font-semibold ${
+                          ctaDisabled
+                            ? "border-[color:var(--surface-border)] bg-[color:var(--surface-2)] text-[color:var(--muted)]"
+                            : "border-[color:var(--brand)] bg-[color:rgba(var(--brand-rgb),0.16)] text-[color:var(--text)] hover:bg-[color:rgba(var(--brand-rgb),0.24)]"
+                        }`}
+                      >
+                        {ctaLabel}
+                      </button>
+                      {purchaseBlocked && (
+                        <div className="text-[10px] text-[color:var(--warning)]">Confirma 18+ para comprar/desbloquear.</div>
+                      )}
+                    </div>
                   </div>
                 </div>
               );

@@ -92,7 +92,7 @@ type OfferDraft = {
   title: string;
   price: string;
   message: string;
-  offerMeta?: { id: string; title: string; price: string; thumb?: string | null };
+  offerMeta?: { id: string; title: string; price: string; thumb?: string | null; kind?: "offer" | "pack" | "ppv" };
 };
 
 type DraftDirectness = "suave" | "neutro" | "directo";
@@ -277,17 +277,17 @@ export default function FanManagerDrawer({
   const quickOffers: OfferDraft[] = [
     {
       id: "extra_light",
-      title: "Oferta ligera",
+      title: "Oferta ligera (PPV)",
       price: "6,99 €",
-      message: "Tengo un extra rápido para ti. Si te apetece, te lo dejo por 6,99 €.",
-      offerMeta: { id: "extra_light", title: "Extra rápido", price: "6,99 €" },
+      message: "Oferta ligera: un texto corto y exclusivo para ti.",
+      offerMeta: { id: "extra_light", title: "Oferta ligera", price: "6,99 €", kind: "ppv" },
     },
     {
       id: "pack_special",
-      title: "Pack especial",
+      title: "Pack especial (PACK)",
       price: "9,99 €",
-      message: "Tengo un Pack especial con contenido extra pensado para ti. Si te apetece, te lo dejo por 9,99 €.",
-      offerMeta: { id: "pack_special", title: "Pack especial", price: "9,99 €" },
+      message: "Pack especial: desbloquea contenido del pack por 9,99 €.",
+      offerMeta: { id: "pack_special", title: "Pack especial", price: "9,99 €", kind: "pack" },
     },
     {
       id: "monthly_push",
@@ -889,7 +889,7 @@ export default function FanManagerDrawer({
                   : "border-[color:rgba(245,158,11,0.6)] bg-[color:rgba(245,158,11,0.12)] text-[color:var(--text)] hover:bg-[color:rgba(245,158,11,0.2)]"
               )}
             >
-              Ofrecer extra
+              Ofrecer extra (PPV)
             </button>
           </div>
         )}

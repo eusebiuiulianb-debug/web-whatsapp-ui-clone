@@ -282,9 +282,13 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         lastIntentKey: true,
         temperatureBucket: true,
         isNew: true,
+        adultConfirmedAt: true,
       },
     });
     if (!fan) return res.status(404).json({ error: "Fan not found" });
+    if (!fan.adultConfirmedAt) {
+      return res.status(403).json({ ok: false, error: "ADULT_NOT_CONFIRMED" });
+    }
 
     const wallet = await getOrCreateWallet(prisma, fanId);
     const walletEnabled = Boolean(wallet);

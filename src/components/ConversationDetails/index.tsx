@@ -189,6 +189,15 @@ function normalizePriceLabel(value: string) {
   return `${trimmed} €`;
 }
 
+function parseOfferPriceCents(value: string): number | null {
+  const raw = typeof value === "string" ? value.trim() : "";
+  if (!raw) return null;
+  const normalized = raw.replace(/[^\d.,]/g, "").replace(",", ".");
+  const amount = Number.parseFloat(normalized);
+  if (!Number.isFinite(amount) || amount <= 0) return null;
+  return Math.round(amount * 100);
+}
+
 function attachOfferMarker(text: string, offer: OfferMeta | null): string {
   if (!offer) return text;
   try {
@@ -2050,11 +2059,14 @@ export default function ConversationDetails({ onBackToBoard }: ConversationDetai
     if (typeof candidate.title !== "string" || !candidate.title.trim()) return null;
     if (typeof candidate.price !== "string") return null;
     if (candidate.thumb !== undefined && candidate.thumb !== null && typeof candidate.thumb !== "string") return null;
+    const kind =
+      candidate.kind === "offer" || candidate.kind === "pack" || candidate.kind === "ppv" ? candidate.kind : undefined;
     return {
       id: candidate.id,
       title: candidate.title,
       price: candidate.price,
       thumb: typeof candidate.thumb === "string" ? candidate.thumb : null,
+      ...(kind ? { kind } : {}),
     };
   }
 
@@ -11091,6 +11103,27 @@ const INTENT_BADGE_LABELS: Record<string, string> = {
     const textHash = hashText(visibleTrimmed);
     const preview = visibleTrimmed.slice(0, 140);
     try {
+      if (resolvedOffer?.kind === "ppv") {
+        const priceCents = parseOfferPriceCents(resolvedOffer.price);
+        if (!priceCents) {
+          setMessagesError("Precio inválido para extra.");
+          showComposerToast("Precio inválido para extra.");
+          return false;
+        }
+        const result = await sendPpvMessage({
+          title: resolvedOffer.title,
+          priceCents,
+          text: visibleTrimmed,
+        });
+        if (!result.ok) {
+          const errorMessage = result.error || "No se pudo enviar el extra.";
+          setMessagesError(errorMessage);
+          showComposerToast(errorMessage);
+          return false;
+        }
+        showComposerToast("Extra enviado");
+        return true;
+      }
       const ok = await sendMessageText(trimmed, "CREATOR", {
         actionKey: currentActionKey,
         skipTranslation: options?.skipTranslation,
@@ -12464,15 +12497,61 @@ const INTENT_BADGE_LABELS: Record<string, string> = {
     setPpvError(null);
   }, [ppvSending]);
 
+  const sendPpvMessage = useCallback(
+    async (payload: { title?: string | null; priceCents: number; text: string }) => {
+      if (!id || conversation.isManager) {
+        return { ok: false, error: "Selecciona un fan activo para ofrecer extras." };
+      }
+      if (isChatBlocked) {
+        return { ok: false, error: "Chat bloqueado. No puedes ofrecer extras." };
+      }
+      const bodyText = payload.text.trim();
+      if (!bodyText) {
+        return { ok: false, error: "Escribe el contenido del extra." };
+      }
+      if (!Number.isFinite(payload.priceCents) || payload.priceCents <= 0) {
+        return { ok: false, error: "Precio inválido (céntimos)." };
+      }
+      try {
+        const res = await fetch(`/api/chats/${encodeURIComponent(id)}/ppv`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "x-novsy-viewer": "creator" },
+          body: JSON.stringify({
+            title: payload.title?.trim() || null,
+            priceCents: payload.priceCents,
+            text: bodyText,
+          }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok || !data?.ok) {
+          return { ok: false, error: data?.error || "No se pudo enviar el extra." };
+        }
+        const apiMessages: ApiMessage[] = Array.isArray(data.messages)
+          ? (data.messages as ApiMessage[])
+          : data.message
+          ? [data.message as ApiMessage]
+          : [];
+        if (apiMessages.length > 0) {
+          const latest = apiMessages[apiMessages.length - 1];
+          if (latest?.id) {
+            messageEventIdsRef.current.add(latest.id);
+          }
+          const mapped = mapApiMessagesToState(apiMessages);
+          if (mapped.length > 0) {
+            setMessage((prev) => reconcileMessages(prev || [], mapped, id));
+            scrollToBottom("auto");
+          }
+        }
+        return { ok: true };
+      } catch (err) {
+        console.error("Error sending ppv", err);
+        return { ok: false, error: "No se pudo enviar el extra." };
+      }
+    },
+    [conversation.isManager, id, isChatBlocked, mapApiMessagesToState, scrollToBottom, setMessage]
+  );
+
   const handleSendPpv = useCallback(async () => {
-    if (!id || conversation.isManager) {
-      showComposerToast("Selecciona un fan activo para ofrecer extras.");
-      return;
-    }
-    if (isChatBlocked) {
-      showComposerToast("Chat bloqueado. No puedes ofrecer extras.");
-      return;
-    }
     if (ppvSending) return;
     const bodyText = ppvBody.trim();
     if (!bodyText) {
@@ -12487,35 +12566,14 @@ const INTENT_BADGE_LABELS: Record<string, string> = {
     setPpvSending(true);
     setPpvError(null);
     try {
-      const res = await fetch(`/api/chats/${encodeURIComponent(id)}/ppv`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "x-novsy-viewer": "creator" },
-        body: JSON.stringify({
-          title: ppvTitle.trim() || null,
-          priceCents: parsedPrice,
-          text: bodyText,
-        }),
+      const result = await sendPpvMessage({
+        title: ppvTitle.trim() || null,
+        priceCents: parsedPrice,
+        text: bodyText,
       });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok || !data?.ok) {
-        setPpvError(data?.error || "No se pudo enviar el extra.");
+      if (!result.ok) {
+        setPpvError(result.error || "No se pudo enviar el extra.");
         return;
-      }
-      const apiMessages: ApiMessage[] = Array.isArray(data.messages)
-        ? (data.messages as ApiMessage[])
-        : data.message
-        ? [data.message as ApiMessage]
-        : [];
-      if (apiMessages.length > 0) {
-        const latest = apiMessages[apiMessages.length - 1];
-        if (latest?.id) {
-          messageEventIdsRef.current.add(latest.id);
-        }
-        const mapped = mapApiMessagesToState(apiMessages);
-        if (mapped.length > 0) {
-          setMessage((prev) => reconcileMessages(prev || [], mapped, id));
-          scrollToBottom("auto");
-        }
       }
       setPpvSheetOpen(false);
       setPpvTitle("");
@@ -12523,23 +12581,15 @@ const INTENT_BADGE_LABELS: Record<string, string> = {
       setPpvBody("");
       showComposerToast("Extra enviado");
       requestAnimationFrame(() => messageInputRef.current?.focus());
-    } catch (err) {
-      console.error("Error sending ppv", err);
-      setPpvError("No se pudo enviar el extra.");
     } finally {
       setPpvSending(false);
     }
   }, [
-    conversation.isManager,
-    id,
-    isChatBlocked,
-    mapApiMessagesToState,
     ppvBody,
     ppvPriceCents,
     ppvSending,
     ppvTitle,
-    scrollToBottom,
-    setMessage,
+    sendPpvMessage,
     showComposerToast,
   ]);
 
@@ -13123,10 +13173,10 @@ const INTENT_BADGE_LABELS: Record<string, string> = {
           ? "border-[color:var(--border)] bg-[color:var(--surface-2)] text-[color:var(--text)] hover:border-[color:var(--border-a)] hover:bg-[color:var(--surface-1)] focus-visible:ring-[color:var(--ring)]"
           : "border-[color:var(--border)] bg-[color:var(--surface-2)] text-[color:var(--muted)] cursor-not-allowed"
       )}
-      title={canAttachContent ? "Ofrecer extra PPV" : "Solo disponible cuando escribes al fan."}
-      aria-label="Ofrecer extra"
+      title={canAttachContent ? "Ofrecer extra (PPV)" : "Solo disponible cuando escribes al fan."}
+      aria-label="Ofrecer extra (PPV)"
     >
-      Ofrecer extra
+      Ofrecer extra (PPV)
     </button>
   ) : null;
   const composerExtraActions = isFanTarget ? (

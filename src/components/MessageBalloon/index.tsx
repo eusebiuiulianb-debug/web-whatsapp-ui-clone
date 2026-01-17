@@ -50,6 +50,8 @@ export function splitOffer(content: string): { textVisible: string; offerMeta: O
 
 type LockedContentCardProps = {
   title: string;
+  kindLabel: string;
+  description: string;
   price: string;
   thumb?: string | null;
   status: "locked" | "unlocked";
@@ -60,6 +62,8 @@ type LockedContentCardProps = {
 
 const LockedContentCard = ({
   title,
+  kindLabel,
+  description,
   price,
   thumb,
   status,
@@ -99,8 +103,14 @@ const LockedContentCard = ({
             {status === "locked" ? "🔒" : "✅"}
           </div>
         )}
-        <div className="min-w-0 flex-1">
-          <div className="truncate text-[12px] font-semibold text-[color:var(--text)]">{title}</div>
+        <div className="min-w-0 flex-1 space-y-1">
+          <div className="flex items-center gap-2">
+            <div className="truncate text-[12px] font-semibold text-[color:var(--text)]">{title}</div>
+            <span className="shrink-0 rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-2 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-[color:var(--text)]">
+              {kindLabel}
+            </span>
+          </div>
+          <div className="text-[11px] text-[color:var(--muted)]">{description}</div>
           {price.trim() ? (
             <div className="text-[11px] text-[color:var(--muted)]">{price}</div>
           ) : null}
@@ -185,6 +195,8 @@ const MessageBalloon = memo(function MessageBalloon(props: MessageBalloonProps) 
   );
   const offerStatus = offerMeta && unlockedOfferIds?.has(offerMeta.id) ? "unlocked" : "locked";
   const isPpvOffer = offerMeta?.kind === "ppv";
+  const offerKindLabel = isPpvOffer ? "EXTRA (PPV)" : "PACK";
+  const offerDescription = isPpvOffer ? "Texto bloqueado hasta compra." : "Desbloquea contenido del pack.";
   const offerCtaLabel =
     offerStatus === "unlocked"
       ? viewerRole === "fan"
@@ -476,6 +488,8 @@ const MessageBalloon = memo(function MessageBalloon(props: MessageBalloonProps) 
             <div className="mt-2">
               <LockedContentCard
                 title={offerMeta.title}
+                kindLabel={offerKindLabel}
+                description={offerDescription}
                 price={offerMeta.price}
                 thumb={offerMeta.thumb ?? null}
                 status={offerStatus}
