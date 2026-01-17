@@ -111,6 +111,7 @@ function normalizeTypingPayload(raw: unknown): TypingPayload | null {
     fanId?: unknown;
     isTyping?: unknown;
     senderRole?: unknown;
+    hasDraft?: unknown;
     draftText?: unknown;
     ts?: unknown;
   };
@@ -120,13 +121,14 @@ function normalizeTypingPayload(raw: unknown): TypingPayload | null {
   const isTyping = typeof payload.isTyping === "boolean" ? payload.isTyping : null;
   const senderRole =
     payload.senderRole === "fan" || payload.senderRole === "creator" ? payload.senderRole : null;
+  const hasDraft = typeof payload.hasDraft === "boolean" ? payload.hasDraft : undefined;
   const draftText =
     FAN_DRAFT_PREVIEW_ENABLED && typeof payload.draftText === "string"
       ? normalizeFanDraftText(payload.draftText)
       : undefined;
   const ts = typeof payload.ts === "number" ? payload.ts : Date.now();
   if (!conversationId || !fanId || isTyping === null || !senderRole) return null;
-  return { conversationId, fanId, isTyping, senderRole, draftText, ts };
+  return { conversationId, fanId, isTyping, senderRole, hasDraft, draftText, ts };
 }
 
 function normalizeMessageKind(type?: string | null) {

@@ -93,11 +93,16 @@ export function updateTypingIndicator(detail: TypingPayload) {
       : "";
   if (!conversationId) return;
   const ts = typeof detail.ts === "number" ? detail.ts : Date.now();
+  const hasDraft = typeof detail.hasDraft === "boolean" ? detail.hasDraft : undefined;
   const normalizedDraftText =
     FAN_DRAFT_PREVIEW_ENABLED && typeof detail.draftText === "string"
       ? normalizeFanDraftText(detail.draftText)
       : undefined;
-  if (!detail.isTyping || (normalizedDraftText !== undefined && normalizedDraftText.length === 0)) {
+  if (
+    !detail.isTyping ||
+    hasDraft === false ||
+    (normalizedDraftText !== undefined && normalizedDraftText.length === 0)
+  ) {
     if (store.entries.delete(conversationId)) {
       notify();
     }
@@ -107,6 +112,8 @@ export function updateTypingIndicator(detail: TypingPayload) {
   const nextDraftText = FAN_DRAFT_PREVIEW_ENABLED
     ? normalizedDraftText !== undefined
       ? normalizedDraftText
+      : hasDraft !== undefined
+      ? undefined
       : existing?.draftText
     : undefined;
   const nextEntry: TypingIndicatorState = {

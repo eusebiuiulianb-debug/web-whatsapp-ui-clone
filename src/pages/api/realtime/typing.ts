@@ -51,26 +51,27 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
     creatorAllowsDraftPreview &&
     adultConfirmed &&
     normalizedSenderRole === "fan";
-  const rawDraftText = typeof draftText === "string" ? draftText : null;
-  let normalizedDraftText: string | undefined = undefined;
+  const rawDraftText =
+    normalizedSenderRole === "fan" && typeof draftText === "string" ? draftText : null;
+  let normalizedDraftText = rawDraftText !== null ? normalizeFanDraftText(rawDraftText) : "";
+  if (!isTyping) {
+    normalizedDraftText = "";
+  }
+  const hasDraft = rawDraftText !== null ? normalizedDraftText.length > 0 : undefined;
   let resolvedIsTyping = isTyping;
-  if (allowDraftPreview && rawDraftText !== null) {
-    normalizedDraftText = normalizeFanDraftText(rawDraftText);
-    if (!normalizedDraftText) {
-      resolvedIsTyping = false;
-      normalizedDraftText = "";
-    } else if (!isTyping) {
-      normalizedDraftText = "";
-    }
+  if (rawDraftText !== null && !normalizedDraftText) {
+    resolvedIsTyping = false;
   }
 
+  // Manual QA: fan without adultConfirmedAt -> event has hasDraft only (no draftText); creator sees dots.
   emitCreatorTypingEvent({
     creatorId: fan.creatorId,
     conversationId: fan.id,
     fanId: fan.id,
     isTyping: resolvedIsTyping,
     senderRole: normalizedSenderRole,
-    ...(normalizedDraftText !== undefined ? { draftText: normalizedDraftText } : {}),
+    ...(hasDraft !== undefined ? { hasDraft } : {}),
+    ...(allowDraftPreview && rawDraftText !== null ? { draftText: normalizedDraftText } : {}),
     ts: Date.now(),
   });
 

@@ -25,6 +25,7 @@ export type CreatorTypingEvent = {
   fanId: string;
   isTyping: boolean;
   senderRole: "fan" | "creator";
+  hasDraft?: boolean;
   draftText?: string;
   ts: number;
 };
