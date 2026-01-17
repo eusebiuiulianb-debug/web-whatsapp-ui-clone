@@ -3,7 +3,7 @@ import { GetServerSideProps } from "next";
 import { useRouter } from "next/router";
 import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent, type KeyboardEvent, type ReactNode } from "react";
 import { ChatComposerBar } from "../../components/ChatComposerBar";
-import MessageBalloon, { type OfferMeta } from "../../components/MessageBalloon";
+import MessageBalloon, { splitOffer, type OfferMeta } from "../../components/MessageBalloon";
 import { EmojiPicker } from "../../components/EmojiPicker";
 import { useCreatorConfig } from "../../context/CreatorConfigContext";
 import {
@@ -836,6 +836,36 @@ export function FanChatPage({
   }, [packStatusById, updateUnlockedOfferIdsFromPackStatus]);
 
   useEffect(() => {
+    if (!messages.length) return;
+    setUnlockedOfferIds((prev) => {
+      let changed = false;
+      const next = new Set(prev);
+      messages.forEach((msg) => {
+        const rawText = typeof msg.text === "string" ? msg.text : "";
+        if (!rawText) return;
+        const { textVisible, offerMeta } = splitOffer(rawText);
+        if (offerMeta?.kind !== "ppv") return;
+        if (!textVisible.trim()) return;
+        if (!next.has(offerMeta.id)) {
+          next.add(offerMeta.id);
+          changed = true;
+        }
+      });
+      return changed ? next : prev;
+    });
+  }, [messages]);
+
+  const markOfferUnlocked = useCallback((offerId: string) => {
+    if (!offerId) return;
+    setUnlockedOfferIds((prev) => {
+      if (prev.has(offerId)) return prev;
+      const next = new Set(prev);
+      next.add(offerId);
+      return next;
+    });
+  }, []);
+
+  useEffect(() => {
     setCreatorTyping({ isTyping: false, ts: 0 });
     lastCreatorMessageIdRef.current = null;
     if (!fanId || typeof EventSource === "undefined") return;
@@ -866,15 +896,34 @@ export function FanChatPage({
         // ignore parse errors
       }
     };
+    const handlePpv = (event: Event) => {
+      const data = (event as MessageEvent).data;
+      if (typeof data !== "string") return;
+      try {
+        const parsed = JSON.parse(data) as { message?: ApiMessage };
+        const rawMessage = parsed?.message;
+        if (!rawMessage || rawMessage.fanId !== fanId) return;
+        setMessages((prev) => reconcileMessages(prev, [rawMessage], sortMessages, fanId));
+        const rawText = typeof rawMessage.text === "string" ? rawMessage.text : "";
+        const { textVisible, offerMeta } = splitOffer(rawText);
+        if (offerMeta?.kind === "ppv" && textVisible.trim()) {
+          markOfferUnlocked(offerMeta.id);
+        }
+      } catch (_err) {
+        // ignore parse errors
+      }
+    };
     source.addEventListener("typing", handleTyping as EventListener);
+    source.addEventListener("ppv", handlePpv as EventListener);
     source.onerror = () => {
       // EventSource reconnects automatically.
     };
     return () => {
       source.removeEventListener("typing", handleTyping as EventListener);
+      source.removeEventListener("ppv", handlePpv as EventListener);
       source.close();
     };
-  }, [fanId]);
+  }, [fanId, markOfferUnlocked, sortMessages]);
 
   useEffect(() => {
     if (!creatorTyping.isTyping) return;
@@ -1387,8 +1436,9 @@ export function FanChatPage({
       if (isAdultGateActive) return;
       if (!offer?.id) return;
       const isPackOffer =
-        offer.kind === "pack" || (offer.kind !== "offer" && availablePackIds.has(offer.id));
+        offer.kind === "pack" || (offer.kind !== "offer" && offer.kind !== "ppv" && availablePackIds.has(offer.id));
       if (status === "unlocked") {
+        if (offer.kind === "ppv") return;
         openContentSheet("content");
         return;
       }
@@ -1416,16 +1466,6 @@ export function FanChatPage({
     if (packId && isPackPurchasing(packId)) return;
     setPackPurchase(null);
   }, [isPackPurchasing, packPurchase]);
-
-  const markOfferUnlocked = useCallback((offerId: string) => {
-    if (!offerId) return;
-    setUnlockedOfferIds((prev) => {
-      if (prev.has(offerId)) return prev;
-      const next = new Set(prev);
-      next.add(offerId);
-      return next;
-    });
-  }, []);
 
   const getOfferClientTxnId = useCallback((offerId: string) => {
     const key = offerId.trim();
@@ -1502,6 +1542,42 @@ export function FanChatPage({
       }
     },
     [applyWalletPayload, fanId, getOfferClientTxnId]
+  );
+
+  const createPpvPurchase = useCallback(
+    async (offer: OfferMeta) => {
+      if (!fanId) return { ok: false, error: "Missing fanId" };
+      const offerId = offer.id?.trim() ?? "";
+      if (!offerId) return { ok: false, error: "Missing ppvId" };
+      try {
+        const res = await fetch(`/api/ppv/${encodeURIComponent(offerId)}/purchase`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+        });
+        const data = await res.json().catch(() => ({}));
+        applyWalletPayload(data);
+        if (!res.ok || !data?.ok) {
+          const errorCode = typeof data?.error === "string" ? data.error : "";
+          const errorMessage =
+            errorCode === "INSUFFICIENT_BALANCE"
+              ? "Saldo insuficiente."
+              : errorCode === "ADULT_NOT_CONFIRMED"
+              ? "Confirma 18+ para comprar."
+              : data?.error || "No se pudo desbloquear.";
+          return { ok: false, error: errorMessage, errorCode, requiredCents: data?.requiredCents, message: data?.message };
+        }
+        return {
+          ok: true,
+          purchaseId: data?.purchaseId,
+          reused: data?.reused === true,
+          message: data?.message,
+        };
+      } catch (err) {
+        console.error("Error creating ppv purchase", err);
+        return { ok: false, error: "No se pudo desbloquear." };
+      }
+    },
+    [applyWalletPayload, fanId]
   );
 
   const createPackPurchase = useCallback(
@@ -1736,6 +1812,7 @@ export function FanChatPage({
     unlockRequiredCents > 0 &&
     walletBalanceCents !== null &&
     walletBalanceCents < unlockRequiredCents;
+  const isPpvUnlock = unlockOffer?.kind === "ppv";
   const packNeedsTopup =
     walletEnabled === true &&
     packRequiredCents > 0 &&
@@ -1752,9 +1829,10 @@ export function FanChatPage({
       showFanToast("Saldo insuficiente.");
       return;
     }
+    const isPpvUnlock = unlockOffer.kind === "ppv";
     setOfferUnlocking(offerId, true);
     try {
-      const result = await createOfferPurchase(unlockOffer);
+      const result = isPpvUnlock ? await createPpvPurchase(unlockOffer) : await createOfferPurchase(unlockOffer);
       if (!result.ok) {
         if (result.errorCode === "INSUFFICIENT_BALANCE") {
           openWalletTopup();
@@ -1762,27 +1840,38 @@ export function FanChatPage({
         showFanToast(result.error ?? "No se pudo desbloquear.");
         return;
       }
-      if (result.accessSummary) {
-        setAccessSummary(result.accessSummary as AccessSummary);
-      }
-      if (result.packStatusById && typeof result.packStatusById === "object") {
-        setPackStatusById(result.packStatusById as Record<string, PackStatus>);
-      }
-      if (Array.isArray(result.unlockedPacks)) {
-        updateUnlockedOfferIdsFromPackList(result.unlockedPacks as string[]);
+      if (isPpvUnlock) {
+        if ("message" in result && result.message && fanId) {
+          setMessages((prev) => reconcileMessages(prev, [result.message], sortMessages, fanId));
+        }
+      } else {
+        if ("accessSummary" in result && result.accessSummary) {
+          setAccessSummary(result.accessSummary as AccessSummary);
+        }
+        if ("packStatusById" in result && result.packStatusById && typeof result.packStatusById === "object") {
+          setPackStatusById(result.packStatusById as Record<string, PackStatus>);
+        }
+        if ("unlockedPacks" in result && Array.isArray(result.unlockedPacks)) {
+          updateUnlockedOfferIdsFromPackList(result.unlockedPacks as string[]);
+        }
       }
       markOfferUnlocked(offerId);
-      const refresh = await refreshAccessAndContent(fanId);
-      if (!refresh.ok) {
-        await fetchAccessInfo(fanId);
-      }
       setUnlockOffer(null);
-      openContentSheet("content");
+      if (isPpvUnlock) {
+        showFanToast("Extra desbloqueado.");
+      } else {
+        const refresh = await refreshAccessAndContent(fanId);
+        if (!refresh.ok) {
+          await fetchAccessInfo(fanId);
+        }
+        openContentSheet("content");
+      }
     } finally {
       setOfferUnlocking(offerId, false);
     }
   }, [
     createOfferPurchase,
+    createPpvPurchase,
     fanId,
     fetchAccessInfo,
     isOfferUnlocking,
@@ -1790,6 +1879,8 @@ export function FanChatPage({
     markOfferUnlocked,
     openContentSheet,
     openWalletTopup,
+    setMessages,
+    sortMessages,
     refreshAccessAndContent,
     setOfferUnlocking,
     showFanToast,
@@ -2584,7 +2675,11 @@ export function FanChatPage({
         <div className="space-y-4">
           <div>
             <h3 className="text-base font-semibold text-[color:var(--text)]">
-              {unlockOffer?.title ? `Desbloquear: ${unlockOffer.title}` : "Desbloquear"}
+              {unlockOffer?.title
+                ? `${isPpvUnlock ? "Comprar extra" : "Desbloquear"}: ${unlockOffer.title}`
+                : isPpvUnlock
+                ? "Comprar extra"
+                : "Desbloquear"}
             </h3>
             <p className="text-xs text-[color:var(--muted)]">Se desbloquea al instante dentro del chat.</p>
           </div>
@@ -2631,7 +2726,7 @@ export function FanChatPage({
               disabled={unlockConfirmDisabled}
               className="rounded-full bg-[color:rgba(var(--brand-rgb),0.16)] px-4 py-1.5 text-xs font-semibold text-[color:var(--text)] hover:bg-[color:rgba(var(--brand-rgb),0.24)] disabled:opacity-60"
             >
-              {unlockSubmitting ? "Desbloqueando..." : "Confirmar y desbloquear"}
+              {unlockSubmitting ? (isPpvUnlock ? "Comprando..." : "Desbloqueando...") : isPpvUnlock ? "Confirmar compra" : "Confirmar y desbloquear"}
             </button>
           </div>
         </div>

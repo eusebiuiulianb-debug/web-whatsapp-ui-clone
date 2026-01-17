@@ -90,6 +90,24 @@ function normalizeList(value: string | string[] | undefined): string[] {
 }
 
 const OFFER_MARKER = "\n\n__NOVSY_OFFER__:";
+const PPV_OFFER_FALLBACK_TITLE = "Extra";
+
+function formatPriceFromCents(value: number, currency?: string | null) {
+  const amount = value / 100;
+  const rounded = Math.round(amount * 100) / 100;
+  const label = rounded % 1 === 0 ? rounded.toFixed(0) : rounded.toFixed(2);
+  const code = (currency || "EUR").toUpperCase();
+  return code === "EUR" ? `${label} €` : `${label} ${code}`;
+}
+
+function buildPpvOfferMeta(ppv: { id: string; title?: string | null; priceCents: number; currency?: string | null }) {
+  return {
+    id: ppv.id,
+    title: (ppv.title || "").trim() || PPV_OFFER_FALLBACK_TITLE,
+    price: formatPriceFromCents(ppv.priceCents, ppv.currency ?? "EUR"),
+    kind: "ppv",
+  };
+}
 
 function splitOfferMarker(text: string): { visibleText: string; marker: string } {
   const idx = text.indexOf(OFFER_MARKER);
@@ -179,6 +197,7 @@ function sanitizeMessageForFan(message: Record<string, unknown>) {
     originalLang,
     creatorLang,
     messageTranslations,
+    ppvMessage,
     ...rest
   } = message as Record<string, unknown>;
   const sanitized = { ...rest };
@@ -302,6 +321,15 @@ async function handleGet(req: NextApiRequest, res: NextApiResponse<MessageRespon
       orderBy: { id: "asc" },
       include: {
         contentItem: true,
+        ppvMessage: {
+          select: {
+            id: true,
+            title: true,
+            priceCents: true,
+            currency: true,
+            purchase: { select: { id: true } },
+          },
+        },
         ...(includeTranslations
           ? { messageTranslations: { orderBy: { createdAt: "desc" } } }
           : {}),
@@ -362,8 +390,37 @@ async function handleGet(req: NextApiRequest, res: NextApiResponse<MessageRespon
 
     const responseMessages =
       viewerRole === "fan"
-        ? withLanguageMeta.map((message) => sanitizeMessageForFan(message as Record<string, unknown>))
-        : withLanguageMeta;
+        ? withLanguageMeta.map((message) => {
+            const raw = message as Record<string, unknown>;
+            const ppv = raw.ppvMessage as {
+              id?: string;
+              title?: string | null;
+              priceCents?: number;
+              currency?: string | null;
+              purchase?: { id?: string } | null;
+            } | null;
+            if (!ppv?.id || typeof ppv.priceCents !== "number") {
+              return sanitizeMessageForFan(raw);
+            }
+            const isUnlocked = Boolean(ppv.purchase?.id);
+            const offerMeta = buildPpvOfferMeta({
+              id: ppv.id,
+              title: ppv.title ?? null,
+              priceCents: ppv.priceCents,
+              currency: ppv.currency ?? "EUR",
+            });
+            const baseText = isUnlocked && typeof raw.text === "string" ? raw.text : offerMeta.title;
+            const withOffer = {
+              ...raw,
+              text: attachOfferMarker(baseText, JSON.stringify(offerMeta)),
+              deliveredText: null,
+            };
+            return sanitizeMessageForFan(withOffer);
+          })
+        : withLanguageMeta.map((message) => {
+            const { ppvMessage, ...rest } = message as Record<string, unknown>;
+            return rest;
+          });
 
     return res.status(200).json({ ok: true, items: responseMessages, messages: responseMessages });
   } catch (err) {

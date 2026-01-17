@@ -16,7 +16,7 @@ export type OfferMeta = {
   title: string;
   price: string;
   thumb?: string | null;
-  kind?: "offer" | "pack";
+  kind?: "offer" | "pack" | "ppv";
 };
 
 const isOfferMeta = (value: unknown): value is OfferMeta => {
@@ -26,7 +26,7 @@ const isOfferMeta = (value: unknown): value is OfferMeta => {
   if (typeof candidate.title !== "string" || !candidate.title.trim()) return false;
   if (typeof candidate.price !== "string") return false;
   if (candidate.thumb !== undefined && candidate.thumb !== null && typeof candidate.thumb !== "string") return false;
-  if (candidate.kind !== undefined && candidate.kind !== "offer" && candidate.kind !== "pack") return false;
+  if (candidate.kind !== undefined && candidate.kind !== "offer" && candidate.kind !== "pack" && candidate.kind !== "ppv") return false;
   return true;
 };
 
@@ -184,11 +184,14 @@ const MessageBalloon = memo(function MessageBalloon(props: MessageBalloonProps) 
     [isSticker, message]
   );
   const offerStatus = offerMeta && unlockedOfferIds?.has(offerMeta.id) ? "unlocked" : "locked";
+  const isPpvOffer = offerMeta?.kind === "ppv";
   const offerCtaLabel =
     offerStatus === "unlocked"
       ? viewerRole === "fan"
         ? "Ver contenido"
         : "Ver"
+      : isPpvOffer
+      ? "Comprar"
       : "Desbloquear";
   const isOfferUnlocking = Boolean(offerMeta && unlockingOfferIds?.has(offerMeta.id));
   const resolvedOfferCtaLabel = isOfferUnlocking ? "Desbloqueando..." : offerCtaLabel;

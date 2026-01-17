@@ -1,6 +1,11 @@
 import type { NextApiRequest, NextApiResponse } from "next";
 import prisma from "../../../lib/prisma.server";
-import { onCreatorTypingEvent, type CreatorTypingEvent } from "../../../server/realtimeHub";
+import {
+  onCreatorEvent,
+  onCreatorTypingEvent,
+  type CreatorRealtimeEvent,
+  type CreatorTypingEvent,
+} from "../../../server/realtimeHub";
 
 export const config = {
   api: {
@@ -60,11 +65,24 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     );
   };
 
+  const sendPpvEvent = (event: CreatorRealtimeEvent) => {
+    const message = (event.payload as { message?: unknown } | undefined)?.message ?? null;
+    if (!message) return;
+    res.write("event: ppv\n");
+    res.write(`data: ${JSON.stringify({ message })}\n\n`);
+  };
+
   const off = onCreatorTypingEvent((event) => {
     if (event.creatorId !== fan.creatorId) return;
     if (event.fanId !== fan.id && event.conversationId !== fan.id) return;
     if (event.senderRole !== "creator") return;
     sendTypingEvent(event);
+  });
+  const offPpv = onCreatorEvent((event) => {
+    if (event.type !== "PPV_UNLOCKED") return;
+    if (event.creatorId !== fan.creatorId) return;
+    if (event.fanId !== fan.id) return;
+    sendPpvEvent(event);
   });
 
   const heartbeat = setInterval(() => {
@@ -74,5 +92,6 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   req.on("close", () => {
     clearInterval(heartbeat);
     off();
+    offPpv();
   });
 }

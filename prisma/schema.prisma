@@ -47,6 +47,8 @@ model Creator {
   agencyObjectives           AgencyObjective[]
   offers                     Offer[]
   agencyTemplates            AgencyTemplate[]
+  ppvMessages                PpvMessage[]
+  ppvPurchases               PpvPurchase[]
 }
 
 model CreatorProfile {
@@ -138,6 +140,8 @@ model Fan {
   temperatureBucket     String?
   agencyMetas           ChatAgencyMeta[]
   wallet                Wallet?
+  ppvMessages           PpvMessage[]
+  ppvPurchases          PpvPurchase[]
 }
 
 enum FanFollowUpStatus {
@@ -315,6 +319,43 @@ model Message {
   voiceAnalysisUpdatedAt DateTime?
   messageReactions       MessageReaction[]
   messageTranslations    MessageTranslation[]
+  ppvMessage             PpvMessage?
+}
+
+model PpvMessage {
+  id         String       @id @default(cuid())
+  messageId  String       @unique
+  message    Message      @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  fanId      String
+  creatorId  String
+  title      String?
+  priceCents Int
+  currency   String       @default("EUR")
+  createdAt  DateTime     @default(now())
+  updatedAt  DateTime     @updatedAt
+  fan        Fan          @relation(fields: [fanId], references: [id])
+  creator    Creator      @relation(fields: [creatorId], references: [id])
+  purchase   PpvPurchase?
+
+  @@index([fanId, createdAt])
+  @@index([creatorId, createdAt])
+}
+
+model PpvPurchase {
+  id           String            @id @default(cuid())
+  ppvMessageId String            @unique
+  ppvMessage   PpvMessage        @relation(fields: [ppvMessageId], references: [id], onDelete: Cascade)
+  fanId        String
+  creatorId    String
+  amountCents  Int
+  currency     String            @default("EUR")
+  status       PpvPurchaseStatus @default(PAID)
+  createdAt    DateTime          @default(now())
+  fan          Fan               @relation(fields: [fanId], references: [id])
+  creator      Creator           @relation(fields: [creatorId], references: [id])
+
+  @@index([fanId, createdAt])
+  @@index([creatorId, createdAt])
 }
 
 model MessageTranslation {
@@ -437,7 +478,12 @@ enum WalletTransactionKind {
   FAKE_TOPUP
   PACK_PURCHASE
   EXTRA_PURCHASE
+  PPV_PURCHASE
   REFUND
+}
+
+enum PpvPurchaseStatus {
+  PAID
 }
 
 enum CatalogItemType {

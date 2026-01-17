@@ -19,6 +19,7 @@ type CreatorRealtimeEventType =
   | "voice_note_transcript"
   | "voice_note_transcribed"
   | "PURCHASE_CREATED"
+  | "PPV_UNLOCKED"
   | "CHAT_UPDATED";
 
 type CreatorRealtimeEvent = {

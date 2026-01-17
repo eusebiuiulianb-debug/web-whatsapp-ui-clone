@@ -2224,6 +2224,12 @@ export default function ConversationDetails({ onBackToBoard }: ConversationDetai
   const [ showContentModal, setShowContentModal ] = useState(false);
   const [ ppvTierMenuOpen, setPpvTierMenuOpen ] = useState(false);
   const [ ppvTierFilter, setPpvTierFilter ] = useState<ChatPpvTierValue>("CHAT_T1");
+  const [ ppvSheetOpen, setPpvSheetOpen ] = useState(false);
+  const [ ppvTitle, setPpvTitle ] = useState("");
+  const [ ppvPriceCents, setPpvPriceCents ] = useState("");
+  const [ ppvBody, setPpvBody ] = useState("");
+  const [ ppvError, setPpvError ] = useState<string | null>(null);
+  const [ ppvSending, setPpvSending ] = useState(false);
   const [ duplicateConfirm, setDuplicateConfirm ] = useState<DuplicateConfirmState | null>(null);
   const [ isCoarsePointer, setIsCoarsePointer ] = useState(false);
   const [ messageActionSheet, setMessageActionSheet ] = useState<MessageActionSheetState | null>(null);
@@ -12438,6 +12444,105 @@ const INTENT_BADGE_LABELS: Record<string, string> = {
     }
   }, [conversation.isManager, fetchOffers, id, offers.length, offersLoading, showComposerToast]);
 
+  const openPpvSheet = useCallback(() => {
+    if (!id || conversation.isManager) {
+      showComposerToast("Selecciona un fan activo para ofrecer extras.");
+      return;
+    }
+    if (isChatBlocked) {
+      showComposerToast("Chat bloqueado. No puedes ofrecer extras.");
+      return;
+    }
+    setComposerTarget("fan");
+    setPpvError(null);
+    setPpvSheetOpen(true);
+  }, [conversation.isManager, id, isChatBlocked, showComposerToast]);
+
+  const closePpvSheet = useCallback(() => {
+    if (ppvSending) return;
+    setPpvSheetOpen(false);
+    setPpvError(null);
+  }, [ppvSending]);
+
+  const handleSendPpv = useCallback(async () => {
+    if (!id || conversation.isManager) {
+      showComposerToast("Selecciona un fan activo para ofrecer extras.");
+      return;
+    }
+    if (isChatBlocked) {
+      showComposerToast("Chat bloqueado. No puedes ofrecer extras.");
+      return;
+    }
+    if (ppvSending) return;
+    const bodyText = ppvBody.trim();
+    if (!bodyText) {
+      setPpvError("Escribe el contenido del extra.");
+      return;
+    }
+    const parsedPrice = Number.parseInt(ppvPriceCents.trim(), 10);
+    if (!Number.isFinite(parsedPrice) || parsedPrice <= 0) {
+      setPpvError("Precio inválido (céntimos).");
+      return;
+    }
+    setPpvSending(true);
+    setPpvError(null);
+    try {
+      const res = await fetch(`/api/chats/${encodeURIComponent(id)}/ppv`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "x-novsy-viewer": "creator" },
+        body: JSON.stringify({
+          title: ppvTitle.trim() || null,
+          priceCents: parsedPrice,
+          text: bodyText,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data?.ok) {
+        setPpvError(data?.error || "No se pudo enviar el extra.");
+        return;
+      }
+      const apiMessages: ApiMessage[] = Array.isArray(data.messages)
+        ? (data.messages as ApiMessage[])
+        : data.message
+        ? [data.message as ApiMessage]
+        : [];
+      if (apiMessages.length > 0) {
+        const latest = apiMessages[apiMessages.length - 1];
+        if (latest?.id) {
+          messageEventIdsRef.current.add(latest.id);
+        }
+        const mapped = mapApiMessagesToState(apiMessages);
+        if (mapped.length > 0) {
+          setMessage((prev) => reconcileMessages(prev || [], mapped, id));
+          scrollToBottom("auto");
+        }
+      }
+      setPpvSheetOpen(false);
+      setPpvTitle("");
+      setPpvPriceCents("");
+      setPpvBody("");
+      showComposerToast("Extra enviado");
+      requestAnimationFrame(() => messageInputRef.current?.focus());
+    } catch (err) {
+      console.error("Error sending ppv", err);
+      setPpvError("No se pudo enviar el extra.");
+    } finally {
+      setPpvSending(false);
+    }
+  }, [
+    conversation.isManager,
+    id,
+    isChatBlocked,
+    mapApiMessagesToState,
+    ppvBody,
+    ppvPriceCents,
+    ppvSending,
+    ppvTitle,
+    scrollToBottom,
+    setMessage,
+    showComposerToast,
+  ]);
+
   const closeOfferSheet = useCallback(() => {
     if (offerSheetSendingId) return;
     setOfferSheetOpen(false);
@@ -13007,6 +13112,33 @@ const INTENT_BADGE_LABELS: Record<string, string> = {
       )}
     </div>
   ) : null;
+  const ppvOfferButton = isFanTarget ? (
+    <button
+      type="button"
+      onClick={openPpvSheet}
+      disabled={!canAttachContent}
+      className={clsx(
+        "inline-flex h-9 items-center gap-1.5 rounded-full border px-3 text-[11px] font-semibold transition focus-visible:outline-none focus-visible:ring-2",
+        canAttachContent
+          ? "border-[color:var(--border)] bg-[color:var(--surface-2)] text-[color:var(--text)] hover:border-[color:var(--border-a)] hover:bg-[color:var(--surface-1)] focus-visible:ring-[color:var(--ring)]"
+          : "border-[color:var(--border)] bg-[color:var(--surface-2)] text-[color:var(--muted)] cursor-not-allowed"
+      )}
+      title={canAttachContent ? "Ofrecer extra PPV" : "Solo disponible cuando escribes al fan."}
+      aria-label="Ofrecer extra"
+    >
+      Ofrecer extra
+    </button>
+  ) : null;
+  const composerExtraActions = isFanTarget ? (
+    <div className="flex items-center gap-2">
+      {ppvTierMenu}
+      {ppvOfferButton}
+    </div>
+  ) : null;
+  const parsedPpvPrice = ppvPriceCents.trim()
+    ? Number.parseInt(ppvPriceCents.trim(), 10)
+    : Number.NaN;
+  const ppvPriceLabel = Number.isFinite(parsedPpvPrice) ? formatCurrency(parsedPpvPrice / 100) : "—";
 
   return (
     <div className="relative flex flex-col w-full h-[100dvh] max-h-[100dvh]">
@@ -14516,7 +14648,7 @@ const INTENT_BADGE_LABELS: Record<string, string> = {
                 onEmojiSelect={handleInsertEmoji}
                 showStickers={isFanTarget}
                 onStickerSelect={handleInsertSticker}
-                extraActions={ppvTierMenu}
+                extraActions={composerExtraActions}
                 inputRef={messageInputRef}
                 maxHeight={MAX_MAIN_COMPOSER_HEIGHT}
                 isChatBlocked={isChatBlocked}
@@ -14736,6 +14868,88 @@ const INTENT_BADGE_LABELS: Record<string, string> = {
                 </div>
               </div>
             ))}
+          </div>
+        </div>
+      )}
+      {ppvSheetOpen && (
+        <div className="fixed inset-0 z-[70]">
+          <div className="absolute inset-0 bg-[color:var(--surface-overlay)]" onClick={closePpvSheet} />
+          <div className="absolute inset-x-0 bottom-0 max-h-[85vh] overflow-y-auto rounded-t-3xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-4 pb-6 pt-4">
+            <div className="mx-auto mb-3 h-1.5 w-12 rounded-full bg-[color:var(--surface-2)]/80" />
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <h3 className="text-base font-semibold text-[color:var(--text)]">Ofrecer extra (PPV)</h3>
+                <p className="text-xs text-[color:var(--muted)]">Texto bloqueado hasta que el fan lo compre.</p>
+              </div>
+              <button
+                type="button"
+                onClick={closePpvSheet}
+                disabled={ppvSending}
+                className="rounded-full border border-[color:var(--surface-border)] px-3 py-1 text-[10px] font-semibold text-[color:var(--text)] hover:bg-[color:var(--surface-2)] disabled:opacity-60"
+              >
+                Cerrar
+              </button>
+            </div>
+            <div className="mt-4 space-y-3">
+              <label className="flex flex-col gap-1 text-sm text-[color:var(--text)]">
+                <span className="text-[10px] uppercase tracking-wide text-[color:var(--muted)]">Título (opcional)</span>
+                <input
+                  value={ppvTitle}
+                  onChange={(event) => {
+                    setPpvTitle(event.target.value);
+                    if (ppvError) setPpvError(null);
+                  }}
+                  className="w-full rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-3 py-2 text-sm text-[color:var(--text)] focus:border-[color:var(--brand)]"
+                  placeholder="Ej: Extra íntimo"
+                />
+              </label>
+              <label className="flex flex-col gap-1 text-sm text-[color:var(--text)]">
+                <span className="text-[10px] uppercase tracking-wide text-[color:var(--muted)]">Precio (céntimos)</span>
+                <input
+                  type="number"
+                  min={1}
+                  value={ppvPriceCents}
+                  onChange={(event) => {
+                    setPpvPriceCents(event.target.value);
+                    if (ppvError) setPpvError(null);
+                  }}
+                  className="w-full rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-3 py-2 text-sm text-[color:var(--text)] focus:border-[color:var(--brand)]"
+                  placeholder="Ej: 699"
+                />
+                <span className="text-[11px] text-[color:var(--muted)]">Vista previa: {ppvPriceLabel}</span>
+              </label>
+              <label className="flex flex-col gap-1 text-sm text-[color:var(--text)]">
+                <span className="text-[10px] uppercase tracking-wide text-[color:var(--muted)]">Contenido</span>
+                <textarea
+                  value={ppvBody}
+                  onChange={(event) => {
+                    setPpvBody(event.target.value);
+                    if (ppvError) setPpvError(null);
+                  }}
+                  className="w-full min-h-[140px] rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-3 py-2 text-sm text-[color:var(--text)] focus:border-[color:var(--brand)]"
+                  placeholder="Escribe el contenido que se desbloquea al comprar."
+                />
+              </label>
+            </div>
+            {ppvError && <div className="mt-2 text-xs text-[color:var(--danger)]">{ppvError}</div>}
+            <div className="mt-4 flex items-center justify-end gap-2">
+              <button
+                type="button"
+                onClick={closePpvSheet}
+                disabled={ppvSending}
+                className="rounded-full border border-[color:var(--surface-border)] px-4 py-1.5 text-xs text-[color:var(--text)] hover:bg-[color:var(--surface-2)] disabled:opacity-60"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={handleSendPpv}
+                disabled={ppvSending}
+                className="rounded-full bg-[color:rgba(var(--brand-rgb),0.16)] px-4 py-1.5 text-xs font-semibold text-[color:var(--text)] hover:bg-[color:rgba(var(--brand-rgb),0.24)] disabled:opacity-60"
+              >
+                {ppvSending ? "Enviando..." : "Enviar extra"}
+              </button>
+            </div>
           </div>
         </div>
       )}
