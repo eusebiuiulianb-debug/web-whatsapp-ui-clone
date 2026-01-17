@@ -5136,6 +5136,7 @@ const INTENT_BADGE_LABELS: Record<string, string> = {
           params.set("markRead", "1");
         }
         recordDevRequest("messages");
+        // No-store keeps PPV card status in sync after purchases.
         const res = await fetch(`/api/messages?${params.toString()}`, {
           signal: controller.signal,
           cache: "no-store",
@@ -5568,7 +5569,11 @@ const INTENT_BADGE_LABELS: Record<string, string> = {
     setPpvOverlayLoading(true);
     setPpvOverlayError(null);
     setPpvOverlayContent(null);
-    void fetch(`/api/ppv/${encodeURIComponent(ppvOverlayOfferId)}?viewer=creator`, { signal: controller.signal })
+    // No-store avoids stale PPV detail when creator opens the card.
+    void fetch(`/api/ppv/${encodeURIComponent(ppvOverlayOfferId)}?viewer=creator`, {
+      signal: controller.signal,
+      cache: "no-store",
+    })
       .then(async (res) => {
         const data = await res.json().catch(() => ({}));
         if (ppvOverlayRequestRef.current !== requestId) return;
@@ -5865,6 +5870,16 @@ const INTENT_BADGE_LABELS: Record<string, string> = {
     return null;
   }
 
+  function extractPpvIdFromPurchase(detail: PurchaseCreatedPayload): string | null {
+    const candidates = [detail.clientTxnId];
+    for (const candidate of candidates) {
+      if (typeof candidate !== "string") continue;
+      const match = candidate.match(/ppv[:_-]([a-z0-9_-]+)/i);
+      if (match?.[1]) return match[1];
+    }
+    return null;
+  }
+
   const handlePurchaseCreated = useCallback(
     (detail: PurchaseCreatedPayload) => {
       if (!detail?.fanId || typeof detail.amountCents !== "number" || !detail.kind) return;
@@ -5873,18 +5888,23 @@ const INTENT_BADGE_LABELS: Record<string, string> = {
       if (offerId) {
         unlockOfferId(offerId);
       }
+      const kindLabel = detail.kind?.toString().toUpperCase();
+      const ppvId = extractPpvIdFromPurchase(detail);
       const eventId = resolvePurchaseEventId(detail);
       showPurchaseNotice({
         count: 1,
         totalAmountCents: detail.amountCents,
-        kind: detail.kind?.toString().toUpperCase() ?? "EXTRA",
+        kind: kindLabel ?? "EXTRA",
         title: detail.title,
         createdAt: detail.createdAt,
         fanName: typeof detail.fanName === "string" ? detail.fanName : undefined,
         purchaseIds: eventId ? [eventId] : [],
       });
+      if (kindLabel === "PPV" || ppvId) {
+        fetchMessages(detail.fanId, false);
+      }
     },
-    [conversation.isManager, id, showPurchaseNotice, unlockOfferId]
+    [conversation.isManager, fetchMessages, id, showPurchaseNotice, unlockOfferId]
   );
 
   const handleTypingEvent = useCallback(

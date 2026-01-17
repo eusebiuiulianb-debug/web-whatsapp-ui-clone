@@ -21,6 +21,14 @@ type PpvDetailResponse =
   | { ok: false; error: string; errorCode?: string; fix?: string[] };
 
 const PPV_OFFER_FALLBACK_TITLE = "Extra";
+const OFFER_MARKER = "\n\n__NOVSY_OFFER__:";
+
+function stripOfferMarker(value?: string | null) {
+  if (!value) return null;
+  const idx = value.indexOf(OFFER_MARKER);
+  if (idx === -1) return value;
+  return value.slice(0, idx);
+}
 
 function resolveViewerRole(req: NextApiRequest): ViewerRole {
   const headerRaw = req.headers["x-novsy-viewer"];
@@ -46,6 +54,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
   }
 
   const viewerRole = resolveViewerRole(req);
+  // No-store avoids stale PPV status/content for creator refresh (pages router).
   res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0");
   res.setHeader("Pragma", "no-cache");
 
@@ -58,6 +67,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
         title: true,
         priceCents: true,
         currency: true,
+        status: true,
+        soldAt: true,
+        purchaseId: true,
         fanId: true,
         creatorId: true,
         message: { select: { text: true } },
@@ -71,8 +83,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
     }
 
     const purchase = ppvMessage.purchase ?? null;
-    const isUnlocked =
-      Boolean(purchase?.id) && (viewerRole === "creator" || purchase?.fanId === ppvMessage.fanId);
+    const statusRaw = typeof ppvMessage.status === "string" ? ppvMessage.status.trim().toUpperCase() : "";
+    const hasPurchase = Boolean(purchase?.id);
+    const isSold = statusRaw === "SOLD" || hasPurchase;
+    const isUnlocked = viewerRole === "creator" ? isSold : hasPurchase;
     const isAdultConfirmed = Boolean(ppvMessage.fan?.adultConfirmedAt);
     const allowContent = viewerRole === "creator" || (isUnlocked && isAdultConfirmed);
     if (!allowContent && viewerRole === "fan") {
@@ -80,12 +94,13 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
       return res.status(403).json({ ok: false, error: errorCode });
     }
     const content =
-      allowContent && typeof ppvMessage.message?.text === "string" ? ppvMessage.message.text : null;
+      allowContent ? stripOfferMarker(ppvMessage.message?.text ?? null) : null;
+    const purchasedAtSource = ppvMessage.soldAt ?? purchase?.createdAt ?? null;
     const purchasedAt =
-      purchase?.createdAt instanceof Date
-        ? purchase.createdAt.toISOString()
-        : typeof purchase?.createdAt === "string"
-        ? purchase.createdAt
+      purchasedAtSource instanceof Date
+        ? purchasedAtSource.toISOString()
+        : typeof purchasedAtSource === "string"
+        ? purchasedAtSource
         : null;
 
     return res.status(200).json({
@@ -96,7 +111,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
         title: (ppvMessage.title || "").trim() || PPV_OFFER_FALLBACK_TITLE,
         priceCents: ppvMessage.priceCents,
         currency: (ppvMessage.currency ?? "EUR").toUpperCase(),
-        status: isUnlocked ? "unlocked" : "locked",
+        status: isSold ? "unlocked" : "locked",
         content,
         ...(purchasedAt ? { purchasedAt } : {}),
       },

@@ -311,6 +311,7 @@ async function handleGet(req: NextApiRequest, res: NextApiResponse<MessageRespon
     sinceMs !== null && afterIdTimestamp !== null
       ? Math.max(sinceMs, afterIdTimestamp)
       : sinceMs ?? afterIdTimestamp ?? null;
+  // No-store keeps PPV card status fresh on creator refresh (pages router).
   res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0");
   res.setHeader("Pragma", "no-cache");
 
@@ -353,6 +354,9 @@ async function handleGet(req: NextApiRequest, res: NextApiResponse<MessageRespon
             title: true,
             priceCents: true,
             currency: true,
+            status: true,
+            soldAt: true,
+            purchaseId: true,
             purchase: {
               select: { id: true, amountCents: true, currency: true, createdAt: true, fanId: true },
             },
@@ -425,6 +429,9 @@ async function handleGet(req: NextApiRequest, res: NextApiResponse<MessageRespon
         title?: string | null;
         priceCents?: number;
         currency?: string | null;
+        status?: string | null;
+        soldAt?: Date | string | null;
+        purchaseId?: string | null;
         purchase?: { id?: string; createdAt?: Date | string; fanId?: string };
       } | null;
       if (!ppv?.id || typeof ppv.priceCents !== "number") {
@@ -432,38 +439,44 @@ async function handleGet(req: NextApiRequest, res: NextApiResponse<MessageRespon
         return viewerRole === "fan" ? sanitizeMessageForFan(rest) : rest;
       }
       const purchase = ppv.purchase ?? null;
-      const isUnlocked = Boolean(purchase?.id) && (viewerRole === "creator" || purchase?.fanId === normalizedFanId);
+      const statusRaw = typeof ppv.status === "string" ? ppv.status.trim().toUpperCase() : "";
+      const hasPurchase = Boolean(purchase?.id);
+      const isSold = statusRaw === "SOLD" || hasPurchase;
+      const isUnlockedForViewer = viewerRole === "creator" ? isSold : hasPurchase;
+      const purchasedAtSource = ppv.soldAt ?? purchase?.createdAt ?? null;
       const purchasedAt =
-        purchase?.createdAt instanceof Date
-          ? purchase.createdAt.toISOString()
-          : typeof purchase?.createdAt === "string"
-          ? purchase.createdAt
+        purchasedAtSource instanceof Date
+          ? purchasedAtSource.toISOString()
+          : typeof purchasedAtSource === "string"
+          ? purchasedAtSource
           : null;
       const canViewContent =
-        viewerRole === "creator" ? true : isUnlocked && isAdultConfirmed;
+        viewerRole === "creator" ? true : isUnlockedForViewer && isAdultConfirmed;
       const canPurchase =
-        viewerRole === "fan" ? !isUnlocked && isAdultConfirmed : false;
+        viewerRole === "fan" ? !isUnlockedForViewer && isAdultConfirmed : false;
+      const rawText = typeof raw.text === "string" ? raw.text : "";
+      const { visibleText } = splitOfferMarker(rawText);
       const offerMeta = buildPpvOfferMeta({
         id: ppv.id,
         messageId: typeof ppv.messageId === "string" ? ppv.messageId : null,
         title: ppv.title ?? null,
         priceCents: ppv.priceCents,
         currency: ppv.currency ?? "EUR",
-        status: isUnlocked ? "unlocked" : "locked",
-        purchaseCount: isUnlocked ? 1 : 0,
-        purchasedByFan: isUnlocked,
+        status: isUnlockedForViewer ? "unlocked" : "locked",
+        purchaseCount: isSold ? 1 : 0,
+        purchasedByFan: isSold,
         purchasedAt,
-        isUnlockedForViewer: isUnlocked,
+        isUnlockedForViewer,
         canViewContent,
         canPurchase,
       });
       const baseText =
         viewerRole === "fan"
-          ? isUnlocked && typeof raw.text === "string"
-            ? raw.text
+          ? isUnlockedForViewer && visibleText.trim()
+            ? visibleText
             : PPV_LOCKED_PLACEHOLDER
-          : typeof raw.text === "string"
-          ? raw.text
+          : visibleText.trim()
+          ? visibleText
           : offerMeta.title;
       const withOffer = {
         ...raw,
