@@ -7,6 +7,7 @@ export type FanChatSSRProps = {
   initialAccessSummary: AccessSummary;
   adultConfirmedAt: string | null;
   adultConfirmVersion: string | null;
+  adultGatePolicy: "STRICT" | "LEAD_CAPTURE";
 };
 
 export async function buildFanChatProps(fanId: string): Promise<FanChatSSRProps> {
@@ -22,11 +23,15 @@ export async function buildFanChatProps(fanId: string): Promise<FanChatSSRProps>
 
   let adultConfirmedAt: string | null = null;
   let adultConfirmVersion: string | null = null;
+  let adultGatePolicy: "STRICT" | "LEAD_CAPTURE" = "STRICT";
 
   if (fanId) {
     const fan = await prisma.fan.findUnique({
       where: { id: fanId },
-      include: { accessGrants: true },
+      include: {
+        accessGrants: true,
+        creator: { select: { aiSettings: { select: { adultGatePolicy: true } } } },
+      },
     });
 
     if (fan) {
@@ -42,6 +47,8 @@ export async function buildFanChatProps(fanId: string): Promise<FanChatSSRProps>
       const confirmedAtValue = (fan as any).adultConfirmedAt as Date | null | undefined;
       adultConfirmedAt = confirmedAtValue ? confirmedAtValue.toISOString() : null;
       adultConfirmVersion = (fan as any).adultConfirmVersion ?? null;
+      adultGatePolicy =
+        (fan.creator?.aiSettings?.adultGatePolicy as "STRICT" | "LEAD_CAPTURE" | null) ?? "STRICT";
     }
   }
 
@@ -59,5 +66,6 @@ export async function buildFanChatProps(fanId: string): Promise<FanChatSSRProps>
     initialAccessSummary: accessSummary,
     adultConfirmedAt,
     adultConfirmVersion,
+    adultGatePolicy,
   };
 }

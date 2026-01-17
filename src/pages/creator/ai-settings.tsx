@@ -20,12 +20,15 @@ import {
 } from "../../lib/creatorPlatforms";
 import type { Offer, OfferTier } from "../../types/offers";
 
+type AdultGatePolicy = "STRICT" | "LEAD_CAPTURE";
+
 type CreatorAiSettings = {
   id: string;
   creatorId: string;
   tone: AiBaseTone;
   allowAutoLowPriority: boolean;
   allowExplicitAdultContent: boolean;
+  adultGatePolicy: AdultGatePolicy;
   draftPreviewEnabled: boolean;
   voiceTranscriptionMode: VoiceTranscriptionMode;
   voiceTranscriptionMinSeconds: number;
@@ -52,6 +55,7 @@ type FormState = {
   hardLimitPerDay: number | "" | null;
   allowAutoLowPriority: boolean;
   allowExplicitAdultContent: boolean;
+  adultGatePolicy: AdultGatePolicy;
   draftPreviewEnabled: boolean;
   voiceTranscriptionMode: VoiceTranscriptionMode;
   voiceTranscriptionMinSeconds: number | "";
@@ -172,6 +176,13 @@ function splitOfferLines(value: string): string[] {
 function joinOfferLines(items?: string[] | null): string {
   if (!Array.isArray(items)) return "";
   return items.join("\n");
+}
+
+function normalizeAdultGatePolicy(value: unknown): AdultGatePolicy {
+  if (typeof value === "string" && value.trim().toUpperCase() === "LEAD_CAPTURE") {
+    return "LEAD_CAPTURE";
+  }
+  return "STRICT";
 }
 
 function formatOfferPriceLabel(priceCents: number, currency?: string | null): string {
@@ -306,6 +317,7 @@ export default function CreatorAiSettingsPage() {
       tone: normalizeAiBaseTone(raw.tone),
       allowAutoLowPriority: Boolean(raw.allowAutoLowPriority),
       allowExplicitAdultContent: Boolean(raw.allowExplicitAdultContent),
+      adultGatePolicy: normalizeAdultGatePolicy(raw.adultGatePolicy),
       draftPreviewEnabled: Boolean(raw.draftPreviewEnabled),
       voiceTranscriptionMode: voiceSettings.mode,
       voiceTranscriptionMinSeconds: voiceSettings.minSeconds,
@@ -388,6 +400,7 @@ export default function CreatorAiSettingsPage() {
       hardLimitPerDay: next.hardLimitPerDay === null ? "" : next.hardLimitPerDay,
       allowAutoLowPriority: next.allowAutoLowPriority,
       allowExplicitAdultContent: next.allowExplicitAdultContent,
+      adultGatePolicy: next.adultGatePolicy,
       draftPreviewEnabled: next.draftPreviewEnabled,
       voiceTranscriptionMode: next.voiceTranscriptionMode,
       voiceTranscriptionMinSeconds: Number.isFinite(next.voiceTranscriptionMinSeconds)
@@ -852,6 +865,7 @@ export default function CreatorAiSettingsPage() {
       hardLimitPerDay: form.hardLimitPerDay === "" ? null : form.hardLimitPerDay ?? null,
       allowAutoLowPriority: form.allowAutoLowPriority,
       allowExplicitAdultContent: form.allowExplicitAdultContent,
+      adultGatePolicy: form.adultGatePolicy,
       draftPreviewEnabled: form.draftPreviewEnabled,
       voiceTranscriptionMode: form.voiceTranscriptionMode,
       voiceTranscriptionMinSeconds: typeof minSecondsValue === "number" ? minSecondsValue : 0,
@@ -1774,6 +1788,43 @@ export default function CreatorAiSettingsPage() {
                     <p className="text-xs text-[color:var(--muted)]">
                       Permite lenguaje sexual explícito entre adultos (consentido). Se bloquean menores y no-consentimiento.
                     </p>
+                  </div>
+                </div>
+
+                <div className="flex flex-col gap-3 border border-[color:var(--surface-border)] rounded-xl px-4 py-3 bg-[color:var(--surface-1)]">
+                  <div className="flex flex-col gap-1">
+                    <span className="text-sm font-medium text-[color:var(--text)]">Bloqueo 18+</span>
+                    <span className="text-xs text-[color:var(--muted)]">
+                      El historial del chat nunca se muestra antes de confirmar 18+.
+                    </span>
+                  </div>
+                  <div className="flex flex-col gap-2 text-sm text-[color:var(--text)]">
+                    <label className="inline-flex items-center gap-2">
+                      <input
+                        type="radio"
+                        name="adultGatePolicy"
+                        value="STRICT"
+                        checked={form.adultGatePolicy === "STRICT"}
+                        onChange={() =>
+                          setForm((prev) => (prev ? { ...prev, adultGatePolicy: "STRICT" } : prev))
+                        }
+                        className="h-4 w-4 border-[color:var(--surface-border)] text-[color:var(--brand)] focus:ring-[color:var(--ring)]"
+                      />
+                      <span>Estricto</span>
+                    </label>
+                    <label className="inline-flex items-center gap-2">
+                      <input
+                        type="radio"
+                        name="adultGatePolicy"
+                        value="LEAD_CAPTURE"
+                        checked={form.adultGatePolicy === "LEAD_CAPTURE"}
+                        onChange={() =>
+                          setForm((prev) => (prev ? { ...prev, adultGatePolicy: "LEAD_CAPTURE" } : prev))
+                        }
+                        className="h-4 w-4 border-[color:var(--surface-border)] text-[color:var(--brand)] focus:ring-[color:var(--ring)]"
+                      />
+                      <span>Permitir enviar sin ver</span>
+                    </label>
                   </div>
                 </div>
 

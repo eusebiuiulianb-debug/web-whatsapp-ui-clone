@@ -519,6 +519,11 @@ enum AiTurnMode {
   vip_focus @map("VIP_CARE")
 }
 
+enum AdultGatePolicy {
+  STRICT
+  LEAD_CAPTURE
+}
+
 enum TimeOfDay {
   DAY
   NIGHT
@@ -654,6 +659,7 @@ model CreatorAiSettings {
   allowSuggestExtras                   Boolean @default(true)
   allowSuggestRenewals                 Boolean @default(true)
   allowExplicitAdultContent            Boolean @default(false)
+  adultGatePolicy                      AdultGatePolicy @default(STRICT)
   allowAutoLowPriority                 Boolean @default(false)
   draftPreviewEnabled                  Boolean @default(false) @map("enableFanDraftPreview")
   voiceTranscriptionMode               String  @default("MANUAL")

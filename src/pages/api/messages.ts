@@ -273,8 +273,11 @@ async function handleGet(req: NextApiRequest, res: NextApiResponse<MessageRespon
   try {
     const fan = await prisma.fan.findUnique({
       where: { id: normalizedFanId },
-      select: { creatorId: true, preferredLanguage: true, locale: true },
+      select: { creatorId: true, preferredLanguage: true, locale: true, adultConfirmedAt: true },
     });
+    if (viewerRole === "fan" && fan && !fan.adultConfirmedAt) {
+      return res.status(200).json({ ok: true, items: [], messages: [] });
+    }
     const translateConfig = fan?.creatorId ? await getEffectiveTranslateConfig(fan.creatorId) : null;
     const creatorLang = normalizeTranslationLanguage(translateConfig?.creatorLang ?? "es") ?? "es";
     const fanLang = resolveFanLanguage(fan?.preferredLanguage ?? null, fan?.locale ?? null);

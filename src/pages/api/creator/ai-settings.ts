@@ -82,6 +82,7 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
     allowSuggestExtras,
     allowSuggestRenewals,
     allowExplicitAdultContent,
+    adultGatePolicy,
     allowAutoLowPriority,
     draftPreviewEnabled,
     voiceTranscriptionMode,
@@ -173,6 +174,14 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
     }
     updateData.allowExplicitAdultContent = allowExplicitAdultContent;
     createData.allowExplicitAdultContent = allowExplicitAdultContent;
+  }
+  if (adultGatePolicy !== undefined) {
+    const normalizedPolicy = normalizeAdultGatePolicy(adultGatePolicy);
+    if (!normalizedPolicy) {
+      return sendBadRequest(res, "adultGatePolicy must be STRICT or LEAD_CAPTURE");
+    }
+    updateData.adultGatePolicy = normalizedPolicy;
+    createData.adultGatePolicy = normalizedPolicy;
   }
   if (allowAutoLowPriority !== undefined) {
     if (typeof allowAutoLowPriority !== "boolean") return sendBadRequest(res, "allowAutoLowPriority must be a boolean");
@@ -379,6 +388,15 @@ function normalizeCortexProvider(value: unknown): "ollama" | "openai" | null {
   const normalized = value.trim().toLowerCase();
   if (normalized === "ollama") return "ollama";
   if (normalized === "openai") return "openai";
+  return null;
+}
+
+function normalizeAdultGatePolicy(value: unknown): "STRICT" | "LEAD_CAPTURE" | null {
+  if (typeof value !== "string") return null;
+  const normalized = value.trim().toUpperCase();
+  if (normalized === "STRICT" || normalized === "LEAD_CAPTURE") {
+    return normalized;
+  }
   return null;
 }
 
