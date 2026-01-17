@@ -3011,7 +3011,7 @@ export function FanChatPage({
               disabled={adultConfirming}
               className="rounded-full bg-[color:rgba(var(--brand-rgb),0.16)] px-4 py-1.5 text-xs font-semibold text-[color:var(--text)] hover:bg-[color:rgba(var(--brand-rgb),0.24)] disabled:opacity-60"
             >
-              {adultConfirming ? "Confirmando..." : "Tengo 18+"}
+              {adultConfirming ? "Confirmando..." : "Confirmo que soy +18"}
             </button>
           </div>
         </div>

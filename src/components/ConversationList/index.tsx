@@ -185,6 +185,9 @@ export default function ConversationList(props: ConversationListProps) {
 
   const preferredLanguage = normalizePreferredLanguage(data.preferredLanguage);
   const languageBadgeLabel = preferredLanguage ? preferredLanguage.toUpperCase() : null;
+  const isAdultConfirmed = Boolean(data.adultConfirmedAt);
+  const adultBadgeLabel = !isManagerChat && !isAdultConfirmed ? "18+ no confirmado" : null;
+  const adultBadgeTone: BadgeTone = "warn";
 
   const temperatureBucketRaw = data.temperatureBucket ?? data.heatLabel ?? null;
   const temperatureBucket = temperatureBucketRaw ? String(temperatureBucketRaw).toUpperCase() : "";
@@ -293,6 +296,11 @@ export default function ConversationList(props: ConversationListProps) {
               {languageBadgeLabel && (
                 <Badge tone={badgeToneForLabel(languageBadgeLabel)} size="sm">
                   {languageBadgeLabel}
+                </Badge>
+              )}
+              {adultBadgeLabel && (
+                <Badge tone={adultBadgeTone} size="sm">
+                  {adultBadgeLabel}
                 </Badge>
               )}
               {temperatureLabel && (

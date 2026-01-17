@@ -11823,7 +11823,7 @@ const INTENT_BADGE_LABELS: Record<string, string> = {
       : "bg-[color:var(--muted)]";
   const languageBadgeLabel =
     !conversation.isManager && preferredLanguage ? preferredLanguage.toUpperCase() : null;
-  const adultBadgeLabel = conversation.isManager ? null : adultConfirmedAt ? "18+ OK" : "18+ sin confirmar";
+  const adultBadgeLabel = conversation.isManager ? null : adultConfirmedAt ? "18+ OK" : "18+ no confirmado";
   const adultBadgeTone: BadgeTone = adultConfirmedAt ? "accent" : "warn";
   const canShowFanDraftPreview =
     !conversation.isManager &&
