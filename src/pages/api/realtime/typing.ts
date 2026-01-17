@@ -24,11 +24,37 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
     return res.status(400).json({ ok: false, error: "Invalid typing payload" });
   }
 
+  const fan = await prisma.fan.findUnique({
+    where: { id: normalizedConversationId },
+    select: {
+      id: true,
+      creatorId: true,
+      adultConfirmedAt: true,
+      creator: {
+        select: {
+          aiSettings: {
+            select: { draftPreviewEnabled: true },
+          },
+        },
+      },
+    },
+  });
+  if (!fan?.creatorId) {
+    return res.status(404).json({ ok: false, error: "FAN_NOT_FOUND" });
+  }
+
   const draftPreviewEnabled = isFanDraftPreviewEnabled();
+  const creatorAllowsDraftPreview = fan.creator?.aiSettings?.draftPreviewEnabled === true;
+  const adultConfirmed = Boolean(fan.adultConfirmedAt);
+  const allowDraftPreview =
+    draftPreviewEnabled &&
+    creatorAllowsDraftPreview &&
+    adultConfirmed &&
+    normalizedSenderRole === "fan";
   const rawDraftText = typeof draftText === "string" ? draftText : null;
   let normalizedDraftText: string | undefined = undefined;
   let resolvedIsTyping = isTyping;
-  if (draftPreviewEnabled && rawDraftText !== null) {
+  if (allowDraftPreview && rawDraftText !== null) {
     normalizedDraftText = normalizeFanDraftText(rawDraftText);
     if (!normalizedDraftText) {
       resolvedIsTyping = false;
@@ -36,17 +62,6 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
     } else if (!isTyping) {
       normalizedDraftText = "";
     }
-  }
-  if (normalizedSenderRole !== "fan") {
-    normalizedDraftText = undefined;
-  }
-
-  const fan = await prisma.fan.findUnique({
-    where: { id: normalizedConversationId },
-    select: { id: true, creatorId: true },
-  });
-  if (!fan?.creatorId) {
-    return res.status(404).json({ ok: false, error: "FAN_NOT_FOUND" });
   }
 
   emitCreatorTypingEvent({

@@ -9,6 +9,7 @@ import { badgeToneForLabel } from "../../lib/badgeTone";
 import { Badge, type BadgeTone } from "../ui/Badge";
 import { ConversationActionsMenu } from "../conversations/ConversationActionsMenu";
 import { useTypingIndicator } from "../../hooks/useTypingIndicator";
+import { normalizeFanDraftText } from "../../lib/fanDraftPreview";
 
 const INTENT_BADGE_LABELS: Record<string, string> = {
   BUY_NOW: "Compra",
@@ -85,6 +86,10 @@ export default function ConversationList(props: ConversationListProps) {
   const isManagerChat = data.isManager === true;
   const typingIndicator = useTypingIndicator(data.id);
   const isTyping = !isManagerChat && Boolean(typingIndicator?.isTyping);
+  const typingDraftPreview =
+    isTyping && typingIndicator?.draftText
+      ? normalizeFanDraftText(typingIndicator.draftText)
+      : "";
   const previewMessage =
     typeof lastMessage === "string" && isStickerToken(lastMessage) ? "Sticker" : lastMessage;
   const hasUnread = !isManagerChat && !!unreadCount && unreadCount > 0;
@@ -339,6 +344,11 @@ export default function ConversationList(props: ConversationListProps) {
                   </Badge>
                 ) : null}
               </div>
+              {isTyping && typingDraftPreview ? (
+                <div className={`truncate ${isCompact ? "text-[10px]" : "text-[11px]"}`}>
+                  <span className="font-semibold">Borrador:</span> {typingDraftPreview}
+                </div>
+              ) : null}
             </div>
           </div>
           <div className="flex items-start gap-2 shrink-0">

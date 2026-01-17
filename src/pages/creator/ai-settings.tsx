@@ -26,6 +26,7 @@ type CreatorAiSettings = {
   tone: AiBaseTone;
   allowAutoLowPriority: boolean;
   allowExplicitAdultContent: boolean;
+  draftPreviewEnabled: boolean;
   voiceTranscriptionMode: VoiceTranscriptionMode;
   voiceTranscriptionMinSeconds: number;
   voiceTranscriptionDailyBudgetUsd: number;
@@ -51,6 +52,7 @@ type FormState = {
   hardLimitPerDay: number | "" | null;
   allowAutoLowPriority: boolean;
   allowExplicitAdultContent: boolean;
+  draftPreviewEnabled: boolean;
   voiceTranscriptionMode: VoiceTranscriptionMode;
   voiceTranscriptionMinSeconds: number | "";
   voiceTranscriptionDailyBudgetUsd: number | "";
@@ -206,6 +208,7 @@ export default function CreatorAiSettingsPage() {
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
   const [success, setSuccess] = useState("");
+  const [draftPreviewSaveError, setDraftPreviewSaveError] = useState("");
   const [status, setStatus] = useState<AiStatus | null>(null);
   const [usageSummary, setUsageSummary] = useState<AiUsageSummary | null>(null);
   const [usageLoading, setUsageLoading] = useState(false);
@@ -234,6 +237,8 @@ export default function CreatorAiSettingsPage() {
   const [isTestingTranslate, setIsTestingTranslate] = useState(false);
   const [showDeeplAdvanced, setShowDeeplAdvanced] = useState(false);
   const translateTestTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const draftPreviewSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const draftPreviewLastSentRef = useRef<boolean | null>(null);
   const [cortexForm, setCortexForm] = useState<CortexSettingsForm | null>({
     provider: "ollama",
     baseUrl: defaultCortexBaseUrl,
@@ -301,6 +306,7 @@ export default function CreatorAiSettingsPage() {
       tone: normalizeAiBaseTone(raw.tone),
       allowAutoLowPriority: Boolean(raw.allowAutoLowPriority),
       allowExplicitAdultContent: Boolean(raw.allowExplicitAdultContent),
+      draftPreviewEnabled: Boolean(raw.draftPreviewEnabled),
       voiceTranscriptionMode: voiceSettings.mode,
       voiceTranscriptionMinSeconds: voiceSettings.minSeconds,
       voiceTranscriptionDailyBudgetUsd: voiceSettings.dailyBudgetUsd,
@@ -382,6 +388,7 @@ export default function CreatorAiSettingsPage() {
       hardLimitPerDay: next.hardLimitPerDay === null ? "" : next.hardLimitPerDay,
       allowAutoLowPriority: next.allowAutoLowPriority,
       allowExplicitAdultContent: next.allowExplicitAdultContent,
+      draftPreviewEnabled: next.draftPreviewEnabled,
       voiceTranscriptionMode: next.voiceTranscriptionMode,
       voiceTranscriptionMinSeconds: Number.isFinite(next.voiceTranscriptionMinSeconds)
         ? next.voiceTranscriptionMinSeconds
@@ -393,6 +400,7 @@ export default function CreatorAiSettingsPage() {
       voiceTranscriptionSuggestReply: next.voiceTranscriptionSuggestReply,
       platforms: normalizeCreatorPlatforms(next.platforms),
     });
+    draftPreviewLastSentRef.current = next.draftPreviewEnabled;
     const provider = normalizeCortexProviderOption(next.cortexProvider) ?? "ollama";
     setCortexForm({
       provider,
@@ -436,6 +444,44 @@ export default function CreatorAiSettingsPage() {
       }
     }
   }, [applyFormFromSettings, applyTranslateFormFromPayload, normalizeSettings]);
+
+  const saveDraftPreviewSetting = useCallback(async (enabled: boolean) => {
+    try {
+      setDraftPreviewSaveError("");
+      const res = await fetch("/api/creator/ai-settings", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ draftPreviewEnabled: enabled }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || data?.ok === false) {
+        throw new Error("Error saving draft preview setting");
+      }
+      draftPreviewLastSentRef.current = enabled;
+      setSettings((prev) => (prev ? { ...prev, draftPreviewEnabled: enabled } : prev));
+    } catch (_err) {
+      setDraftPreviewSaveError("No se pudo guardar el ajuste de borradores.");
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!form) return;
+    if (draftPreviewLastSentRef.current === form.draftPreviewEnabled) return;
+    if (draftPreviewSaveTimerRef.current) {
+      clearTimeout(draftPreviewSaveTimerRef.current);
+    }
+    const nextValue = form.draftPreviewEnabled;
+    draftPreviewSaveTimerRef.current = setTimeout(() => {
+      draftPreviewSaveTimerRef.current = null;
+      void saveDraftPreviewSetting(nextValue);
+    }, 300);
+    return () => {
+      if (draftPreviewSaveTimerRef.current) {
+        clearTimeout(draftPreviewSaveTimerRef.current);
+        draftPreviewSaveTimerRef.current = null;
+      }
+    };
+  }, [form, saveDraftPreviewSetting]);
 
   const fetchStatus = useCallback(async () => {
     try {
@@ -806,6 +852,7 @@ export default function CreatorAiSettingsPage() {
       hardLimitPerDay: form.hardLimitPerDay === "" ? null : form.hardLimitPerDay ?? null,
       allowAutoLowPriority: form.allowAutoLowPriority,
       allowExplicitAdultContent: form.allowExplicitAdultContent,
+      draftPreviewEnabled: form.draftPreviewEnabled,
       voiceTranscriptionMode: form.voiceTranscriptionMode,
       voiceTranscriptionMinSeconds: typeof minSecondsValue === "number" ? minSecondsValue : 0,
       voiceTranscriptionDailyBudgetUsd: typeof budgetValue === "number" ? budgetValue : 0,
@@ -1729,6 +1776,29 @@ export default function CreatorAiSettingsPage() {
                     </p>
                   </div>
                 </div>
+
+                <div className="flex items-center gap-3 border border-[color:var(--surface-border)] rounded-xl px-4 py-3 bg-[color:var(--surface-1)]">
+                  <input
+                    id="draftPreviewEnabled"
+                    type="checkbox"
+                    checked={form.draftPreviewEnabled}
+                    onChange={(e) =>
+                      setForm((prev) => (prev ? { ...prev, draftPreviewEnabled: e.target.checked } : prev))
+                    }
+                    className="h-5 w-5 rounded border-[color:var(--surface-border)] bg-[color:var(--surface-2)] text-[color:var(--brand)] focus:ring-[color:var(--ring)]"
+                  />
+                  <div className="flex flex-col">
+                    <label htmlFor="draftPreviewEnabled" className="text-sm font-medium text-[color:var(--text)]">
+                      Mostrar borradores de fans (1 línea en sidebar)
+                    </label>
+                    <p className="text-xs text-[color:var(--muted)]">
+                      Muestra una línea con lo que el fan está escribiendo (sin enviar).
+                    </p>
+                  </div>
+                </div>
+                {draftPreviewSaveError ? (
+                  <div className="text-xs text-[color:var(--danger)]">{draftPreviewSaveError}</div>
+                ) : null}
               </div>
 
               <div className="rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-4 py-4">

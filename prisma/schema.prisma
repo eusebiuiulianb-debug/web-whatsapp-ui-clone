@@ -655,6 +655,7 @@ model CreatorAiSettings {
   allowSuggestRenewals                 Boolean @default(true)
   allowExplicitAdultContent            Boolean @default(false)
   allowAutoLowPriority                 Boolean @default(false)
+  draftPreviewEnabled                  Boolean @default(false) @map("enableFanDraftPreview")
   voiceTranscriptionMode               String  @default("MANUAL")
   voiceTranscriptionMinSeconds         Int     @default(8)
   voiceTranscriptionDailyBudgetMinutes Int     @default(15)

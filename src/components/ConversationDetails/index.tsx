@@ -1217,6 +1217,7 @@ export default function ConversationDetails({ onBackToBoard }: ConversationDetai
     lastCreatorMessageAt,
   } = conversation;
   const activeFanId = conversation?.isManager ? null : id ?? null;
+  const adultConfirmedAt = typeof conversation.adultConfirmedAt === "string" ? conversation.adultConfirmedAt : null;
   const [ messageSend, setMessageSend ] = useState("");
   const [ draftOffer, setDraftOffer ] = useState<OfferMeta | null>(null);
   const [ draftSkipTranslate, setDraftSkipTranslate ] = useState(false);
@@ -1249,6 +1250,7 @@ export default function ConversationDetails({ onBackToBoard }: ConversationDetai
     ts: 0,
     draftText: "",
   });
+  const [ fanDraftPreviewSettingEnabled, setFanDraftPreviewSettingEnabled ] = useState(false);
   const [ internalToast, setInternalToast ] = useState<string | null>(null);
   const [ actionToast, setActionToast ] = useState<{ message: string; actionLabel: string; actionHref: string } | null>(
     null
@@ -4363,6 +4365,9 @@ const INTENT_BADGE_LABELS: Record<string, string> = {
       if (typeof mode === "string") {
         setAiTurnMode(normalizeAiTurnMode(mode));
       }
+      if (typeof settingsPayload?.draftPreviewEnabled === "boolean") {
+        setFanDraftPreviewSettingEnabled(settingsPayload.draftPreviewEnabled);
+      }
     } catch (err) {
       console.error("Error obteniendo ajustes de IA", err);
     }
@@ -5792,7 +5797,9 @@ const INTENT_BADGE_LABELS: Record<string, string> = {
         setTypingIndicator({ isTyping: false, ts, draftText: "" });
         return;
       }
-      if (!FAN_DRAFT_PREVIEW_ENABLED) {
+      const canShowFanDraftPreview =
+        FAN_DRAFT_PREVIEW_ENABLED && fanDraftPreviewSettingEnabled && Boolean(adultConfirmedAt);
+      if (!canShowFanDraftPreview) {
         setTypingIndicator({ isTyping: true, ts, draftText: "" });
         return;
       }
@@ -5807,7 +5814,7 @@ const INTENT_BADGE_LABELS: Record<string, string> = {
       }
       setTypingIndicator({ isTyping: true, ts, draftText: "" });
     },
-    [conversation.isManager, id]
+    [adultConfirmedAt, conversation.isManager, fanDraftPreviewSettingEnabled, id]
   );
 
   const handleCreatorDataChanged = (detail: CreatorDataChangedPayload) => {
@@ -9984,8 +9991,10 @@ const INTENT_BADGE_LABELS: Record<string, string> = {
           fanDraftText: options.fanDraftText ?? null,
           fanIsTyping: options.fanIsTyping,
         };
+        const canUseFanDraftPreview =
+          FAN_DRAFT_PREVIEW_ENABLED && fanDraftPreviewSettingEnabled && Boolean(adultConfirmedAt);
         const normalizedFanDraftText =
-          FAN_DRAFT_PREVIEW_ENABLED && typeof resolvedOptions.fanDraftText === "string"
+          canUseFanDraftPreview && typeof resolvedOptions.fanDraftText === "string"
             ? normalizeFanDraftText(resolvedOptions.fanDraftText)
             : "";
         const shouldSendFanDraft = Boolean(normalizedFanDraftText) && resolvedOptions.fanIsTyping === true;
@@ -10107,6 +10116,7 @@ const INTENT_BADGE_LABELS: Record<string, string> = {
       draftActionState.status,
       draftHistoryByActionKey,
       draftOutputLength,
+      fanDraftPreviewSettingEnabled,
       fanTone,
       id,
       managerIaMode,
@@ -10117,6 +10127,7 @@ const INTENT_BADGE_LABELS: Record<string, string> = {
       startDraftActionPhaseTimers,
       pushDraftHistory,
       draftRegenerateNonceByActionKey,
+      adultConfirmedAt,
     ]
   );
 
@@ -11812,9 +11823,13 @@ const INTENT_BADGE_LABELS: Record<string, string> = {
       : "bg-[color:var(--muted)]";
   const languageBadgeLabel =
     !conversation.isManager && preferredLanguage ? preferredLanguage.toUpperCase() : null;
-  const adultConfirmedAt = typeof conversation.adultConfirmedAt === "string" ? conversation.adultConfirmedAt : null;
   const adultBadgeLabel = conversation.isManager ? null : adultConfirmedAt ? "18+ OK" : "18+ sin confirmar";
   const adultBadgeTone: BadgeTone = adultConfirmedAt ? "accent" : "warn";
+  const canShowFanDraftPreview =
+    !conversation.isManager &&
+    FAN_DRAFT_PREVIEW_ENABLED &&
+    fanDraftPreviewSettingEnabled &&
+    Boolean(adultConfirmedAt);
   const temperatureScore =
     typeof (conversation as any).temperatureScore === "number"
       ? (conversation as any).temperatureScore
@@ -12538,8 +12553,10 @@ const INTENT_BADGE_LABELS: Record<string, string> = {
       objectiveKey: nextActionDraftKey,
       offerId: null,
     });
+    const canUseFanDraftPreview =
+      FAN_DRAFT_PREVIEW_ENABLED && fanDraftPreviewSettingEnabled && Boolean(adultConfirmedAt);
     const fanDraftText =
-      FAN_DRAFT_PREVIEW_ENABLED && typingIndicator.isTyping && typingIndicator.draftText
+      canUseFanDraftPreview && typingIndicator.isTyping && typingIndicator.draftText
         ? normalizeFanDraftText(typingIndicator.draftText)
         : "";
     const draftText = await requestManagerDraft({
@@ -12581,6 +12598,7 @@ const INTENT_BADGE_LABELS: Record<string, string> = {
     currentObjective,
     draftActionState.status,
     draftOutputLength,
+    fanDraftPreviewSettingEnabled,
     fanTone,
     nextActionDraftKey,
     nextActionDraftLabel,
@@ -12591,6 +12609,7 @@ const INTENT_BADGE_LABELS: Record<string, string> = {
     managerLanguage,
     typingIndicator.draftText,
     typingIndicator.isTyping,
+    adultConfirmedAt,
   ]);
 
   const adultConfirmChip = useMemo<FanSuggestionChip | null>(() => {
@@ -14362,7 +14381,7 @@ const INTENT_BADGE_LABELS: Record<string, string> = {
                       style={{ animationDelay: "280ms" }}
                     />
                   </div>
-                  {FAN_DRAFT_PREVIEW_ENABLED ? (
+                  {canShowFanDraftPreview ? (
                     <div className="mt-1 max-w-[320px] truncate text-[10px] text-[color:var(--muted)]">
                       {typingDisplayName} está escribiendo
                       {typingIndicator.draftText ? `: "${typingIndicator.draftText}"` : "..."}

@@ -18,11 +18,11 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     return handleGet(req, res);
   }
 
-  if (req.method === "POST") {
+  if (req.method === "POST" || req.method === "PATCH") {
     return handlePost(req, res);
   }
 
-  res.setHeader("Allow", "GET, POST");
+  res.setHeader("Allow", "GET, POST, PATCH");
   return res.status(405).json({ error: "Method not allowed" });
 }
 
@@ -83,6 +83,7 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
     allowSuggestRenewals,
     allowExplicitAdultContent,
     allowAutoLowPriority,
+    draftPreviewEnabled,
     voiceTranscriptionMode,
     voiceTranscriptionMinSeconds,
     voiceTranscriptionDailyBudgetUsd,
@@ -177,6 +178,13 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
     if (typeof allowAutoLowPriority !== "boolean") return sendBadRequest(res, "allowAutoLowPriority must be a boolean");
     updateData.allowAutoLowPriority = allowAutoLowPriority;
     createData.allowAutoLowPriority = allowAutoLowPriority;
+  }
+  if (draftPreviewEnabled !== undefined) {
+    if (typeof draftPreviewEnabled !== "boolean") {
+      return sendBadRequest(res, "draftPreviewEnabled must be a boolean");
+    }
+    updateData.draftPreviewEnabled = draftPreviewEnabled;
+    createData.draftPreviewEnabled = draftPreviewEnabled;
   }
   if (voiceTranscriptionMode !== undefined) {
     if (typeof voiceTranscriptionMode !== "string") {
