@@ -701,7 +701,6 @@ async function main() {
         balanceCents: 0,
         updatedAt: now,
       })),
-      skipDuplicates: true,
     });
   }
 
