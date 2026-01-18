@@ -42,6 +42,7 @@ model Creator {
   profile                    CreatorProfile?
   generatedAssets            GeneratedAsset[]
   campaigns                  CampaignMeta[]
+  utmLinks                   UTMLink[]
   followUps                  FanFollowUp[]
   chatAgencyMetas            ChatAgencyMeta[]
   agencyObjectives           AgencyObjective[]
@@ -868,6 +869,30 @@ model AnalyticsEvent {
   @@index([creatorId, createdAt])
   @@index([eventName, createdAt])
   @@index([utmCampaign, utmContent])
+}
+
+enum UTMLinkPlatform {
+  TIKTOK
+  INSTAGRAM
+  YOUTUBE
+  X
+}
+
+model UTMLink {
+  id        String          @id @default(uuid())
+  creatorId String
+  platform  UTMLinkPlatform
+  campaign  String
+  content   String?
+  term      String?
+  source    String?
+  medium    String          @default("social")
+  fullUrl   String
+  createdAt DateTime        @default(now())
+
+  creator Creator @relation(fields: [creatorId], references: [id])
+
+  @@index([creatorId, createdAt])
 }
 
 model CampaignLink {

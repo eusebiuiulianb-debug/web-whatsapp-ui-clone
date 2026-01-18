@@ -1,7 +1,13 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/router";
 import clsx from "clsx";
-import { normalizeCreatorPlatforms, CreatorPlatforms, formatPlatformLabel } from "../../lib/creatorPlatforms";
+import {
+  normalizeCreatorPlatforms,
+  CreatorPlatforms,
+  formatPlatformLabel,
+  CREATOR_PLATFORM_KEYS,
+  type CreatorPlatformKey,
+} from "../../lib/creatorPlatforms";
 import { EmptyState } from "../ui/EmptyState";
 import { KpiCard } from "../ui/KpiCard";
 import { SectionCard } from "../ui/SectionCard";
@@ -53,6 +59,18 @@ type CampaignLink = {
   utmContent: string;
   utmTerm: string | null;
   slug: string | null;
+  createdAt: string;
+};
+
+type UtmLinkEntry = {
+  id: string;
+  platform: string;
+  campaign: string;
+  content: string | null;
+  term: string | null;
+  source: string | null;
+  medium: string;
+  fullUrl: string;
   createdAt: string;
 };
 
@@ -246,6 +264,18 @@ export function AnalyticsPanel() {
   const [tipsLoading, setTipsLoading] = useState(false);
   const [tipsError, setTipsError] = useState("");
   const [handle, setHandle] = useState("creator");
+  const [utmLinks, setUtmLinks] = useState<UtmLinkEntry[]>([]);
+  const [utmLinksLoading, setUtmLinksLoading] = useState(false);
+  const [utmLinksError, setUtmLinksError] = useState("");
+  const [utmLinkSaving, setUtmLinkSaving] = useState(false);
+  const [utmLinkFormError, setUtmLinkFormError] = useState("");
+  const [utmLinkCreated, setUtmLinkCreated] = useState("");
+  const [utmLinkForm, setUtmLinkForm] = useState({
+    platform: "tiktok",
+    campaign: "",
+    content: "",
+    term: "",
+  });
   const [savingLink, setSavingLink] = useState(false);
   const [platforms, setPlatforms] = useState<CreatorPlatforms | null>(null);
   const [savingPlatforms, setSavingPlatforms] = useState(false);
@@ -296,6 +326,7 @@ export function AnalyticsPanel() {
     void loadPlatforms();
     void loadCampaigns();
     void loadSales();
+    void loadUtmLinks();
   }, []);
 
   useEffect(() => {
@@ -486,6 +517,23 @@ export function AnalyticsPanel() {
     }
   }
 
+  async function loadUtmLinks(limit = 10) {
+    try {
+      setUtmLinksLoading(true);
+      setUtmLinksError("");
+      const res = await fetch(`/api/creator/analytics/utm-links?limit=${limit}`, { cache: "no-store" });
+      if (!res.ok) throw new Error("Error fetching utm links");
+      const payload = (await res.json()) as UtmLinkEntry[];
+      setUtmLinks(Array.isArray(payload) ? payload : []);
+    } catch (err) {
+      console.error(err);
+      setUtmLinksError("No se pudieron cargar los links UTM.");
+      setUtmLinks([]);
+    } finally {
+      setUtmLinksLoading(false);
+    }
+  }
+
   const origin =
     typeof window !== "undefined" && window.location?.origin
       ? window.location.origin
@@ -503,6 +551,18 @@ export function AnalyticsPanel() {
   )}&utm_campaign=${encodeURIComponent(utmCampaign)}&utm_content=${encodeURIComponent(utmContent)}${
     utmTerm ? `&utm_term=${encodeURIComponent(utmTerm)}` : ""
   }`;
+
+  const platformOptions = useMemo<CreatorPlatformKey[]>(() => {
+    const all = Array.from(CREATOR_PLATFORM_KEYS);
+    if (!platforms) return all;
+    const enabled = all.filter((key) => platforms[key]?.enabled);
+    return enabled.length > 0 ? enabled : all;
+  }, [platforms]);
+
+  const utmLinkCampaign = utmLinkForm.campaign.trim();
+  const utmLinkContent = utmLinkForm.content.trim();
+  const utmLinkTerm = utmLinkForm.term.trim();
+  const utmLinkFormValid = Boolean(utmLinkCampaign && utmLinkForm.platform);
 
   const formatCount = (value: number) => new Intl.NumberFormat("es-ES").format(value);
   const formatMoney = (value: number) => {
@@ -535,6 +595,13 @@ export function AnalyticsPanel() {
     if (days === 1) return "1 día";
     if (days === 0) return "Hoy";
     return "Caducada";
+  };
+  const formatUtmPlatform = (value: string) => {
+    const normalized = value.trim().toLowerCase();
+    if (CREATOR_PLATFORM_KEYS.includes(normalized as CreatorPlatformKey)) {
+      return formatPlatformLabel(normalized as CreatorPlatformKey);
+    }
+    return value;
   };
 
   const salesSummary = salesRangeByRange[rangeKey];
@@ -611,6 +678,7 @@ export function AnalyticsPanel() {
     void loadSubscriptions(rangeKey);
     void loadTopExtras(rangeKey);
     void loadTips(rangeKey);
+    void loadUtmLinks();
   };
 
   const handleOpenCatalogExtras = () => {
@@ -628,6 +696,43 @@ export function AnalyticsPanel() {
       showToast("Link copiado");
     } catch (_err) {
       // ignore
+    }
+  }
+
+  async function handleCreateUtmLink() {
+    if (!utmLinkFormValid) {
+      setUtmLinkFormError("Completa plataforma y campaña.");
+      return;
+    }
+    try {
+      setUtmLinkSaving(true);
+      setUtmLinkFormError("");
+      setUtmLinkCreated("");
+      const res = await fetch("/api/creator/analytics/utm-links", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          platform: utmLinkForm.platform,
+          campaign: utmLinkCampaign,
+          content: utmLinkContent || undefined,
+          term: utmLinkTerm || undefined,
+        }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setUtmLinkFormError(json?.error || "No se pudo crear el link UTM.");
+        return;
+      }
+      if (typeof json?.fullUrl === "string") {
+        setUtmLinkCreated(json.fullUrl);
+      }
+      setUtmLinkForm((prev) => ({ ...prev, content: "", term: "" }));
+      void loadUtmLinks();
+    } catch (err) {
+      console.error(err);
+      setUtmLinkFormError("No se pudo crear el link UTM.");
+    } finally {
+      setUtmLinkSaving(false);
     }
   }
 
@@ -1079,7 +1184,12 @@ export function AnalyticsPanel() {
                             <ul className="space-y-2 text-xs">
                               {topFans.map((fan) => (
                                 <li key={fan.fanId} className="flex items-center justify-between gap-3">
-                                  <span className="truncate text-[color:var(--text)]">{fan.displayName}</span>
+                                  <a
+                                    href={`/creator/chats?fanId=${encodeURIComponent(fan.fanId)}`}
+                                    className="truncate text-[color:var(--text)] hover:text-[color:var(--brand)]"
+                                  >
+                                    {fan.displayName || "Fan"}
+                                  </a>
                                   <span className="tabular-nums text-[color:var(--text)]">
                                     {formatMoney(fan.amount)}
                                   </span>
@@ -1617,7 +1727,86 @@ export function AnalyticsPanel() {
             )}
 
             <SectionCard title="Últimos links UTM" subtitle="Copiar y usar en tus campañas" bodyClassName="space-y-3">
-              {data.latestLinks.length === 0 ? (
+              <div className="rounded-xl border border-[color:var(--surface-border)] bg-[var(--surface-2)] p-3 space-y-3">
+                <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-2">
+                  <div className="flex flex-col gap-1">
+                    <label className="text-[10px] text-[color:var(--muted)]">Plataforma</label>
+                    <select
+                      value={utmLinkForm.platform}
+                      onChange={(e) => setUtmLinkForm((prev) => ({ ...prev, platform: e.target.value }))}
+                      className="rounded-lg border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-3 py-2 text-xs text-[color:var(--text)]"
+                    >
+                      {platformOptions.map((key) => (
+                        <option key={key} value={key}>
+                          {formatPlatformLabel(key)}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="flex flex-col gap-1">
+                    <label className="text-[10px] text-[color:var(--muted)]">Campaña *</label>
+                    <input
+                      value={utmLinkForm.campaign}
+                      onChange={(e) => setUtmLinkForm((prev) => ({ ...prev, campaign: e.target.value }))}
+                      className="rounded-lg border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-3 py-2 text-xs text-[color:var(--text)]"
+                      placeholder="promo_lanzamiento"
+                    />
+                  </div>
+                  <div className="flex flex-col gap-1">
+                    <label className="text-[10px] text-[color:var(--muted)]">Contenido (opcional)</label>
+                    <input
+                      value={utmLinkForm.content}
+                      onChange={(e) => setUtmLinkForm((prev) => ({ ...prev, content: e.target.value }))}
+                      className="rounded-lg border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-3 py-2 text-xs text-[color:var(--text)]"
+                      placeholder="video_01"
+                    />
+                  </div>
+                  <div className="flex flex-col gap-1">
+                    <label className="text-[10px] text-[color:var(--muted)]">Term (opcional)</label>
+                    <input
+                      value={utmLinkForm.term}
+                      onChange={(e) => setUtmLinkForm((prev) => ({ ...prev, term: e.target.value }))}
+                      className="rounded-lg border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-3 py-2 text-xs text-[color:var(--text)]"
+                      placeholder="vip"
+                    />
+                  </div>
+                </div>
+                {utmLinkFormError && <div className="text-xs text-[color:var(--danger)]">{utmLinkFormError}</div>}
+                <div className="flex items-center justify-between gap-2">
+                  <button
+                    type="button"
+                    disabled={!utmLinkFormValid || utmLinkSaving}
+                    onClick={handleCreateUtmLink}
+                    className={clsx(
+                      "inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-xs font-semibold",
+                      utmLinkFormValid
+                        ? "bg-[color:var(--brand-strong)] text-[color:var(--text)] hover:bg-[color:var(--brand)]"
+                        : "bg-[color:var(--surface-2)] text-[color:var(--muted)]"
+                    )}
+                  >
+                    {utmLinkSaving ? "Creando..." : "Crear link"}
+                  </button>
+                </div>
+              </div>
+
+              {utmLinkCreated && (
+                <div className="rounded-lg border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-3 py-2 text-xs text-[color:var(--text)] flex items-center justify-between gap-2">
+                  <span className="break-all">{utmLinkCreated}</span>
+                  <button
+                    type="button"
+                    onClick={() => handleCopy(utmLinkCreated)}
+                    className="inline-flex items-center gap-1 rounded-full border border-[color:var(--surface-border)] px-3 py-1 text-[10px] text-[color:var(--text)] hover:border-[color:var(--brand)]"
+                  >
+                    <ClipboardCopyIconInline />
+                    Copiar
+                  </button>
+                </div>
+              )}
+
+              {utmLinksError && <div className="text-xs text-[color:var(--danger)]">{utmLinksError}</div>}
+              {utmLinksLoading ? (
+                <div className="text-sm text-[color:var(--muted)]">Cargando links...</div>
+              ) : utmLinks.length === 0 ? (
                 <div className="text-sm text-[color:var(--muted)]">Aún no hay links guardados.</div>
               ) : (
                 <div className="overflow-x-auto">
@@ -1627,23 +1816,25 @@ export function AnalyticsPanel() {
                         <th className="px-3 py-2.5">Plataforma</th>
                         <th className="px-3 py-2.5">Campaña</th>
                         <th className="px-3 py-2.5">Contenido</th>
-                        <th className="px-3 py-2.5">Medium</th>
                         <th className="px-3 py-2.5">Term</th>
+                        <th className="px-3 py-2.5">Link</th>
                         <th className="px-3 py-2.5">Acciones</th>
                       </tr>
                     </thead>
                     <tbody>
-                      {data.latestLinks.map((row) => (
+                      {utmLinks.map((row) => (
                         <tr key={row.id} className="border-b border-[color:var(--surface-border)] transition hover:bg-[color:var(--surface-2)]">
-                          <td className="px-3 py-2.5 text-[color:var(--text)] capitalize">{row.platform}</td>
-                          <td className="px-3 py-2.5 text-[color:var(--text)]">{row.utmCampaign}</td>
-                          <td className="px-3 py-2.5 text-[color:var(--text)]">{row.utmContent}</td>
-                          <td className="px-3 py-2.5 text-[color:var(--text)]">{row.utmMedium}</td>
-                          <td className="px-3 py-2.5 text-[color:var(--muted)]">{row.utmTerm || "—"}</td>
+                          <td className="px-3 py-2.5 text-[color:var(--text)]">{formatUtmPlatform(row.platform)}</td>
+                          <td className="px-3 py-2.5 text-[color:var(--text)]">{row.campaign}</td>
+                          <td className="px-3 py-2.5 text-[color:var(--text)]">{row.content || "—"}</td>
+                          <td className="px-3 py-2.5 text-[color:var(--muted)]">{row.term || "—"}</td>
+                          <td className="px-3 py-2.5 text-xs text-[color:var(--muted)]">
+                            {truncateLink(row.fullUrl, 38)}
+                          </td>
                           <td className="px-3 py-2.5">
                             <button
                               type="button"
-                              onClick={() => handleCopy(buildLinkFromRow(row, handle))}
+                              onClick={() => handleCopy(row.fullUrl)}
                               className="inline-flex items-center gap-1 rounded-full border border-[color:var(--surface-border)] px-3 py-1 text-xs text-[color:var(--text)] hover:border-[color:var(--brand)]"
                             >
                               <ClipboardCopyIconInline />
@@ -2081,6 +2272,11 @@ export function AnalyticsPanel() {
 }
 
 function AggregatedTable({ title, subtitle, rows }: { title: string; subtitle: string; rows: TableRow[] }) {
+  const formatRatio = (numerator: number, denominator: number) => {
+    if (!denominator) return "—";
+    return (numerator / denominator).toFixed(2);
+  };
+
   return (
     <SectionCard title={title} subtitle={subtitle} bodyClassName="space-y-3">
       {rows.length === 0 ? (
@@ -2104,8 +2300,16 @@ function AggregatedTable({ title, subtitle, rows }: { title: string; subtitle: s
                 <th className="px-3 py-2.5 text-right">Mensajes</th>
                 <th className="px-3 py-2.5 text-right">Fans nuevos</th>
                 <th className="px-3 py-2.5 text-right">Compras</th>
-                <th className="px-3 py-2.5 text-right">Conv. a mensaje</th>
-                <th className="px-3 py-2.5 text-right">Conv. a compra</th>
+                <th className="px-3 py-2.5 text-right">
+                  <span className="cursor-help" title="Mensajes/chat = mensajes enviados / chats abiertos">
+                    Mensajes/chat
+                  </span>
+                </th>
+                <th className="px-3 py-2.5 text-right">
+                  <span className="cursor-help" title="Compras/chat = compras / chats abiertos">
+                    Compras/chat
+                  </span>
+                </th>
               </tr>
             </thead>
             <tbody>
@@ -2126,10 +2330,10 @@ function AggregatedTable({ title, subtitle, rows }: { title: string; subtitle: s
                   <td className="px-3 py-2.5 text-right text-[color:var(--text)] tabular-nums">{row.fansNew}</td>
                   <td className="px-3 py-2.5 text-right text-[color:var(--text)] tabular-nums">{row.purchaseSessions}</td>
                   <td className="px-3 py-2.5 text-right text-[color:var(--text)] tabular-nums">
-                    {row.openChatSessions ? `${((row.sendMessageSessions / row.openChatSessions) * 100).toFixed(1)}%` : "—"}
+                    {formatRatio(row.sendMessageSessions, row.openChatSessions)}
                   </td>
                   <td className="px-3 py-2.5 text-right text-[color:var(--text)] tabular-nums">
-                    {row.openChatSessions ? `${((row.purchaseSessions / row.openChatSessions) * 100).toFixed(1)}%` : "—"}
+                    {formatRatio(row.purchaseSessions, row.openChatSessions)}
                   </td>
                 </tr>
               ))}

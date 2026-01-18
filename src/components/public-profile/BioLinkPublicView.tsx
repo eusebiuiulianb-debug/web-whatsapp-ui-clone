@@ -27,7 +27,11 @@ export function BioLinkPublicView({ config }: Props) {
   }, [baseCtaUrl]);
 
   useEffect(() => {
-    track(ANALYTICS_EVENTS.BIO_LINK_VIEW, { creatorId: config.creatorId || "creator-1", meta: { handle: config.handle } });
+    const utmMeta = readUtmMeta();
+    track(ANALYTICS_EVENTS.BIO_LINK_VIEW, {
+      creatorId: config.creatorId || "creator-1",
+      meta: { handle: config.handle, ...utmMeta },
+    });
   }, [config.creatorId, config.handle]);
 
   return (
@@ -133,6 +137,23 @@ function IconChip({ iconKey }: { iconKey?: BioLinkSecondaryLink["iconKey"] }) {
       {label}
     </span>
   );
+}
+
+function readUtmMeta() {
+  if (typeof window === "undefined") return {};
+  const params = new URLSearchParams(window.location.search || "");
+  const utmSource = params.get("utm_source") || "";
+  const utmMedium = params.get("utm_medium") || "";
+  const utmCampaign = params.get("utm_campaign") || "";
+  const utmContent = params.get("utm_content") || "";
+  const utmTerm = params.get("utm_term") || "";
+  return {
+    ...(utmSource ? { utm_source: utmSource } : {}),
+    ...(utmMedium ? { utm_medium: utmMedium } : {}),
+    ...(utmCampaign ? { utm_campaign: utmCampaign } : {}),
+    ...(utmContent ? { utm_content: utmContent } : {}),
+    ...(utmTerm ? { utm_term: utmTerm } : {}),
+  };
 }
 
 function resolveCtaUrl(primaryCtaUrl: string | undefined, defaultChatUrl: string, legacyChatUrl: string) {
