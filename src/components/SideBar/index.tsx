@@ -2910,23 +2910,19 @@ function SideBarInner() {
         )}
         <LeftSectionCard className="mb-2">
           <div className="flex items-center justify-between gap-3">
+            <div className="text-left">
+              <div className="text-sm font-semibold text-[color:var(--text)]">Resumen y extras</div>
+              {insightsOpen && <div className="text-[11px] ui-muted">Ventas y actividad</div>}
+            </div>
             <button
               type="button"
               onClick={toggleInsightsOpen}
-              className="text-left"
-              aria-expanded={insightsOpen}
+              aria-label={insightsOpen ? "Ocultar resumen" : "Mostrar resumen"}
+              title={insightsOpen ? "Ocultar resumen" : "Mostrar resumen"}
+              className="rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] p-2 text-[color:var(--text)] transition hover:border-[color:var(--surface-border-hover)] hover:bg-[color:var(--surface-1)]"
             >
-              <div className="text-sm font-semibold text-[color:var(--text)]">Resumen y extras</div>
-              {insightsOpen && <div className="text-[11px] ui-muted">Ventas y actividad</div>}
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                void router.push("/creator/panel?tab=analytics");
-              }}
-              className="rounded-full border border-[color:var(--brand)] bg-[color:rgba(var(--brand-rgb),0.16)] px-2.5 py-1 text-[11px] font-semibold text-[color:var(--text)] hover:bg-[color:rgba(var(--brand-rgb),0.25)]"
-            >
-              Ir al Panel
+              <IconGlyph name={insightsOpen ? "eyeOff" : "eye"} className="h-4 w-4" ariaHidden />
+              <span className="sr-only">{insightsOpen ? "Ocultar resumen" : "Mostrar resumen"}</span>
             </button>
           </div>
         </LeftSectionCard>

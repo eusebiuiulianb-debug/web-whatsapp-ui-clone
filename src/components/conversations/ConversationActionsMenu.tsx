@@ -90,7 +90,7 @@ export function ConversationActionsMenu({
       icon: "pin",
       onClick: () => onToggleHighPriority(conversation),
       disabled: actionDisabled,
-      title: "Alta prioridad",
+      title: isHighPriority ? "Quitar prioridad" : "Alta prioridad",
       labelSrOnly: true,
     });
   }
