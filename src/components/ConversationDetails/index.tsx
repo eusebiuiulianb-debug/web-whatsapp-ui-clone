@@ -303,6 +303,13 @@ type DraftMeta = {
   primaryActionLabel?: string | null;
   ppvPhaseLabel?: string | null;
 };
+type FanNoteItem = {
+  id: string;
+  fanId: string;
+  creatorId: string;
+  text: string;
+  createdAt: string;
+};
 type FanTemplateTone = "suave" | "intimo" | "picante" | "any";
 type FanTemplateCategory = "greeting" | "question" | "closing";
 type FanTemplateItem = {
@@ -1180,6 +1187,53 @@ function safeDecodeQueryParam(value: string) {
   }
 }
 
+function normalizeFanNote(value: unknown): FanNoteItem | null {
+  if (!value || typeof value !== "object") return null;
+  const record = value as Record<string, unknown>;
+  const id = typeof record.id === "string" ? record.id.trim() : "";
+  const fanId = typeof record.fanId === "string" ? record.fanId.trim() : "";
+  const creatorId = typeof record.creatorId === "string" ? record.creatorId.trim() : "";
+  const textValue = typeof record.text === "string" ? record.text.trim() : "";
+  const contentValue = typeof record.content === "string" ? record.content.trim() : "";
+  const text = textValue || contentValue;
+  const createdAtValue = record.createdAt;
+  const createdAt =
+    typeof createdAtValue === "string"
+      ? createdAtValue
+      : createdAtValue instanceof Date
+      ? createdAtValue.toISOString()
+      : typeof createdAtValue === "number"
+      ? new Date(createdAtValue).toISOString()
+      : "";
+  if (!id || !fanId || !creatorId || !text || !createdAt) return null;
+  return { id, fanId, creatorId, text, createdAt };
+}
+
+function normalizeCreatorFollowUp(value: unknown): FanFollowUp | null {
+  if (!value || typeof value !== "object") return null;
+  const record = value as Record<string, unknown>;
+  const id = typeof record.id === "string" ? record.id.trim() : "";
+  const titleValue = typeof record.title === "string" ? record.title.trim() : "";
+  const textValue = typeof record.text === "string" ? record.text.trim() : "";
+  const title = titleValue || textValue;
+  const note = typeof record.note === "string" ? record.note.trim() : null;
+  const dueAt = typeof record.dueAt === "string" ? record.dueAt : null;
+  const statusRaw = typeof record.status === "string" ? record.status.trim().toUpperCase() : "";
+  const status: FanFollowUp["status"] =
+    statusRaw === "PENDING" || statusRaw === "OPEN"
+      ? "OPEN"
+      : statusRaw === "DONE"
+      ? "DONE"
+      : statusRaw === "DELETED"
+      ? "DELETED"
+      : "OPEN";
+  const createdAt = typeof record.createdAt === "string" ? record.createdAt : null;
+  const updatedAt = typeof record.updatedAt === "string" ? record.updatedAt : null;
+  const doneAt = typeof record.doneAt === "string" ? record.doneAt : null;
+  if (!id || !title) return null;
+  return { id, title, note, dueAt, status, createdAt, updatedAt, doneAt };
+}
+
 function normalizeSearchText(value: string) {
   return value
     .toLowerCase()
@@ -1235,7 +1289,6 @@ export default function ConversationDetails({ onBackToBoard }: ConversationDetai
   const [ composerActionKey, setComposerActionKey ] = useState<string | null>(null);
   const [ pendingInsert, setPendingInsert ] = useState<{ text: string; detail?: string } | null>(null);
   const [ isSending, setIsSending ] = useState(false);
-  const [ isInternalSending, setIsInternalSending ] = useState(false);
   const [ isManagerSending, setIsManagerSending ] = useState(false);
   const [ composerError, setComposerError ] = useState<string | null>(null);
   const [ composerTarget, setComposerTarget ] = useState<ComposerTarget>("fan");
@@ -2414,6 +2467,8 @@ export default function ConversationDetails({ onBackToBoard }: ConversationDetai
   const [ internalMessagesError, setInternalMessagesError ] = useState("");
   const [ isLoadingInternalMessages, setIsLoadingInternalMessages ] = useState(false);
   const internalMessagesAbortRef = useRef<AbortController | null>(null);
+  const [ fanNotes, setFanNotes ] = useState<FanNoteItem[]>([]);
+  const fanNotesAbortRef = useRef<AbortController | null>(null);
   const [ managerSuggestions, setManagerSuggestions ] = useState<ManagerSuggestion[]>([]);
   const [ reengageSuggestions, setReengageSuggestions ] = useState<ManagerSuggestion[]>([]);
   const [ reengageLoading, setReengageLoading ] = useState(false);
@@ -2552,6 +2607,11 @@ const INTENT_BADGE_LABELS: Record<string, string> = {
   UNSAFE_MINOR: "Menor",
 };
   const [ showQuickSheet, setShowQuickSheet ] = useState(false);
+  const [ showCrmSheet, setShowCrmSheet ] = useState(false);
+  const [ crmTab, setCrmTab ] = useState<"notes" | "followups">("notes");
+  const [ noteDraft, setNoteDraft ] = useState("");
+  const [ noteSaving, setNoteSaving ] = useState(false);
+  const [ noteError, setNoteError ] = useState("");
   const [ offerSheetOpen, setOfferSheetOpen ] = useState(false);
   const [ offerSheetError, setOfferSheetError ] = useState<string | null>(null);
   const [ offerSheetSendingId, setOfferSheetSendingId ] = useState<string | null>(null);
@@ -3402,6 +3462,12 @@ const INTENT_BADGE_LABELS: Record<string, string> = {
     setQuickNote(conversation.quickNote ?? "");
     setFollowUpOpen(conversation.followUpOpen ?? null);
   }, [conversation.id, conversation.profileText, conversation.quickNote, conversation.followUpOpen]);
+
+  useEffect(() => {
+    setNoteDraft("");
+    setNoteError("");
+    setNoteSaving(false);
+  }, [conversation.id]);
 
   useEffect(() => {
     const openFollowUp = conversation.followUpOpen ?? followUpOpen;
@@ -4825,11 +4891,18 @@ const INTENT_BADGE_LABELS: Record<string, string> = {
       setFollowUpError("");
       const data = await fetchJsonDedupe<any>(
         `cd:${fanId}:followup`,
-        () => fetch(`/api/fans/follow-up?fanId=${fanId}`),
+        () =>
+          fetch(`/api/creator/fans/${encodeURIComponent(fanId)}/followups`, {
+            cache: "no-store",
+            headers: { "x-novsy-viewer": "creator" },
+          }),
         { ttlMs: 1200 }
       );
       if (!data?.ok) throw new Error("error");
-      setFollowUpOpen(data.followUp ?? null);
+      const followUp = normalizeCreatorFollowUp(
+        data?.followUp ?? (Array.isArray(data?.followUps) ? data.followUps[0] : null)
+      );
+      setFollowUpOpen(followUp);
     } catch (_err) {
       setFollowUpError("Error cargando seguimiento");
       setFollowUpOpen(null);
@@ -5232,6 +5305,42 @@ const INTENT_BADGE_LABELS: Record<string, string> = {
     [handleSchemaOutOfSync, id]
   );
 
+  const fetchFanNotes = useCallback(
+    async (fanId: string) => {
+      if (!fanId) return;
+      if (fanNotesAbortRef.current) {
+        fanNotesAbortRef.current.abort();
+      }
+      const controller = new AbortController();
+      fanNotesAbortRef.current = controller;
+      try {
+        const res = await fetch(`/api/creator/fans/${encodeURIComponent(fanId)}/notes`, {
+          signal: controller.signal,
+          cache: "no-store",
+          headers: { "x-novsy-viewer": "creator" },
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok || data?.ok === false) {
+          throw new Error(data?.error || "error");
+        }
+        const rawNotes = Array.isArray(data.notes)
+          ? data.notes
+          : Array.isArray(data.items)
+          ? data.items
+          : [];
+        const normalized = (rawNotes as unknown[])
+          .map((item) => normalizeFanNote(item))
+          .filter((note: FanNoteItem | null): note is FanNoteItem => Boolean(note));
+        setFanNotes(normalized);
+      } catch (err) {
+        if ((err as { name?: string })?.name === "AbortError") return;
+        console.error("Error cargando notas internas", err);
+        setFanNotes([]);
+      }
+    },
+    []
+  );
+
   useEffect(() => {
     if (!id) return;
     setMessage([]);
@@ -5276,6 +5385,20 @@ const INTENT_BADGE_LABELS: Record<string, string> = {
       internalMessagesAbortRef.current.abort();
     }
   }, [id]);
+
+  useEffect(() => {
+    if (!id || conversation.isManager) {
+      setFanNotes([]);
+      return;
+    }
+    setFanNotes([]);
+    fetchFanNotes(id);
+    return () => {
+      if (fanNotesAbortRef.current) {
+        fanNotesAbortRef.current.abort();
+      }
+    };
+  }, [conversation.isManager, fetchFanNotes, id]);
 
   useEffect(() => {
     if (!id || !managerPanelOpen) return;
@@ -5423,6 +5546,12 @@ const INTENT_BADGE_LABELS: Record<string, string> = {
     setInviteCopyError(null);
     setInviteCopyUrl(null);
   }, [id, showQuickSheet]);
+
+  useEffect(() => {
+    if (showCrmSheet) return;
+    setNoteDraft("");
+    setNoteError("");
+  }, [showCrmSheet]);
 
   useEffect(() => {
     if (!showContentModal) return;
@@ -6221,7 +6350,6 @@ const INTENT_BADGE_LABELS: Record<string, string> = {
     !!id && !conversation.isManager && uiLanguage !== fanLanguage && isTranslateConfigured;
   const hasComposerText = messageSend.trim().length > 0;
   const isFanTarget = composerTarget === "fan";
-  const isInternalTarget = composerTarget === "internal";
   const isManagerTarget = composerTarget === "manager";
   const composerAudience = isFanTarget ? "CREATOR" : "INTERNAL";
   const isFanMode = !conversation.isManager;
@@ -6384,11 +6512,12 @@ const INTENT_BADGE_LABELS: Record<string, string> = {
     if (!pendingFanId || !conversation?.id) return;
     if (pendingFanId !== conversation.id) return;
     pendingFollowUpPanelRef.current = null;
-    openInternalPanelTab("note", { scrollToTop: true });
+    setCrmTab("followups");
+    setShowCrmSheet(true);
     setTimeout(() => {
       nextActionInputRef.current?.focus();
     }, 150);
-  }, [conversation?.id, openInternalPanelTab]);
+  }, [conversation?.id]);
 
   const openInternalThread = useCallback(
     (options?: { forceScroll?: boolean }) => {
@@ -6430,20 +6559,18 @@ const INTENT_BADGE_LABELS: Record<string, string> = {
   }, [id]);
 
   const openFollowUpNote = useCallback(() => {
-    openInternalPanel("crm");
+    setCrmTab("followups");
+    setShowCrmSheet(true);
     if (!nextActionDate) {
       const tomorrow = new Date();
       tomorrow.setDate(tomorrow.getDate() + 1);
       setNextActionDate(tomorrow.toISOString().slice(0, 10));
     }
-    if (id) {
-      fetchFollowUpHistory(id);
-    }
     setFollowUpError("");
     requestAnimationFrame(() => {
       nextActionInputRef.current?.focus();
     });
-  }, [openInternalPanel, nextActionDate, id, fetchFollowUpHistory]);
+  }, [nextActionDate]);
 
   const applyCortexDraft = useCallback(
     (draftText: string, insertMode: "replace" | "append" = "replace") => {
@@ -6783,15 +6910,6 @@ const INTENT_BADGE_LABELS: Record<string, string> = {
   }, []);
 
 
-  const mergeProfileDraft = (base: string, addition: string) => {
-    const trimmedBase = base.trim();
-    const trimmedAddition = addition.trim();
-    if (!trimmedAddition) return trimmedBase;
-    if (!trimmedBase) return trimmedAddition;
-    if (trimmedBase.includes(trimmedAddition)) return trimmedBase;
-    return `${trimmedBase}\n${trimmedAddition}`.trim();
-  };
-
   const handleMessageQuote = (text: string) => {
     if (!aiEnabled) return;
     const trimmed = text.trim();
@@ -6836,17 +6954,14 @@ const INTENT_BADGE_LABELS: Record<string, string> = {
   const handleMessageSaveProfile = (text: string) => {
     const trimmed = text.trim();
     if (!trimmed) return;
-    const merged = mergeProfileDraft(profileDraft, trimmed);
-    profileDraftEditedRef.current = true;
-    setProfileDraft(merged);
-    openInternalPanel("crm");
-    requestAnimationFrame(() => {
-      profileInputRef.current?.focus();
-    });
+    setNoteDraft(trimmed);
+    setNoteError("");
+    setCrmTab("notes");
+    setShowCrmSheet(true);
     showInlineAction({
       kind: "info",
-      title: "Texto listo en perfil",
-      detail: "Guárdalo para que el Manager lo use.",
+      title: "Nota lista",
+      detail: "Guárdala en notas internas.",
       ttlMs: 2200,
     });
   };
@@ -7410,7 +7525,10 @@ const INTENT_BADGE_LABELS: Record<string, string> = {
                 <span>Perfil del fan (resumen)</span>
                 <button
                   type="button"
-                  onClick={() => openInternalPanelTab("note")}
+                  onClick={() => {
+                    setCrmTab("notes");
+                    setShowCrmSheet(true);
+                  }}
                   className="rounded-full border border-[color:rgba(245,158,11,0.7)] bg-[color:rgba(245,158,11,0.08)] px-2.5 py-0.5 text-[10px] font-semibold text-[color:var(--text)] hover:bg-[color:rgba(245,158,11,0.16)]"
                 >
                   Editar
@@ -8142,11 +8260,9 @@ const INTENT_BADGE_LABELS: Record<string, string> = {
           ? [
               { id: "manager", label: "Manager IA" },
               { id: "internal", label: "Borradores" },
-              { id: "note", label: "Perfil + Seguimiento" },
             ]
           : [
               { id: "internal", label: "Borradores" },
-              { id: "note", label: "Perfil + Seguimiento" },
             ];
         return (
           <InlinePanelShell
@@ -10860,7 +10976,7 @@ const INTENT_BADGE_LABELS: Record<string, string> = {
     }
     if (key === "Enter" && !evt.shiftKey) {
       evt.preventDefault();
-      if (isSendingRef.current || isInternalSending || isManagerSending) return;
+      if (isSendingRef.current || isManagerSending) return;
       if (composerTarget === "fan" && id) {
         const cooldown = fanSendCooldownById[id];
         if (cooldown && cooldown.until > Date.now()) return;
@@ -11163,6 +11279,53 @@ const INTENT_BADGE_LABELS: Record<string, string> = {
     }
   }
 
+  async function createFanNote(text: string): Promise<FanNoteItem | null> {
+    if (!id) return null;
+    const trimmed = text.trim();
+    if (!trimmed) return null;
+    try {
+      const res = await fetch(`/api/creator/fans/${encodeURIComponent(id)}/notes`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "x-novsy-viewer": "creator" },
+        cache: "no-store",
+        body: JSON.stringify({ text: trimmed }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || data?.ok === false) {
+        throw new Error(data?.error || "error");
+      }
+      return normalizeFanNote(data?.note ?? data?.data ?? data);
+    } catch (err) {
+      console.error("Error guardando nota", err);
+      return null;
+    }
+  }
+
+  async function handleSaveNote() {
+    const trimmed = noteDraft.trim();
+    if (!trimmed) {
+      setNoteError("Escribe la nota antes de guardar.");
+      return;
+    }
+    try {
+      setNoteSaving(true);
+      setNoteError("");
+      const note = await createFanNote(trimmed);
+      if (!note) {
+        setNoteError("No se pudo guardar la nota.");
+        return;
+      }
+      setFanNotes((prev) => [note, ...prev.filter((item) => item.id !== note.id)]);
+      setNoteDraft("");
+      showComposerToast("Nota guardada");
+      if (id) {
+        await refreshFanData(id);
+      }
+    } finally {
+      setNoteSaving(false);
+    }
+  }
+
   async function sendStickerMessage(sticker: LegacyStickerItem) {
     if (!id) return;
     if (!sticker?.id) return;
@@ -11416,16 +11579,6 @@ const INTENT_BADGE_LABELS: Record<string, string> = {
     if (messagesError) {
       setMessagesError("");
     }
-    if (isInternalTarget) {
-      if (isInternalSending) return;
-      setIsInternalSending(true);
-      const ok = await sendMessageText(trimmed, "INTERNAL");
-      setIsInternalSending(false);
-      if (!ok) {
-        setComposerError("No se pudo guardar la nota.");
-      }
-      return;
-    }
     if (isManagerTarget) {
       if (isManagerSending) return;
       setIsManagerSending(true);
@@ -11676,34 +11829,52 @@ const INTENT_BADGE_LABELS: Record<string, string> = {
 
   async function upsertFollowUp(payload: { title: string; date: string; time: string }) {
     if (!id) return null;
-    const res = await fetch("/api/fans/follow-up", {
+    const res = await fetch(`/api/creator/fans/${encodeURIComponent(id)}/followups`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ fanId: id, title: payload.title, date: payload.date, time: payload.time }),
+      headers: { "Content-Type": "application/json", "x-novsy-viewer": "creator" },
+      cache: "no-store",
+      body: JSON.stringify({ text: payload.title, date: payload.date, time: payload.time }),
     });
     if (!res.ok) return null;
     const data = await res.json().catch(() => ({}));
-    return data.followUp ?? null;
+    if (!data?.ok) return null;
+    return normalizeCreatorFollowUp(data.followUp ?? data.followup ?? data.data ?? data);
   }
 
   async function clearFollowUp() {
-    if (!id) return false;
-    const res = await fetch("/api/fans/follow-up/delete", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ fanId: id }),
+    if (!followUpOpen?.id) return false;
+    const res = await fetch(`/api/creator/followups/${encodeURIComponent(followUpOpen.id)}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json", "x-novsy-viewer": "creator" },
+      cache: "no-store",
+      body: JSON.stringify({ action: "delete" }),
     });
     return res.ok;
   }
 
   async function completeFollowUp() {
-    if (!id) return false;
-    const res = await fetch("/api/fans/follow-up/done", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ fanId: id }),
+    if (!followUpOpen?.id) return false;
+    const res = await fetch(`/api/creator/followups/${encodeURIComponent(followUpOpen.id)}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json", "x-novsy-viewer": "creator" },
+      cache: "no-store",
+      body: JSON.stringify({ action: "done" }),
     });
     return res.ok;
+  }
+
+  async function snoozeFollowUp(days: number) {
+    if (!followUpOpen?.id) return null;
+    const res = await fetch(`/api/creator/followups/${encodeURIComponent(followUpOpen.id)}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json", "x-novsy-viewer": "creator" },
+      cache: "no-store",
+      body: JSON.stringify({ action: "snooze", days }),
+    });
+    if (!res.ok) return null;
+    const data = await res.json().catch(() => ({}));
+    if (!data?.ok) return null;
+    return normalizeCreatorFollowUp(data.followUp ?? data.followup ?? data.data ?? data);
   }
 
   function openQuickNoteEditor() {
@@ -11807,6 +11978,55 @@ const INTENT_BADGE_LABELS: Record<string, string> = {
     } catch (err) {
       console.error("Error guardando seguimiento", err);
       setFollowUpError("Error guardando seguimiento");
+    } finally {
+      setFollowUpLoading(false);
+    }
+  }
+
+  async function handleMarkFollowUpDone() {
+    if (!id || !followUpOpen) return;
+    try {
+      setFollowUpLoading(true);
+      setFollowUpError("");
+      const ok = await completeFollowUp();
+      if (!ok) {
+        setFollowUpError("Error marcando seguimiento como hecho");
+        return;
+      }
+      setNextActionDraft("");
+      setNextActionDate("");
+      setNextActionTime("");
+      setFollowUpOpen(null);
+      showComposerToast("Seguimiento marcado como hecho");
+      await refreshFanData(id);
+    } catch (err) {
+      console.error("Error marcando seguimiento como hecho", err);
+      setFollowUpError("Error marcando seguimiento como hecho");
+    } finally {
+      setFollowUpLoading(false);
+    }
+  }
+
+  async function handleSnoozeFollowUp(days: number) {
+    if (!id || !followUpOpen) return;
+    try {
+      setFollowUpLoading(true);
+      setFollowUpError("");
+      const followUp = await snoozeFollowUp(days);
+      if (!followUp) {
+        setFollowUpError("Error posponiendo seguimiento");
+        return;
+      }
+      setFollowUpOpen(followUp);
+      const parsedDue = splitDueAt(followUp.dueAt ?? null);
+      setNextActionDate(parsedDue.date);
+      setNextActionTime(parsedDue.time);
+      setNextActionDraft(followUp.title ?? "");
+      showComposerToast("Seguimiento pospuesto");
+      await refreshFanData(id);
+    } catch (err) {
+      console.error("Error posponiendo seguimiento", err);
+      setFollowUpError("Error posponiendo seguimiento");
     } finally {
       setFollowUpLoading(false);
     }
@@ -12264,7 +12484,7 @@ const INTENT_BADGE_LABELS: Record<string, string> = {
   }, [composerTarget]);
 
   const hasComposerPayload = messageSend.trim().length > 0;
-  const isComposerSubmitting = isSending || isInternalSending || isManagerSending;
+  const isComposerSubmitting = isSending || isManagerSending;
   const currentFanCooldown = id ? fanSendCooldownById[id] : null;
   const isFanCooldownActive =
     isFanTarget && !!currentFanCooldown && currentFanCooldown.until > Date.now();
@@ -12407,11 +12627,9 @@ const INTENT_BADGE_LABELS: Record<string, string> = {
   };
 
   const handleAddFollowUpNote = useCallback(() => {
-    openInternalPanelTab("note", { scrollToTop: true });
-    setTimeout(() => {
-      nextActionInputRef.current?.focus();
-    }, 150);
-  }, [openInternalPanelTab]);
+    setShowQuickSheet(false);
+    openFollowUpNote();
+  }, [openFollowUpNote]);
 
   const handleOpenEditName = () => {
     setShowQuickSheet(false);
@@ -12515,7 +12733,8 @@ const INTENT_BADGE_LABELS: Record<string, string> = {
   const handleOpenNotesFromSheet = () => {
     setShowQuickSheet(false);
     setOpenPanel("none");
-    openInternalPanelTab("note");
+    setCrmTab("notes");
+    setShowCrmSheet(true);
   };
 
   const handleOpenHistoryFromSheet = () => {
@@ -12525,7 +12744,8 @@ const INTENT_BADGE_LABELS: Record<string, string> = {
   };
   const handleOpenNotesPanel = () => {
     setOpenPanel("none");
-    openInternalPanelTab("note");
+    setCrmTab("notes");
+    setShowCrmSheet(true);
   };
 
   const handleOpenHistoryPanel = () => {
@@ -14176,7 +14396,7 @@ const INTENT_BADGE_LABELS: Record<string, string> = {
                         ]
                       : []),
                     {
-                      label: "Guardar en perfil",
+                      label: "Guardar nota",
                       onClick: () => handleMessageSaveProfile(messageVisibleText),
                     },
                     {
@@ -14913,7 +15133,7 @@ const INTENT_BADGE_LABELS: Record<string, string> = {
                 maxHeight={MAX_MAIN_COMPOSER_HEIGHT}
                 isChatBlocked={isChatBlocked}
                 isInternalPanelOpen={isInternalPanelOpen}
-                showAudienceToggle
+                showAudienceToggle={false}
               />
             </div>
           </div>
@@ -15052,7 +15272,7 @@ const INTENT_BADGE_LABELS: Record<string, string> = {
                 }}
                 className="flex items-center justify-between rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-4 py-3 text-sm text-[color:var(--text)] hover:bg-[color:var(--surface-2)]"
               >
-                <span>Guardar en perfil</span>
+                <span>Guardar nota</span>
               </button>
               <button
                 type="button"
@@ -16203,6 +16423,187 @@ const INTENT_BADGE_LABELS: Record<string, string> = {
               {inviteCopyToast && <p className="text-xs text-[color:var(--brand)]">{inviteCopyToast}</p>}
               {inviteCopyError && <p className="text-xs text-[color:var(--danger)]">{inviteCopyError}</p>}
             </div>
+          </div>
+        </div>
+      )}
+      {showCrmSheet && (
+        <div className="fixed inset-0 z-40 flex items-end justify-center bg-[color:var(--surface-overlay)] backdrop-blur-sm">
+          <div className="w-full max-w-md ui-overlay rounded-t-3xl rounded-b-none p-5 space-y-4">
+            <div className="flex items-center justify-between gap-3">
+              <h2 className="text-sm font-semibold text-[color:var(--muted)]">Perfil + seguimiento</h2>
+              <button
+                type="button"
+                onClick={() => setShowCrmSheet(false)}
+                className="inline-flex items-center justify-center rounded-full p-1.5 hover:bg-[color:var(--surface-2)] text-[color:var(--text)]"
+              >
+                <span className="sr-only">Cerrar</span>
+                ✕
+              </button>
+            </div>
+            <div className="flex items-center gap-2" role="tablist" aria-label="CRM">
+              {[
+                { id: "notes" as const, label: "Notas" },
+                { id: "followups" as const, label: "Seguimiento" },
+              ].map((tab) => {
+                const isActive = crmTab === tab.id;
+                return (
+                  <button
+                    key={tab.id}
+                    type="button"
+                    role="tab"
+                    aria-selected={isActive}
+                    onClick={() => setCrmTab(tab.id)}
+                    className={clsx(
+                      "rounded-full border px-3 py-1 text-[11px] font-semibold transition",
+                      isActive
+                        ? "border-[color:rgba(245,158,11,0.7)] bg-[color:rgba(245,158,11,0.12)] text-[color:var(--text)]"
+                        : "border-[color:var(--surface-border)] bg-[color:var(--surface-2)] text-[color:var(--muted)] hover:border-[color:var(--surface-border-hover)] hover:text-[color:var(--text)]"
+                    )}
+                  >
+                    {tab.label}
+                  </button>
+                );
+              })}
+            </div>
+
+            {crmTab === "notes" && (
+              <div className="space-y-4">
+                <div className="space-y-2 max-h-60 overflow-auto pr-1">
+                  {fanNotes.length === 0 ? (
+                    <div className="rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-3 py-2 text-[11px] text-[color:var(--muted)]">
+                      Sin notas internas todavía.
+                    </div>
+                  ) : (
+                    fanNotes.map((note) => (
+                      <div
+                        key={note.id}
+                        className="rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-3 py-2"
+                      >
+                        <div className="text-[10px] uppercase tracking-wide text-[color:var(--muted)]">
+                          {formatNoteDate(note.createdAt)}
+                        </div>
+                        <div className="mt-1 text-[12px] text-[color:var(--text)] whitespace-pre-wrap">
+                          {note.text}
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
+                <div className="space-y-2">
+                  <textarea
+                    rows={3}
+                    value={noteDraft}
+                    onChange={(event) => {
+                      setNoteDraft(event.target.value);
+                      if (noteError) setNoteError("");
+                    }}
+                    className="w-full resize-none rounded-lg border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-3 py-2 text-xs text-[color:var(--text)] placeholder:text-[color:var(--muted)] outline-none focus:border-[color:var(--border-a)] focus-visible:ring-2 focus-visible:ring-[color:var(--ring)]"
+                    placeholder="Escribe una nota interna…"
+                  />
+                  <div className="flex flex-wrap items-center gap-2 text-[10px] text-[color:var(--muted)]">
+                    <button
+                      type="button"
+                      onClick={handleSaveNote}
+                      disabled={noteSaving || !noteDraft.trim()}
+                      className="rounded-lg border border-[color:rgba(245,158,11,0.8)] bg-[color:rgba(245,158,11,0.08)] px-3 py-1 text-xs font-medium text-[color:var(--text)] disabled:cursor-not-allowed disabled:opacity-50 hover:bg-[color:rgba(245,158,11,0.16)]"
+                    >
+                      Guardar nota
+                    </button>
+                    {noteSaving && <span>Guardando...</span>}
+                    {noteError && <span className="text-[color:var(--danger)]">{noteError}</span>}
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {crmTab === "followups" && (
+              <div className="space-y-4">
+                <div className="rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-3 py-2">
+                  <div className="text-[11px] text-[color:var(--muted)]">Próximo seguimiento</div>
+                  {followUpOpen ? (
+                    <>
+                      <div className="mt-1 text-[12px] text-[color:var(--text)] whitespace-pre-wrap">
+                        {followUpOpen.title}
+                      </div>
+                      {followUpOpen.dueAt && (
+                        <div className="mt-1 text-[10px] text-[color:var(--muted)]">
+                          Para {formatWhen(followUpOpen.dueAt)}
+                        </div>
+                      )}
+                      <div className="mt-2 flex flex-wrap items-center gap-2 text-[10px] text-[color:var(--muted)]">
+                        <button
+                          type="button"
+                          onClick={handleMarkFollowUpDone}
+                          disabled={followUpLoading}
+                          className="rounded-full border border-[color:rgba(245,158,11,0.7)] bg-[color:rgba(245,158,11,0.08)] px-3 py-1 text-[10px] font-semibold text-[color:var(--text)] hover:bg-[color:rgba(245,158,11,0.16)] disabled:cursor-not-allowed disabled:opacity-50"
+                        >
+                          Marcar hecho
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleSnoozeFollowUp(1)}
+                          disabled={followUpLoading}
+                          className="rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-3 py-1 text-[10px] font-semibold text-[color:var(--text)] hover:bg-[color:var(--surface-2)] disabled:cursor-not-allowed disabled:opacity-50"
+                        >
+                          Posponer +1d
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleSnoozeFollowUp(3)}
+                          disabled={followUpLoading}
+                          className="rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-3 py-1 text-[10px] font-semibold text-[color:var(--text)] hover:bg-[color:var(--surface-2)] disabled:cursor-not-allowed disabled:opacity-50"
+                        >
+                          Posponer +3d
+                        </button>
+                      </div>
+                    </>
+                  ) : (
+                    <div className="mt-2 text-[11px] text-[color:var(--muted)]">Sin seguimiento pendiente.</div>
+                  )}
+                </div>
+
+                <div className="rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-3 py-2 space-y-2">
+                  <div className="text-[11px] font-semibold text-[color:var(--muted)]">Crear seguimiento</div>
+                  <input
+                    ref={nextActionInputRef}
+                    type="text"
+                    value={nextActionDraft}
+                    onChange={(e) => {
+                      setNextActionDraft(e.target.value);
+                      if (followUpError) setFollowUpError("");
+                    }}
+                    className="w-full rounded-lg border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-3 py-2 text-xs text-[color:var(--text)] placeholder:text-[color:var(--muted)] outline-none focus:border-[color:var(--border-a)] focus-visible:ring-2 focus-visible:ring-[color:var(--ring)]"
+                    placeholder="Ej: Recordar pack especial"
+                  />
+                  <div className="flex gap-2">
+                    <input
+                      type="date"
+                      value={nextActionDate}
+                      onChange={(e) => setNextActionDate(e.target.value)}
+                      className="flex-1 rounded-lg border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-3 py-2 text-xs text-[color:var(--text)] outline-none focus:border-[color:var(--border-a)] focus-visible:ring-2 focus-visible:ring-[color:var(--ring)]"
+                    />
+                    <input
+                      type="time"
+                      value={nextActionTime}
+                      onChange={(e) => setNextActionTime(e.target.value)}
+                      className="flex-1 rounded-lg border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-3 py-2 text-xs text-[color:var(--text)] outline-none focus:border-[color:var(--border-a)] focus-visible:ring-2 focus-visible:ring-[color:var(--ring)]"
+                    />
+                  </div>
+                  <div className="flex flex-wrap items-center gap-2 text-[10px] text-[color:var(--muted)]">
+                    <button
+                      type="button"
+                      onClick={handleSaveNextAction}
+                      disabled={followUpLoading || !nextActionDraft.trim()}
+                      className="rounded-lg border border-[color:var(--brand)] bg-[color:rgba(var(--brand-rgb),0.12)] px-3 py-1 text-xs font-medium text-[color:var(--text)] disabled:cursor-not-allowed disabled:opacity-50 hover:bg-[color:rgba(var(--brand-rgb),0.2)]"
+                    >
+                      Guardar seguimiento
+                    </button>
+                    {followUpLoading && <span>Actualizando...</span>}
+                    {followUpError && <span className="text-[color:var(--danger)]">{followUpError}</span>}
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
         </div>
       )}

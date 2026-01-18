@@ -54,6 +54,18 @@ function normalizeSuggestedActionKey(value?: string | null): string | null {
   return SUGGESTED_ACTION_KEYS.has(normalized) ? normalized : null;
 }
 
+function getFollowUpIndicator(dueAt?: string | null) {
+  if (!dueAt) return null;
+  const parsed = new Date(dueAt);
+  if (Number.isNaN(parsed.getTime())) return null;
+  const now = new Date();
+  const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const endOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
+  if (parsed.getTime() < startOfToday.getTime()) return "overdue";
+  if (parsed.getTime() <= endOfToday.getTime()) return "today";
+  return null;
+}
+
 interface ConversationListProps {
   isFirstConversation?: boolean;
   data: ConversationListData;
@@ -269,6 +281,12 @@ export default function ConversationList(props: ConversationListProps) {
     (intentLabel ?? "");
   const nextActionLabel = inferredNextActionLabel || "—";
   const shouldShowNextAction = data.needsAction === true || inferredNextActionLabel.trim().length > 0;
+  const followUpDueAt = followUpOpen?.dueAt ?? data.nextActionAt ?? null;
+  const followUpIndicator = getFollowUpIndicator(followUpDueAt);
+  const followUpIndicatorLabel =
+    followUpIndicator === "overdue" ? "Seguimiento vencido" : "Seguimiento hoy";
+  const followUpIndicatorClass =
+    followUpIndicator === "overdue" ? "bg-[color:var(--danger)]" : "bg-[color:var(--warning)]";
 
   return (
     <div 
@@ -288,6 +306,13 @@ export default function ConversationList(props: ConversationListProps) {
           <div className="flex flex-col gap-1 min-w-0 w-full">
             <div className="flex items-center gap-1.5 min-w-0">
               <span className={`truncate ${nameTint}`}>{contactName}</span>
+              {followUpIndicator && (
+                <span
+                  className={`inline-block h-2 w-2 rounded-full ${followUpIndicatorClass}`}
+                  aria-label={followUpIndicatorLabel}
+                  title={followUpIndicatorLabel}
+                />
+              )}
               {shouldShowTierLabel && (
                 <Badge tone={tierBadgeTone} size="sm">
                   {tierLabel}
