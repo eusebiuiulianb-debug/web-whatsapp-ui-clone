@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { fetchJsonDedupe } from "../lib/fetchDedupe";
+import { AI_ENABLED } from "../lib/features";
 
 export type CortexProviderStatus = {
   provider: "demo" | "openai" | "ollama";
@@ -18,6 +19,10 @@ export function useCortexProviderStatus(): CortexProviderStatus | null {
   const [status, setStatus] = useState<CortexProviderStatus | null>(null);
 
   useEffect(() => {
+    if (!AI_ENABLED) {
+      setStatus(null);
+      return;
+    }
     let active = true;
     fetchJsonDedupe<any>(
       "cortex:provider-status",

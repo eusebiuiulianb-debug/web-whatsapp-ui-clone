@@ -28,6 +28,7 @@ import { sanitizeForOpenAi } from "../../../../server/ai/sanitizeForOpenAi";
 import { toSafeErrorMessage } from "../../../../server/ai/openAiError";
 import { evaluateAdultPolicy } from "../../../../server/ai/adultPolicy";
 import { buildErrorSnippet, resolveProviderErrorType } from "../../../../server/ai/cortexErrors";
+import { AI_ENABLED, sendAiDisabled } from "../../../../lib/features";
 
 type ManagerReply = ManagerDemoReply & { mode: "STRATEGY" | "CONTENT" | "GROWTH"; text: string };
 
@@ -256,6 +257,9 @@ export default async function handler(
   req: NextApiRequest,
   res: NextApiResponse<ChatOkResponse | ChatErrorResponse>
 ) {
+  if (!AI_ENABLED) {
+    return sendAiDisabled(res);
+  }
   if (req.method !== "POST") {
     res.setHeader("Allow", "POST");
     return res

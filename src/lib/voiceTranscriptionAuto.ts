@@ -1,6 +1,7 @@
 import { normalizeVoiceTranscriptionSettings, type VoiceTranscriptionSettings } from "./voiceTranscriptionSettings";
 import { VOICE_TRANSCRIPTION_BUDGET_EVENT } from "../constants/events";
 import { isSmartTranscriptionTarget } from "./voiceTranscriptionSmartTargets";
+import { AI_ENABLED } from "./features";
 
 export type AutoTranscriptionPayload = {
   messageId: string;
@@ -128,6 +129,12 @@ function shouldProcessEvent(eventId: string | null | undefined) {
 }
 
 async function fetchSettings(): Promise<VoiceTranscriptionSettings> {
+  if (!AI_ENABLED) {
+    const stored = readJsonStorage<VoiceTranscriptionSettings>(SETTINGS_STORAGE_KEY);
+    const fallback = normalizeVoiceTranscriptionSettings(stored ?? {});
+    cachedSettings = { value: fallback, ts: Date.now() };
+    return fallback;
+  }
   if (cachedSettings && Date.now() - cachedSettings.ts < SETTINGS_CACHE_MS) {
     return cachedSettings.value;
   }

@@ -1,3 +1,4 @@
+import type { GetServerSideProps } from "next";
 import Head from "next/head";
 import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
 import clsx from "clsx";
@@ -19,6 +20,7 @@ import {
   normalizeCreatorPlatforms,
 } from "../../lib/creatorPlatforms";
 import type { Offer, OfferTier } from "../../types/offers";
+import { AI_ENABLED } from "../../lib/features";
 
 type AdultGatePolicy = "STRICT" | "LEAD_CAPTURE";
 
@@ -204,7 +206,26 @@ function resolveDefaultTranslateLang(): TranslationLanguage {
   return DEFAULT_TRANSLATE_LANG;
 }
 
+export const getServerSideProps: GetServerSideProps = async () => {
+  if (!AI_ENABLED) {
+    return {
+      redirect: {
+        destination: "/creator/chats",
+        permanent: false,
+      },
+    };
+  }
+  return { props: {} };
+};
+
 export default function CreatorAiSettingsPage() {
+  if (!AI_ENABLED) {
+    return null;
+  }
+  return <CreatorAiSettingsInner />;
+}
+
+function CreatorAiSettingsInner() {
   const { config } = useCreatorConfig();
   const router = useRouter();
   const creatorInitial = config.creatorName?.trim().charAt(0) || "E";

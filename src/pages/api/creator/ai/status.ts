@@ -4,8 +4,12 @@ import { normalizeAiTurnMode } from "../../../../lib/aiSettings";
 import { createDefaultCreatorPlatforms } from "../../../../lib/creatorPlatforms";
 import { getTranslateConfig } from "../../../../lib/ai/translateProvider";
 import { getCortexProviderStatus } from "../../../../lib/ai/cortexProvider";
+import { AI_ENABLED, sendAiDisabled } from "../../../../lib/features";
 
 export default async function handler(_req: NextApiRequest, res: NextApiResponse) {
+  if (!AI_ENABLED) {
+    return sendAiDisabled(res);
+  }
   try {
     res.setHeader("Cache-Control", "no-store");
     const creatorId = "creator-1";

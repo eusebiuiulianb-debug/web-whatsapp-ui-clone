@@ -24,6 +24,7 @@ type PpvPurchaseResponse =
 
 const OFFER_MARKER = "\n\n__NOVSY_OFFER__:";
 const PPV_OFFER_FALLBACK_TITLE = "Extra";
+const PPV_LOCKED_PLACEHOLDER = "Texto bloqueado hasta compra.";
 
 function attachOfferMarker(text: string, marker: string): string {
   if (!marker) return text;
@@ -43,6 +44,7 @@ function buildPpvOfferMeta(ppv: {
   messageId?: string | null;
   title?: string | null;
   priceCents: number;
+  amountCents?: number;
   currency?: string | null;
   status?: "locked" | "unlocked";
   purchaseCount?: number;
@@ -59,6 +61,7 @@ function buildPpvOfferMeta(ppv: {
     title: (ppv.title || "").trim() || PPV_OFFER_FALLBACK_TITLE,
     price: formatPriceFromCents(ppv.priceCents, ppv.currency ?? "EUR"),
     priceCents: ppv.priceCents,
+    ...(typeof ppv.amountCents === "number" ? { amountCents: ppv.amountCents } : {}),
     currency: (ppv.currency ?? "EUR").toUpperCase(),
     kind: "ppv",
     ...(ppv.status ? { status: ppv.status } : {}),
@@ -86,9 +89,10 @@ function buildPpvMessagePayload(
     canPurchase?: boolean;
   }
 ) {
-  const baseText = typeof message.text === "string" ? message.text : "";
+  const baseText = PPV_LOCKED_PLACEHOLDER;
   const offerMeta = buildPpvOfferMeta({
     ...ppvMeta,
+    amountCents: ppvMeta.priceCents,
     status: ppvMeta.status,
     purchasedByFan: ppvMeta.status === "unlocked",
     purchaseCount: ppvMeta.status === "unlocked" ? 1 : 0,
@@ -101,6 +105,8 @@ function buildPpvMessagePayload(
     creatorTranslatedText: null,
     messageTranslations: undefined,
     ppvMessage: undefined,
+    offerMeta,
+    ppvMessageId: ppvMeta.id,
   };
 }
 
@@ -179,6 +185,14 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
     const wallet = await getOrCreateWallet(prisma, fan.id);
     const walletEnabled = Boolean(wallet);
     if (existingPurchase) {
+      await prisma.ppvMessage.update({
+        where: { id: ppvMessage.id },
+        data: {
+          status: "SOLD",
+          soldAt: existingPurchase.createdAt,
+          purchaseId: existingPurchase.id,
+        },
+      });
       const messagePayload = buildPpvMessagePayload(ppvMessage.message, {
         id: ppvMessage.id,
         messageId: ppvMessage.messageId,
@@ -249,6 +263,14 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
           amountCents: ppvMessage.priceCents,
           currency: ppvMessage.currency ?? "EUR",
           status: "PAID",
+        },
+      });
+      await tx.ppvMessage.update({
+        where: { id: ppvMessage.id },
+        data: {
+          status: "SOLD",
+          soldAt: purchase.createdAt,
+          purchaseId: purchase.id,
         },
       });
       return { purchase, wallet: nextWallet };

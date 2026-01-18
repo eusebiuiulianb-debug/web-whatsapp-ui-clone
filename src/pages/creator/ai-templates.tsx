@@ -1,3 +1,4 @@
+import type { GetServerSideProps } from "next";
 import Head from "next/head";
 import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/router";
@@ -5,6 +6,7 @@ import CreatorHeader from "../../components/CreatorHeader";
 import { useCreatorConfig } from "../../context/CreatorConfigContext";
 import { AiTemplateUsage, AiTurnMode, AI_TEMPLATE_USAGES, AI_TURN_MODES, USAGE_LABELS } from "../../lib/aiTemplateTypes";
 import { normalizeAiTurnMode } from "../../lib/aiSettings";
+import { AI_ENABLED } from "../../lib/features";
 
 type TemplateTone = "auto" | "cercano" | "profesional" | "jugueton";
 type TemplateMode = AiTurnMode;
@@ -38,7 +40,26 @@ const TURN_MODE_LABELS: Record<AiTurnMode, string> = {
   vip_focus: "Mimar VIP",
 };
 
+export const getServerSideProps: GetServerSideProps = async () => {
+  if (!AI_ENABLED) {
+    return {
+      redirect: {
+        destination: "/creator/chats",
+        permanent: false,
+      },
+    };
+  }
+  return { props: {} };
+};
+
 export default function CreatorAiTemplatesPage() {
+  if (!AI_ENABLED) {
+    return null;
+  }
+  return <CreatorAiTemplatesInner />;
+}
+
+function CreatorAiTemplatesInner() {
   const { config } = useCreatorConfig();
   const router = useRouter();
   const creatorInitial = config.creatorName?.trim().charAt(0) || "E";

@@ -31,6 +31,7 @@ function buildPpvOfferMeta(ppv: {
   messageId?: string | null;
   title?: string | null;
   priceCents: number;
+  amountCents?: number;
   currency?: string | null;
   status?: "locked" | "unlocked";
   purchaseCount?: number;
@@ -47,6 +48,7 @@ function buildPpvOfferMeta(ppv: {
     title: (ppv.title || "").trim() || PPV_OFFER_FALLBACK_TITLE,
     price: formatPriceFromCents(ppv.priceCents, ppv.currency ?? "EUR"),
     priceCents: ppv.priceCents,
+    ...(typeof ppv.amountCents === "number" ? { amountCents: ppv.amountCents } : {}),
     currency: (ppv.currency ?? "EUR").toUpperCase(),
     kind: "ppv",
     ...(ppv.status ? { status: ppv.status } : {}),
@@ -154,6 +156,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
           title,
           priceCents,
           currency: "EUR",
+          status: "PENDING",
+          soldAt: null,
+          purchaseId: null,
         },
       });
       return { message, ppv };
@@ -181,6 +186,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
       messageId: created.message.id,
       title,
       priceCents,
+      amountCents: priceCents,
       currency: "EUR",
       status: "locked",
       purchaseCount: 0,
@@ -190,7 +196,13 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
       canPurchase: true,
     });
     const messageText = attachOfferMarker(created.message.text || "", JSON.stringify(offerMeta));
-    const responseMessage = { ...created.message, text: messageText, reactionsSummary: [] };
+    const responseMessage = {
+      ...created.message,
+      text: messageText,
+      reactionsSummary: [],
+      offerMeta,
+      ppvMessageId: created.ppv.id,
+    };
     emitRealtimeEvent({
       eventId: created.message.id,
       type: "MESSAGE_CREATED",

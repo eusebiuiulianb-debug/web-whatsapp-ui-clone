@@ -196,6 +196,8 @@ export interface Message {
   voiceAnalysisUpdatedAt?: string | null;
   messageTranslations?: MessageTranslation[];
   reactionsSummary?: ReactionSummaryEntry[];
+  offerMeta?: unknown;
+  ppvMessageId?: string | null;
   contentItem?: {
     id: string;
     title: string;

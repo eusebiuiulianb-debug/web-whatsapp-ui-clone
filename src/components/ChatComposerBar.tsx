@@ -6,6 +6,7 @@ import { useEmojiFavorites } from "../hooks/useEmojiFavorites";
 import { EmojiPicker } from "./EmojiPicker";
 import { IconGlyph } from "./ui/IconGlyph";
 import type { StickerItem } from "../lib/stickers";
+import { AI_ENABLED } from "../lib/features";
 
 type EmojiSelectPayload = {
   native?: string;
@@ -94,6 +95,7 @@ export function ChatComposerBar({
   extraActions,
 }: ChatComposerBarProps) {
   const isInternalMode = audience === "INTERNAL";
+  const aiEnabled = AI_ENABLED;
   const isInputDisabled = (isChatBlocked && !isInternalMode) || isInternalPanelOpen;
   const [ isEmojiOpen, setIsEmojiOpen ] = useState(false);
   const [ isStickerOpen, setIsStickerOpen ] = useState(false);
@@ -297,6 +299,17 @@ export function ChatComposerBar({
       {renderEmojiRecents()}
     </>
   );
+
+  const modeOptions = aiEnabled
+    ? ([
+        { id: "fan", label: "Al fan" },
+        { id: "internal", label: "Interno" },
+        { id: "manager", label: "Manager" },
+      ] as const)
+    : ([
+        { id: "fan", label: "Al fan" },
+        { id: "internal", label: "Interno" },
+      ] as const);
 
   return (
     <div
@@ -519,11 +532,7 @@ export function ChatComposerBar({
               )}
               aria-label="Selector de modo"
             >
-              {([
-                { id: "fan", label: "Al fan" },
-                { id: "internal", label: "Interno" },
-                { id: "manager", label: "Manager" },
-              ] as const).map((item) => {
+              {modeOptions.map((item) => {
                 const isActive = mode === item.id;
                 return (
                   <button
@@ -574,9 +583,9 @@ export function ChatComposerBar({
                       ? "bg-[color:var(--brand-weak)] text-[color:var(--text)]"
                       : "text-[color:var(--muted)] hover:text-[color:var(--text)]"
                   )}
-                  title="No se envía al fan. Se prepara en el Manager interno."
+                  title={aiEnabled ? "No se envía al fan. Se prepara en el Manager interno." : "No se envía al fan."}
                 >
-                  Interno/Manager
+                  {aiEnabled ? "Interno/Manager" : "Interno"}
                 </button>
               </div>
             )

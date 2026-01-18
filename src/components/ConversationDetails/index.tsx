@@ -163,6 +163,7 @@ import {
   writeCortexFlow,
   type CortexFlowState,
 } from "../../lib/cortexFlow";
+import { AI_ENABLED } from "../../lib/features";
 
 const OFFER_MARKER = "\n\n__NOVSY_OFFER__:";
 const TYPING_HIDE_MS = FAN_DRAFT_PREVIEW_TTL_MS;
@@ -1214,6 +1215,7 @@ export default function ConversationDetails({ onBackToBoard }: ConversationDetai
     openManagerPanel,
     closeManagerPanel,
   } = useContext(ConversationContext);
+  const aiEnabled = AI_ENABLED;
   const {
     contactName,
     image,
@@ -1482,6 +1484,11 @@ export default function ConversationDetails({ onBackToBoard }: ConversationDetai
       const originalLang = typeof msg.originalLang === "string" ? msg.originalLang : null;
       const deliveredLang = typeof msg.deliveredLang === "string" ? msg.deliveredLang : null;
       const creatorLang = typeof msg.creatorLang === "string" ? msg.creatorLang : null;
+      const offerMeta = (msg as { offerMeta?: unknown }).offerMeta ?? null;
+      const ppvMessageId =
+        typeof (msg as { ppvMessageId?: unknown }).ppvMessageId === "string"
+          ? ((msg as { ppvMessageId?: string }).ppvMessageId ?? undefined)
+          : undefined;
       return {
         id: msg.id,
         fanId: msg.fanId,
@@ -1527,6 +1534,8 @@ export default function ConversationDetails({ onBackToBoard }: ConversationDetai
             }
           : safeParseVoiceTranslation(msg.voiceAnalysisJson),
         reactionsSummary: Array.isArray(msg.reactionsSummary) ? msg.reactionsSummary : [],
+        offerMeta,
+        ppvMessageId,
         contentItem: msg.contentItem
           ? {
               id: msg.contentItem.id,
@@ -4055,6 +4064,10 @@ const INTENT_BADGE_LABELS: Record<string, string> = {
     (text: string) => {
       const trimmed = text.trim();
       if (!trimmed) return;
+      if (!aiEnabled) {
+        showComposerToast("IA desactivada.");
+        return;
+      }
       openCortexAndPrefill(router, {
         text: trimmed,
         fanId: id ?? undefined,
@@ -4063,7 +4076,7 @@ const INTENT_BADGE_LABELS: Record<string, string> = {
       });
       showComposerToast("Enviado al Manager IA");
     },
-    [id, router, showComposerToast]
+    [aiEnabled, id, router, showComposerToast]
   );
 
   const handleChangeFanTone = useCallback(
@@ -4376,7 +4389,8 @@ const INTENT_BADGE_LABELS: Record<string, string> = {
   const [aiTone, setAiTone] = useState<AiTone>("cercano");
   const [aiTurnMode, setAiTurnMode] = useState<AiTurnMode>("auto");
 
-  async function fetchAiStatus() {
+  const fetchAiStatus = useCallback(async () => {
+    if (!aiEnabled) return;
     try {
       const data = await fetchJsonDedupe<any>(
         "cd:status",
@@ -4405,9 +4419,10 @@ const INTENT_BADGE_LABELS: Record<string, string> = {
     } catch (err) {
       console.error("Error obteniendo estado de IA", err);
     }
-  }
+  }, [aiEnabled]);
 
-  async function fetchAiSettingsTone() {
+  const fetchAiSettingsTone = useCallback(async () => {
+    if (!aiEnabled) return;
     try {
       const data = await fetchJsonDedupe<any>(
         "cd:ai-settings",
@@ -4429,7 +4444,7 @@ const INTENT_BADGE_LABELS: Record<string, string> = {
     } catch (err) {
       console.error("Error obteniendo ajustes de IA", err);
     }
-  }
+  }, [aiEnabled]);
 
   function getExtraTier(item?: ContentWithFlags | null): "T0" | "T1" | "T2" | "T3" {
     return (item?.extraTier as "T0" | "T1" | "T2" | "T3") ?? DEFAULT_EXTRA_TIER;
@@ -4533,6 +4548,7 @@ const INTENT_BADGE_LABELS: Record<string, string> = {
   }
 
   async function logTemplateUsage(suggestedText: string, usage: AiTemplateUsage): Promise<boolean> {
+    if (!aiEnabled) return false;
     const actionType = ACTION_TYPE_FOR_USAGE[usage] ?? ACTION_TYPE_FOR_USAGE.extra_quick;
     try {
       const res = await fetch("/api/creator/ai/log-usage", {
@@ -4583,6 +4599,10 @@ const INTENT_BADGE_LABELS: Record<string, string> = {
   }
 
   async function requestSuggestedText(usage: AiTemplateUsage, fallbackUsage?: AiTemplateUsage | null): Promise<string | null> {
+    if (!aiEnabled) {
+      setIaMessage("IA desactivada.");
+      return null;
+    }
     try {
       const res = await fetch("/api/creator/ai/quick-extra", {
         method: "POST",
@@ -5316,6 +5336,11 @@ const INTENT_BADGE_LABELS: Record<string, string> = {
   }, [accessLabel, conversation.id, conversation.followUpOpen, conversation.profileText, conversation.quickNote, membershipStatus]);
 
   useEffect(() => {
+    if (!aiEnabled) {
+      clearCortexFlow();
+      setCortexFlow(null);
+      return;
+    }
     if (!id) {
       setCortexFlow(null);
       return;
@@ -5327,7 +5352,7 @@ const INTENT_BADGE_LABELS: Record<string, string> = {
       return;
     }
     setCortexFlow(null);
-  }, [id]);
+  }, [aiEnabled, id]);
 
   useEffect(() => {
     if (!id) return;
@@ -5463,9 +5488,22 @@ const INTENT_BADGE_LABELS: Record<string, string> = {
   }, [ppvTierMenuOpen]);
 
   useEffect(() => {
+    if (!aiEnabled) return;
     fetchAiStatus();
     fetchAiSettingsTone();
-  }, []);
+  }, [aiEnabled, fetchAiSettingsTone, fetchAiStatus]);
+
+  useEffect(() => {
+    if (aiEnabled) return;
+    if (composerTarget !== "manager") return;
+    setComposerTarget("internal");
+  }, [aiEnabled, composerTarget]);
+
+  useEffect(() => {
+    if (aiEnabled) return;
+    if (internalPanelTab !== "manager") return;
+    setInternalPanelTab("internal");
+  }, [aiEnabled, internalPanelTab]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -5481,6 +5519,7 @@ const INTENT_BADGE_LABELS: Record<string, string> = {
   }, [id]);
 
   useEffect(() => {
+    if (!aiEnabled) return;
     let cancelled = false;
     const loadFanTemplatePools = async () => {
       try {
@@ -5503,7 +5542,7 @@ const INTENT_BADGE_LABELS: Record<string, string> = {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [aiEnabled]);
 
   useEffect(() => {
     if (!highlightDraftId) return;
@@ -6186,7 +6225,7 @@ const INTENT_BADGE_LABELS: Record<string, string> = {
   const isManagerTarget = composerTarget === "manager";
   const composerAudience = isFanTarget ? "CREATOR" : "INTERNAL";
   const isFanMode = !conversation.isManager;
-  const canUseManagerActions = Boolean(id);
+  const canUseManagerActions = aiEnabled && Boolean(id);
   const messageSheetTranslationStatus = messageActionSheet?.messageId
     ? messageTranslationState[messageActionSheet.messageId]?.status ?? "idle"
     : "idle";
@@ -6312,6 +6351,7 @@ const INTENT_BADGE_LABELS: Record<string, string> = {
   const handleUseTranscript = useCallback(
     (transcript: string) => {
       if (!transcript) return;
+      if (!aiEnabled) return;
       const fanName = (getFanDisplayNameForCreator(conversation) || contactName || "Fan").trim() || "Fan";
       const prompt = `Fan: ${fanName}\nAudio dice:\n${transcript}\n\nDame 3 respuestas cortas (cálida, directa, upsell suave).`;
       setManagerChatInput(prompt);
@@ -6321,7 +6361,7 @@ const INTENT_BADGE_LABELS: Record<string, string> = {
         managerChatInputRef.current?.focus();
       });
     },
-    [conversation, contactName, openInternalPanel]
+    [aiEnabled, conversation, contactName, openInternalPanel]
   );
 
   useEffect(() => {
@@ -6359,6 +6399,7 @@ const INTENT_BADGE_LABELS: Record<string, string> = {
 
   const handleManagerPanelTabClick = useCallback(
     (tab: InlineTab) => {
+      if (!aiEnabled) return;
       if (managerPanelOpen && managerPanelTab === tab) {
         closeInlinePanel({ focus: true });
         return;
@@ -6370,6 +6411,7 @@ const INTENT_BADGE_LABELS: Record<string, string> = {
       });
     },
     [
+      aiEnabled,
       activeFanId,
       managerPanelOpen,
       managerPanelTab,
@@ -6642,6 +6684,7 @@ const INTENT_BADGE_LABELS: Record<string, string> = {
 
   const handleSuggestReply = useCallback(
     async (messageId: string, targetLang: string) => {
+      if (!aiEnabled) return;
       if (!messageId) return;
       if (messageSuggestReplyInFlightRef.current.has(messageId)) return;
       messageSuggestReplyInFlightRef.current.add(messageId);
@@ -6693,7 +6736,7 @@ const INTENT_BADGE_LABELS: Record<string, string> = {
         }));
       }
     },
-    [insertComposerTextWithUndo, showComposerToast, translateTargetLabel]
+    [aiEnabled, insertComposerTextWithUndo, showComposerToast, translateTargetLabel]
   );
 
   const buildManagerQuotePrompt = (text: string) => {
@@ -6750,6 +6793,7 @@ const INTENT_BADGE_LABELS: Record<string, string> = {
   };
 
   const handleMessageQuote = (text: string) => {
+    if (!aiEnabled) return;
     const trimmed = text.trim();
     if (!trimmed) return;
     if (!id) {
@@ -6766,6 +6810,7 @@ const INTENT_BADGE_LABELS: Record<string, string> = {
   };
 
   const handleMessageRephrase = (text: string) => {
+    if (!aiEnabled) return;
     const trimmed = text.trim();
     if (!trimmed) return;
     if (!id) {
@@ -6865,9 +6910,9 @@ const INTENT_BADGE_LABELS: Record<string, string> = {
     const internalDraftCount = includeInternalContext ? recentInternalDrafts.length : 0;
     const managerTemplateCount = managerPromptTemplate ? 1 : 0;
     const templatesCount: number = playbookCount + managerTemplateCount;
-    const showManagerChip = true;
-    const showTemplatesChip = isFanMode;
-    const showToolsChip = isFanMode;
+    const showManagerChip = aiEnabled;
+    const showTemplatesChip = aiEnabled && isFanMode;
+    const showToolsChip = aiEnabled && isFanMode;
     const managerChipStatus = managerAlert ? "Riesgo" : "OK";
     const managerChipCount = managerSuggestions.length;
     const managerChipLabel = isFanMode ? (
@@ -8093,6 +8138,16 @@ const INTENT_BADGE_LABELS: Record<string, string> = {
           overlayBodyRef.current = node;
           managerBodyRef.current = node;
         };
+        const internalTabs = aiEnabled
+          ? [
+              { id: "manager", label: "Manager IA" },
+              { id: "internal", label: "Borradores" },
+              { id: "note", label: "Perfil + Seguimiento" },
+            ]
+          : [
+              { id: "internal", label: "Borradores" },
+              { id: "note", label: "Perfil + Seguimiento" },
+            ];
         return (
           <InlinePanelShell
             title="Panel interno"
@@ -8113,11 +8168,7 @@ const INTENT_BADGE_LABELS: Record<string, string> = {
                 role="tablist"
                 aria-label="Panel interno"
               >
-                {[
-                  { id: "manager", label: "Manager IA" },
-                  { id: "internal", label: "Borradores" },
-                  { id: "note", label: "Perfil + Seguimiento" },
-                ].map((tabItem) => {
+                {internalTabs.map((tabItem) => {
                   const isActive = internalPanelTab === tabItem.id;
                   return (
                     <button
@@ -8145,7 +8196,7 @@ const INTENT_BADGE_LABELS: Record<string, string> = {
             )}
           >
             <div className="flex flex-col gap-3">
-              {internalPanelTab === "manager" && renderInternalManagerContent()}
+              {internalPanelTab === "manager" && aiEnabled && renderInternalManagerContent()}
               {internalPanelTab === "internal" && renderInternalChatContent()}
               {internalPanelTab === "note" && renderInternalNoteContent()}
             </div>
@@ -8154,6 +8205,7 @@ const INTENT_BADGE_LABELS: Record<string, string> = {
       }
 
       if (tab === "templates") {
+        if (!aiEnabled) return null;
         const hasPlaybooks = playbookCount > 0;
         const templateTabs = [
           { id: "fan", label: "Para el fan" },
@@ -8409,6 +8461,7 @@ const INTENT_BADGE_LABELS: Record<string, string> = {
       }
 
       if (tab === "tools") {
+        if (!aiEnabled) return null;
         return renderInlineToolsPanel();
       }
 
@@ -8584,11 +8637,12 @@ const INTENT_BADGE_LABELS: Record<string, string> = {
   }, [id, fanLanguage]);
 
   useEffect(() => {
+    if (!aiEnabled) return;
     setIaMessage(null);
     setIaBlocked(false);
     fetchAiStatus();
     fetchAiSettingsTone();
-  }, [conversation.id]);
+  }, [aiEnabled, conversation.id, fetchAiSettingsTone, fetchAiStatus]);
 
   useEffect(() => {
     setManagerChatInput("");
@@ -9346,6 +9400,7 @@ const INTENT_BADGE_LABELS: Record<string, string> = {
       }
     ) => {
       if (!id) return;
+      if (!aiEnabled) return;
       const trimmed = question.trim();
       if (!trimmed) return;
       const refusalBubbleText =
@@ -9658,6 +9713,7 @@ const INTENT_BADGE_LABELS: Record<string, string> = {
     },
     [
       ageSignalDetected,
+      aiEnabled,
       agencyDraft,
       buildManagerContextPrompt,
       buildSimulatedManagerSuggestions,
@@ -10106,6 +10162,7 @@ const INTENT_BADGE_LABELS: Record<string, string> = {
   const requestManagerDraft = useCallback(
     async (options: DraftRequestOptions) => {
       if (!id) return null;
+      if (!aiEnabled) return null;
       if (draftActionState.status === "loading") return null;
       const requestId = draftActionRequestIdRef.current + 1;
       draftActionRequestIdRef.current = requestId;
@@ -10269,6 +10326,7 @@ const INTENT_BADGE_LABELS: Record<string, string> = {
       }
     },
     [
+      aiEnabled,
       agencyDraft?.playbook,
       conversation.agencyPlaybook,
       conversation.lastIntentKey,
@@ -10554,6 +10612,7 @@ const INTENT_BADGE_LABELS: Record<string, string> = {
     actionType: string;
     text: string;
   }) => {
+    if (!aiEnabled) return;
     try {
       await fetch("/api/creator/ai/log-usage", {
         method: "POST",
@@ -10794,7 +10853,7 @@ const INTENT_BADGE_LABELS: Record<string, string> = {
     if (isInternalPanelOpen) return;
     if ((evt.ctrlKey || evt.metaKey) && key.toLowerCase() === "j") {
       evt.preventDefault();
-      if (composerTarget === "fan" && cortexFlow) {
+      if (aiEnabled && composerTarget === "fan" && cortexFlow) {
         handleCortexFlowOpenNext();
       }
       return;
@@ -10877,8 +10936,9 @@ const INTENT_BADGE_LABELS: Record<string, string> = {
 
   const handleCortexFlowReturn = useCallback(() => {
     updateCortexFlowState(null);
+    if (!aiEnabled) return;
     void router.push("/creator/manager");
-  }, [router, updateCortexFlowState]);
+  }, [aiEnabled, router, updateCortexFlowState]);
 
   const handleCortexFlowOpenNext = useCallback(() => {
     if (!cortexFlow) return;
@@ -11298,30 +11358,32 @@ const INTENT_BADGE_LABELS: Record<string, string> = {
         if (nextStage && nextStage !== currentStage) {
           void applyAutoAdvanceStage(nextStage, currentActionKey);
         }
-        const flow = readCortexFlow();
-        if (flow && flow.currentFanId === id) {
-          const autoNext = flow.autoNext ?? true;
-          if (autoNext) {
-            const result = openNextFanFromFlow(flow);
-            if (result === "no-next") {
-              showInlineAction({
-                kind: "ok",
-                title: "Enviado",
-                detail: "Último fan del segmento.",
-                undoLabel: "Volver a Cortex",
-                onUndo: handleCortexFlowReturn,
-              });
-            }
-          } else {
-            const { nextFanId } = getNextFanFromFlow(flow);
-            if (!nextFanId) {
-              showInlineAction({
-                kind: "ok",
-                title: "Enviado",
-                detail: "Último fan del segmento.",
-                undoLabel: "Volver a Cortex",
-                onUndo: handleCortexFlowReturn,
-              });
+        if (aiEnabled) {
+          const flow = readCortexFlow();
+          if (flow && flow.currentFanId === id) {
+            const autoNext = flow.autoNext ?? true;
+            if (autoNext) {
+              const result = openNextFanFromFlow(flow);
+              if (result === "no-next") {
+                showInlineAction({
+                  kind: "ok",
+                  title: "Enviado",
+                  detail: "Último fan del segmento.",
+                  undoLabel: "Volver a Cortex",
+                  onUndo: handleCortexFlowReturn,
+                });
+              }
+            } else {
+              const { nextFanId } = getNextFanFromFlow(flow);
+              if (!nextFanId) {
+                showInlineAction({
+                  kind: "ok",
+                  title: "Enviado",
+                  detail: "Último fan del segmento.",
+                  undoLabel: "Volver a Cortex",
+                  onUndo: handleCortexFlowReturn,
+                });
+              }
             }
           }
         }
@@ -12163,7 +12225,7 @@ const INTENT_BADGE_LABELS: Record<string, string> = {
   const isInternalPanelOpen = managerPanelOpen && managerPanelTab === "manager";
   const cortexFlowNext = cortexFlow ? getNextFanFromFlow(cortexFlow) : { nextFanId: null, nextFanName: null };
   const cortexFlowLabel = cortexFlow?.segmentLabel || cortexFlow?.segmentKey || "Cortex";
-  const showCortexFlowBanner = Boolean(cortexFlow && id && cortexFlow.currentFanId === id);
+  const showCortexFlowBanner = aiEnabled && Boolean(cortexFlow && id && cortexFlow.currentFanId === id);
 
   useEffect(() => {
     if (typeof document === "undefined") return;
@@ -12927,8 +12989,8 @@ const INTENT_BADGE_LABELS: Record<string, string> = {
   }, [adultConfirmChip, fanLanguage, smartSuggestions.chips, uiSuggestions.chips, uiLanguage]);
 
   const quickActionDisabled = isChatBlocked || isInternalPanelOpen;
-  const showQuickActions = !conversation.isManager && quickActionChips.length > 0;
-  const showSuggestedAction = isFanTarget && !conversation.isManager && hasNextActionLabel;
+  const showQuickActions = aiEnabled && !conversation.isManager && quickActionChips.length > 0;
+  const showSuggestedAction = aiEnabled && isFanTarget && !conversation.isManager && hasNextActionLabel;
 
   const lifetimeValueDisplay = Math.round(conversation.lifetimeValue ?? 0);
   const notesCountDisplay = conversation.notesCount ?? 0;
@@ -13950,7 +14012,7 @@ const INTENT_BADGE_LABELS: Record<string, string> = {
                     onRetryTranscript={requestTranscriptRetry}
                     tone={fanTone}
                     onInsertText={(text) => handleUseManagerReplyAsMainMessage(text, "Análisis voz")}
-                    onInsertManager={handleInsertManagerComposerText}
+                    onInsertManager={aiEnabled ? handleInsertManagerComposerText : undefined}
                     onTranscriptSaved={(text) =>
                       messageConversation.id && handleManualTranscriptSaved(messageConversation.id, text)
                     }
@@ -14059,7 +14121,7 @@ const INTENT_BADGE_LABELS: Record<string, string> = {
                 : "";
               const canShowMessageActions = isFanMode && isTextMessage && !isInternalMessage && hasMessageText;
               const canSuggestReply =
-                Boolean(messageConversation.id) && !me && canShowMessageActions;
+                aiEnabled && Boolean(messageConversation.id) && !me && canShowMessageActions;
               const suggestReplyTargetLang = canSuggestReply
                 ? resolveSuggestReplyTargetLang()
                 : translateTargetLang;
@@ -14097,18 +14159,22 @@ const INTENT_BADGE_LABELS: Record<string, string> = {
                           },
                         ]
                       : []),
-                    {
-                      label: "Citar al Manager",
-                      disabled: !canUseManagerActions,
-                      title: !canUseManagerActions ? "Necesitas un fan activo para usar el Manager." : undefined,
-                      onClick: () => handleMessageQuote(messageVisibleText),
-                    },
-                    {
-                      label: "Reformular",
-                      disabled: !canUseManagerActions,
-                      title: !canUseManagerActions ? "Necesitas un fan activo para usar el Manager." : undefined,
-                      onClick: () => handleMessageRephrase(messageVisibleText),
-                    },
+                    ...(aiEnabled
+                      ? [
+                          {
+                            label: "Citar al Manager",
+                            disabled: !canUseManagerActions,
+                            title: !canUseManagerActions ? "Necesitas un fan activo para usar el Manager." : undefined,
+                            onClick: () => handleMessageQuote(messageVisibleText),
+                          },
+                          {
+                            label: "Reformular",
+                            disabled: !canUseManagerActions,
+                            title: !canUseManagerActions ? "Necesitas un fan activo para usar el Manager." : undefined,
+                            onClick: () => handleMessageRephrase(messageVisibleText),
+                          },
+                        ]
+                      : []),
                     {
                       label: "Guardar en perfil",
                       onClick: () => handleMessageSaveProfile(messageVisibleText),
@@ -14159,6 +14225,8 @@ const INTENT_BADGE_LABELS: Record<string, string> = {
                     actionMenuAlign={me ? "right" : "left"}
                     unlockedOfferIds={unlockedOfferIds}
                     onOfferClick={handleOfferClick}
+                    offerMeta={messageConversation.offerMeta ?? null}
+                    ppvMessageId={messageConversation.ppvMessageId ?? undefined}
                     onTouchLongPress={
                       canOpenActionSheet
                         ? () =>
@@ -14946,32 +15014,36 @@ const INTENT_BADGE_LABELS: Record<string, string> = {
                   <span>{messageSheetSuggestLabel}</span>
                 </button>
               )}
-              <button
-                type="button"
-                onClick={() => {
-                  if (!canUseManagerActions) return;
-                  handleMessageQuote(messageActionSheet.text);
-                  closeMessageActionSheet();
-                }}
-                disabled={!canUseManagerActions}
-                title={!canUseManagerActions ? "Necesitas un fan activo para usar el Manager." : undefined}
-                className="flex items-center justify-between rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-4 py-3 text-sm text-[color:var(--text)] hover:bg-[color:var(--surface-2)] disabled:cursor-not-allowed disabled:opacity-60"
-              >
-                <span>Citar al Manager</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  if (!canUseManagerActions) return;
-                  handleMessageRephrase(messageActionSheet.text);
-                  closeMessageActionSheet();
-                }}
-                disabled={!canUseManagerActions}
-                title={!canUseManagerActions ? "Necesitas un fan activo para usar el Manager." : undefined}
-                className="flex items-center justify-between rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-4 py-3 text-sm text-[color:var(--text)] hover:bg-[color:var(--surface-2)] disabled:cursor-not-allowed disabled:opacity-60"
-              >
-                <span>Reformular</span>
-              </button>
+              {aiEnabled && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (!canUseManagerActions) return;
+                    handleMessageQuote(messageActionSheet.text);
+                    closeMessageActionSheet();
+                  }}
+                  disabled={!canUseManagerActions}
+                  title={!canUseManagerActions ? "Necesitas un fan activo para usar el Manager." : undefined}
+                  className="flex items-center justify-between rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-4 py-3 text-sm text-[color:var(--text)] hover:bg-[color:var(--surface-2)] disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  <span>Citar al Manager</span>
+                </button>
+              )}
+              {aiEnabled && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (!canUseManagerActions) return;
+                    handleMessageRephrase(messageActionSheet.text);
+                    closeMessageActionSheet();
+                  }}
+                  disabled={!canUseManagerActions}
+                  title={!canUseManagerActions ? "Necesitas un fan activo para usar el Manager." : undefined}
+                  className="flex items-center justify-between rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-4 py-3 text-sm text-[color:var(--text)] hover:bg-[color:var(--surface-2)] disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  <span>Reformular</span>
+                </button>
+              )}
               <button
                 type="button"
                 onClick={() => {

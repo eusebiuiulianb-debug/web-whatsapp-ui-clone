@@ -70,6 +70,8 @@ type ApiMessage = {
   audioSizeBytes?: number | null;
   contentItem?: ApiContentItem | null;
   reactionsSummary?: ReactionSummaryEntry[];
+  offerMeta?: unknown;
+  ppvMessageId?: string | null;
   status?: "sending" | "failed" | "sent";
 };
 

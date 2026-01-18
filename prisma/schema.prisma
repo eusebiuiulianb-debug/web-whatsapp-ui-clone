@@ -331,6 +331,9 @@ model PpvMessage {
   title      String?
   priceCents Int
   currency   String       @default("EUR")
+  status     PpvMessageStatus @default(PENDING)
+  soldAt     DateTime?
+  purchaseId String?
   createdAt  DateTime     @default(now())
   updatedAt  DateTime     @updatedAt
   fan        Fan          @relation(fields: [fanId], references: [id])
@@ -480,6 +483,11 @@ enum WalletTransactionKind {
   EXTRA_PURCHASE
   PPV_PURCHASE
   REFUND
+}
+
+enum PpvMessageStatus {
+  PENDING
+  SOLD
 }
 
 enum PpvPurchaseStatus {

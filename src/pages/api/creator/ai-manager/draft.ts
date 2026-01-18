@@ -17,6 +17,7 @@ import { getEffectiveTranslateConfig } from "../../../../lib/ai/translateProvide
 import { normalizeObjectiveCode } from "../../../../lib/agency/objectives";
 import { sanitizeAiDraftText } from "../../../../lib/text/sanitizeAiDraft";
 import { isTooSimilarDraft } from "../../../../lib/text/isTooSimilarDraft";
+import { AI_ENABLED, sendAiDisabled } from "../../../../lib/features";
 
 type DraftSuccessResponse = {
   ok: true;
@@ -136,6 +137,9 @@ function normalizeFanDraftText(value?: string | null) {
 }
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse<DraftResponse>) {
+  if (!AI_ENABLED) {
+    return sendAiDisabled(res);
+  }
   if (req.method !== "POST") {
     res.setHeader("Allow", "POST");
     return res.status(405).json({ ok: false, error: "CORTEX_FAILED", message: "Method not allowed" });

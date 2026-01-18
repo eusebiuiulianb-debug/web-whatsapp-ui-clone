@@ -1,6 +1,7 @@
 import type { NextApiRequest, NextApiResponse } from "next";
 import { getCortexProviderSelection } from "../../../../lib/ai/cortexProvider";
 import { toSafeErrorMessage } from "../../../../server/ai/openAiError";
+import { AI_ENABLED, sendAiDisabled } from "../../../../lib/features";
 
 type ModelsResponse = {
   models: string[];
@@ -10,6 +11,9 @@ type ModelsResponse = {
 const OPENAI_BASE_URL = "https://api.openai.com/v1";
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse<ModelsResponse>) {
+  if (!AI_ENABLED) {
+    return sendAiDisabled(res);
+  }
   if (req.method !== "GET") {
     res.setHeader("Allow", "GET");
     return res.status(405).json({ models: [], error: "Method not allowed" });

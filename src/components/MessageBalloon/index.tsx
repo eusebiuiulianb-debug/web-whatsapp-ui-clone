@@ -17,6 +17,7 @@ export type OfferMeta = {
   ppvMessageId?: string;
   title: string;
   price: string;
+  amountCents?: number;
   priceCents?: number;
   currency?: string;
   thumb?: string | null;
@@ -37,6 +38,7 @@ function normalizeOfferMeta(value: unknown): OfferMeta | null {
     status?: string;
     messageId?: unknown;
     ppvMessageId?: unknown;
+    amountCents?: unknown;
     priceCents?: unknown;
     currency?: unknown;
     purchasedAt?: unknown;
@@ -58,6 +60,10 @@ function normalizeOfferMeta(value: unknown): OfferMeta | null {
   const purchasedByFan = typeof candidate.purchasedByFan === "boolean" ? candidate.purchasedByFan : undefined;
   const messageId = typeof candidate.messageId === "string" ? candidate.messageId.trim() : undefined;
   const ppvMessageId = typeof candidate.ppvMessageId === "string" ? candidate.ppvMessageId.trim() : undefined;
+  const amountCents =
+    typeof candidate.amountCents === "number" && Number.isFinite(candidate.amountCents)
+      ? Math.round(candidate.amountCents)
+      : undefined;
   const priceCents =
     typeof candidate.priceCents === "number" && Number.isFinite(candidate.priceCents)
       ? Math.round(candidate.priceCents)
@@ -76,6 +82,7 @@ function normalizeOfferMeta(value: unknown): OfferMeta | null {
     ppvMessageId,
     title,
     price: candidate.price,
+    amountCents,
     priceCents,
     currency,
     thumb: typeof candidate.thumb === "string" ? candidate.thumb : null,
@@ -216,6 +223,8 @@ interface MessageBalloonProps {
   unlockedOfferIds?: Set<string>;
   unlockingOfferIds?: Set<string>;
   onOfferClick?: (offer: OfferMeta, status: "locked" | "unlocked") => void;
+  offerMeta?: unknown;
+  ppvMessageId?: string;
   viewerRole: ViewerRole;
 }
 
@@ -247,14 +256,34 @@ const MessageBalloon = memo(function MessageBalloon(props: MessageBalloonProps) 
     unlockedOfferIds,
     unlockingOfferIds,
     onOfferClick,
+    offerMeta: offerMetaProp,
+    ppvMessageId: ppvMessageIdProp,
     viewerRole,
   } = props;
   const isCreator = viewerRole === "creator";
   const isSticker = Boolean(stickerSrc);
-  const { textVisible, offerMeta } = useMemo(
+  const explicitOfferMeta = useMemo(
+    () => (offerMetaProp ? normalizeOfferMeta(offerMetaProp) : null),
+    [offerMetaProp]
+  );
+  const { textVisible, offerMeta: parsedOfferMeta } = useMemo(
     () => (isSticker ? { textVisible: message, offerMeta: null } : splitOffer(message)),
     [isSticker, message]
   );
+  const resolvedOfferMeta = explicitOfferMeta ?? parsedOfferMeta;
+  const resolvedPpvMessageId = (typeof ppvMessageIdProp === "string" ? ppvMessageIdProp : undefined)
+    ?? resolvedOfferMeta?.ppvMessageId;
+  const fallbackPpvMeta: OfferMeta | null =
+    !resolvedOfferMeta && resolvedPpvMessageId
+      ? {
+          id: resolvedPpvMessageId,
+          ppvMessageId: resolvedPpvMessageId,
+          title: "Extra",
+          price: "",
+          kind: "ppv" as const,
+        }
+      : null;
+  const offerMeta = resolvedOfferMeta ?? fallbackPpvMeta;
   const ppvUnlocked = offerMeta?.isUnlockedForViewer === true || offerMeta?.status === "unlocked";
   const offerStatus =
     offerMeta?.kind === "ppv"
@@ -262,7 +291,7 @@ const MessageBalloon = memo(function MessageBalloon(props: MessageBalloonProps) 
         ? "unlocked"
         : "locked"
       : offerMeta?.status ?? (offerMeta && unlockedOfferIds?.has(offerMeta.id) ? "unlocked" : "locked");
-  const isPpvOffer = offerMeta?.kind === "ppv";
+  const isPpvOffer = offerMeta?.kind === "ppv" || Boolean(resolvedPpvMessageId);
   const showMessageBubble = !isPpvOffer;
   const offerKindLabel =
     offerMeta?.kind === "ppv" ? "EXTRA (PPV)" : offerMeta?.kind === "pack" ? "PACK" : "OFERTA";

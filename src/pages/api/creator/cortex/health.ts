@@ -2,6 +2,7 @@ import type { NextApiRequest, NextApiResponse } from "next";
 import { getCortexProviderSelection, type CortexProviderName } from "../../../../lib/ai/cortexProvider";
 import { resolveProviderErrorType } from "../../../../server/ai/cortexErrors";
 import { parseOpenAiError, toSafeErrorMessage } from "../../../../server/ai/openAiError";
+import { AI_ENABLED, sendAiDisabled } from "../../../../lib/features";
 
 type HealthResponse = {
   ok: boolean;
@@ -27,6 +28,9 @@ export default async function handler(
   req: NextApiRequest,
   res: NextApiResponse<HealthResponse | ErrorResponse>
 ) {
+  if (!AI_ENABLED) {
+    return sendAiDisabled(res);
+  }
   if (req.method !== "GET") {
     res.setHeader("Allow", "GET");
     return res.status(405).json({ error: "Method not allowed", details: "Use GET" });

@@ -1,5 +1,6 @@
 import type { NextRouter } from "next/router";
 import type { ParsedUrlQuery } from "querystring";
+import { AI_ENABLED } from "../features";
 
 type OpenFanChatOptions = {
   draft?: string;
@@ -227,6 +228,7 @@ export function openCortexAndPrefill(
   router: NextRouter,
   options: { text: string; fanId?: string; mode?: ComposerDraftMode; source?: string; pathname?: string; shallow?: boolean; scroll?: boolean }
 ) {
+  if (!AI_ENABLED) return;
   const text = typeof options.text === "string" ? options.text : "";
   const fanId = typeof options.fanId === "string" ? options.fanId.trim() : "";
   if (!text.trim()) return;

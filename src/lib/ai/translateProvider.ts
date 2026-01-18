@@ -1,4 +1,5 @@
 import { translateText as translateWithOpenAi } from "../../server/ai/translateText";
+import { AI_ENABLED } from "../features";
 import prisma from "../prisma.server";
 import { decryptSecretSafe } from "../crypto/secrets";
 import { normalizeTranslationLanguage, type TranslationLanguage } from "../language";
@@ -45,6 +46,7 @@ export function getLibreTranslateHelpMessage() {
 
 function normalizeTranslateProvider(raw?: string | null): TranslateProvider {
   const normalized = typeof raw === "string" ? raw.trim().toLowerCase() : "";
+  if (!AI_ENABLED && normalized === "openai") return "none";
   if (normalized === "libre") return "libretranslate";
   if (PROVIDERS.has(normalized as TranslateProvider)) {
     return normalized as TranslateProvider;

@@ -1,6 +1,7 @@
 import type { NextApiRequest, NextApiResponse } from "next";
 import prisma from "../../../../lib/prisma.server";
 import { buildDailyUsageFromLogs } from "../../../../lib/aiUsage";
+import { AI_ENABLED, sendAiDisabled } from "../../../../lib/features";
 
 const DEFAULT_CREATOR_ID = "creator-1";
 const MS_PER_DAY = 1000 * 60 * 60 * 24;
@@ -8,6 +9,9 @@ const MS_PER_DAY = 1000 * 60 * 60 * 24;
 type ActionCount = { actionType: string; count: number };
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
+  if (!AI_ENABLED) {
+    return sendAiDisabled(res);
+  }
   if (req.method !== "GET") {
     res.setHeader("Allow", "GET");
     return res.status(405).json({ error: "Method not allowed" });

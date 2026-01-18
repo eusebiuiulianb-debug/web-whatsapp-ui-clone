@@ -8,9 +8,11 @@ import { CreatorShell } from "../components/creator/CreatorShell";
 import { track } from "../lib/analyticsClient";
 import { ANALYTICS_EVENTS } from "../lib/analyticsEvents";
 import { getFanIdFromQuery } from "../lib/navigation/openCreatorChat";
+import { AI_ENABLED } from "../lib/features";
 
 export default function Home() {
   const { conversation, openManagerPanel } = useContext(ConversationContext);
+  const aiEnabled = AI_ENABLED;
   const hasConversation = Boolean(conversation?.id);
   const hasContactName = Boolean(conversation?.contactName);
   const router = useRouter();
@@ -67,6 +69,7 @@ export default function Home() {
   }, [hasConversation]);
 
   useEffect(() => {
+    if (!aiEnabled) return;
     if (typeof window === "undefined") return;
     const handleOpenInternalPanel = (event: Event) => {
       const detail = (event as CustomEvent)?.detail as
@@ -83,7 +86,7 @@ export default function Home() {
     return () => {
       window.removeEventListener("novsy:openInternalPanel", handleOpenInternalPanel as EventListener);
     };
-  }, [openManagerPanel]);
+  }, [aiEnabled, openManagerPanel]);
 
   useEffect(() => {
     if (!hasConversation || !conversation?.id) return;

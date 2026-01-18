@@ -3,6 +3,7 @@ import prisma from "../../../lib/prisma.server";
 import { buildCreatorAiContext } from "../../../server/manager/managerService";
 import { CREATOR_ADVISOR_PROMPT } from "../../../server/manager/creatorPrompts";
 import { CreatorAiAdvisorInputSchema } from "../../../server/manager/managerSchemas";
+import { AI_ENABLED, sendAiDisabled } from "../../../lib/features";
 
 function getCreatorId(): string {
   // Reutilizamos el mismo approach que otros endpoints del creador (demo fija por ahora).
@@ -50,6 +51,9 @@ function buildPreview(input: Awaited<ReturnType<typeof buildCreatorAiContext>>) 
 }
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
+  if (!AI_ENABLED) {
+    return sendAiDisabled(res);
+  }
   if (req.method !== "GET") {
     res.setHeader("Allow", ["GET"]);
     return res.status(405).json({ error: "Method not allowed" });

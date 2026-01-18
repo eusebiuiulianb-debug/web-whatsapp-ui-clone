@@ -14,6 +14,7 @@ import {
 import { logCortexLlmUsage } from "../../../../lib/aiUsage.server";
 import { evaluateAdultPolicy } from "../../../../server/ai/adultPolicy";
 import { buildErrorSnippet, resolveProviderErrorType } from "../../../../server/ai/cortexErrors";
+import { AI_ENABLED, sendAiDisabled } from "../../../../lib/features";
 
 type SuggestMode = "reply" | "sales" | "clarify";
 
@@ -81,6 +82,9 @@ export default async function handler(
   req: NextApiRequest,
   res: NextApiResponse<SuggestReplyResponse | SuggestReplyErrorResponse | ErrorResponse>
 ) {
+  if (!AI_ENABLED) {
+    return sendAiDisabled(res);
+  }
   if (req.method !== "POST") {
     res.setHeader("Allow", "POST");
     return res.status(405).json({ error: "Method not allowed", details: "Use POST" });

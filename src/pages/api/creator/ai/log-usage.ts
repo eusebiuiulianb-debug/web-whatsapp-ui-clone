@@ -2,6 +2,7 @@ import type { NextApiRequest, NextApiResponse } from "next";
 import { logAiUsage } from "../../../../lib/aiUsage.server";
 import { AI_TURN_MODES, type AiTurnMode } from "../../../../lib/aiTemplateTypes";
 import { normalizeAiTurnMode } from "../../../../lib/aiSettings";
+import { AI_ENABLED, sendAiDisabled } from "../../../../lib/features";
 
 type LogUsageBody = {
   fanId?: string;
@@ -15,6 +16,9 @@ type LogUsageBody = {
 };
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
+  if (!AI_ENABLED) {
+    return sendAiDisabled(res);
+  }
   if (req.method !== "POST") {
     res.setHeader("Allow", "POST");
     return res.status(405).json({ ok: false });

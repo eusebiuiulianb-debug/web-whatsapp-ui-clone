@@ -9,6 +9,7 @@ import { toSafeErrorMessage } from "../../../server/ai/openAiError";
 import { sanitizeForOpenAi } from "../../../server/ai/sanitizeForOpenAi";
 import { OPENAI_FALLBACK_MESSAGE } from "../../../server/ai/openAiClient";
 import { runAiCompletion, type AiAdapterResult } from "../../../server/ai/aiAdapter";
+import { AI_ENABLED, sendAiDisabled } from "../../../lib/features";
 
 type SerializedMessage = {
   id: string;
@@ -21,6 +22,9 @@ const HISTORY_LIMIT = 20;
 const HISTORY_RESPONSE_LIMIT = 50;
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
+  if (!AI_ENABLED) {
+    return sendAiDisabled(res);
+  }
   if (req.method === "GET") {
     return handleGet(req, res);
   }

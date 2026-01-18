@@ -27,6 +27,7 @@ import { KpiCard } from "../../components/ui/KpiCard";
 import { SectionCard } from "../../components/ui/SectionCard";
 import { buildFanChatHref, openFanChat, openFanChatAndPrefill } from "../../lib/navigation/openCreatorChat";
 import { useCreatorRealtime } from "../../hooks/useCreatorRealtime";
+import { AI_ENABLED } from "../../lib/features";
 
 type Props = {
   initialSnapshot: CreatorBusinessSnapshot | null;
@@ -1591,6 +1592,14 @@ function ManagerChatLayout({
 }
 
 export const getServerSideProps: GetServerSideProps<Props> = async () => {
+  if (!AI_ENABLED) {
+    return {
+      redirect: {
+        destination: "/creator/chats",
+        permanent: false,
+      },
+    };
+  }
   const creatorId = process.env.CREATOR_ID ?? "creator-1";
   let initialSnapshot: CreatorBusinessSnapshot | null = null;
   let initialContentSnapshot: CreatorContentSnapshot | null = null;

@@ -2,6 +2,7 @@ import Link from "next/link";
 import { useRouter } from "next/router";
 import { ContextMenu, type ContextMenuItem } from "./ui/ContextMenu";
 import { IconButton } from "./ui/IconButton";
+import { AI_ENABLED } from "../lib/features";
 
 interface CreatorHeaderProps {
   name: string;
@@ -14,6 +15,7 @@ interface CreatorHeaderProps {
 
 export default function CreatorHeader({ name, role, subtitle, initial, avatarUrl, onOpenSettings }: CreatorHeaderProps) {
   const router = useRouter();
+  const aiEnabled = AI_ENABLED;
 
   const pathname = router.pathname;
 
@@ -32,7 +34,7 @@ export default function CreatorHeader({ name, role, subtitle, initial, avatarUrl
 
   const navTabs = [
     { label: "Chat privado", href: "/", active: isChat, className: "" },
-    { label: "Cortex", href: "/creator/manager", active: isPanel, className: "" },
+    ...(aiEnabled ? [{ label: "Cortex", href: "/creator/manager", active: isPanel, className: "" }] : []),
     { label: "Bio-link", href: "/creator/bio-link", active: isBioLink, className: "" },
     { label: "Analítica", href: "/creator/analytics", active: isAnalytics, className: "" },
   ];
@@ -43,13 +45,17 @@ export default function CreatorHeader({ name, role, subtitle, initial, avatarUrl
       icon: "settings",
       onClick: () => onOpenSettings(),
     },
-    {
-      label: "Ajustes de IA",
-      icon: "spark",
-      onClick: () => {
-        void router.push("/creator/ai-settings");
-      },
-    },
+    ...(aiEnabled
+      ? [
+          {
+            label: "Ajustes de IA",
+            icon: "spark",
+            onClick: () => {
+              void router.push("/creator/ai-settings");
+            },
+          },
+        ]
+      : []),
     {
       label: "Ver perfil público",
       icon: "globe",
@@ -59,13 +65,17 @@ export default function CreatorHeader({ name, role, subtitle, initial, avatarUrl
         }
       },
     },
-    {
-      label: "Plantillas de IA",
-      icon: "file",
-      onClick: () => {
-        void router.push("/creator/ai-templates");
-      },
-    },
+    ...(aiEnabled
+      ? [
+          {
+            label: "Plantillas de IA",
+            icon: "file",
+            onClick: () => {
+              void router.push("/creator/ai-templates");
+            },
+          },
+        ]
+      : []),
     {
       label: "Biblioteca",
       icon: "folder",

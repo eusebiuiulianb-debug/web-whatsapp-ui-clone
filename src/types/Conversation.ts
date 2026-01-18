@@ -51,6 +51,8 @@ interface Message {
   voiceAnalysisUpdatedAt?: string | null;
   voiceTranslation?: VoiceTranslation | null;
   reactionsSummary?: ReactionSummaryEntry[];
+  offerMeta?: unknown;
+  ppvMessageId?: string | null;
   contentItem?: {
     id: string;
     title: string;

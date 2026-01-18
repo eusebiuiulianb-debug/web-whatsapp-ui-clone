@@ -4,6 +4,7 @@ import { DEFAULT_AI_TEMPLATES } from "../../../../lib/defaultAiTemplates";
 import { AI_TEMPLATE_USAGES, AI_TURN_MODES, AiTemplateUsage, type AiTurnMode } from "../../../../lib/aiTemplateTypes";
 import type { ExtraTier, Prisma } from "@prisma/client";
 import { normalizeAiTurnMode } from "../../../../lib/aiSettings";
+import { AI_ENABLED, sendAiDisabled } from "../../../../lib/features";
 
 type SaveTemplateBody = {
   id?: string;
@@ -19,6 +20,9 @@ type SaveTemplateBody = {
 const DEFAULT_CREATOR_ID = "creator-1";
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
+  if (!AI_ENABLED) {
+    return sendAiDisabled(res);
+  }
   if (req.method === "GET") {
     return handleGet(req, res);
   }

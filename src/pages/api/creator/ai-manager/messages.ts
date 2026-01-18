@@ -1,6 +1,7 @@
 import type { NextApiRequest, NextApiResponse } from "next";
 import { ManagerAiTab } from "@prisma/client";
 import prisma from "../../../../lib/prisma.server";
+import { AI_ENABLED, sendAiDisabled } from "../../../../lib/features";
 
 type ManagerMessage = {
   id: string;
@@ -21,6 +22,9 @@ export default async function handler(
   req: NextApiRequest,
   res: NextApiResponse<MessagesResponse | ErrorResponse>
 ) {
+  if (!AI_ENABLED) {
+    return sendAiDisabled(res);
+  }
   if (req.method !== "GET") {
     res.setHeader("Allow", "GET");
     return res.status(405).json({ ok: false, error: { code: "method_not_allowed", message: "Method not allowed" } });

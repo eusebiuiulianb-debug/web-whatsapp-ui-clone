@@ -106,6 +106,7 @@ function buildPpvOfferMeta(ppv: {
   messageId?: string | null;
   title?: string | null;
   priceCents: number;
+  amountCents?: number;
   currency?: string | null;
   status?: "locked" | "unlocked";
   purchaseCount?: number;
@@ -122,6 +123,7 @@ function buildPpvOfferMeta(ppv: {
     title: (ppv.title || "").trim() || PPV_OFFER_FALLBACK_TITLE,
     price: formatPriceFromCents(ppv.priceCents, ppv.currency ?? "EUR"),
     priceCents: ppv.priceCents,
+    ...(typeof ppv.amountCents === "number" ? { amountCents: ppv.amountCents } : {}),
     currency: (ppv.currency ?? "EUR").toUpperCase(),
     kind: "ppv",
     ...(ppv.status ? { status: ppv.status } : {}),
@@ -454,13 +456,14 @@ async function handleGet(req: NextApiRequest, res: NextApiResponse<MessageRespon
         viewerRole === "creator" ? true : isUnlockedForViewer && isAdultConfirmed;
       const canPurchase =
         viewerRole === "fan" ? !isUnlockedForViewer && isAdultConfirmed : false;
-      const rawText = typeof raw.text === "string" ? raw.text : "";
-      const { visibleText } = splitOfferMarker(rawText);
+      // Never expose PPV content in thread responses; use a fixed placeholder.
+      const baseText = PPV_LOCKED_PLACEHOLDER;
       const offerMeta = buildPpvOfferMeta({
         id: ppv.id,
         messageId: typeof ppv.messageId === "string" ? ppv.messageId : null,
         title: ppv.title ?? null,
         priceCents: ppv.priceCents,
+        amountCents: ppv.priceCents,
         currency: ppv.currency ?? "EUR",
         status: isUnlockedForViewer ? "unlocked" : "locked",
         purchaseCount: isSold ? 1 : 0,
@@ -470,20 +473,19 @@ async function handleGet(req: NextApiRequest, res: NextApiResponse<MessageRespon
         canViewContent,
         canPurchase,
       });
-      const baseText =
-        viewerRole === "fan"
-          ? isUnlockedForViewer && visibleText.trim()
-            ? visibleText
-            : PPV_LOCKED_PLACEHOLDER
-          : visibleText.trim()
-          ? visibleText
-          : offerMeta.title;
       const withOffer = {
         ...raw,
         text: attachOfferMarker(baseText, JSON.stringify(offerMeta)),
         deliveredText: null,
+        offerMeta,
+        ppvMessageId: ppv.id,
       };
-      const { ppvMessage, ...rest } = withOffer as Record<string, unknown>;
+      const withOfferText = {
+        ...withOffer,
+        // Preserve the offer marker in creator timelines (originalText drives rendering).
+        originalText: typeof withOffer.text === "string" ? withOffer.text : raw.originalText,
+      };
+      const { ppvMessage, ...rest } = withOfferText as Record<string, unknown>;
       return viewerRole === "fan" ? sanitizeMessageForFan(rest) : rest;
     });
 

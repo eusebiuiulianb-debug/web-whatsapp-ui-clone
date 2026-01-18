@@ -7,6 +7,7 @@ import {
   type CreatorSalesPurchase,
 } from "../../../../lib/analytics/creatorSalesTotals";
 import { daysAgoInTimeZone, startOfDayInTimeZone } from "../../../../lib/timezone";
+import { AI_ENABLED, sendAiDisabled } from "../../../../lib/features";
 
 type SalesRange = "today" | "7d" | "30d";
 
@@ -271,6 +272,9 @@ async function loadExtraPurchases({
 }
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse<SalesResponse>) {
+  if (!AI_ENABLED) {
+    return sendAiDisabled(res);
+  }
   res.setHeader("Cache-Control", "no-store");
   res.setHeader("Pragma", "no-cache");
   res.setHeader("Expires", "0");

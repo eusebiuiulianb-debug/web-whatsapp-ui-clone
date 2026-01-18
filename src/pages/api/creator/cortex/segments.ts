@@ -2,6 +2,7 @@ import type { NextApiRequest, NextApiResponse } from "next";
 import prisma from "../../../../lib/prisma.server";
 import { sendServerError } from "../../../../lib/apiError";
 import { computeFanTotals } from "../../../../lib/fanTotals";
+import { AI_ENABLED, sendAiDisabled } from "../../../../lib/features";
 
 type SegmentPreview = {
   fanId: string;
@@ -113,6 +114,9 @@ function buildSuggestedAction(segmentId: string) {
 }
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse<SegmentsResponse | { error: string }>) {
+  if (!AI_ENABLED) {
+    return sendAiDisabled(res);
+  }
   if (req.method !== "GET") {
     res.setHeader("Allow", ["GET"]);
     return res.status(405).json({ error: "Method Not Allowed" });

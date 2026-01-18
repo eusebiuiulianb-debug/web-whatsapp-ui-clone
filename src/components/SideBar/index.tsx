@@ -47,6 +47,7 @@ import { IconGlyph } from "../ui/IconGlyph";
 import { computeAgencyPriorityScore } from "../../lib/agency/priorityScore";
 import type { AgencyIntensity, AgencyStage } from "../../lib/agency/types";
 import { DB_SCHEMA_OUT_OF_SYNC_CODE } from "../../lib/dbSchemaGuard";
+import { AI_ENABLED } from "../../lib/features";
 
 class SideBarBoundary extends Component<{ children: React.ReactNode }, { hasError: boolean }> {
   constructor(props: { children: React.ReactNode }) {
@@ -439,6 +440,7 @@ export default function SideBar() {
 
 function SideBarInner() {
   const router = useRouter();
+  const aiEnabled = AI_ENABLED;
   const queryFan = router.query.fan;
   const queryFanId = router.query.fanId;
   const [ search, setSearch ] = useState("");
@@ -2602,11 +2604,12 @@ function SideBarInner() {
   }
 
   const handleOpenManagerPanel = useCallback((_item?: ConversationListData) => {
+    if (!aiEnabled) return;
     if (typeof window !== "undefined") {
       window.dispatchEvent(new CustomEvent("novsy:conversation:changing"));
     }
     void router.push("/creator/manager", undefined, { scroll: false });
-  }, [router]);
+  }, [aiEnabled, router]);
 
   const managerPanelItem = useMemo<ConversationListData>(
     () => ({
@@ -3672,12 +3675,14 @@ function SideBarInner() {
             )}
           </div>
         </div>
-        <ConversationList
-          data={managerPanelItem}
-          isFirstConversation
-          onSelect={handleOpenManagerPanel}
-          variant="compact"
-        />
+        {aiEnabled && (
+          <ConversationList
+            data={managerPanelItem}
+            isFirstConversation
+            onSelect={handleOpenManagerPanel}
+            variant="compact"
+          />
+        )}
         {isLoading && (
           <div className="text-center text-[color:var(--muted)] py-4 text-sm">Cargando fans...</div>
         )}
