@@ -85,12 +85,13 @@ export function ConversationActionsMenu({
     });
   }
   if (!isManagerChat && onToggleHighPriority) {
+    const priorityLabel = isHighPriority ? "Quitar prioridad" : "Alta prioridad";
     items.push({
-      label: isHighPriority ? "Quitar alta prioridad" : "Marcar alta prioridad",
+      label: priorityLabel,
       icon: "pin",
       onClick: () => onToggleHighPriority(conversation),
       disabled: actionDisabled,
-      title: isHighPriority ? "Quitar prioridad" : "Alta prioridad",
+      title: priorityLabel,
       labelSrOnly: true,
     });
   }

@@ -10985,7 +10985,7 @@ const INTENT_BADGE_LABELS: Record<string, string> = {
         const cooldown = fanSendCooldownById[id];
         if (cooldown && cooldown.until > Date.now()) return;
       }
-      if (messageSend.trim()) handleSendMessage();
+      if (messageSend.trim() || (isFanTarget && draftOffer)) handleSendMessage();
     }
   }
 
@@ -11568,7 +11568,9 @@ const INTENT_BADGE_LABELS: Record<string, string> = {
 
   async function handleSendMessage() {
     const trimmed = messageSend.trim();
-    if (!trimmed) {
+    const fallbackText = isFanTarget && draftOffer ? buildOfferMessageText(draftOffer) : "";
+    const composerText = isFanTarget ? trimmed || fallbackText : trimmed;
+    if (!composerText) {
       if (messageSend) {
         setMessageSend("");
         setComposerActionKey(null);
@@ -11602,7 +11604,7 @@ const INTENT_BADGE_LABELS: Record<string, string> = {
       }, 700);
       return;
     }
-    const sentText = await sendFanMessage(trimmed, {
+    const sentText = await sendFanMessage(composerText, {
       skipTranslation: draftSkipTranslate,
       offer: draftOffer,
     });
@@ -12488,7 +12490,8 @@ const INTENT_BADGE_LABELS: Record<string, string> = {
     }
   }, [composerTarget]);
 
-  const hasComposerPayload = messageSend.trim().length > 0;
+  const hasComposerAttachments = isFanTarget && Boolean(draftOffer);
+  const hasComposerPayload = messageSend.trim().length > 0 || hasComposerAttachments;
   const isComposerSubmitting = isSending || isManagerSending;
   const currentFanCooldown = id ? fanSendCooldownById[id] : null;
   const isFanCooldownActive =
@@ -15127,6 +15130,7 @@ const INTENT_BADGE_LABELS: Record<string, string> = {
                   if (!canAttachContent) return;
                   openAttachContent({ closeInline: false });
                 }}
+                hasAttachments={hasComposerAttachments}
                 showVoice={isFanTarget}
                 onVoiceStart={startVoiceRecording}
                 voiceDisabled={

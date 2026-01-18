@@ -2910,10 +2910,7 @@ function SideBarInner() {
         )}
         <LeftSectionCard className="mb-2">
           <div className="flex items-center justify-between gap-3">
-            <div className="text-left">
-              <div className="text-sm font-semibold text-[color:var(--text)]">Resumen y extras</div>
-              {insightsOpen && <div className="text-[11px] ui-muted">Ventas y actividad</div>}
-            </div>
+            <div className="text-sm font-semibold text-[color:var(--text)]">Resumen y extras</div>
             <button
               type="button"
               onClick={toggleInsightsOpen}

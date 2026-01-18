@@ -34,6 +34,7 @@ type ChatComposerBarProps = {
   modeHelpText?: string;
   canAttach: boolean;
   onAttach: () => void;
+  hasAttachments?: boolean;
   inputRef?: React.Ref<HTMLTextAreaElement>;
   maxHeight: number;
   isChatBlocked: boolean;
@@ -66,6 +67,7 @@ export function ChatComposerBar({
   modeHelpText,
   canAttach,
   onAttach,
+  hasAttachments = false,
   inputRef,
   maxHeight,
   isChatBlocked,
@@ -90,6 +92,8 @@ export function ChatComposerBar({
   const emojiButtonRef = useRef<HTMLButtonElement | null>(null);
   const emojiAddButtonRef = useRef<HTMLButtonElement | null>(null);
   const stickerButtonRef = useRef<HTMLButtonElement | null>(null);
+  const sendLabel = audience === "CREATOR" ? "Enviar" : actionLabel;
+  const isSendDisabled = sendDisabled || (!value.trim() && !hasAttachments);
   const [ emojiRecents, setEmojiRecents ] = useState<string[]>([]);
   const { favorites, addFavorite, removeFavorite, replaceFavorites, isAtMax } = useEmojiFavorites();
   const draggedEmojiRef = useRef<string | null>(null);
@@ -499,12 +503,12 @@ export function ChatComposerBar({
         <button
           type="button"
           onClick={onSend}
-          disabled={sendDisabled}
-          aria-label={actionLabel}
-          title={actionLabel}
+          disabled={isSendDisabled}
+          aria-label={sendLabel}
+          title={sendLabel}
           className={clsx(
-            "flex h-9 w-9 items-center justify-center rounded-full border transition focus-visible:outline-none focus-visible:ring-2 shrink-0",
-            sendDisabled
+            "flex h-9 w-9 items-center justify-center rounded-full border transition focus-visible:outline-none focus-visible:ring-2 shrink-0 ml-auto",
+            isSendDisabled
               ? "border-[color:var(--surface-border)] bg-[color:var(--surface-2)] text-[color:var(--muted)] cursor-not-allowed"
               : "border-[color:var(--brand)] bg-[color:var(--brand-strong)] text-[color:var(--text)] hover:bg-[color:var(--brand)] focus-visible:ring-[color:var(--ring)]"
           )}
@@ -518,7 +522,7 @@ export function ChatComposerBar({
           ) : (
             <IconGlyph name="send" className="h-4 w-4" ariaHidden />
           )}
-          <span className="sr-only">{actionLabel}</span>
+          <span className="sr-only">{sendLabel}</span>
         </button>
       </div>
     </div>

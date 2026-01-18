@@ -9,7 +9,7 @@ import {
 } from "../../../../lib/analytics/creatorSalesTotals";
 import { DEFAULT_CREATOR_TIME_ZONE, daysAgoInTimeZone, startOfDayInTimeZone } from "../../../../lib/timezone";
 
-type SalesRange = "today" | "7d" | "30d";
+type SalesRange = "today" | "7d" | "30d" | "90d";
 
 type SalesTotals = {
   totalAmount: number;
@@ -55,6 +55,10 @@ type SalesDailyPoint = {
   date: string;
   amount: number;
   count: number;
+  extrasAmount: number;
+  tipsAmount: number;
+  subscriptionsAmount: number;
+  giftsAmount: number;
 };
 
 type SalesResponse = {
@@ -68,7 +72,7 @@ type SalesResponse = {
 };
 
 function normalizeRange(value: unknown): SalesRange | null {
-  if (value === "today" || value === "7d" || value === "30d") return value;
+  if (value === "today" || value === "7d" || value === "30d" || value === "90d") return value;
   return null;
 }
 
@@ -120,7 +124,8 @@ function resolvePackName(productId?: string | null, fallbackName?: string | null
 function getRangeLabel(range: SalesRange): string {
   if (range === "today") return "hoy";
   if (range === "7d") return "los últimos 7 días";
-  return "los últimos 30 días";
+  if (range === "30d") return "los últimos 30 días";
+  return "los últimos 90 días";
 }
 
 function buildDailyBuckets({
@@ -129,8 +134,21 @@ function buildDailyBuckets({
 }: {
   range: SalesRange;
   now: Date;
-}): { keys: string[]; buckets: Map<string, { amount: number; count: number }> } {
-  const rangeDays = range === "today" ? 1 : range === "7d" ? 7 : 30;
+}): {
+  keys: string[];
+  buckets: Map<
+    string,
+    {
+      amount: number;
+      count: number;
+      extrasAmount: number;
+      tipsAmount: number;
+      subscriptionsAmount: number;
+      giftsAmount: number;
+    }
+  >;
+} {
+  const rangeDays = range === "today" ? 1 : range === "7d" ? 7 : range === "30d" ? 30 : 90;
   const formatter = new Intl.DateTimeFormat("en-CA", {
     timeZone: DEFAULT_CREATOR_TIME_ZONE,
     year: "numeric",
@@ -138,12 +156,22 @@ function buildDailyBuckets({
     day: "2-digit",
   });
   const keys: string[] = [];
-  const buckets = new Map<string, { amount: number; count: number }>();
+  const buckets = new Map<
+    string,
+    {
+      amount: number;
+      count: number;
+      extrasAmount: number;
+      tipsAmount: number;
+      subscriptionsAmount: number;
+      giftsAmount: number;
+    }
+  >();
   for (let i = rangeDays - 1; i >= 0; i -= 1) {
     const day = daysAgoInTimeZone(i, now, DEFAULT_CREATOR_TIME_ZONE);
     const key = formatter.format(day);
     keys.push(key);
-    buckets.set(key, { amount: 0, count: 0 });
+    buckets.set(key, { amount: 0, count: 0, extrasAmount: 0, tipsAmount: 0, subscriptionsAmount: 0, giftsAmount: 0 });
   }
   return { keys, buckets };
 }
@@ -201,13 +229,19 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
 
   const range = normalizeRange(req.query.range);
   if (!range) {
-    return sendBadRequest(res, "range must be today, 7d, or 30d");
+    return sendBadRequest(res, "range must be today, 7d, 30d, or 90d");
   }
 
   const creatorId = process.env.CREATOR_ID ?? "creator-1";
   const now = new Date();
   const from =
-    range === "today" ? startOfDayInTimeZone() : range === "7d" ? daysAgoInTimeZone(7) : daysAgoInTimeZone(30);
+    range === "today"
+      ? startOfDayInTimeZone()
+      : range === "7d"
+      ? daysAgoInTimeZone(7)
+      : range === "30d"
+      ? daysAgoInTimeZone(30)
+      : daysAgoInTimeZone(90);
   const debug = req.query?.debug === "1" && process.env.NODE_ENV !== "production";
   const daily = buildDailyBuckets({ range, now });
 
@@ -283,8 +317,16 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
       const bucket = daily.buckets.get(key);
       if (!bucket) continue;
       const amount = Number(purchase.amount) || 0;
+      const kind = normalizePurchaseKind(purchase.kind);
       bucket.amount += amount;
       bucket.count += 1;
+      if (kind === "TIP") {
+        bucket.tipsAmount += amount;
+      } else if (kind === "GIFT") {
+        bucket.giftsAmount += amount;
+      } else {
+        bucket.extrasAmount += amount;
+      }
     }
 
     for (const grant of grants) {
@@ -295,6 +337,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
       if (amount > 0) {
         bucket.amount += amount;
         bucket.count += 1;
+        bucket.subscriptionsAmount += amount;
       }
     }
 
@@ -466,6 +509,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
       date: key,
       amount: daily.buckets.get(key)?.amount ?? 0,
       count: daily.buckets.get(key)?.count ?? 0,
+      extrasAmount: daily.buckets.get(key)?.extrasAmount ?? 0,
+      tipsAmount: daily.buckets.get(key)?.tipsAmount ?? 0,
+      subscriptionsAmount: daily.buckets.get(key)?.subscriptionsAmount ?? 0,
+      giftsAmount: daily.buckets.get(key)?.giftsAmount ?? 0,
     }));
 
     return res.status(200).json({

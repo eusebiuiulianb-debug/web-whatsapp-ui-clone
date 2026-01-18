@@ -485,6 +485,7 @@ const SUMMARY_STRATEGIES: Record<string, SummaryStrategy> = {
 };
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
+  res.setHeader("Cache-Control", "no-store");
   const rangeParam = Array.isArray(req.query.range) ? req.query.range[0] : req.query.range;
   const rangeDays = Number(rangeParam) === 30 ? 30 : Number(rangeParam) === 90 ? 90 : 7;
   const creatorId = process.env.CREATOR_ID?.trim() || "creator-1";

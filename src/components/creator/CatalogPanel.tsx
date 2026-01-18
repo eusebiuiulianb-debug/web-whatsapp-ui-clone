@@ -54,6 +54,15 @@ export function CatalogPanel() {
     void loadCatalog();
   }, [loadCatalog]);
 
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (window.location.hash !== "#catalog-extras") return;
+    const target = document.getElementById("catalog-extras");
+    if (target) {
+      target.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+  }, []);
+
   const packItems = useMemo(
     () => catalogItems.filter((item) => item.type === "PACK" || item.type === "BUNDLE"),
     [catalogItems]
@@ -356,85 +365,87 @@ export function CatalogPanel() {
         )}
       </SectionCard>
 
-      <SectionCard
-        title="Extras (PPV)"
-        subtitle="Listado de extras disponibles para PPV."
-        bodyClassName="space-y-3"
-      >
-        {extraItems.length === 0 && !loading ? (
-          <EmptyState
-            title="No hay extras todavía"
-            description="Crea extras para verlos aquí."
-            action={
-              <button
-                type="button"
-                onClick={() => handleCreateItem("EXTRA")}
-                disabled={isSaving}
-                className={ctaButtonClass}
-              >
-                Crear extra (PPV)
-              </button>
-            }
-          />
-        ) : (
-          <div className="space-y-2">
-            {extraItems.map((item) => (
-              <div
-                key={item.id}
-                className="rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] p-4"
-              >
-                <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-                  <div className="min-w-0">
-                    <div className="text-sm font-semibold text-[color:var(--text)] truncate">{item.title}</div>
-                    <div className="text-xs text-[color:var(--muted)]">
-                      {formatCatalogPriceCents(item.priceCents, item.currency)}
+      <div id="catalog-extras">
+        <SectionCard
+          title="Extras (PPV)"
+          subtitle="Listado de extras disponibles para PPV."
+          bodyClassName="space-y-3"
+        >
+          {extraItems.length === 0 && !loading ? (
+            <EmptyState
+              title="No hay extras todavía"
+              description="Crea extras para verlos aquí."
+              action={
+                <button
+                  type="button"
+                  onClick={() => handleCreateItem("EXTRA")}
+                  disabled={isSaving}
+                  className={ctaButtonClass}
+                >
+                  Crear extra (PPV)
+                </button>
+              }
+            />
+          ) : (
+            <div className="space-y-2">
+              {extraItems.map((item) => (
+                <div
+                  key={item.id}
+                  className="rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] p-4"
+                >
+                  <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                    <div className="min-w-0">
+                      <div className="text-sm font-semibold text-[color:var(--text)] truncate">{item.title}</div>
+                      <div className="text-xs text-[color:var(--muted)]">
+                        {formatCatalogPriceCents(item.priceCents, item.currency)}
+                      </div>
+                    </div>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-2 py-0.5 text-[10px] font-semibold text-[color:var(--text)]">
+                        Extra
+                      </span>
+                      <span
+                        className={clsx(
+                          "rounded-full border px-2 py-0.5 text-[10px] font-semibold",
+                          item.isActive
+                            ? "border-[color:rgba(var(--brand-rgb),0.45)] bg-[color:rgba(var(--brand-rgb),0.12)] text-[color:var(--text)]"
+                            : "border-[color:var(--surface-border)] bg-[color:var(--surface-1)] text-[color:var(--muted)]"
+                        )}
+                      >
+                        {item.isActive ? "Activo" : "Archivado"}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => handleEditItem(item)}
+                        disabled={isSaving}
+                        className={buildRowActionClass("primary", isSaving)}
+                      >
+                        Editar
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleDuplicateItem(item)}
+                        disabled={isSaving}
+                        className={buildRowActionClass("neutral", isSaving)}
+                      >
+                        Duplicar
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleArchiveItem(item)}
+                        disabled={isSaving || !item.isActive}
+                        className={buildRowActionClass("danger", isSaving || !item.isActive)}
+                      >
+                        Archivar
+                      </button>
                     </div>
                   </div>
-                  <div className="flex flex-wrap items-center gap-2">
-                    <span className="rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-2 py-0.5 text-[10px] font-semibold text-[color:var(--text)]">
-                      Extra
-                    </span>
-                    <span
-                      className={clsx(
-                        "rounded-full border px-2 py-0.5 text-[10px] font-semibold",
-                        item.isActive
-                          ? "border-[color:rgba(var(--brand-rgb),0.45)] bg-[color:rgba(var(--brand-rgb),0.12)] text-[color:var(--text)]"
-                          : "border-[color:var(--surface-border)] bg-[color:var(--surface-1)] text-[color:var(--muted)]"
-                      )}
-                    >
-                      {item.isActive ? "Activo" : "Archivado"}
-                    </span>
-                    <button
-                      type="button"
-                      onClick={() => handleEditItem(item)}
-                      disabled={isSaving}
-                      className={buildRowActionClass("primary", isSaving)}
-                    >
-                      Editar
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => handleDuplicateItem(item)}
-                      disabled={isSaving}
-                      className={buildRowActionClass("neutral", isSaving)}
-                    >
-                      Duplicar
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => handleArchiveItem(item)}
-                      disabled={isSaving || !item.isActive}
-                      className={buildRowActionClass("danger", isSaving || !item.isActive)}
-                    >
-                      Archivar
-                    </button>
-                  </div>
                 </div>
-              </div>
-            ))}
-          </div>
-        )}
-      </SectionCard>
+              ))}
+            </div>
+          )}
+        </SectionCard>
+      </div>
     </div>
   );
 }

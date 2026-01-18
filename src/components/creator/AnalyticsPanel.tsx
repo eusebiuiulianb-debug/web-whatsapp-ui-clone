@@ -1,6 +1,7 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
+import { useRouter } from "next/router";
 import clsx from "clsx";
-import { normalizeCreatorPlatforms, CreatorPlatforms, CREATOR_PLATFORM_KEYS, formatPlatformLabel } from "../../lib/creatorPlatforms";
+import { normalizeCreatorPlatforms, CreatorPlatforms, formatPlatformLabel } from "../../lib/creatorPlatforms";
 import { EmptyState } from "../ui/EmptyState";
 import { KpiCard } from "../ui/KpiCard";
 import { SectionCard } from "../ui/SectionCard";
@@ -86,7 +87,18 @@ type BuilderState = {
   utmTerm: string;
 };
 
-type SalesRange = "today" | "7d" | "30d";
+type SummaryRange = 7 | 30 | 90;
+type SalesCardRange = "today" | "7d" | "30d";
+type SalesRangeKey = "7d" | "30d" | "90d";
+type SalesDailyPoint = {
+  date: string;
+  amount: number;
+  count: number;
+  extrasAmount?: number;
+  tipsAmount?: number;
+  subscriptionsAmount?: number;
+  giftsAmount?: number;
+};
 type SalesSummary = {
   totals: { totalAmount: number; count: number; uniqueFans: number };
   breakdown: {
@@ -108,14 +120,55 @@ type SalesSummary = {
   topProducts: { productId: string; title: string; type: string; amount: number; count: number }[];
   topFans: { fanId: string; displayName: string; amount: number; count: number }[];
   insights: string[];
-  daily: { date: string; amount: number; count: number }[];
+  daily: SalesDailyPoint[];
 };
 
-const SALES_RANGES: SalesRange[] = ["today", "7d", "30d"];
-const SALES_RANGE_LABELS: Record<SalesRange, string> = {
+type FanRef = { id: string; name: string | null };
+type TransactionKind = "EXTRA" | "SUB" | "TIP" | "GIFT" | "PACK";
+type TransactionStatus = "PAID" | "PENDING" | "REFUNDED" | "FAILED";
+type TransactionEntry = {
+  id: string;
+  createdAt: string;
+  fan: FanRef;
+  kind: TransactionKind;
+  itemTitle: string | null;
+  amount: number;
+  currency: "EUR";
+  status?: TransactionStatus;
+};
+type SubscriptionStatus = "ACTIVE" | "EXPIRED";
+type SubscriptionEntry = {
+  fan: FanRef;
+  planTitle: string;
+  status: SubscriptionStatus;
+  startedAt: string;
+  endsAt: string;
+  amountMonthly: number;
+};
+type TopExtraEntry = {
+  extraId: string;
+  title: string;
+  soldCount: number;
+  revenue: number;
+  lastSoldAt: string | null;
+};
+type TipFanEntry = {
+  fan: FanRef;
+  tipsCount: number;
+  revenue: number;
+  lastTipAt: string | null;
+};
+
+const SALES_CARD_RANGES: SalesCardRange[] = ["today", "7d", "30d"];
+const SALES_RANGE_LABELS: Record<SalesCardRange, string> = {
   today: "Hoy",
   "7d": "Últimos 7 días",
   "30d": "Últimos 30 días",
+};
+const RANGE_LABELS: Record<SummaryRange, string> = {
+  7: "Últimos 7 días",
+  30: "Últimos 30 días",
+  90: "Últimos 90 días",
 };
 const ANALYTICS_SECTIONS = [
   { id: "resumen", label: "Resumen" },
@@ -125,19 +178,73 @@ const ANALYTICS_SECTIONS = [
   { id: "propinas", label: "Propinas" },
 ];
 
+const TRANSACTION_KIND_LABELS: Record<TransactionKind, string> = {
+  EXTRA: "Extra",
+  SUB: "Sub",
+  TIP: "Propina",
+  GIFT: "Regalo",
+  PACK: "Pack",
+};
+const TRANSACTION_KIND_CLASSNAMES: Record<TransactionKind, string> = {
+  EXTRA: "border-[color:rgba(var(--brand-rgb),0.45)] bg-[color:rgba(var(--brand-rgb),0.12)] text-[color:var(--text)]",
+  SUB: "border-[color:rgba(34,197,94,0.5)] bg-[color:rgba(34,197,94,0.12)] text-[color:var(--text)]",
+  TIP: "border-[color:rgba(245,158,11,0.6)] bg-[color:rgba(245,158,11,0.12)] text-[color:var(--text)]",
+  GIFT: "border-[color:rgba(59,130,246,0.5)] bg-[color:rgba(59,130,246,0.12)] text-[color:var(--text)]",
+  PACK: "border-[color:rgba(244,63,94,0.45)] bg-[color:rgba(244,63,94,0.12)] text-[color:var(--text)]",
+};
+const TRANSACTION_STATUS_LABELS: Record<TransactionStatus, string> = {
+  PAID: "Pagado",
+  PENDING: "Pendiente",
+  REFUNDED: "Reembolsado",
+  FAILED: "Fallido",
+};
+const TRANSACTION_STATUS_CLASSNAMES: Record<TransactionStatus, string> = {
+  PAID: "border-[color:rgba(34,197,94,0.5)] bg-[color:rgba(34,197,94,0.12)] text-[color:var(--text)]",
+  PENDING: "border-[color:rgba(245,158,11,0.6)] bg-[color:rgba(245,158,11,0.12)] text-[color:var(--text)]",
+  REFUNDED: "border-[color:rgba(244,63,94,0.5)] bg-[color:rgba(244,63,94,0.12)] text-[color:var(--text)]",
+  FAILED: "border-[color:rgba(244,63,94,0.5)] bg-[color:rgba(244,63,94,0.12)] text-[color:var(--text)]",
+};
+const SUBSCRIPTION_STATUS_LABELS: Record<SubscriptionStatus, string> = {
+  ACTIVE: "Activa",
+  EXPIRED: "Caducada",
+};
+const SUBSCRIPTION_STATUS_CLASSNAMES: Record<SubscriptionStatus, string> = {
+  ACTIVE: "border-[color:rgba(34,197,94,0.5)] bg-[color:rgba(34,197,94,0.12)] text-[color:var(--text)]",
+  EXPIRED: "border-[color:rgba(244,63,94,0.5)] bg-[color:rgba(244,63,94,0.12)] text-[color:var(--text)]",
+};
+
 export function AnalyticsPanel() {
-  const [range, setRange] = useState<7 | 30 | 90>(7);
+  const router = useRouter();
+  const [range, setRange] = useState<SummaryRange>(7);
   const [data, setData] = useState<Summary | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
-  const [salesByRange, setSalesByRange] = useState<Record<SalesRange, SalesSummary | null>>({
+  const [salesByRange, setSalesByRange] = useState<Record<SalesCardRange, SalesSummary | null>>({
     today: null,
     "7d": null,
     "30d": null,
   });
+  const [salesRangeByRange, setSalesRangeByRange] = useState<Record<SalesRangeKey, SalesSummary | null>>({
+    "7d": null,
+    "30d": null,
+    "90d": null,
+  });
   const [salesLoading, setSalesLoading] = useState(false);
   const [salesError, setSalesError] = useState("");
-  const [salesChartRange, setSalesChartRange] = useState<SalesRange>("7d");
+  const [salesRangeLoading, setSalesRangeLoading] = useState(false);
+  const [salesRangeError, setSalesRangeError] = useState("");
+  const [transactions, setTransactions] = useState<TransactionEntry[]>([]);
+  const [transactionsLoading, setTransactionsLoading] = useState(false);
+  const [transactionsError, setTransactionsError] = useState("");
+  const [subscriptions, setSubscriptions] = useState<SubscriptionEntry[]>([]);
+  const [subscriptionsLoading, setSubscriptionsLoading] = useState(false);
+  const [subscriptionsError, setSubscriptionsError] = useState("");
+  const [topExtrasTable, setTopExtrasTable] = useState<TopExtraEntry[]>([]);
+  const [topExtrasLoading, setTopExtrasLoading] = useState(false);
+  const [topExtrasError, setTopExtrasError] = useState("");
+  const [tipsTable, setTipsTable] = useState<TipFanEntry[]>([]);
+  const [tipsLoading, setTipsLoading] = useState(false);
+  const [tipsError, setTipsError] = useState("");
   const [handle, setHandle] = useState("creator");
   const [savingLink, setSavingLink] = useState(false);
   const [platforms, setPlatforms] = useState<CreatorPlatforms | null>(null);
@@ -169,10 +276,20 @@ export function AnalyticsPanel() {
     utmTerm: "",
   });
   const [activeLinkCampaignId, setActiveLinkCampaignId] = useState<string | null>(null);
+  const rangeKey: SalesRangeKey = range === 7 ? "7d" : range === 30 ? "30d" : "90d";
+  const rangeLabel = RANGE_LABELS[range];
 
   useEffect(() => {
     void loadData(range);
   }, [range]);
+
+  useEffect(() => {
+    void loadSalesRange(rangeKey);
+    void loadTransactions(rangeKey);
+    void loadSubscriptions(rangeKey);
+    void loadTopExtras(rangeKey);
+    void loadTips(rangeKey);
+  }, [rangeKey]);
 
   useEffect(() => {
     void loadHandle();
@@ -193,7 +310,7 @@ export function AnalyticsPanel() {
     try {
       setLoading(true);
       setError("");
-      const res = await fetch(`/api/analytics/summary?range=${nextRange}`);
+      const res = await fetch(`/api/analytics/summary?range=${nextRange}`, { cache: "no-store" });
       if (!res.ok) throw new Error("Error fetching analytics");
       const payload = (await res.json()) as Summary;
       setData(payload);
@@ -210,7 +327,7 @@ export function AnalyticsPanel() {
       setSalesLoading(true);
       setSalesError("");
       const entries = await Promise.all(
-        SALES_RANGES.map(async (rangeValue) => {
+        SALES_CARD_RANGES.map(async (rangeValue) => {
           const res = await fetch(`/api/creator/analytics/sales?range=${rangeValue}`, {
             cache: "no-store",
           });
@@ -219,7 +336,7 @@ export function AnalyticsPanel() {
           return [rangeValue, payload] as const;
         })
       );
-      const next: Record<SalesRange, SalesSummary | null> = {
+      const next: Record<SalesCardRange, SalesSummary | null> = {
         today: null,
         "7d": null,
         "30d": null,
@@ -234,6 +351,100 @@ export function AnalyticsPanel() {
       setSalesByRange({ today: null, "7d": null, "30d": null });
     } finally {
       setSalesLoading(false);
+    }
+  }
+
+  async function loadSalesRange(nextRange: SalesRangeKey) {
+    try {
+      setSalesRangeLoading(true);
+      setSalesRangeError("");
+      const res = await fetch(`/api/creator/analytics/sales?range=${nextRange}`, {
+        cache: "no-store",
+      });
+      if (!res.ok) throw new Error("Error fetching sales analytics");
+      const payload = (await res.json()) as SalesSummary;
+      setSalesRangeByRange((prev) => ({ ...prev, [nextRange]: payload }));
+    } catch (err) {
+      console.error(err);
+      setSalesRangeError("No se pudo cargar el resumen de ventas.");
+    } finally {
+      setSalesRangeLoading(false);
+    }
+  }
+
+  async function loadTransactions(nextRange: SalesRangeKey) {
+    try {
+      setTransactionsLoading(true);
+      setTransactionsError("");
+      const res = await fetch(`/api/creator/analytics/transactions?range=${nextRange}`, {
+        cache: "no-store",
+      });
+      if (!res.ok) throw new Error("Error fetching transactions");
+      const payload = (await res.json()) as TransactionEntry[];
+      setTransactions(Array.isArray(payload) ? payload : []);
+    } catch (err) {
+      console.error(err);
+      setTransactionsError("No se pudieron cargar las ventas.");
+      setTransactions([]);
+    } finally {
+      setTransactionsLoading(false);
+    }
+  }
+
+  async function loadSubscriptions(nextRange: SalesRangeKey) {
+    try {
+      setSubscriptionsLoading(true);
+      setSubscriptionsError("");
+      const res = await fetch(`/api/creator/analytics/subscriptions?range=${nextRange}`, {
+        cache: "no-store",
+      });
+      if (!res.ok) throw new Error("Error fetching subscriptions");
+      const payload = (await res.json()) as SubscriptionEntry[];
+      setSubscriptions(Array.isArray(payload) ? payload : []);
+    } catch (err) {
+      console.error(err);
+      setSubscriptionsError("No se pudieron cargar las suscripciones.");
+      setSubscriptions([]);
+    } finally {
+      setSubscriptionsLoading(false);
+    }
+  }
+
+  async function loadTopExtras(nextRange: SalesRangeKey) {
+    try {
+      setTopExtrasLoading(true);
+      setTopExtrasError("");
+      const res = await fetch(`/api/creator/analytics/top-extras?range=${nextRange}`, {
+        cache: "no-store",
+      });
+      if (!res.ok) throw new Error("Error fetching top extras");
+      const payload = (await res.json()) as TopExtraEntry[];
+      setTopExtrasTable(Array.isArray(payload) ? payload : []);
+    } catch (err) {
+      console.error(err);
+      setTopExtrasError("No se pudieron cargar los extras.");
+      setTopExtrasTable([]);
+    } finally {
+      setTopExtrasLoading(false);
+    }
+  }
+
+  async function loadTips(nextRange: SalesRangeKey) {
+    try {
+      setTipsLoading(true);
+      setTipsError("");
+      const res = await fetch(`/api/creator/analytics/tips?range=${nextRange}`, {
+        cache: "no-store",
+      });
+      if (!res.ok) throw new Error("Error fetching tips");
+      const payload = (await res.json()) as TipFanEntry[];
+      setTipsTable(Array.isArray(payload) ? payload : []);
+    } catch (err) {
+      console.error(err);
+      setTipsError("No se pudieron cargar las propinas.");
+      setTipsTable([]);
+    } finally {
+      setTipsLoading(false);
     }
   }
 
@@ -304,8 +515,29 @@ export function AnalyticsPanel() {
       maximumFractionDigits: hasDecimals ? 2 : 0,
     }).format(safe);
   };
+  const dateFormatter = useMemo(
+    () => new Intl.DateTimeFormat("es-ES", { day: "2-digit", month: "short", year: "numeric" }),
+    []
+  );
+  const formatDate = (value: string | null | undefined) => {
+    if (!value) return "—";
+    const parsed = new Date(value);
+    if (Number.isNaN(parsed.getTime())) return value;
+    return dateFormatter.format(parsed);
+  };
+  const formatDaysRemaining = (value: string | null | undefined) => {
+    if (!value) return "—";
+    const parsed = new Date(value);
+    if (Number.isNaN(parsed.getTime())) return "—";
+    const diffMs = parsed.getTime() - Date.now();
+    const days = Math.ceil(diffMs / (1000 * 60 * 60 * 24));
+    if (days > 1) return `${days} días`;
+    if (days === 1) return "1 día";
+    if (days === 0) return "Hoy";
+    return "Caducada";
+  };
 
-  const salesSummary = salesByRange[salesChartRange];
+  const salesSummary = salesRangeByRange[rangeKey];
   const breakdownRows = useMemo(() => {
     if (!salesSummary) return [];
     const breakdown = salesSummary.breakdown;
@@ -318,20 +550,48 @@ export function AnalyticsPanel() {
     ];
   }, [salesSummary]);
   const topFans = salesSummary?.topFans ?? [];
-  const topExtras = (salesSummary?.topProducts ?? []).filter((item) => item.type === "EXTRA");
+  const topProducts = salesSummary?.topProducts ?? [];
+  const topExtras = topProducts.filter((item) => item.type === "EXTRA");
+  const topSubs = topProducts.filter((item) => item.type === "SUBSCRIPTION");
+  const topTips = topProducts.filter((item) => item.type === "TIP");
   const dayLabelFormatter = useMemo(
     () => new Intl.DateTimeFormat("es-ES", { day: "2-digit", month: "short" }),
     []
   );
+  const dayFullFormatter = useMemo(
+    () => new Intl.DateTimeFormat("es-ES", { day: "2-digit", month: "short", year: "numeric" }),
+    []
+  );
+  const labelStep = range === 90 ? 6 : range === 30 ? 3 : 1;
   const dailySeries = useMemo(() => {
     if (!salesSummary?.daily) return [];
-    return salesSummary.daily.map((entry) => {
+    return salesSummary.daily.map((entry, index) => {
       const parsed = new Date(`${entry.date}T00:00:00`);
-      const label = Number.isNaN(parsed.getTime()) ? entry.date : dayLabelFormatter.format(parsed);
-      return { ...entry, label };
+      const labelBase = Number.isNaN(parsed.getTime()) ? entry.date : dayLabelFormatter.format(parsed);
+      const label = index % labelStep === 0 ? labelBase : "";
+      const fullLabel = Number.isNaN(parsed.getTime()) ? entry.date : dayFullFormatter.format(parsed);
+      return { ...entry, label, fullLabel };
     });
-  }, [dayLabelFormatter, salesSummary]);
+  }, [dayFullFormatter, dayLabelFormatter, labelStep, salesSummary]);
   const dailyMax = dailySeries.reduce((max, entry) => Math.max(max, entry.amount), 0);
+  const hasSalesData = Boolean(salesSummary && (salesSummary.totals.count > 0 || salesSummary.totals.totalAmount > 0));
+  const hasCardData = Object.values(salesByRange).some(Boolean);
+  const showKpiSkeleton = salesLoading && !hasCardData;
+  const showRangeSkeleton = salesRangeLoading && !salesSummary;
+  const analyticsError = error || salesError || salesRangeError;
+  const buildDailyTooltip = (entry: (typeof dailySeries)[number]) => {
+    const lines = [
+      entry.fullLabel || entry.date,
+      `${formatMoney(entry.amount)} · ${formatCount(entry.count)} ventas`,
+    ];
+    const extrasAmount = entry.extrasAmount ?? 0;
+    const subsAmount = entry.subscriptionsAmount ?? 0;
+    const tipsAmount = entry.tipsAmount ?? 0;
+    if (extrasAmount > 0) lines.push(`Extras: ${formatMoney(extrasAmount)}`);
+    if (subsAmount > 0) lines.push(`Subs: ${formatMoney(subsAmount)}`);
+    if (tipsAmount > 0) lines.push(`Propinas: ${formatMoney(tipsAmount)}`);
+    return lines.join("\n");
+  };
 
   const builderValid = Boolean(utmSource && utmMedium && utmCampaignInput && utmContentInput);
 
@@ -342,6 +602,25 @@ export function AnalyticsPanel() {
     }
     toastTimerRef.current = setTimeout(() => setToast(""), 2000);
   }
+
+  const handleRetryAnalytics = () => {
+    void loadData(range);
+    void loadSales();
+    void loadSalesRange(rangeKey);
+    void loadTransactions(rangeKey);
+    void loadSubscriptions(rangeKey);
+    void loadTopExtras(rangeKey);
+    void loadTips(rangeKey);
+  };
+
+  const handleOpenCatalogExtras = () => {
+    void router.replace({ pathname: "/creator/panel", query: { tab: "catalog" } }, undefined, {
+      shallow: true,
+    });
+    if (typeof window !== "undefined") {
+      window.location.hash = "catalog-extras";
+    }
+  };
 
   async function handleCopy(value: string) {
     try {
@@ -356,17 +635,17 @@ export function AnalyticsPanel() {
     if (!builderValid) return;
     try {
       setSavingLink(true);
-    const res = await fetch("/api/creator/campaign-links", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        platform: builder.platform,
-        handle,
-        utmSource,
-        utmMedium,
-        utmCampaign: utmCampaignInput,
-        utmContent: utmContentInput,
-        utmTerm: utmTerm || undefined,
+      const res = await fetch("/api/creator/campaign-links", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          platform: builder.platform,
+          handle,
+          utmSource,
+          utmMedium,
+          utmCampaign: utmCampaignInput,
+          utmContent: utmContentInput,
+          utmTerm: utmTerm || undefined,
         }),
       });
       if (!res.ok) throw new Error("Error saving link");
@@ -596,45 +875,62 @@ export function AnalyticsPanel() {
         </div>
         <div className="flex items-center gap-3">
           <div className="inline-flex rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] p-1">
-            {[7, 30, 90].map((value) => (
-              <button
-                key={value}
-                type="button"
-                onClick={() => setRange(value as 7 | 30 | 90)}
-                className={clsx(
-                  "px-3 py-1.5 text-sm font-semibold rounded-full",
-                  range === value
-                    ? "bg-[color:var(--brand-strong)] text-[color:var(--text)]"
-                    : "text-[color:var(--text)] hover:text-[color:var(--text)]"
-                )}
-              >
-                Últimos {value} días
-              </button>
-            ))}
+            {[7, 30, 90].map((value) => {
+              const label = value === 7 ? "7d" : value === 30 ? "30d" : "90d";
+              return (
+                <button
+                  key={value}
+                  type="button"
+                  onClick={() => setRange(value as SummaryRange)}
+                  aria-pressed={range === value}
+                  aria-label={RANGE_LABELS[value as SummaryRange]}
+                  title={RANGE_LABELS[value as SummaryRange]}
+                  className={clsx(
+                    "px-3 py-1.5 text-sm font-semibold rounded-full",
+                    range === value
+                      ? "bg-[color:var(--brand-strong)] text-[color:var(--text)]"
+                      : "text-[color:var(--text)] hover:text-[color:var(--text)]"
+                  )}
+                >
+                  {label}
+                </button>
+              );
+            })}
           </div>
         </div>
       </div>
 
-        <div className="flex flex-wrap items-center gap-2 text-xs">
-          {ANALYTICS_SECTIONS.map((section) => (
-            <a
-              key={section.id}
-              href={`#${section.id}`}
-              className="rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-3 py-1 text-[11px] font-semibold text-[color:var(--text)] hover:border-[color:var(--brand)]"
-            >
-              {section.label}
-            </a>
-          ))}
-        </div>
+      <div className="flex flex-wrap items-center gap-2 text-xs">
+        {ANALYTICS_SECTIONS.map((section) => (
+          <a
+            key={section.id}
+            href={`#${section.id}`}
+            className="rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-3 py-1 text-[11px] font-semibold text-[color:var(--text)] hover:border-[color:var(--brand)]"
+          >
+            {section.label}
+          </a>
+        ))}
+      </div>
 
-        {toast && <div className="text-sm text-[color:var(--brand)]">{toast}</div>}
-        {error && <div className="text-sm text-[color:var(--danger)]">{error}</div>}
-        {loading && (
-          <div className="space-y-2">
-            <div className="text-sm text-[color:var(--muted)]">Cargando...</div>
-            <Skeleton className="h-4 w-40" />
-          </div>
-        )}
+      {toast && <div className="text-sm text-[color:var(--brand)]">{toast}</div>}
+      {analyticsError && !data && (
+        <div className="flex items-center justify-between gap-3 rounded-xl border border-[color:rgba(244,63,94,0.4)] bg-[color:rgba(244,63,94,0.08)] px-3 py-2 text-xs text-[color:var(--text)]">
+          <span>No se pudo cargar analítica.</span>
+          <button
+            type="button"
+            onClick={handleRetryAnalytics}
+            className="rounded-full border border-[color:rgba(244,63,94,0.6)] px-2.5 py-1 text-[10px] font-semibold text-[color:var(--text)] hover:bg-[color:rgba(244,63,94,0.16)]"
+          >
+            Reintentar
+          </button>
+        </div>
+      )}
+      {loading && (
+        <div className="space-y-2">
+          <div className="text-sm text-[color:var(--muted)]">Cargando...</div>
+          <Skeleton className="h-4 w-40" />
+        </div>
+      )}
 
         {data && (
           <div className="space-y-6">
@@ -642,164 +938,226 @@ export function AnalyticsPanel() {
               <SectionCard
                 title="Resumen"
                 subtitle="Ventas rápidas y rendimiento del catálogo."
-                bodyClassName="space-y-4"
+                bodyClassName="space-y-5"
               >
-              {salesError && <div className="text-xs text-[color:var(--danger)]">{salesError}</div>}
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                {SALES_RANGES.map((rangeValue) => {
-                  const bucket = salesByRange[rangeValue];
-                  const hasData = Boolean(bucket);
-                  return (
-                    <KpiCard
-                      key={rangeValue}
-                      title={SALES_RANGE_LABELS[rangeValue]}
-                      value={
-                        hasData
-                          ? formatMoney(bucket?.totals.totalAmount ?? 0)
-                          : salesLoading
-                          ? "..."
-                          : "—"
-                      }
-                      supporting={
-                        hasData
-                          ? `${formatCount(bucket?.totals.count ?? 0)} ventas · ${formatCount(
-                              bucket?.totals.uniqueFans ?? 0
-                            )} fans · ${formatCount(bucket?.counts.extrasCount ?? 0)} extras`
-                          : salesLoading
-                          ? "Cargando datos..."
-                          : "Sin datos todavía"
-                      }
-                      hint="Ventas totales"
-                      variant="muted"
-                      size="sm"
-                    />
-                  );
-                })}
-              </div>
+                {analyticsError && (
+                  <div className="flex items-center justify-between gap-3 rounded-xl border border-[color:rgba(244,63,94,0.4)] bg-[color:rgba(244,63,94,0.08)] px-3 py-2 text-xs text-[color:var(--text)]">
+                    <span>No se pudo cargar analítica.</span>
+                    <button
+                      type="button"
+                      onClick={handleRetryAnalytics}
+                      className="rounded-full border border-[color:rgba(244,63,94,0.6)] px-2.5 py-1 text-[10px] font-semibold text-[color:var(--text)] hover:bg-[color:rgba(244,63,94,0.16)]"
+                    >
+                      Reintentar
+                    </button>
+                  </div>
+                )}
 
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
-                <div className="rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] p-3 space-y-3">
-                  <div className="flex items-center justify-between gap-2">
-                    <div className="text-sm font-semibold text-[color:var(--text)]">Ventas por día</div>
-                    <div className="inline-flex rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] p-1 text-[10px]">
-                      {SALES_RANGES.map((rangeValue) => (
-                        <button
-                          key={rangeValue}
-                          type="button"
-                          onClick={() => setSalesChartRange(rangeValue)}
-                          className={clsx(
-                            "px-2 py-1 font-semibold rounded-full",
-                            salesChartRange === rangeValue
-                              ? "bg-[color:var(--brand-strong)] text-[color:var(--text)]"
-                              : "text-[color:var(--muted)] hover:text-[color:var(--text)]"
-                          )}
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                  {showKpiSkeleton
+                    ? [1, 2, 3].map((idx) => (
+                        <div
+                          key={`kpi-skeleton-${idx}`}
+                          className="rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] p-4 space-y-3 min-h-[104px]"
                         >
-                          {rangeValue === "today" ? "Hoy" : rangeValue}
-                        </button>
-                      ))}
+                          <Skeleton className="h-3 w-16" />
+                          <Skeleton className="h-7 w-28" />
+                          <Skeleton className="h-3 w-32" />
+                        </div>
+                      ))
+                    : SALES_CARD_RANGES.map((rangeValue) => {
+                        const bucket = salesByRange[rangeValue];
+                        const hasData = Boolean(bucket);
+                        return (
+                          <KpiCard
+                            key={rangeValue}
+                            title={SALES_RANGE_LABELS[rangeValue]}
+                            value={
+                              hasData
+                                ? formatMoney(bucket?.totals.totalAmount ?? 0)
+                                : salesLoading
+                                ? "..."
+                                : "—"
+                            }
+                            supporting={
+                              hasData
+                                ? `${formatCount(bucket?.totals.count ?? 0)} ventas · ${formatCount(
+                                    bucket?.totals.uniqueFans ?? 0
+                                  )} fans · ${formatCount(bucket?.counts.extrasCount ?? 0)} extras`
+                                : salesLoading
+                                ? "Cargando datos..."
+                                : "Sin datos todavía"
+                            }
+                            hint="Ventas totales"
+                            variant="muted"
+                            size="sm"
+                          />
+                        );
+                      })}
+                </div>
+
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+                  <div className="rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] p-3 space-y-3">
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="text-sm font-semibold text-[color:var(--text)]">Ventas por día</div>
+                      <span className="text-[10px] text-[color:var(--muted)]">{rangeLabel}</span>
                     </div>
+
+                    {showRangeSkeleton ? (
+                      <div className="space-y-3">
+                        <Skeleton className="h-24 w-full" />
+                        <div className="grid grid-cols-2 gap-2">
+                          <Skeleton className="h-3 w-full" />
+                          <Skeleton className="h-3 w-full" />
+                        </div>
+                      </div>
+                    ) : salesSummary ? (
+                      dailyMax > 0 ? (
+                        <div className="space-y-3">
+                          <div className="flex items-end gap-1.5 h-28">
+                            {dailySeries.map((entry) => {
+                              const height = Math.max(6, Math.round((entry.amount / dailyMax) * 100));
+                              return (
+                                <div key={entry.date} className="flex flex-1 flex-col items-center gap-2">
+                                  <div className="w-full h-20 rounded-md border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] flex items-end px-1">
+                                    <div
+                                      className="w-full rounded-sm bg-[color:rgba(var(--brand-rgb),0.75)]"
+                                      style={{ height: `${height}%` }}
+                                      title={buildDailyTooltip(entry)}
+                                    />
+                                  </div>
+                                  <span className="text-[10px] text-[color:var(--muted)]">{entry.label}</span>
+                                </div>
+                              );
+                            })}
+                          </div>
+                          {breakdownRows.length > 0 && (
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
+                              {breakdownRows.map((row) => (
+                                <div key={row.id} className="flex items-center justify-between gap-3">
+                                  <span className="text-[color:var(--muted)]">{row.label}</span>
+                                  <span className="tabular-nums text-[color:var(--text)]">
+                                    {formatMoney(row.value)}
+                                  </span>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      ) : (
+                        <div className="text-xs text-[color:var(--muted)]">Aún no hay ventas en este periodo.</div>
+                      )
+                    ) : (
+                      <div className="text-xs text-[color:var(--muted)]">Sin datos de ventas.</div>
+                    )}
                   </div>
 
-                  {salesSummary ? (
-                    dailyMax > 0 ? (
+                  <div className="rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] p-3 space-y-3">
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="text-sm font-semibold text-[color:var(--text)]">Top fans y productos</div>
+                      <span className="text-[10px] text-[color:var(--muted)]">{rangeLabel}</span>
+                    </div>
+                    {showRangeSkeleton ? (
                       <div className="space-y-3">
-                        <div className="flex items-end gap-2 h-28">
-                          {dailySeries.map((entry) => {
-                            const height = Math.max(6, Math.round((entry.amount / dailyMax) * 100));
-                            return (
-                              <div key={entry.date} className="flex flex-1 flex-col items-center gap-2">
-                                <div className="w-full h-20 rounded-md border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] flex items-end px-1">
-                                  <div
-                                    className="w-full rounded-sm bg-[color:rgba(var(--brand-rgb),0.75)]"
-                                    style={{ height: `${height}%` }}
-                                    title={`${formatMoney(entry.amount)} · ${formatCount(entry.count)} ventas`}
-                                  />
-                                </div>
-                                <span className="text-[10px] text-[color:var(--muted)]">{entry.label}</span>
-                              </div>
-                            );
-                          })}
+                        <Skeleton className="h-3 w-24" />
+                        <div className="space-y-2">
+                          {[1, 2, 3].map((idx) => (
+                            <div key={`top-skeleton-${idx}`} className="flex items-center justify-between gap-3">
+                              <Skeleton className="h-3 w-28" />
+                              <Skeleton className="h-3 w-16" />
+                            </div>
+                          ))}
                         </div>
-                        {breakdownRows.length > 0 && (
-                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
-                            {breakdownRows.map((row) => (
-                              <div key={row.id} className="flex items-center justify-between gap-3">
-                                <span className="text-[color:var(--muted)]">{row.label}</span>
-                                <span className="tabular-nums text-[color:var(--text)]">
-                                  {formatMoney(row.value)}
-                                </span>
-                              </div>
-                            ))}
+                      </div>
+                    ) : hasSalesData ? (
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        <div className="space-y-2">
+                          <div className="text-[10px] uppercase tracking-wide text-[color:var(--muted)]">Top fans</div>
+                          {topFans.length === 0 ? (
+                            <div className="text-xs text-[color:var(--muted)]">Sin fans destacados.</div>
+                          ) : (
+                            <ul className="space-y-2 text-xs">
+                              {topFans.map((fan) => (
+                                <li key={fan.fanId} className="flex items-center justify-between gap-3">
+                                  <span className="truncate text-[color:var(--text)]">{fan.displayName}</span>
+                                  <span className="tabular-nums text-[color:var(--text)]">
+                                    {formatMoney(fan.amount)}
+                                  </span>
+                                </li>
+                              ))}
+                            </ul>
+                          )}
+                        </div>
+                        <div className="space-y-3">
+                          <div className="space-y-2">
+                            <div className="text-[10px] uppercase tracking-wide text-[color:var(--muted)]">Top extras</div>
+                            {topExtras.length === 0 ? (
+                              <div className="text-xs text-[color:var(--muted)]">Sin extras destacados.</div>
+                            ) : (
+                              <ul className="space-y-2 text-xs">
+                                {topExtras.map((item) => (
+                                  <li key={item.productId} className="flex items-center justify-between gap-3">
+                                    <span className="truncate text-[color:var(--text)]">{item.title}</span>
+                                    <span className="tabular-nums text-[color:var(--text)]">
+                                      {formatMoney(item.amount)}
+                                    </span>
+                                  </li>
+                                ))}
+                              </ul>
+                            )}
                           </div>
-                        )}
+                          {topSubs.length > 0 && (
+                            <div className="space-y-2">
+                              <div className="text-[10px] uppercase tracking-wide text-[color:var(--muted)]">Subs</div>
+                              <ul className="space-y-2 text-xs">
+                                {topSubs.map((item) => (
+                                  <li key={item.productId} className="flex items-center justify-between gap-3">
+                                    <span className="truncate text-[color:var(--text)]">{item.title}</span>
+                                    <span className="tabular-nums text-[color:var(--text)]">
+                                      {formatMoney(item.amount)}
+                                    </span>
+                                  </li>
+                                ))}
+                              </ul>
+                            </div>
+                          )}
+                          {topTips.length > 0 && (
+                            <div className="space-y-2">
+                              <div className="text-[10px] uppercase tracking-wide text-[color:var(--muted)]">Propinas</div>
+                              <ul className="space-y-2 text-xs">
+                                {topTips.map((item) => (
+                                  <li key={item.productId} className="flex items-center justify-between gap-3">
+                                    <span className="truncate text-[color:var(--text)]">{item.title}</span>
+                                    <span className="tabular-nums text-[color:var(--text)]">
+                                      {formatMoney(item.amount)}
+                                    </span>
+                                  </li>
+                                ))}
+                              </ul>
+                            </div>
+                          )}
+                        </div>
                       </div>
                     ) : (
-                      <div className="text-xs text-[color:var(--muted)]">Sin ventas en este periodo.</div>
-                    )
-                  ) : salesLoading ? (
-                    <div className="text-xs text-[color:var(--muted)]">Cargando ventas...</div>
-                  ) : (
-                    <div className="text-xs text-[color:var(--muted)]">Sin datos de ventas.</div>
-                  )}
-                </div>
-
-                <div className="rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] p-3 space-y-3">
-                  <div className="flex items-center justify-between gap-2">
-                    <div className="text-sm font-semibold text-[color:var(--text)]">Top fans y extras</div>
-                    <span className="text-[10px] text-[color:var(--muted)]">
-                      {SALES_RANGE_LABELS[salesChartRange]}
-                    </span>
+                      <EmptyState
+                        title="Aún no hay ventas en este periodo"
+                        description="Comparte extras o packs para empezar a vender."
+                      />
+                    )}
+                    {salesSummary?.insights?.length ? (
+                      <div className="flex flex-wrap gap-2">
+                        {salesSummary.insights.map((item) => (
+                          <span
+                            key={item}
+                            className="rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-2.5 py-1 text-[10px] text-[color:var(--text)]"
+                          >
+                            {item}
+                          </span>
+                        ))}
+                      </div>
+                    ) : null}
                   </div>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    <div className="space-y-2">
-                      <div className="text-[10px] uppercase tracking-wide text-[color:var(--muted)]">Fans</div>
-                      {topFans.length === 0 ? (
-                        <div className="text-xs text-[color:var(--muted)]">Sin fans destacados.</div>
-                      ) : (
-                        <ul className="space-y-2 text-xs">
-                          {topFans.map((fan) => (
-                            <li key={fan.fanId} className="flex items-center justify-between gap-3">
-                              <span className="truncate text-[color:var(--text)]">{fan.displayName}</span>
-                              <span className="tabular-nums text-[color:var(--text)]">
-                                {formatMoney(fan.amount)}
-                              </span>
-                            </li>
-                          ))}
-                        </ul>
-                      )}
-                    </div>
-                    <div className="space-y-2">
-                      <div className="text-[10px] uppercase tracking-wide text-[color:var(--muted)]">Extras</div>
-                      {topExtras.length === 0 ? (
-                        <div className="text-xs text-[color:var(--muted)]">Sin extras destacados.</div>
-                      ) : (
-                        <ul className="space-y-2 text-xs">
-                          {topExtras.map((item) => (
-                            <li key={item.productId} className="flex items-center justify-between gap-3">
-                              <span className="truncate text-[color:var(--text)]">{item.title}</span>
-                              <span className="tabular-nums text-[color:var(--text)]">
-                                {formatMoney(item.amount)}
-                              </span>
-                            </li>
-                          ))}
-                        </ul>
-                      )}
-                    </div>
-                  </div>
-                  {salesSummary?.insights?.length ? (
-                    <div className="flex flex-wrap gap-2">
-                      {salesSummary.insights.map((item) => (
-                        <span
-                          key={item}
-                          className="rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-2.5 py-1 text-[10px] text-[color:var(--text)]"
-                        >
-                          {item}
-                        </span>
-                      ))}
-                    </div>
-                  ) : null}
                 </div>
-              </div>
               </SectionCard>
             </div>
             <div id="ventas" className="scroll-mt-24 space-y-6">
@@ -807,6 +1165,123 @@ export function AnalyticsPanel() {
                 <h2 className="text-lg font-semibold text-[color:var(--text)]">Ventas</h2>
                 <span className="text-xs text-[color:var(--muted)]">Embudo y campañas</span>
               </div>
+            <SectionCard
+              title="Transacciones"
+              subtitle={rangeLabel}
+              bodyClassName="space-y-3"
+            >
+              {transactionsError ? (
+                <div className="flex items-center justify-between gap-3 rounded-xl border border-[color:rgba(244,63,94,0.4)] bg-[color:rgba(244,63,94,0.08)] px-3 py-2 text-xs text-[color:var(--text)]">
+                  <span>{transactionsError}</span>
+                  <button
+                    type="button"
+                    onClick={() => loadTransactions(rangeKey)}
+                    className="rounded-full border border-[color:rgba(244,63,94,0.6)] px-2.5 py-1 text-[10px] font-semibold text-[color:var(--text)] hover:bg-[color:rgba(244,63,94,0.16)]"
+                  >
+                    Reintentar
+                  </button>
+                </div>
+              ) : transactionsLoading ? (
+                <div className="overflow-x-auto">
+                  <table className="min-w-full text-[13px]">
+                    <thead>
+                      <tr className="text-left text-[10px] uppercase tracking-[0.12em] text-[color:var(--muted)] bg-[var(--surface-2)] border-b border-[color:var(--surface-border)]">
+                        <th className="px-3 py-2.5">Fecha</th>
+                        <th className="px-3 py-2.5">Fan</th>
+                        <th className="px-3 py-2.5">Tipo</th>
+                        <th className="px-3 py-2.5">Item</th>
+                        <th className="px-3 py-2.5 text-right">Importe</th>
+                        <th className="px-3 py-2.5">Estado</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {Array.from({ length: 5 }).map((_, idx) => (
+                        <tr
+                          key={`transactions-skeleton-${idx}`}
+                          className="border-b border-[color:var(--surface-border)]"
+                        >
+                          {Array.from({ length: 6 }).map((__, col) => (
+                            <td key={`transactions-skeleton-${idx}-${col}`} className="px-3 py-2.5">
+                              <Skeleton className="h-3 w-20" />
+                            </td>
+                          ))}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              ) : transactions.length === 0 ? (
+                <div className="text-sm text-[color:var(--muted)]">No hay ventas en este periodo.</div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="min-w-full text-[13px]">
+                    <thead>
+                      <tr className="text-left text-[10px] uppercase tracking-[0.12em] text-[color:var(--muted)] bg-[var(--surface-2)] border-b border-[color:var(--surface-border)]">
+                        <th className="px-3 py-2.5">Fecha</th>
+                        <th className="px-3 py-2.5">Fan</th>
+                        <th className="px-3 py-2.5">Tipo</th>
+                        <th className="px-3 py-2.5">Item</th>
+                        <th className="px-3 py-2.5 text-right">Importe</th>
+                        <th className="px-3 py-2.5">Estado</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {transactions.map((entry) => {
+                        const fanName = entry.fan.name || "Fan";
+                        return (
+                          <tr
+                            key={entry.id}
+                            className="border-b border-[color:var(--surface-border)] align-top transition hover:bg-[color:var(--surface-2)]"
+                          >
+                            <td className="px-3 py-2.5 text-[color:var(--text)]">
+                              {formatDate(entry.createdAt)}
+                            </td>
+                            <td className="px-3 py-2.5">
+                              <a
+                                href={`/creator/chats?fanId=${encodeURIComponent(entry.fan.id)}`}
+                                className="text-[color:var(--text)] font-semibold hover:text-[color:var(--brand)]"
+                              >
+                                {fanName}
+                              </a>
+                            </td>
+                            <td className="px-3 py-2.5">
+                              <span
+                                className={clsx(
+                                  "inline-flex items-center rounded-full border px-2.5 py-1 text-[10px] font-semibold",
+                                  TRANSACTION_KIND_CLASSNAMES[entry.kind]
+                                )}
+                              >
+                                {TRANSACTION_KIND_LABELS[entry.kind]}
+                              </span>
+                            </td>
+                            <td className="px-3 py-2.5 text-[color:var(--text)]">
+                              {entry.itemTitle || "—"}
+                            </td>
+                            <td className="px-3 py-2.5 text-right text-[color:var(--text)] tabular-nums">
+                              {formatMoney(entry.amount)}
+                            </td>
+                            <td className="px-3 py-2.5">
+                              {entry.status ? (
+                                <span
+                                  className={clsx(
+                                    "inline-flex items-center rounded-full border px-2.5 py-1 text-[10px] font-semibold",
+                                    TRANSACTION_STATUS_CLASSNAMES[entry.status]
+                                  )}
+                                >
+                                  {TRANSACTION_STATUS_LABELS[entry.status]}
+                                </span>
+                              ) : (
+                                <span className="text-[color:var(--muted)]">—</span>
+                              )}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </SectionCard>
             <SectionCard
               title="Redes (manual)"
               subtitle="Configuración de perfiles para ideas de crecimiento. No genera links UTM."
@@ -828,7 +1303,7 @@ export function AnalyticsPanel() {
               bodyClassName="space-y-3"
             >
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                {CREATOR_PLATFORM_KEYS.map((key) => {
+                {(["tiktok", "instagram"] as const).map((key) => {
                   const item = platforms?.[key] ?? { enabled: false, handle: "" };
                   return (
                     <div
@@ -1187,35 +1662,103 @@ export function AnalyticsPanel() {
             <div id="suscripciones" className="scroll-mt-24">
               <SectionCard
                 title="Suscripciones"
-                subtitle={salesSummary ? SALES_RANGE_LABELS[salesChartRange] : "Sin datos"}
+                subtitle={rangeLabel}
                 bodyClassName="space-y-3"
               >
-                {salesSummary ? (
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                    <KpiCard
-                      title="Ingresos"
-                      value={formatMoney(salesSummary.breakdown.subscriptionsAmount)}
-                      hint="Total en suscripciones"
-                      size="sm"
-                      variant="muted"
-                    />
-                    <KpiCard
-                      title="Ventas"
-                      value={formatCount(salesSummary.counts.subscriptionsCount)}
-                      hint="Suscripciones vendidas"
-                      size="sm"
-                      variant="muted"
-                    />
-                    <KpiCard
-                      title="Fans únicos"
-                      value={formatCount(salesSummary.totals.uniqueFans)}
-                      hint="Fans que han comprado"
-                      size="sm"
-                      variant="muted"
-                    />
+                {subscriptionsError ? (
+                  <div className="flex items-center justify-between gap-3 rounded-xl border border-[color:rgba(244,63,94,0.4)] bg-[color:rgba(244,63,94,0.08)] px-3 py-2 text-xs text-[color:var(--text)]">
+                    <span>{subscriptionsError}</span>
+                    <button
+                      type="button"
+                      onClick={() => loadSubscriptions(rangeKey)}
+                      className="rounded-full border border-[color:rgba(244,63,94,0.6)] px-2.5 py-1 text-[10px] font-semibold text-[color:var(--text)] hover:bg-[color:rgba(244,63,94,0.16)]"
+                    >
+                      Reintentar
+                    </button>
+                  </div>
+                ) : subscriptionsLoading ? (
+                  <div className="overflow-x-auto">
+                    <table className="min-w-full text-[13px]">
+                      <thead>
+                        <tr className="text-left text-[10px] uppercase tracking-[0.12em] text-[color:var(--muted)] bg-[var(--surface-2)] border-b border-[color:var(--surface-border)]">
+                          <th className="px-3 py-2.5">Fan</th>
+                          <th className="px-3 py-2.5">Plan</th>
+                          <th className="px-3 py-2.5">Estado</th>
+                          <th className="px-3 py-2.5">Próxima caducidad</th>
+                          <th className="px-3 py-2.5 text-right">MRR estimado</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {Array.from({ length: 5 }).map((_, idx) => (
+                          <tr
+                            key={`subs-skeleton-${idx}`}
+                            className="border-b border-[color:var(--surface-border)]"
+                          >
+                            {Array.from({ length: 5 }).map((__, col) => (
+                              <td key={`subs-skeleton-${idx}-${col}`} className="px-3 py-2.5">
+                                <Skeleton className="h-3 w-20" />
+                              </td>
+                            ))}
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                ) : subscriptions.length === 0 ? (
+                  <div className="text-sm text-[color:var(--muted)]">
+                    No tienes suscripciones activas en este periodo.
                   </div>
                 ) : (
-                  <div className="text-sm text-[color:var(--muted)]">Sin datos de suscripciones.</div>
+                  <div className="overflow-x-auto">
+                    <table className="min-w-full text-[13px]">
+                      <thead>
+                        <tr className="text-left text-[10px] uppercase tracking-[0.12em] text-[color:var(--muted)] bg-[var(--surface-2)] border-b border-[color:var(--surface-border)]">
+                          <th className="px-3 py-2.5">Fan</th>
+                          <th className="px-3 py-2.5">Plan</th>
+                          <th className="px-3 py-2.5">Estado</th>
+                          <th className="px-3 py-2.5">Próxima caducidad</th>
+                          <th className="px-3 py-2.5 text-right">MRR estimado</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {subscriptions.map((entry) => {
+                          const fanName = entry.fan.name || "Fan";
+                          return (
+                            <tr
+                              key={`${entry.fan.id}-${entry.startedAt}`}
+                              className="border-b border-[color:var(--surface-border)] align-top transition hover:bg-[color:var(--surface-2)]"
+                            >
+                              <td className="px-3 py-2.5">
+                                <a
+                                  href={`/creator/chats?fanId=${encodeURIComponent(entry.fan.id)}`}
+                                  className="text-[color:var(--text)] font-semibold hover:text-[color:var(--brand)]"
+                                >
+                                  {fanName}
+                                </a>
+                              </td>
+                              <td className="px-3 py-2.5 text-[color:var(--text)]">{entry.planTitle}</td>
+                              <td className="px-3 py-2.5">
+                                <span
+                                  className={clsx(
+                                    "inline-flex items-center rounded-full border px-2.5 py-1 text-[10px] font-semibold",
+                                    SUBSCRIPTION_STATUS_CLASSNAMES[entry.status]
+                                  )}
+                                >
+                                  {SUBSCRIPTION_STATUS_LABELS[entry.status]}
+                                </span>
+                              </td>
+                              <td className="px-3 py-2.5 text-[color:var(--text)]">
+                                {formatDaysRemaining(entry.endsAt)}
+                              </td>
+                              <td className="px-3 py-2.5 text-right text-[color:var(--text)] tabular-nums">
+                                {formatMoney(entry.amountMonthly)}
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
                 )}
               </SectionCard>
             </div>
@@ -1223,45 +1766,90 @@ export function AnalyticsPanel() {
             <div id="extras" className="scroll-mt-24">
               <SectionCard
                 title="Extras"
-                subtitle={salesSummary ? SALES_RANGE_LABELS[salesChartRange] : "Sin datos"}
+                subtitle={rangeLabel}
+                actions={
+                  <button
+                    type="button"
+                    onClick={handleOpenCatalogExtras}
+                    className="rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-3 py-1 text-[11px] font-semibold text-[color:var(--text)] hover:border-[color:var(--brand)]"
+                  >
+                    Ver en Catálogo
+                  </button>
+                }
                 bodyClassName="space-y-3"
               >
-                {salesSummary ? (
-                  <div className="grid grid-cols-1 lg:grid-cols-[1fr_1.2fr] gap-3">
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                      <KpiCard
-                        title="Ingresos"
-                        value={formatMoney(salesSummary.breakdown.extrasAmount)}
-                        hint="Ventas de extras"
-                        size="sm"
-                        variant="muted"
-                      />
-                      <KpiCard
-                        title="Ventas"
-                        value={formatCount(salesSummary.counts.extrasCount)}
-                        hint="Extras vendidos"
-                        size="sm"
-                        variant="muted"
-                      />
-                    </div>
-                    <div className="rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] p-3">
-                      <div className="text-[10px] uppercase tracking-wide text-[color:var(--muted)]">Top extras</div>
-                      {topExtras.length === 0 ? (
-                        <div className="mt-2 text-xs text-[color:var(--muted)]">Sin extras destacados.</div>
-                      ) : (
-                        <ul className="mt-2 space-y-2 text-xs">
-                          {topExtras.map((item) => (
-                            <li key={item.productId} className="flex items-center justify-between gap-3">
-                              <span className="truncate text-[color:var(--text)]">{item.title}</span>
-                              <span className="tabular-nums text-[color:var(--text)]">{formatMoney(item.amount)}</span>
-                            </li>
-                          ))}
-                        </ul>
-                      )}
-                    </div>
+                {topExtrasError ? (
+                  <div className="flex items-center justify-between gap-3 rounded-xl border border-[color:rgba(244,63,94,0.4)] bg-[color:rgba(244,63,94,0.08)] px-3 py-2 text-xs text-[color:var(--text)]">
+                    <span>{topExtrasError}</span>
+                    <button
+                      type="button"
+                      onClick={() => loadTopExtras(rangeKey)}
+                      className="rounded-full border border-[color:rgba(244,63,94,0.6)] px-2.5 py-1 text-[10px] font-semibold text-[color:var(--text)] hover:bg-[color:rgba(244,63,94,0.16)]"
+                    >
+                      Reintentar
+                    </button>
                   </div>
+                ) : topExtrasLoading ? (
+                  <div className="overflow-x-auto">
+                    <table className="min-w-full text-[13px]">
+                      <thead>
+                        <tr className="text-left text-[10px] uppercase tracking-[0.12em] text-[color:var(--muted)] bg-[var(--surface-2)] border-b border-[color:var(--surface-border)]">
+                          <th className="px-3 py-2.5">Extra</th>
+                          <th className="px-3 py-2.5 text-right">Vendidos</th>
+                          <th className="px-3 py-2.5 text-right">Ingresos</th>
+                          <th className="px-3 py-2.5">Última venta</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {Array.from({ length: 5 }).map((_, idx) => (
+                          <tr
+                            key={`extras-skeleton-${idx}`}
+                            className="border-b border-[color:var(--surface-border)]"
+                          >
+                            {Array.from({ length: 4 }).map((__, col) => (
+                              <td key={`extras-skeleton-${idx}-${col}`} className="px-3 py-2.5">
+                                <Skeleton className="h-3 w-20" />
+                              </td>
+                            ))}
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                ) : topExtrasTable.length === 0 ? (
+                  <div className="text-sm text-[color:var(--muted)]">No hay extras en este periodo.</div>
                 ) : (
-                  <div className="text-sm text-[color:var(--muted)]">Sin datos de extras.</div>
+                  <div className="overflow-x-auto">
+                    <table className="min-w-full text-[13px]">
+                      <thead>
+                        <tr className="text-left text-[10px] uppercase tracking-[0.12em] text-[color:var(--muted)] bg-[var(--surface-2)] border-b border-[color:var(--surface-border)]">
+                          <th className="px-3 py-2.5">Extra</th>
+                          <th className="px-3 py-2.5 text-right">Vendidos</th>
+                          <th className="px-3 py-2.5 text-right">Ingresos</th>
+                          <th className="px-3 py-2.5">Última venta</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {topExtrasTable.map((item) => (
+                          <tr
+                            key={item.extraId}
+                            className="border-b border-[color:var(--surface-border)] align-top transition hover:bg-[color:var(--surface-2)]"
+                          >
+                            <td className="px-3 py-2.5 text-[color:var(--text)] font-semibold">{item.title}</td>
+                            <td className="px-3 py-2.5 text-right text-[color:var(--text)] tabular-nums">
+                              {formatCount(item.soldCount)}
+                            </td>
+                            <td className="px-3 py-2.5 text-right text-[color:var(--text)] tabular-nums">
+                              {formatMoney(item.revenue)}
+                            </td>
+                            <td className="px-3 py-2.5 text-[color:var(--text)]">
+                              {formatDate(item.lastSoldAt)}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
                 )}
               </SectionCard>
             </div>
@@ -1269,28 +1857,91 @@ export function AnalyticsPanel() {
             <div id="propinas" className="scroll-mt-24">
               <SectionCard
                 title="Propinas"
-                subtitle={salesSummary ? SALES_RANGE_LABELS[salesChartRange] : "Sin datos"}
+                subtitle={rangeLabel}
                 bodyClassName="space-y-3"
               >
-                {salesSummary ? (
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    <KpiCard
-                      title="Ingresos"
-                      value={formatMoney(salesSummary.breakdown.tipsAmount)}
-                      hint="Total en propinas"
-                      size="sm"
-                      variant="muted"
-                    />
-                    <KpiCard
-                      title="Propinas"
-                      value={formatCount(salesSummary.counts.tipsCount)}
-                      hint="Propinas recibidas"
-                      size="sm"
-                      variant="muted"
-                    />
+                {tipsError ? (
+                  <div className="flex items-center justify-between gap-3 rounded-xl border border-[color:rgba(244,63,94,0.4)] bg-[color:rgba(244,63,94,0.08)] px-3 py-2 text-xs text-[color:var(--text)]">
+                    <span>{tipsError}</span>
+                    <button
+                      type="button"
+                      onClick={() => loadTips(rangeKey)}
+                      className="rounded-full border border-[color:rgba(244,63,94,0.6)] px-2.5 py-1 text-[10px] font-semibold text-[color:var(--text)] hover:bg-[color:rgba(244,63,94,0.16)]"
+                    >
+                      Reintentar
+                    </button>
                   </div>
+                ) : tipsLoading ? (
+                  <div className="overflow-x-auto">
+                    <table className="min-w-full text-[13px]">
+                      <thead>
+                        <tr className="text-left text-[10px] uppercase tracking-[0.12em] text-[color:var(--muted)] bg-[var(--surface-2)] border-b border-[color:var(--surface-border)]">
+                          <th className="px-3 py-2.5">Fan</th>
+                          <th className="px-3 py-2.5 text-right">Nº</th>
+                          <th className="px-3 py-2.5 text-right">Ingresos</th>
+                          <th className="px-3 py-2.5">Última propina</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {Array.from({ length: 5 }).map((_, idx) => (
+                          <tr
+                            key={`tips-skeleton-${idx}`}
+                            className="border-b border-[color:var(--surface-border)]"
+                          >
+                            {Array.from({ length: 4 }).map((__, col) => (
+                              <td key={`tips-skeleton-${idx}-${col}`} className="px-3 py-2.5">
+                                <Skeleton className="h-3 w-20" />
+                              </td>
+                            ))}
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                ) : tipsTable.length === 0 ? (
+                  <div className="text-sm text-[color:var(--muted)]">No hay propinas en este periodo.</div>
                 ) : (
-                  <div className="text-sm text-[color:var(--muted)]">Sin datos de propinas.</div>
+                  <div className="overflow-x-auto">
+                    <table className="min-w-full text-[13px]">
+                      <thead>
+                        <tr className="text-left text-[10px] uppercase tracking-[0.12em] text-[color:var(--muted)] bg-[var(--surface-2)] border-b border-[color:var(--surface-border)]">
+                          <th className="px-3 py-2.5">Fan</th>
+                          <th className="px-3 py-2.5 text-right">Nº</th>
+                          <th className="px-3 py-2.5 text-right">Ingresos</th>
+                          <th className="px-3 py-2.5">Última propina</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {tipsTable.map((entry) => {
+                          const fanName = entry.fan.name || "Fan";
+                          return (
+                            <tr
+                              key={entry.fan.id}
+                              className="border-b border-[color:var(--surface-border)] align-top transition hover:bg-[color:var(--surface-2)]"
+                            >
+                              <td className="px-3 py-2.5">
+                                <a
+                                  href={`/creator/chats?fanId=${encodeURIComponent(entry.fan.id)}`}
+                                  className="text-[color:var(--text)] font-semibold hover:text-[color:var(--brand)]"
+                                >
+                                  {fanName}
+                                </a>
+                              </td>
+                              <td className="px-3 py-2.5 text-right text-[color:var(--text)] tabular-nums">
+                                {formatCount(entry.tipsCount)}
+                              </td>
+                              <td className="px-3 py-2.5 text-right text-[color:var(--text)] tabular-nums">
+                                {formatMoney(entry.revenue)}
+                              </td>
+                              <td className="px-3 py-2.5 text-[color:var(--text)]">
+                                {formatDate(entry.lastTipAt)}
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
                 )}
               </SectionCard>
             </div>
