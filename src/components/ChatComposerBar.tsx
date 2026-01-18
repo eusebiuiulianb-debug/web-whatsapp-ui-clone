@@ -501,14 +501,24 @@ export function ChatComposerBar({
           onClick={onSend}
           disabled={sendDisabled}
           aria-label={actionLabel}
+          title={actionLabel}
           className={clsx(
-            "h-9 px-4 rounded-full text-sm font-semibold shrink-0 transition-colors focus-visible:outline-none focus-visible:ring-2",
-            "bg-[color:var(--brand-strong)] text-[color:var(--text)] hover:bg-[color:var(--brand)] focus-visible:ring-[color:var(--ring)]",
-            "disabled:opacity-50 disabled:cursor-not-allowed"
+            "flex h-9 w-9 items-center justify-center rounded-full border transition focus-visible:outline-none focus-visible:ring-2 shrink-0",
+            sendDisabled
+              ? "border-[color:var(--surface-border)] bg-[color:var(--surface-2)] text-[color:var(--muted)] cursor-not-allowed"
+              : "border-[color:var(--brand)] bg-[color:var(--brand-strong)] text-[color:var(--text)] hover:bg-[color:var(--brand)] focus-visible:ring-[color:var(--ring)]"
           )}
           style={actionMinWidth ? { minWidth: `${actionMinWidth}px` } : undefined}
         >
-          {isSending ? (sendingLabel || "Enviando...") : actionLabel}
+          {isSending ? (
+            <span
+              className="h-4 w-4 animate-spin rounded-full border-2 border-[color:var(--surface-0)] border-t-transparent"
+              aria-hidden="true"
+            />
+          ) : (
+            <IconGlyph name="send" className="h-4 w-4" ariaHidden />
+          )}
+          <span className="sr-only">{actionLabel}</span>
         </button>
       </div>
     </div>

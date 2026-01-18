@@ -12481,8 +12481,8 @@ const INTENT_BADGE_LABELS: Record<string, string> = {
       default:
         return {
           placeholder: "Mensaje al fan…",
-          actionLabel: "Enviar a FAN",
-          helpText: "Se enviará al fan.",
+          actionLabel: "Enviar",
+          helpText: "",
           sendingLabel: "Enviando...",
         };
     }
@@ -12745,6 +12745,11 @@ const INTENT_BADGE_LABELS: Record<string, string> = {
   const handleOpenNotesPanel = () => {
     setOpenPanel("none");
     setCrmTab("notes");
+    setShowCrmSheet(true);
+  };
+  const handleOpenFollowUpsPanel = () => {
+    setOpenPanel("none");
+    setCrmTab("followups");
     setShowCrmSheet(true);
   };
 
@@ -13810,17 +13815,28 @@ const INTENT_BADGE_LABELS: Record<string, string> = {
               </span>
             </div>
             <div className="md:col-span-2 flex items-start gap-2 min-w-0">
-              <span className="text-[color:var(--muted)]">Seguimiento:</span>
-              <span
-                className="min-w-0 line-clamp-1 md:line-clamp-2 text-[color:var(--text)]"
-                title={followUpLabel || ""}
+              <button
+                type="button"
+                onClick={handleOpenFollowUpsPanel}
+                className="flex min-w-0 flex-1 items-start gap-1 text-left"
+                aria-label="Abrir seguimiento"
+                title={followUpLabel || "Abrir seguimiento"}
               >
-                {followUpLabel || "Sin seguimiento definido"}
-              </span>
-              {fanNotes.length > 0 && (
-                <span className="shrink-0 rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-2 py-0.5 text-[10px] font-semibold text-[color:var(--text)]">
-                  Notas: {fanNotes.length}
+                <span className="text-[color:var(--muted)]">Seguimiento:</span>
+                <span className="min-w-0 line-clamp-1 md:line-clamp-2 text-[color:var(--text)]">
+                  {followUpLabel || "Sin seguimiento definido"}
                 </span>
+              </button>
+              {fanNotes.length > 0 && (
+                <button
+                  type="button"
+                  onClick={handleOpenNotesPanel}
+                  className="shrink-0 rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-2 py-0.5 text-[10px] font-semibold text-[color:var(--text)] hover:border-[color:var(--brand)]"
+                  aria-label={`Abrir notas (${fanNotes.length})`}
+                  title="Abrir notas"
+                >
+                  Notas: {fanNotes.length}
+                </button>
               )}
               {isFollowUpNoteMissing && (
                 <button
@@ -15104,7 +15120,6 @@ const INTENT_BADGE_LABELS: Record<string, string> = {
                 actionLabel={composerActionLabel}
                 sendingLabel={composerSendingLabel}
                 isSending={isComposerSubmitting}
-                actionMinWidth={140}
                 audience={composerAudience}
                 modeHelpText={composerHelpText}
                 canAttach={canAttachContent}
@@ -15925,15 +15940,15 @@ const INTENT_BADGE_LABELS: Record<string, string> = {
                   {catalogError && <div className="text-xs text-[color:var(--danger)]">{catalogError}</div>}
                   {!catalogLoading && !catalogError && filteredCatalogItems.length === 0 && (
                     <div className="rounded-lg border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-3 py-3 text-xs text-[color:var(--muted)] space-y-2">
-                      <div>No tienes catalogo aun. Ve a Cortex → Catalogo para crear items.</div>
+                      <div>No tienes catálogo aún. Ve al Panel para ver el listado.</div>
                       <button
                         type="button"
                         onClick={() => {
-                          void router.push("/creator/manager");
+                          void router.push("/creator/panel?tab=catalog");
                         }}
                         className="inline-flex items-center justify-center rounded-full border border-[color:var(--brand)] bg-[color:rgba(var(--brand-rgb),0.16)] px-3 py-1 text-[11px] font-semibold text-[color:var(--text)] hover:bg-[color:rgba(var(--brand-rgb),0.25)]"
                       >
-                        Abrir Cortex
+                        Abrir Panel
                       </button>
                     </div>
                   )}

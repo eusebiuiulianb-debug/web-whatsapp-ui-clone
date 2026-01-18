@@ -7,7 +7,7 @@ import {
   getSalesProductKey,
   type CreatorSalesPurchase,
 } from "../../../../lib/analytics/creatorSalesTotals";
-import { daysAgoInTimeZone, startOfDayInTimeZone } from "../../../../lib/timezone";
+import { DEFAULT_CREATOR_TIME_ZONE, daysAgoInTimeZone, startOfDayInTimeZone } from "../../../../lib/timezone";
 
 type SalesRange = "today" | "7d" | "30d";
 
@@ -51,6 +51,12 @@ type SalesFan = {
   count: number;
 };
 
+type SalesDailyPoint = {
+  date: string;
+  amount: number;
+  count: number;
+};
+
 type SalesResponse = {
   totals: SalesTotals;
   breakdown: SalesBreakdown;
@@ -58,6 +64,7 @@ type SalesResponse = {
   topProducts: SalesProduct[];
   topFans: SalesFan[];
   insights: string[];
+  daily: SalesDailyPoint[];
 };
 
 function normalizeRange(value: unknown): SalesRange | null {
@@ -114,6 +121,31 @@ function getRangeLabel(range: SalesRange): string {
   if (range === "today") return "hoy";
   if (range === "7d") return "los últimos 7 días";
   return "los últimos 30 días";
+}
+
+function buildDailyBuckets({
+  range,
+  now,
+}: {
+  range: SalesRange;
+  now: Date;
+}): { keys: string[]; buckets: Map<string, { amount: number; count: number }> } {
+  const rangeDays = range === "today" ? 1 : range === "7d" ? 7 : 30;
+  const formatter = new Intl.DateTimeFormat("en-CA", {
+    timeZone: DEFAULT_CREATOR_TIME_ZONE,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  });
+  const keys: string[] = [];
+  const buckets = new Map<string, { amount: number; count: number }>();
+  for (let i = rangeDays - 1; i >= 0; i -= 1) {
+    const day = daysAgoInTimeZone(i, now, DEFAULT_CREATOR_TIME_ZONE);
+    const key = formatter.format(day);
+    keys.push(key);
+    buckets.set(key, { amount: 0, count: 0 });
+  }
+  return { keys, buckets };
 }
 
 function buildInsights({
@@ -177,6 +209,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
   const from =
     range === "today" ? startOfDayInTimeZone() : range === "7d" ? daysAgoInTimeZone(7) : daysAgoInTimeZone(30);
   const debug = req.query?.debug === "1" && process.env.NODE_ENV !== "production";
+  const daily = buildDailyBuckets({ range, now });
 
   try {
     const [purchases, grants, extrasActiveCount] = await Promise.all([
@@ -236,6 +269,33 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
           createdAt: grant.createdAt,
         })),
       });
+    }
+
+    const dayFormatter = new Intl.DateTimeFormat("en-CA", {
+      timeZone: DEFAULT_CREATOR_TIME_ZONE,
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    });
+
+    for (const purchase of purchases) {
+      const key = dayFormatter.format(purchase.createdAt);
+      const bucket = daily.buckets.get(key);
+      if (!bucket) continue;
+      const amount = Number(purchase.amount) || 0;
+      bucket.amount += amount;
+      bucket.count += 1;
+    }
+
+    for (const grant of grants) {
+      const key = dayFormatter.format(grant.createdAt);
+      const bucket = daily.buckets.get(key);
+      if (!bucket) continue;
+      const amount = getGrantAmount(grant.type ?? "");
+      if (amount > 0) {
+        bucket.amount += amount;
+        bucket.count += 1;
+      }
     }
 
     let extrasCount = 0;
@@ -402,6 +462,12 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
       range,
     });
 
+    const dailySeries: SalesDailyPoint[] = daily.keys.map((key) => ({
+      date: key,
+      amount: daily.buckets.get(key)?.amount ?? 0,
+      count: daily.buckets.get(key)?.count ?? 0,
+    }));
+
     return res.status(200).json({
       totals,
       breakdown,
@@ -409,6 +475,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
       topProducts,
       topFans,
       insights,
+      daily: dailySeries,
     });
   } catch (error) {
     console.error("Error loading sales analytics", error);

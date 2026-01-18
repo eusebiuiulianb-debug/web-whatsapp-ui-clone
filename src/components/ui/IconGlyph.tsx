@@ -34,7 +34,8 @@ export type IconName =
   | "coin"
   | "gem"
   | "receipt"
-  | "flame";
+  | "flame"
+  | "send";
 
 type IconGlyphProps = {
   name: IconName;
@@ -157,6 +158,12 @@ export function IconGlyph({
       )}
       {name === "paperclip" && (
         <path d="M8 12l6-6a3 3 0 0 1 4 4l-7 7a5 5 0 0 1-7-7l7-7" />
+      )}
+      {name === "send" && (
+        <>
+          <path d="M22 2L11 13" />
+          <path d="M22 2L15 22L11 13L2 9L22 2Z" />
+        </>
       )}
       {name === "calendar" && (
         <>

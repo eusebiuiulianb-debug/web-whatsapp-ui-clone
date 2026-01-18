@@ -197,6 +197,7 @@ type FiltersDraft = {
 };
 const FILTERS_STORAGE_KEY = "novsy:creator:sidebar_filters";
 const FILTERS_STORAGE_VERSION = 1;
+const INSIGHTS_STORAGE_KEY = "novsy:creator:sidebar-insights-open";
 const HEAT_FILTER_VALUES = [ "all", "cold", "warm", "hot" ] as const;
 const INTENT_FILTER_VALUES = [
   "all",
@@ -464,6 +465,7 @@ function SideBarInner() {
   const [ showEmptyFilters, setShowEmptyFilters ] = useState(false);
   const [ focusMode, setFocusMode ] = useState(false);
   const [ showPacksPanel, setShowPacksPanel ] = useState(false);
+  const [ insightsOpen, setInsightsOpen ] = useState(false);
   const [ listSegment, setListSegment ] = useState<"all" | "queue">("all");
   const [ isLoadingMore, setIsLoadingMore ] = useState(false);
   const openFanFetchRef = useRef<string | null>(null);
@@ -499,6 +501,23 @@ function SideBarInner() {
   const chatPollDedupeMs = 4000;
   const [ unseenPurchaseByFan, setUnseenPurchaseByFan ] = useState<Record<string, PurchaseNotice>>({});
   const [ unseenVoiceByFan, setUnseenVoiceByFan ] = useState<Record<string, VoiceNoteNotice>>({});
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const stored = window.localStorage.getItem(INSIGHTS_STORAGE_KEY);
+    if (stored === null) return;
+    setInsightsOpen(stored === "1");
+  }, []);
+
+  const toggleInsightsOpen = useCallback(() => {
+    setInsightsOpen((prev) => {
+      const next = !prev;
+      if (typeof window !== "undefined") {
+        window.localStorage.setItem(INSIGHTS_STORAGE_KEY, next ? "1" : "0");
+      }
+      return next;
+    });
+  }, []);
 
 
   const mapFans = useCallback((rawFans: Fan[]): ConversationListData[] => {
@@ -2889,95 +2908,121 @@ function SideBarInner() {
             </div>
           </div>
         )}
-        {isLoading ? (
-          <LeftSectionCard className="mb-2">
-            <div className="animate-pulse space-y-3">
-              <div className="flex justify-between">
-                <div className="h-3 w-28 rounded bg-[color:var(--surface-2)]" />
-                <div className="h-3 w-20 rounded bg-[color:var(--surface-2)]" />
-              </div>
-              <div className="grid grid-cols-2 gap-2">
-                {[1, 2, 3, 4].map((n) => (
-                  <div key={`skeleton-${n}`} className="h-16 rounded-xl bg-[color:var(--surface-2)]" />
-                ))}
-              </div>
-            </div>
-          </LeftSectionCard>
-        ) : (
+        <LeftSectionCard className="mb-2">
+          <div className="flex items-center justify-between gap-3">
+            <button
+              type="button"
+              onClick={toggleInsightsOpen}
+              className="text-left"
+              aria-expanded={insightsOpen}
+            >
+              <div className="text-sm font-semibold text-[color:var(--text)]">Resumen y extras</div>
+              {insightsOpen && <div className="text-[11px] ui-muted">Ventas y actividad</div>}
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                void router.push("/creator/panel?tab=analytics");
+              }}
+              className="rounded-full border border-[color:var(--brand)] bg-[color:rgba(var(--brand-rgb),0.16)] px-2.5 py-1 text-[11px] font-semibold text-[color:var(--text)] hover:bg-[color:rgba(var(--brand-rgb),0.25)]"
+            >
+              Ir al Panel
+            </button>
+          </div>
+        </LeftSectionCard>
+        {insightsOpen && (
           <>
-            <LeftSectionCard className="mb-2">
-              <div className="flex items-center justify-between">
-                <div className="space-y-1">
-                  <div className="text-sm font-semibold text-[color:var(--text)]">Resumen de hoy</div>
-                  <div className="text-[11px] ui-muted">Ventas y actividad</div>
-                </div>
-              </div>
-              <div className="mt-3 grid grid-cols-2 gap-2">
-                <LeftKpiCard
-                  label="Chats atendidos"
-                  value={attendedTodayCount}
-                  tone={attendedTodayCount > 0 ? "accent" : "default"}
-                />
-                <LeftKpiCard
-                  label="Cola"
-                  value={colaHoyCount}
-                  tone={colaHoyCount > 0 ? "accent" : "default"}
-                />
-                <LeftKpiCard
-                  label="VIP en cola"
-                  value={vipInQueue}
-                  tone={vipInQueue > 0 ? "accent" : "default"}
-                />
-                <LeftKpiCard
-                  label="Ingresos hoy"
-                  value={`${incomeTodayCount} cobro${incomeTodayCount === 1 ? "" : "s"} · ${formatCurrency(incomeTodayAmount)}`}
-                  tone={incomeTodayCount > 0 ? "accent" : "default"}
-                  valueClassName="text-xl leading-tight"
-                  supporting={
-                    <div className="space-y-1">
-                      {showIncomeBreakdown && (
-                        <div>
-                          {extrasTodayCount} venta{extrasTodayCount === 1 ? "" : "s"} + {tipsTodayCount} propina{tipsTodayCount === 1 ? "" : "s"}
-                        </div>
-                      )}
-                      <div>suscripciones + ventas + propinas</div>
-                      {giftedTodayCount > 0 && <div>Regalos: {giftedTodayCount}</div>}
-                    </div>
-                  }
-                />
-              </div>
-            </LeftSectionCard>
-            {extrasSummary && (
+            {isLoading ? (
               <LeftSectionCard className="mb-2">
-                <div className="flex items-center justify-between gap-2">
-                  <div className="text-sm font-semibold text-[color:var(--text)]">Extras hoy</div>
-                  <div
-                    className={clsx(
-                      "text-xl font-semibold tracking-tight tabular-nums leading-tight",
-                      extrasTodayCount > 0 ? "text-[color:var(--brand)]" : "text-[color:var(--muted)]"
-                    )}
-                  >
-                    {extrasTodayCount} venta{extrasTodayCount === 1 ? "" : "s"} · {formatCurrency(extrasTodayAmount)}
+                <div className="animate-pulse space-y-3">
+                  <div className="flex justify-between">
+                    <div className="h-3 w-28 rounded bg-[color:var(--surface-2)]" />
+                    <div className="h-3 w-20 rounded bg-[color:var(--surface-2)]" />
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    {[1, 2, 3, 4].map((n) => (
+                      <div key={`skeleton-${n}`} className="h-16 rounded-xl bg-[color:var(--surface-2)]" />
+                    ))}
                   </div>
                 </div>
-                {giftedTodayCount > 0 && (
-                  <div className="mt-1 text-[10px] ui-muted">Regalos hoy: {giftedTodayCount}</div>
-                )}
-                <div className="mt-3 flex items-center justify-between text-[10px] ui-muted">
-                  <span>Últimos 7 días</span>
-                  <span
-                    className={clsx(
-                      "text-base font-semibold tracking-tight tabular-nums leading-tight",
-                      extrasLast7Count > 0 ? "text-[color:var(--brand)]" : "text-[color:var(--muted)]"
-                    )}
-                  >
-                    {extrasLast7Count} venta{extrasLast7Count === 1 ? "" : "s"} · {formatCurrency(extrasLast7Amount)}
-                  </span>
-                </div>
-                {giftedLast7Count > 0 && (
-                  <div className="mt-1 text-[10px] ui-muted">Regalos 7d: {giftedLast7Count}</div>
-                )}
               </LeftSectionCard>
+            ) : (
+              <>
+                <LeftSectionCard className="mb-2">
+                  <div className="flex items-center justify-between">
+                    <div className="space-y-1">
+                      <div className="text-sm font-semibold text-[color:var(--text)]">Resumen de hoy</div>
+                      <div className="text-[11px] ui-muted">Ventas y actividad</div>
+                    </div>
+                  </div>
+                  <div className="mt-3 grid grid-cols-2 gap-2">
+                    <LeftKpiCard
+                      label="Chats atendidos"
+                      value={attendedTodayCount}
+                      tone={attendedTodayCount > 0 ? "accent" : "default"}
+                    />
+                    <LeftKpiCard
+                      label="Cola"
+                      value={colaHoyCount}
+                      tone={colaHoyCount > 0 ? "accent" : "default"}
+                    />
+                    <LeftKpiCard
+                      label="VIP en cola"
+                      value={vipInQueue}
+                      tone={vipInQueue > 0 ? "accent" : "default"}
+                    />
+                    <LeftKpiCard
+                      label="Ingresos hoy"
+                      value={`${incomeTodayCount} cobro${incomeTodayCount === 1 ? "" : "s"} · ${formatCurrency(incomeTodayAmount)}`}
+                      tone={incomeTodayCount > 0 ? "accent" : "default"}
+                      valueClassName="text-xl leading-tight"
+                      supporting={
+                        <div className="space-y-1">
+                          {showIncomeBreakdown && (
+                            <div>
+                              {extrasTodayCount} venta{extrasTodayCount === 1 ? "" : "s"} + {tipsTodayCount} propina{tipsTodayCount === 1 ? "" : "s"}
+                            </div>
+                          )}
+                          <div>suscripciones + ventas + propinas</div>
+                          {giftedTodayCount > 0 && <div>Regalos: {giftedTodayCount}</div>}
+                        </div>
+                      }
+                    />
+                  </div>
+                </LeftSectionCard>
+                {extrasSummary && (
+                  <LeftSectionCard className="mb-2">
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="text-sm font-semibold text-[color:var(--text)]">Extras hoy</div>
+                      <div
+                        className={clsx(
+                          "text-xl font-semibold tracking-tight tabular-nums leading-tight",
+                          extrasTodayCount > 0 ? "text-[color:var(--brand)]" : "text-[color:var(--muted)]"
+                        )}
+                      >
+                        {extrasTodayCount} venta{extrasTodayCount === 1 ? "" : "s"} · {formatCurrency(extrasTodayAmount)}
+                      </div>
+                    </div>
+                    {giftedTodayCount > 0 && (
+                      <div className="mt-1 text-[10px] ui-muted">Regalos hoy: {giftedTodayCount}</div>
+                    )}
+                    <div className="mt-3 flex items-center justify-between text-[10px] ui-muted">
+                      <span>Últimos 7 días</span>
+                      <span
+                        className={clsx(
+                          "text-base font-semibold tracking-tight tabular-nums leading-tight",
+                          extrasLast7Count > 0 ? "text-[color:var(--brand)]" : "text-[color:var(--muted)]"
+                        )}
+                      >
+                        {extrasLast7Count} venta{extrasLast7Count === 1 ? "" : "s"} · {formatCurrency(extrasLast7Amount)}
+                      </span>
+                    </div>
+                    {giftedLast7Count > 0 && (
+                      <div className="mt-1 text-[10px] ui-muted">Regalos 7d: {giftedLast7Count}</div>
+                    )}
+                  </LeftSectionCard>
+                )}
+              </>
             )}
           </>
         )}

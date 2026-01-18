@@ -19,11 +19,11 @@ export default function CreatorHeader({ name, role, subtitle, initial, avatarUrl
 
   const pathname = router.pathname;
 
-  const isPanel = pathname.startsWith("/creator/manager");
+  const isPanel = pathname.startsWith("/creator/panel");
   const isBioLink = pathname.startsWith("/creator/bio-link");
-  const isPublicProfile = pathname === "/creator";
-  const isAnalytics = pathname.startsWith("/creator/analytics");
-  const isChat = pathname === "/" || (pathname.startsWith("/creator/") && !isPanel && !isBioLink && !isAnalytics);
+  const isChat =
+    pathname === "/" ||
+    (pathname.startsWith("/creator/") && !isPanel && !isBioLink);
 
   const linkClass = (isActive: boolean, extraClasses: string) =>
     `inline-flex items-center rounded-full px-3 py-1.5 text-sm font-medium whitespace-nowrap transition border ${extraClasses} ${
@@ -34,9 +34,8 @@ export default function CreatorHeader({ name, role, subtitle, initial, avatarUrl
 
   const navTabs = [
     { label: "Chat privado", href: "/", active: isChat, className: "" },
-    ...(aiEnabled ? [{ label: "Cortex", href: "/creator/manager", active: isPanel, className: "" }] : []),
     { label: "Bio-link", href: "/creator/bio-link", active: isBioLink, className: "" },
-    { label: "Analítica", href: "/creator/analytics", active: isAnalytics, className: "" },
+    { label: "Panel", href: "/creator/panel?tab=analytics", active: isPanel, className: "" },
   ];
 
   const menuItems: ContextMenuItem[] = [

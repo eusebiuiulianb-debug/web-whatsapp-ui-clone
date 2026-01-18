@@ -12,6 +12,8 @@ type ContextMenuItem = {
   closeOnSelect?: boolean;
   divider?: boolean;
   title?: string;
+  labelClassName?: string;
+  labelSrOnly?: boolean;
 };
 
 type ContextMenuButtonRenderProps = {
@@ -144,6 +146,7 @@ export function ContextMenu({
               ) : (
                 item.icon
               );
+            const labelClassName = clsx(item.labelSrOnly && "sr-only", item.labelClassName);
             return (
               <button
                 key={`${item.label}-${idx}`}
@@ -161,6 +164,7 @@ export function ContextMenu({
                 }}
                 className={clsx(
                   "flex w-full items-center gap-2 rounded-lg px-3 py-2 text-[11px] font-medium",
+                  item.labelSrOnly && "justify-center",
                   microInteractionSoft,
                   focusRing,
                   item.danger
@@ -172,7 +176,7 @@ export function ContextMenu({
                 )}
               >
                 {iconNode ? <span aria-hidden="true">{iconNode}</span> : null}
-                <span>{item.label}</span>
+                <span className={labelClassName}>{item.label}</span>
               </button>
             );
           })}

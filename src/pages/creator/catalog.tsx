@@ -2,11 +2,11 @@ import Head from "next/head";
 import { useEffect } from "react";
 import { useRouter } from "next/router";
 
-export default function CreatorAnalyticsRedirectPage() {
+export default function CreatorCatalogRedirectPage() {
   const router = useRouter();
 
   useEffect(() => {
-    void router.replace("/creator/panel?tab=analytics");
+    void router.replace("/creator/panel?tab=catalog");
   }, [router]);
 
   return (

@@ -90,6 +90,8 @@ export function ConversationActionsMenu({
       icon: "pin",
       onClick: () => onToggleHighPriority(conversation),
       disabled: actionDisabled,
+      title: "Alta prioridad",
+      labelSrOnly: true,
     });
   }
   if (onOpenProfileFollowup) {
