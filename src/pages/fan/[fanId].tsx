@@ -2748,14 +2748,12 @@ export function FanChatPage({
                   placeholder="Escribe un mensaje..."
                   actionLabel="Enviar"
                   audience="CREATOR"
-                  onAudienceChange={() => {}}
                   canAttach={!isComposerDisabled && !isAdultGateActive}
                   onAttach={handleOpenActionMenu}
                   inputRef={composerInputRef}
                   maxHeight={140}
                   isChatBlocked={isAdultGateStrict}
                   isInternalPanelOpen={false}
-                  showAudienceToggle={false}
                   showAttach
                   showVoice
                   onVoiceStart={startVoiceRecording}

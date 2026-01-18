@@ -5109,14 +5109,12 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
             isSending={sending}
             sendingLabel="Enviando..."
             audience="CREATOR"
-            onAudienceChange={() => {}}
             canAttach={false}
             onAttach={() => {}}
             inputRef={inputRef}
             maxHeight={MAX_MAIN_COMPOSER_HEIGHT}
             isChatBlocked={false}
             isInternalPanelOpen={false}
-            showAudienceToggle={false}
           />
         </div>
       </div>

@@ -2207,6 +2207,7 @@ export default function ConversationDetails({ onBackToBoard }: ConversationDetai
   const [ followUpHistoryLoading, setFollowUpHistoryLoading ] = useState(false);
   const [ followUpError, setFollowUpError ] = useState("");
   const [ followUpHistoryError, setFollowUpHistoryError ] = useState("");
+  const [ followUpFormOpen, setFollowUpFormOpen ] = useState(false);
   const [ agencyMeta, setAgencyMeta ] = useState<{
     stage: AgencyStage;
     objective: string;
@@ -5554,6 +5555,11 @@ const INTENT_BADGE_LABELS: Record<string, string> = {
   }, [showCrmSheet]);
 
   useEffect(() => {
+    if (!showCrmSheet) return;
+    setFollowUpFormOpen(!followUpOpen);
+  }, [followUpOpen, showCrmSheet]);
+
+  useEffect(() => {
     if (!showContentModal) return;
     if (contentModalMode !== "extras") return;
     if (selectedContentIds.length > 0) return;
@@ -5625,7 +5631,7 @@ const INTENT_BADGE_LABELS: Record<string, string> = {
   useEffect(() => {
     if (aiEnabled) return;
     if (composerTarget !== "manager") return;
-    setComposerTarget("internal");
+    setComposerTarget("fan");
   }, [aiEnabled, composerTarget]);
 
   useEffect(() => {
@@ -7836,14 +7842,12 @@ const INTENT_BADGE_LABELS: Record<string, string> = {
             placeholder="Pregúntale al Manager…"
             actionLabel="Enviar"
             audience="INTERNAL"
-            onAudienceChange={() => {}}
             canAttach={false}
             onAttach={() => {}}
             inputRef={managerChatInputRef}
             maxHeight={MAX_INTERNAL_COMPOSER_HEIGHT}
             isChatBlocked={false}
             isInternalPanelOpen={false}
-            showAudienceToggle={false}
             showAttach={false}
             showEmoji
             onEmojiSelect={handleInsertManagerEmoji}
@@ -11972,6 +11976,7 @@ const INTENT_BADGE_LABELS: Record<string, string> = {
         return;
       }
       setFollowUpOpen(followUp);
+      setFollowUpFormOpen(false);
       setFollowUpError("");
       showComposerToast("Seguimiento guardado");
       await refreshFanData(id);
@@ -12488,12 +12493,6 @@ const INTENT_BADGE_LABELS: Record<string, string> = {
   const currentFanCooldown = id ? fanSendCooldownById[id] : null;
   const isFanCooldownActive =
     isFanTarget && !!currentFanCooldown && currentFanCooldown.until > Date.now();
-  const cooldownLabel =
-    isFanCooldownActive && currentFanCooldown?.phase === "sent"
-      ? "Enviado"
-      : isFanCooldownActive
-      ? "Espera..."
-      : null;
   const sendDisabled =
     isComposerSubmitting ||
     !hasComposerPayload ||
@@ -12506,7 +12505,7 @@ const INTENT_BADGE_LABELS: Record<string, string> = {
   const mainComposerPlaceholder = isInternalPanelOpen
     ? "Panel interno abierto. Usa el chat interno…"
     : composerPlaceholder;
-  const composerActionLabel = cooldownLabel ?? composerCopy.actionLabel;
+  const composerActionLabel = composerCopy.actionLabel;
   const composerHelpText = isFanCooldownActive
     ? "Enviado recientemente. Espera unos segundos."
     : composerCopy.helpText;
@@ -12535,6 +12534,7 @@ const INTENT_BADGE_LABELS: Record<string, string> = {
     manualNextActionValue;
   const followUpDueAt = followUpOpen?.dueAt ?? conversation.nextActionAt ?? null;
   const followUpLabel = formatNextActionLabel(followUpDueAt, followUpNoteRaw);
+  const showFollowUpForm = !followUpOpen || followUpFormOpen;
   const isFollowUpNoteMissing = Boolean(followUpDueAt) && isGenericNextActionNote(followUpNoteRaw);
   const extrasCountDisplay = conversation.extrasCount ?? 0;
   const extrasAmount = typeof conversation.extrasSpentTotal === "number" ? conversation.extrasSpentTotal : 0;
@@ -13817,6 +13817,11 @@ const INTENT_BADGE_LABELS: Record<string, string> = {
               >
                 {followUpLabel || "Sin seguimiento definido"}
               </span>
+              {fanNotes.length > 0 && (
+                <span className="shrink-0 rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-2 py-0.5 text-[10px] font-semibold text-[color:var(--text)]">
+                  Notas: {fanNotes.length}
+                </span>
+              )}
               {isFollowUpNoteMissing && (
                 <button
                   type="button"
@@ -15101,13 +15106,6 @@ const INTENT_BADGE_LABELS: Record<string, string> = {
                 isSending={isComposerSubmitting}
                 actionMinWidth={140}
                 audience={composerAudience}
-                onAudienceChange={() => {}}
-                mode={composerTarget}
-                onModeChange={(mode) => {
-                  setComposerTarget(mode);
-                  if (composerError) setComposerError(null);
-                }}
-                modeDisabled={isComposerSubmitting || isInternalPanelOpen}
                 modeHelpText={composerHelpText}
                 canAttach={canAttachContent}
                 onAttach={() => {
@@ -15133,7 +15131,6 @@ const INTENT_BADGE_LABELS: Record<string, string> = {
                 maxHeight={MAX_MAIN_COMPOSER_HEIGHT}
                 isChatBlocked={isChatBlocked}
                 isInternalPanelOpen={isInternalPanelOpen}
-                showAudienceToggle={false}
               />
             </div>
           </div>
@@ -16379,6 +16376,12 @@ const INTENT_BADGE_LABELS: Record<string, string> = {
                   </button>
                 )}
               </div>
+              {fanNotes.length > 0 && (
+                <div className="flex items-center justify-between">
+                  <span className="text-[color:var(--muted)]">Notas</span>
+                  <span className="font-medium text-[color:var(--text)]">{fanNotes.length}</span>
+                </div>
+              )}
             </div>
 
             <div className="grid grid-cols-2 gap-3">
@@ -16562,46 +16565,58 @@ const INTENT_BADGE_LABELS: Record<string, string> = {
                   )}
                 </div>
 
-                <div className="rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-3 py-2 space-y-2">
-                  <div className="text-[11px] font-semibold text-[color:var(--muted)]">Crear seguimiento</div>
-                  <input
-                    ref={nextActionInputRef}
-                    type="text"
-                    value={nextActionDraft}
-                    onChange={(e) => {
-                      setNextActionDraft(e.target.value);
-                      if (followUpError) setFollowUpError("");
-                    }}
-                    className="w-full rounded-lg border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-3 py-2 text-xs text-[color:var(--text)] placeholder:text-[color:var(--muted)] outline-none focus:border-[color:var(--border-a)] focus-visible:ring-2 focus-visible:ring-[color:var(--ring)]"
-                    placeholder="Ej: Recordar pack especial"
-                  />
-                  <div className="flex gap-2">
+                {followUpOpen && (
+                  <button
+                    type="button"
+                    onClick={() => setFollowUpFormOpen((prev) => !prev)}
+                    className="self-start rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-3 py-1 text-[10px] font-semibold text-[color:var(--text)] hover:bg-[color:var(--surface-2)]"
+                  >
+                    {followUpFormOpen ? "Cerrar" : "Crear otro"}
+                  </button>
+                )}
+
+                {showFollowUpForm && (
+                  <div className="rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-3 py-2 space-y-2">
+                    <div className="text-[11px] font-semibold text-[color:var(--muted)]">Crear seguimiento</div>
                     <input
-                      type="date"
-                      value={nextActionDate}
-                      onChange={(e) => setNextActionDate(e.target.value)}
-                      className="flex-1 rounded-lg border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-3 py-2 text-xs text-[color:var(--text)] outline-none focus:border-[color:var(--border-a)] focus-visible:ring-2 focus-visible:ring-[color:var(--ring)]"
+                      ref={nextActionInputRef}
+                      type="text"
+                      value={nextActionDraft}
+                      onChange={(e) => {
+                        setNextActionDraft(e.target.value);
+                        if (followUpError) setFollowUpError("");
+                      }}
+                      className="w-full rounded-lg border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-3 py-2 text-xs text-[color:var(--text)] placeholder:text-[color:var(--muted)] outline-none focus:border-[color:var(--border-a)] focus-visible:ring-2 focus-visible:ring-[color:var(--ring)]"
+                      placeholder="Ej: Recordar pack especial"
                     />
-                    <input
-                      type="time"
-                      value={nextActionTime}
-                      onChange={(e) => setNextActionTime(e.target.value)}
-                      className="flex-1 rounded-lg border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-3 py-2 text-xs text-[color:var(--text)] outline-none focus:border-[color:var(--border-a)] focus-visible:ring-2 focus-visible:ring-[color:var(--ring)]"
-                    />
+                    <div className="flex gap-2">
+                      <input
+                        type="date"
+                        value={nextActionDate}
+                        onChange={(e) => setNextActionDate(e.target.value)}
+                        className="flex-1 rounded-lg border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-3 py-2 text-xs text-[color:var(--text)] outline-none focus:border-[color:var(--border-a)] focus-visible:ring-2 focus-visible:ring-[color:var(--ring)]"
+                      />
+                      <input
+                        type="time"
+                        value={nextActionTime}
+                        onChange={(e) => setNextActionTime(e.target.value)}
+                        className="flex-1 rounded-lg border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-3 py-2 text-xs text-[color:var(--text)] outline-none focus:border-[color:var(--border-a)] focus-visible:ring-2 focus-visible:ring-[color:var(--ring)]"
+                      />
+                    </div>
+                    <div className="flex flex-wrap items-center gap-2 text-[10px] text-[color:var(--muted)]">
+                      <button
+                        type="button"
+                        onClick={handleSaveNextAction}
+                        disabled={followUpLoading || !nextActionDraft.trim()}
+                        className="rounded-lg border border-[color:var(--brand)] bg-[color:rgba(var(--brand-rgb),0.12)] px-3 py-1 text-xs font-medium text-[color:var(--text)] disabled:cursor-not-allowed disabled:opacity-50 hover:bg-[color:rgba(var(--brand-rgb),0.2)]"
+                      >
+                        Guardar seguimiento
+                      </button>
+                      {followUpLoading && <span>Actualizando...</span>}
+                      {followUpError && <span className="text-[color:var(--danger)]">{followUpError}</span>}
+                    </div>
                   </div>
-                  <div className="flex flex-wrap items-center gap-2 text-[10px] text-[color:var(--muted)]">
-                    <button
-                      type="button"
-                      onClick={handleSaveNextAction}
-                      disabled={followUpLoading || !nextActionDraft.trim()}
-                      className="rounded-lg border border-[color:var(--brand)] bg-[color:rgba(var(--brand-rgb),0.12)] px-3 py-1 text-xs font-medium text-[color:var(--text)] disabled:cursor-not-allowed disabled:opacity-50 hover:bg-[color:rgba(var(--brand-rgb),0.2)]"
-                    >
-                      Guardar seguimiento
-                    </button>
-                    {followUpLoading && <span>Actualizando...</span>}
-                    {followUpError && <span className="text-[color:var(--danger)]">{followUpError}</span>}
-                  </div>
-                </div>
+                )}
               </div>
             )}
           </div>

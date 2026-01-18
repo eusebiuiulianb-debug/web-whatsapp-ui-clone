@@ -6,7 +6,6 @@ import { useEmojiFavorites } from "../hooks/useEmojiFavorites";
 import { EmojiPicker } from "./EmojiPicker";
 import { IconGlyph } from "./ui/IconGlyph";
 import type { StickerItem } from "../lib/stickers";
-import { AI_ENABLED } from "../lib/features";
 
 type EmojiSelectPayload = {
   native?: string;
@@ -19,8 +18,6 @@ const StickerPicker = dynamic(
 );
 
 type ComposerAudience = "CREATOR" | "INTERNAL";
-type ComposerMode = "fan" | "internal" | "manager";
-
 type ChatComposerBarProps = {
   value: string;
   onChange: (event: React.ChangeEvent<HTMLTextAreaElement>) => void;
@@ -34,10 +31,6 @@ type ChatComposerBarProps = {
   isSending?: boolean;
   actionMinWidth?: number;
   audience: ComposerAudience;
-  onAudienceChange: (mode: ComposerAudience) => void;
-  mode?: ComposerMode;
-  onModeChange?: (mode: ComposerMode) => void;
-  modeDisabled?: boolean;
   modeHelpText?: string;
   canAttach: boolean;
   onAttach: () => void;
@@ -45,7 +38,6 @@ type ChatComposerBarProps = {
   maxHeight: number;
   isChatBlocked: boolean;
   isInternalPanelOpen: boolean;
-  showAudienceToggle?: boolean;
   showAttach?: boolean;
   showEmoji?: boolean;
   onEmojiSelect?: (emoji: string) => void;
@@ -71,10 +63,6 @@ export function ChatComposerBar({
   isSending = false,
   actionMinWidth,
   audience,
-  onAudienceChange,
-  mode,
-  onModeChange,
-  modeDisabled = false,
   modeHelpText,
   canAttach,
   onAttach,
@@ -82,7 +70,6 @@ export function ChatComposerBar({
   maxHeight,
   isChatBlocked,
   isInternalPanelOpen,
-  showAudienceToggle = true,
   showAttach = true,
   showEmoji = false,
   onEmojiSelect,
@@ -95,7 +82,6 @@ export function ChatComposerBar({
   extraActions,
 }: ChatComposerBarProps) {
   const isInternalMode = audience === "INTERNAL";
-  const aiEnabled = AI_ENABLED;
   const isInputDisabled = (isChatBlocked && !isInternalMode) || isInternalPanelOpen;
   const [ isEmojiOpen, setIsEmojiOpen ] = useState(false);
   const [ isStickerOpen, setIsStickerOpen ] = useState(false);
@@ -229,9 +215,6 @@ export function ChatComposerBar({
     setIsEmojiOpen(true);
   };
 
-  const hasModeToggle = showAudienceToggle && mode && onModeChange;
-  const isToggleDisabled = modeDisabled || isInputDisabled;
-
   const handleRemoveFavorite = (emoji: string) => {
     removeFavorite(emoji);
   };
@@ -299,17 +282,6 @@ export function ChatComposerBar({
       {renderEmojiRecents()}
     </>
   );
-
-  const modeOptions = aiEnabled
-    ? ([
-        { id: "fan", label: "Al fan" },
-        { id: "internal", label: "Interno" },
-        { id: "manager", label: "Manager" },
-      ] as const)
-    : ([
-        { id: "fan", label: "Al fan" },
-        { id: "internal", label: "Interno" },
-      ] as const);
 
   return (
     <div
@@ -523,73 +495,6 @@ export function ChatComposerBar({
             </div>
           )}
           {extraActions}
-          {hasModeToggle ? (
-            <div
-              className={clsx(
-                "inline-flex items-center rounded-full border p-1 shrink-0 transition",
-                "border-[color:var(--border)] bg-[color:var(--surface-2)]",
-                isToggleDisabled && "opacity-60"
-              )}
-              aria-label="Selector de modo"
-            >
-              {modeOptions.map((item) => {
-                const isActive = mode === item.id;
-                return (
-                  <button
-                    key={item.id}
-                    type="button"
-                    disabled={isToggleDisabled}
-                    onClick={() => onModeChange?.(item.id)}
-                    className={clsx(
-                      "h-7 rounded-full px-2.5 text-[11px] font-semibold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--ring)]",
-                      isActive
-                        ? "border border-[color:var(--border-a)] bg-[color:var(--surface-1)] text-[color:var(--text)]"
-                        : "text-[color:var(--muted)] hover:text-[color:var(--text)]",
-                      isToggleDisabled && "cursor-not-allowed"
-                    )}
-                    aria-pressed={isActive}
-                  >
-                    {item.label}
-                  </button>
-                );
-              })}
-            </div>
-          ) : (
-            showAudienceToggle && (
-              <div
-                className={clsx(
-                  "inline-flex h-8 items-center rounded-full border p-0.5 shrink-0",
-                  "border-[color:var(--border)] bg-[color:var(--surface-2)]"
-                )}
-              >
-                <button
-                  type="button"
-                  onClick={() => onAudienceChange("CREATOR")}
-                  className={clsx(
-                    "h-7 rounded-full px-2.5 text-[11px] font-semibold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--ring)]",
-                    audience === "CREATOR"
-                      ? "bg-[color:var(--brand-weak)] text-[color:var(--text)]"
-                      : "text-[color:var(--muted)] hover:text-[color:var(--text)]"
-                  )}
-                >
-                  Al fan
-                </button>
-                <button
-                  type="button"
-                  onClick={() => onAudienceChange("INTERNAL")}
-                  className={clsx(
-                    "h-7 rounded-full px-2.5 text-[11px] font-semibold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--ring)]",
-                    audience === "INTERNAL"
-                      ? "bg-[color:var(--brand-weak)] text-[color:var(--text)]"
-                      : "text-[color:var(--muted)] hover:text-[color:var(--text)]"
-                  )}
-                  title={aiEnabled ? "No se envía al fan. Se prepara en el Manager interno." : "No se envía al fan."}
-                >
-                  {aiEnabled ? "Interno/Manager" : "Interno"}
-                </button>
-              </div>
-            )
-          )}
         </div>
         <button
           type="button"
