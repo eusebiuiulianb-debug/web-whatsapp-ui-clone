@@ -13,10 +13,9 @@ type Props = {
 export function PublicLocationBadge({ location, align = "start", variant = "badge" }: Props) {
   const [open, setOpen] = useState(false);
   const visibility = location?.visibility ?? "OFF";
-  const label = (location?.label || "").trim();
-  const geohash = (location?.geohash || "").trim();
-  const hasMap = Boolean(geohash);
-  const canShowMap = visibility === "AREA" && hasMap;
+  const label = (location?.label ?? "").trim();
+  const geohash = (location?.geohash ?? "").trim();
+  const hasMap = visibility === "AREA" && Boolean(geohash);
   const resolvedRadiusKm = location?.radiusKm ?? DEFAULT_AREA_RADIUS_KM;
   const alignClass = align === "center" ? "justify-center" : "justify-start";
   const chipClass = variant === "chip"
@@ -24,11 +23,11 @@ export function PublicLocationBadge({ location, align = "start", variant = "badg
     : "border-white/10 bg-white/5 text-white/80";
   const pillBaseClass = "inline-flex h-7 items-center gap-1 rounded-full border px-3 text-xs";
   const mutedClass = "text-white/50";
-  const shouldRender = visibility !== "OFF" && Boolean(label);
+  const shouldRender = Boolean(location) && visibility !== "OFF" && Boolean(label);
 
   useEffect(() => {
-    if (!canShowMap && open) setOpen(false);
-  }, [canShowMap, open]);
+    if (open && !hasMap) setOpen(false);
+  }, [open, hasMap]);
 
   useEffect(() => {
     if (!open) return;
@@ -52,7 +51,7 @@ export function PublicLocationBadge({ location, align = "start", variant = "badg
 
   return (
     <div className={`flex flex-wrap items-center gap-2 ${alignClass}`}>
-      {canShowMap ? (
+      {hasMap ? (
         <button
           type="button"
           onClick={() => setOpen(true)}
@@ -64,13 +63,13 @@ export function PublicLocationBadge({ location, align = "start", variant = "badg
           <span className="text-white/60" aria-hidden="true">›</span>
         </button>
       ) : (
-        <span className={`${pillBaseClass} ${chipClass} opacity-90`}>
+        <div className={`${pillBaseClass} ${chipClass} opacity-90`}>
           <span>📍 {label}</span>
           <span className={mutedClass}>(aprox.)</span>
-        </span>
+        </div>
       )}
 
-      {open && canShowMap && (
+      {open && hasMap && (
         <div
           className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm"
           onClick={() => setOpen(false)}
