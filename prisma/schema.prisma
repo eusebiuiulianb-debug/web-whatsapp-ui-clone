@@ -557,6 +557,7 @@ model PopClipReaction {
   createdAt DateTime @default(now())
 
   @@unique([popClipId, fanId])
+  @@index([popClipId])
   @@index([fanId])
 }
 
@@ -566,9 +567,11 @@ model PopClipComment {
   popClip   PopClip  @relation(fields: [popClipId], references: [id], onDelete: Cascade)
   fanId     String
   fan       Fan      @relation(fields: [fanId], references: [id], onDelete: Cascade)
-  body      String
+  text      String
   createdAt DateTime @default(now())
 
+  @@index([popClipId])
+  @@index([fanId])
   @@index([popClipId, createdAt])
 }
 

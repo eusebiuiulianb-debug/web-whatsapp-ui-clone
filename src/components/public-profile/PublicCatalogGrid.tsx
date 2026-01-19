@@ -13,9 +13,9 @@ type PopClipSocialState = {
 
 type PopClipComment = {
   id: string;
-  body: string;
+  text: string;
   createdAt: string;
-  fan: { id: string; name: string; avatar: string | null };
+  fanDisplayName: string;
 };
 
 const DEFAULT_FILTERS: Array<{ id: CatalogFilter; label: string }> = [
@@ -24,6 +24,7 @@ const DEFAULT_FILTERS: Array<{ id: CatalogFilter; label: string }> = [
   { id: "sub", label: "Suscripciones" },
   { id: "extra", label: "Extras" },
 ];
+const MAX_COMMENT_LENGTH = 280;
 
 type Props = {
   items: PublicCatalogCardItem[];
@@ -57,6 +58,7 @@ export function PublicCatalogGrid({
     defaultFilter ?? resolvedFilters[0]?.id ?? "all"
   );
   const [popclipSocial, setPopclipSocial] = useState<Record<string, PopClipSocialState>>({});
+  const [likePending, setLikePending] = useState<Record<string, boolean>>({});
   const [toast, setToast] = useState("");
   const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [activeCommentClip, setActiveCommentClip] = useState<PublicCatalogCardItem | null>(null);
@@ -192,6 +194,7 @@ export function PublicCatalogGrid({
   };
 
   const handleToggleLike = async (item: PublicCatalogCardItem) => {
+    if (likePending[item.id]) return;
     const current = popclipSocial[item.id] ?? {
       likeCount: item.likeCount ?? 0,
       commentCount: item.commentCount ?? 0,
@@ -203,10 +206,11 @@ export function PublicCatalogGrid({
       likeCount: Math.max(0, current.likeCount + (current.liked ? -1 : 1)),
     };
     setPopclipSocial((prev) => ({ ...prev, [item.id]: next }));
+    setLikePending((prev) => ({ ...prev, [item.id]: true }));
     try {
       const res = await fetch(`/api/public/popclips/${item.id}/like`, { method: "POST" });
       if (res.status === 401) {
-        showToast("Inicia sesión para reaccionar");
+        showToast("Abre el chat para interactuar");
         setPopclipSocial((prev) => ({ ...prev, [item.id]: current }));
         return;
       }
@@ -219,38 +223,67 @@ export function PublicCatalogGrid({
     } catch (_err) {
       setPopclipSocial((prev) => ({ ...prev, [item.id]: current }));
       showToast("No se pudo reaccionar");
+    } finally {
+      setLikePending((prev) => ({ ...prev, [item.id]: false }));
     }
   };
 
   const handleSendComment = async () => {
     if (!activeCommentClip || commentSending) return;
-    const body = commentDraft.trim();
-    if (!body) return;
+    const text = commentDraft.trim();
+    if (!text) return;
+    if (text.length > MAX_COMMENT_LENGTH) {
+      showToast(`Máximo ${MAX_COMMENT_LENGTH} caracteres`);
+      return;
+    }
+    const clipId = activeCommentClip.id;
+    const current = popclipSocial[clipId] ?? {
+      likeCount: activeCommentClip.likeCount ?? 0,
+      commentCount: activeCommentClip.commentCount ?? 0,
+      liked: activeCommentClip.liked ?? false,
+    };
+    const optimisticId = `optimistic-${Date.now()}`;
+    const optimisticItem: PopClipComment = {
+      id: optimisticId,
+      text,
+      createdAt: new Date().toISOString(),
+      fanDisplayName: "Tú",
+    };
+    setCommentItems((prev) => [optimisticItem, ...prev]);
+    setCommentDraft("");
+    setPopclipSocial((prev) => ({
+      ...prev,
+      [clipId]: { ...current, commentCount: current.commentCount + 1 },
+    }));
     setCommentSending(true);
     try {
       const res = await fetch(`/api/public/popclips/${activeCommentClip.id}/comments`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ body }),
+        body: JSON.stringify({ text }),
       });
       if (res.status === 401) {
-        showToast("Inicia sesión para comentar");
-        return;
+        showToast("Abre el chat para interactuar");
+        throw new Error("auth_required");
       }
       if (!res.ok) throw new Error("request failed");
       const data = (await res.json()) as { item: PopClipComment; count: number };
-      setCommentItems((prev) => [data.item, ...prev]);
-      setCommentDraft("");
+      setCommentItems((prev) => prev.map((item) => (item.id === optimisticId ? data.item : item)));
       setPopclipSocial((prev) => {
-        const current = prev[activeCommentClip.id];
-        if (!current) return prev;
-        return {
-          ...prev,
-          [activeCommentClip.id]: { ...current, commentCount: data.count },
-        };
+        const nextCurrent = prev[clipId];
+        if (!nextCurrent) return prev;
+        return { ...prev, [clipId]: { ...nextCurrent, commentCount: data.count } };
       });
-    } catch (_err) {
-      showToast("No se pudo comentar");
+    } catch (err) {
+      setCommentItems((prev) => prev.filter((item) => item.id !== optimisticId));
+      setPopclipSocial((prev) => ({
+        ...prev,
+        [clipId]: { ...current, commentCount: current.commentCount },
+      }));
+      setCommentDraft(text);
+      if (!(err instanceof Error && err.message === "auth_required")) {
+        showToast("No se pudo comentar");
+      }
     } finally {
       setCommentSending(false);
     }
@@ -277,17 +310,20 @@ export function PublicCatalogGrid({
 
   const renderPopclipActions = (item: PublicCatalogCardItem) => {
     const social = resolvePopclipSocial(item);
+    const isPending = Boolean(likePending[item.id]);
     return (
       <div className="flex items-center gap-3 text-xs text-[color:var(--muted)]">
         <button
           type="button"
           onClick={() => handleToggleLike(item)}
+          disabled={isPending}
           aria-pressed={social.liked}
           className={clsx(
             "inline-flex items-center gap-1 rounded-full border px-2 py-1 transition",
             social.liked
               ? "border-[color:rgba(244,63,94,0.6)] bg-[color:rgba(244,63,94,0.12)] text-[color:rgba(244,63,94,0.95)]"
-              : "border-[color:var(--surface-border)] text-[color:var(--muted)] hover:text-[color:var(--text)]"
+              : "border-[color:var(--surface-border)] text-[color:var(--muted)] hover:text-[color:var(--text)]",
+            isPending && "opacity-60 cursor-not-allowed"
           )}
         >
           <span>❤</span>
@@ -469,14 +505,14 @@ export function PublicCatalogGrid({
                     commentItems.map((comment) => (
                       <div key={comment.id} className="flex items-start gap-2">
                         <div className="h-8 w-8 rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] text-xs font-semibold text-[color:var(--text)] flex items-center justify-center">
-                          {(comment.fan.name || "F")[0]?.toUpperCase() || "F"}
+                          {(comment.fanDisplayName || "F")[0]?.toUpperCase() || "F"}
                         </div>
                         <div className="min-w-0 flex-1 space-y-1">
                           <div className="flex items-center gap-2 text-[11px] text-[color:var(--muted)]">
-                            <span className="font-semibold text-[color:var(--text)]">{comment.fan.name}</span>
+                            <span className="font-semibold text-[color:var(--text)]">{comment.fanDisplayName}</span>
                             <span>{formatCommentDate(comment.createdAt)}</span>
                           </div>
-                          <p className="text-sm text-[color:var(--text)]">{comment.body}</p>
+                          <p className="text-sm text-[color:var(--text)]">{comment.text}</p>
                         </div>
                       </div>
                     ))
@@ -488,12 +524,13 @@ export function PublicCatalogGrid({
                     placeholder="Añade un comentario..."
                     value={commentDraft}
                     onChange={(event) => setCommentDraft(event.target.value)}
+                    maxLength={MAX_COMMENT_LENGTH}
                     rows={2}
                   />
                   <button
                     type="button"
                     onClick={handleSendComment}
-                    disabled={commentSending || !commentDraft.trim()}
+                    disabled={commentSending || !commentDraft.trim() || commentDraft.trim().length > MAX_COMMENT_LENGTH}
                     className="h-10 rounded-xl bg-[color:var(--brand-strong)] px-4 text-xs font-semibold text-[color:var(--surface-0)] hover:bg-[color:var(--brand)] disabled:opacity-60"
                   >
                     Enviar

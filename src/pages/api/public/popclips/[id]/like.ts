@@ -7,7 +7,11 @@ type LikeResponse = {
   likeCount: number;
 };
 
+const RATE_LIMIT_MS = 1000;
+const likeRateLimit = new Map<string, number>();
+
 export default async function handler(req: NextApiRequest, res: NextApiResponse<LikeResponse | { error: string }>) {
+  res.setHeader("Cache-Control", "no-store");
   if (req.method !== "POST") {
     res.setHeader("Allow", ["POST"]);
     return res.status(405).json({ error: "Method not allowed" });
@@ -39,6 +43,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
     if (!fan) {
       return res.status(401).json({ error: "auth_required" });
     }
+    if (isRateLimited(`like:${fan.id}`)) {
+      return res.status(429).json({ error: "rate_limited" });
+    }
 
     const result = await prisma.$transaction(async (tx) => {
       const existing = await tx.popClipReaction.findUnique({
@@ -60,6 +67,14 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
     console.error("Error toggling popclip reaction", err);
     return sendServerError(res);
   }
+}
+
+function isRateLimited(key: string) {
+  const now = Date.now();
+  const lastHit = likeRateLimit.get(key) ?? 0;
+  if (now - lastHit < RATE_LIMIT_MS) return true;
+  likeRateLimit.set(key, now);
+  return false;
 }
 
 function getFanIdFromCookie(req: NextApiRequest, handle: string) {

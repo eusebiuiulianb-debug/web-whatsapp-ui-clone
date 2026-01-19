@@ -4,13 +4,9 @@ import { sendBadRequest, sendServerError } from "../../../../../lib/apiError";
 
 type CommentItem = {
   id: string;
-  body: string;
+  text: string;
   createdAt: string;
-  fan: {
-    id: string;
-    name: string;
-    avatar: string | null;
-  };
+  fanDisplayName: string;
 };
 
 type CommentListResponse = {
@@ -23,10 +19,15 @@ type CommentCreateResponse = {
   count: number;
 };
 
+const MAX_COMMENT_LENGTH = 280;
+const RATE_LIMIT_MS = 1000;
+const commentRateLimit = new Map<string, number>();
+
 export default async function handler(
   req: NextApiRequest,
   res: NextApiResponse<CommentListResponse | CommentCreateResponse | { error: string }>
 ) {
+  res.setHeader("Cache-Control", "no-store");
   if (req.method === "GET") return handleGet(req, res);
   if (req.method === "POST") return handlePost(req, res);
 
@@ -52,7 +53,7 @@ async function handleGet(req: NextApiRequest, res: NextApiResponse<CommentListRe
         orderBy: { createdAt: "desc" },
         take: 50,
         include: {
-          fan: { select: { id: true, name: true, avatar: true } },
+          fan: { select: { name: true, displayName: true } },
         },
       }),
       prisma.popClipComment.count({ where: { popClipId: id } }),
@@ -60,13 +61,9 @@ async function handleGet(req: NextApiRequest, res: NextApiResponse<CommentListRe
 
     const items = comments.map((comment) => ({
       id: comment.id,
-      body: comment.body,
+      text: comment.text,
       createdAt: comment.createdAt.toISOString(),
-      fan: {
-        id: comment.fan.id,
-        name: comment.fan.name,
-        avatar: comment.fan.avatar ?? null,
-      },
+      fanDisplayName: resolveFanDisplayName(comment.fan?.displayName, comment.fan?.name),
     }));
 
     return res.status(200).json({ items, count });
@@ -82,9 +79,12 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse<CommentCreat
     return sendBadRequest(res, "id is required");
   }
 
-  const body = typeof req.body?.body === "string" ? req.body.body.trim() : "";
-  if (!body) {
-    return sendBadRequest(res, "body is required");
+  const text = typeof req.body?.text === "string" ? req.body.text.trim() : "";
+  if (!text) {
+    return sendBadRequest(res, "text is required");
+  }
+  if (text.length > MAX_COMMENT_LENGTH) {
+    return sendBadRequest(res, "text is too long");
   }
 
   try {
@@ -103,15 +103,18 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse<CommentCreat
 
     const fan = await prisma.fan.findFirst({
       where: { id: fanId, creatorId: clip.creatorId },
-      select: { id: true, name: true, avatar: true },
+      select: { id: true, name: true, displayName: true },
     });
     if (!fan) {
       return res.status(401).json({ error: "auth_required" });
     }
+    if (isRateLimited(`comment:${fan.id}`)) {
+      return res.status(429).json({ error: "rate_limited" });
+    }
 
     const [comment, count] = await prisma.$transaction([
       prisma.popClipComment.create({
-        data: { popClipId: clip.id, fanId: fan.id, body },
+        data: { popClipId: clip.id, fanId: fan.id, text },
       }),
       prisma.popClipComment.count({ where: { popClipId: clip.id } }),
     ]);
@@ -119,13 +122,9 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse<CommentCreat
     return res.status(200).json({
       item: {
         id: comment.id,
-        body: comment.body,
+        text: comment.text,
         createdAt: comment.createdAt.toISOString(),
-        fan: {
-          id: fan.id,
-          name: fan.name,
-          avatar: fan.avatar ?? null,
-        },
+        fanDisplayName: resolveFanDisplayName(fan.displayName, fan.name),
       },
       count,
     });
@@ -133,6 +132,19 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse<CommentCreat
     console.error("Error creating popclip comment", err);
     return sendServerError(res);
   }
+}
+
+function isRateLimited(key: string) {
+  const now = Date.now();
+  const lastHit = commentRateLimit.get(key) ?? 0;
+  if (now - lastHit < RATE_LIMIT_MS) return true;
+  commentRateLimit.set(key, now);
+  return false;
+}
+
+function resolveFanDisplayName(displayName?: string | null, fallbackName?: string | null) {
+  const name = (displayName || fallbackName || "Fan").trim();
+  return name || "Fan";
 }
 
 function getFanIdFromCookie(req: NextApiRequest, handle: string) {
