@@ -18,6 +18,11 @@ type PopClipComment = {
   fanDisplayName: string;
 };
 
+type ToastState = {
+  message: string;
+  href?: string;
+};
+
 const DEFAULT_FILTERS: Array<{ id: CatalogFilter; label: string }> = [
   { id: "all", label: "Todo" },
   { id: "pack", label: "Packs" },
@@ -59,13 +64,14 @@ export function PublicCatalogGrid({
   );
   const [popclipSocial, setPopclipSocial] = useState<Record<string, PopClipSocialState>>({});
   const [likePending, setLikePending] = useState<Record<string, boolean>>({});
-  const [toast, setToast] = useState("");
+  const [toast, setToast] = useState<ToastState | null>(null);
   const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [activeCommentClip, setActiveCommentClip] = useState<PublicCatalogCardItem | null>(null);
   const [commentItems, setCommentItems] = useState<PopClipComment[]>([]);
   const [commentLoading, setCommentLoading] = useState(false);
   const [commentDraft, setCommentDraft] = useState("");
   const [commentSending, setCommentSending] = useState(false);
+  const [authHref, setAuthHref] = useState("");
 
   useEffect(() => {
     if (!resolvedFilters.some((filter) => filter.id === activeFilter)) {
@@ -80,6 +86,11 @@ export function PublicCatalogGrid({
       }
     };
   }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    setAuthHref(buildAuthHref(chatHref, window.location));
+  }, [chatHref]);
 
   const featuredSet = useMemo(() => new Set(featuredIds ?? []), [featuredIds]);
   const normalizedPopclips = popclipItems ?? [];
@@ -176,14 +187,24 @@ export function PublicCatalogGrid({
     };
   }, [activeCommentClip]);
 
-  const showToast = (message: string) => {
-    setToast(message);
+  const showToast = (message: string, href?: string) => {
+    setToast({ message, href });
     if (toastTimerRef.current) window.clearTimeout(toastTimerRef.current);
-    toastTimerRef.current = window.setTimeout(() => setToast(""), 2200);
+    toastTimerRef.current = window.setTimeout(() => setToast(null), 2200);
+  };
+
+  const showAuthToast = () => {
+    const resolvedHref =
+      authHref || (typeof window !== "undefined" ? buildAuthHref(chatHref, window.location) : chatHref);
+    showToast("Entra al chat para interactuar", resolvedHref);
   };
 
   const handleOpenComments = (item: PublicCatalogCardItem) => {
     if (!item?.id) return;
+    if (item.canInteract === false) {
+      showAuthToast();
+      return;
+    }
     setCommentDraft("");
     setCommentItems([]);
     setActiveCommentClip(item);
@@ -195,6 +216,10 @@ export function PublicCatalogGrid({
 
   const handleToggleLike = async (item: PublicCatalogCardItem) => {
     if (likePending[item.id]) return;
+    if (item.canInteract === false) {
+      showAuthToast();
+      return;
+    }
     const current = popclipSocial[item.id] ?? {
       likeCount: item.likeCount ?? 0,
       commentCount: item.commentCount ?? 0,
@@ -210,7 +235,7 @@ export function PublicCatalogGrid({
     try {
       const res = await fetch(`/api/public/popclips/${item.id}/like`, { method: "POST" });
       if (res.status === 401) {
-        showToast("Abre el chat para interactuar");
+        showAuthToast();
         setPopclipSocial((prev) => ({ ...prev, [item.id]: current }));
         return;
       }
@@ -263,7 +288,7 @@ export function PublicCatalogGrid({
         body: JSON.stringify({ text }),
       });
       if (res.status === 401) {
-        showToast("Abre el chat para interactuar");
+        showAuthToast();
         throw new Error("auth_required");
       }
       if (!res.ok) throw new Error("request failed");
@@ -311,19 +336,21 @@ export function PublicCatalogGrid({
   const renderPopclipActions = (item: PublicCatalogCardItem) => {
     const social = resolvePopclipSocial(item);
     const isPending = Boolean(likePending[item.id]);
+    const canInteract = item.canInteract !== false;
     return (
       <div className="flex items-center gap-3 text-xs text-[color:var(--muted)]">
         <button
           type="button"
-          onClick={() => handleToggleLike(item)}
+          onClick={() => (canInteract ? handleToggleLike(item) : showAuthToast())}
           disabled={isPending}
           aria-pressed={social.liked}
+          aria-disabled={!canInteract || isPending}
           className={clsx(
             "inline-flex items-center gap-1 rounded-full border px-2 py-1 transition",
             social.liked
               ? "border-[color:rgba(244,63,94,0.6)] bg-[color:rgba(244,63,94,0.12)] text-[color:rgba(244,63,94,0.95)]"
               : "border-[color:var(--surface-border)] text-[color:var(--muted)] hover:text-[color:var(--text)]",
-            isPending && "opacity-60 cursor-not-allowed"
+            (isPending || !canInteract) && "opacity-60 cursor-not-allowed"
           )}
         >
           <span>❤</span>
@@ -331,8 +358,12 @@ export function PublicCatalogGrid({
         </button>
         <button
           type="button"
-          onClick={() => handleOpenComments(item)}
-          className="inline-flex items-center gap-1 rounded-full border border-[color:var(--surface-border)] px-2 py-1 text-[color:var(--muted)] hover:text-[color:var(--text)]"
+          onClick={() => (canInteract ? handleOpenComments(item) : showAuthToast())}
+          aria-disabled={!canInteract}
+          className={clsx(
+            "inline-flex items-center gap-1 rounded-full border border-[color:var(--surface-border)] px-2 py-1 text-[color:var(--muted)] hover:text-[color:var(--text)]",
+            !canInteract && "opacity-60 cursor-not-allowed"
+          )}
         >
           <span>💬</span>
           <span className="tabular-nums">{social.commentCount}</span>
@@ -404,7 +435,17 @@ export function PublicCatalogGrid({
           );
         })}
       </div>
-      {toast && <div className="text-xs text-[color:var(--brand)]">{toast}</div>}
+      {toast && (
+        <div className="text-xs text-[color:var(--brand)]">
+          {toast.href ? (
+            <a href={toast.href} className="underline underline-offset-2">
+              {toast.message}
+            </a>
+          ) : (
+            toast.message
+          )}
+        </div>
+      )}
 
       {activeFilter === "popclip" ? (
         <div className="space-y-2">
@@ -552,4 +593,17 @@ function formatCommentDate(value: string) {
   } catch (_err) {
     return "";
   }
+}
+
+function resolveGoHandle(href: string) {
+  if (!href.startsWith("/go/")) return "";
+  const path = href.split("?")[0];
+  return path.replace("/go/", "").split("/")[0] || "";
+}
+
+function buildAuthHref(chatHref: string, location: Location) {
+  const handle = resolveGoHandle(chatHref);
+  const baseHref = handle ? `/go/${handle}` : "/go/creator";
+  const nextParam = encodeURIComponent(`${location.pathname}${location.search}`);
+  return `${baseHref}?next=${nextParam}`;
 }

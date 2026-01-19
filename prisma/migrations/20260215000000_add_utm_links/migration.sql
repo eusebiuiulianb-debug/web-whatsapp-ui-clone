@@ -1,5 +1,5 @@
 -- CreateTable
-CREATE TABLE "UTMLink" (
+CREATE TABLE IF NOT EXISTS "UTMLink" (
     "id" TEXT NOT NULL PRIMARY KEY,
     "creatorId" TEXT NOT NULL,
     "platform" TEXT NOT NULL,
@@ -14,4 +14,4 @@ CREATE TABLE "UTMLink" (
 );
 
 -- CreateIndex
-CREATE INDEX "UTMLink_creatorId_createdAt_idx" ON "UTMLink"("creatorId", "createdAt");
+CREATE INDEX IF NOT EXISTS "UTMLink_creatorId_createdAt_idx" ON "UTMLink"("creatorId", "createdAt");

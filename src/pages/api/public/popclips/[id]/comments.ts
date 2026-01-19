@@ -108,7 +108,7 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse<CommentCreat
     if (!fan) {
       return res.status(401).json({ error: "auth_required" });
     }
-    if (isRateLimited(`comment:${fan.id}`)) {
+    if (isRateLimited(`comment:${fan.id}:${getClientIp(req)}`)) {
       return res.status(429).json({ error: "rate_limited" });
     }
 
@@ -140,6 +140,17 @@ function isRateLimited(key: string) {
   if (now - lastHit < RATE_LIMIT_MS) return true;
   commentRateLimit.set(key, now);
   return false;
+}
+
+function getClientIp(req: NextApiRequest) {
+  const forwarded = req.headers["x-forwarded-for"];
+  if (typeof forwarded === "string" && forwarded.trim()) {
+    return forwarded.split(",")[0]?.trim() || "unknown";
+  }
+  if (Array.isArray(forwarded) && forwarded.length > 0) {
+    return forwarded[0] || "unknown";
+  }
+  return req.socket?.remoteAddress || "unknown";
 }
 
 function resolveFanDisplayName(displayName?: string | null, fallbackName?: string | null) {

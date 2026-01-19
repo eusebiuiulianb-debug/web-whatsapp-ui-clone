@@ -5,11 +5,23 @@
 
 */
 -- DropIndex
-DROP INDEX "PpvPurchase_ppvMessageId_fanId_key";
+DROP INDEX IF EXISTS "PpvPurchase_ppvMessageId_fanId_key";
 
 -- RedefineTables
 PRAGMA defer_foreign_keys=ON;
 PRAGMA foreign_keys=OFF;
+CREATE TABLE IF NOT EXISTS "UTMLink" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "creatorId" TEXT NOT NULL,
+    "platform" TEXT NOT NULL,
+    "campaign" TEXT NOT NULL,
+    "content" TEXT,
+    "term" TEXT,
+    "source" TEXT,
+    "medium" TEXT NOT NULL DEFAULT 'social',
+    "fullUrl" TEXT NOT NULL,
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
 CREATE TABLE "new_UTMLink" (
     "id" TEXT NOT NULL PRIMARY KEY,
     "creatorId" TEXT NOT NULL,
@@ -31,4 +43,4 @@ PRAGMA foreign_keys=ON;
 PRAGMA defer_foreign_keys=OFF;
 
 -- CreateIndex
-CREATE UNIQUE INDEX "PpvPurchase_ppvMessageId_key" ON "PpvPurchase"("ppvMessageId");
+CREATE UNIQUE INDEX IF NOT EXISTS "PpvPurchase_ppvMessageId_key" ON "PpvPurchase"("ppvMessageId");

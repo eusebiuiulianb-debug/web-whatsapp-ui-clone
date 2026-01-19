@@ -1,11 +1,36 @@
+import fs from "fs";
+import path from "path";
 import "dotenv/config";
 import { PrismaClient } from "@prisma/client";
 
+const seedEnv = prepareSeedEnv();
 const prisma = new PrismaClient();
 
 function isSqliteDatabase() {
   const url = process.env.DATABASE_URL || "";
   return url.startsWith("file:") || url.includes("sqlite");
+}
+
+function prepareSeedEnv() {
+  const rootDir = process.cwd();
+  const prismaDir = path.resolve(rootDir, "prisma");
+  const dbFile = path.join(prismaDir, "dev.db");
+  let changedCwd = false;
+
+  if (!fs.existsSync(prismaDir)) {
+    fs.mkdirSync(prismaDir, { recursive: true });
+  }
+  if (!fs.existsSync(dbFile)) {
+    fs.closeSync(fs.openSync(dbFile, "a"));
+  }
+
+  if (!process.env.DATABASE_URL || process.env.DATABASE_URL.trim().length === 0) {
+    process.env.DATABASE_URL = "file:./dev.db";
+    process.chdir(prismaDir);
+    changedCwd = true;
+  }
+
+  return { rootDir, changedCwd };
 }
 
 function addDays(base: Date, days: number) {
@@ -301,7 +326,7 @@ function buildAgencyTemplateSeeds() {
 async function main() {
   const isSqlite = isSqliteDatabase();
   if (isSqlite) {
-    await prisma.$executeRawUnsafe("PRAGMA foreign_keys = OFF;");
+    await prisma.$executeRaw`PRAGMA foreign_keys = OFF;`;
   }
   let wipeOk = false;
   try {
@@ -338,7 +363,7 @@ async function main() {
     wipeOk = true;
   } finally {
     if (isSqlite) {
-      await prisma.$executeRawUnsafe("PRAGMA foreign_keys = ON;");
+      await prisma.$executeRaw`PRAGMA foreign_keys = ON;`;
       if (wipeOk) {
         console.log("Seeding: wiped DB (sqlite FK OFF/ON)");
       }
@@ -625,6 +650,38 @@ async function main() {
       })
     )
   );
+
+  if (process.env.NODE_ENV !== "production") {
+    const existingPopClips = await prisma.popClip.count();
+    if (existingPopClips === 0) {
+      const clipSources = await prisma.contentItem.findMany({
+        where: { creatorId: creator.id, type: "VIDEO" },
+        orderBy: { order: "asc" },
+        take: 2,
+        select: { id: true, title: true, mediaPath: true, externalUrl: true, durationSec: true },
+      });
+      const clipSeeds = clipSources
+        .map((item, index) => {
+          const videoUrl = (item.externalUrl || item.mediaPath || "").trim();
+          if (!videoUrl) return null;
+          return {
+            creatorId: creator.id,
+            contentItemId: item.id,
+            title: item.title ?? `PopClip ${index + 1}`,
+            videoUrl,
+            posterUrl: null,
+            startAtSec: 0,
+            durationSec: item.durationSec ?? null,
+            isActive: true,
+            sortOrder: index,
+          };
+        })
+        .filter((item): item is NonNullable<typeof item> => Boolean(item));
+      if (clipSeeds.length > 0) {
+        await prisma.popClip.createMany({ data: clipSeeds });
+      }
+    }
+  }
 
   await prisma.$transaction([
     prisma.fan.create({
@@ -913,12 +970,18 @@ async function main() {
   await prisma.creatorDiscoveryProfile.createMany({ data: discoveryProfiles });
 }
 
-main()
-  .then(async () => {
+async function run() {
+  try {
+    await main();
+  } catch (error) {
+    console.error(error);
+    process.exitCode = 1;
+  } finally {
     await prisma.$disconnect();
-  })
-  .catch(async (e) => {
-    console.error(e);
-    await prisma.$disconnect();
-    process.exit(1);
-  });
+    if (seedEnv.changedCwd) {
+      process.chdir(seedEnv.rootDir);
+    }
+  }
+}
+
+run();

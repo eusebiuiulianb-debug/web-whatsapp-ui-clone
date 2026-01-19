@@ -330,6 +330,86 @@ async function main() {
     ],
   });
 
+  if (process.env.NODE_ENV !== "production") {
+    const existingPopClips = await prisma.popClip.count();
+    if (existingPopClips === 0) {
+      const clipContent = await Promise.all([
+        prisma.contentItem.upsert({
+          where: { creatorId_slug: { creatorId: creator.id, slug: "popclip-demo-1" } },
+          update: {
+            pack: "WELCOME",
+            type: "VIDEO",
+            title: "PopClip demo · Presentación",
+            description: "Clip de prueba para el perfil público.",
+            order: 10,
+            mediaPath: "/media/welcome/video_presentacion.mp4",
+            durationSec: 60,
+            isPreview: false,
+          },
+          create: {
+            creatorId: creator.id,
+            pack: "WELCOME",
+            slug: "popclip-demo-1",
+            type: "VIDEO",
+            title: "PopClip demo · Presentación",
+            description: "Clip de prueba para el perfil público.",
+            order: 10,
+            mediaPath: "/media/welcome/video_presentacion.mp4",
+            durationSec: 60,
+            isPreview: false,
+          },
+        }),
+        prisma.contentItem.upsert({
+          where: { creatorId_slug: { creatorId: creator.id, slug: "popclip-demo-2" } },
+          update: {
+            pack: "WELCOME",
+            type: "VIDEO",
+            title: "PopClip demo · Tour",
+            description: "Clip de prueba para mostrar el catálogo.",
+            order: 20,
+            mediaPath: "/media/welcome/video_tour.mp4",
+            durationSec: 120,
+            isPreview: false,
+          },
+          create: {
+            creatorId: creator.id,
+            pack: "WELCOME",
+            slug: "popclip-demo-2",
+            type: "VIDEO",
+            title: "PopClip demo · Tour",
+            description: "Clip de prueba para mostrar el catálogo.",
+            order: 20,
+            mediaPath: "/media/welcome/video_tour.mp4",
+            durationSec: 120,
+            isPreview: false,
+          },
+        }),
+      ]);
+
+      const clipSeeds = clipContent
+        .map((item, index) => {
+          const videoUrl = (item.externalUrl || item.mediaPath || "").trim();
+          if (!videoUrl) return null;
+          return {
+            creatorId: creator.id,
+            contentItemId: item.id,
+            title: item.title ?? `PopClip ${index + 1}`,
+            videoUrl,
+            posterUrl: null,
+            startAtSec: 0,
+            durationSec: item.durationSec ?? null,
+            isActive: true,
+            sortOrder: index,
+          };
+        })
+        .filter(Boolean);
+
+      if (clipSeeds.length > 0) {
+        await prisma.popClip.createMany({ data: clipSeeds });
+      }
+    }
+  }
+
   const [ana, javier, lucia, diego] = await prisma.$transaction([
     prisma.fan.create({
       data: {

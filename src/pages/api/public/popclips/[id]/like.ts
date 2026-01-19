@@ -43,7 +43,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
     if (!fan) {
       return res.status(401).json({ error: "auth_required" });
     }
-    if (isRateLimited(`like:${fan.id}`)) {
+    if (isRateLimited(`like:${fan.id}:${getClientIp(req)}`)) {
       return res.status(429).json({ error: "rate_limited" });
     }
 
@@ -75,6 +75,17 @@ function isRateLimited(key: string) {
   if (now - lastHit < RATE_LIMIT_MS) return true;
   likeRateLimit.set(key, now);
   return false;
+}
+
+function getClientIp(req: NextApiRequest) {
+  const forwarded = req.headers["x-forwarded-for"];
+  if (typeof forwarded === "string" && forwarded.trim()) {
+    return forwarded.split(",")[0]?.trim() || "unknown";
+  }
+  if (Array.isArray(forwarded) && forwarded.length > 0) {
+    return forwarded[0] || "unknown";
+  }
+  return req.socket?.remoteAddress || "unknown";
 }
 
 function getFanIdFromCookie(req: NextApiRequest, handle: string) {

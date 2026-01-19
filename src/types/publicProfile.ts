@@ -63,6 +63,7 @@ export type PublicPopClip = {
   likeCount?: number;
   commentCount?: number;
   liked?: boolean;
+  canInteract?: boolean;
   pack: {
     id: string;
     title: string;

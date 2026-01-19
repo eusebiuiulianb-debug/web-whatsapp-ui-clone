@@ -10,6 +10,7 @@
     "db:generate": "node scripts/prisma-generate.js",
     "db:reset": "prisma migrate reset --force",
     "db:reset:seed": "npm run db:reset",
+    "db:seed": "node --experimental-strip-types prisma/seed.ts",
     "lint": "next lint",
     "check": "next lint && next build",
     "typecheck": "tsc --noEmit",

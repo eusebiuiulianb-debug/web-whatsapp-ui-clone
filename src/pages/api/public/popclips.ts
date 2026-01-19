@@ -13,6 +13,7 @@ type PublicPopClip = {
   likeCount: number;
   commentCount: number;
   liked: boolean;
+  canInteract: boolean;
   pack: {
     id: string;
     title: string;
@@ -131,6 +132,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       commentCounts.map((row) => [row.popClipId, row._count._all] as const)
     );
     const likedSet = new Set(viewerReactions.map((row) => row.popClipId));
+    const canInteract = Boolean(viewerFanId);
 
     const publicClips: PublicPopClip[] = clips
       .map((clip) => {
@@ -153,6 +155,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           likeCount: likeCountByClip.get(clip.id) ?? 0,
           commentCount: commentCountByClip.get(clip.id) ?? 0,
           liked: likedSet.has(clip.id),
+          canInteract,
           pack: packMeta,
         };
       })

@@ -148,6 +148,7 @@ export default function PublicCreatorByHandle({
     likeCount: clip.likeCount ?? 0,
     commentCount: clip.commentCount ?? 0,
     liked: clip.liked ?? false,
+    canInteract: clip.canInteract ?? false,
   }));
 
   return (

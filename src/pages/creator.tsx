@@ -157,6 +157,7 @@ export default function CreatorPublicPage({ fanQuery, stats }: Props) {
       likeCount: clip.likeCount ?? 0,
       commentCount: clip.commentCount ?? 0,
       liked: clip.liked ?? false,
+      canInteract: clip.canInteract ?? false,
       href: buildDraftHref(draft),
     } as PublicCatalogCardItem;
   });

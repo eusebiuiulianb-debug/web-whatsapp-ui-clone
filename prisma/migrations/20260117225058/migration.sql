@@ -5,7 +5,7 @@
 
 */
 -- DropIndex
-DROP INDEX "PpvPurchase_ppvMessageId_fanId_key";
+DROP INDEX IF EXISTS "PpvPurchase_ppvMessageId_fanId_key";
 
 -- CreateIndex
-CREATE UNIQUE INDEX "PpvPurchase_ppvMessageId_key" ON "PpvPurchase"("ppvMessageId");
+CREATE UNIQUE INDEX IF NOT EXISTS "PpvPurchase_ppvMessageId_key" ON "PpvPurchase"("ppvMessageId");
