@@ -34,7 +34,9 @@ export default function LocationMapClient({ geohash, radiusKm }: Props) {
       doubleClickZoom={false}
       touchZoom={false}
       boxZoom={false}
+      dragging={false}
       keyboard={false}
+      attributionControl={false}
       className="h-full w-full"
     >
       <MapInvalidateSize />

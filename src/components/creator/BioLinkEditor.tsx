@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { encode } from "ngeohash";
 import { BioLinkPublicView } from "../public-profile/BioLinkPublicView";
 import type { BioLinkConfig, BioLinkSecondaryLink } from "../../types/bioLink";
 import { useCreatorConfig } from "../../context/CreatorConfigContext";
@@ -47,6 +48,15 @@ type LocationFormState = {
   allowDiscoveryUseLocation: boolean;
 };
 
+type GeoSearchResult = {
+  id: string;
+  display: string;
+  lat: number;
+  lon: number;
+  type?: string;
+  importance?: number;
+};
+
 const DEFAULT_LOCATION_STATE: LocationFormState = {
   visibility: "OFF",
   label: "",
@@ -76,6 +86,10 @@ export function BioLinkEditor({ handle, onOpenSettings }: { handle: string; onOp
   const [locationSaving, setLocationSaving] = useState(false);
   const [locationError, setLocationError] = useState<string | null>(null);
   const [locationSaved, setLocationSaved] = useState(false);
+  const [geoQuery, setGeoQuery] = useState("");
+  const [geoResults, setGeoResults] = useState<GeoSearchResult[]>([]);
+  const [geoLoading, setGeoLoading] = useState(false);
+  const geoRequestRef = useRef(0);
   const lastPublicVisibilityRef = useRef<LocationVisibility>("CITY");
   const defaultCtaUrl = `/go/${handle}`;
   const legacyChatUrl = `/c/${handle}`;
@@ -185,6 +199,50 @@ export function BioLinkEditor({ handle, onOpenSettings }: { handle: string; onOp
     }
   }, [locationState.visibility]);
 
+  useEffect(() => {
+    if (locationState.visibility === "OFF") {
+      setGeoQuery("");
+      setGeoResults([]);
+      setGeoLoading(false);
+    }
+  }, [locationState.visibility]);
+
+  useEffect(() => {
+    const trimmed = geoQuery.trim();
+    if (trimmed.length < 3) {
+      setGeoResults([]);
+      setGeoLoading(false);
+      return;
+    }
+    const requestId = geoRequestRef.current + 1;
+    geoRequestRef.current = requestId;
+    const controller = new AbortController();
+    const timeout = window.setTimeout(async () => {
+      setGeoLoading(true);
+      try {
+        const res = await fetch(`/api/geo/search?q=${encodeURIComponent(trimmed)}`, {
+          signal: controller.signal,
+        });
+        const data = await res.json().catch(() => []);
+        if (geoRequestRef.current !== requestId) return;
+        if (!res.ok || !Array.isArray(data)) {
+          setGeoResults([]);
+          return;
+        }
+        setGeoResults(data as GeoSearchResult[]);
+      } catch (_err) {
+        if (!controller.signal.aborted && geoRequestRef.current === requestId) {
+          setGeoResults([]);
+        }
+      } finally {
+        if (geoRequestRef.current === requestId) setGeoLoading(false);
+      }
+    }, 350);
+    return () => {
+      controller.abort();
+      window.clearTimeout(timeout);
+    };
+  }, [geoQuery]);
 
   async function persistBioLink(nextConfig: BioLinkConfig) {
     const targetCta =
@@ -259,6 +317,23 @@ export function BioLinkEditor({ handle, onOpenSettings }: { handle: string; onOp
     } finally {
       setSaving(false);
     }
+  }
+
+  function handleSelectGeoResult(result: GeoSearchResult) {
+    let nextGeohash = "";
+    try {
+      nextGeohash = encode(result.lat, result.lon, 5);
+    } catch (_err) {
+      nextGeohash = "";
+    }
+    setLocationSaved(false);
+    setLocationState((prev) => ({
+      ...prev,
+      label: result.display,
+      geohash: nextGeohash,
+    }));
+    setGeoQuery(result.display);
+    setGeoResults([]);
   }
 
   async function handleSaveLocation() {
@@ -470,6 +545,43 @@ export function BioLinkEditor({ handle, onOpenSettings }: { handle: string; onOp
           )}
           {locationState.visibility !== "OFF" && (
             <>
+              <div className="flex flex-col gap-1 text-sm text-[color:var(--muted)]">
+                <span>Buscar ciudad</span>
+                <div className="relative">
+                  <input
+                    className="w-full rounded-lg bg-[color:var(--surface-2)] border border-[color:var(--surface-border)] px-3 py-2 text-sm text-[color:var(--text)] focus:border-[color:var(--surface-border-hover)] focus:ring-2 focus:ring-[color:var(--ring)]"
+                    value={geoQuery}
+                    onChange={(e) => setGeoQuery(e.target.value)}
+                    placeholder="Madrid, Valencia..."
+                    autoComplete="off"
+                  />
+                  {geoResults.length > 0 && (
+                    <div className="absolute z-20 mt-1 w-full max-h-56 overflow-auto rounded-lg border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] shadow-lg">
+                      {geoResults.map((result) => (
+                        <button
+                          key={result.id}
+                          type="button"
+                          onClick={() => handleSelectGeoResult(result)}
+                          className="w-full text-left px-3 py-2 text-sm text-[color:var(--text)] hover:bg-[color:var(--surface-2)]"
+                        >
+                          <span className="block">{result.display}</span>
+                          {result.type && (
+                            <span className="block text-[11px] text-[color:var(--muted)] capitalize">
+                              {result.type}
+                            </span>
+                          )}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+                {geoLoading && <span className="text-[11px] text-[color:var(--muted)]">Buscando...</span>}
+                {!geoLoading && locationState.geohash && locationState.label && (
+                  <span className="text-[11px] text-[color:var(--muted)]">
+                    Seleccionado: {locationState.label}
+                  </span>
+                )}
+              </div>
               <LabeledInput
                 label="Etiqueta"
                 value={locationState.label}
