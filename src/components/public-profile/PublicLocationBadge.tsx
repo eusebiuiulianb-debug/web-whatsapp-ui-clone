@@ -12,20 +12,19 @@ type Props = {
 
 export function PublicLocationBadge({ location, align = "start", variant = "badge" }: Props) {
   const [open, setOpen] = useState(false);
-
-  if (!location || location.visibility === "OFF") return null;
-  const label = (location.label || "").trim();
-  if (!label) return null;
-
-  const hasMap = Boolean((location.geohash || "").trim());
-  const canShowMap = location.visibility === "AREA" && hasMap;
-  const resolvedRadiusKm = location.radiusKm ?? DEFAULT_AREA_RADIUS_KM;
+  const visibility = location?.visibility ?? "OFF";
+  const label = (location?.label || "").trim();
+  const geohash = (location?.geohash || "").trim();
+  const hasMap = Boolean(geohash);
+  const canShowMap = visibility === "AREA" && hasMap;
+  const resolvedRadiusKm = location?.radiusKm ?? DEFAULT_AREA_RADIUS_KM;
   const alignClass = align === "center" ? "justify-center" : "justify-start";
   const chipClass = variant === "chip"
     ? "border-white/10 bg-white/5 text-white/80"
     : "border-white/10 bg-white/5 text-white/80";
   const pillBaseClass = "inline-flex h-7 items-center gap-1 rounded-full border px-3 text-xs";
   const mutedClass = "text-white/50";
+  const shouldRender = visibility !== "OFF" && Boolean(label);
 
   useEffect(() => {
     if (!canShowMap && open) setOpen(false);
@@ -48,6 +47,8 @@ export function PublicLocationBadge({ location, align = "start", variant = "badg
       document.body.style.overflow = previousOverflow;
     };
   }, [open]);
+
+  if (!shouldRender) return null;
 
   return (
     <div className={`flex flex-wrap items-center gap-2 ${alignClass}`}>
@@ -102,7 +103,7 @@ export function PublicLocationBadge({ location, align = "start", variant = "badg
                   </button>
                 </div>
                 <div className="h-[260px] sm:h-[340px] w-full overflow-hidden rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-2)]">
-                  <LocationMap geohash={location.geohash || ""} radiusKm={resolvedRadiusKm} />
+                  <LocationMap geohash={geohash} radiusKm={resolvedRadiusKm} />
                 </div>
               </div>
             </div>
