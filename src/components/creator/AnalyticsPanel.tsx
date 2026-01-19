@@ -74,6 +74,16 @@ type UtmLinkEntry = {
   createdAt: string;
 };
 
+type UtmCampaignMetric = {
+  campaign: string;
+  visits: number;
+  chatsStarted: number;
+  purchases: number;
+  revenue: number;
+  convVisitToChat: number;
+  convChatToPurchase: number;
+};
+
 type Summary = {
   rangeDays: number;
   funnel: {
@@ -116,6 +126,12 @@ type SalesDailyPoint = {
   tipsAmount?: number;
   subscriptionsAmount?: number;
   giftsAmount?: number;
+};
+type SalesChartPoint = SalesDailyPoint & {
+  label: string;
+  fullLabel: string;
+  startDate: string;
+  endDate: string;
 };
 type SalesSummary = {
   totals: { totalAmount: number; count: number; uniqueFans: number };
@@ -276,6 +292,9 @@ export function AnalyticsPanel() {
     content: "",
     term: "",
   });
+  const [utmCampaigns, setUtmCampaigns] = useState<UtmCampaignMetric[]>([]);
+  const [utmCampaignsLoading, setUtmCampaignsLoading] = useState(false);
+  const [utmCampaignsError, setUtmCampaignsError] = useState("");
   const [savingLink, setSavingLink] = useState(false);
   const [platforms, setPlatforms] = useState<CreatorPlatforms | null>(null);
   const [savingPlatforms, setSavingPlatforms] = useState(false);
@@ -319,6 +338,7 @@ export function AnalyticsPanel() {
     void loadSubscriptions(rangeKey);
     void loadTopExtras(rangeKey);
     void loadTips(rangeKey);
+    void loadUtmCampaigns(rangeKey);
   }, [rangeKey]);
 
   useEffect(() => {
@@ -534,6 +554,23 @@ export function AnalyticsPanel() {
     }
   }
 
+  async function loadUtmCampaigns(nextRange: SalesRangeKey) {
+    try {
+      setUtmCampaignsLoading(true);
+      setUtmCampaignsError("");
+      const res = await fetch(`/api/creator/analytics/utm-campaigns?range=${nextRange}`, { cache: "no-store" });
+      if (!res.ok) throw new Error("Error fetching utm campaigns");
+      const payload = (await res.json()) as UtmCampaignMetric[];
+      setUtmCampaigns(Array.isArray(payload) ? payload : []);
+    } catch (err) {
+      console.error(err);
+      setUtmCampaignsError("No se pudieron cargar las campañas UTM.");
+      setUtmCampaigns([]);
+    } finally {
+      setUtmCampaignsLoading(false);
+    }
+  }
+
   const origin =
     typeof window !== "undefined" && window.location?.origin
       ? window.location.origin
@@ -574,6 +611,15 @@ export function AnalyticsPanel() {
       minimumFractionDigits: hasDecimals ? 2 : 0,
       maximumFractionDigits: hasDecimals ? 2 : 0,
     }).format(safe);
+  };
+  const formatRatioValue = (value: number) => {
+    if (!Number.isFinite(value)) return "—";
+    return value.toFixed(2);
+  };
+  const formatCampaignLabel = (value: string) => {
+    const trimmed = (value || "").trim();
+    if (!trimmed) return "Sin campaña";
+    return trimmed === "sin_campaña" ? "Sin campaña" : trimmed;
   };
   const dateFormatter = useMemo(
     () => new Intl.DateTimeFormat("es-ES", { day: "2-digit", month: "short", year: "numeric" }),
@@ -629,24 +675,88 @@ export function AnalyticsPanel() {
     () => new Intl.DateTimeFormat("es-ES", { day: "2-digit", month: "short", year: "numeric" }),
     []
   );
-  const labelStep = range === 90 ? 6 : range === 30 ? 3 : 1;
-  const dailySeries = useMemo(() => {
+  const isWeeklyRange = range === 90;
+  const chartTitle = isWeeklyRange ? "Ventas por semana" : "Ventas por día";
+  const salesSeries = useMemo<SalesChartPoint[]>(() => {
     if (!salesSummary?.daily) return [];
-    return salesSummary.daily.map((entry, index) => {
-      const parsed = new Date(`${entry.date}T00:00:00`);
-      const labelBase = Number.isNaN(parsed.getTime()) ? entry.date : dayLabelFormatter.format(parsed);
-      const label = index % labelStep === 0 ? labelBase : "";
-      const fullLabel = Number.isNaN(parsed.getTime()) ? entry.date : dayFullFormatter.format(parsed);
-      return { ...entry, label, fullLabel };
-    });
-  }, [dayFullFormatter, dayLabelFormatter, labelStep, salesSummary]);
-  const dailyMax = dailySeries.reduce((max, entry) => Math.max(max, entry.amount), 0);
+
+    const formatDateLabel = (value: string, formatter: Intl.DateTimeFormat) => {
+      const parsed = new Date(`${value}T00:00:00`);
+      return Number.isNaN(parsed.getTime()) ? value : formatter.format(parsed);
+    };
+
+    if (!isWeeklyRange) {
+      const baseSeries = salesSummary.daily.map((entry) => {
+        const shortLabel = formatDateLabel(entry.date, dayLabelFormatter);
+        const fullLabel = formatDateLabel(entry.date, dayFullFormatter);
+        return {
+          ...entry,
+          label: shortLabel,
+          fullLabel,
+          startDate: entry.date,
+          endDate: entry.date,
+        };
+      });
+      const labelStep = range === 30 ? 3 : 1;
+      if (labelStep === 1) return baseSeries;
+      return baseSeries.map((entry, index) => (index % labelStep === 0 ? entry : { ...entry, label: "" }));
+    }
+
+    const weeklySeries: SalesChartPoint[] = [];
+    for (let i = 0; i < salesSummary.daily.length; i += 7) {
+      const slice = salesSummary.daily.slice(i, i + 7);
+      if (!slice.length) continue;
+
+      let startDate = slice[0].date;
+      let endDate = slice[slice.length - 1].date;
+      let minTime = Number.POSITIVE_INFINITY;
+      let maxTime = Number.NEGATIVE_INFINITY;
+      slice.forEach((entry) => {
+        const time = new Date(`${entry.date}T00:00:00`).getTime();
+        if (Number.isNaN(time)) return;
+        if (time < minTime) {
+          minTime = time;
+          startDate = entry.date;
+        }
+        if (time > maxTime) {
+          maxTime = time;
+          endDate = entry.date;
+        }
+      });
+
+      const shortStart = formatDateLabel(startDate, dayLabelFormatter);
+      const shortEnd = formatDateLabel(endDate, dayLabelFormatter);
+      const fullStart = formatDateLabel(startDate, dayFullFormatter);
+      const fullEnd = formatDateLabel(endDate, dayFullFormatter);
+      const label = startDate === endDate ? shortStart : `${shortStart} - ${shortEnd}`;
+      const fullLabel = startDate === endDate ? fullStart : `${fullStart} - ${fullEnd}`;
+
+      weeklySeries.push({
+        date: startDate,
+        startDate,
+        endDate,
+        amount: slice.reduce((sum, entry) => sum + entry.amount, 0),
+        count: slice.reduce((sum, entry) => sum + entry.count, 0),
+        extrasAmount: slice.reduce((sum, entry) => sum + (entry.extrasAmount ?? 0), 0),
+        tipsAmount: slice.reduce((sum, entry) => sum + (entry.tipsAmount ?? 0), 0),
+        subscriptionsAmount: slice.reduce((sum, entry) => sum + (entry.subscriptionsAmount ?? 0), 0),
+        giftsAmount: slice.reduce((sum, entry) => sum + (entry.giftsAmount ?? 0), 0),
+        label,
+        fullLabel,
+      });
+    }
+
+    const labelStep = Math.max(1, Math.ceil(weeklySeries.length / 6));
+    if (labelStep === 1) return weeklySeries;
+    return weeklySeries.map((entry, index) => (index % labelStep === 0 ? entry : { ...entry, label: "" }));
+  }, [dayFullFormatter, dayLabelFormatter, isWeeklyRange, range, salesSummary]);
+  const dailyMax = salesSeries.reduce((max, entry) => Math.max(max, entry.amount), 0);
   const hasSalesData = Boolean(salesSummary && (salesSummary.totals.count > 0 || salesSummary.totals.totalAmount > 0));
   const hasCardData = Object.values(salesByRange).some(Boolean);
   const showKpiSkeleton = salesLoading && !hasCardData;
   const showRangeSkeleton = salesRangeLoading && !salesSummary;
   const analyticsError = error || salesError || salesRangeError;
-  const buildDailyTooltip = (entry: (typeof dailySeries)[number]) => {
+  const buildDailyTooltip = (entry: (typeof salesSeries)[number]) => {
     const lines = [
       entry.fullLabel || entry.date,
       `${formatMoney(entry.amount)} · ${formatCount(entry.count)} ventas`,
@@ -679,6 +789,7 @@ export function AnalyticsPanel() {
     void loadTopExtras(rangeKey);
     void loadTips(rangeKey);
     void loadUtmLinks();
+    void loadUtmCampaigns(rangeKey);
   };
 
   const handleOpenCatalogExtras = () => {
@@ -1101,10 +1212,10 @@ export function AnalyticsPanel() {
                       })}
                 </div>
 
-                <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
-                  <div className="rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] p-3 space-y-3">
-                    <div className="flex items-center justify-between gap-2">
-                      <div className="text-sm font-semibold text-[color:var(--text)]">Ventas por día</div>
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 min-w-0 w-full">
+                  <div className="relative min-w-0 w-full overflow-hidden rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] p-3 space-y-3">
+                    <div className="flex min-w-0 w-full flex-col items-start gap-1 sm:flex-row sm:items-center sm:justify-between sm:gap-2">
+                      <div className="text-sm font-semibold text-[color:var(--text)]">{chartTitle}</div>
                       <span className="text-[10px] text-[color:var(--muted)]">{rangeLabel}</span>
                     </div>
 
@@ -1119,11 +1230,22 @@ export function AnalyticsPanel() {
                     ) : salesSummary ? (
                       dailyMax > 0 ? (
                         <div className="space-y-3">
-                          <div className="flex items-end gap-1.5 h-28">
-                            {dailySeries.map((entry) => {
+                          <div
+                            className={
+                              isWeeklyRange
+                                ? "grid items-end gap-2 h-28 min-w-0 w-full grid-cols-[repeat(13,minmax(0,1fr))]"
+                                : "grid items-end gap-1.5 h-28 min-w-0 w-full"
+                            }
+                            style={
+                              isWeeklyRange
+                                ? undefined
+                                : { gridTemplateColumns: `repeat(${salesSeries.length}, minmax(0, 1fr))` }
+                            }
+                          >
+                            {salesSeries.map((entry) => {
                               const height = Math.max(6, Math.round((entry.amount / dailyMax) * 100));
                               return (
-                                <div key={entry.date} className="flex flex-1 flex-col items-center gap-2">
+                                <div key={entry.date} className="flex min-w-0 flex-col items-center gap-2">
                                   <div className="w-full h-20 rounded-md border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] flex items-end px-1">
                                     <div
                                       className="w-full rounded-sm bg-[color:rgba(var(--brand-rgb),0.75)]"
@@ -1493,7 +1615,7 @@ export function AnalyticsPanel() {
             )}
 
             <SectionCard
-              title="Campañas (UTM)"
+              title="Gestión de campañas (UTM)"
               subtitle="Esto mide tráfico hacia BioLink/Chat."
               actions={
                 <button
@@ -1843,6 +1965,95 @@ export function AnalyticsPanel() {
                           </td>
                         </tr>
                       ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </SectionCard>
+            <SectionCard title="Campañas (UTM)" subtitle={rangeLabel} bodyClassName="space-y-3">
+              {utmCampaignsError ? (
+                <div className="flex items-center justify-between gap-3 rounded-xl border border-[color:rgba(244,63,94,0.4)] bg-[color:rgba(244,63,94,0.08)] px-3 py-2 text-xs text-[color:var(--text)]">
+                  <span>{utmCampaignsError}</span>
+                  <button
+                    type="button"
+                    onClick={() => loadUtmCampaigns(rangeKey)}
+                    className="rounded-full border border-[color:rgba(244,63,94,0.6)] px-2.5 py-1 text-[10px] font-semibold text-[color:var(--text)] hover:bg-[color:rgba(244,63,94,0.16)]"
+                  >
+                    Reintentar
+                  </button>
+                </div>
+              ) : utmCampaignsLoading ? (
+                <div className="overflow-x-auto">
+                  <table className="min-w-full text-[13px]">
+                    <thead>
+                      <tr className="text-left text-[10px] uppercase tracking-[0.12em] text-[color:var(--muted)] bg-[var(--surface-2)] border-b border-[color:var(--surface-border)]">
+                        <th className="px-3 py-2.5">Campaña</th>
+                        <th className="px-3 py-2.5 text-right">Visitas</th>
+                        <th className="px-3 py-2.5 text-right">Chats</th>
+                        <th className="px-3 py-2.5 text-right">Compras</th>
+                        <th className="px-3 py-2.5 text-right">€</th>
+                        <th className="px-3 py-2.5 text-right">Conv.</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {Array.from({ length: 4 }).map((_, idx) => (
+                        <tr key={`utm-campaigns-skeleton-${idx}`} className="border-b border-[color:var(--surface-border)]">
+                          {Array.from({ length: 6 }).map((__, col) => (
+                            <td key={`utm-campaigns-skeleton-${idx}-${col}`} className="px-3 py-2.5">
+                              <Skeleton className="h-3 w-20" />
+                            </td>
+                          ))}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              ) : utmCampaigns.length === 0 ? (
+                <div className="text-sm text-[color:var(--muted)]">No hay campañas en este periodo.</div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="min-w-full text-[13px]">
+                    <thead>
+                      <tr className="text-left text-[10px] uppercase tracking-[0.12em] text-[color:var(--muted)] bg-[var(--surface-2)] border-b border-[color:var(--surface-border)]">
+                        <th className="px-3 py-2.5">Campaña</th>
+                        <th className="px-3 py-2.5 text-right">Visitas</th>
+                        <th className="px-3 py-2.5 text-right">Chats</th>
+                        <th className="px-3 py-2.5 text-right">Compras</th>
+                        <th className="px-3 py-2.5 text-right">€</th>
+                        <th className="px-3 py-2.5 text-right">
+                          <span className="cursor-help" title="Chats/visitas · compras/chats">
+                            Conv.
+                          </span>
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {utmCampaigns.map((row) => {
+                        const convVisit = formatRatioValue(row.convVisitToChat);
+                        const convPurchase = formatRatioValue(row.convChatToPurchase);
+                        return (
+                          <tr key={row.campaign} className="border-b border-[color:var(--surface-border)] transition hover:bg-[color:var(--surface-2)]">
+                            <td className="px-3 py-2.5 text-[color:var(--text)] font-semibold">
+                              {formatCampaignLabel(row.campaign)}
+                            </td>
+                            <td className="px-3 py-2.5 text-right text-[color:var(--text)] tabular-nums">
+                              {formatCount(row.visits)}
+                            </td>
+                            <td className="px-3 py-2.5 text-right text-[color:var(--text)] tabular-nums">
+                              {formatCount(row.chatsStarted)}
+                            </td>
+                            <td className="px-3 py-2.5 text-right text-[color:var(--text)] tabular-nums">
+                              {formatCount(row.purchases)}
+                            </td>
+                            <td className="px-3 py-2.5 text-right text-[color:var(--text)] tabular-nums">
+                              {formatMoney(row.revenue)}
+                            </td>
+                            <td className="px-3 py-2.5 text-right text-[color:var(--text)] tabular-nums">
+                              {convVisit} · {convPurchase}
+                            </td>
+                          </tr>
+                        );
+                      })}
                     </tbody>
                   </table>
                 </div>

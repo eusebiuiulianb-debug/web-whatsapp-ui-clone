@@ -3,13 +3,22 @@ import prisma from "./prisma.server";
 export async function getPublicProfileStats(creatorId: string) {
   const now = new Date();
 
-  const grants = await prisma.accessGrant.findMany({
-    where: {
-      fan: { creatorId },
-      expiresAt: { gt: now },
-    },
-    select: { fanId: true },
-  });
+  const [grants, salesCount, ratingsCount] = await Promise.all([
+    prisma.accessGrant.findMany({
+      where: {
+        fan: { creatorId },
+        expiresAt: { gt: now },
+      },
+      select: { fanId: true },
+    }),
+    prisma.walletTransaction.count({
+      where: {
+        kind: { in: ["PACK_PURCHASE", "EXTRA_PURCHASE", "PPV_PURCHASE"] },
+        wallet: { fan: { creatorId } },
+      },
+    }),
+    prisma.discoveryFeedback.count({ where: { creatorId } }),
+  ]);
 
   const activeMembers = new Set(grants.map((g) => g.fanId)).size;
 
@@ -25,5 +34,5 @@ export async function getPublicProfileStats(creatorId: string) {
     return acc;
   }, { images: 0, videos: 0, audios: 0 });
 
-  return { activeMembers, ...stats };
+  return { activeMembers, ...stats, salesCount, ratingsCount };
 }

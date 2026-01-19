@@ -35,17 +35,21 @@ export type PublicProfileStats = {
   images: number;
   videos: number;
   audios: number;
+  salesCount?: number;
+  ratingsCount?: number;
 };
 
 export type PublicCatalogItemType = "EXTRA" | "BUNDLE" | "PACK";
 
 export type PublicCatalogItem = {
+  id: string;
   type: PublicCatalogItemType;
   title: string;
   description?: string | null;
   priceCents: number;
   currency: string;
   includes: string[];
+  isActive: boolean;
 };
 
 export type PublicPopClip = {

@@ -1,3 +1,5 @@
+import type { CreatorLocation } from "./creatorLocation";
+
 export type BioLinkSecondaryLink = {
   label: string;
   url: string;
@@ -17,4 +19,5 @@ export type BioLinkConfig = {
   chips?: string[];
   faq?: string[];
   creatorId?: string;
+  location?: CreatorLocation | null;
 };

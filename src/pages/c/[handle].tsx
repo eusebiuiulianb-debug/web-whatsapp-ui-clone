@@ -1,22 +1,31 @@
 import Head from "next/head";
 import type { GetServerSideProps } from "next";
-import PublicProfileView from "../../components/public-profile/PublicProfileView";
-import { PROFILE_COPY, mapToPublicProfileCopy } from "../../lib/publicProfileCopy";
-import type { PublicCatalogItem, PublicPopClip, PublicProfileCopy, PublicProfileStats } from "../../types/publicProfile";
-import { getPublicProfileStats } from "../../lib/publicProfileStats";
+import { randomUUID } from "crypto";
+import { useEffect, useMemo, useState } from "react";
+import { PublicHero } from "../../components/public-profile/PublicHero";
+import { PublicCatalogGrid } from "../../components/public-profile/PublicCatalogGrid";
+import { PublicCatalogCard, type PublicCatalogCardItem } from "../../components/public-profile/PublicCatalogCard";
+import { PublicProfileStatsRow } from "../../components/public-profile/PublicProfileStatsRow";
+import type { PublicCatalogItem, PublicProfileStats } from "../../types/publicProfile";
+import type { CreatorLocation } from "../../types/creatorLocation";
+import { ensureAnalyticsCookie } from "../../lib/analyticsCookie";
+import { track } from "../../lib/analyticsClient";
+import { ANALYTICS_EVENTS } from "../../lib/analyticsEvents";
 import { normalizeImageSrc } from "../../utils/normalizeImageSrc";
+import { getPublicProfileStats } from "../../lib/publicProfileStats";
 
 type Props = {
   notFound?: boolean;
-  copy?: PublicProfileCopy;
+  creatorId?: string;
   creatorName?: string;
+  bio?: string;
   subtitle?: string;
   avatarUrl?: string | null;
-  creatorInitial?: string;
-  stats?: PublicProfileStats;
-  catalogItems?: PublicCatalogItem[];
-  popClips?: PublicPopClip[];
   creatorHandle?: string;
+  stats?: PublicProfileStats;
+  location?: CreatorLocation | null;
+  catalogItems?: PublicCatalogItem[];
+  catalogError?: string | null;
 };
 
 type CatalogItemRow = {
@@ -27,48 +36,33 @@ type CatalogItemRow = {
   priceCents: number;
   currency: string;
   includes: unknown;
+  isActive: boolean;
 };
 
-type PopClipRow = {
-  id: string;
-  title: string | null;
-  videoUrl: string;
-  posterUrl: string | null;
-  startAtSec: number | null;
-  durationSec: number | null;
-  sortOrder: number;
-  catalogItem: {
-    id: string;
-    title: string;
-    description: string | null;
-    priceCents: number;
-    currency: string;
-    type: "EXTRA" | "BUNDLE" | "PACK";
-    isPublic: boolean;
-    isActive: boolean;
-  } | null;
-  contentItem: {
-    id: string;
-    pack: "WELCOME" | "MONTHLY" | "SPECIAL";
-    type: "IMAGE" | "VIDEO" | "AUDIO" | "TEXT";
-    mediaPath: string | null;
-    externalUrl: string | null;
-  } | null;
-};
+type CatalogFilter = "all" | "pack" | "sub" | "extra" | "popclip";
+
+const CATALOG_FILTERS: Array<{ id: CatalogFilter; label: string }> = [
+  { id: "all", label: "Todo" },
+  { id: "pack", label: "Packs" },
+  { id: "sub", label: "Suscripciones" },
+  { id: "extra", label: "Extras" },
+  { id: "popclip", label: "PopClips" },
+];
 
 export default function PublicCreatorByHandle({
   notFound,
-  copy,
+  creatorId,
   creatorName,
+  bio,
   subtitle,
   avatarUrl,
-  creatorInitial,
-  stats,
-  catalogItems,
-  popClips,
   creatorHandle,
+  stats,
+  location,
+  catalogItems,
+  catalogError,
 }: Props) {
-  if (notFound || !copy || !creatorName) {
+  if (notFound || !creatorName || !creatorHandle) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-[color:var(--surface-0)] text-[color:var(--muted)] px-4">
         <div className="text-center space-y-2">
@@ -79,23 +73,104 @@ export default function PublicCreatorByHandle({
     );
   }
 
+  const baseChatHref = `/go/${creatorHandle}`;
+  const [searchParams, setSearchParams] = useState("");
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    setSearchParams(window.location.search || "");
+  }, []);
+
+  const chatHref = appendSearchIfRelative(baseChatHref, searchParams);
+  const followDraft = "Quiero seguirte gratis.";
+  const followHref = appendSearchIfRelative(`${baseChatHref}?draft=${encodeURIComponent(followDraft)}`, searchParams);
+
+  useEffect(() => {
+    const utmMeta = readUtmMeta();
+    track(ANALYTICS_EVENTS.BIO_LINK_VIEW, {
+      creatorId: creatorId || "creator-1",
+      meta: { handle: creatorHandle, ...utmMeta },
+    });
+  }, [creatorHandle, creatorId]);
+
+  const items = useMemo<PublicCatalogCardItem[]>(() => {
+    const source = catalogItems ?? [];
+    return source
+      .filter((item) => item.isActive !== false)
+      .map((item, index) => ({
+        id: item.id || `${item.type}-${index}`,
+        kind: resolveCatalogKind(item),
+        title: item.title,
+        priceCents: item.priceCents,
+        currency: item.currency,
+        thumbUrl: null,
+      }));
+  }, [catalogItems]);
+
+  const salesCount = stats?.salesCount ?? 0;
+  const ratingsCount = stats?.ratingsCount ?? 0;
+  const topEligible = salesCount >= 10 || ratingsCount >= 10;
+  const tagline = (bio || "").trim();
+  const trustLine = (subtitle || "Responde en menos de 24h").trim();
+  const showLoading = !catalogItems && !catalogError;
+  const featuredItems = items.slice(0, 3);
+  const featuredIds = featuredItems.map((item) => item.id);
+
   return (
     <>
       <Head>
         <title>{String(creatorName || "Perfil público")}</title>
       </Head>
-      <div className="min-h-screen bg-[color:var(--surface-0)] text-[color:var(--text)]">
-        <PublicProfileView
-          copy={copy}
-          creatorName={creatorName}
-          creatorInitial={creatorInitial || "C"}
-          subtitle={subtitle || ""}
-          avatarUrl={avatarUrl || undefined}
-          stats={stats}
-          catalogItems={catalogItems}
-          popClips={popClips}
-          creatorHandle={creatorHandle}
-        />
+      <div className="min-h-screen bg-[color:var(--surface-0)] text-[color:var(--text)] overflow-x-hidden">
+        <main className="mx-auto w-full max-w-6xl px-4 pb-16 pt-6 space-y-6 min-w-0">
+          <PublicHero
+            name={creatorName}
+            avatarUrl={avatarUrl}
+            tagline={tagline}
+            trustLine={trustLine}
+            topEligible={topEligible}
+            location={location}
+            chips={[]}
+            primaryCtaLabel="Entrar al chat privado"
+            primaryHref={chatHref}
+            secondaryCtaLabel="Seguir gratis"
+            secondaryHref={followHref}
+          />
+          <PublicProfileStatsRow
+            salesCount={salesCount}
+            ratingsCount={ratingsCount}
+          />
+
+          {featuredItems.length > 0 && (
+            <section className="space-y-3 min-w-0">
+              <div className="flex items-center justify-between min-w-0">
+                <h2 className="text-base font-semibold text-[color:var(--text)]">Destacados</h2>
+                <span className="text-xs text-[color:var(--muted)]">Máximo 3</span>
+              </div>
+              <div className="flex gap-3 overflow-x-auto pb-2 -mx-4 px-4 snap-x snap-mandatory sm:mx-0 sm:px-0 sm:grid sm:grid-cols-3 sm:gap-3 sm:overflow-visible sm:snap-none">
+                {featuredItems.map((item) => (
+                  <div key={item.id} className="snap-start shrink-0 w-[72%] max-w-[260px] sm:w-auto sm:max-w-none">
+                    <div className="block min-w-0">
+                      <PublicCatalogCard item={item} variant="featured" />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </section>
+          )}
+
+          <section className="space-y-3 min-w-0">
+            <h2 className="text-base font-semibold text-[color:var(--text)]">Catálogo</h2>
+            <PublicCatalogGrid
+              items={items}
+              featuredIds={featuredIds}
+              chatHref={chatHref}
+              isLoading={showLoading}
+              error={catalogError}
+              filters={CATALOG_FILTERS}
+            />
+          </section>
+        </main>
       </div>
     </>
   );
@@ -111,50 +186,114 @@ export const getServerSideProps: GetServerSideProps<Props> = async (ctx) => {
     return { props: { notFound: true } };
   }
 
-  const stats = await getSafeStats(match.id);
-  const catalogItems = await getPublicCatalogItems(match.id);
-  const creatorHandle = slugify(match.name);
-  const popClips = await getPublicPopClips(match.id, creatorHandle);
-  const packs = [
-    { id: "welcome", name: "Pack bienvenida", price: "9 €" },
-    { id: "monthly", name: "Suscripción mensual", price: "25 €" },
-    { id: "special", name: "Pack especial", price: "49 €" },
-  ];
+  const utmSource = typeof ctx.query.utm_source === "string" ? ctx.query.utm_source : undefined;
+  const utmMedium = typeof ctx.query.utm_medium === "string" ? ctx.query.utm_medium : undefined;
+  const utmCampaign = typeof ctx.query.utm_campaign === "string" ? ctx.query.utm_campaign : undefined;
+  const utmContent = typeof ctx.query.utm_content === "string" ? ctx.query.utm_content : undefined;
+  const utmTerm = typeof ctx.query.utm_term === "string" ? ctx.query.utm_term : undefined;
+  const referrer = (ctx.req?.headers?.referer as string | undefined) || (ctx.req?.headers?.referrer as string | undefined);
 
-  const baseCopy = mapToPublicProfileCopy(PROFILE_COPY["fanclub"], "fanclub", { packs });
+  try {
+    ensureAnalyticsCookie(
+      ctx.req as any,
+      ctx.res as any,
+      {
+        sessionId: randomUUID(),
+        utmSource,
+        utmMedium,
+        utmCampaign,
+        utmContent,
+        utmTerm,
+        referrer,
+      }
+    );
+  } catch (_err) {
+    // ignore cookie errors
+  }
+
+  let catalogItems: PublicCatalogItem[] = [];
+  let catalogError: string | null = null;
+  try {
+    catalogItems = await getPublicCatalogItems(match.id);
+  } catch (err) {
+    console.error("Error loading public catalog", err);
+    catalogError = "No se pudo cargar el catálogo.";
+  }
+
+  let stats: PublicProfileStats | undefined;
+  try {
+    stats = await getPublicProfileStats(match.id);
+  } catch (err) {
+    console.error("Error loading public stats", err);
+  }
+
   const profile = await prisma.creatorProfile.findUnique({ where: { creatorId: match.id } });
-  const coverUrl =
-    profile?.coverUrl && profile.coverUrl.trim().length > 0 ? normalizeImageSrc(profile.coverUrl) : null;
-  const copy: PublicProfileCopy = {
-    ...baseCopy,
-    hero: {
-      ...baseCopy.hero,
-      coverImageUrl: coverUrl || baseCopy.hero.coverImageUrl || null,
-    },
-  };
+
   const avatarUrl = normalizeImageSrc(match.bioLinkAvatarUrl || "");
+  const creatorHandle = slugify(match.name);
+  const trustLine = match.bioLinkTagline ?? match.subtitle ?? "";
+  const bio = match.bioLinkDescription ?? match.description ?? "";
 
   return {
     props: {
-      copy,
+      creatorId: match.id,
       creatorName: match.name || "Creador",
-      subtitle: match.subtitle || "",
+      bio,
+      subtitle: trustLine,
       avatarUrl,
-      creatorInitial: (match.name || "C").charAt(0),
-      stats,
-      catalogItems,
-      popClips,
       creatorHandle,
+      stats,
+      location: mapLocation(profile),
+      catalogItems,
+      catalogError,
     },
   };
 };
 
-async function getSafeStats(creatorId: string): Promise<PublicProfileStats> {
-  try {
-    return await getPublicProfileStats(creatorId);
-  } catch (_err) {
-    return { activeMembers: 0, images: 0, videos: 0, audios: 0 };
+function resolveCatalogKind(item: PublicCatalogItem): PublicCatalogCardItem["kind"] {
+  if (item.type === "EXTRA") return "extra";
+  if (item.type === "PACK") {
+    const title = (item.title || "").toLowerCase();
+    if (title.includes("suscrip") || title.includes("subscription") || title.includes("mensual") || title.includes("monthly")) {
+      return "sub";
+    }
   }
+  return "pack";
+}
+
+function mapLocation(profile: any): CreatorLocation | null {
+  if (!profile || profile.locationVisibility === "OFF") return null;
+  return {
+    visibility: profile.locationVisibility,
+    label: profile.locationLabel ?? null,
+    geohash: profile.locationGeohash ?? null,
+    radiusKm: profile.locationRadiusKm ?? null,
+    allowDiscoveryUseLocation: Boolean(profile.allowDiscoveryUseLocation),
+  };
+}
+
+function readUtmMeta() {
+  if (typeof window === "undefined") return {};
+  const params = new URLSearchParams(window.location.search || "");
+  const utmSource = params.get("utm_source") || "";
+  const utmMedium = params.get("utm_medium") || "";
+  const utmCampaign = params.get("utm_campaign") || "";
+  const utmContent = params.get("utm_content") || "";
+  const utmTerm = params.get("utm_term") || "";
+  return {
+    ...(utmSource ? { utm_source: utmSource } : {}),
+    ...(utmMedium ? { utm_medium: utmMedium } : {}),
+    ...(utmCampaign ? { utm_campaign: utmCampaign } : {}),
+    ...(utmContent ? { utm_content: utmContent } : {}),
+    ...(utmTerm ? { utm_term: utmTerm } : {}),
+  };
+}
+
+function appendSearchIfRelative(url: string, search: string) {
+  if (!search) return url;
+  if (!url.startsWith("/")) return url;
+  if (url.includes("?")) return `${url}&${search.replace(/^\?/, "")}`;
+  return `${url}${search}`;
 }
 
 function slugify(value?: string | null) {
@@ -181,159 +320,14 @@ async function getPublicCatalogItems(creatorId: string): Promise<PublicCatalogIt
             .filter((title): title is string => Boolean(title))
         : [];
     return {
+      id: item.id,
       type: item.type,
       title: item.title,
       description: item.description,
       priceCents: item.priceCents,
       currency: item.currency,
       includes,
+      isActive: item.isActive,
     };
   });
-}
-
-async function getPublicPopClips(creatorId: string, creatorHandle: string): Promise<PublicPopClip[]> {
-  const prisma = (await import("../../lib/prisma.server")).default;
-  const clips = (await prisma.popClip.findMany({
-    where: {
-      creatorId,
-      isActive: true,
-      OR: [
-        {
-          catalogItem: {
-            isActive: true,
-            isPublic: true,
-          },
-        },
-        { contentItemId: { not: null } },
-      ],
-    },
-    orderBy: [{ sortOrder: "asc" }, { createdAt: "desc" }],
-    include: {
-      catalogItem: {
-        select: {
-          id: true,
-          title: true,
-          description: true,
-          priceCents: true,
-          currency: true,
-          type: true,
-          isPublic: true,
-          isActive: true,
-        },
-      },
-      contentItem: {
-        select: {
-          id: true,
-          pack: true,
-          type: true,
-          mediaPath: true,
-          externalUrl: true,
-        },
-      },
-    },
-  })) as PopClipRow[];
-
-  const packs = (await prisma.creator.findUnique({
-    where: { id: creatorId },
-    select: { packs: true },
-  }))?.packs ?? [];
-
-  const resolved: PublicPopClip[] = [];
-  for (const clip of clips) {
-    const packMeta = resolvePackMeta({
-      clip,
-      creatorHandle,
-      creatorPacks: packs,
-    });
-    if (!packMeta) continue;
-    const videoUrl = clip.videoUrl || resolveContentMediaUrl(clip.contentItem);
-    if (!videoUrl || !videoUrl.trim()) continue;
-    resolved.push({
-      id: clip.id,
-      title: clip.title ?? null,
-      videoUrl,
-      posterUrl: clip.posterUrl ?? null,
-      startAtSec: Number.isFinite(Number(clip.startAtSec)) ? Math.max(0, Number(clip.startAtSec)) : 0,
-      durationSec: clip.durationSec ?? null,
-      sortOrder: clip.sortOrder,
-      pack: packMeta,
-    });
-  }
-  return resolved;
-}
-
-function buildPackRoute(handle: string, packId: string) {
-  return `/p/${handle}/${packId}`;
-}
-
-function resolveContentMediaUrl(contentItem?: { mediaPath: string | null; externalUrl: string | null } | null) {
-  if (!contentItem) return "";
-  return (contentItem.externalUrl || contentItem.mediaPath || "").trim();
-}
-
-function resolvePackMeta({
-  clip,
-  creatorHandle,
-  creatorPacks,
-}: {
-  clip: PopClipRow;
-  creatorHandle: string;
-  creatorPacks: Array<{ id: string; name: string; price: string; description: string }>;
-}) {
-  if (clip.catalogItem?.type === "PACK") {
-    return {
-      id: clip.catalogItem.id,
-      title: clip.catalogItem.title,
-      description: clip.catalogItem.description,
-      priceCents: clip.catalogItem.priceCents,
-      currency: clip.catalogItem.currency,
-      type: clip.catalogItem.type,
-      slug: slugify(clip.catalogItem.title),
-      route: buildPackRoute(creatorHandle, clip.catalogItem.id),
-      coverUrl: clip.posterUrl ?? null,
-    };
-  }
-
-  const packKey = normalizeContentPackKey(clip.contentItem?.pack);
-  if (!packKey) return null;
-  const fallback = DEFAULT_PACK_META[packKey];
-  const creatorPack =
-    creatorPacks.find((pack) => pack.id === packKey) ||
-    creatorPacks.find((pack) => slugify(pack.name) === packKey);
-  const title = creatorPack?.name || fallback.title;
-  const priceMeta = creatorPack ? parsePriceToCents(creatorPack.price) : { cents: fallback.priceCents, currency: "EUR" };
-
-  return {
-    id: packKey,
-    title,
-    description: creatorPack?.description ?? null,
-    priceCents: priceMeta.cents,
-    currency: priceMeta.currency,
-    type: "PACK" as const,
-    slug: slugify(title),
-    route: buildPackRoute(creatorHandle, packKey),
-    coverUrl: clip.posterUrl ?? null,
-  };
-}
-
-const DEFAULT_PACK_META: Record<string, { title: string; priceCents: number }> = {
-  welcome: { title: "Pack bienvenida", priceCents: 900 },
-  monthly: { title: "Suscripción mensual", priceCents: 2500 },
-  special: { title: "Pack especial", priceCents: 4900 },
-};
-
-function normalizeContentPackKey(value?: string | null) {
-  const key = (value || "").toLowerCase().trim();
-  if (key === "welcome" || key === "monthly" || key === "special") return key;
-  return "";
-}
-
-function parsePriceToCents(value?: string | null) {
-  const raw = (value || "").trim();
-  if (!raw) return { cents: 0, currency: "EUR" };
-  const currency = raw.includes("$") ? "USD" : raw.includes("£") ? "GBP" : "EUR";
-  const normalized = raw.replace(/[^\d.,]/g, "").replace(",", ".");
-  const amount = Number.parseFloat(normalized);
-  if (Number.isNaN(amount)) return { cents: 0, currency };
-  return { cents: Math.round(amount * 100), currency };
 }

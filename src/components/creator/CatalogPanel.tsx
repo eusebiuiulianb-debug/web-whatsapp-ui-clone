@@ -1,20 +1,48 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useContext, useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/router";
 import clsx from "clsx";
 import { EmptyState } from "../ui/EmptyState";
 import { SectionCard } from "../ui/SectionCard";
 import { Skeleton } from "../ui/Skeleton";
 import {
+  buildCatalogPitch,
   formatCatalogIncludesSummary,
   formatCatalogPriceCents,
   type CatalogItem,
 } from "../../lib/catalog";
+import { ConversationContext } from "../../context/ConversationContext";
+import { getFanIdFromQuery, openFanChatAndPrefill } from "../../lib/navigation/openCreatorChat";
+
+type FanPickerEntry = {
+  id: string;
+  displayName?: string | null;
+  creatorLabel?: string | null;
+  name?: string;
+  avatar?: string;
+  segment?: string;
+};
 
 export function CatalogPanel() {
+  const router = useRouter();
+  const { conversation } = useContext(ConversationContext);
   const [creatorId, setCreatorId] = useState<string>("creator-1");
   const [catalogItems, setCatalogItems] = useState<CatalogItem[]>([]);
   const [loading, setLoading] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState("");
+  const [fanPickerOpen, setFanPickerOpen] = useState(false);
+  const [fanPickerLoading, setFanPickerLoading] = useState(false);
+  const [fanPickerError, setFanPickerError] = useState("");
+  const [fanPickerQuery, setFanPickerQuery] = useState("");
+  const [fanPickerItems, setFanPickerItems] = useState<FanPickerEntry[]>([]);
+  const [pendingInsertItem, setPendingInsertItem] = useState<CatalogItem | null>(null);
+  const queryFanId = getFanIdFromQuery(router.query);
+  const activeFanId = queryFanId || (!conversation?.isManager ? conversation?.id ?? null : null);
+  const activeFanName = useMemo(() => {
+    if (!conversation || conversation.isManager) return "";
+    const base = conversation.contactName || conversation.displayName || conversation.creatorLabel || "";
+    return getFirstName(base) || base;
+  }, [conversation]);
 
   useEffect(() => {
     const loadCreator = async () => {
@@ -54,6 +82,35 @@ export function CatalogPanel() {
     void loadCatalog();
   }, [loadCatalog]);
 
+  const loadFanPicker = useCallback(async (query: string) => {
+    try {
+      setFanPickerLoading(true);
+      setFanPickerError("");
+      const params = new URLSearchParams({ limit: "30" });
+      if (query.trim()) params.set("q", query.trim());
+      const res = await fetch(`/api/fans?${params.toString()}`, { cache: "no-store" });
+      const payload = await res.json().catch(() => ({}));
+      const items = Array.isArray(payload?.items) ? payload.items : Array.isArray(payload?.fans) ? payload.fans : [];
+      setFanPickerItems(items);
+    } catch (err) {
+      console.error(err);
+      setFanPickerError("No se pudieron cargar los fans.");
+      setFanPickerItems([]);
+    } finally {
+      setFanPickerLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!fanPickerOpen) return;
+    const timer = window.setTimeout(() => {
+      void loadFanPicker(fanPickerQuery);
+    }, 250);
+    return () => {
+      window.clearTimeout(timer);
+    };
+  }, [fanPickerOpen, fanPickerQuery, loadFanPicker]);
+
   useEffect(() => {
     if (typeof window === "undefined") return;
     if (window.location.hash !== "#catalog-extras") return;
@@ -77,6 +134,44 @@ export function CatalogPanel() {
     const value = Number.parseFloat(normalized);
     if (!Number.isFinite(value) || value < 0) return null;
     return Math.round(value * 100);
+  };
+
+  const buildDraftForItem = (item: CatalogItem, fanName: string) => {
+    const includesSummary = formatCatalogIncludesSummary(item.includes) || undefined;
+    const name = getFirstName(fanName) || fanName || "alli";
+    return buildCatalogPitch({ fanName: name, item, includesSummary });
+  };
+
+  const closeFanPicker = () => {
+    setFanPickerOpen(false);
+    setPendingInsertItem(null);
+    setFanPickerQuery("");
+    setFanPickerError("");
+    setFanPickerItems([]);
+  };
+
+  const handleSelectFan = (fan: FanPickerEntry) => {
+    if (!pendingInsertItem) return;
+    const nameBase = fan.displayName || fan.creatorLabel || fan.name || "";
+    const draft = buildDraftForItem(pendingInsertItem, nameBase);
+    if (!draft.trim()) return;
+    openFanChatAndPrefill(router, {
+      fanId: fan.id,
+      text: draft,
+      actionKey: `catalog:${pendingInsertItem.id}`,
+    });
+    closeFanPicker();
+  };
+
+  const handleInsertItem = (item: CatalogItem) => {
+    const draft = buildDraftForItem(item, activeFanName);
+    if (!draft.trim()) return;
+    if (activeFanId) {
+      openFanChatAndPrefill(router, { fanId: activeFanId, text: draft, actionKey: `catalog:${item.id}` });
+      return;
+    }
+    setPendingInsertItem(item);
+    setFanPickerOpen(true);
   };
 
   const handleCreateItem = async (type: CatalogItem["type"]) => {
@@ -334,6 +429,14 @@ export function CatalogPanel() {
                       </span>
                       <button
                         type="button"
+                        onClick={() => handleInsertItem(item)}
+                        disabled={isSaving}
+                        className={buildRowActionClass("primary", isSaving)}
+                      >
+                        Insertar en chat
+                      </button>
+                      <button
+                        type="button"
                         onClick={() => handleEditItem(item)}
                         disabled={isSaving}
                         className={buildRowActionClass("primary", isSaving)}
@@ -416,6 +519,14 @@ export function CatalogPanel() {
                       </span>
                       <button
                         type="button"
+                        onClick={() => handleInsertItem(item)}
+                        disabled={isSaving}
+                        className={buildRowActionClass("primary", isSaving)}
+                      >
+                        Insertar en chat
+                      </button>
+                      <button
+                        type="button"
                         onClick={() => handleEditItem(item)}
                         disabled={isSaving}
                         className={buildRowActionClass("primary", isSaving)}
@@ -446,6 +557,65 @@ export function CatalogPanel() {
           )}
         </SectionCard>
       </div>
+      {fanPickerOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-[color:var(--surface-overlay)] px-4 py-6">
+          <div className="w-full max-w-md rounded-2xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] p-4 shadow-xl space-y-3">
+            <div className="flex items-start justify-between gap-2">
+              <div>
+                <h3 className="text-sm font-semibold text-[color:var(--text)]">Insertar en chat</h3>
+                {pendingInsertItem && (
+                  <p className="text-[11px] text-[color:var(--muted)]">{pendingInsertItem.title}</p>
+                )}
+              </div>
+              <button
+                type="button"
+                onClick={closeFanPicker}
+                className="text-xs text-[color:var(--muted)] hover:text-[color:var(--text)]"
+              >
+                Cerrar
+              </button>
+            </div>
+            <input
+              value={fanPickerQuery}
+              onChange={(event) => setFanPickerQuery(event.target.value)}
+              placeholder="Buscar fan..."
+              className="w-full rounded-lg border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-3 py-2 text-xs text-[color:var(--text)] placeholder:text-[color:var(--muted)]"
+            />
+            {fanPickerError && <div className="text-xs text-[color:var(--danger)]">{fanPickerError}</div>}
+            <div className="max-h-[50vh] overflow-y-auto space-y-2">
+              {fanPickerLoading ? (
+                <div className="text-xs text-[color:var(--muted)]">Cargando fans...</div>
+              ) : fanPickerItems.length === 0 ? (
+                <div className="text-xs text-[color:var(--muted)]">No hay fans disponibles.</div>
+              ) : (
+                fanPickerItems.map((fan) => {
+                  const label = fan.displayName || fan.creatorLabel || fan.name || "Fan";
+                  return (
+                    <button
+                      key={fan.id}
+                      type="button"
+                      onClick={() => handleSelectFan(fan)}
+                      className="w-full rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-3 py-2 text-left text-xs text-[color:var(--text)] hover:bg-[color:var(--surface-1)]"
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="truncate">{label}</span>
+                        {fan.segment && <span className="text-[10px] text-[color:var(--muted)]">{fan.segment}</span>}
+                      </div>
+                    </button>
+                  );
+                })
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
+}
+
+function getFirstName(value?: string | null) {
+  const trimmed = (value || "").trim();
+  if (!trimmed) return "";
+  const [first] = trimmed.split(/\\s+/);
+  return first || "";
 }

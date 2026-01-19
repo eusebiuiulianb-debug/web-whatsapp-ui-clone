@@ -67,6 +67,10 @@ export const getServerSideProps: GetServerSideProps<Props> = async (ctx) => {
     // ignore cookie errors
   }
 
+  const profile = match
+    ? await prisma.creatorProfile.findUnique({ where: { creatorId: match.id } })
+    : null;
+
   const config: BioLinkConfig = {
     enabled: true,
     title: match.name || match.bioLinkTitle || "Creador",
@@ -79,6 +83,7 @@ export const getServerSideProps: GetServerSideProps<Props> = async (ctx) => {
     faq: parseStringArray(match.bioLinkFaq),
     handle,
     creatorId: match.id,
+    location: mapLocation(profile),
   };
 
   return { props: { config } };
@@ -112,6 +117,17 @@ function parseStringArray(raw: any): string[] {
     }
   }
   return [];
+}
+
+function mapLocation(profile: any) {
+  if (!profile || profile.locationVisibility === "OFF") return null;
+  return {
+    visibility: profile.locationVisibility,
+    label: profile.locationLabel ?? null,
+    geohash: profile.locationGeohash ?? null,
+    radiusKm: profile.locationRadiusKm ?? null,
+    allowDiscoveryUseLocation: Boolean(profile.allowDiscoveryUseLocation),
+  };
 }
 
 function slugify(value?: string | null) {

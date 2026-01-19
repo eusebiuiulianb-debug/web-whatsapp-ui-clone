@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 import { track } from "../../lib/analyticsClient";
 import { ANALYTICS_EVENTS } from "../../lib/analyticsEvents";
 import { normalizeImageSrc } from "../../utils/normalizeImageSrc";
+import { PublicLocationBadge } from "./PublicLocationBadge";
 
 type Props = {
   config: BioLinkConfig;
@@ -56,6 +57,11 @@ export function BioLinkPublicView({ config }: Props) {
                     {chip}
                   </span>
                 ))}
+              </div>
+            )}
+            {config.location && (
+              <div className="pt-1">
+                <PublicLocationBadge location={config.location} align="center" />
               </div>
             )}
           </div>

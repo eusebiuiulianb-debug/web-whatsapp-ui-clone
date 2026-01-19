@@ -1,11 +1,21 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { BioLinkPublicView } from "../public-profile/BioLinkPublicView";
 import type { BioLinkConfig, BioLinkSecondaryLink } from "../../types/bioLink";
 import { useCreatorConfig } from "../../context/CreatorConfigContext";
 import { normalizeImageSrc } from "../../utils/normalizeImageSrc";
+import type { CreatorLocation, LocationVisibility } from "../../types/creatorLocation";
 
 const MAX_LINKS = 4;
 const FAQ_SIZE = 3;
+const LOCATION_RADIUS_OPTIONS = [3, 5, 10] as const;
+
+const LOCATION_VISIBILITY_OPTIONS: Array<{ value: LocationVisibility; label: string }> = [
+  { value: "OFF", label: "OFF" },
+  { value: "COUNTRY", label: "País" },
+  { value: "CITY", label: "Ciudad (aprox.)" },
+  { value: "AREA", label: "Zona (aprox.)" },
+];
+const LOCATION_PUBLIC_VISIBILITY_OPTIONS = LOCATION_VISIBILITY_OPTIONS.filter((option) => option.value !== "OFF");
 
 type CopyTarget = "TAGLINE" | "CTA" | "DESCRIPTION" | "FAQ";
 
@@ -29,6 +39,22 @@ const DEFAULT_CONFIG: BioLinkConfig = {
   handle: "creator",
 };
 
+type LocationFormState = {
+  visibility: LocationVisibility;
+  label: string;
+  geohash: string;
+  radiusKm: number;
+  allowDiscoveryUseLocation: boolean;
+};
+
+const DEFAULT_LOCATION_STATE: LocationFormState = {
+  visibility: "OFF",
+  label: "",
+  geohash: "",
+  radiusKm: 5,
+  allowDiscoveryUseLocation: false,
+};
+
 export function BioLinkEditor({ handle, onOpenSettings }: { handle: string; onOpenSettings?: () => void }) {
   const { config: creatorConfig, setConfig: setCreatorConfig } = useCreatorConfig();
   const [config, setConfig] = useState<BioLinkConfig>(DEFAULT_CONFIG);
@@ -45,14 +71,34 @@ export function BioLinkEditor({ handle, onOpenSettings }: { handle: string; onOp
   const [assistantOptions, setAssistantOptions] = useState<string[]>([]);
   const [assistantLoading, setAssistantLoading] = useState(false);
   const [assistantError, setAssistantError] = useState<string | null>(null);
+  const [locationState, setLocationState] = useState<LocationFormState>(DEFAULT_LOCATION_STATE);
+  const [locationLoading, setLocationLoading] = useState(false);
+  const [locationSaving, setLocationSaving] = useState(false);
+  const [locationError, setLocationError] = useState<string | null>(null);
+  const [locationSaved, setLocationSaved] = useState(false);
+  const lastPublicVisibilityRef = useRef<LocationVisibility>("CITY");
   const defaultCtaUrl = `/go/${handle}`;
   const legacyChatUrl = `/c/${handle}`;
   const [ctaMode, setCtaMode] = useState<"chat" | "custom">("chat");
-  const previewConfig = useMemo(() => ({ ...config, avatarUrl: normalizeImageSrc(config.avatarUrl || "") }), [config]);
+  const previewLocation = useMemo<CreatorLocation>(
+    () => ({
+      visibility: locationState.visibility,
+      label: locationState.label.trim() || null,
+      geohash: locationState.geohash.trim() || null,
+      radiusKm: locationState.visibility === "AREA" ? locationState.radiusKm : null,
+      allowDiscoveryUseLocation: locationState.allowDiscoveryUseLocation,
+    }),
+    [locationState]
+  );
+  const previewConfig = useMemo(
+    () => ({ ...config, avatarUrl: normalizeImageSrc(config.avatarUrl || ""), location: previewLocation }),
+    [config, previewLocation]
+  );
   const faqEntries = useMemo(() => {
     const entries = Array.isArray(config.faq) ? config.faq : [];
     return Array.from({ length: FAQ_SIZE }, (_, idx) => entries[idx] || "");
   }, [config.faq]);
+  const isDev = process.env.NODE_ENV === "development";
 
   const loadConfig = useCallback(async () => {
     try {
@@ -86,9 +132,35 @@ export function BioLinkEditor({ handle, onOpenSettings }: { handle: string; onOp
     }
   }, [creatorConfig.avatarUrl, creatorConfig.creatorName, creatorConfig.creatorSubtitle, handle, defaultCtaUrl]);
 
+  const loadLocation = useCallback(async () => {
+    try {
+      setLocationLoading(true);
+      setLocationError(null);
+      const res = await fetch("/api/creator/location");
+      if (!res.ok) throw new Error("request failed");
+      const data = (await res.json()) as CreatorLocation;
+      setLocationState({
+        visibility: data.visibility,
+        label: data.label || "",
+        geohash: data.geohash || "",
+        radiusKm: data.radiusKm ?? DEFAULT_LOCATION_STATE.radiusKm,
+        allowDiscoveryUseLocation: Boolean(data.allowDiscoveryUseLocation),
+      });
+    } catch (err) {
+      console.error(err);
+      setLocationError("No se pudo cargar la ubicación.");
+    } finally {
+      setLocationLoading(false);
+    }
+  }, []);
+
   useEffect(() => {
     void loadConfig();
   }, [loadConfig]);
+
+  useEffect(() => {
+    void loadLocation();
+  }, [loadLocation]);
 
   useEffect(() => {
     setConfig((prev) => ({
@@ -106,6 +178,13 @@ export function BioLinkEditor({ handle, onOpenSettings }: { handle: string; onOp
     setAssistantOptions([]);
     setAssistantError(null);
   }, [assistantTarget]);
+
+  useEffect(() => {
+    if (locationState.visibility !== "OFF") {
+      lastPublicVisibilityRef.current = locationState.visibility;
+    }
+  }, [locationState.visibility]);
+
 
   async function persistBioLink(nextConfig: BioLinkConfig) {
     const targetCta =
@@ -179,6 +258,44 @@ export function BioLinkEditor({ handle, onOpenSettings }: { handle: string; onOp
       return false;
     } finally {
       setSaving(false);
+    }
+  }
+
+  async function handleSaveLocation() {
+    try {
+      setLocationSaving(true);
+      setLocationError(null);
+      setLocationSaved(false);
+      const payload = {
+        visibility: locationState.visibility,
+        label: locationState.label,
+        geohash: locationState.geohash,
+        radiusKm: locationState.visibility === "AREA" ? locationState.radiusKm : null,
+        allowDiscoveryUseLocation: locationState.allowDiscoveryUseLocation,
+      };
+      const res = await fetch("/api/creator/location", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setLocationError(data?.error || "No se pudo guardar la ubicación.");
+        return;
+      }
+      setLocationState({
+        visibility: data.visibility,
+        label: data.label || "",
+        geohash: data.geohash || "",
+        radiusKm: data.radiusKm ?? DEFAULT_LOCATION_STATE.radiusKm,
+        allowDiscoveryUseLocation: Boolean(data.allowDiscoveryUseLocation),
+      });
+      setLocationSaved(true);
+    } catch (err) {
+      console.error(err);
+      setLocationError("No se pudo guardar la ubicación.");
+    } finally {
+      setLocationSaving(false);
     }
   }
 
@@ -305,6 +422,120 @@ export function BioLinkEditor({ handle, onOpenSettings }: { handle: string; onOp
             )}
           </div>
         </div>
+
+        <div className="rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] p-3 space-y-3">
+          <div className="flex items-center justify-between">
+            <p className="text-sm font-semibold">Ubicación</p>
+            {locationLoading && <span className="text-[11px] text-[color:var(--muted)]">Cargando...</span>}
+          </div>
+          <label className="flex items-center gap-2 text-sm text-[color:var(--text)]">
+            <input
+              type="checkbox"
+              checked={locationState.visibility !== "OFF"}
+              onChange={(e) => {
+                setLocationSaved(false);
+                setLocationState((prev) => {
+                  if (!e.target.checked) {
+                    if (prev.visibility !== "OFF") {
+                      lastPublicVisibilityRef.current = prev.visibility;
+                    }
+                    return { ...prev, visibility: "OFF" };
+                  }
+                  const nextVisibility =
+                    prev.visibility === "OFF" ? lastPublicVisibilityRef.current || "CITY" : prev.visibility;
+                  return { ...prev, visibility: nextVisibility };
+                });
+              }}
+            />
+            Mostrar ubicación en perfil público
+          </label>
+          {locationState.visibility !== "OFF" && (
+            <label className="flex flex-col gap-1 text-sm text-[color:var(--muted)]">
+              <span>Visibilidad</span>
+              <select
+                className="rounded-lg bg-[color:var(--surface-2)] border border-[color:var(--surface-border)] px-3 py-2 text-sm text-[color:var(--text)] focus:border-[color:var(--surface-border-hover)] focus:ring-2 focus:ring-[color:var(--ring)]"
+                value={locationState.visibility}
+                onChange={(e) => {
+                  setLocationSaved(false);
+                  setLocationState((prev) => ({ ...prev, visibility: e.target.value as LocationVisibility }));
+                }}
+              >
+                {LOCATION_PUBLIC_VISIBILITY_OPTIONS.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
+          {locationState.visibility !== "OFF" && (
+            <>
+              <LabeledInput
+                label="Etiqueta"
+                value={locationState.label}
+                onChange={(val) => {
+                  setLocationSaved(false);
+                  setLocationState((prev) => ({ ...prev, label: val }));
+                }}
+                helper="Ej: Madrid"
+              />
+              {locationState.visibility === "AREA" && (
+                <label className="flex flex-col gap-1 text-sm text-[color:var(--muted)]">
+                  <span>Radio (km)</span>
+                  <select
+                    className="rounded-lg bg-[color:var(--surface-2)] border border-[color:var(--surface-border)] px-3 py-2 text-sm text-[color:var(--text)] focus:border-[color:var(--surface-border-hover)] focus:ring-2 focus:ring-[color:var(--ring)]"
+                    value={locationState.radiusKm}
+                    onChange={(e) => {
+                      setLocationSaved(false);
+                      setLocationState((prev) => ({ ...prev, radiusKm: Number(e.target.value) }));
+                    }}
+                  >
+                    {LOCATION_RADIUS_OPTIONS.map((radius) => (
+                      <option key={radius} value={radius}>
+                        {radius} km
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              )}
+              {isDev && (
+                <LabeledInput
+                  label="Geohash (dev)"
+                  value={locationState.geohash}
+                  onChange={(val) => {
+                    setLocationSaved(false);
+                    setLocationState((prev) => ({ ...prev, geohash: val }));
+                  }}
+                  helper="Usa geohash corto (precisión ~5)."
+                />
+              )}
+            </>
+          )}
+          <label className="flex items-center gap-2 text-sm text-[color:var(--text)]">
+            <input
+              type="checkbox"
+              checked={locationState.allowDiscoveryUseLocation}
+              onChange={(e) => {
+                setLocationSaved(false);
+                setLocationState((prev) => ({ ...prev, allowDiscoveryUseLocation: e.target.checked }));
+              }}
+            />
+            Permitir que Discovery use mi zona
+          </label>
+          {locationError && <p className="text-xs text-[color:var(--danger)]">{locationError}</p>}
+          {locationSaved && <p className="text-xs text-[color:var(--brand)]">Ubicación guardada.</p>}
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => void handleSaveLocation()}
+              disabled={locationSaving}
+              className="rounded-lg border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-3 py-2 text-xs font-semibold text-[color:var(--text)] hover:border-[color:var(--brand)] disabled:opacity-60"
+            >
+              {locationSaving ? "Guardando..." : "Guardar ubicación"}
+            </button>
+          </div>
+        </div>
+
         <div className="rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] p-3 space-y-3">
           <div className="flex items-center justify-between">
             <p className="text-sm font-semibold">Asistente de copy</p>
