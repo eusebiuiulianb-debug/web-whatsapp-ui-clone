@@ -60,6 +60,9 @@ export type PublicPopClip = {
   startAtSec?: number | null;
   durationSec?: number | null;
   sortOrder?: number;
+  likeCount?: number;
+  commentCount?: number;
+  liked?: boolean;
   pack: {
     id: string;
     title: string;

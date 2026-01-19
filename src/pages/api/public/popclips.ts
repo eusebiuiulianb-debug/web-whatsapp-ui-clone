@@ -10,6 +10,9 @@ type PublicPopClip = {
   startAtSec: number;
   durationSec: number | null;
   sortOrder: number;
+  likeCount: number;
+  commentCount: number;
+  liked: boolean;
   pack: {
     id: string;
     title: string;
@@ -87,6 +90,47 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       },
     });
 
+    const clipIds = clips.map((clip) => clip.id);
+    const fanIdFromCookie = getFanIdFromCookie(req, handle);
+    const viewerFan = fanIdFromCookie
+      ? await prisma.fan.findFirst({
+          where: { id: fanIdFromCookie, creatorId: creator.id },
+          select: { id: true },
+        })
+      : null;
+    const viewerFanId = viewerFan?.id ?? "";
+
+    const [reactionCounts, commentCounts, viewerReactions] = await Promise.all([
+      clipIds.length > 0
+        ? prisma.popClipReaction.groupBy({
+            by: ["popClipId"],
+            where: { popClipId: { in: clipIds } },
+            _count: { _all: true },
+          })
+        : [],
+      clipIds.length > 0
+        ? prisma.popClipComment.groupBy({
+            by: ["popClipId"],
+            where: { popClipId: { in: clipIds } },
+            _count: { _all: true },
+          })
+        : [],
+      viewerFanId && clipIds.length > 0
+        ? prisma.popClipReaction.findMany({
+            where: { popClipId: { in: clipIds }, fanId: viewerFanId },
+            select: { popClipId: true },
+          })
+        : [],
+    ]);
+
+    const likeCountByClip = new Map(
+      reactionCounts.map((row) => [row.popClipId, row._count._all] as const)
+    );
+    const commentCountByClip = new Map(
+      commentCounts.map((row) => [row.popClipId, row._count._all] as const)
+    );
+    const likedSet = new Set(viewerReactions.map((row) => row.popClipId));
+
     const publicClips: PublicPopClip[] = clips
       .map((clip) => {
         const packMeta = resolvePackMeta({
@@ -105,6 +149,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           startAtSec: Number.isFinite(Number(clip.startAtSec)) ? Math.max(0, Number(clip.startAtSec)) : 0,
           durationSec: clip.durationSec ?? null,
           sortOrder: clip.sortOrder,
+          likeCount: likeCountByClip.get(clip.id) ?? 0,
+          commentCount: commentCountByClip.get(clip.id) ?? 0,
+          liked: likedSet.has(clip.id),
           pack: packMeta,
         };
       })
@@ -119,6 +166,23 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
 function slugify(value?: string | null) {
   return (value || "creator").toLowerCase().replace(/[^a-z0-9]+/g, "-");
+}
+
+function getFanIdFromCookie(req: NextApiRequest, handle: string) {
+  const cookies = parseCookieHeader(req.headers.cookie);
+  const key = `novsy_fan_${slugify(handle)}`;
+  return cookies[key] || "";
+}
+
+function parseCookieHeader(cookieHeader: string | undefined): Record<string, string> {
+  if (!cookieHeader) return {};
+  return cookieHeader.split(";").reduce<Record<string, string>>((acc, part) => {
+    const [rawKey, ...rest] = part.trim().split("=");
+    if (!rawKey) return acc;
+    const key = decodeURIComponent(rawKey);
+    acc[key] = decodeURIComponent(rest.join("="));
+    return acc;
+  }, {});
 }
 
 function buildPackRoute(handle: string, packId: string) {

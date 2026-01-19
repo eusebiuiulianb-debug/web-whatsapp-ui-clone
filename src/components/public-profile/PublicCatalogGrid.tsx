@@ -1,9 +1,22 @@
 import clsx from "clsx";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Skeleton } from "../ui/Skeleton";
 import { PublicCatalogCard, type PublicCatalogCardItem } from "./PublicCatalogCard";
 
 type CatalogFilter = "all" | "pack" | "sub" | "extra" | "popclip";
+
+type PopClipSocialState = {
+  likeCount: number;
+  commentCount: number;
+  liked: boolean;
+};
+
+type PopClipComment = {
+  id: string;
+  body: string;
+  createdAt: string;
+  fan: { id: string; name: string; avatar: string | null };
+};
 
 const DEFAULT_FILTERS: Array<{ id: CatalogFilter; label: string }> = [
   { id: "all", label: "Todo" },
@@ -43,12 +56,28 @@ export function PublicCatalogGrid({
   const [activeFilter, setActiveFilter] = useState<CatalogFilter>(
     defaultFilter ?? resolvedFilters[0]?.id ?? "all"
   );
+  const [popclipSocial, setPopclipSocial] = useState<Record<string, PopClipSocialState>>({});
+  const [toast, setToast] = useState("");
+  const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [activeCommentClip, setActiveCommentClip] = useState<PublicCatalogCardItem | null>(null);
+  const [commentItems, setCommentItems] = useState<PopClipComment[]>([]);
+  const [commentLoading, setCommentLoading] = useState(false);
+  const [commentDraft, setCommentDraft] = useState("");
+  const [commentSending, setCommentSending] = useState(false);
 
   useEffect(() => {
     if (!resolvedFilters.some((filter) => filter.id === activeFilter)) {
       setActiveFilter(resolvedFilters[0]?.id ?? "all");
     }
   }, [activeFilter, resolvedFilters]);
+
+  useEffect(() => {
+    return () => {
+      if (toastTimerRef.current) {
+        window.clearTimeout(toastTimerRef.current);
+      }
+    };
+  }, []);
 
   const featuredSet = useMemo(() => new Set(featuredIds ?? []), [featuredIds]);
   const normalizedPopclips = popclipItems ?? [];
@@ -69,6 +98,164 @@ export function PublicCatalogGrid({
     return [];
   }, [activeFilter, normalizedPopclips]);
 
+  useEffect(() => {
+    if (normalizedPopclips.length === 0) {
+      setPopclipSocial({});
+      return;
+    }
+    setPopclipSocial((prev) => {
+      const next: Record<string, PopClipSocialState> = { ...prev };
+      normalizedPopclips.forEach((clip) => {
+        const existing = next[clip.id];
+        next[clip.id] = {
+          likeCount: clip.likeCount ?? existing?.likeCount ?? 0,
+          commentCount: clip.commentCount ?? existing?.commentCount ?? 0,
+          liked: clip.liked ?? existing?.liked ?? false,
+        };
+      });
+      return next;
+    });
+  }, [normalizedPopclips]);
+
+  useEffect(() => {
+    if (!activeCommentClip) {
+      setCommentItems([]);
+      setCommentLoading(false);
+      setCommentDraft("");
+      setCommentSending(false);
+      return;
+    }
+    const controller = new AbortController();
+    setCommentLoading(true);
+    fetch(`/api/public/popclips/${activeCommentClip.id}/comments`, { signal: controller.signal })
+      .then(async (res) => {
+        const data = (await res.json().catch(() => null)) as { items?: PopClipComment[]; count?: number } | null;
+        if (!res.ok || !data) {
+          setCommentItems([]);
+          return;
+        }
+        setCommentItems(Array.isArray(data.items) ? data.items : []);
+        if (typeof data.count === "number") {
+          setPopclipSocial((prev) => {
+            const current = prev[activeCommentClip.id];
+            if (!current) return prev;
+            return {
+              ...prev,
+              [activeCommentClip.id]: { ...current, commentCount: data.count as number },
+            };
+          });
+        }
+      })
+      .catch((err) => {
+        if (err instanceof DOMException && err.name === "AbortError") return;
+        setCommentItems([]);
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setCommentLoading(false);
+      });
+    return () => controller.abort();
+  }, [activeCommentClip]);
+
+  useEffect(() => {
+    if (!activeCommentClip) return;
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setActiveCommentClip(null);
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [activeCommentClip]);
+
+  useEffect(() => {
+    if (!activeCommentClip) return;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = previousOverflow;
+    };
+  }, [activeCommentClip]);
+
+  const showToast = (message: string) => {
+    setToast(message);
+    if (toastTimerRef.current) window.clearTimeout(toastTimerRef.current);
+    toastTimerRef.current = window.setTimeout(() => setToast(""), 2200);
+  };
+
+  const handleOpenComments = (item: PublicCatalogCardItem) => {
+    if (!item?.id) return;
+    setCommentDraft("");
+    setCommentItems([]);
+    setActiveCommentClip(item);
+  };
+
+  const handleCloseComments = () => {
+    setActiveCommentClip(null);
+  };
+
+  const handleToggleLike = async (item: PublicCatalogCardItem) => {
+    const current = popclipSocial[item.id] ?? {
+      likeCount: item.likeCount ?? 0,
+      commentCount: item.commentCount ?? 0,
+      liked: item.liked ?? false,
+    };
+    const next = {
+      ...current,
+      liked: !current.liked,
+      likeCount: Math.max(0, current.likeCount + (current.liked ? -1 : 1)),
+    };
+    setPopclipSocial((prev) => ({ ...prev, [item.id]: next }));
+    try {
+      const res = await fetch(`/api/public/popclips/${item.id}/like`, { method: "POST" });
+      if (res.status === 401) {
+        showToast("Inicia sesión para reaccionar");
+        setPopclipSocial((prev) => ({ ...prev, [item.id]: current }));
+        return;
+      }
+      if (!res.ok) throw new Error("request failed");
+      const data = (await res.json()) as { liked: boolean; likeCount: number };
+      setPopclipSocial((prev) => ({
+        ...prev,
+        [item.id]: { ...current, liked: data.liked, likeCount: data.likeCount },
+      }));
+    } catch (_err) {
+      setPopclipSocial((prev) => ({ ...prev, [item.id]: current }));
+      showToast("No se pudo reaccionar");
+    }
+  };
+
+  const handleSendComment = async () => {
+    if (!activeCommentClip || commentSending) return;
+    const body = commentDraft.trim();
+    if (!body) return;
+    setCommentSending(true);
+    try {
+      const res = await fetch(`/api/public/popclips/${activeCommentClip.id}/comments`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ body }),
+      });
+      if (res.status === 401) {
+        showToast("Inicia sesión para comentar");
+        return;
+      }
+      if (!res.ok) throw new Error("request failed");
+      const data = (await res.json()) as { item: PopClipComment; count: number };
+      setCommentItems((prev) => [data.item, ...prev]);
+      setCommentDraft("");
+      setPopclipSocial((prev) => {
+        const current = prev[activeCommentClip.id];
+        if (!current) return prev;
+        return {
+          ...prev,
+          [activeCommentClip.id]: { ...current, commentCount: data.count },
+        };
+      });
+    } catch (_err) {
+      showToast("No se pudo comentar");
+    } finally {
+      setCommentSending(false);
+    }
+  };
+
   const hasItems = items.length > 0;
   const hasPopclips = normalizedPopclips.length > 0;
   const showCatalogEmpty =
@@ -78,17 +265,66 @@ export function PublicCatalogGrid({
     : "Aún no hay items disponibles en el catálogo.";
   const shouldShowPopclips = resolvedFilters.some((filter) => filter.id === "popclip");
 
+  const resolvePopclipSocial = (item: PublicCatalogCardItem): PopClipSocialState => {
+    const state = popclipSocial[item.id];
+    if (state) return state;
+    return {
+      likeCount: item.likeCount ?? 0,
+      commentCount: item.commentCount ?? 0,
+      liked: item.liked ?? false,
+    };
+  };
+
+  const renderPopclipActions = (item: PublicCatalogCardItem) => {
+    const social = resolvePopclipSocial(item);
+    return (
+      <div className="flex items-center gap-3 text-xs text-[color:var(--muted)]">
+        <button
+          type="button"
+          onClick={() => handleToggleLike(item)}
+          aria-pressed={social.liked}
+          className={clsx(
+            "inline-flex items-center gap-1 rounded-full border px-2 py-1 transition",
+            social.liked
+              ? "border-[color:rgba(244,63,94,0.6)] bg-[color:rgba(244,63,94,0.12)] text-[color:rgba(244,63,94,0.95)]"
+              : "border-[color:var(--surface-border)] text-[color:var(--muted)] hover:text-[color:var(--text)]"
+          )}
+        >
+          <span>❤</span>
+          <span className="tabular-nums">{social.likeCount}</span>
+        </button>
+        <button
+          type="button"
+          onClick={() => handleOpenComments(item)}
+          className="inline-flex items-center gap-1 rounded-full border border-[color:var(--surface-border)] px-2 py-1 text-[color:var(--muted)] hover:text-[color:var(--text)]"
+        >
+          <span>💬</span>
+          <span className="tabular-nums">{social.commentCount}</span>
+        </button>
+      </div>
+    );
+  };
+
   const renderGrid = (gridItems: PublicCatalogCardItem[]) => (
     <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
-      {gridItems.map((item) =>
-        item.href ? (
+      {gridItems.map((item) => {
+        const card = item.href ? (
           <a key={item.id} href={item.href} className="block min-w-0">
             <PublicCatalogCard item={item} />
           </a>
         ) : (
           <PublicCatalogCard key={item.id} item={item} />
-        )
-      )}
+        );
+
+        if (item.kind !== "popclip") return card;
+
+        return (
+          <div key={item.id} className="space-y-2">
+            {card}
+            {renderPopclipActions(item)}
+          </div>
+        );
+      })}
     </div>
   );
 
@@ -132,6 +368,7 @@ export function PublicCatalogGrid({
           );
         })}
       </div>
+      {toast && <div className="text-xs text-[color:var(--brand)]">{toast}</div>}
 
       {activeFilter === "popclip" ? (
         <div className="space-y-2">
@@ -189,6 +426,93 @@ export function PublicCatalogGrid({
           )}
         </div>
       )}
+
+      {activeCommentClip && (
+        <div
+          className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm"
+          onClick={handleCloseComments}
+        >
+          <div className="fixed inset-0 flex items-end sm:items-center justify-center p-3 sm:p-6">
+            <div
+              role="dialog"
+              aria-modal="true"
+              aria-label="Comentarios"
+              onClick={(event) => event.stopPropagation()}
+              className="w-full sm:w-[520px] max-h-[85vh] overflow-hidden rounded-t-2xl sm:rounded-2xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] shadow-2xl"
+            >
+              <div className="px-4 pt-3 pb-4 sm:px-5 sm:pt-5 sm:pb-5 space-y-3">
+                <div className="mx-auto h-1 w-10 rounded-full bg-white/20 sm:hidden" />
+                <div className="flex items-start justify-between gap-3">
+                  <div className="space-y-1">
+                    <p className="text-sm font-semibold text-[color:var(--text)]">Comentarios</p>
+                    <p className="text-xs text-[color:var(--muted)]">{activeCommentClip.title}</p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={handleCloseComments}
+                    aria-label="Cerrar"
+                    className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-[color:var(--surface-border)] text-[color:var(--muted)] hover:text-[color:var(--text)] hover:border-[color:var(--surface-border-hover)]"
+                  >
+                    X
+                  </button>
+                </div>
+                <div className="max-h-[40vh] overflow-y-auto space-y-3 pr-1">
+                  {commentLoading ? (
+                    <div className="space-y-2">
+                      <Skeleton className="h-4 w-1/2" />
+                      <Skeleton className="h-3 w-full" />
+                      <Skeleton className="h-3 w-5/6" />
+                    </div>
+                  ) : commentItems.length === 0 ? (
+                    <p className="text-xs text-[color:var(--muted)]">Sé la primera persona en comentar.</p>
+                  ) : (
+                    commentItems.map((comment) => (
+                      <div key={comment.id} className="flex items-start gap-2">
+                        <div className="h-8 w-8 rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] text-xs font-semibold text-[color:var(--text)] flex items-center justify-center">
+                          {(comment.fan.name || "F")[0]?.toUpperCase() || "F"}
+                        </div>
+                        <div className="min-w-0 flex-1 space-y-1">
+                          <div className="flex items-center gap-2 text-[11px] text-[color:var(--muted)]">
+                            <span className="font-semibold text-[color:var(--text)]">{comment.fan.name}</span>
+                            <span>{formatCommentDate(comment.createdAt)}</span>
+                          </div>
+                          <p className="text-sm text-[color:var(--text)]">{comment.body}</p>
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
+                <div className="flex items-end gap-2">
+                  <textarea
+                    className="min-h-[44px] flex-1 rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-3 py-2 text-sm text-[color:var(--text)] focus:border-[color:var(--surface-border-hover)] focus:ring-2 focus:ring-[color:var(--ring)]"
+                    placeholder="Añade un comentario..."
+                    value={commentDraft}
+                    onChange={(event) => setCommentDraft(event.target.value)}
+                    rows={2}
+                  />
+                  <button
+                    type="button"
+                    onClick={handleSendComment}
+                    disabled={commentSending || !commentDraft.trim()}
+                    className="h-10 rounded-xl bg-[color:var(--brand-strong)] px-4 text-xs font-semibold text-[color:var(--surface-0)] hover:bg-[color:var(--brand)] disabled:opacity-60"
+                  >
+                    Enviar
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </section>
   );
+}
+
+function formatCommentDate(value: string) {
+  if (!value) return "";
+  try {
+    return new Date(value).toLocaleDateString("es-ES", { day: "2-digit", month: "short" });
+  } catch (_err) {
+    return "";
+  }
 }

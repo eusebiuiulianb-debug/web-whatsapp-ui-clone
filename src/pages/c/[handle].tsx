@@ -6,7 +6,7 @@ import { PublicHero } from "../../components/public-profile/PublicHero";
 import { PublicCatalogGrid } from "../../components/public-profile/PublicCatalogGrid";
 import { PublicCatalogCard, type PublicCatalogCardItem } from "../../components/public-profile/PublicCatalogCard";
 import { PublicProfileStatsRow } from "../../components/public-profile/PublicProfileStatsRow";
-import type { PublicCatalogItem, PublicProfileStats } from "../../types/publicProfile";
+import type { PublicCatalogItem, PublicPopClip, PublicProfileStats } from "../../types/publicProfile";
 import type { CreatorLocation } from "../../types/creatorLocation";
 import { ensureAnalyticsCookie } from "../../lib/analyticsCookie";
 import { track } from "../../lib/analyticsClient";
@@ -75,11 +75,34 @@ export default function PublicCreatorByHandle({
 
   const baseChatHref = `/go/${creatorHandle}`;
   const [searchParams, setSearchParams] = useState("");
+  const [popClips, setPopClips] = useState<PublicPopClip[]>([]);
+  const [popClipsLoading, setPopClipsLoading] = useState(false);
+  const [popClipsError, setPopClipsError] = useState("");
 
   useEffect(() => {
     if (typeof window === "undefined") return;
     setSearchParams(window.location.search || "");
   }, []);
+
+  useEffect(() => {
+    if (!creatorHandle) return;
+    const controller = new AbortController();
+    setPopClipsLoading(true);
+    setPopClipsError("");
+    fetch(`/api/public/popclips?handle=${encodeURIComponent(creatorHandle)}`, { signal: controller.signal })
+      .then(async (res) => {
+        if (!res.ok) throw new Error("request failed");
+        const payload = (await res.json()) as { clips?: PublicPopClip[] };
+        setPopClips(Array.isArray(payload?.clips) ? payload.clips : []);
+      })
+      .catch((err) => {
+        if (err instanceof DOMException && err.name === "AbortError") return;
+        setPopClipsError("No se pudieron cargar los PopClips.");
+        setPopClips([]);
+      })
+      .finally(() => setPopClipsLoading(false));
+    return () => controller.abort();
+  }, [creatorHandle]);
 
   const chatHref = appendSearchIfRelative(baseChatHref, searchParams);
   const followDraft = "Quiero seguirte gratis.";
@@ -115,6 +138,17 @@ export default function PublicCreatorByHandle({
   const showLoading = !catalogItems && !catalogError;
   const featuredItems = items.slice(0, 3);
   const featuredIds = featuredItems.map((item) => item.id);
+  const popclipItems = popClips.map((clip) => ({
+    id: clip.id,
+    kind: "popclip",
+    title: clip.title?.trim() || clip.pack.title,
+    priceCents: clip.pack.priceCents,
+    currency: clip.pack.currency,
+    thumbUrl: clip.posterUrl || null,
+    likeCount: clip.likeCount ?? 0,
+    commentCount: clip.commentCount ?? 0,
+    liked: clip.liked ?? false,
+  }));
 
   return (
     <>
@@ -161,14 +195,17 @@ export default function PublicCreatorByHandle({
 
           <section className="space-y-3 min-w-0">
             <h2 className="text-base font-semibold text-[color:var(--text)]">Catálogo</h2>
-            <PublicCatalogGrid
-              items={items}
-              featuredIds={featuredIds}
-              chatHref={chatHref}
-              isLoading={showLoading}
-              error={catalogError}
-              filters={CATALOG_FILTERS}
-            />
+          <PublicCatalogGrid
+            items={items}
+            featuredIds={featuredIds}
+            chatHref={chatHref}
+            isLoading={showLoading}
+            error={catalogError}
+            filters={CATALOG_FILTERS}
+            popclipItems={popclipItems}
+            popclipLoading={popClipsLoading}
+            popclipError={popClipsError || undefined}
+          />
           </section>
         </main>
       </div>

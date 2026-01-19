@@ -12,6 +12,9 @@ export type PublicCatalogCardItem = {
   thumbUrl?: string | null;
   href?: string;
   showSave?: boolean;
+  likeCount?: number;
+  commentCount?: number;
+  liked?: boolean;
 };
 
 const KIND_LABELS: Record<PublicCatalogCardItem["kind"], string> = {

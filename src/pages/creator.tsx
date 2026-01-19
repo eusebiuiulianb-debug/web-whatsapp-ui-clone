@@ -154,6 +154,9 @@ export default function CreatorPublicPage({ fanQuery, stats }: Props) {
       priceCents: clip.pack?.priceCents,
       currency: clip.pack?.currency,
       thumbUrl: clip.posterUrl || null,
+      likeCount: clip.likeCount ?? 0,
+      commentCount: clip.commentCount ?? 0,
+      liked: clip.liked ?? false,
       href: buildDraftHref(draft),
     } as PublicCatalogCardItem;
   });

@@ -96,6 +96,8 @@ model Fan {
   notes                 FanNote[]
   followUps             FanFollowUp[]
   extraPurchases        ExtraPurchase[]
+  popClipReactions      PopClipReaction[]
+  popClipComments       PopClipComment[]
   aiUsageLogs           AiUsageLog[]
   segment               String           @default("NUEVO")
   healthScore           Int              @default(0)
@@ -538,10 +540,36 @@ model PopClip {
   sortOrder     Int          @default(0)
   createdAt     DateTime     @default(now())
   updatedAt     DateTime     @updatedAt
+  reactions     PopClipReaction[]
+  comments      PopClipComment[]
 
   @@unique([creatorId, catalogItemId])
   @@unique([creatorId, contentItemId])
   @@index([creatorId, isActive, sortOrder])
+}
+
+model PopClipReaction {
+  id        String   @id @default(cuid())
+  popClipId String
+  popClip   PopClip  @relation(fields: [popClipId], references: [id], onDelete: Cascade)
+  fanId     String
+  fan       Fan      @relation(fields: [fanId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  @@unique([popClipId, fanId])
+  @@index([fanId])
+}
+
+model PopClipComment {
+  id        String   @id @default(cuid())
+  popClipId String
+  popClip   PopClip  @relation(fields: [popClipId], references: [id], onDelete: Cascade)
+  fanId     String
+  fan       Fan      @relation(fields: [fanId], references: [id], onDelete: Cascade)
+  body      String
+  createdAt DateTime @default(now())
+
+  @@index([popClipId, createdAt])
 }
 
 enum ManagerAiTab {
