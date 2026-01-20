@@ -1,6 +1,7 @@
 import type { NextApiRequest, NextApiResponse } from "next";
 import prisma from "../../../lib/prisma.server";
 import { sendBadRequest, sendServerError } from "../../../lib/apiError";
+import { readFanId, slugifyHandle } from "../../../lib/fan/session";
 
 type PublicPopClip = {
   id: string;
@@ -47,7 +48,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
   try {
     const creators = await prisma.creator.findMany({ include: { packs: true } });
-    const creator = creators.find((item) => slugify(item.name) === handle);
+    const creator = creators.find((item) => slugifyHandle(item.name) === handle);
     if (!creator) {
       return res.status(404).json({ error: "Not found" });
     }
@@ -93,7 +94,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     });
 
     const clipIds = clips.map((clip) => clip.id);
-    const fanIdFromCookie = getFanIdFromCookie(req, handle);
+    const fanIdFromCookie = readFanId(req, handle);
     const viewerFan = fanIdFromCookie
       ? await prisma.fan.findFirst({
           where: { id: fanIdFromCookie, creatorId: creator.id },
@@ -168,27 +169,6 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   }
 }
 
-function slugify(value?: string | null) {
-  return (value || "creator").toLowerCase().replace(/[^a-z0-9]+/g, "-");
-}
-
-function getFanIdFromCookie(req: NextApiRequest, handle: string) {
-  const cookies = parseCookieHeader(req.headers.cookie);
-  const key = `novsy_fan_${slugify(handle)}`;
-  return cookies[key] || "";
-}
-
-function parseCookieHeader(cookieHeader: string | undefined): Record<string, string> {
-  if (!cookieHeader) return {};
-  return cookieHeader.split(";").reduce<Record<string, string>>((acc, part) => {
-    const [rawKey, ...rest] = part.trim().split("=");
-    if (!rawKey) return acc;
-    const key = decodeURIComponent(rawKey);
-    acc[key] = decodeURIComponent(rest.join("="));
-    return acc;
-  }, {});
-}
-
 function buildPackRoute(handle: string, packId: string) {
   return `/p/${handle}/${packId}`;
 }
@@ -228,7 +208,7 @@ function resolvePackMeta({
       priceCents: clip.catalogItem?.priceCents ?? 0,
       currency: clip.catalogItem?.currency ?? "EUR",
       type: clip.catalogItem?.type ?? "PACK",
-      slug: slugify(clip.catalogItem?.title || clip.title || "pack"),
+      slug: slugifyHandle(clip.catalogItem?.title || clip.title || "pack"),
       route: buildPackRoute(handle, clip.catalogItem?.id || clip.catalogItemId || "pack"),
       coverUrl: clip.posterUrl ?? null,
     };
@@ -240,7 +220,7 @@ function resolvePackMeta({
   const fallback = DEFAULT_PACK_META[packKey];
   const creatorPack =
     creator.packs.find((pack) => pack.id === packKey) ||
-    creator.packs.find((pack) => slugify(pack.name) === packKey);
+    creator.packs.find((pack) => slugifyHandle(pack.name) === packKey);
   const title = creatorPack?.name || fallback.title;
   const priceMeta = creatorPack ? parsePriceToCents(creatorPack.price) : { cents: fallback.priceCents, currency: "EUR" };
 
@@ -251,7 +231,7 @@ function resolvePackMeta({
     priceCents: priceMeta.cents,
     currency: priceMeta.currency,
     type: "PACK",
-    slug: slugify(title),
+    slug: slugifyHandle(title),
     route: buildPackRoute(handle, packKey),
     coverUrl: clip.posterUrl ?? null,
   };

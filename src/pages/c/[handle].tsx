@@ -1,7 +1,8 @@
 import Head from "next/head";
 import type { GetServerSideProps } from "next";
 import { randomUUID } from "crypto";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type MouseEvent } from "react";
+import { useRouter } from "next/router";
 import { PublicHero } from "../../components/public-profile/PublicHero";
 import { PublicCatalogGrid } from "../../components/public-profile/PublicCatalogGrid";
 import { PublicCatalogCard, type PublicCatalogCardItem } from "../../components/public-profile/PublicCatalogCard";
@@ -23,6 +24,8 @@ type Props = {
   avatarUrl?: string | null;
   creatorHandle?: string;
   stats?: PublicProfileStats;
+  followerCount?: number;
+  isFollowing?: boolean;
   location?: CreatorLocation | null;
   catalogItems?: PublicCatalogItem[];
   catalogError?: string | null;
@@ -58,19 +61,38 @@ export default function PublicCreatorByHandle({
   avatarUrl,
   creatorHandle,
   stats,
+  followerCount,
+  isFollowing,
   location,
   catalogItems,
   catalogError,
 }: Props) {
+  const router = useRouter();
   const baseChatHref = creatorHandle ? `/go/${creatorHandle}` : "/go/creator";
   const [searchParams, setSearchParams] = useState("");
   const [popClips, setPopClips] = useState<PublicPopClip[]>([]);
   const [popClipsLoading, setPopClipsLoading] = useState(false);
   const [popClipsError, setPopClipsError] = useState("");
+  const [toast, setToast] = useState("");
+  const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [chatPending, setChatPending] = useState(false);
+  const [followPending, setFollowPending] = useState(false);
+  const [isFollowingState, setIsFollowingState] = useState(Boolean(isFollowing));
+  const [followersCount, setFollowersCount] = useState(
+    typeof followerCount === "number" && Number.isFinite(followerCount) ? followerCount : 0
+  );
 
   useEffect(() => {
     if (typeof window === "undefined") return;
     setSearchParams(window.location.search || "");
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (toastTimerRef.current) {
+        clearTimeout(toastTimerRef.current);
+      }
+    };
   }, []);
 
   useEffect(() => {
@@ -96,6 +118,7 @@ export default function PublicCreatorByHandle({
   const chatHref = appendSearchIfRelative(baseChatHref, searchParams);
   const followDraft = "Quiero seguirte gratis.";
   const followHref = appendSearchIfRelative(`${baseChatHref}?draft=${encodeURIComponent(followDraft)}`, searchParams);
+  const followLabel = isFollowingState ? "Siguiendo" : "Seguir gratis";
 
   useEffect(() => {
     if (!creatorHandle) return;
@@ -141,6 +164,63 @@ export default function PublicCreatorByHandle({
     canInteract: clip.canInteract ?? false,
   }));
 
+  const showToast = (message: string) => {
+    setToast(message);
+    if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
+    toastTimerRef.current = setTimeout(() => setToast(""), 2200);
+  };
+
+  const handleOpenChat = async (event: MouseEvent<HTMLAnchorElement>) => {
+    event.preventDefault();
+    if (!creatorHandle || chatPending) return;
+    setChatPending(true);
+    try {
+      const res = await fetch("/api/public/chat/open", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ creatorHandle }),
+      });
+      if (!res.ok) throw new Error("request failed");
+      const data = (await res.json()) as { redirectUrl?: string };
+      if (!data?.redirectUrl) throw new Error("missing redirect");
+      await router.push(data.redirectUrl);
+    } catch (_err) {
+      showToast("No se pudo abrir el chat.");
+      setChatPending(false);
+    }
+  };
+
+  const handleFollow = async (event: MouseEvent<HTMLAnchorElement>) => {
+    event.preventDefault();
+    if (!creatorHandle || followPending) return;
+    if (isFollowingState) {
+      showToast("Ya sigues a este creador.");
+      return;
+    }
+    const prevFollowing = isFollowingState;
+    const prevCount = followersCount;
+    setIsFollowingState(true);
+    setFollowersCount((count) => count + 1);
+    setFollowPending(true);
+    try {
+      const res = await fetch(`/api/public/creator/${encodeURIComponent(creatorHandle)}/follow`, { method: "POST" });
+      if (!res.ok) throw new Error("request failed");
+      const data = (await res.json()) as { followerCount?: number; following?: boolean };
+      if (typeof data?.followerCount === "number") {
+        setFollowersCount(data.followerCount);
+      }
+      if (typeof data?.following === "boolean") {
+        setIsFollowingState(data.following);
+      }
+    } catch (_err) {
+      setIsFollowingState(prevFollowing);
+      setFollowersCount(prevCount);
+      showToast("No se pudo seguir.");
+    } finally {
+      setFollowPending(false);
+    }
+  };
+
   if (notFound || !creatorName || !creatorHandle) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-[color:var(--surface-0)] text-[color:var(--muted)] px-4">
@@ -169,12 +249,18 @@ export default function PublicCreatorByHandle({
             chips={[]}
             primaryCtaLabel="Entrar al chat privado"
             primaryHref={chatHref}
-            secondaryCtaLabel="Seguir gratis"
+            primaryOnClick={handleOpenChat}
+            primaryDisabled={chatPending}
+            secondaryCtaLabel={followLabel}
             secondaryHref={followHref}
+            secondaryOnClick={handleFollow}
+            secondaryDisabled={followPending}
           />
+          {toast && <div className="text-xs text-[color:var(--brand)]">{toast}</div>}
           <PublicProfileStatsRow
             salesCount={salesCount}
             ratingsCount={ratingsCount}
+            followersCount={followersCount}
           />
 
           {featuredItems.length > 0 && (
@@ -207,6 +293,7 @@ export default function PublicCreatorByHandle({
             popclipItems={popclipItems}
             popclipLoading={popClipsLoading}
             popclipError={popClipsError || undefined}
+            requirePopclipAuth={false}
           />
           </section>
         </main>
@@ -266,10 +353,32 @@ export const getServerSideProps: GetServerSideProps<Props> = async (ctx) => {
     console.error("Error loading public stats", err);
   }
 
+  const creatorHandle = slugify(match.name);
+  let followerCount = 0;
+  let isFollowing = false;
+  try {
+    followerCount = await prisma.fan.count({ where: { creatorId: match.id, isArchived: false } });
+  } catch (err) {
+    console.error("Error loading follower count", err);
+  }
+
+  try {
+    const { readFanId } = await import("../../lib/fan/session");
+    const fanIdFromCookie = readFanId({ headers: ctx.req.headers } as any, creatorHandle);
+    if (fanIdFromCookie) {
+      const viewerFan = await prisma.fan.findFirst({
+        where: { id: fanIdFromCookie, creatorId: match.id, isArchived: false },
+        select: { id: true },
+      });
+      isFollowing = Boolean(viewerFan?.id);
+    }
+  } catch (err) {
+    console.error("Error resolving follower state", err);
+  }
+
   const profile = await prisma.creatorProfile.findUnique({ where: { creatorId: match.id } });
 
   const avatarUrl = normalizeImageSrc(match.bioLinkAvatarUrl || "");
-  const creatorHandle = slugify(match.name);
   const trustLine = match.bioLinkTagline ?? match.subtitle ?? "";
   const bio = match.bioLinkDescription ?? match.description ?? "";
 
@@ -282,6 +391,8 @@ export const getServerSideProps: GetServerSideProps<Props> = async (ctx) => {
       avatarUrl,
       creatorHandle,
       stats,
+      followerCount,
+      isFollowing,
       location: mapLocation(profile),
       catalogItems,
       catalogError,

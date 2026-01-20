@@ -1,17 +1,26 @@
 type Props = {
   salesCount?: number | null;
   ratingsCount?: number | null;
+  followersCount?: number | null;
 };
 
-export function PublicProfileStatsRow({ salesCount, ratingsCount }: Props) {
+export function PublicProfileStatsRow({ salesCount, ratingsCount, followersCount }: Props) {
   const salesValue = normalizeCount(salesCount);
   const ratingsValue = normalizeCount(ratingsCount);
-  if (salesValue === 0 && ratingsValue === 0) return null;
+  const followersValue = normalizeCount(followersCount);
+  const stats = [
+    ...(followersValue > 0 ? [{ label: "Seguidores", value: formatCount(followersValue) }] : []),
+    ...(salesValue > 0 ? [{ label: "Ventas", value: formatCount(salesValue) }] : []),
+    ...(ratingsValue > 0 ? [{ label: "Valoraciones", value: formatCount(ratingsValue) }] : []),
+  ];
+  if (stats.length === 0) return null;
+  const columns = stats.length === 1 ? "grid-cols-1" : stats.length === 2 ? "grid-cols-2" : "grid-cols-3";
 
   return (
-    <div className="grid grid-cols-2 gap-3 min-w-0">
-      <StatCard label="Ventas" value={formatCount(salesValue)} />
-      <StatCard label="Valoraciones" value={formatCount(ratingsValue)} />
+    <div className={`grid ${columns} gap-3 min-w-0`}>
+      {stats.map((stat) => (
+        <StatCard key={stat.label} label={stat.label} value={stat.value} />
+      ))}
     </div>
   );
 }

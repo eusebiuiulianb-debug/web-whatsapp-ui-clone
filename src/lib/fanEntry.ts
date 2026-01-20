@@ -1,6 +1,7 @@
 import type { ServerResponse } from "http";
 import type { NextApiRequest } from "next";
 import prisma from "./prisma.server";
+import { buildFanCookieName, parseCookieHeader, setFanCookie, slugifyHandle } from "./fan/session";
 
 type FanEntryMode = "go" | "public";
 
@@ -18,9 +19,6 @@ type FanEntryResult = {
   isNew: boolean;
 };
 
-const FAN_COOKIE_PREFIX = "novsy_fan_";
-const FAN_COOKIE_MAX_AGE = 60 * 60 * 24 * 30; // 30 days
-
 export async function createOrResumeFanForHandle(params: FanEntryParams): Promise<FanEntryResult> {
   const { handle, req, res, mode = "go" } = params;
   const creators = await prisma.creator.findMany();
@@ -29,10 +27,9 @@ export async function createOrResumeFanForHandle(params: FanEntryParams): Promis
     throw new Error("creator_not_found");
   }
 
-  const resolvedHandle = slugify(match.name || handle || "creator");
-  const cookieName = `${FAN_COOKIE_PREFIX}${resolvedHandle}`;
+  const resolvedHandle = slugifyHandle(match.name || handle || "creator");
   const cookies = parseCookieHeader(req.headers?.cookie);
-  const existingFanId = cookies[cookieName];
+  const existingFanId = cookies[buildFanCookieName(resolvedHandle)];
 
   if (existingFanId) {
     const existingFan = await prisma.fan.findFirst({
@@ -56,7 +53,7 @@ export async function createOrResumeFanForHandle(params: FanEntryParams): Promis
     },
   });
 
-  setFanCookie(res, cookieName, fanId);
+  setFanCookie(res, resolvedHandle, fanId);
   return { fanId, creatorId: match.id, handle: resolvedHandle, isNew: true };
 }
 
@@ -65,44 +62,12 @@ export function setFanCookieForHandle(
   handle: string,
   fanId: string
 ) {
-  const resolvedHandle = slugify(handle || "creator");
-  const cookieName = `${FAN_COOKIE_PREFIX}${resolvedHandle}`;
-  setFanCookie(res, cookieName, fanId);
+  const resolvedHandle = slugifyHandle(handle || "creator");
+  setFanCookie(res, resolvedHandle, fanId);
 }
 
 function resolveCreatorByHandle(creators: Array<{ id: string; name: string | null }>, handle: string) {
   if (!creators || creators.length === 0) return null;
-  const normalizedHandle = slugify(handle || "");
-  return creators.find((creator) => slugify(creator.name || "") === normalizedHandle) || creators[0];
-}
-
-function slugify(value?: string | null) {
-  return (value || "creator").toLowerCase().replace(/[^a-z0-9]+/g, "-");
-}
-
-function parseCookieHeader(cookieHeader: string | undefined): Record<string, string> {
-  if (!cookieHeader) return {};
-  return cookieHeader.split(";").reduce<Record<string, string>>((acc, part) => {
-    const [rawKey, ...rest] = part.trim().split("=");
-    if (!rawKey) return acc;
-    const key = decodeURIComponent(rawKey);
-    acc[key] = decodeURIComponent(rest.join("="));
-    return acc;
-  }, {});
-}
-
-function setFanCookie(res: Pick<ServerResponse, "getHeader" | "setHeader">, name: string, value: string) {
-  const secureFlag = process.env.NODE_ENV === "production" ? "; Secure" : "";
-  const cookieValue = `${name}=${encodeURIComponent(value)}; Path=/; Max-Age=${FAN_COOKIE_MAX_AGE}; HttpOnly; SameSite=Lax${secureFlag}`;
-
-  const existing = res.getHeader("Set-Cookie");
-  if (!existing) {
-    res.setHeader("Set-Cookie", cookieValue);
-    return;
-  }
-  if (Array.isArray(existing)) {
-    res.setHeader("Set-Cookie", [...existing, cookieValue]);
-    return;
-  }
-  res.setHeader("Set-Cookie", [existing as string, cookieValue]);
+  const normalizedHandle = slugifyHandle(handle || "");
+  return creators.find((creator) => slugifyHandle(creator.name || "") === normalizedHandle) || creators[0];
 }

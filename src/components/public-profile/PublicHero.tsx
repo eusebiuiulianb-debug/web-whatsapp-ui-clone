@@ -1,4 +1,5 @@
 import Image from "next/image";
+import type { MouseEvent } from "react";
 import { normalizeImageSrc } from "../../utils/normalizeImageSrc";
 import type { CreatorLocation } from "../../types/creatorLocation";
 import { PublicLocationBadge } from "./PublicLocationBadge";
@@ -13,8 +14,12 @@ type Props = {
   chips: string[];
   primaryCtaLabel: string;
   primaryHref: string;
+  primaryOnClick?: (event: MouseEvent<HTMLAnchorElement>) => void;
+  primaryDisabled?: boolean;
   secondaryCtaLabel: string;
   secondaryHref: string;
+  secondaryOnClick?: (event: MouseEvent<HTMLAnchorElement>) => void;
+  secondaryDisabled?: boolean;
 };
 
 export function PublicHero({
@@ -27,8 +32,12 @@ export function PublicHero({
   chips,
   primaryCtaLabel,
   primaryHref,
+  primaryOnClick,
+  primaryDisabled,
   secondaryCtaLabel,
   secondaryHref,
+  secondaryOnClick,
+  secondaryDisabled,
 }: Props) {
   const showLocation = Boolean(location && location.visibility !== "OFF" && location.label);
   const showMeta = Boolean(trustLine) || showLocation;
@@ -63,13 +72,33 @@ export function PublicHero({
       <div className="flex flex-col gap-2 sm:flex-row sm:items-stretch">
         <a
           href={primaryHref}
-          className="inline-flex h-12 w-full items-center justify-center rounded-xl bg-[color:var(--brand-strong)] px-4 text-sm font-semibold text-[color:var(--surface-0)] shadow-lg transition hover:bg-[color:var(--brand)] sm:w-auto"
+          onClick={(event) => {
+            if (primaryDisabled) {
+              event.preventDefault();
+              return;
+            }
+            primaryOnClick?.(event);
+          }}
+          aria-disabled={primaryDisabled}
+          className={`inline-flex h-12 w-full items-center justify-center rounded-xl bg-[color:var(--brand-strong)] px-4 text-sm font-semibold text-[color:var(--surface-0)] shadow-lg transition hover:bg-[color:var(--brand)] sm:w-auto${
+            primaryDisabled ? " opacity-60 pointer-events-none" : ""
+          }`}
         >
           {primaryCtaLabel}
         </a>
         <a
           href={secondaryHref}
-          className="inline-flex h-12 w-full items-center justify-center rounded-xl border border-[color:rgba(245,158,11,0.5)] bg-[color:rgba(245,158,11,0.08)] px-4 text-sm font-semibold text-[color:var(--text)] transition hover:bg-[color:rgba(245,158,11,0.16)] sm:w-auto"
+          onClick={(event) => {
+            if (secondaryDisabled) {
+              event.preventDefault();
+              return;
+            }
+            secondaryOnClick?.(event);
+          }}
+          aria-disabled={secondaryDisabled}
+          className={`inline-flex h-12 w-full items-center justify-center rounded-xl border border-[color:rgba(245,158,11,0.5)] bg-[color:rgba(245,158,11,0.08)] px-4 text-sm font-semibold text-[color:var(--text)] transition hover:bg-[color:rgba(245,158,11,0.16)] sm:w-auto${
+            secondaryDisabled ? " opacity-60 pointer-events-none" : ""
+          }`}
         >
           {secondaryCtaLabel}
         </a>

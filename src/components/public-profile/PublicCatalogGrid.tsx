@@ -42,6 +42,7 @@ type Props = {
   error?: string | null;
   popclipLoading?: boolean;
   popclipError?: string | null;
+  requirePopclipAuth?: boolean;
   onRetry?: () => void;
 };
 
@@ -56,8 +57,10 @@ export function PublicCatalogGrid({
   error,
   popclipLoading,
   popclipError,
+  requirePopclipAuth,
   onRetry,
 }: Props) {
+  const popclipAuthRequired = requirePopclipAuth ?? true;
   const resolvedFilters = filters ?? DEFAULT_FILTERS;
   const [activeFilter, setActiveFilter] = useState<CatalogFilter>(
     defaultFilter ?? resolvedFilters[0]?.id ?? "all"
@@ -201,7 +204,7 @@ export function PublicCatalogGrid({
 
   const handleOpenComments = (item: PublicCatalogCardItem) => {
     if (!item?.id) return;
-    if (item.canInteract === false) {
+    if (popclipAuthRequired && item.canInteract === false) {
       showAuthToast();
       return;
     }
@@ -216,7 +219,7 @@ export function PublicCatalogGrid({
 
   const handleToggleLike = async (item: PublicCatalogCardItem) => {
     if (likePending[item.id]) return;
-    if (item.canInteract === false) {
+    if (popclipAuthRequired && item.canInteract === false) {
       showAuthToast();
       return;
     }
@@ -234,7 +237,7 @@ export function PublicCatalogGrid({
     setLikePending((prev) => ({ ...prev, [item.id]: true }));
     try {
       const res = await fetch(`/api/public/popclips/${item.id}/like`, { method: "POST" });
-      if (res.status === 401) {
+      if (popclipAuthRequired && res.status === 401) {
         showAuthToast();
         setPopclipSocial((prev) => ({ ...prev, [item.id]: current }));
         return;
@@ -287,7 +290,7 @@ export function PublicCatalogGrid({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ text }),
       });
-      if (res.status === 401) {
+      if (popclipAuthRequired && res.status === 401) {
         showAuthToast();
         throw new Error("auth_required");
       }
@@ -336,7 +339,7 @@ export function PublicCatalogGrid({
   const renderPopclipActions = (item: PublicCatalogCardItem) => {
     const social = resolvePopclipSocial(item);
     const isPending = Boolean(likePending[item.id]);
-    const canInteract = item.canInteract !== false;
+    const canInteract = !popclipAuthRequired || item.canInteract !== false;
     return (
       <div className="flex items-center gap-3 text-xs text-[color:var(--muted)]">
         <button

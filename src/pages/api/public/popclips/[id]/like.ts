@@ -1,6 +1,7 @@
 import type { NextApiRequest, NextApiResponse } from "next";
 import prisma from "../../../../../lib/prisma.server";
 import { sendBadRequest, sendServerError } from "../../../../../lib/apiError";
+import { ensureFan } from "../../../../../lib/fan/session";
 
 type LikeResponse = {
   liked: boolean;
@@ -31,10 +32,11 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
       return res.status(404).json({ error: "Not found" });
     }
 
-    const fanId = getFanIdFromCookie(req, clip.creator?.name || "");
-    if (!fanId) {
-      return res.status(401).json({ error: "auth_required" });
-    }
+    const { fanId } = await ensureFan(req, res, {
+      creatorId: clip.creatorId,
+      creatorHandle: clip.creator?.name || "",
+      mode: "public",
+    });
 
     const fan = await prisma.fan.findFirst({
       where: { id: fanId, creatorId: clip.creatorId },
@@ -86,25 +88,4 @@ function getClientIp(req: NextApiRequest) {
     return forwarded[0] || "unknown";
   }
   return req.socket?.remoteAddress || "unknown";
-}
-
-function getFanIdFromCookie(req: NextApiRequest, handle: string) {
-  const cookies = parseCookieHeader(req.headers.cookie);
-  const key = `novsy_fan_${slugify(handle)}`;
-  return cookies[key] || "";
-}
-
-function parseCookieHeader(cookieHeader: string | undefined): Record<string, string> {
-  if (!cookieHeader) return {};
-  return cookieHeader.split(";").reduce<Record<string, string>>((acc, part) => {
-    const [rawKey, ...rest] = part.trim().split("=");
-    if (!rawKey) return acc;
-    const key = decodeURIComponent(rawKey);
-    acc[key] = decodeURIComponent(rest.join("="));
-    return acc;
-  }, {});
-}
-
-function slugify(value?: string | null) {
-  return (value || "creator").toLowerCase().replace(/[^a-z0-9]+/g, "-");
 }
