@@ -11,6 +11,7 @@ type PublicPopClip = {
   startAtSec: number;
   durationSec: number | null;
   sortOrder: number;
+  createdAt: string;
   likeCount: number;
   commentCount: number;
   liked: boolean;
@@ -46,6 +47,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     return sendBadRequest(res, "handle is required");
   }
 
+  const limitRaw = typeof req.query.limit === "string" ? Number(req.query.limit) : NaN;
+  const limit = Number.isFinite(limitRaw) ? Math.max(1, Math.min(12, Math.floor(limitRaw))) : 12;
+  const cursor = typeof req.query.cursor === "string" ? req.query.cursor.trim() : "";
+
   try {
     const creators = await prisma.creator.findMany({ include: { packs: true } });
     const creator = creators.find((item) => slugifyHandle(item.name) === handle);
@@ -53,10 +58,11 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       return res.status(404).json({ error: "Not found" });
     }
 
-    const clips = await prisma.popClip.findMany({
+    const allClips = await prisma.popClip.findMany({
       where: {
         creatorId: creator.id,
         isActive: true,
+        isArchived: false,
         OR: [
           {
             catalogItem: {
@@ -67,7 +73,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           { contentItemId: { not: null } },
         ],
       },
-      orderBy: [{ sortOrder: "asc" }, { createdAt: "desc" }],
+      orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+      take: 24,
       include: {
         catalogItem: {
           select: {
@@ -93,7 +100,16 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       },
     });
 
-    const clipIds = clips.map((clip) => clip.id);
+    const cursorIndex = cursor ? allClips.findIndex((clip) => clip.id === cursor) : -1;
+    if (cursor && cursorIndex === -1) {
+      return sendBadRequest(res, "invalid cursor");
+    }
+    const startIndex = cursor ? cursorIndex + 1 : 0;
+    const pageClips = allClips.slice(startIndex, startIndex + limit);
+    const nextCursor =
+      startIndex + limit < allClips.length ? pageClips[pageClips.length - 1]?.id ?? null : null;
+
+    const clipIds = pageClips.map((clip) => clip.id);
     const fanIdFromCookie = readFanId(req, handle);
     const viewerFan = fanIdFromCookie
       ? await prisma.fan.findFirst({
@@ -135,7 +151,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     const likedSet = new Set(viewerReactions.map((row) => row.popClipId));
     const canInteract = Boolean(viewerFanId);
 
-    const publicClips: PublicPopClip[] = clips
+    const publicClips: PublicPopClip[] = pageClips
       .map((clip) => {
         const packMeta = resolvePackMeta({
           clip,
@@ -153,6 +169,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           startAtSec: Number.isFinite(Number(clip.startAtSec)) ? Math.max(0, Number(clip.startAtSec)) : 0,
           durationSec: clip.durationSec ?? null,
           sortOrder: clip.sortOrder,
+          createdAt: clip.createdAt.toISOString(),
           likeCount: likeCountByClip.get(clip.id) ?? 0,
           commentCount: commentCountByClip.get(clip.id) ?? 0,
           liked: likedSet.has(clip.id),
@@ -162,7 +179,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       })
       .filter((clip): clip is PublicPopClip => Boolean(clip));
 
-    return res.status(200).json({ clips: publicClips });
+    return res.status(200).json({ clips: publicClips, nextCursor });
   } catch (err) {
     console.error("Error loading public popclips", err);
     return sendServerError(res);

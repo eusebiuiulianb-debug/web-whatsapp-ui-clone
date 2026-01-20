@@ -1,7 +1,7 @@
 import type { NextApiRequest, NextApiResponse } from "next";
 import prisma from "../../../../../lib/prisma.server";
 import { sendBadRequest, sendServerError } from "../../../../../lib/apiError";
-import { ensureFan } from "../../../../../lib/fan/session";
+import { readFanId } from "../../../../../lib/fan/session";
 import { enforceRateLimit } from "../../../../../lib/rateLimit";
 
 type CommentItem = {
@@ -11,21 +11,17 @@ type CommentItem = {
   fanDisplayName: string;
 };
 
-type CommentListResponse = {
-  items: CommentItem[];
-  count: number;
-};
-
-type CommentCreateResponse = {
-  item: CommentItem;
-  count: number;
-};
+type CommentListResponse = { ok: true; items: CommentItem[]; count: number } | { error: string };
+type CommentCreateResponse =
+  | { ok: true; item: CommentItem; count: number }
+  | { ok: false; error: string; retryAfterMs?: number }
+  | { error: string };
 
 const MAX_COMMENT_LENGTH = 300;
 
 export default async function handler(
   req: NextApiRequest,
-  res: NextApiResponse<CommentListResponse | CommentCreateResponse | { error: string }>
+  res: NextApiResponse<CommentListResponse | CommentCreateResponse>
 ) {
   res.setHeader("Cache-Control", "no-store");
   if (req.method === "GET") return handleGet(req, res);
@@ -35,7 +31,7 @@ export default async function handler(
   return res.status(405).json({ error: "Method not allowed" });
 }
 
-async function handleGet(req: NextApiRequest, res: NextApiResponse<CommentListResponse | { error: string }>) {
+async function handleGet(req: NextApiRequest, res: NextApiResponse<CommentListResponse>) {
   const id = typeof req.query.id === "string" ? req.query.id.trim() : "";
   if (!id) {
     return sendBadRequest(res, "id is required");
@@ -66,14 +62,14 @@ async function handleGet(req: NextApiRequest, res: NextApiResponse<CommentListRe
       fanDisplayName: resolveFanDisplayName(comment.fan?.displayName, comment.fan?.name),
     }));
 
-    return res.status(200).json({ items, count });
+    return res.status(200).json({ ok: true, items, count });
   } catch (err) {
     console.error("Error loading popclip comments", err);
     return sendServerError(res);
   }
 }
 
-async function handlePost(req: NextApiRequest, res: NextApiResponse<CommentCreateResponse | { error: string }>) {
+async function handlePost(req: NextApiRequest, res: NextApiResponse<CommentCreateResponse>) {
   const id = typeof req.query.id === "string" ? req.query.id.trim() : "";
   if (!id) {
     return sendBadRequest(res, "id is required");
@@ -99,11 +95,10 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse<CommentCreat
       return res.status(404).json({ error: "Not found" });
     }
 
-    const { fanId } = await ensureFan(req, res, {
-      creatorId: clip.creatorId,
-      creatorHandle: clip.creator?.name || "",
-      mode: "public",
-    });
+    const fanId = readFanId(req, clip.creator?.name || "");
+    if (!fanId) {
+      return res.status(401).json({ ok: false, error: "CHAT_REQUIRED" });
+    }
 
     const allowed = await enforceRateLimit({
       req,
@@ -120,7 +115,7 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse<CommentCreat
       select: { id: true, name: true, displayName: true },
     });
     if (!fan) {
-      return res.status(401).json({ error: "auth_required" });
+      return res.status(403).json({ ok: false, error: "CHAT_REQUIRED" });
     }
     const [comment, count] = await prisma.$transaction([
       prisma.popClipComment.create({
@@ -130,6 +125,7 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse<CommentCreat
     ]);
 
     return res.status(200).json({
+      ok: true,
       item: {
         id: comment.id,
         text: comment.text,

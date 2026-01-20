@@ -21,7 +21,11 @@ export type PopClip = {
   posterUrl: string | null;
   startAtSec?: number | null;
   durationSec: number | null;
+  videoWidth?: number | null;
+  videoHeight?: number | null;
+  videoSizeBytes?: number | null;
   isActive: boolean;
+  isArchived: boolean;
   sortOrder: number;
   createdAt: string;
   updatedAt: string;
@@ -37,6 +41,9 @@ export type PopClipInput = {
   posterUrl?: string | null;
   startAtSec?: number | null;
   durationSec?: number | null;
+  videoWidth?: number | null;
+  videoHeight?: number | null;
+  videoSizeBytes?: number | null;
   isActive?: boolean;
   sortOrder?: number;
 };
@@ -51,7 +58,11 @@ export type PopClipDb = {
   posterUrl: string | null;
   startAtSec?: number | null;
   durationSec: number | null;
+  videoWidth?: number | null;
+  videoHeight?: number | null;
+  videoSizeBytes?: number | null;
   isActive: boolean;
+  isArchived: boolean;
   sortOrder: number;
   createdAt: Date;
   updatedAt: Date;
@@ -78,7 +89,11 @@ export function serializePopClip(item: PopClipDb): PopClip {
     posterUrl: item.posterUrl ?? null,
     startAtSec: typeof item.startAtSec === "number" ? item.startAtSec : 0,
     durationSec: item.durationSec ?? null,
+    videoWidth: typeof item.videoWidth === "number" ? item.videoWidth : null,
+    videoHeight: typeof item.videoHeight === "number" ? item.videoHeight : null,
+    videoSizeBytes: typeof item.videoSizeBytes === "number" ? item.videoSizeBytes : null,
     isActive: item.isActive,
+    isArchived: item.isArchived,
     sortOrder: item.sortOrder,
     createdAt: item.createdAt.toISOString(),
     updatedAt: item.updatedAt.toISOString(),

@@ -54,6 +54,9 @@ const TYPE_LABELS: Record<ContentTypeKey, string> = {
   TEXT: "Texto",
 };
 
+const POPCLIP_MIN_DURATION_SEC = 6;
+const POPCLIP_MAX_DURATION_SEC = 60;
+
 type PackSummary = {
   key: PackKey;
   label: string;
@@ -366,8 +369,12 @@ export default function LibraryPage() {
     }
 
     const durationSec = Number.parseInt(popClipEditor.durationSec, 10);
-    if (!Number.isFinite(durationSec) || durationSec <= 0) {
-      setPopClipEditorError("La duración debe ser un número mayor que 0.");
+    if (!Number.isFinite(durationSec)) {
+      setPopClipEditorError("La duración debe ser un número válido.");
+      return;
+    }
+    if (durationSec < POPCLIP_MIN_DURATION_SEC || durationSec > POPCLIP_MAX_DURATION_SEC) {
+      setPopClipEditorError(`La duración debe estar entre ${POPCLIP_MIN_DURATION_SEC} y ${POPCLIP_MAX_DURATION_SEC} segundos.`);
       return;
     }
 

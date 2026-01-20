@@ -19,6 +19,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
   if (!creatorHandle && !creatorId) {
     return res.status(400).json({ ok: false, error: "creatorHandle or creatorId is required" });
   }
+  const queryReturnTo = typeof req.query?.returnTo === "string" ? req.query.returnTo.trim() : "";
+  const bodyReturnTo = typeof req.body?.returnTo === "string" ? req.body.returnTo.trim() : "";
+  const rawReturnTo = queryReturnTo || bodyReturnTo;
+  const safeReturnTo = rawReturnTo.startsWith("/") && !rawReturnTo.startsWith("//") ? rawReturnTo : "";
 
   try {
     const creator = creatorId
@@ -46,7 +50,12 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
     if (!allowed) return;
 
     const draft = typeof req.body?.draft === "string" ? req.body.draft.trim() : "";
-    const redirectUrl = draft ? `/fan/${fanId}?draft=${encodeURIComponent(draft)}` : `/fan/${fanId}`;
+    let redirectUrl = draft ? `/fan/${fanId}?draft=${encodeURIComponent(draft)}` : `/fan/${fanId}`;
+    if (safeReturnTo) {
+      redirectUrl = `${redirectUrl}${redirectUrl.includes("?") ? "&" : "?"}returnTo=${encodeURIComponent(
+        safeReturnTo
+      )}`;
+    }
     return res.status(200).json({ ok: true, redirectUrl, fanId });
   } catch (err) {
     console.error("Error opening public chat", err);

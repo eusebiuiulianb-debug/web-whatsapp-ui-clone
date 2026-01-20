@@ -1,5 +1,5 @@
 import clsx from "clsx";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Skeleton } from "../ui/Skeleton";
 import { PublicCatalogCard, type PublicCatalogCardItem } from "./PublicCatalogCard";
 
@@ -35,6 +35,7 @@ type Props = {
   items: PublicCatalogCardItem[];
   popclipItems?: PublicCatalogCardItem[];
   chatHref: string;
+  onOpenChat?: () => void | Promise<void>;
   filters?: Array<{ id: CatalogFilter; label: string }>;
   defaultFilter?: CatalogFilter;
   featuredIds?: string[];
@@ -42,14 +43,18 @@ type Props = {
   error?: string | null;
   popclipLoading?: boolean;
   popclipError?: string | null;
-  requirePopclipAuth?: boolean;
   onRetry?: () => void;
+  hideFilters?: boolean;
+  openPopclipId?: string | null;
+  onPopclipOpenHandled?: () => void;
+  sectionId?: string;
 };
 
 export function PublicCatalogGrid({
   items,
   popclipItems,
   chatHref,
+  onOpenChat,
   filters,
   defaultFilter,
   featuredIds,
@@ -57,10 +62,12 @@ export function PublicCatalogGrid({
   error,
   popclipLoading,
   popclipError,
-  requirePopclipAuth,
   onRetry,
+  hideFilters,
+  openPopclipId,
+  onPopclipOpenHandled,
+  sectionId,
 }: Props) {
-  const popclipAuthRequired = requirePopclipAuth ?? true;
   const resolvedFilters = filters ?? DEFAULT_FILTERS;
   const [activeFilter, setActiveFilter] = useState<CatalogFilter>(
     defaultFilter ?? resolvedFilters[0]?.id ?? "all"
@@ -145,12 +152,19 @@ export function PublicCatalogGrid({
     setCommentLoading(true);
     fetch(`/api/public/popclips/${activeCommentClip.id}/comments`, { signal: controller.signal })
       .then(async (res) => {
-        const data = (await res.json().catch(() => null)) as { items?: PopClipComment[]; count?: number } | null;
+        const data = (await res.json().catch(() => null)) as
+          | { ok?: boolean; items?: PopClipComment[]; comments?: PopClipComment[]; count?: number }
+          | null;
         if (!res.ok || !data) {
           setCommentItems([]);
           return;
         }
-        setCommentItems(Array.isArray(data.items) ? data.items : []);
+        const items = Array.isArray(data.items)
+          ? data.items
+          : Array.isArray(data.comments)
+          ? data.comments
+          : [];
+        setCommentItems(items);
         if (typeof data.count === "number") {
           setPopclipSocial((prev) => {
             const current = prev[activeCommentClip.id];
@@ -196,22 +210,49 @@ export function PublicCatalogGrid({
     toastTimerRef.current = setTimeout(() => setToast(null), 2200);
   };
 
-  const showAuthToast = () => {
+  const showLikeAuthToast = () => {
     const resolvedHref =
       authHref || (typeof window !== "undefined" ? buildAuthHref(chatHref, window.location) : chatHref);
-    showToast("Entra al chat para interactuar", resolvedHref);
+    showToast("Entra al chat para dar like", resolvedHref);
   };
 
-  const handleOpenComments = (item: PublicCatalogCardItem) => {
-    if (!item?.id) return;
-    if (popclipAuthRequired && item.canInteract === false) {
-      showAuthToast();
-      return;
+  const showCommentAuthToast = () => {
+    const resolvedHref =
+      authHref || (typeof window !== "undefined" ? buildAuthHref(chatHref, window.location) : chatHref);
+    showToast("Entra al chat para comentar", resolvedHref);
+  };
+
+  const handleOpenChat = async () => {
+    try {
+      if (onOpenChat) {
+        await onOpenChat();
+        return;
+      }
+      if (typeof window !== "undefined" && chatHref) {
+        const returnTo = `${window.location.pathname}${window.location.search}`;
+        const resolvedHref = appendReturnTo(chatHref, returnTo);
+        window.location.href = resolvedHref;
+      }
+    } catch (_err) {
+      showToast("No se pudo abrir el chat.");
     }
+  };
+
+  const handleOpenComments = useCallback((item: PublicCatalogCardItem) => {
+    if (!item?.id) return;
     setCommentDraft("");
     setCommentItems([]);
     setActiveCommentClip(item);
-  };
+  }, []);
+
+  useEffect(() => {
+    if (!openPopclipId) return;
+    const target = normalizedPopclips.find((clip) => clip.id === openPopclipId);
+    if (target) {
+      handleOpenComments(target);
+    }
+    onPopclipOpenHandled?.();
+  }, [handleOpenComments, normalizedPopclips, onPopclipOpenHandled, openPopclipId]);
 
   const handleCloseComments = () => {
     setActiveCommentClip(null);
@@ -219,8 +260,8 @@ export function PublicCatalogGrid({
 
   const handleToggleLike = async (item: PublicCatalogCardItem) => {
     if (likePending[item.id]) return;
-    if (popclipAuthRequired && item.canInteract === false) {
-      showAuthToast();
+    if (item.canInteract === false) {
+      showLikeAuthToast();
       return;
     }
     const current = popclipSocial[item.id] ?? {
@@ -237,16 +278,25 @@ export function PublicCatalogGrid({
     setLikePending((prev) => ({ ...prev, [item.id]: true }));
     try {
       const res = await fetch(`/api/public/popclips/${item.id}/like`, { method: "POST" });
-      if (popclipAuthRequired && res.status === 401) {
-        showAuthToast();
+      if (res.status === 401 || res.status === 403) {
+        showLikeAuthToast();
         setPopclipSocial((prev) => ({ ...prev, [item.id]: current }));
         return;
       }
       if (!res.ok) throw new Error("request failed");
-      const data = (await res.json()) as { liked: boolean; likeCount: number };
+      const data = (await res.json()) as { liked?: boolean; likeCount?: number; ok?: boolean; error?: string };
+      if (data?.ok === false && data.error === "CHAT_REQUIRED") {
+        showLikeAuthToast();
+        setPopclipSocial((prev) => ({ ...prev, [item.id]: current }));
+        return;
+      }
       setPopclipSocial((prev) => ({
         ...prev,
-        [item.id]: { ...current, liked: data.liked, likeCount: data.likeCount },
+        [item.id]: {
+          ...current,
+          liked: Boolean(data.liked),
+          likeCount: typeof data.likeCount === "number" ? data.likeCount : current.likeCount,
+        },
       }));
     } catch (_err) {
       setPopclipSocial((prev) => ({ ...prev, [item.id]: current }));
@@ -258,6 +308,10 @@ export function PublicCatalogGrid({
 
   const handleSendComment = async () => {
     if (!activeCommentClip || commentSending) return;
+    if (activeCommentClip.canInteract === false) {
+      showCommentAuthToast();
+      return;
+    }
     const text = commentDraft.trim();
     if (!text) return;
     if (text.length > MAX_COMMENT_LENGTH) {
@@ -290,17 +344,32 @@ export function PublicCatalogGrid({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ text }),
       });
-      if (popclipAuthRequired && res.status === 401) {
-        showAuthToast();
+      if (res.status === 401 || res.status === 403) {
+        showCommentAuthToast();
         throw new Error("auth_required");
       }
       if (!res.ok) throw new Error("request failed");
-      const data = (await res.json()) as { item: PopClipComment; count: number };
-      setCommentItems((prev) => prev.map((item) => (item.id === optimisticId ? data.item : item)));
+      const data = (await res.json()) as { item?: PopClipComment; count?: number; ok?: boolean; error?: string };
+      if (data?.ok === false && data.error === "CHAT_REQUIRED") {
+        showCommentAuthToast();
+        throw new Error("auth_required");
+      }
+      const resolvedItem = data.item;
+      if (!resolvedItem) {
+        throw new Error("request failed");
+      }
+      setCommentItems((prev) => prev.map((item) => (item.id === optimisticId ? resolvedItem : item)));
       setPopclipSocial((prev) => {
         const nextCurrent = prev[clipId];
         if (!nextCurrent) return prev;
-        return { ...prev, [clipId]: { ...nextCurrent, commentCount: data.count } };
+        return {
+          ...prev,
+          [clipId]: {
+            ...nextCurrent,
+            commentCount:
+              typeof data.count === "number" ? data.count : nextCurrent.commentCount,
+          },
+        };
       });
     } catch (err) {
       setCommentItems((prev) => prev.filter((item) => item.id !== optimisticId));
@@ -325,6 +394,7 @@ export function PublicCatalogGrid({
     ? "No hay elementos en esta categoría."
     : "Aún no hay items disponibles en el catálogo.";
   const shouldShowPopclips = resolvedFilters.some((filter) => filter.id === "popclip");
+  const commentCanInteract = activeCommentClip?.canInteract !== false;
 
   const resolvePopclipSocial = (item: PublicCatalogCardItem): PopClipSocialState => {
     const state = popclipSocial[item.id];
@@ -339,12 +409,12 @@ export function PublicCatalogGrid({
   const renderPopclipActions = (item: PublicCatalogCardItem) => {
     const social = resolvePopclipSocial(item);
     const isPending = Boolean(likePending[item.id]);
-    const canInteract = !popclipAuthRequired || item.canInteract !== false;
+    const canInteract = item.canInteract !== false;
     return (
       <div className="flex items-center gap-3 text-xs text-[color:var(--muted)]">
         <button
           type="button"
-          onClick={() => (canInteract ? handleToggleLike(item) : showAuthToast())}
+          onClick={() => (canInteract ? handleToggleLike(item) : showLikeAuthToast())}
           disabled={isPending}
           aria-pressed={social.liked}
           aria-disabled={!canInteract || isPending}
@@ -361,12 +431,8 @@ export function PublicCatalogGrid({
         </button>
         <button
           type="button"
-          onClick={() => (canInteract ? handleOpenComments(item) : showAuthToast())}
-          aria-disabled={!canInteract}
-          className={clsx(
-            "inline-flex items-center gap-1 rounded-full border border-[color:var(--surface-border)] px-2 py-1 text-[color:var(--muted)] hover:text-[color:var(--text)]",
-            !canInteract && "opacity-60 cursor-not-allowed"
-          )}
+          onClick={() => handleOpenComments(item)}
+          className="inline-flex items-center gap-1 rounded-full border border-[color:var(--surface-border)] px-2 py-1 text-[color:var(--muted)] hover:text-[color:var(--text)]"
         >
           <span>💬</span>
           <span className="tabular-nums">{social.commentCount}</span>
@@ -389,7 +455,7 @@ export function PublicCatalogGrid({
         if (item.kind !== "popclip") return card;
 
         return (
-          <div key={item.id} className="space-y-2">
+          <div key={item.id} id={`popclip-${item.id}`} className="space-y-2 scroll-mt-24">
             {card}
             {renderPopclipActions(item)}
           </div>
@@ -417,27 +483,29 @@ export function PublicCatalogGrid({
   );
 
   return (
-    <section id="catalog" className="space-y-4 scroll-mt-24 min-w-0 w-full">
-      <div className="flex flex-wrap gap-2">
-        {resolvedFilters.map((filter) => {
-          const isActive = filter.id === activeFilter;
-          return (
-            <button
-              key={filter.id}
-              type="button"
-              onClick={() => setActiveFilter(filter.id)}
-              className={clsx(
-                "rounded-full border px-3 py-1 text-[11px] font-semibold transition",
-                isActive
-                  ? "border-[color:rgba(var(--brand-rgb),0.6)] bg-[color:rgba(var(--brand-rgb),0.16)] text-[color:var(--text)]"
-                  : "border-[color:var(--surface-border)] bg-[color:var(--surface-1)] text-[color:var(--muted)] hover:text-[color:var(--text)]"
-              )}
-            >
-              {filter.label}
-            </button>
-          );
-        })}
-      </div>
+    <section id={sectionId ?? "catalog"} className="space-y-4 scroll-mt-24 min-w-0 w-full">
+      {!hideFilters && (
+        <div className="flex flex-wrap gap-2">
+          {resolvedFilters.map((filter) => {
+            const isActive = filter.id === activeFilter;
+            return (
+              <button
+                key={filter.id}
+                type="button"
+                onClick={() => setActiveFilter(filter.id)}
+                className={clsx(
+                  "rounded-full border px-3 py-1 text-[11px] font-semibold transition",
+                  isActive
+                    ? "border-[color:rgba(var(--brand-rgb),0.6)] bg-[color:rgba(var(--brand-rgb),0.16)] text-[color:var(--text)]"
+                    : "border-[color:var(--surface-border)] bg-[color:var(--surface-1)] text-[color:var(--muted)] hover:text-[color:var(--text)]"
+                )}
+              >
+                {filter.label}
+              </button>
+            );
+          })}
+        </div>
+      )}
       {toast && (
         <div className="text-xs text-[color:var(--brand)]">
           {toast.href ? (
@@ -562,19 +630,37 @@ export function PublicCatalogGrid({
                     ))
                   )}
                 </div>
+                {!commentCanInteract && (
+                  <div className="flex items-center justify-between gap-3 rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-3 py-2 text-xs text-[color:var(--muted)]">
+                    <span>Entra al chat para comentar</span>
+                    <button
+                      type="button"
+                      onClick={handleOpenChat}
+                      className="rounded-full border border-[color:rgba(var(--brand-rgb),0.6)] px-3 py-1 text-[11px] font-semibold text-[color:var(--text)] hover:bg-[color:rgba(var(--brand-rgb),0.16)]"
+                    >
+                      Entrar al chat
+                    </button>
+                  </div>
+                )}
                 <div className="flex items-end gap-2">
                   <textarea
                     className="min-h-[44px] flex-1 rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-3 py-2 text-sm text-[color:var(--text)] focus:border-[color:var(--surface-border-hover)] focus:ring-2 focus:ring-[color:var(--ring)]"
-                    placeholder="Añade un comentario..."
+                    placeholder={commentCanInteract ? "Añade un comentario..." : "Entra al chat para comentar"}
                     value={commentDraft}
                     onChange={(event) => setCommentDraft(event.target.value)}
                     maxLength={MAX_COMMENT_LENGTH}
                     rows={2}
+                    disabled={!commentCanInteract || commentSending}
                   />
                   <button
                     type="button"
                     onClick={handleSendComment}
-                    disabled={commentSending || !commentDraft.trim() || commentDraft.trim().length > MAX_COMMENT_LENGTH}
+                    disabled={
+                      !commentCanInteract ||
+                      commentSending ||
+                      !commentDraft.trim() ||
+                      commentDraft.trim().length > MAX_COMMENT_LENGTH
+                    }
                     className="h-10 rounded-xl bg-[color:var(--brand-strong)] px-4 text-xs font-semibold text-[color:var(--surface-0)] hover:bg-[color:var(--brand)] disabled:opacity-60"
                   >
                     Enviar
@@ -607,6 +693,15 @@ function resolveGoHandle(href: string) {
 function buildAuthHref(chatHref: string, location: Location) {
   const handle = resolveGoHandle(chatHref);
   const baseHref = handle ? `/go/${handle}` : "/go/creator";
-  const nextParam = encodeURIComponent(`${location.pathname}${location.search}`);
-  return `${baseHref}?next=${nextParam}`;
+  const returnTo = encodeURIComponent(`${location.pathname}${location.search}`);
+  return `${baseHref}?returnTo=${returnTo}`;
+}
+
+function appendReturnTo(url: string, returnTo: string) {
+  if (!url) return url;
+  if (!returnTo || !returnTo.startsWith("/") || returnTo.startsWith("//")) return url;
+  if (url.includes("returnTo=")) return url;
+  const encoded = encodeURIComponent(returnTo);
+  const separator = url.includes("?") ? "&" : "?";
+  return `${url}${separator}returnTo=${encoded}`;
 }

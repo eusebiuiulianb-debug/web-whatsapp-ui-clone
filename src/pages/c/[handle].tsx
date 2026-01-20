@@ -5,8 +5,9 @@ import { useEffect, useMemo, useRef, useState, type MouseEvent } from "react";
 import { useRouter } from "next/router";
 import { PublicHero } from "../../components/public-profile/PublicHero";
 import { PublicCatalogGrid } from "../../components/public-profile/PublicCatalogGrid";
-import { PublicCatalogCard, type PublicCatalogCardItem } from "../../components/public-profile/PublicCatalogCard";
+import { type PublicCatalogCardItem } from "../../components/public-profile/PublicCatalogCard";
 import { PublicProfileStatsRow } from "../../components/public-profile/PublicProfileStatsRow";
+import { PublicStoriesRow } from "../../components/public-profile/PublicStoriesRow";
 import type { PublicCatalogItem, PublicPopClip, PublicProfileStats } from "../../types/publicProfile";
 import type { CreatorLocation } from "../../types/creatorLocation";
 import { ensureAnalyticsCookie } from "../../lib/analyticsCookie";
@@ -49,8 +50,14 @@ const CATALOG_FILTERS: Array<{ id: CatalogFilter; label: string }> = [
   { id: "pack", label: "Packs" },
   { id: "sub", label: "Suscripciones" },
   { id: "extra", label: "Extras" },
+];
+
+const POPCLIP_FILTERS: Array<{ id: CatalogFilter; label: string }> = [
   { id: "popclip", label: "PopClips" },
 ];
+
+const POPCLIP_PAGE_SIZE = 12;
+const POPCLIP_STORY_MAX = 8;
 
 export default function PublicCreatorByHandle({
   notFound,
@@ -70,9 +77,13 @@ export default function PublicCreatorByHandle({
   const router = useRouter();
   const baseChatHref = creatorHandle ? `/go/${creatorHandle}` : "/go/creator";
   const [searchParams, setSearchParams] = useState("");
+  const [returnTo, setReturnTo] = useState("");
   const [popClips, setPopClips] = useState<PublicPopClip[]>([]);
+  const [popClipsCursor, setPopClipsCursor] = useState<string | null>(null);
   const [popClipsLoading, setPopClipsLoading] = useState(false);
+  const [popClipsLoadingMore, setPopClipsLoadingMore] = useState(false);
   const [popClipsError, setPopClipsError] = useState("");
+  const [requestedPopclipId, setRequestedPopclipId] = useState<string | null>(null);
   const [toast, setToast] = useState("");
   const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [chatPending, setChatPending] = useState(false);
@@ -84,7 +95,9 @@ export default function PublicCreatorByHandle({
 
   useEffect(() => {
     if (typeof window === "undefined") return;
-    setSearchParams(window.location.search || "");
+    const search = window.location.search || "";
+    setSearchParams(search);
+    setReturnTo(`${window.location.pathname}${search}`);
   }, []);
 
   useEffect(() => {
@@ -99,25 +112,36 @@ export default function PublicCreatorByHandle({
     if (!creatorHandle) return;
     const controller = new AbortController();
     setPopClipsLoading(true);
+    setPopClipsLoadingMore(false);
     setPopClipsError("");
-    fetch(`/api/public/popclips?handle=${encodeURIComponent(creatorHandle)}`, { signal: controller.signal })
+    setPopClipsCursor(null);
+    setPopClips([]);
+    fetch(
+      `/api/public/popclips?handle=${encodeURIComponent(creatorHandle)}&limit=${POPCLIP_PAGE_SIZE}`,
+      { signal: controller.signal }
+    )
       .then(async (res) => {
         if (!res.ok) throw new Error("request failed");
-        const payload = (await res.json()) as { clips?: PublicPopClip[] };
+        const payload = (await res.json()) as { clips?: PublicPopClip[]; nextCursor?: string | null };
         setPopClips(Array.isArray(payload?.clips) ? payload.clips : []);
+        setPopClipsCursor(typeof payload?.nextCursor === "string" ? payload.nextCursor : null);
       })
       .catch((err) => {
         if (err instanceof DOMException && err.name === "AbortError") return;
         setPopClipsError("No se pudieron cargar los PopClips.");
         setPopClips([]);
+        setPopClipsCursor(null);
       })
       .finally(() => setPopClipsLoading(false));
     return () => controller.abort();
   }, [creatorHandle]);
 
-  const chatHref = appendSearchIfRelative(baseChatHref, searchParams);
+  const chatHref = appendReturnTo(appendSearchIfRelative(baseChatHref, searchParams), returnTo);
   const followDraft = "Quiero seguirte gratis.";
-  const followHref = appendSearchIfRelative(`${baseChatHref}?draft=${encodeURIComponent(followDraft)}`, searchParams);
+  const followHref = appendReturnTo(
+    appendSearchIfRelative(`${baseChatHref}?draft=${encodeURIComponent(followDraft)}`, searchParams),
+    returnTo
+  );
   const followLabel = isFollowingState ? "Siguiendo" : "Seguir gratis";
 
   useEffect(() => {
@@ -149,8 +173,6 @@ export default function PublicCreatorByHandle({
   const tagline = (bio || "").trim();
   const trustLine = (subtitle || "Responde en menos de 24h").trim();
   const showLoading = !catalogItems && !catalogError;
-  const featuredItems = items.slice(0, 3);
-  const featuredIds = featuredItems.map((item) => item.id);
   const popclipItems = popClips.map((clip) => ({
     id: clip.id,
     kind: "popclip" as const,
@@ -163,6 +185,11 @@ export default function PublicCreatorByHandle({
     liked: clip.liked ?? false,
     canInteract: clip.canInteract ?? false,
   }));
+  const storyItems = popclipItems.slice(0, POPCLIP_STORY_MAX).map((clip) => ({
+    id: clip.id,
+    title: clip.title,
+    thumbUrl: clip.thumbUrl,
+  }));
 
   const showToast = (message: string) => {
     setToast(message);
@@ -170,15 +197,53 @@ export default function PublicCreatorByHandle({
     toastTimerRef.current = setTimeout(() => setToast(""), 2200);
   };
 
-  const handleOpenChat = async (event: MouseEvent<HTMLAnchorElement>) => {
-    event.preventDefault();
+  const scrollToPopclips = (targetId?: string) => {
+    if (typeof document === "undefined") return;
+    const target = targetId ? document.getElementById(`popclip-${targetId}`) : null;
+    const fallback = document.getElementById("popclips");
+    (target || fallback)?.scrollIntoView({ behavior: "smooth", block: "start" });
+  };
+
+  const handleLoadMorePopClips = async () => {
+    if (!creatorHandle || !popClipsCursor || popClipsLoadingMore) return;
+    setPopClipsLoadingMore(true);
+    try {
+      const res = await fetch(
+        `/api/public/popclips?handle=${encodeURIComponent(creatorHandle)}&limit=${POPCLIP_PAGE_SIZE}&cursor=${encodeURIComponent(
+          popClipsCursor
+        )}`
+      );
+      if (!res.ok) throw new Error("request failed");
+      const payload = (await res.json()) as { clips?: PublicPopClip[]; nextCursor?: string | null };
+      const newClips = Array.isArray(payload?.clips) ? payload.clips : [];
+      setPopClips((prev) => {
+        if (!newClips.length) return prev;
+        const existing = new Set(prev.map((clip) => clip.id));
+        return [...prev, ...newClips.filter((clip) => !existing.has(clip.id))];
+      });
+      setPopClipsCursor(typeof payload?.nextCursor === "string" ? payload.nextCursor : null);
+    } catch (_err) {
+      showToast("No se pudieron cargar más PopClips.");
+    } finally {
+      setPopClipsLoadingMore(false);
+    }
+  };
+
+  const openChat = async () => {
     if (!creatorHandle || chatPending) return;
+    const rawReturnTo =
+      returnTo || (typeof window !== "undefined" ? `${window.location.pathname}${window.location.search}` : "");
+    const safeReturnTo = rawReturnTo.startsWith("/") && !rawReturnTo.startsWith("//") ? rawReturnTo : "";
     setChatPending(true);
     try {
-      const res = await fetch("/api/public/chat/open", {
+      const endpoint = safeReturnTo
+        ? `/api/public/chat/open?returnTo=${encodeURIComponent(safeReturnTo)}`
+        : "/api/public/chat/open";
+      const payload = { creatorHandle };
+      const res = await fetch(endpoint, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ creatorHandle }),
+        body: JSON.stringify(payload),
       });
       if (!res.ok) throw new Error("request failed");
       const data = (await res.json()) as { redirectUrl?: string };
@@ -188,6 +253,11 @@ export default function PublicCreatorByHandle({
       showToast("No se pudo abrir el chat.");
       setChatPending(false);
     }
+  };
+
+  const handleOpenChat = async (event: MouseEvent<HTMLAnchorElement>) => {
+    event.preventDefault();
+    await openChat();
   };
 
   const handleFollow = async (event: MouseEvent<HTMLAnchorElement>) => {
@@ -263,38 +333,55 @@ export default function PublicCreatorByHandle({
             followersCount={followersCount}
           />
 
-          {featuredItems.length > 0 && (
-            <section className="space-y-3 min-w-0">
-              <div className="flex items-center justify-between min-w-0">
-                <h2 className="text-base font-semibold text-[color:var(--text)]">Destacados</h2>
-                <span className="text-xs text-[color:var(--muted)]">Máximo 3</span>
-              </div>
-              <div className="flex gap-3 overflow-x-auto pb-2 -mx-4 px-4 snap-x snap-mandatory sm:mx-0 sm:px-0 sm:grid sm:grid-cols-3 sm:gap-3 sm:overflow-visible sm:snap-none">
-                {featuredItems.map((item) => (
-                  <div key={item.id} className="snap-start shrink-0 w-[72%] max-w-[260px] sm:w-auto sm:max-w-none">
-                    <div className="block min-w-0">
-                      <PublicCatalogCard item={item} variant="featured" />
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </section>
+          {storyItems.length > 0 && (
+            <PublicStoriesRow
+              items={storyItems}
+              onSelect={(id) => {
+                scrollToPopclips(id);
+                setRequestedPopclipId(id);
+              }}
+              onViewAll={() => scrollToPopclips()}
+            />
           )}
 
           <section className="space-y-3 min-w-0">
             <h2 className="text-base font-semibold text-[color:var(--text)]">Catálogo</h2>
-          <PublicCatalogGrid
-            items={items}
-            featuredIds={featuredIds}
-            chatHref={chatHref}
-            isLoading={showLoading}
-            error={catalogError}
-            filters={CATALOG_FILTERS}
-            popclipItems={popclipItems}
-            popclipLoading={popClipsLoading}
-            popclipError={popClipsError || undefined}
-            requirePopclipAuth={false}
-          />
+            <PublicCatalogGrid
+              items={items}
+              chatHref={chatHref}
+              onOpenChat={openChat}
+              isLoading={showLoading}
+              error={catalogError}
+              filters={CATALOG_FILTERS}
+            />
+          </section>
+
+          <section id="popclips" className="space-y-3 min-w-0 scroll-mt-24">
+            <h2 className="text-base font-semibold text-[color:var(--text)]">PopClips</h2>
+            <PublicCatalogGrid
+              items={[]}
+              chatHref={chatHref}
+              onOpenChat={openChat}
+              filters={POPCLIP_FILTERS}
+              defaultFilter="popclip"
+              hideFilters
+              popclipItems={popclipItems}
+              popclipLoading={popClipsLoading}
+              popclipError={popClipsError || undefined}
+              openPopclipId={requestedPopclipId}
+              onPopclipOpenHandled={() => setRequestedPopclipId(null)}
+              sectionId="popclips-grid"
+            />
+            {popClipsCursor && (
+              <button
+                type="button"
+                onClick={handleLoadMorePopClips}
+                disabled={popClipsLoadingMore}
+                className="w-full rounded-full border border-[color:var(--surface-border)] px-4 py-2 text-xs font-semibold text-[color:var(--text)] hover:bg-[color:var(--surface-1)] disabled:opacity-60"
+              >
+                {popClipsLoadingMore ? "Cargando..." : "Ver más"}
+              </button>
+            )}
           </section>
         </main>
       </div>
@@ -444,6 +531,14 @@ function appendSearchIfRelative(url: string, search: string) {
   if (!url.startsWith("/")) return url;
   if (url.includes("?")) return `${url}&${search.replace(/^\?/, "")}`;
   return `${url}${search}`;
+}
+
+function appendReturnTo(url: string, returnTo: string) {
+  if (!url.startsWith("/")) return url;
+  if (!returnTo || !returnTo.startsWith("/") || returnTo.startsWith("//")) return url;
+  if (url.includes("returnTo=")) return url;
+  const encoded = encodeURIComponent(returnTo);
+  return `${url}${url.includes("?") ? "&" : "?"}returnTo=${encoded}`;
 }
 
 function slugify(value?: string | null) {

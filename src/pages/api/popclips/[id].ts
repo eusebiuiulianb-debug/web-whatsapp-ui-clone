@@ -96,11 +96,15 @@ async function handlePatch(req: NextApiRequest, res: NextApiResponse) {
 
     if ("durationSec" in body) {
       if (body.durationSec === null) {
-        data.durationSec = null;
+        return sendBadRequest(res, "durationSec is required");
       } else if (!Number.isFinite(Number(body.durationSec))) {
         return sendBadRequest(res, "durationSec must be a number");
       } else {
-        data.durationSec = Math.max(0, Math.round(Number(body.durationSec)));
+        const durationSec = Math.max(0, Math.round(Number(body.durationSec)));
+        if (durationSec < 6 || durationSec > 60) {
+          return sendBadRequest(res, "durationSec must be between 6 and 60");
+        }
+        data.durationSec = durationSec;
       }
     }
 

@@ -5,6 +5,13 @@ import { serializePopClip, type PopClipInput } from "../../../lib/popclips";
 
 const ALLOWED_PACK_TYPES = new Set(["PACK"]);
 const ALLOWED_VIDEO_EXTENSIONS = [".mp4", ".webm"];
+const MIN_DURATION_SEC = 6;
+const MAX_DURATION_SEC = 60;
+const MAX_SIZE_BYTES = 50 * 1024 * 1024;
+const MAX_RESOLUTION_LONG = 1280;
+const MAX_RESOLUTION_SHORT = 720;
+const DAILY_POPCLIP_LIMIT = 3;
+const MAX_ACTIVE_POPCLIPS = 24;
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method === "GET") {
@@ -72,6 +79,27 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
       : Number.isFinite(Number(durationSecRaw))
       ? Math.max(0, Math.round(Number(durationSecRaw)))
       : NaN;
+  const videoWidthRaw = body.videoWidth;
+  const videoWidth =
+    videoWidthRaw === null || videoWidthRaw === undefined
+      ? null
+      : Number.isFinite(Number(videoWidthRaw))
+      ? Math.max(1, Math.round(Number(videoWidthRaw)))
+      : NaN;
+  const videoHeightRaw = body.videoHeight;
+  const videoHeight =
+    videoHeightRaw === null || videoHeightRaw === undefined
+      ? null
+      : Number.isFinite(Number(videoHeightRaw))
+      ? Math.max(1, Math.round(Number(videoHeightRaw)))
+      : NaN;
+  const videoSizeBytesRaw = body.videoSizeBytes;
+  const videoSizeBytes =
+    videoSizeBytesRaw === null || videoSizeBytesRaw === undefined
+      ? null
+      : Number.isFinite(Number(videoSizeBytesRaw))
+      ? Math.max(0, Math.round(Number(videoSizeBytesRaw)))
+      : NaN;
 
   if (!creatorId) {
     return sendBadRequest(res, "creatorId is required");
@@ -84,6 +112,34 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
   }
   if (Number.isNaN(durationSec)) {
     return sendBadRequest(res, "durationSec must be a number");
+  }
+  if (Number.isNaN(videoWidth)) {
+    return sendBadRequest(res, "videoWidth must be a number");
+  }
+  if (Number.isNaN(videoHeight)) {
+    return sendBadRequest(res, "videoHeight must be a number");
+  }
+  if (Number.isNaN(videoSizeBytes)) {
+    return sendBadRequest(res, "videoSizeBytes must be a number");
+  }
+  if (durationSec === null) {
+    return sendBadRequest(res, "durationSec is required");
+  }
+  if (durationSec < MIN_DURATION_SEC || durationSec > MAX_DURATION_SEC) {
+    return sendBadRequest(res, `durationSec must be between ${MIN_DURATION_SEC} and ${MAX_DURATION_SEC}`);
+  }
+  if ((videoWidth === null) !== (videoHeight === null)) {
+    return sendBadRequest(res, "videoWidth and videoHeight must be provided together");
+  }
+  if (videoWidth !== null && videoHeight !== null) {
+    const longEdge = Math.max(videoWidth, videoHeight);
+    const shortEdge = Math.min(videoWidth, videoHeight);
+    if (longEdge > MAX_RESOLUTION_LONG || shortEdge > MAX_RESOLUTION_SHORT) {
+      return sendBadRequest(res, "video resolution must be at most 1280x720");
+    }
+  }
+  if (videoSizeBytes !== null && videoSizeBytes > MAX_SIZE_BYTES) {
+    return sendBadRequest(res, "videoSizeBytes exceeds 50MB");
   }
 
   try {
@@ -127,6 +183,36 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
       return sendBadRequest(res, "videoUrl must be a direct .mp4 or .webm link");
     }
 
+    const now = new Date();
+    const dayStartUtc = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+    const dayEndUtc = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 1));
+    const dailyCount = await prisma.popClip.count({
+      where: {
+        creatorId,
+        createdAt: {
+          gte: dayStartUtc,
+          lt: dayEndUtc,
+        },
+      },
+    });
+    if (dailyCount >= DAILY_POPCLIP_LIMIT) {
+      return res.status(429).json({ error: "daily_limit_reached" });
+    }
+
+    const activeClips = await prisma.popClip.findMany({
+      where: { creatorId, isActive: true, isArchived: false },
+      orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+      select: { id: true },
+    });
+    if (activeClips.length >= MAX_ACTIVE_POPCLIPS) {
+      const archiveCount = activeClips.length - (MAX_ACTIVE_POPCLIPS - 1);
+      const idsToArchive = activeClips.slice(0, archiveCount).map((clip) => clip.id);
+      await prisma.popClip.updateMany({
+        where: { id: { in: idsToArchive } },
+        data: { isArchived: true, isActive: false },
+      });
+    }
+
     if (catalogItemId) {
       const existing = await prisma.popClip.findFirst({
         where: { creatorId, catalogItemId },
@@ -156,7 +242,11 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
         posterUrl: posterUrl || null,
         startAtSec,
         durationSec: durationSec ?? null,
+        videoWidth,
+        videoHeight,
+        videoSizeBytes,
         isActive: typeof body.isActive === "boolean" ? body.isActive : true,
+        isArchived: false,
         sortOrder: Number.isFinite(Number(body.sortOrder)) ? Math.round(Number(body.sortOrder)) : 0,
       },
       include: {

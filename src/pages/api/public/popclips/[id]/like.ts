@@ -1,15 +1,15 @@
 import type { NextApiRequest, NextApiResponse } from "next";
 import prisma from "../../../../../lib/prisma.server";
 import { sendBadRequest, sendServerError } from "../../../../../lib/apiError";
-import { ensureFan } from "../../../../../lib/fan/session";
+import { readFanId } from "../../../../../lib/fan/session";
 import { enforceRateLimit } from "../../../../../lib/rateLimit";
 
-type LikeResponse = {
-  liked: boolean;
-  likeCount: number;
-};
+type LikeResponse =
+  | { ok: true; liked: boolean; likeCount: number }
+  | { ok: false; error: string; retryAfterMs?: number }
+  | { error: string };
 
-export default async function handler(req: NextApiRequest, res: NextApiResponse<LikeResponse | { error: string }>) {
+export default async function handler(req: NextApiRequest, res: NextApiResponse<LikeResponse>) {
   res.setHeader("Cache-Control", "no-store");
   if (req.method !== "POST") {
     res.setHeader("Allow", ["POST"]);
@@ -30,11 +30,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
       return res.status(404).json({ error: "Not found" });
     }
 
-    const { fanId } = await ensureFan(req, res, {
-      creatorId: clip.creatorId,
-      creatorHandle: clip.creator?.name || "",
-      mode: "public",
-    });
+    const fanId = readFanId(req, clip.creator?.name || "");
+    if (!fanId) {
+      return res.status(401).json({ ok: false, error: "CHAT_REQUIRED" });
+    }
 
     const allowed = await enforceRateLimit({
       req,
@@ -51,7 +50,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
       select: { id: true },
     });
     if (!fan) {
-      return res.status(401).json({ error: "auth_required" });
+      return res.status(403).json({ ok: false, error: "CHAT_REQUIRED" });
     }
     const result = await prisma.$transaction(async (tx) => {
       const existing = await tx.popClipReaction.findUnique({
@@ -68,7 +67,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
       return { liked: true, likeCount };
     });
 
-    return res.status(200).json(result);
+    return res.status(200).json({ ok: true, ...result });
   } catch (err) {
     console.error("Error toggling popclip reaction", err);
     return sendServerError(res);

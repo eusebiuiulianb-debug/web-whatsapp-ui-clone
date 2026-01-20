@@ -13,6 +13,10 @@ export const getServerSideProps: GetServerSideProps = async (ctx) => {
   const utmTerm = typeof query.utm_term === "string" ? query.utm_term : undefined;
   const rawDraft = Array.isArray(query.draft) ? query.draft[0] : query.draft;
   const draftValue = typeof rawDraft === "string" ? safeDecodeQueryParam(rawDraft) : "";
+  const rawReturnTo = Array.isArray(query.returnTo) ? query.returnTo[0] : query.returnTo;
+  const returnToValue = typeof rawReturnTo === "string" ? safeDecodeQueryParam(rawReturnTo) : "";
+  const safeReturnTo =
+    returnToValue && returnToValue.startsWith("/") && !returnToValue.startsWith("//") ? returnToValue : "";
 
   const referrer = (ctx.req?.headers?.referer as string | undefined) || (ctx.req?.headers?.referrer as string | undefined);
 
@@ -66,9 +70,14 @@ export const getServerSideProps: GetServerSideProps = async (ctx) => {
     console.error("Error tracking CTA click", err);
   }
 
+  const baseDestination = draftValue ? `/fan/${fanId}?draft=${encodeURIComponent(draftValue)}` : `/fan/${fanId}`;
+  const destination = safeReturnTo
+    ? `${baseDestination}${baseDestination.includes("?") ? "&" : "?"}returnTo=${encodeURIComponent(safeReturnTo)}`
+    : baseDestination;
+
   return {
     redirect: {
-      destination: draftValue ? `/fan/${fanId}?draft=${encodeURIComponent(draftValue)}` : `/fan/${fanId}`,
+      destination,
       permanent: false,
     },
   };

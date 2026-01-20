@@ -542,7 +542,11 @@ model PopClip {
   posterUrl     String?
   startAtSec    Int          @default(0)
   durationSec   Int?
+  videoWidth    Int?
+  videoHeight   Int?
+  videoSizeBytes Int?
   isActive      Boolean      @default(true)
+  isArchived    Boolean      @default(false)
   sortOrder     Int          @default(0)
   createdAt     DateTime     @default(now())
   updatedAt     DateTime     @updatedAt

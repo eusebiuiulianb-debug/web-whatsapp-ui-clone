@@ -42,6 +42,7 @@ export default function CreatorPublicPage({ fanQuery, stats }: Props) {
 
   const [resolvedCopy, setResolvedCopy] = useState<PublicProfileCopy>(baseCopy);
   const [searchParams, setSearchParams] = useState("");
+  const [returnTo, setReturnTo] = useState("");
   const [popClips, setPopClips] = useState<PublicPopClip[]>([]);
   const [popClipsLoading, setPopClipsLoading] = useState(false);
   const [popClipsError, setPopClipsError] = useState("");
@@ -54,7 +55,9 @@ export default function CreatorPublicPage({ fanQuery, stats }: Props) {
 
   useEffect(() => {
     if (typeof window === "undefined") return;
-    setSearchParams(window.location.search || "");
+    const search = window.location.search || "";
+    setSearchParams(search);
+    setReturnTo(`${window.location.pathname}${search}`);
   }, []);
 
   useEffect(() => {
@@ -102,9 +105,12 @@ export default function CreatorPublicPage({ fanQuery, stats }: Props) {
       ? config.creatorHandle
       : slugifyHandle(config.creatorName || "creator");
   const baseChatHref = creatorHandle ? `/go/${creatorHandle}` : "/go/creator";
-  const chatHref = appendSearchIfRelative(baseChatHref, searchParams);
+  const chatHref = appendReturnTo(appendSearchIfRelative(baseChatHref, searchParams), returnTo);
   const followDraft = "Quiero seguirte gratis.";
-  const followHref = appendSearchIfRelative(`${baseChatHref}?draft=${encodeURIComponent(followDraft)}`, searchParams);
+  const followHref = appendReturnTo(
+    appendSearchIfRelative(`${baseChatHref}?draft=${encodeURIComponent(followDraft)}`, searchParams),
+    returnTo
+  );
 
   const visibleChips = (resolvedCopy.hero.chips || []).filter((chip) => chip.visible !== false);
   const heroChips = visibleChips.map((chip) => chip.label).filter(Boolean);
@@ -118,7 +124,7 @@ export default function CreatorPublicPage({ fanQuery, stats }: Props) {
   const featuredPacks = visiblePacks.slice(0, 3);
 
   const buildDraftHref = (draft: string) =>
-    appendSearchIfRelative(`${baseChatHref}?draft=${encodeURIComponent(draft)}`, searchParams);
+    appendReturnTo(appendSearchIfRelative(`${baseChatHref}?draft=${encodeURIComponent(draft)}`, searchParams), returnTo);
 
   const featuredItems = featuredPacks.map((pack) => {
     const kind = pack.id === "monthly" ? "sub" : "pack";
@@ -253,6 +259,14 @@ function appendSearchIfRelative(url: string, search: string) {
   if (!url.startsWith("/")) return url;
   if (url.includes("?")) return `${url}&${search.replace(/^\?/, "")}`;
   return `${url}${search}`;
+}
+
+function appendReturnTo(url: string, returnTo: string) {
+  if (!url.startsWith("/")) return url;
+  if (!returnTo || !returnTo.startsWith("/") || returnTo.startsWith("//")) return url;
+  if (url.includes("returnTo=")) return url;
+  const encoded = encodeURIComponent(returnTo);
+  return `${url}${url.includes("?") ? "&" : "?"}returnTo=${encoded}`;
 }
 
 function buildPackDraft(kind: "pack" | "sub" | "extra", title: string, priceLabel: string) {

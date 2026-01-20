@@ -24,7 +24,9 @@ export function BioLinkPublicView({ config }: Props) {
   useEffect(() => {
     if (typeof window === "undefined") return;
     const search = window.location.search || "";
-    setCtaHref(appendSearchIfRelative(baseCtaUrl, search));
+    const returnTo = `${window.location.pathname}${search}`;
+    const withSearch = appendSearchIfRelative(baseCtaUrl, search);
+    setCtaHref(appendReturnTo(withSearch, returnTo));
   }, [baseCtaUrl]);
 
   useEffect(() => {
@@ -174,4 +176,12 @@ function appendSearchIfRelative(url: string, search: string) {
   if (!url.startsWith("/")) return url;
   if (url.includes("?")) return `${url}&${search.replace(/^\?/, "")}`;
   return `${url}${search}`;
+}
+
+function appendReturnTo(url: string, returnTo: string) {
+  if (!url.startsWith("/")) return url;
+  if (!returnTo || !returnTo.startsWith("/") || returnTo.startsWith("//")) return url;
+  if (url.includes("returnTo=")) return url;
+  const encoded = encodeURIComponent(returnTo);
+  return `${url}${url.includes("?") ? "&" : "?"}returnTo=${encoded}`;
 }

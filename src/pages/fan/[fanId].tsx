@@ -1364,6 +1364,17 @@ export function FanChatPage({
   }, [adultConfirming, fanId, showFanToast]);
 
   const handleAdultExit = useCallback(() => {
+    const rawReturnTo = typeof router.query.returnTo === "string" ? router.query.returnTo : "";
+    const safeReturnTo =
+      rawReturnTo && rawReturnTo.startsWith("/") && !rawReturnTo.startsWith("//") ? rawReturnTo : "";
+    if (safeReturnTo) {
+      void router.replace(safeReturnTo);
+      return;
+    }
+    if (typeof window !== "undefined" && window.history.length > 1) {
+      router.back();
+      return;
+    }
     void router.replace("/");
   }, [router]);
 
