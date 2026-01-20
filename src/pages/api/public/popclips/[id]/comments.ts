@@ -2,6 +2,7 @@ import type { NextApiRequest, NextApiResponse } from "next";
 import prisma from "../../../../../lib/prisma.server";
 import { sendBadRequest, sendServerError } from "../../../../../lib/apiError";
 import { ensureFan } from "../../../../../lib/fan/session";
+import { enforceRateLimit } from "../../../../../lib/rateLimit";
 
 type CommentItem = {
   id: string;
@@ -20,9 +21,7 @@ type CommentCreateResponse = {
   count: number;
 };
 
-const MAX_COMMENT_LENGTH = 280;
-const RATE_LIMIT_MS = 1000;
-const commentRateLimit = new Map<string, number>();
+const MAX_COMMENT_LENGTH = 300;
 
 export default async function handler(
   req: NextApiRequest,
@@ -87,6 +86,9 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse<CommentCreat
   if (text.length > MAX_COMMENT_LENGTH) {
     return sendBadRequest(res, "text is too long");
   }
+  if (isEmojiOnly(text)) {
+    return sendBadRequest(res, "text is invalid");
+  }
 
   try {
     const clip = await prisma.popClip.findUnique({
@@ -103,6 +105,16 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse<CommentCreat
       mode: "public",
     });
 
+    const allowed = await enforceRateLimit({
+      req,
+      res,
+      fanId,
+      endpoint: "POST /api/public/popclips/[id]/comments",
+      burst: { limit: 8, windowSeconds: 10 },
+      cooldownMs: 5000,
+    });
+    if (!allowed) return;
+
     const fan = await prisma.fan.findFirst({
       where: { id: fanId, creatorId: clip.creatorId },
       select: { id: true, name: true, displayName: true },
@@ -110,10 +122,6 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse<CommentCreat
     if (!fan) {
       return res.status(401).json({ error: "auth_required" });
     }
-    if (isRateLimited(`comment:${fan.id}:${getClientIp(req)}`)) {
-      return res.status(429).json({ error: "rate_limited" });
-    }
-
     const [comment, count] = await prisma.$transaction([
       prisma.popClipComment.create({
         data: { popClipId: clip.id, fanId: fan.id, text },
@@ -136,26 +144,13 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse<CommentCreat
   }
 }
 
-function isRateLimited(key: string) {
-  const now = Date.now();
-  const lastHit = commentRateLimit.get(key) ?? 0;
-  if (now - lastHit < RATE_LIMIT_MS) return true;
-  commentRateLimit.set(key, now);
-  return false;
-}
-
-function getClientIp(req: NextApiRequest) {
-  const forwarded = req.headers["x-forwarded-for"];
-  if (typeof forwarded === "string" && forwarded.trim()) {
-    return forwarded.split(",")[0]?.trim() || "unknown";
-  }
-  if (Array.isArray(forwarded) && forwarded.length > 0) {
-    return forwarded[0] || "unknown";
-  }
-  return req.socket?.remoteAddress || "unknown";
-}
-
 function resolveFanDisplayName(displayName?: string | null, fallbackName?: string | null) {
   const name = (displayName || fallbackName || "Fan").trim();
   return name || "Fan";
+}
+
+function isEmojiOnly(text: string) {
+  const compact = text.replace(/\s+/g, "");
+  if (!compact) return true;
+  return /^[\p{Extended_Pictographic}\p{Emoji_Component}\u200d\uFE0F]+$/u.test(compact);
 }

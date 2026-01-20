@@ -29,7 +29,7 @@ const DEFAULT_FILTERS: Array<{ id: CatalogFilter; label: string }> = [
   { id: "sub", label: "Suscripciones" },
   { id: "extra", label: "Extras" },
 ];
-const MAX_COMMENT_LENGTH = 280;
+const MAX_COMMENT_LENGTH = 300;
 
 type Props = {
   items: PublicCatalogCardItem[];

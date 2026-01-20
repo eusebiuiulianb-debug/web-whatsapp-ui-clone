@@ -2,14 +2,12 @@ import type { NextApiRequest, NextApiResponse } from "next";
 import prisma from "../../../../../lib/prisma.server";
 import { sendBadRequest, sendServerError } from "../../../../../lib/apiError";
 import { ensureFan } from "../../../../../lib/fan/session";
+import { enforceRateLimit } from "../../../../../lib/rateLimit";
 
 type LikeResponse = {
   liked: boolean;
   likeCount: number;
 };
-
-const RATE_LIMIT_MS = 1000;
-const likeRateLimit = new Map<string, number>();
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse<LikeResponse | { error: string }>) {
   res.setHeader("Cache-Control", "no-store");
@@ -38,6 +36,16 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
       mode: "public",
     });
 
+    const allowed = await enforceRateLimit({
+      req,
+      res,
+      fanId,
+      endpoint: "POST /api/public/popclips/[id]/like",
+      burst: { limit: 8, windowSeconds: 10 },
+      cooldownMs: 1000,
+    });
+    if (!allowed) return;
+
     const fan = await prisma.fan.findFirst({
       where: { id: fanId, creatorId: clip.creatorId },
       select: { id: true },
@@ -45,10 +53,6 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
     if (!fan) {
       return res.status(401).json({ error: "auth_required" });
     }
-    if (isRateLimited(`like:${fan.id}:${getClientIp(req)}`)) {
-      return res.status(429).json({ error: "rate_limited" });
-    }
-
     const result = await prisma.$transaction(async (tx) => {
       const existing = await tx.popClipReaction.findUnique({
         where: { popClipId_fanId: { popClipId: clip.id, fanId: fan.id } },
@@ -69,23 +73,4 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
     console.error("Error toggling popclip reaction", err);
     return sendServerError(res);
   }
-}
-
-function isRateLimited(key: string) {
-  const now = Date.now();
-  const lastHit = likeRateLimit.get(key) ?? 0;
-  if (now - lastHit < RATE_LIMIT_MS) return true;
-  likeRateLimit.set(key, now);
-  return false;
-}
-
-function getClientIp(req: NextApiRequest) {
-  const forwarded = req.headers["x-forwarded-for"];
-  if (typeof forwarded === "string" && forwarded.trim()) {
-    return forwarded.split(",")[0]?.trim() || "unknown";
-  }
-  if (Array.isArray(forwarded) && forwarded.length > 0) {
-    return forwarded[0] || "unknown";
-  }
-  return req.socket?.remoteAddress || "unknown";
 }

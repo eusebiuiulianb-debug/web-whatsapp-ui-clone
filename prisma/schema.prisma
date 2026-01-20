@@ -996,3 +996,15 @@ model DiscoveryFeedback {
   @@index([creatorId])
   @@index([sessionId])
 }
+
+model RateLimitEvent {
+  id        String   @id @default(cuid())
+  key       String
+  fanId     String?
+  ip        String?
+  endpoint  String
+  createdAt DateTime @default(now())
+
+  @@index([key, createdAt])
+  @@index([fanId, createdAt])
+}

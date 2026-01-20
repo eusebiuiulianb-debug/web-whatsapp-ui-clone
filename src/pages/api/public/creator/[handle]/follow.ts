@@ -1,6 +1,7 @@
 import type { NextApiRequest, NextApiResponse } from "next";
 import prisma from "../../../../../lib/prisma.server";
 import { ensureFan, slugifyHandle } from "../../../../../lib/fan/session";
+import { enforceRateLimit } from "../../../../../lib/rateLimit";
 
 type FollowResponse =
   | { ok: true; following: true; followerCount: number }
@@ -29,6 +30,16 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
       creatorHandle: creator.name || handle,
       mode: "public",
     });
+
+    const allowed = await enforceRateLimit({
+      req,
+      res,
+      fanId,
+      endpoint: "POST /api/public/creator/[handle]/follow",
+      burst: { limit: 8, windowSeconds: 10 },
+      cooldownMs: 2000,
+    });
+    if (!allowed) return;
 
     await prisma.fan.update({
       where: { id: fanId },

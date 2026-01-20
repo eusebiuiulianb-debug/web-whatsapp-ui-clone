@@ -1,6 +1,7 @@
 import type { NextApiRequest, NextApiResponse } from "next";
 import prisma from "../../../../lib/prisma.server";
 import { ensureFan, slugifyHandle } from "../../../../lib/fan/session";
+import { enforceRateLimit } from "../../../../lib/rateLimit";
 
 type ChatOpenResponse =
   | { ok: true; redirectUrl: string; fanId: string }
@@ -33,6 +34,16 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
       creatorHandle: creator.name || creatorHandle,
       mode: "public",
     });
+
+    const allowed = await enforceRateLimit({
+      req,
+      res,
+      fanId,
+      endpoint: "POST /api/public/chat/open",
+      burst: { limit: 8, windowSeconds: 10 },
+      cooldownMs: 3000,
+    });
+    if (!allowed) return;
 
     const draft = typeof req.body?.draft === "string" ? req.body.draft.trim() : "";
     const redirectUrl = draft ? `/fan/${fanId}?draft=${encodeURIComponent(draft)}` : `/fan/${fanId}`;
