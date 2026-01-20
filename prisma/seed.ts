@@ -1,21 +1,17 @@
 import fs from "fs";
 import path from "path";
+import { fileURLToPath } from "url";
 import "dotenv/config";
 import { PrismaClient } from "@prisma/client";
 
-const seedEnv = prepareSeedEnv();
+prepareSeedEnv();
 const prisma = new PrismaClient();
 
-function isSqliteDatabase() {
-  const url = process.env.DATABASE_URL || "";
-  return url.startsWith("file:") || url.includes("sqlite");
-}
-
 function prepareSeedEnv() {
-  const rootDir = process.cwd();
-  const prismaDir = path.resolve(rootDir, "prisma");
+  const seedPath = fileURLToPath(import.meta.url);
+  const repoRoot = path.resolve(path.dirname(seedPath), "..");
+  const prismaDir = path.join(repoRoot, "prisma");
   const dbFile = path.join(prismaDir, "dev.db");
-  let changedCwd = false;
 
   if (!fs.existsSync(prismaDir)) {
     fs.mkdirSync(prismaDir, { recursive: true });
@@ -24,13 +20,13 @@ function prepareSeedEnv() {
     fs.closeSync(fs.openSync(dbFile, "a"));
   }
 
-  if (!process.env.DATABASE_URL || process.env.DATABASE_URL.trim().length === 0) {
-    process.env.DATABASE_URL = "file:./dev.db";
-    process.chdir(prismaDir);
-    changedCwd = true;
-  }
+  process.chdir(repoRoot);
+  const normalizedDbFile = dbFile.replace(/\\/g, "/");
+  process.env.DATABASE_URL = `file:${normalizedDbFile}`;
 
-  return { rootDir, changedCwd };
+  console.log("[seed] cwd=", process.cwd());
+  console.log("[seed] DATABASE_URL=", process.env.DATABASE_URL);
+  console.log("[seed] dev.db exists=", fs.existsSync(dbFile));
 }
 
 function addDays(base: Date, days: number) {
@@ -324,61 +320,60 @@ function buildAgencyTemplateSeeds() {
 }
 
 async function main() {
-  const isSqlite = isSqliteDatabase();
-  if (isSqlite) {
-    await prisma.$executeRaw`PRAGMA foreign_keys = OFF;`;
-  }
-  let wipeOk = false;
-  try {
-    await prisma.$transaction([
-      prisma.managerAiMessage.deleteMany(),
-      prisma.managerMessage.deleteMany(),
-      prisma.managerConversation.deleteMany(),
-      prisma.contentManagerMessage.deleteMany(),
-      prisma.contentManagerConversation.deleteMany(),
-      prisma.message.deleteMany(),
-      prisma.fanFollowUp.deleteMany(),
-      prisma.fanNote.deleteMany(),
-      prisma.accessGrant.deleteMany(),
-      prisma.extraPurchase.deleteMany(),
-      prisma.aiUsageLog.deleteMany(),
-      prisma.analyticsEvent.deleteMany(),
-      prisma.campaignLink.deleteMany(),
-      prisma.discoveryFeedback.deleteMany(),
-      prisma.creatorAiTemplate.deleteMany(),
-      prisma.agencyTemplate.deleteMany(),
-      prisma.creatorAiSettings.deleteMany(),
-      prisma.generatedAsset.deleteMany(),
-      prisma.popClip.deleteMany(),
-      prisma.catalogItem.deleteMany(),
-      prisma.contentItem.deleteMany(),
-      prisma.offer.deleteMany(),
-      prisma.campaignMeta.deleteMany(),
-      prisma.creatorDiscoveryProfile.deleteMany(),
-      prisma.creatorProfile.deleteMany(),
-      prisma.fan.deleteMany(),
-      prisma.pack.deleteMany(),
-      prisma.creator.deleteMany(),
-    ]);
-    wipeOk = true;
-  } finally {
-    if (isSqlite) {
-      await prisma.$executeRaw`PRAGMA foreign_keys = ON;`;
-      if (wipeOk) {
-        console.log("Seeding: wiped DB (sqlite FK OFF/ON)");
-      }
-    }
-  }
+  await prisma.$transaction([
+    prisma.managerAiMessage.deleteMany(),
+    prisma.managerMessage.deleteMany(),
+    prisma.managerConversation.deleteMany(),
+    prisma.contentManagerMessage.deleteMany(),
+    prisma.contentManagerConversation.deleteMany(),
+    prisma.messageReaction.deleteMany(),
+    prisma.messageTranslation.deleteMany(),
+    prisma.ppvPurchase.deleteMany(),
+    prisma.ppvMessage.deleteMany(),
+    prisma.popClipReaction.deleteMany(),
+    prisma.popClipComment.deleteMany(),
+    prisma.accessGrant.deleteMany(),
+    prisma.message.deleteMany(),
+    prisma.fanFollowUp.deleteMany(),
+    prisma.fanNote.deleteMany(),
+    prisma.extraPurchase.deleteMany(),
+    prisma.aiUsageLog.deleteMany(),
+    prisma.chatAgencyMeta.deleteMany(),
+    prisma.walletTransaction.deleteMany(),
+    prisma.wallet.deleteMany(),
+    prisma.analyticsEvent.deleteMany(),
+    prisma.campaignLink.deleteMany(),
+    prisma.discoveryFeedback.deleteMany(),
+    prisma.creatorAiTemplate.deleteMany(),
+    prisma.agencyTemplate.deleteMany(),
+    prisma.creatorAiSettings.deleteMany(),
+    prisma.generatedAsset.deleteMany(),
+    prisma.popClip.deleteMany(),
+    prisma.catalogItem.deleteMany(),
+    prisma.contentItem.deleteMany(),
+    prisma.offer.deleteMany(),
+    prisma.campaignMeta.deleteMany(),
+    prisma.creatorDiscoveryProfile.deleteMany(),
+    prisma.creatorProfile.deleteMany(),
+    prisma.fan.deleteMany(),
+    prisma.pack.deleteMany(),
+    prisma.creator.deleteMany(),
+  ]);
+  console.log("Seeding: wiped DB");
 
-  const creator = await prisma.creator.create({
-    data: {
-      id: "creator-1",
-      name: "Eusebiu",
-      subtitle: "Responde en menos de 24h",
-      description:
-        "Bienvenido a mi espacio en NOVSY. Aquí comparto avances, envío audios personalizados y respondo tus ideas para crear contenido hecho a tu medida. Únete para acceder a sesiones 1:1, material exclusivo y priorizar tus pedidos.",
-      bioLinkAvatarUrl: "/avatar.jpg",
-    },
+  const creatorData = {
+    id: "creator-1",
+    name: "Eusebiu",
+    subtitle: "Responde en menos de 24h",
+    description:
+      "Bienvenido a mi espacio en NOVSY. Aquí comparto avances, envío audios personalizados y respondo tus ideas para crear contenido hecho a tu medida. Únete para acceder a sesiones 1:1, material exclusivo y priorizar tus pedidos.",
+    bioLinkAvatarUrl: "/avatar.jpg",
+  };
+  const { id: creatorId, ...creatorValues } = creatorData;
+  const creator = await prisma.creator.upsert({
+    where: { id: creatorId },
+    update: creatorValues,
+    create: creatorData,
   });
 
   const agencyTemplateSeeds = buildAgencyTemplateSeeds();
@@ -390,64 +385,76 @@ async function main() {
     })),
   });
 
+  const extraCreatorsData = [
+    {
+      id: "creator-2",
+      name: "Clara Ríos",
+      subtitle: "Cálida y cercana, responde en el día",
+      description:
+        "Sesiones 1:1 para fans que buscan conversación auténtica, audio-notas y retos suaves. Sin prisas, pero con presencia.",
+      bioLinkAvatarUrl: "/avatar2.jpg",
+    },
+    {
+      id: "creator-3",
+      name: "Mateo Torres",
+      subtitle: "Directo y claro, con ideas accionables",
+      description:
+        "Te doy feedback honesto y guiones concretos. Ideal si quieres planes, retos y cero rodeos.",
+      bioLinkAvatarUrl: "/avatar3.png",
+    },
+    {
+      id: "creator-4",
+      name: "Vega Noir",
+      subtitle: "Elegante, responde con detalle",
+      description:
+        "Experiencias premium: guías largas, sesiones planeadas y propuestas cuidadas para fans exigentes.",
+      bioLinkAvatarUrl: "/avatar.jpg",
+    },
+  ];
   const extraCreators = await Promise.all(
-    [
-      {
-        id: "creator-2",
-        name: "Clara Ríos",
-        subtitle: "Cálida y cercana, responde en el día",
-        description:
-          "Sesiones 1:1 para fans que buscan conversación auténtica, audio-notas y retos suaves. Sin prisas, pero con presencia.",
-        bioLinkAvatarUrl: "/avatar2.jpg",
-      },
-      {
-        id: "creator-3",
-        name: "Mateo Torres",
-        subtitle: "Directo y claro, con ideas accionables",
-        description:
-          "Te doy feedback honesto y guiones concretos. Ideal si quieres planes, retos y cero rodeos.",
-        bioLinkAvatarUrl: "/avatar3.png",
-      },
-      {
-        id: "creator-4",
-        name: "Vega Noir",
-        subtitle: "Elegante, responde con detalle",
-        description:
-          "Experiencias premium: guías largas, sesiones planeadas y propuestas cuidadas para fans exigentes.",
-        bioLinkAvatarUrl: "/avatar.jpg",
-      },
-    ].map((data) =>
-      prisma.creator.create({
-        data,
-      })
-    )
+    extraCreatorsData.map((data) => {
+      const { id, ...values } = data;
+      return prisma.creator.upsert({
+        where: { id },
+        update: values,
+        create: data,
+      });
+    })
   );
 
-  await prisma.pack.createMany({
-    data: [
-      {
-        id: "welcome",
-        name: "Pack bienvenida",
-        price: "9 €",
-        description: "Primer contacto + 3 audios base personalizados.",
-        creatorId: creator.id,
-      },
-      {
-        id: "monthly",
-        name: "Pack mensual",
-        price: "25 €",
-        description: "Acceso al chat 1:1 y contenido nuevo cada semana.",
-        creatorId: creator.id,
-      },
-      {
-        id: "special",
-        name: "Pack especial",
-        price: "49 €",
-        description: "Sesión intensiva + material extra para pareja.",
-        creatorId: creator.id,
-      },
-    ],
-  });
+  const packSeeds = [
+    {
+      id: "welcome",
+      name: "Pack bienvenida",
+      price: "9 €",
+      description: "Primer contacto + 3 audios base personalizados.",
+      creatorId: creator.id,
+    },
+    {
+      id: "monthly",
+      name: "Pack mensual",
+      price: "25 €",
+      description: "Acceso al chat 1:1 y contenido nuevo cada semana.",
+      creatorId: creator.id,
+    },
+    {
+      id: "special",
+      name: "Pack especial",
+      price: "49 €",
+      description: "Sesión intensiva + material extra para pareja.",
+      creatorId: creator.id,
+    },
+  ];
+  await Promise.all(
+    packSeeds.map((data) => {
+      const { id, ...values } = data;
+      return prisma.pack.upsert({
+        where: { id },
+        update: values,
+        create: data,
+      });
+    })
+  );
 
   const welcomeContent = [
     {
@@ -683,225 +690,291 @@ async function main() {
     }
   }
 
-  await prisma.$transaction([
-    prisma.fan.create({
-      data: {
-        id: "ana",
-        name: "Ana",
-        avatar: "/avatar.jpg",
-        preview: "¡Bienvenida a la comunidad!",
-        time: "19:15",
-        unreadCount: 2,
-        isNew: true,
-        membershipStatus: "Suscripción mensual",
-        daysLeft: 12,
-        lastSeen: "hoy a las 19:10",
-        profileText: "Le gustan los mensajes cálidos y directos. Prefiere propuestas suaves y sin presión.",
-        creatorId: creator.id,
-      },
-    }),
-    prisma.fan.create({
-      data: {
-        id: "javier",
-        name: "Javier",
-        avatar: "/avatar3.png",
-        preview: "Necesito un poco más de contexto para grabarlo",
-        time: "18:10",
-        unreadCount: 1,
-        isNew: true,
-        membershipStatus: "Contenido individual",
-        daysLeft: 0,
-        lastSeen: "hoy a las 18:05",
-        creatorId: creator.id,
-      },
-    }),
-    prisma.fan.create({
-      data: {
-        id: "lucia",
-        name: "Lucía",
-        avatar: "/avatar2.jpg",
-        preview: "Te comparto un adelanto en exclusiva hoy",
-        time: "12:48",
-        unreadCount: 0,
-        isNew: false,
-        membershipStatus: "Prueba 7 días",
-        daysLeft: 1,
-        lastSeen: "ayer a las 22:34",
-        profileText: "Responde mejor cuando el tono es íntimo pero breve. Le gusta el humor suave.",
-        creatorId: creator.id,
-      },
-    }),
-    prisma.fan.create({
-      data: {
-        id: "diego",
-        name: "Diego",
-        avatar: "/avatar.jpg",
-        preview: "Live premium este jueves a las 20h",
-        time: "09:30",
-        unreadCount: 0,
-        isNew: false,
-        membershipStatus: "Suscripción mensual",
-        daysLeft: 5,
-        lastSeen: "en línea ahora",
-        creatorId: creator.id,
-      },
-    }),
-  ]);
+  const fanSeeds = [
+    {
+      id: "ana",
+      name: "Ana",
+      avatar: "/avatar.jpg",
+      preview: "¡Bienvenida a la comunidad!",
+      time: "19:15",
+      unreadCount: 2,
+      isNew: true,
+      membershipStatus: "Suscripción mensual",
+      daysLeft: 12,
+      lastSeen: "hoy a las 19:10",
+      profileText: "Le gustan los mensajes cálidos y directos. Prefiere propuestas suaves y sin presión.",
+      creatorId: creator.id,
+    },
+    {
+      id: "javier",
+      name: "Javier",
+      avatar: "/avatar3.png",
+      preview: "Necesito un poco más de contexto para grabarlo",
+      time: "18:10",
+      unreadCount: 1,
+      isNew: true,
+      membershipStatus: "Contenido individual",
+      daysLeft: 0,
+      lastSeen: "hoy a las 18:05",
+      creatorId: creator.id,
+    },
+    {
+      id: "lucia",
+      name: "Lucía",
+      avatar: "/avatar2.jpg",
+      preview: "Te comparto un adelanto en exclusiva hoy",
+      time: "12:48",
+      unreadCount: 0,
+      isNew: false,
+      membershipStatus: "Prueba 7 días",
+      daysLeft: 1,
+      lastSeen: "ayer a las 22:34",
+      profileText: "Responde mejor cuando el tono es íntimo pero breve. Le gusta el humor suave.",
+      creatorId: creator.id,
+    },
+    {
+      id: "diego",
+      name: "Diego",
+      avatar: "/avatar.jpg",
+      preview: "Live premium este jueves a las 20h",
+      time: "09:30",
+      unreadCount: 0,
+      isNew: false,
+      membershipStatus: "Suscripción mensual",
+      daysLeft: 5,
+      lastSeen: "en línea ahora",
+      creatorId: creator.id,
+    },
+  ];
+
+  await prisma.$transaction(
+    fanSeeds.map((data) => {
+      const { id, ...values } = data;
+      return prisma.fan.upsert({
+        where: { id },
+        update: values,
+        create: data,
+      });
+    })
+  );
 
   const seededFans = await prisma.fan.findMany({ select: { id: true } });
   if (seededFans.length > 0) {
     const now = new Date();
-    await (prisma as any).wallet.createMany({
-      data: seededFans.map((fan) => ({
-        fanId: fan.id,
-        currency: "EUR",
-        balanceCents: 0,
-        updatedAt: now,
-      })),
-    });
+    await Promise.all(
+      seededFans.map((fan) =>
+        prisma.wallet.upsert({
+          where: { fanId: fan.id },
+          update: {
+            currency: "EUR",
+            balanceCents: 0,
+            updatedAt: now,
+          },
+          create: {
+            fanId: fan.id,
+            currency: "EUR",
+            balanceCents: 0,
+            updatedAt: now,
+          },
+        })
+      )
+    );
   }
 
-  await prisma.fanFollowUp.createMany({
-    data: [
-      {
-        fanId: "ana",
-        creatorId: creator.id,
-        title: "Proponer pack especial",
-        note: "Le interesa contenido más intenso si hay contexto.",
-        dueAt: addDays(new Date(), 1),
-        status: "OPEN",
-      },
-      {
-        fanId: "lucia",
-        creatorId: creator.id,
-        title: "Reactivar después de la prueba",
-        dueAt: addDays(new Date(), -1),
-        status: "DONE",
-        doneAt: new Date(),
-      },
-    ],
-  });
+  const followUpSeeds = [
+    {
+      id: "followup-ana",
+      fanId: "ana",
+      creatorId: creator.id,
+      title: "Proponer pack especial",
+      note: "Le interesa contenido más intenso si hay contexto.",
+      dueAt: addDays(new Date(), 1),
+      status: "OPEN",
+    },
+    {
+      id: "followup-lucia",
+      fanId: "lucia",
+      creatorId: creator.id,
+      title: "Reactivar después de la prueba",
+      dueAt: addDays(new Date(), -1),
+      status: "DONE",
+      doneAt: new Date(),
+    },
+  ];
+  await prisma.$transaction(
+    followUpSeeds.map((data) => {
+      const { id, ...values } = data;
+      return prisma.fanFollowUp.upsert({
+        where: { id },
+        update: values,
+        create: data,
+      });
+    })
+  );
 
-  await prisma.message.createMany({
-    data: [
-      {
-        id: "ana-1",
-        fanId: "ana",
-        from: "fan",
-        text: "Hola, soy Ana. Acabo de suscribirme y me encanta tu contenido.",
-        time: "19:05",
-        isLastFromCreator: false,
-      },
-      {
-        id: "ana-2",
-        fanId: "ana",
-        from: "creator",
-        text: "¡Bienvenida, Ana! Gracias por unirte a la comunidad, dime qué te gustaría ver primero.",
-        time: "19:10",
-        isLastFromCreator: true,
-        type: "TEXT",
-      },
-      {
-        id: "diego-3",
-        fanId: "diego",
-        from: "creator",
-        text: "Contenido adjunto",
-        time: "10:15",
-        isLastFromCreator: true,
-        type: "CONTENT",
-        contentItemId: "content-vid-1",
-      },
-    ],
-  });
+  const messageSeeds = [
+    {
+      id: "ana-1",
+      fanId: "ana",
+      from: "fan",
+      text: "Hola, soy Ana. Acabo de suscribirme y me encanta tu contenido.",
+      time: "19:05",
+      isLastFromCreator: false,
+    },
+    {
+      id: "ana-2",
+      fanId: "ana",
+      from: "creator",
+      text: "¡Bienvenida, Ana! Gracias por unirte a la comunidad, dime qué te gustaría ver primero.",
+      time: "19:10",
+      isLastFromCreator: true,
+      type: "TEXT",
+    },
+    {
+      id: "diego-3",
+      fanId: "diego",
+      from: "creator",
+      text: "Contenido adjunto",
+      time: "10:15",
+      isLastFromCreator: true,
+      type: "CONTENT",
+      contentItemId: "content-vid-1",
+    },
+  ];
+  await prisma.$transaction(
+    messageSeeds.map((data) => {
+      const { id, ...values } = data;
+      return prisma.message.upsert({
+        where: { id },
+        update: values,
+        create: data,
+      });
+    })
+  );
 
   const now = new Date();
-  await prisma.accessGrant.createMany({
-    data: [
-      {
-        fanId: "ana",
-        type: "monthly",
-        createdAt: now,
-        expiresAt: addDays(now, 12),
-      },
-      {
-        fanId: "javier",
-        type: "special",
-        createdAt: now,
-        expiresAt: addDays(now, 1),
-      },
-      {
-        fanId: "lucia",
-        type: "trial",
-        createdAt: now,
-        expiresAt: addDays(now, 7),
-      },
-      {
-        fanId: "diego",
-        type: "monthly",
-        createdAt: now,
-        expiresAt: addDays(now, 5),
-      },
-    ],
-  });
+  const accessGrantSeeds = [
+    {
+      id: "grant-ana",
+      fanId: "ana",
+      type: "monthly",
+      createdAt: now,
+      expiresAt: addDays(now, 12),
+    },
+    {
+      id: "grant-javier",
+      fanId: "javier",
+      type: "special",
+      createdAt: now,
+      expiresAt: addDays(now, 1),
+    },
+    {
+      id: "grant-lucia",
+      fanId: "lucia",
+      type: "trial",
+      createdAt: now,
+      expiresAt: addDays(now, 7),
+    },
+    {
+      id: "grant-diego",
+      fanId: "diego",
+      type: "monthly",
+      createdAt: now,
+      expiresAt: addDays(now, 5),
+    },
+  ];
+  await prisma.$transaction(
+    accessGrantSeeds.map((data) => {
+      const { id, ...values } = data;
+      return prisma.accessGrant.upsert({
+        where: { id },
+        update: values,
+        create: data,
+      });
+    })
+  );
 
   if (process.env.NODE_ENV !== "production") {
-    await prisma.contentItem.createMany({
-      data: [
-        {
-          id: "extra-ana-1",
-          creatorId: creator.id,
-          pack: "SPECIAL",
-          slug: "extra-ana-1",
-          type: "IMAGE",
-          title: "Extra demo Ana 1",
-          description: "Extra de prueba para validar monetización.",
-          order: 999,
-          isPreview: false,
-          visibility: "EXTRA",
-          isExtra: true,
-          extraTier: "T2",
-        },
-        {
-          id: "extra-ana-2",
-          creatorId: creator.id,
-          pack: "SPECIAL",
-          slug: "extra-ana-2",
-          type: "IMAGE",
-          title: "Extra demo Ana 2",
-          description: "Extra de prueba para validar monetización.",
-          order: 1000,
-          isPreview: false,
-          visibility: "EXTRA",
-          isExtra: true,
-          extraTier: "T3",
-        },
-      ],
-    });
+    const extraContentSeeds = [
+      {
+        id: "extra-ana-1",
+        creatorId: creator.id,
+        pack: "SPECIAL",
+        slug: "extra-ana-1",
+        type: "IMAGE",
+        title: "Extra demo Ana 1",
+        description: "Extra de prueba para validar monetización.",
+        order: 999,
+        isPreview: false,
+        visibility: "EXTRA",
+        isExtra: true,
+        extraTier: "T2",
+      },
+      {
+        id: "extra-ana-2",
+        creatorId: creator.id,
+        pack: "SPECIAL",
+        slug: "extra-ana-2",
+        type: "IMAGE",
+        title: "Extra demo Ana 2",
+        description: "Extra de prueba para validar monetización.",
+        order: 1000,
+        isPreview: false,
+        visibility: "EXTRA",
+        isExtra: true,
+        extraTier: "T3",
+      },
+    ];
+    await prisma.$transaction(
+      extraContentSeeds.map((data) => {
+        const { id, ...values } = data;
+        return prisma.contentItem.upsert({
+          where: { id },
+          update: values,
+          create: data,
+        });
+      })
+    );
 
-    await prisma.extraPurchase.createMany({
-      data: [
-        {
-          fanId: "ana",
-          contentItemId: "extra-ana-1",
-          tier: "T2",
-          amount: 29,
-          kind: "EXTRA",
-          productId: "extra-ana-1",
-          productType: "EXTRA",
-          createdAt: addDays(new Date(), -5),
-        },
-        {
-          fanId: "ana",
-          contentItemId: "extra-ana-2",
-          tier: "T3",
-          amount: 40,
-          kind: "EXTRA",
-          productId: "extra-ana-2",
-          productType: "EXTRA",
-          createdAt: addDays(new Date(), -2),
-        },
-      ],
-    });
+    const extraPurchaseSeeds = [
+      {
+        fanId: "ana",
+        contentItemId: "extra-ana-1",
+        tier: "T2",
+        amount: 29,
+        kind: "EXTRA",
+        productId: "extra-ana-1",
+        productType: "EXTRA",
+        clientTxnId: "extra-ana-1",
+        createdAt: addDays(new Date(), -5),
+      },
+      {
+        fanId: "ana",
+        contentItemId: "extra-ana-2",
+        tier: "T3",
+        amount: 40,
+        kind: "EXTRA",
+        productId: "extra-ana-2",
+        productType: "EXTRA",
+        clientTxnId: "extra-ana-2",
+        createdAt: addDays(new Date(), -2),
+      },
+    ];
+    await prisma.$transaction(
+      extraPurchaseSeeds.map((data) =>
+        prisma.extraPurchase.upsert({
+          where: {
+            fanId_kind_clientTxnId: {
+              fanId: data.fanId,
+              kind: data.kind,
+              clientTxnId: data.clientTxnId,
+            },
+          },
+          update: data,
+          create: data,
+        })
+      )
+    );
   }
 
   const discoveryProfiles = [
@@ -967,7 +1040,15 @@ async function main() {
     },
   ];
 
-  await prisma.creatorDiscoveryProfile.createMany({ data: discoveryProfiles });
+  await Promise.all(
+    discoveryProfiles.map((data) =>
+      prisma.creatorDiscoveryProfile.upsert({
+        where: { creatorId: data.creatorId },
+        update: data,
+        create: data,
+      })
+    )
+  );
 }
 
 async function run() {
@@ -978,9 +1059,6 @@ async function run() {
     process.exitCode = 1;
   } finally {
     await prisma.$disconnect();
-    if (seedEnv.changedCwd) {
-      process.chdir(seedEnv.rootDir);
-    }
   }
 }
 

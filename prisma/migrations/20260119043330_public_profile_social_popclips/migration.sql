@@ -10,7 +10,7 @@
 
 */
 -- DropIndex
-DROP INDEX "PpvPurchase_ppvMessageId_fanId_key";
+DROP INDEX IF EXISTS "PpvPurchase_ppvMessageId_fanId_key";
 
 -- RedefineTables
 PRAGMA defer_foreign_keys=ON;
@@ -31,4 +31,4 @@ PRAGMA foreign_keys=ON;
 PRAGMA defer_foreign_keys=OFF;
 
 -- CreateIndex
-CREATE UNIQUE INDEX "PpvPurchase_ppvMessageId_key" ON "PpvPurchase"("ppvMessageId");
+CREATE UNIQUE INDEX IF NOT EXISTS "PpvPurchase_ppvMessageId_key" ON "PpvPurchase"("ppvMessageId");

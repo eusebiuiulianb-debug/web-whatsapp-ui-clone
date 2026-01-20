@@ -53,12 +53,17 @@ model Creator {
 }
 
 model CreatorProfile {
-  id        String   @id @default(cuid())
-  creatorId String   @unique
-  creator   Creator  @relation(fields: [creatorId], references: [id])
-  coverUrl  String?
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id                        String   @id @default(cuid())
+  creatorId                 String   @unique
+  creator                   Creator  @relation(fields: [creatorId], references: [id])
+  coverUrl                  String?
+  locationVisibility        String   @default("OFF")
+  locationLabel             String?
+  locationGeohash           String?
+  locationRadiusKm          Int?
+  allowDiscoveryUseLocation Boolean  @default(false)
+  createdAt                 DateTime @default(now())
+  updatedAt                 DateTime @updatedAt
 }
 
 model Pack {
@@ -341,7 +346,7 @@ model PpvMessage {
   updatedAt  DateTime     @updatedAt
   fan        Fan          @relation(fields: [fanId], references: [id])
   creator    Creator      @relation(fields: [creatorId], references: [id])
-  purchase   PpvPurchase?
+  purchases  PpvPurchase[]
 
   @@index([fanId, createdAt])
   @@index([creatorId, createdAt])
@@ -349,7 +354,7 @@ model PpvMessage {
 
 model PpvPurchase {
   id           String            @id @default(cuid())
-  ppvMessageId String            @unique
+  ppvMessageId String
   ppvMessage   PpvMessage        @relation(fields: [ppvMessageId], references: [id], onDelete: Cascade)
   fanId        String
   creatorId    String
@@ -360,6 +365,7 @@ model PpvPurchase {
   fan          Fan               @relation(fields: [fanId], references: [id])
   creator      Creator           @relation(fields: [creatorId], references: [id])
 
+  @@unique([ppvMessageId, fanId], name: "PpvPurchase_ppvMessageId_fanId_key")
   @@index([fanId, createdAt])
   @@index([creatorId, createdAt])
 }

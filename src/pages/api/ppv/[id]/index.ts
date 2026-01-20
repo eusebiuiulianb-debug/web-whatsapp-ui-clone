@@ -73,7 +73,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
         fanId: true,
         creatorId: true,
         message: { select: { text: true } },
-        purchase: { select: { id: true, createdAt: true, fanId: true } },
+        purchases: {
+          select: { id: true, createdAt: true, fanId: true },
+          orderBy: { createdAt: "desc" },
+        },
         fan: { select: { adultConfirmedAt: true } },
       },
     });
@@ -82,7 +85,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
       return res.status(404).json({ ok: false, error: "PPV_NOT_FOUND" });
     }
 
-    const purchase = ppvMessage.purchase ?? null;
+    const purchase =
+      ppvMessage.purchases.find((item) => item.fanId === ppvMessage.fanId) ??
+      ppvMessage.purchases[0] ??
+      null;
     const statusRaw = typeof ppvMessage.status === "string" ? ppvMessage.status.trim().toUpperCase() : "";
     const hasPurchase = Boolean(purchase?.id);
     const isSold = statusRaw === "SOLD" || hasPurchase;

@@ -359,8 +359,11 @@ async function handleGet(req: NextApiRequest, res: NextApiResponse<MessageRespon
             status: true,
             soldAt: true,
             purchaseId: true,
-            purchase: {
+            purchases: {
+              where: { fanId: normalizedFanId },
               select: { id: true, amountCents: true, currency: true, createdAt: true, fanId: true },
+              orderBy: { createdAt: "desc" },
+              take: 1,
             },
           },
         },
@@ -434,13 +437,13 @@ async function handleGet(req: NextApiRequest, res: NextApiResponse<MessageRespon
         status?: string | null;
         soldAt?: Date | string | null;
         purchaseId?: string | null;
-        purchase?: { id?: string; createdAt?: Date | string; fanId?: string };
+        purchases?: Array<{ id?: string; createdAt?: Date | string; fanId?: string }>;
       } | null;
       if (!ppv?.id || typeof ppv.priceCents !== "number") {
         const { ppvMessage, ...rest } = raw;
         return viewerRole === "fan" ? sanitizeMessageForFan(rest) : rest;
       }
-      const purchase = ppv.purchase ?? null;
+      const purchase = ppv.purchases?.[0] ?? null;
       const statusRaw = typeof ppv.status === "string" ? ppv.status.trim().toUpperCase() : "";
       const hasPurchase = Boolean(purchase?.id);
       const isSold = statusRaw === "SOLD" || hasPurchase;

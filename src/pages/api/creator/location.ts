@@ -31,10 +31,37 @@ async function handlePut(req: NextApiRequest, res: NextApiResponse) {
     return sendBadRequest(res, "visibility inválida");
   }
 
-  const label = typeof req.body?.label === "string" ? req.body.label.trim() : "";
-  const normalizedGeohash = normalizeGeohash(req.body?.geohash);
-  const allowDiscoveryUseLocation = Boolean(req.body?.allowDiscoveryUseLocation);
+  const labelInput = req.body?.label;
+  if (labelInput !== undefined && labelInput !== null && typeof labelInput !== "string") {
+    return sendBadRequest(res, "locationLabel inválido");
+  }
+  const label = typeof labelInput === "string" ? labelInput.trim() : "";
+
+  const geohashInput = req.body?.geohash;
+  if (geohashInput !== undefined && geohashInput !== null && typeof geohashInput !== "string") {
+    return sendBadRequest(res, "locationGeohash inválido");
+  }
+  const normalizedGeohash = normalizeGeohash(geohashInput);
+
+  const allowDiscoveryUseLocationInput = req.body?.allowDiscoveryUseLocation;
+  if (
+    allowDiscoveryUseLocationInput !== undefined &&
+    allowDiscoveryUseLocationInput !== null &&
+    typeof allowDiscoveryUseLocationInput !== "boolean"
+  ) {
+    return sendBadRequest(res, "allowDiscoveryUseLocation inválido");
+  }
+  const allowDiscoveryUseLocation = Boolean(allowDiscoveryUseLocationInput);
+
   const radiusInput = req.body?.radiusKm;
+  if (
+    radiusInput !== undefined &&
+    radiusInput !== null &&
+    typeof radiusInput !== "number" &&
+    typeof radiusInput !== "string"
+  ) {
+    return sendBadRequest(res, "radiusKm inválido");
+  }
   const parsedRadius =
     radiusInput === null || radiusInput === "" || radiusInput === undefined ? null : Number(radiusInput);
 

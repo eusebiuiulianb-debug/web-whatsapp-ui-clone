@@ -18,7 +18,7 @@ INSERT INTO "new_PpvPurchase" ("amountCents", "createdAt", "creatorId", "currenc
 SELECT "amountCents", "createdAt", "creatorId", "currency", "fanId", "id", "ppvMessageId", "status" FROM "PpvPurchase";
 DROP TABLE "PpvPurchase";
 ALTER TABLE "new_PpvPurchase" RENAME TO "PpvPurchase";
-CREATE UNIQUE INDEX "PpvPurchase_ppvMessageId_fanId_key" ON "PpvPurchase"("ppvMessageId", "fanId");
+CREATE UNIQUE INDEX IF NOT EXISTS "PpvPurchase_ppvMessageId_fanId_key" ON "PpvPurchase"("ppvMessageId", "fanId");
 CREATE INDEX "PpvPurchase_fanId_createdAt_idx" ON "PpvPurchase"("fanId", "createdAt");
 CREATE INDEX "PpvPurchase_creatorId_createdAt_idx" ON "PpvPurchase"("creatorId", "createdAt");
 PRAGMA foreign_keys=ON;
