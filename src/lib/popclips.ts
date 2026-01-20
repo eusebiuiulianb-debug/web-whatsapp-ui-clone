@@ -26,6 +26,7 @@ export type PopClip = {
   videoSizeBytes?: number | null;
   isActive: boolean;
   isArchived: boolean;
+  isStory: boolean;
   sortOrder: number;
   createdAt: string;
   updatedAt: string;
@@ -45,6 +46,8 @@ export type PopClipInput = {
   videoHeight?: number | null;
   videoSizeBytes?: number | null;
   isActive?: boolean;
+  isStory?: boolean;
+  isArchived?: boolean;
   sortOrder?: number;
 };
 
@@ -63,6 +66,7 @@ export type PopClipDb = {
   videoSizeBytes?: number | null;
   isActive: boolean;
   isArchived: boolean;
+  isStory: boolean;
   sortOrder: number;
   createdAt: Date;
   updatedAt: Date;
@@ -94,6 +98,7 @@ export function serializePopClip(item: PopClipDb): PopClip {
     videoSizeBytes: typeof item.videoSizeBytes === "number" ? item.videoSizeBytes : null,
     isActive: item.isActive,
     isArchived: item.isArchived,
+    isStory: item.isStory,
     sortOrder: item.sortOrder,
     createdAt: item.createdAt.toISOString(),
     updatedAt: item.updatedAt.toISOString(),

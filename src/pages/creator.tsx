@@ -7,7 +7,6 @@ import { useCreatorConfig } from "../context/CreatorConfigContext";
 import { PublicProfileCopy, PublicProfileMode, PublicProfileStats, type PublicPopClip } from "../types/publicProfile";
 import { getPublicProfileOverrides } from "../lib/publicProfileStorage";
 import { PROFILE_COPY, mapToPublicProfileCopy } from "../lib/publicProfileCopy";
-import { getPublicProfileStats } from "../lib/publicProfileStats";
 import { getFanIdFromQuery } from "../lib/navigation/openCreatorChat";
 import { PublicHero } from "../components/public-profile/PublicHero";
 import { PublicCatalogGrid } from "../components/public-profile/PublicCatalogGrid";
@@ -229,21 +228,16 @@ export default function CreatorPublicPage({ fanQuery, stats }: Props) {
   );
 }
 
-export const getServerSideProps: GetServerSideProps<Props> = async (context) => {
-  const creatorId = CREATOR_ID;
-  let stats: PublicProfileStats = { activeMembers: 0, images: 0, videos: 0, audios: 0 };
-  const fanQuery =
-    typeof context.query.fan === "string"
-      ? context.query.fan
-      : typeof context.query.fanId === "string"
-      ? context.query.fanId
-      : null;
-  try {
-    stats = await getPublicProfileStats(creatorId);
-  } catch (err) {
-    console.error("Error fetching public profile stats", err);
-  }
-  return { props: { stats, fanQuery } };
+export const getServerSideProps: GetServerSideProps<Props> = async () => {
+  const prisma = (await import("../lib/prisma.server")).default;
+  const creator = await prisma.creator.findFirst({ select: { name: true } });
+  const handle = slugifyHandle(creator?.name || "creator");
+  return {
+    redirect: {
+      destination: `/c/${handle}`,
+      permanent: false,
+    },
+  };
 };
 
 function slugifyHandle(value?: string) {

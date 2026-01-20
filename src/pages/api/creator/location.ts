@@ -6,6 +6,10 @@ import type { CreatorLocation, LocationVisibility } from "../../../types/creator
 
 const ALLOWED_RADIUS = new Set([3, 5, 10]);
 const GEOHASH_MAX_LENGTH = 5;
+type CreatorProfileLocationData = Omit<
+  Prisma.CreatorProfileUncheckedCreateInput,
+  "id" | "creatorId" | "creator"
+>;
 // Guard against older Prisma clients missing newer location fields.
 const CREATOR_PROFILE_FIELDS = new Set(
   Prisma.dmmf.datamodel.models
@@ -99,14 +103,21 @@ async function handlePut(req: NextApiRequest, res: NextApiResponse) {
 
   try {
     const creatorId = await resolveCreatorId();
-    const data = buildUpdatePayload({
+    const updateData = buildUpdatePayload({
       visibility,
       label,
       geohash: normalizedGeohash,
       radiusKm: parsedRadius,
       allowDiscoveryUseLocation,
     });
-    if (Object.keys(data).length === 0) {
+    const createData = buildCreatePayload({
+      visibility,
+      label,
+      geohash: normalizedGeohash,
+      radiusKm: parsedRadius,
+      allowDiscoveryUseLocation,
+    });
+    if (Object.keys(updateData).length === 0) {
       return sendBadRequest(res, "Ubicación no soportada");
     }
 
@@ -114,9 +125,9 @@ async function handlePut(req: NextApiRequest, res: NextApiResponse) {
       where: { creatorId },
       create: {
         creatorId,
-        ...data,
+        ...createData,
       },
-      update: data,
+      update: updateData,
     });
 
     return res.status(200).json(mapProfile(profile));
@@ -139,7 +150,7 @@ function normalizeGeohash(value: unknown) {
   return cleaned.slice(0, GEOHASH_MAX_LENGTH);
 }
 
-function buildUpdatePayload({
+function buildLocationPayload({
   visibility,
   label,
   geohash,
@@ -151,44 +162,52 @@ function buildUpdatePayload({
   geohash: string;
   radiusKm: number | null;
   allowDiscoveryUseLocation: boolean;
-}): Prisma.CreatorProfileUpdateInput {
+}) {
   if (visibility === "OFF") {
-    return filterLocationFields({
+    return {
       locationVisibility: visibility,
       locationLabel: null,
       locationGeohash: null,
       locationRadiusKm: null,
       allowDiscoveryUseLocation,
-    });
+    };
   }
 
   if (visibility === "COUNTRY") {
-    return filterLocationFields({
+    return {
       locationVisibility: visibility,
       locationLabel: label || null,
       locationGeohash: geohash || null,
       locationRadiusKm: null,
       allowDiscoveryUseLocation,
-    });
+    };
   }
 
   if (visibility === "CITY") {
-    return filterLocationFields({
+    return {
       locationVisibility: visibility,
       locationLabel: label || null,
       locationGeohash: geohash || null,
       locationRadiusKm: null,
       allowDiscoveryUseLocation,
-    });
+    };
   }
 
-  return filterLocationFields({
+  return {
     locationVisibility: visibility,
     locationLabel: label || null,
     locationGeohash: geohash || null,
     locationRadiusKm: radiusKm,
     allowDiscoveryUseLocation,
-  });
+  };
+}
+
+function buildUpdatePayload(args: Parameters<typeof buildLocationPayload>[0]): Prisma.CreatorProfileUpdateInput {
+  return filterLocationFields(buildLocationPayload(args)) as Prisma.CreatorProfileUpdateInput;
+}
+
+function buildCreatePayload(args: Parameters<typeof buildLocationPayload>[0]): CreatorProfileLocationData {
+  return filterLocationFields(buildLocationPayload(args)) as CreatorProfileLocationData;
 }
 
 async function resolveCreatorId() {
@@ -209,17 +228,17 @@ async function resolveCreatorId() {
 async function getOrCreateProfile(creatorId: string) {
   const existing = await prisma.creatorProfile.findUnique({ where: { creatorId } });
   if (existing) return existing;
-  const defaults = filterLocationFields({
-    locationVisibility: "OFF",
-    locationLabel: null,
-    locationGeohash: null,
-    locationRadiusKm: null,
+  const defaults = buildCreatePayload({
+    visibility: "OFF",
+    label: "",
+    geohash: "",
+    radiusKm: null,
     allowDiscoveryUseLocation: false,
   });
   return prisma.creatorProfile.create({
     data: {
       creatorId,
-      ...(defaults as Prisma.CreatorProfileCreateInput),
+      ...defaults,
     },
   });
 }
@@ -234,12 +253,12 @@ function mapProfile(profile: any): CreatorLocation {
   };
 }
 
-function filterLocationFields(data: Record<string, unknown>): Prisma.CreatorProfileUpdateInput {
+function filterLocationFields(data: Record<string, unknown>) {
   const filtered: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(data)) {
     if (CREATOR_PROFILE_FIELDS.has(key)) {
       filtered[key] = value;
     }
   }
-  return filtered as Prisma.CreatorProfileUpdateInput;
+  return filtered;
 }

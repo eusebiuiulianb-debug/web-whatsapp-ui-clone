@@ -455,8 +455,11 @@ export function BioLinkEditor({ handle, onOpenSettings }: { handle: string; onOp
               checked={config.enabled}
               onChange={(e) => setConfig((prev) => ({ ...prev, enabled: e.target.checked }))}
             />
-            Activar página bio-link
+            Activar perfil público
           </label>
+        </div>
+        <div className="text-[11px] text-[color:var(--muted)]">
+          Visible en <span className="font-semibold">/c/{handle}</span>
         </div>
         <div className="space-y-2">
           <p className="text-sm font-semibold text-[color:var(--text)]">Identidad</p>

@@ -18,6 +18,7 @@ import { getPublicProfileStats } from "../../lib/publicProfileStats";
 
 type Props = {
   notFound?: boolean;
+  showPreviewBanner?: boolean;
   creatorId?: string;
   creatorName?: string;
   bio?: string;
@@ -61,6 +62,7 @@ const POPCLIP_STORY_MAX = 8;
 
 export default function PublicCreatorByHandle({
   notFound,
+  showPreviewBanner,
   creatorId,
   creatorName,
   bio,
@@ -83,6 +85,9 @@ export default function PublicCreatorByHandle({
   const [popClipsLoading, setPopClipsLoading] = useState(false);
   const [popClipsLoadingMore, setPopClipsLoadingMore] = useState(false);
   const [popClipsError, setPopClipsError] = useState("");
+  const [storyClips, setStoryClips] = useState<PublicPopClip[]>([]);
+  const [storyLoading, setStoryLoading] = useState(false);
+  const [storyError, setStoryError] = useState("");
   const [requestedPopclipId, setRequestedPopclipId] = useState<string | null>(null);
   const [toast, setToast] = useState("");
   const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -136,6 +141,29 @@ export default function PublicCreatorByHandle({
     return () => controller.abort();
   }, [creatorHandle]);
 
+  useEffect(() => {
+    if (!creatorHandle) return;
+    const controller = new AbortController();
+    setStoryLoading(true);
+    setStoryError("");
+    setStoryClips([]);
+    fetch(`/api/public/popclips?handle=${encodeURIComponent(creatorHandle)}&limit=${POPCLIP_STORY_MAX}&story=1`, {
+      signal: controller.signal,
+    })
+      .then(async (res) => {
+        if (!res.ok) throw new Error("request failed");
+        const payload = (await res.json()) as { clips?: PublicPopClip[] };
+        setStoryClips(Array.isArray(payload?.clips) ? payload.clips : []);
+      })
+      .catch((err) => {
+        if (err instanceof DOMException && err.name === "AbortError") return;
+        setStoryError("No se pudieron cargar las historias.");
+        setStoryClips([]);
+      })
+      .finally(() => setStoryLoading(false));
+    return () => controller.abort();
+  }, [creatorHandle]);
+
   const chatHref = appendReturnTo(appendSearchIfRelative(baseChatHref, searchParams), returnTo);
   const followDraft = "Quiero seguirte gratis.";
   const followHref = appendReturnTo(
@@ -185,11 +213,12 @@ export default function PublicCreatorByHandle({
     liked: clip.liked ?? false,
     canInteract: clip.canInteract ?? false,
   }));
-  const storyItems = popclipItems.slice(0, POPCLIP_STORY_MAX).map((clip) => ({
+  const storyItems = storyClips.slice(0, POPCLIP_STORY_MAX).map((clip) => ({
     id: clip.id,
-    title: clip.title,
-    thumbUrl: clip.thumbUrl,
+    title: clip.title?.trim() || clip.pack.title,
+    thumbUrl: clip.posterUrl || null,
   }));
+  const storyEmptyLabel = storyError ? "No se pudieron cargar las historias." : "Aún no hay historias";
 
   const showToast = (message: string) => {
     setToast(message);
@@ -203,6 +232,37 @@ export default function PublicCreatorByHandle({
     const fallback = document.getElementById("popclips");
     (target || fallback)?.scrollIntoView({ behavior: "smooth", block: "start" });
   };
+
+  useEffect(() => {
+    const popclipId = typeof router.query.popclip === "string" ? router.query.popclip : "";
+    if (!popclipId || !creatorHandle) return;
+    if (popClips.some((clip) => clip.id === popclipId)) {
+      setRequestedPopclipId(popclipId);
+      scrollToPopclips(popclipId);
+      return;
+    }
+    const controller = new AbortController();
+    fetch(
+      `/api/public/popclips?handle=${encodeURIComponent(creatorHandle)}&id=${encodeURIComponent(popclipId)}`,
+      { signal: controller.signal }
+    )
+      .then(async (res) => {
+        if (!res.ok) throw new Error("request failed");
+        const payload = (await res.json()) as { clips?: PublicPopClip[] };
+        const clip = Array.isArray(payload?.clips) ? payload.clips[0] : null;
+        if (!clip) return;
+        setPopClips((prev) => {
+          if (prev.some((item) => item.id === clip.id)) return prev;
+          return [clip, ...prev];
+        });
+        setRequestedPopclipId(popclipId);
+        scrollToPopclips(popclipId);
+      })
+      .catch((err) => {
+        if (err instanceof DOMException && err.name === "AbortError") return;
+      });
+    return () => controller.abort();
+  }, [creatorHandle, popClips, router.query.popclip]);
 
   const handleLoadMorePopClips = async () => {
     if (!creatorHandle || !popClipsCursor || popClipsLoadingMore) return;
@@ -326,6 +386,11 @@ export default function PublicCreatorByHandle({
             secondaryOnClick={handleFollow}
             secondaryDisabled={followPending}
           />
+          {showPreviewBanner && (
+            <div className="rounded-xl border border-[color:rgba(var(--brand-rgb),0.35)] bg-[color:var(--surface-1)] px-4 py-2 text-xs text-[color:var(--muted)]">
+              Vista previa: tu perfil aún no está público.
+            </div>
+          )}
           {toast && <div className="text-xs text-[color:var(--brand)]">{toast}</div>}
           <PublicProfileStatsRow
             salesCount={salesCount}
@@ -333,16 +398,23 @@ export default function PublicCreatorByHandle({
             followersCount={followersCount}
           />
 
-          {storyItems.length > 0 && (
-            <PublicStoriesRow
-              items={storyItems}
-              onSelect={(id) => {
-                scrollToPopclips(id);
-                setRequestedPopclipId(id);
-              }}
-              onViewAll={() => scrollToPopclips()}
-            />
-          )}
+          <PublicStoriesRow
+            items={storyItems}
+            isLoading={storyLoading}
+            emptyLabel={storyEmptyLabel}
+            onSelect={(id) => {
+              const storyClip = storyClips.find((clip) => clip.id === id);
+              if (storyClip) {
+                setPopClips((prev) => {
+                  if (prev.some((clip) => clip.id === id)) return prev;
+                  return [storyClip, ...prev];
+                });
+              }
+              scrollToPopclips(id);
+              setRequestedPopclipId(id);
+            }}
+            onViewAll={() => scrollToPopclips()}
+          />
 
           <section className="space-y-3 min-w-0">
             <h2 className="text-base font-semibold text-[color:var(--text)]">Catálogo</h2>
@@ -395,7 +467,11 @@ export const getServerSideProps: GetServerSideProps<Props> = async (ctx) => {
   const creators = await prisma.creator.findMany();
   const match = creators.find((c) => slugify(c.name) === handleParam) || creators[0];
 
-  if (!match || match.bioLinkEnabled === false) {
+  const previewHandle = readPreviewHandle(ctx.req?.headers?.cookie);
+  const previewAllowed = Boolean(match && previewHandle && slugify(match.name) === previewHandle);
+  const showPreviewBanner = Boolean(match && match.bioLinkEnabled === false && previewAllowed);
+
+  if (!match || (match.bioLinkEnabled === false && !previewAllowed)) {
     return { props: { notFound: true } };
   }
 
@@ -483,6 +559,7 @@ export const getServerSideProps: GetServerSideProps<Props> = async (ctx) => {
       location: mapLocation(profile),
       catalogItems,
       catalogError,
+      showPreviewBanner,
     },
   };
 };
@@ -543,6 +620,18 @@ function appendReturnTo(url: string, returnTo: string) {
 
 function slugify(value?: string | null) {
   return (value || "creator").toLowerCase().replace(/[^a-z0-9]+/g, "-");
+}
+
+function readPreviewHandle(cookieHeader: string | undefined) {
+  if (!cookieHeader) return "";
+  const entries = cookieHeader.split(";").map((part) => part.trim().split("="));
+  for (const [rawKey, ...rest] of entries) {
+    if (!rawKey) continue;
+    const key = decodeURIComponent(rawKey);
+    if (key !== "novsy_creator_preview") continue;
+    return slugify(decodeURIComponent(rest.join("=")));
+  }
+  return "";
 }
 
 async function getPublicCatalogItems(creatorId: string): Promise<PublicCatalogItem[]> {

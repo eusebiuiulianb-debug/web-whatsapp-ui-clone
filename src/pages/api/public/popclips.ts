@@ -16,6 +16,7 @@ type PublicPopClip = {
   commentCount: number;
   liked: boolean;
   canInteract: boolean;
+  isStory: boolean;
   pack: {
     id: string;
     title: string;
@@ -48,8 +49,15 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   }
 
   const limitRaw = typeof req.query.limit === "string" ? Number(req.query.limit) : NaN;
-  const limit = Number.isFinite(limitRaw) ? Math.max(1, Math.min(12, Math.floor(limitRaw))) : 12;
-  const cursor = typeof req.query.cursor === "string" ? req.query.cursor.trim() : "";
+  const storyParam = typeof req.query.story === "string" ? req.query.story.trim() : "";
+  const storyOnly = storyParam === "1" || storyParam.toLowerCase() === "true";
+  const limit = Number.isFinite(limitRaw)
+    ? Math.max(1, Math.min(storyOnly ? 8 : 12, Math.floor(limitRaw)))
+    : storyOnly
+    ? 8
+    : 12;
+  const cursor = !storyOnly && typeof req.query.cursor === "string" ? req.query.cursor.trim() : "";
+  const clipIdParam = typeof req.query.id === "string" ? req.query.id.trim() : "";
 
   try {
     const creators = await prisma.creator.findMany({ include: { packs: true } });
@@ -58,23 +66,29 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       return res.status(404).json({ error: "Not found" });
     }
 
+    const applyStoryFilter = storyOnly && !clipIdParam;
+    const baseWhere = {
+      creatorId: creator.id,
+      isActive: true,
+      isArchived: false,
+      ...(applyStoryFilter ? { isStory: true } : {}),
+      OR: [
+        {
+          catalogItem: {
+            isActive: true,
+            isPublic: true,
+          },
+        },
+        { contentItemId: { not: null } },
+      ],
+    };
+
     const allClips = await prisma.popClip.findMany({
       where: {
-        creatorId: creator.id,
-        isActive: true,
-        isArchived: false,
-        OR: [
-          {
-            catalogItem: {
-              isActive: true,
-              isPublic: true,
-            },
-          },
-          { contentItemId: { not: null } },
-        ],
+        ...baseWhere,
       },
       orderBy: [{ createdAt: "desc" }, { id: "desc" }],
-      take: 24,
+      take: clipIdParam ? 1 : storyOnly ? limit : 24,
       include: {
         catalogItem: {
           select: {
@@ -100,14 +114,22 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       },
     });
 
-    const cursorIndex = cursor ? allClips.findIndex((clip) => clip.id === cursor) : -1;
-    if (cursor && cursorIndex === -1) {
-      return sendBadRequest(res, "invalid cursor");
+    let pageClips = allClips;
+    let nextCursor: string | null = null;
+    if (clipIdParam) {
+      const direct = allClips.find((clip) => clip.id === clipIdParam);
+      pageClips = direct ? [direct] : [];
+      nextCursor = null;
+    } else if (!storyOnly) {
+      const cursorIndex = cursor ? allClips.findIndex((clip) => clip.id === cursor) : -1;
+      if (cursor && cursorIndex === -1) {
+        return sendBadRequest(res, "invalid cursor");
+      }
+      const startIndex = cursor ? cursorIndex + 1 : 0;
+      pageClips = allClips.slice(startIndex, startIndex + limit);
+      nextCursor =
+        startIndex + limit < allClips.length ? pageClips[pageClips.length - 1]?.id ?? null : null;
     }
-    const startIndex = cursor ? cursorIndex + 1 : 0;
-    const pageClips = allClips.slice(startIndex, startIndex + limit);
-    const nextCursor =
-      startIndex + limit < allClips.length ? pageClips[pageClips.length - 1]?.id ?? null : null;
 
     const clipIds = pageClips.map((clip) => clip.id);
     const fanIdFromCookie = readFanId(req, handle);
@@ -174,6 +196,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           commentCount: commentCountByClip.get(clip.id) ?? 0,
           liked: likedSet.has(clip.id),
           canInteract,
+          isStory: Boolean((clip as any).isStory),
           pack: packMeta,
         };
       })

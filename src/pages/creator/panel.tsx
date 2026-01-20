@@ -5,18 +5,20 @@ import clsx from "clsx";
 import CreatorHeader from "../../components/CreatorHeader";
 import { AnalyticsPanel } from "../../components/creator/AnalyticsPanel";
 import { CatalogPanel } from "../../components/creator/CatalogPanel";
+import { PopClipsPanel } from "../../components/creator/PopClipsPanel";
 import { useCreatorConfig } from "../../context/CreatorConfigContext";
 
 const PANEL_TABS = [
   { id: "analytics", label: "Analítica" },
   { id: "catalog", label: "Catálogo" },
+  { id: "popclips", label: "PopClips" },
 ] as const;
 
 type PanelTab = (typeof PANEL_TABS)[number]["id"];
 
 function normalizeTab(value: string | string[] | undefined): PanelTab | null {
   const raw = Array.isArray(value) ? value[0] : value;
-  if (raw === "analytics" || raw === "catalog") return raw;
+  if (raw === "analytics" || raw === "catalog" || raw === "popclips") return raw;
   return null;
 }
 
@@ -86,7 +88,13 @@ export default function CreatorPanelPage() {
           </div>
         </div>
 
-        {activeTab === "catalog" ? <CatalogPanel /> : <AnalyticsPanel />}
+        {activeTab === "catalog" ? (
+          <CatalogPanel />
+        ) : activeTab === "popclips" ? (
+          <PopClipsPanel />
+        ) : (
+          <AnalyticsPanel />
+        )}
       </div>
     </div>
   );

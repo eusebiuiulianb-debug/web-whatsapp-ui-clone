@@ -1,5 +1,5 @@
 import Head from "next/head";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { BioLinkEditor } from "../../components/creator/BioLinkEditor";
 import { useCreatorConfig } from "../../context/CreatorConfigContext";
 import CreatorHeader from "../../components/CreatorHeader";
@@ -13,6 +13,13 @@ export default function CreatorBioLinkPage() {
     [config.creatorName]
   );
   const creatorInitial = config.creatorName?.trim().charAt(0) || "E";
+
+  useEffect(() => {
+    if (typeof document === "undefined") return;
+    const encodedHandle = encodeURIComponent(handle);
+    const maxAge = 60 * 60 * 24 * 30;
+    document.cookie = `novsy_creator_preview=${encodedHandle}; Path=/; Max-Age=${maxAge}; SameSite=Lax`;
+  }, [handle]);
 
   return (
     <div className="min-h-screen bg-[color:var(--surface-0)] text-[color:var(--text)]">

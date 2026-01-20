@@ -1,0 +1,2 @@
+-- AlterTable
+ALTER TABLE "PopClip" ADD COLUMN "isStory" BOOLEAN NOT NULL DEFAULT false;

@@ -659,34 +659,45 @@ async function main() {
   );
 
   if (process.env.NODE_ENV !== "production") {
-    const existingPopClips = await prisma.popClip.count();
-    if (existingPopClips === 0) {
-      const clipSources = await prisma.contentItem.findMany({
-        where: { creatorId: creator.id, type: "VIDEO" },
-        orderBy: { order: "asc" },
-        take: 2,
-        select: { id: true, title: true, mediaPath: true, externalUrl: true, durationSec: true },
-      });
-      const clipSeeds = clipSources
-        .map((item, index) => {
-          const videoUrl = (item.externalUrl || item.mediaPath || "").trim();
-          if (!videoUrl) return null;
-          return {
-            creatorId: creator.id,
-            contentItemId: item.id,
-            title: item.title ?? `PopClip ${index + 1}`,
-            videoUrl,
-            posterUrl: null,
-            startAtSec: 0,
-            durationSec: item.durationSec ?? null,
-            isActive: true,
-            sortOrder: index,
-          };
-        })
-        .filter((item): item is NonNullable<typeof item> => Boolean(item));
-      if (clipSeeds.length > 0) {
-        await prisma.popClip.createMany({ data: clipSeeds });
-      }
+    const clipSources = await prisma.contentItem.findMany({
+      where: { creatorId: creator.id, type: "VIDEO" },
+      orderBy: { order: "asc" },
+      take: 2,
+      select: { id: true, title: true, mediaPath: true, externalUrl: true, durationSec: true },
+    });
+    const clipSeeds = clipSources
+      .map((item, index) => {
+        const videoUrl = (item.externalUrl || item.mediaPath || "").trim();
+        if (!videoUrl) return null;
+        const rawDuration = item.durationSec ?? 30;
+        const durationSec = Math.max(6, Math.min(60, rawDuration));
+        return {
+          creatorId: creator.id,
+          contentItemId: item.id,
+          title: item.title ?? `PopClip ${index + 1}`,
+          videoUrl,
+          posterUrl: null,
+          startAtSec: 0,
+          durationSec,
+          isActive: true,
+          isArchived: false,
+          isStory: index < 2,
+          sortOrder: index,
+        };
+      })
+      .filter((item): item is NonNullable<typeof item> => Boolean(item));
+    if (clipSeeds.length > 0) {
+      await Promise.all(
+        clipSeeds.map((seed) =>
+          prisma.popClip.upsert({
+            where: {
+              creatorId_contentItemId: { creatorId: seed.creatorId, contentItemId: seed.contentItemId },
+            },
+            update: seed,
+            create: seed,
+          })
+        )
+      );
     }
   }
 

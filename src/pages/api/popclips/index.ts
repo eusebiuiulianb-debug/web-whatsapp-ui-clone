@@ -12,6 +12,7 @@ const MAX_RESOLUTION_LONG = 1280;
 const MAX_RESOLUTION_SHORT = 720;
 const DAILY_POPCLIP_LIMIT = 3;
 const MAX_ACTIVE_POPCLIPS = 24;
+const MAX_STORY_POPCLIPS = 8;
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method === "GET") {
@@ -31,7 +32,7 @@ async function handleGet(req: NextApiRequest, res: NextApiResponse) {
   }
 
   try {
-    const clips = await prisma.popClip.findMany({
+    const clips = await (prisma.popClip as any).findMany({
       where: { creatorId },
       orderBy: [{ isActive: "desc" }, { sortOrder: "asc" }, { createdAt: "desc" }],
       include: {
@@ -50,7 +51,7 @@ async function handleGet(req: NextApiRequest, res: NextApiResponse) {
       },
     });
 
-    return res.status(200).json({ clips: clips.map((clip) => serializePopClip(clip)) });
+    return res.status(200).json({ clips: clips.map((clip: any) => serializePopClip(clip as any)) });
   } catch (err) {
     console.error("Error loading popclips", err);
     return sendServerError(res);
@@ -100,6 +101,8 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
       : Number.isFinite(Number(videoSizeBytesRaw))
       ? Math.max(0, Math.round(Number(videoSizeBytesRaw)))
       : NaN;
+  const isStoryRaw = body.isStory;
+  const isStory = typeof isStoryRaw === "boolean" ? isStoryRaw : false;
 
   if (!creatorId) {
     return sendBadRequest(res, "creatorId is required");
@@ -121,6 +124,9 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
   }
   if (Number.isNaN(videoSizeBytes)) {
     return sendBadRequest(res, "videoSizeBytes must be a number");
+  }
+  if (isStoryRaw !== undefined && typeof isStoryRaw !== "boolean") {
+    return sendBadRequest(res, "isStory must be boolean");
   }
   if (durationSec === null) {
     return sendBadRequest(res, "durationSec is required");
@@ -186,7 +192,8 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
     const now = new Date();
     const dayStartUtc = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
     const dayEndUtc = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 1));
-    const dailyCount = await prisma.popClip.count({
+    const popClipClient = prisma.popClip as any;
+    const dailyCount = await popClipClient.count({
       where: {
         creatorId,
         createdAt: {
@@ -199,22 +206,31 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
       return res.status(429).json({ error: "daily_limit_reached" });
     }
 
-    const activeClips = await prisma.popClip.findMany({
+    const activeClips = await popClipClient.findMany({
       where: { creatorId, isActive: true, isArchived: false },
       orderBy: [{ createdAt: "asc" }, { id: "asc" }],
       select: { id: true },
     });
     if (activeClips.length >= MAX_ACTIVE_POPCLIPS) {
       const archiveCount = activeClips.length - (MAX_ACTIVE_POPCLIPS - 1);
-      const idsToArchive = activeClips.slice(0, archiveCount).map((clip) => clip.id);
-      await prisma.popClip.updateMany({
+      const idsToArchive = activeClips.slice(0, archiveCount).map((clip: { id: string }) => clip.id);
+      await popClipClient.updateMany({
         where: { id: { in: idsToArchive } },
         data: { isArchived: true, isActive: false },
       });
     }
 
+    if (isStory) {
+      const storyCount = await popClipClient.count({
+        where: { creatorId, isStory: true, isArchived: false, isActive: true },
+      });
+      if (storyCount >= MAX_STORY_POPCLIPS) {
+        return res.status(409).json({ error: "story_limit_reached" });
+      }
+    }
+
     if (catalogItemId) {
-      const existing = await prisma.popClip.findFirst({
+      const existing = await popClipClient.findFirst({
         where: { creatorId, catalogItemId },
         select: { id: true },
       });
@@ -223,7 +239,7 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
       }
     }
     if (contentItemId) {
-      const existing = await prisma.popClip.findFirst({
+      const existing = await popClipClient.findFirst({
         where: { creatorId, contentItemId },
         select: { id: true },
       });
@@ -232,7 +248,8 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
       }
     }
 
-    const clip = await (prisma.popClip as any).create({
+    const resolvedIsActive = typeof body.isActive === "boolean" ? body.isActive : true;
+    const clip = await popClipClient.create({
       data: {
         creatorId,
         catalogItemId: catalogItemId || null,
@@ -245,8 +262,9 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
         videoWidth,
         videoHeight,
         videoSizeBytes,
-        isActive: typeof body.isActive === "boolean" ? body.isActive : true,
+        isActive: isStory ? true : resolvedIsActive,
         isArchived: false,
+        isStory,
         sortOrder: Number.isFinite(Number(body.sortOrder)) ? Math.round(Number(body.sortOrder)) : 0,
       },
       include: {
@@ -265,7 +283,7 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
       },
     });
 
-    return res.status(201).json({ clip: serializePopClip(clip) });
+    return res.status(201).json({ clip: serializePopClip(clip as any) });
   } catch (err) {
     console.error("Error creating popclip", err);
     return sendServerError(res);
