@@ -62,18 +62,7 @@ export default function PublicCreatorByHandle({
   catalogItems,
   catalogError,
 }: Props) {
-  if (notFound || !creatorName || !creatorHandle) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-[color:var(--surface-0)] text-[color:var(--muted)] px-4">
-        <div className="text-center space-y-2">
-          <h1 className="text-2xl font-semibold">Perfil no disponible</h1>
-          <p className="text-sm text-[color:var(--muted)]">El creador aún no ha activado su perfil público.</p>
-        </div>
-      </div>
-    );
-  }
-
-  const baseChatHref = `/go/${creatorHandle}`;
+  const baseChatHref = creatorHandle ? `/go/${creatorHandle}` : "/go/creator";
   const [searchParams, setSearchParams] = useState("");
   const [popClips, setPopClips] = useState<PublicPopClip[]>([]);
   const [popClipsLoading, setPopClipsLoading] = useState(false);
@@ -109,6 +98,7 @@ export default function PublicCreatorByHandle({
   const followHref = appendSearchIfRelative(`${baseChatHref}?draft=${encodeURIComponent(followDraft)}`, searchParams);
 
   useEffect(() => {
+    if (!creatorHandle) return;
     const utmMeta = readUtmMeta();
     track(ANALYTICS_EVENTS.BIO_LINK_VIEW, {
       creatorId: creatorId || "creator-1",
@@ -140,7 +130,7 @@ export default function PublicCreatorByHandle({
   const featuredIds = featuredItems.map((item) => item.id);
   const popclipItems = popClips.map((clip) => ({
     id: clip.id,
-    kind: "popclip",
+    kind: "popclip" as const,
     title: clip.title?.trim() || clip.pack.title,
     priceCents: clip.pack.priceCents,
     currency: clip.pack.currency,
@@ -150,6 +140,17 @@ export default function PublicCreatorByHandle({
     liked: clip.liked ?? false,
     canInteract: clip.canInteract ?? false,
   }));
+
+  if (notFound || !creatorName || !creatorHandle) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-[color:var(--surface-0)] text-[color:var(--muted)] px-4">
+        <div className="text-center space-y-2">
+          <h1 className="text-2xl font-semibold">Perfil no disponible</h1>
+          <p className="text-sm text-[color:var(--muted)]">El creador aún no ha activado su perfil público.</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <>

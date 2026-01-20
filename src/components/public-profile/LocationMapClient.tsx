@@ -12,18 +12,24 @@ type Props = {
 
 export default function LocationMapClient({ geohash, radiusKm }: Props) {
   const center = useMemo(() => decodeGeohash(geohash), [geohash]);
-  if (!center) {
+  const radiusMeters = useMemo(() => {
+    if (Number.isFinite(radiusKm) && (radiusKm as number) > 0) {
+      return (radiusKm as number) * 1000;
+    }
+    return DEFAULT_CITY_RADIUS_METERS;
+  }, [radiusKm]);
+  const centerPoint = useMemo(
+    () => (center ? ([center.lat, center.lng] as [number, number]) : null),
+    [center]
+  );
+
+  if (!centerPoint) {
     return (
       <div className="flex h-full w-full items-center justify-center text-xs text-[color:var(--muted)]">
         No hay mapa disponible.
       </div>
     );
   }
-
-  const radiusMeters = Number.isFinite(radiusKm) && (radiusKm as number) > 0
-    ? (radiusKm as number) * 1000
-    : DEFAULT_CITY_RADIUS_METERS;
-  const centerPoint = useMemo(() => [center.lat, center.lng] as [number, number], [center]);
 
   return (
     <MapContainer

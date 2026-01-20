@@ -82,7 +82,7 @@ export function PublicCatalogGrid({
   useEffect(() => {
     return () => {
       if (toastTimerRef.current) {
-        window.clearTimeout(toastTimerRef.current);
+        clearTimeout(toastTimerRef.current);
       }
     };
   }, []);
@@ -93,7 +93,7 @@ export function PublicCatalogGrid({
   }, [chatHref]);
 
   const featuredSet = useMemo(() => new Set(featuredIds ?? []), [featuredIds]);
-  const normalizedPopclips = popclipItems ?? [];
+  const normalizedPopclips = useMemo(() => popclipItems ?? [], [popclipItems]);
   const filteredCatalogItems = useMemo(() => {
     if (activeFilter === "all") return items;
     if (activeFilter === "popclip") return [];
@@ -189,8 +189,8 @@ export function PublicCatalogGrid({
 
   const showToast = (message: string, href?: string) => {
     setToast({ message, href });
-    if (toastTimerRef.current) window.clearTimeout(toastTimerRef.current);
-    toastTimerRef.current = window.setTimeout(() => setToast(null), 2200);
+    if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
+    toastTimerRef.current = setTimeout(() => setToast(null), 2200);
   };
 
   const showAuthToast = () => {

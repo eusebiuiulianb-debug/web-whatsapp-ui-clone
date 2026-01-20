@@ -178,7 +178,12 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
     fanIdForWallet = fan.id;
 
     const existingPurchase = await prisma.ppvPurchase.findUnique({
-      where: { ppvMessageId: ppvMessage.id },
+      where: {
+        PpvPurchase_ppvMessageId_fanId_key: {
+          ppvMessageId: ppvMessage.id,
+          fanId: fan.id,
+        },
+      },
       select: { id: true, createdAt: true },
     });
 
