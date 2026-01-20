@@ -183,23 +183,25 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     }
 
     const popClipClient = prisma.popClip as any;
-    const activeClips = await popClipClient.findMany({
-      where: { creatorId, isActive: true, isArchived: false },
-      orderBy: [{ createdAt: "asc" }, { id: "asc" }],
-      select: { id: true },
-    });
-    if (activeClips.length >= MAX_ACTIVE_POPCLIPS) {
-      const archiveCount = activeClips.length - (MAX_ACTIVE_POPCLIPS - 1);
-      const idsToArchive = activeClips.slice(0, archiveCount).map((clip: { id: string }) => clip.id);
-      await popClipClient.updateMany({
-        where: { id: { in: idsToArchive } },
-        data: { isArchived: true, isActive: false, isStory: false },
+    if (!isStory) {
+      const activeClips = await popClipClient.findMany({
+        where: { creatorId, isActive: true, isArchived: false, isStory: false },
+        orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+        select: { id: true },
       });
+      if (activeClips.length >= MAX_ACTIVE_POPCLIPS) {
+        const archiveCount = activeClips.length - (MAX_ACTIVE_POPCLIPS - 1);
+        const idsToArchive = activeClips.slice(0, archiveCount).map((clip: { id: string }) => clip.id);
+        await popClipClient.updateMany({
+          where: { id: { in: idsToArchive } },
+          data: { isArchived: true, isActive: false, isStory: false },
+        });
+      }
     }
 
     if (isStory) {
       const storyCount = await popClipClient.count({
-        where: { creatorId, isStory: true, isArchived: false, isActive: true },
+        where: { creatorId, isStory: true, isArchived: false },
       });
       if (storyCount >= MAX_STORY_POPCLIPS) {
         return res.status(409).json({ error: "story_limit_reached" });

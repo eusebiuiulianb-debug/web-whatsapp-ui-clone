@@ -143,36 +143,36 @@ async function handlePatch(req: NextApiRequest, res: NextApiResponse) {
 
     if (data.isStory === true && !existing.isStory) {
       const storyCount = await popClipClient.count({
-        where: { creatorId, isStory: true, isArchived: false, isActive: true, id: { not: id } },
+        where: { creatorId, isStory: true, isArchived: false, id: { not: id } },
       });
       if (storyCount >= MAX_STORY_POPCLIPS) {
         return res.status(409).json({ error: "story_limit_reached" });
       }
     }
 
-    let shouldActivate = false;
+    const wasActiveFeed = !existing.isArchived && !existing.isStory && existing.isActive;
     if (data.isStory === true) {
       data.isArchived = false;
       data.isActive = true;
-      shouldActivate = true;
     }
     if (data.isArchived === true) {
       data.isActive = false;
       data.isStory = false;
     }
     if (data.isArchived === false) {
-      shouldActivate = true;
       if (data.isActive === undefined) {
         data.isActive = true;
       }
     }
-    if (data.isActive === true) {
-      shouldActivate = true;
-    }
 
-    if (shouldActivate) {
+    const nextIsStory = typeof data.isStory === "boolean" ? data.isStory : existing.isStory;
+    const nextIsArchived = typeof data.isArchived === "boolean" ? data.isArchived : existing.isArchived;
+    const nextIsActive = typeof data.isActive === "boolean" ? data.isActive : existing.isActive;
+    const willBeActiveFeed = !nextIsArchived && !nextIsStory && nextIsActive;
+
+    if (willBeActiveFeed && !wasActiveFeed) {
       const activeClips = await popClipClient.findMany({
-        where: { creatorId, isActive: true, isArchived: false, id: { not: id } },
+        where: { creatorId, isActive: true, isArchived: false, isStory: false, id: { not: id } },
         orderBy: [{ createdAt: "asc" }, { id: "asc" }],
         select: { id: true },
       });

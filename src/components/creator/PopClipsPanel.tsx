@@ -136,12 +136,23 @@ export function PopClipsPanel() {
     void loadCatalog();
   }, [loadCatalog, loadPopClips]);
 
-  const activeClips = useMemo(() => popClips.filter((clip) => !clip.isArchived), [popClips]);
-  const storyClips = useMemo(() => activeClips.filter((clip) => clip.isStory), [activeClips]);
+  const activeFeedClips = useMemo(
+    () => popClips.filter((clip) => !clip.isArchived && !clip.isStory),
+    [popClips]
+  );
+  const storyClips = useMemo(
+    () => popClips.filter((clip) => !clip.isArchived && clip.isStory),
+    [popClips]
+  );
   const archivedClips = useMemo(() => popClips.filter((clip) => clip.isArchived), [popClips]);
 
   const todayCount = useMemo(() => countTodayUtc(popClips), [popClips]);
   const canAddStory = storyClips.length < MAX_STORIES;
+  const scrollToUploader = useCallback(() => {
+    if (typeof document === "undefined") return;
+    const target = document.getElementById("popclip-uploader");
+    target?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }, []);
 
   const resetUpload = () => {
     setUploadFile(null);
@@ -362,7 +373,7 @@ export function PopClipsPanel() {
           <div className="rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-3 py-2">
             <p className="text-[11px] uppercase tracking-wide text-[color:var(--muted)]">Activos</p>
             <p className="text-lg font-semibold text-[color:var(--text)]">
-              {activeClips.length}/{MAX_ACTIVE}
+              {activeFeedClips.length}/{MAX_ACTIVE}
             </p>
           </div>
           <div className="rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-3 py-2">
@@ -374,64 +385,66 @@ export function PopClipsPanel() {
         </div>
       </SectionCard>
 
-      <SectionCard
-        eyebrow="Subir PopClip"
-        title="Nuevo clip"
-        subtitle="Duración 6–60s, 720p máx y teaser ligado a un pack."
-        actions={
-          <button
-            type="button"
-            onClick={handleUpload}
-            disabled={uploading}
-            className="rounded-full bg-[color:var(--brand-strong)] px-4 py-2 text-xs font-semibold text-[color:var(--surface-0)] hover:bg-[color:var(--brand)] disabled:opacity-60"
-          >
-            {uploading ? "Subiendo..." : "Subir PopClip"}
-          </button>
-        }
-      >
-        <div className="grid gap-3 md:grid-cols-3">
-          <label className="text-xs text-[color:var(--muted)]">
-            Vídeo
-            <input
-              type="file"
-              accept="video/mp4,video/webm"
-              onChange={(event) => handleFileChange(event.target.files?.[0] ?? null)}
-              className="mt-1 w-full rounded-lg border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-3 py-2 text-sm text-[color:var(--text)]"
-            />
-          </label>
-          <label className="text-xs text-[color:var(--muted)]">
-            Pack
-            <select
-              value={uploadCatalogItemId}
-              onChange={(event) => setUploadCatalogItemId(event.target.value)}
-              className="mt-1 w-full rounded-lg border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-3 py-2 text-sm text-[color:var(--text)]"
-              disabled={catalogLoading}
+      <div id="popclip-uploader" className="scroll-mt-24">
+        <SectionCard
+          eyebrow="Subir PopClip"
+          title="Nuevo clip"
+          subtitle="Duración 6–60s, 720p máx y teaser ligado a un pack."
+          actions={
+            <button
+              type="button"
+              onClick={handleUpload}
+              disabled={uploading}
+              className="rounded-full bg-[color:var(--brand-strong)] px-4 py-2 text-xs font-semibold text-[color:var(--surface-0)] hover:bg-[color:var(--brand)] disabled:opacity-60"
             >
-              <option value="">Selecciona un pack</option>
-              {catalogItems.map((item) => (
-                <option key={item.id} value={item.id}>
-                  {item.title}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="text-xs text-[color:var(--muted)]">
-            Título (opcional)
-            <input
-              type="text"
-              value={uploadTitle}
-              onChange={(event) => setUploadTitle(event.target.value)}
-              className="mt-1 w-full rounded-lg border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-3 py-2 text-sm text-[color:var(--text)]"
-            />
-          </label>
-        </div>
-        {uploadMeta && (
-          <div className="mt-2 text-[11px] text-[color:var(--muted)]">
-            {uploadMeta.width}×{uploadMeta.height} · {uploadMeta.durationSec}s
+              {uploading ? "Subiendo..." : "Subir PopClip"}
+            </button>
+          }
+        >
+          <div className="grid gap-3 md:grid-cols-3">
+            <label className="text-xs text-[color:var(--muted)]">
+              Vídeo
+              <input
+                type="file"
+                accept="video/mp4,video/webm"
+                onChange={(event) => handleFileChange(event.target.files?.[0] ?? null)}
+                className="mt-1 w-full rounded-lg border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-3 py-2 text-sm text-[color:var(--text)]"
+              />
+            </label>
+            <label className="text-xs text-[color:var(--muted)]">
+              Pack
+              <select
+                value={uploadCatalogItemId}
+                onChange={(event) => setUploadCatalogItemId(event.target.value)}
+                className="mt-1 w-full rounded-lg border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-3 py-2 text-sm text-[color:var(--text)]"
+                disabled={catalogLoading}
+              >
+                <option value="">Selecciona un pack</option>
+                {catalogItems.map((item) => (
+                  <option key={item.id} value={item.id}>
+                    {item.title}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="text-xs text-[color:var(--muted)]">
+              Título (opcional)
+              <input
+                type="text"
+                value={uploadTitle}
+                onChange={(event) => setUploadTitle(event.target.value)}
+                className="mt-1 w-full rounded-lg border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-3 py-2 text-sm text-[color:var(--text)]"
+              />
+            </label>
           </div>
-        )}
-        {uploadError && <div className="mt-2 text-xs text-[color:var(--danger)]">{uploadError}</div>}
-      </SectionCard>
+          {uploadMeta && (
+            <div className="mt-2 text-[11px] text-[color:var(--muted)]">
+              {uploadMeta.width}×{uploadMeta.height} · {uploadMeta.durationSec}s
+            </div>
+          )}
+          {uploadError && <div className="mt-2 text-xs text-[color:var(--danger)]">{uploadError}</div>}
+        </SectionCard>
+      </div>
 
       <SectionCard
         eyebrow="Historias"
@@ -445,7 +458,9 @@ export function PopClipsPanel() {
             ))}
           </div>
         ) : storyClips.length === 0 ? (
-          <div className="text-sm text-[color:var(--muted)]">Aún no hay historias.</div>
+          <div className="text-sm text-[color:var(--muted)]">
+            Marca hasta 8 clips como Historia para destacarlos en tu perfil.
+          </div>
         ) : (
           <div className="grid gap-3 sm:grid-cols-2">
             {storyClips.map((clip) => renderClipCard(clip, { allowArchive: true }))}
@@ -465,11 +480,22 @@ export function PopClipsPanel() {
               <Skeleton key={`active-skeleton-${idx}`} className="h-24 w-full" />
             ))}
           </div>
-        ) : activeClips.length === 0 ? (
-          <div className="text-sm text-[color:var(--muted)]">No hay PopClips activos todavía.</div>
+        ) : activeFeedClips.length === 0 ? (
+          <div className="space-y-2 text-sm text-[color:var(--muted)]">
+            <p>
+              Aún no tienes PopClips en el feed. Tus clips marcados como Historia se muestran arriba del perfil público.
+            </p>
+            <button
+              type="button"
+              onClick={scrollToUploader}
+              className="rounded-full border border-[color:var(--surface-border)] px-3 py-1.5 text-[11px] font-semibold text-[color:var(--text)] hover:bg-[color:var(--surface-2)]"
+            >
+              Subir PopClip
+            </button>
+          </div>
         ) : (
           <div className="grid gap-3 sm:grid-cols-2">
-            {activeClips.map((clip) => renderClipCard(clip))}
+            {activeFeedClips.map((clip) => renderClipCard(clip))}
           </div>
         )}
       </SectionCard>
