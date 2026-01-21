@@ -31,6 +31,36 @@ type PublicPopClip = {
   };
 };
 
+type PopClipRow = {
+  id: string;
+  title: string | null;
+  videoUrl: string;
+  posterUrl: string | null;
+  startAtSec: number;
+  durationSec: number | null;
+  sortOrder: number;
+  createdAt: Date;
+  isStory?: boolean | null;
+  catalogItemId: string | null;
+  catalogItem?: {
+    id: string;
+    title: string;
+    description: string | null;
+    priceCents: number;
+    currency: string;
+    type: string;
+    isPublic: boolean;
+    isActive: boolean;
+  } | null;
+  contentItem?: {
+    id: string;
+    pack: string | null;
+    type: string;
+    mediaPath: string | null;
+    externalUrl: string | null;
+  } | null;
+};
+
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   res.setHeader("Cache-Control", "no-store");
   if (req.method !== "GET") {
@@ -52,12 +82,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   const limitRaw = typeof req.query.limit === "string" ? Number(req.query.limit) : NaN;
   const storyParam = typeof req.query.story === "string" ? req.query.story.trim() : "";
   const storyOnly = storyParam === "1" || storyParam.toLowerCase() === "true";
-  const limit = Number.isFinite(limitRaw)
-    ? Math.max(1, Math.min(storyOnly ? 8 : 12, Math.floor(limitRaw)))
-    : storyOnly
-    ? 8
-    : 12;
-  const cursor = !storyOnly && typeof req.query.cursor === "string" ? req.query.cursor.trim() : "";
+  const popclipLimit = Number.isFinite(limitRaw) ? Math.max(1, Math.min(12, Math.floor(limitRaw))) : 12;
+  const storyLimit = Number.isFinite(limitRaw) ? Math.max(1, Math.min(8, Math.floor(limitRaw))) : 8;
+  const cursor = typeof req.query.cursor === "string" ? req.query.cursor.trim() : "";
   const clipIdParam = typeof req.query.id === "string" ? req.query.id.trim() : "";
 
   try {
@@ -75,12 +102,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       return res.status(404).json({ error: "Not found" });
     }
 
-    const applyStoryFilter = storyOnly && !clipIdParam;
     const baseWhere = {
       creatorId: creator.id,
       isActive: true,
       isArchived: false,
-      ...(applyStoryFilter ? { isStory: true } : {}),
       OR: [
         {
           catalogItem: {
@@ -91,56 +116,6 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         { contentItemId: { not: null } },
       ],
     };
-
-    const allClips = await prisma.popClip.findMany({
-      where: {
-        ...baseWhere,
-      },
-      orderBy: [{ createdAt: "desc" }, { id: "desc" }],
-      take: clipIdParam ? 1 : storyOnly ? limit : 24,
-      include: {
-        catalogItem: {
-          select: {
-            id: true,
-            title: true,
-            description: true,
-            priceCents: true,
-            currency: true,
-            type: true,
-            isPublic: true,
-            isActive: true,
-          },
-        },
-        contentItem: {
-          select: {
-            id: true,
-            pack: true,
-            type: true,
-            mediaPath: true,
-            externalUrl: true,
-          },
-        },
-      },
-    });
-
-    let pageClips = allClips;
-    let nextCursor: string | null = null;
-    if (clipIdParam) {
-      const direct = allClips.find((clip) => clip.id === clipIdParam);
-      pageClips = direct ? [direct] : [];
-      nextCursor = null;
-    } else if (!storyOnly) {
-      const cursorIndex = cursor ? allClips.findIndex((clip) => clip.id === cursor) : -1;
-      if (cursor && cursorIndex === -1) {
-        return sendBadRequest(res, "invalid cursor");
-      }
-      const startIndex = cursor ? cursorIndex + 1 : 0;
-      pageClips = allClips.slice(startIndex, startIndex + limit);
-      nextCursor =
-        startIndex + limit < allClips.length ? pageClips[pageClips.length - 1]?.id ?? null : null;
-    }
-
-    const clipIds = pageClips.map((clip) => clip.id);
     const fanIdFromCookie = readFanId(req, handle);
     const viewerFan = fanIdFromCookie
       ? await prisma.fan.findFirst({
@@ -149,7 +124,96 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         })
       : null;
     const viewerFanId = viewerFan?.id ?? "";
+    const clipInclude = {
+      catalogItem: {
+        select: {
+          id: true,
+          title: true,
+          description: true,
+          priceCents: true,
+          currency: true,
+          type: true,
+          isPublic: true,
+          isActive: true,
+        },
+      },
+      contentItem: {
+        select: {
+          id: true,
+          pack: true,
+          type: true,
+          mediaPath: true,
+          externalUrl: true,
+        },
+      },
+    };
 
+    let popclipClips: PopClipRow[] = [];
+    let storyClips: PopClipRow[] = [];
+    let nextCursor: string | null = null;
+    let popclipsCount = 0;
+    let storiesCount = 0;
+
+    if (clipIdParam) {
+      const clip = (await prisma.popClip.findFirst({
+        where: { ...baseWhere, id: clipIdParam },
+        include: clipInclude,
+      })) as PopClipRow | null;
+      if (clip) {
+        if (clip.isStory) {
+          storyClips = [clip];
+        } else {
+          popclipClips = [clip];
+        }
+      }
+      popclipsCount = popclipClips.length;
+      storiesCount = storyClips.length;
+      nextCursor = null;
+    } else if (storyOnly) {
+      storyClips = (await prisma.popClip.findMany({
+        where: { ...baseWhere, isStory: true },
+        orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+        take: storyLimit,
+        include: clipInclude,
+      })) as PopClipRow[];
+      storiesCount = storyClips.length;
+      popclipsCount = 0;
+      nextCursor = null;
+    } else {
+      const [allPopclips, allStories] = await Promise.all([
+        prisma.popClip.findMany({
+          where: { ...baseWhere, isStory: false },
+          orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+          take: 24,
+          include: clipInclude,
+        }),
+        prisma.popClip.findMany({
+          where: { ...baseWhere, isStory: true },
+          orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+          take: storyLimit,
+          include: clipInclude,
+        }),
+      ]);
+      const resolvedPopclips = allPopclips as PopClipRow[];
+      const resolvedStories = allStories as PopClipRow[];
+      popclipsCount = resolvedPopclips.length;
+      storiesCount = resolvedStories.length;
+      const cursorIndex = cursor ? resolvedPopclips.findIndex((clip) => clip.id === cursor) : -1;
+      if (cursor && cursorIndex === -1) {
+        return sendBadRequest(res, "invalid cursor");
+      }
+      const startIndex = cursor ? cursorIndex + 1 : 0;
+      popclipClips = resolvedPopclips.slice(startIndex, startIndex + popclipLimit);
+      nextCursor =
+        startIndex + popclipLimit < resolvedPopclips.length
+          ? popclipClips[popclipClips.length - 1]?.id ?? null
+          : null;
+      storyClips = resolvedStories;
+    }
+
+    const clipIds = Array.from(
+      new Set([...popclipClips, ...storyClips].map((clip) => clip.id))
+    );
     const [reactionCounts, commentCounts, viewerReactions, accessGrant] = await Promise.all([
       clipIds.length > 0
         ? prisma.popClipReaction.groupBy({
@@ -189,37 +253,36 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     const canInteract = Boolean(viewerFanId);
     const canComment = Boolean(accessGrant);
 
-    const publicClips: PublicPopClip[] = pageClips
-      .map((clip) => {
-        const packMeta = resolvePackMeta({
-          clip,
-          creator,
-          handle,
-        });
-        if (!packMeta) return null;
-        const videoUrl = clip.videoUrl || resolveContentMediaUrl(clip.contentItem);
-        if (!videoUrl) return null;
-        return {
-          id: clip.id,
-          title: clip.title ?? null,
-          videoUrl,
-          posterUrl: clip.posterUrl ?? null,
-          startAtSec: Number.isFinite(Number(clip.startAtSec)) ? Math.max(0, Number(clip.startAtSec)) : 0,
-          durationSec: clip.durationSec ?? null,
-          sortOrder: clip.sortOrder,
-          createdAt: clip.createdAt.toISOString(),
-          likeCount: likeCountByClip.get(clip.id) ?? 0,
-          commentCount: commentCountByClip.get(clip.id) ?? 0,
-          liked: likedSet.has(clip.id),
-          canInteract,
-          canComment,
-          isStory: Boolean((clip as any).isStory),
-          pack: packMeta,
-        };
-      })
-      .filter((clip): clip is PublicPopClip => Boolean(clip));
+    const publicPopclips = serializePublicClips({
+      clips: popclipClips,
+      creator,
+      handle,
+      likeCountByClip,
+      commentCountByClip,
+      likedSet,
+      canInteract,
+      canComment,
+    });
+    const publicStories = serializePublicClips({
+      clips: storyClips,
+      creator,
+      handle,
+      likeCountByClip,
+      commentCountByClip,
+      likedSet,
+      canInteract,
+      canComment,
+    });
+    const clipsPayload = clipIdParam || storyOnly ? [...publicStories, ...publicPopclips] : publicPopclips;
 
-    return res.status(200).json({ clips: publicClips, nextCursor });
+    return res.status(200).json({
+      clips: clipsPayload,
+      popclips: publicPopclips,
+      stories: publicStories,
+      popclipsCount,
+      storiesCount,
+      nextCursor,
+    });
   } catch (err) {
     console.error("Error loading public popclips", err);
     return sendServerError(res);
@@ -228,6 +291,56 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
 function buildPackRoute(handle: string, packId: string) {
   return `/p/${handle}/${packId}`;
+}
+
+function serializePublicClips({
+  clips,
+  creator,
+  handle,
+  likeCountByClip,
+  commentCountByClip,
+  likedSet,
+  canInteract,
+  canComment,
+}: {
+  clips: PopClipRow[];
+  creator: { packs: Array<{ id: string; name: string; price: string; description: string }> };
+  handle: string;
+  likeCountByClip: Map<string, number>;
+  commentCountByClip: Map<string, number>;
+  likedSet: Set<string>;
+  canInteract: boolean;
+  canComment: boolean;
+}): PublicPopClip[] {
+  return clips
+    .map((clip) => {
+      const packMeta = resolvePackMeta({
+        clip,
+        creator,
+        handle,
+      });
+      if (!packMeta) return null;
+      const videoUrl = clip.videoUrl || resolveContentMediaUrl(clip.contentItem);
+      if (!videoUrl) return null;
+      return {
+        id: clip.id,
+        title: clip.title ?? null,
+        videoUrl,
+        posterUrl: clip.posterUrl ?? null,
+        startAtSec: Number.isFinite(Number(clip.startAtSec)) ? Math.max(0, Number(clip.startAtSec)) : 0,
+        durationSec: clip.durationSec ?? null,
+        sortOrder: clip.sortOrder,
+        createdAt: clip.createdAt.toISOString(),
+        likeCount: likeCountByClip.get(clip.id) ?? 0,
+        commentCount: commentCountByClip.get(clip.id) ?? 0,
+        liked: likedSet.has(clip.id),
+        canInteract,
+        canComment,
+        isStory: Boolean(clip.isStory),
+        pack: packMeta,
+      };
+    })
+    .filter((clip): clip is PublicPopClip => Boolean(clip));
 }
 
 function resolveVisibilityMode(value: unknown): "INVISIBLE" | "SOLO_LINK" | "DISCOVERABLE" | "PUBLIC" {

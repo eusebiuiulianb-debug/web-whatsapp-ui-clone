@@ -1,7 +1,7 @@
 import Head from "next/head";
 import type { GetServerSideProps } from "next";
 import { randomUUID } from "crypto";
-import { useEffect, useMemo, useRef, useState, type MouseEvent } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent } from "react";
 import { useRouter } from "next/router";
 import { PublicHero } from "../../components/public-profile/PublicHero";
 import { PublicCatalogGrid } from "../../components/public-profile/PublicCatalogGrid";
@@ -88,10 +88,12 @@ export default function PublicCreatorByHandle({
   const [popClipsLoading, setPopClipsLoading] = useState(false);
   const [popClipsLoadingMore, setPopClipsLoadingMore] = useState(false);
   const [popClipsError, setPopClipsError] = useState("");
+  const [popclipsSectionCount, setPopclipsSectionCount] = useState<number | null>(null);
   const [storyClips, setStoryClips] = useState<PublicPopClip[]>([]);
   const [storyLoading, setStoryLoading] = useState(false);
   const [storyError, setStoryError] = useState("");
   const [requestedPopclipId, setRequestedPopclipId] = useState<string | null>(null);
+  const [requestedPopclipItem, setRequestedPopclipItem] = useState<PublicCatalogCardItem | null>(null);
   const [toast, setToast] = useState("");
   const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [chatPending, setChatPending] = useState(false);
@@ -122,17 +124,40 @@ export default function PublicCreatorByHandle({
     const endpoint = `/api/public/popclips?handle=${encodeURIComponent(creatorHandle)}&limit=${POPCLIP_PAGE_SIZE}`;
     let responseStatus: number | null = null;
     setPopClipsLoading(true);
+    setStoryLoading(true);
     setPopClipsLoadingMore(false);
     setPopClipsError("");
+    setStoryError("");
     setPopClipsCursor(null);
     setPopClips([]);
+    setStoryClips([]);
+    setPopclipsSectionCount(null);
     fetch(endpoint, { signal: controller.signal })
       .then(async (res) => {
         responseStatus = res.status;
         if (!res.ok) throw new Error("request failed");
-        const payload = (await res.json()) as { clips?: PublicPopClip[]; nextCursor?: string | null };
-        setPopClips(Array.isArray(payload?.clips) ? payload.clips : []);
+        const payload = (await res.json()) as {
+          clips?: PublicPopClip[];
+          popclips?: PublicPopClip[];
+          stories?: PublicPopClip[];
+          nextCursor?: string | null;
+          popclipsCount?: number;
+          storiesCount?: number;
+        };
+        const resolvedPopclips = Array.isArray(payload?.popclips)
+          ? payload.popclips
+          : Array.isArray(payload?.clips)
+          ? payload.clips
+          : [];
+        const resolvedStories = Array.isArray(payload?.stories) ? payload.stories : [];
+        setPopClips(resolvedPopclips);
+        setStoryClips(resolvedStories);
         setPopClipsCursor(typeof payload?.nextCursor === "string" ? payload.nextCursor : null);
+        if (typeof payload?.popclipsCount === "number") {
+          setPopclipsSectionCount(payload.popclipsCount);
+        } else {
+          setPopclipsSectionCount(resolvedPopclips.length);
+        }
       })
       .catch((err) => {
         if (err instanceof DOMException && err.name === "AbortError") return;
@@ -140,33 +165,14 @@ export default function PublicCreatorByHandle({
         setPopClipsError("No se pudieron cargar los PopClips.");
         setPopClips([]);
         setPopClipsCursor(null);
-      })
-      .finally(() => setPopClipsLoading(false));
-    return () => controller.abort();
-  }, [creatorHandle]);
-
-  useEffect(() => {
-    if (!creatorHandle) return;
-    const controller = new AbortController();
-    const endpoint = `/api/public/popclips?handle=${encodeURIComponent(creatorHandle)}&limit=${POPCLIP_STORY_MAX}&story=1`;
-    let responseStatus: number | null = null;
-    setStoryLoading(true);
-    setStoryError("");
-    setStoryClips([]);
-    fetch(endpoint, { signal: controller.signal })
-      .then(async (res) => {
-        responseStatus = res.status;
-        if (!res.ok) throw new Error("request failed");
-        const payload = (await res.json()) as { clips?: PublicPopClip[] };
-        setStoryClips(Array.isArray(payload?.clips) ? payload.clips : []);
-      })
-      .catch((err) => {
-        if (err instanceof DOMException && err.name === "AbortError") return;
-        logPublicFetchFailure(endpoint, responseStatus, err);
         setStoryError("No se pudieron cargar las historias.");
         setStoryClips([]);
+        setPopclipsSectionCount(0);
       })
-      .finally(() => setStoryLoading(false));
+      .finally(() => {
+        setPopClipsLoading(false);
+        setStoryLoading(false);
+      });
     return () => controller.abort();
   }, [creatorHandle]);
 
@@ -202,7 +208,9 @@ export default function PublicCreatorByHandle({
   }, [catalogItems]);
 
   const commentsCount = stats?.commentsCount ?? 0;
-  const popclipsCount = stats?.popclipsCount ?? 0;
+  const statsContentCount =
+    stats?.contentCount ??
+    (stats?.popclipsCount ?? 0) + (stats?.storiesCount ?? 0);
   const ratingsCount = stats?.ratingsCount ?? 0;
   const topEligible = commentsCount >= 10 || ratingsCount >= 10;
   const tagline = "";
@@ -214,25 +222,35 @@ export default function PublicCreatorByHandle({
   const resolvedWebsiteUrl = normalizeWebsiteUrl(websiteUrl);
   const websiteLabel = resolvedWebsiteUrl ? formatWebsiteLabel(resolvedWebsiteUrl) : "";
   const showLoading = !catalogItems && !catalogError;
-  const popclipItems = popClips.map((clip) => ({
-    id: clip.id,
-    kind: "popclip" as const,
-    title: clip.title?.trim() || clip.pack.title,
-    priceCents: clip.pack.priceCents,
-    currency: clip.pack.currency,
-    thumbUrl: clip.posterUrl || null,
-    likeCount: clip.likeCount ?? 0,
-    commentCount: clip.commentCount ?? 0,
-    liked: clip.liked ?? false,
-    canInteract: clip.canInteract ?? false,
-    canComment: clip.canComment ?? false,
-  }));
+  const mapPopclipToCard = useCallback(
+    (clip: PublicPopClip): PublicCatalogCardItem => ({
+      id: clip.id,
+      kind: "popclip" as const,
+      title: clip.title?.trim() || clip.pack.title,
+      priceCents: clip.pack.priceCents,
+      currency: clip.pack.currency,
+      thumbUrl: clip.posterUrl || null,
+      likeCount: clip.likeCount ?? 0,
+      commentCount: clip.commentCount ?? 0,
+      liked: clip.liked ?? false,
+      canInteract: clip.canInteract ?? false,
+      canComment: clip.canComment ?? false,
+    }),
+    []
+  );
+  const popclipItems = popClips.map(mapPopclipToCard);
   const storyItems = storyClips.slice(0, POPCLIP_STORY_MAX).map((clip) => ({
     id: clip.id,
     title: clip.title?.trim() || clip.pack.title,
     thumbUrl: clip.posterUrl || null,
   }));
   const storyEmptyLabel = storyError ? "No se pudieron cargar las historias." : "Aún no hay historias";
+  const popclipsHeaderCount =
+    typeof popclipsSectionCount === "number" ? popclipsSectionCount : popClips.length;
+  const hasStories = storyItems.length > 0;
+  const hasPopclips = popclipsHeaderCount > 0;
+  const showPopclipsSection =
+    hasPopclips || Boolean(requestedPopclipId) || Boolean(requestedPopclipItem);
 
   const showToast = (message: string) => {
     setToast(message);
@@ -250,7 +268,9 @@ export default function PublicCreatorByHandle({
   useEffect(() => {
     const popclipId = typeof router.query.popclip === "string" ? router.query.popclip : "";
     if (!popclipId || !creatorHandle) return;
-    if (popClips.some((clip) => clip.id === popclipId)) {
+    const existingClip = popClips.find((clip) => clip.id === popclipId) || storyClips.find((clip) => clip.id === popclipId);
+    if (existingClip) {
+      setRequestedPopclipItem(mapPopclipToCard(existingClip));
       setRequestedPopclipId(popclipId);
       scrollToPopclips(popclipId);
       return;
@@ -262,14 +282,33 @@ export default function PublicCreatorByHandle({
       .then(async (res) => {
         responseStatus = res.status;
         if (!res.ok) throw new Error("request failed");
-        const payload = (await res.json()) as { clips?: PublicPopClip[] };
-        const clip = Array.isArray(payload?.clips) ? payload.clips[0] : null;
+        const payload = (await res.json()) as {
+          clips?: PublicPopClip[];
+          popclips?: PublicPopClip[];
+          stories?: PublicPopClip[];
+        };
+        const clips = Array.isArray(payload?.clips)
+          ? payload.clips
+          : Array.isArray(payload?.popclips)
+          ? payload.popclips
+          : Array.isArray(payload?.stories)
+          ? payload.stories
+          : [];
+        const clip = clips[0] ?? null;
         if (!clip) return;
-        setPopClips((prev) => {
-          if (prev.some((item) => item.id === clip.id)) return prev;
-          return [clip, ...prev];
-        });
+        if (clip.isStory) {
+          setStoryClips((prev) => {
+            if (prev.some((item) => item.id === clip.id)) return prev;
+            return [clip, ...prev].slice(0, POPCLIP_STORY_MAX);
+          });
+        } else {
+          setPopClips((prev) => {
+            if (prev.some((item) => item.id === clip.id)) return prev;
+            return [clip, ...prev];
+          });
+        }
         setRequestedPopclipId(popclipId);
+        setRequestedPopclipItem(mapPopclipToCard(clip));
         scrollToPopclips(popclipId);
       })
       .catch((err) => {
@@ -277,7 +316,7 @@ export default function PublicCreatorByHandle({
         logPublicFetchFailure(endpoint, responseStatus, err);
       });
     return () => controller.abort();
-  }, [creatorHandle, popClips, router.query.popclip]);
+  }, [creatorHandle, mapPopclipToCard, popClips, router.query.popclip, storyClips]);
 
   const handleLoadMorePopClips = async () => {
     if (!creatorHandle || !popClipsCursor || popClipsLoadingMore) return;
@@ -290,14 +329,26 @@ export default function PublicCreatorByHandle({
       const res = await fetch(endpoint);
       responseStatus = res.status;
       if (!res.ok) throw new Error("request failed");
-      const payload = (await res.json()) as { clips?: PublicPopClip[]; nextCursor?: string | null };
-      const newClips = Array.isArray(payload?.clips) ? payload.clips : [];
+      const payload = (await res.json()) as {
+        clips?: PublicPopClip[];
+        popclips?: PublicPopClip[];
+        nextCursor?: string | null;
+        popclipsCount?: number;
+      };
+      const newClips = Array.isArray(payload?.popclips)
+        ? payload.popclips
+        : Array.isArray(payload?.clips)
+        ? payload.clips
+        : [];
       setPopClips((prev) => {
         if (!newClips.length) return prev;
         const existing = new Set(prev.map((clip) => clip.id));
         return [...prev, ...newClips.filter((clip) => !existing.has(clip.id))];
       });
       setPopClipsCursor(typeof payload?.nextCursor === "string" ? payload.nextCursor : null);
+      if (typeof payload?.popclipsCount === "number") {
+        setPopclipsSectionCount(payload.popclipsCount);
+      }
     } catch (_err) {
       logPublicFetchFailure(endpoint, responseStatus, _err);
       showToast("No se pudieron cargar más PopClips.");
@@ -435,7 +486,7 @@ export default function PublicCreatorByHandle({
           {toast && <div className="text-xs text-[color:var(--brand)]">{toast}</div>}
           <PublicProfileStatsRow
             commentsCount={commentsCount}
-            popclipsCount={popclipsCount}
+            contentCount={statsContentCount}
             followersCount={followersCount}
           />
           {(bioText || resolvedWebsiteUrl) && (
@@ -474,23 +525,26 @@ export default function PublicCreatorByHandle({
             </div>
           )}
 
-          <PublicStoriesRow
-            items={storyItems}
-            isLoading={storyLoading}
-            emptyLabel={storyEmptyLabel}
-            onSelect={(id) => {
-              const storyClip = storyClips.find((clip) => clip.id === id);
-              if (storyClip) {
-                setPopClips((prev) => {
-                  if (prev.some((clip) => clip.id === id)) return prev;
-                  return [storyClip, ...prev];
-                });
-              }
-              scrollToPopclips(id);
-              setRequestedPopclipId(id);
-            }}
-            onViewAll={() => scrollToPopclips()}
-          />
+          {hasStories && (
+            <PublicStoriesRow
+              items={storyItems}
+              isLoading={storyLoading}
+              emptyLabel={storyEmptyLabel}
+              onSelect={(id) => {
+                const storyClip = storyClips.find((clip) => clip.id === id);
+                if (storyClip) {
+                  setRequestedPopclipItem(mapPopclipToCard(storyClip));
+                  setRequestedPopclipId(storyClip.id);
+                }
+                if (hasPopclips) {
+                  scrollToPopclips(id);
+                }
+              }}
+              onViewAll={() => {
+                if (hasPopclips) scrollToPopclips();
+              }}
+            />
+          )}
 
           <section className="space-y-3 min-w-0">
             <h2 className="text-base font-semibold text-[color:var(--text)]">Catálogo</h2>
@@ -504,33 +558,44 @@ export default function PublicCreatorByHandle({
             />
           </section>
 
-          <section id="popclips" className="space-y-3 min-w-0 scroll-mt-24">
-            <h2 className="text-base font-semibold text-[color:var(--text)]">PopClips</h2>
-            <PublicCatalogGrid
-              items={[]}
-              chatHref={chatHref}
-              onOpenChat={openChat}
-              filters={POPCLIP_FILTERS}
-              defaultFilter="popclip"
-              hideFilters
-              popclipItems={popclipItems}
-              popclipLoading={popClipsLoading}
-              popclipError={popClipsError || undefined}
-              openPopclipId={requestedPopclipId}
-              onPopclipOpenHandled={() => setRequestedPopclipId(null)}
-              sectionId="popclips-grid"
-            />
-            {popClipsCursor && (
-              <button
-                type="button"
-                onClick={handleLoadMorePopClips}
-                disabled={popClipsLoadingMore}
-                className="w-full rounded-full border border-[color:var(--surface-border)] px-4 py-2 text-xs font-semibold text-[color:var(--text)] hover:bg-[color:var(--surface-1)] disabled:opacity-60"
-              >
-                {popClipsLoadingMore ? "Cargando..." : "Ver más"}
-              </button>
-            )}
-          </section>
+          {showPopclipsSection && (
+            <section id="popclips" className="space-y-3 min-w-0 scroll-mt-24">
+              {hasPopclips && (
+                <h2 className="text-base font-semibold text-[color:var(--text)]">PopClips ({popclipsHeaderCount})</h2>
+              )}
+              <PublicCatalogGrid
+                items={[]}
+                chatHref={chatHref}
+                onOpenChat={openChat}
+                filters={POPCLIP_FILTERS}
+                defaultFilter="popclip"
+                hideFilters
+                popclipItems={popclipItems}
+                popclipLoading={popClipsLoading}
+                popclipError={popClipsError || undefined}
+                openPopclipId={requestedPopclipId}
+                openPopclipItem={requestedPopclipItem}
+                onPopclipOpenHandled={() => {
+                  setRequestedPopclipId(null);
+                  setRequestedPopclipItem(null);
+                }}
+                sectionId="popclips-grid"
+              />
+              {hasPopclips && popClipsCursor && (
+                <button
+                  type="button"
+                  onClick={handleLoadMorePopClips}
+                  disabled={popClipsLoadingMore}
+                  className="w-full rounded-full border border-[color:var(--surface-border)] px-4 py-2 text-xs font-semibold text-[color:var(--text)] hover:bg-[color:var(--surface-1)] disabled:opacity-60"
+                >
+                  {popClipsLoadingMore ? "Cargando..." : "Ver más"}
+                </button>
+              )}
+            </section>
+          )}
+          {!hasPopclips && !popClipsLoading && !popClipsError && !showPopclipsSection && (
+            <p className="text-xs text-[color:var(--muted)]">Aún no hay PopClips.</p>
+          )}
         </main>
       </div>
     </>

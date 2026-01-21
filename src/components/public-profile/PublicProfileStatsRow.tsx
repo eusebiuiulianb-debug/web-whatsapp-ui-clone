@@ -2,22 +2,22 @@ import type { SVGProps } from "react";
 
 type Props = {
   commentsCount?: number | null;
-  popclipsCount?: number | null;
+  contentCount?: number | null;
   followersCount?: number | null;
 };
 
-export function PublicProfileStatsRow({ commentsCount, popclipsCount, followersCount }: Props) {
+export function PublicProfileStatsRow({ commentsCount, contentCount, followersCount }: Props) {
   const commentsValue = normalizeCount(commentsCount);
-  const popclipsValue = normalizeCount(popclipsCount);
+  const contentValue = normalizeCount(contentCount);
   const followersValue = normalizeCount(followersCount);
   const stats = [
     { label: "Seguidores", value: formatCount(followersValue), icon: UserIcon },
     { label: "Comentarios", value: formatCount(commentsValue), icon: CommentIcon },
-    { label: "PopClips", value: formatCount(popclipsValue), icon: PlayIcon },
+    { label: "Contenido", value: formatCount(contentValue), icon: PlayIcon },
   ];
 
   return (
-    <div className="grid grid-cols-3 gap-2 min-w-0">
+    <div className="grid grid-cols-3 gap-3 min-w-0">
       {stats.map((stat) => (
         <StatChip key={stat.label} label={stat.label} value={stat.value} icon={stat.icon} />
       ))}
@@ -27,10 +27,13 @@ export function PublicProfileStatsRow({ commentsCount, popclipsCount, followersC
 
 function StatChip({ label, value, icon: Icon }: { label: string; value: string; icon: (props: SVGProps<SVGSVGElement>) => JSX.Element }) {
   return (
-    <div className="flex items-center gap-2 rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-3 py-2 min-w-0">
+    <div
+      className="flex items-center gap-2 rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-3 py-2 min-w-0 text-sm leading-tight"
+      aria-label={`${label}: ${value}`}
+    >
       <Icon className="h-4 w-4 shrink-0 text-[color:var(--muted)]" aria-hidden="true" />
       <span className="text-sm font-semibold tabular-nums text-[color:var(--text)]">{value}</span>
-      <span className="sr-only sm:not-sr-only text-[10px] uppercase tracking-wide text-[color:var(--muted)] truncate">
+      <span className="sr-only md:not-sr-only text-[10px] uppercase tracking-wide text-[color:var(--muted)] truncate">
         {label}
       </span>
     </div>

@@ -36,7 +36,9 @@ export type PublicProfileStats = {
   videos: number;
   audios: number;
   commentsCount?: number;
+  storiesCount?: number;
   popclipsCount?: number;
+  contentCount?: number;
   ratingsCount?: number;
 };
 

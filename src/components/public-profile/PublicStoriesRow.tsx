@@ -20,11 +20,12 @@ export function PublicStoriesRow({ items, onSelect, onViewAll, isLoading = false
   const resolvedEmptyLabel = emptyLabel ?? "Aún no hay historias";
   const showEmptyLabel = !hasItems && !isLoading;
   const placeholderCount = 3;
+  const storyCount = items.length;
 
   return (
     <section className="space-y-3 min-w-0">
       <div className="flex items-center justify-between min-w-0">
-        <h2 className="text-base font-semibold text-[color:var(--text)]">Historias</h2>
+        <h2 className="text-base font-semibold text-[color:var(--text)]">Historias ({storyCount})</h2>
         {onViewAll && hasItems && (
           <button
             type="button"

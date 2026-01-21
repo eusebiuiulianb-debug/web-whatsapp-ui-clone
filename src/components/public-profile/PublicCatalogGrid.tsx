@@ -57,6 +57,7 @@ type Props = {
   onRetry?: () => void;
   hideFilters?: boolean;
   openPopclipId?: string | null;
+  openPopclipItem?: PublicCatalogCardItem | null;
   onPopclipOpenHandled?: () => void;
   sectionId?: string;
 };
@@ -76,6 +77,7 @@ export function PublicCatalogGrid({
   onRetry,
   hideFilters,
   openPopclipId,
+  openPopclipItem,
   onPopclipOpenHandled,
   sectionId,
 }: Props) {
@@ -274,12 +276,14 @@ export function PublicCatalogGrid({
 
   useEffect(() => {
     if (!openPopclipId) return;
-    const target = normalizedPopclips.find((clip) => clip.id === openPopclipId);
+    const fallbackItem =
+      openPopclipItem && openPopclipItem.id === openPopclipId ? openPopclipItem : null;
+    const target = normalizedPopclips.find((clip) => clip.id === openPopclipId) ?? fallbackItem;
     if (target) {
       handleOpenComments(target);
     }
     onPopclipOpenHandled?.();
-  }, [handleOpenComments, normalizedPopclips, onPopclipOpenHandled, openPopclipId]);
+  }, [handleOpenComments, normalizedPopclips, onPopclipOpenHandled, openPopclipId, openPopclipItem]);
 
   const handleCloseComments = () => {
     setActiveCommentClip(null);

@@ -128,8 +128,12 @@ export default function PublicProfileView({
       .then(async (res) => {
         responseStatus = res.status;
         if (!res.ok) throw new Error("request failed");
-        const data = (await res.json()) as { clips?: PublicPopClip[] };
-        const clips = Array.isArray(data?.clips) ? data.clips : [];
+        const data = (await res.json()) as { clips?: PublicPopClip[]; popclips?: PublicPopClip[] };
+        const clips = Array.isArray(data?.popclips)
+          ? data.popclips
+          : Array.isArray(data?.clips)
+          ? data.clips
+          : [];
         setRemotePopClips(clips);
       })
       .catch((err) => {

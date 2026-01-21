@@ -83,8 +83,13 @@ export default function CreatorPublicPage({ fanQuery, stats }: Props) {
     fetch(`/api/public/popclips?handle=${encodeURIComponent(handle)}`, { signal: controller.signal })
       .then(async (res) => {
         if (!res.ok) throw new Error("request failed");
-        const payload = (await res.json()) as { clips?: PublicPopClip[] };
-        setPopClips(Array.isArray(payload?.clips) ? payload.clips : []);
+        const payload = (await res.json()) as { clips?: PublicPopClip[]; popclips?: PublicPopClip[] };
+        const clips = Array.isArray(payload?.popclips)
+          ? payload.popclips
+          : Array.isArray(payload?.clips)
+          ? payload.clips
+          : [];
+        setPopClips(clips);
       })
       .catch((err) => {
         if (err instanceof DOMException && err.name === "AbortError") return;
@@ -117,7 +122,9 @@ export default function CreatorPublicPage({ fanQuery, stats }: Props) {
   const rawTagline = (resolvedCopy.hero.tagline || config.creatorDescription || "").trim();
   const tagline = rawTagline && rawTagline !== trustLine ? rawTagline : "";
   const commentsCount = stats?.commentsCount ?? 0;
-  const popclipsCount = stats?.popclipsCount ?? 0;
+  const contentCount =
+    stats?.contentCount ??
+    (stats?.popclipsCount ?? 0) + (stats?.storiesCount ?? 0);
   const ratingsCount = stats?.ratingsCount ?? 0;
   const topEligible = commentsCount >= 10 || ratingsCount >= 10;
   const visiblePacks = resolvedCopy.packs.filter((pack) => pack.visible !== false);
@@ -190,7 +197,7 @@ export default function CreatorPublicPage({ fanQuery, stats }: Props) {
           />
           <PublicProfileStatsRow
             commentsCount={commentsCount}
-            popclipsCount={popclipsCount}
+            contentCount={contentCount}
           />
 
           {featuredItems.length > 0 && (
