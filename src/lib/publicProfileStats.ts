@@ -11,13 +11,11 @@ export async function getPublicProfileStats(creatorId: string) {
       },
       select: { fanId: true },
     }),
-    prisma.popClipComment.count({
+    prisma.creatorComment.count({
       where: {
-        popClip: {
-          creatorId,
-          isActive: true,
-          isArchived: false,
-        },
+        creatorId,
+        isPublic: true,
+        status: "APPROVED",
       },
     }),
     prisma.popClip.count({

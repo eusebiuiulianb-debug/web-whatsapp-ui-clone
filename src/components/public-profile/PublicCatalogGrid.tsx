@@ -453,13 +453,17 @@ export function PublicCatalogGrid({
     }
   };
 
-  const hasItems = items.length > 0;
+  const emptyCopyByFilter: Record<CatalogFilter, string> = {
+    all: "Aún no hay contenido publicado.",
+    pack: "Aún no hay packs publicados.",
+    sub: "Aún no hay suscripciones publicadas.",
+    extra: "Aún no hay extras publicados.",
+    popclip: "Aún no hay contenido publicado.",
+  };
+  const emptyCopy = emptyCopyByFilter[activeFilter] ?? "Aún no hay contenido publicado.";
   const hasPopclips = normalizedPopclips.length > 0;
   const showCatalogEmpty =
     !isLoading && !error && orderedCatalogItems.length === 0 && (activeFilter !== "all" || !hasPopclips);
-  const emptyCopy = hasItems
-    ? "No hay elementos en esta categoría."
-    : "Aún no hay items disponibles en el catálogo.";
   const shouldShowPopclips = resolvedFilters.some((filter) => filter.id === "popclip");
 
   const resolvePopclipSocial = (item: PublicCatalogCardItem): PopClipSocialState => {
@@ -612,13 +616,17 @@ export function PublicCatalogGrid({
       ) : isLoading ? (
         renderSkeleton(8)
       ) : showCatalogEmpty ? (
-        <div className="rounded-2xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-4 py-6 text-center space-y-3">
+        <div className="rounded-2xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] p-4 sm:p-5 flex flex-col items-center gap-3 text-center">
           <p className="text-sm text-[color:var(--muted)]">{emptyCopy}</p>
           <a
             href={chatHref}
-            className="inline-flex items-center justify-center rounded-full border border-[color:rgba(var(--brand-rgb),0.6)] px-4 py-2 text-xs font-semibold text-[color:var(--text)] hover:bg-[color:rgba(var(--brand-rgb),0.16)]"
+            onClick={(event) => {
+              event.preventDefault();
+              void handleOpenChat();
+            }}
+            className="inline-flex h-12 w-full items-center justify-center rounded-xl bg-[color:var(--brand-strong)] px-4 text-sm font-semibold text-[color:var(--surface-0)] shadow-lg transition hover:bg-[color:var(--brand)] sm:w-auto"
           >
-            Abrir chat
+            Entrar al chat privado
           </a>
         </div>
       ) : (

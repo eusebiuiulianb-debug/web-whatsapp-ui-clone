@@ -332,6 +332,8 @@ async function main() {
     prisma.ppvMessage.deleteMany(),
     prisma.popClipReaction.deleteMany(),
     prisma.popClipComment.deleteMany(),
+    prisma.creatorCommentHelpfulVote.deleteMany(),
+    prisma.creatorComment.deleteMany(),
     prisma.accessGrant.deleteMany(),
     prisma.message.deleteMany(),
     prisma.fanFollowUp.deleteMany(),
@@ -774,6 +776,75 @@ async function main() {
       });
     })
   );
+
+  const commentSeeds = [
+    {
+      creatorId: creator.id,
+      fanId: "ana",
+      rating: 5,
+      text: "Me encantó la experiencia, respuestas rápidas y contenido muy cuidado.",
+    },
+    {
+      creatorId: creator.id,
+      fanId: "lucia",
+      rating: 4,
+      text: "Muy cercano y respetuoso. Me gustó el pack de bienvenida.",
+      replyText: "Gracias Lucia, me alegra que te gustara.",
+      repliedAt: new Date(),
+      repliedByCreatorId: creator.id,
+    },
+    {
+      creatorId: creator.id,
+      fanId: "diego",
+      rating: 5,
+      text: "Atención top y mucha discreción. Repetiré.",
+    },
+  ];
+  await prisma.$transaction(
+    commentSeeds.map((data) =>
+      prisma.creatorComment.upsert({
+        where: { creatorId_fanId: { creatorId: data.creatorId, fanId: data.fanId } },
+        update: {
+          rating: data.rating,
+          text: data.text,
+          replyText: data.replyText ?? null,
+          repliedAt: data.repliedAt ?? null,
+          repliedByCreatorId: data.repliedByCreatorId ?? null,
+          status: "APPROVED",
+          isPublic: true,
+        },
+        create: {
+          ...data,
+          status: "APPROVED",
+          isPublic: true,
+        },
+      })
+    )
+  );
+
+  const seededComments = await prisma.creatorComment.findMany({
+    where: { creatorId: creator.id },
+    select: { id: true, fanId: true },
+  });
+  const commentByFanId = new Map(seededComments.map((comment) => [comment.fanId, comment.id] as const));
+  const helpfulVoteSeeds = [
+    { commentId: commentByFanId.get("ana"), fanId: "lucia" },
+    { commentId: commentByFanId.get("ana"), fanId: "diego" },
+    { commentId: commentByFanId.get("lucia"), fanId: "ana" },
+    { commentId: commentByFanId.get("diego"), fanId: "lucia" },
+  ].filter((vote): vote is { commentId: string; fanId: string } => Boolean(vote.commentId));
+
+  if (helpfulVoteSeeds.length > 0) {
+    await prisma.$transaction(
+      helpfulVoteSeeds.map((vote) =>
+        prisma.creatorCommentHelpfulVote.upsert({
+          where: { commentId_fanId: { commentId: vote.commentId, fanId: vote.fanId } },
+          update: {},
+          create: vote,
+        })
+      )
+    );
+  }
 
   const seededFans = await prisma.fan.findMany({ select: { id: true } });
   if (seededFans.length > 0) {

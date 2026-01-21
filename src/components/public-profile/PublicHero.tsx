@@ -1,5 +1,5 @@
 import Image from "next/image";
-import type { MouseEvent } from "react";
+import type { MouseEvent, ReactNode } from "react";
 import { normalizeImageSrc } from "../../utils/normalizeImageSrc";
 import type { CreatorLocation } from "../../types/creatorLocation";
 import { PublicLocationBadge } from "./PublicLocationBadge";
@@ -17,6 +17,9 @@ type Props = {
   primaryOnClick?: (event: MouseEvent<HTMLAnchorElement>) => void;
   primaryDisabled?: boolean;
   secondaryCtaLabel: string;
+  secondaryCtaContent?: ReactNode;
+  secondaryCtaAriaLabel?: string;
+  secondaryCtaTitle?: string;
   secondaryHref: string;
   secondaryOnClick?: (event: MouseEvent<HTMLAnchorElement>) => void;
   secondaryDisabled?: boolean;
@@ -35,6 +38,9 @@ export function PublicHero({
   primaryOnClick,
   primaryDisabled,
   secondaryCtaLabel,
+  secondaryCtaContent,
+  secondaryCtaAriaLabel,
+  secondaryCtaTitle,
   secondaryHref,
   secondaryOnClick,
   secondaryDisabled,
@@ -95,12 +101,14 @@ export function PublicHero({
             }
             secondaryOnClick?.(event);
           }}
+          aria-label={secondaryCtaAriaLabel ?? secondaryCtaLabel}
+          title={secondaryCtaTitle}
           aria-disabled={secondaryDisabled}
           className={`inline-flex h-12 w-full items-center justify-center rounded-xl border border-[color:rgba(245,158,11,0.5)] bg-[color:rgba(245,158,11,0.08)] px-4 text-sm font-semibold text-[color:var(--text)] transition hover:bg-[color:rgba(245,158,11,0.16)] sm:w-auto${
             secondaryDisabled ? " opacity-60 pointer-events-none" : ""
           }`}
         >
-          {secondaryCtaLabel}
+          {secondaryCtaContent ?? secondaryCtaLabel}
         </a>
       </div>
 

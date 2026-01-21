@@ -82,3 +82,18 @@ export type PublicPopClip = {
     coverUrl?: string | null;
   };
 };
+
+export type PublicCreatorComment = {
+  id: string;
+  rating: number;
+  text: string;
+  createdAt: string;
+  fanDisplayNameMasked: string;
+  verified?: boolean;
+  replyText?: string | null;
+  repliedAt?: string | null;
+  repliedByCreatorId?: string | null;
+  helpfulCount?: number;
+  viewerHasVoted?: boolean;
+  fan?: { id: string; displayName: string };
+};

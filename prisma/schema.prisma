@@ -50,6 +50,7 @@ model Creator {
   agencyTemplates            AgencyTemplate[]
   ppvMessages                PpvMessage[]
   ppvPurchases               PpvPurchase[]
+  creatorComments            CreatorComment[]
 }
 
 model CreatorProfile {
@@ -159,6 +160,8 @@ model Fan {
   wallet                Wallet?
   ppvMessages           PpvMessage[]
   ppvPurchases          PpvPurchase[]
+  creatorComments       CreatorComment[]
+  creatorCommentHelpfulVotes CreatorCommentHelpfulVote[]
 }
 
 enum FanFollowUpStatus {
@@ -516,6 +519,48 @@ enum CatalogItemType {
   EXTRA
   BUNDLE
   PACK
+}
+
+enum CreatorCommentStatus {
+  APPROVED
+  HIDDEN
+  PENDING
+}
+
+model CreatorComment {
+  id        String               @id @default(cuid())
+  creatorId String
+  creator   Creator              @relation(fields: [creatorId], references: [id])
+  fanId     String
+  fan       Fan                  @relation(fields: [fanId], references: [id])
+  rating    Int
+  text      String
+  replyText String? @map("creatorReplyText")
+  repliedAt DateTime? @map("creatorReplyAt")
+  repliedByCreatorId String?
+  helpfulVotes CreatorCommentHelpfulVote[]
+  isPublic  Boolean              @default(true)
+  status    CreatorCommentStatus @default(APPROVED)
+  createdAt DateTime             @default(now())
+  updatedAt DateTime             @updatedAt
+
+  @@unique([creatorId, fanId])
+  @@index([creatorId, createdAt])
+  @@index([fanId])
+}
+
+model CreatorCommentHelpfulVote {
+  id        String   @id @default(cuid())
+  commentId String
+  fanId     String
+  createdAt DateTime @default(now())
+
+  comment   CreatorComment @relation(fields: [commentId], references: [id], onDelete: Cascade)
+  fan       Fan           @relation(fields: [fanId], references: [id], onDelete: Cascade)
+
+  @@unique([commentId, fanId])
+  @@index([commentId])
+  @@index([fanId])
 }
 
 model CatalogItem {
