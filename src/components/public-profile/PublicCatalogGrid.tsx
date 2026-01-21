@@ -56,6 +56,7 @@ type Props = {
   popclipError?: string | null;
   onRetry?: () => void;
   hideFilters?: boolean;
+  compactEmpty?: boolean;
   openPopclipId?: string | null;
   openPopclipItem?: PublicCatalogCardItem | null;
   onPopclipOpenHandled?: () => void;
@@ -76,6 +77,7 @@ export function PublicCatalogGrid({
   popclipError,
   onRetry,
   hideFilters,
+  compactEmpty,
   openPopclipId,
   openPopclipItem,
   onPopclipOpenHandled,
@@ -102,6 +104,12 @@ export function PublicCatalogGrid({
       setActiveFilter(resolvedFilters[0]?.id ?? "all");
     }
   }, [activeFilter, resolvedFilters]);
+
+  useEffect(() => {
+    if (!defaultFilter) return;
+    if (!resolvedFilters.some((filter) => filter.id === defaultFilter)) return;
+    setActiveFilter(defaultFilter);
+  }, [defaultFilter, resolvedFilters]);
 
   useEffect(() => {
     return () => {
@@ -616,19 +624,25 @@ export function PublicCatalogGrid({
       ) : isLoading ? (
         renderSkeleton(8)
       ) : showCatalogEmpty ? (
-        <div className="rounded-2xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] p-4 sm:p-5 flex flex-col items-center gap-3 text-center">
-          <p className="text-sm text-[color:var(--muted)]">{emptyCopy}</p>
-          <a
-            href={chatHref}
-            onClick={(event) => {
-              event.preventDefault();
-              void handleOpenChat();
-            }}
-            className="inline-flex h-12 w-full items-center justify-center rounded-xl bg-[color:var(--brand-strong)] px-4 text-sm font-semibold text-[color:var(--surface-0)] shadow-lg transition hover:bg-[color:var(--brand)] sm:w-auto"
-          >
-            Entrar al chat privado
-          </a>
-        </div>
+        compactEmpty ? (
+          <div className="rounded-2xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-4 py-3 text-xs text-[color:var(--muted)]">
+            {emptyCopy}
+          </div>
+        ) : (
+          <div className="rounded-2xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] p-4 sm:p-5 flex flex-col items-center gap-3 text-center">
+            <p className="text-sm text-[color:var(--muted)]">{emptyCopy}</p>
+            <a
+              href={chatHref}
+              onClick={(event) => {
+                event.preventDefault();
+                void handleOpenChat();
+              }}
+              className="inline-flex h-12 w-full items-center justify-center rounded-xl bg-[color:var(--brand-strong)] px-4 text-sm font-semibold text-[color:var(--surface-0)] shadow-lg transition hover:bg-[color:var(--brand)] sm:w-auto"
+            >
+              Entrar al chat privado
+            </a>
+          </div>
+        )
       ) : (
         <div className="space-y-4">
           {orderedCatalogItems.length > 0 && renderGrid(orderedCatalogItems)}

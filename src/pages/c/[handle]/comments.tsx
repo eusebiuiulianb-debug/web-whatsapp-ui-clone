@@ -602,9 +602,6 @@ export default function PublicCreatorComments({
                 </div>
               </div>
             )}
-            {!canComment && isCreatorViewer && (
-              <p className="text-xs text-[color:var(--muted)]">Solo seguidores o clientes pueden comentar.</p>
-            )}
           </div>
 
           {commentsError ? (
@@ -637,6 +634,11 @@ export default function PublicCreatorComments({
                   : viewerIsLoggedIn
                   ? "Marcar comentario como útil"
                   : "Inicia sesión para votar";
+                const helpfulDisabledClass = helpfulDisabled
+                  ? isCreatorViewer
+                    ? "opacity-50 cursor-not-allowed"
+                    : "opacity-60 cursor-not-allowed"
+                  : "hover:bg-[color:var(--surface-2)]";
                 return (
                   <div
                     key={comment.id}
@@ -665,7 +667,7 @@ export default function PublicCreatorComments({
                           comment.viewerHasVoted
                             ? "border-[color:rgba(var(--brand-rgb),0.6)] bg-[color:rgba(var(--brand-rgb),0.12)] text-[color:var(--text)]"
                             : "border-[color:var(--surface-border)] text-[color:var(--muted)]"
-                        } ${helpfulDisabled ? "opacity-60 cursor-not-allowed" : "hover:bg-[color:var(--surface-2)]"}`}
+                        } ${helpfulDisabledClass}`}
                         aria-label={helpfulTitle}
                       >
                         <ThumbsUp className="h-3 w-3" aria-hidden="true" />

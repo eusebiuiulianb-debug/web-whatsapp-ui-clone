@@ -1,14 +1,13 @@
 import Head from "next/head";
+import Image from "next/image";
 import type { GetServerSideProps } from "next";
 import { randomUUID } from "crypto";
-import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type MouseEvent } from "react";
 import { useRouter } from "next/router";
 import { Bell, BellRing, ThumbsUp } from "lucide-react";
 import { PublicHero } from "../../components/public-profile/PublicHero";
-import { PublicCatalogGrid } from "../../components/public-profile/PublicCatalogGrid";
 import { type PublicCatalogCardItem } from "../../components/public-profile/PublicCatalogCard";
 import { PublicProfileStatsRow } from "../../components/public-profile/PublicProfileStatsRow";
-import { PublicStoriesRow } from "../../components/public-profile/PublicStoriesRow";
 import { Skeleton } from "../../components/ui/Skeleton";
 import type { PublicCatalogItem, PublicCreatorComment, PublicPopClip, PublicProfileStats } from "../../types/publicProfile";
 import type { CreatorLocation } from "../../types/creatorLocation";
@@ -48,24 +47,28 @@ type CatalogItemRow = {
   isActive: boolean;
 };
 
-type CatalogFilter = "all" | "pack" | "sub" | "extra" | "popclip";
+const POPCLIP_PAGE_SIZE = 12;
+const CREATOR_COMMENT_PREVIEW = 2;
+const HIGHLIGHT_PREVIEW_MAX = 4;
+const CREATOR_COMMENT_MAX_LENGTH = 600;
+const IS_DEV = process.env.NODE_ENV === "development";
 
-const CATALOG_FILTERS: Array<{ id: CatalogFilter; label: string }> = [
-  { id: "all", label: "Todo" },
+type HighlightTab = "popclips" | "pack" | "sub" | "extra";
+
+type HighlightItem = {
+  id: string;
+  title: string;
+  priceLabel?: string;
+  thumbUrl?: string | null;
+  videoUrl?: string | null;
+};
+
+const HIGHLIGHT_TABS: Array<{ id: HighlightTab; label: string }> = [
+  { id: "popclips", label: "PopClips" },
   { id: "pack", label: "Packs" },
   { id: "sub", label: "Suscripciones" },
   { id: "extra", label: "Extras" },
 ];
-
-const POPCLIP_FILTERS: Array<{ id: CatalogFilter; label: string }> = [
-  { id: "popclip", label: "PopClips" },
-];
-
-const POPCLIP_PAGE_SIZE = 12;
-const POPCLIP_STORY_MAX = 8;
-const CREATOR_COMMENT_PREVIEW = 3;
-const CREATOR_COMMENT_MAX_LENGTH = 600;
-const IS_DEV = process.env.NODE_ENV === "development";
 
 export default function PublicCreatorByHandle({
   notFound,
@@ -83,7 +86,6 @@ export default function PublicCreatorByHandle({
   isFollowing,
   location,
   catalogItems,
-  catalogError,
 }: Props) {
   const router = useRouter();
   const baseChatHref = creatorHandle ? `/go/${creatorHandle}` : "/go/creator";
@@ -96,10 +98,6 @@ export default function PublicCreatorByHandle({
   const [popClipsError, setPopClipsError] = useState("");
   const [popclipsSectionCount, setPopclipsSectionCount] = useState<number | null>(null);
   const [storyClips, setStoryClips] = useState<PublicPopClip[]>([]);
-  const [storyLoading, setStoryLoading] = useState(false);
-  const [storyError, setStoryError] = useState("");
-  const [requestedPopclipId, setRequestedPopclipId] = useState<string | null>(null);
-  const [requestedPopclipItem, setRequestedPopclipItem] = useState<PublicCatalogCardItem | null>(null);
   const [creatorComments, setCreatorComments] = useState<PublicCreatorComment[]>([]);
   const [commentsLoading, setCommentsLoading] = useState(false);
   const [commentsError, setCommentsError] = useState("");
@@ -108,6 +106,8 @@ export default function PublicCreatorByHandle({
   const [canComment, setCanComment] = useState(false);
   const [viewerIsLoggedIn, setViewerIsLoggedIn] = useState(false);
   const [viewerComment, setViewerComment] = useState<{ rating: number; text: string } | null>(null);
+  const [activeHighlight, setActiveHighlight] = useState<HighlightTab>("popclips");
+  const [highlightModalOpen, setHighlightModalOpen] = useState(false);
   const [commentSheetOpen, setCommentSheetOpen] = useState(false);
   const [commentRating, setCommentRating] = useState(5);
   const [commentText, setCommentText] = useState("");
@@ -154,10 +154,8 @@ export default function PublicCreatorByHandle({
     const endpoint = `/api/public/popclips?handle=${encodeURIComponent(creatorHandle)}&limit=${POPCLIP_PAGE_SIZE}`;
     let responseStatus: number | null = null;
     setPopClipsLoading(true);
-    setStoryLoading(true);
     setPopClipsLoadingMore(false);
     setPopClipsError("");
-    setStoryError("");
     setPopClipsCursor(null);
     setPopClips([]);
     setStoryClips([]);
@@ -195,13 +193,11 @@ export default function PublicCreatorByHandle({
         setPopClipsError("No se pudieron cargar los PopClips.");
         setPopClips([]);
         setPopClipsCursor(null);
-        setStoryError("No se pudieron cargar las historias.");
         setStoryClips([]);
         setPopclipsSectionCount(0);
       })
       .finally(() => {
         setPopClipsLoading(false);
-        setStoryLoading(false);
       });
     return () => controller.abort();
   }, [creatorHandle]);
@@ -318,45 +314,91 @@ export default function PublicCreatorByHandle({
   const [bioHasOverflow, setBioHasOverflow] = useState(false);
   const resolvedWebsiteUrl = normalizeWebsiteUrl(websiteUrl);
   const websiteLabel = resolvedWebsiteUrl ? formatWebsiteLabel(resolvedWebsiteUrl) : "";
-  const showLoading = !catalogItems && !catalogError;
-
   useEffect(() => {
     setCommentsTotalCount((prev) => (prev === null ? commentsCount : prev));
   }, [commentsCount]);
-  const mapPopclipToCard = useCallback(
-    (clip: PublicPopClip): PublicCatalogCardItem => ({
-      id: clip.id,
-      kind: "popclip" as const,
-      title: clip.title?.trim() || clip.pack.title,
-      priceCents: clip.pack.priceCents,
-      currency: clip.pack.currency,
-      thumbUrl: clip.posterUrl || null,
-      likeCount: clip.likeCount ?? 0,
-      commentCount: clip.commentCount ?? 0,
-      liked: clip.liked ?? false,
-      canInteract: clip.canInteract ?? false,
-      canComment: clip.canComment ?? false,
-    }),
-    []
-  );
-  const popclipItems = popClips.map(mapPopclipToCard);
-  const storyItems = storyClips.slice(0, POPCLIP_STORY_MAX).map((clip) => ({
-    id: clip.id,
-    title: clip.title?.trim() || clip.pack.title,
-    thumbUrl: clip.posterUrl || null,
-  }));
-  const storyEmptyLabel = storyError ? "No se pudieron cargar las historias." : "Aún no hay historias";
   const popclipsHeaderCount =
     typeof popclipsSectionCount === "number" ? popclipsSectionCount : popClips.length;
-  const hasStories = storyItems.length > 0;
-  const hasPopclips = popclipsHeaderCount > 0;
-  const showPopclipsSection =
-    hasPopclips || Boolean(requestedPopclipId) || Boolean(requestedPopclipItem);
   const commentsHeaderCount =
     typeof commentsTotalCount === "number" ? commentsTotalCount : commentsCount;
   const commentsAverage =
     typeof commentsAvgRating === "number" && commentsAvgRating > 0 ? commentsAvgRating : null;
   const commentsHref = creatorHandle ? `/c/${creatorHandle}/comments` : "/c/creator/comments";
+  const highlightPopclipsSource = [...storyClips, ...popClips].filter((clip, index, list) => {
+    if (!clip?.id) return false;
+    return list.findIndex((entry) => entry.id === clip.id) === index;
+  });
+  const highlightPopclipsAll: HighlightItem[] = highlightPopclipsSource.map((clip) => ({
+    id: clip.id,
+    title: (clip.title?.trim() || clip.pack.title || "PopClip").trim(),
+    priceLabel: formatPriceCents(clip.pack.priceCents, clip.pack.currency),
+    thumbUrl: clip.posterUrl ?? null,
+    videoUrl: clip.videoUrl,
+  }));
+  const highlightPacksAll: HighlightItem[] = items
+    .filter((item) => item.kind === "pack")
+    .map((item) => ({
+      id: item.id,
+      title: item.title,
+      priceLabel: formatPriceCents(item.priceCents, item.currency),
+      thumbUrl: item.thumbUrl ?? null,
+    }));
+  const highlightSubsAll: HighlightItem[] = items
+    .filter((item) => item.kind === "sub")
+    .map((item) => ({
+      id: item.id,
+      title: item.title,
+      priceLabel: formatPriceCents(item.priceCents, item.currency),
+      thumbUrl: item.thumbUrl ?? null,
+    }));
+  const highlightExtrasAll: HighlightItem[] = items
+    .filter((item) => item.kind === "extra")
+    .map((item) => ({
+      id: item.id,
+      title: item.title,
+      priceLabel: formatPriceCents(item.priceCents, item.currency),
+      thumbUrl: item.thumbUrl ?? null,
+    }));
+  const highlightPopclips = highlightPopclipsAll.slice(0, HIGHLIGHT_PREVIEW_MAX);
+  const highlightPacks = highlightPacksAll.slice(0, HIGHLIGHT_PREVIEW_MAX);
+  const highlightSubs = highlightSubsAll.slice(0, HIGHLIGHT_PREVIEW_MAX);
+  const highlightExtras = highlightExtrasAll.slice(0, HIGHLIGHT_PREVIEW_MAX);
+  const highlightItemsByTab: Record<HighlightTab, HighlightItem[]> = {
+    popclips: highlightPopclips,
+    pack: highlightPacks,
+    sub: highlightSubs,
+    extra: highlightExtras,
+  };
+  const highlightAllByTab: Record<HighlightTab, HighlightItem[]> = {
+    popclips: highlightPopclipsAll,
+    pack: highlightPacksAll,
+    sub: highlightSubsAll,
+    extra: highlightExtrasAll,
+  };
+  const highlightPopclipsTotal = popclipsHeaderCount + storyClips.length;
+  const highlightTotalsByTab: Record<HighlightTab, number> = {
+    popclips: highlightPopclipsTotal,
+    pack: highlightPacksAll.length,
+    sub: highlightSubsAll.length,
+    extra: highlightExtrasAll.length,
+  };
+  const activeHighlights = highlightItemsByTab[activeHighlight];
+  const activeHighlightAll = highlightAllByTab[activeHighlight];
+  const activeHighlightTotal = highlightTotalsByTab[activeHighlight];
+  const highlightHasMore = activeHighlightTotal > activeHighlights.length;
+  const activeHighlightLabel =
+    HIGHLIGHT_TABS.find((tab) => tab.id === activeHighlight)?.label ?? "Highlights";
+  const highlightModalCount = activeHighlightTotal > 0 ? activeHighlightTotal : activeHighlightAll.length;
+  const showHighlightLoadMore = activeHighlight === "popclips" && Boolean(popClipsCursor);
+  const highlightLoading = activeHighlight === "popclips" && popClipsLoading;
+  const highlightEmptyCopyByTab: Record<HighlightTab, string> = {
+    popclips: "Aún no hay PopClips publicados.",
+    pack: "Aún no hay packs publicados.",
+    sub: "Aún no hay suscripciones publicadas.",
+    extra: "Aún no hay extras publicados.",
+  };
+  const highlightFollowLabel = isFollowingState ? "Avisos activados" : "Activar avisos";
+  const highlightFollowDisabled = isFollowingState || followPending;
 
   const showToast = (message: string) => {
     setToast(message);
@@ -364,65 +406,63 @@ export default function PublicCreatorByHandle({
     toastTimerRef.current = setTimeout(() => setToast(""), 2200);
   };
 
-  const scrollToPopclips = (targetId?: string) => {
-    if (typeof document === "undefined") return;
-    const target = targetId ? document.getElementById(`popclip-${targetId}`) : null;
-    const fallback = document.getElementById("popclips");
-    (target || fallback)?.scrollIntoView({ behavior: "smooth", block: "start" });
+  const handleOpenHighlightModal = () => {
+    if (activeHighlightAll.length === 0) return;
+    setHighlightModalOpen(true);
   };
 
-  useEffect(() => {
-    const popclipId = typeof router.query.popclip === "string" ? router.query.popclip : "";
-    if (!popclipId || !creatorHandle) return;
-    const existingClip = popClips.find((clip) => clip.id === popclipId) || storyClips.find((clip) => clip.id === popclipId);
-    if (existingClip) {
-      setRequestedPopclipItem(mapPopclipToCard(existingClip));
-      setRequestedPopclipId(popclipId);
-      scrollToPopclips(popclipId);
-      return;
-    }
-    const controller = new AbortController();
-    const endpoint = `/api/public/popclips?handle=${encodeURIComponent(creatorHandle)}&id=${encodeURIComponent(popclipId)}`;
-    let responseStatus: number | null = null;
-    fetch(endpoint, { signal: controller.signal })
-      .then(async (res) => {
-        responseStatus = res.status;
-        if (!res.ok) throw new Error("request failed");
-        const payload = (await res.json()) as {
-          clips?: PublicPopClip[];
-          popclips?: PublicPopClip[];
-          stories?: PublicPopClip[];
-        };
-        const clips = Array.isArray(payload?.clips)
-          ? payload.clips
-          : Array.isArray(payload?.popclips)
-          ? payload.popclips
-          : Array.isArray(payload?.stories)
-          ? payload.stories
-          : [];
-        const clip = clips[0] ?? null;
-        if (!clip) return;
-        if (clip.isStory) {
-          setStoryClips((prev) => {
-            if (prev.some((item) => item.id === clip.id)) return prev;
-            return [clip, ...prev].slice(0, POPCLIP_STORY_MAX);
-          });
-        } else {
-          setPopClips((prev) => {
-            if (prev.some((item) => item.id === clip.id)) return prev;
-            return [clip, ...prev];
-          });
-        }
-        setRequestedPopclipId(popclipId);
-        setRequestedPopclipItem(mapPopclipToCard(clip));
-        scrollToPopclips(popclipId);
-      })
-      .catch((err) => {
-        if (err instanceof DOMException && err.name === "AbortError") return;
-        logPublicFetchFailure(endpoint, responseStatus, err);
-      });
-    return () => controller.abort();
-  }, [creatorHandle, mapPopclipToCard, popClips, router.query.popclip, storyClips]);
+  const renderHighlightCard = (item: HighlightItem, showAction = true) => (
+    <div
+      key={item.id}
+      className="snap-start rounded-2xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] p-3 shadow-sm"
+    >
+      <div className="relative aspect-[4/3] w-full overflow-hidden rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-2)]">
+        {item.videoUrl ? (
+          <video
+            className="h-full w-full object-cover"
+            src={item.videoUrl}
+            poster={item.thumbUrl ? normalizeImageSrc(item.thumbUrl) : undefined}
+            muted
+            loop
+            playsInline
+            preload="metadata"
+            autoPlay
+          />
+        ) : item.thumbUrl ? (
+          <Image
+            src={normalizeImageSrc(item.thumbUrl)}
+            alt={item.title}
+            width={320}
+            height={240}
+            sizes="(max-width: 640px) 50vw, 25vw"
+            className="h-full w-full object-cover"
+          />
+        ) : (
+          <div className="flex h-full w-full items-center justify-center bg-gradient-to-br from-[color:var(--surface-1)] to-[color:var(--surface-2)] text-[10px] text-[color:var(--muted)]">
+            Sin preview
+          </div>
+        )}
+        {item.priceLabel ? (
+          <span className="absolute right-2 top-2 rounded-full border border-[color:rgba(15,23,42,0.4)] bg-[color:rgba(15,23,42,0.7)] px-2 py-0.5 text-[10px] font-semibold text-[color:var(--text)]">
+            {item.priceLabel}
+          </span>
+        ) : null}
+      </div>
+      <p className="mt-2 text-xs font-semibold text-[color:var(--text)] line-clamp-2 min-h-[2.25rem]">
+        {item.title}
+      </p>
+      {showAction && (
+        <button
+          type="button"
+          onClick={handleOpenHighlightModal}
+          className="mt-2 inline-flex h-7 items-center justify-center rounded-full border border-[color:var(--surface-border)] px-3 text-[10px] font-semibold text-[color:var(--text)] hover:bg-[color:var(--surface-2)]"
+        >
+          Ver
+        </button>
+      )}
+    </div>
+  );
+
 
   const handleLoadMorePopClips = async () => {
     if (!creatorHandle || !popClipsCursor || popClipsLoadingMore) return;
@@ -772,77 +812,75 @@ export default function PublicCreatorByHandle({
             </div>
           )}
 
-          {hasStories && (
-            <PublicStoriesRow
-              items={storyItems}
-              isLoading={storyLoading}
-              emptyLabel={storyEmptyLabel}
-              onSelect={(id) => {
-                const storyClip = storyClips.find((clip) => clip.id === id);
-                if (storyClip) {
-                  setRequestedPopclipItem(mapPopclipToCard(storyClip));
-                  setRequestedPopclipId(storyClip.id);
-                }
-                if (hasPopclips) {
-                  scrollToPopclips(id);
-                }
-              }}
-              onViewAll={() => {
-                if (hasPopclips) scrollToPopclips();
-              }}
-            />
-          )}
-
-          <section id="catalog" className="space-y-3 min-w-0 scroll-mt-24">
-            <h2 className="text-base font-semibold text-[color:var(--text)]">Catálogo</h2>
-            <PublicCatalogGrid
-              items={items}
-              chatHref={chatHref}
-              onOpenChat={openChat}
-              isLoading={showLoading}
-              error={catalogError}
-              filters={CATALOG_FILTERS}
-            />
-          </section>
-
-          {showPopclipsSection && (
-            <section id="popclips" className="space-y-3 min-w-0 scroll-mt-24">
-              {hasPopclips && (
-                <h2 className="text-base font-semibold text-[color:var(--text)]">PopClips ({popclipsHeaderCount})</h2>
-              )}
-              <PublicCatalogGrid
-                items={[]}
-                chatHref={chatHref}
-                onOpenChat={openChat}
-                filters={POPCLIP_FILTERS}
-                defaultFilter="popclip"
-                hideFilters
-                popclipItems={popclipItems}
-                popclipLoading={popClipsLoading}
-                popclipError={popClipsError || undefined}
-                openPopclipId={requestedPopclipId}
-                openPopclipItem={requestedPopclipItem}
-                onPopclipOpenHandled={() => {
-                  setRequestedPopclipId(null);
-                  setRequestedPopclipItem(null);
-                }}
-                sectionId="popclips-grid"
-              />
-              {hasPopclips && popClipsCursor && (
+          <section className="space-y-3 min-w-0">
+            <div className="flex items-center justify-between min-w-0">
+              <h2 className="text-base font-semibold text-[color:var(--text)]">Highlights</h2>
+              {highlightHasMore && (
                 <button
                   type="button"
-                  onClick={handleLoadMorePopClips}
-                  disabled={popClipsLoadingMore}
-                  className="w-full rounded-full border border-[color:var(--surface-border)] px-4 py-2 text-xs font-semibold text-[color:var(--text)] hover:bg-[color:var(--surface-1)] disabled:opacity-60"
+                  onClick={handleOpenHighlightModal}
+                  className="text-xs font-semibold text-[color:var(--brand)] hover:underline"
                 >
-                  {popClipsLoadingMore ? "Cargando..." : "Ver más"}
+                  Ver todos ({activeHighlightTotal})
                 </button>
               )}
-            </section>
-          )}
-          {!hasPopclips && !popClipsLoading && !popClipsError && !showPopclipsSection && (
-            <p className="text-xs text-[color:var(--muted)]">Aún no hay PopClips.</p>
-          )}
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {HIGHLIGHT_TABS.map((tab) => {
+                const isActive = tab.id === activeHighlight;
+                return (
+                  <button
+                    key={tab.id}
+                    type="button"
+                    onClick={() => setActiveHighlight(tab.id)}
+                    className={`rounded-full border px-3 py-1 text-[11px] font-semibold transition ${
+                      isActive
+                        ? "border-[color:rgba(var(--brand-rgb),0.6)] bg-[color:rgba(var(--brand-rgb),0.16)] text-[color:var(--text)]"
+                        : "border-[color:var(--surface-border)] bg-[color:var(--surface-1)] text-[color:var(--muted)] hover:text-[color:var(--text)]"
+                    }`}
+                  >
+                    {tab.label}
+                  </button>
+                );
+              })}
+            </div>
+            {activeHighlights.length === 0 ? (
+              highlightLoading ? (
+                <div className="grid grid-flow-col auto-cols-[minmax(140px,1fr)] gap-3 overflow-x-auto pb-2 snap-x snap-mandatory sm:grid-flow-row sm:grid-cols-2 sm:auto-cols-auto sm:overflow-visible">
+                  {Array.from({ length: HIGHLIGHT_PREVIEW_MAX }).map((_, idx) => (
+                    <Skeleton key={`highlight-skeleton-${idx}`} className="h-[180px] w-full rounded-2xl" />
+                  ))}
+                </div>
+              ) : (
+                <div className="rounded-2xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-4 py-3 text-xs text-[color:var(--muted)] space-y-3">
+                  <p>{highlightEmptyCopyByTab[activeHighlight]}</p>
+                  <div className="flex flex-wrap gap-2">
+                    <a
+                      href={chatHref}
+                      onClick={handleOpenChat}
+                      className="inline-flex h-8 items-center justify-center rounded-full border border-[color:var(--surface-border)] px-3 text-[10px] font-semibold text-[color:var(--text)] hover:bg-[color:var(--surface-2)]"
+                    >
+                      Entrar al chat
+                    </a>
+                    <a
+                      href={followHref}
+                      onClick={handleFollow}
+                      aria-disabled={highlightFollowDisabled}
+                      className={`inline-flex h-8 items-center justify-center rounded-full border border-[color:rgba(var(--brand-rgb),0.5)] px-3 text-[10px] font-semibold text-[color:var(--text)] hover:bg-[color:rgba(var(--brand-rgb),0.12)]${
+                        highlightFollowDisabled ? " opacity-60 pointer-events-none" : ""
+                      }`}
+                    >
+                      {highlightFollowLabel}
+                    </a>
+                  </div>
+                </div>
+              )
+            ) : (
+              <div className="grid grid-flow-col auto-cols-[minmax(140px,1fr)] gap-3 overflow-x-auto pb-2 snap-x snap-mandatory sm:grid-flow-row sm:grid-cols-2 sm:auto-cols-auto sm:overflow-visible">
+                {activeHighlights.map((item) => renderHighlightCard(item))}
+              </div>
+            )}
+          </section>
 
           <section className="space-y-3 min-w-0">
             <div className="flex items-center justify-between min-w-0">
@@ -884,6 +922,11 @@ export default function PublicCreatorByHandle({
                     : viewerIsLoggedIn
                     ? "Marcar comentario como útil"
                     : "Inicia sesión para votar";
+                  const helpfulDisabledClass = helpfulDisabled
+                    ? isCreatorViewer
+                      ? "opacity-50 cursor-not-allowed"
+                      : "opacity-60 cursor-not-allowed"
+                    : "hover:bg-[color:var(--surface-2)]";
                   return (
                     <div
                       key={comment.id}
@@ -912,7 +955,7 @@ export default function PublicCreatorByHandle({
                             comment.viewerHasVoted
                               ? "border-[color:rgba(var(--brand-rgb),0.6)] bg-[color:rgba(var(--brand-rgb),0.12)] text-[color:var(--text)]"
                               : "border-[color:var(--surface-border)] text-[color:var(--muted)]"
-                          } ${helpfulDisabled ? "opacity-60 cursor-not-allowed" : "hover:bg-[color:var(--surface-2)]"}`}
+                          } ${helpfulDisabledClass}`}
                           aria-label={helpfulTitle}
                         >
                           <ThumbsUp className="h-3 w-3" aria-hidden="true" />
@@ -953,11 +996,66 @@ export default function PublicCreatorByHandle({
               >
                 Escribir comentario
               </button>
-            ) : (
+            ) : !isCreatorViewer ? (
               <p className="text-xs text-[color:var(--muted)]">Solo seguidores o clientes pueden comentar.</p>
-            )}
+            ) : null}
           </section>
         </main>
+        {highlightModalOpen && (
+          <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm" onClick={() => setHighlightModalOpen(false)}>
+            <div className="fixed inset-0 flex items-end sm:items-center justify-center p-3 sm:p-6">
+              <div
+                role="dialog"
+                aria-modal="true"
+                aria-label={`Ver ${activeHighlightLabel}`}
+                onClick={(event) => event.stopPropagation()}
+                className="flex w-full sm:w-[720px] max-h-[85vh] flex-col overflow-hidden rounded-t-2xl sm:rounded-2xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] shadow-2xl"
+              >
+                <div className="px-4 pt-3 sm:px-5 sm:pt-5">
+                  <div className="mx-auto h-1 w-10 rounded-full bg-white/20 sm:hidden" />
+                  <div className="flex items-start justify-between gap-3 pt-3 sm:pt-0">
+                    <div className="space-y-1">
+                      <p className="text-sm font-semibold text-[color:var(--text)]">
+                        {activeHighlightLabel} <span className="text-[color:var(--muted)]">({highlightModalCount})</span>
+                      </p>
+                      <p className="text-xs text-[color:var(--muted)]">Contenido destacado del creador.</p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setHighlightModalOpen(false)}
+                      aria-label="Cerrar"
+                      className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-[color:var(--surface-border)] text-[color:var(--muted)] hover:text-[color:var(--text)] hover:border-[color:var(--surface-border-hover)]"
+                    >
+                      X
+                    </button>
+                  </div>
+                </div>
+                <div className="flex-1 overflow-y-auto px-4 pb-4 pt-4 sm:px-5 sm:pb-5">
+                  {activeHighlight === "popclips" && popClipsError && (
+                    <div className="mb-3 text-xs text-[color:var(--danger)]">{popClipsError}</div>
+                  )}
+                  {activeHighlightAll.length === 0 ? (
+                    <p className="text-xs text-[color:var(--muted)]">{highlightEmptyCopyByTab[activeHighlight]}</p>
+                  ) : (
+                    <div className="grid gap-3 sm:grid-cols-2">
+                      {activeHighlightAll.map((item) => renderHighlightCard(item, false))}
+                    </div>
+                  )}
+                  {showHighlightLoadMore && (
+                    <button
+                      type="button"
+                      onClick={handleLoadMorePopClips}
+                      disabled={popClipsLoadingMore}
+                      className="mt-4 w-full rounded-full border border-[color:var(--surface-border)] px-4 py-2 text-xs font-semibold text-[color:var(--text)] hover:bg-[color:var(--surface-2)] disabled:opacity-60"
+                    >
+                      {popClipsLoadingMore ? "Cargando..." : "Cargar más"}
+                    </button>
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
         {commentSheetOpen && (
           <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm" onClick={() => setCommentSheetOpen(false)}>
             <div className="fixed inset-0 flex items-end sm:items-center justify-center p-3 sm:p-6">
@@ -1197,6 +1295,16 @@ function renderStars(rating: number) {
 function getCreatorInitial(name?: string | null) {
   const trimmed = (name || "").trim();
   return (trimmed[0] || "C").toUpperCase();
+}
+
+function formatPriceCents(cents?: number, currency = "EUR") {
+  if (!Number.isFinite(cents)) return "";
+  const amount = (cents as number) / 100;
+  try {
+    return new Intl.NumberFormat("es-ES", { style: "currency", currency }).format(amount);
+  } catch {
+    return `${amount.toFixed(2)} ${currency}`;
+  }
 }
 
 function formatCreatorCommentDate(value: string) {
