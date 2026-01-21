@@ -93,6 +93,18 @@ export default function PublicProfileView({
       : undefined;
   const autoplayAllowed = isPageVisible && !activePack;
   const isDev = process.env.NODE_ENV === "development";
+  const logFetchFailure = useCallback(
+    (endpoint: string, status?: number | null, error?: unknown) => {
+      if (!isDev) return;
+      const message = error instanceof Error ? error.message : error ? String(error) : "";
+      console.warn("[public] fetch failed", {
+        endpoint,
+        status: status ?? null,
+        error: message || undefined,
+      });
+    },
+    [isDev]
+  );
 
   const handlePopClipsRetry = useCallback(() => {
     setPopClipsRetryKey((prev) => prev + 1);
@@ -107,11 +119,14 @@ export default function PublicProfileView({
       return;
     }
     const controller = new AbortController();
+    const endpoint = `/api/public/popclips?handle=${encodeURIComponent(effectiveHandle)}`;
+    let responseStatus: number | null = null;
     setPopClipsLoading(true);
     setPopClipsError(null);
     setRemotePopClips(null);
-    fetch(`/api/public/popclips?handle=${encodeURIComponent(effectiveHandle)}`, { signal: controller.signal })
+    fetch(endpoint, { signal: controller.signal })
       .then(async (res) => {
+        responseStatus = res.status;
         if (!res.ok) throw new Error("request failed");
         const data = (await res.json()) as { clips?: PublicPopClip[] };
         const clips = Array.isArray(data?.clips) ? data.clips : [];
@@ -119,6 +134,7 @@ export default function PublicProfileView({
       })
       .catch((err) => {
         if (err instanceof DOMException && err.name === "AbortError") return;
+        logFetchFailure(endpoint, responseStatus, err);
         setPopClipsError("No se pudo cargar PopClips.");
         setRemotePopClips([]);
       })
@@ -126,7 +142,7 @@ export default function PublicProfileView({
         setPopClipsLoading(false);
       });
     return () => controller.abort();
-  }, [effectiveHandle, hasPopClipsProp, popClipsRetryKey]);
+  }, [effectiveHandle, hasPopClipsProp, logFetchFailure, popClipsRetryKey]);
 
   useEffect(() => {
     if (!hasPopClipsProp) return;
@@ -294,14 +310,15 @@ export default function PublicProfileView({
           if (prev[clipId]?.status !== undefined) return prev;
           return { ...prev, [clipId]: { url, status } };
         });
-      } catch (_err) {
+      } catch (err) {
+        logFetchFailure(url, null, err);
         setClipErrorDetails((prev) => {
           if (prev[clipId]?.status !== undefined) return prev;
           return { ...prev, [clipId]: { url, status: null } };
         });
       }
     },
-    [isDev, updateClipStatus]
+    [isDev, logFetchFailure, updateClipStatus]
   );
 
   useEffect(() => {

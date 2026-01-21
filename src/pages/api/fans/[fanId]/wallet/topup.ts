@@ -26,6 +26,12 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   const idempotencyKey = normalizeIdempotencyKey(req.body?.idempotencyKey);
   if (!idempotencyKey) return sendBadRequest(res, "Missing idempotencyKey");
 
+  const allowFakeTopup =
+    process.env.NODE_ENV !== "production" || process.env.ALLOW_FAKE_PAYMENTS === "true";
+  if (!allowFakeTopup) {
+    return res.status(403).json({ error: "FAKE_TOPUP_DISABLED" });
+  }
+
   if (!hasWalletModel(prisma)) {
     return res.status(501).json({ error: "WALLET_DISABLED" });
   }
@@ -33,9 +39,12 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   try {
     const fan = await prisma.fan.findUnique({
       where: { id: fanId },
-      select: { id: true },
+      select: { id: true, adultConfirmedAt: true },
     });
     if (!fan) return res.status(404).json({ error: "Fan not found" });
+    if (!fan.adultConfirmedAt) {
+      return res.status(403).json({ error: "ADULT_NOT_CONFIRMED" });
+    }
 
     const result = await prisma.$transaction(async (tx) => {
       const wallet = await getOrCreateWallet(tx, fanId);

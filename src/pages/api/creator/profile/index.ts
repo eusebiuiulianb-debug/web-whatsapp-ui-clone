@@ -1,7 +1,7 @@
 import type { NextApiRequest, NextApiResponse } from "next";
-import prisma from "../../../lib/prisma.server";
-import { sendBadRequest, sendServerError } from "../../../lib/apiError";
-import { normalizeImageSrc } from "../../../utils/normalizeImageSrc";
+import prisma from "../../../../lib/prisma.server";
+import { sendBadRequest, sendServerError } from "../../../../lib/apiError";
+import { normalizeImageSrc } from "../../../../utils/normalizeImageSrc";
 
 const CREATOR_ID = "creator-1";
 

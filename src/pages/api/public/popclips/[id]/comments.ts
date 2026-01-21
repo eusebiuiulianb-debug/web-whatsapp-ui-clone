@@ -97,7 +97,7 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse<CommentCreat
 
     const fanId = readFanId(req, clip.creator?.name || "");
     if (!fanId) {
-      return res.status(401).json({ ok: false, error: "CHAT_REQUIRED" });
+      return res.status(401).json({ error: "AUTH_REQUIRED" });
     }
 
     const allowed = await enforceRateLimit({
@@ -115,7 +115,14 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse<CommentCreat
       select: { id: true, name: true, displayName: true },
     });
     if (!fan) {
-      return res.status(403).json({ ok: false, error: "CHAT_REQUIRED" });
+      return res.status(403).json({ error: "AUTH_REQUIRED" });
+    }
+    const accessGrant = await prisma.accessGrant.findFirst({
+      where: { fanId: fan.id, expiresAt: { gt: new Date() } },
+      select: { id: true },
+    });
+    if (!accessGrant) {
+      return res.status(403).json({ error: "ACCESS_REQUIRED" });
     }
     const [comment, count] = await prisma.$transaction([
       prisma.popClipComment.create({

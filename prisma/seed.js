@@ -295,6 +295,12 @@ async function main() {
     },
   });
 
+  await prisma.creatorProfile.upsert({
+    where: { creatorId: creator.id },
+    update: { visibilityMode: "SOLO_LINK" },
+    create: { creatorId: creator.id, visibilityMode: "SOLO_LINK" },
+  });
+
   const agencyTemplateSeeds = buildAgencyTemplateSeeds();
 
   await prisma.agencyTemplate.createMany({

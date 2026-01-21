@@ -36,6 +36,8 @@ import { Badge, type BadgeTone } from "../../components/ui/Badge";
 import { applyOptimisticReaction, getMineEmoji, type ReactionSummaryEntry } from "../../lib/messageReactions";
 import { useEmojiFavorites } from "../../hooks/useEmojiFavorites";
 import clsx from "clsx";
+import { AdultGateOverlay } from "../../components/ui/AdultGateOverlay";
+import { readAdultConfirmedAtFromStorage, writeAdultConfirmedAtToStorage } from "../../lib/adultGate";
 
 type ApiContentItem = {
   id: string;
@@ -216,6 +218,7 @@ export function FanChatPage({
     typeof initialAdultConfirmedAt !== "undefined" || typeof initialAdultConfirmVersion !== "undefined"
   );
   const [adultConfirming, setAdultConfirming] = useState(false);
+  const [adultSyncPending, setAdultSyncPending] = useState(false);
   const [fanProfileLoaded, setFanProfileLoaded] = useState(false);
   const [onboardingDismissed, setOnboardingDismissed] = useState(false);
   const [onboardingName, setOnboardingName] = useState("");
@@ -225,6 +228,7 @@ export function FanChatPage({
   const [onboardingLanguage, setOnboardingLanguage] = useState<SupportedLanguage>("en");
   const messagesContainerRef = useRef<HTMLDivElement | null>(null);
   const composerInputRef = useRef<HTMLTextAreaElement | null>(null);
+  const onboardingNameRef = useRef<HTMLInputElement | null>(null);
   const draftAppliedRef = useRef(false);
   const [isAtBottom, setIsAtBottom] = useState(true);
   const pollAbortRef = useRef<AbortController | null>(null);
@@ -307,6 +311,7 @@ export function FanChatPage({
     return messages.filter((message) => isVisibleToFan(message));
   }, [messages]);
 
+  const hasActiveAccess = accessSummary?.hasActiveAccess === true;
   const shouldPromptForName = inviteFlag
     ? !fanProfile.displayName
     : getFanDisplayName(fanProfile) === "Invitado";
@@ -315,7 +320,8 @@ export function FanChatPage({
     !onboardingDismissed &&
     !loading &&
     visibleMessages.length === 0 &&
-    shouldPromptForName;
+    shouldPromptForName &&
+    !hasActiveAccess;
   const resolvedAdultGatePolicy = normalizeAdultGatePolicy(adultGatePolicy);
   const isAdultGateActive = adultStatusLoaded && !adultConfirmedAt;
   const isAdultGateStrict = isAdultGateActive && resolvedAdultGatePolicy === "STRICT";
@@ -330,6 +336,63 @@ export function FanChatPage({
     }
     fanToastTimerRef.current = window.setTimeout(() => setFanToast(""), 2200);
   }, []);
+
+  useEffect(() => {
+    if (adultConfirmedAt) {
+      const parsed = Date.parse(adultConfirmedAt);
+      if (Number.isFinite(parsed)) {
+        writeAdultConfirmedAtToStorage(parsed);
+      }
+      return;
+    }
+    const stored = readAdultConfirmedAtFromStorage();
+    if (!stored) return;
+    const confirmedAt = new Date(stored).toISOString();
+    setAdultConfirmedAt(confirmedAt);
+    setAdultConfirmVersion("local");
+    setAdultStatusLoaded(true);
+    if (fanId) {
+      setAdultSyncPending(true);
+    }
+  }, [adultConfirmedAt, fanId]);
+
+  useEffect(() => {
+    if (!adultSyncPending || !fanId) return;
+    let cancelled = false;
+    const sync = async () => {
+      try {
+        const res = await fetch(`/api/fans/${encodeURIComponent(fanId)}/confirm-adult`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          if (process.env.NODE_ENV !== "production") {
+            console.warn("[adult-gate] sync failed", data?.error || res.statusText);
+          }
+          return;
+        }
+        if (typeof data?.adultConfirmedAt === "string") {
+          setAdultConfirmedAt(data.adultConfirmedAt);
+        }
+        if (typeof data?.adultConfirmVersion === "string") {
+          setAdultConfirmVersion(data.adultConfirmVersion);
+        }
+      } catch (err) {
+        if (process.env.NODE_ENV !== "production") {
+          console.warn("[adult-gate] sync failed", err);
+        }
+      } finally {
+        if (!cancelled) {
+          setAdultSyncPending(false);
+        }
+      }
+    };
+    void sync();
+    return () => {
+      cancelled = true;
+    };
+  }, [adultSyncPending, fanId]);
 
   const fetchMessages = useCallback(
     async (targetFanId: string, options?: { showLoading?: boolean; silent?: boolean }) => {
@@ -1147,7 +1210,7 @@ export function FanChatPage({
     (event: ChangeEvent<HTMLTextAreaElement>) => {
       const nextDraft = event.target.value;
       setDraft(nextDraft);
-      if (isComposerDisabled) return;
+      if (isComposerDisabled || !hasActiveAccess) return;
       const normalizedDraft = normalizeFanDraftText(nextDraft);
       if (!normalizedDraft) {
         stopTyping();
@@ -1160,7 +1223,7 @@ export function FanChatPage({
       }
       scheduleTypingStop();
     },
-    [handleTypingStart, isComposerDisabled, scheduleDraftPreview, scheduleTypingStop, stopTyping]
+    [handleTypingStart, hasActiveAccess, isComposerDisabled, scheduleDraftPreview, scheduleTypingStop, stopTyping]
   );
 
   const handleComposerBlur = useCallback(() => {
@@ -1169,13 +1232,26 @@ export function FanChatPage({
 
   const handleSendMessage = useCallback(async () => {
     if (isOnboardingVisible || isAdultGateActive) return;
+    if (!hasActiveAccess) {
+      showFanToast("Necesitas acceso activo para enviar mensajes.");
+      return;
+    }
     stopTyping();
     const ok = await sendFanMessage(draft);
     if (ok) {
       setDraft("");
       requestAnimationFrame(() => focusComposer());
     }
-  }, [draft, focusComposer, isAdultGateActive, isOnboardingVisible, sendFanMessage, stopTyping]);
+  }, [
+    draft,
+    focusComposer,
+    hasActiveAccess,
+    isAdultGateActive,
+    isOnboardingVisible,
+    sendFanMessage,
+    showFanToast,
+    stopTyping,
+  ]);
 
   const handleComposerKeyDown = useCallback(
     (event: KeyboardEvent<HTMLTextAreaElement>) => {
@@ -1204,19 +1280,23 @@ export function FanChatPage({
 
   const handleEmojiSelect = useCallback(
     (emoji: string) => {
-      if (isComposerDisabled || isAdultGateActive) return;
+      if (isComposerDisabled || isAdultGateActive || !hasActiveAccess) return;
       insertIntoDraft(emoji);
     },
-    [insertIntoDraft, isAdultGateActive, isComposerDisabled]
+    [insertIntoDraft, hasActiveAccess, isAdultGateActive, isComposerDisabled]
   );
 
   const handleStickerSelect = useCallback(
     (sticker: StickerItem) => {
       if (isComposerDisabled || isAdultGateActive) return;
+      if (!hasActiveAccess) {
+        showFanToast("Necesitas acceso activo para enviar mensajes.");
+        return;
+      }
       const token = buildStickerTokenFromItem(sticker);
       void sendFanMessage(token);
     },
-    [isAdultGateActive, isComposerDisabled, sendFanMessage]
+    [hasActiveAccess, isAdultGateActive, isComposerDisabled, sendFanMessage, showFanToast]
   );
 
   const openContentSheet = useCallback(
@@ -1285,10 +1365,19 @@ export function FanChatPage({
         });
         const data = await res.json().catch(() => ({}));
         if (!res.ok) {
-          if (data?.error === "WALLET_DISABLED") {
+          const errorCode = typeof data?.error === "string" ? data.error : "";
+          if (errorCode === "WALLET_DISABLED") {
             setWalletEnabled(false);
           }
-          setWalletTopupError(data?.error || "No se pudo recargar.");
+          if (errorCode === "FAKE_TOPUP_DISABLED") {
+            setWalletTopupError("Las recargas simuladas están desactivadas.");
+            return;
+          }
+          if (errorCode === "ADULT_NOT_CONFIRMED") {
+            setWalletTopupError("Confirma 18+ para recargar.");
+            return;
+          }
+          setWalletTopupError(errorCode || "No se pudo recargar.");
           return;
         }
         applyWalletPayload(data);
@@ -1338,7 +1427,21 @@ export function FanChatPage({
   }, [isAdultGateActive, stopTyping]);
 
   const handleAdultConfirm = useCallback(async () => {
-    if (!fanId || adultConfirming) return;
+    if (adultConfirming) return;
+    const localConfirmedAt = new Date().toISOString();
+    writeAdultConfirmedAtToStorage(Date.now());
+    setAdultConfirmedAt(localConfirmedAt);
+    setAdultConfirmVersion("local");
+    setAdultStatusLoaded(true);
+    showFanToast("Confirmado. Puedes continuar.");
+    requestAnimationFrame(() => {
+      if (onboardingNameRef.current) {
+        onboardingNameRef.current.focus();
+        return;
+      }
+      focusComposer();
+    });
+    if (!fanId) return;
     setAdultConfirming(true);
     try {
       const res = await fetch(`/api/fans/${encodeURIComponent(fanId)}/confirm-adult`, {
@@ -1347,21 +1450,25 @@ export function FanChatPage({
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
-        showFanToast(data?.error || "No se pudo confirmar la edad.");
+        if (process.env.NODE_ENV !== "production") {
+          console.warn("[adult-gate] confirm failed", data?.error || res.statusText);
+        }
         return;
       }
-      const confirmedAt =
-        typeof data?.adultConfirmedAt === "string" ? data.adultConfirmedAt : new Date().toISOString();
-      setAdultConfirmedAt(confirmedAt);
-      setAdultConfirmVersion(typeof data?.adultConfirmVersion === "string" ? data.adultConfirmVersion : "v1");
-      setAdultStatusLoaded(true);
-      showFanToast("Confirmado. Puedes continuar.");
-    } catch (_err) {
-      showFanToast("No se pudo confirmar la edad.");
+      if (typeof data?.adultConfirmedAt === "string") {
+        setAdultConfirmedAt(data.adultConfirmedAt);
+      }
+      if (typeof data?.adultConfirmVersion === "string") {
+        setAdultConfirmVersion(data.adultConfirmVersion);
+      }
+    } catch (err) {
+      if (process.env.NODE_ENV !== "production") {
+        console.warn("[adult-gate] confirm failed", err);
+      }
     } finally {
       setAdultConfirming(false);
     }
-  }, [adultConfirming, fanId, showFanToast]);
+  }, [adultConfirming, fanId, focusComposer, showFanToast]);
 
   const handleAdultExit = useCallback(() => {
     const rawReturnTo = typeof router.query.returnTo === "string" ? router.query.returnTo : "";
@@ -2118,7 +2225,7 @@ export function FanChatPage({
   const packPurchaseSubmitting = Boolean(packPurchase?.id && packPurchasingIds.has(packPurchase.id));
   const unlockConfirmDisabled = unlockSubmitting || isAdultGatePurchaseBlocked;
   const packConfirmDisabled = packPurchaseSubmitting || isAdultGatePurchaseBlocked;
-  const sendDisabled = isComposerDisabled || draft.trim().length === 0;
+  const sendDisabled = isComposerDisabled || !hasActiveAccess || draft.trim().length === 0;
   const voiceRecordingLabel = formatAudioTime(Math.max(0, Math.floor(voiceRecordingMs / 1000)));
 
   const handleOnboardingSkip = () => {
@@ -2165,7 +2272,11 @@ export function FanChatPage({
         }
       }
       if (firstMessage) {
-        await sendFanMessage(firstMessage);
+        if (!hasActiveAccess) {
+          showFanToast("Necesitas acceso activo para enviar mensajes.");
+        } else {
+          await sendFanMessage(firstMessage);
+        }
       }
       setOnboardingDismissed(true);
       setOnboardingName("");
@@ -2614,6 +2725,7 @@ export function FanChatPage({
               <label className="flex flex-col gap-1 text-sm text-[color:var(--text)]">
                 <span>¿Cómo te llamas?</span>
                 <input
+                  ref={onboardingNameRef}
                   className="w-full rounded-lg bg-[color:var(--surface-1)] border border-[color:var(--surface-border)] px-3 py-2 text-sm text-[color:var(--text)] focus:border-[color:var(--brand)]"
                   value={onboardingName}
                   onChange={(evt) => setOnboardingName(evt.target.value)}
@@ -2763,7 +2875,7 @@ export function FanChatPage({
                   onAttach={handleOpenActionMenu}
                   inputRef={composerInputRef}
                   maxHeight={140}
-                  isChatBlocked={isAdultGateStrict}
+                  isChatBlocked={isAdultGateStrict || !hasActiveAccess}
                   isInternalPanelOpen={false}
                   showAttach
                   showVoice
@@ -3328,33 +3440,16 @@ export function FanChatPage({
           )}
         </div>
       </BottomSheet>
-      <BottomSheet open={isAdultGateStrict} onClose={() => {}} dismissible={false}>
-        <div className="space-y-4">
-          <div>
-            <h3 className="text-base font-semibold text-[color:var(--text)]">Confirmación 18+</h3>
-            <p className="text-xs text-[color:var(--muted)]">
-              Este espacio es solo para mayores de 18. Confirma para continuar.
-            </p>
-          </div>
-          <div className="flex items-center justify-end gap-2">
-            <button
-              type="button"
-              onClick={handleAdultExit}
-              className="rounded-full border border-[color:var(--surface-border)] px-4 py-1.5 text-xs text-[color:var(--text)] hover:bg-[color:var(--surface-2)]"
-            >
-              Salir
-            </button>
-            <button
-              type="button"
-              onClick={handleAdultConfirm}
-              disabled={adultConfirming}
-              className="rounded-full bg-[color:rgba(var(--brand-rgb),0.16)] px-4 py-1.5 text-xs font-semibold text-[color:var(--text)] hover:bg-[color:rgba(var(--brand-rgb),0.24)] disabled:opacity-60"
-            >
-              {adultConfirming ? "Confirmando..." : "Tengo 18+"}
-            </button>
-          </div>
-        </div>
-      </BottomSheet>
+      <AdultGateOverlay
+        open={isAdultGateStrict}
+        title="Confirmación 18+"
+        description="Este espacio es solo para mayores de 18. Confirma para continuar."
+        exitLabel="Salir"
+        confirmLabel="Tengo 18+"
+        confirmDisabled={adultConfirming}
+        onExit={handleAdultExit}
+        onConfirm={handleAdultConfirm}
+      />
     </div>
   );
 }

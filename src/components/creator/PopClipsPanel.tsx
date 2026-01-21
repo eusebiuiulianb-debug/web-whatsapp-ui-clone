@@ -1,5 +1,5 @@
 import clsx from "clsx";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { PopClip } from "../../lib/popclips";
 import type { CatalogItem } from "../../lib/catalog";
 import { useCreatorConfig } from "../../context/CreatorConfigContext";
@@ -7,9 +7,16 @@ import { normalizeImageSrc } from "../../utils/normalizeImageSrc";
 import { SectionCard } from "../ui/SectionCard";
 import { Skeleton } from "../ui/Skeleton";
 
+type VisibilityMode = "INVISIBLE" | "SOLO_LINK" | "DISCOVERABLE" | "PUBLIC";
+
 const DAILY_LIMIT = 3;
 const MAX_ACTIVE = 24;
 const MAX_STORIES = 8;
+const VISIBILITY_OPTIONS: Array<{ id: VisibilityMode; label: string }> = [
+  { id: "INVISIBLE", label: "Invisible" },
+  { id: "SOLO_LINK", label: "Solo link" },
+  { id: "PUBLIC", label: "Público" },
+];
 
 type UploadMeta = {
   durationSec: number;
@@ -36,6 +43,13 @@ function countTodayUtc(clips: PopClip[]) {
     const created = Date.parse(clip.createdAt);
     return Number.isFinite(created) && created >= start && created < end;
   }).length;
+}
+
+function normalizeVisibilityMode(value: unknown): VisibilityMode {
+  if (value === "INVISIBLE" || value === "SOLO_LINK" || value === "DISCOVERABLE" || value === "PUBLIC") {
+    return value;
+  }
+  return "SOLO_LINK";
 }
 
 async function extractVideoMeta(file: File): Promise<UploadMeta> {
@@ -80,6 +94,12 @@ export function PopClipsPanel() {
   const [uploading, setUploading] = useState(false);
   const [uploadError, setUploadError] = useState("");
   const [archivedOpen, setArchivedOpen] = useState(false);
+  const [visibilityMode, setVisibilityMode] = useState<VisibilityMode>("SOLO_LINK");
+  const [visibilityLoading, setVisibilityLoading] = useState(false);
+  const [visibilitySaving, setVisibilitySaving] = useState(false);
+  const [visibilityError, setVisibilityError] = useState("");
+  const [visibilityToast, setVisibilityToast] = useState("");
+  const visibilityToastRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const creatorHandle = config.creatorHandle || slugifyHandle(config.creatorName || "creator");
 
@@ -95,6 +115,14 @@ export function PopClipsPanel() {
       }
     };
     void loadCreator();
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (visibilityToastRef.current) {
+        clearTimeout(visibilityToastRef.current);
+      }
+    };
   }, []);
 
   const loadPopClips = useCallback(async () => {
@@ -131,10 +159,26 @@ export function PopClipsPanel() {
     }
   }, [creatorId]);
 
+  const loadVisibility = useCallback(async () => {
+    try {
+      setVisibilityLoading(true);
+      setVisibilityError("");
+      const res = await fetch("/api/creator/profile/visibility", { cache: "no-store" });
+      if (!res.ok) throw new Error("Error loading visibility");
+      const payload = await res.json().catch(() => ({}));
+      setVisibilityMode(normalizeVisibilityMode(payload?.visibilityMode));
+    } catch (_err) {
+      setVisibilityError("No se pudo cargar la visibilidad del perfil.");
+    } finally {
+      setVisibilityLoading(false);
+    }
+  }, []);
+
   useEffect(() => {
     void loadPopClips();
     void loadCatalog();
-  }, [loadCatalog, loadPopClips]);
+    void loadVisibility();
+  }, [loadCatalog, loadPopClips, loadVisibility]);
 
   const activeFeedClips = useMemo(
     () => popClips.filter((clip) => !clip.isArchived && !clip.isStory),
@@ -145,6 +189,12 @@ export function PopClipsPanel() {
     [popClips]
   );
   const archivedClips = useMemo(() => popClips.filter((clip) => clip.isArchived), [popClips]);
+  const visibilitySummary = useMemo(() => {
+    if (visibilityMode === "INVISIBLE") return "Solo tú puedes verlo en vista previa.";
+    if (visibilityMode === "SOLO_LINK") return "Visible por link directo en /c/[handle].";
+    if (visibilityMode === "PUBLIC") return "Visible por link directo y listo para Discovery.";
+    return "Visible por link directo.";
+  }, [visibilityMode]);
 
   const todayCount = useMemo(() => countTodayUtc(popClips), [popClips]);
   const canAddStory = storyClips.length < MAX_STORIES;
@@ -153,6 +203,45 @@ export function PopClipsPanel() {
     const target = document.getElementById("popclip-uploader");
     target?.scrollIntoView({ behavior: "smooth", block: "start" });
   }, []);
+  const showVisibilityToast = useCallback((message: string) => {
+    setVisibilityToast(message);
+    if (visibilityToastRef.current) {
+      clearTimeout(visibilityToastRef.current);
+    }
+    visibilityToastRef.current = setTimeout(() => setVisibilityToast(""), 2000);
+  }, []);
+
+  const handleVisibilityChange = useCallback(
+    async (nextMode: VisibilityMode) => {
+      if (visibilitySaving || visibilityLoading) return;
+      if (nextMode === visibilityMode) return;
+      const previous = visibilityMode;
+      setVisibilityMode(nextMode);
+      setVisibilitySaving(true);
+      setVisibilityError("");
+      try {
+        const res = await fetch("/api/creator/profile/visibility", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ visibilityMode: nextMode }),
+        });
+        const payload = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          setVisibilityMode(previous);
+          setVisibilityError(payload?.error || "No se pudo actualizar la visibilidad.");
+          return;
+        }
+        setVisibilityMode(normalizeVisibilityMode(payload?.visibilityMode) || nextMode);
+        showVisibilityToast("Visibilidad actualizada");
+      } catch (_err) {
+        setVisibilityMode(previous);
+        setVisibilityError("No se pudo actualizar la visibilidad.");
+      } finally {
+        setVisibilitySaving(false);
+      }
+    },
+    [showVisibilityToast, visibilityLoading, visibilityMode, visibilitySaving]
+  );
 
   const resetUpload = () => {
     setUploadFile(null);
@@ -382,6 +471,41 @@ export function PopClipsPanel() {
               {storyClips.length}/{MAX_STORIES}
             </p>
           </div>
+        </div>
+      </SectionCard>
+
+      <SectionCard
+        eyebrow="Perfil público"
+        title="Visibilidad del perfil"
+        subtitle="Define si el perfil es accesible por link o solo en vista previa."
+      >
+        <div className="space-y-3">
+          <div className="flex flex-wrap gap-2">
+            {VISIBILITY_OPTIONS.map((option) => {
+              const isActive = visibilityMode === option.id;
+              return (
+                <button
+                  key={option.id}
+                  type="button"
+                  onClick={() => handleVisibilityChange(option.id)}
+                  disabled={visibilityLoading || visibilitySaving}
+                  className={clsx(
+                    "rounded-full border px-3 py-1 text-[11px] font-semibold transition",
+                    isActive
+                      ? "border-[color:rgba(var(--brand-rgb),0.6)] bg-[color:rgba(var(--brand-rgb),0.16)] text-[color:var(--text)]"
+                      : "border-[color:var(--surface-border)] bg-[color:var(--surface-1)] text-[color:var(--muted)] hover:text-[color:var(--text)]",
+                    (visibilityLoading || visibilitySaving) && "opacity-60 cursor-not-allowed"
+                  )}
+                >
+                  {option.label}
+                </button>
+              );
+            })}
+          </div>
+          {visibilityLoading && <div className="text-xs text-[color:var(--muted)]">Cargando visibilidad...</div>}
+          {visibilityError && <div className="text-xs text-[color:var(--danger)]">{visibilityError}</div>}
+          {visibilityToast && <div className="text-xs text-[color:var(--brand)]">{visibilityToast}</div>}
+          {!visibilityLoading && <div className="text-xs text-[color:var(--muted)]">{visibilitySummary}</div>}
         </div>
       </SectionCard>
 

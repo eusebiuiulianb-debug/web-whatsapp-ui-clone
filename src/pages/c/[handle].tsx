@@ -59,6 +59,7 @@ const POPCLIP_FILTERS: Array<{ id: CatalogFilter; label: string }> = [
 
 const POPCLIP_PAGE_SIZE = 12;
 const POPCLIP_STORY_MAX = 8;
+const IS_DEV = process.env.NODE_ENV === "development";
 
 export default function PublicCreatorByHandle({
   notFound,
@@ -116,16 +117,16 @@ export default function PublicCreatorByHandle({
   useEffect(() => {
     if (!creatorHandle) return;
     const controller = new AbortController();
+    const endpoint = `/api/public/popclips?handle=${encodeURIComponent(creatorHandle)}&limit=${POPCLIP_PAGE_SIZE}`;
+    let responseStatus: number | null = null;
     setPopClipsLoading(true);
     setPopClipsLoadingMore(false);
     setPopClipsError("");
     setPopClipsCursor(null);
     setPopClips([]);
-    fetch(
-      `/api/public/popclips?handle=${encodeURIComponent(creatorHandle)}&limit=${POPCLIP_PAGE_SIZE}`,
-      { signal: controller.signal }
-    )
+    fetch(endpoint, { signal: controller.signal })
       .then(async (res) => {
+        responseStatus = res.status;
         if (!res.ok) throw new Error("request failed");
         const payload = (await res.json()) as { clips?: PublicPopClip[]; nextCursor?: string | null };
         setPopClips(Array.isArray(payload?.clips) ? payload.clips : []);
@@ -133,6 +134,7 @@ export default function PublicCreatorByHandle({
       })
       .catch((err) => {
         if (err instanceof DOMException && err.name === "AbortError") return;
+        logPublicFetchFailure(endpoint, responseStatus, err);
         setPopClipsError("No se pudieron cargar los PopClips.");
         setPopClips([]);
         setPopClipsCursor(null);
@@ -144,19 +146,21 @@ export default function PublicCreatorByHandle({
   useEffect(() => {
     if (!creatorHandle) return;
     const controller = new AbortController();
+    const endpoint = `/api/public/popclips?handle=${encodeURIComponent(creatorHandle)}&limit=${POPCLIP_STORY_MAX}&story=1`;
+    let responseStatus: number | null = null;
     setStoryLoading(true);
     setStoryError("");
     setStoryClips([]);
-    fetch(`/api/public/popclips?handle=${encodeURIComponent(creatorHandle)}&limit=${POPCLIP_STORY_MAX}&story=1`, {
-      signal: controller.signal,
-    })
+    fetch(endpoint, { signal: controller.signal })
       .then(async (res) => {
+        responseStatus = res.status;
         if (!res.ok) throw new Error("request failed");
         const payload = (await res.json()) as { clips?: PublicPopClip[] };
         setStoryClips(Array.isArray(payload?.clips) ? payload.clips : []);
       })
       .catch((err) => {
         if (err instanceof DOMException && err.name === "AbortError") return;
+        logPublicFetchFailure(endpoint, responseStatus, err);
         setStoryError("No se pudieron cargar las historias.");
         setStoryClips([]);
       })
@@ -212,6 +216,7 @@ export default function PublicCreatorByHandle({
     commentCount: clip.commentCount ?? 0,
     liked: clip.liked ?? false,
     canInteract: clip.canInteract ?? false,
+    canComment: clip.canComment ?? false,
   }));
   const storyItems = storyClips.slice(0, POPCLIP_STORY_MAX).map((clip) => ({
     id: clip.id,
@@ -242,11 +247,11 @@ export default function PublicCreatorByHandle({
       return;
     }
     const controller = new AbortController();
-    fetch(
-      `/api/public/popclips?handle=${encodeURIComponent(creatorHandle)}&id=${encodeURIComponent(popclipId)}`,
-      { signal: controller.signal }
-    )
+    const endpoint = `/api/public/popclips?handle=${encodeURIComponent(creatorHandle)}&id=${encodeURIComponent(popclipId)}`;
+    let responseStatus: number | null = null;
+    fetch(endpoint, { signal: controller.signal })
       .then(async (res) => {
+        responseStatus = res.status;
         if (!res.ok) throw new Error("request failed");
         const payload = (await res.json()) as { clips?: PublicPopClip[] };
         const clip = Array.isArray(payload?.clips) ? payload.clips[0] : null;
@@ -260,6 +265,7 @@ export default function PublicCreatorByHandle({
       })
       .catch((err) => {
         if (err instanceof DOMException && err.name === "AbortError") return;
+        logPublicFetchFailure(endpoint, responseStatus, err);
       });
     return () => controller.abort();
   }, [creatorHandle, popClips, router.query.popclip]);
@@ -267,12 +273,13 @@ export default function PublicCreatorByHandle({
   const handleLoadMorePopClips = async () => {
     if (!creatorHandle || !popClipsCursor || popClipsLoadingMore) return;
     setPopClipsLoadingMore(true);
+    const endpoint = `/api/public/popclips?handle=${encodeURIComponent(creatorHandle)}&limit=${POPCLIP_PAGE_SIZE}&cursor=${encodeURIComponent(
+      popClipsCursor
+    )}`;
+    let responseStatus: number | null = null;
     try {
-      const res = await fetch(
-        `/api/public/popclips?handle=${encodeURIComponent(creatorHandle)}&limit=${POPCLIP_PAGE_SIZE}&cursor=${encodeURIComponent(
-          popClipsCursor
-        )}`
-      );
+      const res = await fetch(endpoint);
+      responseStatus = res.status;
       if (!res.ok) throw new Error("request failed");
       const payload = (await res.json()) as { clips?: PublicPopClip[]; nextCursor?: string | null };
       const newClips = Array.isArray(payload?.clips) ? payload.clips : [];
@@ -283,6 +290,7 @@ export default function PublicCreatorByHandle({
       });
       setPopClipsCursor(typeof payload?.nextCursor === "string" ? payload.nextCursor : null);
     } catch (_err) {
+      logPublicFetchFailure(endpoint, responseStatus, _err);
       showToast("No se pudieron cargar más PopClips.");
     } finally {
       setPopClipsLoadingMore(false);
@@ -295,21 +303,24 @@ export default function PublicCreatorByHandle({
       returnTo || (typeof window !== "undefined" ? `${window.location.pathname}${window.location.search}` : "");
     const safeReturnTo = rawReturnTo.startsWith("/") && !rawReturnTo.startsWith("//") ? rawReturnTo : "";
     setChatPending(true);
+    const endpoint = safeReturnTo
+      ? `/api/public/chat/open?returnTo=${encodeURIComponent(safeReturnTo)}`
+      : "/api/public/chat/open";
+    let responseStatus: number | null = null;
     try {
-      const endpoint = safeReturnTo
-        ? `/api/public/chat/open?returnTo=${encodeURIComponent(safeReturnTo)}`
-        : "/api/public/chat/open";
       const payload = { creatorHandle };
       const res = await fetch(endpoint, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
       });
+      responseStatus = res.status;
       if (!res.ok) throw new Error("request failed");
       const data = (await res.json()) as { redirectUrl?: string };
       if (!data?.redirectUrl) throw new Error("missing redirect");
       await router.push(data.redirectUrl);
     } catch (_err) {
+      logPublicFetchFailure(endpoint, responseStatus, _err);
       showToast("No se pudo abrir el chat.");
       setChatPending(false);
     }
@@ -327,13 +338,16 @@ export default function PublicCreatorByHandle({
       showToast("Ya sigues a este creador.");
       return;
     }
+    const endpoint = `/api/public/creator/${encodeURIComponent(creatorHandle)}/follow`;
+    let responseStatus: number | null = null;
     const prevFollowing = isFollowingState;
     const prevCount = followersCount;
     setIsFollowingState(true);
     setFollowersCount((count) => count + 1);
     setFollowPending(true);
     try {
-      const res = await fetch(`/api/public/creator/${encodeURIComponent(creatorHandle)}/follow`, { method: "POST" });
+      const res = await fetch(endpoint, { method: "POST" });
+      responseStatus = res.status;
       if (!res.ok) throw new Error("request failed");
       const data = (await res.json()) as { followerCount?: number; following?: boolean };
       if (typeof data?.followerCount === "number") {
@@ -343,6 +357,7 @@ export default function PublicCreatorByHandle({
         setIsFollowingState(data.following);
       }
     } catch (_err) {
+      logPublicFetchFailure(endpoint, responseStatus, _err);
       setIsFollowingState(prevFollowing);
       setFollowersCount(prevCount);
       showToast("No se pudo seguir.");
@@ -469,9 +484,16 @@ export const getServerSideProps: GetServerSideProps<Props> = async (ctx) => {
 
   const previewHandle = readPreviewHandle(ctx.req?.headers?.cookie);
   const previewAllowed = Boolean(match && previewHandle && slugify(match.name) === previewHandle);
-  const showPreviewBanner = Boolean(match && match.bioLinkEnabled === false && previewAllowed);
+  const profile = match ? await prisma.creatorProfile.findUnique({ where: { creatorId: match.id } }) : null;
+  const visibilityMode = resolveVisibilityMode(profile?.visibilityMode);
+  const showPreviewBanner = Boolean(match && previewAllowed && visibilityMode === "INVISIBLE");
 
-  if (!match || (match.bioLinkEnabled === false && !previewAllowed)) {
+  if (!match) {
+    return { props: { notFound: true } };
+  }
+
+  if (!previewAllowed && visibilityMode === "INVISIBLE") {
+    console.info("Public profile hidden", { handle: handleParam, mode: visibilityMode });
     return { props: { notFound: true } };
   }
 
@@ -539,8 +561,6 @@ export const getServerSideProps: GetServerSideProps<Props> = async (ctx) => {
     console.error("Error resolving follower state", err);
   }
 
-  const profile = await prisma.creatorProfile.findUnique({ where: { creatorId: match.id } });
-
   const avatarUrl = normalizeImageSrc(match.bioLinkAvatarUrl || "");
   const trustLine = match.bioLinkTagline ?? match.subtitle ?? "";
   const bio = match.bioLinkDescription ?? match.description ?? "";
@@ -586,6 +606,13 @@ function mapLocation(profile: any): CreatorLocation | null {
   };
 }
 
+function resolveVisibilityMode(value: unknown): "INVISIBLE" | "SOLO_LINK" | "DISCOVERABLE" | "PUBLIC" {
+  if (value === "INVISIBLE") return "INVISIBLE";
+  if (value === "DISCOVERABLE") return "DISCOVERABLE";
+  if (value === "PUBLIC") return "PUBLIC";
+  return "SOLO_LINK";
+}
+
 function readUtmMeta() {
   if (typeof window === "undefined") return {};
   const params = new URLSearchParams(window.location.search || "");
@@ -620,6 +647,16 @@ function appendReturnTo(url: string, returnTo: string) {
 
 function slugify(value?: string | null) {
   return (value || "creator").toLowerCase().replace(/[^a-z0-9]+/g, "-");
+}
+
+function logPublicFetchFailure(endpoint: string, status?: number | null, error?: unknown) {
+  if (!IS_DEV) return;
+  const message = error instanceof Error ? error.message : error ? String(error) : "";
+  console.warn("[public] fetch failed", {
+    endpoint,
+    status: status ?? null,
+    error: message || undefined,
+  });
 }
 
 function readPreviewHandle(cookieHeader: string | undefined) {

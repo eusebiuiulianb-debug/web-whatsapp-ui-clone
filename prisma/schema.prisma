@@ -57,6 +57,7 @@ model CreatorProfile {
   creatorId                 String   @unique
   creator                   Creator  @relation(fields: [creatorId], references: [id])
   coverUrl                  String?
+  visibilityMode            CreatorVisibilityMode @default(SOLO_LINK)
   locationVisibility        String   @default("OFF")
   locationLabel             String?
   locationGeohash           String?
@@ -64,6 +65,13 @@ model CreatorProfile {
   allowDiscoveryUseLocation Boolean  @default(false)
   createdAt                 DateTime @default(now())
   updatedAt                 DateTime @updatedAt
+}
+
+enum CreatorVisibilityMode {
+  INVISIBLE
+  SOLO_LINK
+  DISCOVERABLE
+  PUBLIC
 }
 
 model Pack {

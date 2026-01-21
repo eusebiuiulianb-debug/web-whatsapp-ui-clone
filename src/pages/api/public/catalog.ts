@@ -43,9 +43,17 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   }
 
   try {
-    const creators = await prisma.creator.findMany();
+    const creators = await prisma.creator.findMany({
+      include: { profile: { select: { visibilityMode: true } } },
+    });
     const creator = creators.find((item) => slugify(item.name) === handle);
     if (!creator) {
+      return res.status(404).json({ error: "Not found" });
+    }
+    const visibilityMode = resolveVisibilityMode(creator.profile?.visibilityMode);
+    const previewHandle = readPreviewHandle(req.headers?.cookie);
+    const previewAllowed = Boolean(previewHandle && previewHandle === slugify(creator.name));
+    if (visibilityMode === "INVISIBLE" && !previewAllowed) {
       return res.status(404).json({ error: "Not found" });
     }
 
@@ -100,4 +108,23 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
 function slugify(value?: string | null) {
   return (value || "creator").toLowerCase().replace(/[^a-z0-9]+/g, "-");
+}
+
+function resolveVisibilityMode(value: unknown): "INVISIBLE" | "SOLO_LINK" | "DISCOVERABLE" | "PUBLIC" {
+  if (value === "INVISIBLE") return "INVISIBLE";
+  if (value === "DISCOVERABLE") return "DISCOVERABLE";
+  if (value === "PUBLIC") return "PUBLIC";
+  return "SOLO_LINK";
+}
+
+function readPreviewHandle(cookieHeader: string | undefined) {
+  if (!cookieHeader) return "";
+  const entries = cookieHeader.split(";").map((part) => part.trim().split("="));
+  for (const [rawKey, ...rest] of entries) {
+    if (!rawKey) continue;
+    const key = decodeURIComponent(rawKey);
+    if (key !== "novsy_creator_preview") continue;
+    return slugify(decodeURIComponent(rest.join("=")));
+  }
+  return "";
 }

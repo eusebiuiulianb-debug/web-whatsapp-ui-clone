@@ -16,6 +16,7 @@ export type PublicCatalogCardItem = {
   commentCount?: number;
   liked?: boolean;
   canInteract?: boolean;
+  canComment?: boolean;
 };
 
 const KIND_LABELS: Record<PublicCatalogCardItem["kind"], string> = {

@@ -16,6 +16,7 @@ type PublicPopClip = {
   commentCount: number;
   liked: boolean;
   canInteract: boolean;
+  canComment: boolean;
   isStory: boolean;
   pack: {
     id: string;
@@ -60,9 +61,17 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   const clipIdParam = typeof req.query.id === "string" ? req.query.id.trim() : "";
 
   try {
-    const creators = await prisma.creator.findMany({ include: { packs: true } });
+    const creators = await prisma.creator.findMany({
+      include: { packs: true, profile: { select: { visibilityMode: true } } },
+    });
     const creator = creators.find((item) => slugifyHandle(item.name) === handle);
     if (!creator) {
+      return res.status(404).json({ error: "Not found" });
+    }
+    const visibilityMode = resolveVisibilityMode(creator.profile?.visibilityMode);
+    const previewHandle = readPreviewHandle(req.headers?.cookie);
+    const previewAllowed = Boolean(previewHandle && previewHandle === slugifyHandle(creator.name));
+    if (visibilityMode === "INVISIBLE" && !previewAllowed) {
       return res.status(404).json({ error: "Not found" });
     }
 
@@ -141,7 +150,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       : null;
     const viewerFanId = viewerFan?.id ?? "";
 
-    const [reactionCounts, commentCounts, viewerReactions] = await Promise.all([
+    const [reactionCounts, commentCounts, viewerReactions, accessGrant] = await Promise.all([
       clipIds.length > 0
         ? prisma.popClipReaction.groupBy({
             by: ["popClipId"],
@@ -162,6 +171,12 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
             select: { popClipId: true },
           })
         : [],
+      viewerFanId
+        ? prisma.accessGrant.findFirst({
+            where: { fanId: viewerFanId, expiresAt: { gt: new Date() } },
+            select: { id: true },
+          })
+        : null,
     ]);
 
     const likeCountByClip = new Map(
@@ -172,6 +187,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     );
     const likedSet = new Set(viewerReactions.map((row) => row.popClipId));
     const canInteract = Boolean(viewerFanId);
+    const canComment = Boolean(accessGrant);
 
     const publicClips: PublicPopClip[] = pageClips
       .map((clip) => {
@@ -196,6 +212,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           commentCount: commentCountByClip.get(clip.id) ?? 0,
           liked: likedSet.has(clip.id),
           canInteract,
+          canComment,
           isStory: Boolean((clip as any).isStory),
           pack: packMeta,
         };
@@ -211,6 +228,25 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
 function buildPackRoute(handle: string, packId: string) {
   return `/p/${handle}/${packId}`;
+}
+
+function resolveVisibilityMode(value: unknown): "INVISIBLE" | "SOLO_LINK" | "DISCOVERABLE" | "PUBLIC" {
+  if (value === "INVISIBLE") return "INVISIBLE";
+  if (value === "DISCOVERABLE") return "DISCOVERABLE";
+  if (value === "PUBLIC") return "PUBLIC";
+  return "SOLO_LINK";
+}
+
+function readPreviewHandle(cookieHeader: string | undefined) {
+  if (!cookieHeader) return "";
+  const entries = cookieHeader.split(";").map((part) => part.trim().split("="));
+  for (const [rawKey, ...rest] of entries) {
+    if (!rawKey) continue;
+    const key = decodeURIComponent(rawKey);
+    if (key !== "novsy_creator_preview") continue;
+    return slugifyHandle(decodeURIComponent(rest.join("=")));
+  }
+  return "";
 }
 
 function resolveContentMediaUrl(contentItem?: { mediaPath: string | null; externalUrl: string | null } | null) {

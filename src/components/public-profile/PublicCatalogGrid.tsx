@@ -30,6 +30,17 @@ const DEFAULT_FILTERS: Array<{ id: CatalogFilter; label: string }> = [
   { id: "extra", label: "Extras" },
 ];
 const MAX_COMMENT_LENGTH = 300;
+const IS_DEV = process.env.NODE_ENV === "development";
+
+const logFetchFailure = (endpoint: string, status?: number | null, error?: unknown) => {
+  if (!IS_DEV) return;
+  const message = error instanceof Error ? error.message : error ? String(error) : "";
+  console.warn("[public] fetch failed", {
+    endpoint,
+    status: status ?? null,
+    error: message || undefined,
+  });
+};
 
 type Props = {
   items: PublicCatalogCardItem[];
@@ -81,6 +92,7 @@ export function PublicCatalogGrid({
   const [commentLoading, setCommentLoading] = useState(false);
   const [commentDraft, setCommentDraft] = useState("");
   const [commentSending, setCommentSending] = useState(false);
+  const [commentAccessBlocked, setCommentAccessBlocked] = useState(false);
   const [authHref, setAuthHref] = useState("");
 
   useEffect(() => {
@@ -140,23 +152,35 @@ export function PublicCatalogGrid({
     });
   }, [normalizedPopclips]);
 
+  const showToast = useCallback((message: string, href?: string) => {
+    setToast({ message, href });
+    if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
+    toastTimerRef.current = setTimeout(() => setToast(null), 2200);
+  }, []);
+
   useEffect(() => {
     if (!activeCommentClip) {
       setCommentItems([]);
       setCommentLoading(false);
       setCommentDraft("");
       setCommentSending(false);
+      setCommentAccessBlocked(false);
       return;
     }
     const controller = new AbortController();
+    const endpoint = `/api/public/popclips/${activeCommentClip.id}/comments`;
+    let responseStatus: number | null = null;
     setCommentLoading(true);
-    fetch(`/api/public/popclips/${activeCommentClip.id}/comments`, { signal: controller.signal })
+    fetch(endpoint, { signal: controller.signal })
       .then(async (res) => {
+        responseStatus = res.status;
         const data = (await res.json().catch(() => null)) as
           | { ok?: boolean; items?: PopClipComment[]; comments?: PopClipComment[]; count?: number }
           | null;
         if (!res.ok || !data) {
+          logFetchFailure(endpoint, responseStatus);
           setCommentItems([]);
+          showToast("No se pudieron cargar los comentarios.");
           return;
         }
         const items = Array.isArray(data.items)
@@ -178,13 +202,15 @@ export function PublicCatalogGrid({
       })
       .catch((err) => {
         if (err instanceof DOMException && err.name === "AbortError") return;
+        logFetchFailure(endpoint, responseStatus, err);
         setCommentItems([]);
+        showToast("No se pudieron cargar los comentarios.");
       })
       .finally(() => {
         if (!controller.signal.aborted) setCommentLoading(false);
       });
     return () => controller.abort();
-  }, [activeCommentClip]);
+  }, [activeCommentClip, showToast]);
 
   useEffect(() => {
     if (!activeCommentClip) return;
@@ -204,12 +230,6 @@ export function PublicCatalogGrid({
     };
   }, [activeCommentClip]);
 
-  const showToast = (message: string, href?: string) => {
-    setToast({ message, href });
-    if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
-    toastTimerRef.current = setTimeout(() => setToast(null), 2200);
-  };
-
   const showLikeAuthToast = () => {
     const resolvedHref =
       authHref || (typeof window !== "undefined" ? buildAuthHref(chatHref, window.location) : chatHref);
@@ -219,7 +239,13 @@ export function PublicCatalogGrid({
   const showCommentAuthToast = () => {
     const resolvedHref =
       authHref || (typeof window !== "undefined" ? buildAuthHref(chatHref, window.location) : chatHref);
-    showToast("Entra al chat para comentar", resolvedHref);
+    showToast("Para comentar, entra al chat privado.", resolvedHref);
+  };
+
+  const showCommentAccessToast = () => {
+    const resolvedHref =
+      authHref || (typeof window !== "undefined" ? buildAuthHref(chatHref, window.location) : chatHref);
+    showToast("Necesitas acceso activo.", resolvedHref);
   };
 
   const handleOpenChat = async () => {
@@ -242,6 +268,7 @@ export function PublicCatalogGrid({
     if (!item?.id) return;
     setCommentDraft("");
     setCommentItems([]);
+    setCommentAccessBlocked(false);
     setActiveCommentClip(item);
   }, []);
 
@@ -264,6 +291,8 @@ export function PublicCatalogGrid({
       showLikeAuthToast();
       return;
     }
+    const endpoint = `/api/public/popclips/${item.id}/like`;
+    let responseStatus: number | null = null;
     const current = popclipSocial[item.id] ?? {
       likeCount: item.likeCount ?? 0,
       commentCount: item.commentCount ?? 0,
@@ -277,7 +306,8 @@ export function PublicCatalogGrid({
     setPopclipSocial((prev) => ({ ...prev, [item.id]: next }));
     setLikePending((prev) => ({ ...prev, [item.id]: true }));
     try {
-      const res = await fetch(`/api/public/popclips/${item.id}/like`, { method: "POST" });
+      const res = await fetch(endpoint, { method: "POST" });
+      responseStatus = res.status;
       if (res.status === 401 || res.status === 403) {
         showLikeAuthToast();
         setPopclipSocial((prev) => ({ ...prev, [item.id]: current }));
@@ -299,6 +329,7 @@ export function PublicCatalogGrid({
         },
       }));
     } catch (_err) {
+      logFetchFailure(endpoint, responseStatus, _err);
       setPopclipSocial((prev) => ({ ...prev, [item.id]: current }));
       showToast("No se pudo reaccionar");
     } finally {
@@ -306,12 +337,21 @@ export function PublicCatalogGrid({
     }
   };
 
+  const commentCanInteract = activeCommentClip?.canComment === true;
+  const commentCanWrite = commentCanInteract && !commentAccessBlocked;
+
   const handleSendComment = async () => {
     if (!activeCommentClip || commentSending) return;
-    if (activeCommentClip.canInteract === false) {
-      showCommentAuthToast();
+    if (!commentCanWrite) {
+      if (commentAccessBlocked) {
+        showCommentAccessToast();
+      } else {
+        showCommentAuthToast();
+      }
       return;
     }
+    const endpoint = `/api/public/popclips/${activeCommentClip.id}/comments`;
+    let responseStatus: number | null = null;
     const text = commentDraft.trim();
     if (!text) return;
     if (text.length > MAX_COMMENT_LENGTH) {
@@ -339,19 +379,40 @@ export function PublicCatalogGrid({
     }));
     setCommentSending(true);
     try {
-      const res = await fetch(`/api/public/popclips/${activeCommentClip.id}/comments`, {
+      const res = await fetch(endpoint, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ text }),
       });
-      if (res.status === 401 || res.status === 403) {
-        showCommentAuthToast();
-        throw new Error("auth_required");
+      responseStatus = res.status;
+      const data = (await res.json().catch(() => ({}))) as {
+        item?: PopClipComment;
+        count?: number;
+        ok?: boolean;
+        error?: string;
+      };
+      if (!res.ok) {
+        if (data?.error === "ACCESS_REQUIRED") {
+          setCommentAccessBlocked(true);
+          showCommentAccessToast();
+          throw new Error("auth_required");
+        }
+        if (data?.error === "AUTH_REQUIRED") {
+          showCommentAuthToast();
+          throw new Error("auth_required");
+        }
+        throw new Error("request failed");
       }
-      if (!res.ok) throw new Error("request failed");
-      const data = (await res.json()) as { item?: PopClipComment; count?: number; ok?: boolean; error?: string };
-      if (data?.ok === false && data.error === "CHAT_REQUIRED") {
-        showCommentAuthToast();
+      if (
+        data?.ok === false &&
+        (data.error === "CHAT_REQUIRED" || data.error === "AUTH_REQUIRED" || data.error === "ACCESS_REQUIRED")
+      ) {
+        if (data.error === "ACCESS_REQUIRED") {
+          setCommentAccessBlocked(true);
+          showCommentAccessToast();
+        } else {
+          showCommentAuthToast();
+        }
         throw new Error("auth_required");
       }
       const resolvedItem = data.item;
@@ -378,7 +439,9 @@ export function PublicCatalogGrid({
         [clipId]: { ...current, commentCount: current.commentCount },
       }));
       setCommentDraft(text);
-      if (!(err instanceof Error && err.message === "auth_required")) {
+      const isAuthError = err instanceof Error && err.message === "auth_required";
+      if (!isAuthError) {
+        logFetchFailure(endpoint, responseStatus, err);
         showToast("No se pudo comentar");
       }
     } finally {
@@ -394,7 +457,6 @@ export function PublicCatalogGrid({
     ? "No hay elementos en esta categoría."
     : "Aún no hay items disponibles en el catálogo.";
   const shouldShowPopclips = resolvedFilters.some((filter) => filter.id === "popclip");
-  const commentCanInteract = activeCommentClip?.canInteract !== false;
 
   const resolvePopclipSocial = (item: PublicCatalogCardItem): PopClipSocialState => {
     const state = popclipSocial[item.id];
@@ -630,9 +692,9 @@ export function PublicCatalogGrid({
                     ))
                   )}
                 </div>
-                {!commentCanInteract && (
+                {!commentCanWrite ? (
                   <div className="flex items-center justify-between gap-3 rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-3 py-2 text-xs text-[color:var(--muted)]">
-                    <span>Entra al chat para comentar</span>
+                    <span>Para comentar, entra al chat privado.</span>
                     <button
                       type="button"
                       onClick={handleOpenChat}
@@ -641,31 +703,29 @@ export function PublicCatalogGrid({
                       Entrar al chat
                     </button>
                   </div>
+                ) : (
+                  <div className="flex items-end gap-2">
+                    <textarea
+                      className="min-h-[44px] flex-1 rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-3 py-2 text-sm text-[color:var(--text)] focus:border-[color:var(--surface-border-hover)] focus:ring-2 focus:ring-[color:var(--ring)]"
+                      placeholder="Añade un comentario..."
+                      value={commentDraft}
+                      onChange={(event) => setCommentDraft(event.target.value)}
+                      maxLength={MAX_COMMENT_LENGTH}
+                      rows={2}
+                      disabled={commentSending}
+                    />
+                    <button
+                      type="button"
+                      onClick={handleSendComment}
+                      disabled={
+                        commentSending || !commentDraft.trim() || commentDraft.trim().length > MAX_COMMENT_LENGTH
+                      }
+                      className="h-10 rounded-xl bg-[color:var(--brand-strong)] px-4 text-xs font-semibold text-[color:var(--surface-0)] hover:bg-[color:var(--brand)] disabled:opacity-60"
+                    >
+                      Enviar
+                    </button>
+                  </div>
                 )}
-                <div className="flex items-end gap-2">
-                  <textarea
-                    className="min-h-[44px] flex-1 rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-3 py-2 text-sm text-[color:var(--text)] focus:border-[color:var(--surface-border-hover)] focus:ring-2 focus:ring-[color:var(--ring)]"
-                    placeholder={commentCanInteract ? "Añade un comentario..." : "Entra al chat para comentar"}
-                    value={commentDraft}
-                    onChange={(event) => setCommentDraft(event.target.value)}
-                    maxLength={MAX_COMMENT_LENGTH}
-                    rows={2}
-                    disabled={!commentCanInteract || commentSending}
-                  />
-                  <button
-                    type="button"
-                    onClick={handleSendComment}
-                    disabled={
-                      !commentCanInteract ||
-                      commentSending ||
-                      !commentDraft.trim() ||
-                      commentDraft.trim().length > MAX_COMMENT_LENGTH
-                    }
-                    className="h-10 rounded-xl bg-[color:var(--brand-strong)] px-4 text-xs font-semibold text-[color:var(--surface-0)] hover:bg-[color:var(--brand)] disabled:opacity-60"
-                  >
-                    Enviar
-                  </button>
-                </div>
               </div>
             </div>
           </div>
