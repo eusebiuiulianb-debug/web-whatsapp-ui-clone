@@ -39,6 +39,10 @@ export default function PublicCreatorComments({
   const [sortMode, setSortMode] = useState<"recent" | "highest" | "lowest" | "helpful">("recent");
   const [verifiedOnly, setVerifiedOnly] = useState(false);
   const [canComment, setCanComment] = useState(false);
+  const [viewerIsLoggedIn, setViewerIsLoggedIn] = useState(false);
+  const [viewerIsFollowing, setViewerIsFollowing] = useState(false);
+  const [viewerHasPurchased, setViewerHasPurchased] = useState(false);
+  const [creatorHasCatalogItems, setCreatorHasCatalogItems] = useState(false);
   const [viewerComment, setViewerComment] = useState<{ rating: number; text: string } | null>(null);
   const [commentSheetOpen, setCommentSheetOpen] = useState(false);
   const [commentRating, setCommentRating] = useState(5);
@@ -50,6 +54,8 @@ export default function PublicCreatorComments({
   const [helpfulPending, setHelpfulPending] = useState<Record<string, boolean>>({});
   const [toast, setToast] = useState("");
   const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [followPending, setFollowPending] = useState(false);
+  const [authHref, setAuthHref] = useState("");
 
   useEffect(() => {
     return () => {
@@ -58,6 +64,11 @@ export default function PublicCreatorComments({
       }
     };
   }, []);
+
+  useEffect(() => {
+    if (!creatorHandle || typeof window === "undefined") return;
+    setAuthHref(buildAuthHref(creatorHandle, window.location));
+  }, [creatorHandle]);
 
   useEffect(() => {
     if (!creatorHandle) return;
@@ -76,6 +87,11 @@ export default function PublicCreatorComments({
     setReplyTargetId(null);
     setReplyDraft("");
     setHelpfulPending({});
+    setCanComment(false);
+    setViewerIsLoggedIn(false);
+    setViewerIsFollowing(false);
+    setViewerHasPurchased(false);
+    setCreatorHasCatalogItems(false);
     fetch(endpoint, { signal: controller.signal })
       .then(async (res) => {
         responseStatus = res.status;
@@ -87,6 +103,11 @@ export default function PublicCreatorComments({
           avgRating?: number | null;
           stats?: { count?: number; avgRating?: number; distribution?: Record<number, number> };
           canComment?: boolean;
+          viewerCanComment?: boolean;
+          viewerIsLoggedIn?: boolean;
+          viewerIsFollowing?: boolean;
+          viewerHasPurchased?: boolean;
+          creatorHasPacksOrCatalogItems?: boolean;
           viewerComment?: { rating: number; text: string } | null;
         };
         const list = Array.isArray(payload?.comments) ? payload.comments : [];
@@ -105,7 +126,13 @@ export default function PublicCreatorComments({
         if (payload?.stats?.distribution) {
           setRatingDistribution(payload.stats.distribution);
         }
-        setCanComment(Boolean(payload?.canComment));
+        const resolvedCanComment =
+          typeof payload?.viewerCanComment === "boolean" ? payload.viewerCanComment : Boolean(payload?.canComment);
+        setCanComment(resolvedCanComment);
+        setViewerIsLoggedIn(Boolean(payload?.viewerIsLoggedIn));
+        setViewerIsFollowing(Boolean(payload?.viewerIsFollowing));
+        setViewerHasPurchased(Boolean(payload?.viewerHasPurchased));
+        setCreatorHasCatalogItems(Boolean(payload?.creatorHasPacksOrCatalogItems));
         setViewerComment(payload?.viewerComment ?? null);
       })
       .catch((err) => {
@@ -246,6 +273,43 @@ export default function PublicCreatorComments({
     }
   };
 
+  const handleEnableAlerts = async () => {
+    if (!creatorHandle || followPending) return;
+    if (viewerIsFollowing) {
+      showToast("Avisos ya activados.");
+      return;
+    }
+    const endpoint = `/api/public/creator/${encodeURIComponent(creatorHandle)}/follow`;
+    let responseStatus: number | null = null;
+    const prev = {
+      viewerIsFollowing,
+      viewerIsLoggedIn,
+      canComment,
+    };
+    setViewerIsFollowing(true);
+    setViewerIsLoggedIn(true);
+    setCanComment(true);
+    setFollowPending(true);
+    try {
+      const res = await fetch(endpoint, { method: "POST" });
+      responseStatus = res.status;
+      if (!res.ok) throw new Error("request failed");
+      const data = (await res.json().catch(() => null)) as { following?: boolean } | null;
+      if (typeof data?.following === "boolean") {
+        setViewerIsFollowing(data.following);
+        setCanComment(data.following || viewerHasPurchased);
+      }
+    } catch (err) {
+      logPublicFetchFailure(endpoint, responseStatus, err);
+      setViewerIsFollowing(prev.viewerIsFollowing);
+      setViewerIsLoggedIn(prev.viewerIsLoggedIn);
+      setCanComment(prev.canComment);
+      showToast("No se pudieron activar los avisos.");
+    } finally {
+      setFollowPending(false);
+    }
+  };
+
   const handleSaveReply = async (commentId: string) => {
     if (replySending) return;
     const trimmed = replyDraft.trim();
@@ -297,7 +361,7 @@ export default function PublicCreatorComments({
   };
 
   const handleToggleHelpful = async (commentId: string) => {
-    if (!creatorHandle || !canComment || helpfulPending[commentId]) return;
+    if (!creatorHandle || helpfulPending[commentId] || !viewerIsLoggedIn || isCreatorViewer) return;
     const target = comments.find((comment) => comment.id === commentId);
     if (!target) return;
     const prevHasVoted = Boolean(target.viewerHasVoted);
@@ -323,8 +387,26 @@ export default function PublicCreatorComments({
         | { ok?: boolean; voted?: boolean; helpfulCount?: number; error?: string }
         | null;
       if (!res.ok || !data?.ok) {
-        if (res.status === 401 || res.status === 403) {
-          showToast("Solo seguidores o clientes pueden marcar útil.");
+        if (res.status === 401) {
+          setComments((prev) =>
+            prev.map((comment) =>
+              comment.id === commentId
+                ? { ...comment, viewerHasVoted: prevHasVoted, helpfulCount: prevCount }
+                : comment
+            )
+          );
+          showToast("Inicia sesión para votar.");
+          return;
+        }
+        if (res.status === 403) {
+          setComments((prev) =>
+            prev.map((comment) =>
+              comment.id === commentId
+                ? { ...comment, viewerHasVoted: prevHasVoted, helpfulCount: prevCount }
+                : comment
+            )
+          );
+          showToast("No puedes votar en tu propio perfil.");
           return;
         }
         throw new Error("request failed");
@@ -462,8 +544,8 @@ export default function PublicCreatorComments({
             </label>
           </div>
 
-          <div className="flex flex-wrap items-center gap-3">
-            {canComment ? (
+          <div className="space-y-3">
+            {canComment && (
               <button
                 type="button"
                 onClick={() => setCommentSheetOpen(true)}
@@ -471,7 +553,56 @@ export default function PublicCreatorComments({
               >
                 Escribir comentario
               </button>
-            ) : (
+            )}
+            {!canComment && !isCreatorViewer && (
+              <div className="rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-4 py-3 text-xs text-[color:var(--text)] space-y-3">
+                <div className="space-y-1">
+                  <p className="text-xs font-semibold text-[color:var(--text)]">Para poder comentar</p>
+                  <p className="text-[11px] text-[color:var(--muted)]">
+                    {viewerIsLoggedIn
+                      ? "Activa avisos o compra un pack para poder comentar."
+                      : "Inicia sesión para comentar."}
+                  </p>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  {!viewerIsLoggedIn ? (
+                    <a
+                      href={authHref || (creatorHandle ? `/go/${creatorHandle}` : "/go/creator")}
+                      className="inline-flex h-9 items-center justify-center rounded-full bg-[color:var(--brand-strong)] px-4 text-[11px] font-semibold text-[color:var(--surface-0)] shadow-lg transition hover:bg-[color:var(--brand)]"
+                    >
+                      Iniciar sesión
+                    </a>
+                  ) : (
+                    <>
+                      <button
+                        type="button"
+                        onClick={() => void handleEnableAlerts()}
+                        disabled={followPending}
+                        className="inline-flex h-9 items-center justify-center rounded-full border border-[color:rgba(var(--brand-rgb),0.6)] px-4 text-[11px] font-semibold text-[color:var(--text)] transition hover:bg-[color:rgba(var(--brand-rgb),0.16)] disabled:opacity-60"
+                      >
+                        Activar avisos
+                      </button>
+                      {creatorHasCatalogItems ? (
+                        <a
+                          href={creatorHandle ? `/c/${creatorHandle}#catalog` : "/c/creator#catalog"}
+                          className="inline-flex h-9 items-center justify-center rounded-full border border-[color:var(--surface-border)] px-4 text-[11px] font-semibold text-[color:var(--text)] hover:bg-[color:var(--surface-2)]"
+                        >
+                          Ver packs
+                        </a>
+                      ) : (
+                        <a
+                          href={creatorHandle ? `/go/${creatorHandle}` : "/go/creator"}
+                          className="inline-flex h-9 items-center justify-center rounded-full border border-[color:var(--surface-border)] px-4 text-[11px] font-semibold text-[color:var(--text)] hover:bg-[color:var(--surface-2)]"
+                        >
+                          Entrar al chat privado
+                        </a>
+                      )}
+                    </>
+                  )}
+                </div>
+              </div>
+            )}
+            {!canComment && isCreatorViewer && (
               <p className="text-xs text-[color:var(--muted)]">Solo seguidores o clientes pueden comentar.</p>
             )}
           </div>
@@ -497,110 +628,121 @@ export default function PublicCreatorComments({
             <p className="text-xs text-[color:var(--muted)]">Aún no hay comentarios.</p>
           ) : (
             <div className="grid gap-3">
-              {comments.map((comment) => (
-                <div
-                  key={comment.id}
-                  className="rounded-2xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] p-4 space-y-2"
-                >
-                  <div className="flex items-center justify-between text-[11px] text-[color:var(--muted)]">
-                    <span className="text-[color:var(--warning)]">{renderStars(comment.rating)}</span>
-                    <span>{formatCreatorCommentDate(comment.createdAt)}</span>
-                  </div>
-                  <p className="text-sm text-[color:var(--text)] whitespace-pre-line">{comment.text}</p>
-                  <div className="flex items-center justify-between gap-3">
-                    <div className="flex flex-wrap items-center gap-2 text-xs font-semibold text-[color:var(--muted)]">
-                      <span>{comment.fanDisplayNameMasked}</span>
-                      {comment.verified && (
-                        <span className="rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-2 py-0.5 text-[10px] font-semibold text-[color:var(--muted)]">
-                          Comprador verificado
+              {comments.map((comment) => {
+                const helpfulDisabled = helpfulPending[comment.id] || !viewerIsLoggedIn || Boolean(isCreatorViewer);
+                const helpfulTitle = helpfulPending[comment.id]
+                  ? "Actualizando voto..."
+                  : isCreatorViewer
+                  ? "No puedes votar en tu propio perfil"
+                  : viewerIsLoggedIn
+                  ? "Marcar comentario como útil"
+                  : "Inicia sesión para votar";
+                return (
+                  <div
+                    key={comment.id}
+                    className="rounded-2xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] p-4 space-y-2"
+                  >
+                    <div className="flex items-center justify-between text-[11px] text-[color:var(--muted)]">
+                      <span className="text-[color:var(--warning)]">{renderStars(comment.rating)}</span>
+                      <span>{formatCreatorCommentDate(comment.createdAt)}</span>
+                    </div>
+                    <p className="text-sm text-[color:var(--text)] whitespace-pre-line">{comment.text}</p>
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="flex flex-wrap items-center gap-2 text-xs font-semibold text-[color:var(--muted)]">
+                        <span>{comment.fanDisplayNameMasked}</span>
+                        {comment.verified && (
+                          <span className="rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-2 py-0.5 text-[10px] font-semibold text-[color:var(--muted)]">
+                            Comprador verificado
+                          </span>
+                        )}
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => handleToggleHelpful(comment.id)}
+                        disabled={helpfulDisabled}
+                        title={helpfulTitle}
+                        className={`inline-flex items-center gap-1 rounded-full border px-2 py-1 text-[10px] font-semibold transition ${
+                          comment.viewerHasVoted
+                            ? "border-[color:rgba(var(--brand-rgb),0.6)] bg-[color:rgba(var(--brand-rgb),0.12)] text-[color:var(--text)]"
+                            : "border-[color:var(--surface-border)] text-[color:var(--muted)]"
+                        } ${helpfulDisabled ? "opacity-60 cursor-not-allowed" : "hover:bg-[color:var(--surface-2)]"}`}
+                        aria-label={helpfulTitle}
+                      >
+                        <ThumbsUp className="h-3 w-3" aria-hidden="true" />
+                        <span>Útil</span>
+                        <span className="tabular-nums">
+                          {typeof comment.helpfulCount === "number" ? comment.helpfulCount : 0}
                         </span>
-                      )}
+                      </button>
                     </div>
-                    <button
-                      type="button"
-                      onClick={() => handleToggleHelpful(comment.id)}
-                      disabled={!canComment || helpfulPending[comment.id]}
-                      title={
-                        canComment
-                          ? "Marcar comentario como útil"
-                          : "Solo seguidores o clientes pueden marcar útil."
-                      }
-                      className={`inline-flex items-center gap-1 rounded-full border px-2 py-1 text-[10px] font-semibold transition ${
-                        comment.viewerHasVoted
-                          ? "border-[color:rgba(var(--brand-rgb),0.6)] bg-[color:rgba(var(--brand-rgb),0.12)] text-[color:var(--text)]"
-                          : "border-[color:var(--surface-border)] text-[color:var(--muted)]"
-                      } ${!canComment || helpfulPending[comment.id] ? "opacity-60 cursor-not-allowed" : "hover:bg-[color:var(--surface-2)]"}`}
-                      aria-label="Marcar útil"
-                    >
-                      <ThumbsUp className="h-3 w-3" aria-hidden="true" />
-                      <span>Útil</span>
-                      <span className="tabular-nums">
-                        {typeof comment.helpfulCount === "number" ? comment.helpfulCount : 0}
-                      </span>
-                    </button>
+                    {comment.replyText && (
+                      <div className="ml-8 rounded-xl border border-[color:var(--surface-border)] border-l-2 border-l-[color:rgba(var(--brand-rgb),0.35)] bg-[color:var(--surface-2)] px-3 py-2 text-[13px] text-[color:var(--text)] space-y-2">
+                        <div className="flex flex-col gap-1 text-[10px] text-[color:var(--muted)] sm:flex-row sm:items-center sm:justify-between">
+                          <div className="flex items-center gap-2">
+                            <span className="flex h-6 w-6 items-center justify-center rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] text-[11px] font-semibold text-[color:var(--text)]">
+                              {getCreatorInitial(creatorName)}
+                            </span>
+                            <span className="text-[11px] font-semibold text-[color:var(--text)]">Respuesta</span>
+                          </div>
+                          {comment.repliedAt && (
+                            <span className="text-[10px] text-[color:var(--muted)]">
+                              {formatCreatorCommentDate(comment.repliedAt)}
+                            </span>
+                          )}
+                        </div>
+                        <p className="whitespace-pre-line">{comment.replyText}</p>
+                      </div>
+                    )}
+                    {isCreatorViewer && !comment.replyText && replyTargetId !== comment.id && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setReplyTargetId(comment.id);
+                          setReplyDraft("");
+                        }}
+                        className="text-xs font-semibold text-[color:var(--brand)] hover:underline"
+                      >
+                        Responder
+                      </button>
+                    )}
+                    {isCreatorViewer && replyTargetId === comment.id && (
+                      <div className="space-y-2">
+                        <textarea
+                          className="min-h-[88px] w-full rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-3 py-2 text-xs text-[color:var(--text)] focus:border-[color:var(--surface-border-hover)] focus:ring-2 focus:ring-[color:var(--ring)]"
+                          placeholder="Escribe una respuesta..."
+                          value={replyDraft}
+                          onChange={(event) => setReplyDraft(event.target.value)}
+                          maxLength={CREATOR_COMMENT_MAX_LENGTH}
+                        />
+                        <div className="flex items-center justify-between text-[11px] text-[color:var(--muted)]">
+                          <span>Máx. {CREATOR_COMMENT_MAX_LENGTH} caracteres</span>
+                          <span>{replyDraft.length}/{CREATOR_COMMENT_MAX_LENGTH}</span>
+                        </div>
+                        <div className="flex flex-wrap gap-2">
+                          <button
+                            type="button"
+                            onClick={() => void handleSaveReply(comment.id)}
+                            disabled={replySending || !replyDraft.trim()}
+                            className="h-9 rounded-full bg-[color:var(--brand-strong)] px-4 text-xs font-semibold text-[color:var(--surface-0)] shadow-lg transition hover:bg-[color:var(--brand)] disabled:opacity-60"
+                          >
+                            {replySending ? "Guardando..." : "Guardar"}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setReplyTargetId(null);
+                              setReplyDraft("");
+                            }}
+                            className="h-9 rounded-full border border-[color:var(--surface-border)] px-4 text-xs font-semibold text-[color:var(--text)] hover:bg-[color:var(--surface-2)]"
+                          >
+                            Cancelar
+                          </button>
+                        </div>
+                      </div>
+                    )}
                   </div>
-                  {comment.replyText && (
-                    <div className="rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-3 py-2 text-xs text-[color:var(--text)] space-y-1">
-                      <div className="text-[10px] font-semibold uppercase tracking-wide text-[color:var(--muted)]">
-                        Respuesta del creador
-                      </div>
-                      <p className="whitespace-pre-line">{comment.replyText}</p>
-                      {comment.repliedAt && (
-                        <span className="block text-[10px] text-[color:var(--muted)]">
-                          {formatCreatorCommentDate(comment.repliedAt)}
-                        </span>
-                      )}
-                    </div>
-                  )}
-                  {isCreatorViewer && !comment.replyText && replyTargetId !== comment.id && (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setReplyTargetId(comment.id);
-                        setReplyDraft("");
-                      }}
-                      className="text-xs font-semibold text-[color:var(--brand)] hover:underline"
-                    >
-                      Responder
-                    </button>
-                  )}
-                  {isCreatorViewer && replyTargetId === comment.id && (
-                    <div className="space-y-2">
-                      <textarea
-                        className="min-h-[88px] w-full rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-3 py-2 text-xs text-[color:var(--text)] focus:border-[color:var(--surface-border-hover)] focus:ring-2 focus:ring-[color:var(--ring)]"
-                        placeholder="Escribe una respuesta..."
-                        value={replyDraft}
-                        onChange={(event) => setReplyDraft(event.target.value)}
-                        maxLength={CREATOR_COMMENT_MAX_LENGTH}
-                      />
-                      <div className="flex items-center justify-between text-[11px] text-[color:var(--muted)]">
-                        <span>Máx. {CREATOR_COMMENT_MAX_LENGTH} caracteres</span>
-                        <span>{replyDraft.length}/{CREATOR_COMMENT_MAX_LENGTH}</span>
-                      </div>
-                      <div className="flex flex-wrap gap-2">
-                        <button
-                          type="button"
-                          onClick={() => void handleSaveReply(comment.id)}
-                          disabled={replySending || !replyDraft.trim()}
-                          className="h-9 rounded-full bg-[color:var(--brand-strong)] px-4 text-xs font-semibold text-[color:var(--surface-0)] shadow-lg transition hover:bg-[color:var(--brand)] disabled:opacity-60"
-                        >
-                          {replySending ? "Guardando..." : "Guardar"}
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setReplyTargetId(null);
-                            setReplyDraft("");
-                          }}
-                          className="h-9 rounded-full border border-[color:var(--surface-border)] px-4 text-xs font-semibold text-[color:var(--text)] hover:bg-[color:var(--surface-2)]"
-                        >
-                          Cancelar
-                        </button>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              ))}
+                );
+              })}
             </div>
           )}
 
@@ -776,6 +918,11 @@ function renderStars(rating: number) {
   return "★★★★★".slice(0, safe) + "☆☆☆☆☆".slice(0, 5 - safe);
 }
 
+function getCreatorInitial(name?: string | null) {
+  const trimmed = (name || "").trim();
+  return (trimmed[0] || "C").toUpperCase();
+}
+
 function formatCreatorCommentDate(value: string) {
   if (!value) return "";
   try {
@@ -793,4 +940,11 @@ function logPublicFetchFailure(endpoint: string, status?: number | null, error?:
     status: status ?? null,
     error: message || undefined,
   });
+}
+
+function buildAuthHref(handle: string, location: Location) {
+  const safeHandle = handle || "creator";
+  const baseHref = `/go/${safeHandle}`;
+  const returnTo = encodeURIComponent(`${location.pathname}${location.search}`);
+  return `${baseHref}?returnTo=${returnTo}`;
 }

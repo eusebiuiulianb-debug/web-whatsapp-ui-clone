@@ -28,6 +28,7 @@ type Props = {
   subtitle?: string;
   avatarUrl?: string | null;
   creatorHandle?: string;
+  isCreatorViewer?: boolean;
   stats?: PublicProfileStats;
   followerCount?: number;
   isFollowing?: boolean;
@@ -76,6 +77,7 @@ export default function PublicCreatorByHandle({
   subtitle,
   avatarUrl,
   creatorHandle,
+  isCreatorViewer,
   stats,
   followerCount,
   isFollowing,
@@ -104,6 +106,7 @@ export default function PublicCreatorByHandle({
   const [commentsTotalCount, setCommentsTotalCount] = useState<number | null>(null);
   const [commentsAvgRating, setCommentsAvgRating] = useState<number | null>(null);
   const [canComment, setCanComment] = useState(false);
+  const [viewerIsLoggedIn, setViewerIsLoggedIn] = useState(false);
   const [viewerComment, setViewerComment] = useState<{ rating: number; text: string } | null>(null);
   const [commentSheetOpen, setCommentSheetOpen] = useState(false);
   const [commentRating, setCommentRating] = useState(5);
@@ -212,6 +215,7 @@ export default function PublicCreatorByHandle({
     setCommentsError("");
     setCommentsAvgRating(null);
     setHelpfulPending({});
+    setViewerIsLoggedIn(false);
     fetch(endpoint, { signal: controller.signal })
       .then(async (res) => {
         responseStatus = res.status;
@@ -222,6 +226,11 @@ export default function PublicCreatorByHandle({
           avgRating?: number | null;
           stats?: { count?: number; avgRating?: number; distribution?: Record<number, number> };
           canComment?: boolean;
+          viewerCanComment?: boolean;
+          viewerIsLoggedIn?: boolean;
+          viewerIsFollowing?: boolean;
+          viewerHasPurchased?: boolean;
+          creatorHasPacksOrCatalogItems?: boolean;
           viewerComment?: { rating: number; text: string } | null;
         };
         setCreatorComments(Array.isArray(payload?.comments) ? payload.comments : []);
@@ -235,7 +244,10 @@ export default function PublicCreatorByHandle({
         } else if (typeof payload?.avgRating === "number") {
           setCommentsAvgRating(payload.avgRating);
         }
-        setCanComment(Boolean(payload?.canComment));
+        const resolvedCanComment =
+          typeof payload?.viewerCanComment === "boolean" ? payload.viewerCanComment : Boolean(payload?.canComment);
+        setCanComment(resolvedCanComment);
+        setViewerIsLoggedIn(Boolean(payload?.viewerIsLoggedIn));
         setViewerComment(payload?.viewerComment ?? null);
       })
       .catch((err) => {
@@ -510,7 +522,7 @@ export default function PublicCreatorByHandle({
   };
 
   const handleToggleHelpful = async (commentId: string) => {
-    if (!creatorHandle || !canComment || helpfulPending[commentId]) return;
+    if (!creatorHandle || helpfulPending[commentId] || !viewerIsLoggedIn || isCreatorViewer) return;
     const target = creatorComments.find((comment) => comment.id === commentId);
     if (!target) return;
     const prevHasVoted = Boolean(target.viewerHasVoted);
@@ -536,8 +548,26 @@ export default function PublicCreatorByHandle({
         | { ok?: boolean; voted?: boolean; helpfulCount?: number; error?: string }
         | null;
       if (!res.ok || !data?.ok) {
-        if (res.status === 401 || res.status === 403) {
-          showToast("Solo seguidores o clientes pueden marcar útil.");
+        if (res.status === 401) {
+          setCreatorComments((prev) =>
+            prev.map((comment) =>
+              comment.id === commentId
+                ? { ...comment, viewerHasVoted: prevHasVoted, helpfulCount: prevCount }
+                : comment
+            )
+          );
+          showToast("Inicia sesión para votar.");
+          return;
+        }
+        if (res.status === 403) {
+          setCreatorComments((prev) =>
+            prev.map((comment) =>
+              comment.id === commentId
+                ? { ...comment, viewerHasVoted: prevHasVoted, helpfulCount: prevCount }
+                : comment
+            )
+          );
+          showToast("No puedes votar en tu propio perfil.");
           return;
         }
         throw new Error("request failed");
@@ -763,7 +793,7 @@ export default function PublicCreatorByHandle({
             />
           )}
 
-          <section className="space-y-3 min-w-0">
+          <section id="catalog" className="space-y-3 min-w-0 scroll-mt-24">
             <h2 className="text-base font-semibold text-[color:var(--text)]">Catálogo</h2>
             <PublicCatalogGrid
               items={items}
@@ -845,63 +875,74 @@ export default function PublicCreatorByHandle({
               <p className="text-xs text-[color:var(--muted)]">Aún no hay comentarios.</p>
             ) : (
               <div className="grid gap-3">
-                {creatorComments.map((comment) => (
-                  <div
-                    key={comment.id}
-                    className="rounded-2xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] p-4 space-y-2"
-                  >
-                    <div className="flex items-center justify-between text-[11px] text-[color:var(--muted)]">
-                      <span className="text-[color:var(--warning)]">{renderStars(comment.rating)}</span>
-                      <span>{formatCreatorCommentDate(comment.createdAt)}</span>
-                    </div>
-                    <p className="text-sm text-[color:var(--text)] line-clamp-3">{comment.text}</p>
-                    <div className="flex items-center justify-between gap-3">
-                      <div className="flex flex-wrap items-center gap-2 text-xs font-semibold text-[color:var(--muted)]">
-                        <span>{comment.fanDisplayNameMasked}</span>
-                        {comment.verified && (
-                          <span className="rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-2 py-0.5 text-[10px] font-semibold text-[color:var(--muted)]">
-                            Comprador verificado
-                          </span>
-                        )}
+                {creatorComments.map((comment) => {
+                  const helpfulDisabled = helpfulPending[comment.id] || !viewerIsLoggedIn || Boolean(isCreatorViewer);
+                  const helpfulTitle = helpfulPending[comment.id]
+                    ? "Actualizando voto..."
+                    : isCreatorViewer
+                    ? "No puedes votar en tu propio perfil"
+                    : viewerIsLoggedIn
+                    ? "Marcar comentario como útil"
+                    : "Inicia sesión para votar";
+                  return (
+                    <div
+                      key={comment.id}
+                      className="rounded-2xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] p-4 space-y-2"
+                    >
+                      <div className="flex items-center justify-between text-[11px] text-[color:var(--muted)]">
+                        <span className="text-[color:var(--warning)]">{renderStars(comment.rating)}</span>
+                        <span>{formatCreatorCommentDate(comment.createdAt)}</span>
                       </div>
-                      <button
-                        type="button"
-                        onClick={() => handleToggleHelpful(comment.id)}
-                        disabled={!canComment || helpfulPending[comment.id]}
-                        title={
-                          canComment
-                            ? "Marcar comentario como útil"
-                            : "Solo seguidores o clientes pueden marcar útil."
-                        }
-                        className={`inline-flex items-center gap-1 rounded-full border px-2 py-1 text-[10px] font-semibold transition ${
-                          comment.viewerHasVoted
-                            ? "border-[color:rgba(var(--brand-rgb),0.6)] bg-[color:rgba(var(--brand-rgb),0.12)] text-[color:var(--text)]"
-                            : "border-[color:var(--surface-border)] text-[color:var(--muted)]"
-                        } ${!canComment || helpfulPending[comment.id] ? "opacity-60 cursor-not-allowed" : "hover:bg-[color:var(--surface-2)]"}`}
-                        aria-label="Marcar útil"
-                      >
-                        <ThumbsUp className="h-3 w-3" aria-hidden="true" />
-                        <span>Útil</span>
-                        <span className="tabular-nums">
-                          {typeof comment.helpfulCount === "number" ? comment.helpfulCount : 0}
-                        </span>
-                      </button>
-                    </div>
-                    {comment.replyText && (
-                      <div className="rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-3 py-2 text-xs text-[color:var(--text)] space-y-1">
-                        <div className="text-[10px] font-semibold uppercase tracking-wide text-[color:var(--muted)]">
-                          Respuesta del creador
+                      <p className="text-sm text-[color:var(--text)] line-clamp-3">{comment.text}</p>
+                      <div className="flex items-center justify-between gap-3">
+                        <div className="flex flex-wrap items-center gap-2 text-xs font-semibold text-[color:var(--muted)]">
+                          <span>{comment.fanDisplayNameMasked}</span>
+                          {comment.verified && (
+                            <span className="rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-2 py-0.5 text-[10px] font-semibold text-[color:var(--muted)]">
+                              Comprador verificado
+                            </span>
+                          )}
                         </div>
-                        <p className="whitespace-pre-line line-clamp-2">{comment.replyText}</p>
-                        {comment.repliedAt && (
-                          <span className="block text-[10px] text-[color:var(--muted)]">
-                            {formatCreatorCommentDate(comment.repliedAt)}
+                        <button
+                          type="button"
+                          onClick={() => handleToggleHelpful(comment.id)}
+                          disabled={helpfulDisabled}
+                          title={helpfulTitle}
+                          className={`inline-flex items-center gap-1 rounded-full border px-2 py-1 text-[10px] font-semibold transition ${
+                            comment.viewerHasVoted
+                              ? "border-[color:rgba(var(--brand-rgb),0.6)] bg-[color:rgba(var(--brand-rgb),0.12)] text-[color:var(--text)]"
+                              : "border-[color:var(--surface-border)] text-[color:var(--muted)]"
+                          } ${helpfulDisabled ? "opacity-60 cursor-not-allowed" : "hover:bg-[color:var(--surface-2)]"}`}
+                          aria-label={helpfulTitle}
+                        >
+                          <ThumbsUp className="h-3 w-3" aria-hidden="true" />
+                          <span>Útil</span>
+                          <span className="tabular-nums">
+                            {typeof comment.helpfulCount === "number" ? comment.helpfulCount : 0}
                           </span>
-                        )}
+                        </button>
                       </div>
-                    )}
-                  </div>
-                ))}
+                      {comment.replyText && (
+                        <div className="ml-8 rounded-xl border border-[color:var(--surface-border)] border-l-2 border-l-[color:rgba(var(--brand-rgb),0.35)] bg-[color:var(--surface-2)] px-3 py-2 text-[13px] text-[color:var(--text)] space-y-2">
+                          <div className="flex flex-col gap-1 text-[10px] text-[color:var(--muted)] sm:flex-row sm:items-center sm:justify-between">
+                            <div className="flex items-center gap-2">
+                              <span className="flex h-6 w-6 items-center justify-center rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] text-[11px] font-semibold text-[color:var(--text)]">
+                                {getCreatorInitial(creatorName)}
+                              </span>
+                              <span className="text-[11px] font-semibold text-[color:var(--text)]">Respuesta</span>
+                            </div>
+                            {comment.repliedAt && (
+                              <span className="text-[10px] text-[color:var(--muted)]">
+                                {formatCreatorCommentDate(comment.repliedAt)}
+                              </span>
+                            )}
+                          </div>
+                          <p className="whitespace-pre-line line-clamp-2">{comment.replyText}</p>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
               </div>
             )}
             {canComment ? (
@@ -1090,6 +1131,7 @@ export const getServerSideProps: GetServerSideProps<Props> = async (ctx) => {
       subtitle: trustLine,
       avatarUrl,
       creatorHandle,
+      isCreatorViewer: previewAllowed,
       websiteUrl,
       stats,
       followerCount,
@@ -1150,6 +1192,11 @@ function formatWebsiteLabel(url: string) {
 function renderStars(rating: number) {
   const safe = Math.max(0, Math.min(5, Math.round(rating)));
   return "★★★★★".slice(0, safe) + "☆☆☆☆☆".slice(0, 5 - safe);
+}
+
+function getCreatorInitial(name?: string | null) {
+  const trimmed = (name || "").trim();
+  return (trimmed[0] || "C").toUpperCase();
 }
 
 function formatCreatorCommentDate(value: string) {

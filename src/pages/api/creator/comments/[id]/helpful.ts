@@ -1,7 +1,7 @@
 import type { NextApiRequest, NextApiResponse } from "next";
 import prisma from "../../../../../lib/prisma.server";
 import { sendBadRequest, sendServerError } from "../../../../../lib/apiError";
-import { readFanId, slugifyHandle } from "../../../../../lib/fan/session";
+import { parseCookieHeader, readFanId, slugifyHandle } from "../../../../../lib/fan/session";
 
 type HelpfulResponse =
   | { ok: true; voted: boolean; helpfulCount: number }
@@ -35,12 +35,19 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
     }
 
     const creatorHandle = slugifyHandle(comment.creator?.name || "");
+    const previewHandle = readPreviewHandle(req.headers.cookie);
+    if (previewHandle && previewHandle === creatorHandle) {
+      return res.status(403).json({ ok: false, error: "OWNER_NOT_ALLOWED" });
+    }
     const fanId = readFanId(req, creatorHandle);
     if (!fanId) return res.status(401).json({ ok: false, error: "AUTH_REQUIRED" });
 
-    const isEligible = await canFanVote(comment.creatorId, fanId);
-    if (!isEligible) {
-      return res.status(403).json({ ok: false, error: "NOT_ELIGIBLE" });
+    const fan = await prisma.fan.findFirst({
+      where: { id: fanId, creatorId: comment.creatorId },
+      select: { id: true },
+    });
+    if (!fan?.id) {
+      return res.status(401).json({ ok: false, error: "AUTH_REQUIRED" });
     }
 
     const result = await prisma.$transaction(async (tx) => {
@@ -67,30 +74,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
   }
 }
 
-async function canFanVote(creatorId: string, fanId: string) {
-  const fan = await prisma.fan.findFirst({
-    where: { id: fanId, creatorId },
-    select: { id: true, isArchived: true },
-  });
-  if (!fan?.id) return false;
-
-  const now = new Date();
-  const [accessGrant, ppvPurchase, extraPurchase] = await Promise.all([
-    prisma.accessGrant.findFirst({
-      where: { fanId, expiresAt: { gt: now } },
-      select: { id: true },
-    }),
-    prisma.ppvPurchase.findFirst({
-      where: { fanId, creatorId, status: "PAID" },
-      select: { id: true },
-    }),
-    prisma.extraPurchase.findFirst({
-      where: { fanId, isArchived: false, contentItem: { creatorId } },
-      select: { id: true },
-    }),
-  ]);
-
-  const followsCreator = !fan.isArchived;
-  const hasAccess = Boolean(accessGrant || ppvPurchase || extraPurchase);
-  return followsCreator || hasAccess;
+function readPreviewHandle(cookieHeader: string | undefined) {
+  if (!cookieHeader) return "";
+  const cookies = parseCookieHeader(cookieHeader);
+  const value = cookies["novsy_creator_preview"] || "";
+  return value ? slugifyHandle(value) : "";
 }

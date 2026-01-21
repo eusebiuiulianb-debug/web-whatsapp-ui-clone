@@ -35,6 +35,11 @@ type CommentsResponse = {
   avgRating?: number | null;
   stats?: CommentsStats;
   canComment: boolean;
+  viewerCanComment: boolean;
+  viewerIsLoggedIn: boolean;
+  viewerIsFollowing: boolean;
+  viewerHasPurchased: boolean;
+  creatorHasPacksOrCatalogItems: boolean;
   viewerComment?: { rating: number; text: string } | null;
 };
 
@@ -70,7 +75,6 @@ export default async function handler(
         normalizedSort === "highest" || normalizedSort === "lowest" || normalizedSort === "helpful"
           ? normalizedSort
           : "newest";
-      const viewerFanId = readFanId(req, handle);
       const verifiedOnly = req.query.verifiedOnly === "1" || req.query.verifiedOnly === "true";
       const where: { creatorId: string; isPublic: boolean; status: "APPROVED"; fanId?: { in: string[] } } = {
         creatorId: creator.id,
@@ -90,7 +94,8 @@ export default async function handler(
           ? [{ rating: "asc" as const }, { createdAt: "desc" as const }, { id: "desc" as const }]
           : [{ createdAt: "desc" as const }, { id: "desc" as const }];
 
-      const eligibility = await resolveEligibility(req, creator.id, handle, viewerFanId);
+      const eligibility = await resolveEligibility(req, creator.id, handle);
+      const creatorHasPacksOrCatalogItems = await resolveCreatorHasCatalogItems(creator.id);
       let verifiedFilterIds: Set<string> | null = null;
       if (verifiedOnly) {
         verifiedFilterIds = await resolveVerifiedFanIdsForCreator(creator.id);
@@ -106,14 +111,19 @@ export default async function handler(
               distribution: { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 },
             },
             canComment: eligibility.canComment,
+            viewerCanComment: eligibility.canComment,
+            viewerIsLoggedIn: eligibility.viewerIsLoggedIn,
+            viewerIsFollowing: eligibility.viewerIsFollowing,
+            viewerHasPurchased: eligibility.viewerHasPurchased,
+            creatorHasPacksOrCatalogItems,
             viewerComment: eligibility.viewerComment,
           });
         }
         where.fanId = { in: Array.from(verifiedFilterIds) };
       }
 
-      const helpfulVoteSelect = viewerFanId
-        ? { helpfulVotes: { where: { fanId: viewerFanId }, select: { id: true } } }
+      const helpfulVoteSelect = eligibility.viewerFanId
+        ? { helpfulVotes: { where: { fanId: eligibility.viewerFanId }, select: { id: true } } }
         : {};
       const [aggregate, ratingGroups, comments] = await Promise.all([
         prisma.creatorComment.aggregate({
@@ -158,7 +168,7 @@ export default async function handler(
       const formatted = sliced.map((comment) => {
         const displayName = maskFanName(comment.fan?.displayName || comment.fan?.name);
         const helpfulCount = comment._count?.helpfulVotes ?? 0;
-        const viewerHasVoted = viewerFanId ? (comment.helpfulVotes?.length ?? 0) > 0 : false;
+        const viewerHasVoted = eligibility.viewerFanId ? (comment.helpfulVotes?.length ?? 0) > 0 : false;
         return {
           id: comment.id,
           rating: comment.rating,
@@ -186,6 +196,11 @@ export default async function handler(
           distribution,
         },
         canComment: eligibility.canComment,
+        viewerCanComment: eligibility.canComment,
+        viewerIsLoggedIn: eligibility.viewerIsLoggedIn,
+        viewerIsFollowing: eligibility.viewerIsFollowing,
+        viewerHasPurchased: eligibility.viewerHasPurchased,
+        creatorHasPacksOrCatalogItems,
         viewerComment: eligibility.viewerComment,
       });
     } catch (err) {
@@ -294,7 +309,14 @@ async function resolveEligibility(
 ) {
   const fanId = explicitFanId || readFanId(req, handle);
   if (!fanId) {
-    return { canComment: false, viewerComment: null };
+    return {
+      canComment: false,
+      viewerComment: null,
+      viewerIsLoggedIn: false,
+      viewerIsFollowing: false,
+      viewerHasPurchased: false,
+      viewerFanId: null,
+    };
   }
 
   const fan = await prisma.fan.findFirst({
@@ -302,7 +324,14 @@ async function resolveEligibility(
     select: { id: true, isArchived: true },
   });
   if (!fan?.id) {
-    return { canComment: false, viewerComment: null };
+    return {
+      canComment: false,
+      viewerComment: null,
+      viewerIsLoggedIn: false,
+      viewerIsFollowing: false,
+      viewerHasPurchased: false,
+      viewerFanId: null,
+    };
   }
 
   const now = new Date();
@@ -332,7 +361,19 @@ async function resolveEligibility(
   return {
     canComment,
     viewerComment: viewerComment ? { rating: viewerComment.rating, text: viewerComment.text } : null,
+    viewerIsLoggedIn: true,
+    viewerIsFollowing: followsCreator,
+    viewerHasPurchased: hasAccess,
+    viewerFanId: fanId,
   };
+}
+
+async function resolveCreatorHasCatalogItems(creatorId: string) {
+  const catalogItem = await prisma.catalogItem.findFirst({
+    where: { creatorId, isActive: true, isPublic: true },
+    select: { id: true },
+  });
+  return Boolean(catalogItem?.id);
 }
 
 function maskFanName(raw?: string | null) {
