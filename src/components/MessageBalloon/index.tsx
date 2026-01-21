@@ -308,7 +308,7 @@ const MessageBalloon = memo(function MessageBalloon(props: MessageBalloonProps) 
           ? "VENDIDO"
           : "PENDIENTE"
         : offerStatus === "unlocked"
-        ? "DESBLOQUEADO"
+        ? "COMPRADO"
         : "BLOQUEADO"
       : offerStatus === "unlocked"
       ? "Desbloqueado"
@@ -319,7 +319,7 @@ const MessageBalloon = memo(function MessageBalloon(props: MessageBalloonProps) 
       : offerStatus === "unlocked"
       ? "Ver contenido"
       : isPpvOffer
-      ? "Desbloquear"
+      ? "Comprar"
       : offerMeta?.kind === "pack"
       ? "Desbloquear pack"
       : "Desbloquear";

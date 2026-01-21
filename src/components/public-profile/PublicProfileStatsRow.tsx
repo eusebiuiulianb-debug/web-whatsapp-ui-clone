@@ -1,35 +1,38 @@
+import type { SVGProps } from "react";
+
 type Props = {
-  salesCount?: number | null;
-  ratingsCount?: number | null;
+  commentsCount?: number | null;
+  popclipsCount?: number | null;
   followersCount?: number | null;
 };
 
-export function PublicProfileStatsRow({ salesCount, ratingsCount, followersCount }: Props) {
-  const salesValue = normalizeCount(salesCount);
-  const ratingsValue = normalizeCount(ratingsCount);
+export function PublicProfileStatsRow({ commentsCount, popclipsCount, followersCount }: Props) {
+  const commentsValue = normalizeCount(commentsCount);
+  const popclipsValue = normalizeCount(popclipsCount);
   const followersValue = normalizeCount(followersCount);
   const stats = [
-    ...(followersValue > 0 ? [{ label: "Seguidores", value: formatCount(followersValue) }] : []),
-    ...(salesValue > 0 ? [{ label: "Ventas", value: formatCount(salesValue) }] : []),
-    ...(ratingsValue > 0 ? [{ label: "Valoraciones", value: formatCount(ratingsValue) }] : []),
+    { label: "Seguidores", value: formatCount(followersValue), icon: UserIcon },
+    { label: "Comentarios", value: formatCount(commentsValue), icon: CommentIcon },
+    { label: "PopClips", value: formatCount(popclipsValue), icon: PlayIcon },
   ];
-  if (stats.length === 0) return null;
-  const columns = stats.length === 1 ? "grid-cols-1" : stats.length === 2 ? "grid-cols-2" : "grid-cols-3";
 
   return (
-    <div className={`grid ${columns} gap-3 min-w-0`}>
+    <div className="grid grid-cols-3 gap-2 min-w-0">
       {stats.map((stat) => (
-        <StatCard key={stat.label} label={stat.label} value={stat.value} />
+        <StatChip key={stat.label} label={stat.label} value={stat.value} icon={stat.icon} />
       ))}
     </div>
   );
 }
 
-function StatCard({ label, value }: { label: string; value: string }) {
+function StatChip({ label, value, icon: Icon }: { label: string; value: string; icon: (props: SVGProps<SVGSVGElement>) => JSX.Element }) {
   return (
-    <div className="rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] p-3 space-y-1 min-w-0">
-      <div className="text-[10px] uppercase tracking-wide text-[color:var(--muted)]">{label}</div>
-      <div className="text-sm font-semibold text-[color:var(--text)] truncate">{value}</div>
+    <div className="flex items-center gap-2 rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-3 py-2 min-w-0">
+      <Icon className="h-4 w-4 shrink-0 text-[color:var(--muted)]" aria-hidden="true" />
+      <span className="text-sm font-semibold tabular-nums text-[color:var(--text)]">{value}</span>
+      <span className="sr-only sm:not-sr-only text-[10px] uppercase tracking-wide text-[color:var(--muted)] truncate">
+        {label}
+      </span>
     </div>
   );
 }
@@ -40,4 +43,30 @@ function normalizeCount(value?: number | null) {
 
 function formatCount(value: number) {
   return new Intl.NumberFormat("es-ES").format(value);
+}
+
+function UserIcon(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden="true" {...props}>
+      <circle cx="10" cy="6.5" r="3.2" />
+      <path d="M4 16.2c1.6-3 10.4-3 12 0" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+function CommentIcon(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden="true" {...props}>
+      <path d="M4 5.5h12a2 2 0 0 1 2 2V12a2 2 0 0 1-2 2H9l-4 3v-3H4a2 2 0 0 1-2-2V7.5a2 2 0 0 1 2-2Z" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+function PlayIcon(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden="true" {...props}>
+      <rect x="3" y="4.5" width="14" height="11" rx="2" />
+      <path d="M9 8l4 2.5L9 13V8Z" fill="currentColor" stroke="none" />
+    </svg>
+  );
 }

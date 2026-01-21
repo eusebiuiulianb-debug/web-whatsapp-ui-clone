@@ -57,6 +57,7 @@ model CreatorProfile {
   creatorId                 String   @unique
   creator                   Creator  @relation(fields: [creatorId], references: [id])
   coverUrl                  String?
+  websiteUrl                String?
   visibilityMode            CreatorVisibilityMode @default(SOLO_LINK)
   locationVisibility        String   @default("OFF")
   locationLabel             String?

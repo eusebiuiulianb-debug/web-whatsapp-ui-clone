@@ -22,6 +22,7 @@ type Props = {
   creatorId?: string;
   creatorName?: string;
   bio?: string;
+  websiteUrl?: string | null;
   subtitle?: string;
   avatarUrl?: string | null;
   creatorHandle?: string;
@@ -67,6 +68,7 @@ export default function PublicCreatorByHandle({
   creatorId,
   creatorName,
   bio,
+  websiteUrl,
   subtitle,
   avatarUrl,
   creatorHandle,
@@ -199,11 +201,18 @@ export default function PublicCreatorByHandle({
       }));
   }, [catalogItems]);
 
-  const salesCount = stats?.salesCount ?? 0;
+  const commentsCount = stats?.commentsCount ?? 0;
+  const popclipsCount = stats?.popclipsCount ?? 0;
   const ratingsCount = stats?.ratingsCount ?? 0;
-  const topEligible = salesCount >= 10 || ratingsCount >= 10;
-  const tagline = (bio || "").trim();
+  const topEligible = commentsCount >= 10 || ratingsCount >= 10;
+  const tagline = "";
   const trustLine = (subtitle || "Responde en menos de 24h").trim();
+  const bioText = (bio || "").trim();
+  const [isBioExpanded, setIsBioExpanded] = useState(false);
+  const bioRef = useRef<HTMLParagraphElement | null>(null);
+  const [bioHasOverflow, setBioHasOverflow] = useState(false);
+  const resolvedWebsiteUrl = normalizeWebsiteUrl(websiteUrl);
+  const websiteLabel = resolvedWebsiteUrl ? formatWebsiteLabel(resolvedWebsiteUrl) : "";
   const showLoading = !catalogItems && !catalogError;
   const popclipItems = popClips.map((clip) => ({
     id: clip.id,
@@ -296,6 +305,23 @@ export default function PublicCreatorByHandle({
       setPopClipsLoadingMore(false);
     }
   };
+
+  useEffect(() => {
+    if (isBioExpanded) return;
+    const el = bioRef.current;
+    if (!el) return;
+    const check = () => {
+      const hasOverflow = el.scrollHeight > el.clientHeight + 1;
+      setBioHasOverflow(hasOverflow);
+    };
+    const raf = requestAnimationFrame(check);
+    const handleResize = () => check();
+    window.addEventListener("resize", handleResize);
+    return () => {
+      cancelAnimationFrame(raf);
+      window.removeEventListener("resize", handleResize);
+    };
+  }, [bioText, isBioExpanded]);
 
   const openChat = async () => {
     if (!creatorHandle || chatPending) return;
@@ -408,10 +434,45 @@ export default function PublicCreatorByHandle({
           )}
           {toast && <div className="text-xs text-[color:var(--brand)]">{toast}</div>}
           <PublicProfileStatsRow
-            salesCount={salesCount}
-            ratingsCount={ratingsCount}
+            commentsCount={commentsCount}
+            popclipsCount={popclipsCount}
             followersCount={followersCount}
           />
+          {(bioText || resolvedWebsiteUrl) && (
+            <div className="rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-4 py-3 space-y-2">
+              {bioText && (
+                <div className="space-y-1">
+                  <p
+                    ref={bioRef}
+                    className={`text-sm text-[color:var(--text)] whitespace-pre-line ${
+                      isBioExpanded ? "" : "line-clamp-2"
+                    }`}
+                  >
+                    {bioText}
+                  </p>
+                  {bioHasOverflow && (
+                    <button
+                      type="button"
+                      onClick={() => setIsBioExpanded((prev) => !prev)}
+                      className="text-xs font-semibold text-[color:var(--warning)] hover:text-[color:var(--text)]"
+                    >
+                      {isBioExpanded ? "Ver menos" : "Ver más"}
+                    </button>
+                  )}
+                </div>
+              )}
+              {resolvedWebsiteUrl && (
+                <a
+                  href={resolvedWebsiteUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="inline-flex w-fit items-center rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-3 py-1 text-[11px] font-semibold text-[color:var(--text)] hover:bg-[color:var(--surface-1)]"
+                >
+                  Web · {websiteLabel}
+                </a>
+              )}
+            </div>
+          )}
 
           <PublicStoriesRow
             items={storyItems}
@@ -564,6 +625,7 @@ export const getServerSideProps: GetServerSideProps<Props> = async (ctx) => {
   const avatarUrl = normalizeImageSrc(match.bioLinkAvatarUrl || "");
   const trustLine = match.bioLinkTagline ?? match.subtitle ?? "";
   const bio = match.bioLinkDescription ?? match.description ?? "";
+  const websiteUrl = profile?.websiteUrl ?? null;
 
   return {
     props: {
@@ -573,6 +635,7 @@ export const getServerSideProps: GetServerSideProps<Props> = async (ctx) => {
       subtitle: trustLine,
       avatarUrl,
       creatorHandle,
+      websiteUrl,
       stats,
       followerCount,
       isFollowing,
@@ -611,6 +674,22 @@ function resolveVisibilityMode(value: unknown): "INVISIBLE" | "SOLO_LINK" | "DIS
   if (value === "DISCOVERABLE") return "DISCOVERABLE";
   if (value === "PUBLIC") return "PUBLIC";
   return "SOLO_LINK";
+}
+
+function normalizeWebsiteUrl(value?: string | null) {
+  const trimmed = (value || "").trim();
+  if (!trimmed) return "";
+  if (/^https?:\/\//i.test(trimmed)) return trimmed;
+  return `https://${trimmed}`;
+}
+
+function formatWebsiteLabel(url: string) {
+  try {
+    const parsed = new URL(url);
+    return parsed.hostname || url.replace(/^https?:\/\//i, "").replace(/\/+$/, "");
+  } catch {
+    return url.replace(/^https?:\/\//i, "").replace(/\/+$/, "");
+  }
 }
 
 function readUtmMeta() {

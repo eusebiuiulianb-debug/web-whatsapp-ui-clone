@@ -378,8 +378,8 @@ async function main() {
 
   await prisma.creatorProfile.upsert({
     where: { creatorId: creator.id },
-    update: { visibilityMode: "SOLO_LINK" },
-    create: { creatorId: creator.id, visibilityMode: "SOLO_LINK" },
+    update: { visibilityMode: "SOLO_LINK", websiteUrl: "https://novsy.app" },
+    create: { creatorId: creator.id, visibilityMode: "SOLO_LINK", websiteUrl: "https://novsy.app" },
   });
 
   const agencyTemplateSeeds = buildAgencyTemplateSeeds();

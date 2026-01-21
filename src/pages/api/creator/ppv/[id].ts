@@ -38,10 +38,24 @@ function stripOfferMarker(value?: string | null) {
   return value.slice(0, idx);
 }
 
+async function resolveCreatorId() {
+  if (process.env.CREATOR_ID) return process.env.CREATOR_ID;
+  const creator = await prisma.creator.findFirst({
+    select: { id: true },
+    orderBy: { id: "asc" },
+  });
+  return creator?.id ?? null;
+}
+
 export default async function handler(req: NextApiRequest, res: NextApiResponse<PpvDetailResponse>) {
   if (req.method !== "GET") {
     res.setHeader("Allow", "GET");
     return res.status(405).json({ ok: false, error: "Method not allowed" });
+  }
+
+  const creatorId = await resolveCreatorId();
+  if (!creatorId) {
+    return res.status(401).json({ ok: false, error: "CREATOR_NOT_FOUND" });
   }
 
   const ppvId = typeof req.query.id === "string" ? req.query.id.trim() : "";
@@ -49,7 +63,6 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
     return res.status(400).json({ ok: false, error: "Missing ppv id" });
   }
 
-  // No-store avoids stale PPV status/content for creator refresh (pages router).
   res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0");
   res.setHeader("Pragma", "no-cache");
 
@@ -65,7 +78,6 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
         status: true,
         soldAt: true,
         purchaseId: true,
-        fanId: true,
         creatorId: true,
         message: {
           select: {
@@ -85,28 +97,20 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
           select: { id: true, createdAt: true, fanId: true },
           orderBy: { createdAt: "desc" },
         },
-        fan: { select: { adultConfirmedAt: true } },
       },
     });
 
     if (!ppvMessage?.id) {
       return res.status(404).json({ ok: false, error: "PPV_NOT_FOUND" });
     }
+    if (ppvMessage.creatorId !== creatorId) {
+      return res.status(403).json({ ok: false, error: "PPV_FORBIDDEN" });
+    }
 
-    const purchase =
-      ppvMessage.purchases.find((item) => item.fanId === ppvMessage.fanId) ??
-      ppvMessage.purchases[0] ??
-      null;
+    const purchase = ppvMessage.purchases[0] ?? null;
     const statusRaw = typeof ppvMessage.status === "string" ? ppvMessage.status.trim().toUpperCase() : "";
     const hasPurchase = Boolean(purchase?.id);
     const isSold = statusRaw === "SOLD" || hasPurchase;
-    const isAdultConfirmed = Boolean(ppvMessage.fan?.adultConfirmedAt);
-    if (!isAdultConfirmed) {
-      return res.status(403).json({ ok: false, error: "ADULT_NOT_CONFIRMED" });
-    }
-    if (!hasPurchase) {
-      return res.status(403).json({ ok: false, error: "PPV_REQUIRED" });
-    }
     const content = stripOfferMarker(ppvMessage.message?.text ?? null);
     const attachments: PpvAttachment[] = [];
     const contentItem = ppvMessage.message?.contentItem;
@@ -148,7 +152,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
       const payload = getDbSchemaOutOfSyncPayload();
       return res.status(500).json({ ok: false, error: payload.errorCode, ...payload });
     }
-    console.error("api/ppv detail error", { ppvId, error: (err as Error)?.message });
+    console.error("api/creator/ppv detail error", { ppvId, error: (err as Error)?.message });
     return res.status(500).json({ ok: false, error: "Error fetching ppv" });
   }
 }

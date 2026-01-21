@@ -30,6 +30,7 @@ import { getAccessLabel, getAccessState, getAccessSummary } from "../../lib/acce
 import { FollowUpTag, getFollowUpTag, getUrgencyLevel } from "../../utils/followUp";
 import { PACKS } from "../../config/packs";
 import { ChatComposerBar } from "../ChatComposerBar";
+import { PpvContentSheet, type PpvAttachment } from "../ppv/PpvContentSheet";
 import { getFanDisplayNameForCreator } from "../../utils/fanDisplayName";
 import { ContentItem, getContentTypeLabel, getContentVisibilityLabel } from "../../types/content";
 import type { Offer, OfferTier } from "../../types/offers";
@@ -1308,6 +1309,7 @@ export default function ConversationDetails({ onBackToBoard }: ConversationDetai
   const [ unlockedOfferIds, setUnlockedOfferIds ] = useState<Set<string>>(() => new Set());
   const [ offerOverlay, setOfferOverlay ] = useState<OfferOverlayState | null>(null);
   const [ ppvOverlayContent, setPpvOverlayContent ] = useState<string | null>(null);
+  const [ ppvOverlayAttachments, setPpvOverlayAttachments ] = useState<PpvAttachment[]>([]);
   const [ ppvOverlayLoading, setPpvOverlayLoading ] = useState(false);
   const [ ppvOverlayError, setPpvOverlayError ] = useState<string | null>(null);
   const ppvOverlayRequestRef = useRef(0);
@@ -5733,6 +5735,7 @@ const INTENT_BADGE_LABELS: Record<string, string> = {
   useEffect(() => {
     if (!ppvOverlayOfferId || ppvOverlayOfferKind !== "ppv") {
       setPpvOverlayContent(null);
+      setPpvOverlayAttachments([]);
       setPpvOverlayError(null);
       setPpvOverlayLoading(false);
       return;
@@ -5743,8 +5746,9 @@ const INTENT_BADGE_LABELS: Record<string, string> = {
     setPpvOverlayLoading(true);
     setPpvOverlayError(null);
     setPpvOverlayContent(null);
+    setPpvOverlayAttachments([]);
     // No-store avoids stale PPV detail when creator opens the card.
-    void fetch(`/api/ppv/${encodeURIComponent(ppvOverlayOfferId)}?viewer=creator`, {
+    void fetch(`/api/creator/ppv/${encodeURIComponent(ppvOverlayOfferId)}`, {
       signal: controller.signal,
       cache: "no-store",
     })
@@ -5752,16 +5756,25 @@ const INTENT_BADGE_LABELS: Record<string, string> = {
         const data = await res.json().catch(() => ({}));
         if (ppvOverlayRequestRef.current !== requestId) return;
         if (!res.ok || !data?.ok) {
-          setPpvOverlayError(data?.error || "No se pudo cargar el extra.");
+          setPpvOverlayError(data?.error || "No se pudo cargar el contenido.");
+          showComposerToast("No se pudo cargar el contenido.");
           return;
         }
-        const content = typeof data?.ppv?.content === "string" ? data.ppv.content : null;
+        const content =
+          typeof data?.ppv?.text === "string"
+            ? data.ppv.text
+            : typeof data?.ppv?.content === "string"
+            ? data.ppv.content
+            : null;
+        const attachments = Array.isArray(data?.ppv?.attachments) ? data.ppv.attachments : [];
         setPpvOverlayContent(content);
+        setPpvOverlayAttachments(attachments);
       })
       .catch((err) => {
         if (controller.signal.aborted) return;
         if (ppvOverlayRequestRef.current !== requestId) return;
-        setPpvOverlayError((err as Error)?.message || "No se pudo cargar el extra.");
+        setPpvOverlayError((err as Error)?.message || "No se pudo cargar el contenido.");
+        showComposerToast("No se pudo cargar el contenido.");
       })
       .finally(() => {
         if (controller.signal.aborted) return;
@@ -5769,7 +5782,7 @@ const INTENT_BADGE_LABELS: Record<string, string> = {
         setPpvOverlayLoading(false);
       });
     return () => controller.abort();
-  }, [ppvOverlayOfferId, ppvOverlayOfferKind]);
+  }, [ppvOverlayOfferId, ppvOverlayOfferKind, showComposerToast]);
 
   useEffect(() => {
     if (!managerPanelOpen) return;
@@ -6436,13 +6449,6 @@ const INTENT_BADGE_LABELS: Record<string, string> = {
     if (offerOverlayMessageText) return offerOverlayMessageText;
     return "Contenido no disponible.";
   }, [isPpvOverlay, offerOverlayMessageText, ppvOverlayContent, ppvOverlayError, ppvOverlayLoading]);
-  const offerOverlayPurchasedAtLabel = useMemo(() => {
-    const raw = offerOverlay?.offer.purchasedAt;
-    if (!raw) return "";
-    const parsed = new Date(raw);
-    if (Number.isNaN(parsed.getTime())) return raw;
-    return format(parsed, "dd/MM HH:mm");
-  }, [offerOverlay]);
   const offerOverlayStatusLabel = isPpvOverlay
     ? offerOverlayStatus === "unlocked"
       ? "VENDIDO"
@@ -15453,7 +15459,19 @@ const INTENT_BADGE_LABELS: Record<string, string> = {
           </div>
         </div>
       )}
-      {offerOverlay && (
+      {offerOverlay && isPpvOverlay ? (
+        <PpvContentSheet
+          open
+          onClose={() => setOfferOverlay(null)}
+          title={offerOverlay.offer.title}
+          priceLabel={offerOverlay.offer.price}
+          statusLabel={offerOverlayStatusLabel}
+          content={offerOverlayContentText}
+          attachments={ppvOverlayAttachments}
+          loading={ppvOverlayLoading}
+          error={ppvOverlayError}
+        />
+      ) : offerOverlay ? (
         <div
           className="fixed inset-0 z-[75] flex items-end justify-center bg-[color:var(--surface-overlay)] backdrop-blur-sm"
           onClick={(event) => {
@@ -15468,7 +15486,7 @@ const INTENT_BADGE_LABELS: Record<string, string> = {
           >
             <div className="flex items-center justify-between gap-3">
               <h2 className="text-sm font-semibold text-[color:var(--text)]">
-                {isPpvOverlay ? "Extra (PPV)" : offerOverlayStatus === "locked" ? "Contenido bloqueado" : "Contenido desbloqueado"}
+                {offerOverlayStatus === "locked" ? "Contenido bloqueado" : "Contenido desbloqueado"}
               </h2>
               <button
                 type="button"
@@ -15510,21 +15528,7 @@ const INTENT_BADGE_LABELS: Record<string, string> = {
                 {offerOverlayStatusLabel}
               </span>
             </div>
-            {isPpvOverlay ? (
-              <div className="space-y-2">
-                <div className="rounded-lg border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-3 py-2 text-[12px] text-[color:var(--text)] whitespace-pre-wrap">
-                  {offerOverlayContentText}
-                </div>
-                {offerOverlayStatus === "unlocked" ? (
-                  <div className="text-[10px] text-[color:var(--muted)]">
-                    {offerOverlayPurchasedAtLabel ? `Vendido ${offerOverlayPurchasedAtLabel}` : "Vendido"}
-                    {id ? ` · Fan ${id}` : ""}
-                  </div>
-                ) : (
-                  <div className="text-[10px] text-[color:var(--muted)]">Aún no comprado.</div>
-                )}
-              </div>
-            ) : offerOverlayStatus === "locked" ? (
+            {offerOverlayStatus === "locked" ? (
               <div className="space-y-2">
                 <button
                   type="button"
@@ -15542,7 +15546,7 @@ const INTENT_BADGE_LABELS: Record<string, string> = {
             )}
           </div>
         </div>
-      )}
+      ) : null}
       {pendingInsert && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-[color:var(--surface-overlay)] px-4">
           <div className="w-full max-w-sm rounded-2xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] p-4 shadow-2xl">

@@ -116,9 +116,10 @@ export default function CreatorPublicPage({ fanQuery, stats }: Props) {
   const trustLine = (config.creatorSubtitle || "Responde en menos de 24h").trim();
   const rawTagline = (resolvedCopy.hero.tagline || config.creatorDescription || "").trim();
   const tagline = rawTagline && rawTagline !== trustLine ? rawTagline : "";
-  const salesCount = stats?.salesCount ?? 0;
+  const commentsCount = stats?.commentsCount ?? 0;
+  const popclipsCount = stats?.popclipsCount ?? 0;
   const ratingsCount = stats?.ratingsCount ?? 0;
-  const topEligible = salesCount >= 10 || ratingsCount >= 10;
+  const topEligible = commentsCount >= 10 || ratingsCount >= 10;
   const visiblePacks = resolvedCopy.packs.filter((pack) => pack.visible !== false);
   const featuredPacks = visiblePacks.slice(0, 3);
 
@@ -188,8 +189,8 @@ export default function CreatorPublicPage({ fanQuery, stats }: Props) {
             secondaryHref={followHref}
           />
           <PublicProfileStatsRow
-            salesCount={salesCount}
-            ratingsCount={ratingsCount}
+            commentsCount={commentsCount}
+            popclipsCount={popclipsCount}
           />
 
           {featuredItems.length > 0 && (

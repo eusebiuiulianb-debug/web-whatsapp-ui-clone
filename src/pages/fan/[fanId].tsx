@@ -39,6 +39,7 @@ import clsx from "clsx";
 import { AdultGateOverlay } from "../../components/ui/AdultGateOverlay";
 import { readAdultConfirmedAtFromStorage, writeAdultConfirmedAtToStorage } from "../../lib/adultGate";
 import { AccessPaywallCard, type AccessPaywallPack } from "../../components/fan/AccessPaywallCard";
+import { PpvContentSheet, type PpvAttachment } from "../../components/ppv/PpvContentSheet";
 
 type ApiContentItem = {
   id: string;
@@ -293,6 +294,7 @@ export function FanChatPage({
   const [unlockOffer, setUnlockOffer] = useState<OfferMeta | null>(null);
   const [viewPpvOffer, setViewPpvOffer] = useState<OfferMeta | null>(null);
   const [viewPpvContent, setViewPpvContent] = useState<string | null>(null);
+  const [viewPpvAttachments, setViewPpvAttachments] = useState<PpvAttachment[]>([]);
   const [viewPpvLoading, setViewPpvLoading] = useState(false);
   const [viewPpvError, setViewPpvError] = useState<string | null>(null);
   const viewPpvRequestRef = useRef(0);
@@ -1681,6 +1683,7 @@ export function FanChatPage({
   const closeViewPpvSheet = useCallback(() => {
     setViewPpvOffer(null);
     setViewPpvContent(null);
+    setViewPpvAttachments([]);
     setViewPpvError(null);
     setViewPpvLoading(false);
   }, []);
@@ -1699,6 +1702,7 @@ export function FanChatPage({
       setViewPpvLoading(false);
       setViewPpvError(null);
       setViewPpvContent(null);
+      setViewPpvAttachments([]);
       return;
     }
     const controller = new AbortController();
@@ -1707,28 +1711,43 @@ export function FanChatPage({
     setViewPpvLoading(true);
     setViewPpvError(null);
     setViewPpvContent(null);
+    setViewPpvAttachments([]);
     void fetch(`/api/ppv/${encodeURIComponent(offerId)}`, { signal: controller.signal })
       .then(async (res) => {
         const data = await res.json().catch(() => ({}));
         if (viewPpvRequestRef.current !== requestId) return;
         if (!res.ok || !data?.ok) {
           const errorCode = typeof data?.error === "string" ? data.error : "";
-          const errorMessage =
-            errorCode === "ADULT_NOT_CONFIRMED"
-              ? "Confirma 18+ para ver este extra."
-              : errorCode === "PPV_LOCKED"
-              ? "Compra este extra para verlo."
-              : data?.error || "No se pudo cargar el extra.";
+          if (errorCode === "ADULT_NOT_CONFIRMED") {
+            showFanToast("Confirma 18+ para ver este extra.");
+            setViewPpvOffer(null);
+            return;
+          }
+          if (errorCode === "PPV_REQUIRED" || errorCode === "PPV_LOCKED" || errorCode === "ACCESS_REQUIRED") {
+            showFanToast("Necesitas comprar este extra para verlo.");
+            setViewPpvOffer(null);
+            return;
+          }
+          const errorMessage = data?.error || "No se pudo cargar el contenido.";
           setViewPpvError(errorMessage);
+          showFanToast("No se pudo cargar el contenido.");
           return;
         }
-        const content = typeof data?.ppv?.content === "string" ? data.ppv.content : null;
+        const content =
+          typeof data?.ppv?.text === "string"
+            ? data.ppv.text
+            : typeof data?.ppv?.content === "string"
+            ? data.ppv.content
+            : null;
+        const attachments = Array.isArray(data?.ppv?.attachments) ? data.ppv.attachments : [];
         setViewPpvContent(content);
+        setViewPpvAttachments(attachments);
       })
       .catch((err) => {
         if (controller.signal.aborted) return;
         if (viewPpvRequestRef.current !== requestId) return;
-        setViewPpvError((err as Error)?.message || "No se pudo cargar el extra.");
+        setViewPpvError((err as Error)?.message || "No se pudo cargar el contenido.");
+        showFanToast("No se pudo cargar el contenido.");
       })
       .finally(() => {
         if (controller.signal.aborted) return;
@@ -1736,7 +1755,7 @@ export function FanChatPage({
         setViewPpvLoading(false);
       });
     return () => controller.abort();
-  }, [viewPpvOfferId]);
+  }, [showFanToast, viewPpvOfferId]);
 
   const getOfferClientTxnId = useCallback((offerId: string) => {
     const key = offerId.trim();
@@ -2111,14 +2130,12 @@ export function FanChatPage({
     if (viewPpvOffer.price) return normalizePriceLabel(viewPpvOffer.price);
     return "";
   }, [viewPpvOffer, walletCurrency]);
-  const viewPpvContentLabel = useMemo(() => {
-    if (viewPpvLoading) return "Cargando contenido...";
-    if (viewPpvError) return viewPpvError;
-    if (typeof viewPpvContent === "string" && viewPpvContent.trim()) return viewPpvContent;
-    return "Contenido no disponible.";
-  }, [viewPpvContent, viewPpvError, viewPpvLoading]);
   const unlockCtaLabel = unlockNeedsTopup
     ? "Recargar"
+    : isPpvUnlock
+    ? unlockPriceLabel
+      ? `Comprar ${unlockPriceLabel}`
+      : "Comprar"
     : unlockPriceLabel
     ? `Pagar ${unlockPriceLabel}`
     : "Desbloquear";
@@ -2174,7 +2191,7 @@ export function FanChatPage({
         void fetchMessages(fanId, { silent: true });
       }
       if (isPpvUnlock) {
-        showFanToast("Extra desbloqueado.");
+        showFanToast("Extra comprado.");
       } else {
         const refresh = await refreshAccessAndContent(fanId);
         if (!refresh.ok) {
@@ -3091,9 +3108,9 @@ export function FanChatPage({
           <div>
             <h3 className="text-base font-semibold text-[color:var(--text)]">
               {unlockOffer?.title
-                ? `${isPpvUnlock ? "Desbloquear extra (PPV)" : "Desbloquear pack"}: ${unlockOffer.title}`
+                ? `${isPpvUnlock ? "Comprar extra (PPV)" : "Desbloquear pack"}: ${unlockOffer.title}`
                 : isPpvUnlock
-                ? "Desbloquear extra (PPV)"
+                ? "Comprar extra (PPV)"
                 : "Desbloquear pack"}
             </h3>
             <p className="text-xs text-[color:var(--muted)]">
@@ -3155,38 +3172,17 @@ export function FanChatPage({
           </div>
         </div>
       </BottomSheet>
-      <BottomSheet open={Boolean(viewPpvOffer)} onClose={closeViewPpvSheet}>
-        <div className="space-y-4">
-          <div>
-            <h3 className="text-base font-semibold text-[color:var(--text)]">
-              {viewPpvOffer?.title ? `Extra desbloqueado: ${viewPpvOffer.title}` : "Extra desbloqueado"}
-            </h3>
-            <p className="text-xs text-[color:var(--muted)]">Contenido del extra comprado.</p>
-          </div>
-          <div className="flex items-center justify-between gap-3 rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-4 py-3">
-            <div className="min-w-0">
-              <div className="truncate text-sm font-semibold text-[color:var(--text)]">{viewPpvOffer?.title}</div>
-              <div className="text-xs text-[color:var(--muted)]">Precio del extra</div>
-            </div>
-            <span className="text-sm font-semibold text-[color:var(--warning)]">
-              {viewPpvPriceLabel}
-            </span>
-          </div>
-          <div className="rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-4 py-3 text-sm text-[color:var(--text)] whitespace-pre-wrap">
-            {viewPpvContentLabel}
-          </div>
-          <div className="flex items-center justify-end gap-2">
-            <button
-              type="button"
-              onClick={closeViewPpvSheet}
-              disabled={viewPpvLoading}
-              className="rounded-full border border-[color:var(--surface-border)] px-4 py-1.5 text-xs text-[color:var(--text)] hover:bg-[color:var(--surface-2)] disabled:opacity-60"
-            >
-              Cerrar
-            </button>
-          </div>
-        </div>
-      </BottomSheet>
+      <PpvContentSheet
+        open={Boolean(viewPpvOffer)}
+        onClose={closeViewPpvSheet}
+        title={viewPpvOffer?.title ?? null}
+        priceLabel={viewPpvPriceLabel}
+        statusLabel="COMPRADO"
+        content={viewPpvContent}
+        attachments={viewPpvAttachments}
+        loading={viewPpvLoading}
+        error={viewPpvError}
+      />
       <BottomSheet open={Boolean(packPurchase)} onClose={closePackPurchaseSheet}>
         <div className="space-y-4">
           <div>

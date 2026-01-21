@@ -3,7 +3,7 @@ import prisma from "./prisma.server";
 export async function getPublicProfileStats(creatorId: string) {
   const now = new Date();
 
-  const [grants, salesCount, ratingsCount] = await Promise.all([
+  const [grants, commentsCount, popclipsCount, ratingsCount] = await Promise.all([
     prisma.accessGrant.findMany({
       where: {
         fan: { creatorId },
@@ -11,10 +11,20 @@ export async function getPublicProfileStats(creatorId: string) {
       },
       select: { fanId: true },
     }),
-    prisma.walletTransaction.count({
+    prisma.popClipComment.count({
       where: {
-        kind: { in: ["PACK_PURCHASE", "EXTRA_PURCHASE", "PPV_PURCHASE"] },
-        wallet: { fan: { creatorId } },
+        popClip: {
+          creatorId,
+          isActive: true,
+          isArchived: false,
+        },
+      },
+    }),
+    prisma.popClip.count({
+      where: {
+        creatorId,
+        isActive: true,
+        isArchived: false,
       },
     }),
     prisma.discoveryFeedback.count({ where: { creatorId } }),
@@ -34,5 +44,5 @@ export async function getPublicProfileStats(creatorId: string) {
     return acc;
   }, { images: 0, videos: 0, audios: 0 });
 
-  return { activeMembers, ...stats, salesCount, ratingsCount };
+  return { activeMembers, ...stats, commentsCount, popclipsCount, ratingsCount };
 }
