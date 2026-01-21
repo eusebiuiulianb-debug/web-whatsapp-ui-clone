@@ -13,8 +13,11 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
     return res.status(405).json({ ok: false, error: "Method not allowed" });
   }
 
-  const commentId = typeof req.query.commentId === "string" ? req.query.commentId.trim() : "";
-  if (!commentId) return sendBadRequest(res, "comment id required");
+  const raw = req.query.id;
+  const id = Array.isArray(raw) ? raw[0] : raw;
+  if (!id) return res.status(400).json({ ok: false, error: "Missing id" });
+  const commentId = id.trim();
+  if (!commentId) return res.status(400).json({ ok: false, error: "Missing id" });
 
   try {
     const comment = await prisma.creatorComment.findUnique({
