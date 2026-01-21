@@ -51,6 +51,7 @@ model Creator {
   ppvMessages                PpvMessage[]
   ppvPurchases               PpvPurchase[]
   creatorComments            CreatorComment[]
+  commentReplies             CommentReply[]
 }
 
 model CreatorProfile {
@@ -113,6 +114,7 @@ model Fan {
   extraPurchases        ExtraPurchase[]
   popClipReactions      PopClipReaction[]
   popClipComments       PopClipComment[]
+  commentReplies        CommentReply[]
   aiUsageLogs           AiUsageLog[]
   segment               String           @default("NUEVO")
   healthScore           Int              @default(0)
@@ -527,6 +529,11 @@ enum CreatorCommentStatus {
   PENDING
 }
 
+enum CommentReplyAuthorRole {
+  CREATOR
+  FAN
+}
+
 model CreatorComment {
   id        String               @id @default(cuid())
   creatorId String
@@ -538,6 +545,7 @@ model CreatorComment {
   replyText String? @map("creatorReplyText")
   repliedAt DateTime? @map("creatorReplyAt")
   repliedByCreatorId String?
+  replies   CommentReply[]
   helpfulVotes CreatorCommentHelpfulVote[]
   isPublic  Boolean              @default(true)
   status    CreatorCommentStatus @default(APPROVED)
@@ -547,6 +555,24 @@ model CreatorComment {
   @@unique([creatorId, fanId])
   @@index([creatorId, createdAt])
   @@index([fanId])
+}
+
+model CommentReply {
+  id              String                 @id @default(cuid())
+  commentId       String
+  comment         CreatorComment         @relation(fields: [commentId], references: [id], onDelete: Cascade)
+  authorRole      CommentReplyAuthorRole
+  authorCreatorId String?
+  authorCreator   Creator?               @relation(fields: [authorCreatorId], references: [id])
+  authorFanId     String?
+  authorFan       Fan?                   @relation(fields: [authorFanId], references: [id])
+  body            String
+  createdAt       DateTime               @default(now())
+  deletedAt       DateTime?
+
+  @@index([commentId, createdAt])
+  @@index([authorCreatorId])
+  @@index([authorFanId])
 }
 
 model CreatorCommentHelpfulVote {
