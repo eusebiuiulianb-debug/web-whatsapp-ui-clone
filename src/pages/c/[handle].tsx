@@ -2,12 +2,13 @@ import Head from "next/head";
 import Image from "next/image";
 import type { GetServerSideProps } from "next";
 import { randomUUID } from "crypto";
-import { useCallback, useEffect, useRef, useState, type MouseEvent } from "react";
+import { useCallback, useEffect, useRef, useState, type MouseEvent, type TouchEvent, type WheelEvent } from "react";
 import { useRouter } from "next/router";
-import { Bell, BellRing, ThumbsUp } from "lucide-react";
+import { Bell, BellRing, ChevronLeft, ChevronRight, Pencil, ThumbsUp } from "lucide-react";
 import { PublicHero } from "../../components/public-profile/PublicHero";
 import { PublicProfileStatsRow } from "../../components/public-profile/PublicProfileStatsRow";
 import { Skeleton } from "../../components/ui/Skeleton";
+import { PublicLocationBadge } from "../../components/public-profile/PublicLocationBadge";
 import type {
   PublicCatalogItem,
   PublicCommentReply,
@@ -140,7 +141,6 @@ export default function PublicCreatorByHandle({
   creatorName,
   bio,
   websiteUrl,
-  subtitle,
   responseSla,
   availability,
   avatarUrl,
@@ -186,12 +186,18 @@ export default function PublicCreatorByHandle({
   const [toast, setToast] = useState("");
   const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const popclipVideoRef = useRef<HTMLVideoElement | null>(null);
+  const popclipPreloadRef = useRef<HTMLVideoElement | null>(null);
+  const popclipWheelLockRef = useRef(0);
+  const popclipTouchStartRef = useRef<number | null>(null);
+  const popclipTouchLastRef = useRef<number | null>(null);
+  const popclipQueryHandledRef = useRef<string | null>(null);
   const [chatPending, setChatPending] = useState(false);
   const [followPending, setFollowPending] = useState(false);
   const [isFollowingState, setIsFollowingState] = useState(Boolean(isFollowing));
   const [followersCount, setFollowersCount] = useState(
     typeof followerCount === "number" && Number.isFinite(followerCount) ? followerCount : 0
   );
+  const popclipQueryId = typeof router.query.popclip === "string" ? router.query.popclip : "";
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -301,6 +307,17 @@ export default function PublicCreatorByHandle({
       });
     return () => controller.abort();
   }, [creatorHandle]);
+
+  useEffect(() => {
+    if (!popclipQueryId) return;
+    if (popclipQueryHandledRef.current === popclipQueryId) return;
+    const allClips = [...popClips, ...storyClips];
+    const target = allClips.find((clip) => clip.id === popclipQueryId);
+    if (!target) return;
+    popclipQueryHandledRef.current = popclipQueryId;
+    setActiveHighlight("popclips");
+    setActivePopclip(target);
+  }, [popclipQueryId, popClips, storyClips]);
 
   useEffect(() => {
     if (!creatorHandle) return;
@@ -458,11 +475,30 @@ export default function PublicCreatorByHandle({
 
   const responseSlaLabel = formatResponseSla(creatorResponseSla);
   const availabilityLabel = formatAvailability(creatorAvailability);
-  const trustLine = (subtitle || responseSlaLabel || "Responde en menos de 24h").trim();
+  const hasLocation = Boolean(location && location.visibility !== "OFF" && location.label);
   const creatorChips = [
-    ...(responseSlaLabel && responseSlaLabel !== trustLine ? [responseSlaLabel] : []),
-    ...(availabilityLabel ? [availabilityLabel] : []),
+    ...(availabilityLabel ? [{ label: availabilityLabel }] : []),
+    ...(responseSlaLabel ? [{ label: responseSlaLabel }] : []),
+    ...(hasLocation
+      ? [
+          {
+            key: "location",
+            node: <PublicLocationBadge location={location} variant="chip" />,
+          },
+        ]
+      : []),
   ];
+  const statusEditAction = isCreatorViewer ? (
+    <button
+      type="button"
+      onClick={() => setStatusSheetOpen(true)}
+      aria-label="Editar estado"
+      title="Editar estado"
+      className="inline-flex h-7 w-7 items-center justify-center rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] text-[color:var(--muted)] transition hover:border-[color:var(--surface-border-hover)] hover:text-[color:var(--text)]"
+    >
+      <Pencil className="h-3.5 w-3.5" aria-hidden="true" />
+    </button>
+  ) : null;
   const bioText = (bio || "").trim();
   const [isBioExpanded, setIsBioExpanded] = useState(false);
   const bioRef = useRef<HTMLParagraphElement | null>(null);
@@ -538,6 +574,7 @@ export default function PublicCreatorByHandle({
   };
   const highlightFollowLabel = isFollowingState ? "Avisos activados" : "Activar avisos";
   const highlightFollowDisabled = isFollowingState || followPending;
+  const activePopclipId = activePopclip?.id ?? null;
   const activePopclipTitle = activePopclip
     ? (activePopclip.title?.trim() || activePopclip.pack.title || "PopClip").trim()
     : "";
@@ -562,6 +599,13 @@ export default function PublicCreatorByHandle({
       const delta = direction === "next" ? 1 : -1;
       const nextIndex = activePopclipIndex + delta;
       if (nextIndex < 0 || nextIndex >= highlightPopclipsSource.length) return;
+      if (popclipVideoRef.current) {
+        try {
+          popclipVideoRef.current.pause();
+        } catch (_err) {
+          // ignore pause errors
+        }
+      }
       setActivePopclip(highlightPopclipsSource[nextIndex]);
     },
     [activePopclipIndex, highlightPopclipsSource]
@@ -586,6 +630,83 @@ export default function PublicCreatorByHandle({
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [activePopclip, handlePopclipNavigate]);
+
+  useEffect(() => {
+    if (!activePopclipId) return;
+    const video = popclipVideoRef.current;
+    if (!video) return;
+    try {
+      video.load();
+      const playPromise = video.play();
+      if (playPromise && typeof playPromise.catch === "function") {
+        playPromise.catch(() => {});
+      }
+    } catch (_err) {
+      // ignore autoplay errors
+    }
+  }, [activePopclipId]);
+
+  useEffect(() => {
+    if (activePopclipIndex < 0) {
+      popclipPreloadRef.current = null;
+      return;
+    }
+    const nextClip = highlightPopclipsSource[activePopclipIndex + 1];
+    if (!nextClip?.videoUrl) {
+      popclipPreloadRef.current = null;
+      return;
+    }
+    const preload = document.createElement("video");
+    preload.preload = "metadata";
+    preload.src = nextClip.videoUrl;
+    popclipPreloadRef.current = preload;
+  }, [activePopclipIndex, highlightPopclipsSource]);
+
+  const handlePopclipWheel = useCallback(
+    (event: WheelEvent<HTMLDivElement>) => {
+      if (activePopclipIndex < 0) return;
+      const delta = event.deltaY;
+      if (Math.abs(delta) < 24) return;
+      const now = Date.now();
+      if (now - popclipWheelLockRef.current < 450) return;
+      popclipWheelLockRef.current = now;
+      event.preventDefault();
+      handlePopclipNavigate(delta > 0 ? "next" : "prev");
+    },
+    [activePopclipIndex, handlePopclipNavigate]
+  );
+
+  const handlePopclipTouchStart = useCallback(
+    (event: TouchEvent<HTMLDivElement>) => {
+      if (activePopclipIndex < 0) return;
+      const touch = event.touches[0];
+      if (!touch) return;
+      popclipTouchStartRef.current = touch.clientY;
+      popclipTouchLastRef.current = touch.clientY;
+    },
+    [activePopclipIndex]
+  );
+
+  const handlePopclipTouchMove = useCallback((event: TouchEvent<HTMLDivElement>) => {
+    const touch = event.touches[0];
+    if (!touch) return;
+    popclipTouchLastRef.current = touch.clientY;
+  }, []);
+
+  const handlePopclipTouchEnd = useCallback(() => {
+    if (activePopclipIndex < 0) return;
+    const startY = popclipTouchStartRef.current;
+    const endY = popclipTouchLastRef.current ?? startY;
+    popclipTouchStartRef.current = null;
+    popclipTouchLastRef.current = null;
+    if (startY === null || endY === null) return;
+    const delta = startY - endY;
+    if (Math.abs(delta) < 40) return;
+    const now = Date.now();
+    if (now - popclipWheelLockRef.current < 450) return;
+    popclipWheelLockRef.current = now;
+    handlePopclipNavigate(delta > 0 ? "next" : "prev");
+  }, [activePopclipIndex, handlePopclipNavigate]);
 
   const showToast = (message: string) => {
     setToast(message);
@@ -1050,10 +1171,10 @@ export default function PublicCreatorByHandle({
             name={creatorName}
             avatarUrl={avatarUrl}
             tagline={tagline}
-            trustLine={trustLine}
             topEligible={topEligible}
-            location={location}
             chips={creatorChips}
+            chipsPlacement="meta"
+            chipsAction={statusEditAction}
             primaryCtaLabel="Entrar al chat privado"
             primaryHref={chatHref}
             primaryOnClick={handleOpenChat}
@@ -1066,17 +1187,6 @@ export default function PublicCreatorByHandle({
             secondaryOnClick={handleFollow}
             secondaryDisabled={followPending}
           />
-          {isCreatorViewer && (
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                onClick={() => setStatusSheetOpen(true)}
-                className="rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-3 py-1.5 text-[11px] font-semibold text-[color:var(--text)] hover:bg-[color:var(--surface-2)]"
-              >
-                Editar estado
-              </button>
-            </div>
-          )}
           {showPreviewBanner && (
             <div className="rounded-xl border border-[color:rgba(var(--brand-rgb),0.35)] bg-[color:var(--surface-1)] px-4 py-2 text-xs text-[color:var(--muted)]">
               Vista previa: tu perfil aún no está público.
@@ -1505,11 +1615,15 @@ export default function PublicCreatorByHandle({
                 aria-modal="true"
                 aria-label="Ver PopClip"
                 onClick={(event) => event.stopPropagation()}
-                className="flex w-full sm:w-[720px] max-h-[85vh] flex-col overflow-hidden rounded-t-2xl sm:rounded-2xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] shadow-2xl"
+                onWheel={handlePopclipWheel}
+                onTouchStart={handlePopclipTouchStart}
+                onTouchMove={handlePopclipTouchMove}
+                onTouchEnd={handlePopclipTouchEnd}
+                className="flex w-full sm:w-[720px] max-h-[85vh] flex-col overflow-hidden overscroll-contain rounded-t-2xl sm:rounded-2xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] shadow-2xl"
               >
                 <div className="sticky top-0 z-10 border-b border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-4 pt-3 pb-3 sm:px-5 sm:pt-5 sm:pb-4">
                   <div className="mx-auto h-1 w-10 rounded-full bg-white/20 sm:hidden" />
-                  <div className="flex items-start justify-between gap-3 pt-3 sm:pt-0">
+                  <div className="flex items-start justify-between gap-3 pt-3 sm:pt-0 group">
                     <div className="space-y-1">
                       <p className="text-sm font-semibold text-[color:var(--text)]">{activePopclipTitle}</p>
                       {activePopclipPackTitle && (
@@ -1522,26 +1636,28 @@ export default function PublicCreatorByHandle({
                         onClick={() => handlePopclipNavigate("prev")}
                         disabled={!hasPrevPopclip}
                         aria-label="PopClip anterior"
-                        className={`inline-flex h-8 items-center justify-center rounded-full border px-3 text-[10px] font-semibold transition ${
+                        title="Anterior"
+                        className={`inline-flex h-8 w-8 items-center justify-center rounded-full border transition sm:opacity-0 sm:group-hover:opacity-100 sm:focus-visible:opacity-100 sm:transition-opacity ${
                           hasPrevPopclip
                             ? "border-[color:var(--surface-border)] text-[color:var(--text)] hover:bg-[color:var(--surface-2)]"
                             : "border-[color:var(--surface-border)] text-[color:var(--muted)] cursor-not-allowed"
                         }`}
                       >
-                        Anterior
+                        <ChevronLeft className="h-4 w-4" aria-hidden="true" />
                       </button>
                       <button
                         type="button"
                         onClick={() => handlePopclipNavigate("next")}
                         disabled={!hasNextPopclip}
                         aria-label="PopClip siguiente"
-                        className={`inline-flex h-8 items-center justify-center rounded-full border px-3 text-[10px] font-semibold transition ${
+                        title="Siguiente"
+                        className={`inline-flex h-8 w-8 items-center justify-center rounded-full border transition sm:opacity-0 sm:group-hover:opacity-100 sm:focus-visible:opacity-100 sm:transition-opacity ${
                           hasNextPopclip
                             ? "border-[color:var(--surface-border)] text-[color:var(--text)] hover:bg-[color:var(--surface-2)]"
                             : "border-[color:var(--surface-border)] text-[color:var(--muted)] cursor-not-allowed"
                         }`}
                       >
-                        Siguiente
+                        <ChevronRight className="h-4 w-4" aria-hidden="true" />
                       </button>
                       <button
                         type="button"

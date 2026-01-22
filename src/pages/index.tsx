@@ -1,14 +1,85 @@
 import Head from "next/head";
-import { useContext, useEffect, useRef, useState } from "react";
+import Image from "next/image";
+import Link from "next/link";
+import clsx from "clsx";
+import { useContext, useEffect, useMemo, useRef, useState } from "react";
 import ConversationDetails from "../components/ConversationDetails";
 import SideBar from "../components/SideBar";
-import { ConversationContext } from "../context/ConversationContext";
-import { useRouter } from "next/router";
 import { CreatorShell } from "../components/creator/CreatorShell";
+import { HomeSectionCard } from "../components/home/HomeSectionCard";
+import { PublicCatalogCard, type PublicCatalogCardItem } from "../components/public-profile/PublicCatalogCard";
+import { IconGlyph } from "../components/ui/IconGlyph";
+import { Skeleton } from "../components/ui/Skeleton";
+import { ConversationContext } from "../context/ConversationContext";
+import { useCreatorConfig } from "../context/CreatorConfigContext";
+import { useRouter } from "next/router";
 import { track } from "../lib/analyticsClient";
 import { ANALYTICS_EVENTS } from "../lib/analyticsEvents";
-import { getFanIdFromQuery } from "../lib/navigation/openCreatorChat";
 import { AI_ENABLED } from "../lib/features";
+import { getFanIdFromQuery } from "../lib/navigation/openCreatorChat";
+import type { PublicPopClip } from "../types/publicProfile";
+import { normalizeImageSrc } from "../utils/normalizeImageSrc";
+
+const POPCLIP_PREVIEW_LIMIT = 4;
+const HERO_FILTERS_BASE = ["Nuevos", "Top", "Online", "18+ OK"];
+
+type RecommendedCreator = {
+  id: string;
+  name: string;
+  handle: string;
+  avatarUrl?: string | null;
+  availability: string;
+  responseSla: string;
+  location?: string;
+};
+
+const MOCK_RECOMMENDED_CREATORS: RecommendedCreator[] = [
+  {
+    id: "demo-1",
+    name: "Luna V.",
+    handle: "luna-v",
+    availability: "Disponible",
+    responseSla: "Responde <24h",
+    location: "Madrid (aprox.)",
+  },
+  {
+    id: "demo-2",
+    name: "Sofia M.",
+    handle: "sofia-m",
+    availability: "Solo VIP",
+    responseSla: "Responde al momento",
+    location: "Valencia (aprox.)",
+  },
+  {
+    id: "demo-3",
+    name: "Bruno S.",
+    handle: "bruno-s",
+    availability: "Disponible",
+    responseSla: "Responde <72h",
+    location: "Sevilla (aprox.)",
+  },
+];
+
+const HOW_IT_WORKS_STEPS = [
+  {
+    id: "recharge",
+    title: "Recarga",
+    description: "Recarga saldo para desbloquear packs y chats.",
+    icon: "coin" as const,
+  },
+  {
+    id: "pack",
+    title: "Compra un pack",
+    description: "Accede a contenido y beneficios exclusivos.",
+    icon: "gift" as const,
+  },
+  {
+    id: "chat",
+    title: "Chat privado",
+    description: "Inicia conversaciones 1:1 con tus creadores.",
+    icon: "send" as const,
+  },
+];
 
 export default function Home() {
   const { conversation, openManagerPanel } = useContext(ConversationContext);
@@ -21,44 +92,6 @@ export default function Home() {
   const [ mobileView, setMobileView ] = useState<"board" | "chat">("board");
   const conversationSectionRef = useRef<HTMLDivElement>(null!);
   const lastTrackedFanRef = useRef<string | null>(null);
-  const IconHome = () => (
-    <div className="flex flex-col w-full h-full items-center justify-center px-6">
-      <svg width="360" viewBox="0 0 303 172" fill="none" preserveAspectRatio="xMidYMid meet" className="">
-        <path fillRule="evenodd" clipRule="evenodd" d="M229.565 160.229c32.647-10.984 57.366-41.988 53.825-86.81-5.381-68.1-71.025-84.993-111.918-64.932C115.998 35.7 108.972 40.16 69.239 40.16c-29.594 0-59.726 14.254-63.492 52.791-2.73 27.933 8.252 52.315 48.89 64.764 73.962 22.657 143.38 13.128 174.928 2.513Z" fill="#364147"></path><path fillRule="evenodd" clipRule="evenodd" d="M131.589 68.942h.01c6.261 0 11.336-5.263 11.336-11.756S137.86 45.43 131.599 45.43c-5.081 0-9.381 3.466-10.822 8.242a7.302 7.302 0 0 0-2.404-.405c-4.174 0-7.558 3.51-7.558 7.838s3.384 7.837 7.558 7.837h13.216ZM105.682 128.716c3.504 0 6.344-2.808 6.344-6.27 0-3.463-2.84-6.27-6.344-6.27-1.156 0-2.24.305-3.173.839v-.056c0-6.492-5.326-11.756-11.896-11.756-5.29 0-9.775 3.413-11.32 8.132a8.025 8.025 0 0 0-2.163-.294c-4.38 0-7.93 3.509-7.93 7.837 0 4.329 3.55 7.838 7.93 7.838h28.552Z" fill="#F1F1F2" fillOpacity=".38">
-        </path>
-        <rect x=".445" y=".55" width="50.58" height="100.068" rx="7.5" transform="rotate(6 -391.775 121.507) skewX(.036)" fill="#42CBA5" stroke="#316474"></rect><rect x=".445" y=".55" width="50.403" height="99.722" rx="7.5" transform="rotate(6 -356.664 123.217) skewX(.036)" fill="#EEFAF6" stroke="#316474">
-        </rect>
-        <path d="m57.16 51.735-8.568 82.024a5.495 5.495 0 0 1-6.042 4.895l-32.97-3.465a5.504 5.504 0 0 1-4.897-6.045l8.569-82.024a5.496 5.496 0 0 1 6.041-4.895l5.259.553 22.452 2.36 5.259.552a5.504 5.504 0 0 1 4.898 6.045Z" fill="#DFF3ED" stroke="#316474">
-        </path>
-        <path d="M26.2 102.937c.863.082 1.732.182 2.602.273.238-2.178.469-4.366.69-6.546l-2.61-.274c-.238 2.178-.477 4.365-.681 6.547Zm-2.73-9.608 2.27-1.833 1.837 2.264 1.135-.917-1.838-2.266 2.27-1.833-.92-1.133-2.269 1.834-1.837-2.264-1.136.916 1.839 2.265-2.27 1.835.92 1.132Zm-.816 5.286c-.128 1.3-.265 2.6-.41 3.899.877.109 1.748.183 2.626.284.146-1.31.275-2.614.413-3.925-.878-.092-1.753-.218-2.629-.258Zm16.848-8.837c-.506 4.801-1.019 9.593-1.516 14.396.88.083 1.748.192 2.628.267.496-4.794 1-9.578 1.513-14.37-.864-.143-1.747-.192-2.625-.293Zm-4.264 2.668c-.389 3.772-.803 7.541-1.183 11.314.87.091 1.74.174 2.601.273.447-3.912.826-7.84 1.255-11.755-.855-.15-1.731-.181-2.589-.306-.04.156-.069.314-.084.474Zm-4.132 1.736c-.043.159-.06.329-.077.49-.297 2.896-.617 5.78-.905 8.676l2.61.274c.124-1.02.214-2.035.33-3.055.197-2.036.455-4.075.627-6.115-.863-.08-1.724-.17-2.585-.27Z" fill="#316474">
-        </path>
-        <path d="M17.892 48.489a1.652 1.652 0 0 0 1.468 1.803 1.65 1.65 0 0 0 1.82-1.459 1.652 1.652 0 0 0-1.468-1.803 1.65 1.65 0 0 0-1.82 1.459ZM231.807 136.678l-33.863 2.362c-.294.02-.54-.02-.695-.08a.472.472 0 0 1-.089-.042l-.704-10.042a.61.61 0 0 1 .082-.054c.145-.081.383-.154.677-.175l33.863-2.362c.294-.02.54.02.695.08.041.016.069.03.088.042l.705 10.042a.61.61 0 0 1-.082.054 1.678 1.678 0 0 1-.677.175Z" fill="#fff" stroke="#316474">
-        </path>
-        <path d="m283.734 125.679-138.87 9.684c-2.87.2-5.371-1.963-5.571-4.823l-6.234-88.905c-.201-2.86 1.972-5.35 4.844-5.55l138.87-9.684c2.874-.2 5.371 1.963 5.572 4.823l6.233 88.905c.201 2.86-1.971 5.349-4.844 5.55Z" fill="#EEFAF6">
-        </path>
-        <path d="M144.864 135.363c-2.87.2-5.371-1.963-5.571-4.823l-6.234-88.905c-.201-2.86 1.972-5.35 4.844-5.55l138.87-9.684c2.874-.2 5.371 1.963 5.572 4.823l6.233 88.905c.201 2.86-1.971 5.349-4.844 5.55" stroke="#316474">
-        </path>
-        <path d="m278.565 121.405-129.885 9.058c-2.424.169-4.506-1.602-4.668-3.913l-5.669-80.855c-.162-2.31 1.651-4.354 4.076-4.523l129.885-9.058c2.427-.169 4.506 1.603 4.668 3.913l5.669 80.855c.162 2.311-1.649 4.354-4.076 4.523Z" fill="#DFF3ED" stroke="#316474">
-        </path>
-        <path d="m230.198 129.97 68.493-4.777.42 5.996c.055.781-.098 1.478-.363 1.972-.27.5-.611.726-.923.748l-165.031 11.509c-.312.022-.681-.155-1.017-.613-.332-.452-.581-1.121-.636-1.902l-.42-5.996 68.494-4.776c.261.79.652 1.483 1.142 1.998.572.6 1.308.986 2.125.929l24.889-1.736c.817-.057 1.491-.54 1.974-1.214.413-.577.705-1.318.853-2.138Z" fill="#42CBA5" stroke="#316474"></path><path d="m230.367 129.051 69.908-4.876.258 3.676a1.51 1.51 0 0 1-1.403 1.61l-168.272 11.735a1.51 1.51 0 0 1-1.613-1.399l-.258-3.676 69.909-4.876a3.323 3.323 0 0 0 3.188 1.806l25.378-1.77a3.32 3.32 0 0 0 2.905-2.23Z" fill="#EEFAF6" stroke="#316474"></path><circle transform="rotate(-3.989 1304.861 -2982.552) skewX(.021)" fill="#42CBA5" stroke="#316474" r="15.997"></circle><path d="m208.184 87.11-3.407-2.75-.001-.002a1.952 1.952 0 0 0-2.715.25 1.89 1.89 0 0 0 .249 2.692l.002.001 5.077 4.11v.001a1.95 1.95 0 0 0 2.853-.433l8.041-12.209a1.892 1.892 0 0 0-.573-2.643 1.95 1.95 0 0 0-2.667.567l-6.859 10.415Z" fill="#fff" stroke="#316474">
-        </path>
-      </svg>
-      <div className="flex flex-col items-center mt-10 w-full">
-        <h1 className="text-[color:var(--text)] text-3xl font-light text-center">Selecciona un fan para iniciar el chat</h1>
-        <div className="flex flex-col mt-4 w-full md:w-10/12 text-center ui-muted text-base font-light gap-2">
-          <p>Aquí verás los mensajes privados y podrás responder con texto, audio y enlaces a tu contenido.</p>
-          <p>Activa a tu comunidad en NOVSY sin depender del móvil.</p>
-        </div>
-        <div className="my-6 border-b-[1px] border-[color:var(--border)] w-full">
-        </div>
-
-        <div className="flex gap-2 ui-muted text-sm font-light text-center">
-          <span>Gestiona tu comunidad desde escritorio y mantén la conversación activa con tus fans.</span>
-        </div>
-      </div>
-      
-    </div>
-  )
 
   useEffect(() => {
     if (!hasConversation) return;
@@ -123,9 +156,316 @@ export default function Home() {
         renderChat={({ onBackToBoard }) => (
           <ConversationDetails onBackToBoard={onBackToBoard} />
         )}
-        fallback={<IconHome />}
+        fallback={<HomeFallback />}
         conversationSectionRef={conversationSectionRef}
       />
     </>
+  );
+}
+
+function HomeFallback() {
+  const { config } = useCreatorConfig();
+  const creatorHandle = (config.creatorHandle || "").trim();
+  const creatorName = (config.creatorName || "").trim();
+  const [search, setSearch] = useState("");
+  const [activeChip, setActiveChip] = useState<string>("Top");
+  const [popclips, setPopclips] = useState<PublicPopClip[]>([]);
+  const [popclipsLoading, setPopclipsLoading] = useState(false);
+  const [popclipsError, setPopclipsError] = useState("");
+  const [showNearbyChip, setShowNearbyChip] = useState(false);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    setShowNearbyChip(Boolean(navigator?.geolocation));
+  }, []);
+
+  useEffect(() => {
+    if (!creatorHandle) {
+      setPopclips([]);
+      setPopclipsLoading(false);
+      return;
+    }
+    const controller = new AbortController();
+    const endpoint = `/api/public/popclips?handle=${encodeURIComponent(creatorHandle)}&limit=6`;
+    setPopclipsLoading(true);
+    setPopclipsError("");
+    fetch(endpoint, { signal: controller.signal })
+      .then(async (res) => {
+        const payload = (await res.json().catch(() => null)) as
+          | { popclips?: PublicPopClip[] }
+          | null;
+        if (!res.ok || !payload || !Array.isArray(payload.popclips)) {
+          setPopclips([]);
+          setPopclipsError("No se pudieron cargar los PopClips.");
+          return;
+        }
+        setPopclips(payload.popclips);
+      })
+      .catch((err) => {
+        if (err instanceof DOMException && err.name === "AbortError") return;
+        setPopclips([]);
+        setPopclipsError("No se pudieron cargar los PopClips.");
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setPopclipsLoading(false);
+      });
+    return () => controller.abort();
+  }, [creatorHandle]);
+
+  const heroFilters = useMemo(() => {
+    const base = [...HERO_FILTERS_BASE];
+    if (showNearbyChip) base.unshift("Cerca de ti");
+    return base;
+  }, [showNearbyChip]);
+
+  const popclipItems = useMemo<PublicCatalogCardItem[]>(() => {
+    return popclips.slice(0, POPCLIP_PREVIEW_LIMIT).map((clip) => ({
+      id: clip.id,
+      kind: "popclip",
+      title: clip.title?.trim() || "PopClip",
+      priceCents: clip.pack?.priceCents,
+      currency: clip.pack?.currency,
+      thumbUrl: clip.posterUrl || clip.pack?.coverUrl || null,
+    }));
+  }, [popclips]);
+
+  const encodedHandle = creatorHandle ? encodeURIComponent(creatorHandle) : "";
+  const popclipsBaseHref = encodedHandle ? `/c/${encodedHandle}` : "/discover";
+  const popclipOpenHref = (clipId: string) =>
+    encodedHandle ? `/c/${encodedHandle}?popclip=${encodeURIComponent(clipId)}` : "/discover";
+
+  const heroTitle = creatorName ? `Hola ${creatorName}` : "Bienvenido a NOVSY";
+  const packsHref = "/creator/catalog";
+  const showPopclipEmpty = !popclipsLoading && !popclipsError && popclipItems.length === 0;
+
+  return (
+    <div className="flex h-full w-full flex-col overflow-y-auto">
+      <div className="mx-auto flex w-full max-w-6xl flex-col gap-6 px-4 py-6 md:px-6 lg:px-8">
+        <HomeSectionCard className="relative overflow-hidden">
+          <div
+            className="pointer-events-none absolute inset-0 opacity-70"
+            style={{
+              backgroundImage:
+                "radial-gradient(circle at 20% 20%, rgba(var(--brand-rgb), 0.12), transparent 40%), radial-gradient(circle at 80% 0%, rgba(59,130,246,0.18), transparent 45%), linear-gradient(135deg, var(--surface-1) 0%, var(--surface-2) 100%)",
+            }}
+          />
+          <div className="relative flex flex-col gap-6 lg:flex-row lg:items-center lg:justify-between">
+            <div className="flex-1 space-y-4">
+              <div className="space-y-2">
+                <p className="text-xs font-semibold uppercase tracking-[0.2em] text-[color:var(--muted)]">
+                  NOVSY HOME
+                </p>
+                <h1 className="text-3xl font-semibold text-[color:var(--text)]">{heroTitle}</h1>
+                <p className="text-sm text-[color:var(--muted)]">
+                  Gestiona chats privados, PopClips y packs desde una sola vista.
+                </p>
+              </div>
+              <div className="flex flex-col gap-2 sm:flex-row">
+                <div className="flex-1">
+                  <label className="sr-only" htmlFor="home-search">
+                    Buscar
+                  </label>
+                  <input
+                    id="home-search"
+                    type="text"
+                    value={search}
+                    onChange={(event) => setSearch(event.target.value)}
+                    placeholder="Buscar PopClips, packs o fans"
+                    className="h-11 w-full rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-4 text-sm text-[color:var(--text)] placeholder:text-[color:var(--muted)] focus:outline-none focus:ring-1 focus:ring-[color:var(--ring)]"
+                  />
+                </div>
+                <button
+                  type="button"
+                  className="inline-flex h-11 items-center justify-center rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-4 text-sm font-semibold text-[color:var(--text)] transition hover:bg-[color:var(--surface-2)]"
+                  aria-label="Abrir filtros"
+                >
+                  Filtros
+                </button>
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
+                {heroFilters.map((label) => (
+                  <FilterChip
+                    key={label}
+                    label={label}
+                    active={activeChip === label}
+                    onClick={() => setActiveChip((prev) => (prev === label ? "" : label))}
+                  />
+                ))}
+              </div>
+            </div>
+            <div className="flex w-full flex-col gap-3 sm:flex-row lg:w-auto lg:flex-col">
+              <Link
+                href="/discover"
+                className="inline-flex h-11 w-full items-center justify-center rounded-xl bg-[color:var(--brand-strong)] px-4 text-sm font-semibold text-[color:var(--surface-0)] shadow-lg transition hover:bg-[color:var(--brand)] sm:w-auto"
+              >
+                Abrir asistente
+              </Link>
+              <Link
+                href={popclipsBaseHref}
+                className="inline-flex h-11 w-full items-center justify-center rounded-xl border border-[color:rgba(59,130,246,0.6)] bg-[color:rgba(59,130,246,0.12)] px-4 text-sm font-semibold text-[color:var(--text)] transition hover:bg-[color:rgba(59,130,246,0.2)] sm:w-auto"
+              >
+                Ver PopClips
+              </Link>
+            </div>
+          </div>
+        </HomeSectionCard>
+
+        <HomeSectionCard
+          title="PopClips"
+          rightSlot={
+            <Link
+              href={popclipsBaseHref}
+              className="text-sm font-semibold text-[color:var(--brand)] hover:text-[color:var(--brand-strong)]"
+            >
+              Ver todo
+            </Link>
+          }
+        >
+          {popclipsLoading ? (
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+              {Array.from({ length: POPCLIP_PREVIEW_LIMIT }).map((_, idx) => (
+                <Skeleton key={`popclip-skeleton-${idx}`} className="h-[240px] w-full rounded-2xl" />
+              ))}
+            </div>
+          ) : popclipsError ? (
+            <div className="rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] p-4 text-sm text-[color:var(--muted)]">
+              {popclipsError}
+            </div>
+          ) : showPopclipEmpty ? (
+            <div className="rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] p-4 text-sm text-[color:var(--muted)]">
+              Aun no hay PopClips publicados.
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+              {popclipItems.map((item) => (
+                <Link
+                  key={item.id}
+                  href={popclipOpenHref(item.id)}
+                  className="group block focus:outline-none focus:ring-1 focus:ring-[color:var(--ring)] rounded-2xl"
+                  aria-label={`Abrir ${item.title}`}
+                >
+                  <PublicCatalogCard item={item} />
+                </Link>
+              ))}
+            </div>
+          )}
+        </HomeSectionCard>
+
+        <HomeSectionCard title="Creadores recomendados">
+          <div className="flex flex-col gap-3">
+            {/* TODO: replace with a public creators feed when available. */}
+            {MOCK_RECOMMENDED_CREATORS.map((creator) => (
+              <HomeCreatorCard key={creator.id} creator={creator} />
+            ))}
+          </div>
+        </HomeSectionCard>
+
+        <HomeSectionCard
+          title="Como funciona"
+          rightSlot={
+            <Link
+              href={packsHref}
+              className="inline-flex items-center justify-center rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-3 py-1 text-xs font-semibold text-[color:var(--text)] hover:bg-[color:var(--surface-2)]"
+            >
+              Ver packs
+            </Link>
+          }
+        >
+          <div className="grid gap-3 sm:grid-cols-3">
+            {HOW_IT_WORKS_STEPS.map((step) => (
+              <div
+                key={step.id}
+                className="rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] p-4"
+              >
+                <div className="flex items-center gap-2 text-sm font-semibold text-[color:var(--text)]">
+                  <span className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] text-[color:var(--text)]">
+                    <IconGlyph name={step.icon} ariaHidden />
+                  </span>
+                  {step.title}
+                </div>
+                <p className="mt-2 text-xs text-[color:var(--muted)]">{step.description}</p>
+              </div>
+            ))}
+          </div>
+        </HomeSectionCard>
+      </div>
+    </div>
+  );
+}
+
+function FilterChip({
+  label,
+  active,
+  onClick,
+}: {
+  label: string;
+  active: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-pressed={active}
+      className={clsx(
+        "inline-flex items-center rounded-full border px-3 py-1 text-xs font-semibold transition",
+        active
+          ? "border-[color:rgba(var(--brand-rgb),0.6)] bg-[color:rgba(var(--brand-rgb),0.16)] text-[color:var(--text)]"
+          : "border-[color:var(--surface-border)] bg-[color:var(--surface-1)] text-[color:var(--muted)] hover:bg-[color:var(--surface-2)] hover:text-[color:var(--text)]"
+      )}
+    >
+      {label}
+    </button>
+  );
+}
+
+function HomeCreatorCard({ creator }: { creator: RecommendedCreator }) {
+  const initial = creator.name?.trim()?.[0]?.toUpperCase() || "C";
+
+  return (
+    <div className="rounded-2xl border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] p-4">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex min-w-0 items-center gap-3">
+          <div className="h-12 w-12 shrink-0 overflow-hidden rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-1)]">
+            {creator.avatarUrl ? (
+              <Image
+                src={normalizeImageSrc(creator.avatarUrl)}
+                alt={creator.name}
+                width={48}
+                height={48}
+                className="h-full w-full object-cover"
+              />
+            ) : (
+              <div className="flex h-full w-full items-center justify-center text-sm font-semibold text-[color:var(--text)]">
+                {initial}
+              </div>
+            )}
+          </div>
+          <div className="min-w-0">
+            <div className="text-sm font-semibold text-[color:var(--text)] truncate">{creator.name}</div>
+            <div className="text-xs text-[color:var(--muted)] truncate">@{creator.handle}</div>
+          </div>
+        </div>
+        <Link
+          href={`/c/${creator.handle}`}
+          className="inline-flex items-center justify-center rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-3 py-1 text-xs font-semibold text-[color:var(--text)] hover:bg-[color:var(--surface-2)]"
+        >
+          Ver perfil
+        </Link>
+      </div>
+      <div className="mt-3 flex flex-wrap gap-2">
+        <span className="inline-flex items-center rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-3 py-1 text-[11px] font-semibold text-[color:var(--text)]">
+          {creator.availability}
+        </span>
+        <span className="inline-flex items-center rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-3 py-1 text-[11px] font-semibold text-[color:var(--text)]">
+          {creator.responseSla}
+        </span>
+        {creator.location ? (
+          <span className="inline-flex min-w-0 max-w-full items-center rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-3 py-1 text-[11px] font-semibold text-[color:var(--text)]">
+            <span className="truncate">{creator.location}</span>
+          </span>
+        ) : null}
+      </div>
+    </div>
   );
 }
