@@ -37,7 +37,8 @@ export type IconName =
   | "flame"
   | "send"
   | "eye"
-  | "eyeOff";
+  | "eyeOff"
+  | "home";
 
 type IconGlyphProps = {
   name: IconName;
@@ -179,6 +180,12 @@ export function IconGlyph({
           <path d="M3 12s4-6 9-6c1.7 0 3.3.5 4.7 1.3" />
           <path d="M21 12s-4 6-9 6c-1.7 0-3.3-.5-4.7-1.3" />
           <path d="M10 10a3 3 0 0 1 4 4" />
+        </>
+      )}
+      {name === "home" && (
+        <>
+          <path d="M3 11l9-7 9 7" />
+          <path d="M5 10v9h5v-6h4v6h5v-9" />
         </>
       )}
       {name === "calendar" && (

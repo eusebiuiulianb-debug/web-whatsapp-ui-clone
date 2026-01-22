@@ -6,9 +6,11 @@ import { useContext, useEffect, useMemo, useRef, useState } from "react";
 import ConversationDetails from "../components/ConversationDetails";
 import SideBar from "../components/SideBar";
 import { CreatorShell } from "../components/creator/CreatorShell";
+import { HomeCategorySheet, type HomeCategory } from "../components/home/HomeCategorySheet";
 import { HomeSectionCard } from "../components/home/HomeSectionCard";
 import { PublicCatalogCard, type PublicCatalogCardItem } from "../components/public-profile/PublicCatalogCard";
 import { IconGlyph } from "../components/ui/IconGlyph";
+import { PillButton } from "../components/ui/PillButton";
 import { Skeleton } from "../components/ui/Skeleton";
 import { ConversationContext } from "../context/ConversationContext";
 import { useCreatorConfig } from "../context/CreatorConfigContext";
@@ -21,42 +23,75 @@ import type { PublicPopClip } from "../types/publicProfile";
 import { normalizeImageSrc } from "../utils/normalizeImageSrc";
 
 const POPCLIP_PREVIEW_LIMIT = 4;
-const HERO_FILTERS_BASE = ["Nuevos", "Top", "Online", "18+ OK"];
-
 type RecommendedCreator = {
-  id: string;
-  name: string;
   handle: string;
+  displayName: string;
   avatarUrl?: string | null;
   availability: string;
-  responseSla: string;
-  location?: string;
+  responseTime: string;
+  locationLabel?: string | null;
 };
 
-const MOCK_RECOMMENDED_CREATORS: RecommendedCreator[] = [
+type HeroFilter = {
+  id: string;
+  label: string;
+  kind: "availability" | "response";
+  value: string;
+};
+
+const HERO_FILTERS_BASE: HeroFilter[] = [
+  { id: "available", label: "Disponible", kind: "availability", value: "AVAILABLE" },
+  { id: "vip", label: "Solo VIP", kind: "availability", value: "VIP_ONLY" },
+  { id: "instant", label: "Responde al momento", kind: "response", value: "INSTANT" },
+  { id: "lt24", label: "Responde <24h", kind: "response", value: "LT_24H" },
+];
+
+const TRENDING_SEARCHES = [
+  "Chat privado",
+  "PopClips",
+  "Packs",
+  "ASMR",
+  "Roleplay",
+  "Audio personalizado",
+  "Suscripciones",
+];
+
+const HOME_CATEGORIES: HomeCategory[] = [
   {
-    id: "demo-1",
-    name: "Luna V.",
-    handle: "luna-v",
-    availability: "Disponible",
-    responseSla: "Responde <24h",
-    location: "Madrid (aprox.)",
+    id: "chat",
+    label: "Chat y compania",
+    description: "Conversaciones cercanas y 1:1",
+    keywords: ["chat", "compan", "conversacion", "amigos", "cercania"],
   },
   {
-    id: "demo-2",
-    name: "Sofia M.",
-    handle: "sofia-m",
-    availability: "Solo VIP",
-    responseSla: "Responde al momento",
-    location: "Valencia (aprox.)",
+    id: "contenido",
+    label: "Contenido creativo",
+    description: "Clips, packs y contenido exclusivo",
+    keywords: ["popclip", "clip", "contenido", "pack", "suscripcion"],
   },
   {
-    id: "demo-3",
-    name: "Bruno S.",
-    handle: "bruno-s",
-    availability: "Disponible",
-    responseSla: "Responde <72h",
-    location: "Sevilla (aprox.)",
+    id: "asmr",
+    label: "ASMR y audio",
+    description: "Audio personalizado y relax",
+    keywords: ["asmr", "audio", "voz", "relax"],
+  },
+  {
+    id: "roleplay",
+    label: "Roleplay",
+    description: "Experiencias tematicas",
+    keywords: ["roleplay", "historia", "rol", "fantasia"],
+  },
+  {
+    id: "gaming",
+    label: "Gaming y streams",
+    description: "Sesion en vivo y gaming",
+    keywords: ["gaming", "stream", "directo", "juego"],
+  },
+  {
+    id: "fitness",
+    label: "Fitness y bienestar",
+    description: "Rutinas y motivacion",
+    keywords: ["fitness", "bienestar", "rutina", "salud"],
   },
 ];
 
@@ -165,19 +200,28 @@ export default function Home() {
 
 function HomeFallback() {
   const { config } = useCreatorConfig();
+  const router = useRouter();
   const creatorHandle = (config.creatorHandle || "").trim();
   const creatorName = (config.creatorName || "").trim();
   const [search, setSearch] = useState("");
-  const [activeChip, setActiveChip] = useState<string>("Top");
+  const [debouncedSearch, setDebouncedSearch] = useState("");
+  const [availabilityFilter, setAvailabilityFilter] = useState<string | null>(null);
+  const [responseFilter, setResponseFilter] = useState<string | null>(null);
+  const [selectedCategoryId, setSelectedCategoryId] = useState<string | null>(null);
+  const [categorySheetOpen, setCategorySheetOpen] = useState(false);
   const [popclips, setPopclips] = useState<PublicPopClip[]>([]);
   const [popclipsLoading, setPopclipsLoading] = useState(false);
   const [popclipsError, setPopclipsError] = useState("");
-  const [showNearbyChip, setShowNearbyChip] = useState(false);
+  const [recommendedCreators, setRecommendedCreators] = useState<RecommendedCreator[]>([]);
+  const [creatorsLoading, setCreatorsLoading] = useState(false);
+  const [creatorsError, setCreatorsError] = useState("");
 
   useEffect(() => {
-    if (typeof window === "undefined") return;
-    setShowNearbyChip(Boolean(navigator?.geolocation));
-  }, []);
+    const handle = setTimeout(() => {
+      setDebouncedSearch(search.trim());
+    }, 320);
+    return () => clearTimeout(handle);
+  }, [search]);
 
   useEffect(() => {
     if (!creatorHandle) {
@@ -212,11 +256,19 @@ function HomeFallback() {
     return () => controller.abort();
   }, [creatorHandle]);
 
-  const heroFilters = useMemo(() => {
-    const base = [...HERO_FILTERS_BASE];
-    if (showNearbyChip) base.unshift("Cerca de ti");
-    return base;
-  }, [showNearbyChip]);
+  const heroFilters = useMemo(() => HERO_FILTERS_BASE, []);
+  const selectedCategory = useMemo(
+    () => HOME_CATEGORIES.find((category) => category.id === selectedCategoryId) ?? null,
+    [selectedCategoryId]
+  );
+  const filteredCreators = useMemo(() => {
+    if (!selectedCategory) return recommendedCreators;
+    const keywords = selectedCategory.keywords.map((word) => word.toLowerCase());
+    return recommendedCreators.filter((creator) => {
+      const haystack = `${creator.displayName} ${creator.handle} ${creator.locationLabel || ""}`.toLowerCase();
+      return keywords.some((keyword) => haystack.includes(keyword));
+    });
+  }, [recommendedCreators, selectedCategory]);
 
   const popclipItems = useMemo<PublicCatalogCardItem[]>(() => {
     return popclips.slice(0, POPCLIP_PREVIEW_LIMIT).map((clip) => ({
@@ -237,6 +289,53 @@ function HomeFallback() {
   const heroTitle = creatorName ? `Hola ${creatorName}` : "Bienvenido a NOVSY";
   const packsHref = "/creator/catalog";
   const showPopclipEmpty = !popclipsLoading && !popclipsError && popclipItems.length === 0;
+  const showCreatorsEmpty =
+    !creatorsLoading && !creatorsError && filteredCreators.length === 0;
+
+  const clearFilters = () => {
+    setSearch("");
+    setAvailabilityFilter(null);
+    setResponseFilter(null);
+    setSelectedCategoryId(null);
+  };
+
+  useEffect(() => {
+    const params = new URLSearchParams();
+    if (debouncedSearch) params.set("q", debouncedSearch);
+    if (availabilityFilter) params.set("availability", availabilityFilter);
+    if (responseFilter) params.set("responseTime", responseFilter);
+    params.set("limit", "8");
+    const endpoint = `/api/public/creators/recommended?${params.toString()}`;
+    const controller = new AbortController();
+    setCreatorsLoading(true);
+    setCreatorsError("");
+    fetch(endpoint, { signal: controller.signal })
+      .then(async (res) => {
+        const payload = (await res.json().catch(() => null)) as
+          | { creators?: RecommendedCreator[]; items?: RecommendedCreator[] }
+          | null;
+        if (!res.ok || !payload) {
+          setRecommendedCreators([]);
+          setCreatorsError("No se pudieron cargar los creadores.");
+          return;
+        }
+        const creators = Array.isArray(payload.creators)
+          ? payload.creators
+          : Array.isArray(payload.items)
+          ? payload.items
+          : [];
+        setRecommendedCreators(creators);
+      })
+      .catch((err) => {
+        if (err instanceof DOMException && err.name === "AbortError") return;
+        setRecommendedCreators([]);
+        setCreatorsError("No se pudieron cargar los creadores.");
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setCreatorsLoading(false);
+      });
+    return () => controller.abort();
+  }, [availabilityFilter, debouncedSearch, responseFilter]);
 
   return (
     <div className="flex h-full w-full flex-col overflow-y-auto">
@@ -249,69 +348,108 @@ function HomeFallback() {
                 "radial-gradient(circle at 20% 20%, rgba(var(--brand-rgb), 0.12), transparent 40%), radial-gradient(circle at 80% 0%, rgba(59,130,246,0.18), transparent 45%), linear-gradient(135deg, var(--surface-1) 0%, var(--surface-2) 100%)",
             }}
           />
-          <div className="relative flex flex-col gap-6 lg:flex-row lg:items-center lg:justify-between">
-            <div className="flex-1 space-y-4">
-              <div className="space-y-2">
-                <p className="text-xs font-semibold uppercase tracking-[0.2em] text-[color:var(--muted)]">
-                  NOVSY HOME
-                </p>
-                <h1 className="text-3xl font-semibold text-[color:var(--text)]">{heroTitle}</h1>
-                <p className="text-sm text-[color:var(--muted)]">
-                  Gestiona chats privados, PopClips y packs desde una sola vista.
-                </p>
+          <div className="relative flex flex-col gap-5">
+            <div className="space-y-1">
+              <p className="text-xs font-semibold uppercase tracking-[0.2em] text-[color:var(--muted)]">
+                NOVSY HOME
+              </p>
+              <h1 className="text-2xl font-semibold text-[color:var(--text)]">{heroTitle}</h1>
+              <p className="text-sm text-[color:var(--muted)]">
+                Encuentra creadores, packs y PopClips al instante.
+              </p>
+            </div>
+
+            <div className="space-y-3">
+              <div>
+                <label className="sr-only" htmlFor="home-search">
+                  Buscar
+                </label>
+                <input
+                  id="home-search"
+                  type="text"
+                  value={search}
+                  onChange={(event) => setSearch(event.target.value)}
+                  placeholder="Buscar creadores, packs o PopClips"
+                  className="h-11 w-full rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-4 text-sm text-[color:var(--text)] placeholder:text-[color:var(--muted)] focus:outline-none focus:ring-1 focus:ring-[color:var(--ring)]"
+                />
               </div>
-              <div className="flex flex-col gap-2 sm:flex-row">
-                <div className="flex-1">
-                  <label className="sr-only" htmlFor="home-search">
-                    Buscar
-                  </label>
-                  <input
-                    id="home-search"
-                    type="text"
-                    value={search}
-                    onChange={(event) => setSearch(event.target.value)}
-                    placeholder="Buscar PopClips, packs o fans"
-                    className="h-11 w-full rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-4 text-sm text-[color:var(--text)] placeholder:text-[color:var(--muted)] focus:outline-none focus:ring-1 focus:ring-[color:var(--ring)]"
-                  />
-                </div>
+              <div className="flex flex-wrap items-center gap-2">
+                <PillButton
+                  intent="secondary"
+                  size="sm"
+                  onClick={() => setCategorySheetOpen(true)}
+                >
+                  Categorias
+                </PillButton>
+                <PillButton
+                  intent="secondary"
+                  size="sm"
+                  onClick={() => void router.push("/favorites")}
+                >
+                  Favoritos
+                </PillButton>
                 <button
                   type="button"
-                  className="inline-flex h-11 items-center justify-center rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-4 text-sm font-semibold text-[color:var(--text)] transition hover:bg-[color:var(--surface-2)]"
-                  aria-label="Abrir filtros"
+                  disabled
+                  className="inline-flex h-9 items-center justify-center rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-3 text-xs font-semibold text-[color:var(--muted)] opacity-70 cursor-not-allowed"
+                  aria-label="Filtros"
                 >
                   Filtros
                 </button>
               </div>
-              <div className="flex flex-wrap items-center gap-2">
-                {heroFilters.map((label) => (
-                  <FilterChip
-                    key={label}
-                    label={label}
-                    active={activeChip === label}
-                    onClick={() => setActiveChip((prev) => (prev === label ? "" : label))}
+            </div>
+
+            <div className="space-y-2">
+              <p className="text-xs font-semibold uppercase tracking-[0.2em] text-[color:var(--muted)]">
+                Lo mas buscado
+              </p>
+              <div className="flex items-center gap-2 overflow-x-auto pb-1">
+                {TRENDING_SEARCHES.map((term) => (
+                  <TrendingChip
+                    key={term}
+                    label={term}
+                    onClick={() => setSearch(term)}
                   />
                 ))}
               </div>
             </div>
-            <div className="flex w-full flex-col gap-3 sm:flex-row lg:w-auto lg:flex-col">
-              <Link
-                href="/discover"
-                className="inline-flex h-11 w-full items-center justify-center rounded-xl bg-[color:var(--brand-strong)] px-4 text-sm font-semibold text-[color:var(--surface-0)] shadow-lg transition hover:bg-[color:var(--brand)] sm:w-auto"
-              >
-                Abrir asistente
-              </Link>
-              <Link
-                href={popclipsBaseHref}
-                className="inline-flex h-11 w-full items-center justify-center rounded-xl border border-[color:rgba(59,130,246,0.6)] bg-[color:rgba(59,130,246,0.12)] px-4 text-sm font-semibold text-[color:var(--text)] transition hover:bg-[color:rgba(59,130,246,0.2)] sm:w-auto"
-              >
-                Ver PopClips
-              </Link>
+
+            <div className="flex flex-wrap items-center gap-2">
+              {selectedCategory ? (
+                <FilterChip
+                  label={selectedCategory.label}
+                  active
+                  onClick={() => setSelectedCategoryId(null)}
+                />
+              ) : null}
+              {heroFilters.map((filter) => (
+                <FilterChip
+                  key={filter.id}
+                  label={filter.label}
+                  active={
+                    filter.kind === "availability"
+                      ? availabilityFilter === filter.value
+                      : responseFilter === filter.value
+                  }
+                  onClick={() => {
+                    if (filter.kind === "availability") {
+                      setAvailabilityFilter((prev) =>
+                        prev === filter.value ? null : filter.value
+                      );
+                      return;
+                    }
+                    setResponseFilter((prev) =>
+                      prev === filter.value ? null : filter.value
+                    );
+                  }}
+                />
+              ))}
             </div>
           </div>
         </HomeSectionCard>
 
         <HomeSectionCard
-          title="PopClips"
+          title="Destacados"
           rightSlot={
             <Link
               href={popclipsBaseHref}
@@ -333,7 +471,7 @@ function HomeFallback() {
             </div>
           ) : showPopclipEmpty ? (
             <div className="rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] p-4 text-sm text-[color:var(--muted)]">
-              Aun no hay PopClips publicados.
+              Aun no hay destacados disponibles.
             </div>
           ) : (
             <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
@@ -352,12 +490,35 @@ function HomeFallback() {
         </HomeSectionCard>
 
         <HomeSectionCard title="Creadores recomendados">
-          <div className="flex flex-col gap-3">
-            {/* TODO: replace with a public creators feed when available. */}
-            {MOCK_RECOMMENDED_CREATORS.map((creator) => (
-              <HomeCreatorCard key={creator.id} creator={creator} />
-            ))}
-          </div>
+          {creatorsLoading ? (
+            <div className="flex flex-col gap-3">
+              {Array.from({ length: 3 }).map((_, idx) => (
+                <Skeleton key={`creator-skeleton-${idx}`} className="h-24 w-full rounded-2xl" />
+              ))}
+            </div>
+          ) : creatorsError ? (
+            <div className="rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] p-4 text-sm text-[color:var(--muted)]">
+              {creatorsError}
+            </div>
+          ) : showCreatorsEmpty ? (
+            <div className="flex flex-col items-start gap-3 rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] p-4 text-sm text-[color:var(--muted)]">
+              <span>No encontramos creadores con esos filtros.</span>
+              <button
+                type="button"
+                onClick={clearFilters}
+                aria-label="Limpiar filtros"
+                className="inline-flex items-center justify-center rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-3 py-1 text-xs font-semibold text-[color:var(--text)] hover:bg-[color:var(--surface-2)]"
+              >
+                Limpiar filtros
+              </button>
+            </div>
+          ) : (
+            <div className="flex flex-col gap-3">
+              {filteredCreators.map((creator) => (
+                <HomeCreatorCard key={creator.handle} creator={creator} />
+              ))}
+            </div>
+          )}
         </HomeSectionCard>
 
         <HomeSectionCard
@@ -389,6 +550,15 @@ function HomeFallback() {
           </div>
         </HomeSectionCard>
       </div>
+
+      <HomeCategorySheet
+        open={categorySheetOpen}
+        categories={HOME_CATEGORIES}
+        selectedId={selectedCategoryId}
+        onSelect={(category) => setSelectedCategoryId(category.id)}
+        onClear={() => setSelectedCategoryId(null)}
+        onClose={() => setCategorySheetOpen(false)}
+      />
     </div>
   );
 }
@@ -407,6 +577,7 @@ function FilterChip({
       type="button"
       onClick={onClick}
       aria-pressed={active}
+      aria-label={label}
       className={clsx(
         "inline-flex items-center rounded-full border px-3 py-1 text-xs font-semibold transition",
         active
@@ -419,21 +590,39 @@ function FilterChip({
   );
 }
 
+function TrendingChip({ label, onClick }: { label: string; onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="inline-flex shrink-0 items-center rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-3 py-1 text-xs font-semibold text-[color:var(--text)] hover:bg-[color:var(--surface-2)]"
+    >
+      {label}
+    </button>
+  );
+}
+
 function HomeCreatorCard({ creator }: { creator: RecommendedCreator }) {
-  const initial = creator.name?.trim()?.[0]?.toUpperCase() || "C";
+  const initial = creator.displayName?.trim()?.[0]?.toUpperCase() || "C";
+  const [avatarFailed, setAvatarFailed] = useState(false);
+
+  useEffect(() => {
+    setAvatarFailed(false);
+  }, [creator.avatarUrl]);
 
   return (
     <div className="rounded-2xl border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] p-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex min-w-0 items-center gap-3">
           <div className="h-12 w-12 shrink-0 overflow-hidden rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-1)]">
-            {creator.avatarUrl ? (
+            {creator.avatarUrl && !avatarFailed ? (
               <Image
                 src={normalizeImageSrc(creator.avatarUrl)}
-                alt={creator.name}
+                alt={creator.displayName}
                 width={48}
                 height={48}
                 className="h-full w-full object-cover"
+                onError={() => setAvatarFailed(true)}
               />
             ) : (
               <div className="flex h-full w-full items-center justify-center text-sm font-semibold text-[color:var(--text)]">
@@ -442,7 +631,7 @@ function HomeCreatorCard({ creator }: { creator: RecommendedCreator }) {
             )}
           </div>
           <div className="min-w-0">
-            <div className="text-sm font-semibold text-[color:var(--text)] truncate">{creator.name}</div>
+            <div className="text-sm font-semibold text-[color:var(--text)] truncate">{creator.displayName}</div>
             <div className="text-xs text-[color:var(--muted)] truncate">@{creator.handle}</div>
           </div>
         </div>
@@ -458,11 +647,11 @@ function HomeCreatorCard({ creator }: { creator: RecommendedCreator }) {
           {creator.availability}
         </span>
         <span className="inline-flex items-center rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-3 py-1 text-[11px] font-semibold text-[color:var(--text)]">
-          {creator.responseSla}
+          {creator.responseTime}
         </span>
-        {creator.location ? (
+        {creator.locationLabel ? (
           <span className="inline-flex min-w-0 max-w-full items-center rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-3 py-1 text-[11px] font-semibold text-[color:var(--text)]">
-            <span className="truncate">{creator.location}</span>
+            <span className="truncate">{creator.locationLabel}</span>
           </span>
         ) : null}
       </div>

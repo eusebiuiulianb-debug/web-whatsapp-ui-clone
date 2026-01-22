@@ -20,13 +20,16 @@ export function PublicLocationBadge({ location, align = "start", variant = "badg
   const hasMap = visibility === "AREA" && Boolean(geohash);
   const resolvedRadiusKm = location?.radiusKm ?? DEFAULT_AREA_RADIUS_KM;
   const alignClass = align === "center" ? "justify-center" : "justify-start";
-  const chipClass = variant === "chip"
-    ? "border-white/10 bg-white/5 text-white/80"
+  const isChip = variant === "chip";
+  const chipClass = isChip
+    ? "border-[color:var(--surface-border)] bg-[color:var(--surface-1)] text-[color:var(--text)]"
     : "border-white/10 bg-white/5 text-white/80";
-  const pillBaseClass = "inline-flex h-7 items-center gap-1 rounded-full border px-3 text-xs";
-  const mutedClass = "text-white/50";
+  const pillBaseClass = isChip
+    ? "inline-flex h-7 items-center gap-1 rounded-full border px-3 text-[11px] font-semibold"
+    : "inline-flex h-7 items-center gap-1 rounded-full border px-3 text-xs";
+  const mutedClass = isChip ? "text-[color:var(--muted)]" : "text-white/50";
   const shouldRender = Boolean(location) && visibility !== "OFF" && Boolean(label);
-  const showModal = hasMap && (open || isVisible);
+  const showModal = open || isVisible;
   const overlayMotionClass = prefersReducedMotion ? "" : "transition-opacity duration-200";
   const overlayStateClass = open ? "opacity-100" : "opacity-0 pointer-events-none";
   const panelMotionClass = prefersReducedMotion ? "" : "transition duration-200 ease-out";
@@ -35,10 +38,6 @@ export function PublicLocationBadge({ location, align = "start", variant = "badg
     : (open
       ? "opacity-100 translate-y-0 sm:scale-100"
       : "opacity-0 translate-y-4 sm:translate-y-2 sm:scale-95");
-
-  useEffect(() => {
-    if (open && !hasMap) setOpen(false);
-  }, [open, hasMap]);
 
   useEffect(() => {
     if (open || !isVisible) return;
@@ -82,7 +81,6 @@ export function PublicLocationBadge({ location, align = "start", variant = "badg
   }, [open]);
 
   const handleOpen = () => {
-    if (!hasMap) return;
     setIsVisible(true);
     if (prefersReducedMotion || typeof window === "undefined") {
       setOpen(true);
@@ -97,25 +95,28 @@ export function PublicLocationBadge({ location, align = "start", variant = "badg
 
   if (!shouldRender) return null;
 
+  const mapSearchUrl = label
+    ? `https://www.openstreetmap.org/search?query=${encodeURIComponent(label)}`
+    : "";
+  const buttonClass = isChip
+    ? "cursor-pointer hover:border-[color:var(--surface-border-hover)] hover:bg-[color:var(--surface-2)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--ring)]"
+    : "cursor-pointer hover:border-white/20 hover:bg-white/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/30";
+
   return (
     <div className={`flex flex-wrap items-center gap-2 ${alignClass}`}>
-      {hasMap ? (
-        <button
-          type="button"
-          onClick={handleOpen}
-          aria-label={`Ver zona aproximada de ${label}`}
-          className={`${pillBaseClass} ${chipClass} cursor-pointer hover:border-white/20 hover:bg-white/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/30`}
-        >
-          <span>📍 {label}</span>
-          <span className={mutedClass}>(aprox.)</span>
-          <span className="text-white/60" aria-hidden="true">›</span>
-        </button>
-      ) : (
-        <div className={`${pillBaseClass} ${chipClass} opacity-90`}>
-          <span>📍 {label}</span>
-          <span className={mutedClass}>(aprox.)</span>
-        </div>
-      )}
+      <button
+        type="button"
+        onClick={handleOpen}
+        aria-label={`Ver mapa de ${label}`}
+        title="Ver mapa"
+        className={`${pillBaseClass} ${chipClass} ${buttonClass}`}
+      >
+        <span>📍 {label}</span>
+        <span className={mutedClass}>(aprox.)</span>
+        <span className={isChip ? "text-[color:var(--muted)]" : "text-white/60"} aria-hidden="true">
+          ›
+        </span>
+      </button>
 
       {showModal && (
         <div
@@ -130,16 +131,17 @@ export function PublicLocationBadge({ location, align = "start", variant = "badg
               onClick={(event) => event.stopPropagation()}
               className={`w-full sm:w-[520px] max-h-[85vh] overflow-hidden rounded-t-2xl sm:rounded-2xl border border-white/10 bg-[color:var(--surface-1)] shadow-2xl ${panelMotionClass} ${panelStateClass}`}
             >
-              <div className="px-4 pt-3 pb-4 sm:px-5 sm:pt-5 sm:pb-5 space-y-3">
-                <div className="mx-auto h-1 w-10 rounded-full bg-white/20 sm:hidden" />
-                <div className="flex items-start justify-between gap-3">
-                  <div className="space-y-1">
-                    <p className="text-sm font-semibold text-[color:var(--text)]">Ubicación aproximada</p>
-                    <p className="text-xs text-[color:var(--muted)]">
-                      {label} · radio aprox. {resolvedRadiusKm} km
-                    </p>
-                    <p className="text-xs text-[color:var(--muted)]">Zona aproximada por privacidad.</p>
-                  </div>
+                <div className="px-4 pt-3 pb-4 sm:px-5 sm:pt-5 sm:pb-5 space-y-3">
+                  <div className="mx-auto h-1 w-10 rounded-full bg-white/20 sm:hidden" />
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="space-y-1">
+                      <p className="text-sm font-semibold text-[color:var(--text)]">Ubicación aproximada</p>
+                      <p className="text-xs text-[color:var(--muted)]">
+                      {label}
+                      {hasMap ? ` · radio aprox. ${resolvedRadiusKm} km` : ""}
+                      </p>
+                      <p className="text-xs text-[color:var(--muted)]">Zona aproximada por privacidad.</p>
+                    </div>
                   <button
                     type="button"
                     onClick={handleClose}
@@ -149,9 +151,25 @@ export function PublicLocationBadge({ location, align = "start", variant = "badg
                     X
                   </button>
                 </div>
-                <div className="h-[260px] sm:h-[340px] w-full overflow-hidden rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] shadow-[inset_0_0_0_1px_rgba(255,255,255,0.04)] [&_.leaflet-control-attribution]:hidden">
-                  <LocationMap geohash={geohash} radiusKm={resolvedRadiusKm} />
-                </div>
+                {hasMap ? (
+                  <div className="h-[260px] sm:h-[340px] w-full overflow-hidden rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] shadow-[inset_0_0_0_1px_rgba(255,255,255,0.04)] [&_.leaflet-control-attribution]:hidden">
+                    <LocationMap geohash={geohash} radiusKm={resolvedRadiusKm} />
+                  </div>
+                ) : (
+                  <div className="rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-4 py-3 text-xs text-[color:var(--muted)] space-y-3">
+                    <p>No hay mapa embebido para esta ubicación, pero puedes abrirlo en OpenStreetMap.</p>
+                    {mapSearchUrl && (
+                      <a
+                        href={mapSearchUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="inline-flex w-fit items-center rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-3 py-1 text-[11px] font-semibold text-[color:var(--text)] hover:bg-[color:var(--surface-2)]"
+                      >
+                        Abrir mapa
+                      </a>
+                    )}
+                  </div>
+                )}
                 <p className="text-[10px] text-[color:var(--muted)] opacity-80">
                   ©{" "}
                   <a

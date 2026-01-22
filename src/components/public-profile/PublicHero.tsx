@@ -4,6 +4,8 @@ import { normalizeImageSrc } from "../../utils/normalizeImageSrc";
 import type { CreatorLocation } from "../../types/creatorLocation";
 import { PublicLocationBadge } from "./PublicLocationBadge";
 
+type ChipItem = string | { label: string; className?: string } | { node: ReactNode; key?: string };
+
 type Props = {
   name: string;
   avatarUrl?: string | null;
@@ -11,7 +13,9 @@ type Props = {
   trustLine?: string;
   topEligible?: boolean;
   location?: CreatorLocation | null;
-  chips: string[];
+  chips: ChipItem[];
+  chipsPlacement?: "meta" | "footer";
+  chipsAction?: ReactNode;
   primaryCtaLabel: string;
   primaryHref: string;
   primaryOnClick?: (event: MouseEvent<HTMLAnchorElement>) => void;
@@ -33,6 +37,8 @@ export function PublicHero({
   topEligible,
   location,
   chips,
+  chipsPlacement = "footer",
+  chipsAction,
   primaryCtaLabel,
   primaryHref,
   primaryOnClick,
@@ -48,6 +54,46 @@ export function PublicHero({
   const showLocation = Boolean(location && location.visibility !== "OFF" && location.label);
   const showMeta = Boolean(trustLine) || showLocation;
   const showSeparator = Boolean(trustLine) && showLocation;
+  const hasChips = chips.length > 0 || Boolean(chipsAction);
+  const renderChips = (extraClassName?: string) => {
+    if (!hasChips) return null;
+    return (
+      <div className={`flex flex-wrap items-center gap-2 min-w-0 ${extraClassName || ""}`}>
+        {chips.map((chip, index) => {
+          if (typeof chip === "string") {
+            const label = chip;
+            if (!label) return null;
+            return (
+              <span
+                key={`${label}-${index}`}
+                className="inline-flex min-w-0 max-w-full items-center rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-3 py-1 text-[11px] font-semibold text-[color:var(--text)]"
+              >
+                <span className="truncate">{label}</span>
+              </span>
+            );
+          }
+          if ("node" in chip) {
+            return (
+              <span key={chip.key || `chip-node-${index}`} className="min-w-0">
+                {chip.node}
+              </span>
+            );
+          }
+          const label = chip.label;
+          if (!label) return null;
+          return (
+            <span
+              key={`${label}-${index}`}
+              className={`inline-flex min-w-0 max-w-full items-center rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-3 py-1 text-[11px] font-semibold text-[color:var(--text)] ${chip.className || ""}`}
+            >
+              <span className="truncate">{label}</span>
+            </span>
+          );
+        })}
+        {chipsAction}
+      </div>
+    );
+  };
 
   return (
     <section className="space-y-4">
@@ -72,6 +118,7 @@ export function PublicHero({
               {showLocation && <PublicLocationBadge location={location} variant="chip" />}
             </div>
           )}
+          {chipsPlacement === "meta" ? renderChips("pt-2") : null}
         </div>
       </div>
 
@@ -112,18 +159,7 @@ export function PublicHero({
         </a>
       </div>
 
-      {chips.length > 0 && (
-        <div className="flex gap-2 overflow-x-auto pb-1 -mb-1 max-w-full">
-          {chips.map((chip) => (
-            <span
-              key={chip}
-              className="inline-flex shrink-0 items-center rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-3 py-1 text-[11px] font-semibold text-[color:var(--text)]"
-            >
-              {chip}
-            </span>
-          ))}
-        </div>
-      )}
+      {chipsPlacement === "footer" ? renderChips() : null}
     </section>
   );
 }

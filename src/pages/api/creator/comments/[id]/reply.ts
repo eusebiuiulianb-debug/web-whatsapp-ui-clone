@@ -1,7 +1,7 @@
 import type { NextApiRequest, NextApiResponse } from "next";
-import prisma from "../../../../../lib/prisma.server";
-import { sendBadRequest, sendServerError } from "../../../../../lib/apiError";
-import { slugifyHandle } from "../../../../../lib/fan/session";
+import { prisma } from "@/server/prisma";
+import { sendBadRequest, sendServerError } from "@/lib/apiError";
+import { slugifyHandle } from "@/lib/fan/session";
 
 const MAX_REPLY_LENGTH = 600;
 
@@ -27,10 +27,13 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
     const creatorId = await resolveCreatorId();
     const comment = await prisma.creatorComment.findUnique({
       where: { id: commentId },
-      select: { id: true, creatorId: true, creator: { select: { name: true } } },
+      select: { id: true, creatorId: true, repliesLocked: true, creator: { select: { name: true } } },
     });
     if (!comment) return res.status(404).json({ ok: false, error: "comment_not_found" });
     if (comment.creatorId !== creatorId) return res.status(403).json({ ok: false, error: "forbidden" });
+    if (comment.repliesLocked) {
+      return res.status(403).json({ ok: false, error: "THREAD_LOCKED" });
+    }
 
     const previewHandle = readPreviewHandle(req.headers.cookie);
     if (previewHandle) {

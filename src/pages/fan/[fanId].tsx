@@ -193,6 +193,7 @@ export function FanChatPage({
     const raw = config.creatorHandle || config.creatorName || "creator";
     return slugifyHandle(raw);
   }, [config.creatorHandle, config.creatorName]);
+  const creatorProfileHref = creatorHandle ? `/c/${creatorHandle}` : "/c/creator";
   const availablePacks = useMemo<PackSummary[]>(
     () =>
       Array.isArray(config.packs)
@@ -376,6 +377,10 @@ export function FanChatPage({
 
   const hasActiveAccess = accessSummary?.hasActiveAccess === true;
   const accessRequestPending = accessRequest?.status === "PENDING";
+  const accessRequestBlocked = accessRequest?.status === "SPAM";
+  const accessBlocked = isFanBlocked || accessRequestBlocked;
+  const showChat = hasActiveAccess && !accessBlocked;
+  const showPaywall = !accessBlocked && !hasActiveAccess;
   const shouldPromptForName = inviteFlag
     ? !fanProfile.displayName
     : getFanDisplayName(fanProfile) === "Invitado";
@@ -391,7 +396,7 @@ export function FanChatPage({
   const isAdultGateStrict = isAdultGateActive && resolvedAdultGatePolicy === "STRICT";
   const isAdultGateLeadCapture = isAdultGateActive && resolvedAdultGatePolicy === "LEAD_CAPTURE";
   const isAdultGatePurchaseBlocked = isAdultGateLeadCapture;
-  const isComposerDisabled = sending || isOnboardingVisible || onboardingSaving || isAdultGateStrict || isFanBlocked;
+  const isComposerDisabled = sending || isOnboardingVisible || onboardingSaving || isAdultGateStrict || accessBlocked;
 
   const showFanToast = useCallback((message: string) => {
     setFanToast(message);
@@ -410,7 +415,7 @@ export function FanChatPage({
 
   const prefillAccessRequestFromPack = useCallback(
     (pack: AccessPaywallPack) => {
-      if (accessRequestPending) return;
+      if (accessRequestPending || accessBlocked) return;
       const priceLabel = normalizePriceLabel(pack.price);
       const template = `Quiero el pack ${pack.name} (${priceLabel}). ¿Me lo activas?`;
       setAccessRequestDraft(template);
@@ -418,7 +423,7 @@ export function FanChatPage({
       setAccessRequestError("");
       setAccessRequestAuthRequired(false);
     },
-    [accessRequestPending]
+    [accessBlocked, accessRequestPending]
   );
 
   const handleAccessRequestChange = useCallback(
@@ -435,7 +440,7 @@ export function FanChatPage({
   );
 
   const handleAccessRequestSubmit = useCallback(async () => {
-    if (!creatorHandle || accessRequestSending || accessRequestPending) return;
+    if (!creatorHandle || accessRequestSending || accessRequestPending || accessBlocked) return;
     const trimmed = accessRequestDraft.trim();
     if (!trimmed || trimmed.length > 240) {
       showFanToast("Revisa el texto de la solicitud.");
@@ -489,6 +494,7 @@ export function FanChatPage({
     }
   }, [
     accessRequestDraft,
+    accessBlocked,
     accessRequestPending,
     accessRequestProductId,
     accessRequestSending,
@@ -2910,330 +2916,352 @@ export function FanChatPage({
       )}
 
       <main className="flex flex-col flex-1 min-h-0 overflow-hidden">
-        <div className="px-4 sm:px-6 pt-3 space-y-3 shrink-0">
-          {accessLoading && !accessSummary ? (
-            <div className="rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-4 py-3 text-sm text-[color:var(--text)]">
-              Cargando acceso...
+        {showChat ? (
+          <>
+            <div className="px-4 sm:px-6 pt-3 space-y-3 shrink-0">
+              {accessSummary ? (
+                <AccessBanner
+                  summary={accessSummary}
+                  contentCount={included?.length ?? 0}
+                  onOpenContent={!isAdultGateActive ? () => openContentSheet("content") : undefined}
+                />
+              ) : null}
             </div>
-          ) : accessSummary ? (
-            isFanBlocked ? (
-              <div className="rounded-xl border border-[color:rgba(244,63,94,0.5)] bg-[color:rgba(244,63,94,0.12)] px-4 py-3 text-sm text-[color:var(--text)] space-y-1">
-                <div className="font-semibold text-[color:var(--danger)]">Bloqueado</div>
-                <div className="text-xs text-[color:var(--muted)]">
-                  El creador ha bloqueado el acceso. No puedes enviar mensajes ni solicitudes.
-                </div>
-              </div>
-            ) : accessSummary.hasActiveAccess ? (
-              <AccessBanner
-                summary={accessSummary}
-                contentCount={included?.length ?? 0}
-                onOpenContent={!isAdultGateActive ? () => openContentSheet("content") : undefined}
-              />
-            ) : (
-              <AccessPaywallCard
-                packs={paywallPacks}
-                isLoading={paywallLoading}
-                error={catalogError}
-                walletStatusLabel={walletStatusLabel}
-                walletDisabled={walletEnabled === false}
-                topupDisabled={walletLoading || isAdultGateActive}
-                onTopup={openWalletTopup}
-                onPurchase={handlePaywallPurchase}
-                isPurchasing={isPackPurchasing}
-                requestMessage={accessRequestDraft}
-                requestPending={accessRequestPending}
-                requestStatus={accessRequest?.status ?? null}
-                requestSending={accessRequestSending}
-                requestError={accessRequestError}
-                requestAuthRequired={accessRequestAuthRequired}
-                requestAuthHref={accessRequestAuthHref}
-                onRequestChange={handleAccessRequestChange}
-                onRequestSubmit={handleAccessRequestSubmit}
-              />
-            )
-          ) : null}
-        </div>
-        <div ref={messagesContainerRef} className="flex-1 min-h-0 overflow-y-auto">
-          <div
-            className="px-4 sm:px-6 py-4"
-            style={{ backgroundImage: "var(--chat-pattern)" }}
-          >
-            <div className="min-h-full flex flex-col justify-end gap-2">
-              {isAdultGateLeadCapture ? (
-                <div className="min-h-full flex items-center justify-center py-6">
-                  <div className="w-full max-w-md rounded-2xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-5 py-4 text-center">
-                    <h3 className="text-sm font-semibold text-[color:var(--text)]">Confirmación 18+</h3>
-                    <p className="mt-2 text-xs text-[color:var(--muted)]">
-                      Puedes enviar un mensaje, pero para ver el chat debes confirmar 18+.
-                    </p>
-                    <div className="mt-4 flex flex-wrap items-center justify-center gap-2">
-                      <button
-                        type="button"
-                        onClick={handleAdultExit}
-                        className="rounded-full border border-[color:var(--surface-border)] px-4 py-1.5 text-xs text-[color:var(--text)] hover:bg-[color:var(--surface-2)]"
-                      >
-                        Salir
-                      </button>
-                      <button
-                        type="button"
-                        onClick={handleAdultConfirm}
-                        disabled={adultConfirming}
-                        className="rounded-full bg-[color:rgba(var(--brand-rgb),0.16)] px-4 py-1.5 text-xs font-semibold text-[color:var(--text)] hover:bg-[color:rgba(var(--brand-rgb),0.24)] disabled:opacity-60"
-                      >
-                        {adultConfirming ? "Confirmando..." : "Confirmar 18+"}
-                      </button>
+            <div ref={messagesContainerRef} className="flex-1 min-h-0 overflow-y-auto">
+              <div className="px-4 sm:px-6 py-4" style={{ backgroundImage: "var(--chat-pattern)" }}>
+                <div className="min-h-full flex flex-col justify-end gap-2">
+                  {isAdultGateLeadCapture ? (
+                    <div className="min-h-full flex items-center justify-center py-6">
+                      <div className="w-full max-w-md rounded-2xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-5 py-4 text-center">
+                        <h3 className="text-sm font-semibold text-[color:var(--text)]">Confirmación 18+</h3>
+                        <p className="mt-2 text-xs text-[color:var(--muted)]">
+                          Puedes enviar un mensaje, pero para ver el chat debes confirmar 18+.
+                        </p>
+                        <div className="mt-4 flex flex-wrap items-center justify-center gap-2">
+                          <button
+                            type="button"
+                            onClick={handleAdultExit}
+                            className="rounded-full border border-[color:var(--surface-border)] px-4 py-1.5 text-xs text-[color:var(--text)] hover:bg-[color:var(--surface-2)]"
+                          >
+                            Salir
+                          </button>
+                          <button
+                            type="button"
+                            onClick={handleAdultConfirm}
+                            disabled={adultConfirming}
+                            className="rounded-full bg-[color:rgba(var(--brand-rgb),0.16)] px-4 py-1.5 text-xs font-semibold text-[color:var(--text)] hover:bg-[color:rgba(var(--brand-rgb),0.24)] disabled:opacity-60"
+                          >
+                            {adultConfirming ? "Confirmando..." : "Confirmar 18+"}
+                          </button>
+                        </div>
+                      </div>
                     </div>
-                  </div>
-                </div>
-              ) : (
-                <>
-                  {loading && <div className="text-center ui-muted text-sm mt-2">Cargando mensajes...</div>}
-                  {error && !loading && <div className="text-center text-[color:var(--danger)] text-sm mt-2">{error}</div>}
-                  {!loading && !error && visibleMessages.length === 0 && (
-                    <div className="text-center ui-muted text-sm mt-2">Aún no hay mensajes.</div>
+                  ) : (
+                    <>
+                      {loading && <div className="text-center ui-muted text-sm mt-2">Cargando mensajes...</div>}
+                      {error && !loading && (
+                        <div className="text-center text-[color:var(--danger)] text-sm mt-2">{error}</div>
+                      )}
+                      {!loading && !error && visibleMessages.length === 0 && (
+                        <div className="text-center ui-muted text-sm mt-2">Aún no hay mensajes.</div>
+                      )}
+                      {visibleMessages.map((msg, idx) => {
+                        const messageId = msg.id || `message-${idx}`;
+                        const isContent = msg.type === "CONTENT" && !!msg.contentItem;
+                        if (isContent) {
+                          return <ContentCard key={msg.id} message={msg} />;
+                        }
+                        if (msg.type === "SYSTEM") {
+                          return <SystemMessage key={messageId} text={msg.text || ""} />;
+                        }
+                        if (msg.type === "AUDIO" || msg.type === "VOICE") {
+                          return (
+                            <AudioMessage
+                              key={messageId}
+                              message={msg}
+                              onReact={(emoji) => {
+                                if (!msg.id) return;
+                                handleReactToMessage(msg.id, emoji);
+                              }}
+                            />
+                          );
+                        }
+                        const tokenSticker =
+                          msg.type !== "STICKER" ? getStickerByToken(msg.text ?? "") : null;
+                        const isSticker = msg.type === "STICKER" || Boolean(tokenSticker);
+                        const sticker = msg.type === "STICKER" ? getStickerById(msg.stickerId ?? null) : null;
+                        const stickerSrc = msg.type === "STICKER" ? sticker?.file ?? null : tokenSticker?.src ?? null;
+                        const stickerAlt =
+                          msg.type === "STICKER" ? sticker?.label || "Sticker" : tokenSticker?.label ?? null;
+                        const baseText = msg.originalText ?? msg.text ?? "";
+                        const deliveredText = msg.deliveredText ?? "";
+                        const displayText =
+                          isSticker
+                            ? ""
+                            : msg.from === "creator"
+                            ? (deliveredText.trim() ? deliveredText : baseText)
+                            : baseText;
+                        return (
+                          <div key={messageId} className="space-y-1">
+                            <MessageBalloon
+                              me={msg.from === "fan"}
+                              message={displayText}
+                              messageId={msg.id}
+                              seen={!!msg.isLastFromCreator}
+                              time={msg.time || undefined}
+                              status={msg.status}
+                              viewerRole="fan"
+                              unlockedOfferIds={unlockedOfferIds}
+                              unlockingOfferIds={unlockingOfferIds}
+                              onOfferClick={handleOfferClick}
+                              stickerSrc={isSticker ? stickerSrc : null}
+                              stickerAlt={isSticker ? stickerAlt : null}
+                              enableReactions
+                              reactionsSummary={msg.reactionsSummary ?? []}
+                              onReact={(emoji) => {
+                                if (!msg.id) return;
+                                handleReactToMessage(msg.id, emoji);
+                              }}
+                            />
+                          </div>
+                        );
+                      })}
+                    </>
                   )}
-                  {visibleMessages.map((msg, idx) => {
-                    const messageId = msg.id || `message-${idx}`;
-                    const isContent = msg.type === "CONTENT" && !!msg.contentItem;
-                    if (isContent) {
-                      return <ContentCard key={msg.id} message={msg} />;
-                    }
-                    if (msg.type === "SYSTEM") {
-                      return <SystemMessage key={messageId} text={msg.text || ""} />;
-                    }
-                    if (msg.type === "AUDIO" || msg.type === "VOICE") {
-                      return (
-                        <AudioMessage
-                          key={messageId}
-                          message={msg}
-                          onReact={(emoji) => {
-                            if (!msg.id) return;
-                            handleReactToMessage(msg.id, emoji);
-                          }}
-                        />
-                      );
-                    }
-                    const tokenSticker =
-                      msg.type !== "STICKER" ? getStickerByToken(msg.text ?? "") : null;
-                    const isSticker = msg.type === "STICKER" || Boolean(tokenSticker);
-                    const sticker = msg.type === "STICKER" ? getStickerById(msg.stickerId ?? null) : null;
-                    const stickerSrc = msg.type === "STICKER" ? sticker?.file ?? null : tokenSticker?.src ?? null;
-                    const stickerAlt = msg.type === "STICKER" ? sticker?.label || "Sticker" : tokenSticker?.label ?? null;
-                    const baseText = msg.originalText ?? msg.text ?? "";
-                    const deliveredText = msg.deliveredText ?? "";
-                    const displayText =
-                      isSticker
-                        ? ""
-                        : msg.from === "creator"
-                        ? (deliveredText.trim() ? deliveredText : baseText)
-                        : baseText;
-                    return (
-                      <div key={messageId} className="space-y-1">
-                        <MessageBalloon
-                          me={msg.from === "fan"}
-                          message={displayText}
-                          messageId={msg.id}
-                          seen={!!msg.isLastFromCreator}
-                          time={msg.time || undefined}
-                          status={msg.status}
-                          viewerRole="fan"
-                          unlockedOfferIds={unlockedOfferIds}
-                          unlockingOfferIds={unlockingOfferIds}
-                          onOfferClick={handleOfferClick}
-                          stickerSrc={isSticker ? stickerSrc : null}
-                          stickerAlt={isSticker ? stickerAlt : null}
-                          enableReactions
-                          reactionsSummary={msg.reactionsSummary ?? []}
-                          onReact={(emoji) => {
-                            if (!msg.id) return;
-                            handleReactToMessage(msg.id, emoji);
-                          }}
-                        />
-                      </div>
-                    );
-                  })}
-                </>
-              )}
+                </div>
+              </div>
             </div>
-          </div>
-        </div>
 
-        {isOnboardingVisible && (
-          <div className="px-4 pb-3">
-            <div className="rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-4 py-3 space-y-3">
-              <div>
-                <p className="text-sm font-semibold text-[color:var(--text)]">Una cosa rápida</p>
-                <p className="text-xs text-[color:var(--muted)]">Así el creador puede dirigirse a ti por tu nombre.</p>
+            {isOnboardingVisible && (
+              <div className="px-4 pb-3">
+                <div className="rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-4 py-3 space-y-3">
+                  <div>
+                    <p className="text-sm font-semibold text-[color:var(--text)]">Una cosa rápida</p>
+                    <p className="text-xs text-[color:var(--muted)]">
+                      Así el creador puede dirigirse a ti por tu nombre.
+                    </p>
+                  </div>
+                  <label className="flex flex-col gap-1 text-sm text-[color:var(--text)]">
+                    <span>¿Cómo te llamas?</span>
+                    <input
+                      ref={onboardingNameRef}
+                      className="w-full rounded-lg bg-[color:var(--surface-1)] border border-[color:var(--surface-border)] px-3 py-2 text-sm text-[color:var(--text)] focus:border-[color:var(--brand)]"
+                      value={onboardingName}
+                      onChange={(evt) => setOnboardingName(evt.target.value)}
+                      placeholder="Tu nombre"
+                      disabled={onboardingSaving}
+                    />
+                  </label>
+                  <label className="flex flex-col gap-1 text-sm text-[color:var(--text)]">
+                    <span>Idioma</span>
+                    <select
+                      className="w-full rounded-lg bg-[color:var(--surface-1)] border border-[color:var(--surface-border)] px-3 py-2 text-sm text-[color:var(--text)] focus:border-[color:var(--brand)]"
+                      value={onboardingLanguage}
+                      onChange={(evt) => {
+                        const next = normalizePreferredLanguage(evt.target.value) ?? "en";
+                        setOnboardingLanguage(next);
+                      }}
+                      disabled={onboardingSaving}
+                    >
+                      {(["es", "en", "ro"] as const).map((lang) => (
+                        <option key={lang} value={lang}>
+                          {LANGUAGE_LABELS[lang]}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label className="flex flex-col gap-1 text-sm text-[color:var(--text)]">
+                    <span>Tu primer mensaje</span>
+                    <textarea
+                      className="w-full rounded-lg bg-[color:var(--surface-1)] border border-[color:var(--surface-border)] px-3 py-2 text-sm text-[color:var(--text)] focus:border-[color:var(--brand)] h-20"
+                      value={onboardingMessage}
+                      onChange={(evt) => setOnboardingMessage(evt.target.value)}
+                      placeholder="Ej: Hola, quería preguntarte..."
+                      disabled={onboardingSaving}
+                    />
+                  </label>
+                  {onboardingError && <p className="text-xs text-[color:var(--danger)]">{onboardingError}</p>}
+                  <div className="flex items-center justify-end gap-2">
+                    <button
+                      type="button"
+                      className="rounded-lg border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-3 py-2 text-xs font-semibold text-[color:var(--text)] hover:bg-[color:var(--surface-2)] disabled:opacity-60"
+                      onClick={handleOnboardingSkip}
+                      disabled={onboardingSaving}
+                    >
+                      Omitir
+                    </button>
+                    <button
+                      type="button"
+                      className="rounded-lg border border-[color:rgba(var(--brand-rgb),0.45)] bg-[color:var(--brand-strong)]/15 px-3 py-2 text-xs font-semibold text-[color:var(--text)] hover:bg-[color:var(--brand-strong)]/25 disabled:opacity-60"
+                      onClick={() => void handleOnboardingEnter()}
+                      disabled={onboardingSaving}
+                    >
+                      {onboardingSaving ? "Entrando..." : "Entrar"}
+                    </button>
+                  </div>
+                </div>
               </div>
-              <label className="flex flex-col gap-1 text-sm text-[color:var(--text)]">
-                <span>¿Cómo te llamas?</span>
-                <input
-                  ref={onboardingNameRef}
-                  className="w-full rounded-lg bg-[color:var(--surface-1)] border border-[color:var(--surface-border)] px-3 py-2 text-sm text-[color:var(--text)] focus:border-[color:var(--brand)]"
-                  value={onboardingName}
-                  onChange={(evt) => setOnboardingName(evt.target.value)}
-                  placeholder="Tu nombre"
-                  disabled={onboardingSaving}
-                />
-              </label>
-              <label className="flex flex-col gap-1 text-sm text-[color:var(--text)]">
-                <span>Idioma</span>
-                <select
-                  className="w-full rounded-lg bg-[color:var(--surface-1)] border border-[color:var(--surface-border)] px-3 py-2 text-sm text-[color:var(--text)] focus:border-[color:var(--brand)]"
-                  value={onboardingLanguage}
-                  onChange={(evt) => {
-                    const next = normalizePreferredLanguage(evt.target.value) ?? "en";
-                    setOnboardingLanguage(next);
-                  }}
-                  disabled={onboardingSaving}
-                >
-                  {(["es", "en", "ro"] as const).map((lang) => (
-                    <option key={lang} value={lang}>
-                      {LANGUAGE_LABELS[lang]}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label className="flex flex-col gap-1 text-sm text-[color:var(--text)]">
-                <span>Tu primer mensaje</span>
-                <textarea
-                  className="w-full rounded-lg bg-[color:var(--surface-1)] border border-[color:var(--surface-border)] px-3 py-2 text-sm text-[color:var(--text)] focus:border-[color:var(--brand)] h-20"
-                  value={onboardingMessage}
-                  onChange={(evt) => setOnboardingMessage(evt.target.value)}
-                  placeholder="Ej: Hola, quería preguntarte..."
-                  disabled={onboardingSaving}
-                />
-              </label>
-              {onboardingError && <p className="text-xs text-[color:var(--danger)]">{onboardingError}</p>}
-              <div className="flex items-center justify-end gap-2">
-                <button
-                  type="button"
-                  className="rounded-lg border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-3 py-2 text-xs font-semibold text-[color:var(--text)] hover:bg-[color:var(--surface-2)] disabled:opacity-60"
-                  onClick={handleOnboardingSkip}
-                  disabled={onboardingSaving}
-                >
-                  Omitir
-                </button>
-                <button
-                  type="button"
-                  className="rounded-lg border border-[color:rgba(var(--brand-rgb),0.45)] bg-[color:var(--brand-strong)]/15 px-3 py-2 text-xs font-semibold text-[color:var(--text)] hover:bg-[color:var(--brand-strong)]/25 disabled:opacity-60"
-                  onClick={() => void handleOnboardingEnter()}
-                  disabled={onboardingSaving}
-                >
-                  {onboardingSaving ? "Entrando..." : "Entrar"}
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
-        {!isOnboardingVisible && (
-          <div className="shrink-0 border-t border-[color:var(--surface-border)] bg-[color:var(--surface-0)] backdrop-blur-xl">
-            <div className="px-4 sm:px-6 py-3">
-              {(isVoiceRecording || isVoiceUploading) && (
-                <div className="mb-2 rounded-xl border border-[color:rgba(34,197,94,0.4)] bg-[color:rgba(34,197,94,0.08)] px-3 py-2 text-[11px] text-[color:var(--text)]">
-                  <div className="flex flex-wrap items-center justify-between gap-2">
-                    <div className="flex items-center gap-2 font-semibold">
-                      <span>🎤</span>
-                      <span>{isVoiceUploading ? "Subiendo nota de voz..." : `Grabando ${voiceRecordingLabel}`}</span>
+            )}
+            {!isOnboardingVisible && (
+              <div className="shrink-0 border-t border-[color:var(--surface-border)] bg-[color:var(--surface-0)] backdrop-blur-xl">
+                <div className="px-4 sm:px-6 py-3">
+                  {(isVoiceRecording || isVoiceUploading) && (
+                    <div className="mb-2 rounded-xl border border-[color:rgba(34,197,94,0.4)] bg-[color:rgba(34,197,94,0.08)] px-3 py-2 text-[11px] text-[color:var(--text)]">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <div className="flex items-center gap-2 font-semibold">
+                          <span>🎤</span>
+                          <span>{isVoiceUploading ? "Subiendo nota de voz..." : `Grabando ${voiceRecordingLabel}`}</span>
+                        </div>
+                        {isVoiceRecording && (
+                          <div className="flex items-center gap-2">
+                            <button
+                              type="button"
+                              onClick={stopVoiceRecording}
+                              className="rounded-full border border-[color:rgba(34,197,94,0.6)] bg-[color:rgba(34,197,94,0.16)] px-3 py-1 text-[10px] font-semibold hover:bg-[color:rgba(34,197,94,0.24)]"
+                            >
+                              Stop
+                            </button>
+                            <button
+                              type="button"
+                              onClick={cancelVoiceRecording}
+                              className="rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-3 py-1 text-[10px] font-semibold text-[color:var(--muted)] hover:text-[color:var(--text)]"
+                            >
+                              Cancelar
+                            </button>
+                          </div>
+                        )}
+                      </div>
                     </div>
-                    {isVoiceRecording && (
-                      <div className="flex items-center gap-2">
-                        <button
-                          type="button"
-                          onClick={stopVoiceRecording}
-                          className="rounded-full border border-[color:rgba(34,197,94,0.6)] bg-[color:rgba(34,197,94,0.16)] px-3 py-1 text-[10px] font-semibold hover:bg-[color:rgba(34,197,94,0.24)]"
-                        >
-                          Stop
-                        </button>
-                        <button
-                          type="button"
-                          onClick={cancelVoiceRecording}
-                          className="rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-3 py-1 text-[10px] font-semibold text-[color:var(--muted)] hover:text-[color:var(--text)]"
-                        >
-                          Cancelar
-                        </button>
+                  )}
+                  {voiceUploadError && (
+                    <div className="mb-2 rounded-xl border border-[color:rgba(244,63,94,0.4)] bg-[color:rgba(244,63,94,0.1)] px-3 py-2 text-[11px] text-[color:var(--text)]">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <span>{voiceUploadError}</span>
+                        {voiceRetryPayload ? (
+                          <div className="flex items-center gap-2">
+                            <button
+                              type="button"
+                              onClick={retryVoiceUpload}
+                              className="rounded-full border border-[color:rgba(244,63,94,0.5)] bg-[color:rgba(244,63,94,0.12)] px-3 py-1 text-[10px] font-semibold text-[color:var(--text)] hover:bg-[color:rgba(244,63,94,0.2)]"
+                            >
+                              Reintentar
+                            </button>
+                            <button
+                              type="button"
+                              onClick={clearVoiceRetry}
+                              className="rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-3 py-1 text-[10px] font-semibold text-[color:var(--muted)] hover:text-[color:var(--text)]"
+                            >
+                              Descartar
+                            </button>
+                          </div>
+                        ) : null}
                       </div>
-                    )}
-                  </div>
-                </div>
-              )}
-              {voiceUploadError && (
-                <div className="mb-2 rounded-xl border border-[color:rgba(244,63,94,0.4)] bg-[color:rgba(244,63,94,0.1)] px-3 py-2 text-[11px] text-[color:var(--text)]">
-                  <div className="flex flex-wrap items-center justify-between gap-2">
-                    <span>{voiceUploadError}</span>
-                    {voiceRetryPayload ? (
-                      <div className="flex items-center gap-2">
-                        <button
-                          type="button"
-                          onClick={retryVoiceUpload}
-                          className="rounded-full border border-[color:rgba(244,63,94,0.5)] bg-[color:rgba(244,63,94,0.12)] px-3 py-1 text-[10px] font-semibold text-[color:var(--text)] hover:bg-[color:rgba(244,63,94,0.2)]"
-                        >
-                          Reintentar
-                        </button>
-                        <button
-                          type="button"
-                          onClick={clearVoiceRetry}
-                          className="rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-3 py-1 text-[10px] font-semibold text-[color:var(--muted)] hover:text-[color:var(--text)]"
-                        >
-                          Descartar
-                        </button>
+                    </div>
+                  )}
+                  {creatorTyping.isTyping && (
+                    <div className="mb-2 flex">
+                      <div className="inline-flex items-center gap-1.5 rounded-2xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-3 py-1.5 text-[11px] text-[color:var(--muted)] shadow-[0_1px_0_rgba(0,0,0,0.12)]">
+                        <span className="sr-only">{`${creatorFirstName} está escribiendo`}</span>
+                        <span
+                          className="h-1.5 w-1.5 animate-bounce rounded-full bg-[color:var(--muted)]"
+                          style={{ animationDelay: "0ms" }}
+                        />
+                        <span
+                          className="h-1.5 w-1.5 animate-bounce rounded-full bg-[color:var(--muted)]"
+                          style={{ animationDelay: "140ms" }}
+                        />
+                        <span
+                          className="h-1.5 w-1.5 animate-bounce rounded-full bg-[color:var(--muted)]"
+                          style={{ animationDelay: "280ms" }}
+                        />
                       </div>
-                    ) : null}
+                    </div>
+                  )}
+                  <div className="flex flex-col gap-2 rounded-2xl border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-3 py-2.5 shadow-[0_-12px_22px_-16px_rgba(0,0,0,0.55)] focus-within:border-[color:rgba(var(--brand-rgb),0.45)] focus-within:ring-1 focus-within:ring-[color:var(--ring)]">
+                    <ChatComposerBar
+                      value={draft}
+                      onChange={handleComposerChange}
+                      onKeyDown={handleComposerKeyDown}
+                      onBlur={handleComposerBlur}
+                      onSend={handleSendMessage}
+                      sendDisabled={sendDisabled}
+                      placeholder="Escribe un mensaje..."
+                      actionLabel="Enviar"
+                      audience="CREATOR"
+                      canAttach={!isComposerDisabled && !isAdultGateActive && hasActiveAccess}
+                      onAttach={handleOpenActionMenu}
+                      inputRef={composerInputRef}
+                      maxHeight={140}
+                      isChatBlocked={isAdultGateStrict || !hasActiveAccess || accessBlocked}
+                      isInternalPanelOpen={false}
+                      showAttach
+                      showVoice
+                      onVoiceStart={startVoiceRecording}
+                      voiceDisabled={
+                        isAdultGateActive ||
+                        !hasActiveAccess ||
+                        isComposerDisabled ||
+                        isVoiceRecording ||
+                        isVoiceUploading
+                      }
+                      isVoiceRecording={isVoiceRecording}
+                      showEmoji
+                      onEmojiSelect={handleEmojiSelect}
+                      showStickers={!isAdultGateActive}
+                      onStickerSelect={handleStickerSelect}
+                    />
                   </div>
+                  {sendError && <div className="pt-2 text-sm text-[color:var(--danger)]">{sendError}</div>}
                 </div>
-              )}
-              {creatorTyping.isTyping && (
-                <div className="mb-2 flex">
-                  <div className="inline-flex items-center gap-1.5 rounded-2xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-3 py-1.5 text-[11px] text-[color:var(--muted)] shadow-[0_1px_0_rgba(0,0,0,0.12)]">
-                    <span className="sr-only">{`${creatorFirstName} está escribiendo`}</span>
-                    <span
-                      className="h-1.5 w-1.5 animate-bounce rounded-full bg-[color:var(--muted)]"
-                      style={{ animationDelay: "0ms" }}
-                    />
-                    <span
-                      className="h-1.5 w-1.5 animate-bounce rounded-full bg-[color:var(--muted)]"
-                      style={{ animationDelay: "140ms" }}
-                    />
-                    <span
-                      className="h-1.5 w-1.5 animate-bounce rounded-full bg-[color:var(--muted)]"
-                      style={{ animationDelay: "280ms" }}
-                    />
-                  </div>
-                </div>
-              )}
-              <div
-                className="flex flex-col gap-2 rounded-2xl border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-3 py-2.5 shadow-[0_-12px_22px_-16px_rgba(0,0,0,0.55)] focus-within:border-[color:rgba(var(--brand-rgb),0.45)] focus-within:ring-1 focus-within:ring-[color:var(--ring)]"
-              >
-                <ChatComposerBar
-                  value={draft}
-                  onChange={handleComposerChange}
-                  onKeyDown={handleComposerKeyDown}
-                  onBlur={handleComposerBlur}
-                  onSend={handleSendMessage}
-                  sendDisabled={sendDisabled}
-                  placeholder="Escribe un mensaje..."
-                  actionLabel="Enviar"
-                  audience="CREATOR"
-                  canAttach={!isComposerDisabled && !isAdultGateActive && hasActiveAccess}
-                  onAttach={handleOpenActionMenu}
-                  inputRef={composerInputRef}
-                  maxHeight={140}
-                  isChatBlocked={isAdultGateStrict || !hasActiveAccess || isFanBlocked}
-                  isInternalPanelOpen={false}
-                  showAttach
-                  showVoice
-                  onVoiceStart={startVoiceRecording}
-                  voiceDisabled={
-                    isAdultGateActive || !hasActiveAccess || isComposerDisabled || isVoiceRecording || isVoiceUploading
-                  }
-                  isVoiceRecording={isVoiceRecording}
-                  showEmoji
-                  onEmojiSelect={handleEmojiSelect}
-                  showStickers={!isAdultGateActive}
-                  onStickerSelect={handleStickerSelect}
-                />
               </div>
-              {sendError && <div className="pt-2 text-sm text-[color:var(--danger)]">{sendError}</div>}
+            )}
+          </>
+        ) : (
+          <div className="flex-1 min-h-0 overflow-y-auto">
+            <div className="px-4 sm:px-6 pt-3 pb-6 space-y-3">
+              {accessLoading && !accessSummary ? (
+                <div className="rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-4 py-3 text-sm text-[color:var(--text)]">
+                  Cargando acceso...
+                </div>
+              ) : accessBlocked ? (
+                <div className="rounded-xl border border-[color:rgba(244,63,94,0.5)] bg-[color:rgba(244,63,94,0.12)] px-4 py-3 text-sm text-[color:var(--text)] space-y-2">
+                  <div className="font-semibold text-[color:var(--danger)]">
+                    {accessRequestBlocked ? "Solicitud marcada como spam" : "Bloqueado"}
+                  </div>
+                  <div className="text-xs text-[color:var(--muted)]">
+                    {accessRequestBlocked
+                      ? "Tu solicitud fue marcada como spam. No puedes enviar mensajes, comentar ni solicitar acceso."
+                      : "El creador ha bloqueado el acceso. No puedes enviar mensajes, comentar ni solicitar acceso."}
+                  </div>
+                  <a
+                    href={creatorProfileHref}
+                    className="inline-flex w-fit items-center rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-3 py-1.5 text-[11px] font-semibold text-[color:var(--text)] hover:bg-[color:var(--surface-2)]"
+                  >
+                    Volver al perfil
+                  </a>
+                </div>
+              ) : showPaywall ? (
+                <AccessPaywallCard
+                  packs={paywallPacks}
+                  isLoading={paywallLoading}
+                  error={catalogError}
+                  walletStatusLabel={walletStatusLabel}
+                  walletDisabled={walletEnabled === false}
+                  topupDisabled={walletLoading || isAdultGateActive}
+                  onTopup={openWalletTopup}
+                  onPurchase={handlePaywallPurchase}
+                  isPurchasing={isPackPurchasing}
+                  requestMessage={accessRequestDraft}
+                  requestPending={accessRequestPending}
+                  requestStatus={accessRequest?.status ?? null}
+                  requestSending={accessRequestSending}
+                  requestError={accessRequestError}
+                  requestAuthRequired={accessRequestAuthRequired}
+                  requestAuthHref={accessRequestAuthHref}
+                  onRequestChange={handleAccessRequestChange}
+                  onRequestSubmit={handleAccessRequestSubmit}
+                />
+              ) : null}
             </div>
           </div>
         )}

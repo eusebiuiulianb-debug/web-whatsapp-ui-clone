@@ -1,8 +1,10 @@
 import Link from "next/link";
 import { useRouter } from "next/router";
+import { useEffect, useState } from "react";
 import { ContextMenu, type ContextMenuItem } from "./ui/ContextMenu";
 import { IconButton } from "./ui/IconButton";
 import { AI_ENABLED } from "../lib/features";
+import { normalizeImageSrc } from "../utils/normalizeImageSrc";
 
 interface CreatorHeaderProps {
   name: string;
@@ -16,6 +18,11 @@ interface CreatorHeaderProps {
 export default function CreatorHeader({ name, role, subtitle, initial, avatarUrl, onOpenSettings }: CreatorHeaderProps) {
   const router = useRouter();
   const aiEnabled = AI_ENABLED;
+  const [avatarFailed, setAvatarFailed] = useState(false);
+
+  useEffect(() => {
+    setAvatarFailed(false);
+  }, [avatarUrl]);
 
   const pathname = router.pathname;
 
@@ -95,10 +102,15 @@ export default function CreatorHeader({ name, role, subtitle, initial, avatarUrl
     <div className="sticky top-0 z-20 bg-[color:var(--surface-1)] border-b border-[color:var(--surface-border)] backdrop-blur">
       <div className="max-w-6xl mx-auto flex flex-col gap-4 px-4 py-4 md:py-5">
         <div className="flex items-center gap-3">
-          {avatarUrl ? (
+          {avatarUrl && !avatarFailed ? (
             <div className="w-12 h-12 rounded-full overflow-hidden border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] shadow-md">
               {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src={avatarUrl} alt={name} className="w-full h-full object-cover" />
+              <img
+                src={normalizeImageSrc(avatarUrl)}
+                alt={name}
+                className="w-full h-full object-cover"
+                onError={() => setAvatarFailed(true)}
+              />
             </div>
           ) : (
             <div className="flex items-center justify-center w-12 h-12 rounded-full bg-[color:var(--surface-2)] text-[color:var(--text)] font-semibold shadow-md">
@@ -116,6 +128,16 @@ export default function CreatorHeader({ name, role, subtitle, initial, avatarUrl
         </div>
 
         <div className="flex items-center gap-2 md:gap-3 flex-wrap">
+          <IconButton
+            icon="home"
+            size="md"
+            tone="neutral"
+            ariaLabel="Inicio"
+            title="Inicio"
+            onClick={() => {
+              void router.push("/");
+            }}
+          />
           {navTabs.map((link) => (
             <Link key={link.label} href={link.href} legacyBehavior>
               <a className={linkClass(link.active, link.className)}>

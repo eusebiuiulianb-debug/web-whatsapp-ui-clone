@@ -1,0 +1,252 @@
+import fs from "fs";
+import path from "path";
+import type { NextApiRequest, NextApiResponse } from "next";
+import { decode } from "ngeohash";
+import prisma from "../../../../lib/prisma.server";
+import { slugifyHandle } from "../../../../lib/fan/session";
+
+type CreatorItem = {
+  handle: string;
+  displayName: string;
+  avatarUrl?: string | null;
+  availability: string;
+  responseTime: string;
+  locationLabel?: string | null;
+  priceFrom?: number | null;
+};
+
+type CreatorAvailability = "AVAILABLE" | "OFFLINE" | "VIP_ONLY";
+type CreatorResponseTime = "INSTANT" | "LT_24H" | "LT_72H";
+
+const DEFAULT_LIMIT = 12;
+const MAX_LIMIT = 20;
+
+export default async function handler(req: NextApiRequest, res: NextApiResponse) {
+  res.setHeader("Cache-Control", "no-store");
+  if (req.method !== "GET") {
+    res.setHeader("Allow", ["GET"]);
+    return res.status(405).json({ error: "Method not allowed" });
+  }
+
+  const q = typeof req.query.q === "string" ? req.query.q.trim() : "";
+  const availabilityParam = typeof req.query.availability === "string" ? req.query.availability.trim() : "";
+  const responseParam = typeof req.query.responseTime === "string" ? req.query.responseTime.trim() : "";
+  const radiusParam = typeof req.query.radiusKm === "string" ? req.query.radiusKm.trim() : "";
+  const priceMinParam = typeof req.query.priceMin === "string" ? req.query.priceMin.trim() : "";
+  const priceMaxParam = typeof req.query.priceMax === "string" ? req.query.priceMax.trim() : "";
+  const geo = typeof req.query.geo === "string" ? req.query.geo.trim() : "";
+  const tagParam = req.query.tag ?? req.query.tags;
+  const limitRaw = typeof req.query.limit === "string" ? Number(req.query.limit) : Number.NaN;
+  const limit = Number.isFinite(limitRaw)
+    ? Math.max(1, Math.min(MAX_LIMIT, Math.floor(limitRaw)))
+    : DEFAULT_LIMIT;
+
+  const availabilityFilter = normalizeAvailability(availabilityParam);
+  const responseFilter = normalizeResponseTime(responseParam);
+  const radiusKm = parseNumber(radiusParam);
+  const priceMin = parsePriceToCents(priceMinParam);
+  const priceMax = parsePriceToCents(priceMaxParam);
+  const tags = normalizeTags(tagParam);
+  const normalizedQuery = q.toLowerCase();
+
+  try {
+    const [creators, minPrices] = await Promise.all([
+      prisma.creator.findMany({
+        where: {
+          OR: [
+            { profile: { visibilityMode: { in: ["PUBLIC", "DISCOVERABLE"] } } },
+            { discoveryProfile: { isDiscoverable: true } },
+          ],
+        },
+        select: {
+          id: true,
+          name: true,
+          bioLinkAvatarUrl: true,
+          profile: {
+            select: {
+              availability: true,
+              responseSla: true,
+              visibilityMode: true,
+              locationVisibility: true,
+              locationLabel: true,
+              locationGeohash: true,
+              allowDiscoveryUseLocation: true,
+            },
+          },
+          discoveryProfile: {
+            select: {
+              isDiscoverable: true,
+              niches: true,
+            },
+          },
+        },
+      }),
+      prisma.catalogItem.groupBy({
+        by: ["creatorId"],
+        where: { isActive: true, isPublic: true },
+        _min: { priceCents: true },
+      }),
+    ]);
+
+    const minPriceMap = new Map<string, number | null>(
+      minPrices.map((row) => [row.creatorId, row._min.priceCents ?? null])
+    );
+
+    const filtered = creators.filter((creator) => {
+      const visibilityMode = creator.profile?.visibilityMode ?? "SOLO_LINK";
+      if (visibilityMode === "INVISIBLE") return false;
+      const isDiscoverable =
+        visibilityMode === "PUBLIC" ||
+        visibilityMode === "DISCOVERABLE" ||
+        Boolean(creator.discoveryProfile?.isDiscoverable);
+      if (!isDiscoverable) return false;
+
+      const availabilityValue = normalizeAvailability(creator.profile?.availability) ?? "AVAILABLE";
+      if (availabilityFilter && availabilityValue !== availabilityFilter) return false;
+
+      const responseValue = normalizeResponseTime(creator.profile?.responseSla) ?? "LT_24H";
+      if (responseFilter && responseValue !== responseFilter) return false;
+
+      const creatorTags = normalizeTags(creator.discoveryProfile?.niches || "");
+      if (tags.length > 0 && !tags.some((tag) => creatorTags.includes(tag))) return false;
+
+      if (normalizedQuery) {
+        const handle = slugifyHandle(creator.name || "creator");
+        const haystack = `${creator.name || ""} ${handle} ${creatorTags.join(" ")}`.toLowerCase();
+        if (!haystack.includes(normalizedQuery)) return false;
+      }
+
+      const priceFrom = minPriceMap.get(creator.id) ?? null;
+      if ((priceMin || priceMax) && !Number.isFinite(priceFrom ?? NaN)) return false;
+      if (priceMin && priceFrom !== null && priceFrom < priceMin) return false;
+      if (priceMax && priceFrom !== null && priceFrom > priceMax) return false;
+
+      if (Number.isFinite(radiusKm) && radiusKm > 0 && geo) {
+        const geohash = (creator.profile?.locationGeohash || "").trim();
+        const allowUse = Boolean(creator.profile?.allowDiscoveryUseLocation);
+        const visibility = (creator.profile?.locationVisibility || "").toUpperCase();
+        if (!geohash || !allowUse || visibility === "OFF") return false;
+        const distance = getDistanceKm(geo, geohash);
+        if (!Number.isFinite(distance) || distance > radiusKm) return false;
+      }
+
+      return true;
+    });
+
+    const total = filtered.length;
+
+    const items: CreatorItem[] = filtered.slice(0, limit).map((creator) => {
+      const availabilityValue = normalizeAvailability(creator.profile?.availability) ?? "AVAILABLE";
+      const responseValue = normalizeResponseTime(creator.profile?.responseSla) ?? "LT_24H";
+      const locationVisibility = (creator.profile?.locationVisibility || "").toUpperCase();
+      const locationLabel =
+        locationVisibility !== "OFF" ? creator.profile?.locationLabel ?? null : null;
+      const avatarUrl = normalizeAvatarUrl(creator.bioLinkAvatarUrl || null);
+      const priceFrom = minPriceMap.get(creator.id) ?? null;
+
+      return {
+        handle: slugifyHandle(creator.name || "creator"),
+        displayName: creator.name || "Creador",
+        avatarUrl,
+        availability: formatAvailabilityLabel(availabilityValue),
+        responseTime: formatResponseTimeLabel(responseValue),
+        locationLabel,
+        priceFrom,
+      };
+    });
+
+    return res.status(200).json({ items, total });
+  } catch (err) {
+    console.error("Error loading discovery creators", err);
+    return res.status(500).json({ error: "No se pudieron cargar los creadores" });
+  }
+}
+
+function normalizeAvailability(value?: string | null): CreatorAvailability | null {
+  const normalized = (value || "").toUpperCase();
+  if (normalized === "AVAILABLE" || normalized === "ONLINE") return "AVAILABLE";
+  if (normalized === "VIP_ONLY") return "VIP_ONLY";
+  if (normalized === "OFFLINE" || normalized === "NOT_AVAILABLE") return "OFFLINE";
+  return null;
+}
+
+function normalizeResponseTime(value?: string | null): CreatorResponseTime | null {
+  const normalized = (value || "").toUpperCase();
+  if (normalized === "INSTANT") return "INSTANT";
+  if (normalized === "LT_24H") return "LT_24H";
+  if (normalized === "LT_72H" || normalized === "LT_48H") return "LT_72H";
+  return null;
+}
+
+function normalizeTags(raw: unknown): string[] {
+  if (!raw) return [];
+  const list = Array.isArray(raw) ? raw : [raw];
+  return list
+    .flatMap((entry) => String(entry).split(","))
+    .map((item) => item.trim().toLowerCase())
+    .filter(Boolean);
+}
+
+function parseNumber(value?: string) {
+  if (!value) return NaN;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : NaN;
+}
+
+function parsePriceToCents(value?: string) {
+  if (!value) return 0;
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed <= 0) return 0;
+  return Math.round(parsed * 100);
+}
+
+function formatAvailabilityLabel(value: CreatorAvailability) {
+  if (value === "VIP_ONLY") return "Solo VIP";
+  if (value === "OFFLINE") return "No disponible";
+  return "Disponible";
+}
+
+function formatResponseTimeLabel(value: CreatorResponseTime) {
+  if (value === "INSTANT") return "Responde al momento";
+  if (value === "LT_72H") return "Responde <72h";
+  return "Responde <24h";
+}
+
+function normalizeAvatarUrl(value: string | null) {
+  const trimmed = (value || "").trim();
+  if (!trimmed) return null;
+  if (/^https?:\/\//i.test(trimmed)) return trimmed;
+  const normalized = trimmed.startsWith("/") ? trimmed : `/${trimmed}`;
+  const publicPath = path.join(process.cwd(), "public", normalized.replace(/^\/+/, ""));
+  if (!fs.existsSync(publicPath)) return null;
+  return normalized;
+}
+
+function getDistanceKm(fromHash: string, toHash: string) {
+  const from = decodeGeohash(fromHash);
+  const to = decodeGeohash(toHash);
+  if (!from || !to) return NaN;
+  const rad = Math.PI / 180;
+  const dLat = (to.lat - from.lat) * rad;
+  const dLng = (to.lng - from.lng) * rad;
+  const a =
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos(from.lat * rad) *
+      Math.cos(to.lat * rad) *
+      Math.sin(dLng / 2) *
+      Math.sin(dLng / 2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  return 6371 * c;
+}
+
+function decodeGeohash(value: string) {
+  const trimmed = (value || "").trim();
+  if (!trimmed) return null;
+  try {
+    const decoded = decode(trimmed);
+    if (!decoded || !Number.isFinite(decoded.latitude) || !Number.isFinite(decoded.longitude)) return null;
+    return { lat: decoded.latitude, lng: decoded.longitude };
+  } catch (_err) {
+    return null;
+  }
+}

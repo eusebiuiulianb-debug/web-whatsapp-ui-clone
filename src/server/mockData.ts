@@ -45,7 +45,7 @@ export const mockFans: Fan[] = [
   {
     id: "javier",
     name: "Javier",
-    avatar: "/avatar3.png",
+    avatar: "/avatar.jpg",
     preview: "Necesito un poco más de contexto para grabarlo",
     time: "18:10",
     unreadCount: 1,
@@ -57,7 +57,7 @@ export const mockFans: Fan[] = [
   {
     id: "lucia",
     name: "Lucía",
-    avatar: "/avatar2.jpg",
+    avatar: "/avatar.jpg",
     preview: "Te comparto un adelanto en exclusiva hoy",
     time: "12:48",
     unreadCount: 0,
