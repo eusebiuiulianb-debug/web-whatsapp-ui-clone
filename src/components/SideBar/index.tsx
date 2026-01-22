@@ -146,8 +146,10 @@ type FanData = ConversationListData & { priorityScore?: number };
 type AccessRequestPreview = {
   id: string;
   fanId: string;
+  fanName?: string | null;
   status: "PENDING" | "APPROVED" | "REJECTED" | "SPAM";
   message: string;
+  conversationId?: string | null;
   createdAt: string;
 };
 
@@ -169,6 +171,53 @@ function applyAccessRequestMeta(
     return { ...item, accessRequestStatus: nextStatus, accessRequestId: nextId };
   });
   return mutated ? next : items;
+}
+
+function formatAccessRequestTime(value?: string | null): string {
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  return date.toLocaleTimeString("es-ES", {
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  });
+}
+
+function buildAccessRequestConversations(
+  requests: AccessRequestPreview[],
+  fanIndex: Map<string, ConversationListData>
+): ConversationListData[] {
+  if (!requests.length) return [];
+  return requests
+    .map((request) => {
+      if (!request?.fanId) return null;
+      const base = fanIndex.get(request.fanId) ?? null;
+      const contactName = (request.fanName || base?.contactName || "Fan").trim() || "Fan";
+      const lastMessage = request.message?.trim() || base?.lastMessage || "Solicitud de acceso";
+      const lastTime = formatAccessRequestTime(request.createdAt) || base?.lastTime || "";
+      const image = base?.image ?? "";
+      const messageHistory = base?.messageHistory ?? [];
+      return {
+        ...(base ?? {
+          id: request.fanId,
+          contactName,
+          lastMessage,
+          lastTime,
+          image,
+          messageHistory,
+        }),
+        id: request.fanId,
+        contactName,
+        lastMessage,
+        lastTime,
+        image,
+        messageHistory,
+        accessRequestStatus: request.status,
+        accessRequestId: request.id,
+      } as ConversationListData;
+    })
+    .filter(Boolean) as ConversationListData[];
 }
 type RecommendationMeta = {
   fan: FanData;
@@ -491,6 +540,7 @@ function SideBarInner() {
   const [ showFiltersPanel, setShowFiltersPanel ] = useState(false);
   const [ showMoreSegments, setShowMoreSegments ] = useState(false);
   const [ showEmptyFilters, setShowEmptyFilters ] = useState(false);
+  const [ showSpamRequests, setShowSpamRequests ] = useState(false);
   const [ focusMode, setFocusMode ] = useState(false);
   const [ showPacksPanel, setShowPacksPanel ] = useState(false);
   const [ insightsOpen, setInsightsOpen ] = useState(false);
@@ -1878,10 +1928,26 @@ function SideBarInner() {
     const res = await fetch(url, { cache: "no-store" });
     const data = await res.json().catch(() => ({}));
     if (!res.ok || data?.ok === false) {
-      return { requests: [] as AccessRequestPreview[] };
+      return { requests: [] as AccessRequestPreview[], count: 0 };
     }
     const list = Array.isArray(data?.requests) ? (data.requests as AccessRequestPreview[]) : [];
-    return { requests: list };
+    const count = typeof data?.count === "number" ? data.count : list.length;
+    return { requests: list, count };
+  }, []);
+
+  const fetchBlockedCount = useCallback(async (url: string) => {
+    const res = await fetch(url, { cache: "no-store" });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || data?.ok === false) {
+      return { count: 0 };
+    }
+    const count =
+      typeof data?.counts?.all === "number"
+        ? data.counts.all
+        : Array.isArray(data?.items)
+        ? data.items.length
+        : 0;
+    return { count };
   }, []);
 
   const { data: accessRequestsData } = useSWR(
@@ -1894,15 +1960,46 @@ function SideBarInner() {
     }
   );
 
+  const { data: accessRequestsSpamData } = useSWR(
+    "/api/creator/access-requests?status=SPAM",
+    fetchAccessRequests,
+    {
+      refreshInterval: chatPollIntervalMs,
+      dedupingInterval: chatPollDedupeMs,
+      revalidateOnFocus: false,
+    }
+  );
+
+  const { data: blockedCountData } = useSWR("/api/fans?filter=blocked&limit=1", fetchBlockedCount, {
+    refreshInterval: chatPollIntervalMs,
+    dedupingInterval: chatPollDedupeMs,
+    revalidateOnFocus: false,
+  });
+
+  const pendingAccessRequests = useMemo(
+    () => (Array.isArray(accessRequestsData?.requests) ? accessRequestsData.requests : []),
+    [accessRequestsData?.requests]
+  );
+  const pendingAccessCount =
+    typeof accessRequestsData?.count === "number" ? accessRequestsData.count : pendingAccessRequests.length;
+
+  const spamAccessRequests = useMemo(
+    () => (Array.isArray(accessRequestsSpamData?.requests) ? accessRequestsSpamData.requests : []),
+    [accessRequestsSpamData?.requests]
+  );
+  const spamAccessCount =
+    typeof accessRequestsSpamData?.count === "number" ? accessRequestsSpamData.count : spamAccessRequests.length;
+
+  const blockedTotalCount = typeof blockedCountData?.count === "number" ? blockedCountData.count : 0;
+
   const accessRequestsByFanId = useMemo(() => {
-    const entries = Array.isArray(accessRequestsData?.requests) ? accessRequestsData?.requests : [];
-    return entries.reduce<Record<string, AccessRequestPreview>>((acc, request) => {
+    return pendingAccessRequests.reduce<Record<string, AccessRequestPreview>>((acc, request) => {
       if (request?.fanId) {
         acc[request.fanId] = request;
       }
       return acc;
     }, {});
-  }, [accessRequestsData?.requests]);
+  }, [pendingAccessRequests]);
 
   const safeFilteredConversationsWithAccess = useMemo(
     () => applyAccessRequestMeta(safeFilteredConversationsList, accessRequestsByFanId),
@@ -1942,12 +2039,38 @@ function SideBarInner() {
     );
   }, [chatPages]);
 
+  const fansById = useMemo(() => {
+    const map = new Map<string, ConversationListData>();
+    fans.forEach((fan) => {
+      if (fan?.id) {
+        map.set(fan.id, fan);
+      }
+    });
+    return map;
+  }, [fans]);
+
+  const pendingAccessRequestList = useMemo(
+    () => buildAccessRequestConversations(pendingAccessRequests, fansById),
+    [pendingAccessRequests, fansById]
+  );
+
+  const spamAccessRequestList = useMemo(
+    () => buildAccessRequestConversations(spamAccessRequests, fansById),
+    [spamAccessRequests, fansById]
+  );
+
   const hasMore = Boolean(chatPages?.[chatPages.length - 1]?.hasMore);
   const apiHeatCounts = chatPages?.[0]?.counts as { all: number; cold: number; warm: number; hot: number } | undefined;
   const heatCounts = apiHeatCounts ?? heatCountsLocal;
   const apiIntentCounts = chatPages?.[0]?.intentCounts as Record<string, number> | undefined;
   const intentCounts = apiIntentCounts ?? intentCountsLocal;
   const totalCount = typeof heatCounts.all === "number" ? heatCounts.all : totalCountLocal;
+  const showAccessRequestsSection =
+    !focusMode && (pendingAccessCount > 0 || spamAccessCount > 0 || blockedTotalCount > 0);
+  const activeAccessRequestList = showSpamRequests ? spamAccessRequestList : pendingAccessRequestList;
+  const activeAccessRequestEmpty = showSpamRequests
+    ? "No hay solicitudes marcadas como spam."
+    : "Sin solicitudes pendientes.";
 
   useEffect(() => {
     if (!chatError) {
@@ -3781,6 +3904,82 @@ function SideBarInner() {
             )}
           </div>
         </div>
+        {showAccessRequestsSection && (
+          <div className="px-3 pb-3 space-y-2">
+            <div className="grid grid-cols-3 gap-2">
+              <button
+                type="button"
+                onClick={() => setShowSpamRequests(false)}
+                className={clsx(
+                  "flex items-center justify-between rounded-lg border px-2.5 py-2 text-[11px] font-semibold transition",
+                  showSpamRequests
+                    ? "border-[color:var(--surface-border)] bg-[color:var(--surface-2)] text-[color:var(--muted)]"
+                    : "border-[color:rgba(var(--brand-rgb),0.45)] bg-[color:rgba(var(--brand-rgb),0.16)] text-[color:var(--text)]"
+                )}
+              >
+                <span>Solicitudes</span>
+                <span className="inline-flex min-w-[18px] items-center justify-center rounded-full border border-[color:var(--surface-border)] px-1 text-[10px] text-[color:var(--text)]">
+                  {pendingAccessCount}
+                </span>
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  if (spamAccessCount > 0) setShowSpamRequests(true);
+                }}
+                disabled={spamAccessCount === 0}
+                className={clsx(
+                  "flex items-center justify-between rounded-lg border px-2.5 py-2 text-[11px] font-semibold transition",
+                  showSpamRequests
+                    ? "border-[color:rgba(244,63,94,0.5)] bg-[color:rgba(244,63,94,0.16)] text-[color:var(--text)]"
+                    : "border-[color:var(--surface-border)] bg-[color:var(--surface-2)] text-[color:var(--muted)]",
+                  spamAccessCount === 0 && "cursor-not-allowed opacity-60"
+                )}
+              >
+                <span>Spam</span>
+                <span className="inline-flex min-w-[18px] items-center justify-center rounded-full border border-[color:var(--surface-border)] px-1 text-[10px] text-[color:var(--text)]">
+                  {spamAccessCount}
+                </span>
+              </button>
+              <button
+                type="button"
+                onClick={() => selectStatusFilter("blocked")}
+                disabled={blockedTotalCount === 0}
+                className={clsx(
+                  "flex items-center justify-between rounded-lg border px-2.5 py-2 text-[11px] font-semibold transition",
+                  statusFilter === "blocked"
+                    ? "border-[color:rgba(244,63,94,0.5)] bg-[color:rgba(244,63,94,0.16)] text-[color:var(--text)]"
+                    : "border-[color:var(--surface-border)] bg-[color:var(--surface-2)] text-[color:var(--muted)]",
+                  blockedTotalCount === 0 && "cursor-not-allowed opacity-60"
+                )}
+              >
+                <span>Bloqueados</span>
+                <span className="inline-flex min-w-[18px] items-center justify-center rounded-full border border-[color:var(--surface-border)] px-1 text-[10px] text-[color:var(--text)]">
+                  {blockedTotalCount}
+                </span>
+              </button>
+            </div>
+            <div className="rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)]">
+              {activeAccessRequestList.length === 0 ? (
+                <div className="px-3 py-2 text-[11px] text-[color:var(--muted)]">
+                  {activeAccessRequestEmpty}
+                </div>
+              ) : (
+                activeAccessRequestList.map((conversation, index) => (
+                  <ConversationList
+                    key={`${conversation.id || index}-${showSpamRequests ? "spam" : "pending"}`}
+                    isFirstConversation={index === 0}
+                    data={conversation}
+                    onSelect={handleSelectConversation}
+                    onToggleHighPriority={handleToggleHighPriority}
+                    onCopyInvite={handleCopyInviteForFan}
+                    variant="compact"
+                  />
+                ))
+              )}
+            </div>
+          </div>
+        )}
         {aiEnabled && (
           <ConversationList
             data={managerPanelItem}

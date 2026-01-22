@@ -3,7 +3,7 @@ import { prisma } from "@/server/prisma";
 import { sendBadRequest, sendServerError } from "@/lib/apiError";
 
 type AccessRequestStatus = "PENDING" | "APPROVED" | "REJECTED" | "SPAM";
-type AccessRequestAction = "APPROVE" | "REJECT" | "SPAM";
+type AccessRequestAction = "APPROVE" | "REJECT" | "SPAM" | "BLOCK";
 
 type ResolveResponse =
   | { ok: true; request: { id: string; status: AccessRequestStatus; resolvedAt: string | null } }
@@ -62,11 +62,11 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
         }
       }
 
-      if (action === "SPAM") {
+      if (action === "BLOCK") {
         await tx.creatorFanBlock.upsert({
           where: { creatorId_fanId: { creatorId, fanId: request.fanId } },
-          update: { reason: "access_request_spam" },
-          create: { creatorId, fanId: request.fanId, reason: "access_request_spam" },
+          update: { reason: "access_request_blocked" },
+          create: { creatorId, fanId: request.fanId, reason: "access_request_blocked" },
         });
         await tx.fan.update({
           where: { id: request.fanId },
@@ -96,7 +96,8 @@ function normalizeAction(value: unknown): AccessRequestAction | null {
   const normalized = value.trim().toUpperCase();
   if (normalized === "APPROVE" || normalized === "APPROVED") return "APPROVE";
   if (normalized === "REJECT" || normalized === "REJECTED") return "REJECT";
-  if (normalized === "SPAM" || normalized === "BLOCK" || normalized === "BLOCKED") return "SPAM";
+  if (normalized === "SPAM") return "SPAM";
+  if (normalized === "BLOCK" || normalized === "BLOCKED") return "BLOCK";
   return null;
 }
 

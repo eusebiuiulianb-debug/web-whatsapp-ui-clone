@@ -18,6 +18,7 @@ type AccessRequestResponse =
 
 const MAX_MESSAGE_LENGTH = 240;
 const IDEMPOTENT_WINDOW_MS = 2 * 60 * 1000;
+const COOLDOWN_WINDOW_MS = 2 * 60 * 1000;
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse<AccessRequestResponse>) {
   res.setHeader("Cache-Control", "no-store");
@@ -156,13 +157,24 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse<AccessReques
     });
 
     if (pending) {
+      const now = new Date();
+      const elapsedMs = now.getTime() - pending.updatedAt.getTime();
       const sameMessage = pending.message.trim() === message;
-      const withinWindow = Date.now() - pending.updatedAt.getTime() < IDEMPOTENT_WINDOW_MS;
-      if (sameMessage && withinWindow) {
+      const withinIdempotent = elapsedMs < IDEMPOTENT_WINDOW_MS;
+      const withinCooldown = elapsedMs < COOLDOWN_WINDOW_MS;
+      if (withinIdempotent && sameMessage) {
         return res.status(200).json({ ok: true, reused: true, request: formatRequest(pending) });
       }
+      if (withinCooldown) {
+        const retryAfterMs = Math.max(0, COOLDOWN_WINDOW_MS - elapsedMs);
+        res.setHeader("Retry-After", Math.max(1, Math.ceil(retryAfterMs / 1000)));
+        return res.status(429).json({
+          ok: false,
+          error: { code: "COOLDOWN", message: "Espera un poco antes de enviar otra solicitud." },
+          retryAfterMs,
+        });
+      }
 
-      const now = new Date();
       const preview = message.slice(0, 120);
       const time = now.toLocaleTimeString("es-ES", {
         hour: "2-digit",

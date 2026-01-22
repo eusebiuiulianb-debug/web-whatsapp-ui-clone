@@ -2600,7 +2600,9 @@ export default function ConversationDetails({ onBackToBoard }: ConversationDetai
     hasAccessHistory: conversation.hasAccessHistory,
     activeGrantTypes: conversation.activeGrantTypes,
   });
+  const hasActiveAccess = accessSummary.state === "ACTIVE";
   const hasPendingAccessRequest = accessRequest?.status === "PENDING";
+  const canResolveAccessRequest = Boolean(accessRequest?.id);
   const isAccessRequestActionDisabled = accessRequestActionLoading || grantLoadingType !== null;
   const accessRequestTimestamp =
     hasPendingAccessRequest && accessRequest?.createdAt
@@ -2656,6 +2658,7 @@ const INTENT_BADGE_LABELS: Record<string, string> = {
   const hasMonthly = normalizedGrants.includes("monthly");
   const hasSpecial = normalizedGrants.includes("special");
   const isAccessExpired = accessSummary.state === "EXPIRED";
+  const showAccessRequestBanner = !conversation.isManager && !hasActiveAccess && !isChatBlocked;
   const canOfferMonthly = hasWelcome && !hasMonthly;
   const canOfferSpecial = hasMonthly && !hasSpecial;
   const isRecommended = (id: string) => Boolean(managerSummary?.recommendedButtons?.includes(id));
@@ -4907,7 +4910,7 @@ const INTENT_BADGE_LABELS: Record<string, string> = {
   }, []);
 
   const resolveAccessRequest = useCallback(
-    async (requestId: string, action: "APPROVE" | "REJECT" | "SPAM", grantHours?: number) => {
+    async (requestId: string, action: "APPROVE" | "REJECT" | "SPAM" | "BLOCK", grantHours?: number) => {
       if (!requestId) return false;
       setAccessRequestActionLoading(true);
       try {
@@ -12902,17 +12905,47 @@ const INTENT_BADGE_LABELS: Record<string, string> = {
     }
   };
 
-  const handleAccessRequestBlock = async () => {
+  const handleAccessRequestSpam = async () => {
     if (!accessRequest?.id) return;
     const ok = await resolveAccessRequest(accessRequest.id, "SPAM");
     if (!ok) return;
+    showComposerToast("Solicitud marcada como spam.");
+  };
+
+  const handleAccessRequestBlock = async () => {
+    if (!id) return;
+    if (accessRequest?.id) {
+      const ok = await resolveAccessRequest(accessRequest.id, "BLOCK");
+      if (!ok) return;
+    } else {
+      setAccessRequestActionLoading(true);
+      try {
+        const res = await fetch(`/api/creator/fans/${encodeURIComponent(id)}/block`, { method: "POST" });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok || data?.ok === false) {
+          showComposerToast(data?.error || "No se pudo bloquear al fan.");
+          return;
+        }
+      } catch (err) {
+        console.error("Error blocking fan", err);
+        showComposerToast("No se pudo bloquear al fan.");
+        return;
+      } finally {
+        setAccessRequestActionLoading(false);
+      }
+    }
     setIsChatBlocked(true);
     updateConversationState({ isBlocked: true });
     window.dispatchEvent(new Event("fanDataUpdated"));
+    showComposerToast("Fan bloqueado.");
   };
 
   const handleAccessRequestGrant = async () => {
-    if (!accessRequest?.id || !id) return;
+    if (!id) return;
+    if (!accessRequest?.id) {
+      showComposerToast("No hay solicitud pendiente.");
+      return;
+    }
     const resolved = await resolveAccessRequest(accessRequest.id, "APPROVE", 72);
     if (!resolved) return;
     await fetchAccessGrants(id);
@@ -14014,29 +14047,41 @@ const INTENT_BADGE_LABELS: Record<string, string> = {
           <span>Chat bloqueado. No puedes enviar mensajes nuevos a este fan.</span>
         </div>
       )}
-      {hasPendingAccessRequest && accessRequest && (
+      {showAccessRequestBanner && (
         <div className="mx-4 mb-3 flex flex-col gap-3 rounded-xl border border-[color:rgba(59,130,246,0.5)] bg-[color:rgba(59,130,246,0.08)] px-4 py-3 text-xs text-[color:var(--text)]">
           <div className="flex flex-col gap-1">
-            <span className="font-semibold text-[color:var(--brand)]">Solicitud de acceso</span>
-            <span className="text-[11px] text-[color:var(--muted)]">
-              {accessRequest.fanName || contactName || "Fan"}
-              {accessRequestTimestamp ? ` · ${accessRequestTimestamp}` : ""}
+            <span className="font-semibold text-[color:var(--brand)]">
+              {hasPendingAccessRequest ? "Solicitud de acceso" : "Acceso pendiente / sin acceso"}
             </span>
-            <p className="text-[11px] text-[color:var(--text)] whitespace-pre-line">{accessRequest.message}</p>
+            {hasPendingAccessRequest && accessRequest ? (
+              <span className="text-[11px] text-[color:var(--muted)]">
+                {accessRequest.fanName || contactName || "Fan"}
+                {accessRequestTimestamp ? ` · ${accessRequestTimestamp}` : ""}
+              </span>
+            ) : (
+              <span className="text-[11px] text-[color:var(--muted)]">
+                {isAccessExpired ? "Acceso caducado · sin pack activo" : "El fan no tiene acceso activo."}
+              </span>
+            )}
+            <p className="text-[11px] text-[color:var(--text)] whitespace-pre-line">
+              {hasPendingAccessRequest && accessRequest?.message
+                ? accessRequest.message
+                : "Puedes aprobar un acceso temporal, sugerir un pack o bloquear si es necesario."}
+            </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
             <button
               type="button"
-              onClick={handleAccessRequestReply}
-              disabled={isAccessRequestActionDisabled}
+              onClick={handleAccessRequestGrant}
+              disabled={isAccessRequestActionDisabled || !canResolveAccessRequest}
               className={clsx(
                 "rounded-full border px-3 py-1.5 text-[11px] font-semibold transition",
-                isAccessRequestActionDisabled
+                isAccessRequestActionDisabled || !canResolveAccessRequest
                   ? "border-[color:var(--surface-border)] bg-[color:var(--surface-2)] text-[color:var(--muted)] cursor-not-allowed"
-                  : "border-[color:rgba(var(--brand-rgb),0.4)] bg-[color:rgba(var(--brand-rgb),0.16)] text-[color:var(--text)] hover:bg-[color:rgba(var(--brand-rgb),0.22)]"
+                  : "border-[color:rgba(34,197,94,0.6)] bg-[color:rgba(34,197,94,0.12)] text-[color:var(--text)] hover:bg-[color:rgba(34,197,94,0.18)]"
               )}
             >
-              Responder
+              Aprobar 72h
             </button>
             <button
               type="button"
@@ -14051,32 +14096,51 @@ const INTENT_BADGE_LABELS: Record<string, string> = {
             >
               Sugerir pack
             </button>
-            <button
-              type="button"
-              onClick={handleAccessRequestReject}
-              disabled={isAccessRequestActionDisabled}
-              className={clsx(
-                "rounded-full border px-3 py-1.5 text-[11px] font-semibold transition",
-                isAccessRequestActionDisabled
-                  ? "border-[color:var(--surface-border)] bg-[color:var(--surface-2)] text-[color:var(--muted)] cursor-not-allowed"
-                  : "border-[color:rgba(148,163,184,0.7)] bg-[color:rgba(148,163,184,0.12)] text-[color:var(--text)] hover:bg-[color:rgba(148,163,184,0.18)]"
-              )}
-            >
-              Rechazar
-            </button>
-            <button
-              type="button"
-              onClick={handleAccessRequestGrant}
-              disabled={isAccessRequestActionDisabled}
-              className={clsx(
-                "rounded-full border px-3 py-1.5 text-[11px] font-semibold transition",
-                isAccessRequestActionDisabled
-                  ? "border-[color:var(--surface-border)] bg-[color:var(--surface-2)] text-[color:var(--muted)] cursor-not-allowed"
-                  : "border-[color:rgba(34,197,94,0.6)] bg-[color:rgba(34,197,94,0.12)] text-[color:var(--text)] hover:bg-[color:rgba(34,197,94,0.18)]"
-              )}
-            >
-              Aprobar 72h
-            </button>
+            {hasPendingAccessRequest && (
+              <button
+                type="button"
+                onClick={handleAccessRequestReply}
+                disabled={isAccessRequestActionDisabled}
+                className={clsx(
+                  "rounded-full border px-3 py-1.5 text-[11px] font-semibold transition",
+                  isAccessRequestActionDisabled
+                    ? "border-[color:var(--surface-border)] bg-[color:var(--surface-2)] text-[color:var(--muted)] cursor-not-allowed"
+                    : "border-[color:rgba(var(--brand-rgb),0.4)] bg-[color:rgba(var(--brand-rgb),0.16)] text-[color:var(--text)] hover:bg-[color:rgba(var(--brand-rgb),0.22)]"
+                )}
+              >
+                Responder
+              </button>
+            )}
+            {hasPendingAccessRequest && (
+              <button
+                type="button"
+                onClick={handleAccessRequestReject}
+                disabled={isAccessRequestActionDisabled}
+                className={clsx(
+                  "rounded-full border px-3 py-1.5 text-[11px] font-semibold transition",
+                  isAccessRequestActionDisabled
+                    ? "border-[color:var(--surface-border)] bg-[color:var(--surface-2)] text-[color:var(--muted)] cursor-not-allowed"
+                    : "border-[color:rgba(148,163,184,0.7)] bg-[color:rgba(148,163,184,0.12)] text-[color:var(--text)] hover:bg-[color:rgba(148,163,184,0.18)]"
+                )}
+              >
+                Rechazar
+              </button>
+            )}
+            {hasPendingAccessRequest && (
+              <button
+                type="button"
+                onClick={handleAccessRequestSpam}
+                disabled={isAccessRequestActionDisabled}
+                className={clsx(
+                  "rounded-full border px-3 py-1.5 text-[11px] font-semibold transition",
+                  isAccessRequestActionDisabled
+                    ? "border-[color:var(--surface-border)] bg-[color:var(--surface-2)] text-[color:var(--muted)] cursor-not-allowed"
+                    : "border-[color:rgba(244,63,94,0.45)] bg-[color:rgba(244,63,94,0.08)] text-[color:var(--text)] hover:bg-[color:rgba(244,63,94,0.14)]"
+                )}
+              >
+                Marcar spam
+              </button>
+            )}
             <button
               type="button"
               onClick={handleAccessRequestBlock}
@@ -14090,26 +14154,16 @@ const INTENT_BADGE_LABELS: Record<string, string> = {
             >
               Bloquear
             </button>
-          </div>
-        </div>
-      )}
-      {/* Avisos de acceso caducado o a punto de caducar */}
-      {isAccessExpired && (
-        <div className="mx-4 mb-3 flex flex-col md:flex-row md:items-center md:justify-between gap-3 rounded-xl border border-[color:rgba(245,158,11,0.5)] bg-[color:rgba(245,158,11,0.08)] px-4 py-3 text-xs text-[color:var(--text)]">
-          <div className="flex flex-col gap-1">
-            <span className="font-semibold text-[color:var(--warning)]">Acceso caducado · sin pack activo</span>
-            <span className="text-[11px] text-[color:var(--text)]">
-              Puedes enviarle un mensaje de reenganche y decidir después si le das acceso a nuevos contenidos.
-            </span>
-          </div>
-          <div className="flex items-center gap-2">
-            <button
-              type="button"
-              className="rounded-full border border-[color:var(--warning)] bg-[color:rgba(245,158,11,0.08)] px-3 py-1.5 text-[11px] font-semibold text-[color:var(--text)] hover:bg-[color:rgba(245,158,11,0.16)]"
-              onClick={handleRenewAction}
-            >
-              Mensaje de reenganche
-            </button>
+            {isAccessExpired && (
+              <button
+                type="button"
+                className="rounded-full border border-[color:var(--warning)] bg-[color:rgba(245,158,11,0.08)] px-3 py-1.5 text-[11px] font-semibold text-[color:var(--text)] hover:bg-[color:rgba(245,158,11,0.16)]"
+                onClick={handleRenewAction}
+                disabled={isAccessRequestActionDisabled}
+              >
+                Mensaje de reenganche
+              </button>
+            )}
           </div>
         </div>
       )}

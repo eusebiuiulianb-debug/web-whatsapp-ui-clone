@@ -141,6 +141,14 @@ export default async function handler(
       const hasLegacyReply = Boolean(comment.replyText?.trim());
       const repliesLocked = comment.repliesLocked ?? false;
 
+      if (repliesLocked) {
+        return res.status(403).json({
+          ok: false,
+          error: "THREAD_LOCKED",
+          message: "Hilo cerrado por el creador.",
+        });
+      }
+
       if (isOwner) {
         const existingCreatorReply = await prisma.commentReply.findFirst({
           where: { commentId, authorCreatorId: comment.creatorId, deletedAt: null },
@@ -200,14 +208,6 @@ export default async function handler(
             authorRole: "CREATOR",
             authorDisplayName: creatorName,
           },
-        });
-      }
-
-      if (repliesLocked) {
-        return res.status(403).json({
-          ok: false,
-          error: "THREAD_LOCKED",
-          message: "Hilo cerrado por el creador.",
         });
       }
 

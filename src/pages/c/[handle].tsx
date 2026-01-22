@@ -2,7 +2,7 @@ import Head from "next/head";
 import Image from "next/image";
 import type { GetServerSideProps } from "next";
 import { randomUUID } from "crypto";
-import { useEffect, useRef, useState, type MouseEvent } from "react";
+import { useCallback, useEffect, useRef, useState, type MouseEvent } from "react";
 import { useRouter } from "next/router";
 import { Bell, BellRing, ThumbsUp } from "lucide-react";
 import { PublicHero } from "../../components/public-profile/PublicHero";
@@ -39,6 +39,9 @@ type Props = {
   location?: CreatorLocation | null;
   catalogItems?: PublicCatalogItem[];
   catalogError?: string | null;
+  responseSla?: string | null;
+  availability?: string | null;
+  vipOnly?: boolean;
   locale?: "es" | "en";
 };
 
@@ -110,6 +113,9 @@ export default function PublicCreatorByHandle({
   bio,
   websiteUrl,
   subtitle,
+  responseSla,
+  availability,
+  vipOnly,
   avatarUrl,
   creatorHandle,
   isCreatorViewer,
@@ -395,7 +401,14 @@ export default function PublicCreatorByHandle({
   const ratingsCount = stats?.ratingsCount ?? 0;
   const topEligible = commentsCount >= 10 || ratingsCount >= 10;
   const tagline = "";
-  const trustLine = (subtitle || "Responde en menos de 24h").trim();
+  const responseSlaLabel = formatResponseSla(responseSla);
+  const availabilityLabel = formatAvailability(availability);
+  const trustLine = (subtitle || responseSlaLabel || "Responde en menos de 24h").trim();
+  const creatorChips = [
+    ...(responseSlaLabel && responseSlaLabel !== trustLine ? [responseSlaLabel] : []),
+    ...(availabilityLabel ? [availabilityLabel] : []),
+    ...(vipOnly ? ["Solo VIP"] : []),
+  ];
   const bioText = (bio || "").trim();
   const [isBioExpanded, setIsBioExpanded] = useState(false);
   const bioRef = useRef<HTMLParagraphElement | null>(null);
@@ -482,6 +495,43 @@ export default function PublicCreatorByHandle({
   const activePopclipChatHref = activePopclip
     ? buildDraftHref(buildPopclipDraft(activePopclipTitle, activePopclipPackTitle))
     : "";
+  const activePopclipIndex = activePopclip
+    ? highlightPopclipsSource.findIndex((clip) => clip.id === activePopclip.id)
+    : -1;
+  const hasPrevPopclip = activePopclipIndex > 0;
+  const hasNextPopclip =
+    activePopclipIndex >= 0 && activePopclipIndex < highlightPopclipsSource.length - 1;
+
+  const handlePopclipNavigate = useCallback(
+    (direction: "prev" | "next") => {
+      if (!highlightPopclipsSource.length || activePopclipIndex < 0) return;
+      const delta = direction === "next" ? 1 : -1;
+      const nextIndex = activePopclipIndex + delta;
+      if (nextIndex < 0 || nextIndex >= highlightPopclipsSource.length) return;
+      setActivePopclip(highlightPopclipsSource[nextIndex]);
+    },
+    [activePopclipIndex, highlightPopclipsSource]
+  );
+
+  useEffect(() => {
+    if (!activePopclip) return;
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "ArrowLeft" || event.key === "ArrowUp") {
+        event.preventDefault();
+        handlePopclipNavigate("prev");
+      }
+      if (event.key === "ArrowRight" || event.key === "ArrowDown") {
+        event.preventDefault();
+        handlePopclipNavigate("next");
+      }
+      if (event.key === "Escape") {
+        event.preventDefault();
+        setActivePopclip(null);
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [activePopclip, handlePopclipNavigate]);
 
   const showToast = (message: string) => {
     setToast(message);
@@ -917,7 +967,7 @@ export default function PublicCreatorByHandle({
             trustLine={trustLine}
             topEligible={topEligible}
             location={location}
-            chips={[]}
+            chips={creatorChips}
             primaryCtaLabel="Entrar al chat privado"
             primaryHref={chatHref}
             primaryOnClick={handleOpenChat}
@@ -1283,14 +1333,42 @@ export default function PublicCreatorByHandle({
                         <p className="text-xs text-[color:var(--muted)]">Pack: {activePopclipPackTitle}</p>
                       )}
                     </div>
-                    <button
-                      type="button"
-                      onClick={handleClosePopclipViewer}
-                      aria-label="Cerrar"
-                      className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-[color:var(--surface-border)] text-[color:var(--muted)] hover:text-[color:var(--text)] hover:border-[color:var(--surface-border-hover)]"
-                    >
-                      X
-                    </button>
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => handlePopclipNavigate("prev")}
+                        disabled={!hasPrevPopclip}
+                        aria-label="PopClip anterior"
+                        className={`inline-flex h-8 items-center justify-center rounded-full border px-3 text-[10px] font-semibold transition ${
+                          hasPrevPopclip
+                            ? "border-[color:var(--surface-border)] text-[color:var(--text)] hover:bg-[color:var(--surface-2)]"
+                            : "border-[color:var(--surface-border)] text-[color:var(--muted)] cursor-not-allowed"
+                        }`}
+                      >
+                        Anterior
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handlePopclipNavigate("next")}
+                        disabled={!hasNextPopclip}
+                        aria-label="PopClip siguiente"
+                        className={`inline-flex h-8 items-center justify-center rounded-full border px-3 text-[10px] font-semibold transition ${
+                          hasNextPopclip
+                            ? "border-[color:var(--surface-border)] text-[color:var(--text)] hover:bg-[color:var(--surface-2)]"
+                            : "border-[color:var(--surface-border)] text-[color:var(--muted)] cursor-not-allowed"
+                        }`}
+                      >
+                        Siguiente
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleClosePopclipViewer}
+                        aria-label="Cerrar"
+                        className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-[color:var(--surface-border)] text-[color:var(--muted)] hover:text-[color:var(--text)] hover:border-[color:var(--surface-border-hover)]"
+                      >
+                        X
+                      </button>
+                    </div>
                   </div>
                 </div>
                 <div className="flex-1 overflow-y-auto px-4 pb-4 pt-4 sm:px-5 sm:pb-5 space-y-4">
@@ -1524,6 +1602,9 @@ export const getServerSideProps: GetServerSideProps<Props> = async (ctx) => {
       location: mapLocation(profile),
       catalogItems,
       catalogError,
+      responseSla: profile?.responseSla ?? null,
+      availability: profile?.availability ?? null,
+      vipOnly: Boolean(profile?.vipOnly),
       showPreviewBanner,
       locale,
     },
@@ -1557,6 +1638,24 @@ function resolveVisibilityMode(value: unknown): "INVISIBLE" | "SOLO_LINK" | "DIS
   if (value === "DISCOVERABLE") return "DISCOVERABLE";
   if (value === "PUBLIC") return "PUBLIC";
   return "SOLO_LINK";
+}
+
+function formatResponseSla(value?: string | null) {
+  const normalized = (value || "").toUpperCase();
+  if (normalized === "INSTANT") return "Responde al instante";
+  if (normalized === "LT_1H") return "Responde en <1h";
+  if (normalized === "LT_24H") return "Responde en <24h";
+  if (normalized === "LT_48H") return "Responde en <48h";
+  return null;
+}
+
+function formatAvailability(value?: string | null) {
+  const normalized = (value || "").toUpperCase();
+  if (normalized === "ONLINE") return "Disponible";
+  if (normalized === "AWAY") return "Ausente";
+  if (normalized === "DND") return "No molestar";
+  if (normalized === "OFFLINE") return "No disponible";
+  return null;
 }
 
 function normalizeWebsiteUrl(value?: string | null) {

@@ -832,7 +832,7 @@ export default function PublicCreatorComments({
                 const threadFull = participantsCount >= MAX_REPLY_PARTICIPANTS;
                 const viewerHasReplied = Boolean(comment.viewerHasReplied);
                 const threadFullForViewer = threadFull && !viewerHasReplied && !isCreatorViewer;
-                const replyBlocked = repliesLocked && !isCreatorViewer;
+                const replyBlocked = repliesLocked;
                 const expanded = Boolean(replyExpanded[comment.id]);
                 const displayReplies = expanded
                   ? replyItemsById[comment.id] ?? previewReplies
