@@ -2604,10 +2604,12 @@ export default function ConversationDetails({ onBackToBoard }: ConversationDetai
   const hasPendingAccessRequest = accessRequest?.status === "PENDING";
   const canResolveAccessRequest = Boolean(accessRequest?.id);
   const isAccessRequestActionDisabled = accessRequestActionLoading || grantLoadingType !== null;
-  const accessRequestTimestamp =
-    hasPendingAccessRequest && accessRequest?.createdAt
-      ? formatLastPurchaseToday(accessRequest.createdAt)
-      : null;
+  const accessRequestTimestamp = (() => {
+    if (!hasPendingAccessRequest || !accessRequest?.createdAt) return null;
+    const parsed = new Date(accessRequest.createdAt);
+    if (Number.isNaN(parsed.getTime())) return null;
+    return formatDistanceToNow(parsed, { addSuffix: true, locale: es });
+  })();
   const subscriptionLabel =
     accessSummary.state === "NONE"
       ? "Sin acceso"
@@ -4910,7 +4912,7 @@ const INTENT_BADGE_LABELS: Record<string, string> = {
   }, []);
 
   const resolveAccessRequest = useCallback(
-    async (requestId: string, action: "APPROVE" | "REJECT" | "SPAM" | "BLOCK", grantHours?: number) => {
+    async (requestId: string, action: "APPROVE_72H" | "REJECT" | "SPAM" | "BLOCK", grantHours?: number) => {
       if (!requestId) return false;
       setAccessRequestActionLoading(true);
       try {
@@ -11629,7 +11631,7 @@ const INTENT_BADGE_LABELS: Record<string, string> = {
         emitCreatorDataChanged({ reason: "fan_message_sent", fanId: id });
         const pendingRequest = accessRequestRef.current;
         if (pendingRequest?.status === "PENDING" && pendingRequest.fanId === id) {
-          void resolveAccessRequest(pendingRequest.id, "APPROVE");
+          void resolveAccessRequest(pendingRequest.id, "APPROVE_72H", 72);
         }
         const currentStage = (agencyMeta?.stage ?? agencyDraft?.stage ?? conversation.agencyStage ?? "NEW") as AgencyStage;
         const nextStage = getAutoAdvanceStage({ currentStage, actionKey: currentActionKey });
@@ -12946,7 +12948,7 @@ const INTENT_BADGE_LABELS: Record<string, string> = {
       showComposerToast("No hay solicitud pendiente.");
       return;
     }
-    const resolved = await resolveAccessRequest(accessRequest.id, "APPROVE", 72);
+    const resolved = await resolveAccessRequest(accessRequest.id, "APPROVE_72H", 72);
     if (!resolved) return;
     await fetchAccessGrants(id);
     await refreshFanData(id);

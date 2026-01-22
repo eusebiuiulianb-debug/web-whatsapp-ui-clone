@@ -95,6 +95,7 @@ function normalizeAction(value: unknown): AccessRequestAction | null {
   if (typeof value !== "string") return null;
   const normalized = value.trim().toUpperCase();
   if (normalized === "APPROVE" || normalized === "APPROVED") return "APPROVE";
+  if (normalized === "APPROVE_72H" || normalized === "APPROVE-72H") return "APPROVE";
   if (normalized === "REJECT" || normalized === "REJECTED") return "REJECT";
   if (normalized === "SPAM") return "SPAM";
   if (normalized === "BLOCK" || normalized === "BLOCKED") return "BLOCK";

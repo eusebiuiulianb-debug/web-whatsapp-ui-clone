@@ -69,7 +69,7 @@ model CreatorProfile {
   locationRadiusKm          Int?
   allowDiscoveryUseLocation Boolean  @default(false)
   responseSla               CreatorResponseSla @default(LT_24H)
-  availability              CreatorAvailability @default(OFFLINE)
+  availability              CreatorAvailability @default(AVAILABLE)
   vipOnly                   Boolean  @default(false)
   createdAt                 DateTime @default(now())
   updatedAt                 DateTime @updatedAt
@@ -84,16 +84,14 @@ enum CreatorVisibilityMode {
 
 enum CreatorResponseSla {
   INSTANT
-  LT_1H
   LT_24H
-  LT_48H
+  LT_72H
 }
 
 enum CreatorAvailability {
-  ONLINE
-  AWAY
-  DND
-  OFFLINE
+  AVAILABLE
+  NOT_AVAILABLE
+  VIP_ONLY
 }
 
 model Pack {

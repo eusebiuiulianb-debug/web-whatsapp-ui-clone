@@ -153,6 +153,20 @@ type AccessRequestPreview = {
   createdAt: string;
 };
 
+type CreatorAvailability = "AVAILABLE" | "NOT_AVAILABLE" | "VIP_ONLY";
+type CreatorResponseSla = "INSTANT" | "LT_24H" | "LT_72H";
+
+const CREATOR_AVAILABILITY_OPTIONS: Array<{ value: CreatorAvailability; label: string }> = [
+  { value: "AVAILABLE", label: "Disponible" },
+  { value: "NOT_AVAILABLE", label: "No disponible" },
+  { value: "VIP_ONLY", label: "Solo VIP" },
+];
+const CREATOR_SLA_OPTIONS: Array<{ value: CreatorResponseSla; label: string }> = [
+  { value: "INSTANT", label: "Responde al momento" },
+  { value: "LT_24H", label: "Responde <24h" },
+  { value: "LT_72H", label: "Responde <72h" },
+];
+
 function applyAccessRequestMeta(
   items: ConversationListData[],
   accessRequestsByFanId: Record<string, AccessRequestPreview>
@@ -542,6 +556,11 @@ function SideBarInner() {
   const [ showEmptyFilters, setShowEmptyFilters ] = useState(false);
   const [ showSpamRequests, setShowSpamRequests ] = useState(false);
   const [ focusMode, setFocusMode ] = useState(false);
+  const [ creatorAvailability, setCreatorAvailability ] = useState<CreatorAvailability>("AVAILABLE");
+  const [ creatorResponseSla, setCreatorResponseSla ] = useState<CreatorResponseSla>("LT_24H");
+  const [ creatorStatusLoaded, setCreatorStatusLoaded ] = useState(false);
+  const [ creatorStatusSaving, setCreatorStatusSaving ] = useState(false);
+  const [ creatorStatusError, setCreatorStatusError ] = useState("");
   const [ showPacksPanel, setShowPacksPanel ] = useState(false);
   const [ insightsOpen, setInsightsOpen ] = useState(false);
   const [ listSegment, setListSegment ] = useState<"all" | "queue">("all");
@@ -2001,6 +2020,101 @@ function SideBarInner() {
     }, {});
   }, [pendingAccessRequests]);
 
+  const fetchCreatorStatus = useCallback(async () => {
+    try {
+      const res = await fetch("/api/creator/profile/status", { cache: "no-store" });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || data?.ok === false) {
+        throw new Error(data?.message || "Error cargando estado");
+      }
+      if (data?.responseSla) {
+        setCreatorResponseSla(data.responseSla as CreatorResponseSla);
+      }
+      if (data?.availability) {
+        setCreatorAvailability(data.availability as CreatorAvailability);
+      }
+      setCreatorStatusError("");
+    } catch (err) {
+      console.error("Error loading creator status", err);
+      setCreatorStatusError("No se pudo cargar el estado.");
+    } finally {
+      setCreatorStatusLoaded(true);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!creatorStatusLoaded) {
+      void fetchCreatorStatus();
+    }
+  }, [creatorStatusLoaded, fetchCreatorStatus]);
+
+  const updateCreatorStatus = useCallback(
+    async (next: { responseSla: CreatorResponseSla; availability: CreatorAvailability }) => {
+      setCreatorStatusSaving(true);
+      setCreatorStatusError("");
+      try {
+        const res = await fetch("/api/creator/profile/status", {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(next),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok || data?.ok === false) {
+          throw new Error(data?.message || data?.error || "No se pudo guardar el estado.");
+        }
+        if (data?.responseSla) {
+          setCreatorResponseSla(data.responseSla as CreatorResponseSla);
+        }
+        if (data?.availability) {
+          setCreatorAvailability(data.availability as CreatorAvailability);
+        }
+        setCreatorStatusError("");
+        return true;
+      } catch (err) {
+        console.error("Error saving creator status", err);
+        setCreatorStatusError("No se pudo guardar el estado.");
+        return false;
+      } finally {
+        setCreatorStatusSaving(false);
+      }
+    },
+    []
+  );
+
+  const handleAvailabilityChange = useCallback(
+    async (event: React.ChangeEvent<HTMLSelectElement>) => {
+      const nextAvailability = event.target.value as CreatorAvailability;
+      const previous = { availability: creatorAvailability, responseSla: creatorResponseSla };
+      setCreatorAvailability(nextAvailability);
+      const ok = await updateCreatorStatus({
+        availability: nextAvailability,
+        responseSla: creatorResponseSla,
+      });
+      if (!ok) {
+        setCreatorAvailability(previous.availability);
+        setCreatorResponseSla(previous.responseSla);
+      }
+    },
+    [creatorAvailability, creatorResponseSla, updateCreatorStatus]
+  );
+
+  const handleResponseSlaChange = useCallback(
+    async (event: React.ChangeEvent<HTMLSelectElement>) => {
+      const nextSla = event.target.value as CreatorResponseSla;
+      const previous = { availability: creatorAvailability, responseSla: creatorResponseSla };
+      setCreatorResponseSla(nextSla);
+      const ok = await updateCreatorStatus({
+        availability: creatorAvailability,
+        responseSla: nextSla,
+      });
+      if (!ok) {
+        setCreatorAvailability(previous.availability);
+        setCreatorResponseSla(previous.responseSla);
+      }
+    },
+    [creatorAvailability, creatorResponseSla, updateCreatorStatus]
+  );
+
   const safeFilteredConversationsWithAccess = useMemo(
     () => applyAccessRequestMeta(safeFilteredConversationsList, accessRequestsByFanId),
     [accessRequestsByFanId, safeFilteredConversationsList]
@@ -3254,6 +3368,41 @@ function SideBarInner() {
                   <IconGlyph name="spark" className="h-3.5 w-3.5" />
                   <span>Atender siguiente</span>
                 </button>
+              </div>
+              <div className="mb-3 rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-3 py-2 text-[11px] text-[color:var(--text)]">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="font-semibold">Estado del creador</span>
+                  {creatorStatusSaving && <span className="text-[10px] text-[color:var(--muted)]">Guardando...</span>}
+                </div>
+                <div className="mt-2 grid grid-cols-2 gap-2">
+                  <select
+                    value={creatorAvailability}
+                    onChange={handleAvailabilityChange}
+                    className="rounded-lg border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-2 py-1 text-[11px] text-[color:var(--text)] focus:border-[color:var(--border-a)] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[color:var(--ring)]"
+                    disabled={creatorStatusSaving}
+                  >
+                    {CREATOR_AVAILABILITY_OPTIONS.map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
+                  <select
+                    value={creatorResponseSla}
+                    onChange={handleResponseSlaChange}
+                    className="rounded-lg border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-2 py-1 text-[11px] text-[color:var(--text)] focus:border-[color:var(--border-a)] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[color:var(--ring)]"
+                    disabled={creatorStatusSaving}
+                  >
+                    {CREATOR_SLA_OPTIONS.map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                {creatorStatusError && (
+                  <div className="mt-2 text-[10px] text-[color:var(--danger)]">{creatorStatusError}</div>
+                )}
               </div>
               <div className="flex items-center gap-3 w-full rounded-full bg-[color:var(--surface-1)] border border-[color:var(--surface-border)] px-3 py-2 shadow-sm transition focus-within:border-[color:var(--border-a)] focus-within:ring-1 focus-within:ring-[color:var(--ring)]">
                 <svg viewBox="0 0 24 24" width="20" height="20" className="text-[color:var(--muted)]">

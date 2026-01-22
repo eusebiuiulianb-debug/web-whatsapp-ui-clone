@@ -1,8 +1,8 @@
 import type { NextApiRequest, NextApiResponse } from "next";
-import prisma from "../../../../../lib/prisma.server";
-import { sendBadRequest, sendServerError } from "../../../../../lib/apiError";
-import { parseCookieHeader, readFanId, slugifyHandle } from "../../../../../lib/fan/session";
-import type { PublicCommentReply } from "../../../../../types/publicProfile";
+import { prisma } from "@/server/prisma";
+import { sendBadRequest, sendServerError } from "@/lib/apiError";
+import { parseCookieHeader, readFanId, slugifyHandle } from "@/lib/fan/session";
+import type { PublicCommentReply } from "@/types/publicProfile";
 
 type RepliesResponse =
   | {

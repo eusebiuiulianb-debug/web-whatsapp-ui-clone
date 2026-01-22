@@ -19,6 +19,7 @@ type AccessPaywallCardProps = {
   isPurchasing: (packId: string) => boolean;
   requestMessage: string;
   requestPending: boolean;
+  requestStatus?: "PENDING" | "APPROVED" | "REJECTED" | "SPAM" | null;
   requestSending: boolean;
   requestError?: string | null;
   requestAuthRequired?: boolean;
@@ -41,6 +42,7 @@ export function AccessPaywallCard({
   isPurchasing,
   requestMessage,
   requestPending,
+  requestStatus = null,
   requestSending,
   requestError,
   requestAuthRequired = false,
@@ -51,6 +53,7 @@ export function AccessPaywallCard({
   const requestDisabled = requestPending || requestSending || requestAuthRequired;
   const requestCount = requestMessage.length;
   const requestCanSend = !requestDisabled && requestMessage.trim().length > 0;
+  const requestRejected = requestStatus === "REJECTED";
   return (
     <div className="rounded-2xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-4 py-4 space-y-4">
       <div className="flex items-start justify-between gap-3">
@@ -145,6 +148,11 @@ export function AccessPaywallCard({
           {requestPending && (
             <span className="rounded-full border border-[color:rgba(var(--brand-rgb),0.5)] bg-[color:rgba(var(--brand-rgb),0.12)] px-2 py-0.5 text-[10px] font-semibold text-[color:var(--text)]">
               Solicitud enviada
+            </span>
+          )}
+          {!requestPending && requestRejected && (
+            <span className="rounded-full border border-[color:rgba(244,63,94,0.5)] bg-[color:rgba(244,63,94,0.12)] px-2 py-0.5 text-[10px] font-semibold text-[color:var(--text)]">
+              Solicitud rechazada
             </span>
           )}
         </div>

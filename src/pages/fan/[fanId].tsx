@@ -221,6 +221,7 @@ export function FanChatPage({
   const [accessRequestError, setAccessRequestError] = useState("");
   const [accessRequestAuthRequired, setAccessRequestAuthRequired] = useState(false);
   const [accessRequestAuthHref, setAccessRequestAuthHref] = useState("");
+  const [isFanBlocked, setIsFanBlocked] = useState(false);
   const [accessLoading, setAccessLoading] = useState(false);
   const [walletBalanceCents, setWalletBalanceCents] = useState<number | null>(null);
   const [walletCurrency, setWalletCurrency] = useState("EUR");
@@ -390,7 +391,7 @@ export function FanChatPage({
   const isAdultGateStrict = isAdultGateActive && resolvedAdultGatePolicy === "STRICT";
   const isAdultGateLeadCapture = isAdultGateActive && resolvedAdultGatePolicy === "LEAD_CAPTURE";
   const isAdultGatePurchaseBlocked = isAdultGateLeadCapture;
-  const isComposerDisabled = sending || isOnboardingVisible || onboardingSaving || isAdultGateStrict;
+  const isComposerDisabled = sending || isOnboardingVisible || onboardingSaving || isAdultGateStrict || isFanBlocked;
 
   const showFanToast = useCallback((message: string) => {
     setFanToast(message);
@@ -876,6 +877,7 @@ export function FanChatPage({
           creatorLabel: target?.creatorLabel ?? null,
           preferredLanguage: normalizedLanguage,
         });
+        setIsFanBlocked(Boolean(target?.isBlocked));
         setOnboardingLanguage(normalizedLanguage);
         setFanProfileLoaded(true);
         const confirmedAtValue =
@@ -920,6 +922,7 @@ export function FanChatPage({
         creatorLabel: null,
         preferredLanguage: getFallbackLanguage(),
       });
+      setIsFanBlocked(false);
       setFanProfileLoaded(true);
       setAdultConfirmedAt(null);
       setAdultConfirmVersion(null);
@@ -2913,7 +2916,14 @@ export function FanChatPage({
               Cargando acceso...
             </div>
           ) : accessSummary ? (
-            accessSummary.hasActiveAccess ? (
+            isFanBlocked ? (
+              <div className="rounded-xl border border-[color:rgba(244,63,94,0.5)] bg-[color:rgba(244,63,94,0.12)] px-4 py-3 text-sm text-[color:var(--text)] space-y-1">
+                <div className="font-semibold text-[color:var(--danger)]">Bloqueado</div>
+                <div className="text-xs text-[color:var(--muted)]">
+                  El creador ha bloqueado el acceso. No puedes enviar mensajes ni solicitudes.
+                </div>
+              </div>
+            ) : accessSummary.hasActiveAccess ? (
               <AccessBanner
                 summary={accessSummary}
                 contentCount={included?.length ?? 0}
@@ -2932,6 +2942,7 @@ export function FanChatPage({
                 isPurchasing={isPackPurchasing}
                 requestMessage={accessRequestDraft}
                 requestPending={accessRequestPending}
+                requestStatus={accessRequest?.status ?? null}
                 requestSending={accessRequestSending}
                 requestError={accessRequestError}
                 requestAuthRequired={accessRequestAuthRequired}
@@ -3207,7 +3218,7 @@ export function FanChatPage({
                   onAttach={handleOpenActionMenu}
                   inputRef={composerInputRef}
                   maxHeight={140}
-                  isChatBlocked={isAdultGateStrict || !hasActiveAccess}
+                  isChatBlocked={isAdultGateStrict || !hasActiveAccess || isFanBlocked}
                   isInternalPanelOpen={false}
                   showAttach
                   showVoice

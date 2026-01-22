@@ -41,7 +41,6 @@ type Props = {
   catalogError?: string | null;
   responseSla?: string | null;
   availability?: string | null;
-  vipOnly?: boolean;
   locale?: "es" | "en";
 };
 
@@ -115,7 +114,6 @@ export default function PublicCreatorByHandle({
   subtitle,
   responseSla,
   availability,
-  vipOnly,
   avatarUrl,
   creatorHandle,
   isCreatorViewer,
@@ -401,13 +399,12 @@ export default function PublicCreatorByHandle({
   const ratingsCount = stats?.ratingsCount ?? 0;
   const topEligible = commentsCount >= 10 || ratingsCount >= 10;
   const tagline = "";
-  const responseSlaLabel = formatResponseSla(responseSla);
-  const availabilityLabel = formatAvailability(availability);
+  const responseSlaLabel = formatResponseSla(responseSla ?? "LT_24H");
+  const availabilityLabel = formatAvailability(availability ?? "AVAILABLE");
   const trustLine = (subtitle || responseSlaLabel || "Responde en menos de 24h").trim();
   const creatorChips = [
     ...(responseSlaLabel && responseSlaLabel !== trustLine ? [responseSlaLabel] : []),
     ...(availabilityLabel ? [availabilityLabel] : []),
-    ...(vipOnly ? ["Solo VIP"] : []),
   ];
   const bioText = (bio || "").trim();
   const [isBioExpanded, setIsBioExpanded] = useState(false);
@@ -1604,7 +1601,6 @@ export const getServerSideProps: GetServerSideProps<Props> = async (ctx) => {
       catalogError,
       responseSla: profile?.responseSla ?? null,
       availability: profile?.availability ?? null,
-      vipOnly: Boolean(profile?.vipOnly),
       showPreviewBanner,
       locale,
     },
@@ -1642,15 +1638,19 @@ function resolveVisibilityMode(value: unknown): "INVISIBLE" | "SOLO_LINK" | "DIS
 
 function formatResponseSla(value?: string | null) {
   const normalized = (value || "").toUpperCase();
-  if (normalized === "INSTANT") return "Responde al instante";
-  if (normalized === "LT_1H") return "Responde en <1h";
+  if (normalized === "INSTANT") return "Responde al momento";
   if (normalized === "LT_24H") return "Responde en <24h";
+  if (normalized === "LT_72H") return "Responde en <72h";
+  if (normalized === "LT_1H") return "Responde en <1h";
   if (normalized === "LT_48H") return "Responde en <48h";
   return null;
 }
 
 function formatAvailability(value?: string | null) {
   const normalized = (value || "").toUpperCase();
+  if (normalized === "AVAILABLE") return "Disponible";
+  if (normalized === "NOT_AVAILABLE") return "No disponible";
+  if (normalized === "VIP_ONLY") return "Solo VIP";
   if (normalized === "ONLINE") return "Disponible";
   if (normalized === "AWAY") return "Ausente";
   if (normalized === "DND") return "No molestar";

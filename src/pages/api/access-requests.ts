@@ -19,6 +19,7 @@ type AccessRequestResponse =
 const MAX_MESSAGE_LENGTH = 240;
 const IDEMPOTENT_WINDOW_MS = 2 * 60 * 1000;
 const COOLDOWN_WINDOW_MS = 2 * 60 * 1000;
+const RESEND_COOLDOWN_MS = 24 * 60 * 60 * 1000;
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse<AccessRequestResponse>) {
   res.setHeader("Cache-Control", "no-store");
@@ -216,6 +217,30 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse<AccessReques
       hour12: false,
     });
     const preview = message.slice(0, 120);
+
+    const lastResolved = await prisma.accessRequest.findFirst({
+      where: { fanId, creatorId: creator.id, status: { in: ["REJECTED", "SPAM"] } },
+      orderBy: { updatedAt: "desc" },
+      select: { status: true, updatedAt: true },
+    });
+    if (lastResolved) {
+      const elapsedMs = now.getTime() - lastResolved.updatedAt.getTime();
+      if (elapsedMs < RESEND_COOLDOWN_MS) {
+        const retryAfterMs = Math.max(0, RESEND_COOLDOWN_MS - elapsedMs);
+        res.setHeader("Retry-After", Math.max(1, Math.ceil(retryAfterMs / 1000)));
+        return res.status(429).json({
+          ok: false,
+          error: {
+            code: "COOLDOWN",
+            message:
+              lastResolved.status === "REJECTED"
+                ? "Solicitud rechazada. Espera un tiempo para volver a intentarlo."
+                : "Espera un poco antes de enviar otra solicitud.",
+          },
+          retryAfterMs,
+        });
+      }
+    }
 
     const request = await prisma.$transaction(async (tx) => {
       const created = await tx.accessRequest.create({
