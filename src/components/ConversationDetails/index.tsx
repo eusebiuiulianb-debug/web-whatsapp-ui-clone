@@ -2610,6 +2610,17 @@ export default function ConversationDetails({ onBackToBoard }: ConversationDetai
     if (Number.isNaN(parsed.getTime())) return null;
     return formatDistanceToNow(parsed, { addSuffix: true, locale: es });
   })();
+  const accessRequestOrigin = useMemo(() => {
+    if (!hasPendingAccessRequest || !accessRequest?.productId) return "";
+    const raw = accessRequest.productId.trim();
+    if (!raw) return "";
+    const normalized = raw.replace(/^pack[:_-]/i, "");
+    const packMatch = Array.isArray(config.packs)
+      ? config.packs.find((pack) => pack.id === normalized || pack.id === raw)
+      : null;
+    const packLabel = packMatch?.name || PACKS[normalized as keyof typeof PACKS]?.name || raw;
+    return `Origen: ${packLabel}`;
+  }, [accessRequest?.productId, config.packs, hasPendingAccessRequest]);
   const subscriptionLabel =
     accessSummary.state === "NONE"
       ? "Sin acceso"
@@ -2660,7 +2671,8 @@ const INTENT_BADGE_LABELS: Record<string, string> = {
   const hasMonthly = normalizedGrants.includes("monthly");
   const hasSpecial = normalizedGrants.includes("special");
   const isAccessExpired = accessSummary.state === "EXPIRED";
-  const showAccessRequestBanner = !conversation.isManager && !hasActiveAccess && !isChatBlocked;
+  const showAccessRequestBanner =
+    !conversation.isManager && hasPendingAccessRequest && !hasActiveAccess && !isChatBlocked;
   const canOfferMonthly = hasWelcome && !hasMonthly;
   const canOfferSpecial = hasMonthly && !hasSpecial;
   const isRecommended = (id: string) => Boolean(managerSummary?.recommendedButtons?.includes(id));
@@ -12881,24 +12893,6 @@ const INTENT_BADGE_LABELS: Record<string, string> = {
     setConversation({ ...conversation, ...patch } as any);
   };
 
-  const handleAccessRequestReply = () => {
-    if (conversation.isManager) return;
-    setComposerTarget("fan");
-    setComposerActionKey(null);
-    requestAnimationFrame(() => messageInputRef.current?.focus());
-  };
-
-  const handleAccessRequestSuggestPack = useCallback(async () => {
-    const type = selectedPackType || "monthly";
-    const pack = findPackByType(type);
-    if (!pack) {
-      showComposerToast("No hay packs disponibles.");
-      return;
-    }
-    await fillMessageForFan(buildPackProposalMessage(pack), `pack:${type}`);
-    requestAnimationFrame(() => messageInputRef.current?.focus());
-  }, [fillMessageForFan, findPackByType, selectedPackType, showComposerToast]);
-
   const handleAccessRequestReject = async () => {
     if (!accessRequest?.id) return;
     const resolved = await resolveAccessRequest(accessRequest.id, "REJECT");
@@ -12911,6 +12905,9 @@ const INTENT_BADGE_LABELS: Record<string, string> = {
     if (!accessRequest?.id) return;
     const ok = await resolveAccessRequest(accessRequest.id, "SPAM");
     if (!ok) return;
+    setIsChatBlocked(true);
+    updateConversationState({ isBlocked: true });
+    window.dispatchEvent(new Event("fanDataUpdated"));
     showComposerToast("Solicitud marcada como spam.");
   };
 
@@ -13074,16 +13071,6 @@ const INTENT_BADGE_LABELS: Record<string, string> = {
       return false;
     }
   }, [id]);
-
-  const handleRenewAction = async () => {
-    const first = getFirstName(contactName) || contactName;
-    const text = buildFollowUpExpiredMessage(first);
-    await fillMessageForFan(text, resolveIntentActionKey("renovacion"));
-    adjustMessageInputHeight();
-    requestAnimationFrame(() => {
-      messageInputRef.current?.focus();
-    });
-  };
 
   const openOfferSheet = useCallback(() => {
     if (!id || conversation.isManager) {
@@ -14049,27 +14036,18 @@ const INTENT_BADGE_LABELS: Record<string, string> = {
           <span>Chat bloqueado. No puedes enviar mensajes nuevos a este fan.</span>
         </div>
       )}
-      {showAccessRequestBanner && (
+      {showAccessRequestBanner && accessRequest && (
         <div className="mx-4 mb-3 flex flex-col gap-3 rounded-xl border border-[color:rgba(59,130,246,0.5)] bg-[color:rgba(59,130,246,0.08)] px-4 py-3 text-xs text-[color:var(--text)]">
           <div className="flex flex-col gap-1">
-            <span className="font-semibold text-[color:var(--brand)]">
-              {hasPendingAccessRequest ? "Solicitud de acceso" : "Acceso pendiente / sin acceso"}
+            <span className="font-semibold text-[color:var(--brand)]">Solicitud de acceso</span>
+            <span className="text-[11px] text-[color:var(--muted)]">
+              {accessRequest.fanName || contactName || "Fan"}
+              {accessRequestTimestamp ? ` · ${accessRequestTimestamp}` : ""}
             </span>
-            {hasPendingAccessRequest && accessRequest ? (
-              <span className="text-[11px] text-[color:var(--muted)]">
-                {accessRequest.fanName || contactName || "Fan"}
-                {accessRequestTimestamp ? ` · ${accessRequestTimestamp}` : ""}
-              </span>
-            ) : (
-              <span className="text-[11px] text-[color:var(--muted)]">
-                {isAccessExpired ? "Acceso caducado · sin pack activo" : "El fan no tiene acceso activo."}
-              </span>
+            {accessRequestOrigin && (
+              <span className="text-[11px] text-[color:var(--muted)]">{accessRequestOrigin}</span>
             )}
-            <p className="text-[11px] text-[color:var(--text)] whitespace-pre-line">
-              {hasPendingAccessRequest && accessRequest?.message
-                ? accessRequest.message
-                : "Puedes aprobar un acceso temporal, sugerir un pack o bloquear si es necesario."}
-            </p>
+            <p className="text-[11px] text-[color:var(--text)] whitespace-pre-line">{accessRequest.message}</p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
             <button
@@ -14087,85 +14065,43 @@ const INTENT_BADGE_LABELS: Record<string, string> = {
             </button>
             <button
               type="button"
-              onClick={handleAccessRequestSuggestPack}
-              disabled={isAccessRequestActionDisabled}
+              onClick={handleAccessRequestReject}
+              disabled={isAccessRequestActionDisabled || !canResolveAccessRequest}
               className={clsx(
                 "rounded-full border px-3 py-1.5 text-[11px] font-semibold transition",
-                isAccessRequestActionDisabled
+                isAccessRequestActionDisabled || !canResolveAccessRequest
                   ? "border-[color:var(--surface-border)] bg-[color:var(--surface-2)] text-[color:var(--muted)] cursor-not-allowed"
-                  : "border-[color:rgba(245,158,11,0.6)] bg-[color:rgba(245,158,11,0.12)] text-[color:var(--text)] hover:bg-[color:rgba(245,158,11,0.18)]"
+                  : "border-[color:rgba(148,163,184,0.7)] bg-[color:rgba(148,163,184,0.12)] text-[color:var(--text)] hover:bg-[color:rgba(148,163,184,0.18)]"
               )}
             >
-              Sugerir pack
+              Rechazar
             </button>
-            {hasPendingAccessRequest && (
-              <button
-                type="button"
-                onClick={handleAccessRequestReply}
-                disabled={isAccessRequestActionDisabled}
-                className={clsx(
-                  "rounded-full border px-3 py-1.5 text-[11px] font-semibold transition",
-                  isAccessRequestActionDisabled
-                    ? "border-[color:var(--surface-border)] bg-[color:var(--surface-2)] text-[color:var(--muted)] cursor-not-allowed"
-                    : "border-[color:rgba(var(--brand-rgb),0.4)] bg-[color:rgba(var(--brand-rgb),0.16)] text-[color:var(--text)] hover:bg-[color:rgba(var(--brand-rgb),0.22)]"
-                )}
-              >
-                Responder
-              </button>
-            )}
-            {hasPendingAccessRequest && (
-              <button
-                type="button"
-                onClick={handleAccessRequestReject}
-                disabled={isAccessRequestActionDisabled}
-                className={clsx(
-                  "rounded-full border px-3 py-1.5 text-[11px] font-semibold transition",
-                  isAccessRequestActionDisabled
-                    ? "border-[color:var(--surface-border)] bg-[color:var(--surface-2)] text-[color:var(--muted)] cursor-not-allowed"
-                    : "border-[color:rgba(148,163,184,0.7)] bg-[color:rgba(148,163,184,0.12)] text-[color:var(--text)] hover:bg-[color:rgba(148,163,184,0.18)]"
-                )}
-              >
-                Rechazar
-              </button>
-            )}
-            {hasPendingAccessRequest && (
-              <button
-                type="button"
-                onClick={handleAccessRequestSpam}
-                disabled={isAccessRequestActionDisabled}
-                className={clsx(
-                  "rounded-full border px-3 py-1.5 text-[11px] font-semibold transition",
-                  isAccessRequestActionDisabled
-                    ? "border-[color:var(--surface-border)] bg-[color:var(--surface-2)] text-[color:var(--muted)] cursor-not-allowed"
-                    : "border-[color:rgba(244,63,94,0.45)] bg-[color:rgba(244,63,94,0.08)] text-[color:var(--text)] hover:bg-[color:rgba(244,63,94,0.14)]"
-                )}
-              >
-                Marcar spam
-              </button>
-            )}
+            <button
+              type="button"
+              onClick={handleAccessRequestSpam}
+              disabled={isAccessRequestActionDisabled || !canResolveAccessRequest}
+              className={clsx(
+                "rounded-full border px-3 py-1.5 text-[11px] font-semibold transition",
+                isAccessRequestActionDisabled || !canResolveAccessRequest
+                  ? "border-[color:var(--surface-border)] bg-[color:var(--surface-2)] text-[color:var(--muted)] cursor-not-allowed"
+                  : "border-[color:rgba(244,63,94,0.45)] bg-[color:rgba(244,63,94,0.08)] text-[color:var(--text)] hover:bg-[color:rgba(244,63,94,0.14)]"
+              )}
+            >
+              Marcar spam
+            </button>
             <button
               type="button"
               onClick={handleAccessRequestBlock}
-              disabled={isAccessRequestActionDisabled}
+              disabled={isAccessRequestActionDisabled || !canResolveAccessRequest}
               className={clsx(
                 "rounded-full border px-3 py-1.5 text-[11px] font-semibold transition",
-                isAccessRequestActionDisabled
+                isAccessRequestActionDisabled || !canResolveAccessRequest
                   ? "border-[color:var(--surface-border)] bg-[color:var(--surface-2)] text-[color:var(--muted)] cursor-not-allowed"
                   : "border-[color:rgba(244,63,94,0.7)] bg-[color:rgba(244,63,94,0.12)] text-[color:var(--text)] hover:bg-[color:rgba(244,63,94,0.2)]"
               )}
             >
               Bloquear
             </button>
-            {isAccessExpired && (
-              <button
-                type="button"
-                className="rounded-full border border-[color:var(--warning)] bg-[color:rgba(245,158,11,0.08)] px-3 py-1.5 text-[11px] font-semibold text-[color:var(--text)] hover:bg-[color:rgba(245,158,11,0.16)]"
-                onClick={handleRenewAction}
-                disabled={isAccessRequestActionDisabled}
-              >
-                Mensaje de reenganche
-              </button>
-            )}
           </div>
         </div>
       )}

@@ -153,12 +153,12 @@ type AccessRequestPreview = {
   createdAt: string;
 };
 
-type CreatorAvailability = "AVAILABLE" | "NOT_AVAILABLE" | "VIP_ONLY";
+type CreatorAvailability = "AVAILABLE" | "NOT_AVAILABLE" | "VIP_ONLY" | "OFFLINE";
 type CreatorResponseSla = "INSTANT" | "LT_24H" | "LT_72H";
 
 const CREATOR_AVAILABILITY_OPTIONS: Array<{ value: CreatorAvailability; label: string }> = [
   { value: "AVAILABLE", label: "Disponible" },
-  { value: "NOT_AVAILABLE", label: "No disponible" },
+  { value: "OFFLINE", label: "No disponible" },
   { value: "VIP_ONLY", label: "Solo VIP" },
 ];
 const CREATOR_SLA_OPTIONS: Array<{ value: CreatorResponseSla; label: string }> = [
@@ -166,6 +166,21 @@ const CREATOR_SLA_OPTIONS: Array<{ value: CreatorResponseSla; label: string }> =
   { value: "LT_24H", label: "Responde <24h" },
   { value: "LT_72H", label: "Responde <72h" },
 ];
+
+function normalizeCreatorAvailability(value?: string | null): CreatorAvailability {
+  const normalized = (value || "").toUpperCase();
+  if (normalized === "VIP_ONLY") return "VIP_ONLY";
+  if (normalized === "OFFLINE" || normalized === "NOT_AVAILABLE") return "OFFLINE";
+  if (normalized === "ONLINE" || normalized === "AVAILABLE") return "AVAILABLE";
+  return "AVAILABLE";
+}
+
+function normalizeCreatorResponseSla(value?: string | null): CreatorResponseSla {
+  const normalized = (value || "").toUpperCase();
+  if (normalized === "INSTANT") return "INSTANT";
+  if (normalized === "LT_72H" || normalized === "LT_48H") return "LT_72H";
+  return "LT_24H";
+}
 
 function applyAccessRequestMeta(
   items: ConversationListData[],
@@ -2027,12 +2042,8 @@ function SideBarInner() {
       if (!res.ok || data?.ok === false) {
         throw new Error(data?.message || "Error cargando estado");
       }
-      if (data?.responseSla) {
-        setCreatorResponseSla(data.responseSla as CreatorResponseSla);
-      }
-      if (data?.availability) {
-        setCreatorAvailability(data.availability as CreatorAvailability);
-      }
+      setCreatorResponseSla(normalizeCreatorResponseSla(data?.responseSla));
+      setCreatorAvailability(normalizeCreatorAvailability(data?.availability));
       setCreatorStatusError("");
     } catch (err) {
       console.error("Error loading creator status", err);
@@ -2062,12 +2073,8 @@ function SideBarInner() {
         if (!res.ok || data?.ok === false) {
           throw new Error(data?.message || data?.error || "No se pudo guardar el estado.");
         }
-        if (data?.responseSla) {
-          setCreatorResponseSla(data.responseSla as CreatorResponseSla);
-        }
-        if (data?.availability) {
-          setCreatorAvailability(data.availability as CreatorAvailability);
-        }
+        setCreatorResponseSla(normalizeCreatorResponseSla(data?.responseSla));
+        setCreatorAvailability(normalizeCreatorAvailability(data?.availability));
         setCreatorStatusError("");
         return true;
       } catch (err) {

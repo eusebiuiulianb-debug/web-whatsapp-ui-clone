@@ -62,11 +62,12 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
         }
       }
 
-      if (action === "BLOCK") {
+      if (action === "BLOCK" || action === "SPAM") {
+        const blockReason = action === "SPAM" ? "access_request_spam" : "access_request_blocked";
         await tx.creatorFanBlock.upsert({
           where: { creatorId_fanId: { creatorId, fanId: request.fanId } },
-          update: { reason: "access_request_blocked" },
-          create: { creatorId, fanId: request.fanId, reason: "access_request_blocked" },
+          update: { reason: blockReason },
+          create: { creatorId, fanId: request.fanId, reason: blockReason },
         });
         await tx.fan.update({
           where: { id: request.fanId },

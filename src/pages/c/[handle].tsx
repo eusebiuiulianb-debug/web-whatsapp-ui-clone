@@ -75,6 +75,9 @@ type HighlightItem = {
   popclip?: PublicPopClip;
 };
 
+type CreatorAvailability = "AVAILABLE" | "OFFLINE" | "VIP_ONLY";
+type CreatorResponseSla = "INSTANT" | "LT_24H" | "LT_72H";
+
 type HighlightEmptyCta =
   | {
       label: string;
@@ -103,6 +106,32 @@ const HIGHLIGHT_TABS: Array<{ id: HighlightTab; label: string }> = [
   { id: "sub", label: "Suscripciones" },
   { id: "extra", label: "Extras" },
 ];
+
+const CREATOR_AVAILABILITY_OPTIONS: Array<{ value: CreatorAvailability; label: string }> = [
+  { value: "AVAILABLE", label: "Disponible" },
+  { value: "OFFLINE", label: "No disponible" },
+  { value: "VIP_ONLY", label: "Solo VIP" },
+];
+const CREATOR_SLA_OPTIONS: Array<{ value: CreatorResponseSla; label: string }> = [
+  { value: "INSTANT", label: "Responde al momento" },
+  { value: "LT_24H", label: "Responde <24h" },
+  { value: "LT_72H", label: "Responde <72h" },
+];
+
+function normalizeCreatorAvailability(value?: string | null): CreatorAvailability {
+  const normalized = (value || "").toUpperCase();
+  if (normalized === "VIP_ONLY") return "VIP_ONLY";
+  if (normalized === "NOT_AVAILABLE" || normalized === "OFFLINE") return "OFFLINE";
+  if (normalized === "ONLINE" || normalized === "AVAILABLE") return "AVAILABLE";
+  return "AVAILABLE";
+}
+
+function normalizeCreatorResponseSla(value?: string | null): CreatorResponseSla {
+  const normalized = (value || "").toUpperCase();
+  if (normalized === "INSTANT") return "INSTANT";
+  if (normalized === "LT_72H" || normalized === "LT_48H") return "LT_72H";
+  return "LT_24H";
+}
 
 export default function PublicCreatorByHandle({
   notFound,
@@ -399,8 +428,36 @@ export default function PublicCreatorByHandle({
   const ratingsCount = stats?.ratingsCount ?? 0;
   const topEligible = commentsCount >= 10 || ratingsCount >= 10;
   const tagline = "";
-  const responseSlaLabel = formatResponseSla(responseSla ?? "LT_24H");
-  const availabilityLabel = formatAvailability(availability ?? "AVAILABLE");
+  const [creatorAvailability, setCreatorAvailability] = useState<CreatorAvailability>(
+    normalizeCreatorAvailability(availability)
+  );
+  const [creatorResponseSla, setCreatorResponseSla] = useState<CreatorResponseSla>(
+    normalizeCreatorResponseSla(responseSla)
+  );
+  const [statusSheetOpen, setStatusSheetOpen] = useState(false);
+  const [statusSaving, setStatusSaving] = useState(false);
+  const [statusError, setStatusError] = useState("");
+  const [statusDraftAvailability, setStatusDraftAvailability] = useState<CreatorAvailability>(
+    normalizeCreatorAvailability(availability)
+  );
+  const [statusDraftSla, setStatusDraftSla] = useState<CreatorResponseSla>(
+    normalizeCreatorResponseSla(responseSla)
+  );
+
+  useEffect(() => {
+    setCreatorAvailability(normalizeCreatorAvailability(availability));
+    setCreatorResponseSla(normalizeCreatorResponseSla(responseSla));
+  }, [availability, responseSla]);
+
+  useEffect(() => {
+    if (!statusSheetOpen) return;
+    setStatusDraftAvailability(creatorAvailability);
+    setStatusDraftSla(creatorResponseSla);
+    setStatusError("");
+  }, [creatorAvailability, creatorResponseSla, statusSheetOpen]);
+
+  const responseSlaLabel = formatResponseSla(creatorResponseSla);
+  const availabilityLabel = formatAvailability(creatorAvailability);
   const trustLine = (subtitle || responseSlaLabel || "Responde en menos de 24h").trim();
   const creatorChips = [
     ...(responseSlaLabel && responseSlaLabel !== trustLine ? [responseSlaLabel] : []),
@@ -534,6 +591,38 @@ export default function PublicCreatorByHandle({
     setToast(message);
     if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
     toastTimerRef.current = setTimeout(() => setToast(""), 2200);
+  };
+
+  const handleSaveCreatorStatus = async () => {
+    setStatusSaving(true);
+    setStatusError("");
+    try {
+      const res = await fetch("/api/creator/profile/status", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          availability: statusDraftAvailability,
+          responseSla: statusDraftSla,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || data?.ok === false) {
+        throw new Error(data?.message || "No se pudo guardar el estado.");
+      }
+      setCreatorAvailability(normalizeCreatorAvailability(data?.availability ?? statusDraftAvailability));
+      setCreatorResponseSla(normalizeCreatorResponseSla(data?.responseSla ?? statusDraftSla));
+      setStatusSheetOpen(false);
+    } catch (err) {
+      console.error("Error saving creator status", err);
+      setStatusError("No se pudo guardar el estado.");
+    } finally {
+      setStatusSaving(false);
+    }
+  };
+
+  const handleCloseStatusSheet = () => {
+    if (statusSaving) return;
+    setStatusSheetOpen(false);
   };
 
   const handleOpenHighlightModal = () => {
@@ -977,6 +1066,17 @@ export default function PublicCreatorByHandle({
             secondaryOnClick={handleFollow}
             secondaryDisabled={followPending}
           />
+          {isCreatorViewer && (
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setStatusSheetOpen(true)}
+                className="rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-3 py-1.5 text-[11px] font-semibold text-[color:var(--text)] hover:bg-[color:var(--surface-2)]"
+              >
+                Editar estado
+              </button>
+            </div>
+          )}
           {showPreviewBanner && (
             <div className="rounded-xl border border-[color:rgba(var(--brand-rgb),0.35)] bg-[color:var(--surface-1)] px-4 py-2 text-xs text-[color:var(--muted)]">
               Vista previa: tu perfil aún no está público.
@@ -1305,6 +1405,92 @@ export default function PublicCreatorByHandle({
                         {popClipsLoadingMore ? "Cargando..." : "Cargar más"}
                       </button>
                     )}
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+        {statusSheetOpen && isCreatorViewer && (
+          <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm" onClick={handleCloseStatusSheet}>
+            <div className="fixed inset-0 flex items-end sm:items-center justify-center p-3 sm:p-6">
+              <div
+                role="dialog"
+                aria-modal="true"
+                aria-label="Editar estado del creador"
+                onClick={(event) => event.stopPropagation()}
+                className="flex w-full sm:w-[520px] max-h-[85vh] flex-col overflow-hidden rounded-t-2xl sm:rounded-2xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] shadow-2xl"
+              >
+                <div className="flex-1 overflow-y-auto">
+                  <div className="sticky top-0 z-10 border-b border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-4 pt-3 pb-3 sm:px-5 sm:pt-5 sm:pb-4">
+                    <div className="mx-auto h-1 w-10 rounded-full bg-white/20 sm:hidden" />
+                    <div className="flex items-start justify-between gap-3 pt-3 sm:pt-0">
+                      <div className="space-y-1">
+                        <p className="text-sm font-semibold text-[color:var(--text)]">Estado del creador</p>
+                        <p className="text-xs text-[color:var(--muted)]">
+                          Configura tu disponibilidad y tiempo de respuesta.
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={handleCloseStatusSheet}
+                        aria-label="Cerrar"
+                        className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-[color:var(--surface-border)] text-[color:var(--muted)] hover:text-[color:var(--text)] hover:border-[color:var(--surface-border-hover)]"
+                      >
+                        X
+                      </button>
+                    </div>
+                  </div>
+                  <div className="px-4 pb-4 pt-4 sm:px-5 sm:pb-5 space-y-4">
+                    {statusError && <div className="text-xs text-[color:var(--danger)]">{statusError}</div>}
+                    <label className="flex flex-col gap-2 text-xs font-semibold text-[color:var(--muted)]">
+                      Disponibilidad
+                      <select
+                        value={statusDraftAvailability}
+                        onChange={(event) => setStatusDraftAvailability(event.target.value as CreatorAvailability)}
+                        disabled={statusSaving}
+                        className="h-9 rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-3 text-[12px] font-semibold text-[color:var(--text)] focus:border-[color:var(--surface-border-hover)] focus:ring-2 focus:ring-[color:var(--ring)]"
+                      >
+                        {CREATOR_AVAILABILITY_OPTIONS.map((option) => (
+                          <option key={option.value} value={option.value}>
+                            {option.label}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <label className="flex flex-col gap-2 text-xs font-semibold text-[color:var(--muted)]">
+                      Tiempo de respuesta
+                      <select
+                        value={statusDraftSla}
+                        onChange={(event) => setStatusDraftSla(event.target.value as CreatorResponseSla)}
+                        disabled={statusSaving}
+                        className="h-9 rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-3 text-[12px] font-semibold text-[color:var(--text)] focus:border-[color:var(--surface-border-hover)] focus:ring-2 focus:ring-[color:var(--ring)]"
+                      >
+                        {CREATOR_SLA_OPTIONS.map((option) => (
+                          <option key={option.value} value={option.value}>
+                            {option.label}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <div className="flex flex-wrap items-center justify-end gap-2">
+                      <button
+                        type="button"
+                        onClick={handleCloseStatusSheet}
+                        disabled={statusSaving}
+                        className="inline-flex h-9 items-center justify-center rounded-full border border-[color:var(--surface-border)] px-4 text-[11px] font-semibold text-[color:var(--text)] hover:bg-[color:var(--surface-2)] disabled:opacity-60"
+                      >
+                        Cancelar
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleSaveCreatorStatus}
+                        disabled={statusSaving}
+                        className="inline-flex h-9 items-center justify-center rounded-full border border-[color:rgba(var(--brand-rgb),0.6)] bg-[color:rgba(var(--brand-rgb),0.14)] px-4 text-[11px] font-semibold text-[color:var(--text)] hover:bg-[color:rgba(var(--brand-rgb),0.2)] disabled:opacity-60"
+                      >
+                        {statusSaving ? "Guardando..." : "Guardar"}
+                      </button>
+                    </div>
                   </div>
                 </div>
               </div>

@@ -3,19 +3,24 @@ import { prisma } from "@/server/prisma";
 import { sendBadRequest, sendServerError } from "@/lib/apiError";
 
 type CreatorResponseSla = "INSTANT" | "LT_24H" | "LT_72H";
-type CreatorAvailability = "AVAILABLE" | "NOT_AVAILABLE" | "VIP_ONLY";
+type CreatorAvailability = "AVAILABLE" | "NOT_AVAILABLE" | "VIP_ONLY" | "OFFLINE";
 
 type StatusResponse =
   | { ok: true; responseSla: CreatorResponseSla; availability: CreatorAvailability }
   | { ok: false; error: string; message?: string };
 
 const RESPONSE_SLA_VALUES = new Set<CreatorResponseSla>(["INSTANT", "LT_24H", "LT_72H"]);
-const AVAILABILITY_VALUES = new Set<CreatorAvailability>(["AVAILABLE", "NOT_AVAILABLE", "VIP_ONLY"]);
+const AVAILABILITY_VALUES = new Set<CreatorAvailability>([
+  "AVAILABLE",
+  "NOT_AVAILABLE",
+  "VIP_ONLY",
+  "OFFLINE",
+]);
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse<StatusResponse>) {
   if (req.method === "GET") return handleGet(res);
-  if (req.method === "PATCH") return handlePatch(req, res);
-  res.setHeader("Allow", ["GET", "PATCH"]);
+  if (req.method === "PATCH" || req.method === "PUT") return handlePatch(req, res);
+  res.setHeader("Allow", ["GET", "PATCH", "PUT"]);
   return res.status(405).json({ ok: false, error: "METHOD_NOT_ALLOWED", message: "Method not allowed" });
 }
 
@@ -50,7 +55,7 @@ async function handlePatch(req: NextApiRequest, res: NextApiResponse<StatusRespo
       ? (responseSlaRaw as CreatorResponseSla)
       : null;
     const availability = availabilityRaw && AVAILABILITY_VALUES.has(availabilityRaw as CreatorAvailability)
-      ? (availabilityRaw as CreatorAvailability)
+      ? normalizeAvailability(availabilityRaw)
       : null;
 
     if (!responseSla && payload.responseSla) {
@@ -98,4 +103,11 @@ async function resolveCreatorId() {
   });
   if (!creator?.id) throw new Error("creator_not_found");
   return creator.id;
+}
+
+function normalizeAvailability(value: string): CreatorAvailability {
+  const normalized = value.trim().toUpperCase();
+  if (normalized === "NOT_AVAILABLE" || normalized === "OFFLINE") return "OFFLINE";
+  if (normalized === "VIP_ONLY") return "VIP_ONLY";
+  return "AVAILABLE";
 }

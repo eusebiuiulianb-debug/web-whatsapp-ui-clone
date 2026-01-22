@@ -92,6 +92,7 @@ enum CreatorAvailability {
   AVAILABLE
   NOT_AVAILABLE
   VIP_ONLY
+  OFFLINE
 }
 
 model Pack {
