@@ -1,6 +1,7 @@
 import ConversationList from "../ConversationList";
 import React, { Component, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/router";
+import useSWR from "swr";
 import useSWRInfinite from "swr/infinite";
 import CreatorHeader from "../CreatorHeader";
 import { useCreatorConfig } from "../../context/CreatorConfigContext";
@@ -142,6 +143,33 @@ function LeftKpiCard({
 }
 
 type FanData = ConversationListData & { priorityScore?: number };
+type AccessRequestPreview = {
+  id: string;
+  fanId: string;
+  status: "PENDING" | "APPROVED" | "REJECTED" | "SPAM";
+  message: string;
+  createdAt: string;
+};
+
+function applyAccessRequestMeta(
+  items: ConversationListData[],
+  accessRequestsByFanId: Record<string, AccessRequestPreview>
+): ConversationListData[] {
+  if (!items.length) return items;
+  let mutated = false;
+  const next = items.map((item) => {
+    if (!item?.id) return item;
+    const request = accessRequestsByFanId[item.id];
+    const nextStatus = request?.status;
+    const nextId = request?.id ?? null;
+    const prevStatus = item.accessRequestStatus;
+    const prevId = item.accessRequestId ?? null;
+    if (prevStatus === nextStatus && prevId === nextId) return item;
+    mutated = true;
+    return { ...item, accessRequestStatus: nextStatus, accessRequestId: nextId };
+  });
+  return mutated ? next : items;
+}
 type RecommendationMeta = {
   fan: FanData;
   score: number;
@@ -1844,6 +1872,46 @@ function SideBarInner() {
       return { ...data, items: mapped };
     },
     [mapFans]
+  );
+
+  const fetchAccessRequests = useCallback(async (url: string) => {
+    const res = await fetch(url, { cache: "no-store" });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || data?.ok === false) {
+      return { requests: [] as AccessRequestPreview[] };
+    }
+    const list = Array.isArray(data?.requests) ? (data.requests as AccessRequestPreview[]) : [];
+    return { requests: list };
+  }, []);
+
+  const { data: accessRequestsData } = useSWR(
+    "/api/creator/access-requests?status=PENDING",
+    fetchAccessRequests,
+    {
+      refreshInterval: chatPollIntervalMs,
+      dedupingInterval: chatPollDedupeMs,
+      revalidateOnFocus: false,
+    }
+  );
+
+  const accessRequestsByFanId = useMemo(() => {
+    const entries = Array.isArray(accessRequestsData?.requests) ? accessRequestsData?.requests : [];
+    return entries.reduce<Record<string, AccessRequestPreview>>((acc, request) => {
+      if (request?.fanId) {
+        acc[request.fanId] = request;
+      }
+      return acc;
+    }, {});
+  }, [accessRequestsData?.requests]);
+
+  const safeFilteredConversationsWithAccess = useMemo(
+    () => applyAccessRequestMeta(safeFilteredConversationsList, accessRequestsByFanId),
+    [accessRequestsByFanId, safeFilteredConversationsList]
+  );
+
+  const priorityQueueListWithAccess = useMemo(
+    () => applyAccessRequestMeta(priorityQueueList, accessRequestsByFanId),
+    [accessRequestsByFanId, priorityQueueList]
   );
 
   const {
@@ -3734,7 +3802,7 @@ function SideBarInner() {
                 No hay chats en cola.
               </div>
             ) : (
-              priorityQueueList.map((conversation, index) => {
+              priorityQueueListWithAccess.map((conversation, index) => {
                 const notice = conversation.id ? unseenPurchaseByFan[conversation.id] : null;
                 const data = notice
                   ? {
@@ -3815,7 +3883,7 @@ function SideBarInner() {
                 })()}
               </div>
             )}
-            {safeFilteredConversationsList.map((conversation, index) => {
+            {safeFilteredConversationsWithAccess.map((conversation, index) => {
               const notice = conversation.id ? unseenPurchaseByFan[conversation.id] : null;
               const data = notice
                 ? {

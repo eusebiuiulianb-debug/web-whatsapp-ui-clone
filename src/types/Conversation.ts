@@ -177,6 +177,8 @@ interface Conversation {
   firstUtmCampaign?: string | null;
   firstUtmContent?: string | null;
   firstUtmTerm?: string | null;
+  accessRequestStatus?: "PENDING" | "APPROVED" | "REJECTED" | "SPAM";
+  accessRequestId?: string | null;
 }
 
 interface ConversationListData {
@@ -297,6 +299,8 @@ interface ConversationListData {
   firstUtmTerm?: string | null;
   unseenPurchaseCount?: number;
   unseenPurchaseLabel?: string | null;
+  accessRequestStatus?: "PENDING" | "APPROVED" | "REJECTED" | "SPAM";
+  accessRequestId?: string | null;
 }
 
 interface FanFollowUp {

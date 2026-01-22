@@ -52,6 +52,8 @@ model Creator {
   ppvPurchases               PpvPurchase[]
   creatorComments            CreatorComment[]
   commentReplies             CommentReply[]
+  accessRequests             AccessRequest[]
+  fanBlocks                  CreatorFanBlock[]
 }
 
 model CreatorProfile {
@@ -115,6 +117,8 @@ model Fan {
   popClipReactions      PopClipReaction[]
   popClipComments       PopClipComment[]
   commentReplies        CommentReply[]
+  accessRequests        AccessRequest[]
+  fanBlocks             CreatorFanBlock[]
   aiUsageLogs           AiUsageLog[]
   segment               String           @default("NUEVO")
   healthScore           Int              @default(0)
@@ -529,6 +533,13 @@ enum CreatorCommentStatus {
   PENDING
 }
 
+enum AccessRequestStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  SPAM
+}
+
 enum CommentReplyAuthorRole {
   CREATOR
   FAN
@@ -547,6 +558,7 @@ model CreatorComment {
   repliedByCreatorId String?
   replies   CommentReply[]
   helpfulVotes CreatorCommentHelpfulVote[]
+  repliesLocked Boolean @default(false)
   isPublic  Boolean              @default(true)
   status    CreatorCommentStatus @default(APPROVED)
   createdAt DateTime             @default(now())
@@ -748,6 +760,39 @@ model AccessGrant {
   type      String
   createdAt DateTime @default(now())
   expiresAt DateTime
+}
+
+model AccessRequest {
+  id         String               @id @default(cuid())
+  creatorId  String
+  creator    Creator              @relation(fields: [creatorId], references: [id])
+  fanId      String
+  fan        Fan                  @relation(fields: [fanId], references: [id])
+  conversationId String?
+  productId  String?
+  message    String
+  status     AccessRequestStatus  @default(PENDING)
+  createdAt  DateTime             @default(now())
+  updatedAt  DateTime             @updatedAt
+  resolvedAt DateTime?
+  resolvedByCreatorId String?
+
+  @@index([creatorId, status, createdAt])
+  @@index([fanId, status, createdAt])
+}
+
+model CreatorFanBlock {
+  id        String   @id @default(cuid())
+  creatorId String
+  creator   Creator  @relation(fields: [creatorId], references: [id])
+  fanId     String
+  fan       Fan      @relation(fields: [fanId], references: [id])
+  reason    String?
+  createdAt DateTime @default(now())
+
+  @@unique([creatorId, fanId])
+  @@index([creatorId, createdAt])
+  @@index([fanId, createdAt])
 }
 
 model FanNote {

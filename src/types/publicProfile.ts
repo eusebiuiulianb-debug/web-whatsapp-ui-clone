@@ -90,10 +90,23 @@ export type PublicCreatorComment = {
   createdAt: string;
   fanDisplayNameMasked: string;
   verified?: boolean;
+  repliesCount?: number;
+  replies?: PublicCommentReply[];
+  repliesLocked?: boolean;
+  replyParticipantsCount?: number;
+  viewerHasReplied?: boolean;
   replyText?: string | null;
   repliedAt?: string | null;
   repliedByCreatorId?: string | null;
   helpfulCount?: number;
   viewerHasVoted?: boolean;
   fan?: { id: string; displayName: string };
+};
+
+export type PublicCommentReply = {
+  id: string;
+  body: string;
+  createdAt: string;
+  authorRole: "CREATOR" | "FAN";
+  authorDisplayName: string;
 };

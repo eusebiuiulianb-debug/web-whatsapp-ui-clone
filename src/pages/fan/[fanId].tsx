@@ -99,6 +99,14 @@ type PackSummary = {
 
 type PackStatus = "LOCKED" | "UNLOCKED" | "ACTIVE";
 type AdultGatePolicy = "STRICT" | "LEAD_CAPTURE";
+type AccessRequestStatus = "PENDING" | "APPROVED" | "REJECTED" | "SPAM";
+type AccessRequestSummary = {
+  id: string;
+  status: AccessRequestStatus;
+  message: string;
+  productId?: string | null;
+  createdAt: string;
+};
 
 type PublicCatalogItem = {
   type: "EXTRA" | "BUNDLE" | "PACK";
@@ -206,6 +214,13 @@ export function FanChatPage({
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
   const [accessSummary, setAccessSummary] = useState<AccessSummary | null>(initialAccessSummary || null);
+  const [accessRequest, setAccessRequest] = useState<AccessRequestSummary | null>(null);
+  const [accessRequestDraft, setAccessRequestDraft] = useState("");
+  const [accessRequestProductId, setAccessRequestProductId] = useState<string | null>(null);
+  const [accessRequestSending, setAccessRequestSending] = useState(false);
+  const [accessRequestError, setAccessRequestError] = useState("");
+  const [accessRequestAuthRequired, setAccessRequestAuthRequired] = useState(false);
+  const [accessRequestAuthHref, setAccessRequestAuthHref] = useState("");
   const [accessLoading, setAccessLoading] = useState(false);
   const [walletBalanceCents, setWalletBalanceCents] = useState<number | null>(null);
   const [walletCurrency, setWalletCurrency] = useState("EUR");
@@ -359,6 +374,7 @@ export function FanChatPage({
   }, [messages]);
 
   const hasActiveAccess = accessSummary?.hasActiveAccess === true;
+  const accessRequestPending = accessRequest?.status === "PENDING";
   const shouldPromptForName = inviteFlag
     ? !fanProfile.displayName
     : getFanDisplayName(fanProfile) === "Invitado";
@@ -383,6 +399,101 @@ export function FanChatPage({
     }
     fanToastTimerRef.current = window.setTimeout(() => setFanToast(""), 2200);
   }, []);
+
+  useEffect(() => {
+    if (!creatorHandle || typeof window === "undefined") return;
+    const returnTo = `${window.location.pathname}${window.location.search}`;
+    const encoded = encodeURIComponent(returnTo);
+    setAccessRequestAuthHref(`/go/${creatorHandle}?returnTo=${encoded}`);
+  }, [creatorHandle]);
+
+  const prefillAccessRequestFromPack = useCallback(
+    (pack: AccessPaywallPack) => {
+      if (accessRequestPending) return;
+      const priceLabel = normalizePriceLabel(pack.price);
+      const template = `Quiero el pack ${pack.name} (${priceLabel}). ¿Me lo activas?`;
+      setAccessRequestDraft(template);
+      setAccessRequestProductId(pack.id || null);
+      setAccessRequestError("");
+      setAccessRequestAuthRequired(false);
+    },
+    [accessRequestPending]
+  );
+
+  const handleAccessRequestChange = useCallback(
+    (value: string) => {
+      setAccessRequestDraft(value);
+      if (accessRequestError) {
+        setAccessRequestError("");
+      }
+      if (accessRequestAuthRequired) {
+        setAccessRequestAuthRequired(false);
+      }
+    },
+    [accessRequestAuthRequired, accessRequestError]
+  );
+
+  const handleAccessRequestSubmit = useCallback(async () => {
+    if (!creatorHandle || accessRequestSending || accessRequestPending) return;
+    const trimmed = accessRequestDraft.trim();
+    if (!trimmed || trimmed.length > 240) {
+      showFanToast("Revisa el texto de la solicitud.");
+      return;
+    }
+    setAccessRequestSending(true);
+    setAccessRequestError("");
+    setAccessRequestAuthRequired(false);
+    try {
+      const res = await fetch("/api/access-requests", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          creatorHandle,
+          message: trimmed,
+          productId: accessRequestProductId || undefined,
+        }),
+      });
+      const data = (await res.json().catch(() => ({}))) as {
+        ok?: boolean;
+        reused?: boolean;
+        request?: AccessRequestSummary | null;
+        error?: { code?: string; message?: string };
+      };
+      if (!res.ok || data?.ok === false) {
+        const message = data?.error?.message || "No se pudo enviar la solicitud.";
+        setAccessRequestError(message);
+        if (res.status === 401) {
+          setAccessRequestAuthRequired(true);
+        }
+        showFanToast(message);
+        return;
+      }
+      const fallbackRequest: AccessRequestSummary = {
+        id: data?.request?.id || `request-${Date.now()}`,
+        status: "PENDING",
+        message: data?.request?.message || trimmed,
+        productId: data?.request?.productId ?? accessRequestProductId,
+        createdAt: data?.request?.createdAt || new Date().toISOString(),
+      };
+      const request = data?.request ?? fallbackRequest;
+      setAccessRequest(request);
+      setAccessRequestDraft(request.message || trimmed);
+      setAccessRequestProductId(request.productId ?? accessRequestProductId);
+      showFanToast(data?.reused ? "Solicitud ya enviada." : "Solicitud enviada.");
+    } catch (_err) {
+      setAccessRequestError("No se pudo enviar la solicitud.");
+      showFanToast("No se pudo enviar la solicitud.");
+    } finally {
+      setAccessRequestSending(false);
+    }
+  }, [
+    accessRequestDraft,
+    accessRequestPending,
+    accessRequestProductId,
+    accessRequestSending,
+    creatorHandle,
+    showFanToast,
+  ]);
 
   useEffect(() => {
     if (adultConfirmedAt) {
@@ -881,6 +992,41 @@ export function FanChatPage({
   }, [fanId, fetchAccessInfo, forceAccessRefresh]);
 
   useEffect(() => {
+    if (!fanId || hasActiveAccess || !creatorHandle) {
+      setAccessRequest(null);
+      setAccessRequestAuthRequired(false);
+      return;
+    }
+    const controller = new AbortController();
+    setAccessRequestError("");
+    fetch(`/api/access-requests?creatorHandle=${encodeURIComponent(creatorHandle)}`, {
+      signal: controller.signal,
+    })
+      .then(async (res) => {
+        if (!res.ok) throw new Error("request failed");
+        const data = (await res.json().catch(() => ({}))) as {
+          ok?: boolean;
+          request?: AccessRequestSummary | null;
+          error?: { code?: string; message?: string };
+        };
+        if (data?.ok === false) throw new Error("request failed");
+        if (data?.request) {
+          setAccessRequest(data.request);
+          setAccessRequestDraft(data.request.message || "");
+          setAccessRequestProductId(data.request.productId ?? null);
+          setAccessRequestAuthRequired(false);
+        } else {
+          setAccessRequest(null);
+        }
+      })
+      .catch((err) => {
+        if (err instanceof DOMException && err.name === "AbortError") return;
+        setAccessRequest(null);
+      });
+    return () => controller.abort();
+  }, [creatorHandle, fanId, hasActiveAccess]);
+
+  useEffect(() => {
     if (!fanId) return;
     void fetchWallet(fanId);
   }, [fanId, fetchWallet]);
@@ -1305,7 +1451,7 @@ export function FanChatPage({
   const handleSendMessage = useCallback(async () => {
     if (isOnboardingVisible || isAdultGateActive) return;
     if (!hasActiveAccess) {
-      showFanToast("Necesitas acceso activo para enviar mensajes.");
+      showFanToast("Necesitas acceso. Envía una solicitud o compra un pack.");
       return;
     }
     stopTyping();
@@ -1362,7 +1508,7 @@ export function FanChatPage({
     (sticker: StickerItem) => {
       if (isComposerDisabled || isAdultGateActive) return;
       if (!hasActiveAccess) {
-        showFanToast("Necesitas acceso activo para enviar mensajes.");
+        showFanToast("Necesitas acceso. Envía una solicitud o compra un pack.");
         return;
       }
       const token = buildStickerTokenFromItem(sticker);
@@ -2249,6 +2395,7 @@ export function FanChatPage({
     async (pack: AccessPaywallPack) => {
       if (!fanId) return;
       if (isAdultGateStrict) return;
+      prefillAccessRequestFromPack(pack);
       const packId = pack.id;
       if (!packId || isPackPurchasing(packId)) return;
       if (isAdultGatePurchaseBlocked) {
@@ -2311,6 +2458,7 @@ export function FanChatPage({
       isPackPurchasing,
       markOfferUnlocked,
       openWalletTopup,
+      prefillAccessRequestFromPack,
       refreshAccessAndContent,
       setPackPurchasing,
       showFanToast,
@@ -2435,7 +2583,7 @@ export function FanChatPage({
       }
       if (firstMessage) {
         if (!hasActiveAccess) {
-          showFanToast("Necesitas acceso activo para enviar mensajes.");
+          showFanToast("Necesitas acceso. Envía una solicitud o compra un pack.");
         } else {
           await sendFanMessage(firstMessage);
         }
@@ -2782,6 +2930,14 @@ export function FanChatPage({
                 onTopup={openWalletTopup}
                 onPurchase={handlePaywallPurchase}
                 isPurchasing={isPackPurchasing}
+                requestMessage={accessRequestDraft}
+                requestPending={accessRequestPending}
+                requestSending={accessRequestSending}
+                requestError={accessRequestError}
+                requestAuthRequired={accessRequestAuthRequired}
+                requestAuthHref={accessRequestAuthHref}
+                onRequestChange={handleAccessRequestChange}
+                onRequestSubmit={handleAccessRequestSubmit}
               />
             )
           ) : null}
@@ -3047,7 +3203,7 @@ export function FanChatPage({
                   placeholder="Escribe un mensaje..."
                   actionLabel="Enviar"
                   audience="CREATOR"
-                  canAttach={!isComposerDisabled && !isAdultGateActive}
+                  canAttach={!isComposerDisabled && !isAdultGateActive && hasActiveAccess}
                   onAttach={handleOpenActionMenu}
                   inputRef={composerInputRef}
                   maxHeight={140}
@@ -3056,7 +3212,9 @@ export function FanChatPage({
                   showAttach
                   showVoice
                   onVoiceStart={startVoiceRecording}
-                  voiceDisabled={isAdultGateActive || isComposerDisabled || isVoiceRecording || isVoiceUploading}
+                  voiceDisabled={
+                    isAdultGateActive || !hasActiveAccess || isComposerDisabled || isVoiceRecording || isVoiceUploading
+                  }
                   isVoiceRecording={isVoiceRecording}
                   showEmoji
                   onEmojiSelect={handleEmojiSelect}

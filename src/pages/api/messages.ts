@@ -645,6 +645,15 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse<MessageRespo
     if (!fan) {
       return res.status(404).json({ ok: false, error: "Fan not found" });
     }
+    if (normalizedFrom === "fan") {
+      const block = await prisma.creatorFanBlock.findUnique({
+        where: { creatorId_fanId: { creatorId: fan.creatorId, fanId: normalizedFanId } },
+        select: { id: true },
+      });
+      if (fan.isBlocked || block?.id) {
+        return res.status(403).json({ ok: false, error: "CHAT_BLOCKED" });
+      }
+    }
     if (normalizedFrom === "creator" && fan.isBlocked && normalizedAudience !== "INTERNAL") {
       return res.status(403).json({ ok: false, error: "CHAT_BLOCKED" });
     }

@@ -5,7 +5,7 @@ import { useRouter } from "next/router";
 import { randomUUID } from "crypto";
 import { ThumbsUp } from "lucide-react";
 import { Skeleton } from "../../../components/ui/Skeleton";
-import type { PublicCreatorComment } from "../../../types/publicProfile";
+import type { PublicCommentReply, PublicCreatorComment } from "../../../types/publicProfile";
 import { ensureAnalyticsCookie } from "../../../lib/analyticsCookie";
 
 type Props = {
@@ -14,11 +14,51 @@ type Props = {
   creatorName?: string;
   creatorHandle?: string;
   isCreatorViewer?: boolean;
+  locale?: "es" | "en";
 };
 
 const COMMENTS_PAGE_SIZE = 10;
 const CREATOR_COMMENT_MAX_LENGTH = 600;
+const REPLY_PREVIEW_LIMIT = 1;
+const MAX_REPLY_PARTICIPANTS = 10;
 const IS_DEV = process.env.NODE_ENV === "development";
+
+type Locale = "es" | "en";
+
+const COPY: Record<
+  Locale,
+  {
+    reply: string;
+    viewReplies: (count: number) => string;
+    threadFull: (count: number) => string;
+    threadFullBadge: string;
+    threadLocked: string;
+    threadLockedBadge: string;
+    loginToReply: string;
+    verifiedOnly: string;
+  }
+> = {
+  es: {
+    reply: "Responder",
+    viewReplies: (count) => `Ver ${count} respuestas`,
+    threadFull: (count) => `Hilo completo (máx. ${count} participantes).`,
+    threadFullBadge: "Hilo completo",
+    threadLocked: "Hilo cerrado por el creador.",
+    threadLockedBadge: "Hilo cerrado",
+    loginToReply: "Inicia sesión para responder.",
+    verifiedOnly: "Solo compradores verificados pueden responder.",
+  },
+  en: {
+    reply: "Reply",
+    viewReplies: (count) => `View ${count} replies`,
+    threadFull: (count) => `Thread full (max ${count} participants).`,
+    threadFullBadge: "Thread full",
+    threadLocked: "Thread closed by the creator.",
+    threadLockedBadge: "Thread closed",
+    loginToReply: "Sign in to reply.",
+    verifiedOnly: "Verified buyers only.",
+  },
+};
 
 export default function PublicCreatorComments({
   notFound,
@@ -26,8 +66,25 @@ export default function PublicCreatorComments({
   creatorName,
   creatorHandle,
   isCreatorViewer,
+  locale: localeProp,
 }: Props) {
   const router = useRouter();
+  const locale: Locale = localeProp === "en" ? "en" : "es";
+  const t = (
+    key:
+      | "reply"
+      | "viewReplies"
+      | "threadFull"
+      | "threadFullBadge"
+      | "threadLocked"
+      | "threadLockedBadge"
+      | "loginToReply"
+      | "verifiedOnly",
+    count?: number
+  ) => {
+    const entry = COPY[locale][key];
+    return typeof entry === "function" ? entry(count ?? 0) : entry;
+  };
   const [comments, setComments] = useState<PublicCreatorComment[]>([]);
   const [commentsLoading, setCommentsLoading] = useState(false);
   const [commentsLoadingMore, setCommentsLoadingMore] = useState(false);
@@ -40,7 +97,6 @@ export default function PublicCreatorComments({
   const [verifiedOnly, setVerifiedOnly] = useState(false);
   const [canComment, setCanComment] = useState(false);
   const [viewerIsLoggedIn, setViewerIsLoggedIn] = useState(false);
-  const [viewerIsFollowing, setViewerIsFollowing] = useState(false);
   const [viewerHasPurchased, setViewerHasPurchased] = useState(false);
   const [creatorHasCatalogItems, setCreatorHasCatalogItems] = useState(false);
   const [viewerComment, setViewerComment] = useState<{ rating: number; text: string } | null>(null);
@@ -51,10 +107,13 @@ export default function PublicCreatorComments({
   const [replyTargetId, setReplyTargetId] = useState<string | null>(null);
   const [replyDraft, setReplyDraft] = useState("");
   const [replySending, setReplySending] = useState(false);
+  const [replyExpanded, setReplyExpanded] = useState<Record<string, boolean>>({});
+  const [replyLoading, setReplyLoading] = useState<Record<string, boolean>>({});
+  const [replyItemsById, setReplyItemsById] = useState<Record<string, PublicCommentReply[]>>({});
+  const [lockPending, setLockPending] = useState<Record<string, boolean>>({});
   const [helpfulPending, setHelpfulPending] = useState<Record<string, boolean>>({});
   const [toast, setToast] = useState("");
   const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const [followPending, setFollowPending] = useState(false);
   const [authHref, setAuthHref] = useState("");
 
   useEffect(() => {
@@ -77,7 +136,8 @@ export default function PublicCreatorComments({
     params.set("limit", String(COMMENTS_PAGE_SIZE));
     params.set("sort", sortMode);
     if (verifiedOnly) params.set("verifiedOnly", "1");
-    const endpoint = `/api/public/creator/${encodeURIComponent(creatorHandle)}/comments?${params.toString()}`;
+    params.set("handle", creatorHandle);
+    const endpoint = `/api/public/comments?${params.toString()}`;
     let responseStatus: number | null = null;
     setCommentsLoading(true);
     setCommentsError("");
@@ -86,10 +146,12 @@ export default function PublicCreatorComments({
     setComments([]);
     setReplyTargetId(null);
     setReplyDraft("");
+    setReplyExpanded({});
+    setReplyLoading({});
+    setReplyItemsById({});
     setHelpfulPending({});
     setCanComment(false);
     setViewerIsLoggedIn(false);
-    setViewerIsFollowing(false);
     setViewerHasPurchased(false);
     setCreatorHasCatalogItems(false);
     fetch(endpoint, { signal: controller.signal })
@@ -130,7 +192,6 @@ export default function PublicCreatorComments({
           typeof payload?.viewerCanComment === "boolean" ? payload.viewerCanComment : Boolean(payload?.canComment);
         setCanComment(resolvedCanComment);
         setViewerIsLoggedIn(Boolean(payload?.viewerIsLoggedIn));
-        setViewerIsFollowing(Boolean(payload?.viewerIsFollowing));
         setViewerHasPurchased(Boolean(payload?.viewerHasPurchased));
         setCreatorHasCatalogItems(Boolean(payload?.creatorHasPacksOrCatalogItems));
         setViewerComment(payload?.viewerComment ?? null);
@@ -172,7 +233,8 @@ export default function PublicCreatorComments({
     params.set("cursor", nextCursor);
     params.set("sort", sortMode);
     if (verifiedOnly) params.set("verifiedOnly", "1");
-    const endpoint = `/api/public/creator/${encodeURIComponent(creatorHandle)}/comments?${params.toString()}`;
+    params.set("handle", creatorHandle);
+    const endpoint = `/api/public/comments?${params.toString()}`;
     let responseStatus: number | null = null;
     try {
       const res = await fetch(endpoint);
@@ -223,7 +285,7 @@ export default function PublicCreatorComments({
       return;
     }
     setCommentSending(true);
-    const endpoint = `/api/public/creator/${encodeURIComponent(creatorHandle)}/comments`;
+    const endpoint = `/api/public/comments?handle=${encodeURIComponent(creatorHandle)}`;
     let responseStatus: number | null = null;
     try {
       const res = await fetch(endpoint, {
@@ -237,14 +299,14 @@ export default function PublicCreatorComments({
         | null;
       if (!res.ok || !data) {
         if (res.status === 401 || res.status === 403) {
-          showToast("Solo seguidores o clientes pueden comentar.");
+          showToast("Solo compradores verificados pueden comentar.");
           return;
         }
         throw new Error("request failed");
       }
       if (data.ok === false) {
-        if (data.error === "NOT_ELIGIBLE" || data.error === "AUTH_REQUIRED") {
-          showToast("Solo seguidores o clientes pueden comentar.");
+        if (data.error === "NOT_ELIGIBLE" || data.error === "NOT_VERIFIED" || data.error === "AUTH_REQUIRED") {
+          showToast("Solo compradores verificados pueden comentar.");
           return;
         }
         throw new Error("request failed");
@@ -273,40 +335,60 @@ export default function PublicCreatorComments({
     }
   };
 
-  const handleEnableAlerts = async () => {
-    if (!creatorHandle || followPending) return;
-    if (viewerIsFollowing) {
-      showToast("Avisos ya activados.");
-      return;
-    }
-    const endpoint = `/api/public/creator/${encodeURIComponent(creatorHandle)}/follow`;
+  const loadReplies = async (commentId: string) => {
+    if (replyLoading[commentId]) return;
+    setReplyLoading((prev) => ({ ...prev, [commentId]: true }));
+    const endpoint = `/api/public/comments/${encodeURIComponent(commentId)}/replies`;
     let responseStatus: number | null = null;
-    const prev = {
-      viewerIsFollowing,
-      viewerIsLoggedIn,
-      canComment,
-    };
-    setViewerIsFollowing(true);
-    setViewerIsLoggedIn(true);
-    setCanComment(true);
-    setFollowPending(true);
     try {
-      const res = await fetch(endpoint, { method: "POST" });
+      const res = await fetch(endpoint);
       responseStatus = res.status;
       if (!res.ok) throw new Error("request failed");
-      const data = (await res.json().catch(() => null)) as { following?: boolean } | null;
-      if (typeof data?.following === "boolean") {
-        setViewerIsFollowing(data.following);
-        setCanComment(data.following || viewerHasPurchased);
-      }
+      const data = (await res.json().catch(() => null)) as
+        | {
+            ok?: boolean;
+            replies?: PublicCommentReply[];
+            repliesCount?: number;
+            participantsCount?: number;
+            repliesLocked?: boolean;
+          }
+        | null;
+      if (!data || data.ok === false) throw new Error("request failed");
+      const list = Array.isArray(data.replies) ? data.replies : [];
+      setReplyItemsById((prev) => ({ ...prev, [commentId]: list }));
+      setComments((prev) =>
+        prev.map((comment) => {
+          if (comment.id !== commentId) return comment;
+          const next = { ...comment };
+          if (typeof data.repliesCount === "number") {
+            next.repliesCount = data.repliesCount;
+          }
+          if (typeof data.participantsCount === "number") {
+            next.replyParticipantsCount = data.participantsCount;
+          }
+          if (typeof data.repliesLocked === "boolean") {
+            next.repliesLocked = data.repliesLocked;
+          }
+          return next;
+        })
+      );
     } catch (err) {
       logPublicFetchFailure(endpoint, responseStatus, err);
-      setViewerIsFollowing(prev.viewerIsFollowing);
-      setViewerIsLoggedIn(prev.viewerIsLoggedIn);
-      setCanComment(prev.canComment);
-      showToast("No se pudieron activar los avisos.");
+      showToast("No se pudieron cargar las respuestas.");
     } finally {
-      setFollowPending(false);
+      setReplyLoading((prev) => {
+        const next = { ...prev };
+        delete next[commentId];
+        return next;
+      });
+    }
+  };
+
+  const handleExpandReplies = (commentId: string) => {
+    if (replyExpanded[commentId]) return;
+    setReplyExpanded((prev) => ({ ...prev, [commentId]: true }));
+    if (!replyItemsById[commentId]) {
+      void loadReplies(commentId);
     }
   };
 
@@ -318,45 +400,155 @@ export default function PublicCreatorComments({
       return;
     }
     setReplySending(true);
-    const endpoint = `/api/creator/comments/${encodeURIComponent(commentId)}/reply`;
+    const endpoint = `/api/public/comments/${encodeURIComponent(commentId)}/replies`;
     let responseStatus: number | null = null;
+    const hasFullReplies = Boolean(replyItemsById[commentId]);
     try {
       const res = await fetch(endpoint, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text: trimmed }),
+        body: JSON.stringify({ body: trimmed }),
       });
       responseStatus = res.status;
       const data = (await res.json().catch(() => null)) as
-        | { ok?: boolean; error?: string; comment?: { id: string; replyText?: string | null; repliedAt?: string | null; repliedByCreatorId?: string | null } }
+        | {
+            ok?: boolean;
+            error?: string | { code?: string; message?: string };
+            message?: string;
+            reply?: PublicCommentReply;
+            updated?: boolean;
+            participantsCount?: number;
+          }
         | null;
-      if (!res.ok || !data || data.ok === false || !data.comment) {
-        if (res.status === 401 || res.status === 403) {
-          showToast("No tienes permisos para responder.");
+      if (!res.ok || !data || data.ok === false || !data.reply) {
+        const errorCode =
+          typeof data?.error === "string" ? data.error : typeof (data as any)?.error?.code === "string"
+          ? (data as any).error.code
+          : "";
+        const errorMessage =
+          typeof data?.message === "string" && data.message.trim()
+            ? data.message
+            : typeof (data as any)?.error?.message === "string"
+            ? (data as any).error.message
+            : "";
+        if (res.status === 401 || errorCode === "AUTH_REQUIRED") {
+          showToast(t("loginToReply"));
+          return;
+        }
+        if (res.status === 403) {
+          if (errorCode === "THREAD_LOCKED") {
+            showToast(errorMessage || t("threadLocked"));
+            return;
+          }
+          if (errorCode === "THREAD_FULL") {
+            showToast(errorMessage || t("threadFull", MAX_REPLY_PARTICIPANTS));
+            return;
+          }
+          if (errorCode === "NOT_ELIGIBLE" || errorCode === "NOT_VERIFIED") {
+            showToast(t("verifiedOnly"));
+            return;
+          }
+        }
+        if (res.status === 409) {
+          showToast(errorMessage || t("threadFull", MAX_REPLY_PARTICIPANTS));
+          return;
+        }
+        if (errorMessage) {
+          showToast(errorMessage);
           return;
         }
         throw new Error("request failed");
       }
-      setComments((prev) =>
-        prev.map((comment) =>
-          comment.id === commentId
-            ? {
-                ...comment,
-                replyText: data.comment?.replyText ?? trimmed,
-                repliedAt: data.comment?.repliedAt ?? new Date().toISOString(),
-                repliedByCreatorId: data.comment?.repliedByCreatorId ?? comment.repliedByCreatorId,
-              }
-            : comment
-        )
-      );
+      const newReply = data.reply;
+      const wasUpdated = data.updated === true;
+      const participantsCountFromResponse =
+        typeof data.participantsCount === "number" ? data.participantsCount : null;
       setReplyTargetId(null);
       setReplyDraft("");
-      showToast("Respuesta publicada.");
+      setReplyExpanded((prev) => ({ ...prev, [commentId]: true }));
+      setComments((prev) =>
+        prev.map((comment) => {
+          if (comment.id !== commentId) return comment;
+          const previewReplies = resolvePreviewReplies(comment, creatorName);
+          const prevCount =
+            typeof comment.repliesCount === "number" ? comment.repliesCount : previewReplies.length;
+          const prevParticipants =
+            typeof comment.replyParticipantsCount === "number" ? comment.replyParticipantsCount : 0;
+          const viewerAlreadyReplied = Boolean(comment.viewerHasReplied);
+          const nextPreview = wasUpdated
+            ? previewReplies.map((reply) => (reply.id === newReply.id ? newReply : reply))
+            : previewReplies.length >= REPLY_PREVIEW_LIMIT
+            ? previewReplies
+            : [...previewReplies, newReply];
+          const nextCount = wasUpdated ? prevCount : prevCount + 1;
+          const nextParticipants = participantsCountFromResponse ?? (() => {
+            if (wasUpdated || viewerAlreadyReplied || isCreatorViewer) return prevParticipants;
+            return prevParticipants + 1;
+          })();
+          const nextViewerHasReplied = viewerAlreadyReplied || (!wasUpdated && !isCreatorViewer);
+          return {
+            ...comment,
+            repliesCount: nextCount,
+            replies: nextPreview,
+            replyParticipantsCount: nextParticipants,
+            viewerHasReplied: nextViewerHasReplied,
+          };
+        })
+      );
+      setReplyItemsById((prev) => {
+        const existing = prev[commentId];
+        if (!existing) return prev;
+        const merged = wasUpdated
+          ? existing.map((reply) => (reply.id === newReply.id ? newReply : reply))
+          : [...existing, newReply].sort(
+              (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
+            );
+        return { ...prev, [commentId]: merged };
+      });
+      if (!hasFullReplies && !wasUpdated) {
+        void loadReplies(commentId);
+      }
+      showToast(wasUpdated ? "Respuesta actualizada." : "Respuesta publicada.");
     } catch (err) {
       logPublicFetchFailure(endpoint, responseStatus, err);
       showToast("No se pudo guardar la respuesta.");
     } finally {
       setReplySending(false);
+    }
+  };
+
+  const handleToggleThreadLock = async (commentId: string, nextLocked: boolean) => {
+    if (!creatorHandle || !isCreatorViewer || lockPending[commentId]) return;
+    setLockPending((prev) => ({ ...prev, [commentId]: true }));
+    const endpoint = `/api/creator/comments/${encodeURIComponent(commentId)}/replies-lock`;
+    let responseStatus: number | null = null;
+    try {
+      const res = await fetch(endpoint, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ locked: nextLocked }),
+      });
+      responseStatus = res.status;
+      const data = (await res.json().catch(() => null)) as
+        | { ok?: boolean; repliesLocked?: boolean; error?: string }
+        | null;
+      if (!res.ok || !data?.ok) throw new Error("request failed");
+      const resolvedLocked = typeof data.repliesLocked === "boolean" ? data.repliesLocked : nextLocked;
+      setComments((prev) =>
+        prev.map((comment) =>
+          comment.id === commentId ? { ...comment, repliesLocked: resolvedLocked } : comment
+        )
+      );
+      showToast(resolvedLocked ? "Hilo cerrado." : "Hilo reabierto.");
+    } catch (err) {
+      logPublicFetchFailure(endpoint, responseStatus, err);
+      showToast("No se pudo actualizar el hilo.");
+    } finally {
+      setLockPending((prev) => {
+        const next = { ...prev };
+        delete next[commentId];
+        return next;
+      });
     }
   };
 
@@ -560,7 +752,7 @@ export default function PublicCreatorComments({
                   <p className="text-xs font-semibold text-[color:var(--text)]">Para poder comentar</p>
                   <p className="text-[11px] text-[color:var(--muted)]">
                     {viewerIsLoggedIn
-                      ? "Activa avisos o compra un pack para poder comentar."
+                      ? "Compra un pack para poder comentar."
                       : "Inicia sesión para comentar."}
                   </p>
                 </div>
@@ -574,25 +766,17 @@ export default function PublicCreatorComments({
                     </a>
                   ) : (
                     <>
-                      <button
-                        type="button"
-                        onClick={() => void handleEnableAlerts()}
-                        disabled={followPending}
-                        className="inline-flex h-9 items-center justify-center rounded-full border border-[color:rgba(var(--brand-rgb),0.6)] px-4 text-[11px] font-semibold text-[color:var(--text)] transition hover:bg-[color:rgba(var(--brand-rgb),0.16)] disabled:opacity-60"
-                      >
-                        Activar avisos
-                      </button>
                       {creatorHasCatalogItems ? (
                         <a
                           href={creatorHandle ? `/c/${creatorHandle}#catalog` : "/c/creator#catalog"}
-                          className="inline-flex h-9 items-center justify-center rounded-full border border-[color:var(--surface-border)] px-4 text-[11px] font-semibold text-[color:var(--text)] hover:bg-[color:var(--surface-2)]"
+                          className="inline-flex h-9 items-center justify-center rounded-full border border-[color:rgba(var(--brand-rgb),0.6)] px-4 text-[11px] font-semibold text-[color:var(--text)] hover:bg-[color:rgba(var(--brand-rgb),0.16)]"
                         >
                           Ver packs
                         </a>
                       ) : (
                         <a
                           href={creatorHandle ? `/go/${creatorHandle}` : "/go/creator"}
-                          className="inline-flex h-9 items-center justify-center rounded-full border border-[color:var(--surface-border)] px-4 text-[11px] font-semibold text-[color:var(--text)] hover:bg-[color:var(--surface-2)]"
+                          className="inline-flex h-9 items-center justify-center rounded-full border border-[color:rgba(var(--brand-rgb),0.6)] px-4 text-[11px] font-semibold text-[color:var(--text)] hover:bg-[color:rgba(var(--brand-rgb),0.16)]"
                         >
                           Entrar al chat privado
                         </a>
@@ -639,6 +823,33 @@ export default function PublicCreatorComments({
                     ? "opacity-50 cursor-not-allowed"
                     : "opacity-60 cursor-not-allowed"
                   : "hover:bg-[color:var(--surface-2)]";
+                const previewReplies = resolvePreviewReplies(comment, creatorName);
+                const totalReplies =
+                  typeof comment.repliesCount === "number" ? comment.repliesCount : previewReplies.length;
+                const repliesLocked = Boolean(comment.repliesLocked);
+                const participantsCount =
+                  typeof comment.replyParticipantsCount === "number" ? comment.replyParticipantsCount : 0;
+                const threadFull = participantsCount >= MAX_REPLY_PARTICIPANTS;
+                const viewerHasReplied = Boolean(comment.viewerHasReplied);
+                const threadFullForViewer = threadFull && !viewerHasReplied && !isCreatorViewer;
+                const replyBlocked = repliesLocked && !isCreatorViewer;
+                const expanded = Boolean(replyExpanded[comment.id]);
+                const displayReplies = expanded
+                  ? replyItemsById[comment.id] ?? previewReplies
+                  : previewReplies;
+                const showViewReplies = !expanded && totalReplies > previewReplies.length;
+                const repliesLoading = Boolean(replyLoading[comment.id]);
+                const viewerCanReply = Boolean(isCreatorViewer || (viewerIsLoggedIn && viewerHasPurchased));
+                const canReplyAction = viewerCanReply && !threadFullForViewer && !replyBlocked;
+                const replyHint = !viewerCanReply
+                  ? viewerIsLoggedIn
+                    ? t("verifiedOnly")
+                    : t("loginToReply")
+                  : replyBlocked
+                  ? t("threadLocked")
+                  : threadFullForViewer
+                  ? t("threadFull", MAX_REPLY_PARTICIPANTS)
+                  : "";
                 return (
                   <div
                     key={comment.id}
@@ -677,25 +888,80 @@ export default function PublicCreatorComments({
                         </span>
                       </button>
                     </div>
-                    {comment.replyText && (
-                      <div className="ml-8 rounded-xl border border-[color:var(--surface-border)] border-l-2 border-l-[color:rgba(var(--brand-rgb),0.35)] bg-[color:var(--surface-2)] px-3 py-2 text-[13px] text-[color:var(--text)] space-y-2">
-                        <div className="flex flex-col gap-1 text-[10px] text-[color:var(--muted)] sm:flex-row sm:items-center sm:justify-between">
-                          <div className="flex items-center gap-2">
-                            <span className="flex h-6 w-6 items-center justify-center rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] text-[11px] font-semibold text-[color:var(--text)]">
-                              {getCreatorInitial(creatorName)}
-                            </span>
-                            <span className="text-[11px] font-semibold text-[color:var(--text)]">Respuesta</span>
+                    {displayReplies.length > 0 && (
+                      <div className="space-y-2">
+                        {displayReplies.map((reply) => (
+                          <div
+                            key={reply.id}
+                            className="ml-8 rounded-xl border border-[color:var(--surface-border)] border-l-2 border-l-[color:rgba(var(--brand-rgb),0.35)] bg-[color:var(--surface-2)] px-3 py-2 text-[13px] text-[color:var(--text)] space-y-2"
+                          >
+                            <div className="flex flex-col gap-1 text-[10px] text-[color:var(--muted)] sm:flex-row sm:items-center sm:justify-between">
+                              <div className="flex items-center gap-2">
+                                <span className="flex h-6 w-6 items-center justify-center rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] text-[11px] font-semibold text-[color:var(--text)]">
+                                  {getInitial(reply.authorDisplayName)}
+                                </span>
+                                <div className="flex flex-wrap items-center gap-2">
+                                  <span className="text-[11px] font-semibold text-[color:var(--text)]">
+                                    {reply.authorDisplayName}
+                                  </span>
+                                  <span className="rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-2 py-0.5 text-[10px] font-semibold text-[color:var(--muted)]">
+                                    {reply.authorRole === "CREATOR" ? "Creador" : "Comprador verificado"}
+                                  </span>
+                                </div>
+                              </div>
+                              <span className="text-[10px] text-[color:var(--muted)]">
+                                {formatCreatorCommentDate(reply.createdAt)}
+                              </span>
+                            </div>
+                            <p className="whitespace-pre-line">{reply.body}</p>
                           </div>
-                          {comment.repliedAt && (
-                            <span className="text-[10px] text-[color:var(--muted)]">
-                              {formatCreatorCommentDate(comment.repliedAt)}
-                            </span>
-                          )}
-                        </div>
-                        <p className="whitespace-pre-line">{comment.replyText}</p>
+                        ))}
                       </div>
                     )}
-                    {isCreatorViewer && !comment.replyText && replyTargetId !== comment.id && (
+                    {(repliesLocked || threadFull || isCreatorViewer) && (
+                      <div className="flex flex-wrap items-center gap-2 text-[10px] text-[color:var(--muted)]">
+                        {repliesLocked && (
+                          <span className="rounded-full border border-[color:rgba(244,63,94,0.4)] bg-[color:rgba(244,63,94,0.12)] px-2 py-0.5 text-[10px] font-semibold text-[color:var(--muted)]">
+                            {t("threadLockedBadge")}
+                          </span>
+                        )}
+                        {threadFull && (
+                          <span className="rounded-full border border-[color:rgba(245,158,11,0.5)] bg-[color:rgba(245,158,11,0.12)] px-2 py-0.5 text-[10px] font-semibold text-[color:var(--muted)]">
+                            {t("threadFullBadge")}
+                          </span>
+                        )}
+                        {isCreatorViewer && (
+                          <button
+                            type="button"
+                            onClick={() => handleToggleThreadLock(comment.id, !repliesLocked)}
+                            disabled={lockPending[comment.id]}
+                            className="rounded-full border border-[color:var(--surface-border)] px-2 py-0.5 text-[10px] font-semibold text-[color:var(--muted)] hover:bg-[color:var(--surface-2)] disabled:opacity-60"
+                          >
+                            {lockPending[comment.id]
+                              ? "Guardando..."
+                              : repliesLocked
+                              ? "Abrir hilo"
+                              : "Cerrar hilo"}
+                          </button>
+                        )}
+                      </div>
+                    )}
+                    {showViewReplies && (
+                      <button
+                        type="button"
+                        onClick={() => handleExpandReplies(comment.id)}
+                        className="text-xs font-semibold text-[color:var(--brand)] hover:underline"
+                      >
+                        {t("viewReplies", totalReplies)}
+                      </button>
+                    )}
+                    {expanded && repliesLoading && (
+                      <div className="text-[11px] text-[color:var(--muted)]">Cargando respuestas...</div>
+                    )}
+                    {replyHint && (
+                      <div className="text-[11px] text-[color:var(--muted)]">{replyHint}</div>
+                    )}
+                    {canReplyAction && replyTargetId !== comment.id && (
                       <button
                         type="button"
                         onClick={() => {
@@ -704,10 +970,10 @@ export default function PublicCreatorComments({
                         }}
                         className="text-xs font-semibold text-[color:var(--brand)] hover:underline"
                       >
-                        Responder
+                        {t("reply")}
                       </button>
                     )}
-                    {isCreatorViewer && replyTargetId === comment.id && (
+                    {canReplyAction && replyTargetId === comment.id && (
                       <div className="space-y-2">
                         <textarea
                           className="min-h-[88px] w-full rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-3 py-2 text-xs text-[color:var(--text)] focus:border-[color:var(--surface-border-hover)] focus:ring-2 focus:ring-[color:var(--ring)]"
@@ -838,6 +1104,7 @@ export default function PublicCreatorComments({
 export const getServerSideProps: GetServerSideProps<Props> = async (ctx) => {
   const prisma = (await import("../../../lib/prisma.server")).default;
   const handleParam = typeof ctx.params?.handle === "string" ? ctx.params.handle : "";
+  const locale = resolveLocale(ctx.req?.headers["accept-language"]);
   const creators = await prisma.creator.findMany();
   const match = creators.find((creator) => slugify(creator.name) === handleParam) || creators[0];
 
@@ -888,6 +1155,7 @@ export const getServerSideProps: GetServerSideProps<Props> = async (ctx) => {
       creatorHandle,
       showPreviewBanner,
       isCreatorViewer: previewAllowed,
+      locale,
     },
   };
 };
@@ -920,7 +1188,7 @@ function renderStars(rating: number) {
   return "★★★★★".slice(0, safe) + "☆☆☆☆☆".slice(0, 5 - safe);
 }
 
-function getCreatorInitial(name?: string | null) {
+function getInitial(name?: string | null) {
   const trimmed = (name || "").trim();
   return (trimmed[0] || "C").toUpperCase();
 }
@@ -932,6 +1200,31 @@ function formatCreatorCommentDate(value: string) {
   } catch {
     return "";
   }
+}
+
+function resolvePreviewReplies(
+  comment: PublicCreatorComment,
+  creatorName?: string | null
+): PublicCommentReply[] {
+  if (Array.isArray(comment.replies) && comment.replies.length > 0) {
+    return comment.replies;
+  }
+  const legacyBody = comment.replyText?.trim();
+  if (!legacyBody) return [];
+  return [
+    {
+      id: `legacy-${comment.id}`,
+      body: legacyBody,
+      createdAt: comment.repliedAt || comment.createdAt,
+      authorRole: "CREATOR",
+      authorDisplayName: creatorName || "Creador",
+    },
+  ];
+}
+
+function resolveLocale(headerValue: string | string[] | undefined): Locale {
+  const raw = Array.isArray(headerValue) ? headerValue.join(",") : headerValue || "";
+  return raw.toLowerCase().includes("en") ? "en" : "es";
 }
 
 function logPublicFetchFailure(endpoint: string, status?: number | null, error?: unknown) {

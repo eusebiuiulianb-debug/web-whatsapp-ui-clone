@@ -96,6 +96,7 @@ export default function ConversationList(props: ConversationListProps) {
   } = data;
   const borderClass = isFirstConversation ? "border-transparent" : "border-[color:var(--border)]";
   const isManagerChat = data.isManager === true;
+  const hasAccessRequest = data.accessRequestStatus === "PENDING";
   const typingIndicator = useTypingIndicator(data.id);
   const isTyping = !isManagerChat && Boolean(typingIndicator?.isTyping);
   const typingDraftPreview =
@@ -312,6 +313,11 @@ export default function ConversationList(props: ConversationListProps) {
                   aria-label={followUpIndicatorLabel}
                   title={followUpIndicatorLabel}
                 />
+              )}
+              {hasAccessRequest && (
+                <Badge tone="accent" size="sm" title="Solicitud de acceso pendiente">
+                  Solicitud
+                </Badge>
               )}
               {shouldShowTierLabel && (
                 <Badge tone={tierBadgeTone} size="sm">

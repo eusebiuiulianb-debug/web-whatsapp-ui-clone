@@ -219,6 +219,18 @@ type OfferOverlayState = {
   offer: OfferMeta;
 };
 
+type AccessRequestStatus = "PENDING" | "APPROVED" | "REJECTED" | "SPAM";
+
+type AccessRequestDetail = {
+  id: string;
+  fanId: string;
+  fanName: string;
+  status: AccessRequestStatus;
+  message: string;
+  productId?: string | null;
+  createdAt: string;
+};
+
 type ComposerOfferEventDetail = {
   text?: string;
   offer?: OfferMeta;
@@ -1256,6 +1268,14 @@ function getReengageTemplate(name: string) {
   return `Hola ${cleanName || "allí"}, soy Eusebiu. Hoy termina tu acceso a este espacio privado. Si quieres que sigamos trabajando juntos en tu relación y tu vida sexual, puedo ofrecerte renovar la suscripción o prepararte un pack especial solo para ti. Si te interesa, dime “QUIERO SEGUIR” y lo vemos juntos.`;
 }
 
+function getPackTypeFromName(name: string) {
+  const lower = name.toLowerCase();
+  if (lower.includes("bienvenida")) return "trial";
+  if (lower.includes("mensual")) return "monthly";
+  if (lower.includes("especial")) return "special";
+  return null;
+}
+
 export default function ConversationDetails({ onBackToBoard }: ConversationDetailsProps) {
   const {
     conversation,
@@ -1303,6 +1323,10 @@ export default function ConversationDetails({ onBackToBoard }: ConversationDetai
   const [ accessGrants, setAccessGrants ] = useState<
     { id: string; fanId: string; type: string; createdAt: string; expiresAt: string }[]
   >([]);
+  const [ accessRequest, setAccessRequest ] = useState<AccessRequestDetail | null>(null);
+  const [ accessRequestActionLoading, setAccessRequestActionLoading ] = useState(false);
+  const accessRequestRef = useRef<AccessRequestDetail | null>(null);
+  const accessRequestFanIdRef = useRef<string | null>(null);
   const [ fanSendCooldownById, setFanSendCooldownById ] = useState<
     Record<string, { until: number; phase: "sent" | "cooldown" }>
   >({});
@@ -1343,6 +1367,9 @@ export default function ConversationDetails({ onBackToBoard }: ConversationDetai
   const sendFanMessageStable = useCallback((text: string, options?: SendFanMessageOptions) => {
     return sendFanMessageRef.current?.(text, options) ?? Promise.resolve(false);
   }, []);
+  useEffect(() => {
+    accessRequestRef.current = accessRequest;
+  }, [accessRequest]);
   const [ isVoiceUploading, setIsVoiceUploading ] = useState(false);
   const [ voiceUploadError, setVoiceUploadError ] = useState("");
   const [ voiceRetryPayload, setVoiceRetryPayload ] = useState<VoiceUploadPayload | null>(null);
@@ -2573,6 +2600,12 @@ export default function ConversationDetails({ onBackToBoard }: ConversationDetai
     hasAccessHistory: conversation.hasAccessHistory,
     activeGrantTypes: conversation.activeGrantTypes,
   });
+  const hasPendingAccessRequest = accessRequest?.status === "PENDING";
+  const isAccessRequestActionDisabled = accessRequestActionLoading || grantLoadingType !== null;
+  const accessRequestTimestamp =
+    hasPendingAccessRequest && accessRequest?.createdAt
+      ? formatLastPurchaseToday(accessRequest.createdAt)
+      : null;
   const subscriptionLabel =
     accessSummary.state === "NONE"
       ? "Sin acceso"
@@ -3618,17 +3651,10 @@ const INTENT_BADGE_LABELS: Record<string, string> = {
     return () => cancelAnimationFrame(frame);
   }, [inlineAction, isAtBottom]);
 
-  function getPackTypeFromName(name: string) {
-    const lower = name.toLowerCase();
-    if (lower.includes("bienvenida")) return "trial";
-    if (lower.includes("mensual")) return "monthly";
-    if (lower.includes("especial")) return "special";
-    return null;
-  }
-
-  function findPackByType(type: "trial" | "monthly" | "special") {
-    return config.packs.find((pack) => getPackTypeFromName(pack.name) === type);
-  }
+  const findPackByType = useCallback(
+    (type: "trial" | "monthly" | "special") => config.packs.find((pack) => getPackTypeFromName(pack.name) === type),
+    [config.packs]
+  );
 
   function computeDaysLeft(expiresAt: string | Date) {
     const now = new Date();
@@ -4845,6 +4871,69 @@ const INTENT_BADGE_LABELS: Record<string, string> = {
     return [];
   }
 
+  const fetchAccessRequest = useCallback(async (fanId: string) => {
+    if (!fanId) return;
+    accessRequestFanIdRef.current = fanId;
+    try {
+      const data = await fetchJsonDedupe<any>(
+        `cd:${fanId}:access-request`,
+        () =>
+          fetch(
+            `/api/creator/access-requests?status=PENDING&fanId=${encodeURIComponent(fanId)}`,
+            { cache: "no-store" }
+          ),
+        { ttlMs: 1200 }
+      );
+      if (accessRequestFanIdRef.current !== fanId) return;
+      const request = Array.isArray(data?.requests) ? data.requests[0] : null;
+      if (request && request.status === "PENDING") {
+        setAccessRequest({
+          id: request.id,
+          fanId: request.fanId,
+          fanName: request.fanName ?? "Fan",
+          status: request.status,
+          message: request.message ?? "",
+          productId: request.productId ?? null,
+          createdAt: request.createdAt,
+        });
+      } else {
+        setAccessRequest(null);
+      }
+    } catch (_err) {
+      if (accessRequestFanIdRef.current === fanId) {
+        setAccessRequest(null);
+      }
+    }
+  }, []);
+
+  const resolveAccessRequest = useCallback(
+    async (requestId: string, action: "APPROVE" | "REJECT" | "SPAM", grantHours?: number) => {
+      if (!requestId) return false;
+      setAccessRequestActionLoading(true);
+      try {
+        const res = await fetch(`/api/creator/access-requests/${encodeURIComponent(requestId)}/resolve`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ action, grantHours }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok || !data?.ok) {
+          showComposerToast("No se pudo resolver la solicitud.");
+          return false;
+        }
+        setAccessRequest(null);
+        return true;
+      } catch (err) {
+        console.error("Error resolving access request", err);
+        showComposerToast("No se pudo resolver la solicitud.");
+        return false;
+      } finally {
+        setAccessRequestActionLoading(false);
+      }
+    },
+    [showComposerToast]
+  );
+
   const fetchAccessGrants = useCallback(async (fanId: string) => {
     try {
       setAccessGrantsLoading(true);
@@ -5515,6 +5604,15 @@ const INTENT_BADGE_LABELS: Record<string, string> = {
     setPreferredLanguage(normalized);
     setPreferredLanguageError(null);
   }, [conversation.preferredLanguage, showQuickSheet]);
+
+  useEffect(() => {
+    if (!activeFanId) {
+      accessRequestFanIdRef.current = null;
+      setAccessRequest(null);
+      return;
+    }
+    fetchAccessRequest(activeFanId);
+  }, [activeFanId, fetchAccessRequest]);
 
   useEffect(() => {
     if (!id) return;
@@ -11526,6 +11624,10 @@ const INTENT_BADGE_LABELS: Record<string, string> = {
           message: sentMessage ?? undefined,
         });
         emitCreatorDataChanged({ reason: "fan_message_sent", fanId: id });
+        const pendingRequest = accessRequestRef.current;
+        if (pendingRequest?.status === "PENDING" && pendingRequest.fanId === id) {
+          void resolveAccessRequest(pendingRequest.id, "APPROVE");
+        }
         const currentStage = (agencyMeta?.stage ?? agencyDraft?.stage ?? conversation.agencyStage ?? "NEW") as AgencyStage;
         const nextStage = getAutoAdvanceStage({ currentStage, actionKey: currentActionKey });
         if (nextStage && nextStage !== currentStage) {
@@ -11756,8 +11858,8 @@ const INTENT_BADGE_LABELS: Record<string, string> = {
     }
   }
 
-  async function handleGrant(type: "trial" | "monthly" | "special") {
-    if (!id) return;
+  async function handleGrant(type: "trial" | "monthly" | "special"): Promise<boolean> {
+    if (!id) return false;
 
     try {
       setGrantLoadingType(type);
@@ -11770,7 +11872,7 @@ const INTENT_BADGE_LABELS: Record<string, string> = {
       if (!res.ok) {
         console.error("Error actualizando acceso");
         alert("Error actualizando acceso");
-        return;
+        return false;
       }
 
       const data = await res.json();
@@ -11798,9 +11900,11 @@ const INTENT_BADGE_LABELS: Record<string, string> = {
         purchaseId: typeof data?.purchaseId === "string" ? data.purchaseId : `grant-${id}-${Date.now()}`,
         createdAt: new Date().toISOString(),
       });
+      return true;
     } catch (err) {
       console.error("Error actualizando acceso", err);
       alert("Error actualizando acceso");
+      return false;
     } finally {
       setGrantLoadingType(null);
     }
@@ -12770,6 +12874,50 @@ const INTENT_BADGE_LABELS: Record<string, string> = {
   const updateConversationState = (patch: Partial<typeof conversation>) => {
     if (!conversation || conversation.id !== id) return;
     setConversation({ ...conversation, ...patch } as any);
+  };
+
+  const handleAccessRequestReply = () => {
+    if (conversation.isManager) return;
+    setComposerTarget("fan");
+    setComposerActionKey(null);
+    requestAnimationFrame(() => messageInputRef.current?.focus());
+  };
+
+  const handleAccessRequestSuggestPack = useCallback(async () => {
+    const type = selectedPackType || "monthly";
+    const pack = findPackByType(type);
+    if (!pack) {
+      showComposerToast("No hay packs disponibles.");
+      return;
+    }
+    await fillMessageForFan(buildPackProposalMessage(pack), `pack:${type}`);
+    requestAnimationFrame(() => messageInputRef.current?.focus());
+  }, [fillMessageForFan, findPackByType, selectedPackType, showComposerToast]);
+
+  const handleAccessRequestReject = async () => {
+    if (!accessRequest?.id) return;
+    const resolved = await resolveAccessRequest(accessRequest.id, "REJECT");
+    if (resolved) {
+      showComposerToast("Solicitud rechazada.");
+    }
+  };
+
+  const handleAccessRequestBlock = async () => {
+    if (!accessRequest?.id) return;
+    const ok = await resolveAccessRequest(accessRequest.id, "SPAM");
+    if (!ok) return;
+    setIsChatBlocked(true);
+    updateConversationState({ isBlocked: true });
+    window.dispatchEvent(new Event("fanDataUpdated"));
+  };
+
+  const handleAccessRequestGrant = async () => {
+    if (!accessRequest?.id || !id) return;
+    const resolved = await resolveAccessRequest(accessRequest.id, "APPROVE", 72);
+    if (!resolved) return;
+    await fetchAccessGrants(id);
+    await refreshFanData(id);
+    showComposerToast("Acceso concedido.");
   };
 
 
@@ -13864,6 +14012,85 @@ const INTENT_BADGE_LABELS: Record<string, string> = {
         <div className="mx-4 mt-2 rounded-xl border border-[color:rgba(244,63,94,0.4)] bg-[color:rgba(244,63,94,0.08)] px-3 py-2 text-xs md:text-sm text-[color:var(--danger)] flex items-center gap-2">
           <span className="inline-block h-2 w-2 rounded-full bg-[color:var(--danger)]" />
           <span>Chat bloqueado. No puedes enviar mensajes nuevos a este fan.</span>
+        </div>
+      )}
+      {hasPendingAccessRequest && accessRequest && (
+        <div className="mx-4 mb-3 flex flex-col gap-3 rounded-xl border border-[color:rgba(59,130,246,0.5)] bg-[color:rgba(59,130,246,0.08)] px-4 py-3 text-xs text-[color:var(--text)]">
+          <div className="flex flex-col gap-1">
+            <span className="font-semibold text-[color:var(--brand)]">Solicitud de acceso</span>
+            <span className="text-[11px] text-[color:var(--muted)]">
+              {accessRequest.fanName || contactName || "Fan"}
+              {accessRequestTimestamp ? ` · ${accessRequestTimestamp}` : ""}
+            </span>
+            <p className="text-[11px] text-[color:var(--text)] whitespace-pre-line">{accessRequest.message}</p>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={handleAccessRequestReply}
+              disabled={isAccessRequestActionDisabled}
+              className={clsx(
+                "rounded-full border px-3 py-1.5 text-[11px] font-semibold transition",
+                isAccessRequestActionDisabled
+                  ? "border-[color:var(--surface-border)] bg-[color:var(--surface-2)] text-[color:var(--muted)] cursor-not-allowed"
+                  : "border-[color:rgba(var(--brand-rgb),0.4)] bg-[color:rgba(var(--brand-rgb),0.16)] text-[color:var(--text)] hover:bg-[color:rgba(var(--brand-rgb),0.22)]"
+              )}
+            >
+              Responder
+            </button>
+            <button
+              type="button"
+              onClick={handleAccessRequestSuggestPack}
+              disabled={isAccessRequestActionDisabled}
+              className={clsx(
+                "rounded-full border px-3 py-1.5 text-[11px] font-semibold transition",
+                isAccessRequestActionDisabled
+                  ? "border-[color:var(--surface-border)] bg-[color:var(--surface-2)] text-[color:var(--muted)] cursor-not-allowed"
+                  : "border-[color:rgba(245,158,11,0.6)] bg-[color:rgba(245,158,11,0.12)] text-[color:var(--text)] hover:bg-[color:rgba(245,158,11,0.18)]"
+              )}
+            >
+              Sugerir pack
+            </button>
+            <button
+              type="button"
+              onClick={handleAccessRequestReject}
+              disabled={isAccessRequestActionDisabled}
+              className={clsx(
+                "rounded-full border px-3 py-1.5 text-[11px] font-semibold transition",
+                isAccessRequestActionDisabled
+                  ? "border-[color:var(--surface-border)] bg-[color:var(--surface-2)] text-[color:var(--muted)] cursor-not-allowed"
+                  : "border-[color:rgba(148,163,184,0.7)] bg-[color:rgba(148,163,184,0.12)] text-[color:var(--text)] hover:bg-[color:rgba(148,163,184,0.18)]"
+              )}
+            >
+              Rechazar
+            </button>
+            <button
+              type="button"
+              onClick={handleAccessRequestGrant}
+              disabled={isAccessRequestActionDisabled}
+              className={clsx(
+                "rounded-full border px-3 py-1.5 text-[11px] font-semibold transition",
+                isAccessRequestActionDisabled
+                  ? "border-[color:var(--surface-border)] bg-[color:var(--surface-2)] text-[color:var(--muted)] cursor-not-allowed"
+                  : "border-[color:rgba(34,197,94,0.6)] bg-[color:rgba(34,197,94,0.12)] text-[color:var(--text)] hover:bg-[color:rgba(34,197,94,0.18)]"
+              )}
+            >
+              Aprobar 72h
+            </button>
+            <button
+              type="button"
+              onClick={handleAccessRequestBlock}
+              disabled={isAccessRequestActionDisabled}
+              className={clsx(
+                "rounded-full border px-3 py-1.5 text-[11px] font-semibold transition",
+                isAccessRequestActionDisabled
+                  ? "border-[color:var(--surface-border)] bg-[color:var(--surface-2)] text-[color:var(--muted)] cursor-not-allowed"
+                  : "border-[color:rgba(244,63,94,0.7)] bg-[color:rgba(244,63,94,0.12)] text-[color:var(--text)] hover:bg-[color:rgba(244,63,94,0.2)]"
+              )}
+            >
+              Bloquear
+            </button>
+          </div>
         </div>
       )}
       {/* Avisos de acceso caducado o a punto de caducar */}

@@ -6,6 +6,7 @@ import { readFanId, slugifyHandle } from "../../../../../lib/fan/session";
 const MAX_COMMENT_LENGTH = 600;
 const DEFAULT_LIMIT = 10;
 const MAX_LIMIT = 20;
+const REPLY_PREVIEW_LIMIT = 1;
 
 type PublicCreatorComment = {
   id: string;
@@ -14,12 +15,25 @@ type PublicCreatorComment = {
   createdAt: string;
   fanDisplayNameMasked: string;
   verified?: boolean;
+  repliesCount?: number;
+  replies?: PublicCommentReply[];
+  repliesLocked?: boolean;
+  replyParticipantsCount?: number;
+  viewerHasReplied?: boolean;
   replyText?: string | null;
   repliedAt?: string | null;
   repliedByCreatorId?: string | null;
   helpfulCount?: number;
   viewerHasVoted?: boolean;
   fan?: { id: string; displayName: string };
+};
+
+type PublicCommentReply = {
+  id: string;
+  body: string;
+  createdAt: string;
+  authorRole: "CREATOR" | "FAN";
+  authorDisplayName: string;
 };
 
 type CommentsStats = {
@@ -150,7 +164,21 @@ export default async function handler(
             replyText: true,
             repliedAt: true,
             repliedByCreatorId: true,
+            repliesLocked: true,
             fan: { select: { displayName: true, name: true } },
+            replies: {
+              take: REPLY_PREVIEW_LIMIT,
+              orderBy: { createdAt: "asc" as const },
+              where: { deletedAt: null },
+              select: {
+                id: true,
+                body: true,
+                createdAt: true,
+                authorRole: true,
+                authorFan: { select: { displayName: true, name: true } },
+                authorCreator: { select: { name: true } },
+              },
+            },
             _count: { select: { helpfulVotes: true } },
             ...helpfulVoteSelect,
           },
@@ -159,6 +187,65 @@ export default async function handler(
 
       const nextCursor = comments.length > limit ? comments[limit - 1]?.id ?? null : null;
       const sliced = comments.slice(0, limit);
+      const commentIds = sliced.map((comment) => comment.id);
+      const [creatorReplies, replyCounts, participantRows, viewerReplies] = await Promise.all([
+        commentIds.length
+          ? prisma.commentReply.findMany({
+              where: { commentId: { in: commentIds }, authorRole: "CREATOR", deletedAt: null },
+              orderBy: { createdAt: "desc" as const },
+              select: {
+                id: true,
+                commentId: true,
+                body: true,
+                createdAt: true,
+                authorCreator: { select: { name: true } },
+              },
+            })
+          : Promise.resolve([]),
+        commentIds.length
+          ? prisma.commentReply.groupBy({
+              by: ["commentId"],
+              where: { commentId: { in: commentIds }, deletedAt: null },
+              _count: { _all: true },
+            })
+          : Promise.resolve([]),
+        commentIds.length
+          ? prisma.commentReply.groupBy({
+              by: ["commentId", "authorFanId"],
+              where: {
+                commentId: { in: commentIds },
+                deletedAt: null,
+                authorFanId: { not: null },
+              },
+            })
+          : Promise.resolve([]),
+        commentIds.length && eligibility.viewerFanId
+          ? prisma.commentReply.findMany({
+              where: {
+                commentId: { in: commentIds },
+                deletedAt: null,
+                authorFanId: eligibility.viewerFanId,
+              },
+              select: { commentId: true },
+            })
+          : Promise.resolve([]),
+      ]);
+      const replyCountByCommentId = new Map<string, number>();
+      replyCounts.forEach((row) => {
+        replyCountByCommentId.set(row.commentId, row._count?._all ?? 0);
+      });
+      const participantCountByCommentId = new Map<string, number>();
+      participantRows.forEach((row) => {
+        if (!row.authorFanId) return;
+        participantCountByCommentId.set(row.commentId, (participantCountByCommentId.get(row.commentId) ?? 0) + 1);
+      });
+      const viewerRepliedSet = new Set(viewerReplies.map((row) => row.commentId));
+      const creatorReplyByCommentId = new Map<string, typeof creatorReplies[number]>();
+      creatorReplies.forEach((reply) => {
+        if (!creatorReplyByCommentId.has(reply.commentId)) {
+          creatorReplyByCommentId.set(reply.commentId, reply);
+        }
+      });
       const distribution = buildDistribution(ratingGroups);
       const totalCount = aggregate._count._all ?? 0;
       const avgRaw = typeof aggregate._avg.rating === "number" ? aggregate._avg.rating : 0;
@@ -169,6 +256,33 @@ export default async function handler(
         const displayName = maskFanName(comment.fan?.displayName || comment.fan?.name);
         const helpfulCount = comment._count?.helpfulVotes ?? 0;
         const viewerHasVoted = eligibility.viewerFanId ? (comment.helpfulVotes?.length ?? 0) > 0 : false;
+        const hasLegacyReply = Boolean(comment.replyText?.trim());
+        const creatorReply = creatorReplyByCommentId.get(comment.id) ?? null;
+        const legacyCount = hasLegacyReply && !creatorReply ? 1 : 0;
+        const baseReplyCount = replyCountByCommentId.get(comment.id) ?? 0;
+        const totalReplies = baseReplyCount + legacyCount;
+        const repliesCount = totalReplies;
+        const replyParticipantsCount = participantCountByCommentId.get(comment.id) ?? 0;
+        const previewReplies = creatorReply
+          ? [
+              {
+                id: creatorReply.id,
+                body: creatorReply.body,
+                createdAt: creatorReply.createdAt.toISOString(),
+                authorRole: "CREATOR" as const,
+                authorDisplayName:
+                  creatorReply.authorCreator?.name || creator.name || "Creador",
+              },
+            ]
+          : formatCommentReplies({
+              commentId: comment.id,
+              creatorName: creator.name || "Creador",
+              replies: comment.replies ?? [],
+              legacyReplyText: hasLegacyReply ? comment.replyText : null,
+              legacyReplyDate: comment.repliedAt ?? comment.createdAt,
+              limit: REPLY_PREVIEW_LIMIT,
+              preferCreator: true,
+            });
         return {
           id: comment.id,
           rating: comment.rating,
@@ -176,6 +290,11 @@ export default async function handler(
           createdAt: comment.createdAt.toISOString(),
           fanDisplayNameMasked: displayName,
           verified: verifiedFanIds.has(comment.fanId),
+          repliesCount,
+          replies: previewReplies,
+          repliesLocked: comment.repliesLocked ?? false,
+          replyParticipantsCount,
+          viewerHasReplied: viewerRepliedSet.has(comment.id),
           replyText: comment.replyText ?? null,
           repliedAt: comment.repliedAt ? comment.repliedAt.toISOString() : null,
           repliedByCreatorId: comment.repliedByCreatorId ?? null,
@@ -226,8 +345,11 @@ export default async function handler(
       }
 
       const eligibility = await resolveEligibility(req, creator.id, handle, fanId);
+      if (eligibility.viewerIsBlocked) {
+        return res.status(403).json({ ok: false, error: "BLOCKED" });
+      }
       if (!eligibility.canComment) {
-        return res.status(403).json({ ok: false, error: "NOT_ELIGIBLE" });
+        return res.status(403).json({ ok: false, error: "NOT_VERIFIED" });
       }
 
       const existing = await prisma.creatorComment.findUnique({
@@ -277,6 +399,11 @@ export default async function handler(
           createdAt: comment.createdAt.toISOString(),
           fanDisplayNameMasked: displayName,
           verified: verifiedFanIds.has(comment.fanId),
+          repliesCount: 0,
+          replies: [],
+          repliesLocked: false,
+          replyParticipantsCount: 0,
+          viewerHasReplied: false,
           replyText: comment.replyText ?? null,
           repliedAt: comment.repliedAt ? comment.repliedAt.toISOString() : null,
           repliedByCreatorId: comment.repliedByCreatorId ?? null,
@@ -316,13 +443,20 @@ async function resolveEligibility(
       viewerIsFollowing: false,
       viewerHasPurchased: false,
       viewerFanId: null,
+      viewerIsBlocked: false,
     };
   }
 
-  const fan = await prisma.fan.findFirst({
-    where: { id: fanId, creatorId },
-    select: { id: true, isArchived: true },
-  });
+  const [fan, block] = await Promise.all([
+    prisma.fan.findFirst({
+      where: { id: fanId, creatorId },
+      select: { id: true, isArchived: true, isBlocked: true },
+    }),
+    prisma.creatorFanBlock.findUnique({
+      where: { creatorId_fanId: { creatorId, fanId } },
+      select: { id: true },
+    }),
+  ]);
   if (!fan?.id) {
     return {
       canComment: false,
@@ -331,6 +465,21 @@ async function resolveEligibility(
       viewerIsFollowing: false,
       viewerHasPurchased: false,
       viewerFanId: null,
+      viewerIsBlocked: false,
+    };
+  }
+
+  const viewerIsBlocked = Boolean(fan.isBlocked || block?.id);
+  const followsCreator = !fan.isArchived;
+  if (viewerIsBlocked) {
+    return {
+      canComment: false,
+      viewerComment: null,
+      viewerIsLoggedIn: true,
+      viewerIsFollowing: followsCreator,
+      viewerHasPurchased: false,
+      viewerFanId: fanId,
+      viewerIsBlocked: true,
     };
   }
 
@@ -354,9 +503,8 @@ async function resolveEligibility(
     }),
   ]);
 
-  const followsCreator = !fan.isArchived;
   const hasAccess = Boolean(accessGrant || ppvPurchase || extraPurchase);
-  const canComment = followsCreator || hasAccess;
+  const canComment = hasAccess;
 
   return {
     canComment,
@@ -365,6 +513,7 @@ async function resolveEligibility(
     viewerIsFollowing: followsCreator,
     viewerHasPurchased: hasAccess,
     viewerFanId: fanId,
+    viewerIsBlocked,
   };
 }
 
@@ -382,6 +531,65 @@ function maskFanName(raw?: string | null) {
   const letters = trimmed.replace(/[^a-zA-ZÀ-ÿ]/g, "");
   const token = (letters || trimmed).slice(0, 3).toUpperCase();
   return `Fan ${token}`;
+}
+
+function formatCommentReplies({
+  commentId,
+  creatorName,
+  replies,
+  legacyReplyText,
+  legacyReplyDate,
+  limit,
+  preferCreator,
+}: {
+  commentId: string;
+  creatorName: string;
+  replies: Array<{
+    id: string;
+    body: string;
+    createdAt: Date;
+    authorRole: "CREATOR" | "FAN";
+    authorFan?: { displayName?: string | null; name?: string | null } | null;
+    authorCreator?: { name?: string | null } | null;
+  }>;
+  legacyReplyText?: string | null;
+  legacyReplyDate?: Date | null;
+  limit?: number;
+  preferCreator?: boolean;
+}): PublicCommentReply[] {
+  const items = replies.map((reply) => ({
+    id: reply.id,
+    body: reply.body,
+    createdAt: reply.createdAt.toISOString(),
+    authorRole: reply.authorRole,
+    authorDisplayName:
+      reply.authorRole === "CREATOR"
+        ? reply.authorCreator?.name || creatorName || "Creador"
+        : maskFanName(reply.authorFan?.displayName || reply.authorFan?.name),
+  }));
+
+  const legacyBody = legacyReplyText?.trim() || "";
+  if (legacyBody) {
+    const createdAt = legacyReplyDate ? legacyReplyDate.toISOString() : new Date().toISOString();
+    items.push({
+      id: `legacy-${commentId}`,
+      body: legacyBody,
+      createdAt,
+      authorRole: "CREATOR",
+      authorDisplayName: creatorName || "Creador",
+    });
+  }
+
+  items.sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+  if (typeof limit === "number") {
+    if (limit <= 0) return [];
+    if (preferCreator) {
+      const creatorReply = items.find((item) => item.authorRole === "CREATOR");
+      if (creatorReply) return [creatorReply];
+    }
+    return items.slice(-limit);
+  }
+  return items;
 }
 
 function buildDistribution(

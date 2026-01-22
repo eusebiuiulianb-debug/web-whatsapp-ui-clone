@@ -2,14 +2,19 @@ import Head from "next/head";
 import Image from "next/image";
 import type { GetServerSideProps } from "next";
 import { randomUUID } from "crypto";
-import { useEffect, useMemo, useRef, useState, type MouseEvent } from "react";
+import { useEffect, useRef, useState, type MouseEvent } from "react";
 import { useRouter } from "next/router";
 import { Bell, BellRing, ThumbsUp } from "lucide-react";
 import { PublicHero } from "../../components/public-profile/PublicHero";
-import { type PublicCatalogCardItem } from "../../components/public-profile/PublicCatalogCard";
 import { PublicProfileStatsRow } from "../../components/public-profile/PublicProfileStatsRow";
 import { Skeleton } from "../../components/ui/Skeleton";
-import type { PublicCatalogItem, PublicCreatorComment, PublicPopClip, PublicProfileStats } from "../../types/publicProfile";
+import type {
+  PublicCatalogItem,
+  PublicCommentReply,
+  PublicCreatorComment,
+  PublicPopClip,
+  PublicProfileStats,
+} from "../../types/publicProfile";
 import type { CreatorLocation } from "../../types/creatorLocation";
 import { ensureAnalyticsCookie } from "../../lib/analyticsCookie";
 import { track } from "../../lib/analyticsClient";
@@ -34,6 +39,7 @@ type Props = {
   location?: CreatorLocation | null;
   catalogItems?: PublicCatalogItem[];
   catalogError?: string | null;
+  locale?: "es" | "en";
 };
 
 type CatalogItemRow = {
@@ -51,16 +57,42 @@ const POPCLIP_PAGE_SIZE = 12;
 const CREATOR_COMMENT_PREVIEW = 2;
 const HIGHLIGHT_PREVIEW_MAX = 4;
 const CREATOR_COMMENT_MAX_LENGTH = 600;
+const MAX_REPLY_PARTICIPANTS = 10;
 const IS_DEV = process.env.NODE_ENV === "development";
 
 type HighlightTab = "popclips" | "pack" | "sub" | "extra";
 
 type HighlightItem = {
   id: string;
+  kind: "popclip" | "pack" | "sub" | "extra";
   title: string;
   priceLabel?: string;
   thumbUrl?: string | null;
   videoUrl?: string | null;
+  detailHref?: string;
+  popclip?: PublicPopClip;
+};
+
+type HighlightEmptyCta =
+  | {
+      label: string;
+      href: string;
+      onClick: (event: MouseEvent<HTMLAnchorElement>) => void | Promise<void>;
+      disabled?: boolean;
+    }
+  | {
+      label: string;
+      onClick: () => void;
+      disabled?: boolean;
+    };
+
+type CatalogHighlightKind = Exclude<HighlightItem["kind"], "popclip">;
+
+type Locale = "es" | "en";
+
+const COPY: Record<Locale, { highlights: string; seeAll: string }> = {
+  es: { highlights: "Destacados", seeAll: "Ver todo" },
+  en: { highlights: "Featured", seeAll: "See all" },
 };
 
 const HIGHLIGHT_TABS: Array<{ id: HighlightTab; label: string }> = [
@@ -86,8 +118,11 @@ export default function PublicCreatorByHandle({
   isFollowing,
   location,
   catalogItems,
+  locale: localeProp,
 }: Props) {
   const router = useRouter();
+  const locale: Locale = localeProp === "en" ? "en" : "es";
+  const t = (key: keyof (typeof COPY)["es"]) => COPY[locale][key];
   const baseChatHref = creatorHandle ? `/go/${creatorHandle}` : "/go/creator";
   const [searchParams, setSearchParams] = useState("");
   const [returnTo, setReturnTo] = useState("");
@@ -105,9 +140,11 @@ export default function PublicCreatorByHandle({
   const [commentsAvgRating, setCommentsAvgRating] = useState<number | null>(null);
   const [canComment, setCanComment] = useState(false);
   const [viewerIsLoggedIn, setViewerIsLoggedIn] = useState(false);
+  const [viewerHasPurchased, setViewerHasPurchased] = useState(false);
   const [viewerComment, setViewerComment] = useState<{ rating: number; text: string } | null>(null);
   const [activeHighlight, setActiveHighlight] = useState<HighlightTab>("popclips");
   const [highlightModalOpen, setHighlightModalOpen] = useState(false);
+  const [activePopclip, setActivePopclip] = useState<PublicPopClip | null>(null);
   const [commentSheetOpen, setCommentSheetOpen] = useState(false);
   const [commentRating, setCommentRating] = useState(5);
   const [commentText, setCommentText] = useState("");
@@ -115,6 +152,7 @@ export default function PublicCreatorByHandle({
   const [helpfulPending, setHelpfulPending] = useState<Record<string, boolean>>({});
   const [toast, setToast] = useState("");
   const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const popclipVideoRef = useRef<HTMLVideoElement | null>(null);
   const [chatPending, setChatPending] = useState(false);
   const [followPending, setFollowPending] = useState(false);
   const [isFollowingState, setIsFollowingState] = useState(Boolean(isFollowing));
@@ -147,6 +185,35 @@ export default function PublicCreatorByHandle({
     setCommentRating(5);
     setCommentText("");
   }, [commentSheetOpen, viewerComment]);
+
+  useEffect(() => {
+    if (!activePopclip) return;
+    const video = popclipVideoRef.current;
+    if (!video) return;
+    const startAtSec = Math.max(0, Number(activePopclip.startAtSec ?? 0));
+    if (!Number.isFinite(startAtSec) || startAtSec <= 0) return;
+    const seekToStart = () => {
+      try {
+        video.currentTime = startAtSec;
+      } catch (_err) {
+        // ignore seek errors on some browsers
+      }
+    };
+    if (video.readyState >= 1) {
+      seekToStart();
+    } else {
+      video.addEventListener("loadedmetadata", seekToStart, { once: true });
+    }
+  }, [activePopclip]);
+
+  useEffect(() => {
+    if (!activePopclip) return;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = previousOverflow;
+    };
+  }, [activePopclip]);
 
   useEffect(() => {
     if (!creatorHandle) return;
@@ -205,7 +272,9 @@ export default function PublicCreatorByHandle({
   useEffect(() => {
     if (!creatorHandle) return;
     const controller = new AbortController();
-    const endpoint = `/api/public/creator/${encodeURIComponent(creatorHandle)}/comments?limit=${CREATOR_COMMENT_PREVIEW}`;
+    const endpoint = `/api/public/comments?handle=${encodeURIComponent(
+      creatorHandle
+    )}&limit=${CREATOR_COMMENT_PREVIEW}`;
     let responseStatus: number | null = null;
     setCommentsLoading(true);
     setCommentsError("");
@@ -244,6 +313,10 @@ export default function PublicCreatorByHandle({
           typeof payload?.viewerCanComment === "boolean" ? payload.viewerCanComment : Boolean(payload?.canComment);
         setCanComment(resolvedCanComment);
         setViewerIsLoggedIn(Boolean(payload?.viewerIsLoggedIn));
+        if (typeof payload?.viewerIsFollowing === "boolean") {
+          setIsFollowingState(payload.viewerIsFollowing);
+        }
+        setViewerHasPurchased(Boolean(payload?.viewerHasPurchased));
         setViewerComment(payload?.viewerComment ?? null);
       })
       .catch((err) => {
@@ -283,19 +356,34 @@ export default function PublicCreatorByHandle({
     });
   }, [creatorHandle, creatorId]);
 
-  const items = useMemo<PublicCatalogCardItem[]>(() => {
-    const source = catalogItems ?? [];
-    return source
-      .filter((item) => item.isActive !== false)
-      .map((item, index) => ({
+  const buildDraftHref = (draft: string) =>
+    appendReturnTo(appendSearchIfRelative(`${baseChatHref}?draft=${encodeURIComponent(draft)}`, searchParams), returnTo);
+
+  const resolveCatalogDetailHref = (
+    item: PublicCatalogItem,
+    kind: CatalogHighlightKind,
+    priceLabel: string
+  ) => {
+    if (creatorHandle && item.type === "PACK") {
+      return `/p/${creatorHandle}/${item.id}`;
+    }
+    return buildDraftHref(buildPackDraft(kind, item.title, priceLabel));
+  };
+
+  const catalogHighlightItems: HighlightItem[] = (catalogItems ?? [])
+    .filter((item) => item.isActive !== false)
+    .map((item, index) => {
+      const kind = resolveCatalogKind(item);
+      const priceLabel = formatPriceCents(item.priceCents, item.currency);
+      return {
         id: item.id || `${item.type}-${index}`,
-        kind: resolveCatalogKind(item),
+        kind,
         title: item.title,
-        priceCents: item.priceCents,
-        currency: item.currency,
+        priceLabel,
         thumbUrl: null,
-      }));
-  }, [catalogItems]);
+        detailHref: resolveCatalogDetailHref(item, kind, priceLabel),
+      };
+    });
 
   const commentsCount =
     typeof commentsTotalCount === "number"
@@ -330,35 +418,18 @@ export default function PublicCreatorByHandle({
   });
   const highlightPopclipsAll: HighlightItem[] = highlightPopclipsSource.map((clip) => ({
     id: clip.id,
+    kind: "popclip",
     title: (clip.title?.trim() || clip.pack.title || "PopClip").trim(),
     priceLabel: formatPriceCents(clip.pack.priceCents, clip.pack.currency),
     thumbUrl: clip.posterUrl ?? null,
     videoUrl: clip.videoUrl,
+    detailHref: clip.pack.route,
+    popclip: clip,
   }));
-  const highlightPacksAll: HighlightItem[] = items
-    .filter((item) => item.kind === "pack")
-    .map((item) => ({
-      id: item.id,
-      title: item.title,
-      priceLabel: formatPriceCents(item.priceCents, item.currency),
-      thumbUrl: item.thumbUrl ?? null,
-    }));
-  const highlightSubsAll: HighlightItem[] = items
-    .filter((item) => item.kind === "sub")
-    .map((item) => ({
-      id: item.id,
-      title: item.title,
-      priceLabel: formatPriceCents(item.priceCents, item.currency),
-      thumbUrl: item.thumbUrl ?? null,
-    }));
-  const highlightExtrasAll: HighlightItem[] = items
-    .filter((item) => item.kind === "extra")
-    .map((item) => ({
-      id: item.id,
-      title: item.title,
-      priceLabel: formatPriceCents(item.priceCents, item.currency),
-      thumbUrl: item.thumbUrl ?? null,
-    }));
+  const highlightPacksAll: HighlightItem[] = catalogHighlightItems.filter((item) => item.kind === "pack");
+  const highlightSubsAll: HighlightItem[] = catalogHighlightItems.filter((item) => item.kind === "sub");
+  const highlightExtrasAll: HighlightItem[] = catalogHighlightItems.filter((item) => item.kind === "extra");
+  const hasHighlightPacks = highlightPacksAll.length > 0;
   const highlightPopclips = highlightPopclipsAll.slice(0, HIGHLIGHT_PREVIEW_MAX);
   const highlightPacks = highlightPacksAll.slice(0, HIGHLIGHT_PREVIEW_MAX);
   const highlightSubs = highlightSubsAll.slice(0, HIGHLIGHT_PREVIEW_MAX);
@@ -387,10 +458,11 @@ export default function PublicCreatorByHandle({
   const activeHighlightTotal = highlightTotalsByTab[activeHighlight];
   const highlightHasMore = activeHighlightTotal > activeHighlights.length;
   const activeHighlightLabel =
-    HIGHLIGHT_TABS.find((tab) => tab.id === activeHighlight)?.label ?? "Highlights";
+    HIGHLIGHT_TABS.find((tab) => tab.id === activeHighlight)?.label ?? t("highlights");
   const highlightModalCount = activeHighlightTotal > 0 ? activeHighlightTotal : activeHighlightAll.length;
   const showHighlightLoadMore = activeHighlight === "popclips" && Boolean(popClipsCursor);
   const highlightLoading = activeHighlight === "popclips" && popClipsLoading;
+  const highlightModalLoading = highlightLoading && activeHighlightAll.length === 0;
   const highlightEmptyCopyByTab: Record<HighlightTab, string> = {
     popclips: "Aún no hay PopClips publicados.",
     pack: "Aún no hay packs publicados.",
@@ -399,6 +471,17 @@ export default function PublicCreatorByHandle({
   };
   const highlightFollowLabel = isFollowingState ? "Avisos activados" : "Activar avisos";
   const highlightFollowDisabled = isFollowingState || followPending;
+  const activePopclipTitle = activePopclip
+    ? (activePopclip.title?.trim() || activePopclip.pack.title || "PopClip").trim()
+    : "";
+  const activePopclipPriceLabel = activePopclip
+    ? formatPriceCents(activePopclip.pack.priceCents, activePopclip.pack.currency)
+    : "";
+  const activePopclipPackRoute = activePopclip?.pack?.route ?? "";
+  const activePopclipPackTitle = activePopclip?.pack?.title ?? "";
+  const activePopclipChatHref = activePopclip
+    ? buildDraftHref(buildPopclipDraft(activePopclipTitle, activePopclipPackTitle))
+    : "";
 
   const showToast = (message: string) => {
     setToast(message);
@@ -411,10 +494,35 @@ export default function PublicCreatorByHandle({
     setHighlightModalOpen(true);
   };
 
+  const handleSelectHighlightItem = (item: HighlightItem) => {
+    if (item.kind === "popclip") {
+      if (item.popclip) {
+        setActivePopclip(item.popclip);
+      } else if (item.detailHref) {
+        void router.push(item.detailHref);
+      }
+      setHighlightModalOpen(false);
+      return;
+    }
+    if (item.detailHref) {
+      setHighlightModalOpen(false);
+      void router.push(item.detailHref);
+    }
+  };
+
   const renderHighlightCard = (item: HighlightItem, showAction = true) => (
     <div
       key={item.id}
-      className="snap-start rounded-2xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] p-3 shadow-sm"
+      role="button"
+      tabIndex={0}
+      onClick={() => handleSelectHighlightItem(item)}
+      onKeyDown={(event) => {
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          handleSelectHighlightItem(item);
+        }
+      }}
+      className="snap-start rounded-2xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] p-3 shadow-sm transition hover:-translate-y-0.5 hover:shadow-lg focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[color:var(--brand)] cursor-pointer"
     >
       <div className="relative aspect-[4/3] w-full overflow-hidden rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-2)]">
         {item.videoUrl ? (
@@ -454,7 +562,10 @@ export default function PublicCreatorByHandle({
       {showAction && (
         <button
           type="button"
-          onClick={handleOpenHighlightModal}
+          onClick={(event) => {
+            event.stopPropagation();
+            handleSelectHighlightItem(item);
+          }}
           className="mt-2 inline-flex h-7 items-center justify-center rounded-full border border-[color:var(--surface-border)] px-3 text-[10px] font-semibold text-[color:var(--text)] hover:bg-[color:var(--surface-2)]"
         >
           Ver
@@ -462,6 +573,26 @@ export default function PublicCreatorByHandle({
       )}
     </div>
   );
+
+  const handleClosePopclipViewer = () => {
+    setActivePopclip(null);
+  };
+
+  const handlePopclipTimeUpdate = () => {
+    if (!activePopclip || !popclipVideoRef.current) return;
+    const startAtSec = Math.max(0, Number(activePopclip.startAtSec ?? 0));
+    const durationSec = activePopclip.durationSec ?? null;
+    if (!durationSec || durationSec <= 0) return;
+    const endAtSec = startAtSec + durationSec;
+    if (popclipVideoRef.current.currentTime >= endAtSec) {
+      popclipVideoRef.current.pause();
+      try {
+        popclipVideoRef.current.currentTime = startAtSec;
+      } catch (_err) {
+        // ignore seek errors
+      }
+    }
+  };
 
 
   const handleLoadMorePopClips = async () => {
@@ -511,7 +642,7 @@ export default function PublicCreatorByHandle({
       return;
     }
     setCommentSending(true);
-    const endpoint = `/api/public/creator/${encodeURIComponent(creatorHandle)}/comments`;
+    const endpoint = `/api/public/comments?handle=${encodeURIComponent(creatorHandle)}`;
     let responseStatus: number | null = null;
     try {
       const res = await fetch(endpoint, {
@@ -525,14 +656,14 @@ export default function PublicCreatorByHandle({
         | null;
       if (!res.ok || !data) {
         if (res.status === 401 || res.status === 403) {
-          showToast("Solo seguidores o clientes pueden comentar.");
+          showToast("Solo compradores verificados pueden comentar.");
           return;
         }
         throw new Error("request failed");
       }
       if (data.ok === false) {
-        if (data.error === "NOT_ELIGIBLE" || data.error === "AUTH_REQUIRED") {
-          showToast("Solo seguidores o clientes pueden comentar.");
+        if (data.error === "NOT_ELIGIBLE" || data.error === "NOT_VERIFIED" || data.error === "AUTH_REQUIRED") {
+          showToast("Solo compradores verificados pueden comentar.");
           return;
         }
         throw new Error("request failed");
@@ -727,6 +858,40 @@ export default function PublicCreatorByHandle({
     }
   };
 
+  const highlightEmptyCta: HighlightEmptyCta = (() => {
+    if (!viewerIsLoggedIn) {
+      return {
+        label: "Entrar al chat",
+        href: chatHref,
+        onClick: handleOpenChat,
+        disabled: chatPending,
+      };
+    }
+    if (!isFollowingState) {
+      return {
+        label: highlightFollowLabel,
+        href: followHref,
+        onClick: handleFollow,
+        disabled: highlightFollowDisabled,
+      };
+    }
+    if (hasHighlightPacks && !viewerHasPurchased && activeHighlight !== "pack") {
+      return {
+        label: "Ver packs",
+        onClick: () => {
+          setActiveHighlight("pack");
+          setHighlightModalOpen(true);
+        },
+      };
+    }
+    return {
+      label: "Entrar al chat",
+      href: chatHref,
+      onClick: handleOpenChat,
+      disabled: chatPending,
+    };
+  })();
+
   if (notFound || !creatorName || !creatorHandle) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-[color:var(--surface-0)] text-[color:var(--muted)] px-4">
@@ -814,14 +979,14 @@ export default function PublicCreatorByHandle({
 
           <section className="space-y-3 min-w-0">
             <div className="flex items-center justify-between min-w-0">
-              <h2 className="text-base font-semibold text-[color:var(--text)]">Highlights</h2>
+              <h2 className="text-base font-semibold text-[color:var(--text)]">{t("highlights")}</h2>
               {highlightHasMore && (
                 <button
                   type="button"
                   onClick={handleOpenHighlightModal}
                   className="text-xs font-semibold text-[color:var(--brand)] hover:underline"
                 >
-                  Ver todos ({activeHighlightTotal})
+                  {t("seeAll")} ({activeHighlightTotal})
                 </button>
               )}
             </div>
@@ -846,7 +1011,7 @@ export default function PublicCreatorByHandle({
             </div>
             {activeHighlights.length === 0 ? (
               highlightLoading ? (
-                <div className="grid grid-flow-col auto-cols-[minmax(140px,1fr)] gap-3 overflow-x-auto pb-2 snap-x snap-mandatory sm:grid-flow-row sm:grid-cols-2 sm:auto-cols-auto sm:overflow-visible">
+                <div className="grid grid-flow-col auto-cols-[minmax(140px,1fr)] gap-3 overflow-x-auto pb-2 snap-x snap-mandatory sm:grid-flow-row sm:grid-cols-2 lg:grid-cols-3 sm:auto-cols-auto sm:overflow-visible">
                   {Array.from({ length: HIGHLIGHT_PREVIEW_MAX }).map((_, idx) => (
                     <Skeleton key={`highlight-skeleton-${idx}`} className="h-[180px] w-full rounded-2xl" />
                   ))}
@@ -855,28 +1020,31 @@ export default function PublicCreatorByHandle({
                 <div className="rounded-2xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-4 py-3 text-xs text-[color:var(--muted)] space-y-3">
                   <p>{highlightEmptyCopyByTab[activeHighlight]}</p>
                   <div className="flex flex-wrap gap-2">
-                    <a
-                      href={chatHref}
-                      onClick={handleOpenChat}
-                      className="inline-flex h-8 items-center justify-center rounded-full border border-[color:var(--surface-border)] px-3 text-[10px] font-semibold text-[color:var(--text)] hover:bg-[color:var(--surface-2)]"
-                    >
-                      Entrar al chat
-                    </a>
-                    <a
-                      href={followHref}
-                      onClick={handleFollow}
-                      aria-disabled={highlightFollowDisabled}
-                      className={`inline-flex h-8 items-center justify-center rounded-full border border-[color:rgba(var(--brand-rgb),0.5)] px-3 text-[10px] font-semibold text-[color:var(--text)] hover:bg-[color:rgba(var(--brand-rgb),0.12)]${
-                        highlightFollowDisabled ? " opacity-60 pointer-events-none" : ""
-                      }`}
-                    >
-                      {highlightFollowLabel}
-                    </a>
+                    {"href" in highlightEmptyCta ? (
+                      <a
+                        href={highlightEmptyCta.href}
+                        onClick={highlightEmptyCta.onClick}
+                        aria-disabled={highlightEmptyCta.disabled}
+                        className={`inline-flex h-8 items-center justify-center rounded-full border border-[color:var(--surface-border)] px-3 text-[10px] font-semibold text-[color:var(--text)] hover:bg-[color:var(--surface-2)]${
+                          highlightEmptyCta.disabled ? " opacity-60 pointer-events-none" : ""
+                        }`}
+                      >
+                        {highlightEmptyCta.label}
+                      </a>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={highlightEmptyCta.onClick}
+                        className="inline-flex h-8 items-center justify-center rounded-full border border-[color:rgba(var(--brand-rgb),0.5)] px-3 text-[10px] font-semibold text-[color:var(--text)] hover:bg-[color:rgba(var(--brand-rgb),0.12)]"
+                      >
+                        {highlightEmptyCta.label}
+                      </button>
+                    )}
                   </div>
                 </div>
               )
             ) : (
-              <div className="grid grid-flow-col auto-cols-[minmax(140px,1fr)] gap-3 overflow-x-auto pb-2 snap-x snap-mandatory sm:grid-flow-row sm:grid-cols-2 sm:auto-cols-auto sm:overflow-visible">
+              <div className="grid grid-flow-col auto-cols-[minmax(140px,1fr)] gap-3 overflow-x-auto pb-2 snap-x snap-mandatory sm:grid-flow-row sm:grid-cols-2 lg:grid-cols-3 sm:auto-cols-auto sm:overflow-visible">
                 {activeHighlights.map((item) => renderHighlightCard(item))}
               </div>
             )}
@@ -897,7 +1065,7 @@ export default function PublicCreatorByHandle({
                   href={commentsHref}
                   className="text-xs font-semibold text-[color:var(--brand)] hover:underline"
                 >
-                  Ver todo
+                  {t("seeAll")}
                 </a>
               )}
             </div>
@@ -927,6 +1095,11 @@ export default function PublicCreatorByHandle({
                       ? "opacity-50 cursor-not-allowed"
                       : "opacity-60 cursor-not-allowed"
                     : "hover:bg-[color:var(--surface-2)]";
+                  const previewReplies = resolvePreviewReplies(comment, creatorName);
+                  const repliesLocked = Boolean(comment.repliesLocked);
+                  const participantsCount =
+                    typeof comment.replyParticipantsCount === "number" ? comment.replyParticipantsCount : 0;
+                  const threadFull = participantsCount >= MAX_REPLY_PARTICIPANTS;
                   return (
                     <div
                       key={comment.id}
@@ -965,22 +1138,48 @@ export default function PublicCreatorByHandle({
                           </span>
                         </button>
                       </div>
-                      {comment.replyText && (
-                        <div className="ml-8 rounded-xl border border-[color:var(--surface-border)] border-l-2 border-l-[color:rgba(var(--brand-rgb),0.35)] bg-[color:var(--surface-2)] px-3 py-2 text-[13px] text-[color:var(--text)] space-y-2">
-                          <div className="flex flex-col gap-1 text-[10px] text-[color:var(--muted)] sm:flex-row sm:items-center sm:justify-between">
-                            <div className="flex items-center gap-2">
-                              <span className="flex h-6 w-6 items-center justify-center rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] text-[11px] font-semibold text-[color:var(--text)]">
-                                {getCreatorInitial(creatorName)}
-                              </span>
-                              <span className="text-[11px] font-semibold text-[color:var(--text)]">Respuesta</span>
+                      {previewReplies.length > 0 && (
+                        <div className="space-y-2">
+                          {previewReplies.map((reply) => (
+                            <div
+                              key={reply.id}
+                              className="ml-8 rounded-xl border border-[color:var(--surface-border)] border-l-2 border-l-[color:rgba(var(--brand-rgb),0.35)] bg-[color:var(--surface-2)] px-3 py-2 text-[13px] text-[color:var(--text)] space-y-2"
+                            >
+                              <div className="flex flex-col gap-1 text-[10px] text-[color:var(--muted)] sm:flex-row sm:items-center sm:justify-between">
+                                <div className="flex items-center gap-2">
+                                  <span className="flex h-6 w-6 items-center justify-center rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] text-[11px] font-semibold text-[color:var(--text)]">
+                                    {getInitial(reply.authorDisplayName)}
+                                  </span>
+                                  <div className="flex flex-wrap items-center gap-2">
+                                    <span className="text-[11px] font-semibold text-[color:var(--text)]">
+                                      {reply.authorDisplayName}
+                                    </span>
+                                    <span className="rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-2 py-0.5 text-[10px] font-semibold text-[color:var(--muted)]">
+                                      {reply.authorRole === "CREATOR" ? "Creador" : "Comprador verificado"}
+                                    </span>
+                                  </div>
+                                </div>
+                                <span className="text-[10px] text-[color:var(--muted)]">
+                                  {formatCreatorCommentDate(reply.createdAt)}
+                                </span>
+                              </div>
+                              <p className="whitespace-pre-line line-clamp-2">{reply.body}</p>
                             </div>
-                            {comment.repliedAt && (
-                              <span className="text-[10px] text-[color:var(--muted)]">
-                                {formatCreatorCommentDate(comment.repliedAt)}
-                              </span>
-                            )}
-                          </div>
-                          <p className="whitespace-pre-line line-clamp-2">{comment.replyText}</p>
+                          ))}
+                        </div>
+                      )}
+                      {(repliesLocked || threadFull) && (
+                        <div className="flex flex-wrap items-center gap-2 text-[10px] text-[color:var(--muted)]">
+                          {repliesLocked && (
+                            <span className="rounded-full border border-[color:rgba(244,63,94,0.4)] bg-[color:rgba(244,63,94,0.12)] px-2 py-0.5 text-[10px] font-semibold text-[color:var(--muted)]">
+                              Hilo cerrado
+                            </span>
+                          )}
+                          {threadFull && (
+                            <span className="rounded-full border border-[color:rgba(245,158,11,0.5)] bg-[color:rgba(245,158,11,0.12)] px-2 py-0.5 text-[10px] font-semibold text-[color:var(--muted)]">
+                              Hilo completo
+                            </span>
+                          )}
                         </div>
                       )}
                     </div>
@@ -997,7 +1196,7 @@ export default function PublicCreatorByHandle({
                 Escribir comentario
               </button>
             ) : !isCreatorViewer ? (
-              <p className="text-xs text-[color:var(--muted)]">Solo seguidores o clientes pueden comentar.</p>
+              <p className="text-xs text-[color:var(--muted)]">Solo compradores verificados pueden comentar.</p>
             ) : null}
           </section>
         </main>
@@ -1011,18 +1210,82 @@ export default function PublicCreatorByHandle({
                 onClick={(event) => event.stopPropagation()}
                 className="flex w-full sm:w-[720px] max-h-[85vh] flex-col overflow-hidden rounded-t-2xl sm:rounded-2xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] shadow-2xl"
               >
-                <div className="px-4 pt-3 sm:px-5 sm:pt-5">
+                <div className="flex-1 overflow-y-auto">
+                  <div className="sticky top-0 z-10 border-b border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-4 pt-3 pb-3 sm:px-5 sm:pt-5 sm:pb-4">
+                    <div className="mx-auto h-1 w-10 rounded-full bg-white/20 sm:hidden" />
+                    <div className="flex items-start justify-between gap-3 pt-3 sm:pt-0">
+                      <div className="space-y-1">
+                        <p className="text-sm font-semibold text-[color:var(--text)]">
+                          {activeHighlightLabel}{" "}
+                          <span className="text-[color:var(--muted)]">({highlightModalCount})</span>
+                        </p>
+                        <p className="text-xs text-[color:var(--muted)]">Contenido destacado del creador.</p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setHighlightModalOpen(false)}
+                        aria-label="Cerrar"
+                        className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-[color:var(--surface-border)] text-[color:var(--muted)] hover:text-[color:var(--text)] hover:border-[color:var(--surface-border-hover)]"
+                      >
+                        X
+                      </button>
+                    </div>
+                  </div>
+                  <div className="px-4 pb-4 pt-4 sm:px-5 sm:pb-5">
+                    {activeHighlight === "popclips" && popClipsError && (
+                      <div className="mb-3 text-xs text-[color:var(--danger)]">{popClipsError}</div>
+                    )}
+                    {highlightModalLoading ? (
+                      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                        {Array.from({ length: 6 }).map((_, idx) => (
+                          <Skeleton key={`highlight-modal-skeleton-${idx}`} className="h-[180px] w-full rounded-2xl" />
+                        ))}
+                      </div>
+                    ) : activeHighlightAll.length === 0 ? (
+                      <p className="text-xs text-[color:var(--muted)]">{highlightEmptyCopyByTab[activeHighlight]}</p>
+                    ) : (
+                      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                        {activeHighlightAll.map((item) => renderHighlightCard(item, true))}
+                      </div>
+                    )}
+                    {showHighlightLoadMore && (
+                      <button
+                        type="button"
+                        onClick={handleLoadMorePopClips}
+                        disabled={popClipsLoadingMore}
+                        className="mt-4 w-full rounded-full border border-[color:var(--surface-border)] px-4 py-2 text-xs font-semibold text-[color:var(--text)] hover:bg-[color:var(--surface-2)] disabled:opacity-60"
+                      >
+                        {popClipsLoadingMore ? "Cargando..." : "Cargar más"}
+                      </button>
+                    )}
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+        {activePopclip && (
+          <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm" onClick={handleClosePopclipViewer}>
+            <div className="fixed inset-0 flex items-end sm:items-center justify-center p-3 sm:p-6">
+              <div
+                role="dialog"
+                aria-modal="true"
+                aria-label="Ver PopClip"
+                onClick={(event) => event.stopPropagation()}
+                className="flex w-full sm:w-[720px] max-h-[85vh] flex-col overflow-hidden rounded-t-2xl sm:rounded-2xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] shadow-2xl"
+              >
+                <div className="sticky top-0 z-10 border-b border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-4 pt-3 pb-3 sm:px-5 sm:pt-5 sm:pb-4">
                   <div className="mx-auto h-1 w-10 rounded-full bg-white/20 sm:hidden" />
                   <div className="flex items-start justify-between gap-3 pt-3 sm:pt-0">
                     <div className="space-y-1">
-                      <p className="text-sm font-semibold text-[color:var(--text)]">
-                        {activeHighlightLabel} <span className="text-[color:var(--muted)]">({highlightModalCount})</span>
-                      </p>
-                      <p className="text-xs text-[color:var(--muted)]">Contenido destacado del creador.</p>
+                      <p className="text-sm font-semibold text-[color:var(--text)]">{activePopclipTitle}</p>
+                      {activePopclipPackTitle && (
+                        <p className="text-xs text-[color:var(--muted)]">Pack: {activePopclipPackTitle}</p>
+                      )}
                     </div>
                     <button
                       type="button"
-                      onClick={() => setHighlightModalOpen(false)}
+                      onClick={handleClosePopclipViewer}
                       aria-label="Cerrar"
                       className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-[color:var(--surface-border)] text-[color:var(--muted)] hover:text-[color:var(--text)] hover:border-[color:var(--surface-border-hover)]"
                     >
@@ -1030,27 +1293,50 @@ export default function PublicCreatorByHandle({
                     </button>
                   </div>
                 </div>
-                <div className="flex-1 overflow-y-auto px-4 pb-4 pt-4 sm:px-5 sm:pb-5">
-                  {activeHighlight === "popclips" && popClipsError && (
-                    <div className="mb-3 text-xs text-[color:var(--danger)]">{popClipsError}</div>
-                  )}
-                  {activeHighlightAll.length === 0 ? (
-                    <p className="text-xs text-[color:var(--muted)]">{highlightEmptyCopyByTab[activeHighlight]}</p>
-                  ) : (
-                    <div className="grid gap-3 sm:grid-cols-2">
-                      {activeHighlightAll.map((item) => renderHighlightCard(item, false))}
+                <div className="flex-1 overflow-y-auto px-4 pb-4 pt-4 sm:px-5 sm:pb-5 space-y-4">
+                  <div className="mx-auto w-full max-w-sm sm:max-w-md">
+                    <div className="relative aspect-[9/16] w-full overflow-hidden rounded-2xl border border-[color:var(--surface-border)] bg-[color:var(--surface-2)]">
+                      <video
+                        ref={popclipVideoRef}
+                        src={activePopclip.videoUrl}
+                        poster={activePopclip.posterUrl ? normalizeImageSrc(activePopclip.posterUrl) : undefined}
+                        controls
+                        playsInline
+                        autoPlay
+                        muted
+                        loop={!activePopclip.durationSec}
+                        preload="metadata"
+                        onTimeUpdate={handlePopclipTimeUpdate}
+                        className="absolute inset-0 h-full w-full object-cover"
+                      />
                     </div>
-                  )}
-                  {showHighlightLoadMore && (
-                    <button
-                      type="button"
-                      onClick={handleLoadMorePopClips}
-                      disabled={popClipsLoadingMore}
-                      className="mt-4 w-full rounded-full border border-[color:var(--surface-border)] px-4 py-2 text-xs font-semibold text-[color:var(--text)] hover:bg-[color:var(--surface-2)] disabled:opacity-60"
-                    >
-                      {popClipsLoadingMore ? "Cargando..." : "Cargar más"}
-                    </button>
-                  )}
+                  </div>
+                  <div className="flex flex-wrap items-center justify-between gap-3 text-xs text-[color:var(--muted)]">
+                    {activePopclipPriceLabel && <span>{activePopclipPriceLabel}</span>}
+                    {activePopclipPackRoute ? (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          handleClosePopclipViewer();
+                          void router.push(activePopclipPackRoute);
+                        }}
+                        className="inline-flex h-8 items-center justify-center rounded-full border border-[color:rgba(var(--brand-rgb),0.5)] px-3 text-[10px] font-semibold text-[color:var(--text)] hover:bg-[color:rgba(var(--brand-rgb),0.12)]"
+                      >
+                        Ver pack
+                      </button>
+                    ) : (
+                      <a
+                        href={activePopclipChatHref}
+                        onClick={(event) => {
+                          handleClosePopclipViewer();
+                          handleOpenChat(event);
+                        }}
+                        className="inline-flex h-8 items-center justify-center rounded-full border border-[color:var(--surface-border)] px-3 text-[10px] font-semibold text-[color:var(--text)] hover:bg-[color:var(--surface-2)]"
+                      >
+                        Entrar al chat
+                      </a>
+                    )}
+                  </div>
                 </div>
               </div>
             </div>
@@ -1134,6 +1420,7 @@ export default function PublicCreatorByHandle({
 export const getServerSideProps: GetServerSideProps<Props> = async (ctx) => {
   const prisma = (await import("../../lib/prisma.server")).default;
   const handleParam = typeof ctx.params?.handle === "string" ? ctx.params.handle : "";
+  const locale = resolveLocale(ctx.req?.headers["accept-language"]);
   const creators = await prisma.creator.findMany();
   const match = creators.find((c) => slugify(c.name) === handleParam) || creators[0];
 
@@ -1238,11 +1525,12 @@ export const getServerSideProps: GetServerSideProps<Props> = async (ctx) => {
       catalogItems,
       catalogError,
       showPreviewBanner,
+      locale,
     },
   };
 };
 
-function resolveCatalogKind(item: PublicCatalogItem): PublicCatalogCardItem["kind"] {
+function resolveCatalogKind(item: PublicCatalogItem): CatalogHighlightKind {
   if (item.type === "EXTRA") return "extra";
   if (item.type === "PACK") {
     const title = (item.title || "").toLowerCase();
@@ -1292,7 +1580,7 @@ function renderStars(rating: number) {
   return "★★★★★".slice(0, safe) + "☆☆☆☆☆".slice(0, 5 - safe);
 }
 
-function getCreatorInitial(name?: string | null) {
+function getInitial(name?: string | null) {
   const trimmed = (name || "").trim();
   return (trimmed[0] || "C").toUpperCase();
 }
@@ -1307,6 +1595,17 @@ function formatPriceCents(cents?: number, currency = "EUR") {
   }
 }
 
+function buildPackDraft(kind: "pack" | "sub" | "extra", title: string, priceLabel: string) {
+  const typeLabel = kind === "sub" ? "suscripción" : kind === "extra" ? "extra" : "pack";
+  const suffix = priceLabel ? ` (${priceLabel})` : "";
+  return `Quiero el ${typeLabel} "${title}"${suffix}. ¿Me lo activas?`;
+}
+
+function buildPopclipDraft(title: string, packTitle: string) {
+  const packLine = packTitle ? ` del pack "${packTitle}"` : "";
+  return `Quiero ver el PopClip "${title}"${packLine}.`;
+}
+
 function formatCreatorCommentDate(value: string) {
   if (!value) return "";
   try {
@@ -1314,6 +1613,26 @@ function formatCreatorCommentDate(value: string) {
   } catch {
     return "";
   }
+}
+
+function resolvePreviewReplies(
+  comment: PublicCreatorComment,
+  creatorName?: string | null
+): PublicCommentReply[] {
+  if (Array.isArray(comment.replies) && comment.replies.length > 0) {
+    return comment.replies;
+  }
+  const legacyBody = comment.replyText?.trim();
+  if (!legacyBody) return [];
+  return [
+    {
+      id: `legacy-${comment.id}`,
+      body: legacyBody,
+      createdAt: comment.repliedAt || comment.createdAt,
+      authorRole: "CREATOR",
+      authorDisplayName: creatorName || "Creador",
+    },
+  ];
 }
 
 function readUtmMeta() {
@@ -1350,6 +1669,11 @@ function appendReturnTo(url: string, returnTo: string) {
 
 function slugify(value?: string | null) {
   return (value || "creator").toLowerCase().replace(/[^a-z0-9]+/g, "-");
+}
+
+function resolveLocale(headerValue: string | string[] | undefined): Locale {
+  const raw = Array.isArray(headerValue) ? headerValue.join(",") : headerValue || "";
+  return raw.toLowerCase().includes("en") ? "en" : "es";
 }
 
 function logPublicFetchFailure(endpoint: string, status?: number | null, error?: unknown) {

@@ -1,3 +1,15 @@
-import prismaClient from "../lib/prisma.server";
+import { PrismaClient } from "@prisma/client";
 
-export const prisma = prismaClient;
+const globalForPrisma = globalThis as unknown as { prisma?: PrismaClient };
+
+function hasRequiredDelegates(client: PrismaClient) {
+  const delegates = client as { accessRequest?: unknown; creatorFanBlock?: unknown };
+  return Boolean(delegates.accessRequest && delegates.creatorFanBlock);
+}
+
+const existing = globalForPrisma.prisma;
+export const prisma = existing && hasRequiredDelegates(existing) ? existing : new PrismaClient();
+
+if (process.env.NODE_ENV !== "production") {
+  globalForPrisma.prisma = prisma;
+}
