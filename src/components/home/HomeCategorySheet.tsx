@@ -30,13 +30,13 @@ export function HomeCategorySheet({
     <BottomSheet open={open} onClose={onClose}>
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-base font-semibold text-[color:var(--text)]">Categorias</h2>
+          <h2 className="text-base font-semibold text-[color:var(--text)]">Categorías</h2>
           <p className="text-xs text-[color:var(--muted)]">Elige una para filtrar</p>
         </div>
         <button
           type="button"
           onClick={onClose}
-          aria-label="Cerrar categorias"
+          aria-label="Cerrar categorías"
           className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-[color:var(--surface-border)] text-[color:var(--muted)] hover:text-[color:var(--text)]"
         >
           X

@@ -7,6 +7,7 @@ import ConversationDetails from "../components/ConversationDetails";
 import SideBar from "../components/SideBar";
 import { CreatorShell } from "../components/creator/CreatorShell";
 import { HomeCategorySheet, type HomeCategory } from "../components/home/HomeCategorySheet";
+import { HomeFilterSheet } from "../components/home/HomeFilterSheet";
 import { HomeSectionCard } from "../components/home/HomeSectionCard";
 import { PublicCatalogCard, type PublicCatalogCardItem } from "../components/public-profile/PublicCatalogCard";
 import { IconGlyph } from "../components/ui/IconGlyph";
@@ -18,6 +19,7 @@ import { useRouter } from "next/router";
 import { track } from "../lib/analyticsClient";
 import { ANALYTICS_EVENTS } from "../lib/analyticsEvents";
 import { AI_ENABLED } from "../lib/features";
+import { countActiveFilters, parseHomeFilters, toHomeFiltersQuery, type HomeFilters } from "../lib/homeFilters";
 import { getFanIdFromQuery } from "../lib/navigation/openCreatorChat";
 import type { PublicPopClip } from "../types/publicProfile";
 import { normalizeImageSrc } from "../utils/normalizeImageSrc";
@@ -27,46 +29,62 @@ type RecommendedCreator = {
   handle: string;
   displayName: string;
   avatarUrl?: string | null;
-  availability: string;
-  responseTime: string;
+  availability?: string;
+  responseTime?: string;
   locationLabel?: string | null;
+  vipEnabled?: boolean;
+  avgResponseHours?: number | null;
+  hasPopClips?: boolean;
+  distanceKm?: number | null;
+  bioShort?: string | null;
 };
 
-type HeroFilter = {
+type QuickFilter = {
   id: string;
   label: string;
-  kind: "availability" | "response";
-  value: string;
+  key: "avail" | "r24" | "vip";
 };
 
-const HERO_FILTERS_BASE: HeroFilter[] = [
-  { id: "available", label: "Disponible", kind: "availability", value: "AVAILABLE" },
-  { id: "vip", label: "Solo VIP", kind: "availability", value: "VIP_ONLY" },
-  { id: "instant", label: "Responde al momento", kind: "response", value: "INSTANT" },
-  { id: "lt24", label: "Responde <24h", kind: "response", value: "LT_24H" },
+type TrendingChipConfig = {
+  id: string;
+  label: string;
+  kind: "search" | "filter" | "near";
+  filterKey?: "avail" | "r24" | "vip";
+};
+
+const QUICK_FILTERS: QuickFilter[] = [
+  { id: "available", label: "Disponible", key: "avail" },
+  { id: "r24", label: "Responde <24h", key: "r24" },
+  { id: "vip", label: "Solo VIP", key: "vip" },
 ];
 
-const TRENDING_SEARCHES = [
-  "Chat privado",
-  "PopClips",
-  "Packs",
-  "ASMR",
-  "Roleplay",
-  "Audio personalizado",
-  "Suscripciones",
+const FILTER_QUERY_KEYS = ["km", "lat", "lng", "loc", "avail", "r24", "vip"] as const;
+const DEFAULT_FILTER_KM = 25;
+
+const TRENDING_CHIPS: TrendingChipConfig[] = [
+  { id: "chat", label: "Chat privado", kind: "search" },
+  { id: "popclips", label: "PopClips", kind: "search" },
+  { id: "packs", label: "Packs", kind: "search" },
+  { id: "audio", label: "Audio personalizado", kind: "search" },
+  { id: "asmr", label: "ASMR", kind: "search" },
+  { id: "roleplay", label: "Roleplay", kind: "search" },
+  { id: "vip-search", label: "VIP", kind: "filter", filterKey: "vip" },
+  { id: "available", label: "Disponible", kind: "filter", filterKey: "avail" },
+  { id: "r24", label: "Responde <24h", kind: "filter", filterKey: "r24" },
+  { id: "near", label: "Cerca de mí", kind: "near" },
 ];
 
 const HOME_CATEGORIES: HomeCategory[] = [
   {
     id: "chat",
     label: "Chat y compania",
-    description: "Conversaciones cercanas y 1:1",
+    description: "Conversaciones cercanas 1:1",
     keywords: ["chat", "compan", "conversacion", "amigos", "cercania"],
   },
   {
     id: "contenido",
     label: "Contenido creativo",
-    description: "Clips, packs y contenido exclusivo",
+    description: "PopClips, packs y exclusivos",
     keywords: ["popclip", "clip", "contenido", "pack", "suscripcion"],
   },
   {
@@ -83,8 +101,8 @@ const HOME_CATEGORIES: HomeCategory[] = [
   },
   {
     id: "gaming",
-    label: "Gaming y streams",
-    description: "Sesion en vivo y gaming",
+    label: "Gaming y directos",
+    description: "Sesiones en vivo",
     keywords: ["gaming", "stream", "directo", "juego"],
   },
   {
@@ -97,21 +115,21 @@ const HOME_CATEGORIES: HomeCategory[] = [
 
 const HOW_IT_WORKS_STEPS = [
   {
-    id: "recharge",
-    title: "Recarga",
-    description: "Recarga saldo para desbloquear packs y chats.",
+    id: "explore",
+    title: "Explora",
+    description: "Descubre perfiles y contenido que encajan contigo.",
     icon: "coin" as const,
   },
   {
-    id: "pack",
-    title: "Compra un pack",
-    description: "Accede a contenido y beneficios exclusivos.",
+    id: "save",
+    title: "Guarda",
+    description: "Marca favoritos para volver rápido cuando quieras.",
     icon: "gift" as const,
   },
   {
     id: "chat",
-    title: "Chat privado",
-    description: "Inicia conversaciones 1:1 con tus creadores.",
+    title: "Abre chat",
+    description: "Entra al chat privado cuando te encaje.",
     icon: "send" as const,
   },
 ];
@@ -181,7 +199,7 @@ export default function Home() {
   return (
     <>
       <Head>
-        <title>NOVSY – Chat privado</title>
+        <title>IntimiPop – Inicio</title>
       </Head>
       <CreatorShell
         mobileView={mobileView}
@@ -202,19 +220,41 @@ function HomeFallback() {
   const { config } = useCreatorConfig();
   const router = useRouter();
   const creatorHandle = (config.creatorHandle || "").trim();
-  const creatorName = (config.creatorName || "").trim();
   const [search, setSearch] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
-  const [availabilityFilter, setAvailabilityFilter] = useState<string | null>(null);
-  const [responseFilter, setResponseFilter] = useState<string | null>(null);
   const [selectedCategoryId, setSelectedCategoryId] = useState<string | null>(null);
   const [categorySheetOpen, setCategorySheetOpen] = useState(false);
+  const [filterSheetOpen, setFilterSheetOpen] = useState(false);
+  const [openLocationPicker, setOpenLocationPicker] = useState(false);
   const [popclips, setPopclips] = useState<PublicPopClip[]>([]);
   const [popclipsLoading, setPopclipsLoading] = useState(false);
   const [popclipsError, setPopclipsError] = useState("");
   const [recommendedCreators, setRecommendedCreators] = useState<RecommendedCreator[]>([]);
   const [creatorsLoading, setCreatorsLoading] = useState(false);
   const [creatorsError, setCreatorsError] = useState("");
+
+  const filters = useMemo(
+    () =>
+      parseHomeFilters({
+        km: router.query.km,
+        lat: router.query.lat,
+        lng: router.query.lng,
+        loc: router.query.loc,
+        avail: router.query.avail,
+        r24: router.query.r24,
+        vip: router.query.vip,
+      }),
+    [router.query.avail, router.query.km, router.query.lat, router.query.lng, router.query.loc, router.query.r24, router.query.vip]
+  );
+  const activeFilterCount = useMemo(() => countActiveFilters(filters), [filters]);
+  const filterQueryString = useMemo(() => {
+    const params = new URLSearchParams(toHomeFiltersQuery(filters));
+    return params.toString();
+  }, [filters]);
+  const hasLocation = useMemo(
+    () => Number.isFinite(filters.lat ?? NaN) && Number.isFinite(filters.lng ?? NaN),
+    [filters.lat, filters.lng]
+  );
 
   useEffect(() => {
     const handle = setTimeout(() => {
@@ -256,19 +296,23 @@ function HomeFallback() {
     return () => controller.abort();
   }, [creatorHandle]);
 
-  const heroFilters = useMemo(() => HERO_FILTERS_BASE, []);
   const selectedCategory = useMemo(
     () => HOME_CATEGORIES.find((category) => category.id === selectedCategoryId) ?? null,
     [selectedCategoryId]
   );
   const filteredCreators = useMemo(() => {
-    if (!selectedCategory) return recommendedCreators;
-    const keywords = selectedCategory.keywords.map((word) => word.toLowerCase());
+    const normalizedSearch = debouncedSearch.toLowerCase();
     return recommendedCreators.filter((creator) => {
+      if (selectedCategory) {
+        const keywords = selectedCategory.keywords.map((word) => word.toLowerCase());
+        const haystack = `${creator.displayName} ${creator.handle} ${creator.locationLabel || ""}`.toLowerCase();
+        if (!keywords.some((keyword) => haystack.includes(keyword))) return false;
+      }
+      if (!normalizedSearch) return true;
       const haystack = `${creator.displayName} ${creator.handle} ${creator.locationLabel || ""}`.toLowerCase();
-      return keywords.some((keyword) => haystack.includes(keyword));
+      return haystack.includes(normalizedSearch);
     });
-  }, [recommendedCreators, selectedCategory]);
+  }, [recommendedCreators, selectedCategory, debouncedSearch]);
 
   const popclipItems = useMemo<PublicCatalogCardItem[]>(() => {
     return popclips.slice(0, POPCLIP_PREVIEW_LIMIT).map((clip) => ({
@@ -286,26 +330,41 @@ function HomeFallback() {
   const popclipOpenHref = (clipId: string) =>
     encodedHandle ? `/c/${encodedHandle}?popclip=${encodeURIComponent(clipId)}` : "/discover";
 
-  const heroTitle = creatorName ? `Hola ${creatorName}` : "Bienvenido a NOVSY";
   const packsHref = "/creator/catalog";
   const showPopclipEmpty = !popclipsLoading && !popclipsError && popclipItems.length === 0;
   const showCreatorsEmpty =
     !creatorsLoading && !creatorsError && filteredCreators.length === 0;
 
-  const clearFilters = () => {
+  const applyFilters = (nextFilters: HomeFilters) => {
+    const baseQuery = sanitizeQuery(router.query);
+    FILTER_QUERY_KEYS.forEach((key) => {
+      delete baseQuery[key];
+    });
+    const mergedQuery = { ...baseQuery, ...toHomeFiltersQuery(nextFilters) };
+    void router.push({ pathname: router.pathname, query: mergedQuery }, undefined, { shallow: true });
+  };
+
+  const clearQueryFilters = () => {
+    const baseQuery = sanitizeQuery(router.query);
+    FILTER_QUERY_KEYS.forEach((key) => {
+      delete baseQuery[key];
+    });
+    void router.push({ pathname: router.pathname, query: baseQuery }, undefined, { shallow: true });
+  };
+
+  const resetAllFilters = () => {
     setSearch("");
-    setAvailabilityFilter(null);
-    setResponseFilter(null);
     setSelectedCategoryId(null);
+    clearQueryFilters();
   };
 
   useEffect(() => {
-    const params = new URLSearchParams();
-    if (debouncedSearch) params.set("q", debouncedSearch);
-    if (availabilityFilter) params.set("availability", availabilityFilter);
-    if (responseFilter) params.set("responseTime", responseFilter);
-    params.set("limit", "8");
-    const endpoint = `/api/public/creators/recommended?${params.toString()}`;
+    const params = new URLSearchParams(filterQueryString);
+    params.set("limit", "12");
+    const queryString = params.toString();
+    const endpoint = queryString
+      ? `/api/public/creators/recommended?${queryString}`
+      : "/api/public/creators/recommended";
     const controller = new AbortController();
     setCreatorsLoading(true);
     setCreatorsError("");
@@ -335,7 +394,7 @@ function HomeFallback() {
         if (!controller.signal.aborted) setCreatorsLoading(false);
       });
     return () => controller.abort();
-  }, [availabilityFilter, debouncedSearch, responseFilter]);
+  }, [filterQueryString]);
 
   return (
     <div className="flex h-full w-full flex-col overflow-y-auto">
@@ -351,11 +410,11 @@ function HomeFallback() {
           <div className="relative flex flex-col gap-5">
             <div className="space-y-1">
               <p className="text-xs font-semibold uppercase tracking-[0.2em] text-[color:var(--muted)]">
-                NOVSY HOME
+                INTIMIPOP
               </p>
-              <h1 className="text-2xl font-semibold text-[color:var(--text)]">{heroTitle}</h1>
+              <h1 className="text-2xl font-semibold text-[color:var(--text)]">Explora creadores</h1>
               <p className="text-sm text-[color:var(--muted)]">
-                Encuentra creadores, packs y PopClips al instante.
+                Filtra por ubicación, disponibilidad y estilo. Abre chat cuando te encaje.
               </p>
             </div>
 
@@ -379,7 +438,7 @@ function HomeFallback() {
                   size="sm"
                   onClick={() => setCategorySheetOpen(true)}
                 >
-                  Categorias
+                  Categorías
                 </PillButton>
                 <PillButton
                   intent="secondary"
@@ -388,27 +447,49 @@ function HomeFallback() {
                 >
                   Favoritos
                 </PillButton>
-                <button
-                  type="button"
-                  disabled
-                  className="inline-flex h-9 items-center justify-center rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-3 text-xs font-semibold text-[color:var(--muted)] opacity-70 cursor-not-allowed"
-                  aria-label="Filtros"
+                <PillButton
+                  intent="secondary"
+                  size="sm"
+                  onClick={() => setFilterSheetOpen(true)}
+                  className="gap-2"
                 >
-                  Filtros
-                </button>
+                  <span>Filtros</span>
+                  {activeFilterCount > 0 ? (
+                    <span className="inline-flex h-5 min-w-[20px] items-center justify-center rounded-full bg-[color:rgba(var(--brand-rgb),0.2)] px-1.5 text-[11px] font-semibold text-[color:var(--text)]">
+                      {activeFilterCount}
+                    </span>
+                  ) : null}
+                </PillButton>
               </div>
             </div>
 
             <div className="space-y-2">
               <p className="text-xs font-semibold uppercase tracking-[0.2em] text-[color:var(--muted)]">
-                Lo mas buscado
+                Búsquedas populares
               </p>
               <div className="flex items-center gap-2 overflow-x-auto pb-1">
-                {TRENDING_SEARCHES.map((term) => (
+                {TRENDING_CHIPS.map((chip) => (
                   <TrendingChip
-                    key={term}
-                    label={term}
-                    onClick={() => setSearch(term)}
+                    key={chip.id}
+                    label={chip.label}
+                    onClick={() => {
+                      if (chip.kind === "search") {
+                        setSearch(chip.label);
+                        return;
+                      }
+                      if (chip.kind === "filter" && chip.filterKey) {
+                        applyFilters({ ...filters, [chip.filterKey]: !filters[chip.filterKey] });
+                        return;
+                      }
+                      if (chip.kind === "near") {
+                        if (!hasLocation) {
+                          setOpenLocationPicker(true);
+                          setFilterSheetOpen(true);
+                          return;
+                        }
+                        applyFilters({ ...filters, km: DEFAULT_FILTER_KM });
+                      }
+                    }}
                   />
                 ))}
               </div>
@@ -422,25 +503,17 @@ function HomeFallback() {
                   onClick={() => setSelectedCategoryId(null)}
                 />
               ) : null}
-              {heroFilters.map((filter) => (
+              {QUICK_FILTERS.map((filter) => (
                 <FilterChip
                   key={filter.id}
                   label={filter.label}
-                  active={
-                    filter.kind === "availability"
-                      ? availabilityFilter === filter.value
-                      : responseFilter === filter.value
-                  }
+                  active={Boolean(filters[filter.key])}
                   onClick={() => {
-                    if (filter.kind === "availability") {
-                      setAvailabilityFilter((prev) =>
-                        prev === filter.value ? null : filter.value
-                      );
-                      return;
-                    }
-                    setResponseFilter((prev) =>
-                      prev === filter.value ? null : filter.value
-                    );
+                    const nextFilters: HomeFilters = {
+                      ...filters,
+                      [filter.key]: !filters[filter.key],
+                    };
+                    applyFilters(nextFilters);
                   }}
                 />
               ))}
@@ -449,7 +522,7 @@ function HomeFallback() {
         </HomeSectionCard>
 
         <HomeSectionCard
-          title="Destacados"
+          title="PopClips destacados"
           rightSlot={
             <Link
               href={popclipsBaseHref}
@@ -471,7 +544,7 @@ function HomeFallback() {
             </div>
           ) : showPopclipEmpty ? (
             <div className="rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] p-4 text-sm text-[color:var(--muted)]">
-              Aun no hay destacados disponibles.
+              Aún no hay PopClips destacados.
             </div>
           ) : (
             <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
@@ -489,7 +562,10 @@ function HomeFallback() {
           )}
         </HomeSectionCard>
 
-        <HomeSectionCard title="Creadores recomendados">
+        <HomeSectionCard
+          title="Creadores recomendados"
+          subtitle="Basado en actividad y señales públicas."
+        >
           {creatorsLoading ? (
             <div className="flex flex-col gap-3">
               {Array.from({ length: 3 }).map((_, idx) => (
@@ -502,10 +578,10 @@ function HomeFallback() {
             </div>
           ) : showCreatorsEmpty ? (
             <div className="flex flex-col items-start gap-3 rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] p-4 text-sm text-[color:var(--muted)]">
-              <span>No encontramos creadores con esos filtros.</span>
+              <span>No hay resultados con estos filtros. Prueba a ampliar el radio o limpiar filtros.</span>
               <button
                 type="button"
-                onClick={clearFilters}
+                onClick={resetAllFilters}
                 aria-label="Limpiar filtros"
                 className="inline-flex items-center justify-center rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-3 py-1 text-xs font-semibold text-[color:var(--text)] hover:bg-[color:var(--surface-2)]"
               >
@@ -522,7 +598,7 @@ function HomeFallback() {
         </HomeSectionCard>
 
         <HomeSectionCard
-          title="Como funciona"
+          title="Cómo funciona"
           rightSlot={
             <Link
               href={packsHref}
@@ -558,6 +634,17 @@ function HomeFallback() {
         onSelect={(category) => setSelectedCategoryId(category.id)}
         onClear={() => setSelectedCategoryId(null)}
         onClose={() => setCategorySheetOpen(false)}
+      />
+      <HomeFilterSheet
+        open={filterSheetOpen}
+        initialFilters={filters}
+        onApply={applyFilters}
+        onClear={clearQueryFilters}
+        onClose={() => {
+          setFilterSheetOpen(false);
+          setOpenLocationPicker(false);
+        }}
+        openLocationOnMount={openLocationPicker}
       />
     </div>
   );
@@ -602,9 +689,23 @@ function TrendingChip({ label, onClick }: { label: string; onClick: () => void }
   );
 }
 
+function sanitizeQuery(query: Record<string, string | string[] | undefined>) {
+  const cleaned: Record<string, string | string[]> = {};
+  Object.entries(query).forEach(([key, value]) => {
+    if (value === undefined) return;
+    cleaned[key] = value;
+  });
+  return cleaned;
+}
+
 function HomeCreatorCard({ creator }: { creator: RecommendedCreator }) {
   const initial = creator.displayName?.trim()?.[0]?.toUpperCase() || "C";
   const [avatarFailed, setAvatarFailed] = useState(false);
+  const availabilityLabel = creator.availability || (creator.vipEnabled ? "Solo VIP" : "Disponible");
+  const responseLabel = creator.responseTime || formatResponseHours(creator.avgResponseHours);
+  const distanceLabel = Number.isFinite(creator.distanceKm ?? NaN)
+    ? `A ${Math.round(creator.distanceKm as number)} km`
+    : "";
 
   useEffect(() => {
     setAvatarFailed(false);
@@ -643,18 +744,38 @@ function HomeCreatorCard({ creator }: { creator: RecommendedCreator }) {
         </Link>
       </div>
       <div className="mt-3 flex flex-wrap gap-2">
-        <span className="inline-flex items-center rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-3 py-1 text-[11px] font-semibold text-[color:var(--text)]">
-          {creator.availability}
-        </span>
-        <span className="inline-flex items-center rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-3 py-1 text-[11px] font-semibold text-[color:var(--text)]">
-          {creator.responseTime}
-        </span>
-        {creator.locationLabel ? (
+        {availabilityLabel ? (
+          <span className="inline-flex items-center rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-3 py-1 text-[11px] font-semibold text-[color:var(--text)]">
+            {availabilityLabel}
+          </span>
+        ) : null}
+        {responseLabel ? (
+          <span className="inline-flex items-center rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-3 py-1 text-[11px] font-semibold text-[color:var(--text)]">
+            {responseLabel}
+          </span>
+        ) : null}
+        {distanceLabel ? (
+          <span className="inline-flex items-center rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-3 py-1 text-[11px] font-semibold text-[color:var(--text)]">
+            {distanceLabel}
+          </span>
+        ) : creator.locationLabel ? (
           <span className="inline-flex min-w-0 max-w-full items-center rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-3 py-1 text-[11px] font-semibold text-[color:var(--text)]">
             <span className="truncate">{creator.locationLabel}</span>
+          </span>
+        ) : null}
+        {creator.hasPopClips ? (
+          <span className="inline-flex items-center rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-3 py-1 text-[11px] font-semibold text-[color:var(--text)]">
+            PopClips
           </span>
         ) : null}
       </div>
     </div>
   );
+}
+
+function formatResponseHours(hours?: number | null) {
+  if (!Number.isFinite(hours ?? NaN)) return "";
+  const rounded = Math.round(hours as number);
+  if (rounded <= 24) return "Responde <24h";
+  return `Resp. ~${rounded}h`;
 }
