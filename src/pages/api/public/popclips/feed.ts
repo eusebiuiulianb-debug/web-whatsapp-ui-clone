@@ -1,0 +1,387 @@
+import fs from "fs";
+import path from "path";
+import type { Prisma } from "@prisma/client";
+import type { NextApiRequest, NextApiResponse } from "next";
+import { decode } from "ngeohash";
+import prisma from "../../../../lib/prisma.server";
+import { slugifyHandle } from "../../../../lib/fan/session";
+
+type PopClipFeedItem = {
+  id: string;
+  title: string | null;
+  thumbnailUrl: string | null;
+  durationSec: number | null;
+  createdAt: string;
+  creator: {
+    handle: string;
+    displayName: string;
+    avatarUrl: string | null;
+    vipEnabled: boolean;
+    avgResponseHours: number | null;
+    isAvailable: boolean;
+    locationLabel: string | null;
+  };
+  stats?: {
+    likeCount: number;
+    commentCount: number;
+  };
+  distanceKm?: number | null;
+};
+
+type CreatorAvailability = "AVAILABLE" | "OFFLINE" | "VIP_ONLY";
+type CreatorResponseTime = "INSTANT" | "LT_24H" | "LT_72H";
+
+const DEFAULT_TAKE = 24;
+const MAX_TAKE = 60;
+const DEFAULT_KM = 25;
+const MIN_KM = 5;
+const MAX_KM = 200;
+const MIN_FALLBACK_ITEMS = 6;
+const DISCOVERABLE_VISIBILITY = ["PUBLIC", "DISCOVERABLE"] as const;
+
+const CLIP_SELECT = {
+  id: true,
+  title: true,
+  posterUrl: true,
+  durationSec: true,
+  createdAt: true,
+  creator: {
+    select: {
+      id: true,
+      name: true,
+      bioLinkAvatarUrl: true,
+      profile: {
+        select: {
+          availability: true,
+          responseSla: true,
+          vipOnly: true,
+          locationLabel: true,
+          locationGeohash: true,
+          locationVisibility: true,
+          allowDiscoveryUseLocation: true,
+        },
+      },
+      discoveryProfile: {
+        select: {
+          responseHours: true,
+          isDiscoverable: true,
+        },
+      },
+    },
+  },
+  _count: {
+    select: {
+      reactions: true,
+      comments: true,
+    },
+  },
+} as const;
+
+type FeedClipRow = Prisma.PopClipGetPayload<{ select: typeof CLIP_SELECT }>;
+
+export default async function handler(req: NextApiRequest, res: NextApiResponse) {
+  res.setHeader("Cache-Control", "no-store");
+  if (req.method !== "GET") {
+    res.setHeader("Allow", ["GET"]);
+    return res.status(405).json({ error: "Method not allowed" });
+  }
+
+  const takeRaw = parseNumber(getQueryString(req.query.take));
+  const take = Number.isFinite(takeRaw)
+    ? Math.max(1, Math.min(MAX_TAKE, Math.floor(takeRaw)))
+    : DEFAULT_TAKE;
+  const cursor = getQueryString(req.query.cursor);
+  const km = normalizeKm(parseNumber(getQueryString(req.query.km)));
+  const lat = parseNumber(getQueryString(req.query.lat));
+  const lng = parseNumber(getQueryString(req.query.lng));
+  const hasUserLocation = Number.isFinite(lat) && Number.isFinite(lng);
+  const avail = parseFlag(req.query.avail);
+  const r24 = parseFlag(req.query.r24);
+  const vip = parseFlag(req.query.vip);
+
+  const baseWhere = {
+    isActive: true,
+    isArchived: false,
+    isStory: false,
+    AND: [
+      {
+        OR: [
+          { catalogItem: { isActive: true, isPublic: true } },
+          { contentItemId: { not: null } },
+        ],
+      },
+      {
+        OR: [
+          {
+            creator: {
+              profile: { is: { visibilityMode: { in: DISCOVERABLE_VISIBILITY } } },
+            },
+          },
+          {
+            creator: {
+              discoveryProfile: { is: { isDiscoverable: true } },
+            },
+          },
+        ],
+      },
+    ],
+  } as Prisma.PopClipWhereInput;
+
+  try {
+    const rawClips = (await prisma.popClip.findMany({
+      where: baseWhere,
+      orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+      take: take + 1,
+      ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
+      select: CLIP_SELECT,
+    })) as unknown as FeedClipRow[];
+
+    const hasMore = rawClips.length > take;
+    const sliced = rawClips.slice(0, take);
+    const userLocation = hasUserLocation ? { lat: lat as number, lng: lng as number } : null;
+
+    const mapped = mapFeedItems(sliced, userLocation);
+    const strictFiltered = applyFilters(mapped, {
+      avail,
+      r24,
+      vip,
+      km,
+      requireDistance: hasUserLocation,
+    });
+
+    let items = strictFiltered;
+    let nextCursor: string | null = hasMore ? sliced[sliced.length - 1]?.id ?? null : null;
+
+    if (!cursor && items.length < MIN_FALLBACK_ITEMS && (avail || r24 || hasUserLocation)) {
+      const fallbackClips = (await prisma.popClip.findMany({
+        where: baseWhere,
+        orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+        take: take + 1,
+        select: CLIP_SELECT,
+      })) as unknown as FeedClipRow[];
+      const fallbackMapped = mapFeedItems(fallbackClips.slice(0, take), userLocation);
+      const relaxed = applyFilters(fallbackMapped, {
+        avail: false,
+        r24: false,
+        vip,
+        km,
+        requireDistance: false,
+      });
+      items = mergeUniqueById([...items, ...relaxed]).slice(0, take);
+      if (!nextCursor && fallbackClips.length > take) {
+        nextCursor = fallbackClips[take - 1]?.id ?? null;
+      }
+    }
+
+    const sorted = boostEngagement(items);
+
+    return res.status(200).json({
+      items: sorted,
+      nextCursor: nextCursor ?? undefined,
+    });
+  } catch (err) {
+    console.error("Error loading popclip feed", err);
+    return res.status(500).json({ error: "No se pudieron cargar los PopClips" });
+  }
+}
+
+type FilterOptions = {
+  avail: boolean;
+  r24: boolean;
+  vip: boolean;
+  km: number;
+  requireDistance: boolean;
+};
+
+function applyFilters(items: PopClipFeedItem[], options: FilterOptions) {
+  return items.filter((item) => {
+    if (options.vip && !item.creator.vipEnabled) return false;
+    if (options.avail && !item.creator.isAvailable) return false;
+    if (options.r24 && !isFastResponder(item.creator.avgResponseHours)) return false;
+    if (options.requireDistance) {
+      if (!Number.isFinite(item.distanceKm ?? NaN)) return false;
+      if ((item.distanceKm as number) > options.km) return false;
+    }
+    return true;
+  });
+}
+
+function mapFeedItems(items: FeedClipRow[], userLocation: { lat: number; lng: number } | null) {
+  return items.map((clip) => {
+    const creatorName = clip.creator?.name || "Creador";
+    const handle = slugifyHandle(creatorName || "creator");
+    const availabilityValue = normalizeAvailability(clip.creator?.profile?.availability) ?? "AVAILABLE";
+    const responseValue = normalizeResponseTime(clip.creator?.profile?.responseSla);
+    const avgResponseHours = resolveResponseHours(
+      clip.creator?.discoveryProfile?.responseHours ?? null,
+      responseValue
+    );
+    const vipEnabled = Boolean(clip.creator?.profile?.vipOnly) || availabilityValue === "VIP_ONLY";
+    const isAvailable = availabilityValue === "AVAILABLE" || availabilityValue === "VIP_ONLY";
+    const locationVisibility = (clip.creator?.profile?.locationVisibility || "").toUpperCase();
+    const allowLocation =
+      Boolean(clip.creator?.profile?.allowDiscoveryUseLocation) && locationVisibility !== "OFF";
+    const locationGeohash = allowLocation
+      ? (clip.creator?.profile?.locationGeohash || "").trim()
+      : "";
+    const locationLabel =
+      locationVisibility !== "OFF" ? clip.creator?.profile?.locationLabel ?? null : null;
+    const distanceKm =
+      userLocation && locationGeohash ? getDistanceKm(userLocation, locationGeohash) : null;
+
+    return {
+      id: clip.id,
+      title: clip.title ?? null,
+      thumbnailUrl: clip.posterUrl ?? null,
+      posterUrl: clip.posterUrl ?? null,
+      durationSec: clip.durationSec ?? null,
+      createdAt: clip.createdAt.toISOString(),
+      creator: {
+        handle,
+        displayName: creatorName,
+        avatarUrl: normalizeAvatarUrl(clip.creator?.bioLinkAvatarUrl ?? null),
+        vipEnabled,
+        avgResponseHours,
+        isAvailable,
+        locationLabel,
+      },
+      stats: {
+        likeCount: clip._count?.reactions ?? 0,
+        commentCount: clip._count?.comments ?? 0,
+      },
+      distanceKm: Number.isFinite(distanceKm ?? NaN) ? roundDistance(distanceKm as number) : null,
+    };
+  });
+}
+
+function boostEngagement(items: PopClipFeedItem[]) {
+  if (items.length < 2) return items;
+  const scored = items.map((item, index) => ({
+    item,
+    index,
+    score: computeEngagementScore(item),
+  }));
+  const hasSignals = scored.some((entry) => entry.score > 0);
+  if (!hasSignals) return items;
+  scored.sort((a, b) => {
+    if (b.score !== a.score) return b.score - a.score;
+    return a.index - b.index;
+  });
+  return scored.map((entry) => entry.item);
+}
+
+function computeEngagementScore(item: PopClipFeedItem) {
+  const likeCount = item.stats?.likeCount ?? 0;
+  const commentCount = item.stats?.commentCount ?? 0;
+  const engagement = likeCount + commentCount * 2;
+  if (!engagement) return 0;
+  const capped = Math.min(engagement, 50) / 50;
+  const createdAt = Date.parse(item.createdAt);
+  const ageDays = Number.isFinite(createdAt) ? (Date.now() - createdAt) / (1000 * 60 * 60 * 24) : 0;
+  const recency = Math.max(0, 14 - ageDays) / 14;
+  return capped * 0.85 + recency * 0.15;
+}
+
+function parseNumber(value?: string) {
+  if (!value) return NaN;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : NaN;
+}
+
+function getQueryString(value: unknown): string {
+  if (typeof value === "string") return value.trim();
+  if (Array.isArray(value)) return value[0]?.trim?.() ?? "";
+  return "";
+}
+
+function parseFlag(value: unknown): boolean {
+  return getQueryString(value) === "1";
+}
+
+function normalizeKm(value?: number): number {
+  if (!Number.isFinite(value ?? NaN)) return DEFAULT_KM;
+  const rounded = Math.round(value as number);
+  if (rounded < MIN_KM) return MIN_KM;
+  if (rounded > MAX_KM) return MAX_KM;
+  return rounded;
+}
+
+function normalizeAvailability(value?: string | null): CreatorAvailability | null {
+  const normalized = (value || "").toUpperCase();
+  if (normalized === "AVAILABLE" || normalized === "ONLINE") return "AVAILABLE";
+  if (normalized === "VIP_ONLY") return "VIP_ONLY";
+  if (normalized === "NOT_AVAILABLE" || normalized === "OFFLINE") return "OFFLINE";
+  return null;
+}
+
+function normalizeResponseTime(value?: string | null): CreatorResponseTime | null {
+  const normalized = (value || "").toUpperCase();
+  if (normalized === "INSTANT") return "INSTANT";
+  if (normalized === "LT_24H") return "LT_24H";
+  if (normalized === "LT_72H" || normalized === "LT_48H") return "LT_72H";
+  return null;
+}
+
+function resolveResponseHours(
+  responseHours?: number | null,
+  responseValue?: CreatorResponseTime | null
+) {
+  if (typeof responseHours === "number" && Number.isFinite(responseHours)) return responseHours;
+  if (!responseValue) return null;
+  if (responseValue === "INSTANT") return 1;
+  if (responseValue === "LT_24H") return 24;
+  if (responseValue === "LT_72H") return 72;
+  return null;
+}
+
+function isFastResponder(responseHours: number | null) {
+  return typeof responseHours === "number" && responseHours <= 24;
+}
+
+function mergeUniqueById(items: PopClipFeedItem[]) {
+  const seen = new Set<string>();
+  return items.filter((item) => {
+    if (seen.has(item.id)) return false;
+    seen.add(item.id);
+    return true;
+  });
+}
+
+function roundDistance(distanceKm: number) {
+  return Math.round(distanceKm * 10) / 10;
+}
+
+function getDistanceKm(from: { lat: number; lng: number }, toGeohash: string) {
+  const to = decodeGeohash(toGeohash);
+  if (!to) return NaN;
+  const rad = Math.PI / 180;
+  const dLat = (to.lat - from.lat) * rad;
+  const dLng = (to.lng - from.lng) * rad;
+  const a =
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos(from.lat * rad) * Math.cos(to.lat * rad) * Math.sin(dLng / 2) * Math.sin(dLng / 2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  return 6371 * c;
+}
+
+function decodeGeohash(value: string) {
+  const trimmed = (value || "").trim();
+  if (!trimmed) return null;
+  try {
+    const decoded = decode(trimmed);
+    if (!decoded || !Number.isFinite(decoded.latitude) || !Number.isFinite(decoded.longitude)) return null;
+    return { lat: decoded.latitude, lng: decoded.longitude };
+  } catch (_err) {
+    return null;
+  }
+}
+
+function normalizeAvatarUrl(value?: string | null): string | null {
+  const trimmed = (value || "").trim();
+  if (!trimmed) return null;
+  if (/^https?:\/\//i.test(trimmed)) return trimmed;
+  const normalized = trimmed.startsWith("/") ? trimmed : `/${trimmed}`;
+  const publicPath = path.join(process.cwd(), "public", normalized.replace(/^\/+/, ""));
+  if (!fs.existsSync(publicPath)) return null;
+  return normalized;
+}

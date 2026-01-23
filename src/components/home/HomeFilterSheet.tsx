@@ -34,23 +34,15 @@ export function HomeFilterSheet({
   onClose,
   openLocationOnMount = false,
 }: Props) {
+  const normalizedInitialFilters = useMemo(() => normalizeFilters(initialFilters), [initialFilters]);
   const [draft, setDraft] = useState<HomeFilters>(() => normalizeFilters(initialFilters));
   const [locationOpen, setLocationOpen] = useState(false);
   const locationOpenOnceRef = useRef(false);
 
   useEffect(() => {
     if (!open) return;
-    setDraft(normalizeFilters(initialFilters));
-  }, [
-    open,
-    initialFilters.km,
-    initialFilters.lat,
-    initialFilters.lng,
-    initialFilters.loc,
-    initialFilters.avail,
-    initialFilters.r24,
-    initialFilters.vip,
-  ]);
+    setDraft(normalizedInitialFilters);
+  }, [open, normalizedInitialFilters]);
 
   useEffect(() => {
     if (!open) {

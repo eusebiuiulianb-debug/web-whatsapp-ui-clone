@@ -6,6 +6,9 @@ const nextConfig = {
   swcMinify: true,
   // Explicit extensions so Next always picks up our TSX pages in dev and prod
   pageExtensions: ["ts", "tsx", "js", "jsx"],
+  images: {
+    domains: ["picsum.photos", "i.picsum.photos"],
+  },
   webpack: (config, { dev }) => {
     if (dev) {
       // Evita corrupción/EPERM en cache de webpack en Windows durante el dev-server
