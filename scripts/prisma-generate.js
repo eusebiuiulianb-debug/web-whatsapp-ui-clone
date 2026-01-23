@@ -1,8 +1,23 @@
 const { spawnSync } = require("child_process");
+const path = require("path");
+const NODE_MAJOR = Number.parseInt(process.versions.node.split(".")[0] || "0", 10);
+
+function resolveCommand(command, args) {
+  if (process.platform !== "win32") {
+    return { cmd: command, args };
+  }
+  if (Number.isFinite(NODE_MAJOR) && NODE_MAJOR >= 24) {
+    return { cmd: "cmd.exe", args: ["/d", "/s", "/c", command.replace(/\.cmd$/i, ""), ...args] };
+  }
+  return { cmd: command, args };
+}
 
 function runPrismaGenerate() {
   const command = process.platform === "win32" ? "npx.cmd" : "npx";
-  const result = spawnSync(command, ["prisma", "generate"], { encoding: "utf-8" });
+  const args = ["prisma", "generate", "--schema", "prisma/schema.prisma"];
+  const repoRoot = path.resolve(__dirname, "..");
+  const resolved = resolveCommand(command, args);
+  const result = spawnSync(resolved.cmd, resolved.args, { encoding: "utf-8", shell: false, cwd: repoRoot });
   if (result.stdout) {
     process.stdout.write(result.stdout);
   }

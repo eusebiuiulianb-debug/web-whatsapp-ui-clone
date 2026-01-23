@@ -8,9 +8,12 @@
     "dev": "next dev -p 3005",
     "dev:reset": "node scripts/dev-reset.mjs",
     "db:generate": "node scripts/prisma-generate.js",
+    "prisma:generate": "prisma generate --schema prisma/schema.prisma",
+    "prisma:migrate": "prisma migrate dev --schema prisma/schema.prisma",
+    "prisma:smoke": "node scripts/prisma-smoke.cjs",
     "prisma:generate:safe": "node scripts/prisma-generate-safe.mjs",
-    "prisma:generate:clean": "node -e \"require('fs').rmSync('node_modules/.prisma',{recursive:true,force:true})\" && npx prisma generate",
-    "db:reset": "prisma migrate reset --force",
+    "prisma:generate:clean": "node -e \"require('fs').rmSync('node_modules/.prisma',{recursive:true,force:true})\" && npx prisma generate --schema prisma/schema.prisma",
+    "db:reset": "prisma migrate reset --force --schema prisma/schema.prisma",
     "db:reset:seed": "npm run db:reset",
     "db:seed": "node --experimental-strip-types prisma/seed.ts",
     "lint": "next lint",
@@ -66,8 +69,5 @@
     "postcss": "^8.4.16",
     "tailwindcss": "^3.1.8",
     "typescript": "~5.3.3"
-  },
-  "prisma": {
-    "seed": "node prisma/seed.js"
   }
 }
