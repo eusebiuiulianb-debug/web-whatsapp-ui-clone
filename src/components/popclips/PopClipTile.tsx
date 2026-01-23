@@ -182,9 +182,9 @@ export function PopClipTile({
         ) : null}
       </div>
 
-      <div className="flex flex-col gap-2 border-t border-white/10 bg-[color:rgba(8,12,20,0.85)] px-3 py-3 text-white/90">
+      <div className="flex flex-col gap-2 border-t border-white/10 bg-[color:rgba(8,12,20,0.85)] px-3 pb-3 pt-3 text-white/90 sm:p-4">
         {badges.length > 0 ? (
-          <div className="flex flex-wrap gap-1.5">
+          <div className="flex flex-wrap gap-2">
             {badges.map((badge) => (
               <span
                 key={badge}
@@ -195,23 +195,25 @@ export function PopClipTile({
             ))}
           </div>
         ) : null}
-        <div className="flex flex-wrap items-center gap-2">
-          <Link
-            href={chatHref}
-            onClick={(event) => event.stopPropagation()}
-            aria-label="Abrir chat"
-            title="Abrir chat"
-            className="inline-flex h-11 w-11 items-center justify-center rounded-full border border-[color:var(--brand-strong)] bg-[color:var(--brand-strong)] text-white shadow-sm transition hover:bg-[color:var(--brand)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--ring)] focus-visible:ring-offset-1 focus-visible:ring-offset-black/40"
-          >
-            <MessageCircle className="h-5 w-5" aria-hidden="true" />
-          </Link>
-          <Link
-            href={profileHref}
-            onClick={(event) => event.stopPropagation()}
-            className="inline-flex h-11 min-w-[140px] flex-1 items-center justify-center rounded-full border border-white/20 bg-white/10 px-4 text-[12px] font-semibold text-white/90 transition hover:bg-white/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--ring)] focus-visible:ring-offset-1 focus-visible:ring-offset-black/40"
-          >
-            Ver perfil
-          </Link>
+        <div className="flex flex-wrap items-center gap-2 gap-y-2">
+          <div className="inline-flex flex-wrap items-center gap-2">
+            <Link
+              href={chatHref}
+              onClick={(event) => event.stopPropagation()}
+              aria-label="Abrir chat"
+              title="Abrir chat"
+              className="inline-flex h-11 w-11 items-center justify-center rounded-full border border-[color:var(--brand-strong)] bg-[color:var(--brand-strong)] text-white shadow-sm transition hover:bg-[color:var(--brand)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--ring)] focus-visible:ring-offset-1 focus-visible:ring-offset-black/40"
+            >
+              <MessageCircle className="h-5 w-5" aria-hidden="true" />
+            </Link>
+            <Link
+              href={profileHref}
+              onClick={(event) => event.stopPropagation()}
+              className="inline-flex h-11 min-w-[140px] flex-1 items-center justify-center rounded-full border border-white/20 bg-white/10 px-4 text-[12px] font-semibold text-white/90 transition hover:bg-white/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--ring)] focus-visible:ring-offset-1 focus-visible:ring-offset-black/40"
+            >
+              Ver perfil
+            </Link>
+          </div>
         </div>
       </div>
     </div>
