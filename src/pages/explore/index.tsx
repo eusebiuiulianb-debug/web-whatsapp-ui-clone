@@ -13,7 +13,7 @@ import { PillButton } from "../../components/ui/PillButton";
 import { Skeleton } from "../../components/ui/Skeleton";
 import { useRouter } from "next/router";
 import { countActiveFilters, parseHomeFilters, toHomeFiltersQuery, type HomeFilters } from "../../lib/homeFilters";
-import { getLikedClips, toggleClipLike } from "../../lib/likes";
+import { getLikedClips, toggleLikedClip } from "../../lib/likes";
 import { normalizeImageSrc } from "../../utils/normalizeImageSrc";
 
 const FEED_PAGE_SIZE = 24;
@@ -148,6 +148,7 @@ export default function Explore() {
   const [seedKey, setSeedKey] = useState(0);
   const [likedClips, setLikedClips] = useState<string[]>([]);
   const [likesOnly, setLikesOnly] = useState(false);
+  const [hydrated, setHydrated] = useState(false);
   const [toastMessage, setToastMessage] = useState("");
   const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [recommendedCreators, setRecommendedCreators] = useState<RecommendedCreator[]>([]);
@@ -195,6 +196,7 @@ export default function Explore() {
 
   useEffect(() => {
     setLikedClips(getLikedClips());
+    setHydrated(true);
   }, []);
 
   useEffect(() => {
@@ -217,7 +219,7 @@ export default function Explore() {
 
   const handleToggleLike = useCallback(
     (clipId: string) => {
-      const isNowLiked = toggleClipLike(clipId);
+      const isNowLiked = toggleLikedClip(clipId);
       setLikedClips(getLikedClips());
       showToast(isNowLiked ? "Te gusta este clip" : "Ya no te gusta");
     },
@@ -292,8 +294,11 @@ export default function Explore() {
   }, [recommendedCreators, selectedCategory, normalizedSearch]);
 
   const showFeedEmpty = !feedLoading && !feedError && filteredFeedItems.length === 0;
-  const likesEmpty = likesOnly && likedClips.length === 0;
-  const likesNoMatch = likesOnly && likedClips.length > 0;
+  const likedCount = likedClips.length;
+  const likesEmpty = likesOnly && likedCount === 0;
+  const likesNoMatch = likesOnly && likedCount > 0;
+  const showLikesCount = hydrated && (likesOnly || likedCount > 0);
+  const likesLabel = showLikesCount ? `Me gusta · ${likedCount}` : "Me gusta";
   const showCreatorsEmpty =
     !creatorsLoading && !creatorsError && filteredCreators.length === 0;
 
@@ -510,7 +515,7 @@ export default function Explore() {
                     aria-pressed={likesOnly}
                     onClick={() => setLikesOnly((prev) => !prev)}
                   >
-                    Me gusta
+                    {likesLabel}
                   </PillButton>
                   <PillButton
                     intent="secondary"
@@ -557,13 +562,13 @@ export default function Explore() {
             subtitle="Explora clips y entra al chat cuando te encaje."
           >
             {feedLoading && feedItems.length === 0 ? (
-              <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3 xl:gap-6">
+              <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3 xl:gap-6">
                 {Array.from({ length: FEED_SKELETON_COUNT }).map((_, idx) => (
                   <div
                     key={`feed-skeleton-${idx}`}
                     className="flex flex-col gap-2 rounded-2xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] p-3"
                   >
-                    <Skeleton className="aspect-[4/5] w-full rounded-xl" />
+                    <Skeleton className="aspect-[10/13] w-full rounded-xl sm:aspect-[3/4] md:aspect-[4/5]" />
                     <div className="flex flex-wrap gap-2">
                       <Skeleton className="h-5 w-16 rounded-full" />
                       <Skeleton className="h-5 w-20 rounded-full" />
@@ -580,45 +585,83 @@ export default function Explore() {
                 {feedError}
               </div>
             ) : showFeedEmpty ? (
-              <div className="flex flex-col items-start gap-3 rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] p-4 text-sm text-[color:var(--muted)]">
-                {likesEmpty ? (
-                  <>
-                    <span className="text-sm font-semibold text-[color:var(--text)]">
-                      Aún no te gusta ningún clip
+              likesEmpty ? (
+                <div className="mx-auto w-full max-w-md rounded-2xl border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] p-6 text-[color:var(--muted)] sm:p-8">
+                  <div className="flex items-start gap-3">
+                    <span className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] text-[color:var(--text)]">
+                      <svg
+                        viewBox="0 0 24 24"
+                        className="h-5 w-5"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth={1.7}
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        aria-hidden="true"
+                      >
+                        <path d="M20.5 8.5c0 4.3-8.5 9.5-8.5 9.5s-8.5-5.2-8.5-9.5A4.5 4.5 0 0 1 8 4c1.7 0 3.2.9 4 2.2A4.7 4.7 0 0 1 16 4a4.5 4.5 0 0 1 4.5 4.5z" />
+                      </svg>
                     </span>
-                    <span className="text-xs text-[color:var(--muted)]">
-                      Explora y toca el corazón para guardar tus likes aquí.
-                    </span>
-                  </>
-                ) : likesNoMatch ? (
-                  <span>No hay clips con me gusta y estos filtros.</span>
-                ) : (
-                  <span>Aún no hay PopClips. Prueba a quitar filtros o vuelve más tarde.</span>
-                )}
-                {likesOnly ? (
-                  <button
-                    type="button"
-                    onClick={() => setLikesOnly(false)}
-                    className="inline-flex items-center justify-center rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-3 py-1 text-xs font-semibold text-[color:var(--text)] hover:bg-[color:var(--surface-2)]"
-                  >
-                    Ver todo
-                  </button>
-                ) : null}
-                {seedError ? <span className="text-[color:var(--danger)]">{seedError}</span> : null}
-                {isDev ? (
-                  <button
-                    type="button"
-                    onClick={handleSeedDemo}
-                    disabled={seedLoading}
-                    className="inline-flex items-center justify-center rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-3 py-1 text-xs font-semibold text-[color:var(--text)] hover:bg-[color:var(--surface-2)] disabled:opacity-60"
-                  >
-                    {seedLoading ? "Generando..." : "Generar clips demo"}
-                  </button>
-                ) : null}
-              </div>
+                    <div className="space-y-1">
+                      <div className="text-sm font-semibold text-[color:var(--text)]">
+                        Aún no te gusta ningún clip
+                      </div>
+                      <div className="text-xs text-[color:var(--muted)]">
+                        Explora y toca el corazón para verlo aquí.
+                      </div>
+                    </div>
+                  </div>
+                  <div className="mt-5 flex flex-wrap items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setLikesOnly(false)}
+                      aria-label="Ver todo"
+                      className="inline-flex items-center justify-center rounded-full bg-[color:var(--brand-strong)] px-4 py-2 text-xs font-semibold text-white hover:bg-[color:var(--brand)] focus:outline-none focus:ring-1 focus:ring-[color:var(--ring)]"
+                    >
+                      Ver todo
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setLikesOnly(false)}
+                      aria-label="Quitar filtro"
+                      className="inline-flex items-center justify-center text-xs font-semibold text-[color:var(--muted)] underline-offset-2 hover:text-[color:var(--text)] hover:underline focus:outline-none focus:ring-1 focus:ring-[color:var(--ring)]"
+                    >
+                      Quitar filtro
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <div className="flex flex-col items-start gap-3 rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] p-4 text-[color:var(--muted)]">
+                  {likesNoMatch ? (
+                    <span className="text-sm">No hay clips con me gusta y estos filtros.</span>
+                  ) : (
+                    <span className="text-sm">Aún no hay PopClips. Prueba a quitar filtros o vuelve más tarde.</span>
+                  )}
+                  {likesOnly ? (
+                    <button
+                      type="button"
+                      onClick={() => setLikesOnly(false)}
+                      className="inline-flex items-center justify-center rounded-full bg-[color:var(--brand-strong)] px-4 py-2 text-xs font-semibold text-white hover:bg-[color:var(--brand)] focus:outline-none focus:ring-1 focus:ring-[color:var(--ring)]"
+                    >
+                      Ver todo
+                    </button>
+                  ) : null}
+                  {seedError ? <span className="text-[color:var(--danger)]">{seedError}</span> : null}
+                  {isDev ? (
+                    <button
+                      type="button"
+                      onClick={handleSeedDemo}
+                      disabled={seedLoading}
+                      className="inline-flex items-center justify-center rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-3 py-1 text-xs font-semibold text-[color:var(--text)] hover:bg-[color:var(--surface-2)] disabled:opacity-60"
+                    >
+                      {seedLoading ? "Generando..." : "Generar clips demo"}
+                    </button>
+                  ) : null}
+                </div>
+              )
             ) : (
               <>
-                <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3 xl:gap-6">
+                <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3 xl:gap-6">
                   {filteredFeedItems.map((item) => (
                     <PopClipTile
                       key={item.id}

@@ -5,13 +5,13 @@ export function getLikedClips(): string[] {
   return Array.from(readLikedClips());
 }
 
-export function isClipLiked(clipId: string): boolean {
+export function isLiked(clipId: string): boolean {
   const key = normalizeClipId(clipId);
   if (!key) return false;
   return readLikedClips().has(key);
 }
 
-export function toggleClipLike(clipId: string): boolean {
+export function toggleLikedClip(clipId: string): boolean {
   if (typeof window === "undefined") return false;
   const key = normalizeClipId(clipId);
   if (!key) return false;

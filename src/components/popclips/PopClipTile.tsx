@@ -66,7 +66,7 @@ export function PopClipTile({
           }
         }}
         aria-label={`Abrir ${title}`}
-        className="relative aspect-[4/5] w-full cursor-pointer overflow-hidden focus:outline-none focus:ring-1 focus:ring-[color:var(--ring)]"
+        className="relative aspect-[10/13] w-full cursor-pointer overflow-hidden focus:outline-none focus:ring-1 focus:ring-[color:var(--ring)] sm:aspect-[3/4] md:aspect-[4/5]"
       >
         {showImage ? (
           <Image
@@ -113,7 +113,7 @@ export function PopClipTile({
             </div>
             <button
               type="button"
-              aria-label={isLiked ? "Quitar me gusta" : "Me gusta"}
+              aria-label={isLiked ? "Quitar me gusta" : "Dar me gusta"}
               aria-pressed={isLiked}
               onClick={(event) => {
                 event.preventDefault();
