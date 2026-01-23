@@ -2,7 +2,11 @@ import type { GetServerSideProps } from "next";
 
 export const getServerSideProps: GetServerSideProps = async (ctx) => {
   const handleParam = typeof ctx.params?.handle === "string" ? ctx.params.handle : "";
-  const normalized = slugify(handleParam);
+  const trimmedHandle = handleParam.trim();
+  if (!trimmedHandle || isFileLikeHandle(trimmedHandle)) {
+    return { notFound: true };
+  }
+  const normalized = slugify(trimmedHandle);
   const query = new URLSearchParams();
   Object.entries(ctx.query || {}).forEach(([key, value]) => {
     if (key === "handle") return;
@@ -18,7 +22,7 @@ export const getServerSideProps: GetServerSideProps = async (ctx) => {
   return {
     redirect: {
       destination: `/c/${normalized || "creator"}${search ? `?${search}` : ""}`,
-      permanent: true,
+      permanent: false,
     },
   };
 };
@@ -29,4 +33,22 @@ export default function LegacyHandleRedirect() {
 
 function slugify(value?: string | null) {
   return (value || "creator").toLowerCase().replace(/[^a-z0-9]+/g, "-");
+}
+
+const FILE_EXTENSIONS = [
+  ".jpg",
+  ".png",
+  ".svg",
+  ".ico",
+  ".txt",
+  ".xml",
+  ".webmanifest",
+  ".css",
+  ".js",
+];
+
+function isFileLikeHandle(handle: string) {
+  if (handle.includes(".")) return true;
+  const lower = handle.toLowerCase();
+  return FILE_EXTENSIONS.some((ext) => lower.endsWith(ext));
 }

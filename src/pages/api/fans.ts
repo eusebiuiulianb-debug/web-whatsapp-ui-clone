@@ -1,6 +1,7 @@
 import type { NextApiRequest, NextApiResponse } from "next";
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/server/prisma";
+import { slugifyHandle } from "@/lib/fan/session";
 import { getFollowUpTag, shouldFollowUpToday } from "../../utils/followUp";
 import {
   getExtraLadderStatusForFan,
@@ -211,6 +212,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
             data: {
               id: "creator-1",
               name: "Creator demo",
+              handle: slugifyHandle("Creator demo"),
               subtitle: "Demo",
               description: "Perfil demo generado automáticamente.",
             },

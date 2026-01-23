@@ -35,6 +35,10 @@ function addDays(base: Date, days: number) {
   return result;
 }
 
+function slugifyHandle(value?: string) {
+  return (value || "creator").toLowerCase().replace(/[^a-z0-9]+/g, "-");
+}
+
 const AGENCY_STAGES = [
   "NEW",
   "WARM_UP",
@@ -366,6 +370,7 @@ async function main() {
   const creatorData = {
     id: "creator-1",
     name: "Eusebiu",
+    handle: slugifyHandle("Eusebiu"),
     subtitle: "Responde en menos de 24h",
     description:
       "Bienvenido a mi espacio en NOVSY. Aquí comparto avances, envío audios personalizados y respondo tus ideas para crear contenido hecho a tu medida. Únete para acceder a sesiones 1:1, material exclusivo y priorizar tus pedidos.",
@@ -400,7 +405,7 @@ async function main() {
       subtitle: "Cálida y cercana, responde en el día",
       description:
         "Sesiones 1:1 para fans que buscan conversación auténtica, audio-notas y retos suaves. Sin prisas, pero con presencia.",
-      bioLinkAvatarUrl: "/avatar2.jpg",
+      bioLinkAvatarUrl: "/avatar.jpg",
     },
     {
       id: "creator-3",
@@ -408,7 +413,7 @@ async function main() {
       subtitle: "Directo y claro, con ideas accionables",
       description:
         "Te doy feedback honesto y guiones concretos. Ideal si quieres planes, retos y cero rodeos.",
-      bioLinkAvatarUrl: "/avatar3.png",
+      bioLinkAvatarUrl: "/avatar.jpg",
     },
     {
       id: "creator-4",
@@ -418,7 +423,7 @@ async function main() {
         "Experiencias premium: guías largas, sesiones planeadas y propuestas cuidadas para fans exigentes.",
       bioLinkAvatarUrl: "/avatar.jpg",
     },
-  ];
+  ].map((data) => ({ ...data, handle: slugifyHandle(data.name) }));
   const extraCreators = await Promise.all(
     extraCreatorsData.map((data) => {
       const { id, ...values } = data;
@@ -727,7 +732,7 @@ async function main() {
     {
       id: "javier",
       name: "Javier",
-      avatar: "/avatar3.png",
+      avatar: "/avatar.jpg",
       preview: "Necesito un poco más de contexto para grabarlo",
       time: "18:10",
       unreadCount: 1,
@@ -740,7 +745,7 @@ async function main() {
     {
       id: "lucia",
       name: "Lucía",
-      avatar: "/avatar2.jpg",
+      avatar: "/avatar.jpg",
       preview: "Te comparto un adelanto en exclusiva hoy",
       time: "12:48",
       unreadCount: 0,

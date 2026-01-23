@@ -1,6 +1,7 @@
 import type { NextApiRequest, NextApiResponse } from "next";
 import prisma from "../../../../lib/prisma.server";
 import { isFanDraftPreviewEnabled } from "../../../../lib/fanDraftPreview";
+import { slugifyHandle } from "../../../../lib/fan/session";
 import {
   onCreatorEvent,
   onCreatorTypingEvent,
@@ -92,6 +93,7 @@ async function resolveCreatorId() {
         data: {
           id: "creator-1",
           name: "Creator demo",
+          handle: slugifyHandle("Creator demo"),
           subtitle: "Demo",
           description: "Perfil demo generado automáticamente.",
         },

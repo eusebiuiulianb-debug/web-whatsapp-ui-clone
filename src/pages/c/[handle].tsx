@@ -1796,13 +1796,17 @@ export default function PublicCreatorByHandle({
 
 export const getServerSideProps: GetServerSideProps<Props> = async (ctx) => {
   const prisma = (await import("../../lib/prisma.server")).default;
-  const handleParam = typeof ctx.params?.handle === "string" ? ctx.params.handle : "";
+  const handleParam = typeof ctx.params?.handle === "string" ? ctx.params.handle.trim() : "";
   const locale = resolveLocale(ctx.req?.headers["accept-language"]);
-  const creators = await prisma.creator.findMany();
-  const match = creators.find((c) => slugify(c.name) === handleParam) || creators[0];
+  if (!handleParam) {
+    return { notFound: true };
+  }
+  const normalizedHandle = handleParam.toLowerCase();
+  const match = await prisma.creator.findUnique({ where: { handle: normalizedHandle } });
 
   const previewHandle = readPreviewHandle(ctx.req?.headers?.cookie);
-  const previewAllowed = Boolean(match && previewHandle && slugify(match.name) === previewHandle);
+  const creatorHandle = match?.handle || slugify(match?.name);
+  const previewAllowed = Boolean(match && previewHandle && creatorHandle === previewHandle);
   const profile = match ? await prisma.creatorProfile.findUnique({ where: { creatorId: match.id } }) : null;
   const visibilityMode = resolveVisibilityMode(profile?.visibilityMode);
   const showPreviewBanner = Boolean(match && previewAllowed && visibilityMode === "INVISIBLE");
@@ -1857,7 +1861,6 @@ export const getServerSideProps: GetServerSideProps<Props> = async (ctx) => {
     console.error("Error loading public stats", err);
   }
 
-  const creatorHandle = slugify(match.name);
   let followerCount = 0;
   let isFollowing = false;
   try {
@@ -1884,22 +1887,28 @@ export const getServerSideProps: GetServerSideProps<Props> = async (ctx) => {
   const trustLine = match.bioLinkTagline ?? match.subtitle ?? "";
   const bio = match.bioLinkDescription ?? match.description ?? "";
   const websiteUrl = profile?.websiteUrl ?? null;
+  const profilePayload = {
+    creatorId: match.id,
+    creatorName: match.name || "Creador",
+    creatorHandle,
+    avatarUrl,
+    bio,
+    subtitle: trustLine,
+    websiteUrl,
+  };
+  const contentPayload = {
+    catalogItems,
+    stats,
+  };
 
   return {
     props: {
-      creatorId: match.id,
-      creatorName: match.name || "Creador",
-      bio,
-      subtitle: trustLine,
-      avatarUrl,
-      creatorHandle,
+      ...profilePayload,
+      ...contentPayload,
       isCreatorViewer: previewAllowed,
-      websiteUrl,
-      stats,
       followerCount,
       isFollowing,
       location: mapLocation(profile),
-      catalogItems,
       catalogError,
       responseSla: profile?.responseSla ?? null,
       availability: profile?.availability ?? null,

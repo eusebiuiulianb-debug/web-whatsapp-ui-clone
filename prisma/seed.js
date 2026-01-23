@@ -289,6 +289,7 @@ async function main() {
     data: {
       id: "creator-1",
       name: "Eusebiu",
+      handle: "eusebiu",
       subtitle: "Responde en menos de 24h",
       description:
         "Bienvenido a mi espacio en NOVSY. Aquí comparto avances, envío audios personalizados y respondo tus ideas para crear contenido hecho a tu medida. Únete para acceder a sesiones 1:1, material exclusivo y priorizar tus pedidos.",
@@ -437,7 +438,7 @@ async function main() {
       data: {
         id: "javier",
         name: "Javier",
-        avatar: "avatar3.png",
+        avatar: "/avatar.jpg",
         preview: "Necesito un poco más de contexto para grabarlo",
         time: "18:10",
         unreadCount: 1,
@@ -452,7 +453,7 @@ async function main() {
       data: {
         id: "lucia",
         name: "Lucía",
-        avatar: "avatar2.jpg",
+        avatar: "/avatar.jpg",
         preview: "Te comparto un adelanto en exclusiva hoy",
         time: "12:48",
         unreadCount: 0,

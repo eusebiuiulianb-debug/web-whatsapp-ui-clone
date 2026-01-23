@@ -30,7 +30,7 @@ async function handleGet(res: NextApiResponse) {
       description: creator.description,
       avatarUrl: creator.bioLinkAvatarUrl || "",
       uiLocale: creator.uiLocale || "es",
-      handle: slugifyHandle(creator.name),
+      handle: creator.handle || slugifyHandle(creator.name),
     };
 
     const mappedPacks = creator.packs.map((pack) => ({
@@ -85,7 +85,7 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
       description: creator.description,
       avatarUrl: creator.bioLinkAvatarUrl || "",
       uiLocale: creator.uiLocale || "es",
-      handle: slugifyHandle(creator.name),
+      handle: creator.handle || slugifyHandle(creator.name),
     };
 
     const mappedPacks = creator.packs.map((pack) => ({

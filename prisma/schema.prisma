@@ -13,6 +13,7 @@ datasource db {
 model Creator {
   id                         String                      @id @default("creator-1")
   name                       String
+  handle                     String?                     @unique
   subtitle                   String
   uiLocale                   String                      @default("es")
   description                String
