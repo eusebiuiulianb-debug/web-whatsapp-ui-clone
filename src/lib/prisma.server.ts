@@ -30,6 +30,7 @@ function hasLatestModels(client: PrismaClient) {
     Boolean(anyClient?.campaignMeta?.create) &&
     Boolean(anyClient?.catalogItem?.create) &&
     Boolean(anyClient?.popClip?.create) &&
+    Boolean(anyClient?.popClipReport?.create) &&
     Boolean(anyClient?.rateLimitEvent?.create)
   );
 }

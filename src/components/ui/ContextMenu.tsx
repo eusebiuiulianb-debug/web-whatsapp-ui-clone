@@ -35,6 +35,7 @@ type ContextMenuProps = {
   buttonIconClassName?: string;
   renderButton?: (props: ContextMenuButtonRenderProps) => ReactNode;
   menuClassName?: string;
+  closeOnScroll?: boolean;
 };
 
 export function ContextMenu({
@@ -46,10 +47,12 @@ export function ContextMenu({
   buttonIconClassName,
   renderButton,
   menuClassName,
+  closeOnScroll = false,
 }: ContextMenuProps) {
   const [open, setOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement | null>(null);
   const buttonRef = useRef<HTMLButtonElement | null>(null);
+  const wasOpenRef = useRef(false);
   const hasItems = items.length > 0;
 
   useEffect(() => {
@@ -61,8 +64,8 @@ export function ContextMenu({
       if (buttonRef.current?.contains(target)) return;
       setOpen(false);
     };
-    document.addEventListener("mousedown", handleClickOutside);
-    return () => document.removeEventListener("mousedown", handleClickOutside);
+    document.addEventListener("pointerdown", handleClickOutside);
+    return () => document.removeEventListener("pointerdown", handleClickOutside);
   }, [open]);
 
   useEffect(() => {
@@ -74,6 +77,31 @@ export function ContextMenu({
     };
     document.addEventListener("keydown", handleKeyDown);
     return () => document.removeEventListener("keydown", handleKeyDown);
+  }, [open]);
+
+  useEffect(() => {
+    if (!open) return;
+    if (!closeOnScroll) return;
+    const handleScroll = () => setOpen(false);
+    window.addEventListener("scroll", handleScroll, true);
+    return () => window.removeEventListener("scroll", handleScroll, true);
+  }, [open, closeOnScroll]);
+
+  useEffect(() => {
+    if (open) {
+      wasOpenRef.current = true;
+      const firstItem = menuRef.current?.querySelector<HTMLButtonElement>(
+        '[role="menuitem"]:not([disabled])'
+      );
+      if (firstItem) {
+        firstItem.focus();
+        return;
+      }
+    }
+    if (!open && wasOpenRef.current) {
+      wasOpenRef.current = false;
+      buttonRef.current?.focus();
+    }
   }, [open]);
 
   if (!hasItems) return null;

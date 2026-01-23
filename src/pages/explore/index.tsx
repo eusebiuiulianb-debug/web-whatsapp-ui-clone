@@ -222,6 +222,95 @@ export default function Explore() {
     }, 2000);
   }, []);
 
+  const copyToClipboard = useCallback(async (value: string) => {
+    if (typeof navigator === "undefined") return false;
+    try {
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(value);
+        return true;
+      }
+      if (typeof document === "undefined") return false;
+      const textarea = document.createElement("textarea");
+      textarea.value = value;
+      textarea.style.position = "fixed";
+      textarea.style.opacity = "0";
+      document.body.appendChild(textarea);
+      textarea.focus();
+      textarea.select();
+      document.execCommand("copy");
+      document.body.removeChild(textarea);
+      return true;
+    } catch (_err) {
+      return false;
+    }
+  }, []);
+
+  const buildClipShareUrl = useCallback((item: PopClipFeedItem) => {
+    const path = `/c/${encodeURIComponent(item.creator.handle)}?popclip=${encodeURIComponent(item.id)}`;
+    if (typeof window === "undefined") return path;
+    return new URL(path, window.location.origin).toString();
+  }, []);
+
+  const handleCopyLink = useCallback(
+    async (item: PopClipFeedItem) => {
+      const url = buildClipShareUrl(item);
+      const copied = await copyToClipboard(url);
+      showToast(copied ? "Link copiado" : "No se pudo copiar el link.");
+    },
+    [buildClipShareUrl, copyToClipboard, showToast]
+  );
+
+  const handleShareLink = useCallback(
+    async (item: PopClipFeedItem) => {
+      const url = buildClipShareUrl(item);
+      if (typeof navigator !== "undefined" && navigator.share) {
+        try {
+          await navigator.share({
+            title: item.title?.trim() || "PopClip",
+            text: `PopClip de @${item.creator.handle}`,
+            url,
+          });
+          showToast("Compartido");
+          return;
+        } catch (_err) {
+          // fallback to copy
+        }
+      }
+      const copied = await copyToClipboard(url);
+      showToast(copied ? "Link copiado" : "No se pudo compartir.");
+    },
+    [buildClipShareUrl, copyToClipboard, showToast]
+  );
+
+  const handleReportClip = useCallback(
+    async (item: PopClipFeedItem) => {
+      try {
+        const res = await fetch(`/api/public/popclips/${item.id}/report`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({}),
+        });
+        if (!res.ok) {
+          const payload = (await res.json().catch(() => null)) as { retryAfterMs?: number } | null;
+          if (res.status === 429) {
+            showToast("Espera un momento antes de reportar.");
+            return;
+          }
+          if (payload?.retryAfterMs) {
+            showToast("Espera un momento antes de reportar.");
+            return;
+          }
+          showToast("No se pudo enviar el reporte.");
+          return;
+        }
+        showToast("Gracias, lo revisaremos.");
+      } catch (_err) {
+        showToast("No se pudo enviar el reporte.");
+      }
+    },
+    [showToast]
+  );
+
   const updateFeedSaveCount = useCallback((clipId: string, delta: number) => {
     setFeedItems((prev) =>
       prev.map((item) => {
@@ -720,6 +809,9 @@ export default function Explore() {
                       isSaved={savedClipSet.has(item.id)}
                       onToggleSave={() => void handleToggleSave(item)}
                       onOpenCaption={() => openCaptionSheet(item)}
+                      onCopyLink={() => void handleCopyLink(item)}
+                      onShare={() => void handleShareLink(item)}
+                      onReport={() => void handleReportClip(item)}
                     />
                   ))}
                 </div>
@@ -981,6 +1073,37 @@ function CaptionSheet({
   clip: PopClipFeedItem | null;
   onClose: () => void;
 }) {
+  const [isMounted, setIsMounted] = useState(open);
+  const [activeClip, setActiveClip] = useState<PopClipFeedItem | null>(clip);
+
+  useEffect(() => {
+    if (clip) setActiveClip(clip);
+  }, [clip]);
+
+  useEffect(() => {
+    if (open) {
+      setIsMounted(true);
+      return;
+    }
+    const timer = window.setTimeout(() => setIsMounted(false), 180);
+    return () => window.clearTimeout(timer);
+  }, [open]);
+
+  useEffect(() => {
+    if (!open) return;
+    const previousOverflow = document.body.style.overflow;
+    const previousPadding = document.body.style.paddingRight;
+    const scrollbarWidth = window.innerWidth - document.documentElement.clientWidth;
+    document.body.style.overflow = "hidden";
+    if (scrollbarWidth > 0) {
+      document.body.style.paddingRight = `${scrollbarWidth}px`;
+    }
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      document.body.style.paddingRight = previousPadding;
+    };
+  }, [open]);
+
   useEffect(() => {
     if (!open) return;
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -990,28 +1113,34 @@ function CaptionSheet({
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [open, onClose]);
 
-  if (!open || !clip) return null;
-  const title = clip.title?.trim() || "PopClip";
-  const caption = clip.caption?.trim() || "";
+  if (!isMounted || !activeClip) return null;
+  const title = activeClip.title?.trim() || "PopClip";
+  const caption = activeClip.caption?.trim() || "";
 
   return (
-    <div className="fixed inset-0 z-50">
+    <div className={clsx("fixed inset-0 z-50", open ? "pointer-events-auto" : "pointer-events-none")}>
       <div
-        className="absolute inset-0 bg-[color:var(--surface-overlay)]"
-        onClick={onClose}
-        aria-hidden="true"
+        className={clsx(
+          "absolute inset-0 bg-[color:var(--surface-overlay)] transition-opacity duration-200",
+          open ? "opacity-100" : "opacity-0"
+        )}
+        onClick={open ? onClose : undefined}
+        aria-hidden={!open}
       />
       <div
         role="dialog"
         aria-modal="true"
         aria-label={`Descripcion de ${title}`}
-        className="absolute inset-x-0 bottom-0 max-h-[80vh] overflow-y-auto rounded-t-3xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-4 pb-6 pt-4 text-[color:var(--text)] sm:mx-auto sm:max-w-2xl"
+        className={clsx(
+          "absolute inset-x-0 bottom-0 max-h-[80vh] overflow-y-auto rounded-t-3xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-4 pb-6 pt-4 text-[color:var(--text)] shadow-2xl transition duration-200 sm:mx-auto sm:max-w-2xl",
+          open ? "translate-y-0 opacity-100" : "translate-y-6 opacity-0"
+        )}
       >
         <div className="mx-auto mb-3 h-1.5 w-12 rounded-full bg-[color:var(--surface-2)]/80" />
         <div className="flex items-start justify-between gap-4">
           <div className="min-w-0">
             <div className="text-xs font-semibold uppercase tracking-[0.2em] text-[color:var(--muted)]">
-              @{clip.creator.handle}
+              @{activeClip.creator.handle}
             </div>
             <div className="mt-1 text-sm font-semibold text-[color:var(--text)]">{title}</div>
             <p className="mt-3 whitespace-pre-wrap text-sm text-[color:var(--muted)]">{caption}</p>

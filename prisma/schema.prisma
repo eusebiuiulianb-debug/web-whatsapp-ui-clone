@@ -133,6 +133,7 @@ model Fan {
   popClipReactions      PopClipReaction[]
   popClipComments       PopClipComment[]
   popClipSaves          PopClipSave[]
+  popClipReports        PopClipReport[]
   commentReplies        CommentReply[]
   accessRequests        AccessRequest[]
   fanBlocks             CreatorFanBlock[]
@@ -665,6 +666,7 @@ model PopClip {
   reactions     PopClipReaction[]
   comments      PopClipComment[]
   saves         PopClipSave[]
+  reports       PopClipReport[]
 
   @@unique([creatorId, catalogItemId])
   @@unique([creatorId, contentItemId])
@@ -709,6 +711,21 @@ model PopClipSave {
   @@unique([popClipId, fanId])
   @@index([popClipId])
   @@index([fanId])
+}
+
+model PopClipReport {
+  id        String   @id @default(cuid())
+  popClipId String
+  popClip   PopClip  @relation(fields: [popClipId], references: [id], onDelete: Cascade)
+  fanId     String?
+  fan       Fan?     @relation(fields: [fanId], references: [id], onDelete: SetNull)
+  reason    String?
+  createdAt DateTime @default(now())
+
+  @@unique([popClipId, fanId])
+  @@index([popClipId])
+  @@index([fanId])
+  @@index([popClipId, createdAt])
 }
 
 enum ManagerAiTab {

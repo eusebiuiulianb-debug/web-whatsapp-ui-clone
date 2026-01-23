@@ -1,10 +1,11 @@
 import clsx from "clsx";
-import { Bookmark, BookmarkCheck, MessageCircle } from "lucide-react";
+import { Bookmark, BookmarkCheck, MessageCircle, Sparkles } from "lucide-react";
 import Image from "next/image";
 import Link from "next/link";
 import { useState } from "react";
+import { ContextMenu, type ContextMenuItem } from "../ui/ContextMenu";
+import { IconGlyph } from "../ui/IconGlyph";
 import { normalizeImageSrc } from "../../utils/normalizeImageSrc";
-import { formatCount } from "../../utils/formatCount";
 
 type PopClipTileItem = {
   id: string;
@@ -32,6 +33,9 @@ type Props = {
   isSaved?: boolean;
   onToggleSave?: () => void;
   onOpenCaption?: () => void;
+  onCopyLink?: () => void;
+  onShare?: () => void;
+  onReport?: () => void;
 };
 
 export function PopClipTile({
@@ -42,6 +46,9 @@ export function PopClipTile({
   isSaved = false,
   onToggleSave,
   onOpenCaption,
+  onCopyLink,
+  onShare,
+  onReport,
 }: Props) {
   const [thumbFailed, setThumbFailed] = useState(false);
   const [avatarFailed, setAvatarFailed] = useState(false);
@@ -52,7 +59,8 @@ export function PopClipTile({
   const avatarSrc = item.creator.avatarUrl || "";
   const showAvatar = Boolean(avatarSrc) && !avatarFailed;
   const savesCount = Number.isFinite(item.savesCount ?? NaN) ? (item.savesCount as number) : 0;
-  const showSavesCount = savesCount > 0;
+  const showSavesCount = savesCount > 5;
+  const savesBadgeLabel = savesCount > 99 ? "99+" : String(savesCount);
   const showCaption = Boolean(caption);
   const showCaptionMore = caption.length > 80;
   const isFastResponder = Number.isFinite(item.creator.avgResponseHours ?? NaN)
@@ -63,6 +71,22 @@ export function PopClipTile({
     isFastResponder ? "Responde <24h" : "",
   ].filter(Boolean);
   const creatorInitial = item.creator.displayName?.trim()?.[0]?.toUpperCase() || "C";
+  const quickActions: ContextMenuItem[] = [];
+  if (onCopyLink) {
+    quickActions.push({ label: "Copiar link", icon: "link", onClick: onCopyLink });
+  }
+  if (onShare) {
+    quickActions.push({ label: "Compartir", icon: "send", onClick: onShare });
+  }
+  if (onReport) {
+    if (quickActions.length > 0) quickActions.push({ label: "divider", divider: true });
+    quickActions.push({
+      label: "Reportar",
+      icon: "alert",
+      onClick: onReport,
+      danger: true,
+    });
+  }
 
   return (
     <div className="group flex w-full flex-col overflow-hidden rounded-2xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] text-left shadow-sm transition duration-200 hover:-translate-y-0.5 hover:shadow-lg hover:shadow-[color:rgba(var(--brand-rgb),0.18)]">
@@ -90,8 +114,15 @@ export function PopClipTile({
             onError={() => setThumbFailed(true)}
           />
         ) : (
-          <div className="flex h-full w-full items-center justify-center bg-gradient-to-br from-[color:var(--surface-2)] to-[color:var(--surface-1)] text-xs font-semibold text-[color:var(--muted)]">
-            PopClip
+          <div className="relative flex h-full w-full items-center justify-center overflow-hidden bg-gradient-to-br from-[color:rgba(10,14,24,0.9)] via-[color:rgba(18,24,38,0.9)] to-[color:rgba(6,9,18,0.95)] text-white/60">
+            <div className="absolute inset-0 opacity-60">
+              <div className="absolute inset-0 bg-[radial-gradient(circle_at_top,rgba(255,255,255,0.14),transparent_55%)]" />
+              <div className="absolute inset-0 animate-pulse bg-[linear-gradient(120deg,transparent,rgba(255,255,255,0.16),transparent)]" />
+            </div>
+            <div className="relative flex flex-col items-center gap-1">
+              <Sparkles className="h-6 w-6 text-white/70" aria-hidden="true" />
+              <span className="text-[11px] font-semibold text-white/70">PopClip</span>
+            </div>
           </div>
         )}
         <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-black/45 via-black/10 to-transparent opacity-80 transition duration-200 md:opacity-70 md:group-hover:opacity-90" />
@@ -124,7 +155,32 @@ export function PopClipTile({
                 <span className="truncate text-xs font-semibold text-white">@{item.creator.handle}</span>
               </span>
             </Link>
-            <div className="relative">
+            <div className="flex items-center gap-2">
+              {quickActions.length > 0 ? (
+                <ContextMenu
+                  buttonAriaLabel="Acciones rápidas"
+                  items={quickActions}
+                  align="right"
+                  closeOnScroll
+                  menuClassName="right-auto left-1/2 -translate-x-1/2 min-w-[160px] w-[min(90vw,220px)] top-9 sm:left-auto sm:right-0 sm:translate-x-0 sm:top-7"
+                  renderButton={({ ref, onClick, ariaLabel, ariaExpanded, ariaHaspopup, title }) => (
+                    <button
+                      ref={ref}
+                      type="button"
+                      aria-label={ariaLabel}
+                      aria-expanded={ariaExpanded}
+                      aria-haspopup={ariaHaspopup}
+                      title={title}
+                      onClick={onClick}
+                      onPointerDown={(event) => event.stopPropagation()}
+                      className="pointer-events-auto inline-flex h-11 w-11 items-center justify-center rounded-full border border-white/15 bg-black/40 text-white/80 backdrop-blur-sm transition hover:bg-black/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--ring)] focus-visible:ring-offset-1 focus-visible:ring-offset-black/40"
+                    >
+                      <IconGlyph name="dots" ariaHidden />
+                    </button>
+                  )}
+                />
+              ) : null}
+              <div className="relative">
               <button
                 type="button"
                 aria-label={isSaved ? "Quitar guardado" : "Guardar clip"}
@@ -152,9 +208,10 @@ export function PopClipTile({
                   aria-hidden="true"
                   className="pointer-events-none absolute -right-1 -top-1 inline-flex h-5 min-w-[20px] items-center justify-center rounded-full border border-white/30 bg-black/70 px-1 text-[10px] font-semibold text-white"
                 >
-                  {formatCount(savesCount)}
+                  {savesBadgeLabel}
                 </span>
               ) : null}
+              </div>
             </div>
           </div>
         </div>
