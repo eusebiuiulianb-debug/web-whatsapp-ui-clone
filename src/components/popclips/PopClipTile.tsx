@@ -1,15 +1,19 @@
 import clsx from "clsx";
+import { Bookmark, BookmarkCheck } from "lucide-react";
 import Image from "next/image";
 import Link from "next/link";
 import { useState } from "react";
 import { normalizeImageSrc } from "../../utils/normalizeImageSrc";
+import { formatCount } from "../../utils/formatCount";
 
 type PopClipTileItem = {
   id: string;
   title?: string | null;
+  caption?: string | null;
   thumbnailUrl?: string | null;
   posterUrl?: string | null;
   previewImageUrl?: string | null;
+  savesCount?: number | null;
   creator: {
     handle: string;
     displayName: string;
@@ -25,8 +29,9 @@ type Props = {
   onOpen: () => void;
   profileHref: string;
   chatHref: string;
-  isLiked?: boolean;
-  onToggleLike?: () => void;
+  isSaved?: boolean;
+  onToggleSave?: () => void;
+  onOpenCaption?: () => void;
 };
 
 export function PopClipTile({
@@ -34,16 +39,22 @@ export function PopClipTile({
   onOpen,
   profileHref,
   chatHref,
-  isLiked = false,
-  onToggleLike,
+  isSaved = false,
+  onToggleSave,
+  onOpenCaption,
 }: Props) {
   const [thumbFailed, setThumbFailed] = useState(false);
   const [avatarFailed, setAvatarFailed] = useState(false);
   const title = item.title?.trim() || "PopClip";
+  const caption = (item.caption || "").trim() || item.title?.trim() || "";
   const previewSrc = item.thumbnailUrl || item.posterUrl || item.previewImageUrl || "";
   const showImage = Boolean(previewSrc) && !thumbFailed;
   const avatarSrc = item.creator.avatarUrl || "";
   const showAvatar = Boolean(avatarSrc) && !avatarFailed;
+  const savesCount = Number.isFinite(item.savesCount ?? NaN) ? (item.savesCount as number) : 0;
+  const showSavesCount = savesCount > 0;
+  const showCaption = Boolean(caption);
+  const showCaptionMore = caption.length > 80;
   const isFastResponder = Number.isFinite(item.creator.avgResponseHours ?? NaN)
     ? (item.creator.avgResponseHours as number) <= 24
     : false;
@@ -89,7 +100,7 @@ export function PopClipTile({
           <div
             className={clsx(
               "flex items-center justify-between gap-2 rounded-xl border px-2 py-1.5 backdrop-blur-sm",
-              isLiked ? "border-white/30 bg-black/60" : "border-white/10 bg-black/45"
+              isSaved ? "border-white/30 bg-black/60" : "border-white/10 bg-black/45"
             )}
           >
             <div className="flex min-w-0 items-center gap-2">
@@ -111,25 +122,61 @@ export function PopClipTile({
               </div>
               <span className="truncate text-xs font-semibold text-white">@{item.creator.handle}</span>
             </div>
-            <button
-              type="button"
-              aria-label={isLiked ? "Quitar me gusta" : "Dar me gusta"}
-              aria-pressed={isLiked}
-              onClick={(event) => {
-                event.preventDefault();
-                event.stopPropagation();
-                onToggleLike?.();
-              }}
-              onKeyDown={(event) => event.stopPropagation()}
-              className={clsx(
-                "inline-flex h-12 w-12 items-center justify-center rounded-full border text-white transition hover:bg-black/60 focus:outline-none focus:ring-1 focus:ring-white/40",
-                isLiked ? "border-white/40 bg-white/15" : "border-white/15 bg-black/40"
-              )}
-            >
-              <HeartIcon filled={isLiked} />
-            </button>
+            <div className="relative">
+              <button
+                type="button"
+                aria-label={isSaved ? "Quitar guardado" : "Guardar clip"}
+                aria-pressed={isSaved}
+                onClick={(event) => {
+                  event.preventDefault();
+                  event.stopPropagation();
+                  onToggleSave?.();
+                }}
+                onKeyDown={(event) => event.stopPropagation()}
+                className={clsx(
+                  "inline-flex h-12 w-12 items-center justify-center rounded-full border text-white transition hover:bg-black/60 focus:outline-none focus:ring-1 focus:ring-white/40",
+                  isSaved ? "border-white/40 bg-white/15" : "border-white/15 bg-black/40"
+                )}
+              >
+                {isSaved ? (
+                  <BookmarkCheck className="h-5 w-5 text-white" aria-hidden="true" />
+                ) : (
+                  <Bookmark className="h-5 w-5 text-white/80" aria-hidden="true" />
+                )}
+              </button>
+              {showSavesCount ? (
+                <span
+                  aria-hidden="true"
+                  className="pointer-events-none absolute -right-1 -top-1 inline-flex h-5 min-w-[20px] items-center justify-center rounded-full border border-white/30 bg-black/70 px-1 text-[10px] font-semibold text-white"
+                >
+                  {formatCount(savesCount)}
+                </span>
+              ) : null}
+            </div>
           </div>
         </div>
+        {showCaption ? (
+          <div className="pointer-events-none absolute inset-x-0 bottom-0 p-2.5 transition md:opacity-0 md:translate-y-2 md:group-hover:opacity-100 md:group-hover:translate-y-0">
+            <div className="rounded-xl border border-white/10 bg-black/45 px-3 py-2 text-[11px] text-white/90 backdrop-blur-sm">
+              <p className="line-clamp-2 leading-snug md:line-clamp-1">{caption}</p>
+              {showCaptionMore ? (
+                <button
+                  type="button"
+                  aria-label="Ver más"
+                  onClick={(event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    onOpenCaption?.();
+                  }}
+                  onKeyDown={(event) => event.stopPropagation()}
+                  className="pointer-events-auto mt-1 text-[11px] font-semibold text-white/80 underline decoration-white/40 underline-offset-2 transition hover:text-white focus:outline-none focus:ring-1 focus:ring-white/50"
+                >
+                  Ver más
+                </button>
+              ) : null}
+            </div>
+          </div>
+        ) : null}
       </div>
 
       <div className="flex flex-col gap-2 border-t border-white/10 bg-[color:rgba(8,12,20,0.85)] px-3 py-3 text-white/90">
@@ -163,21 +210,5 @@ export function PopClipTile({
         </div>
       </div>
     </div>
-  );
-}
-
-function HeartIcon({ filled }: { filled: boolean }) {
-  return (
-    <svg
-      viewBox="0 0 24 24"
-      className={filled ? "h-5 w-5 text-white" : "h-5 w-5 text-white/80"}
-      fill={filled ? "currentColor" : "none"}
-      stroke="currentColor"
-      strokeWidth={1.7}
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
-      <path d="M20.5 8.5c0 4.3-8.5 9.5-8.5 9.5s-8.5-5.2-8.5-9.5A4.5 4.5 0 0 1 8 4c1.7 0 3.2.9 4 2.2A4.7 4.7 0 0 1 16 4a4.5 4.5 0 0 1 4.5 4.5z" />
-    </svg>
   );
 }

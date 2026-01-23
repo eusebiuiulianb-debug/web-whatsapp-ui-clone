@@ -63,6 +63,15 @@ En Windows, si ves errores raros de `.next` (p. ej. `__webpack_require__.a is no
 
 Nota Windows: si `prisma generate`/`migrate` falla con `EPERM` al renombrar `query_engine`, cierra `npm run dev` y cualquier proceso Node antes de reintentar.
 
+### Windows: Prisma generate EPERM
+Si ves `EPERM ... query_engine-windows.dll.node`, suele ser Node/Defender bloqueando el archivo.
+Pasos rápidos:
+1. Detén `npm run dev`.
+2. PowerShell: `Get-Process node | Stop-Process -Force`
+3. `npm run prisma:generate:safe`
+4. Si persiste, añade una exclusión en Windows Defender para la carpeta del proyecto.
+Nota: usa `npx` (no `px`) cuando ejecutes Prisma manualmente.
+
 ## Traducción (LibreTranslate local)
 1. `npm run lt:up`
 2. Abre `http://127.0.0.1:5000` para verificar que responde.

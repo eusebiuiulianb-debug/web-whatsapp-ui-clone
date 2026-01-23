@@ -1,2 +1,1 @@
--- AlterTable
-ALTER TABLE "PopClip" ADD COLUMN "isStory" BOOLEAN NOT NULL DEFAULT false;
+-- No-op: "isStory" already added in 20260123013923_name_add_popclip_saves.

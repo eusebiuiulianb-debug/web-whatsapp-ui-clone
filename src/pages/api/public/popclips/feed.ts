@@ -9,6 +9,7 @@ import { slugifyHandle } from "../../../../lib/fan/session";
 type PopClipFeedItem = {
   id: string;
   title: string | null;
+  caption?: string | null;
   thumbnailUrl: string | null;
   durationSec: number | null;
   createdAt: string;
@@ -25,6 +26,7 @@ type PopClipFeedItem = {
     likeCount: number;
     commentCount: number;
   };
+  savesCount?: number;
   distanceKm?: number | null;
 };
 
@@ -42,8 +44,10 @@ const DISCOVERABLE_VISIBILITY = ["PUBLIC", "DISCOVERABLE"] as const;
 const CLIP_SELECT = {
   id: true,
   title: true,
+  caption: true,
   posterUrl: true,
   durationSec: true,
+  savesCount: true,
   createdAt: true,
   creator: {
     select: {
@@ -232,10 +236,12 @@ function mapFeedItems(items: FeedClipRow[], userLocation: { lat: number; lng: nu
     return {
       id: clip.id,
       title: clip.title ?? null,
+      caption: clip.caption ?? clip.title ?? null,
       thumbnailUrl: clip.posterUrl ?? null,
       posterUrl: clip.posterUrl ?? null,
       durationSec: clip.durationSec ?? null,
       createdAt: clip.createdAt.toISOString(),
+      savesCount: clip.savesCount ?? 0,
       creator: {
         handle,
         displayName: creatorName,

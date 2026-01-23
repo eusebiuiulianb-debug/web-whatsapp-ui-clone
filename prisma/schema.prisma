@@ -132,6 +132,7 @@ model Fan {
   extraPurchases        ExtraPurchase[]
   popClipReactions      PopClipReaction[]
   popClipComments       PopClipComment[]
+  popClipSaves          PopClipSave[]
   commentReplies        CommentReply[]
   accessRequests        AccessRequest[]
   fanBlocks             CreatorFanBlock[]
@@ -646,6 +647,7 @@ model PopClip {
   contentItemId String?
   contentItem   ContentItem? @relation(fields: [contentItemId], references: [id])
   title         String?
+  caption       String?
   videoUrl      String
   posterUrl     String?
   startAtSec    Int          @default(0)
@@ -653,6 +655,7 @@ model PopClip {
   videoWidth    Int?
   videoHeight   Int?
   videoSizeBytes Int?
+  savesCount    Int          @default(0)
   isActive      Boolean      @default(true)
   isArchived    Boolean      @default(false)
   isStory       Boolean      @default(false)
@@ -661,6 +664,7 @@ model PopClip {
   updatedAt     DateTime     @updatedAt
   reactions     PopClipReaction[]
   comments      PopClipComment[]
+  saves         PopClipSave[]
 
   @@unique([creatorId, catalogItemId])
   @@unique([creatorId, contentItemId])
@@ -692,6 +696,19 @@ model PopClipComment {
   @@index([popClipId])
   @@index([fanId])
   @@index([popClipId, createdAt])
+}
+
+model PopClipSave {
+  id        String   @id @default(cuid())
+  popClipId String
+  popClip   PopClip  @relation(fields: [popClipId], references: [id], onDelete: Cascade)
+  fanId     String
+  fan       Fan      @relation(fields: [fanId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  @@unique([popClipId, fanId])
+  @@index([popClipId])
+  @@index([fanId])
 }
 
 enum ManagerAiTab {

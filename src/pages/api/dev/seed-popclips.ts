@@ -46,6 +46,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       const creator = creators[i % creators.length];
       const handle = slugifyHandle(creator.name || "creator");
       const label = `PopClip demo ${created + 1}`;
+      const caption =
+        "PopClip demo para explorar el feed de IntimiPop. Clips breves, directos y listos para abrir chat.";
       const posterUrl = `https://picsum.photos/seed/intimipop-${handle}-${created + 1}/600/800`;
 
       const catalogItem = await prisma.catalogItem.create({
@@ -67,6 +69,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           creatorId: creator.id,
           catalogItemId: catalogItem.id,
           title: label,
+          caption,
           videoUrl: DEMO_VIDEO_URL,
           posterUrl,
           durationSec: 18 + (created % 6) * 4,

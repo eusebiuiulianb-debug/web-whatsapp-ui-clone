@@ -2,6 +2,7 @@ import Head from "next/head";
 import Image from "next/image";
 import Link from "next/link";
 import clsx from "clsx";
+import { Bookmark } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { HomeCategorySheet, type HomeCategory } from "../../components/home/HomeCategorySheet";
 import { HomeFilterSheet } from "../../components/home/HomeFilterSheet";
@@ -13,7 +14,7 @@ import { PillButton } from "../../components/ui/PillButton";
 import { Skeleton } from "../../components/ui/Skeleton";
 import { useRouter } from "next/router";
 import { countActiveFilters, parseHomeFilters, toHomeFiltersQuery, type HomeFilters } from "../../lib/homeFilters";
-import { getLikedClips, toggleLikedClip } from "../../lib/likes";
+import { getSavedClips, toggleSavedClip } from "../../lib/saves";
 import { normalizeImageSrc } from "../../utils/normalizeImageSrc";
 
 const FEED_PAGE_SIZE = 24;
@@ -35,11 +36,13 @@ type RecommendedCreator = {
 type PopClipFeedItem = {
   id: string;
   title?: string | null;
+  caption?: string | null;
   thumbnailUrl?: string | null;
   posterUrl?: string | null;
   previewImageUrl?: string | null;
   durationSec?: number | null;
   createdAt: string;
+  savesCount?: number | null;
   creator: {
     handle: string;
     displayName: string;
@@ -118,7 +121,7 @@ const HOW_IT_WORKS_STEPS = [
   {
     id: "save",
     title: "Guarda",
-    description: "Guarda clips que te gustan para volver rápido cuando quieras.",
+    description: "Guarda clips para volver rápido cuando te encajen.",
     icon: "gift" as const,
   },
   {
@@ -146,9 +149,11 @@ export default function Explore() {
   const [seedLoading, setSeedLoading] = useState(false);
   const [seedError, setSeedError] = useState("");
   const [seedKey, setSeedKey] = useState(0);
-  const [likedClips, setLikedClips] = useState<string[]>([]);
-  const [likesOnly, setLikesOnly] = useState(false);
+  const [savedClips, setSavedClips] = useState<string[]>([]);
+  const [savedOnly, setSavedOnly] = useState(false);
   const [hydrated, setHydrated] = useState(false);
+  const [captionSheetClip, setCaptionSheetClip] = useState<PopClipFeedItem | null>(null);
+  const [captionSheetOpen, setCaptionSheetOpen] = useState(false);
   const [toastMessage, setToastMessage] = useState("");
   const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [recommendedCreators, setRecommendedCreators] = useState<RecommendedCreator[]>([]);
@@ -181,7 +186,7 @@ export default function Explore() {
     const params = new URLSearchParams(toHomeFiltersQuery(filters));
     return params.toString();
   }, [filters]);
-  const likedClipSet = useMemo(() => new Set(likedClips), [likedClips]);
+  const savedClipSet = useMemo(() => new Set(savedClips), [savedClips]);
   const hasLocation = useMemo(
     () => Number.isFinite(filters.lat ?? NaN) && Number.isFinite(filters.lng ?? NaN),
     [filters.lat, filters.lng]
@@ -195,7 +200,7 @@ export default function Explore() {
   }, [search]);
 
   useEffect(() => {
-    setLikedClips(getLikedClips());
+    setSavedClips(getSavedClips());
     setHydrated(true);
   }, []);
 
@@ -217,14 +222,68 @@ export default function Explore() {
     }, 2000);
   }, []);
 
-  const handleToggleLike = useCallback(
-    (clipId: string) => {
-      const isNowLiked = toggleLikedClip(clipId);
-      setLikedClips(getLikedClips());
-      showToast(isNowLiked ? "Te gusta este clip" : "Ya no te gusta");
+  const updateFeedSaveCount = useCallback((clipId: string, delta: number) => {
+    setFeedItems((prev) =>
+      prev.map((item) => {
+        if (item.id !== clipId) return item;
+        const currentCount = Number.isFinite(item.savesCount ?? NaN) ? (item.savesCount as number) : 0;
+        const nextCount = Math.max(0, currentCount + delta);
+        return { ...item, savesCount: nextCount };
+      })
+    );
+  }, []);
+
+  const handleToggleSave = useCallback(
+    async (item: PopClipFeedItem) => {
+      const wasSaved = savedClipSet.has(item.id);
+      const nextSaved = !wasSaved;
+      const delta = nextSaved ? 1 : -1;
+
+      toggleSavedClip(item.id);
+      setSavedClips(getSavedClips());
+      updateFeedSaveCount(item.id, delta);
+      showToast(nextSaved ? "Guardado" : "Quitado de guardados");
+
+      try {
+        const res = await fetch(`/api/public/popclips/${item.id}/save`, {
+          method: nextSaved ? "POST" : "DELETE",
+        });
+        const payload = (await res.json().catch(() => null)) as
+          | { ok?: boolean; isSaved?: boolean; savesCount?: number }
+          | null;
+        if (!res.ok || !payload || typeof payload.savesCount !== "number") {
+          throw new Error("save_failed");
+        }
+
+        setFeedItems((prev) =>
+          prev.map((clip) =>
+            clip.id === item.id ? { ...clip, savesCount: payload.savesCount } : clip
+          )
+        );
+
+        if (typeof payload.isSaved === "boolean" && payload.isSaved !== nextSaved) {
+          toggleSavedClip(item.id);
+          setSavedClips(getSavedClips());
+        }
+      } catch (_err) {
+        toggleSavedClip(item.id);
+        setSavedClips(getSavedClips());
+        updateFeedSaveCount(item.id, -delta);
+        showToast("No se pudo actualizar guardados.");
+      }
     },
-    [showToast]
+    [savedClipSet, showToast, updateFeedSaveCount]
   );
+
+  const openCaptionSheet = useCallback((item: PopClipFeedItem) => {
+    setCaptionSheetClip(item);
+    setCaptionSheetOpen(true);
+  }, []);
+
+  const closeCaptionSheet = useCallback(() => {
+    setCaptionSheetOpen(false);
+    setCaptionSheetClip(null);
+  }, []);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -266,12 +325,12 @@ export default function Explore() {
   );
   const normalizedSearch = debouncedSearch.toLowerCase();
   const filteredFeedItems = useMemo(() => {
-    if (!selectedCategory && !normalizedSearch && !likesOnly) return feedItems;
+    if (!selectedCategory && !normalizedSearch && !savedOnly) return feedItems;
     return feedItems.filter((item) => {
-      if (likesOnly && !likedClipSet.has(item.id)) return false;
-      const haystack = `${item.title || ""} ${item.creator.displayName} ${item.creator.handle} ${
-        item.creator.locationLabel || ""
-      }`.toLowerCase();
+      if (savedOnly && !savedClipSet.has(item.id)) return false;
+      const haystack = `${item.title || ""} ${item.caption || ""} ${item.creator.displayName} ${
+        item.creator.handle
+      } ${item.creator.locationLabel || ""}`.toLowerCase();
       if (selectedCategory) {
         const keywords = selectedCategory.keywords.map((word) => word.toLowerCase());
         if (!keywords.some((keyword) => haystack.includes(keyword))) return false;
@@ -279,7 +338,7 @@ export default function Explore() {
       if (!normalizedSearch) return true;
       return haystack.includes(normalizedSearch);
     });
-  }, [feedItems, selectedCategory, normalizedSearch, likesOnly, likedClipSet]);
+  }, [feedItems, selectedCategory, normalizedSearch, savedOnly, savedClipSet]);
   const filteredCreators = useMemo(() => {
     return recommendedCreators.filter((creator) => {
       if (selectedCategory) {
@@ -294,11 +353,11 @@ export default function Explore() {
   }, [recommendedCreators, selectedCategory, normalizedSearch]);
 
   const showFeedEmpty = !feedLoading && !feedError && filteredFeedItems.length === 0;
-  const likedCount = likedClips.length;
-  const likesEmpty = likesOnly && likedCount === 0;
-  const likesNoMatch = likesOnly && likedCount > 0;
-  const showLikesCount = hydrated && (likesOnly || likedCount > 0);
-  const likesLabel = showLikesCount ? `Me gusta · ${likedCount}` : "Me gusta";
+  const savedCount = savedClips.length;
+  const savedEmpty = savedOnly && savedCount === 0;
+  const savedNoMatch = savedOnly && savedCount > 0;
+  const showSavedCount = hydrated && (savedOnly || savedCount > 0);
+  const savedLabel = showSavedCount ? `Guardados · ${savedCount}` : "Guardados";
   const showCreatorsEmpty =
     !creatorsLoading && !creatorsError && filteredCreators.length === 0;
 
@@ -510,12 +569,12 @@ export default function Explore() {
                     Categorías
                   </PillButton>
                   <PillButton
-                    intent={likesOnly ? "primary" : "secondary"}
+                    intent={savedOnly ? "primary" : "secondary"}
                     size="sm"
-                    aria-pressed={likesOnly}
-                    onClick={() => setLikesOnly((prev) => !prev)}
+                    aria-pressed={savedOnly}
+                    onClick={() => setSavedOnly((prev) => !prev)}
                   >
-                    {likesLabel}
+                    {savedLabel}
                   </PillButton>
                   <PillButton
                     intent="secondary"
@@ -585,36 +644,25 @@ export default function Explore() {
                 {feedError}
               </div>
             ) : showFeedEmpty ? (
-              likesEmpty ? (
-                <div className="mx-auto w-full max-w-md rounded-2xl border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] p-6 text-[color:var(--muted)] sm:p-8">
+              savedEmpty ? (
+                <div className="mx-auto w-full max-w-md rounded-2xl border border-[color:var(--surface-border)] bg-[color:rgba(17,24,39,0.75)] p-6 text-[color:var(--muted)] shadow-lg shadow-black/20 backdrop-blur-sm sm:p-8">
                   <div className="flex items-start gap-3">
-                    <span className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] text-[color:var(--text)]">
-                      <svg
-                        viewBox="0 0 24 24"
-                        className="h-5 w-5"
-                        fill="none"
-                        stroke="currentColor"
-                        strokeWidth={1.7}
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        aria-hidden="true"
-                      >
-                        <path d="M20.5 8.5c0 4.3-8.5 9.5-8.5 9.5s-8.5-5.2-8.5-9.5A4.5 4.5 0 0 1 8 4c1.7 0 3.2.9 4 2.2A4.7 4.7 0 0 1 16 4a4.5 4.5 0 0 1 4.5 4.5z" />
-                      </svg>
+                    <span className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-[color:rgba(var(--brand-rgb),0.3)] bg-[color:rgba(var(--brand-rgb),0.12)] text-[color:var(--text)]">
+                      <Bookmark className="h-5 w-5" aria-hidden="true" />
                     </span>
                     <div className="space-y-1">
                       <div className="text-sm font-semibold text-[color:var(--text)]">
-                        Aún no te gusta ningún clip
+                        Aún no has guardado clips
                       </div>
                       <div className="text-xs text-[color:var(--muted)]">
-                        Explora y toca el corazón para verlo aquí.
+                        Guarda clips para volver rápido cuando te encajen.
                       </div>
                     </div>
                   </div>
                   <div className="mt-5 flex flex-wrap items-center gap-2">
                     <button
                       type="button"
-                      onClick={() => setLikesOnly(false)}
+                      onClick={() => setSavedOnly(false)}
                       aria-label="Ver todo"
                       className="inline-flex items-center justify-center rounded-full bg-[color:var(--brand-strong)] px-4 py-2 text-xs font-semibold text-white hover:bg-[color:var(--brand)] focus:outline-none focus:ring-1 focus:ring-[color:var(--ring)]"
                     >
@@ -622,7 +670,7 @@ export default function Explore() {
                     </button>
                     <button
                       type="button"
-                      onClick={() => setLikesOnly(false)}
+                      onClick={() => setSavedOnly(false)}
                       aria-label="Quitar filtro"
                       className="inline-flex items-center justify-center text-xs font-semibold text-[color:var(--muted)] underline-offset-2 hover:text-[color:var(--text)] hover:underline focus:outline-none focus:ring-1 focus:ring-[color:var(--ring)]"
                     >
@@ -632,15 +680,15 @@ export default function Explore() {
                 </div>
               ) : (
                 <div className="flex flex-col items-start gap-3 rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] p-4 text-[color:var(--muted)]">
-                  {likesNoMatch ? (
-                    <span className="text-sm">No hay clips con me gusta y estos filtros.</span>
+                  {savedNoMatch ? (
+                    <span className="text-sm">No hay clips guardados con estos filtros.</span>
                   ) : (
                     <span className="text-sm">Aún no hay PopClips. Prueba a quitar filtros o vuelve más tarde.</span>
                   )}
-                  {likesOnly ? (
+                  {savedOnly ? (
                     <button
                       type="button"
-                      onClick={() => setLikesOnly(false)}
+                      onClick={() => setSavedOnly(false)}
                       className="inline-flex items-center justify-center rounded-full bg-[color:var(--brand-strong)] px-4 py-2 text-xs font-semibold text-white hover:bg-[color:var(--brand)] focus:outline-none focus:ring-1 focus:ring-[color:var(--ring)]"
                     >
                       Ver todo
@@ -669,8 +717,9 @@ export default function Explore() {
                       onOpen={() => openPopclip(item)}
                       profileHref={`/c/${encodeURIComponent(item.creator.handle)}`}
                       chatHref={appendReturnTo(`/go/${encodeURIComponent(item.creator.handle)}`, router.asPath)}
-                      isLiked={likedClipSet.has(item.id)}
-                      onToggleLike={() => handleToggleLike(item.id)}
+                      isSaved={savedClipSet.has(item.id)}
+                      onToggleSave={() => void handleToggleSave(item)}
+                      onOpenCaption={() => openCaptionSheet(item)}
                     />
                   ))}
                 </div>
@@ -691,7 +740,7 @@ export default function Explore() {
           </HomeSectionCard>
           </div>
 
-          {(showFeedEmpty || feedError) && !likesOnly ? (
+          {(showFeedEmpty || feedError) && !savedOnly ? (
             <HomeSectionCard
               title="Creadores recomendados"
               subtitle="Basado en actividad y señales públicas."
@@ -774,6 +823,11 @@ export default function Explore() {
             setOpenLocationPicker(false);
           }}
           openLocationOnMount={openLocationPicker}
+        />
+        <CaptionSheet
+          open={captionSheetOpen}
+          clip={captionSheetClip}
+          onClose={closeCaptionSheet}
         />
       </div>
     </>
@@ -916,4 +970,71 @@ function formatResponseHours(hours?: number | null) {
   const rounded = Math.round(hours as number);
   if (rounded <= 24) return "Responde <24h";
   return `Resp. ~${rounded}h`;
+}
+
+function CaptionSheet({
+  open,
+  clip,
+  onClose,
+}: {
+  open: boolean;
+  clip: PopClipFeedItem | null;
+  onClose: () => void;
+}) {
+  useEffect(() => {
+    if (!open) return;
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [open, onClose]);
+
+  if (!open || !clip) return null;
+  const title = clip.title?.trim() || "PopClip";
+  const caption = clip.caption?.trim() || "";
+
+  return (
+    <div className="fixed inset-0 z-50">
+      <div
+        className="absolute inset-0 bg-[color:var(--surface-overlay)]"
+        onClick={onClose}
+        aria-hidden="true"
+      />
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-label={`Descripcion de ${title}`}
+        className="absolute inset-x-0 bottom-0 max-h-[80vh] overflow-y-auto rounded-t-3xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-4 pb-6 pt-4 text-[color:var(--text)] sm:mx-auto sm:max-w-2xl"
+      >
+        <div className="mx-auto mb-3 h-1.5 w-12 rounded-full bg-[color:var(--surface-2)]/80" />
+        <div className="flex items-start justify-between gap-4">
+          <div className="min-w-0">
+            <div className="text-xs font-semibold uppercase tracking-[0.2em] text-[color:var(--muted)]">
+              @{clip.creator.handle}
+            </div>
+            <div className="mt-1 text-sm font-semibold text-[color:var(--text)]">{title}</div>
+            <p className="mt-3 whitespace-pre-wrap text-sm text-[color:var(--muted)]">{caption}</p>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="Cerrar descripcion"
+            className="inline-flex h-9 w-9 flex-none items-center justify-center rounded-full border border-[color:var(--surface-border)] text-[color:var(--muted)] hover:text-[color:var(--text)] focus:outline-none focus:ring-1 focus:ring-[color:var(--ring)]"
+          >
+            X
+          </button>
+        </div>
+        <div className="mt-6 flex justify-end">
+          <button
+            type="button"
+            onClick={onClose}
+            className="inline-flex h-9 items-center justify-center rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-4 text-xs font-semibold text-[color:var(--text)] hover:bg-[color:var(--surface-2)] focus:outline-none focus:ring-1 focus:ring-[color:var(--ring)]"
+          >
+            Cerrar
+          </button>
+        </div>
+      </div>
+    </div>
+  );
 }
