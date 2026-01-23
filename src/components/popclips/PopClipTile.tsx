@@ -1,5 +1,5 @@
 import clsx from "clsx";
-import { Bookmark, BookmarkCheck } from "lucide-react";
+import { Bookmark, BookmarkCheck, MessageCircle } from "lucide-react";
 import Image from "next/image";
 import Link from "next/link";
 import { useState } from "react";
@@ -97,35 +97,38 @@ export function PopClipTile({
         <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-black/45 via-black/10 to-transparent opacity-80 transition duration-200 md:opacity-70 md:group-hover:opacity-90" />
 
         <div className="absolute inset-x-0 top-0 p-2.5">
-          <div
-            className={clsx(
-              "flex items-center justify-between gap-2 rounded-xl border px-2 py-1.5 backdrop-blur-sm",
-              isSaved ? "border-white/30 bg-black/60" : "border-white/10 bg-black/45"
-            )}
-          >
-            <div className="flex min-w-0 items-center gap-2">
-              <div className="h-7 w-7 shrink-0 overflow-hidden rounded-full border border-white/20 bg-white/10">
-                {showAvatar ? (
-                  <Image
-                    src={normalizeImageSrc(avatarSrc)}
-                    alt={item.creator.displayName}
-                    width={28}
-                    height={28}
-                    className="h-full w-full object-cover"
-                    onError={() => setAvatarFailed(true)}
-                  />
-                ) : (
-                  <div className="flex h-full w-full items-center justify-center text-xs font-semibold text-white">
-                    {creatorInitial}
-                  </div>
-                )}
-              </div>
-              <span className="truncate text-xs font-semibold text-white">@{item.creator.handle}</span>
-            </div>
+          <div className="flex items-center justify-between gap-2">
+            <Link
+              href={profileHref}
+              onClick={(event) => event.stopPropagation()}
+              aria-label={`Ver perfil de @${item.creator.handle}`}
+              className="inline-flex min-w-0 items-center gap-2 rounded-full border border-white/10 bg-black/45 px-2 py-1.5 text-white backdrop-blur-sm transition hover:bg-black/60"
+            >
+              <span className="inline-flex min-w-0 items-center gap-2">
+                <span className="h-7 w-7 shrink-0 overflow-hidden rounded-full border border-white/20 bg-white/10">
+                  {showAvatar ? (
+                    <Image
+                      src={normalizeImageSrc(avatarSrc)}
+                      alt={item.creator.displayName}
+                      width={28}
+                      height={28}
+                      className="h-full w-full object-cover"
+                      onError={() => setAvatarFailed(true)}
+                    />
+                  ) : (
+                    <span className="flex h-full w-full items-center justify-center text-xs font-semibold text-white">
+                      {creatorInitial}
+                    </span>
+                  )}
+                </span>
+                <span className="truncate text-xs font-semibold text-white">@{item.creator.handle}</span>
+              </span>
+            </Link>
             <div className="relative">
               <button
                 type="button"
                 aria-label={isSaved ? "Quitar guardado" : "Guardar clip"}
+                title={isSaved ? "Quitar guardado" : "Guardar clip"}
                 aria-pressed={isSaved}
                 onClick={(event) => {
                   event.preventDefault();
@@ -134,7 +137,7 @@ export function PopClipTile({
                 }}
                 onKeyDown={(event) => event.stopPropagation()}
                 className={clsx(
-                  "inline-flex h-12 w-12 items-center justify-center rounded-full border text-white transition hover:bg-black/60 focus:outline-none focus:ring-1 focus:ring-white/40",
+                  "inline-flex h-11 w-11 items-center justify-center rounded-full border text-white backdrop-blur-sm transition hover:bg-black/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--ring)] focus-visible:ring-offset-1 focus-visible:ring-offset-black/40",
                   isSaved ? "border-white/40 bg-white/15" : "border-white/15 bg-black/40"
                 )}
               >
@@ -192,18 +195,20 @@ export function PopClipTile({
             ))}
           </div>
         ) : null}
-        <div className="flex gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <Link
             href={chatHref}
             onClick={(event) => event.stopPropagation()}
-            className="inline-flex h-11 flex-1 items-center justify-center rounded-full border border-[color:var(--brand-strong)] bg-[color:var(--brand-strong)] px-4 text-[12px] font-semibold text-white shadow-sm transition hover:bg-[color:var(--brand)]"
+            aria-label="Abrir chat"
+            title="Abrir chat"
+            className="inline-flex h-11 w-11 items-center justify-center rounded-full border border-[color:var(--brand-strong)] bg-[color:var(--brand-strong)] text-white shadow-sm transition hover:bg-[color:var(--brand)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--ring)] focus-visible:ring-offset-1 focus-visible:ring-offset-black/40"
           >
-            Abrir chat
+            <MessageCircle className="h-5 w-5" aria-hidden="true" />
           </Link>
           <Link
             href={profileHref}
             onClick={(event) => event.stopPropagation()}
-            className="inline-flex h-11 flex-1 items-center justify-center rounded-full border border-white/20 bg-white/10 px-4 text-[12px] font-semibold text-white/90 transition hover:bg-white/20"
+            className="inline-flex h-11 min-w-[140px] flex-1 items-center justify-center rounded-full border border-white/20 bg-white/10 px-4 text-[12px] font-semibold text-white/90 transition hover:bg-white/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--ring)] focus-visible:ring-offset-1 focus-visible:ring-offset-black/40"
           >
             Ver perfil
           </Link>
