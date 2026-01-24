@@ -719,6 +719,42 @@ model PopClipSave {
   @@index([fanId])
 }
 
+enum SavedItemType {
+  POPCLIP
+  PACK
+  CREATOR
+}
+
+model SavedCollection {
+  id        String   @id @default(cuid())
+  userId    String
+  name      String
+  isPrivate Boolean  @default(true)
+  sortOrder Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  items     SavedItem[]
+
+  @@index([userId, sortOrder])
+  @@unique([userId, name])
+}
+
+model SavedItem {
+  id           String        @id @default(cuid())
+  userId       String
+  type         SavedItemType
+  entityId     String
+  collectionId String?
+  createdAt    DateTime      @default(now())
+
+  collection   SavedCollection? @relation(fields: [collectionId], references: [id], onDelete: SetNull)
+
+  @@unique([userId, type, entityId])
+  @@index([userId, createdAt])
+  @@index([userId, collectionId])
+}
+
 model PopClipReport {
   id        String   @id @default(cuid())
   popClipId String

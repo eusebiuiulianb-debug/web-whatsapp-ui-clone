@@ -2,6 +2,7 @@ import clsx from "clsx";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Skeleton } from "../ui/Skeleton";
 import { PublicCatalogCard, type PublicCatalogCardItem } from "./PublicCatalogCard";
+import { SavedOrganizerSheet } from "../saved/SavedOrganizerSheet";
 
 type CatalogFilter = "all" | "pack" | "sub" | "extra" | "popclip";
 
@@ -21,6 +22,8 @@ type PopClipComment = {
 type ToastState = {
   message: string;
   href?: string;
+  actionLabel?: string;
+  onAction?: () => void;
 };
 
 const DEFAULT_FILTERS: Array<{ id: CatalogFilter; label: string }> = [
@@ -98,6 +101,10 @@ export function PublicCatalogGrid({
   const [commentSending, setCommentSending] = useState(false);
   const [commentAccessBlocked, setCommentAccessBlocked] = useState(false);
   const [authHref, setAuthHref] = useState("");
+  const [savedMap, setSavedMap] = useState<Record<string, { savedItemId: string; collectionId: string | null }>>({});
+  const [organizerOpen, setOrganizerOpen] = useState(false);
+  const [organizerItemId, setOrganizerItemId] = useState<string | null>(null);
+  const [organizerCollectionId, setOrganizerCollectionId] = useState<string | null>(null);
 
   useEffect(() => {
     if (!resolvedFilters.some((filter) => filter.id === activeFilter)) {
@@ -162,11 +169,143 @@ export function PublicCatalogGrid({
     });
   }, [normalizedPopclips]);
 
-  const showToast = useCallback((message: string, href?: string) => {
-    setToast({ message, href });
-    if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
-    toastTimerRef.current = setTimeout(() => setToast(null), 2200);
+  const showToast = useCallback(
+    (message: string, options?: { href?: string; actionLabel?: string; onAction?: () => void }) => {
+      setToast({ message, href: options?.href, actionLabel: options?.actionLabel, onAction: options?.onAction });
+      if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
+      toastTimerRef.current = setTimeout(() => setToast(null), 2400);
+    },
+    []
+  );
+
+  const openOrganizer = useCallback((savedItemId: string | null, collectionId: string | null) => {
+    if (!savedItemId) return;
+    setOrganizerItemId(savedItemId);
+    setOrganizerCollectionId(collectionId ?? null);
+    setOrganizerOpen(true);
   }, []);
+
+  const refreshSavedMap = useCallback(async () => {
+    const res = await fetch("/api/saved/items?type=PACK");
+    if (res.status === 401) {
+      setSavedMap({});
+      return;
+    }
+    const payload = (await res.json().catch(() => null)) as
+      | { items?: Array<{ id: string; entityId: string; collectionId?: string | null }> }
+      | null;
+    if (!res.ok || !payload || !Array.isArray(payload.items)) {
+      setSavedMap({});
+      return;
+    }
+    const nextMap: Record<string, { savedItemId: string; collectionId: string | null }> = {};
+    payload.items.forEach((entry) => {
+      if (!entry?.entityId || !entry?.id) return;
+      nextMap[String(entry.entityId)] = {
+        savedItemId: String(entry.id),
+        collectionId: entry.collectionId ?? null,
+      };
+    });
+    setSavedMap(nextMap);
+  }, []);
+
+  useEffect(() => {
+    if (items.length === 0) {
+      setSavedMap({});
+      return;
+    }
+    void refreshSavedMap();
+  }, [items, refreshSavedMap]);
+
+  const handleOrganizerMoved = useCallback(
+    (collectionId: string | null) => {
+      if (!organizerItemId) return;
+      setSavedMap((prev) => {
+        const next = { ...prev };
+        for (const [entityId, info] of Object.entries(prev)) {
+          if (info.savedItemId === organizerItemId) {
+            next[entityId] = { ...info, collectionId };
+            break;
+          }
+        }
+        return next;
+      });
+    },
+    [organizerItemId]
+  );
+
+  const handleToggleCatalogSave = useCallback(
+    async (item: PublicCatalogCardItem) => {
+      const current = savedMap[item.id];
+      const wasSaved = Boolean(current);
+      const nextSaved = !wasSaved;
+      const tempId = `temp-pack-${item.id}`;
+
+      setSavedMap((prev) => {
+        if (nextSaved) {
+          return {
+            ...prev,
+            [item.id]: { savedItemId: tempId, collectionId: null },
+          };
+        }
+        const next = { ...prev };
+        delete next[item.id];
+        return next;
+      });
+
+      try {
+        const res = await fetch("/api/saved/toggle", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ type: "PACK", entityId: item.id }),
+        });
+        const payload = (await res.json().catch(() => null)) as
+          | { saved?: boolean; savedItemId?: string; collectionId?: string | null }
+          | null;
+        if (!res.ok || !payload || typeof payload.saved !== "boolean") {
+          if (res.status === 401) {
+            throw new Error("auth_required");
+          }
+          throw new Error("save_failed");
+        }
+        if (payload.saved !== nextSaved) {
+          await refreshSavedMap();
+        } else if (payload.saved && payload.savedItemId) {
+          setSavedMap((prev) => ({
+            ...prev,
+            [item.id]: {
+              savedItemId: payload.savedItemId as string,
+              collectionId: payload.collectionId ?? null,
+            },
+          }));
+          showToast("Guardado", {
+            actionLabel: "Organizar",
+            onAction: () => openOrganizer(payload.savedItemId || null, payload.collectionId ?? null),
+          });
+        } else if (!payload.saved) {
+          showToast("Quitado de guardados");
+        }
+      } catch (err) {
+        setSavedMap((prev) => {
+          if (nextSaved) {
+            const next = { ...prev };
+            delete next[item.id];
+            return next;
+          }
+          return {
+            ...prev,
+            [item.id]: current ?? { savedItemId: tempId, collectionId: null },
+          };
+        });
+        if (err instanceof Error && err.message === "auth_required") {
+          showToast("Inicia sesion para guardar.");
+        } else {
+          showToast("No se pudo actualizar guardados.");
+        }
+      }
+    },
+    [openOrganizer, refreshSavedMap, savedMap, showToast]
+  );
 
   useEffect(() => {
     if (!activeCommentClip) {
@@ -243,19 +382,19 @@ export function PublicCatalogGrid({
   const showLikeAuthToast = () => {
     const resolvedHref =
       authHref || (typeof window !== "undefined" ? buildAuthHref(chatHref, window.location) : chatHref);
-    showToast("Entra al chat para dar like", resolvedHref);
+    showToast("Entra al chat para dar like", { href: resolvedHref });
   };
 
   const showCommentAuthToast = () => {
     const resolvedHref =
       authHref || (typeof window !== "undefined" ? buildAuthHref(chatHref, window.location) : chatHref);
-    showToast("Para comentar, entra al chat privado.", resolvedHref);
+    showToast("Para comentar, entra al chat privado.", { href: resolvedHref });
   };
 
   const showCommentAccessToast = () => {
     const resolvedHref =
       authHref || (typeof window !== "undefined" ? buildAuthHref(chatHref, window.location) : chatHref);
-    showToast("Necesitas acceso activo.", resolvedHref);
+    showToast("Necesitas acceso activo.", { href: resolvedHref });
   };
 
   const handleOpenChat = async () => {
@@ -522,12 +661,21 @@ export function PublicCatalogGrid({
   const renderGrid = (gridItems: PublicCatalogCardItem[]) => (
     <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
       {gridItems.map((item) => {
+        const shouldShowSave = item.kind !== "popclip";
+        const savedMeta = shouldShowSave ? savedMap[item.id] : undefined;
+        const cardItem: PublicCatalogCardItem = {
+          ...item,
+          showSave: shouldShowSave,
+          isSaved: shouldShowSave ? Boolean(savedMeta) : undefined,
+          onToggleSave: shouldShowSave ? () => void handleToggleCatalogSave(item) : undefined,
+        };
+
         const card = item.href ? (
           <a key={item.id} href={item.href} className="block min-w-0">
-            <PublicCatalogCard item={item} />
+            <PublicCatalogCard item={cardItem} />
           </a>
         ) : (
-          <PublicCatalogCard key={item.id} item={item} />
+          <PublicCatalogCard key={item.id} item={cardItem} />
         );
 
         if (item.kind !== "popclip") return card;
@@ -585,14 +733,28 @@ export function PublicCatalogGrid({
         </div>
       )}
       {toast && (
-        <div className="text-xs text-[color:var(--brand)]">
+        <div className="flex flex-wrap items-center gap-2 text-xs text-[color:var(--brand)]">
           {toast.href ? (
             <a href={toast.href} className="underline underline-offset-2">
               {toast.message}
             </a>
           ) : (
-            toast.message
+            <span>{toast.message}</span>
           )}
+          {toast.actionLabel ? (
+            <button
+              type="button"
+              onClick={() => {
+                const action = toast.onAction;
+                setToast(null);
+                if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
+                action?.();
+              }}
+              className="rounded-full border border-[color:rgba(var(--brand-rgb),0.4)] px-2 py-0.5 text-[10px] font-semibold text-[color:var(--brand)] hover:border-[color:rgba(var(--brand-rgb),0.7)]"
+            >
+              {toast.actionLabel}
+            </button>
+          ) : null}
         </div>
       )}
 
@@ -757,6 +919,18 @@ export function PublicCatalogGrid({
           </div>
         </div>
       )}
+
+      <SavedOrganizerSheet
+        open={organizerOpen}
+        savedItemId={organizerItemId}
+        currentCollectionId={organizerCollectionId}
+        onClose={() => {
+          setOrganizerOpen(false);
+          setOrganizerItemId(null);
+          setOrganizerCollectionId(null);
+        }}
+        onMoved={handleOrganizerMoved}
+      />
     </section>
   );
 }

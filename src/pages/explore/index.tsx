@@ -2,7 +2,7 @@ import Head from "next/head";
 import Image from "next/image";
 import Link from "next/link";
 import clsx from "clsx";
-import { Bookmark, Clock, Search, X } from "lucide-react";
+import { Bookmark, BookmarkCheck, Clock, Search, X } from "lucide-react";
 import {
   useCallback,
   useEffect,
@@ -22,13 +22,15 @@ import { PillButton } from "../../components/ui/PillButton";
 import { Skeleton } from "../../components/ui/Skeleton";
 import { useRouter } from "next/router";
 import { countActiveFilters, parseHomeFilters, toHomeFiltersQuery, type HomeFilters } from "../../lib/homeFilters";
-import { getSavedClips, normalizeSavedClipIds, toggleSavedClip, writeSavedClips } from "../../lib/saves";
 import { subscribeCreatorStatusUpdates } from "../../lib/creatorStatusEvents";
 import { normalizeImageSrc } from "../../utils/normalizeImageSrc";
+import { SavedOrganizerSheet } from "../../components/saved/SavedOrganizerSheet";
+import { SavedCollectionCreateSheet } from "../../components/saved/SavedCollectionCreateSheet";
 
 const FEED_PAGE_SIZE = 24;
 const FEED_SKELETON_COUNT = 12;
 type RecommendedCreator = {
+  id: string;
   handle: string;
   displayName: string;
   avatarUrl?: string | null;
@@ -67,6 +69,26 @@ type PopClipFeedItem = {
     commentCount?: number;
   };
   distanceKm?: number | null;
+};
+
+type SavedItemType = "POPCLIP" | "PACK" | "CREATOR";
+
+type SavedPreviewItem = {
+  id: string;
+  type: SavedItemType;
+  entityId: string;
+  collectionId: string | null;
+  createdAt: string;
+  title: string;
+  subtitle: string | null;
+  thumbUrl: string | null;
+  href: string | null;
+};
+
+type SavedCollection = {
+  id: string;
+  name: string;
+  count: number;
 };
 
 type ExploreIntent = "all" | "saved" | "popclips" | "packs" | "chat";
@@ -230,19 +252,32 @@ export default function Explore() {
   const [seedLoading, setSeedLoading] = useState(false);
   const [seedError, setSeedError] = useState("");
   const [seedKey, setSeedKey] = useState(0);
-  const [savedClips, setSavedClips] = useState<string[]>([]);
-  const [savedItems, setSavedItems] = useState<PopClipFeedItem[]>([]);
-  const [savedLoading, setSavedLoading] = useState(false);
-  const [savedError, setSavedError] = useState("");
+  const [savedItemsAll, setSavedItemsAll] = useState<SavedPreviewItem[]>([]);
+  const [savedItemsLoading, setSavedItemsLoading] = useState(false);
+  const [savedItemsError, setSavedItemsError] = useState("");
+  const [savedPopclips, setSavedPopclips] = useState<PopClipFeedItem[]>([]);
+  const [savedPopclipsLoading, setSavedPopclipsLoading] = useState(false);
+  const [savedPopclipsError, setSavedPopclipsError] = useState("");
+  const [savedCollections, setSavedCollections] = useState<SavedCollection[]>([]);
+  const [savedCollectionsLoading, setSavedCollectionsLoading] = useState(false);
+  const [savedCollectionsError, setSavedCollectionsError] = useState("");
+  const [createCollectionOpen, setCreateCollectionOpen] = useState(false);
+  const [savedView, setSavedView] = useState<"all" | "collections">("all");
+  const [activeCollectionId, setActiveCollectionId] = useState<string | null>(null);
+  const [collectionItems, setCollectionItems] = useState<SavedPreviewItem[]>([]);
+  const [collectionItemsLoading, setCollectionItemsLoading] = useState(false);
+  const [collectionItemsError, setCollectionItemsError] = useState("");
   const [savedOnly, setSavedOnly] = useState(false);
   const [exploreIntent, setExploreIntent] = useState<ExploreIntent>("all");
   const [hydrated, setHydrated] = useState(false);
   const [captionSheetClip, setCaptionSheetClip] = useState<PopClipFeedItem | null>(null);
   const [captionSheetOpen, setCaptionSheetOpen] = useState(false);
-  const [toastMessage, setToastMessage] = useState("");
+  const [toast, setToast] = useState<{ message: string; actionLabel?: string; onAction?: () => void } | null>(null);
   const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const savedValidationRef = useRef(false);
   const savedQueryRef = useRef(false);
+  const [organizerOpen, setOrganizerOpen] = useState(false);
+  const [organizerItemId, setOrganizerItemId] = useState<string | null>(null);
+  const [organizerCollectionId, setOrganizerCollectionId] = useState<string | null>(null);
   const heroSearchWrapperRef = useRef<HTMLDivElement | null>(null);
   const mobileSearchWrapperRef = useRef<HTMLDivElement | null>(null);
   const stickySearchWrapperRef = useRef<HTMLDivElement | null>(null);
@@ -287,7 +322,32 @@ export default function Explore() {
     const params = new URLSearchParams(toHomeFiltersQuery(filters));
     return params.toString();
   }, [filters]);
-  const savedClipSet = useMemo(() => new Set(savedClips), [savedClips]);
+  const savedPopclipIds = useMemo(
+    () => savedItemsAll.filter((item) => item.type === "POPCLIP").map((item) => item.entityId),
+    [savedItemsAll]
+  );
+  const savedPopclipSet = useMemo(() => new Set(savedPopclipIds), [savedPopclipIds]);
+  const savedOtherItems = useMemo(
+    () => savedItemsAll.filter((item) => item.type !== "POPCLIP"),
+    [savedItemsAll]
+  );
+  const savedCollectionCoverMap = useMemo(() => {
+    const map = new Map<string, SavedPreviewItem>();
+    savedItemsAll.forEach((item) => {
+      if (!item.collectionId) return;
+      if (map.has(item.collectionId)) return;
+      map.set(item.collectionId, item);
+    });
+    return map;
+  }, [savedItemsAll]);
+  const activeCollection = useMemo(
+    () => savedCollections.find((collection) => collection.id === activeCollectionId) ?? null,
+    [activeCollectionId, savedCollections]
+  );
+  const savedCreatorSet = useMemo(() => {
+    const ids = savedItemsAll.filter((item) => item.type === "CREATOR").map((item) => item.entityId);
+    return new Set(ids);
+  }, [savedItemsAll]);
   const hasLocation = useMemo(
     () => Number.isFinite(filters.lat ?? NaN) && Number.isFinite(filters.lng ?? NaN),
     [filters.lat, filters.lng]
@@ -357,6 +417,40 @@ export default function Explore() {
     clearQueryFilters();
   }, [clearQueryFilters]);
 
+  const updateSavedQuery = useCallback(
+    (options: { saved: boolean; view?: "all" | "collections"; collectionId?: string | null }) => {
+      const baseQuery = sanitizeQuery(router.query);
+      if (!options.saved) {
+        delete baseQuery.saved;
+        delete baseQuery.view;
+        delete baseQuery.collectionId;
+        void router.push({ pathname: "/explore", query: baseQuery }, undefined, { shallow: true });
+        return;
+      }
+      baseQuery.saved = "1";
+      if (options.view === "collections" || options.collectionId) {
+        baseQuery.view = "collections";
+      } else {
+        delete baseQuery.view;
+      }
+      if (options.collectionId) {
+        baseQuery.collectionId = options.collectionId;
+      } else {
+        delete baseQuery.collectionId;
+      }
+      void router.push({ pathname: "/explore", query: baseQuery }, undefined, { shallow: true });
+    },
+    [router]
+  );
+
+  const exitSavedView = useCallback(() => {
+    setSavedOnly(false);
+    setExploreIntent("all");
+    setSavedView("all");
+    setActiveCollectionId(null);
+    updateSavedQuery({ saved: false });
+  }, [updateSavedQuery]);
+
   const scrollToExploreBy = () => {
     if (typeof window === "undefined") return false;
     const target = document.getElementById("explore-by");
@@ -414,6 +508,8 @@ export default function Explore() {
     if (value !== "popclips") return;
     setExploreIntent("popclips");
     setSavedOnly(false);
+    setSavedView("all");
+    setActiveCollectionId(null);
     scrollToPopclips();
     const nextQuery = sanitizeQuery(router.query);
     delete nextQuery.mode;
@@ -428,7 +524,6 @@ export default function Explore() {
   }, [search]);
 
   useEffect(() => {
-    setSavedClips(getSavedClips());
     setHydrated(true);
   }, []);
 
@@ -452,21 +547,27 @@ export default function Explore() {
 
   useEffect(() => {
     if (!router.isReady) return;
-    const raw = router.query.saved;
-    const value = Array.isArray(raw) ? raw[0] : raw;
-    const savedByQuery = value === "1" || value === "true";
+    const savedValue = pickQueryValue(router.query.saved);
+    const savedByQuery = savedValue === "1" || savedValue === "true";
     if (savedByQuery) {
       savedQueryRef.current = true;
+      const viewValue = pickQueryValue(router.query.view);
+      const collectionValue = pickQueryValue(router.query.collectionId);
+      const nextView = viewValue === "collections" || collectionValue ? "collections" : "all";
       setSavedOnly(true);
       setExploreIntent("saved");
+      setSavedView(nextView);
+      setActiveCollectionId(collectionValue || null);
       return;
     }
     if (savedQueryRef.current) {
       savedQueryRef.current = false;
       setSavedOnly(false);
       setExploreIntent("all");
+      setSavedView("all");
+      setActiveCollectionId(null);
     }
-  }, [router.isReady, router.query.saved]);
+  }, [router.isReady, router.query.collectionId, router.query.saved, router.query.view]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -548,15 +649,19 @@ export default function Explore() {
     };
   }, [closeSearchPanel, router.events]);
 
-  const showToast = useCallback((message: string) => {
-    setToastMessage(message);
-    if (toastTimerRef.current) {
-      clearTimeout(toastTimerRef.current);
-    }
-    toastTimerRef.current = setTimeout(() => {
-      setToastMessage("");
-    }, 2000);
-  }, []);
+  const showToast = useCallback(
+    (message: string, options?: { actionLabel?: string; onAction?: () => void; durationMs?: number }) => {
+      setToast({ message, actionLabel: options?.actionLabel, onAction: options?.onAction });
+      if (toastTimerRef.current) {
+        clearTimeout(toastTimerRef.current);
+      }
+      const duration = options?.durationMs ?? 2400;
+      toastTimerRef.current = setTimeout(() => {
+        setToast(null);
+      }, duration);
+    },
+    []
+  );
 
   const persistRecentSearch = useCallback((value: string) => {
     const trimmed = value.trim();
@@ -622,16 +727,34 @@ export default function Explore() {
       setExploreIntent(intent);
       if (intent === "saved") {
         setSavedOnly(true);
+        setSavedView("all");
+        setActiveCollectionId(null);
+        updateSavedQuery({ saved: true, view: "all" });
         scrollToPopclips();
       } else if (intent === "popclips") {
         setSavedOnly(false);
+        setSavedView("all");
+        setActiveCollectionId(null);
+        if (savedOnly) {
+          updateSavedQuery({ saved: false });
+        }
         scrollToPopclips();
       } else if (intent === "chat") {
         setSavedOnly(false);
+        setSavedView("all");
+        setActiveCollectionId(null);
+        if (savedOnly) {
+          updateSavedQuery({ saved: false });
+        }
         setSearch("chat");
         scrollToPopclips();
       } else if (intent === "packs") {
         setSavedOnly(false);
+        setSavedView("all");
+        setActiveCollectionId(null);
+        if (savedOnly) {
+          updateSavedQuery({ saved: false });
+        }
         const scrolled = scrollToPacks();
         if (!scrolled) {
           void navigateToPacks().then((navigated) => {
@@ -641,12 +764,23 @@ export default function Explore() {
           });
         }
       } else {
+        setSavedView("all");
+        setActiveCollectionId(null);
         scrollToExploreBy();
       }
       closeSearchPanel();
       focusSearchInput({ suppressOpen: true });
     },
-    [closeSearchPanel, focusSearchInput, navigateToPacks, scrollToExploreBy, scrollToPacks, scrollToPopclips]
+    [
+      closeSearchPanel,
+      focusSearchInput,
+      navigateToPacks,
+      savedOnly,
+      scrollToExploreBy,
+      scrollToPacks,
+      scrollToPopclips,
+      updateSavedQuery,
+    ]
   );
 
   const runSearchAction = useCallback((action: SearchAction, options?: { focus?: boolean }) => {
@@ -656,67 +790,193 @@ export default function Explore() {
     focusSearchInput({ suppressOpen: true });
   }, [closeSearchPanel, focusSearchInput]);
 
-  const syncSavedClips = useCallback((ids: unknown[]) => {
-    const normalized = writeSavedClips(ids);
-    setSavedClips((prev) => (areStringArraysEqual(prev, normalized) ? prev : normalized));
-    return normalized;
-  }, [writeSavedClips]);
+  const openOrganizer = useCallback((savedItemId: string | null, collectionId: string | null) => {
+    if (!savedItemId) return;
+    setOrganizerItemId(savedItemId);
+    setOrganizerCollectionId(collectionId ?? null);
+    setOrganizerOpen(true);
+  }, []);
 
-  const loadSavedItems = useCallback(
-    async (ids: string[]) => {
-      const normalizedIds = normalizeSavedClipIds(ids);
-      if (!areStringArraysEqual(ids, normalizedIds)) {
-        syncSavedClips(normalizedIds);
-      }
-      if (normalizedIds.length === 0) {
-        setSavedItems([]);
-        setSavedError("");
+  const refreshSavedItems = useCallback(async (options?: { silent?: boolean }) => {
+    if (!options?.silent) {
+      setSavedItemsLoading(true);
+    }
+    setSavedItemsError("");
+    try {
+      const res = await fetch("/api/saved/items");
+      if (res.status === 401) {
+        setSavedItemsAll([]);
         return;
       }
+      const payload = (await res.json().catch(() => null)) as { items?: SavedPreviewItem[] } | null;
+      if (!res.ok || !payload || !Array.isArray(payload.items)) {
+        setSavedItemsAll([]);
+        setSavedItemsError("No se pudieron cargar tus guardados.");
+        return;
+      }
+      setSavedItemsAll(payload.items);
+    } catch (_err) {
+      setSavedItemsAll([]);
+      setSavedItemsError("No se pudieron cargar tus guardados.");
+    } finally {
+      if (!options?.silent) {
+        setSavedItemsLoading(false);
+      }
+    }
+  }, []);
 
-      setSavedLoading(true);
-      setSavedError("");
+  const refreshSavedPopclips = useCallback(async (ids: string[], options?: { silent?: boolean }) => {
+    if (!options?.silent) {
+      setSavedPopclipsLoading(true);
+    }
+    setSavedPopclipsError("");
+    if (ids.length === 0) {
+      setSavedPopclips([]);
+      if (!options?.silent) {
+        setSavedPopclipsLoading(false);
+      }
+      return;
+    }
+    try {
+      const res = await fetch("/api/public/popclips/by-ids", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ids }),
+      });
+      const payload = (await res.json().catch(() => null)) as { items?: PopClipFeedItem[] } | null;
+      if (!res.ok || !payload || !Array.isArray(payload.items)) {
+        setSavedPopclips([]);
+        setSavedPopclipsError("No se pudieron cargar tus PopClips guardados.");
+        return;
+      }
+      setSavedPopclips(payload.items);
+    } catch (_err) {
+      setSavedPopclips([]);
+      setSavedPopclipsError("No se pudieron cargar tus PopClips guardados.");
+    } finally {
+      if (!options?.silent) {
+        setSavedPopclipsLoading(false);
+      }
+    }
+  }, []);
+
+  const refreshSavedCollections = useCallback(async (options?: { silent?: boolean }) => {
+    if (!options?.silent) {
+      setSavedCollectionsLoading(true);
+    }
+    setSavedCollectionsError("");
+    try {
+      const res = await fetch("/api/saved/collections");
+      if (res.status === 401) {
+        setSavedCollections([]);
+        return;
+      }
+      const payload = (await res.json().catch(() => null)) as { items?: SavedCollection[] } | null;
+      if (!res.ok || !payload || !Array.isArray(payload.items)) {
+        setSavedCollections([]);
+        setSavedCollectionsError("No se pudieron cargar las colecciones.");
+        return;
+      }
+      setSavedCollections(payload.items);
+    } catch (_err) {
+      setSavedCollections([]);
+      setSavedCollectionsError("No se pudieron cargar las colecciones.");
+    } finally {
+      if (!options?.silent) {
+        setSavedCollectionsLoading(false);
+      }
+    }
+  }, []);
+
+  const loadCollectionItems = useCallback(
+    async (collectionId: string | null, options?: { silent?: boolean }) => {
+      if (!collectionId) {
+        setCollectionItems([]);
+        setCollectionItemsError("");
+        return;
+      }
+      if (!options?.silent) {
+        setCollectionItemsLoading(true);
+      }
+      setCollectionItemsError("");
       try {
-        const res = await fetch("/api/public/popclips/by-ids", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ ids: normalizedIds }),
-        });
-        const payload = (await res.json().catch(() => null)) as { items?: PopClipFeedItem[] } | null;
-        if (!res.ok || !payload || !Array.isArray(payload.items)) {
-          setSavedItems([]);
-          setSavedError("No se pudieron cargar tus guardados.");
+        const res = await fetch(`/api/saved/items?collectionId=${encodeURIComponent(collectionId)}`);
+        if (res.status === 401) {
+          setCollectionItems([]);
           return;
         }
-        const items = payload.items;
-        setSavedItems(items);
-        const validIds = items.map((item) => item.id);
-        if (!areStringArraysEqual(normalizedIds, validIds)) {
-          syncSavedClips(validIds);
+        const payload = (await res.json().catch(() => null)) as { items?: SavedPreviewItem[] } | null;
+        if (!res.ok || !payload || !Array.isArray(payload.items)) {
+          setCollectionItems([]);
+          setCollectionItemsError("No se pudieron cargar los guardados.");
+          return;
         }
+        setCollectionItems(payload.items);
       } catch (_err) {
-        setSavedItems([]);
-        setSavedError("No se pudieron cargar tus guardados.");
+        setCollectionItems([]);
+        setCollectionItemsError("No se pudieron cargar los guardados.");
       } finally {
-        setSavedLoading(false);
+        if (!options?.silent) {
+          setCollectionItemsLoading(false);
+        }
       }
     },
-    [syncSavedClips]
+    []
+  );
+
+  const handleOrganizerMoved = useCallback(
+    (collectionId: string | null) => {
+      if (!organizerItemId) return;
+      setSavedItemsAll((prev) =>
+        prev.map((item) => (item.id === organizerItemId ? { ...item, collectionId } : item))
+      );
+      void refreshSavedCollections({ silent: true });
+      if (savedView === "collections" && activeCollectionId) {
+        void loadCollectionItems(activeCollectionId, { silent: true });
+      }
+    },
+    [activeCollectionId, organizerItemId, refreshSavedCollections, loadCollectionItems, savedView]
+  );
+
+  const handleCollectionCreated = useCallback(
+    (collection: SavedCollection) => {
+      setSavedCollections((prev) => {
+        if (prev.some((item) => item.id === collection.id)) return prev;
+        return [{ ...collection }, ...prev];
+      });
+      setSavedOnly(true);
+      setExploreIntent("saved");
+      setSavedView("collections");
+      setActiveCollectionId(collection.id);
+      updateSavedQuery({ saved: true, view: "collections", collectionId: collection.id });
+    },
+    [updateSavedQuery]
   );
 
   useEffect(() => {
     if (!hydrated) return;
-    if (savedValidationRef.current) return;
-    savedValidationRef.current = true;
-    if (savedClips.length > 0) {
-      void loadSavedItems(savedClips);
-    }
-  }, [hydrated, loadSavedItems, savedClips]);
+    void refreshSavedItems();
+  }, [hydrated, refreshSavedItems]);
 
   useEffect(() => {
     if (!hydrated || !savedOnly) return;
-    void loadSavedItems(savedClips);
-  }, [hydrated, loadSavedItems, savedClips, savedOnly]);
+    void refreshSavedItems({ silent: true });
+  }, [hydrated, refreshSavedItems, savedOnly]);
+
+  useEffect(() => {
+    if (!hydrated || !savedOnly || savedView !== "all") return;
+    void refreshSavedPopclips(savedPopclipIds);
+  }, [hydrated, refreshSavedPopclips, savedOnly, savedPopclipIds, savedView]);
+
+  useEffect(() => {
+    if (!hydrated || !savedOnly || savedView !== "collections") return;
+    void refreshSavedCollections();
+  }, [hydrated, refreshSavedCollections, savedOnly, savedView]);
+
+  useEffect(() => {
+    if (!hydrated || !savedOnly || savedView !== "collections") return;
+    void loadCollectionItems(activeCollectionId);
+  }, [activeCollectionId, hydrated, loadCollectionItems, savedOnly, savedView]);
 
   const copyToClipboard = useCallback(async (value: string) => {
     if (typeof navigator === "undefined") return false;
@@ -820,49 +1080,175 @@ export default function Explore() {
 
   const handleToggleSave = useCallback(
     async (item: PopClipFeedItem) => {
-      const wasSaved = savedClipSet.has(item.id);
+      const wasSaved = savedPopclipSet.has(item.id);
       const nextSaved = !wasSaved;
       const delta = nextSaved ? 1 : -1;
+      const tempId = `temp-popclip-${item.id}`;
 
-      toggleSavedClip(item.id);
-      setSavedClips(getSavedClips());
-      if (savedOnly) {
-        setSavedItems((prev) =>
-          nextSaved ? mergeUniqueFeedItems([...prev, item]) : prev.filter((clip) => clip.id !== item.id)
-        );
-      }
+      setSavedItemsAll((prev) => {
+        if (nextSaved) {
+          const preview: SavedPreviewItem = {
+            id: tempId,
+            type: "POPCLIP",
+            entityId: item.id,
+            collectionId: null,
+            createdAt: new Date().toISOString(),
+            title: (item.title || item.caption || "PopClip").trim() || "PopClip",
+            subtitle: `@${item.creator.handle}`,
+            thumbUrl: item.posterUrl ?? item.thumbnailUrl ?? item.creator.avatarUrl ?? null,
+            href: `/c/${encodeURIComponent(item.creator.handle)}?popclip=${encodeURIComponent(item.id)}`,
+          };
+          return [preview, ...prev];
+        }
+        return prev.filter((entry) => !(entry.type === "POPCLIP" && entry.entityId === item.id));
+      });
       updateFeedSaveCount(item.id, delta);
-      showToast(nextSaved ? "Guardado" : "Quitado de guardados");
 
       try {
-        const res = await fetch(`/api/public/popclips/${item.id}/save`, {
-          method: nextSaved ? "POST" : "DELETE",
+        const res = await fetch("/api/saved/toggle", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ type: "POPCLIP", entityId: item.id }),
         });
         const payload = (await res.json().catch(() => null)) as
-          | { ok?: boolean; isSaved?: boolean; savesCount?: number }
+          | { saved?: boolean; savedItemId?: string; collectionId?: string | null }
           | null;
-        if (!res.ok || !payload || typeof payload.savesCount !== "number") {
+        if (!res.ok || !payload || typeof payload.saved !== "boolean") {
+          if (res.status === 401) {
+            throw new Error("auth_required");
+          }
           throw new Error("save_failed");
         }
-
-        setFeedItems((prev) =>
-          prev.map((clip) =>
-            clip.id === item.id ? { ...clip, savesCount: payload.savesCount } : clip
-          )
-        );
-
-        if (typeof payload.isSaved === "boolean" && payload.isSaved !== nextSaved) {
-          toggleSavedClip(item.id);
-          setSavedClips(getSavedClips());
+        if (payload.saved !== nextSaved) {
+          await refreshSavedItems({ silent: true });
+        } else if (payload.saved && payload.savedItemId) {
+          setSavedItemsAll((prev) =>
+            prev.map((entry) =>
+              entry.id === tempId ? { ...entry, id: payload.savedItemId as string, collectionId: payload.collectionId ?? null } : entry
+            )
+          );
+          showToast("Guardado", {
+            actionLabel: "Organizar",
+            onAction: () => {
+              openOrganizer(payload.savedItemId || null, payload.collectionId ?? null);
+            },
+            durationMs: 3200,
+          });
+        } else if (!payload.saved) {
+          showToast("Quitado de guardados");
         }
-      } catch (_err) {
-        toggleSavedClip(item.id);
-        setSavedClips(getSavedClips());
+      } catch (err) {
+        setSavedItemsAll((prev) => {
+          if (nextSaved) {
+            return prev.filter((entry) => !(entry.type === "POPCLIP" && entry.entityId === item.id));
+          }
+          const preview: SavedPreviewItem = {
+            id: tempId,
+            type: "POPCLIP",
+            entityId: item.id,
+            collectionId: null,
+            createdAt: new Date().toISOString(),
+            title: (item.title || item.caption || "PopClip").trim() || "PopClip",
+            subtitle: `@${item.creator.handle}`,
+            thumbUrl: item.posterUrl ?? item.thumbnailUrl ?? item.creator.avatarUrl ?? null,
+            href: `/c/${encodeURIComponent(item.creator.handle)}?popclip=${encodeURIComponent(item.id)}`,
+          };
+          return [preview, ...prev];
+        });
         updateFeedSaveCount(item.id, -delta);
-        showToast("No se pudo actualizar guardados.");
+        if (err instanceof Error && err.message === "auth_required") {
+          showToast("Inicia sesion para guardar.");
+        } else {
+          showToast("No se pudo actualizar guardados.");
+        }
       }
     },
-    [savedClipSet, showToast, updateFeedSaveCount]
+    [openOrganizer, refreshSavedItems, savedPopclipSet, showToast, updateFeedSaveCount]
+  );
+
+  const handleToggleCreatorSave = useCallback(
+    async (creator: RecommendedCreator) => {
+      const wasSaved = savedCreatorSet.has(creator.id);
+      const nextSaved = !wasSaved;
+      const tempId = `temp-creator-${creator.id}`;
+
+      setSavedItemsAll((prev) => {
+        if (nextSaved) {
+          const preview: SavedPreviewItem = {
+            id: tempId,
+            type: "CREATOR",
+            entityId: creator.id,
+            collectionId: null,
+            createdAt: new Date().toISOString(),
+            title: creator.displayName || "Creador",
+            subtitle: `@${creator.handle}`,
+            thumbUrl: creator.avatarUrl ?? null,
+            href: `/c/${encodeURIComponent(creator.handle)}`,
+          };
+          return [preview, ...prev];
+        }
+        return prev.filter((entry) => !(entry.type === "CREATOR" && entry.entityId === creator.id));
+      });
+
+      try {
+        const res = await fetch("/api/saved/toggle", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ type: "CREATOR", entityId: creator.id }),
+        });
+        const payload = (await res.json().catch(() => null)) as
+          | { saved?: boolean; savedItemId?: string; collectionId?: string | null }
+          | null;
+        if (!res.ok || !payload || typeof payload.saved !== "boolean") {
+          if (res.status === 401) {
+            throw new Error("auth_required");
+          }
+          throw new Error("save_failed");
+        }
+        if (payload.saved !== nextSaved) {
+          await refreshSavedItems({ silent: true });
+        } else if (payload.saved && payload.savedItemId) {
+          setSavedItemsAll((prev) =>
+            prev.map((entry) =>
+              entry.id === tempId
+                ? { ...entry, id: payload.savedItemId as string, collectionId: payload.collectionId ?? null }
+                : entry
+            )
+          );
+          showToast("Guardado", {
+            actionLabel: "Organizar",
+            onAction: () => openOrganizer(payload.savedItemId || null, payload.collectionId ?? null),
+            durationMs: 3200,
+          });
+        } else if (!payload.saved) {
+          showToast("Quitado de guardados");
+        }
+      } catch (err) {
+        setSavedItemsAll((prev) => {
+          if (nextSaved) {
+            return prev.filter((entry) => !(entry.type === "CREATOR" && entry.entityId === creator.id));
+          }
+          const preview: SavedPreviewItem = {
+            id: tempId,
+            type: "CREATOR",
+            entityId: creator.id,
+            collectionId: null,
+            createdAt: new Date().toISOString(),
+            title: creator.displayName || "Creador",
+            subtitle: `@${creator.handle}`,
+            thumbUrl: creator.avatarUrl ?? null,
+            href: `/c/${encodeURIComponent(creator.handle)}`,
+          };
+          return [preview, ...prev];
+        });
+        if (err instanceof Error && err.message === "auth_required") {
+          showToast("Inicia sesion para guardar.");
+        } else {
+          showToast("No se pudo actualizar guardados.");
+        }
+      }
+    },
+    [openOrganizer, refreshSavedItems, savedCreatorSet, showToast]
   );
 
   const openCaptionSheet = useCallback((item: PopClipFeedItem) => {
@@ -932,7 +1318,22 @@ export default function Explore() {
     [normalizedSearch, selectedCategory]
   );
   const filteredFeedItems = useMemo(() => filterClips(feedItems), [feedItems, filterClips]);
-  const filteredSavedItems = useMemo(() => filterClips(savedItems), [savedItems, filterClips]);
+  const filteredSavedPopclips = useMemo(() => {
+    if (!normalizedSearch) return savedPopclips;
+    return savedPopclips.filter((item) => {
+      const haystack = `${item.title || ""} ${item.caption || ""} ${item.creator.displayName} ${
+        item.creator.handle
+      } ${item.creator.locationLabel || ""}`.toLowerCase();
+      return haystack.includes(normalizedSearch);
+    });
+  }, [normalizedSearch, savedPopclips]);
+  const filteredSavedOtherItems = useMemo(() => {
+    if (!normalizedSearch) return savedOtherItems;
+    return savedOtherItems.filter((item) => {
+      const haystack = `${item.title} ${item.subtitle || ""}`.toLowerCase();
+      return haystack.includes(normalizedSearch);
+    });
+  }, [normalizedSearch, savedOtherItems]);
   const filteredCreators = useMemo(() => {
     return recommendedCreators.filter((creator) => {
       if (selectedCategory) {
@@ -946,17 +1347,21 @@ export default function Explore() {
     });
   }, [recommendedCreators, selectedCategory, normalizedSearch]);
 
-  const savedCount = savedClips.length;
+  const savedCount = savedItemsAll.length;
+  const savedMatchesCount = filteredSavedPopclips.length + filteredSavedOtherItems.length;
   const showFeedEmpty = !savedOnly && !feedLoading && !feedError && filteredFeedItems.length === 0;
-  const savedEmpty = savedOnly && !savedLoading && !savedError && savedCount === 0;
+  const savedEmpty = savedOnly && savedView === "all" && !savedItemsLoading && !savedItemsError && savedCount === 0;
   const savedNoMatch =
-    savedOnly && !savedLoading && !savedError && savedCount > 0 && filteredSavedItems.length === 0;
+    savedOnly &&
+    savedView === "all" &&
+    !savedItemsLoading &&
+    !savedItemsError &&
+    !savedPopclipsLoading &&
+    !savedPopclipsError &&
+    savedCount > 0 &&
+    savedMatchesCount === 0;
   const showSavedCount = hydrated && (savedOnly || savedCount > 0);
   const savedLabel = showSavedCount ? `Guardados · ${savedCount}` : "Guardados";
-  const showSavedLoading = savedOnly && savedLoading;
-  const visibleItems = savedOnly ? filteredSavedItems : filteredFeedItems;
-  const showSkeleton = savedOnly ? showSavedLoading : feedLoading && feedItems.length === 0;
-  const activeError = savedOnly ? savedError : feedError;
   const showCreatorsEmpty =
     !creatorsLoading && !creatorsError && filteredCreators.length === 0;
 
@@ -1296,7 +1701,17 @@ export default function Explore() {
         intent={savedOnly ? "primary" : "secondary"}
         size="sm"
         aria-pressed={savedOnly}
-        onClick={() => setSavedOnly((prev) => !prev)}
+        onClick={() => {
+          if (savedOnly) {
+            exitSavedView();
+            return;
+          }
+          setSavedOnly(true);
+          setExploreIntent("saved");
+          setSavedView("all");
+          setActiveCollectionId(null);
+          updateSavedQuery({ saved: true, view: "all" });
+        }}
       >
         {savedLabel}
       </PillButton>
@@ -1327,10 +1742,16 @@ export default function Explore() {
       const createdIds = Array.isArray(payload.createdIds) ? payload.createdIds : [];
       if (createdIds.length > 0) {
         const autoSaveIds = createdIds.slice(0, 3);
-        const updated = syncSavedClips([...savedClips, ...autoSaveIds]);
-        if (savedOnly) {
-          await loadSavedItems(updated);
-        }
+        await Promise.all(
+          autoSaveIds.map((id) =>
+            fetch("/api/saved/toggle", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ type: "POPCLIP", entityId: id }),
+            })
+          )
+        );
+        await refreshSavedItems({ silent: true });
       }
       setSeedKey((prev) => prev + 1);
     } catch (_err) {
@@ -1338,7 +1759,7 @@ export default function Explore() {
     } finally {
       setSeedLoading(false);
     }
-  }, [isDev, loadSavedItems, savedClips, savedOnly, seedLoading, syncSavedClips]);
+  }, [isDev, refreshSavedItems, seedLoading]);
 
   const loadMoreFeed = useCallback(async () => {
     if (!feedCursor || feedLoadingMore) return;
@@ -1488,6 +1909,8 @@ export default function Explore() {
                     setSelectedCategoryId(null);
                     setSavedOnly(false);
                     setExploreIntent("all");
+                    setSavedView("all");
+                    setActiveCollectionId(null);
                     closeSearchPanel();
                     scrollToTop();
                     void router.push("/explore");
@@ -1650,7 +2073,292 @@ export default function Explore() {
             title="PopClips"
             subtitle="Explora clips y entra al chat cuando te encaje."
           >
-            {showSkeleton ? (
+            {savedOnly ? (
+              <div className="space-y-4">
+                <div className="flex flex-wrap items-center gap-2">
+                  <PillButton
+                    intent={savedView === "all" ? "primary" : "secondary"}
+                    size="sm"
+                    aria-pressed={savedView === "all"}
+                    onClick={() => {
+                      setSavedView("all");
+                      setActiveCollectionId(null);
+                      updateSavedQuery({ saved: true, view: "all" });
+                    }}
+                  >
+                    Todo
+                  </PillButton>
+                  <PillButton
+                    intent={savedView === "collections" ? "primary" : "secondary"}
+                    size="sm"
+                    aria-pressed={savedView === "collections"}
+                    onClick={() => {
+                      setSavedView("collections");
+                      setActiveCollectionId(null);
+                      updateSavedQuery({ saved: true, view: "collections" });
+                      void refreshSavedCollections();
+                    }}
+                  >
+                    Colecciones
+                  </PillButton>
+                </div>
+
+                {savedView === "all" ? (
+                  savedItemsLoading ? (
+                    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                      {Array.from({ length: 4 }).map((_, idx) => (
+                        <Skeleton key={`saved-skeleton-${idx}`} className="h-20 w-full rounded-2xl" />
+                      ))}
+                    </div>
+                  ) : savedItemsError ? (
+                    <div className="rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] p-4 text-sm text-[color:var(--muted)]">
+                      {savedItemsError}
+                    </div>
+                  ) : savedEmpty ? (
+                    <div className="mx-auto w-full max-w-md rounded-2xl border border-[color:var(--surface-border)] bg-[color:rgba(17,24,39,0.75)] p-6 text-[color:var(--muted)] shadow-lg shadow-black/20 backdrop-blur-sm sm:p-8">
+                      <div className="flex items-start gap-3">
+                        <span className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-[color:rgba(var(--brand-rgb),0.3)] bg-[color:rgba(var(--brand-rgb),0.12)] text-[color:var(--text)]">
+                          <Bookmark className="h-5 w-5" aria-hidden="true" />
+                        </span>
+                        <div className="space-y-1">
+                          <div className="text-sm font-semibold text-[color:var(--text)]">
+                            No tienes guardados todavía.
+                          </div>
+                          <div className="text-xs text-[color:var(--muted)]">
+                            Guarda clips, packs o creadores para volver rápido cuando te encajen.
+                          </div>
+                        </div>
+                      </div>
+                      <div className="mt-5 flex flex-wrap items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={exitSavedView}
+                          aria-label="Ver todo"
+                          className="inline-flex items-center justify-center rounded-full bg-[color:var(--brand-strong)] px-4 py-2 text-xs font-semibold text-white hover:bg-[color:var(--brand)] focus:outline-none focus:ring-1 focus:ring-[color:var(--ring)]"
+                        >
+                          Ver todo
+                        </button>
+                        <button
+                          type="button"
+                          onClick={exitSavedView}
+                          aria-label="Quitar filtro"
+                          className="inline-flex items-center justify-center text-xs font-semibold text-[color:var(--muted)] underline-offset-2 hover:text-[color:var(--text)] hover:underline focus:outline-none focus:ring-1 focus:ring-[color:var(--ring)]"
+                        >
+                          Quitar filtro
+                        </button>
+                        {isDev ? (
+                          <button
+                            type="button"
+                            onClick={handleSeedDemo}
+                            disabled={seedLoading}
+                            className="inline-flex items-center justify-center rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-3 py-1 text-xs font-semibold text-[color:var(--text)] hover:bg-[color:var(--surface-2)] disabled:opacity-60"
+                          >
+                            {seedLoading ? "Generando..." : "Generar clips demo"}
+                          </button>
+                        ) : null}
+                        {seedError ? <span className="text-[color:var(--danger)]">{seedError}</span> : null}
+                      </div>
+                    </div>
+                  ) : savedNoMatch ? (
+                    <div className="flex flex-col items-start gap-3 rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] p-4 text-[color:var(--muted)]">
+                      <span className="text-sm">No hay guardados con estos filtros.</span>
+                      <button
+                        type="button"
+                        onClick={exitSavedView}
+                        className="inline-flex items-center justify-center rounded-full bg-[color:var(--brand-strong)] px-4 py-2 text-xs font-semibold text-white hover:bg-[color:var(--brand)] focus:outline-none focus:ring-1 focus:ring-[color:var(--ring)]"
+                      >
+                        Ver todo
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="space-y-6">
+                      {savedPopclipIds.length > 0 ? (
+                        <div className="space-y-3">
+                          {savedPopclipsLoading ? (
+                            <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3 xl:gap-6">
+                              {Array.from({ length: 6 }).map((_, idx) => (
+                                <div
+                                  key={`saved-popclip-skeleton-${idx}`}
+                                  className="flex flex-col gap-2 rounded-2xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] p-3"
+                                >
+                                  <Skeleton className="aspect-[10/13] w-full rounded-xl sm:aspect-[3/4] md:aspect-[4/5]" />
+                                  <div className="flex flex-wrap gap-2">
+                                    <Skeleton className="h-5 w-16 rounded-full" />
+                                    <Skeleton className="h-5 w-20 rounded-full" />
+                                  </div>
+                                  <div className="flex gap-2">
+                                    <Skeleton className="h-9 flex-1 rounded-full" />
+                                    <Skeleton className="h-9 flex-1 rounded-full" />
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          ) : savedPopclipsError ? (
+                            <div className="rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] p-4 text-sm text-[color:var(--muted)]">
+                              {savedPopclipsError}
+                            </div>
+                          ) : filteredSavedPopclips.length === 0 ? (
+                            <div className="rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] p-4 text-sm text-[color:var(--muted)]">
+                              No hay PopClips guardados.
+                            </div>
+                          ) : (
+                            <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3 xl:gap-6">
+                              {filteredSavedPopclips.map((item) => (
+                                <PopClipTile
+                                  key={item.id}
+                                  item={item}
+                                  onOpen={() => openPopclip(item)}
+                                  profileHref={`/c/${encodeURIComponent(item.creator.handle)}`}
+                                  chatHref={appendReturnTo(
+                                    `/go/${encodeURIComponent(item.creator.handle)}`,
+                                    router.asPath
+                                  )}
+                                  isSaved={savedPopclipSet.has(item.id)}
+                                  onToggleSave={() => void handleToggleSave(item)}
+                                  onOpenCaption={() => openCaptionSheet(item)}
+                                  onCopyLink={() => void handleCopyLink(item)}
+                                  onShare={() => void handleShareLink(item)}
+                                  onReport={() => void handleReportClip(item)}
+                                />
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      ) : null}
+                      {filteredSavedOtherItems.length > 0 ? (
+                        <div className="space-y-3">
+                          <div className="text-[11px] font-semibold uppercase tracking-[0.2em] text-[color:var(--muted)]">
+                            Otros guardados
+                          </div>
+                          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                            {filteredSavedOtherItems.map((item) => (
+                              <SavedItemCard
+                                key={item.id}
+                                item={item}
+                                onMove={() => openOrganizer(item.id, item.collectionId ?? null)}
+                              />
+                            ))}
+                          </div>
+                        </div>
+                      ) : null}
+                    </div>
+                  )
+                ) : (
+                  <div className="space-y-4">
+                    {activeCollectionId ? (
+                      <div className="space-y-3">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setActiveCollectionId(null);
+                            updateSavedQuery({ saved: true, view: "collections" });
+                          }}
+                          className="inline-flex items-center gap-2 text-xs font-semibold text-[color:var(--muted)] hover:text-[color:var(--text)]"
+                        >
+                          ← Colecciones
+                        </button>
+                        <div className="text-sm font-semibold text-[color:var(--text)]">
+                          {activeCollection?.name ?? "Colección"}
+                        </div>
+                        {collectionItemsLoading ? (
+                          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                            {Array.from({ length: 3 }).map((_, idx) => (
+                              <Skeleton key={`collection-item-${idx}`} className="h-20 w-full rounded-2xl" />
+                            ))}
+                          </div>
+                        ) : collectionItemsError ? (
+                          <div className="rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] p-4 text-sm text-[color:var(--muted)]">
+                            {collectionItemsError}
+                          </div>
+                        ) : collectionItems.length === 0 ? (
+                          <div className="rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] p-4 text-sm text-[color:var(--muted)]">
+                            Esta colección está vacía.
+                          </div>
+                        ) : (
+                          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                            {collectionItems.map((item) => (
+                              <SavedItemCard
+                                key={item.id}
+                                item={item}
+                                onMove={() => openOrganizer(item.id, item.collectionId ?? null)}
+                              />
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    ) : savedCollectionsLoading ? (
+                      <div className="space-y-2 text-xs text-[color:var(--muted)]">Cargando colecciones...</div>
+                    ) : savedCollectionsError ? (
+                      <div className="rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] p-4 text-sm text-[color:var(--muted)]">
+                        {savedCollectionsError}
+                      </div>
+                    ) : (
+                      <div className="space-y-3">
+                        {savedCollections.length === 0 ? (
+                          <div className="rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] p-4 text-sm text-[color:var(--muted)]">
+                            Aún no tienes colecciones.
+                          </div>
+                        ) : null}
+                        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                          <button
+                            type="button"
+                            onClick={() => setCreateCollectionOpen(true)}
+                            className="flex min-h-[160px] flex-col items-center justify-center gap-2 rounded-2xl border border-dashed border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-4 py-6 text-center text-xs font-semibold text-[color:var(--muted)] hover:text-[color:var(--text)]"
+                          >
+                            <span className="text-2xl font-semibold">+</span>
+                            <span>Nueva colección</span>
+                          </button>
+                          {savedCollections.map((collection) => {
+                            const cover = savedCollectionCoverMap.get(collection.id);
+                            const fallback =
+                              cover?.title?.trim()?.[0]?.toUpperCase() ||
+                              collection.name?.trim()?.[0]?.toUpperCase() ||
+                              "C";
+                            return (
+                              <button
+                                key={collection.id}
+                                type="button"
+                                onClick={() => {
+                                  setActiveCollectionId(collection.id);
+                                  updateSavedQuery({
+                                    saved: true,
+                                    view: "collections",
+                                    collectionId: collection.id,
+                                  });
+                                }}
+                                className="group flex flex-col gap-2 rounded-2xl border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] p-3 text-left transition hover:bg-[color:var(--surface-1)]"
+                              >
+                                <div className="relative aspect-[4/3] w-full overflow-hidden rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)]">
+                                  {cover?.thumbUrl ? (
+                                    <Image
+                                      src={normalizeImageSrc(cover.thumbUrl)}
+                                      alt={cover.title || collection.name}
+                                      width={320}
+                                      height={240}
+                                      className="h-full w-full object-cover"
+                                    />
+                                  ) : (
+                                    <div className="flex h-full w-full items-center justify-center text-lg font-semibold text-[color:var(--muted)]">
+                                      {fallback}
+                                    </div>
+                                  )}
+                                </div>
+                                <div className="flex items-center justify-between gap-2">
+                                  <span className="truncate text-sm font-semibold text-[color:var(--text)]">
+                                    {collection.name}
+                                  </span>
+                                  <span className="text-xs text-[color:var(--muted)]">{collection.count}</span>
+                                </div>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            ) : feedLoading && feedItems.length === 0 ? (
               <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3 xl:gap-6">
                 {Array.from({ length: FEED_SKELETON_COUNT }).map((_, idx) => (
                   <div
@@ -1669,67 +2377,11 @@ export default function Explore() {
                   </div>
                 ))}
               </div>
-            ) : activeError ? (
+            ) : feedError ? (
               <div className="rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] p-4 text-sm text-[color:var(--muted)]">
-                {activeError}
+                {feedError}
               </div>
-            ) : savedOnly && savedEmpty ? (
-              <div className="mx-auto w-full max-w-md rounded-2xl border border-[color:var(--surface-border)] bg-[color:rgba(17,24,39,0.75)] p-6 text-[color:var(--muted)] shadow-lg shadow-black/20 backdrop-blur-sm sm:p-8">
-                <div className="flex items-start gap-3">
-                  <span className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-[color:rgba(var(--brand-rgb),0.3)] bg-[color:rgba(var(--brand-rgb),0.12)] text-[color:var(--text)]">
-                    <Bookmark className="h-5 w-5" aria-hidden="true" />
-                  </span>
-                  <div className="space-y-1">
-                    <div className="text-sm font-semibold text-[color:var(--text)]">
-                      No tienes clips guardados todavía.
-                    </div>
-                    <div className="text-xs text-[color:var(--muted)]">
-                      Guarda clips para volver rápido cuando te encajen.
-                    </div>
-                  </div>
-                </div>
-                <div className="mt-5 flex flex-wrap items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setSavedOnly(false)}
-                    aria-label="Ver todo"
-                    className="inline-flex items-center justify-center rounded-full bg-[color:var(--brand-strong)] px-4 py-2 text-xs font-semibold text-white hover:bg-[color:var(--brand)] focus:outline-none focus:ring-1 focus:ring-[color:var(--ring)]"
-                  >
-                    Ver todo
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setSavedOnly(false)}
-                    aria-label="Quitar filtro"
-                    className="inline-flex items-center justify-center text-xs font-semibold text-[color:var(--muted)] underline-offset-2 hover:text-[color:var(--text)] hover:underline focus:outline-none focus:ring-1 focus:ring-[color:var(--ring)]"
-                  >
-                    Quitar filtro
-                  </button>
-                  {isDev ? (
-                    <button
-                      type="button"
-                      onClick={handleSeedDemo}
-                      disabled={seedLoading}
-                      className="inline-flex items-center justify-center rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-3 py-1 text-xs font-semibold text-[color:var(--text)] hover:bg-[color:var(--surface-2)] disabled:opacity-60"
-                    >
-                      {seedLoading ? "Generando..." : "Generar clips demo"}
-                    </button>
-                  ) : null}
-                  {seedError ? <span className="text-[color:var(--danger)]">{seedError}</span> : null}
-                </div>
-              </div>
-            ) : savedOnly && savedNoMatch ? (
-              <div className="flex flex-col items-start gap-3 rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] p-4 text-[color:var(--muted)]">
-                <span className="text-sm">No hay clips guardados con estos filtros.</span>
-                <button
-                  type="button"
-                  onClick={() => setSavedOnly(false)}
-                  className="inline-flex items-center justify-center rounded-full bg-[color:var(--brand-strong)] px-4 py-2 text-xs font-semibold text-white hover:bg-[color:var(--brand)] focus:outline-none focus:ring-1 focus:ring-[color:var(--ring)]"
-                >
-                  Ver todo
-                </button>
-              </div>
-            ) : !savedOnly && showFeedEmpty ? (
+            ) : showFeedEmpty ? (
               <div className="flex flex-col items-start gap-3 rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] p-4 text-[color:var(--muted)]">
                 <span className="text-sm">Aún no hay PopClips. Prueba a quitar filtros o vuelve más tarde.</span>
                 {seedError ? <span className="text-[color:var(--danger)]">{seedError}</span> : null}
@@ -1747,14 +2399,14 @@ export default function Explore() {
             ) : (
               <>
                 <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3 xl:gap-6">
-                  {visibleItems.map((item) => (
+                  {filteredFeedItems.map((item) => (
                     <PopClipTile
                       key={item.id}
                       item={item}
                       onOpen={() => openPopclip(item)}
                       profileHref={`/c/${encodeURIComponent(item.creator.handle)}`}
                       chatHref={appendReturnTo(`/go/${encodeURIComponent(item.creator.handle)}`, router.asPath)}
-                      isSaved={savedClipSet.has(item.id)}
+                      isSaved={savedPopclipSet.has(item.id)}
                       onToggleSave={() => void handleToggleSave(item)}
                       onOpenCaption={() => openCaptionSheet(item)}
                       onCopyLink={() => void handleCopyLink(item)}
@@ -1763,7 +2415,7 @@ export default function Explore() {
                     />
                   ))}
                 </div>
-                {!savedOnly && feedCursor ? (
+                {feedCursor ? (
                   <div className="mt-4 flex justify-center">
                     <button
                       type="button"
@@ -1813,7 +2465,12 @@ export default function Explore() {
               ) : (
                 <div className="flex flex-col gap-3">
                   {filteredCreators.map((creator) => (
-                    <HomeCreatorCard key={creator.handle} creator={creator} />
+                    <HomeCreatorCard
+                      key={creator.handle}
+                      creator={creator}
+                      isSaved={savedCreatorSet.has(creator.id)}
+                      onToggleSave={() => void handleToggleCreatorSave(creator)}
+                    />
                   ))}
                 </div>
               )}
@@ -1856,10 +2513,26 @@ export default function Explore() {
           </button>
         </div>
 
-        {toastMessage ? (
-          <div className="pointer-events-none fixed bottom-6 left-1/2 z-50 w-[min(90vw,360px)] -translate-x-1/2">
-            <div className="rounded-full border border-[color:var(--surface-border)] bg-[color:rgba(17,24,39,0.8)] px-4 py-2 text-center text-xs font-semibold text-white shadow-lg backdrop-blur-md">
-              {toastMessage}
+        {toast ? (
+          <div className="fixed bottom-6 left-1/2 z-50 w-[min(92vw,420px)] -translate-x-1/2">
+            <div className="flex flex-wrap items-center justify-center gap-2 rounded-full border border-[color:var(--surface-border)] bg-[color:rgba(17,24,39,0.85)] px-4 py-2 text-xs font-semibold text-white shadow-lg backdrop-blur-md">
+              <span>{toast.message}</span>
+              {toast.actionLabel ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    const action = toast.onAction;
+                    setToast(null);
+                    if (toastTimerRef.current) {
+                      clearTimeout(toastTimerRef.current);
+                    }
+                    action?.();
+                  }}
+                  className="inline-flex items-center rounded-full border border-white/20 px-2 py-0.5 text-[11px] font-semibold text-white hover:border-white/40"
+                >
+                  {toast.actionLabel}
+                </button>
+              ) : null}
             </div>
           </div>
         ) : null}
@@ -1871,6 +2544,22 @@ export default function Explore() {
           onSelect={(category) => setSelectedCategoryId(category.id)}
           onClear={() => setSelectedCategoryId(null)}
           onClose={() => setCategorySheetOpen(false)}
+        />
+        <SavedOrganizerSheet
+          open={organizerOpen}
+          savedItemId={organizerItemId}
+          currentCollectionId={organizerCollectionId}
+          onClose={() => {
+            setOrganizerOpen(false);
+            setOrganizerItemId(null);
+            setOrganizerCollectionId(null);
+          }}
+          onMoved={handleOrganizerMoved}
+        />
+        <SavedCollectionCreateSheet
+          open={createCollectionOpen}
+          onClose={() => setCreateCollectionOpen(false)}
+          onCreated={handleCollectionCreated}
         />
         <HomeFilterSheet
           open={filterSheetOpen}
@@ -1929,6 +2618,11 @@ function sanitizeQuery(query: Record<string, string | string[] | undefined>) {
   return cleaned;
 }
 
+function pickQueryValue(value: string | string[] | undefined) {
+  if (Array.isArray(value)) return value[0] ?? "";
+  return value ?? "";
+}
+
 function mergeUniqueFeedItems(items: PopClipFeedItem[]) {
   const seen = new Set<string>();
   const merged: PopClipFeedItem[] = [];
@@ -1940,15 +2634,6 @@ function mergeUniqueFeedItems(items: PopClipFeedItem[]) {
   return merged;
 }
 
-function areStringArraysEqual(a: string[], b: string[]) {
-  if (a === b) return true;
-  if (a.length !== b.length) return false;
-  for (let i = 0; i < a.length; i += 1) {
-    if (a[i] !== b[i]) return false;
-  }
-  return true;
-}
-
 function appendReturnTo(url: string, returnTo: string) {
   if (!url) return url;
   if (!returnTo || !returnTo.startsWith("/") || returnTo.startsWith("//")) return url;
@@ -1958,7 +2643,69 @@ function appendReturnTo(url: string, returnTo: string) {
   return `${url}${separator}returnTo=${encoded}`;
 }
 
-function HomeCreatorCard({ creator }: { creator: RecommendedCreator }) {
+function SavedItemCard({ item, onMove }: { item: SavedPreviewItem; onMove: () => void }) {
+  const typeLabel =
+    item.type === "POPCLIP" ? "PopClip" : item.type === "PACK" ? "Pack" : "Creador";
+  const thumbLabel = item.title?.trim()?.[0]?.toUpperCase() || "•";
+
+  return (
+    <div className="flex min-w-0 items-center gap-3 rounded-2xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] p-3">
+      <div className="h-12 w-12 shrink-0 overflow-hidden rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-2)]">
+        {item.thumbUrl ? (
+          <Image
+            src={normalizeImageSrc(item.thumbUrl)}
+            alt={item.title}
+            width={48}
+            height={48}
+            className="h-full w-full object-cover"
+          />
+        ) : (
+          <div className="flex h-full w-full items-center justify-center text-sm font-semibold text-[color:var(--muted)]">
+            {thumbLabel}
+          </div>
+        )}
+      </div>
+      <div className="min-w-0 flex-1">
+        <div className="flex items-center gap-2">
+          <span className="truncate text-sm font-semibold text-[color:var(--text)]">{item.title}</span>
+          <span className="inline-flex shrink-0 rounded-full border border-[color:var(--surface-border)] px-2 py-0.5 text-[10px] font-semibold text-[color:var(--muted)]">
+            {typeLabel}
+          </span>
+        </div>
+        {item.subtitle ? (
+          <div className="truncate text-xs text-[color:var(--muted)]">{item.subtitle}</div>
+        ) : null}
+        <div className="mt-2 flex flex-wrap items-center gap-2">
+          {item.href ? (
+            <Link
+              href={item.href}
+              className="inline-flex items-center justify-center rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-3 py-1 text-[11px] font-semibold text-[color:var(--text)] hover:bg-[color:var(--surface-3)]"
+            >
+              Abrir
+            </Link>
+          ) : null}
+          <button
+            type="button"
+            onClick={onMove}
+            className="inline-flex items-center justify-center rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-3 py-1 text-[11px] font-semibold text-[color:var(--text)] hover:bg-[color:var(--surface-3)]"
+          >
+            Mover a colección
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function HomeCreatorCard({
+  creator,
+  isSaved,
+  onToggleSave,
+}: {
+  creator: RecommendedCreator;
+  isSaved: boolean;
+  onToggleSave: () => void;
+}) {
   const initial = creator.displayName?.trim()?.[0]?.toUpperCase() || "C";
   const [avatarFailed, setAvatarFailed] = useState(false);
   const availabilityLabel = creator.availability || (creator.vipEnabled ? "Solo VIP" : "Disponible");
@@ -2000,12 +2747,28 @@ function HomeCreatorCard({ creator }: { creator: RecommendedCreator }) {
             <div className="text-xs text-[color:var(--muted)] truncate">@{creator.handle}</div>
           </div>
         </div>
-        <Link
-          href={`/c/${creator.handle}`}
-          className="inline-flex items-center justify-center rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-3 py-1 text-xs font-semibold text-[color:var(--text)] hover:bg-[color:var(--surface-2)]"
-        >
-          Ver perfil
-        </Link>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            aria-label={isSaved ? "Quitar guardado" : "Guardar creador"}
+            aria-pressed={isSaved}
+            onClick={onToggleSave}
+            className={clsx(
+              "inline-flex h-9 w-9 items-center justify-center rounded-full border bg-[color:var(--surface-1)] text-[color:var(--text)] transition hover:bg-[color:var(--surface-2)]",
+              isSaved
+                ? "border-[color:rgba(var(--brand-rgb),0.6)]"
+                : "border-[color:var(--surface-border)]"
+            )}
+          >
+            {isSaved ? <BookmarkCheck className="h-4 w-4" aria-hidden="true" /> : <Bookmark className="h-4 w-4" aria-hidden="true" />}
+          </button>
+          <Link
+            href={`/c/${creator.handle}`}
+            className="inline-flex items-center justify-center rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-3 py-1 text-xs font-semibold text-[color:var(--text)] hover:bg-[color:var(--surface-2)]"
+          >
+            Ver perfil
+          </Link>
+        </div>
       </div>
       <div className="mt-3 flex flex-wrap gap-2">
         {availabilityLabel ? (

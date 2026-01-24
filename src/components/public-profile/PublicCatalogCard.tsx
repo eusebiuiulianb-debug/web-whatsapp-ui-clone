@@ -12,6 +12,8 @@ export type PublicCatalogCardItem = {
   thumbUrl?: string | null;
   href?: string;
   showSave?: boolean;
+  isSaved?: boolean;
+  onToggleSave?: () => void;
   likeCount?: number;
   commentCount?: number;
   liked?: boolean;
@@ -64,10 +66,23 @@ export function PublicCatalogCard({
         {item.showSave && (
           <button
             type="button"
-            aria-label="Guardar"
-            className="absolute left-2 top-2 inline-flex h-7 w-7 items-center justify-center rounded-full border border-[color:var(--surface-border)] bg-[color:rgba(17,24,39,0.65)] text-xs text-[color:var(--text)] backdrop-blur hover:border-[color:var(--brand)]"
+            aria-label={item.isSaved ? "Quitar guardado" : "Guardar"}
+            aria-pressed={item.isSaved}
+            onClick={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+              item.onToggleSave?.();
+            }}
+            disabled={!item.onToggleSave}
+            className={clsx(
+              "absolute left-2 top-2 inline-flex h-7 w-7 items-center justify-center rounded-full border bg-[color:rgba(17,24,39,0.65)] text-xs text-[color:var(--text)] backdrop-blur transition",
+              item.isSaved
+                ? "border-[color:rgba(var(--brand-rgb),0.7)]"
+                : "border-[color:var(--surface-border)] hover:border-[color:var(--brand)]",
+              !item.onToggleSave && "cursor-not-allowed opacity-60"
+            )}
           >
-            ☆
+            {item.isSaved ? "★" : "☆"}
           </button>
         )}
         {priceLabel ? (

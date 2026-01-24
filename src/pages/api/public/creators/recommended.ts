@@ -7,6 +7,7 @@ import { distanceKmFromGeohash } from "../../../../lib/geo";
 import { PUBLIC_CREATOR_PROFILE_SELECT, PUBLIC_CREATOR_SELECT } from "../../../../lib/publicCreatorSelect";
 
 type CreatorResult = {
+  id: string;
   handle: string;
   displayName: string;
   avatarUrl?: string | null;
@@ -201,6 +202,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     });
 
     const payload: CreatorResult[] = sorted.slice(0, limit).map((creator) => ({
+      id: creator.id,
       handle: creator.handle,
       displayName: creator.displayName,
       avatarUrl: creator.avatarUrl ?? null,
