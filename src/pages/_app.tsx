@@ -7,6 +7,7 @@ import { ConversationProvider } from "../context/ConversationContext";
 import { CreatorConfigProvider } from "../context/CreatorConfigContext";
 import { initCrossTabEvents } from "../lib/crossTabEvents";
 import { RealtimeToastHost } from "../components/creator/RealtimeToastHost";
+import { MobileTabBar } from "../components/mobile/MobileTabBar";
 
 function MyApp({ Component, pageProps }: AppProps) {
   const router = useRouter();
@@ -20,6 +21,7 @@ function MyApp({ Component, pageProps }: AppProps) {
     <CreatorConfigProvider>
       <ConversationProvider>
         <Component {...pageProps} />
+        <MobileTabBar />
         {showCreatorToasts && <RealtimeToastHost />}
       </ConversationProvider>
     </CreatorConfigProvider>

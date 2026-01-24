@@ -1,16 +1,18 @@
 import { useEffect, useMemo, useRef } from "react";
 import { Circle, MapContainer, Marker, TileLayer, useMap, useMapEvents } from "react-leaflet";
 import L from "leaflet";
+import type { Map as LeafletMap } from "leaflet";
 
 type Props = {
   center: { lat: number; lng: number };
   radiusKm: number;
   onCenterChange: (next: { lat: number; lng: number }) => void;
+  onMapReady?: (map: LeafletMap) => void;
 };
 
 const MIN_RADIUS_METERS = 500;
 
-export default function LocationPickerMapClient({ center, radiusKm, onCenterChange }: Props) {
+export default function LocationPickerMapClient({ center, radiusKm, onCenterChange, onMapReady }: Props) {
   const centerPoint = useMemo(() => [center.lat, center.lng] as [number, number], [center.lat, center.lng]);
   const radiusMeters = useMemo(() => {
     if (!Number.isFinite(radiusKm)) return MIN_RADIUS_METERS;
@@ -36,6 +38,7 @@ export default function LocationPickerMapClient({ center, radiusKm, onCenterChan
       attributionControl={false}
       className="h-full w-full"
     >
+      <MapReady onReady={onMapReady} />
       <MapInvalidateSize />
       <MapFitBounds center={centerPoint} radiusMeters={radiusMeters} />
       <MapClickHandler onCenterChange={onCenterChange} />
@@ -105,6 +108,15 @@ function MapInvalidateSize() {
     const timeout = window.setTimeout(() => map.invalidateSize(), 0);
     return () => window.clearTimeout(timeout);
   }, [map]);
+  return null;
+}
+
+function MapReady({ onReady }: { onReady?: (map: LeafletMap) => void }) {
+  const map = useMap();
+  useEffect(() => {
+    if (!onReady) return;
+    onReady(map);
+  }, [map, onReady]);
   return null;
 }
 

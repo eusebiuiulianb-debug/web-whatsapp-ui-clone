@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import type { Map as LeafletMap } from "leaflet";
 import { LocationPickerMap } from "../home/LocationPickerMap";
 
 type GeoSearchResult = {
@@ -75,6 +76,7 @@ export function LocationPickerDialog({
   const [selectionError, setSelectionError] = useState("");
   const [mapCenter, setMapCenter] = useState(DEFAULT_LOCATION_CENTER);
   const geoRequestRef = useRef(0);
+  const mapRef = useRef<LeafletMap | null>(null);
 
   const lat = typeof value.lat === "number" && Number.isFinite(value.lat) ? value.lat : null;
   const lng = typeof value.lng === "number" && Number.isFinite(value.lng) ? value.lng : null;
@@ -175,9 +177,17 @@ export function LocationPickerDialog({
     if (!open) return;
     const timeout = window.setTimeout(() => {
       window.dispatchEvent(new Event("resize"));
+      if (mapRef.current) {
+        window.requestAnimationFrame(() => mapRef.current?.invalidateSize());
+      }
     }, 80);
     return () => window.clearTimeout(timeout);
   }, [open]);
+
+  const handleMapReady = (map: LeafletMap) => {
+    mapRef.current = map;
+    window.requestAnimationFrame(() => map.invalidateSize());
+  };
 
   const commitCenter = (
     next: { lat: number; lng: number },
@@ -194,6 +204,9 @@ export function LocationPickerDialog({
     setQueryDirty(false);
     setSelectionError("");
     onChange({ lat: next.lat, lng: next.lng, label: resolvedLabel, placeId: resolvedPlaceId || null });
+    if (mapRef.current) {
+      window.requestAnimationFrame(() => mapRef.current?.invalidateSize());
+    }
   };
 
   const handleSelectGeoResult = (result: GeoSearchResult) => {
@@ -364,7 +377,12 @@ export function LocationPickerDialog({
             <div className="rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] p-3 space-y-3">
               <p className="text-xs font-semibold text-[color:var(--text)]">Mapa aproximado</p>
               <div className="relative z-0 h-[260px] w-full max-w-full overflow-hidden rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] isolate sm:h-[320px] [&_.leaflet-control-attribution]:hidden">
-                <LocationPickerMap center={mapCenter} radiusKm={radiusKm} onCenterChange={handleMapCenterChange} />
+                <LocationPickerMap
+                  center={mapCenter}
+                  radiusKm={radiusKm}
+                  onCenterChange={handleMapCenterChange}
+                  onMapReady={handleMapReady}
+                />
                 {!hasCoords ? (
                   <div className="pointer-events-none absolute inset-0 flex items-center justify-center text-xs text-[color:var(--muted)] bg-[linear-gradient(180deg,rgba(15,23,42,0.4),rgba(15,23,42,0.6))]">
                     {overlayHint}

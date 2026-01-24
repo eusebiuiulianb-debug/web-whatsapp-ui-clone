@@ -254,6 +254,7 @@ export default function Explore() {
   const [showStickySearch, setShowStickySearch] = useState(false);
   const [showBackToTop, setShowBackToTop] = useState(false);
   const [isMac, setIsMac] = useState(false);
+  const [isMobile, setIsMobile] = useState(false);
   const [recommendedCreators, setRecommendedCreators] = useState<RecommendedCreator[]>([]);
   const [creatorsLoading, setCreatorsLoading] = useState(false);
   const [creatorsError, setCreatorsError] = useState("");
@@ -309,12 +310,16 @@ export default function Explore() {
       if (options?.suppressOpen) {
         suppressSearchOpenRef.current = true;
       }
-      const input = showStickySearch ? stickySearchInputRef.current : heroSearchInputRef.current;
+      const input = isMobile
+        ? heroSearchInputRef.current
+        : showStickySearch
+        ? stickySearchInputRef.current
+        : heroSearchInputRef.current;
       if (!input) return;
       input.focus();
       if (options?.select) input.select();
     },
-    [showStickySearch]
+    [isMobile, showStickySearch]
   );
 
   const applyFilters = useCallback(
@@ -399,6 +404,19 @@ export default function Explore() {
     if (typeof navigator === "undefined") return;
     const platform = navigator.platform || navigator.userAgent || "";
     setIsMac(/mac|iphone|ipad|ipod/i.test(platform));
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const media = window.matchMedia("(max-width: 767px)");
+    const update = () => setIsMobile(media.matches);
+    update();
+    if (media.addEventListener) {
+      media.addEventListener("change", update);
+      return () => media.removeEventListener("change", update);
+    }
+    media.addListener(update);
+    return () => media.removeListener(update);
   }, []);
 
   useEffect(() => {
@@ -1219,6 +1237,30 @@ export default function Explore() {
     );
   };
 
+  const renderFilterChips = () => (
+    <div className="flex flex-wrap items-center gap-2">
+      <PillButton intent="secondary" size="sm" onClick={() => setCategorySheetOpen(true)}>
+        Categorías
+      </PillButton>
+      <PillButton
+        intent={savedOnly ? "primary" : "secondary"}
+        size="sm"
+        aria-pressed={savedOnly}
+        onClick={() => setSavedOnly((prev) => !prev)}
+      >
+        {savedLabel}
+      </PillButton>
+      <PillButton intent="secondary" size="sm" onClick={() => setFilterSheetOpen(true)} className="gap-2">
+        <span>Filtros</span>
+        {activeFilterCount > 0 ? (
+          <span className="inline-flex h-5 min-w-[20px] items-center justify-center rounded-full bg-[color:rgba(var(--brand-rgb),0.2)] px-1.5 text-[11px] font-semibold text-[color:var(--text)]">
+            {activeFilterCount}
+          </span>
+        ) : null}
+      </PillButton>
+    </div>
+  );
+
   const handleSeedDemo = useCallback(async () => {
     if (!isDev || seedLoading) return;
     setSeedLoading(true);
@@ -1332,10 +1374,10 @@ export default function Explore() {
       <Head>
         <title>IntimiPop - Explorar</title>
       </Head>
-      <div className="flex min-h-screen w-full flex-col overflow-y-auto">
+      <div className="flex min-h-screen w-full flex-col overflow-y-auto pb-[calc(5rem+env(safe-area-inset-bottom))] md:pb-0">
         <div
           className={clsx(
-            "fixed left-0 right-0 top-0 z-40 transition-all",
+            "fixed left-0 right-0 top-0 z-40 hidden transition-all md:block",
             showStickySearch ? "opacity-100" : "pointer-events-none -translate-y-2 opacity-0"
           )}
         >
@@ -1385,6 +1427,48 @@ export default function Explore() {
             </div>
           </div>
         </div>
+        {isMobile ? (
+          <div className="sticky top-0 z-40 border-b border-[color:var(--surface-border)] bg-[color:var(--surface-1)]/90 backdrop-blur-xl md:hidden">
+            <div className="mx-auto w-full max-w-6xl px-4 pt-[env(safe-area-inset-top)] pb-3">
+              <div ref={heroSearchWrapperRef} className="relative">
+                <label className="sr-only" htmlFor="mobile-search">
+                  Buscar
+                </label>
+                <div className="group flex h-10 items-center gap-3 rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-4 text-[color:var(--text)] transition-colors hover:border-[color:var(--surface-border-hover)] focus-within:border-[color:var(--surface-border-hover)] focus-within:ring-1 focus-within:ring-[color:var(--surface-ring)]">
+                  <Search className="h-4 w-4 flex-none text-[color:var(--muted)]" aria-hidden="true" />
+                  <input
+                    id="mobile-search"
+                    ref={heroSearchInputRef}
+                    type="text"
+                    value={search}
+                    onChange={handleSearchChange}
+                    onFocus={handleSearchFocus}
+                    onKeyDown={handleSearchKeyDown}
+                    placeholder="Buscar creadores, packs o PopClips"
+                    aria-expanded={showSearchPanel}
+                    aria-controls="search-suggestions"
+                    className="h-7 w-full bg-transparent text-sm text-[color:var(--text)] placeholder:text-[color:var(--muted)] focus:outline-none"
+                  />
+                  {hasSearchValue ? (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        clearSearchValue();
+                        focusSearchInput({ suppressOpen: true });
+                      }}
+                      className="inline-flex h-7 w-7 items-center justify-center rounded-full text-[color:var(--muted)] hover:text-[color:var(--text)] focus:outline-none focus:ring-1 focus:ring-[color:var(--ring)]"
+                      aria-label="Limpiar búsqueda"
+                    >
+                      <X className="h-4 w-4" aria-hidden="true" />
+                    </button>
+                  ) : null}
+                </div>
+                {renderSearchDropdown()}
+              </div>
+              <div className="mt-3">{renderFilterChips()}</div>
+            </div>
+          </div>
+        ) : null}
         <div className="mx-auto flex w-full max-w-6xl flex-col gap-6 px-4 py-6 md:px-6 lg:px-8">
           <HomeSectionCard className="relative">
             <div
@@ -1405,79 +1489,52 @@ export default function Explore() {
                 </p>
               </div>
 
-              <div className="space-y-3">
-                <div ref={heroSearchWrapperRef} className="relative">
-                  <label className="sr-only" htmlFor="home-search">
-                    Buscar
-                  </label>
-                  <div className="group flex h-11 items-center gap-3 rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-4 text-[color:var(--text)] transition-colors hover:border-[color:var(--surface-border-hover)] focus-within:border-[color:var(--surface-border-hover)] focus-within:ring-1 focus-within:ring-[color:var(--surface-ring)]">
-                    <Search className="h-4 w-4 flex-none text-[color:var(--muted)]" aria-hidden="true" />
-                    <input
-                      id="home-search"
-                      ref={heroSearchInputRef}
-                      type="text"
-                      value={search}
-                      onChange={handleSearchChange}
-                      onFocus={handleSearchFocus}
-                      onKeyDown={handleSearchKeyDown}
-                      placeholder="Buscar creadores, packs o PopClips"
-                      aria-expanded={showSearchPanel}
-                      aria-controls="search-suggestions"
-                      className="h-7 w-full bg-transparent text-sm text-[color:var(--text)] placeholder:text-[color:var(--muted)] focus:outline-none"
-                    />
-                    {hasSearchValue ? (
-                      <button
-                        type="button"
-                        onClick={() => {
-                          clearSearchValue();
-                          focusSearchInput({ suppressOpen: true });
-                        }}
-                        className="inline-flex h-7 w-7 items-center justify-center rounded-full text-[color:var(--muted)] hover:text-[color:var(--text)] focus:outline-none focus:ring-1 focus:ring-[color:var(--ring)]"
-                        aria-label="Limpiar búsqueda"
+              {!isMobile ? (
+                <div className="space-y-3">
+                  <div ref={heroSearchWrapperRef} className="relative">
+                    <label className="sr-only" htmlFor="home-search">
+                      Buscar
+                    </label>
+                    <div className="group flex h-11 items-center gap-3 rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-4 text-[color:var(--text)] transition-colors hover:border-[color:var(--surface-border-hover)] focus-within:border-[color:var(--surface-border-hover)] focus-within:ring-1 focus-within:ring-[color:var(--surface-ring)]">
+                      <Search className="h-4 w-4 flex-none text-[color:var(--muted)]" aria-hidden="true" />
+                      <input
+                        id="home-search"
+                        ref={heroSearchInputRef}
+                        type="text"
+                        value={search}
+                        onChange={handleSearchChange}
+                        onFocus={handleSearchFocus}
+                        onKeyDown={handleSearchKeyDown}
+                        placeholder="Buscar creadores, packs o PopClips"
+                        aria-expanded={showSearchPanel}
+                        aria-controls="search-suggestions"
+                        className="h-7 w-full bg-transparent text-sm text-[color:var(--text)] placeholder:text-[color:var(--muted)] focus:outline-none"
+                      />
+                      {hasSearchValue ? (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            clearSearchValue();
+                            focusSearchInput({ suppressOpen: true });
+                          }}
+                          className="inline-flex h-7 w-7 items-center justify-center rounded-full text-[color:var(--muted)] hover:text-[color:var(--text)] focus:outline-none focus:ring-1 focus:ring-[color:var(--ring)]"
+                          aria-label="Limpiar búsqueda"
+                        >
+                          <X className="h-4 w-4" aria-hidden="true" />
+                        </button>
+                      ) : null}
+                      <kbd
+                        className="flex-none rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-2 py-0.5 text-[11px] font-medium text-[color:var(--muted)]"
+                        aria-hidden="true"
                       >
-                        <X className="h-4 w-4" aria-hidden="true" />
-                      </button>
-                    ) : null}
-                    <kbd
-                      className="flex-none rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-2 py-0.5 text-[11px] font-medium text-[color:var(--muted)]"
-                      aria-hidden="true"
-                    >
-                      {isMac ? "⌘ K" : "Ctrl K"}
-                    </kbd>
+                        {isMac ? "⌘ K" : "Ctrl K"}
+                      </kbd>
+                    </div>
+                    {!showStickySearch ? renderSearchDropdown() : null}
                   </div>
-                  {!showStickySearch ? renderSearchDropdown() : null}
+                  {renderFilterChips()}
                 </div>
-                <div className="flex flex-wrap items-center gap-2">
-                  <PillButton
-                    intent="secondary"
-                    size="sm"
-                    onClick={() => setCategorySheetOpen(true)}
-                  >
-                    Categorías
-                  </PillButton>
-                  <PillButton
-                    intent={savedOnly ? "primary" : "secondary"}
-                    size="sm"
-                    aria-pressed={savedOnly}
-                    onClick={() => setSavedOnly((prev) => !prev)}
-                  >
-                    {savedLabel}
-                  </PillButton>
-                  <PillButton
-                    intent="secondary"
-                    size="sm"
-                    onClick={() => setFilterSheetOpen(true)}
-                    className="gap-2"
-                  >
-                    <span>Filtros</span>
-                    {activeFilterCount > 0 ? (
-                      <span className="inline-flex h-5 min-w-[20px] items-center justify-center rounded-full bg-[color:rgba(var(--brand-rgb),0.2)] px-1.5 text-[11px] font-semibold text-[color:var(--text)]">
-                        {activeFilterCount}
-                      </span>
-                    ) : null}
-                  </PillButton>
-                </div>
-              </div>
+              ) : null}
 
               {selectedCategory ? (
                 <div className="flex flex-wrap items-center gap-2">
