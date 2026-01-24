@@ -71,6 +71,8 @@ export function LocationPickerDialog({
   const [searchLoading, setSearchLoading] = useState(false);
   const [geoLoading, setGeoLoading] = useState(false);
   const [geoError, setGeoError] = useState("");
+  const [queryDirty, setQueryDirty] = useState(false);
+  const [selectionError, setSelectionError] = useState("");
   const [mapCenter, setMapCenter] = useState(DEFAULT_LOCATION_CENTER);
   const geoRequestRef = useRef(0);
 
@@ -90,7 +92,9 @@ export function LocationPickerDialog({
     setGeoResults([]);
     setSearchLoading(false);
     setGeoError("");
-  }, [open, label]);
+    setQueryDirty(false);
+    setSelectionError("");
+  }, [open]);
 
   useEffect(() => {
     if (!open) return;
@@ -167,21 +171,43 @@ export function LocationPickerDialog({
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [open, onClose]);
 
-  const commitCenter = (next: { lat: number; lng: number }, nextLabel?: string, nextPlaceId?: string) => {
+  useEffect(() => {
+    if (!open) return;
+    const timeout = window.setTimeout(() => {
+      window.dispatchEvent(new Event("resize"));
+    }, 80);
+    return () => window.clearTimeout(timeout);
+  }, [open]);
+
+  const commitCenter = (
+    next: { lat: number; lng: number },
+    nextLabel?: string,
+    nextPlaceId?: string,
+    options?: { updateQuery?: boolean }
+  ) => {
     const resolvedLabel = (nextLabel || label || "Ubicación aproximada").trim();
     const resolvedPlaceId = (nextPlaceId || placeId || "").trim();
     setMapCenter(next);
+    if (options?.updateQuery) {
+      setGeoQuery(resolvedLabel);
+    }
+    setQueryDirty(false);
+    setSelectionError("");
     onChange({ lat: next.lat, lng: next.lng, label: resolvedLabel, placeId: resolvedPlaceId || null });
   };
 
   const handleSelectGeoResult = (result: GeoSearchResult) => {
-    commitCenter({ lat: result.lat, lng: result.lon }, result.display, result.placeId);
-    setGeoQuery(result.display);
+    commitCenter(
+      { lat: result.lat, lng: result.lon },
+      result.display,
+      result.placeId,
+      { updateQuery: true }
+    );
     setGeoResults([]);
   };
 
   const handleMapCenterChange = (next: { lat: number; lng: number }) => {
-    commitCenter(next);
+    commitCenter(next, undefined, undefined, { updateQuery: true });
   };
 
   const handleUseLocation = () => {
@@ -211,8 +237,12 @@ export function LocationPickerDialog({
         } catch (_err) {
           // ignore reverse lookup errors
         }
-        commitCenter({ lat: latitude, lng: longitude }, resolvedLabel, resolvedPlaceId);
-        setGeoQuery(resolvedLabel);
+        commitCenter(
+          { lat: latitude, lng: longitude },
+          resolvedLabel,
+          resolvedPlaceId,
+          { updateQuery: true }
+        );
         setGeoLoading(false);
       },
       () => {
@@ -228,11 +258,25 @@ export function LocationPickerDialog({
     setGeoQuery("");
     setGeoResults([]);
     setMapCenter(DEFAULT_LOCATION_CENTER);
+    setQueryDirty(false);
+    setSelectionError("");
   };
 
   if (!open) return null;
 
-  const onPrimary = onPrimaryAction || onClose;
+  const selectionInvalid = Boolean(onPrimaryAction) && queryDirty && geoQuery.trim().length > 0;
+  const onPrimary = () => {
+    if (selectionInvalid) {
+      setSelectionError("Selecciona una sugerencia válida.");
+      return;
+    }
+    if (onPrimaryAction) {
+      onPrimaryAction();
+      return;
+    }
+    onClose();
+  };
+  const isPrimaryDisabled = primaryActionDisabled || selectionInvalid;
 
   return (
     <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm" onClick={onClose}>
@@ -263,7 +307,7 @@ export function LocationPickerDialog({
               </button>
             </div>
 
-            <div className="space-y-2">
+            <div className="space-y-2 relative z-30">
               <label className="text-xs font-semibold text-[color:var(--muted)]" htmlFor="location-picker-search">
                 Buscar ciudad
               </label>
@@ -271,12 +315,22 @@ export function LocationPickerDialog({
                 <input
                   id="location-picker-search"
                   value={geoQuery}
-                  onChange={(event) => setGeoQuery(event.target.value)}
+                  onChange={(event) => {
+                    setGeoQuery(event.target.value);
+                    setQueryDirty(true);
+                    setSelectionError("");
+                  }}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter" && geoResults.length > 0) {
+                      event.preventDefault();
+                      handleSelectGeoResult(geoResults[0]);
+                    }
+                  }}
                   placeholder="Madrid, Valencia..."
                   className="h-10 w-full rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-3 text-sm text-[color:var(--text)]"
                 />
                 {geoResults.length > 0 && (
-                  <div className="absolute z-20 mt-1 w-full max-h-56 overflow-auto rounded-lg border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] shadow-lg">
+                  <div className="absolute z-[1000] mt-1 w-full max-h-56 overflow-auto rounded-lg border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] shadow-lg">
                     {geoResults.map((result) => (
                       <button
                         key={result.id}
@@ -300,11 +354,16 @@ export function LocationPickerDialog({
               {searchLoading ? (
                 <span className="text-[11px] text-[color:var(--muted)]">Buscando...</span>
               ) : null}
+              {selectionInvalid ? (
+                <span className="text-[11px] text-[color:var(--danger)]">
+                  {selectionError || "Selecciona una sugerencia para guardar."}
+                </span>
+              ) : null}
             </div>
 
             <div className="rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] p-3 space-y-3">
               <p className="text-xs font-semibold text-[color:var(--text)]">Mapa aproximado</p>
-              <div className="relative h-[220px] w-full overflow-hidden rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] [&_.leaflet-control-attribution]:hidden">
+              <div className="relative z-0 w-full max-w-full overflow-hidden rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] isolate [&_.leaflet-control-attribution]:hidden">
                 <LocationPickerMap center={mapCenter} radiusKm={radiusKm} onCenterChange={handleMapCenterChange} />
                 {!hasCoords ? (
                   <div className="pointer-events-none absolute inset-0 flex items-center justify-center text-xs text-[color:var(--muted)] bg-[linear-gradient(180deg,rgba(15,23,42,0.4),rgba(15,23,42,0.6))]">
@@ -361,7 +420,7 @@ export function LocationPickerDialog({
               <button
                 type="button"
                 onClick={onPrimary}
-                disabled={primaryActionDisabled}
+                disabled={isPrimaryDisabled}
                 className="inline-flex h-9 items-center justify-center rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-4 text-xs font-semibold text-[color:var(--text)] hover:bg-[color:var(--surface-2)] disabled:opacity-60"
               >
                 {primaryActionLabel}
