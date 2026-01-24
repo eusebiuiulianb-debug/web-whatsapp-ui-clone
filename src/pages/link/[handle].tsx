@@ -121,12 +121,30 @@ function parseStringArray(raw: any): string[] {
 
 function mapLocation(profile: any) {
   if (!profile || profile.locationVisibility === "OFF") return null;
+  const enabled =
+    typeof profile.locationEnabled === "boolean"
+      ? profile.locationEnabled
+      : Boolean(profile.allowDiscoveryUseLocation);
+  const lat =
+    typeof profile.locationLat === "number" && Number.isFinite(profile.locationLat)
+      ? profile.locationLat
+      : null;
+  const lng =
+    typeof profile.locationLng === "number" && Number.isFinite(profile.locationLng)
+      ? profile.locationLng
+      : null;
+  const precisionKm = profile.locationPrecisionKm ?? profile.locationRadiusKm ?? null;
   return {
     visibility: profile.locationVisibility,
     label: profile.locationLabel ?? null,
+    placeId: profile.locationPlaceId ?? null,
     geohash: profile.locationGeohash ?? null,
     radiusKm: profile.locationRadiusKm ?? null,
     allowDiscoveryUseLocation: Boolean(profile.allowDiscoveryUseLocation),
+    enabled,
+    lat,
+    lng,
+    precisionKm,
   };
 }
 

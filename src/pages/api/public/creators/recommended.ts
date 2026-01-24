@@ -4,6 +4,7 @@ import type { NextApiRequest, NextApiResponse } from "next";
 import { decode } from "ngeohash";
 import prisma from "../../../../lib/prisma.server";
 import { slugifyHandle } from "../../../../lib/fan/session";
+import { PUBLIC_CREATOR_PROFILE_SELECT, PUBLIC_CREATOR_SELECT } from "../../../../lib/publicCreatorSelect";
 
 type CreatorResult = {
   handle: string;
@@ -17,6 +18,8 @@ type CreatorResult = {
   availability?: string;
   responseTime?: string;
   locationLabel?: string | null;
+  locationEnabled?: boolean;
+  allowLocation?: boolean;
 };
 
 type CreatorCandidate = {
@@ -26,12 +29,14 @@ type CreatorCandidate = {
   avatarUrl?: string | null;
   bioShort?: string | null;
   availabilityValue: CreatorAvailability;
-  responseValue: CreatorResponseTime | null;
+  responseValue: CreatorResponseTime;
   avgResponseHours: number | null;
   vipEnabled: boolean;
   popClipsCount: number;
   locationLabel?: string | null;
   locationGeohash?: string | null;
+  locationEnabled?: boolean;
+  allowLocation?: boolean;
   lastActiveAt?: Date | null;
 };
 
@@ -73,27 +78,20 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     const creators = await prisma.creator.findMany({
       where: { discoveryProfile: { isDiscoverable: true } },
       select: {
-        id: true,
-        name: true,
+        ...PUBLIC_CREATOR_SELECT,
         subtitle: true,
         description: true,
-        bioLinkAvatarUrl: true,
         _count: { select: { popClips: true } },
         profile: {
           select: {
-            availability: true,
-            responseSla: true,
+            ...PUBLIC_CREATOR_PROFILE_SELECT,
             vipOnly: true,
-            locationLabel: true,
             locationGeohash: true,
-            locationVisibility: true,
-            allowDiscoveryUseLocation: true,
             updatedAt: true,
           },
         },
         discoveryProfile: {
           select: {
-            responseHours: true,
             updatedAt: true,
           },
         },
@@ -103,16 +101,19 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     const candidates: CreatorCandidate[] = creators.map((creator) => {
       const handle = slugifyHandle(creator.name || "creator");
       const displayName = creator.name || "Creador";
-      const availabilityValue = normalizeAvailability(creator.profile?.availability) ?? "AVAILABLE";
-      const responseValue = normalizeResponseTime(creator.profile?.responseSla);
-      const avgResponseHours = resolveResponseHours(creator.discoveryProfile?.responseHours, responseValue);
-      const vipEnabled = Boolean(creator.profile?.vipOnly) || availabilityValue === "VIP_ONLY";
-      const locationVisibility = (creator.profile?.locationVisibility || "").toUpperCase();
-      const allowLocation =
-        Boolean(creator.profile?.allowDiscoveryUseLocation) && locationVisibility !== "OFF";
-      const locationGeohash = allowLocation ? (creator.profile?.locationGeohash || "").trim() : null;
-      const locationLabel =
-        locationVisibility !== "OFF" ? creator.profile?.locationLabel ?? null : null;
+      const profile = creator.profile;
+      const availabilityValue = normalizeAvailability(profile?.availability) ?? "AVAILABLE";
+      const responseValue = normalizeResponseTime(profile?.responseSla) ?? "LT_24H";
+      const avgResponseHours = resolveResponseHours(responseValue);
+      const vipEnabled = Boolean(profile?.vipOnly) || availabilityValue === "VIP_ONLY";
+      const locationVisibility = (profile?.locationVisibility || "").toUpperCase();
+      const locationEnabled =
+        locationVisibility !== "OFF" &&
+        Boolean(profile?.locationGeohash) &&
+        Boolean(profile?.locationLabel);
+      const allowLocation = locationEnabled && Boolean(profile?.allowDiscoveryUseLocation);
+      const locationGeohash = allowLocation ? (profile?.locationGeohash || "").trim() : null;
+      const locationLabel = allowLocation ? profile?.locationLabel ?? null : null;
       const avatarUrl = normalizeAvatarUrl(creator.bioLinkAvatarUrl);
       const popClipsCount = creator._count?.popClips ?? 0;
       const lastActiveAt = pickLatestDate(creator.profile?.updatedAt, creator.discoveryProfile?.updatedAt);
@@ -131,6 +132,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         popClipsCount,
         locationLabel,
         locationGeohash,
+        locationEnabled,
+        allowLocation,
         lastActiveAt,
       };
     });
@@ -210,14 +213,16 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         ? roundDistance(creator.distanceKm as number)
         : undefined,
       availability: formatAvailabilityLabel(creator.availabilityValue),
-      responseTime: formatResponseLabel(creator.responseValue, creator.avgResponseHours),
+      responseTime: formatResponseTimeLabel(creator.responseValue),
       locationLabel: creator.locationLabel ?? null,
+      locationEnabled: creator.locationEnabled ?? false,
+      allowLocation: creator.allowLocation ?? false,
     }));
 
     return res.status(200).json({ items: payload });
   } catch (err) {
     console.error("Error loading recommended creators", err);
-    return res.status(500).json({ error: "No se pudieron cargar los creadores" });
+    return res.status(200).json({ items: [] });
   }
 }
 
@@ -269,12 +274,7 @@ function normalizeResponseTime(value?: string | null): CreatorResponseTime | nul
   return null;
 }
 
-function resolveResponseHours(
-  responseHours?: number | null,
-  responseValue?: CreatorResponseTime | null
-) {
-  if (typeof responseHours === "number" && Number.isFinite(responseHours)) return responseHours;
-  if (!responseValue) return null;
+function resolveResponseHours(responseValue: CreatorResponseTime) {
   if (responseValue === "INSTANT") return 1;
   if (responseValue === "LT_24H") return 24;
   if (responseValue === "LT_72H") return 72;
@@ -293,16 +293,6 @@ function formatAvailabilityLabel(value: CreatorAvailability): string {
   if (value === "VIP_ONLY") return "Solo VIP";
   if (value === "OFFLINE") return "No disponible";
   return "Disponible";
-}
-
-function formatResponseLabel(value: CreatorResponseTime | null, avgResponseHours: number | null) {
-  if (value) return formatResponseTimeLabel(value);
-  if (typeof avgResponseHours === "number" && Number.isFinite(avgResponseHours)) {
-    const rounded = Math.round(avgResponseHours);
-    if (rounded <= 24) return "Responde <24h";
-    return `Resp. ~${rounded}h`;
-  }
-  return "Respuesta estandar";
 }
 
 function formatResponseTimeLabel(value: CreatorResponseTime): string {

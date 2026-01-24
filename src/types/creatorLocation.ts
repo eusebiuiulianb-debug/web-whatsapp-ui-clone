@@ -6,4 +6,9 @@ export type CreatorLocation = {
   geohash: string | null;
   radiusKm: number | null;
   allowDiscoveryUseLocation: boolean;
+  enabled?: boolean;
+  lat?: number | null;
+  lng?: number | null;
+  precisionKm?: number | null;
+  placeId?: string | null;
 };

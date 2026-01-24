@@ -17,8 +17,13 @@ export function PublicLocationBadge({ location, align = "start", variant = "badg
   const visibility = location?.visibility ?? "OFF";
   const label = (location?.label ?? "").trim();
   const geohash = (location?.geohash ?? "").trim();
+  const rawEnabled = location?.enabled;
+  const allowLocation = Boolean(
+    typeof rawEnabled === "boolean" ? rawEnabled : location?.allowDiscoveryUseLocation
+  );
+  const resolvedLabel = label || "Mi ubicación";
   const hasMap = visibility === "AREA" && Boolean(geohash);
-  const resolvedRadiusKm = location?.radiusKm ?? DEFAULT_AREA_RADIUS_KM;
+  const resolvedRadiusKm = location?.precisionKm ?? location?.radiusKm ?? DEFAULT_AREA_RADIUS_KM;
   const alignClass = align === "center" ? "justify-center" : "justify-start";
   const isChip = variant === "chip";
   const chipClass = isChip
@@ -28,7 +33,7 @@ export function PublicLocationBadge({ location, align = "start", variant = "badg
     ? "inline-flex h-7 items-center gap-1 rounded-full border px-3 text-[11px] font-semibold"
     : "inline-flex h-7 items-center gap-1 rounded-full border px-3 text-xs";
   const mutedClass = isChip ? "text-[color:var(--muted)]" : "text-white/50";
-  const shouldRender = Boolean(location) && visibility !== "OFF" && Boolean(label);
+  const shouldRender = Boolean(location) && allowLocation && visibility !== "OFF" && Boolean(resolvedLabel);
   const showModal = open || isVisible;
   const overlayMotionClass = prefersReducedMotion ? "" : "transition-opacity duration-200";
   const overlayStateClass = open ? "opacity-100" : "opacity-0 pointer-events-none";
@@ -95,8 +100,8 @@ export function PublicLocationBadge({ location, align = "start", variant = "badg
 
   if (!shouldRender) return null;
 
-  const mapSearchUrl = label
-    ? `https://www.openstreetmap.org/search?query=${encodeURIComponent(label)}`
+  const mapSearchUrl = resolvedLabel
+    ? `https://www.openstreetmap.org/search?query=${encodeURIComponent(resolvedLabel)}`
     : "";
   const buttonClass = isChip
     ? "cursor-pointer hover:border-[color:var(--surface-border-hover)] hover:bg-[color:var(--surface-2)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--ring)]"
@@ -107,11 +112,11 @@ export function PublicLocationBadge({ location, align = "start", variant = "badg
       <button
         type="button"
         onClick={handleOpen}
-        aria-label={`Ver mapa de ${label}`}
+        aria-label={`Ver mapa de ${resolvedLabel}`}
         title="Ver mapa"
         className={`${pillBaseClass} ${chipClass} ${buttonClass}`}
       >
-        <span>📍 {label}</span>
+        <span>📍 {resolvedLabel}</span>
         <span className={mutedClass}>(aprox.)</span>
         <span className={isChip ? "text-[color:var(--muted)]" : "text-white/60"} aria-hidden="true">
           ›
@@ -137,7 +142,7 @@ export function PublicLocationBadge({ location, align = "start", variant = "badg
                     <div className="space-y-1">
                       <p className="text-sm font-semibold text-[color:var(--text)]">Ubicación aproximada</p>
                       <p className="text-xs text-[color:var(--muted)]">
-                      {label}
+                      {resolvedLabel}
                       {hasMap ? ` · radio aprox. ${resolvedRadiusKm} km` : ""}
                       </p>
                       <p className="text-xs text-[color:var(--muted)]">Zona aproximada por privacidad.</p>

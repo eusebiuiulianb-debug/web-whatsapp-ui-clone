@@ -66,8 +66,13 @@ model CreatorProfile {
   visibilityMode            CreatorVisibilityMode @default(SOLO_LINK)
   locationVisibility        String   @default("OFF")
   locationLabel             String?
+  locationPlaceId           String?
   locationGeohash           String?
   locationRadiusKm          Int?
+  locationEnabled           Boolean  @default(false)
+  locationLat               Float?
+  locationLng               Float?
+  locationPrecisionKm       Int      @default(3)
   allowDiscoveryUseLocation Boolean  @default(false)
   responseSla               CreatorResponseSla @default(LT_24H)
   availability              CreatorAvailability @default(AVAILABLE)

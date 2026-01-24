@@ -20,8 +20,9 @@ type PopClipTileItem = {
     displayName: string;
     avatarUrl?: string | null;
     vipEnabled?: boolean;
-    avgResponseHours?: number | null;
     isAvailable?: boolean;
+    responseTime?: string | null;
+    locationLabel?: string | null;
   };
 };
 
@@ -63,12 +64,12 @@ export function PopClipTile({
   const savesBadgeLabel = savesCount > 99 ? "99+" : String(savesCount);
   const showCaption = Boolean(caption);
   const showCaptionMore = caption.length > 80;
-  const isFastResponder = Number.isFinite(item.creator.avgResponseHours ?? NaN)
-    ? (item.creator.avgResponseHours as number) <= 24
-    : false;
+  const responseLabel = (item.creator.responseTime || "").trim();
+  const locationLabel = (item.creator.locationLabel || "").trim();
   const badges = [
     item.creator.isAvailable ? "Disponible" : "",
-    isFastResponder ? "Responde <24h" : "",
+    responseLabel,
+    locationLabel ? `📍 ${locationLabel} (aprox.)` : "",
   ].filter(Boolean);
   const creatorInitial = item.creator.displayName?.trim()?.[0]?.toUpperCase() || "C";
   const quickActions: ContextMenuItem[] = [];

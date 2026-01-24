@@ -9,6 +9,7 @@ import { PublicHero } from "../../components/public-profile/PublicHero";
 import { PublicProfileStatsRow } from "../../components/public-profile/PublicProfileStatsRow";
 import { Skeleton } from "../../components/ui/Skeleton";
 import { PublicLocationBadge } from "../../components/public-profile/PublicLocationBadge";
+import { LocationPickerDialog } from "../../components/location/LocationPickerDialog";
 import type {
   PublicCatalogItem,
   PublicCommentReply,
@@ -20,6 +21,7 @@ import type { CreatorLocation } from "../../types/creatorLocation";
 import { ensureAnalyticsCookie } from "../../lib/analyticsCookie";
 import { track } from "../../lib/analyticsClient";
 import { ANALYTICS_EVENTS } from "../../lib/analyticsEvents";
+import { notifyCreatorStatusUpdated } from "../../lib/creatorStatusEvents";
 import { normalizeImageSrc } from "../../utils/normalizeImageSrc";
 import { getPublicProfileStats } from "../../lib/publicProfileStats";
 
@@ -62,6 +64,7 @@ const HIGHLIGHT_PREVIEW_MAX = 4;
 const CREATOR_COMMENT_MAX_LENGTH = 600;
 const MAX_REPLY_PARTICIPANTS = 10;
 const IS_DEV = process.env.NODE_ENV === "development";
+const DEFAULT_LOCATION_PRECISION_KM = 3;
 
 type HighlightTab = "popclips" | "pack" | "sub" | "extra";
 
@@ -78,6 +81,7 @@ type HighlightItem = {
 
 type CreatorAvailability = "AVAILABLE" | "OFFLINE" | "VIP_ONLY";
 type CreatorResponseSla = "INSTANT" | "LT_24H" | "LT_72H";
+type LocationDraft = { lat: number | null; lng: number | null; label: string; placeId: string | null };
 
 type HighlightEmptyCta =
   | {
@@ -132,6 +136,26 @@ function normalizeCreatorResponseSla(value?: string | null): CreatorResponseSla 
   if (normalized === "INSTANT") return "INSTANT";
   if (normalized === "LT_72H" || normalized === "LT_48H") return "LT_72H";
   return "LT_24H";
+}
+
+function resolveLocationEnabled(location?: CreatorLocation | null) {
+  if (!location || location.visibility === "OFF") return false;
+  const rawEnabled = location?.enabled;
+  return Boolean(typeof rawEnabled === "boolean" ? rawEnabled : location?.allowDiscoveryUseLocation);
+}
+
+function resolveLocationRadiusKm(location?: CreatorLocation | null) {
+  const raw = location?.precisionKm ?? location?.radiusKm ?? DEFAULT_LOCATION_PRECISION_KM;
+  if (!Number.isFinite(raw)) return DEFAULT_LOCATION_PRECISION_KM;
+  return Math.round(raw as number);
+}
+
+function buildLocationDraft(location?: CreatorLocation | null): LocationDraft {
+  const lat = typeof location?.lat === "number" && Number.isFinite(location.lat) ? location.lat : null;
+  const lng = typeof location?.lng === "number" && Number.isFinite(location.lng) ? location.lng : null;
+  const label = (location?.label ?? "").trim();
+  const placeId = (location?.placeId ?? "").trim();
+  return { lat, lng, label, placeId: placeId || null };
 }
 
 export default function PublicCreatorByHandle({
@@ -460,6 +484,14 @@ export default function PublicCreatorByHandle({
   const [statusDraftSla, setStatusDraftSla] = useState<CreatorResponseSla>(
     normalizeCreatorResponseSla(responseSla)
   );
+  const [creatorLocation, setCreatorLocation] = useState<CreatorLocation | null>(location ?? null);
+  const [locationDialogOpen, setLocationDialogOpen] = useState(false);
+  const [locationLoading, setLocationLoading] = useState(false);
+  const [locationSaving, setLocationSaving] = useState(false);
+  const [locationError, setLocationError] = useState("");
+  const [locationEnabled, setLocationEnabled] = useState(resolveLocationEnabled(location));
+  const [locationRadiusKm, setLocationRadiusKm] = useState(resolveLocationRadiusKm(location));
+  const [locationDraft, setLocationDraft] = useState<LocationDraft>(buildLocationDraft(location));
 
   useEffect(() => {
     setCreatorAvailability(normalizeCreatorAvailability(availability));
@@ -473,9 +505,68 @@ export default function PublicCreatorByHandle({
     setStatusError("");
   }, [creatorAvailability, creatorResponseSla, statusSheetOpen]);
 
+  const applyLocationState = useCallback((next: CreatorLocation | null) => {
+    setCreatorLocation(next);
+    setLocationEnabled(resolveLocationEnabled(next));
+    setLocationRadiusKm(resolveLocationRadiusKm(next));
+    setLocationDraft(buildLocationDraft(next));
+  }, []);
+
+  useEffect(() => {
+    applyLocationState(location ?? null);
+  }, [applyLocationState, location]);
+
+  useEffect(() => {
+    if (!statusSheetOpen || !isCreatorViewer) return;
+    let cancelled = false;
+    const loadLocation = async () => {
+      setLocationLoading(true);
+      setLocationError("");
+      try {
+        const res = await fetch("/api/creator/location");
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          throw new Error(data?.error || "No se pudo cargar la ubicación.");
+        }
+        if (!cancelled) {
+          applyLocationState(data as CreatorLocation);
+        }
+      } catch (err) {
+        console.error("Error loading creator location", err);
+        if (!cancelled) {
+          setLocationError("No se pudo cargar la ubicación.");
+        }
+      } finally {
+        if (!cancelled) {
+          setLocationLoading(false);
+        }
+      }
+    };
+    void loadLocation();
+    return () => {
+      cancelled = true;
+    };
+  }, [applyLocationState, isCreatorViewer, statusSheetOpen]);
+
   const responseSlaLabel = formatResponseSla(creatorResponseSla);
   const availabilityLabel = formatAvailability(creatorAvailability);
-  const hasLocation = Boolean(location && location.visibility !== "OFF" && location.label);
+  const locationHasCoords =
+    typeof creatorLocation?.lat === "number" &&
+    Number.isFinite(creatorLocation.lat) &&
+    typeof creatorLocation?.lng === "number" &&
+    Number.isFinite(creatorLocation.lng);
+  const locationSummaryLabel = (() => {
+    const label = (creatorLocation?.label ?? "").trim();
+    if (!label) return "Sin ubicación";
+    return `${label} (aprox.) · ${resolveLocationRadiusKm(creatorLocation)} km`;
+  })();
+  const locationSummaryText = locationLoading ? "Cargando ubicación..." : locationSummaryLabel;
+  const hasLocation = Boolean(
+    creatorLocation &&
+      resolveLocationEnabled(creatorLocation) &&
+      creatorLocation.visibility !== "OFF" &&
+      creatorLocation.label
+  );
   const creatorChips = [
     ...(availabilityLabel ? [{ label: availabilityLabel }] : []),
     ...(responseSlaLabel ? [{ label: responseSlaLabel }] : []),
@@ -483,7 +574,7 @@ export default function PublicCreatorByHandle({
       ? [
           {
             key: "location",
-            node: <PublicLocationBadge location={location} variant="chip" />,
+            node: <PublicLocationBadge location={creatorLocation} variant="chip" />,
           },
         ]
       : []),
@@ -714,6 +805,95 @@ export default function PublicCreatorByHandle({
     toastTimerRef.current = setTimeout(() => setToast(""), 2200);
   };
 
+  const persistLocation = useCallback(
+    async (draft: LocationDraft, precisionKm: number, enabled: boolean) => {
+      setLocationSaving(true);
+      setLocationError("");
+      const hasCoords =
+        typeof draft.lat === "number" &&
+        Number.isFinite(draft.lat) &&
+        typeof draft.lng === "number" &&
+        Number.isFinite(draft.lng);
+      const payload = {
+        enabled: hasCoords ? enabled : false,
+        lat: hasCoords ? draft.lat : null,
+        lng: hasCoords ? draft.lng : null,
+        label: hasCoords ? (draft.label || "").trim() : "",
+        placeId: hasCoords ? (draft.placeId || "").trim() : "",
+        precisionKm: Number.isFinite(precisionKm) ? Math.round(precisionKm) : DEFAULT_LOCATION_PRECISION_KM,
+      };
+      try {
+        const res = await fetch("/api/creator/location", {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          throw new Error(data?.error || "No se pudo guardar la ubicación.");
+        }
+        applyLocationState(data as CreatorLocation);
+        return true;
+      } catch (err) {
+        console.error("Error saving creator location", err);
+        setLocationError("No se pudo guardar la ubicación.");
+        return false;
+      } finally {
+        setLocationSaving(false);
+      }
+    },
+    [applyLocationState]
+  );
+
+  const handleOpenLocationDialog = () => {
+    if (locationLoading || locationSaving) return;
+    setLocationDraft(buildLocationDraft(creatorLocation));
+    setLocationRadiusKm(resolveLocationRadiusKm(creatorLocation));
+    setLocationDialogOpen(true);
+    setLocationError("");
+  };
+
+  const handleCloseLocationDialog = () => {
+    if (locationSaving) return;
+    setLocationDialogOpen(false);
+    setLocationDraft(buildLocationDraft(creatorLocation));
+    setLocationRadiusKm(resolveLocationRadiusKm(creatorLocation));
+  };
+
+  const handleSaveLocation = async () => {
+    const ok = await persistLocation(locationDraft, locationRadiusKm, locationEnabled);
+    if (ok) {
+      setLocationDialogOpen(false);
+    }
+  };
+
+  const handleClearLocation = async () => {
+    const ok = await persistLocation(
+      { lat: null, lng: null, label: "", placeId: null },
+      locationRadiusKm,
+      false
+    );
+    if (ok) {
+      setLocationDialogOpen(false);
+    }
+  };
+
+  const handleToggleLocationEnabled = async (nextEnabled: boolean) => {
+    const prev = locationEnabled;
+    setLocationEnabled(nextEnabled);
+    const current = creatorLocation;
+    const hasCoords =
+      typeof current?.lat === "number" &&
+      Number.isFinite(current.lat) &&
+      typeof current?.lng === "number" &&
+      Number.isFinite(current.lng);
+    if (!current || !hasCoords) return;
+    const ok = await persistLocation(buildLocationDraft(current), resolveLocationRadiusKm(current), nextEnabled);
+    if (!ok) {
+      setLocationEnabled(prev);
+    }
+  };
+
   const handleSaveCreatorStatus = async () => {
     setStatusSaving(true);
     setStatusError("");
@@ -732,6 +912,7 @@ export default function PublicCreatorByHandle({
       }
       setCreatorAvailability(normalizeCreatorAvailability(data?.availability ?? statusDraftAvailability));
       setCreatorResponseSla(normalizeCreatorResponseSla(data?.responseSla ?? statusDraftSla));
+      notifyCreatorStatusUpdated();
       setStatusSheetOpen(false);
     } catch (err) {
       console.error("Error saving creator status", err);
@@ -742,8 +923,9 @@ export default function PublicCreatorByHandle({
   };
 
   const handleCloseStatusSheet = () => {
-    if (statusSaving) return;
+    if (statusSaving || locationSaving) return;
     setStatusSheetOpen(false);
+    handleCloseLocationDialog();
   };
 
   const handleOpenHighlightModal = () => {
@@ -1583,6 +1765,50 @@ export default function PublicCreatorByHandle({
                         ))}
                       </select>
                     </label>
+                    <div className="rounded-2xl border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] p-3 space-y-3">
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="space-y-1">
+                          <p className="text-xs font-semibold text-[color:var(--muted)]">Ubicación</p>
+                          <p className="text-xs text-[color:var(--text)]">{locationSummaryText}</p>
+                          <p className="text-[11px] text-[color:var(--muted)]">Zona aproximada por privacidad.</p>
+                        </div>
+                        <div className="flex flex-col items-end gap-2">
+                          <button
+                            type="button"
+                            onClick={handleOpenLocationDialog}
+                            disabled={locationLoading || locationSaving}
+                            className="inline-flex h-8 items-center justify-center rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-3 text-[11px] font-semibold text-[color:var(--text)] hover:bg-[color:var(--surface-3)] disabled:opacity-60"
+                          >
+                            {locationLoading ? "Cargando..." : "Editar ubicación"}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => void handleClearLocation()}
+                            disabled={locationLoading || locationSaving || !locationHasCoords}
+                            className="inline-flex h-7 items-center justify-center rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-3 text-[10px] font-semibold text-[color:var(--muted)] hover:bg-[color:var(--surface-3)] disabled:opacity-60"
+                          >
+                            Quitar ubicación
+                          </button>
+                        </div>
+                      </div>
+                      <label className="flex items-center gap-2 text-xs text-[color:var(--text)]">
+                        <input
+                          type="checkbox"
+                          checked={locationEnabled}
+                          onChange={(event) => handleToggleLocationEnabled(event.target.checked)}
+                          disabled={locationLoading || locationSaving || !locationHasCoords}
+                        />
+                        Mostrar en Discovery
+                      </label>
+                      {!locationHasCoords && !locationLoading ? (
+                        <p className="text-[11px] text-[color:var(--muted)]">
+                          Añade una ubicación para activarlo.
+                        </p>
+                      ) : null}
+                      {locationError ? (
+                        <p className="text-[11px] text-[color:var(--danger)]">{locationError}</p>
+                      ) : null}
+                    </div>
                     <div className="flex flex-wrap items-center justify-end gap-2">
                       <button
                         type="button"
@@ -1607,6 +1833,28 @@ export default function PublicCreatorByHandle({
             </div>
           </div>
         )}
+        <LocationPickerDialog
+          open={locationDialogOpen}
+          onClose={handleCloseLocationDialog}
+          value={locationDraft}
+          radiusKm={locationRadiusKm}
+          onChange={(next) =>
+            setLocationDraft({
+              lat: typeof next.lat === "number" && Number.isFinite(next.lat) ? next.lat : null,
+              lng: typeof next.lng === "number" && Number.isFinite(next.lng) ? next.lng : null,
+              label: (next.label || "").trim(),
+              placeId: typeof next.placeId === "string" ? next.placeId : null,
+            })
+          }
+          onRadiusChange={(nextKm) => setLocationRadiusKm(nextKm)}
+          minRadiusKm={1}
+          maxRadiusKm={25}
+          stepKm={1}
+          primaryActionLabel={locationSaving ? "Guardando..." : "Guardar ubicación"}
+          onPrimaryAction={handleSaveLocation}
+          primaryActionDisabled={locationSaving}
+          errorMessage={locationError}
+        />
         {activePopclip && (
           <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm" onClick={handleClosePopclipViewer}>
             <div className="fixed inset-0 flex items-end sm:items-center justify-center p-3 sm:p-6">
@@ -1931,12 +2179,30 @@ function resolveCatalogKind(item: PublicCatalogItem): CatalogHighlightKind {
 
 function mapLocation(profile: any): CreatorLocation | null {
   if (!profile || profile.locationVisibility === "OFF") return null;
+  const enabled =
+    typeof profile.locationEnabled === "boolean"
+      ? profile.locationEnabled
+      : Boolean(profile.allowDiscoveryUseLocation);
+  const lat =
+    typeof profile.locationLat === "number" && Number.isFinite(profile.locationLat)
+      ? profile.locationLat
+      : null;
+  const lng =
+    typeof profile.locationLng === "number" && Number.isFinite(profile.locationLng)
+      ? profile.locationLng
+      : null;
+  const precisionKm = profile.locationPrecisionKm ?? profile.locationRadiusKm ?? null;
   return {
     visibility: profile.locationVisibility,
     label: profile.locationLabel ?? null,
+    placeId: profile.locationPlaceId ?? null,
     geohash: profile.locationGeohash ?? null,
     radiusKm: profile.locationRadiusKm ?? null,
     allowDiscoveryUseLocation: Boolean(profile.allowDiscoveryUseLocation),
+    enabled,
+    lat,
+    lng,
+    precisionKm,
   };
 }
 

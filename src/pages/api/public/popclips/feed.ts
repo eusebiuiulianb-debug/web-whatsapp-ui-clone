@@ -19,6 +19,7 @@ type PopClipFeedItem = {
     avatarUrl: string | null;
     vipEnabled: boolean;
     avgResponseHours: number | null;
+    responseTime: string | null;
     isAvailable: boolean;
     locationLabel: string | null;
   };
@@ -63,12 +64,6 @@ const CLIP_SELECT = {
           locationGeohash: true,
           locationVisibility: true,
           allowDiscoveryUseLocation: true,
-        },
-      },
-      discoveryProfile: {
-        select: {
-          responseHours: true,
-          isDiscoverable: true,
         },
       },
     },
@@ -215,21 +210,21 @@ function mapFeedItems(items: FeedClipRow[], userLocation: { lat: number; lng: nu
     const creatorName = clip.creator?.name || "Creador";
     const handle = slugifyHandle(creatorName || "creator");
     const availabilityValue = normalizeAvailability(clip.creator?.profile?.availability) ?? "AVAILABLE";
-    const responseValue = normalizeResponseTime(clip.creator?.profile?.responseSla);
-    const avgResponseHours = resolveResponseHours(
-      clip.creator?.discoveryProfile?.responseHours ?? null,
-      responseValue
-    );
+    const responseValue = normalizeResponseTime(clip.creator?.profile?.responseSla) ?? "LT_24H";
+    const avgResponseHours = resolveResponseHours(responseValue);
+    const responseTime = formatResponseTimeLabel(responseValue);
     const vipEnabled = Boolean(clip.creator?.profile?.vipOnly) || availabilityValue === "VIP_ONLY";
     const isAvailable = availabilityValue === "AVAILABLE" || availabilityValue === "VIP_ONLY";
     const locationVisibility = (clip.creator?.profile?.locationVisibility || "").toUpperCase();
-    const allowLocation =
-      Boolean(clip.creator?.profile?.allowDiscoveryUseLocation) && locationVisibility !== "OFF";
+    const locationEnabled =
+      locationVisibility !== "OFF" &&
+      Boolean(clip.creator?.profile?.locationGeohash) &&
+      Boolean(clip.creator?.profile?.locationLabel);
+    const allowLocation = locationEnabled && Boolean(clip.creator?.profile?.allowDiscoveryUseLocation);
     const locationGeohash = allowLocation
       ? (clip.creator?.profile?.locationGeohash || "").trim()
       : "";
-    const locationLabel =
-      locationVisibility !== "OFF" ? clip.creator?.profile?.locationLabel ?? null : null;
+    const locationLabel = allowLocation ? clip.creator?.profile?.locationLabel ?? null : null;
     const distanceKm =
       userLocation && locationGeohash ? getDistanceKm(userLocation, locationGeohash) : null;
 
@@ -248,6 +243,7 @@ function mapFeedItems(items: FeedClipRow[], userLocation: { lat: number; lng: nu
         avatarUrl: normalizeAvatarUrl(clip.creator?.bioLinkAvatarUrl ?? null),
         vipEnabled,
         avgResponseHours,
+        responseTime,
         isAvailable,
         locationLabel,
       },
@@ -328,16 +324,17 @@ function normalizeResponseTime(value?: string | null): CreatorResponseTime | nul
   return null;
 }
 
-function resolveResponseHours(
-  responseHours?: number | null,
-  responseValue?: CreatorResponseTime | null
-) {
-  if (typeof responseHours === "number" && Number.isFinite(responseHours)) return responseHours;
-  if (!responseValue) return null;
+function resolveResponseHours(responseValue: CreatorResponseTime) {
   if (responseValue === "INSTANT") return 1;
   if (responseValue === "LT_24H") return 24;
   if (responseValue === "LT_72H") return 72;
   return null;
+}
+
+function formatResponseTimeLabel(value: CreatorResponseTime) {
+  if (value === "INSTANT") return "Responde al momento";
+  if (value === "LT_72H") return "Responde <72h";
+  return "Responde <24h";
 }
 
 function isFastResponder(responseHours: number | null) {

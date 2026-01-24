@@ -1,11 +1,15 @@
 import type { NextApiRequest, NextApiResponse } from "next";
 import { Prisma } from "@prisma/client";
+import { decode, encode } from "ngeohash";
 import prisma from "../../../lib/prisma.server";
 import { sendBadRequest, sendServerError } from "../../../lib/apiError";
 import type { CreatorLocation, LocationVisibility } from "../../../types/creatorLocation";
 
 const ALLOWED_RADIUS = new Set([3, 5, 10]);
 const GEOHASH_MAX_LENGTH = 5;
+const DEFAULT_PRECISION_KM = 3;
+const MIN_PRECISION_KM = 1;
+const MAX_PRECISION_KM = 25;
 type CreatorProfileLocationData = Omit<
   Prisma.CreatorProfileUncheckedCreateInput,
   "id" | "creatorId" | "creator"
@@ -37,6 +41,22 @@ async function handleGet(res: NextApiResponse) {
 }
 
 async function handlePut(req: NextApiRequest, res: NextApiResponse) {
+  const enabledInput = req.body?.enabled;
+  const latInput = req.body?.lat;
+  const lngInput = req.body?.lng;
+  const precisionInput = req.body?.precisionKm;
+  const placeIdInput = req.body?.placeId;
+  const hasApproxPayload =
+    enabledInput !== undefined ||
+    latInput !== undefined ||
+    lngInput !== undefined ||
+    precisionInput !== undefined ||
+    placeIdInput !== undefined;
+
+  if (hasApproxPayload) {
+    return handleApproxUpdate(req, res);
+  }
+
   const visibility = normalizeVisibility(req.body?.visibility);
   if (!visibility) {
     return sendBadRequest(res, "visibility inválida");
@@ -47,6 +67,10 @@ async function handlePut(req: NextApiRequest, res: NextApiResponse) {
     return sendBadRequest(res, "locationLabel inválido");
   }
   const label = typeof labelInput === "string" ? labelInput.trim() : "";
+  if (placeIdInput !== undefined && placeIdInput !== null && typeof placeIdInput !== "string") {
+    return sendBadRequest(res, "placeId inválido");
+  }
+  const placeId = typeof placeIdInput === "string" ? placeIdInput.trim() : "";
 
   const geohashInput = req.body?.geohash;
   if (geohashInput !== undefined && geohashInput !== null && typeof geohashInput !== "string") {
@@ -106,6 +130,7 @@ async function handlePut(req: NextApiRequest, res: NextApiResponse) {
     const updateData = buildUpdatePayload({
       visibility,
       label,
+      placeId,
       geohash: normalizedGeohash,
       radiusKm: parsedRadius,
       allowDiscoveryUseLocation,
@@ -113,6 +138,7 @@ async function handlePut(req: NextApiRequest, res: NextApiResponse) {
     const createData = buildCreatePayload({
       visibility,
       label,
+      placeId,
       geohash: normalizedGeohash,
       radiusKm: parsedRadius,
       allowDiscoveryUseLocation,
@@ -137,9 +163,140 @@ async function handlePut(req: NextApiRequest, res: NextApiResponse) {
   }
 }
 
+async function handleApproxUpdate(req: NextApiRequest, res: NextApiResponse) {
+  const enabledInput = req.body?.enabled;
+  if (enabledInput !== undefined && typeof enabledInput !== "boolean") {
+    return sendBadRequest(res, "enabled inválido");
+  }
+  const labelInput = req.body?.label;
+  if (labelInput !== undefined && labelInput !== null && typeof labelInput !== "string") {
+    return sendBadRequest(res, "locationLabel inválido");
+  }
+  const label = typeof labelInput === "string" ? labelInput.trim() : "";
+  const placeIdInput = req.body?.placeId;
+  if (placeIdInput !== undefined && placeIdInput !== null && typeof placeIdInput !== "string") {
+    return sendBadRequest(res, "placeId inválido");
+  }
+  const placeId = typeof placeIdInput === "string" ? placeIdInput.trim() : "";
+
+  const lat = parseNumber(req.body?.lat);
+  const lng = parseNumber(req.body?.lng);
+  const hasCoords = lat !== null && lng !== null;
+
+  const precisionKm = normalizePrecisionKm(req.body?.precisionKm);
+  if (precisionKm === null) {
+    return sendBadRequest(res, "precisionKm inválido");
+  }
+
+  const enabled = typeof enabledInput === "boolean" ? enabledInput : hasCoords;
+
+  if (!hasCoords) {
+    if (label) {
+      return sendBadRequest(res, "lat/lng requeridos");
+    }
+    try {
+      const creatorId = await resolveCreatorId();
+      const payload = filterLocationFields({
+        locationVisibility: "OFF",
+        locationLabel: null,
+        locationPlaceId: null,
+        locationGeohash: null,
+        locationRadiusKm: null,
+        locationEnabled: false,
+        locationLat: null,
+        locationLng: null,
+        locationPrecisionKm: precisionKm,
+        allowDiscoveryUseLocation: false,
+      });
+      const profile = await prisma.creatorProfile.upsert({
+        where: { creatorId },
+        create: {
+          creatorId,
+          ...(payload as CreatorProfileLocationData),
+        },
+        update: payload,
+      });
+      return res.status(200).json(mapProfile(profile));
+    } catch (err) {
+      console.error("Error saving creator location", err);
+      return sendServerError(res);
+    }
+  }
+
+  const resolvedLabel = label || "Ubicación aproximada";
+  const quantized = quantizeCoords(lat, lng, precisionKm);
+  const geohash = encode(quantized.lat, quantized.lng, GEOHASH_MAX_LENGTH);
+  const payload = filterLocationFields({
+    locationVisibility: "AREA",
+    locationLabel: resolvedLabel,
+    locationPlaceId: placeId || null,
+    locationGeohash: geohash,
+    locationRadiusKm: precisionKm,
+    locationEnabled: enabled,
+    locationLat: quantized.lat,
+    locationLng: quantized.lng,
+    locationPrecisionKm: precisionKm,
+    allowDiscoveryUseLocation: enabled,
+  });
+
+  try {
+    const creatorId = await resolveCreatorId();
+    const profile = await prisma.creatorProfile.upsert({
+      where: { creatorId },
+      create: {
+        creatorId,
+        ...(payload as CreatorProfileLocationData),
+      },
+      update: payload,
+    });
+    return res.status(200).json(mapProfile(profile));
+  } catch (err) {
+    console.error("Error saving creator location", err);
+    return sendServerError(res);
+  }
+}
+
 function normalizeVisibility(value: unknown): LocationVisibility | null {
   if (value === "OFF" || value === "COUNTRY" || value === "CITY" || value === "AREA") return value;
   return null;
+}
+
+function parseNumber(value: unknown): number | null {
+  if (typeof value === "number") return Number.isFinite(value) ? value : null;
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    if (!trimmed) return null;
+    const parsed = Number(trimmed);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+  return null;
+}
+
+function normalizePrecisionKm(value: unknown): number | null {
+  if (value === undefined || value === null || value === "") return DEFAULT_PRECISION_KM;
+  const parsed = parseNumber(value);
+  if (parsed === null) return null;
+  const rounded = Math.round(parsed);
+  if (rounded < MIN_PRECISION_KM) return MIN_PRECISION_KM;
+  if (rounded > MAX_PRECISION_KM) return MAX_PRECISION_KM;
+  return rounded;
+}
+
+function quantizeCoords(lat: number, lng: number, precisionKm: number) {
+  const latStep = precisionKm / 111;
+  const latRounded = Math.round(lat / latStep) * latStep;
+  const latRad = (latRounded * Math.PI) / 180;
+  const safeCos = Math.max(0.2, Math.cos(latRad));
+  const lngStep = precisionKm / (111 * safeCos);
+  const lngRounded = Math.round(lng / lngStep) * lngStep;
+  return {
+    lat: roundCoord(latRounded),
+    lng: roundCoord(lngRounded),
+  };
+}
+
+function roundCoord(value: number) {
+  return Math.round(value * 1e6) / 1e6;
 }
 
 function normalizeGeohash(value: unknown) {
@@ -150,26 +307,48 @@ function normalizeGeohash(value: unknown) {
   return cleaned.slice(0, GEOHASH_MAX_LENGTH);
 }
 
+function decodeGeohash(value: unknown) {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  try {
+    const decoded = decode(trimmed);
+    if (!decoded || !Number.isFinite(decoded.latitude) || !Number.isFinite(decoded.longitude)) return null;
+    return { lat: decoded.latitude, lng: decoded.longitude };
+  } catch (_err) {
+    return null;
+  }
+}
+
 function buildLocationPayload({
   visibility,
   label,
+  placeId,
   geohash,
   radiusKm,
   allowDiscoveryUseLocation,
 }: {
   visibility: LocationVisibility;
   label: string;
+  placeId?: string;
   geohash: string;
   radiusKm: number | null;
   allowDiscoveryUseLocation: boolean;
 }) {
+  const resolvedPrecision =
+    typeof radiusKm === "number" && Number.isFinite(radiusKm) ? radiusKm : DEFAULT_PRECISION_KM;
+  const resolvedDiscovery = visibility === "OFF" ? false : allowDiscoveryUseLocation;
+
   if (visibility === "OFF") {
     return {
       locationVisibility: visibility,
       locationLabel: null,
+      locationPlaceId: null,
       locationGeohash: null,
       locationRadiusKm: null,
-      allowDiscoveryUseLocation,
+      locationEnabled: false,
+      locationPrecisionKm: resolvedPrecision,
+      allowDiscoveryUseLocation: resolvedDiscovery,
     };
   }
 
@@ -177,9 +356,12 @@ function buildLocationPayload({
     return {
       locationVisibility: visibility,
       locationLabel: label || null,
+      locationPlaceId: placeId || null,
       locationGeohash: geohash || null,
       locationRadiusKm: null,
-      allowDiscoveryUseLocation,
+      locationEnabled: resolvedDiscovery,
+      locationPrecisionKm: resolvedPrecision,
+      allowDiscoveryUseLocation: resolvedDiscovery,
     };
   }
 
@@ -187,18 +369,24 @@ function buildLocationPayload({
     return {
       locationVisibility: visibility,
       locationLabel: label || null,
+      locationPlaceId: placeId || null,
       locationGeohash: geohash || null,
       locationRadiusKm: null,
-      allowDiscoveryUseLocation,
+      locationEnabled: resolvedDiscovery,
+      locationPrecisionKm: resolvedPrecision,
+      allowDiscoveryUseLocation: resolvedDiscovery,
     };
   }
 
   return {
     locationVisibility: visibility,
     locationLabel: label || null,
+    locationPlaceId: placeId || null,
     locationGeohash: geohash || null,
     locationRadiusKm: radiusKm,
-    allowDiscoveryUseLocation,
+    locationEnabled: resolvedDiscovery,
+    locationPrecisionKm: resolvedPrecision,
+    allowDiscoveryUseLocation: resolvedDiscovery,
   };
 }
 
@@ -244,12 +432,33 @@ async function getOrCreateProfile(creatorId: string) {
 }
 
 function mapProfile(profile: any): CreatorLocation {
+  const rawLat = typeof profile.locationLat === "number" && Number.isFinite(profile.locationLat) ? profile.locationLat : null;
+  const rawLng = typeof profile.locationLng === "number" && Number.isFinite(profile.locationLng) ? profile.locationLng : null;
+  let resolvedLat = rawLat;
+  let resolvedLng = rawLng;
+  if ((resolvedLat === null || resolvedLng === null) && profile.locationGeohash) {
+    const decoded = decodeGeohash(profile.locationGeohash);
+    if (decoded) {
+      resolvedLat = decoded.lat;
+      resolvedLng = decoded.lng;
+    }
+  }
+  const enabled =
+    typeof profile.locationEnabled === "boolean"
+      ? profile.locationEnabled
+      : Boolean(profile.allowDiscoveryUseLocation);
+  const precisionKm = profile.locationPrecisionKm ?? profile.locationRadiusKm ?? null;
   return {
     visibility: profile.locationVisibility || "OFF",
     label: profile.locationLabel ?? null,
     geohash: profile.locationGeohash ?? null,
     radiusKm: profile.locationRadiusKm ?? null,
     allowDiscoveryUseLocation: Boolean(profile.allowDiscoveryUseLocation),
+    placeId: profile.locationPlaceId ?? null,
+    enabled,
+    lat: resolvedLat,
+    lng: resolvedLng,
+    precisionKm,
   };
 }
 

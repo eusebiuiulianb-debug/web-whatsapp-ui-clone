@@ -1,0 +1,125 @@
+import { useEffect, useMemo, useRef } from "react";
+import { Circle, MapContainer, Marker, TileLayer, useMap, useMapEvents } from "react-leaflet";
+import L from "leaflet";
+
+type Props = {
+  center: { lat: number; lng: number };
+  radiusKm: number;
+  onCenterChange: (next: { lat: number; lng: number }) => void;
+};
+
+const MIN_RADIUS_METERS = 500;
+
+export default function LocationPickerMapClient({ center, radiusKm, onCenterChange }: Props) {
+  const centerPoint = useMemo(() => [center.lat, center.lng] as [number, number], [center.lat, center.lng]);
+  const radiusMeters = useMemo(() => {
+    if (!Number.isFinite(radiusKm)) return MIN_RADIUS_METERS;
+    return Math.max(MIN_RADIUS_METERS, radiusKm * 1000);
+  }, [radiusKm]);
+  const markerIcon = useMemo(
+    () =>
+      L.divIcon({
+        className: "",
+        html:
+          '<div style="width:16px;height:16px;border-radius:999px;background:#0ea5e9;border:2px solid #0f172a;box-shadow:0 0 0 4px rgba(14,165,233,0.25);"></div>',
+        iconSize: [16, 16],
+        iconAnchor: [8, 8],
+      }),
+    []
+  );
+
+  return (
+    <MapContainer
+      center={centerPoint}
+      zoom={12}
+      scrollWheelZoom
+      attributionControl={false}
+      className="h-full w-full"
+    >
+      <MapInvalidateSize />
+      <MapFitBounds center={centerPoint} radiusMeters={radiusMeters} />
+      <MapClickHandler onCenterChange={onCenterChange} />
+      <TileLayer
+        url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+        attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+      />
+      <Circle
+        center={centerPoint}
+        radius={radiusMeters}
+        pathOptions={{ color: "#0ea5e9", weight: 2, fillColor: "#38bdf8", fillOpacity: 0.18 }}
+      />
+      <DraggableMarker center={centerPoint} icon={markerIcon} onCenterChange={onCenterChange} />
+    </MapContainer>
+  );
+}
+
+function DraggableMarker({
+  center,
+  icon,
+  onCenterChange,
+}: {
+  center: [number, number];
+  icon: L.DivIcon;
+  onCenterChange: (next: { lat: number; lng: number }) => void;
+}) {
+  const markerRef = useRef<L.Marker | null>(null);
+  const eventHandlers = useMemo(
+    () => ({
+      dragend() {
+        const marker = markerRef.current;
+        if (!marker) return;
+        const { lat, lng } = marker.getLatLng();
+        onCenterChange({ lat, lng });
+      },
+    }),
+    [onCenterChange]
+  );
+
+  return (
+    <Marker
+      draggable
+      position={center}
+      icon={icon}
+      ref={markerRef}
+      eventHandlers={eventHandlers}
+    />
+  );
+}
+
+function MapClickHandler({
+  onCenterChange,
+}: {
+  onCenterChange: (next: { lat: number; lng: number }) => void;
+}) {
+  useMapEvents({
+    click(event) {
+      onCenterChange({ lat: event.latlng.lat, lng: event.latlng.lng });
+    },
+  });
+  return null;
+}
+
+function MapInvalidateSize() {
+  const map = useMap();
+  useEffect(() => {
+    const timeout = window.setTimeout(() => map.invalidateSize(), 0);
+    return () => window.clearTimeout(timeout);
+  }, [map]);
+  return null;
+}
+
+function MapFitBounds({
+  center,
+  radiusMeters,
+}: {
+  center: [number, number];
+  radiusMeters: number;
+}) {
+  const map = useMap();
+  useEffect(() => {
+    const safeRadius = Math.max(MIN_RADIUS_METERS, radiusMeters);
+    const bounds = L.latLng(center[0], center[1]).toBounds(safeRadius * 2);
+    map.fitBounds(bounds, { padding: [28, 28], maxZoom: 13 });
+  }, [center, map, radiusMeters]);
+  return null;
+}

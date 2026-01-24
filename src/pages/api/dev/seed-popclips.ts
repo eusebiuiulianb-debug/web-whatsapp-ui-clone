@@ -36,11 +36,12 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       where: { isActive: true, isArchived: false, isStory: false },
     });
     if (existingCount >= TARGET_COUNT) {
-      return res.status(200).json({ ok: true, created: 0 });
+      return res.status(200).json({ ok: true, created: 0, createdIds: [] });
     }
 
     const toCreate = Math.max(0, TARGET_COUNT - existingCount);
     let created = 0;
+    const createdIds: string[] = [];
 
     for (let i = 0; i < toCreate; i += 1) {
       const creator = creators[i % creators.length];
@@ -64,7 +65,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         },
       });
 
-      await prisma.popClip.create({
+      const createdClip = await prisma.popClip.create({
         data: {
           creatorId: creator.id,
           catalogItemId: catalogItem.id,
@@ -78,12 +79,14 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           isStory: false,
           sortOrder: 0,
         },
+        select: { id: true },
       });
+      createdIds.push(createdClip.id);
 
       created += 1;
     }
 
-    return res.status(200).json({ ok: true, created });
+    return res.status(200).json({ ok: true, created, createdIds });
   } catch (err) {
     console.error("Error seeding popclips", err);
     return res.status(500).json({ error: "Seed failed" });

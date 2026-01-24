@@ -4,6 +4,7 @@ import type { NextApiRequest, NextApiResponse } from "next";
 import { decode } from "ngeohash";
 import prisma from "../../../../lib/prisma.server";
 import { slugifyHandle } from "../../../../lib/fan/session";
+import { PUBLIC_CREATOR_PROFILE_SELECT, PUBLIC_CREATOR_SELECT } from "../../../../lib/publicCreatorSelect";
 
 type CreatorItem = {
   handle: string;
@@ -13,6 +14,8 @@ type CreatorItem = {
   responseTime: string;
   locationLabel?: string | null;
   priceFrom?: number | null;
+  locationEnabled?: boolean;
+  allowLocation?: boolean;
 };
 
 type CreatorAvailability = "AVAILABLE" | "OFFLINE" | "VIP_ONLY";
@@ -59,18 +62,12 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           ],
         },
         select: {
-          id: true,
-          name: true,
-          bioLinkAvatarUrl: true,
+          ...PUBLIC_CREATOR_SELECT,
           profile: {
             select: {
-              availability: true,
-              responseSla: true,
+              ...PUBLIC_CREATOR_PROFILE_SELECT,
               visibilityMode: true,
-              locationVisibility: true,
-              locationLabel: true,
               locationGeohash: true,
-              allowDiscoveryUseLocation: true,
             },
           },
           discoveryProfile: {
@@ -122,10 +119,15 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       if (priceMax && priceFrom !== null && priceFrom > priceMax) return false;
 
       if (Number.isFinite(radiusKm) && radiusKm > 0 && geo) {
-        const geohash = (creator.profile?.locationGeohash || "").trim();
-        const allowUse = Boolean(creator.profile?.allowDiscoveryUseLocation);
-        const visibility = (creator.profile?.locationVisibility || "").toUpperCase();
-        if (!geohash || !allowUse || visibility === "OFF") return false;
+        const profile = creator.profile;
+        const visibility = (profile?.locationVisibility || "").toUpperCase();
+        const locationEnabled =
+          visibility !== "OFF" &&
+          Boolean(profile?.locationGeohash) &&
+          Boolean(profile?.locationLabel);
+        const allowUse = locationEnabled && Boolean(profile?.allowDiscoveryUseLocation);
+        const geohash = allowUse ? (profile?.locationGeohash || "").trim() : "";
+        if (!geohash || !allowUse) return false;
         const distance = getDistanceKm(geo, geohash);
         if (!Number.isFinite(distance) || distance > radiusKm) return false;
       }
@@ -136,11 +138,16 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     const total = filtered.length;
 
     const items: CreatorItem[] = filtered.slice(0, limit).map((creator) => {
-      const availabilityValue = normalizeAvailability(creator.profile?.availability) ?? "AVAILABLE";
-      const responseValue = normalizeResponseTime(creator.profile?.responseSla) ?? "LT_24H";
-      const locationVisibility = (creator.profile?.locationVisibility || "").toUpperCase();
-      const locationLabel =
-        locationVisibility !== "OFF" ? creator.profile?.locationLabel ?? null : null;
+      const profile = creator.profile;
+      const availabilityValue = normalizeAvailability(profile?.availability) ?? "AVAILABLE";
+      const responseValue = normalizeResponseTime(profile?.responseSla) ?? "LT_24H";
+      const locationVisibility = (profile?.locationVisibility || "").toUpperCase();
+      const locationEnabled =
+        locationVisibility !== "OFF" &&
+        Boolean(profile?.locationGeohash) &&
+        Boolean(profile?.locationLabel);
+      const allowLocation = locationEnabled && Boolean(profile?.allowDiscoveryUseLocation);
+      const locationLabel = allowLocation ? profile?.locationLabel ?? null : null;
       const avatarUrl = normalizeAvatarUrl(creator.bioLinkAvatarUrl || null);
       const priceFrom = minPriceMap.get(creator.id) ?? null;
 
@@ -151,6 +158,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         availability: formatAvailabilityLabel(availabilityValue),
         responseTime: formatResponseTimeLabel(responseValue),
         locationLabel,
+        locationEnabled,
+        allowLocation,
         priceFrom,
       };
     });
@@ -158,7 +167,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     return res.status(200).json({ items, total });
   } catch (err) {
     console.error("Error loading discovery creators", err);
-    return res.status(500).json({ error: "No se pudieron cargar los creadores" });
+    return res.status(200).json({ items: [], total: 0 });
   }
 }
 

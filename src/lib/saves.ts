@@ -28,6 +28,24 @@ export function toggleSavedClip(clipId: string): boolean {
   return isNowSaved;
 }
 
+export function normalizeSavedClipIds(ids: unknown[]): string[] {
+  const normalized: string[] = [];
+  const seen = new Set<string>();
+  ids.forEach((entry) => {
+    const key = normalizeClipId(entry);
+    if (!key || seen.has(key)) return;
+    seen.add(key);
+    normalized.push(key);
+  });
+  return normalized;
+}
+
+export function writeSavedClips(ids: unknown[]): string[] {
+  const normalized = normalizeSavedClipIds(ids);
+  saveSavedClips(new Set(normalized));
+  return normalized;
+}
+
 function readSavedClips(): Set<string> {
   if (typeof window === "undefined") return new Set();
   const existing = readKey(SAVED_CLIPS_KEY);
@@ -72,11 +90,26 @@ function readKey(key: string): ReadKeyResult {
       if (!Array.isArray(parsed)) {
         return { clips: new Set(), found: true, corrupted: true };
       }
-      const normalized = parsed
-        .filter((item) => typeof item === "string")
-        .map((item) => normalizeClipId(item))
-        .filter(Boolean);
-      return { clips: new Set(normalized), found: true, corrupted: false };
+      const normalized: string[] = [];
+      const seen = new Set<string>();
+      let corrupted = false;
+      parsed.forEach((entry) => {
+        const key = normalizeClipId(entry);
+        if (!key) {
+          corrupted = true;
+          return;
+        }
+        if (typeof entry !== "string" || entry.trim() !== key) {
+          corrupted = true;
+        }
+        if (seen.has(key)) {
+          corrupted = true;
+          return;
+        }
+        seen.add(key);
+        normalized.push(key);
+      });
+      return { clips: new Set(normalized), found: true, corrupted };
     } catch {
       return { clips: new Set(), found: true, corrupted: true };
     }
@@ -118,6 +151,19 @@ function removeLegacyKey(key: string) {
   }
 }
 
-function normalizeClipId(id: string): string {
-  return id.trim();
+function normalizeClipId(id: unknown): string | null {
+  if (typeof id === "string") {
+    const trimmed = id.trim();
+    return trimmed ? trimmed : null;
+  }
+  if (typeof id === "number") {
+    if (!Number.isFinite(id)) return null;
+    const value = String(id);
+    return value ? value : null;
+  }
+  if (typeof id === "bigint") {
+    const value = id.toString();
+    return value ? value : null;
+  }
+  return null;
 }

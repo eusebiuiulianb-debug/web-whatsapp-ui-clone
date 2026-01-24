@@ -49,6 +49,7 @@ import { computeAgencyPriorityScore } from "../../lib/agency/priorityScore";
 import type { AgencyIntensity, AgencyStage } from "../../lib/agency/types";
 import { DB_SCHEMA_OUT_OF_SYNC_CODE } from "../../lib/dbSchemaGuard";
 import { AI_ENABLED } from "../../lib/features";
+import { notifyCreatorStatusUpdated } from "../../lib/creatorStatusEvents";
 
 class SideBarBoundary extends Component<{ children: React.ReactNode }, { hasError: boolean }> {
   constructor(props: { children: React.ReactNode }) {
@@ -2076,6 +2077,7 @@ function SideBarInner() {
         setCreatorResponseSla(normalizeCreatorResponseSla(data?.responseSla));
         setCreatorAvailability(normalizeCreatorAvailability(data?.availability));
         setCreatorStatusError("");
+        notifyCreatorStatusUpdated();
         return true;
       } catch (err) {
         console.error("Error saving creator status", err);
