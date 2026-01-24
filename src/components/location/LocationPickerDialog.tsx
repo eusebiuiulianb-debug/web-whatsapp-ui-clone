@@ -363,7 +363,7 @@ export function LocationPickerDialog({
 
             <div className="rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] p-3 space-y-3">
               <p className="text-xs font-semibold text-[color:var(--text)]">Mapa aproximado</p>
-              <div className="relative z-0 w-full max-w-full overflow-hidden rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] isolate [&_.leaflet-control-attribution]:hidden">
+              <div className="relative z-0 h-[260px] w-full max-w-full overflow-hidden rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] isolate sm:h-[320px] [&_.leaflet-control-attribution]:hidden">
                 <LocationPickerMap center={mapCenter} radiusKm={radiusKm} onCenterChange={handleMapCenterChange} />
                 {!hasCoords ? (
                   <div className="pointer-events-none absolute inset-0 flex items-center justify-center text-xs text-[color:var(--muted)] bg-[linear-gradient(180deg,rgba(15,23,42,0.4),rgba(15,23,42,0.6))]">

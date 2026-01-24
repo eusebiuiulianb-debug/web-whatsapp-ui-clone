@@ -59,6 +59,7 @@ type PopClipFeedItem = {
     vipEnabled?: boolean;
     isAvailable?: boolean;
     locationLabel?: string | null;
+    allowLocation?: boolean;
     responseTime?: string | null;
   };
   stats?: {
@@ -449,14 +450,27 @@ export default function Explore() {
   useEffect(() => {
     if (typeof window === "undefined") return;
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key.toLowerCase() !== "k") return;
+      if (event.defaultPrevented) return;
+      if (typeof event.key !== "string") return;
+      const target = event.target instanceof HTMLElement ? event.target : null;
+      if (
+        target &&
+        (target.tagName === "INPUT" ||
+          target.tagName === "TEXTAREA" ||
+          target.tagName === "SELECT" ||
+          target.isContentEditable)
+      ) {
+        return;
+      }
+      if (filterSheetOpen || categorySheetOpen || captionSheetOpen) return;
       if (!event.metaKey && !event.ctrlKey) return;
+      if (event.key.toLowerCase() !== "k") return;
       event.preventDefault();
       focusSearchInput({ select: true });
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [focusSearchInput]);
+  }, [captionSheetOpen, categorySheetOpen, filterSheetOpen, focusSearchInput]);
 
   useEffect(() => {
     const handleRouteChange = () => closeSearchPanel();
@@ -1822,11 +1836,13 @@ function HomeCreatorCard({ creator }: { creator: RecommendedCreator }) {
   const [avatarFailed, setAvatarFailed] = useState(false);
   const availabilityLabel = creator.availability || (creator.vipEnabled ? "Solo VIP" : "Disponible");
   const responseLabel = creator.responseTime || "";
-  const locationLabel = creator.locationLabel?.trim();
-  const showLocation = Boolean(locationLabel && creator.allowLocation !== false);
-  const distanceLabel = Number.isFinite(creator.distanceKm ?? NaN)
-    ? `A ${Math.round(creator.distanceKm as number)} km`
-    : "";
+  const allowLocation = creator.allowLocation !== false;
+  const locationLabel = allowLocation ? creator.locationLabel?.trim() : "";
+  const showLocation = Boolean(locationLabel);
+  const distanceLabel =
+    allowLocation && Number.isFinite(creator.distanceKm ?? NaN)
+      ? `≈${Math.round(creator.distanceKm as number)} km`
+      : "";
 
   useEffect(() => {
     setAvatarFailed(false);

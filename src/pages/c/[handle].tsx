@@ -4,7 +4,7 @@ import type { GetServerSideProps } from "next";
 import { randomUUID } from "crypto";
 import { useCallback, useEffect, useRef, useState, type MouseEvent, type TouchEvent, type WheelEvent } from "react";
 import { useRouter } from "next/router";
-import { Bell, BellRing, ChevronLeft, ChevronRight, Pencil, ThumbsUp } from "lucide-react";
+import { Bell, BellRing, ChevronLeft, ChevronRight, Lock, Pencil, ThumbsUp } from "lucide-react";
 import { PublicHero } from "../../components/public-profile/PublicHero";
 import { PublicProfileStatsRow } from "../../components/public-profile/PublicProfileStatsRow";
 import { Skeleton } from "../../components/ui/Skeleton";
@@ -561,20 +561,36 @@ export default function PublicCreatorByHandle({
     return `${label} (aprox.) · ${resolveLocationRadiusKm(creatorLocation)} km`;
   })();
   const locationSummaryText = locationLoading ? "Cargando ubicación..." : locationSummaryLabel;
-  const hasLocation = Boolean(
+  const locationLabel = (creatorLocation?.label ?? "").trim();
+  const hasPublicLocation = Boolean(
     creatorLocation &&
       resolveLocationEnabled(creatorLocation) &&
       creatorLocation.visibility !== "OFF" &&
-      creatorLocation.label
+      locationLabel
   );
+  const privateLocationLabel = locationLabel || (locationHasCoords ? "Mi ubicación" : "");
+  const hasPrivateLocation = Boolean(
+    isCreatorViewer && creatorLocation && !hasPublicLocation && privateLocationLabel
+  );
+  const locationChip = hasPublicLocation ? (
+    <PublicLocationBadge location={creatorLocation} variant="chip" />
+  ) : hasPrivateLocation ? (
+    <span
+      className="inline-flex min-w-0 max-w-full items-center gap-1 rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-3 py-1 text-[11px] font-semibold text-[color:var(--text)]"
+      title="Ubicación privada"
+    >
+      <Lock className="h-3 w-3 text-[color:var(--muted)]" aria-hidden="true" />
+      <span className="truncate">📍 {privateLocationLabel} (privado)</span>
+    </span>
+  ) : null;
   const creatorChips = [
     ...(availabilityLabel ? [{ label: availabilityLabel }] : []),
     ...(responseSlaLabel ? [{ label: responseSlaLabel }] : []),
-    ...(hasLocation
+    ...(locationChip
       ? [
           {
-            key: "location",
-            node: <PublicLocationBadge location={creatorLocation} variant="chip" />,
+            key: hasPublicLocation ? "location" : "location-private",
+            node: locationChip,
           },
         ]
       : []),
