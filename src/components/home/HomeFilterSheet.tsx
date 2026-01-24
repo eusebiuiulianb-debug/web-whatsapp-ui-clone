@@ -153,7 +153,8 @@ export function HomeFilterSheet({
                 onChange={(event) =>
                   setDraft((prev) => ({ ...prev, km: Number(event.target.value) }))
                 }
-                className="mt-2 w-full"
+                disabled={!hasLocation}
+                className="mt-2 w-full disabled:cursor-not-allowed disabled:opacity-60"
               />
               <p className="mt-2 text-[11px] text-[color:var(--muted)]">
                 Usa una ubicación para filtrar por cercanía.
@@ -179,7 +180,7 @@ export function HomeFilterSheet({
                   type="button"
                   onClick={() => setLocationOpen(true)}
                   aria-label="Editar ubicación"
-                  className="group relative w-full overflow-hidden rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] text-left focus:outline-none focus:ring-1 focus:ring-[color:var(--ring)]"
+                  className="group relative hidden w-full overflow-hidden rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] text-left focus:outline-none focus:ring-1 focus:ring-[color:var(--ring)] sm:block"
                 >
                   <div className="h-32 w-full [&_.leaflet-control-attribution]:hidden">
                     {hasLocation ? (

@@ -35,15 +35,14 @@ export function parseHomeFilters(query: ParsedUrlQuery): HomeFilters {
 
 export function toHomeFiltersQuery(filters: HomeFilters): Record<string, string> {
   const query: Record<string, string> = {};
-  const km = normalizeKm(filters.km);
-  if (Number.isFinite(km) && km !== DEFAULT_KM) {
-    query.km = String(km);
-  }
-
   const lat = typeof filters.lat === "number" && Number.isFinite(filters.lat) ? filters.lat : null;
   const lng = typeof filters.lng === "number" && Number.isFinite(filters.lng) ? filters.lng : null;
   const hasCoords = lat !== null && lng !== null;
   if (hasCoords) {
+    const km = normalizeKm(filters.km);
+    if (Number.isFinite(km) && km !== DEFAULT_KM) {
+      query.km = String(km);
+    }
     query.lat = String(lat);
     query.lng = String(lng);
     const loc = (filters.loc || "").trim();
@@ -59,15 +58,16 @@ export function toHomeFiltersQuery(filters: HomeFilters): Record<string, string>
 
 export function countActiveFilters(filters: HomeFilters): number {
   let count = 0;
-  const km = normalizeKm(filters.km);
-  if (Number.isFinite(km) && km !== DEFAULT_KM) count += 1;
-
   const hasCoords =
     typeof filters.lat === "number" &&
     Number.isFinite(filters.lat) &&
     typeof filters.lng === "number" &&
     Number.isFinite(filters.lng);
-  if (hasCoords) count += 1;
+  if (hasCoords) {
+    count += 1;
+    const km = normalizeKm(filters.km);
+    if (Number.isFinite(km) && km !== DEFAULT_KM) count += 1;
+  }
   if (filters.avail) count += 1;
   if (filters.r24) count += 1;
   if (filters.vip) count += 1;

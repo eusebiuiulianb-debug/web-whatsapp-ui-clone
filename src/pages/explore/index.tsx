@@ -1753,14 +1753,17 @@ export default function Explore() {
                 </div>
               ) : showCreatorsEmpty ? (
                 <div className="flex flex-col items-start gap-3 rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] p-4 text-sm text-[color:var(--muted)]">
-                  <span>No hay resultados con estos filtros. Prueba a ampliar el radio o limpiar filtros.</span>
+                  <div className="space-y-1">
+                    <span className="block text-[color:var(--text)]">No hay creadores con estos filtros.</span>
+                    <span className="block text-xs">Prueba aumentando la distancia.</span>
+                  </div>
                   <button
                     type="button"
                     onClick={resetAllFilters}
-                    aria-label="Limpiar filtros"
+                    aria-label="Reiniciar filtros"
                     className="inline-flex items-center justify-center rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-3 py-1 text-xs font-semibold text-[color:var(--text)] hover:bg-[color:var(--surface-2)]"
                   >
-                    Limpiar filtros
+                    Reiniciar filtros
                   </button>
                 </div>
               ) : (
