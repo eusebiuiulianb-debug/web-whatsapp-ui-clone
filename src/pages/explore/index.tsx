@@ -1380,7 +1380,7 @@ export default function Explore() {
       <Head>
         <title>IntimiPop - Explorar</title>
       </Head>
-      <div className="flex min-h-screen w-full flex-col overflow-x-hidden">
+      <div className="flex min-h-screen w-full flex-col">
         <div
           className={clsx(
             "fixed left-0 right-0 top-0 z-40 hidden transition-all md:block",
@@ -1437,7 +1437,19 @@ export default function Explore() {
           <div className="mx-auto w-full max-w-6xl px-4 pt-[env(safe-area-inset-top)] pb-3">
             <div className="flex items-center justify-between">
               <Link href="/explore" legacyBehavior passHref>
-                <a className="text-[11px] font-semibold uppercase tracking-[0.28em] text-[color:var(--muted)]">
+                <a
+                  onClick={(event) => {
+                    event.preventDefault();
+                    setSearch("");
+                    setSelectedCategoryId(null);
+                    setSavedOnly(false);
+                    setExploreIntent("all");
+                    closeSearchPanel();
+                    scrollToTop();
+                    void router.push("/explore");
+                  }}
+                  className="text-[11px] font-semibold uppercase tracking-[0.28em] text-[color:var(--muted)]"
+                >
                   IntimiPop
                 </a>
               </Link>
@@ -1480,7 +1492,7 @@ export default function Explore() {
             <div className="mt-3">{renderFilterChips()}</div>
           </div>
         </div>
-        <div className="mx-auto flex w-full max-w-6xl flex-col gap-6 px-4 py-6 md:px-6 lg:px-8">
+        <div className="mx-auto flex w-full max-w-6xl flex-col gap-6 px-4 py-6 md:px-6 lg:px-8 overflow-x-hidden">
           <HomeSectionCard className="relative">
             <div
               className="pointer-events-none absolute inset-0 rounded-2xl opacity-70"

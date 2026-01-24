@@ -34,12 +34,6 @@ body.has-mobile-tabbar {
   border-radius: 12px;
 }
 
-.leaflet-pane,
-.leaflet-map-pane,
-.leaflet-tile-pane {
-  overflow: hidden !important;
-}
-
 .leaflet-container img,
 .leaflet-container .leaflet-tile {
   max-width: none !important;

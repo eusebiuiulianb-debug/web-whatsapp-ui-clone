@@ -116,6 +116,12 @@ export function LocationPickerDialog({
 
   useEffect(() => {
     if (!open) return;
+    const timeout = window.setTimeout(() => invalidateMap(), 120);
+    return () => window.clearTimeout(timeout);
+  }, [hasCoords, invalidateMap, open]);
+
+  useEffect(() => {
+    if (!open) return;
     const trimmed = geoQuery.trim();
     if (trimmed.length < 2) {
       setGeoResults([]);
