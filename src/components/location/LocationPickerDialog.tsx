@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { Map as LeafletMap } from "leaflet";
 import { LocationPickerMap } from "../home/LocationPickerMap";
 
@@ -77,6 +77,13 @@ export function LocationPickerDialog({
   const [mapCenter, setMapCenter] = useState(DEFAULT_LOCATION_CENTER);
   const geoRequestRef = useRef(0);
   const mapRef = useRef<LeafletMap | null>(null);
+  const invalidateMap = useCallback(() => {
+    const map = mapRef.current;
+    if (!map) return;
+    window.requestAnimationFrame(() => {
+      window.requestAnimationFrame(() => map.invalidateSize());
+    });
+  }, []);
 
   const lat = typeof value.lat === "number" && Number.isFinite(value.lat) ? value.lat : null;
   const lng = typeof value.lng === "number" && Number.isFinite(value.lng) ? value.lng : null;
@@ -177,16 +184,14 @@ export function LocationPickerDialog({
     if (!open) return;
     const timeout = window.setTimeout(() => {
       window.dispatchEvent(new Event("resize"));
-      if (mapRef.current) {
-        window.requestAnimationFrame(() => mapRef.current?.invalidateSize());
-      }
-    }, 80);
+      invalidateMap();
+    }, 140);
     return () => window.clearTimeout(timeout);
-  }, [open]);
+  }, [invalidateMap, open]);
 
   const handleMapReady = (map: LeafletMap) => {
     mapRef.current = map;
-    window.requestAnimationFrame(() => map.invalidateSize());
+    invalidateMap();
   };
 
   const commitCenter = (
@@ -204,9 +209,7 @@ export function LocationPickerDialog({
     setQueryDirty(false);
     setSelectionError("");
     onChange({ lat: next.lat, lng: next.lng, label: resolvedLabel, placeId: resolvedPlaceId || null });
-    if (mapRef.current) {
-      window.requestAnimationFrame(() => mapRef.current?.invalidateSize());
-    }
+    invalidateMap();
   };
 
   const handleSelectGeoResult = (result: GeoSearchResult) => {

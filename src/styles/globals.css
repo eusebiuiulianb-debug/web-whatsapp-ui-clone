@@ -29,6 +29,7 @@ body.has-mobile-tabbar {
   height: 100%;
   max-width: 100%;
   max-height: 100%;
+  background: transparent;
   overflow: hidden !important;
   border-radius: 12px;
 }
@@ -37,6 +38,12 @@ body.has-mobile-tabbar {
 .leaflet-map-pane,
 .leaflet-tile-pane {
   overflow: hidden !important;
+}
+
+.leaflet-container img,
+.leaflet-container .leaflet-tile {
+  max-width: none !important;
+  max-height: none !important;
 }
 
 :root {

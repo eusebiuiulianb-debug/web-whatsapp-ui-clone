@@ -407,6 +407,16 @@ export default function Explore() {
   }, []);
 
   useEffect(() => {
+    if (!router.isReady) return;
+    const raw = router.query.saved;
+    const value = Array.isArray(raw) ? raw[0] : raw;
+    if (value === "1" || value === "true") {
+      setSavedOnly(true);
+      setExploreIntent("saved");
+    }
+  }, [router.isReady, router.query.saved]);
+
+  useEffect(() => {
     if (typeof window === "undefined") return;
     const media = window.matchMedia("(max-width: 767px)");
     const update = () => setIsMobile(media.matches);
@@ -1374,7 +1384,7 @@ export default function Explore() {
       <Head>
         <title>IntimiPop - Explorar</title>
       </Head>
-      <div className="flex min-h-screen w-full flex-col overflow-y-auto pb-[calc(5rem+env(safe-area-inset-bottom))] md:pb-0">
+      <div className="flex min-h-screen w-full flex-col overflow-x-hidden">
         <div
           className={clsx(
             "fixed left-0 right-0 top-0 z-40 hidden transition-all md:block",

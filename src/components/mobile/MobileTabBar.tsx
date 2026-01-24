@@ -2,7 +2,7 @@ import Link from "next/link";
 import { useRouter } from "next/router";
 import { useEffect } from "react";
 import clsx from "clsx";
-import { Compass, Home, Inbox, Plus, User, type LucideIcon } from "lucide-react";
+import { Bookmark, Home, Inbox, Plus, User, type LucideIcon } from "lucide-react";
 
 type TabItem = {
   key: string;
@@ -14,9 +14,9 @@ type TabItem = {
 
 const TABS: TabItem[] = [
   { key: "home", label: "Inicio", href: "/discover", icon: Home },
-  { key: "explore", label: "Explorar", href: "/explore", icon: Compass },
+  { key: "saved", label: "Guardados", href: "/explore?saved=1", icon: Bookmark },
   { key: "upload", label: "Subir", href: "/upload", icon: Plus, primary: true },
-  { key: "inbox", label: "Buzon", href: "/inbox", icon: Inbox },
+  { key: "inbox", label: "Chats", href: "/inbox", icon: Inbox },
   { key: "me", label: "Tu", href: "/me", icon: User },
 ];
 
@@ -92,7 +92,8 @@ export function MobileTabBar() {
     <nav className="fixed inset-x-0 bottom-0 z-40 border-t border-[color:var(--surface-border)] bg-[color:var(--surface-1)]/95 pb-[env(safe-area-inset-bottom)] backdrop-blur-xl md:hidden">
       <div className="mx-auto flex w-full max-w-6xl items-end justify-around px-4 pb-2 pt-2">
         {TABS.map((tab) => {
-          const isActive = currentPath === tab.href || currentPath.startsWith(`${tab.href}/`);
+          const basePath = tab.href.split("?")[0];
+          const isActive = currentPath === basePath || currentPath.startsWith(`${basePath}/`);
           return (
             <TabLink
               key={tab.key}
