@@ -1,9 +1,9 @@
 import fs from "fs";
 import path from "path";
 import type { NextApiRequest, NextApiResponse } from "next";
-import { decode } from "ngeohash";
 import prisma from "../../../../lib/prisma.server";
 import { slugifyHandle } from "../../../../lib/fan/session";
+import { distanceKmFromGeohash } from "../../../../lib/geo";
 import { PUBLIC_CREATOR_PROFILE_SELECT, PUBLIC_CREATOR_SELECT } from "../../../../lib/publicCreatorSelect";
 
 type CreatorResult = {
@@ -144,7 +144,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     const scored = candidates.map((candidate) => {
       const distanceKm =
         userLocation && candidate.locationGeohash
-          ? getDistanceKm(userLocation, candidate.locationGeohash)
+          ? distanceKmFromGeohash(userLocation, candidate.locationGeohash)
           : null;
       return {
         ...candidate,
@@ -174,27 +174,26 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       maxDistanceKm: km,
     });
 
-    if (filtered.length < 3 && hasUserLocation) {
-      filtered = applyFilters(scored, {
-        requireAvail: avail,
-        requireR24: r24,
-        requireVip: vip,
-        requireDistance: false,
-        maxDistanceKm: km,
-      });
-    }
-
     if (filtered.length < 3 && (avail || r24)) {
       filtered = applyFilters(scored, {
         requireAvail: false,
         requireR24: false,
         requireVip: vip,
-        requireDistance: false,
+        requireDistance: hasUserLocation,
         maxDistanceKm: km,
       });
     }
 
     const sorted = [...filtered].sort((a, b) => {
+      if (hasUserLocation) {
+        const aDistance = Number.isFinite(a.distanceKm ?? NaN)
+          ? (a.distanceKm as number)
+          : Number.POSITIVE_INFINITY;
+        const bDistance = Number.isFinite(b.distanceKm ?? NaN)
+          ? (b.distanceKm as number)
+          : Number.POSITIVE_INFINITY;
+        if (aDistance !== bDistance) return aDistance - bDistance;
+      }
       if (b.score !== a.score) return b.score - a.score;
       const aTime = a.lastActiveAt ? a.lastActiveAt.getTime() : 0;
       const bTime = b.lastActiveAt ? b.lastActiveAt.getTime() : 0;
@@ -346,31 +345,6 @@ function scoreCandidate(candidate: CreatorCandidate, distanceKm?: number | null)
 
 function roundDistance(distanceKm: number) {
   return Math.round(distanceKm * 10) / 10;
-}
-
-function getDistanceKm(from: { lat: number; lng: number }, toGeohash: string) {
-  const to = decodeGeohash(toGeohash);
-  if (!to) return NaN;
-  const rad = Math.PI / 180;
-  const dLat = (to.lat - from.lat) * rad;
-  const dLng = (to.lng - from.lng) * rad;
-  const a =
-    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-    Math.cos(from.lat * rad) * Math.cos(to.lat * rad) * Math.sin(dLng / 2) * Math.sin(dLng / 2);
-  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-  return 6371 * c;
-}
-
-function decodeGeohash(value: string) {
-  const trimmed = (value || "").trim();
-  if (!trimmed) return null;
-  try {
-    const decoded = decode(trimmed);
-    if (!decoded || !Number.isFinite(decoded.latitude) || !Number.isFinite(decoded.longitude)) return null;
-    return { lat: decoded.latitude, lng: decoded.longitude };
-  } catch (_err) {
-    return null;
-  }
 }
 
 function normalizeAvatarUrl(value?: string | null): string | null {

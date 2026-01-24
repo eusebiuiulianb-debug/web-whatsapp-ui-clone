@@ -135,7 +135,7 @@ export default function CreatorHeader({ name, role, subtitle, initial, avatarUrl
             ariaLabel="Inicio"
             title="Inicio"
             onClick={() => {
-              void router.push("/");
+              void router.push("/explore");
             }}
           />
           {navTabs.map((link) => (

@@ -2,9 +2,9 @@ import fs from "fs";
 import path from "path";
 import type { Prisma } from "@prisma/client";
 import type { NextApiRequest, NextApiResponse } from "next";
-import { decode } from "ngeohash";
 import prisma from "../../../../lib/prisma.server";
 import { slugifyHandle } from "../../../../lib/fan/session";
+import { distanceKmFromGeohash } from "../../../../lib/geo";
 
 type PopClipFeedItem = {
   id: string;
@@ -22,6 +22,7 @@ type PopClipFeedItem = {
     responseTime: string | null;
     isAvailable: boolean;
     locationLabel: string | null;
+    allowLocation?: boolean;
   };
   stats?: {
     likeCount: number;
@@ -164,7 +165,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         r24: false,
         vip,
         km,
-        requireDistance: false,
+        requireDistance: hasUserLocation,
       });
       items = mergeUniqueById([...items, ...relaxed]).slice(0, take);
       if (!nextCursor && fallbackClips.length > take) {
@@ -172,7 +173,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       }
     }
 
-    const sorted = boostEngagement(items);
+    const sorted = hasUserLocation ? sortByDistance(items) : boostEngagement(items);
 
     return res.status(200).json({
       items: sorted,
@@ -226,7 +227,7 @@ function mapFeedItems(items: FeedClipRow[], userLocation: { lat: number; lng: nu
       : "";
     const locationLabel = allowLocation ? clip.creator?.profile?.locationLabel ?? null : null;
     const distanceKm =
-      userLocation && locationGeohash ? getDistanceKm(userLocation, locationGeohash) : null;
+      userLocation && locationGeohash ? distanceKmFromGeohash(userLocation, locationGeohash) : null;
 
     return {
       id: clip.id,
@@ -246,6 +247,7 @@ function mapFeedItems(items: FeedClipRow[], userLocation: { lat: number; lng: nu
         responseTime,
         isAvailable,
         locationLabel,
+        allowLocation,
       },
       stats: {
         likeCount: clip._count?.reactions ?? 0,
@@ -350,33 +352,23 @@ function mergeUniqueById(items: PopClipFeedItem[]) {
   });
 }
 
+function sortByDistance(items: PopClipFeedItem[]) {
+  return items
+    .map((item, index) => {
+      const distance = Number.isFinite(item.distanceKm ?? NaN)
+        ? (item.distanceKm as number)
+        : Number.POSITIVE_INFINITY;
+      return { item, index, distance };
+    })
+    .sort((a, b) => {
+      if (a.distance !== b.distance) return a.distance - b.distance;
+      return a.index - b.index;
+    })
+    .map((entry) => entry.item);
+}
+
 function roundDistance(distanceKm: number) {
   return Math.round(distanceKm * 10) / 10;
-}
-
-function getDistanceKm(from: { lat: number; lng: number }, toGeohash: string) {
-  const to = decodeGeohash(toGeohash);
-  if (!to) return NaN;
-  const rad = Math.PI / 180;
-  const dLat = (to.lat - from.lat) * rad;
-  const dLng = (to.lng - from.lng) * rad;
-  const a =
-    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-    Math.cos(from.lat * rad) * Math.cos(to.lat * rad) * Math.sin(dLng / 2) * Math.sin(dLng / 2);
-  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-  return 6371 * c;
-}
-
-function decodeGeohash(value: string) {
-  const trimmed = (value || "").trim();
-  if (!trimmed) return null;
-  try {
-    const decoded = decode(trimmed);
-    if (!decoded || !Number.isFinite(decoded.latitude) || !Number.isFinite(decoded.longitude)) return null;
-    return { lat: decoded.latitude, lng: decoded.longitude };
-  } catch (_err) {
-    return null;
-  }
 }
 
 function normalizeAvatarUrl(value?: string | null): string | null {

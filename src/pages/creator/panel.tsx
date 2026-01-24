@@ -1,5 +1,5 @@
 import Head from "next/head";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/router";
 import clsx from "clsx";
 import CreatorHeader from "../../components/CreatorHeader";
@@ -15,10 +15,17 @@ const PANEL_TABS = [
 ] as const;
 
 type PanelTab = (typeof PANEL_TABS)[number]["id"];
+type PanelAction = "new" | "newPack" | null;
 
 function normalizeTab(value: string | string[] | undefined): PanelTab | null {
   const raw = Array.isArray(value) ? value[0] : value;
   if (raw === "analytics" || raw === "catalog" || raw === "popclips") return raw;
+  return null;
+}
+
+function normalizeAction(value: string | string[] | undefined): PanelAction {
+  const raw = Array.isArray(value) ? value[0] : value;
+  if (raw === "new" || raw === "newPack") return raw;
   return null;
 }
 
@@ -28,6 +35,7 @@ export default function CreatorPanelPage() {
   const router = useRouter();
   const tabParam = normalizeTab(router.query.tab);
   const activeTab: PanelTab = tabParam ?? "analytics";
+  const [actionNotice, setActionNotice] = useState<string | null>(null);
 
   useEffect(() => {
     if (!router.isReady) return;
@@ -38,11 +46,28 @@ export default function CreatorPanelPage() {
     }
   }, [router, router.isReady, tabParam]);
 
+  useEffect(() => {
+    if (!router.isReady) return;
+    const action = normalizeAction(router.query.action);
+    if (!action) {
+      setActionNotice(null);
+      return;
+    }
+    setActionNotice(action === "new" ? "Pronto: crear PopClip." : "Pronto: crear pack.");
+  }, [router.isReady, router.query.action]);
+
   const handleTabChange = (nextTab: PanelTab) => {
     if (nextTab === activeTab) return;
     void router.replace({ pathname: "/creator/panel", query: { tab: nextTab } }, undefined, {
       shallow: true,
     });
+  };
+
+  const clearActionNotice = () => {
+    const nextQuery = { ...router.query };
+    delete nextQuery.action;
+    void router.replace({ pathname: "/creator/panel", query: nextQuery }, undefined, { shallow: true });
+    setActionNotice(null);
   };
 
   return (
@@ -87,6 +112,21 @@ export default function CreatorPanelPage() {
             })}
           </div>
         </div>
+
+        {actionNotice ? (
+          <div className="rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-4 py-3 text-sm text-[color:var(--text)]">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <span>{actionNotice}</span>
+              <button
+                type="button"
+                onClick={clearActionNotice}
+                className="rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-3 py-1 text-xs font-semibold text-[color:var(--text)] hover:bg-[color:var(--surface-1)]"
+              >
+                Cerrar
+              </button>
+            </div>
+          </div>
+        ) : null}
 
         {activeTab === "catalog" ? (
           <CatalogPanel />

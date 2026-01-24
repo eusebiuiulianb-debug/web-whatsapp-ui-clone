@@ -638,6 +638,14 @@ export default function PublicCreatorComments({
         <div className="text-center space-y-2">
           <h1 className="text-2xl font-semibold">Perfil no disponible</h1>
           <p className="text-sm text-[color:var(--muted)]">El creador aún no ha activado su perfil público.</p>
+          <div className="flex justify-center pt-2">
+            <a
+              href="/explore"
+              className="inline-flex items-center justify-center rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-4 py-2 text-xs font-semibold text-[color:var(--text)] hover:bg-[color:var(--surface-2)]"
+            >
+              Volver a explorar
+            </a>
+          </div>
         </div>
       </div>
     );

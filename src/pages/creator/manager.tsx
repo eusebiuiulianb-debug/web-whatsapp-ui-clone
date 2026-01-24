@@ -35,6 +35,18 @@ type Props = {
   creatorId?: string;
 };
 
+type ManagerTab = "chats" | "panel" | "biolink" | null;
+
+function normalizeManagerTab(value: string | string[] | undefined): ManagerTab {
+  const raw = Array.isArray(value) ? value[0] : value;
+  const normalized = typeof raw === "string" ? raw.trim().toLowerCase() : "";
+  if (!normalized) return null;
+  if (normalized === "chats") return "chats";
+  if (normalized === "panel" || normalized === "profile") return "panel";
+  if (normalized === "biolink" || normalized === "bio-link") return "biolink";
+  return null;
+}
+
 type CreatorDiscoveryProfile = {
   id?: string;
   creatorId?: string;
@@ -143,17 +155,31 @@ export default function CreatorManagerPage(props: Props) {
   const [catalogError, setCatalogError] = useState<string | null>(null);
   const [catalogLoading, setCatalogLoading] = useState(false);
   const creatorId = props.creatorId ?? "creator-1";
+  const managerTab = normalizeManagerTab(router.query.tab);
   const handleOpenSettings = useCallback(() => {
     void router.push("/creator/ai-settings");
   }, [router]);
 
   useEffect(() => {
+    if (!router.isReady) return;
+    if (managerTab === "panel") {
+      void router.replace({ pathname: "/creator/panel", query: { tab: "analytics" } });
+      return;
+    }
+    if (managerTab === "biolink") {
+      void router.replace("/creator/bio-link");
+      return;
+    }
     if (typeof window === "undefined") return;
     if (window.innerWidth < 1024) {
+      if (managerTab === "chats") {
+        setMobileView("board");
+        return;
+      }
       setMobileView("chat");
       conversationSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
     }
-  }, []);
+  }, [managerTab, router, router.isReady]);
 
   const fetchCatalogItems = useCallback(async () => {
     if (!creatorId) return;

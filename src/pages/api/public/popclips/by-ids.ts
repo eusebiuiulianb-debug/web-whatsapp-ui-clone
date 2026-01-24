@@ -22,6 +22,7 @@ type PopClipFeedItem = {
     responseTime: string | null;
     isAvailable: boolean;
     locationLabel: string | null;
+    allowLocation?: boolean;
   };
   stats?: {
     likeCount: number;
@@ -178,6 +179,7 @@ function mapItems(items: ClipRow[]): PopClipFeedItem[] {
         responseTime,
         isAvailable,
         locationLabel,
+        allowLocation,
       },
       stats: {
         likeCount: clip._count?.reactions ?? 0,

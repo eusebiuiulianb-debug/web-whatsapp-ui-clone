@@ -1,9 +1,9 @@
 import fs from "fs";
 import path from "path";
 import type { NextApiRequest, NextApiResponse } from "next";
-import { decode } from "ngeohash";
 import prisma from "../../../../lib/prisma.server";
 import { slugifyHandle } from "../../../../lib/fan/session";
+import { decodeGeohash, distanceKmFromGeohash } from "../../../../lib/geo";
 import { PUBLIC_CREATOR_PROFILE_SELECT, PUBLIC_CREATOR_SELECT } from "../../../../lib/publicCreatorSelect";
 
 type CreatorItem = {
@@ -14,6 +14,7 @@ type CreatorItem = {
   responseTime: string;
   locationLabel?: string | null;
   priceFrom?: number | null;
+  distanceKm?: number | null;
   locationEnabled?: boolean;
   allowLocation?: boolean;
 };
@@ -51,6 +52,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   const priceMax = parsePriceToCents(priceMaxParam);
   const tags = normalizeTags(tagParam);
   const normalizedQuery = q.toLowerCase();
+  const viewerLocation = geo ? decodeGeohash(geo) : null;
 
   try {
     const [creators, minPrices] = await Promise.all([
@@ -118,7 +120,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       if (priceMin && priceFrom !== null && priceFrom < priceMin) return false;
       if (priceMax && priceFrom !== null && priceFrom > priceMax) return false;
 
-      if (Number.isFinite(radiusKm) && radiusKm > 0 && geo) {
+      if (Number.isFinite(radiusKm) && radiusKm > 0 && viewerLocation) {
         const profile = creator.profile;
         const visibility = (profile?.locationVisibility || "").toUpperCase();
         const locationEnabled =
@@ -128,16 +130,14 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         const allowUse = locationEnabled && Boolean(profile?.allowDiscoveryUseLocation);
         const geohash = allowUse ? (profile?.locationGeohash || "").trim() : "";
         if (!geohash || !allowUse) return false;
-        const distance = getDistanceKm(geo, geohash);
+        const distance = distanceKmFromGeohash(viewerLocation, geohash);
         if (!Number.isFinite(distance) || distance > radiusKm) return false;
       }
 
       return true;
     });
 
-    const total = filtered.length;
-
-    const items: CreatorItem[] = filtered.slice(0, limit).map((creator) => {
+    const items: CreatorItem[] = filtered.map((creator) => {
       const profile = creator.profile;
       const availabilityValue = normalizeAvailability(profile?.availability) ?? "AVAILABLE";
       const responseValue = normalizeResponseTime(profile?.responseSla) ?? "LT_24H";
@@ -148,6 +148,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         Boolean(profile?.locationLabel);
       const allowLocation = locationEnabled && Boolean(profile?.allowDiscoveryUseLocation);
       const locationLabel = allowLocation ? profile?.locationLabel ?? null : null;
+      const distanceKm =
+        viewerLocation && allowLocation && profile?.locationGeohash
+          ? distanceKmFromGeohash(viewerLocation, profile.locationGeohash)
+          : null;
       const avatarUrl = normalizeAvatarUrl(creator.bioLinkAvatarUrl || null);
       const priceFrom = minPriceMap.get(creator.id) ?? null;
 
@@ -158,13 +162,29 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         availability: formatAvailabilityLabel(availabilityValue),
         responseTime: formatResponseTimeLabel(responseValue),
         locationLabel,
+        distanceKm: Number.isFinite(distanceKm ?? NaN) ? roundDistance(distanceKm as number) : null,
         locationEnabled,
         allowLocation,
         priceFrom,
       };
     });
 
-    return res.status(200).json({ items, total });
+    const sorted = viewerLocation
+      ? [...items].sort((a, b) => {
+          const aDistance = Number.isFinite(a.distanceKm ?? NaN)
+            ? (a.distanceKm as number)
+            : Number.POSITIVE_INFINITY;
+          const bDistance = Number.isFinite(b.distanceKm ?? NaN)
+            ? (b.distanceKm as number)
+            : Number.POSITIVE_INFINITY;
+          if (aDistance !== bDistance) return aDistance - bDistance;
+          return 0;
+        })
+      : items;
+
+    const total = items.length;
+
+    return res.status(200).json({ items: sorted.slice(0, limit), total });
   } catch (err) {
     console.error("Error loading discovery creators", err);
     return res.status(200).json({ items: [], total: 0 });
@@ -221,6 +241,10 @@ function formatResponseTimeLabel(value: CreatorResponseTime) {
   return "Responde <24h";
 }
 
+function roundDistance(distanceKm: number) {
+  return Math.round(distanceKm * 10) / 10;
+}
+
 function normalizeAvatarUrl(value: string | null) {
   const trimmed = (value || "").trim();
   if (!trimmed) return null;
@@ -229,33 +253,4 @@ function normalizeAvatarUrl(value: string | null) {
   const publicPath = path.join(process.cwd(), "public", normalized.replace(/^\/+/, ""));
   if (!fs.existsSync(publicPath)) return null;
   return normalized;
-}
-
-function getDistanceKm(fromHash: string, toHash: string) {
-  const from = decodeGeohash(fromHash);
-  const to = decodeGeohash(toHash);
-  if (!from || !to) return NaN;
-  const rad = Math.PI / 180;
-  const dLat = (to.lat - from.lat) * rad;
-  const dLng = (to.lng - from.lng) * rad;
-  const a =
-    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-    Math.cos(from.lat * rad) *
-      Math.cos(to.lat * rad) *
-      Math.sin(dLng / 2) *
-      Math.sin(dLng / 2);
-  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-  return 6371 * c;
-}
-
-function decodeGeohash(value: string) {
-  const trimmed = (value || "").trim();
-  if (!trimmed) return null;
-  try {
-    const decoded = decode(trimmed);
-    if (!decoded || !Number.isFinite(decoded.latitude) || !Number.isFinite(decoded.longitude)) return null;
-    return { lat: decoded.latitude, lng: decoded.longitude };
-  } catch (_err) {
-    return null;
-  }
 }

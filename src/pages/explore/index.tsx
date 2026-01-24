@@ -242,6 +242,7 @@ export default function Explore() {
   const [toastMessage, setToastMessage] = useState("");
   const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const savedValidationRef = useRef(false);
+  const savedQueryRef = useRef(false);
   const heroSearchWrapperRef = useRef<HTMLDivElement | null>(null);
   const mobileSearchWrapperRef = useRef<HTMLDivElement | null>(null);
   const stickySearchWrapperRef = useRef<HTMLDivElement | null>(null);
@@ -385,6 +386,41 @@ export default function Explore() {
   }, []);
 
   useEffect(() => {
+    if (!router.isReady) return;
+    const raw = router.query.openFilters;
+    const value = Array.isArray(raw) ? raw[0] : raw;
+    if (value !== "1" && value !== "true") return;
+    setFilterSheetOpen(true);
+    const nextQuery = sanitizeQuery(router.query);
+    delete nextQuery.openFilters;
+    void router.replace({ pathname: "/explore", query: nextQuery }, undefined, { shallow: true });
+  }, [router, router.isReady, router.query.openFilters]);
+
+  useEffect(() => {
+    if (!router.isReady) return;
+    const raw = router.query.focusSearch;
+    const value = Array.isArray(raw) ? raw[0] : raw;
+    if (value !== "1" && value !== "true") return;
+    focusSearchInput({ select: true });
+    const nextQuery = sanitizeQuery(router.query);
+    delete nextQuery.focusSearch;
+    void router.replace({ pathname: "/explore", query: nextQuery }, undefined, { shallow: true });
+  }, [focusSearchInput, router, router.isReady, router.query.focusSearch]);
+
+  useEffect(() => {
+    if (!router.isReady) return;
+    const raw = router.query.mode;
+    const value = Array.isArray(raw) ? raw[0] : raw;
+    if (value !== "popclips") return;
+    setExploreIntent("popclips");
+    setSavedOnly(false);
+    scrollToPopclips();
+    const nextQuery = sanitizeQuery(router.query);
+    delete nextQuery.mode;
+    void router.replace({ pathname: "/explore", query: nextQuery }, undefined, { shallow: true });
+  }, [router, router.isReady, router.query.mode, scrollToPopclips]);
+
+  useEffect(() => {
     const handle = setTimeout(() => {
       setDebouncedSearch(search.trim());
     }, 320);
@@ -418,9 +454,17 @@ export default function Explore() {
     if (!router.isReady) return;
     const raw = router.query.saved;
     const value = Array.isArray(raw) ? raw[0] : raw;
-    if (value === "1" || value === "true") {
+    const savedByQuery = value === "1" || value === "true";
+    if (savedByQuery) {
+      savedQueryRef.current = true;
       setSavedOnly(true);
       setExploreIntent("saved");
+      return;
+    }
+    if (savedQueryRef.current) {
+      savedQueryRef.current = false;
+      setSavedOnly(false);
+      setExploreIntent("all");
     }
   }, [router.isReady, router.query.saved]);
 

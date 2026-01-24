@@ -15,6 +15,7 @@ type PopClipTileItem = {
   posterUrl?: string | null;
   previewImageUrl?: string | null;
   savesCount?: number | null;
+  distanceKm?: number | null;
   creator: {
     handle: string;
     displayName: string;
@@ -23,6 +24,7 @@ type PopClipTileItem = {
     isAvailable?: boolean;
     responseTime?: string | null;
     locationLabel?: string | null;
+    allowLocation?: boolean;
   };
 };
 
@@ -64,11 +66,17 @@ export function PopClipTile({
   const savesBadgeLabel = savesCount > 99 ? "99+" : String(savesCount);
   const showCaption = Boolean(caption);
   const showCaptionMore = caption.length > 80;
+  const allowLocation = item.creator.allowLocation !== false;
   const responseLabel = (item.creator.responseTime || "").trim();
-  const locationLabel = (item.creator.locationLabel || "").trim();
+  const locationLabel = allowLocation ? (item.creator.locationLabel || "").trim() : "";
+  const distanceLabel =
+    allowLocation && Number.isFinite(item.distanceKm ?? NaN)
+      ? `≈${Math.round(item.distanceKm as number)} km`
+      : "";
   const badges = [
     item.creator.isAvailable ? "Disponible" : "",
     responseLabel,
+    distanceLabel,
     locationLabel ? `📍 ${locationLabel} (aprox.)` : "",
   ].filter(Boolean);
   const creatorInitial = item.creator.displayName?.trim()?.[0]?.toUpperCase() || "C";
