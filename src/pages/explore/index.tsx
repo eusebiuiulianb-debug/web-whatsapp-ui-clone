@@ -243,8 +243,10 @@ export default function Explore() {
   const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const savedValidationRef = useRef(false);
   const heroSearchWrapperRef = useRef<HTMLDivElement | null>(null);
+  const mobileSearchWrapperRef = useRef<HTMLDivElement | null>(null);
   const stickySearchWrapperRef = useRef<HTMLDivElement | null>(null);
   const heroSearchInputRef = useRef<HTMLInputElement | null>(null);
+  const mobileSearchInputRef = useRef<HTMLInputElement | null>(null);
   const stickySearchInputRef = useRef<HTMLInputElement | null>(null);
   const popclipsRef = useRef<HTMLDivElement | null>(null);
   const suppressSearchOpenRef = useRef(false);
@@ -254,7 +256,6 @@ export default function Explore() {
   const [showStickySearch, setShowStickySearch] = useState(false);
   const [showBackToTop, setShowBackToTop] = useState(false);
   const [isMac, setIsMac] = useState(false);
-  const [isMobile, setIsMobile] = useState(false);
   const [recommendedCreators, setRecommendedCreators] = useState<RecommendedCreator[]>([]);
   const [creatorsLoading, setCreatorsLoading] = useState(false);
   const [creatorsError, setCreatorsError] = useState("");
@@ -310,16 +311,23 @@ export default function Explore() {
       if (options?.suppressOpen) {
         suppressSearchOpenRef.current = true;
       }
-      const input = isMobile
-        ? heroSearchInputRef.current
-        : showStickySearch
-        ? stickySearchInputRef.current
-        : heroSearchInputRef.current;
+      const stickyInput = stickySearchInputRef.current;
+      const mobileInput = mobileSearchInputRef.current;
+      const heroInput = heroSearchInputRef.current;
+      const isVisible = (input: HTMLInputElement | null) =>
+        Boolean(input && input.getClientRects().length > 0);
+      const input =
+        (showStickySearch && isVisible(stickyInput) && stickyInput) ||
+        (isVisible(mobileInput) && mobileInput) ||
+        (isVisible(heroInput) && heroInput) ||
+        stickyInput ||
+        mobileInput ||
+        heroInput;
       if (!input) return;
       input.focus();
       if (options?.select) input.select();
     },
-    [isMobile, showStickySearch]
+    [showStickySearch]
   );
 
   const applyFilters = useCallback(
@@ -418,25 +426,13 @@ export default function Explore() {
 
   useEffect(() => {
     if (typeof window === "undefined") return;
-    const media = window.matchMedia("(max-width: 767px)");
-    const update = () => setIsMobile(media.matches);
-    update();
-    if (media.addEventListener) {
-      media.addEventListener("change", update);
-      return () => media.removeEventListener("change", update);
-    }
-    media.addListener(update);
-    return () => media.removeListener(update);
-  }, []);
-
-  useEffect(() => {
-    if (typeof window === "undefined") return;
     const handlePointer = (event: MouseEvent | TouchEvent) => {
       const target = event.target;
       if (!target || !(target instanceof Node)) return;
       const insideHero = heroSearchWrapperRef.current?.contains(target) ?? false;
+      const insideMobile = mobileSearchWrapperRef.current?.contains(target) ?? false;
       const insideSticky = stickySearchWrapperRef.current?.contains(target) ?? false;
-      if (insideHero || insideSticky) return;
+      if (insideHero || insideMobile || insideSticky) return;
       closeSearchPanel();
     };
     window.addEventListener("mousedown", handlePointer);
@@ -1437,48 +1433,53 @@ export default function Explore() {
             </div>
           </div>
         </div>
-        {isMobile ? (
-          <div className="sticky top-0 z-40 border-b border-[color:var(--surface-border)] bg-[color:var(--surface-1)]/90 backdrop-blur-xl md:hidden">
-            <div className="mx-auto w-full max-w-6xl px-4 pt-[env(safe-area-inset-top)] pb-3">
-              <div ref={heroSearchWrapperRef} className="relative">
-                <label className="sr-only" htmlFor="mobile-search">
-                  Buscar
-                </label>
-                <div className="group flex h-10 items-center gap-3 rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-4 text-[color:var(--text)] transition-colors hover:border-[color:var(--surface-border-hover)] focus-within:border-[color:var(--surface-border-hover)] focus-within:ring-1 focus-within:ring-[color:var(--surface-ring)]">
-                  <Search className="h-4 w-4 flex-none text-[color:var(--muted)]" aria-hidden="true" />
-                  <input
-                    id="mobile-search"
-                    ref={heroSearchInputRef}
-                    type="text"
-                    value={search}
-                    onChange={handleSearchChange}
-                    onFocus={handleSearchFocus}
-                    onKeyDown={handleSearchKeyDown}
-                    placeholder="Buscar creadores, packs o PopClips"
-                    aria-expanded={showSearchPanel}
-                    aria-controls="search-suggestions"
-                    className="h-7 w-full bg-transparent text-sm text-[color:var(--text)] placeholder:text-[color:var(--muted)] focus:outline-none"
-                  />
-                  {hasSearchValue ? (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        clearSearchValue();
-                        focusSearchInput({ suppressOpen: true });
-                      }}
-                      className="inline-flex h-7 w-7 items-center justify-center rounded-full text-[color:var(--muted)] hover:text-[color:var(--text)] focus:outline-none focus:ring-1 focus:ring-[color:var(--ring)]"
-                      aria-label="Limpiar búsqueda"
-                    >
-                      <X className="h-4 w-4" aria-hidden="true" />
-                    </button>
-                  ) : null}
-                </div>
-                {renderSearchDropdown()}
-              </div>
-              <div className="mt-3">{renderFilterChips()}</div>
+        <div className="sticky top-0 z-40 border-b border-[color:var(--surface-border)] bg-[color:var(--surface-1)]/90 backdrop-blur-xl md:hidden">
+          <div className="mx-auto w-full max-w-6xl px-4 pt-[env(safe-area-inset-top)] pb-3">
+            <div className="flex items-center justify-between">
+              <Link href="/explore" legacyBehavior passHref>
+                <a className="text-[11px] font-semibold uppercase tracking-[0.28em] text-[color:var(--muted)]">
+                  IntimiPop
+                </a>
+              </Link>
             </div>
+            <div ref={mobileSearchWrapperRef} className="relative mt-3">
+              <label className="sr-only" htmlFor="mobile-search">
+                Buscar
+              </label>
+              <div className="group flex h-10 items-center gap-3 rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-4 text-[color:var(--text)] transition-colors hover:border-[color:var(--surface-border-hover)] focus-within:border-[color:var(--surface-border-hover)] focus-within:ring-1 focus-within:ring-[color:var(--surface-ring)]">
+                <Search className="h-4 w-4 flex-none text-[color:var(--muted)]" aria-hidden="true" />
+                <input
+                  id="mobile-search"
+                  ref={mobileSearchInputRef}
+                  type="text"
+                  value={search}
+                  onChange={handleSearchChange}
+                  onFocus={handleSearchFocus}
+                  onKeyDown={handleSearchKeyDown}
+                  placeholder="Buscar creadores, packs o PopClips"
+                  aria-expanded={showSearchPanel}
+                  aria-controls="search-suggestions"
+                  className="h-7 w-full bg-transparent text-sm text-[color:var(--text)] placeholder:text-[color:var(--muted)] focus:outline-none"
+                />
+                {hasSearchValue ? (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      clearSearchValue();
+                      focusSearchInput({ suppressOpen: true });
+                    }}
+                    className="inline-flex h-7 w-7 items-center justify-center rounded-full text-[color:var(--muted)] hover:text-[color:var(--text)] focus:outline-none focus:ring-1 focus:ring-[color:var(--ring)]"
+                    aria-label="Limpiar búsqueda"
+                  >
+                    <X className="h-4 w-4" aria-hidden="true" />
+                  </button>
+                ) : null}
+              </div>
+              {renderSearchDropdown()}
+            </div>
+            <div className="mt-3">{renderFilterChips()}</div>
           </div>
-        ) : null}
+        </div>
         <div className="mx-auto flex w-full max-w-6xl flex-col gap-6 px-4 py-6 md:px-6 lg:px-8">
           <HomeSectionCard className="relative">
             <div
@@ -1499,7 +1500,7 @@ export default function Explore() {
                 </p>
               </div>
 
-              {!isMobile ? (
+              <div className="hidden md:block">
                 <div className="space-y-3">
                   <div ref={heroSearchWrapperRef} className="relative">
                     <label className="sr-only" htmlFor="home-search">
@@ -1544,7 +1545,7 @@ export default function Explore() {
                   </div>
                   {renderFilterChips()}
                 </div>
-              ) : null}
+              </div>
 
               {selectedCategory ? (
                 <div className="flex flex-wrap items-center gap-2">

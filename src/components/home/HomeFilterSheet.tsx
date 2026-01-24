@@ -192,7 +192,7 @@ export function HomeFilterSheet({
                       </div>
                     ) : (
                       <div className="flex h-full w-full items-center justify-center text-[11px] text-[color:var(--muted)]">
-                        Sin ubicación
+                        Ubicación no configurada.
                       </div>
                     )}
                   </div>

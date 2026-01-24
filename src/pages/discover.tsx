@@ -49,6 +49,8 @@ type CreatorResult = {
   availability: string;
   responseTime: string;
   locationLabel?: string | null;
+  allowLocation?: boolean;
+  distanceKm?: number | null;
   priceFrom?: number | null;
 };
 
@@ -251,6 +253,15 @@ export default function DiscoverPage() {
       <Head>
         <title>Discovery · NOVSY</title>
       </Head>
+      <div className="sticky top-0 z-40 border-b border-[color:var(--surface-border)] bg-[color:var(--surface-1)]/90 backdrop-blur-xl md:hidden">
+        <div className="mx-auto w-full max-w-6xl px-4 pt-[env(safe-area-inset-top)] pb-2">
+          <Link href="/explore" legacyBehavior passHref>
+            <a className="text-[11px] font-semibold uppercase tracking-[0.28em] text-[color:var(--muted)]">
+              IntimiPop
+            </a>
+          </Link>
+        </div>
+      </div>
       <div className="mx-auto flex w-full max-w-6xl flex-col gap-6 px-4 py-6 md:px-6 lg:px-8">
         <HomeSectionCard>
           <div className="flex flex-col gap-4">
@@ -329,6 +340,13 @@ export default function DiscoverPage() {
 function CreatorCard({ creator }: { creator: CreatorResult }) {
   const initial = creator.displayName?.trim()?.[0]?.toUpperCase() || "C";
   const [avatarFailed, setAvatarFailed] = useState(false);
+  const allowLocation = creator.allowLocation !== false;
+  const locationLabel = allowLocation ? creator.locationLabel?.trim() || "" : "";
+  const showLocation = Boolean(locationLabel);
+  const distanceLabel =
+    allowLocation && Number.isFinite(creator.distanceKm ?? NaN)
+      ? `≈${Math.round(creator.distanceKm as number)} km`
+      : "";
 
   useEffect(() => {
     setAvatarFailed(false);
@@ -385,9 +403,14 @@ function CreatorCard({ creator }: { creator: CreatorResult }) {
         <span className="inline-flex items-center rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-3 py-1 text-[11px] font-semibold text-[color:var(--text)]">
           {creator.responseTime}
         </span>
-        {creator.locationLabel ? (
+        {distanceLabel ? (
+          <span className="inline-flex items-center rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-3 py-1 text-[11px] font-semibold text-[color:var(--text)]">
+            {distanceLabel}
+          </span>
+        ) : null}
+        {showLocation ? (
           <span className="inline-flex min-w-0 max-w-full items-center rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-3 py-1 text-[11px] font-semibold text-[color:var(--text)]">
-            <span className="truncate">{creator.locationLabel}</span>
+            <span className="truncate">📍 {locationLabel} (aprox.)</span>
           </span>
         ) : null}
       </div>

@@ -75,8 +75,12 @@ function decodeGeohash(value: string) {
 function MapInvalidateSize() {
   const map = useMap();
   useEffect(() => {
-    const timeout = window.setTimeout(() => map.invalidateSize(), 0);
-    return () => window.clearTimeout(timeout);
+    const raf = window.requestAnimationFrame(() => map.invalidateSize());
+    const timeout = window.setTimeout(() => map.invalidateSize(), 160);
+    return () => {
+      window.cancelAnimationFrame(raf);
+      window.clearTimeout(timeout);
+    };
   }, [map]);
   return null;
 }

@@ -46,6 +46,11 @@ body.has-mobile-tabbar {
   max-height: none !important;
 }
 
+.leaflet-tile {
+  max-width: none !important;
+  max-height: none !important;
+}
+
 :root {
   --dock-gap: 8px;
   --brand-rgb: 52, 211, 153;
