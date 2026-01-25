@@ -4,7 +4,7 @@ import clsx from "clsx";
 import { Bookmark, BookmarkCheck, MessageCircle, Sparkles } from "lucide-react";
 import Image from "next/image";
 import Link from "next/link";
-import { useEffect, useState, type MouseEvent } from "react";
+import { useEffect, useRef, useState, type MouseEvent } from "react";
 import { ContextMenu, type ContextMenuItem } from "../ui/ContextMenu";
 import { IconGlyph } from "../ui/IconGlyph";
 import { normalizeImageSrc } from "../../utils/normalizeImageSrc";
@@ -78,7 +78,6 @@ export function PopClipTile({
   isSaved = false,
   onToggleSave,
   onOrganize,
-  onOpenCaption,
   onCopyLink,
   onShare,
   onReport,
@@ -88,14 +87,23 @@ export function PopClipTile({
   const [following, setFollowing] = useState(isFollowing);
   const [followPending, setFollowPending] = useState(false);
   const [chipsOpen, setChipsOpen] = useState(false);
+  const [isCaptionOpen, setIsCaptionOpen] = useState(false);
+  const mediaContainerRef = useRef<HTMLDivElement | null>(null);
+  const captionPanelRef = useRef<HTMLDivElement | null>(null);
+  const captionTriggerRef = useRef<HTMLButtonElement | null>(null);
   const title = item.title?.trim() || "PopClip";
-  const caption = (item.caption || "").trim() || item.title?.trim() || "";
+  const caption = (item.caption ?? "").trim();
   const previewSrc = item.thumbnailUrl || item.posterUrl || item.previewImageUrl || "";
   const showImage = Boolean(previewSrc) && !thumbFailed;
   const avatarSrc = item.creator.avatarUrl || "";
   const showAvatar = Boolean(avatarSrc) && !avatarFailed;
-  const showCaption = Boolean(caption);
-  const showCaptionMore = caption.length > 80;
+  const CAPTION_PREVIEW_LIMIT = 80;
+  const hasCaption = caption.length > 0;
+  const isCaptionLong = caption.length > CAPTION_PREVIEW_LIMIT;
+  const showCaptionMore = isCaptionLong;
+  const captionPreview = isCaptionLong ? caption.slice(0, CAPTION_PREVIEW_LIMIT).trimEnd() : caption;
+  const captionOverlayText = isCaptionLong ? `${captionPreview}…` : captionPreview;
+  const showCaption = hasCaption;
   const allowLocation = item.creator.allowLocation !== false;
   const availableLabel = item.creator.isAvailable ? "Disponible" : "";
   const responseLabel = (item.creator.responseTime || "").trim();
@@ -151,6 +159,34 @@ export function PopClipTile({
   useEffect(() => {
     setFollowing(isFollowing);
   }, [isFollowing]);
+
+  useEffect(() => {
+    if (!showCaptionMore && isCaptionOpen) setIsCaptionOpen(false);
+  }, [showCaptionMore, isCaptionOpen]);
+
+  useEffect(() => {
+    if (!isCaptionOpen) return;
+    const handlePointerDown = (event: PointerEvent) => {
+      const target = event.target as Node | null;
+      if (!target) return;
+      if (captionPanelRef.current?.contains(target)) return;
+      if (captionTriggerRef.current?.contains(target)) return;
+      setIsCaptionOpen(false);
+      if (mediaContainerRef.current?.contains(target)) {
+        event.preventDefault();
+        event.stopPropagation();
+      }
+    };
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setIsCaptionOpen(false);
+    };
+    document.addEventListener("pointerdown", handlePointerDown, true);
+    document.addEventListener("keydown", handleKeyDown);
+    return () => {
+      document.removeEventListener("pointerdown", handlePointerDown, true);
+      document.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [isCaptionOpen]);
 
   useEffect(() => {
     if (hiddenCount === 0 && chipsOpen) setChipsOpen(false);
@@ -293,6 +329,7 @@ export function PopClipTile({
       </div>
       <div className="px-3 pt-2">
         <div
+          ref={mediaContainerRef}
           role="button"
           tabIndex={0}
           onClick={onOpen}
@@ -328,25 +365,86 @@ export function PopClipTile({
             </div>
           )}
           <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-black/45 via-black/10 to-transparent opacity-80 transition duration-200 md:opacity-70 md:group-hover:opacity-90" />
-          {showCaption ? (
-            <div className="pointer-events-none absolute inset-x-0 bottom-0 p-2.5 transition md:opacity-0 md:translate-y-2 md:group-hover:opacity-100 md:group-hover:translate-y-0">
-              <div className="rounded-xl border border-white/10 bg-black/45 px-3 py-2 text-[11px] text-white/90 backdrop-blur-sm">
-                <p className="line-clamp-2 leading-snug md:line-clamp-1">{caption}</p>
+          {showCaption && (!showCaptionMore || !isCaptionOpen) ? (
+            <div className="pointer-events-none absolute inset-x-0 bottom-0 z-20 bg-gradient-to-t from-black/70 via-black/30 to-transparent p-3 transition">
+              <div className="pointer-events-auto text-[11px] text-white/90">
+                <p className="line-clamp-2 leading-snug md:line-clamp-1">{captionOverlayText}</p>
                 {showCaptionMore ? (
                   <button
+                    ref={captionTriggerRef}
                     type="button"
                     aria-label="Ver más"
+                    onPointerDown={(event) => {
+                      event.preventDefault();
+                      event.stopPropagation();
+                    }}
                     onClick={(event) => {
                       event.preventDefault();
                       event.stopPropagation();
-                      onOpenCaption?.();
+                      setIsCaptionOpen((prev) => !prev);
                     }}
-                    onKeyDown={(event) => event.stopPropagation()}
-                    className="pointer-events-auto mt-1 text-[11px] font-semibold text-white/80 underline decoration-white/40 underline-offset-2 transition hover:text-white focus:outline-none focus:ring-1 focus:ring-white/50"
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter" || event.key === " ") {
+                        event.preventDefault();
+                        event.stopPropagation();
+                        setIsCaptionOpen((prev) => !prev);
+                      }
+                    }}
+                    className="mt-1 text-[11px] font-semibold text-white/80 underline decoration-white/40 underline-offset-2 transition hover:text-white focus:outline-none focus:ring-1 focus:ring-white/50"
                   >
                     Ver más
                   </button>
                 ) : null}
+              </div>
+            </div>
+          ) : null}
+          {showCaptionMore && isCaptionOpen ? (
+            <div
+              ref={captionPanelRef}
+              role="dialog"
+              aria-label="Descripción"
+              onPointerDown={(event) => event.stopPropagation()}
+              onClick={(event) => event.stopPropagation()}
+              className="pointer-events-auto absolute inset-x-3 bottom-3 z-20 flex max-h-[45%] flex-col rounded-xl border border-white/10 bg-black/70 p-3 text-[11px] text-white/90 shadow-xl backdrop-blur-sm"
+            >
+              <div className="flex items-center justify-between gap-3 text-[11px] font-semibold text-white/80">
+                <span>Descripción</span>
+                <button
+                  type="button"
+                  aria-label="Cerrar"
+                  onPointerDown={(event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                  }}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    setIsCaptionOpen(false);
+                  }}
+                  className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full border border-white/10 bg-white/5 text-[11px] font-semibold text-white/80 hover:bg-white/10"
+                >
+                  X
+                </button>
+              </div>
+              <div className="mt-2 min-h-0 flex-1 overflow-y-auto">
+                <p className="whitespace-pre-wrap leading-snug">{caption}</p>
+              </div>
+              <div className="mt-2 flex justify-end">
+                <button
+                  type="button"
+                  aria-label="Ver menos"
+                  onPointerDown={(event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                  }}
+                  onClick={(event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    setIsCaptionOpen(false);
+                  }}
+                  className="text-[11px] font-semibold text-white/80 underline decoration-white/40 underline-offset-2 transition hover:text-white"
+                >
+                  Ver menos
+                </button>
               </div>
             </div>
           ) : null}
