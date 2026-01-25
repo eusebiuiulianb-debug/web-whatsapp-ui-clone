@@ -20,7 +20,6 @@ import { IconGlyph } from "../../components/ui/IconGlyph";
 import { ContextMenu } from "../../components/ui/ContextMenu";
 import { PillButton } from "../../components/ui/PillButton";
 import { Skeleton } from "../../components/ui/Skeleton";
-import { CtaPill } from "../../components/ui/CtaPill";
 import { useRouter } from "next/router";
 import { countActiveFilters, parseHomeFilters, toHomeFiltersQuery, type HomeFilters } from "../../lib/homeFilters";
 import { subscribeCreatorStatusUpdates } from "../../lib/creatorStatusEvents";
@@ -326,6 +325,14 @@ export default function Explore() {
     [savedItemsAll]
   );
   const savedPopclipSet = useMemo(() => new Set(savedPopclipIds), [savedPopclipIds]);
+  const savedPopclipPreviewMap = useMemo(() => {
+    const map = new Map<string, SavedPreviewItem>();
+    savedItemsAll.forEach((item) => {
+      if (item.type !== "POPCLIP") return;
+      map.set(item.entityId, item);
+    });
+    return map;
+  }, [savedItemsAll]);
   const savedOtherItems = useMemo(
     () => savedItemsAll.filter((item) => item.type !== "POPCLIP"),
     [savedItemsAll]
@@ -2262,24 +2269,33 @@ export default function Explore() {
                             </div>
                           ) : (
                             <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3 xl:gap-6">
-                              {filteredSavedPopclips.map((item) => (
-                                <PopClipTile
-                                  key={item.id}
-                                  item={item}
-                                  onOpen={() => openPopclip(item)}
-                                  profileHref={`/c/${encodeURIComponent(item.creator.handle)}`}
-                                  chatHref={appendReturnTo(
-                                    `/go/${encodeURIComponent(item.creator.handle)}`,
-                                    router.asPath
-                                  )}
-                                  isSaved={savedPopclipSet.has(item.id)}
-                                  onToggleSave={() => void handleToggleSave(item)}
-                                  onOpenCaption={() => openCaptionSheet(item)}
-                                  onCopyLink={() => void handleCopyLink(item)}
-                                  onShare={() => void handleShareLink(item)}
-                                  onReport={() => void handleReportClip(item)}
-                                />
-                              ))}
+                              {filteredSavedPopclips.map((item) => {
+                                const savedPreview = savedPopclipPreviewMap.get(item.id);
+                                return (
+                                  <PopClipTile
+                                    key={item.id}
+                                    item={item}
+                                    onOpen={() => openPopclip(item)}
+                                    profileHref={`/c/${encodeURIComponent(item.creator.handle)}`}
+                                    chatHref={appendReturnTo(
+                                      `/go/${encodeURIComponent(item.creator.handle)}`,
+                                      router.asPath
+                                    )}
+                                    isSaved={savedPopclipSet.has(item.id)}
+                                    onToggleSave={() => void handleToggleSave(item)}
+                                    onOrganize={
+                                      savedPreview && !savedPreview.id.startsWith("temp-popclip-")
+                                        ? () =>
+                                            openOrganizer(savedPreview.id, savedPreview.collectionId ?? null)
+                                        : undefined
+                                    }
+                                    onOpenCaption={() => openCaptionSheet(item)}
+                                    onCopyLink={() => void handleCopyLink(item)}
+                                    onShare={() => void handleShareLink(item)}
+                                    onReport={() => void handleReportClip(item)}
+                                  />
+                                );
+                              })}
                             </div>
                           )}
                         </div>
@@ -2489,21 +2505,29 @@ export default function Explore() {
             ) : (
               <>
                 <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3 xl:gap-6">
-                  {filteredFeedItems.map((item) => (
-                    <PopClipTile
-                      key={item.id}
-                      item={item}
-                      onOpen={() => openPopclip(item)}
-                      profileHref={`/c/${encodeURIComponent(item.creator.handle)}`}
-                      chatHref={appendReturnTo(`/go/${encodeURIComponent(item.creator.handle)}`, router.asPath)}
-                      isSaved={savedPopclipSet.has(item.id)}
-                      onToggleSave={() => void handleToggleSave(item)}
-                      onOpenCaption={() => openCaptionSheet(item)}
-                      onCopyLink={() => void handleCopyLink(item)}
-                      onShare={() => void handleShareLink(item)}
-                      onReport={() => void handleReportClip(item)}
-                    />
-                  ))}
+                  {filteredFeedItems.map((item) => {
+                    const savedPreview = savedPopclipPreviewMap.get(item.id);
+                    return (
+                      <PopClipTile
+                        key={item.id}
+                        item={item}
+                        onOpen={() => openPopclip(item)}
+                        profileHref={`/c/${encodeURIComponent(item.creator.handle)}`}
+                        chatHref={appendReturnTo(`/go/${encodeURIComponent(item.creator.handle)}`, router.asPath)}
+                        isSaved={savedPopclipSet.has(item.id)}
+                        onToggleSave={() => void handleToggleSave(item)}
+                        onOrganize={
+                          savedPreview && !savedPreview.id.startsWith("temp-popclip-")
+                            ? () => openOrganizer(savedPreview.id, savedPreview.collectionId ?? null)
+                            : undefined
+                        }
+                        onOpenCaption={() => openCaptionSheet(item)}
+                        onCopyLink={() => void handleCopyLink(item)}
+                        onShare={() => void handleShareLink(item)}
+                        onReport={() => void handleReportClip(item)}
+                      />
+                    );
+                  })}
                 </div>
                 {feedCursor ? (
                   <div className="mt-4 flex justify-center">
@@ -2767,16 +2791,39 @@ function SavedItemCard({
   onRemove: () => void;
   removing?: boolean;
 }) {
+  const router = useRouter();
   const typeLabel =
     item.type === "POPCLIP" ? "PopClip" : item.type === "PACK" ? "Pack" : "Creador";
   const thumbLabel = item.title?.trim()?.[0]?.toUpperCase() || "•";
+  const isClickable = Boolean(item.href);
   const actionItems = [
     { label: "Mover a...", icon: "folder", onClick: onMove, disabled: Boolean(removing) },
     { label: "Quitar de guardados", icon: "alert", danger: true, onClick: onRemove, disabled: Boolean(removing) },
   ];
+  const handleOpen = () => {
+    if (!item.href) return;
+    void router.push(item.href);
+  };
+  const handleKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>) => {
+    if (!item.href) return;
+    if (event.key === "Enter" || event.key === " ") {
+      event.preventDefault();
+      void router.push(item.href);
+    }
+  };
 
   return (
-    <div className="flex min-w-0 items-center gap-3 rounded-2xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] p-3">
+    <div
+      className={clsx(
+        "flex min-w-0 items-center gap-3 rounded-2xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] p-3",
+        isClickable &&
+          "cursor-pointer transition hover:border-[color:var(--surface-border-hover)] hover:bg-[color:var(--surface-2)] focus:outline-none focus-visible:ring-1 focus-visible:ring-[color:var(--ring)]"
+      )}
+      role={isClickable ? "link" : undefined}
+      tabIndex={isClickable ? 0 : undefined}
+      onClick={isClickable ? handleOpen : undefined}
+      onKeyDown={isClickable ? handleKeyDown : undefined}
+    >
       <div className="h-12 w-12 shrink-0 overflow-hidden rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-2)]">
         {item.thumbUrl ? (
           <Image
@@ -2803,15 +2850,10 @@ function SavedItemCard({
           <div className="truncate text-xs text-[color:var(--muted)]">{item.subtitle}</div>
         ) : null}
         <div className="relative z-10 mt-2 flex flex-wrap items-center gap-2">
-          {item.href ? (
-            <CtaPill asChild className="relative z-20">
-              <Link href={item.href}>Abrir</Link>
-            </CtaPill>
-          ) : null}
           <ContextMenu
             buttonAriaLabel="Acciones de guardado"
             buttonIcon="dots"
-            buttonClassName="h-8 w-8 bg-[color:var(--surface-2)]"
+            buttonClassName="relative z-20 h-8 w-8 bg-[color:var(--surface-2)] pointer-events-auto"
             items={actionItems}
             menuClassName="min-w-[180px]"
           />

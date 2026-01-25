@@ -35,6 +35,7 @@ type Props = {
   chatHref: string;
   isSaved?: boolean;
   onToggleSave?: () => void;
+  onOrganize?: () => void;
   onOpenCaption?: () => void;
   onCopyLink?: () => void;
   onShare?: () => void;
@@ -48,6 +49,7 @@ export function PopClipTile({
   chatHref,
   isSaved = false,
   onToggleSave,
+  onOrganize,
   onOpenCaption,
   onCopyLink,
   onShare,
@@ -78,6 +80,21 @@ export function PopClipTile({
   ].filter(Boolean);
   const creatorInitial = item.creator.displayName?.trim()?.[0]?.toUpperCase() || "C";
   const quickActions: ContextMenuItem[] = [];
+  const hasSavedActions = isSaved && (onOrganize || onToggleSave);
+  if (isSaved && onOrganize) {
+    quickActions.push({ label: "Mover a...", icon: "folder", onClick: onOrganize });
+  }
+  if (isSaved && onToggleSave) {
+    quickActions.push({
+      label: "Quitar de guardados",
+      icon: "alert",
+      danger: true,
+      onClick: onToggleSave,
+    });
+  }
+  if (hasSavedActions && (onCopyLink || onShare || onReport)) {
+    quickActions.push({ label: "divider", divider: true });
+  }
   if (onCopyLink) {
     quickActions.push({ label: "Copiar link", icon: "link", onClick: onCopyLink });
   }
@@ -168,8 +185,8 @@ export function PopClipTile({
                   items={quickActions}
                   align="right"
                   closeOnScroll
-                  menuClassName="right-auto left-1/2 -translate-x-1/2 min-w-[160px] w-[min(90vw,220px)] top-9 sm:left-auto sm:right-0 sm:translate-x-0 sm:top-7"
-                  renderButton={({ ref, onClick, ariaLabel, ariaExpanded, ariaHaspopup, title }) => (
+                  menuClassName="min-w-[160px] w-[min(90vw,220px)]"
+                  renderButton={({ ref, onClick, onPointerDown, ariaLabel, ariaExpanded, ariaHaspopup, title }) => (
                     <button
                       ref={ref}
                       type="button"
@@ -178,7 +195,7 @@ export function PopClipTile({
                       aria-haspopup={ariaHaspopup}
                       title={title}
                       onClick={onClick}
-                      onPointerDown={(event) => event.stopPropagation()}
+                      onPointerDown={onPointerDown}
                       className="pointer-events-auto inline-flex h-11 w-11 items-center justify-center rounded-full border border-white/15 bg-black/40 text-white/80 backdrop-blur-sm transition hover:bg-black/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--ring)] focus-visible:ring-offset-1 focus-visible:ring-offset-black/40"
                     >
                       <IconGlyph name="dots" ariaHidden />
