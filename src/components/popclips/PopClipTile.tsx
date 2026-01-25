@@ -46,6 +46,25 @@ type Props = {
   onReport?: () => void;
 };
 
+function useMediaQuery(query: string) {
+  const [matches, setMatches] = useState(false);
+
+  useEffect(() => {
+    if (typeof window === "undefined" || !window.matchMedia) return undefined;
+    const mediaQueryList = window.matchMedia(query);
+    const updateMatch = () => setMatches(mediaQueryList.matches);
+    updateMatch();
+    if (mediaQueryList.addEventListener) {
+      mediaQueryList.addEventListener("change", updateMatch);
+      return () => mediaQueryList.removeEventListener("change", updateMatch);
+    }
+    mediaQueryList.addListener(updateMatch);
+    return () => mediaQueryList.removeListener(updateMatch);
+  }, [query]);
+
+  return matches;
+}
+
 export function PopClipTile({
   item,
   onOpen,
@@ -75,18 +94,19 @@ export function PopClipTile({
   const showCaption = Boolean(caption);
   const showCaptionMore = caption.length > 80;
   const allowLocation = item.creator.allowLocation !== false;
+  const availableLabel = item.creator.isAvailable ? "Disponible" : "";
   const responseLabel = (item.creator.responseTime || "").trim();
   const locationLabel = allowLocation ? (item.creator.locationLabel || "").trim() : "";
   const distanceLabel =
     allowLocation && Number.isFinite(item.distanceKm ?? NaN)
       ? `≈${Math.round(item.distanceKm as number)} km`
       : "";
-  const badges = [
-    item.creator.isAvailable ? "Disponible" : "",
-    responseLabel,
-    distanceLabel,
-    locationLabel ? `📍 ${locationLabel} (aprox.)` : "",
-  ].filter(Boolean);
+  const locationChipLabel = locationLabel ? `📍 ${locationLabel} (aprox.)` : "";
+  const chipItems = [availableLabel, responseLabel, distanceLabel, locationChipLabel].filter(Boolean);
+  const isSmUp = useMediaQuery("(min-width: 640px)");
+  const maxChips = isSmUp ? 4 : 3;
+  const visibleChips = chipItems.slice(0, maxChips);
+  const hiddenCount = chipItems.length - visibleChips.length;
   const creatorInitial = item.creator.displayName?.trim()?.[0]?.toUpperCase() || "C";
   const quickActions: ContextMenuItem[] = [];
   const hasSavedActions = isSaved && (onOrganize || onToggleSave);
@@ -324,16 +344,24 @@ export function PopClipTile({
       </div>
 
       <div className="flex flex-col gap-2 border-t border-white/10 bg-[color:rgba(8,12,20,0.85)] px-3 pb-3 pt-3 text-white/90 sm:p-4">
-        {badges.length > 0 ? (
-          <div className="flex flex-wrap gap-2">
-            {badges.map((badge) => (
+        {chipItems.length > 0 ? (
+          <div className="flex min-h-[28px] items-center gap-2 overflow-x-auto sm:overflow-visible">
+            {visibleChips.map((badge, index) => (
               <span
-                key={badge}
-                className="rounded-full border border-white/15 bg-white/10 px-2.5 py-0.5 text-[10px] font-semibold text-white/90"
+                key={`${badge}-${index}`}
+                className="whitespace-nowrap rounded-full border border-white/15 bg-white/10 px-2.5 py-0.5 text-[10px] font-semibold text-white/90"
               >
                 {badge}
               </span>
             ))}
+            {hiddenCount > 0 ? (
+              <span
+                title={isSmUp ? chipItems.join(" • ") : undefined}
+                className="whitespace-nowrap rounded-full border border-white/15 bg-white/10 px-2.5 py-0.5 text-[10px] font-semibold text-white/90"
+              >
+                +{hiddenCount}
+              </span>
+            ) : null}
           </div>
         ) : null}
         <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 sm:gap-3">
