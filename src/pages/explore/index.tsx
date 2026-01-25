@@ -15,7 +15,7 @@ import {
 import { HomeCategorySheet, type HomeCategory } from "../../components/home/HomeCategorySheet";
 import { HomeFilterSheet } from "../../components/home/HomeFilterSheet";
 import { HomeSectionCard } from "../../components/home/HomeSectionCard";
-import { PopClipTile } from "../../components/popclips/PopClipTile";
+import { PopClipTile, type PopClipTileItem } from "../../components/popclips/PopClipTile";
 import { IconGlyph } from "../../components/ui/IconGlyph";
 import { ContextMenu } from "../../components/ui/ContextMenu";
 import { PillButton } from "../../components/ui/PillButton";
@@ -31,6 +31,7 @@ import { SavedCollectionRenameSheet } from "../../components/saved/SavedCollecti
 
 const FEED_PAGE_SIZE = 24;
 const FEED_SKELETON_COUNT = 12;
+const LOAD_MORE_SKELETON_COUNT = 6;
 type RecommendedCreator = {
   id: string;
   handle: string;
@@ -243,6 +244,9 @@ export default function Explore() {
   const [feedLoading, setFeedLoading] = useState(false);
   const [feedLoadingMore, setFeedLoadingMore] = useState(false);
   const [feedError, setFeedError] = useState("");
+  const feedRequestKeyRef = useRef(0);
+  const loadMoreAbortRef = useRef<AbortController | null>(null);
+  const loadMorePendingRef = useRef(false);
   const [seedLoading, setSeedLoading] = useState(false);
   const [seedError, setSeedError] = useState("");
   const [seedKey, setSeedKey] = useState(0);
@@ -273,7 +277,7 @@ export default function Explore() {
   const [savedOnly, setSavedOnly] = useState(false);
   const [exploreIntent, setExploreIntent] = useState<ExploreIntent>("all");
   const [hydrated, setHydrated] = useState(false);
-  const [captionSheetClip, setCaptionSheetClip] = useState<PopClipFeedItem | null>(null);
+  const [captionSheetClip, setCaptionSheetClip] = useState<PopClipTileItem | null>(null);
   const [captionSheetOpen, setCaptionSheetOpen] = useState(false);
   const [toast, setToast] = useState<{ message: string; actionLabel?: string; onAction?: () => void } | null>(null);
   const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -288,6 +292,7 @@ export default function Explore() {
   const mobileSearchInputRef = useRef<HTMLInputElement | null>(null);
   const stickySearchInputRef = useRef<HTMLInputElement | null>(null);
   const popclipsRef = useRef<HTMLDivElement | null>(null);
+  const packsRef = useRef<HTMLElement | null>(null);
   const suppressSearchOpenRef = useRef(false);
   const [isSearchOpen, setIsSearchOpen] = useState(false);
   const [activeSearchIndex, setActiveSearchIndex] = useState(-1);
@@ -463,20 +468,23 @@ export default function Explore() {
     updateSavedQuery({ saved: false });
   }, [updateSavedQuery]);
 
-  const scrollToPopclips = () => {
+  const scrollToPopclips = useCallback(() => {
     if (typeof window === "undefined") return;
-    const target = document.getElementById("popclips");
+    const target = popclipsRef.current;
     if (!target) return;
     target.scrollIntoView({ behavior: "smooth", block: "start" });
-  };
+  }, [popclipsRef]);
 
-  const scrollToPacks = () => {
+  const scrollToPacks = useCallback(() => {
     if (typeof window === "undefined") return false;
-    const target = document.getElementById("packs");
+    if (!packsRef.current) {
+      packsRef.current = document.getElementById("packs");
+    }
+    const target = packsRef.current;
     if (!target) return false;
     target.scrollIntoView({ behavior: "smooth", block: "start" });
     return true;
-  };
+  }, [packsRef]);
 
   const scrollToTop = useCallback(() => {
     if (typeof window === "undefined") return;
@@ -1160,14 +1168,14 @@ export default function Explore() {
     }
   }, []);
 
-  const buildClipShareUrl = useCallback((item: PopClipFeedItem) => {
+  const buildClipShareUrl = useCallback((item: PopClipTileItem) => {
     const path = `/c/${encodeURIComponent(item.creator.handle)}?popclip=${encodeURIComponent(item.id)}`;
     if (typeof window === "undefined") return path;
     return new URL(path, window.location.origin).toString();
   }, []);
 
   const handleCopyLink = useCallback(
-    async (item: PopClipFeedItem) => {
+    async (item: PopClipTileItem) => {
       const url = buildClipShareUrl(item);
       const copied = await copyToClipboard(url);
       showToast(copied ? "Link copiado" : "No se pudo copiar el link.");
@@ -1176,7 +1184,7 @@ export default function Explore() {
   );
 
   const handleShareLink = useCallback(
-    async (item: PopClipFeedItem) => {
+    async (item: PopClipTileItem) => {
       const url = buildClipShareUrl(item);
       if (typeof navigator !== "undefined" && navigator.share) {
         try {
@@ -1198,7 +1206,7 @@ export default function Explore() {
   );
 
   const handleReportClip = useCallback(
-    async (item: PopClipFeedItem) => {
+    async (item: PopClipTileItem) => {
       try {
         const res = await fetch(`/api/public/popclips/${item.id}/report`, {
           method: "POST",
@@ -1238,7 +1246,7 @@ export default function Explore() {
   }, []);
 
   const handleToggleSave = useCallback(
-    async (item: PopClipFeedItem) => {
+    async (item: PopClipTileItem) => {
       const wasSaved = savedPopclipSet.has(item.id);
       const nextSaved = !wasSaved;
       const delta = nextSaved ? 1 : -1;
@@ -1398,7 +1406,7 @@ export default function Explore() {
     [refreshSavedItems, savedCreatorSet, showToast]
   );
 
-  const openCaptionSheet = useCallback((item: PopClipFeedItem) => {
+  const openCaptionSheet = useCallback((item: PopClipTileItem) => {
     setCaptionSheetClip(item);
     setCaptionSheetOpen(true);
   }, []);
@@ -1409,6 +1417,11 @@ export default function Explore() {
   }, []);
 
   useEffect(() => {
+    const requestKey = feedRequestKeyRef.current + 1;
+    feedRequestKeyRef.current = requestKey;
+    loadMoreAbortRef.current?.abort();
+    loadMorePendingRef.current = false;
+    setFeedLoadingMore(false);
     const controller = new AbortController();
     const params = new URLSearchParams(filterQueryString);
     params.set("take", String(FEED_PAGE_SIZE));
@@ -1423,6 +1436,7 @@ export default function Explore() {
         const payload = (await res.json().catch(() => null)) as
           | { items?: PopClipFeedItem[]; nextCursor?: string | null }
           | null;
+        if (requestKey !== feedRequestKeyRef.current) return;
         if (!res.ok || !payload || !Array.isArray(payload.items)) {
           setFeedItems([]);
           setFeedError("No se pudieron cargar los PopClips.");
@@ -1433,11 +1447,14 @@ export default function Explore() {
       })
       .catch((err) => {
         if (err instanceof DOMException && err.name === "AbortError") return;
+        if (requestKey !== feedRequestKeyRef.current) return;
         setFeedItems([]);
         setFeedError("No se pudieron cargar los PopClips.");
       })
       .finally(() => {
-        if (!controller.signal.aborted) setFeedLoading(false);
+        if (requestKey === feedRequestKeyRef.current && !controller.signal.aborted) {
+          setFeedLoading(false);
+        }
       });
     return () => controller.abort();
   }, [filterQueryString, seedKey]);
@@ -1497,6 +1514,10 @@ export default function Explore() {
       return haystack.includes(normalizedSearch);
     });
   }, [recommendedCreators, selectedCategory, normalizedSearch]);
+  const loadMoreSkeletons = useMemo(
+    () => Array.from({ length: LOAD_MORE_SKELETON_COUNT }),
+    []
+  );
 
   const savedCount = savedItemsAll.length;
   const savedMatchesCount = filteredSavedPopclips.length + filteredSavedOtherItems.length;
@@ -1709,7 +1730,6 @@ export default function Explore() {
                       key={action.id}
                       type="button"
                       onClick={() => runSearchAction(action)}
-                      aria-selected={isActive}
                       className={clsx(
                         "flex items-center gap-2 rounded-lg px-2 py-2 text-left text-sm text-[color:var(--text)] hover:bg-[color:var(--surface-2)] focus:outline-none focus:ring-1 focus:ring-[color:var(--ring)]",
                         isActive && "bg-[color:var(--surface-2)]"
@@ -1747,14 +1767,13 @@ export default function Explore() {
                   {recentActions.map((action) => {
                     const isActive = activeSearchIndex === action.index;
                     return (
-                      <button
-                        key={action.id}
-                        type="button"
-                        onClick={() => runSearchAction(action)}
-                        aria-selected={isActive}
-                        className={clsx(
-                          "flex items-center gap-2 rounded-lg px-2 py-2 text-left text-sm text-[color:var(--text)] hover:bg-[color:var(--surface-2)] focus:outline-none focus:ring-1 focus:ring-[color:var(--ring)]",
-                          isActive && "bg-[color:var(--surface-2)]"
+                    <button
+                      key={action.id}
+                      type="button"
+                      onClick={() => runSearchAction(action)}
+                      className={clsx(
+                        "flex items-center gap-2 rounded-lg px-2 py-2 text-left text-sm text-[color:var(--text)] hover:bg-[color:var(--surface-2)] focus:outline-none focus:ring-1 focus:ring-[color:var(--ring)]",
+                        isActive && "bg-[color:var(--surface-2)]"
                         )}
                       >
                         <Clock className="h-4 w-4 flex-none text-[color:var(--muted)]" aria-hidden="true" />
@@ -1778,7 +1797,6 @@ export default function Explore() {
                       key={action.id}
                       type="button"
                       onClick={() => runSearchAction(action)}
-                      aria-selected={isActive}
                       className={clsx(
                         "inline-flex items-center rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-3 py-1.5 text-xs font-semibold text-[color:var(--text)] hover:bg-[color:var(--surface-2)] focus:outline-none focus:ring-1 focus:ring-[color:var(--ring)]",
                         isActive && "bg-[color:var(--surface-2)]"
@@ -1803,7 +1821,6 @@ export default function Explore() {
                       key={action.id}
                       type="button"
                       onClick={() => runSearchAction(action)}
-                      aria-selected={isActive}
                       className={clsx(
                         "inline-flex items-center rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-3 py-1.5 text-xs font-semibold text-[color:var(--text)] hover:bg-[color:var(--surface-2)] focus:outline-none focus:ring-1 focus:ring-[color:var(--ring)]",
                         isActive && "bg-[color:var(--surface-2)]"
@@ -1911,8 +1928,12 @@ export default function Explore() {
   }, [isDev, refreshSavedItems, seedLoading]);
 
   const loadMoreFeed = useCallback(async () => {
-    if (!feedCursor || feedLoadingMore) return;
+    if (!feedCursor || loadMorePendingRef.current) return;
+    loadMorePendingRef.current = true;
+    const requestKey = feedRequestKeyRef.current;
+    loadMoreAbortRef.current?.abort();
     const controller = new AbortController();
+    loadMoreAbortRef.current = controller;
     const params = new URLSearchParams(filterQueryString);
     params.set("take", String(FEED_PAGE_SIZE));
     params.set("cursor", feedCursor);
@@ -1923,6 +1944,7 @@ export default function Explore() {
       const payload = (await res.json().catch(() => null)) as
         | { items?: PopClipFeedItem[]; nextCursor?: string | null }
         | null;
+      if (requestKey !== feedRequestKeyRef.current) return;
       if (!res.ok || !payload || !Array.isArray(payload.items)) {
         setFeedError("No se pudieron cargar mas PopClips.");
         return;
@@ -1932,14 +1954,21 @@ export default function Explore() {
       setFeedCursor(typeof payload.nextCursor === "string" ? payload.nextCursor : null);
     } catch (err) {
       if (err instanceof DOMException && err.name === "AbortError") return;
+      if (requestKey !== feedRequestKeyRef.current) return;
       setFeedError("No se pudieron cargar mas PopClips.");
     } finally {
-      setFeedLoadingMore(false);
+      if (requestKey === feedRequestKeyRef.current) {
+        setFeedLoadingMore(false);
+      }
+      if (loadMoreAbortRef.current === controller) {
+        loadMoreAbortRef.current = null;
+      }
+      loadMorePendingRef.current = false;
     }
-  }, [feedCursor, feedLoadingMore, filterQueryString]);
+  }, [feedCursor, filterQueryString]);
 
   const openPopclip = useCallback(
-    (item: PopClipFeedItem) => {
+    (item: PopClipTileItem) => {
       const baseQuery = sanitizeQuery(router.query);
       baseQuery.popclip = item.id;
       void router.push(
@@ -2018,7 +2047,6 @@ export default function Explore() {
                     onFocus={handleSearchFocus}
                     onKeyDown={handleSearchKeyDown}
                     placeholder="Buscar creadores, packs o PopClips"
-                    aria-expanded={showSearchPanel}
                     aria-controls="search-suggestions"
                     className="h-6 w-full bg-transparent text-xs text-[color:var(--text)] placeholder:text-[color:var(--muted)] focus:outline-none"
                   />
@@ -2086,7 +2114,6 @@ export default function Explore() {
                   onFocus={handleSearchFocus}
                   onKeyDown={handleSearchKeyDown}
                   placeholder="Buscar creadores, packs o PopClips"
-                  aria-expanded={showSearchPanel}
                   aria-controls="search-suggestions"
                   className="h-7 w-full bg-transparent text-sm text-[color:var(--text)] placeholder:text-[color:var(--muted)] focus:outline-none"
                 />
@@ -2146,7 +2173,6 @@ export default function Explore() {
                         onFocus={handleSearchFocus}
                         onKeyDown={handleSearchKeyDown}
                         placeholder="Buscar creadores, packs o PopClips"
-                        aria-expanded={showSearchPanel}
                         aria-controls="search-suggestions"
                         className="h-7 w-full bg-transparent text-sm text-[color:var(--text)] placeholder:text-[color:var(--muted)] focus:outline-none"
                       />
@@ -2342,31 +2368,35 @@ export default function Explore() {
                             <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3 xl:gap-6">
                               {filteredSavedPopclips.map((item) => {
                                 const savedPreview = savedPopclipPreviewMap.get(item.id);
+                                const organizerItemId =
+                                  savedPreview && !savedPreview.id.startsWith("temp-popclip-")
+                                    ? savedPreview.id
+                                    : null;
+                                const organizerCollectionId = organizerItemId
+                                  ? savedPreview?.collectionId ?? null
+                                  : null;
                                 return (
-                                    <PopClipTile
-                                      key={item.id}
-                                      item={item}
-                                      onOpen={() => openPopclip(item)}
-                                      profileHref={`/c/${encodeURIComponent(item.creator.handle)}`}
-                                      chatHref={appendReturnTo(
-                                        `/go/${encodeURIComponent(item.creator.handle)}`,
-                                        router.asPath
-                                      )}
-                                      isFollowing={followingSet.has(item.creatorId)}
-                                      onFollowChange={handleFollowChange}
-                                      onFollowError={showToast}
-                                      isSaved={savedPopclipSet.has(item.id)}
-                                      onToggleSave={() => void handleToggleSave(item)}
-                                      onOrganize={
-                                        savedPreview && !savedPreview.id.startsWith("temp-popclip-")
-                                          ? () =>
-                                            openOrganizer(savedPreview.id, savedPreview.collectionId ?? null)
-                                        : undefined
-                                    }
-                                    onOpenCaption={() => openCaptionSheet(item)}
-                                    onCopyLink={() => void handleCopyLink(item)}
-                                    onShare={() => void handleShareLink(item)}
-                                    onReport={() => void handleReportClip(item)}
+                                  <PopClipTile
+                                    key={item.id}
+                                    item={item}
+                                    onOpen={openPopclip}
+                                    profileHref={`/c/${encodeURIComponent(item.creator.handle)}`}
+                                    chatHref={appendReturnTo(
+                                      `/go/${encodeURIComponent(item.creator.handle)}`,
+                                      router.asPath
+                                    )}
+                                    isFollowing={followingSet.has(item.creatorId)}
+                                    onFollowChange={handleFollowChange}
+                                    onFollowError={showToast}
+                                    isSaved={savedPopclipSet.has(item.id)}
+                                    onToggleSave={handleToggleSave}
+                                    onOrganize={openOrganizer}
+                                    organizerItemId={organizerItemId}
+                                    organizerCollectionId={organizerCollectionId}
+                                    onOpenCaption={openCaptionSheet}
+                                    onCopyLink={handleCopyLink}
+                                    onShare={handleShareLink}
+                                    onReport={handleReportClip}
                                   />
                                 );
                               })}
@@ -2601,36 +2631,59 @@ export default function Explore() {
                 <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3 xl:gap-6">
                   {filteredFeedItems.map((item) => {
                     const savedPreview = savedPopclipPreviewMap.get(item.id);
+                    const organizerItemId =
+                      savedPreview && !savedPreview.id.startsWith("temp-popclip-")
+                        ? savedPreview.id
+                        : null;
+                    const organizerCollectionId = organizerItemId
+                      ? savedPreview?.collectionId ?? null
+                      : null;
                     return (
                       <PopClipTile
                         key={item.id}
                         item={item}
-                        onOpen={() => openPopclip(item)}
+                        onOpen={openPopclip}
                         profileHref={`/c/${encodeURIComponent(item.creator.handle)}`}
                         chatHref={appendReturnTo(`/go/${encodeURIComponent(item.creator.handle)}`, router.asPath)}
                         isFollowing={followingSet.has(item.creatorId)}
                         onFollowChange={handleFollowChange}
                         onFollowError={showToast}
                         isSaved={savedPopclipSet.has(item.id)}
-                        onToggleSave={() => void handleToggleSave(item)}
-                        onOrganize={
-                          savedPreview && !savedPreview.id.startsWith("temp-popclip-")
-                            ? () => openOrganizer(savedPreview.id, savedPreview.collectionId ?? null)
-                            : undefined
-                        }
-                        onOpenCaption={() => openCaptionSheet(item)}
-                        onCopyLink={() => void handleCopyLink(item)}
-                        onShare={() => void handleShareLink(item)}
-                        onReport={() => void handleReportClip(item)}
+                        onToggleSave={handleToggleSave}
+                        onOrganize={openOrganizer}
+                        organizerItemId={organizerItemId}
+                        organizerCollectionId={organizerCollectionId}
+                        onOpenCaption={openCaptionSheet}
+                        onCopyLink={handleCopyLink}
+                        onShare={handleShareLink}
+                        onReport={handleReportClip}
                       />
                     );
                   })}
+                  {feedLoadingMore
+                    ? loadMoreSkeletons.map((_, idx) => (
+                        <div
+                          key={`feed-more-skeleton-${idx}`}
+                          className="flex flex-col gap-2 rounded-2xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] p-3"
+                        >
+                          <Skeleton className="aspect-[10/13] w-full rounded-xl sm:aspect-[3/4] md:aspect-[4/5]" />
+                          <div className="flex flex-wrap gap-2">
+                            <Skeleton className="h-5 w-16 rounded-full" />
+                            <Skeleton className="h-5 w-20 rounded-full" />
+                          </div>
+                          <div className="flex gap-2">
+                            <Skeleton className="h-9 flex-1 rounded-full" />
+                            <Skeleton className="h-9 flex-1 rounded-full" />
+                          </div>
+                        </div>
+                      ))
+                    : null}
                 </div>
                 {feedCursor ? (
                   <div className="mt-4 flex justify-center">
                     <button
                       type="button"
-                      onClick={() => void loadMoreFeed()}
+                      onClick={loadMoreFeed}
                       disabled={feedLoadingMore}
                       className="inline-flex items-center justify-center rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-4 py-2 text-xs font-semibold text-[color:var(--text)] hover:bg-[color:var(--surface-2)] disabled:opacity-60"
                     >
@@ -3166,11 +3219,11 @@ function CaptionSheet({
   onClose,
 }: {
   open: boolean;
-  clip: PopClipFeedItem | null;
+  clip: PopClipTileItem | null;
   onClose: () => void;
 }) {
   const [isMounted, setIsMounted] = useState(open);
-  const [activeClip, setActiveClip] = useState<PopClipFeedItem | null>(clip);
+  const [activeClip, setActiveClip] = useState<PopClipTileItem | null>(clip);
 
   useEffect(() => {
     if (clip) setActiveClip(clip);

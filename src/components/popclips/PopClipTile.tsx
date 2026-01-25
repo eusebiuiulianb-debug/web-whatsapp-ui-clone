@@ -4,14 +4,15 @@ import clsx from "clsx";
 import { Bookmark, BookmarkCheck, MessageCircle, Sparkles } from "lucide-react";
 import Image from "next/image";
 import Link from "next/link";
-import { useEffect, useRef, useState, type MouseEvent } from "react";
+import { memo, useEffect, useRef, useState, type MouseEvent } from "react";
 import { ContextMenu, type ContextMenuItem } from "../ui/ContextMenu";
+import { Skeleton } from "../ui/Skeleton";
 import { IconGlyph } from "../ui/IconGlyph";
 import { normalizeImageSrc } from "../../utils/normalizeImageSrc";
 import { emitFollowChange, setFollowSnapshot } from "../../lib/followEvents";
 import { useFollowState } from "../../lib/useFollowState";
 
-type PopClipTileItem = {
+export type PopClipTileItem = {
   id: string;
   creatorId?: string;
   title?: string | null;
@@ -35,19 +36,21 @@ type PopClipTileItem = {
 
 type Props = {
   item: PopClipTileItem;
-  onOpen: () => void;
+  onOpen: (item: PopClipTileItem) => void;
   profileHref: string;
   chatHref: string;
   isFollowing?: boolean;
   onFollowChange?: (creatorId: string, isFollowing: boolean) => void;
   onFollowError?: (message: string) => void;
   isSaved?: boolean;
-  onToggleSave?: () => void;
-  onOrganize?: () => void;
-  onOpenCaption?: () => void;
-  onCopyLink?: () => void;
-  onShare?: () => void;
-  onReport?: () => void;
+  onToggleSave?: (item: PopClipTileItem) => void;
+  onOrganize?: (savedItemId: string, collectionId: string | null) => void;
+  organizerItemId?: string | null;
+  organizerCollectionId?: string | null;
+  onOpenCaption?: (item: PopClipTileItem) => void;
+  onCopyLink?: (item: PopClipTileItem) => void;
+  onShare?: (item: PopClipTileItem) => void;
+  onReport?: (item: PopClipTileItem) => void;
 };
 
 function useMediaQuery(query: string) {
@@ -69,7 +72,7 @@ function useMediaQuery(query: string) {
   return matches;
 }
 
-export function PopClipTile({
+export const PopClipTile = memo(function PopClipTile({
   item,
   onOpen,
   profileHref,
@@ -80,11 +83,14 @@ export function PopClipTile({
   isSaved = false,
   onToggleSave,
   onOrganize,
+  organizerItemId,
+  organizerCollectionId,
   onCopyLink,
   onShare,
   onReport,
 }: Props) {
   const [thumbFailed, setThumbFailed] = useState(false);
+  const [imageLoaded, setImageLoaded] = useState(false);
   const [avatarFailed, setAvatarFailed] = useState(false);
   const creatorId = (item.creatorId || "").trim();
   const hasCreatorId = Boolean(creatorId);
@@ -128,34 +134,40 @@ export function PopClipTile({
   const chipItemsTitle = chipItems.join(" • ");
   const creatorInitial = item.creator.displayName?.trim()?.[0]?.toUpperCase() || "C";
   const quickActions: ContextMenuItem[] = [];
-  const hasSavedActions = isSaved && (onOrganize || onToggleSave);
+  const canOrganize = Boolean(isSaved && onOrganize && organizerItemId);
+  const canToggleSave = Boolean(isSaved && onToggleSave);
+  const hasSavedActions = canOrganize || canToggleSave;
   const MIN_FOLLOW_MUTATION_MS = 400;
-  if (isSaved && onOrganize) {
-    quickActions.push({ label: "Mover a...", icon: "folder", onClick: onOrganize });
+  if (canOrganize && organizerItemId && onOrganize) {
+    quickActions.push({
+      label: "Mover a...",
+      icon: "folder",
+      onClick: () => onOrganize(organizerItemId, organizerCollectionId ?? null),
+    });
   }
-  if (isSaved && onToggleSave) {
+  if (canToggleSave && onToggleSave) {
     quickActions.push({
       label: "Quitar de guardados",
       icon: "alert",
       danger: true,
-      onClick: onToggleSave,
+      onClick: () => onToggleSave(item),
     });
   }
   if (hasSavedActions && (onCopyLink || onShare || onReport)) {
     quickActions.push({ label: "divider", divider: true });
   }
   if (onCopyLink) {
-    quickActions.push({ label: "Copiar link", icon: "link", onClick: onCopyLink });
+    quickActions.push({ label: "Copiar link", icon: "link", onClick: () => onCopyLink(item) });
   }
   if (onShare) {
-    quickActions.push({ label: "Compartir", icon: "send", onClick: onShare });
+    quickActions.push({ label: "Compartir", icon: "send", onClick: () => onShare(item) });
   }
   if (onReport) {
     if (quickActions.length > 0) quickActions.push({ label: "divider", divider: true });
     quickActions.push({
       label: "Reportar",
       icon: "alert",
-      onClick: onReport,
+      onClick: () => onReport(item),
       danger: true,
     });
   }
@@ -163,6 +175,10 @@ export function PopClipTile({
   useEffect(() => {
     if (!showCaptionMore && isCaptionOpen) setIsCaptionOpen(false);
   }, [showCaptionMore, isCaptionOpen]);
+
+  useEffect(() => {
+    setImageLoaded(false);
+  }, [previewSrc]);
 
   useEffect(() => {
     if (!isCaptionOpen) return;
@@ -254,7 +270,10 @@ export function PopClipTile({
   };
 
   return (
-    <div className="group flex w-full flex-col overflow-hidden rounded-2xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] text-left shadow-sm transition duration-200 hover:-translate-y-0.5 hover:shadow-lg hover:shadow-[color:rgba(var(--brand-rgb),0.18)]">
+    <div
+      style={{ contentVisibility: "auto", containIntrinsicSize: "360px 680px", contain: "layout paint" }}
+      className="group flex w-full flex-col overflow-hidden rounded-2xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] text-left shadow-sm transition duration-200 hover:-translate-y-0.5 hover:shadow-lg hover:shadow-[color:rgba(var(--brand-rgb),0.18)]"
+    >
       <div className="flex items-center justify-between gap-3 px-3 pt-3">
         <Link
           href={profileHref}
@@ -337,7 +356,7 @@ export function PopClipTile({
             onClick={(event) => {
               event.preventDefault();
               event.stopPropagation();
-              onToggleSave?.();
+              onToggleSave?.(item);
             }}
             onKeyDown={(event) => event.stopPropagation()}
             className={clsx(
@@ -360,26 +379,42 @@ export function PopClipTile({
           ref={mediaContainerRef}
           role="button"
           tabIndex={0}
-          onClick={onOpen}
+          onClick={() => onOpen(item)}
           onKeyDown={(event) => {
             if (event.key === "Enter" || event.key === " ") {
               event.preventDefault();
-              onOpen();
+              onOpen(item);
             }
           }}
           aria-label={`Abrir ${title}`}
           className="relative aspect-[10/13] w-full cursor-pointer overflow-hidden rounded-2xl focus:outline-none focus:ring-1 focus:ring-[color:var(--ring)] sm:aspect-[3/4] md:aspect-[4/5]"
         >
           {showImage ? (
-            <Image
-              src={normalizeImageSrc(previewSrc)}
-              alt={title}
-              layout="fill"
-              objectFit="cover"
-              sizes="(max-width: 768px) 50vw, (max-width: 1280px) 33vw, 25vw"
-              className="object-cover transition-transform duration-300 group-hover:scale-[1.02]"
-              onError={() => setThumbFailed(true)}
-            />
+            <>
+              <Image
+                src={normalizeImageSrc(previewSrc)}
+                alt={title}
+                layout="fill"
+                objectFit="cover"
+                sizes="(max-width: 768px) 50vw, (max-width: 1280px) 33vw, 25vw"
+                className={clsx(
+                  "object-cover transition duration-300 group-hover:scale-[1.02]",
+                  imageLoaded ? "opacity-100" : "opacity-0"
+                )}
+                onLoadingComplete={() => setImageLoaded(true)}
+                onError={() => {
+                  setThumbFailed(true);
+                  setImageLoaded(true);
+                }}
+              />
+              <Skeleton
+                aria-hidden="true"
+                className={clsx(
+                  "absolute inset-0 h-full w-full transition-opacity duration-300",
+                  imageLoaded ? "opacity-0" : "opacity-100"
+                )}
+              />
+            </>
           ) : (
             <div className="relative flex h-full w-full items-center justify-center overflow-hidden bg-gradient-to-br from-[color:rgba(10,14,24,0.9)] via-[color:rgba(18,24,38,0.9)] to-[color:rgba(6,9,18,0.95)] text-white/60">
               <div className="absolute inset-0 opacity-60">
@@ -394,9 +429,11 @@ export function PopClipTile({
           )}
           <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-black/45 via-black/10 to-transparent opacity-80 transition duration-200 md:opacity-70 md:group-hover:opacity-90" />
           {showCaption && (!showCaptionMore || !isCaptionOpen) ? (
-            <div className="pointer-events-none absolute inset-x-0 bottom-0 z-20 bg-gradient-to-t from-black/70 via-black/30 to-transparent p-3 transition">
+            <div className="pointer-events-none absolute inset-x-0 bottom-0 z-20 min-h-[44px] bg-gradient-to-t from-black/70 via-black/30 to-transparent p-3 transition">
               <div className="pointer-events-auto text-[11px] text-white/90">
-                <p className="line-clamp-2 leading-snug md:line-clamp-1">{captionOverlayText}</p>
+                <p className="min-h-[28px] line-clamp-2 leading-snug md:line-clamp-1">
+                  {captionOverlayText}
+                </p>
                 {showCaptionMore ? (
                   <button
                     ref={captionTriggerRef}
@@ -625,4 +662,4 @@ export function PopClipTile({
       </div>
     </div>
   );
-}
+});

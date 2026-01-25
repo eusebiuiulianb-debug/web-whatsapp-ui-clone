@@ -418,7 +418,7 @@ export default function PublicCreatorByHandle({
       })
       .finally(() => setCommentsLoading(false));
     return () => controller.abort();
-  }, [creatorHandle]);
+  }, [creatorHandle, creatorId]);
 
   const chatHref = appendReturnTo(appendSearchIfRelative(baseChatHref, searchParams), returnTo);
   const followHref = "#";

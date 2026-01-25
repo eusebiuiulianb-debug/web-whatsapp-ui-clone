@@ -103,7 +103,7 @@ export function LocationPickerDialog({
     setGeoError("");
     setQueryDirty(false);
     setSelectionError("");
-  }, [open]);
+  }, [label, open]);
 
   useEffect(() => {
     if (!open) return;

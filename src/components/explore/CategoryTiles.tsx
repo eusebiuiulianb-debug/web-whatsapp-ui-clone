@@ -99,7 +99,6 @@ export function CategoryTiles({
               type="button"
               onClick={() => onSelect(item)}
               aria-pressed={active}
-              role="listitem"
               className={clsx(
                 "group flex min-h-[110px] w-[240px] shrink-0 snap-start flex-col items-start gap-3 rounded-2xl border px-4 py-4 text-left transition",
                 active
