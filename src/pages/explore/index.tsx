@@ -16,11 +16,13 @@ import { HomeCategorySheet, type HomeCategory } from "../../components/home/Home
 import { HomeFilterSheet } from "../../components/home/HomeFilterSheet";
 import { HomeSectionCard } from "../../components/home/HomeSectionCard";
 import { CategoryTiles, type CategoryTile } from "../../components/explore/CategoryTiles";
+import { FollowingStrip, type FollowingCreator } from "../../components/follow/FollowingStrip";
 import { PopClipTile } from "../../components/popclips/PopClipTile";
 import { IconGlyph } from "../../components/ui/IconGlyph";
 import { ContextMenu } from "../../components/ui/ContextMenu";
 import { PillButton } from "../../components/ui/PillButton";
 import { Skeleton } from "../../components/ui/Skeleton";
+import { CtaPill } from "../../components/ui/CtaPill";
 import { useRouter } from "next/router";
 import { countActiveFilters, parseHomeFilters, toHomeFiltersQuery, type HomeFilters } from "../../lib/homeFilters";
 import { subscribeCreatorStatusUpdates } from "../../lib/creatorStatusEvents";
@@ -274,6 +276,8 @@ export default function Explore() {
   const [collectionItemsLoading, setCollectionItemsLoading] = useState(false);
   const [collectionItemsError, setCollectionItemsError] = useState("");
   const [savedItemRemovingId, setSavedItemRemovingId] = useState<string | null>(null);
+  const [followingItems, setFollowingItems] = useState<FollowingCreator[]>([]);
+  const [followingTotal, setFollowingTotal] = useState<number | null>(null);
   const [savedOnly, setSavedOnly] = useState(false);
   const [exploreIntent, setExploreIntent] = useState<ExploreIntent>("all");
   const [hydrated, setHydrated] = useState(false);
@@ -533,6 +537,37 @@ export default function Explore() {
   useEffect(() => {
     setHydrated(true);
   }, []);
+
+  useEffect(() => {
+    if (!hydrated) return;
+    const controller = new AbortController();
+    fetch("/api/following", { signal: controller.signal })
+      .then(async (res) => {
+        if (res.status === 401) {
+          setFollowingItems([]);
+          setFollowingTotal(0);
+          return;
+        }
+        if (!res.ok) throw new Error("request failed");
+        const payload = (await res.json().catch(() => null)) as
+          | { items?: FollowingCreator[]; creators?: FollowingCreator[]; total?: number }
+          | null;
+        const items = Array.isArray(payload?.items)
+          ? payload.items
+          : Array.isArray(payload?.creators)
+          ? payload.creators
+          : [];
+        const total = typeof payload?.total === "number" ? payload.total : items.length;
+        setFollowingItems(items);
+        setFollowingTotal(total);
+      })
+      .catch((err) => {
+        if (err instanceof DOMException && err.name === "AbortError") return;
+        setFollowingItems([]);
+        setFollowingTotal(0);
+      });
+    return () => controller.abort();
+  }, [hydrated]);
 
   useEffect(() => {
     setRecentSearches(readRecentSearches());
@@ -1446,6 +1481,8 @@ export default function Explore() {
     savedMatchesCount === 0;
   const showSavedCount = hydrated && (savedOnly || savedCount > 0);
   const savedLabel = showSavedCount ? `Guardados · ${savedCount}` : "Guardados";
+  const showFollowing = typeof followingTotal === "number" && followingTotal > 0;
+  const followingLabel = showFollowing ? `Siguiendo (${followingTotal})` : "Siguiendo";
   const showCreatorsEmpty =
     !creatorsLoading && !creatorsError && filteredCreators.length === 0;
 
@@ -1799,6 +1836,11 @@ export default function Explore() {
       >
         {savedLabel}
       </PillButton>
+      {showFollowing ? (
+        <PillButton intent="secondary" size="sm" onClick={() => void router.push("/following")}>
+          {followingLabel}
+        </PillButton>
+      ) : null}
       <PillButton intent="secondary" size="sm" onClick={() => setFilterSheetOpen(true)} className="gap-2">
         <span>Filtros</span>
         {activeFilterCount > 0 ? (
@@ -2134,6 +2176,10 @@ export default function Explore() {
               />
             </HomeSectionCard>
           </div>
+
+          {showFollowing ? (
+            <FollowingStrip items={followingItems} total={followingTotal ?? 0} />
+          ) : null}
 
           {searchTerm ? (
             <div className="flex flex-wrap items-center justify-between gap-3 rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-4 py-2 text-xs text-[color:var(--muted)]">
@@ -2829,12 +2875,9 @@ function SavedItemCard({
         ) : null}
         <div className="mt-2 flex flex-wrap items-center gap-2">
           {item.href ? (
-            <Link
-              href={item.href}
-              className="inline-flex items-center justify-center rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-3 py-1 text-[11px] font-semibold text-[color:var(--text)] hover:bg-[color:var(--surface-3)]"
-            >
-              Abrir
-            </Link>
+            <CtaPill asChild className="relative z-20">
+              <Link href={item.href}>Abrir</Link>
+            </CtaPill>
           ) : null}
           <ContextMenu
             buttonAriaLabel="Acciones de guardado"

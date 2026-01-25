@@ -3,6 +3,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { normalizeImageSrc } from "../utils/normalizeImageSrc";
+import { CtaPill } from "../components/ui/CtaPill";
 
 type FollowingCreator = {
   id: string;
@@ -168,21 +169,18 @@ function CreatorRowCard({
           <div className="truncate text-xs text-[color:var(--muted)]">@{creator.handle}</div>
         </div>
       </div>
-      <div className="flex items-center gap-2">
-        <Link
-          href={`/c/${encodeURIComponent(creator.handle)}`}
-          className="inline-flex items-center justify-center rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-3 py-1 text-[11px] font-semibold text-[color:var(--text)] hover:bg-[color:var(--surface-3)]"
+      <div className="relative z-20 flex items-center gap-2">
+        <CtaPill asChild>
+          <Link href={`/c/${encodeURIComponent(creator.handle)}`}>Ver perfil</Link>
+        </CtaPill>
+        <CtaPill
+          asChild
+          className="!text-red-200 ring-red-200/30 hover:!text-red-100 hover:bg-red-500/15"
         >
-          Ver perfil
-        </Link>
-        <button
-          type="button"
-          onClick={onToggle}
-          disabled={pending}
-          className="inline-flex items-center justify-center rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-3 py-1 text-[11px] font-semibold text-[color:var(--text)] hover:bg-[color:var(--surface-3)] disabled:opacity-60"
-        >
-          {pending ? "Quitando..." : "Dejar de seguir"}
-        </button>
+          <button type="button" onClick={onToggle} disabled={pending}>
+            {pending ? "Quitando..." : "Dejar de seguir"}
+          </button>
+        </CtaPill>
       </div>
     </div>
   );
