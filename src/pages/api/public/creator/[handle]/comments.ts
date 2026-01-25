@@ -435,34 +435,47 @@ async function resolveEligibility(
   explicitFanId?: string | null
 ) {
   const fanId = explicitFanId || readFanId(req, handle);
+  const followFanId = readFanId(req) || fanId;
   if (!fanId) {
+    const follow = followFanId
+      ? await prisma.follow.findUnique({
+          where: { fanId_creatorId: { fanId: followFanId, creatorId } },
+          select: { id: true },
+        })
+      : null;
     return {
       canComment: false,
       viewerComment: null,
       viewerIsLoggedIn: false,
-      viewerIsFollowing: false,
+      viewerIsFollowing: Boolean(follow?.id),
       viewerHasPurchased: false,
       viewerFanId: null,
       viewerIsBlocked: false,
     };
   }
 
-  const [fan, block] = await Promise.all([
+  const [fan, block, follow] = await Promise.all([
     prisma.fan.findFirst({
       where: { id: fanId, creatorId },
-      select: { id: true, isArchived: true, isBlocked: true },
+      select: { id: true, isBlocked: true },
     }),
     prisma.creatorFanBlock.findUnique({
       where: { creatorId_fanId: { creatorId, fanId } },
       select: { id: true },
     }),
+    followFanId
+      ? prisma.follow.findUnique({
+          where: { fanId_creatorId: { fanId: followFanId, creatorId } },
+          select: { id: true },
+        })
+      : Promise.resolve(null),
   ]);
   if (!fan?.id) {
     return {
       canComment: false,
       viewerComment: null,
       viewerIsLoggedIn: false,
-      viewerIsFollowing: false,
+      viewerIsFollowing: Boolean(follow?.id),
       viewerHasPurchased: false,
       viewerFanId: null,
       viewerIsBlocked: false,
@@ -470,7 +483,7 @@ async function resolveEligibility(
   }
 
   const viewerIsBlocked = Boolean(fan.isBlocked || block?.id);
-  const followsCreator = !fan.isArchived;
+  const followsCreator = Boolean(follow?.id);
   if (viewerIsBlocked) {
     return {
       canComment: false,

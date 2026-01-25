@@ -18,6 +18,7 @@ import { HomeSectionCard } from "../../components/home/HomeSectionCard";
 import { CategoryTiles, type CategoryTile } from "../../components/explore/CategoryTiles";
 import { PopClipTile } from "../../components/popclips/PopClipTile";
 import { IconGlyph } from "../../components/ui/IconGlyph";
+import { ContextMenu } from "../../components/ui/ContextMenu";
 import { PillButton } from "../../components/ui/PillButton";
 import { Skeleton } from "../../components/ui/Skeleton";
 import { useRouter } from "next/router";
@@ -26,6 +27,7 @@ import { subscribeCreatorStatusUpdates } from "../../lib/creatorStatusEvents";
 import { normalizeImageSrc } from "../../utils/normalizeImageSrc";
 import { SavedOrganizerSheet } from "../../components/saved/SavedOrganizerSheet";
 import { SavedCollectionCreateSheet } from "../../components/saved/SavedCollectionCreateSheet";
+import { SavedCollectionRenameSheet } from "../../components/saved/SavedCollectionRenameSheet";
 
 const FEED_PAGE_SIZE = 24;
 const FEED_SKELETON_COUNT = 12;
@@ -262,11 +264,16 @@ export default function Explore() {
   const [savedCollectionsLoading, setSavedCollectionsLoading] = useState(false);
   const [savedCollectionsError, setSavedCollectionsError] = useState("");
   const [createCollectionOpen, setCreateCollectionOpen] = useState(false);
+  const [renameCollection, setRenameCollection] = useState<{ id: string; name: string } | null>(null);
+  const [deleteCollection, setDeleteCollection] = useState<{ id: string; name: string } | null>(null);
+  const [deleteCollectionPending, setDeleteCollectionPending] = useState(false);
+  const [deleteCollectionError, setDeleteCollectionError] = useState("");
   const [savedView, setSavedView] = useState<"all" | "collections">("all");
   const [activeCollectionId, setActiveCollectionId] = useState<string | null>(null);
   const [collectionItems, setCollectionItems] = useState<SavedPreviewItem[]>([]);
   const [collectionItemsLoading, setCollectionItemsLoading] = useState(false);
   const [collectionItemsError, setCollectionItemsError] = useState("");
+  const [savedItemRemovingId, setSavedItemRemovingId] = useState<string | null>(null);
   const [savedOnly, setSavedOnly] = useState(false);
   const [exploreIntent, setExploreIntent] = useState<ExploreIntent>("all");
   const [hydrated, setHydrated] = useState(false);
@@ -951,6 +958,83 @@ export default function Explore() {
       updateSavedQuery({ saved: true, view: "collections", collectionId: collection.id });
     },
     [updateSavedQuery]
+  );
+
+  const handleCollectionRenamed = useCallback(
+    (payload: { id: string; name: string }) => {
+      setSavedCollections((prev) =>
+        prev.map((collection) => (collection.id === payload.id ? { ...collection, name: payload.name } : collection))
+      );
+      showToast("Colección renombrada.");
+    },
+    [showToast]
+  );
+
+  const handleDeleteCollection = useCallback(async () => {
+    if (!deleteCollection || deleteCollectionPending) return;
+    setDeleteCollectionPending(true);
+    setDeleteCollectionError("");
+    try {
+      const res = await fetch(`/api/saved/collections/${encodeURIComponent(deleteCollection.id)}`, {
+        method: "DELETE",
+      });
+      if (res.status === 401) {
+        setDeleteCollectionError("Inicia sesion para borrar.");
+        return;
+      }
+      if (!res.ok) throw new Error("request failed");
+      setSavedCollections((prev) => prev.filter((collection) => collection.id !== deleteCollection.id));
+      setSavedItemsAll((prev) =>
+        prev.map((item) =>
+          item.collectionId === deleteCollection.id ? { ...item, collectionId: null } : item
+        )
+      );
+      if (activeCollectionId === deleteCollection.id) {
+        setActiveCollectionId(null);
+        setCollectionItems([]);
+        updateSavedQuery({ saved: true, view: "collections" });
+      }
+      void refreshSavedCollections({ silent: true });
+      showToast("Colección borrada.");
+      setDeleteCollection(null);
+    } catch (_err) {
+      setDeleteCollectionError("No se pudo borrar la colección.");
+    } finally {
+      setDeleteCollectionPending(false);
+    }
+  }, [
+    activeCollectionId,
+    deleteCollection,
+    deleteCollectionPending,
+    refreshSavedCollections,
+    showToast,
+    updateSavedQuery,
+  ]);
+
+  const handleRemoveSavedItem = useCallback(
+    async (savedItemId: string) => {
+      if (savedItemRemovingId) return;
+      setSavedItemRemovingId(savedItemId);
+      try {
+        const res = await fetch(`/api/saved/items/${encodeURIComponent(savedItemId)}`, {
+          method: "DELETE",
+        });
+        if (res.status === 401) {
+          showToast("Inicia sesion para quitar guardados.");
+          return;
+        }
+        if (!res.ok) throw new Error("request failed");
+        setSavedItemsAll((prev) => prev.filter((item) => item.id !== savedItemId));
+        setCollectionItems((prev) => prev.filter((item) => item.id !== savedItemId));
+        void refreshSavedCollections({ silent: true });
+        showToast("Quitado de guardados.");
+      } catch (_err) {
+        showToast("No se pudo quitar el guardado.");
+      } finally {
+        setSavedItemRemovingId(null);
+      }
+    },
+    [refreshSavedCollections, savedItemRemovingId, showToast]
   );
 
   useEffect(() => {
@@ -2236,6 +2320,8 @@ export default function Explore() {
                                 key={item.id}
                                 item={item}
                                 onMove={() => openOrganizer(item.id, item.collectionId ?? null)}
+                                onRemove={() => void handleRemoveSavedItem(item.id)}
+                                removing={savedItemRemovingId === item.id}
                               />
                             ))}
                           </div>
@@ -2281,6 +2367,8 @@ export default function Explore() {
                                 key={item.id}
                                 item={item}
                                 onMove={() => openOrganizer(item.id, item.collectionId ?? null)}
+                                onRemove={() => void handleRemoveSavedItem(item.id)}
+                                removing={savedItemRemovingId === item.id}
                               />
                             ))}
                           </div>
@@ -2315,41 +2403,68 @@ export default function Explore() {
                               collection.name?.trim()?.[0]?.toUpperCase() ||
                               "C";
                             return (
-                              <button
-                                key={collection.id}
-                                type="button"
-                                onClick={() => {
-                                  setActiveCollectionId(collection.id);
-                                  updateSavedQuery({
-                                    saved: true,
-                                    view: "collections",
-                                    collectionId: collection.id,
-                                  });
-                                }}
-                                className="group flex flex-col gap-2 rounded-2xl border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] p-3 text-left transition hover:bg-[color:var(--surface-1)]"
-                              >
-                                <div className="relative aspect-[4/3] w-full overflow-hidden rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)]">
-                                  {cover?.thumbUrl ? (
-                                    <Image
-                                      src={normalizeImageSrc(cover.thumbUrl)}
-                                      alt={cover.title || collection.name}
-                                      width={320}
-                                      height={240}
-                                      className="h-full w-full object-cover"
-                                    />
-                                  ) : (
-                                    <div className="flex h-full w-full items-center justify-center text-lg font-semibold text-[color:var(--muted)]">
-                                      {fallback}
-                                    </div>
-                                  )}
+                              <div key={collection.id} className="relative">
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setActiveCollectionId(collection.id);
+                                    updateSavedQuery({
+                                      saved: true,
+                                      view: "collections",
+                                      collectionId: collection.id,
+                                    });
+                                  }}
+                                  className="group flex w-full flex-col gap-2 rounded-2xl border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] p-3 text-left transition hover:bg-[color:var(--surface-1)]"
+                                >
+                                  <div className="relative aspect-[4/3] w-full overflow-hidden rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)]">
+                                    {cover?.thumbUrl ? (
+                                      <Image
+                                        src={normalizeImageSrc(cover.thumbUrl)}
+                                        alt={cover.title || collection.name}
+                                        width={320}
+                                        height={240}
+                                        className="h-full w-full object-cover"
+                                      />
+                                    ) : (
+                                      <div className="flex h-full w-full items-center justify-center text-lg font-semibold text-[color:var(--muted)]">
+                                        {fallback}
+                                      </div>
+                                    )}
+                                  </div>
+                                  <div className="flex items-center justify-between gap-2">
+                                    <span className="truncate text-sm font-semibold text-[color:var(--text)]">
+                                      {collection.name}
+                                    </span>
+                                    <span className="text-xs text-[color:var(--muted)]">{collection.count}</span>
+                                  </div>
+                                </button>
+                                <div className="absolute right-3 top-3">
+                                  <ContextMenu
+                                    buttonAriaLabel="Acciones de colección"
+                                    buttonIcon="dots"
+                                    buttonClassName="h-8 w-8 bg-[color:var(--surface-1)]"
+                                    items={[
+                                      {
+                                        label: "Renombrar",
+                                        icon: "edit",
+                                        onClick: () => setRenameCollection({ id: collection.id, name: collection.name }),
+                                        disabled: deleteCollectionPending,
+                                      },
+                                      {
+                                        label: "Borrar",
+                                        icon: "alert",
+                                        danger: true,
+                                        onClick: () => {
+                                          setDeleteCollection({ id: collection.id, name: collection.name });
+                                          setDeleteCollectionError("");
+                                        },
+                                        disabled: deleteCollectionPending,
+                                      },
+                                    ]}
+                                    menuClassName="min-w-[170px]"
+                                  />
                                 </div>
-                                <div className="flex items-center justify-between gap-2">
-                                  <span className="truncate text-sm font-semibold text-[color:var(--text)]">
-                                    {collection.name}
-                                  </span>
-                                  <span className="text-xs text-[color:var(--muted)]">{collection.count}</span>
-                                </div>
-                              </button>
+                              </div>
                             );
                           })}
                         </div>
@@ -2561,6 +2676,29 @@ export default function Explore() {
           onClose={() => setCreateCollectionOpen(false)}
           onCreated={handleCollectionCreated}
         />
+        <SavedCollectionRenameSheet
+          open={Boolean(renameCollection)}
+          collectionId={renameCollection?.id ?? null}
+          initialName={renameCollection?.name ?? ""}
+          onClose={() => setRenameCollection(null)}
+          onRenamed={handleCollectionRenamed}
+        />
+        <ConfirmDialog
+          open={Boolean(deleteCollection)}
+          title="Borrar colección"
+          description={
+            deleteCollection ? `¿Borrar "${deleteCollection.name}"? Sus guardados pasarán a "Todo".` : ""
+          }
+          confirmLabel={deleteCollectionPending ? "Borrando..." : "Borrar"}
+          confirmDisabled={deleteCollectionPending}
+          error={deleteCollectionError}
+          onConfirm={handleDeleteCollection}
+          onClose={() => {
+            if (deleteCollectionPending) return;
+            setDeleteCollection(null);
+            setDeleteCollectionError("");
+          }}
+        />
         <HomeFilterSheet
           open={filterSheetOpen}
           initialFilters={filters}
@@ -2643,10 +2781,24 @@ function appendReturnTo(url: string, returnTo: string) {
   return `${url}${separator}returnTo=${encoded}`;
 }
 
-function SavedItemCard({ item, onMove }: { item: SavedPreviewItem; onMove: () => void }) {
+function SavedItemCard({
+  item,
+  onMove,
+  onRemove,
+  removing,
+}: {
+  item: SavedPreviewItem;
+  onMove: () => void;
+  onRemove: () => void;
+  removing?: boolean;
+}) {
   const typeLabel =
     item.type === "POPCLIP" ? "PopClip" : item.type === "PACK" ? "Pack" : "Creador";
   const thumbLabel = item.title?.trim()?.[0]?.toUpperCase() || "•";
+  const actionItems = [
+    { label: "Mover a...", icon: "folder", onClick: onMove, disabled: Boolean(removing) },
+    { label: "Quitar de guardados", icon: "alert", danger: true, onClick: onRemove, disabled: Boolean(removing) },
+  ];
 
   return (
     <div className="flex min-w-0 items-center gap-3 rounded-2xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] p-3">
@@ -2684,13 +2836,108 @@ function SavedItemCard({ item, onMove }: { item: SavedPreviewItem; onMove: () =>
               Abrir
             </Link>
           ) : null}
-          <button
-            type="button"
-            onClick={onMove}
-            className="inline-flex items-center justify-center rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-3 py-1 text-[11px] font-semibold text-[color:var(--text)] hover:bg-[color:var(--surface-3)]"
-          >
-            Mover a colección
-          </button>
+          <ContextMenu
+            buttonAriaLabel="Acciones de guardado"
+            buttonIcon="dots"
+            buttonClassName="h-8 w-8 bg-[color:var(--surface-2)]"
+            items={actionItems}
+            menuClassName="min-w-[180px]"
+          />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ConfirmDialog({
+  open,
+  title,
+  description,
+  confirmLabel,
+  confirmDisabled,
+  error,
+  onConfirm,
+  onClose,
+}: {
+  open: boolean;
+  title: string;
+  description?: string;
+  confirmLabel: string;
+  confirmDisabled?: boolean;
+  error?: string;
+  onConfirm: () => void;
+  onClose: () => void;
+}) {
+  useEffect(() => {
+    if (!open) return;
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") onClose();
+    };
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
+  }, [onClose, open]);
+
+  useEffect(() => {
+    if (!open) return;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = previousOverflow;
+    };
+  }, [open]);
+
+  if (!open) return null;
+
+  return (
+    <div className="fixed inset-0 z-50">
+      <button
+        type="button"
+        aria-label="Cerrar confirmación"
+        onClick={onClose}
+        className="absolute inset-0 bg-black/50 backdrop-blur-sm"
+      />
+      <div className="absolute inset-x-0 bottom-0">
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-label={title}
+          className="mx-auto w-full max-w-lg rounded-t-2xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] shadow-2xl"
+        >
+          <div className="flex items-center justify-between border-b border-[color:var(--surface-border)] px-4 py-3">
+            <div>
+              <p className="text-xs uppercase tracking-[0.2em] text-[color:var(--muted)]">Confirmación</p>
+              <p className="text-sm font-semibold text-[color:var(--text)]">{title}</p>
+            </div>
+            <button
+              type="button"
+              aria-label="Cerrar"
+              onClick={onClose}
+              className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] text-sm font-semibold text-[color:var(--text)] hover:border-[color:var(--surface-border-hover)]"
+            >
+              ✕
+            </button>
+          </div>
+          <div className="px-4 py-4 space-y-3">
+            {description ? <p className="text-xs text-[color:var(--muted)]">{description}</p> : null}
+            {error ? <div className="text-xs text-[color:var(--danger)]">{error}</div> : null}
+            <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={onClose}
+                className="inline-flex flex-1 items-center justify-center rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-4 py-2 text-xs font-semibold text-[color:var(--text)] hover:bg-[color:var(--surface-3)]"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={onConfirm}
+                disabled={confirmDisabled}
+                className="inline-flex flex-1 items-center justify-center rounded-full bg-[color:var(--danger)] px-4 py-2 text-xs font-semibold text-white hover:opacity-90 disabled:opacity-60"
+              >
+                {confirmLabel}
+              </button>
+            </div>
+          </div>
         </div>
       </div>
     </div>

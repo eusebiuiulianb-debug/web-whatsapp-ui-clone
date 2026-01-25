@@ -4,7 +4,7 @@ import type { GetServerSideProps } from "next";
 import { randomUUID } from "crypto";
 import { useCallback, useEffect, useRef, useState, type MouseEvent, type TouchEvent, type WheelEvent } from "react";
 import { useRouter } from "next/router";
-import { Bell, BellRing, ChevronLeft, ChevronRight, Lock, Pencil, ThumbsUp } from "lucide-react";
+import { ChevronLeft, ChevronRight, Lock, Pencil, ThumbsUp, UserCheck, UserPlus } from "lucide-react";
 import { PublicHero } from "../../components/public-profile/PublicHero";
 import { PublicProfileStatsRow } from "../../components/public-profile/PublicProfileStatsRow";
 import { Skeleton } from "../../components/ui/Skeleton";
@@ -406,17 +406,13 @@ export default function PublicCreatorByHandle({
   }, [creatorHandle]);
 
   const chatHref = appendReturnTo(appendSearchIfRelative(baseChatHref, searchParams), returnTo);
-  const followDraft = "Quiero seguirte gratis.";
-  const followHref = appendReturnTo(
-    appendSearchIfRelative(`${baseChatHref}?draft=${encodeURIComponent(followDraft)}`, searchParams),
-    returnTo
-  );
-  const followLabel = isFollowingState ? "Avisos activados" : "Activar avisos";
+  const followHref = "#";
+  const followLabel = isFollowingState ? "Siguiendo" : "Seguir";
   const followAriaLabel = followLabel;
-  const followTitle = "Recibir novedades de este creador";
+  const followTitle = isFollowingState ? "Dejar de seguir a este creador" : "Seguir a este creador";
   const followContent = (
     <span className="inline-flex items-center gap-2">
-      {isFollowingState ? <BellRing className="h-4 w-4" /> : <Bell className="h-4 w-4" />}
+      {isFollowingState ? <UserCheck className="h-4 w-4" /> : <UserPlus className="h-4 w-4" />}
       <span className="hidden sm:inline">{followLabel}</span>
     </span>
   );
@@ -679,8 +675,8 @@ export default function PublicCreatorByHandle({
     sub: "Aún no hay suscripciones publicadas.",
     extra: "Aún no hay extras publicados.",
   };
-  const highlightFollowLabel = isFollowingState ? "Avisos activados" : "Activar avisos";
-  const highlightFollowDisabled = isFollowingState || followPending;
+  const highlightFollowLabel = isFollowingState ? "Siguiendo" : "Seguir";
+  const highlightFollowDisabled = followPending;
   const activePopclipId = activePopclip?.id ?? null;
   const activePopclipTitle = activePopclip
     ? (activePopclip.title?.trim() || activePopclip.pack.title || "PopClip").trim()
@@ -1280,34 +1276,40 @@ export default function PublicCreatorByHandle({
 
   const handleFollow = async (event: MouseEvent<HTMLAnchorElement>) => {
     event.preventDefault();
-    if (!creatorHandle || followPending) return;
-    if (isFollowingState) {
-      showToast("Ya sigues a este creador.");
-      return;
-    }
-    const endpoint = `/api/public/creator/${encodeURIComponent(creatorHandle)}/follow`;
+    if (!creatorId || followPending) return;
+    const endpoint = "/api/follow/toggle";
     let responseStatus: number | null = null;
     const prevFollowing = isFollowingState;
     const prevCount = followersCount;
-    setIsFollowingState(true);
-    setFollowersCount((count) => count + 1);
+    const nextFollowing = !prevFollowing;
+    setIsFollowingState(nextFollowing);
+    setFollowersCount((count) => Math.max(0, count + (nextFollowing ? 1 : -1)));
     setFollowPending(true);
     try {
-      const res = await fetch(endpoint, { method: "POST" });
+      const res = await fetch(endpoint, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ creatorId }),
+      });
       responseStatus = res.status;
-      if (!res.ok) throw new Error("request failed");
-      const data = (await res.json()) as { followerCount?: number; following?: boolean };
-      if (typeof data?.followerCount === "number") {
-        setFollowersCount(data.followerCount);
+      if (res.status === 401) {
+        throw new Error("AUTH_REQUIRED");
       }
-      if (typeof data?.following === "boolean") {
-        setIsFollowingState(data.following);
+      if (!res.ok) throw new Error("request failed");
+      const data = (await res.json()) as { isFollowing?: boolean };
+      if (typeof data?.isFollowing === "boolean") {
+        setIsFollowingState(data.isFollowing);
+        setFollowersCount(Math.max(0, prevCount + (data.isFollowing ? 1 : -1)));
       }
     } catch (_err) {
       logPublicFetchFailure(endpoint, responseStatus, _err);
       setIsFollowingState(prevFollowing);
       setFollowersCount(prevCount);
-      showToast("No se pudo seguir.");
+      if (_err instanceof Error && _err.message === "AUTH_REQUIRED") {
+        showToast("Inicia sesion para seguir.");
+      } else {
+        showToast("No se pudo actualizar el seguimiento.");
+      }
     } finally {
       setFollowPending(false);
     }
@@ -2136,20 +2138,20 @@ export const getServerSideProps: GetServerSideProps<Props> = async (ctx) => {
   let followerCount = 0;
   let isFollowing = false;
   try {
-    followerCount = await prisma.fan.count({ where: { creatorId: match.id, isArchived: false } });
+    followerCount = await prisma.follow.count({ where: { creatorId: match.id } });
   } catch (err) {
     console.error("Error loading follower count", err);
   }
 
   try {
     const { readFanId } = await import("../../lib/fan/session");
-    const fanIdFromCookie = readFanId({ headers: ctx.req.headers } as any, creatorHandle);
+    const fanIdFromCookie = readFanId({ headers: ctx.req.headers } as any);
     if (fanIdFromCookie) {
-      const viewerFan = await prisma.fan.findFirst({
-        where: { id: fanIdFromCookie, creatorId: match.id, isArchived: false },
+      const follow = await prisma.follow.findUnique({
+        where: { fanId_creatorId: { fanId: fanIdFromCookie, creatorId: match.id } },
         select: { id: true },
       });
-      isFollowing = Boolean(viewerFan?.id);
+      isFollowing = Boolean(follow?.id);
     }
   } catch (err) {
     console.error("Error resolving follower state", err);

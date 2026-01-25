@@ -28,6 +28,7 @@ model Creator {
   bioLinkFaq                 Json?
   packs                      Pack[]
   fans                       Fan[]
+  followers                  Follow[]
   notes                      FanNote[]
   contentItems               ContentItem[]
   catalogItems               CatalogItem[]
@@ -753,6 +754,19 @@ model SavedItem {
   @@unique([userId, type, entityId])
   @@index([userId, createdAt])
   @@index([userId, collectionId])
+}
+
+model Follow {
+  id        String   @id @default(cuid())
+  fanId     String
+  creatorId String
+  createdAt DateTime @default(now())
+
+  creator   Creator @relation(fields: [creatorId], references: [id], onDelete: Cascade)
+
+  @@unique([fanId, creatorId])
+  @@index([fanId, createdAt])
+  @@index([creatorId, createdAt])
 }
 
 model PopClipReport {

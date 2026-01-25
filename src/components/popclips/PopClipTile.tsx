@@ -61,9 +61,6 @@ export function PopClipTile({
   const showImage = Boolean(previewSrc) && !thumbFailed;
   const avatarSrc = item.creator.avatarUrl || "";
   const showAvatar = Boolean(avatarSrc) && !avatarFailed;
-  const savesCount = Number.isFinite(item.savesCount ?? NaN) ? (item.savesCount as number) : 0;
-  const showSavesCount = savesCount > 5;
-  const savesBadgeLabel = savesCount > 99 ? "99+" : String(savesCount);
   const showCaption = Boolean(caption);
   const showCaptionMore = caption.length > 80;
   const allowLocation = item.creator.allowLocation !== false;
@@ -189,7 +186,6 @@ export function PopClipTile({
                   )}
                 />
               ) : null}
-              <div className="relative">
               <button
                 type="button"
                 aria-label={isSaved ? "Quitar guardado" : "Guardar clip"}
@@ -212,15 +208,6 @@ export function PopClipTile({
                   <Bookmark className="h-5 w-5 text-white/80" aria-hidden="true" />
                 )}
               </button>
-              {showSavesCount ? (
-                <span
-                  aria-hidden="true"
-                  className="pointer-events-none absolute -right-1 -top-1 inline-flex h-5 min-w-[20px] items-center justify-center rounded-full border border-white/30 bg-black/70 px-1 text-[10px] font-semibold text-white"
-                >
-                  {savesBadgeLabel}
-                </span>
-              ) : null}
-              </div>
             </div>
           </div>
         </div>

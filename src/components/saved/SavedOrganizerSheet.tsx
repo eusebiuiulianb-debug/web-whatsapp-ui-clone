@@ -88,10 +88,10 @@ export function SavedOrganizerSheet({
     setMoving(true);
     setError("");
     try {
-      const res = await fetch("/api/saved/move", {
-        method: "POST",
+      const res = await fetch(`/api/saved/items/${encodeURIComponent(savedItemId)}`, {
+        method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ savedItemId, collectionId }),
+        body: JSON.stringify({ collectionId }),
       });
       if (!res.ok) throw new Error("request failed");
       const payload = (await res.json().catch(() => null)) as { collectionId?: string | null } | null;
