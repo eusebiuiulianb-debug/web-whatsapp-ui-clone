@@ -33,8 +33,14 @@ export default function FollowingPage() {
           }
           throw new Error("request failed");
         }
-        const payload = (await res.json().catch(() => null)) as { items?: FollowingCreator[] } | null;
-        const list = Array.isArray(payload?.items) ? payload.items : [];
+        const payload = (await res.json().catch(() => null)) as
+          | { items?: FollowingCreator[]; creators?: FollowingCreator[] }
+          | null;
+        const list = Array.isArray(payload?.items)
+          ? payload.items
+          : Array.isArray(payload?.creators)
+          ? payload.creators
+          : [];
         if (isActive) {
           setItems(list);
         }

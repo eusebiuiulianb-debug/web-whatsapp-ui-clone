@@ -15,8 +15,6 @@ import {
 import { HomeCategorySheet, type HomeCategory } from "../../components/home/HomeCategorySheet";
 import { HomeFilterSheet } from "../../components/home/HomeFilterSheet";
 import { HomeSectionCard } from "../../components/home/HomeSectionCard";
-import { CategoryTiles, type CategoryTile } from "../../components/explore/CategoryTiles";
-import { FollowingStrip, type FollowingCreator } from "../../components/follow/FollowingStrip";
 import { PopClipTile } from "../../components/popclips/PopClipTile";
 import { IconGlyph } from "../../components/ui/IconGlyph";
 import { ContextMenu } from "../../components/ui/ContextMenu";
@@ -151,15 +149,6 @@ const buildRecentSearches = (term: string, current: string[]) => {
   return next.slice(0, MAX_RECENT_SEARCHES);
 };
 
-const CATEGORY_TILES: CategoryTile[] = [
-  { id: "chat", label: "Chat privado", icon: "send", kind: "search", searchValue: "chat" },
-  { id: "popclips", label: "PopClips", icon: "video", kind: "scroll" },
-  { id: "packs", label: "Packs", icon: "gift", kind: "search", searchValue: "packs" },
-  { id: "audio", label: "Audio personalizado", icon: "audio", kind: "search", searchValue: "audio" },
-  { id: "asmr", label: "ASMR", icon: "spark", kind: "search", searchValue: "asmr" },
-  { id: "roleplay", label: "Roleplay", icon: "flame", kind: "search", searchValue: "roleplay" },
-  { id: "filters", label: "Más filtros", icon: "settings", kind: "filters" },
-];
 const SEARCH_PANEL_CATEGORIES = [
   { id: "asmr", label: "ASMR", categoryId: "asmr" },
   { id: "roleplay", label: "Roleplay", categoryId: "roleplay" },
@@ -276,7 +265,6 @@ export default function Explore() {
   const [collectionItemsLoading, setCollectionItemsLoading] = useState(false);
   const [collectionItemsError, setCollectionItemsError] = useState("");
   const [savedItemRemovingId, setSavedItemRemovingId] = useState<string | null>(null);
-  const [followingItems, setFollowingItems] = useState<FollowingCreator[]>([]);
   const [followingTotal, setFollowingTotal] = useState<number | null>(null);
   const [savedOnly, setSavedOnly] = useState(false);
   const [exploreIntent, setExploreIntent] = useState<ExploreIntent>("all");
@@ -462,14 +450,6 @@ export default function Explore() {
     updateSavedQuery({ saved: false });
   }, [updateSavedQuery]);
 
-  const scrollToExploreBy = () => {
-    if (typeof window === "undefined") return false;
-    const target = document.getElementById("explore-by");
-    if (!target) return false;
-    target.scrollIntoView({ behavior: "smooth", block: "start" });
-    return true;
-  };
-
   const scrollToPopclips = () => {
     if (typeof window === "undefined") return;
     const target = document.getElementById("popclips");
@@ -544,13 +524,12 @@ export default function Explore() {
     fetch("/api/following", { signal: controller.signal })
       .then(async (res) => {
         if (res.status === 401) {
-          setFollowingItems([]);
           setFollowingTotal(0);
           return;
         }
         if (!res.ok) throw new Error("request failed");
         const payload = (await res.json().catch(() => null)) as
-          | { items?: FollowingCreator[]; creators?: FollowingCreator[]; total?: number }
+          | { items?: unknown[]; creators?: unknown[]; total?: number }
           | null;
         const items = Array.isArray(payload?.items)
           ? payload.items
@@ -558,12 +537,10 @@ export default function Explore() {
           ? payload.creators
           : [];
         const total = typeof payload?.total === "number" ? payload.total : items.length;
-        setFollowingItems(items);
         setFollowingTotal(total);
       })
       .catch((err) => {
         if (err instanceof DOMException && err.name === "AbortError") return;
-        setFollowingItems([]);
         setFollowingTotal(0);
       });
     return () => controller.abort();
@@ -808,7 +785,7 @@ export default function Explore() {
       } else {
         setSavedView("all");
         setActiveCollectionId(null);
-        scrollToExploreBy();
+        scrollToTop();
       }
       closeSearchPanel();
       focusSearchInput({ suppressOpen: true });
@@ -818,9 +795,9 @@ export default function Explore() {
       focusSearchInput,
       navigateToPacks,
       savedOnly,
-      scrollToExploreBy,
       scrollToPacks,
       scrollToPopclips,
+      scrollToTop,
       updateSavedQuery,
     ]
   );
@@ -1486,37 +1463,6 @@ export default function Explore() {
   const showCreatorsEmpty =
     !creatorsLoading && !creatorsError && filteredCreators.length === 0;
 
-  const handleCategorySelect = (item: CategoryTile) => {
-    if (item.kind === "search") {
-      setSearch(item.searchValue || item.label);
-      scrollToPopclips();
-      return;
-    }
-    if (item.kind === "filter" && item.filterKey) {
-      applyFilters({ ...filters, [item.filterKey]: !filters[item.filterKey] });
-      scrollToPopclips();
-      return;
-    }
-    if (item.kind === "filters") {
-      setFilterSheetOpen(true);
-      return;
-    }
-    if (item.kind === "near") {
-      if (!hasLocation) {
-        setOpenLocationPicker(true);
-        setFilterSheetOpen(true);
-        scrollToPopclips();
-        return;
-      }
-      applyFilters({ ...filters, km: DEFAULT_FILTER_KM });
-      scrollToPopclips();
-      return;
-    }
-    if (item.kind === "scroll") {
-      scrollToPopclips();
-    }
-  };
-
   const applyCategoryFilter = useCallback(
     (categoryId: string) => {
       setSelectedCategoryId(categoryId);
@@ -1818,6 +1764,14 @@ export default function Explore() {
       <PillButton intent="secondary" size="sm" onClick={() => setCategorySheetOpen(true)}>
         Categorías
       </PillButton>
+      <PillButton intent="secondary" size="sm" onClick={() => setFilterSheetOpen(true)} className="gap-2">
+        <span>Filtros</span>
+        {activeFilterCount > 0 ? (
+          <span className="inline-flex h-5 min-w-[20px] items-center justify-center rounded-full bg-[color:rgba(var(--brand-rgb),0.2)] px-1.5 text-[11px] font-semibold text-[color:var(--text)]">
+            {activeFilterCount}
+          </span>
+        ) : null}
+      </PillButton>
       <PillButton
         intent={savedOnly ? "primary" : "secondary"}
         size="sm"
@@ -1841,14 +1795,6 @@ export default function Explore() {
           {followingLabel}
         </PillButton>
       ) : null}
-      <PillButton intent="secondary" size="sm" onClick={() => setFilterSheetOpen(true)} className="gap-2">
-        <span>Filtros</span>
-        {activeFilterCount > 0 ? (
-          <span className="inline-flex h-5 min-w-[20px] items-center justify-center rounded-full bg-[color:rgba(var(--brand-rgb),0.2)] px-1.5 text-[11px] font-semibold text-[color:var(--text)]">
-            {activeFilterCount}
-          </span>
-        ) : null}
-      </PillButton>
     </div>
   );
 
@@ -2163,23 +2109,6 @@ export default function Explore() {
               ) : null}
             </div>
           </HomeSectionCard>
-
-          <div id="explore-by" className="scroll-mt-24">
-            <HomeSectionCard title="Explora por" subtitle="Atajos rápidos para afinar tu feed.">
-              <CategoryTiles
-                items={CATEGORY_TILES}
-                filters={filters}
-                activeSearch={search}
-                hasLocation={hasLocation}
-                hasActiveFilters={activeFilterCount > 0}
-                onSelect={handleCategorySelect}
-              />
-            </HomeSectionCard>
-          </div>
-
-          {showFollowing ? (
-            <FollowingStrip items={followingItems} total={followingTotal ?? 0} />
-          ) : null}
 
           {searchTerm ? (
             <div className="flex flex-wrap items-center justify-between gap-3 rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-4 py-2 text-xs text-[color:var(--muted)]">
@@ -2873,7 +2802,7 @@ function SavedItemCard({
         {item.subtitle ? (
           <div className="truncate text-xs text-[color:var(--muted)]">{item.subtitle}</div>
         ) : null}
-        <div className="mt-2 flex flex-wrap items-center gap-2">
+        <div className="relative z-10 mt-2 flex flex-wrap items-center gap-2">
           {item.href ? (
             <CtaPill asChild className="relative z-20">
               <Link href={item.href}>Abrir</Link>

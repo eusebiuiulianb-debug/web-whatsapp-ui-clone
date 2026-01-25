@@ -12,8 +12,8 @@ type CtaPillProps = {
 
 const VARIANT_CLASSES: Record<CtaVariant, string> = {
   pillSmall:
-    "inline-flex items-center gap-1 rounded-full px-3 py-1.5 text-xs font-medium text-white/90 bg-white/10 ring-1 ring-white/10 hover:bg-white/15 backdrop-blur-sm transition focus:outline-none focus:ring-2 focus:ring-emerald-400/40 disabled:opacity-60 disabled:cursor-not-allowed",
-  link: "text-emerald-300 hover:text-emerald-200 font-medium underline underline-offset-4",
+    "inline-flex items-center gap-1 rounded-full px-3 py-1 text-sm font-medium !text-white bg-white/10 ring-1 ring-white/10 hover:bg-white/15 backdrop-blur-sm transition focus:outline-none focus:ring-2 focus:ring-emerald-400/40 disabled:opacity-60 disabled:cursor-not-allowed",
+  link: "!text-emerald-200 hover:!text-emerald-100 font-medium underline underline-offset-4",
 };
 
 export function CtaPill({ variant = "pillSmall", className, asChild = false, children }: CtaPillProps) {
