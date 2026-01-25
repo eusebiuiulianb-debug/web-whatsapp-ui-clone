@@ -2,7 +2,6 @@ import clsx from "clsx";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Skeleton } from "../ui/Skeleton";
 import { PublicCatalogCard, type PublicCatalogCardItem } from "./PublicCatalogCard";
-import { SavedOrganizerSheet } from "../saved/SavedOrganizerSheet";
 
 type CatalogFilter = "all" | "pack" | "sub" | "extra" | "popclip";
 
@@ -102,9 +101,6 @@ export function PublicCatalogGrid({
   const [commentAccessBlocked, setCommentAccessBlocked] = useState(false);
   const [authHref, setAuthHref] = useState("");
   const [savedMap, setSavedMap] = useState<Record<string, { savedItemId: string; collectionId: string | null }>>({});
-  const [organizerOpen, setOrganizerOpen] = useState(false);
-  const [organizerItemId, setOrganizerItemId] = useState<string | null>(null);
-  const [organizerCollectionId, setOrganizerCollectionId] = useState<string | null>(null);
 
   useEffect(() => {
     if (!resolvedFilters.some((filter) => filter.id === activeFilter)) {
@@ -178,13 +174,6 @@ export function PublicCatalogGrid({
     []
   );
 
-  const openOrganizer = useCallback((savedItemId: string | null, collectionId: string | null) => {
-    if (!savedItemId) return;
-    setOrganizerItemId(savedItemId);
-    setOrganizerCollectionId(collectionId ?? null);
-    setOrganizerOpen(true);
-  }, []);
-
   const refreshSavedMap = useCallback(async () => {
     const res = await fetch("/api/saved/items?type=PACK");
     if (res.status === 401) {
@@ -216,23 +205,6 @@ export function PublicCatalogGrid({
     }
     void refreshSavedMap();
   }, [items, refreshSavedMap]);
-
-  const handleOrganizerMoved = useCallback(
-    (collectionId: string | null) => {
-      if (!organizerItemId) return;
-      setSavedMap((prev) => {
-        const next = { ...prev };
-        for (const [entityId, info] of Object.entries(prev)) {
-          if (info.savedItemId === organizerItemId) {
-            next[entityId] = { ...info, collectionId };
-            break;
-          }
-        }
-        return next;
-      });
-    },
-    [organizerItemId]
-  );
 
   const handleToggleCatalogSave = useCallback(
     async (item: PublicCatalogCardItem) => {
@@ -278,10 +250,6 @@ export function PublicCatalogGrid({
               collectionId: payload.collectionId ?? null,
             },
           }));
-          showToast("Guardado", {
-            actionLabel: "Organizar",
-            onAction: () => openOrganizer(payload.savedItemId || null, payload.collectionId ?? null),
-          });
         } else if (!payload.saved) {
           showToast("Quitado de guardados");
         }
@@ -304,7 +272,7 @@ export function PublicCatalogGrid({
         }
       }
     },
-    [openOrganizer, refreshSavedMap, savedMap, showToast]
+    [refreshSavedMap, savedMap, showToast]
   );
 
   useEffect(() => {
@@ -920,17 +888,6 @@ export function PublicCatalogGrid({
         </div>
       )}
 
-      <SavedOrganizerSheet
-        open={organizerOpen}
-        savedItemId={organizerItemId}
-        currentCollectionId={organizerCollectionId}
-        onClose={() => {
-          setOrganizerOpen(false);
-          setOrganizerItemId(null);
-          setOrganizerCollectionId(null);
-        }}
-        onMoved={handleOrganizerMoved}
-      />
     </section>
   );
 }

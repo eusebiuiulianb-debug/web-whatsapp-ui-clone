@@ -7,6 +7,7 @@ import { slugifyHandle } from "../../../../lib/fan/session";
 
 type PopClipFeedItem = {
   id: string;
+  creatorId: string;
   title: string | null;
   caption?: string | null;
   thumbnailUrl: string | null;
@@ -163,6 +164,7 @@ function mapItems(items: ClipRow[]): PopClipFeedItem[] {
 
     return {
       id: clip.id,
+      creatorId: clip.creator?.id ?? "",
       title: clip.title ?? null,
       caption: clip.caption ?? clip.title ?? null,
       thumbnailUrl: clip.posterUrl ?? null,

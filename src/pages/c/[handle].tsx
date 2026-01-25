@@ -1277,7 +1277,7 @@ export default function PublicCreatorByHandle({
   const handleFollow = async (event: MouseEvent<HTMLAnchorElement>) => {
     event.preventDefault();
     if (!creatorId || followPending) return;
-    const endpoint = "/api/follow/toggle";
+    const endpoint = `/api/fan/follows/${encodeURIComponent(creatorId)}`;
     let responseStatus: number | null = null;
     const prevFollowing = isFollowingState;
     const prevCount = followersCount;
@@ -1287,19 +1287,17 @@ export default function PublicCreatorByHandle({
     setFollowPending(true);
     try {
       const res = await fetch(endpoint, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ creatorId }),
+        method: nextFollowing ? "POST" : "DELETE",
       });
       responseStatus = res.status;
       if (res.status === 401) {
         throw new Error("AUTH_REQUIRED");
       }
       if (!res.ok) throw new Error("request failed");
-      const data = (await res.json()) as { isFollowing?: boolean };
-      if (typeof data?.isFollowing === "boolean") {
-        setIsFollowingState(data.isFollowing);
-        setFollowersCount(Math.max(0, prevCount + (data.isFollowing ? 1 : -1)));
+      const data = (await res.json().catch(() => null)) as { following?: boolean } | null;
+      if (typeof data?.following === "boolean") {
+        setIsFollowingState(data.following);
+        setFollowersCount(Math.max(0, prevCount + (data.following ? 1 : -1)));
       }
     } catch (_err) {
       logPublicFetchFailure(endpoint, responseStatus, _err);

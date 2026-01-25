@@ -2,13 +2,14 @@ import clsx from "clsx";
 import { Bookmark, BookmarkCheck, MessageCircle, Sparkles } from "lucide-react";
 import Image from "next/image";
 import Link from "next/link";
-import { useState } from "react";
+import { useEffect, useState, type MouseEvent } from "react";
 import { ContextMenu, type ContextMenuItem } from "../ui/ContextMenu";
 import { IconGlyph } from "../ui/IconGlyph";
 import { normalizeImageSrc } from "../../utils/normalizeImageSrc";
 
 type PopClipTileItem = {
   id: string;
+  creatorId?: string;
   title?: string | null;
   caption?: string | null;
   thumbnailUrl?: string | null;
@@ -33,6 +34,9 @@ type Props = {
   onOpen: () => void;
   profileHref: string;
   chatHref: string;
+  isFollowing?: boolean;
+  onFollowChange?: (creatorId: string, isFollowing: boolean) => void;
+  onFollowError?: (message: string) => void;
   isSaved?: boolean;
   onToggleSave?: () => void;
   onOrganize?: () => void;
@@ -47,6 +51,9 @@ export function PopClipTile({
   onOpen,
   profileHref,
   chatHref,
+  isFollowing = false,
+  onFollowChange,
+  onFollowError,
   isSaved = false,
   onToggleSave,
   onOrganize,
@@ -57,6 +64,8 @@ export function PopClipTile({
 }: Props) {
   const [thumbFailed, setThumbFailed] = useState(false);
   const [avatarFailed, setAvatarFailed] = useState(false);
+  const [following, setFollowing] = useState(isFollowing);
+  const [followPending, setFollowPending] = useState(false);
   const title = item.title?.trim() || "PopClip";
   const caption = (item.caption || "").trim() || item.title?.trim() || "";
   const previewSrc = item.thumbnailUrl || item.posterUrl || item.previewImageUrl || "";
@@ -81,6 +90,8 @@ export function PopClipTile({
   const creatorInitial = item.creator.displayName?.trim()?.[0]?.toUpperCase() || "C";
   const quickActions: ContextMenuItem[] = [];
   const hasSavedActions = isSaved && (onOrganize || onToggleSave);
+  const creatorId = (item.creatorId || "").trim();
+  const hasCreatorId = Boolean(creatorId);
   if (isSaved && onOrganize) {
     quickActions.push({ label: "Mover a...", icon: "folder", onClick: onOrganize });
   }
@@ -111,12 +122,51 @@ export function PopClipTile({
     });
   }
 
+  useEffect(() => {
+    setFollowing(isFollowing);
+  }, [isFollowing]);
+
+  const handleToggleFollow = async (event: MouseEvent<HTMLButtonElement>) => {
+    event.preventDefault();
+    event.stopPropagation();
+    if (!hasCreatorId || followPending) return;
+    const prevFollowing = following;
+    const nextFollowing = !prevFollowing;
+    setFollowing(nextFollowing);
+    onFollowChange?.(creatorId, nextFollowing);
+    setFollowPending(true);
+    try {
+      const res = await fetch(`/api/fan/follows/${encodeURIComponent(creatorId)}`, {
+        method: nextFollowing ? "POST" : "DELETE",
+      });
+      if (res.status === 401) throw new Error("AUTH_REQUIRED");
+      if (!res.ok) throw new Error("request failed");
+      const payload = (await res.json().catch(() => null)) as { following?: boolean } | null;
+      if (typeof payload?.following === "boolean" && payload.following !== nextFollowing) {
+        setFollowing(payload.following);
+        onFollowChange?.(creatorId, payload.following);
+      }
+    } catch (err) {
+      setFollowing(prevFollowing);
+      onFollowChange?.(creatorId, prevFollowing);
+      if (err instanceof Error && err.message === "AUTH_REQUIRED") {
+        onFollowError?.("Inicia sesion para seguir.");
+      } else {
+        onFollowError?.("No se pudo actualizar el seguimiento.");
+      }
+    } finally {
+      setFollowPending(false);
+    }
+  };
+
   return (
     <div className="group flex w-full flex-col overflow-hidden rounded-2xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] text-left shadow-sm transition duration-200 hover:-translate-y-0.5 hover:shadow-lg hover:shadow-[color:rgba(var(--brand-rgb),0.18)]">
       <div className="flex items-center justify-between gap-3 px-3 pt-3">
         <Link
           href={profileHref}
+          onPointerDown={(event) => event.stopPropagation()}
           onClick={(event) => event.stopPropagation()}
+          onKeyDown={(event) => event.stopPropagation()}
           aria-label={`Ver perfil de @${item.creator.handle}`}
           className="inline-flex min-w-0 items-center gap-2 rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-2 py-1.5 text-[color:var(--text)] transition hover:bg-[color:var(--surface-3)]"
         >
@@ -141,6 +191,26 @@ export function PopClipTile({
           </span>
         </Link>
         <div className="flex items-center gap-2">
+          {hasCreatorId ? (
+            <button
+              type="button"
+              aria-pressed={following}
+              aria-label={following ? "Dejar de seguir" : "Seguir creador"}
+              disabled={followPending}
+              onPointerDown={(event) => event.stopPropagation()}
+              onClick={handleToggleFollow}
+              onKeyDown={(event) => event.stopPropagation()}
+              className={clsx(
+                "inline-flex items-center justify-center rounded-full border px-3 py-1 text-[11px] font-semibold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--ring)] focus-visible:ring-offset-1 focus-visible:ring-offset-[color:var(--surface-1)]",
+                following
+                  ? "border-[color:var(--brand-strong)] bg-[color:var(--brand-strong)] text-white hover:bg-[color:var(--brand)]"
+                  : "border-[color:var(--surface-border)] bg-[color:var(--surface-2)] text-[color:var(--text)] hover:bg-[color:var(--surface-3)]",
+                followPending && "opacity-70"
+              )}
+            >
+              {followPending ? "..." : following ? "Siguiendo" : "Seguir"}
+            </button>
+          ) : null}
           {quickActions.length > 0 ? (
             <ContextMenu
               buttonAriaLabel="Acciones rápidas"
@@ -266,25 +336,33 @@ export function PopClipTile({
             ))}
           </div>
         ) : null}
-        <div className="flex flex-wrap items-center gap-2 gap-y-2">
-          <div className="inline-flex flex-wrap items-center gap-2">
-            <Link
-              href={chatHref}
-              onClick={(event) => event.stopPropagation()}
-              aria-label="Abrir chat"
-              title="Abrir chat"
-              className="inline-flex h-11 w-11 items-center justify-center rounded-full border border-[color:var(--brand-strong)] bg-[color:var(--brand-strong)] text-white shadow-sm transition hover:bg-[color:var(--brand)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--ring)] focus-visible:ring-offset-1 focus-visible:ring-offset-black/40"
-            >
-              <MessageCircle className="h-5 w-5" aria-hidden="true" />
-            </Link>
-            <Link
-              href={profileHref}
-              onClick={(event) => event.stopPropagation()}
-              className="inline-flex h-11 min-w-[140px] flex-1 items-center justify-center rounded-full border border-white/20 bg-white/10 px-4 text-[12px] font-semibold text-white/90 transition hover:bg-white/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--ring)] focus-visible:ring-offset-1 focus-visible:ring-offset-black/40"
-            >
+        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 sm:gap-3">
+          <Link
+            href={chatHref}
+            onPointerDown={(event) => event.stopPropagation()}
+            onClick={(event) => event.stopPropagation()}
+            onKeyDown={(event) => event.stopPropagation()}
+            aria-label="Abrir chat"
+            title="Abrir chat"
+            className="flex w-full"
+          >
+            <span className="inline-flex h-10 w-full items-center justify-center gap-2 rounded-full border border-[color:var(--brand-strong)] bg-[color:var(--brand-strong)] px-4 text-[12px] font-semibold text-white shadow-sm transition hover:bg-[color:var(--brand)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--ring)] focus-visible:ring-offset-1 focus-visible:ring-offset-black/40">
+              <MessageCircle className="h-4 w-4" aria-hidden="true" />
+              Abrir chat
+            </span>
+          </Link>
+          <Link
+            href={profileHref}
+            onPointerDown={(event) => event.stopPropagation()}
+            onClick={(event) => event.stopPropagation()}
+            onKeyDown={(event) => event.stopPropagation()}
+            className="flex w-full"
+          >
+            <span className="inline-flex h-10 w-full items-center justify-center gap-1.5 rounded-full border border-white/20 bg-white/5 px-4 text-[12px] font-semibold text-white/90 transition hover:bg-white/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--ring)] focus-visible:ring-offset-1 focus-visible:ring-offset-black/40">
               Ver perfil
-            </Link>
-          </div>
+              <span aria-hidden="true">→</span>
+            </span>
+          </Link>
         </div>
       </div>
     </div>

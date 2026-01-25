@@ -8,6 +8,7 @@ import { distanceKmFromGeohash } from "../../../../lib/geo";
 
 type PopClipFeedItem = {
   id: string;
+  creatorId: string;
   title: string | null;
   caption?: string | null;
   thumbnailUrl: string | null;
@@ -231,6 +232,7 @@ function mapFeedItems(items: FeedClipRow[], userLocation: { lat: number; lng: nu
 
     return {
       id: clip.id,
+      creatorId: clip.creator?.id ?? "",
       title: clip.title ?? null,
       caption: clip.caption ?? clip.title ?? null,
       thumbnailUrl: clip.posterUrl ?? null,

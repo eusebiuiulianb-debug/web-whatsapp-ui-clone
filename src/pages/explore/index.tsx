@@ -47,6 +47,7 @@ type RecommendedCreator = {
 
 type PopClipFeedItem = {
   id: string;
+  creatorId: string;
   title?: string | null;
   caption?: string | null;
   thumbnailUrl?: string | null;
@@ -265,6 +266,9 @@ export default function Explore() {
   const [collectionItemsError, setCollectionItemsError] = useState("");
   const [savedItemRemovingId, setSavedItemRemovingId] = useState<string | null>(null);
   const [followingTotal, setFollowingTotal] = useState<number | null>(null);
+  const [followingCreatorIds, setFollowingCreatorIds] = useState<string[]>([]);
+  const [followingLoading, setFollowingLoading] = useState(false);
+  const [followingOnly, setFollowingOnly] = useState(false);
   const [savedOnly, setSavedOnly] = useState(false);
   const [exploreIntent, setExploreIntent] = useState<ExploreIntent>("all");
   const [hydrated, setHydrated] = useState(false);
@@ -325,6 +329,7 @@ export default function Explore() {
     [savedItemsAll]
   );
   const savedPopclipSet = useMemo(() => new Set(savedPopclipIds), [savedPopclipIds]);
+  const followingSet = useMemo(() => new Set(followingCreatorIds), [followingCreatorIds]);
   const savedPopclipPreviewMap = useMemo(() => {
     const map = new Map<string, SavedPreviewItem>();
     savedItemsAll.forEach((item) => {
@@ -505,6 +510,7 @@ export default function Explore() {
     const value = Array.isArray(raw) ? raw[0] : raw;
     if (value !== "popclips") return;
     setExploreIntent("popclips");
+    setFollowingOnly(false);
     setSavedOnly(false);
     setSavedView("all");
     setActiveCollectionId(null);
@@ -528,27 +534,34 @@ export default function Explore() {
   useEffect(() => {
     if (!hydrated) return;
     const controller = new AbortController();
-    fetch("/api/following", { signal: controller.signal })
+    setFollowingLoading(true);
+    fetch("/api/fan/follows", { signal: controller.signal, cache: "no-store" })
       .then(async (res) => {
         if (res.status === 401) {
           setFollowingTotal(0);
+          setFollowingCreatorIds([]);
           return;
         }
         if (!res.ok) throw new Error("request failed");
         const payload = (await res.json().catch(() => null)) as
-          | { items?: unknown[]; creators?: unknown[]; total?: number }
+          | { creatorIds?: unknown; count?: unknown }
           | null;
-        const items = Array.isArray(payload?.items)
-          ? payload.items
-          : Array.isArray(payload?.creators)
-          ? payload.creators
+        const creatorIds = Array.isArray(payload?.creatorIds)
+          ? payload.creatorIds.filter((id): id is string => typeof id === "string" && id.trim())
           : [];
-        const total = typeof payload?.total === "number" ? payload.total : items.length;
-        setFollowingTotal(total);
+        const count = typeof payload?.count === "number" && Number.isFinite(payload.count)
+          ? payload.count
+          : creatorIds.length;
+        setFollowingCreatorIds(creatorIds);
+        setFollowingTotal(count);
       })
       .catch((err) => {
         if (err instanceof DOMException && err.name === "AbortError") return;
         setFollowingTotal(0);
+        setFollowingCreatorIds([]);
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setFollowingLoading(false);
       });
     return () => controller.abort();
   }, [hydrated]);
@@ -577,6 +590,7 @@ export default function Explore() {
     const savedByQuery = savedValue === "1" || savedValue === "true";
     if (savedByQuery) {
       savedQueryRef.current = true;
+      setFollowingOnly(false);
       const viewValue = pickQueryValue(router.query.view);
       const collectionValue = pickQueryValue(router.query.collectionId);
       const nextView = viewValue === "collections" || collectionValue ? "collections" : "all";
@@ -689,6 +703,22 @@ export default function Explore() {
     []
   );
 
+  const handleFollowChange = useCallback((creatorId: string, isFollowing: boolean) => {
+    const normalized = creatorId.trim();
+    if (!normalized) return;
+    setFollowingCreatorIds((prev) => {
+      const next = new Set(prev);
+      if (isFollowing) {
+        next.add(normalized);
+      } else {
+        next.delete(normalized);
+      }
+      const nextList = Array.from(next);
+      setFollowingTotal(nextList.length);
+      return nextList;
+    });
+  }, []);
+
   const persistRecentSearch = useCallback((value: string) => {
     const trimmed = value.trim();
     if (!trimmed) return;
@@ -752,6 +782,7 @@ export default function Explore() {
     (intent: ExploreIntent) => {
       setExploreIntent(intent);
       if (intent === "saved") {
+        setFollowingOnly(false);
         setSavedOnly(true);
         setSavedView("all");
         setActiveCollectionId(null);
@@ -970,6 +1001,7 @@ export default function Explore() {
         if (prev.some((item) => item.id === collection.id)) return prev;
         return [{ ...collection }, ...prev];
       });
+      setFollowingOnly(false);
       setSavedOnly(true);
       setExploreIntent("saved");
       setSavedView("collections");
@@ -1230,13 +1262,6 @@ export default function Explore() {
               entry.id === tempId ? { ...entry, id: payload.savedItemId as string, collectionId: payload.collectionId ?? null } : entry
             )
           );
-          showToast("Guardado", {
-            actionLabel: "Organizar",
-            onAction: () => {
-              openOrganizer(payload.savedItemId || null, payload.collectionId ?? null);
-            },
-            durationMs: 3200,
-          });
         } else if (!payload.saved) {
           showToast("Quitado de guardados");
         }
@@ -1266,7 +1291,7 @@ export default function Explore() {
         }
       }
     },
-    [openOrganizer, refreshSavedItems, savedPopclipSet, showToast, updateFeedSaveCount]
+    [refreshSavedItems, savedPopclipSet, showToast, updateFeedSaveCount]
   );
 
   const handleToggleCreatorSave = useCallback(
@@ -1318,11 +1343,6 @@ export default function Explore() {
                 : entry
             )
           );
-          showToast("Guardado", {
-            actionLabel: "Organizar",
-            onAction: () => openOrganizer(payload.savedItemId || null, payload.collectionId ?? null),
-            durationMs: 3200,
-          });
         } else if (!payload.saved) {
           showToast("Quitado de guardados");
         }
@@ -1351,7 +1371,7 @@ export default function Explore() {
         }
       }
     },
-    [openOrganizer, refreshSavedItems, savedCreatorSet, showToast]
+    [refreshSavedItems, savedCreatorSet, showToast]
   );
 
   const openCaptionSheet = useCallback((item: PopClipFeedItem) => {
@@ -1420,7 +1440,11 @@ export default function Explore() {
     },
     [normalizedSearch, selectedCategory]
   );
-  const filteredFeedItems = useMemo(() => filterClips(feedItems), [feedItems, filterClips]);
+  const filteredFeedItems = useMemo(() => {
+    const filtered = filterClips(feedItems);
+    if (!followingOnly) return filtered;
+    return filtered.filter((item) => followingSet.has(item.creatorId));
+  }, [feedItems, filterClips, followingOnly, followingSet]);
   const filteredSavedPopclips = useMemo(() => {
     if (!normalizedSearch) return savedPopclips;
     return savedPopclips.filter((item) => {
@@ -1452,7 +1476,14 @@ export default function Explore() {
 
   const savedCount = savedItemsAll.length;
   const savedMatchesCount = filteredSavedPopclips.length + filteredSavedOtherItems.length;
-  const showFeedEmpty = !savedOnly && !feedLoading && !feedError && filteredFeedItems.length === 0;
+  const showFeedEmpty = !savedOnly && !followingOnly && !feedLoading && !feedError && filteredFeedItems.length === 0;
+  const showFollowingEmpty =
+    followingOnly && !feedLoading && !feedError && !followingLoading && filteredFeedItems.length === 0;
+  const showFollowingLoading = followingOnly && followingLoading;
+  const followingEmptyCopy =
+    typeof followingTotal === "number" && followingTotal === 0
+      ? "Aún no sigues a nadie."
+      : "No hay PopClips de tus seguidos con estos filtros.";
   const savedEmpty = savedOnly && savedView === "all" && !savedItemsLoading && !savedItemsError && savedCount === 0;
   const savedNoMatch =
     savedOnly &&
@@ -1465,8 +1496,8 @@ export default function Explore() {
     savedMatchesCount === 0;
   const showSavedCount = hydrated && (savedOnly || savedCount > 0);
   const savedLabel = showSavedCount ? `Guardados · ${savedCount}` : "Guardados";
-  const showFollowing = typeof followingTotal === "number" && followingTotal > 0;
-  const followingLabel = showFollowing ? `Siguiendo (${followingTotal})` : "Siguiendo";
+  const followingLabel =
+    typeof followingTotal === "number" ? `Siguiendo (${followingTotal})` : "Siguiendo";
   const showCreatorsEmpty =
     !creatorsLoading && !creatorsError && filteredCreators.length === 0;
 
@@ -1788,6 +1819,7 @@ export default function Explore() {
             exitSavedView();
             return;
           }
+          setFollowingOnly(false);
           setSavedOnly(true);
           setExploreIntent("saved");
           setSavedView("all");
@@ -1797,11 +1829,25 @@ export default function Explore() {
       >
         {savedLabel}
       </PillButton>
-      {showFollowing ? (
-        <PillButton intent="secondary" size="sm" onClick={() => void router.push("/following")}>
-          {followingLabel}
-        </PillButton>
-      ) : null}
+      <PillButton
+        intent={followingOnly ? "primary" : "secondary"}
+        size="sm"
+        aria-pressed={followingOnly}
+        onClick={() => {
+          if (followingOnly) {
+            setFollowingOnly(false);
+            return;
+          }
+          if (savedOnly) {
+            exitSavedView();
+          }
+          setExploreIntent("all");
+          setFollowingOnly(true);
+          scrollToPopclips();
+        }}
+      >
+        {followingLabel}
+      </PillButton>
     </div>
   );
 
@@ -1986,6 +2032,7 @@ export default function Explore() {
                     event.preventDefault();
                     setSearch("");
                     setSelectedCategoryId(null);
+                    setFollowingOnly(false);
                     setSavedOnly(false);
                     setExploreIntent("all");
                     setSavedView("all");
@@ -2272,20 +2319,23 @@ export default function Explore() {
                               {filteredSavedPopclips.map((item) => {
                                 const savedPreview = savedPopclipPreviewMap.get(item.id);
                                 return (
-                                  <PopClipTile
-                                    key={item.id}
-                                    item={item}
-                                    onOpen={() => openPopclip(item)}
-                                    profileHref={`/c/${encodeURIComponent(item.creator.handle)}`}
-                                    chatHref={appendReturnTo(
-                                      `/go/${encodeURIComponent(item.creator.handle)}`,
-                                      router.asPath
-                                    )}
-                                    isSaved={savedPopclipSet.has(item.id)}
-                                    onToggleSave={() => void handleToggleSave(item)}
-                                    onOrganize={
-                                      savedPreview && !savedPreview.id.startsWith("temp-popclip-")
-                                        ? () =>
+                                    <PopClipTile
+                                      key={item.id}
+                                      item={item}
+                                      onOpen={() => openPopclip(item)}
+                                      profileHref={`/c/${encodeURIComponent(item.creator.handle)}`}
+                                      chatHref={appendReturnTo(
+                                        `/go/${encodeURIComponent(item.creator.handle)}`,
+                                        router.asPath
+                                      )}
+                                      isFollowing={followingSet.has(item.creatorId)}
+                                      onFollowChange={handleFollowChange}
+                                      onFollowError={showToast}
+                                      isSaved={savedPopclipSet.has(item.id)}
+                                      onToggleSave={() => void handleToggleSave(item)}
+                                      onOrganize={
+                                        savedPreview && !savedPreview.id.startsWith("temp-popclip-")
+                                          ? () =>
                                             openOrganizer(savedPreview.id, savedPreview.collectionId ?? null)
                                         : undefined
                                     }
@@ -2487,6 +2537,26 @@ export default function Explore() {
               <div className="rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] p-4 text-sm text-[color:var(--muted)]">
                 {feedError}
               </div>
+            ) : showFollowingLoading ? (
+              <div className="rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] p-4 text-sm text-[color:var(--muted)]">
+                Cargando seguidos...
+              </div>
+            ) : showFollowingEmpty ? (
+              <div className="flex flex-col items-start gap-3 rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] p-4 text-[color:var(--muted)]">
+                <div className="space-y-1">
+                  <span className="block text-sm">{followingEmptyCopy}</span>
+                  {typeof followingTotal === "number" && followingTotal === 0 ? (
+                    <span className="block text-xs">Sigue un creador y verás aquí sus clips.</span>
+                  ) : null}
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setFollowingOnly(false)}
+                  className="inline-flex items-center justify-center rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-3 py-1 text-xs font-semibold text-[color:var(--text)] hover:bg-[color:var(--surface-2)]"
+                >
+                  Explorar
+                </button>
+              </div>
             ) : showFeedEmpty ? (
               <div className="flex flex-col items-start gap-3 rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] p-4 text-[color:var(--muted)]">
                 <span className="text-sm">Aún no hay PopClips. Prueba a quitar filtros o vuelve más tarde.</span>
@@ -2514,6 +2584,9 @@ export default function Explore() {
                         onOpen={() => openPopclip(item)}
                         profileHref={`/c/${encodeURIComponent(item.creator.handle)}`}
                         chatHref={appendReturnTo(`/go/${encodeURIComponent(item.creator.handle)}`, router.asPath)}
+                        isFollowing={followingSet.has(item.creatorId)}
+                        onFollowChange={handleFollowChange}
+                        onFollowError={showToast}
                         isSaved={savedPopclipSet.has(item.id)}
                         onToggleSave={() => void handleToggleSave(item)}
                         onOrganize={
@@ -2546,7 +2619,7 @@ export default function Explore() {
           </HomeSectionCard>
           </div>
 
-          {(showFeedEmpty || feedError) && !savedOnly ? (
+          {(showFeedEmpty || feedError) && !savedOnly && !followingOnly ? (
             <HomeSectionCard
               title="Creadores recomendados"
               subtitle="Basado en actividad y señales públicas."
@@ -2608,6 +2681,7 @@ export default function Explore() {
                 </div>
               ))}
             </div>
+            <p className="mt-3 text-xs text-[color:var(--muted)]">Tip: toca … para organizar guardados.</p>
           </HomeSectionCard>
         </div>
 
@@ -2853,7 +2927,7 @@ function SavedItemCard({
           <ContextMenu
             buttonAriaLabel="Acciones de guardado"
             buttonIcon="dots"
-            buttonClassName="relative z-20 h-8 w-8 bg-[color:var(--surface-2)] pointer-events-auto"
+            buttonClassName="relative z-20 h-9 w-9 bg-[color:var(--surface-2)] pointer-events-auto"
             items={actionItems}
             menuClassName="min-w-[180px]"
           />

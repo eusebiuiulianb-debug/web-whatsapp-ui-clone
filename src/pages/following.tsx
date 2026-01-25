@@ -69,21 +69,17 @@ export default function FollowingPage() {
       setPendingId(creatorId);
       setActionError("");
       try {
-        const res = await fetch("/api/follow/toggle", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ creatorId }),
-        });
+        const res = await fetch(`/api/fan/follows/${encodeURIComponent(creatorId)}`, { method: "DELETE" });
         if (res.status === 401) {
           setActionError("Inicia sesion para dejar de seguir.");
           return;
         }
         if (!res.ok) throw new Error("request failed");
-        const payload = (await res.json().catch(() => null)) as { isFollowing?: boolean } | null;
-        if (!payload || typeof payload.isFollowing !== "boolean") {
+        const payload = (await res.json().catch(() => null)) as { following?: boolean } | null;
+        if (!payload || typeof payload.following !== "boolean") {
           throw new Error("invalid response");
         }
-        if (!payload.isFollowing) {
+        if (!payload.following) {
           setItems((prev) => prev.filter((item) => item.id !== creatorId));
         }
       } catch (_err) {
