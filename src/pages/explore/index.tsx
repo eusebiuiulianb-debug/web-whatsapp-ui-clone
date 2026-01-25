@@ -23,6 +23,7 @@ import { Skeleton } from "../../components/ui/Skeleton";
 import { useRouter } from "next/router";
 import { countActiveFilters, parseHomeFilters, toHomeFiltersQuery, type HomeFilters } from "../../lib/homeFilters";
 import { subscribeCreatorStatusUpdates } from "../../lib/creatorStatusEvents";
+import { subscribeFollowUpdates, type FollowUpdateDetail } from "../../lib/followEvents";
 import { normalizeImageSrc } from "../../utils/normalizeImageSrc";
 import { SavedOrganizerSheet } from "../../components/saved/SavedOrganizerSheet";
 import { SavedCollectionCreateSheet } from "../../components/saved/SavedCollectionCreateSheet";
@@ -718,6 +719,27 @@ export default function Explore() {
       return nextList;
     });
   }, []);
+
+  const handleFollowUpdate = useCallback((detail?: FollowUpdateDetail) => {
+    const normalized = typeof detail?.creatorId === "string" ? detail.creatorId.trim() : "";
+    if (!normalized || typeof detail?.isFollowing !== "boolean") return;
+    setFollowingCreatorIds((prev) => {
+      const next = new Set(prev);
+      if (detail.isFollowing) {
+        next.add(normalized);
+      } else {
+        next.delete(normalized);
+      }
+      const nextList = Array.from(next);
+      setFollowingTotal(nextList.length);
+      return nextList;
+    });
+  }, []);
+
+  useEffect(() => {
+    if (!hydrated) return;
+    return subscribeFollowUpdates(handleFollowUpdate);
+  }, [handleFollowUpdate, hydrated]);
 
   const persistRecentSearch = useCallback((value: string) => {
     const trimmed = value.trim();

@@ -2,7 +2,7 @@ import type { NextApiRequest, NextApiResponse } from "next";
 import prisma from "../../../lib/prisma.server";
 import { readFanId } from "../../../lib/fan/session";
 
-type ToggleResponse = { isFollowing: boolean } | { error: string };
+type ToggleResponse = { isFollowing: boolean; followersCount: number } | { error: string };
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse<ToggleResponse>) {
   res.setHeader("Cache-Control", "no-store");
@@ -35,13 +35,16 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
       select: { id: true },
     });
 
+    let isFollowing = false;
     if (existing) {
       await prisma.follow.delete({ where: { id: existing.id } });
-      return res.status(200).json({ isFollowing: false });
+    } else {
+      await prisma.follow.create({ data: { fanId, creatorId } });
+      isFollowing = true;
     }
 
-    await prisma.follow.create({ data: { fanId, creatorId } });
-    return res.status(200).json({ isFollowing: true });
+    const followersCount = await prisma.follow.count({ where: { creatorId } });
+    return res.status(200).json({ isFollowing, followersCount });
   } catch (err) {
     console.error("Error toggling follow", err);
     return res.status(500).json({ error: "Internal server error" });

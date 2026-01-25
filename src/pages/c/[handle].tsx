@@ -22,6 +22,7 @@ import { ensureAnalyticsCookie } from "../../lib/analyticsCookie";
 import { track } from "../../lib/analyticsClient";
 import { ANALYTICS_EVENTS } from "../../lib/analyticsEvents";
 import { notifyCreatorStatusUpdated } from "../../lib/creatorStatusEvents";
+import { emitFollowChange, getFollowSnapshot, setFollowSnapshot, subscribeFollow } from "../../lib/followEvents";
 import { normalizeImageSrc } from "../../utils/normalizeImageSrc";
 import { getPublicProfileStats } from "../../lib/publicProfileStats";
 
@@ -65,6 +66,7 @@ const CREATOR_COMMENT_MAX_LENGTH = 600;
 const MAX_REPLY_PARTICIPANTS = 10;
 const IS_DEV = process.env.NODE_ENV === "development";
 const DEFAULT_LOCATION_PRECISION_KM = 3;
+const MIN_FOLLOW_MUTATION_MS = 400;
 
 type HighlightTab = "popclips" | "pack" | "sub" | "extra";
 
@@ -224,6 +226,31 @@ export default function PublicCreatorByHandle({
   const popclipQueryId = typeof router.query.popclip === "string" ? router.query.popclip : "";
 
   useEffect(() => {
+    if (!creatorId) return;
+    const baselineCount =
+      typeof followerCount === "number" && Number.isFinite(followerCount) ? followerCount : undefined;
+    const baseline = { isFollowing: Boolean(isFollowing), followersCount: baselineCount, updatedAt: 0 };
+    const snapshot = setFollowSnapshot(creatorId, baseline);
+    if (snapshot && snapshot.updatedAt > baseline.updatedAt) {
+      setIsFollowingState(snapshot.isFollowing);
+      if (typeof snapshot.followersCount === "number") {
+        setFollowersCount(snapshot.followersCount);
+      }
+    } else {
+      setIsFollowingState(Boolean(isFollowing));
+      if (typeof baselineCount === "number") {
+        setFollowersCount(baselineCount);
+      }
+    }
+    return subscribeFollow(creatorId, (next) => {
+      setIsFollowingState(next.isFollowing);
+      if (typeof next.followersCount === "number") {
+        setFollowersCount(next.followersCount);
+      }
+    });
+  }, [creatorId, followerCount, isFollowing]);
+
+  useEffect(() => {
     if (typeof window === "undefined") return;
     const search = window.location.search || "";
     setSearchParams(search);
@@ -330,7 +357,7 @@ export default function PublicCreatorByHandle({
         setPopClipsLoading(false);
       });
     return () => controller.abort();
-  }, [creatorHandle]);
+  }, [creatorHandle, creatorId]);
 
   useEffect(() => {
     if (!popclipQueryId) return;
@@ -388,7 +415,10 @@ export default function PublicCreatorByHandle({
         setCanComment(resolvedCanComment);
         setViewerIsLoggedIn(Boolean(payload?.viewerIsLoggedIn));
         if (typeof payload?.viewerIsFollowing === "boolean") {
-          setIsFollowingState(payload.viewerIsFollowing);
+          const snapshot = creatorId ? getFollowSnapshot(creatorId) : null;
+          if (!snapshot || snapshot.updatedAt <= 0) {
+            setIsFollowingState(payload.viewerIsFollowing);
+          }
         }
         setViewerHasPurchased(Boolean(payload?.viewerHasPurchased));
         setViewerComment(payload?.viewerComment ?? null);
@@ -411,7 +441,11 @@ export default function PublicCreatorByHandle({
   const followAriaLabel = followLabel;
   const followTitle = isFollowingState ? "Dejar de seguir a este creador" : "Seguir a este creador";
   const followContent = (
-    <span className="inline-flex items-center gap-2">
+    <span
+      className={`inline-flex items-center gap-2 transition duration-150 ease-out${
+        isFollowingState ? " scale-[1.02]" : " scale-100"
+      }`}
+    >
       {isFollowingState ? <UserCheck className="h-4 w-4" /> : <UserPlus className="h-4 w-4" />}
       <span className="hidden sm:inline">{followLabel}</span>
     </span>
@@ -1277,38 +1311,75 @@ export default function PublicCreatorByHandle({
   const handleFollow = async (event: MouseEvent<HTMLAnchorElement>) => {
     event.preventDefault();
     if (!creatorId || followPending) return;
-    const endpoint = `/api/fan/follows/${encodeURIComponent(creatorId)}`;
+    const endpoint = "/api/follow/toggle";
     let responseStatus: number | null = null;
     const prevFollowing = isFollowingState;
     const prevCount = followersCount;
     const nextFollowing = !prevFollowing;
+    const startTime = Date.now();
+    const optimisticCount = Math.max(0, prevCount + (nextFollowing ? 1 : -1));
     setIsFollowingState(nextFollowing);
-    setFollowersCount((count) => Math.max(0, count + (nextFollowing ? 1 : -1)));
+    setFollowersCount(optimisticCount);
+    emitFollowChange(creatorId, {
+      isFollowing: nextFollowing,
+      followersCount: optimisticCount,
+      updatedAt: startTime,
+    });
     setFollowPending(true);
     try {
       const res = await fetch(endpoint, {
-        method: nextFollowing ? "POST" : "DELETE",
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ creatorId }),
       });
       responseStatus = res.status;
       if (res.status === 401) {
         throw new Error("AUTH_REQUIRED");
       }
       if (!res.ok) throw new Error("request failed");
-      const data = (await res.json().catch(() => null)) as { following?: boolean } | null;
-      if (typeof data?.following === "boolean") {
-        setIsFollowingState(data.following);
-        setFollowersCount(Math.max(0, prevCount + (data.following ? 1 : -1)));
+      const data = (await res.json().catch(() => null)) as
+        | { isFollowing?: boolean; following?: boolean; followersCount?: number }
+        | null;
+      const resolvedFollowing =
+        typeof data?.isFollowing === "boolean"
+          ? data.isFollowing
+          : typeof data?.following === "boolean"
+          ? data.following
+          : nextFollowing;
+      const resolvedAt = Math.max(Date.now(), startTime + 1);
+      setIsFollowingState(resolvedFollowing);
+      if (typeof data?.followersCount === "number" && Number.isFinite(data.followersCount)) {
+        setFollowersCount(data.followersCount);
+      } else {
+        setFollowersCount(Math.max(0, prevCount + (resolvedFollowing ? 1 : -1)));
       }
+      emitFollowChange(creatorId, {
+        isFollowing: resolvedFollowing,
+        followersCount:
+          typeof data?.followersCount === "number" && Number.isFinite(data.followersCount)
+            ? data.followersCount
+            : Math.max(0, prevCount + (resolvedFollowing ? 1 : -1)),
+        updatedAt: resolvedAt,
+      });
     } catch (_err) {
       logPublicFetchFailure(endpoint, responseStatus, _err);
       setIsFollowingState(prevFollowing);
       setFollowersCount(prevCount);
+      emitFollowChange(creatorId, {
+        isFollowing: prevFollowing,
+        followersCount: prevCount,
+        updatedAt: Math.max(Date.now(), startTime + 1),
+      });
       if (_err instanceof Error && _err.message === "AUTH_REQUIRED") {
         showToast("Inicia sesion para seguir.");
       } else {
         showToast("No se pudo actualizar el seguimiento.");
       }
     } finally {
+      const elapsed = Date.now() - startTime;
+      if (elapsed < MIN_FOLLOW_MUTATION_MS) {
+        await new Promise((resolve) => setTimeout(resolve, MIN_FOLLOW_MUTATION_MS - elapsed));
+      }
       setFollowPending(false);
     }
   };

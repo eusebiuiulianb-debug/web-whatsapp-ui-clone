@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { normalizeImageSrc } from "../utils/normalizeImageSrc";
 import { CtaPill } from "../components/ui/CtaPill";
+import { emitFollowChange, getFollowSnapshot, subscribeFollowUpdates } from "../lib/followEvents";
 
 type FollowingCreator = {
   id: string;
@@ -41,8 +42,12 @@ export default function FollowingPage() {
           : Array.isArray(payload?.creators)
           ? payload.creators
           : [];
+        const reconciled = list.filter((creator) => {
+          const snapshot = getFollowSnapshot(creator.id);
+          return snapshot?.isFollowing === false ? false : true;
+        });
         if (isActive) {
-          setItems(list);
+          setItems(reconciled);
         }
       })
       .catch((err) => {
@@ -63,25 +68,51 @@ export default function FollowingPage() {
     };
   }, []);
 
+  useEffect(() => {
+    return subscribeFollowUpdates((detail) => {
+      const normalized = typeof detail?.creatorId === "string" ? detail.creatorId.trim() : "";
+      if (!normalized || typeof detail?.isFollowing !== "boolean") return;
+      if (!detail.isFollowing) {
+        setItems((prev) => prev.filter((item) => item.id !== normalized));
+      }
+    });
+  }, []);
+
   const handleToggle = useCallback(
     async (creatorId: string) => {
       if (pendingId) return;
       setPendingId(creatorId);
       setActionError("");
       try {
-        const res = await fetch(`/api/fan/follows/${encodeURIComponent(creatorId)}`, { method: "DELETE" });
+        const res = await fetch("/api/follow/toggle", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ creatorId }),
+        });
         if (res.status === 401) {
           setActionError("Inicia sesion para dejar de seguir.");
           return;
         }
         if (!res.ok) throw new Error("request failed");
-        const payload = (await res.json().catch(() => null)) as { following?: boolean } | null;
-        if (!payload || typeof payload.following !== "boolean") {
+        const payload = (await res.json().catch(() => null)) as
+          | { isFollowing?: boolean; following?: boolean; followersCount?: number }
+          | null;
+        const resolvedFollowing =
+          typeof payload?.isFollowing === "boolean"
+            ? payload.isFollowing
+            : typeof payload?.following === "boolean"
+            ? payload.following
+            : null;
+        if (resolvedFollowing === null) {
           throw new Error("invalid response");
         }
-        if (!payload.following) {
+        if (!resolvedFollowing) {
           setItems((prev) => prev.filter((item) => item.id !== creatorId));
         }
+        emitFollowChange(creatorId, {
+          isFollowing: resolvedFollowing,
+          followersCount: payload?.followersCount,
+        });
       } catch (_err) {
         setActionError("No se pudo actualizar.");
       } finally {

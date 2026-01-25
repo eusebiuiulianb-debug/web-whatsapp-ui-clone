@@ -8,6 +8,7 @@ import { useEffect, useRef, useState, type MouseEvent } from "react";
 import { ContextMenu, type ContextMenuItem } from "../ui/ContextMenu";
 import { IconGlyph } from "../ui/IconGlyph";
 import { normalizeImageSrc } from "../../utils/normalizeImageSrc";
+import { emitFollowChange, setFollowSnapshot, subscribeFollow } from "../../lib/followEvents";
 
 type PopClipTileItem = {
   id: string;
@@ -126,6 +127,7 @@ export function PopClipTile({
   const hasSavedActions = isSaved && (onOrganize || onToggleSave);
   const creatorId = (item.creatorId || "").trim();
   const hasCreatorId = Boolean(creatorId);
+  const MIN_FOLLOW_MUTATION_MS = 400;
   if (isSaved && onOrganize) {
     quickActions.push({ label: "Mover a...", icon: "folder", onClick: onOrganize });
   }
@@ -157,8 +159,21 @@ export function PopClipTile({
   }
 
   useEffect(() => {
-    setFollowing(isFollowing);
-  }, [isFollowing]);
+    if (!hasCreatorId) {
+      setFollowing(isFollowing);
+      return;
+    }
+    const baseline = { isFollowing, updatedAt: 0 };
+    const snapshot = setFollowSnapshot(creatorId, baseline);
+    if (snapshot && snapshot.updatedAt > baseline.updatedAt) {
+      setFollowing(snapshot.isFollowing);
+    } else {
+      setFollowing(isFollowing);
+    }
+    return subscribeFollow(creatorId, (next) => {
+      setFollowing(next.isFollowing);
+    });
+  }, [creatorId, hasCreatorId, isFollowing]);
 
   useEffect(() => {
     if (!showCaptionMore && isCaptionOpen) setIsCaptionOpen(false);
@@ -198,29 +213,60 @@ export function PopClipTile({
     if (!hasCreatorId || followPending) return;
     const prevFollowing = following;
     const nextFollowing = !prevFollowing;
+    const startTime = Date.now();
     setFollowing(nextFollowing);
-    onFollowChange?.(creatorId, nextFollowing);
+    emitFollowChange(creatorId, { isFollowing: nextFollowing, updatedAt: startTime });
     setFollowPending(true);
     try {
-      const res = await fetch(`/api/fan/follows/${encodeURIComponent(creatorId)}`, {
-        method: nextFollowing ? "POST" : "DELETE",
+      const res = await fetch("/api/follow/toggle", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ creatorId }),
       });
       if (res.status === 401) throw new Error("AUTH_REQUIRED");
       if (!res.ok) throw new Error("request failed");
-      const payload = (await res.json().catch(() => null)) as { following?: boolean } | null;
-      if (typeof payload?.following === "boolean" && payload.following !== nextFollowing) {
-        setFollowing(payload.following);
-        onFollowChange?.(creatorId, payload.following);
-      }
+      const payload = (await res.json().catch(() => null)) as
+        | { isFollowing?: boolean; following?: boolean; followersCount?: number }
+        | null;
+      const resolvedFollowing =
+        typeof payload?.isFollowing === "boolean"
+          ? payload.isFollowing
+          : typeof payload?.following === "boolean"
+          ? payload.following
+          : nextFollowing;
+      const resolvedFollowersCount =
+        typeof payload?.followersCount === "number" && Number.isFinite(payload.followersCount)
+          ? payload.followersCount
+          : undefined;
+      const resolvedAt = Math.max(Date.now(), startTime + 1);
+      setFollowing(resolvedFollowing);
+      onFollowChange?.(creatorId, resolvedFollowing);
+      emitFollowChange(creatorId, {
+        isFollowing: resolvedFollowing,
+        followersCount: resolvedFollowersCount,
+        updatedAt: resolvedAt,
+      });
+      setFollowSnapshot(creatorId, {
+        isFollowing: resolvedFollowing,
+        followersCount: resolvedFollowersCount,
+        updatedAt: resolvedAt,
+      });
     } catch (err) {
       setFollowing(prevFollowing);
-      onFollowChange?.(creatorId, prevFollowing);
+      emitFollowChange(creatorId, {
+        isFollowing: prevFollowing,
+        updatedAt: Math.max(Date.now(), startTime + 1),
+      });
       if (err instanceof Error && err.message === "AUTH_REQUIRED") {
         onFollowError?.("Inicia sesion para seguir.");
       } else {
         onFollowError?.("No se pudo actualizar el seguimiento.");
       }
     } finally {
+      const elapsed = Date.now() - startTime;
+      if (elapsed < MIN_FOLLOW_MUTATION_MS) {
+        await new Promise((resolve) => setTimeout(resolve, MIN_FOLLOW_MUTATION_MS - elapsed));
+      }
       setFollowPending(false);
     }
   };
@@ -230,6 +276,7 @@ export function PopClipTile({
       <div className="flex items-center justify-between gap-3 px-3 pt-3">
         <Link
           href={profileHref}
+          prefetch={false}
           onPointerDown={(event) => event.stopPropagation()}
           onClick={(event) => event.stopPropagation()}
           onKeyDown={(event) => event.stopPropagation()}
@@ -267,11 +314,10 @@ export function PopClipTile({
               onClick={handleToggleFollow}
               onKeyDown={(event) => event.stopPropagation()}
               className={clsx(
-                "inline-flex items-center justify-center rounded-full border px-3 py-1 text-[11px] font-semibold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--ring)] focus-visible:ring-offset-1 focus-visible:ring-offset-[color:var(--surface-1)]",
+                "inline-flex items-center justify-center rounded-full border px-3 py-1 text-[11px] font-semibold transition duration-150 ease-out active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--ring)] focus-visible:ring-offset-1 focus-visible:ring-offset-[color:var(--surface-1)]",
                 following
                   ? "border-[color:var(--brand-strong)] bg-[color:var(--brand-strong)] text-white hover:bg-[color:var(--brand)]"
-                  : "border-[color:var(--surface-border)] bg-[color:var(--surface-2)] text-[color:var(--text)] hover:bg-[color:var(--surface-3)]",
-                followPending && "opacity-70"
+                  : "border-[color:var(--surface-border)] bg-[color:var(--surface-2)] text-[color:var(--text)] hover:bg-[color:var(--surface-3)]"
               )}
             >
               {followPending ? "..." : following ? "Siguiendo" : "Seguir"}
@@ -582,6 +628,7 @@ export function PopClipTile({
           </Link>
           <Link
             href={profileHref}
+            prefetch={false}
             onPointerDown={(event) => event.stopPropagation()}
             onClick={(event) => event.stopPropagation()}
             onKeyDown={(event) => event.stopPropagation()}
