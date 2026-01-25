@@ -548,7 +548,9 @@ export default function Explore() {
           | { creatorIds?: unknown; count?: unknown }
           | null;
         const creatorIds = Array.isArray(payload?.creatorIds)
-          ? payload.creatorIds.filter((id): id is string => typeof id === "string" && id.trim())
+          ? payload.creatorIds.filter(
+              (id): id is string => typeof id === "string" && id.trim().length > 0
+            )
           : [];
         const count = typeof payload?.count === "number" && Number.isFinite(payload.count)
           ? payload.count

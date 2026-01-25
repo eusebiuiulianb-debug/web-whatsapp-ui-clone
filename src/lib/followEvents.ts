@@ -1,5 +1,8 @@
 export const FOLLOW_UPDATED_EVENT = "ip:follow-updated";
-export const FOLLOW_UPDATED_KEY = "ip_follow_updated_at";
+export const FOLLOW_UPDATED_KEY = "intimipop-follow-event-v1";
+const FOLLOW_BROADCAST_CHANNEL = "intimipop-follow-v1";
+const TAB_ID = typeof window === "undefined" ? "server" : resolveTabId();
+let broadcastChannel: BroadcastChannel | null = null;
 
 export type FollowUpdateDetail = {
   creatorId?: string;
@@ -8,7 +11,10 @@ export type FollowUpdateDetail = {
   followersCount?: number;
   updatedAt?: number;
   at?: number;
+  sourceId?: string;
 };
+
+type FollowBroadcastPayload = FollowUpdateDetail & { sourceId: string };
 
 export type FollowSnapshot = {
   creatorId: string;
@@ -81,15 +87,17 @@ export function notifyFollowUpdated(detail?: FollowUpdateDetail) {
       : typeof detail?.following === "boolean"
       ? detail.following
       : undefined;
-  const payload = { ...detail, isFollowing: resolvedFollowing, updatedAt };
+  const payload: FollowBroadcastPayload = {
+    ...detail,
+    isFollowing: resolvedFollowing,
+    updatedAt,
+    sourceId: TAB_ID,
+  };
   try {
     window.dispatchEvent(new CustomEvent(FOLLOW_UPDATED_EVENT, { detail: payload }));
   } catch (_err) {
   }
-  try {
-    window.localStorage.setItem(FOLLOW_UPDATED_KEY, JSON.stringify(payload));
-  } catch (_err) {
-  }
+  broadcastFollowUpdate(payload);
 }
 
 export function subscribeFollowUpdates(onUpdate: (detail?: FollowUpdateDetail) => void) {
@@ -106,6 +114,10 @@ function ensureListeners() {
   listenersAttached = true;
   window.addEventListener(FOLLOW_UPDATED_EVENT, handleEvent as EventListener);
   window.addEventListener("storage", handleStorage);
+  const channel = getBroadcastChannel();
+  if (channel) {
+    channel.addEventListener("message", handleBroadcastMessage);
+  }
 }
 
 function handleEvent(event: Event) {
@@ -123,11 +135,18 @@ function handleStorage(event: StorageEvent) {
     return;
   }
   try {
-    const parsed = JSON.parse(event.newValue) as FollowUpdateDetail;
+    const parsed = JSON.parse(event.newValue) as FollowBroadcastPayload;
+    if (parsed?.sourceId === TAB_ID) return;
     handleIncomingUpdate(parsed);
   } catch (_err) {
     handleIncomingUpdate();
   }
+}
+
+function handleBroadcastMessage(event: MessageEvent) {
+  const payload = parseBroadcastPayload(event.data);
+  if (!payload || payload.sourceId === TAB_ID) return;
+  handleIncomingUpdate(payload);
 }
 
 function handleIncomingUpdate(detail?: FollowUpdateDetail) {
@@ -146,7 +165,7 @@ function applySnapshotFromDetail(detail?: FollowUpdateDetail) {
   if (!normalized || resolvedFollowing === null) return;
   const { snapshot, updated } = updateSnapshot(normalized, {
     isFollowing: resolvedFollowing,
-    followersCount: detail.followersCount,
+    followersCount: detail?.followersCount,
     updatedAt: resolveUpdatedAtFromDetail(detail),
   });
   if (updated && snapshot) {
@@ -205,4 +224,46 @@ function resolveUpdatedAtFromDetail(detail?: FollowUpdateDetail) {
 function resolveFollowersCount(value: unknown, prev?: FollowSnapshot) {
   if (typeof value === "number" && Number.isFinite(value)) return value;
   return prev?.followersCount;
+}
+
+function broadcastFollowUpdate(payload: FollowBroadcastPayload) {
+  if (typeof window === "undefined") return;
+  const channel = getBroadcastChannel();
+  if (channel) {
+    try {
+      channel.postMessage(payload);
+      return;
+    } catch (_err) {
+    }
+  }
+  try {
+    window.localStorage.setItem(FOLLOW_UPDATED_KEY, JSON.stringify(payload));
+  } catch (_err) {
+  }
+}
+
+function getBroadcastChannel() {
+  if (typeof window === "undefined" || typeof BroadcastChannel === "undefined") return null;
+  if (!broadcastChannel) {
+    broadcastChannel = new BroadcastChannel(FOLLOW_BROADCAST_CHANNEL);
+  }
+  return broadcastChannel;
+}
+
+function parseBroadcastPayload(value: unknown): FollowBroadcastPayload | null {
+  if (!value || typeof value !== "object") return null;
+  const payload = value as FollowBroadcastPayload;
+  if (typeof payload.sourceId !== "string") return null;
+  return payload;
+}
+
+function resolveTabId() {
+  if (typeof window === "undefined") return "server";
+  try {
+    if (window.crypto?.randomUUID) {
+      return window.crypto.randomUUID();
+    }
+  } catch (_err) {
+  }
+  return `tab-${Math.random().toString(36).slice(2)}`;
 }
