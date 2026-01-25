@@ -5,6 +5,7 @@ import { useCallback, useEffect, useState } from "react";
 import { normalizeImageSrc } from "../utils/normalizeImageSrc";
 import { CtaPill } from "../components/ui/CtaPill";
 import { emitFollowChange, getFollowSnapshot, subscribeFollowUpdates } from "../lib/followEvents";
+import { useFollowState } from "../lib/useFollowState";
 
 type FollowingCreator = {
   id: string;
@@ -177,6 +178,8 @@ function CreatorRowCard({
   pending: boolean;
   onToggle: () => void;
 }) {
+  const followState = useFollowState(creator.id, { isFollowing: true });
+  if (!followState.isFollowing) return null;
   const avatarLabel = creator.name?.trim()?.[0]?.toUpperCase() || "C";
 
   return (

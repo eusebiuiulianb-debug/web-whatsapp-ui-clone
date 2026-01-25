@@ -2,6 +2,7 @@ import Head from "next/head";
 import type { GetServerSideProps } from "next";
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/router";
+import Link from "next/link";
 import { randomUUID } from "crypto";
 import { ThumbsUp } from "lucide-react";
 import { Skeleton } from "../../../components/ui/Skeleton";
@@ -639,12 +640,12 @@ export default function PublicCreatorComments({
           <h1 className="text-2xl font-semibold">Perfil no disponible</h1>
           <p className="text-sm text-[color:var(--muted)]">El creador aún no ha activado su perfil público.</p>
           <div className="flex justify-center pt-2">
-            <a
+            <Link
               href="/explore"
               className="inline-flex items-center justify-center rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-4 py-2 text-xs font-semibold text-[color:var(--text)] hover:bg-[color:var(--surface-2)]"
             >
               Volver a explorar
-            </a>
+            </Link>
           </div>
         </div>
       </div>

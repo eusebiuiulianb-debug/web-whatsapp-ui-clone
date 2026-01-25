@@ -8,7 +8,8 @@ import { useEffect, useRef, useState, type MouseEvent } from "react";
 import { ContextMenu, type ContextMenuItem } from "../ui/ContextMenu";
 import { IconGlyph } from "../ui/IconGlyph";
 import { normalizeImageSrc } from "../../utils/normalizeImageSrc";
-import { emitFollowChange, setFollowSnapshot, subscribeFollow } from "../../lib/followEvents";
+import { emitFollowChange, setFollowSnapshot } from "../../lib/followEvents";
+import { useFollowState } from "../../lib/useFollowState";
 
 type PopClipTileItem = {
   id: string;
@@ -85,7 +86,10 @@ export function PopClipTile({
 }: Props) {
   const [thumbFailed, setThumbFailed] = useState(false);
   const [avatarFailed, setAvatarFailed] = useState(false);
-  const [following, setFollowing] = useState(isFollowing);
+  const creatorId = (item.creatorId || "").trim();
+  const hasCreatorId = Boolean(creatorId);
+  const followState = useFollowState(creatorId, { isFollowing });
+  const following = followState.isFollowing;
   const [followPending, setFollowPending] = useState(false);
   const [chipsOpen, setChipsOpen] = useState(false);
   const [isCaptionOpen, setIsCaptionOpen] = useState(false);
@@ -125,8 +129,6 @@ export function PopClipTile({
   const creatorInitial = item.creator.displayName?.trim()?.[0]?.toUpperCase() || "C";
   const quickActions: ContextMenuItem[] = [];
   const hasSavedActions = isSaved && (onOrganize || onToggleSave);
-  const creatorId = (item.creatorId || "").trim();
-  const hasCreatorId = Boolean(creatorId);
   const MIN_FOLLOW_MUTATION_MS = 400;
   if (isSaved && onOrganize) {
     quickActions.push({ label: "Mover a...", icon: "folder", onClick: onOrganize });
@@ -157,23 +159,6 @@ export function PopClipTile({
       danger: true,
     });
   }
-
-  useEffect(() => {
-    if (!hasCreatorId) {
-      setFollowing(isFollowing);
-      return;
-    }
-    const baseline = { isFollowing, updatedAt: 0 };
-    const snapshot = setFollowSnapshot(creatorId, baseline);
-    if (snapshot && snapshot.updatedAt > baseline.updatedAt) {
-      setFollowing(snapshot.isFollowing);
-    } else {
-      setFollowing(isFollowing);
-    }
-    return subscribeFollow(creatorId, (next) => {
-      setFollowing(next.isFollowing);
-    });
-  }, [creatorId, hasCreatorId, isFollowing]);
 
   useEffect(() => {
     if (!showCaptionMore && isCaptionOpen) setIsCaptionOpen(false);
@@ -214,7 +199,6 @@ export function PopClipTile({
     const prevFollowing = following;
     const nextFollowing = !prevFollowing;
     const startTime = Date.now();
-    setFollowing(nextFollowing);
     emitFollowChange(creatorId, { isFollowing: nextFollowing, updatedAt: startTime });
     setFollowPending(true);
     try {
@@ -239,7 +223,6 @@ export function PopClipTile({
           ? payload.followersCount
           : undefined;
       const resolvedAt = Math.max(Date.now(), startTime + 1);
-      setFollowing(resolvedFollowing);
       onFollowChange?.(creatorId, resolvedFollowing);
       emitFollowChange(creatorId, {
         isFollowing: resolvedFollowing,
@@ -252,7 +235,6 @@ export function PopClipTile({
         updatedAt: resolvedAt,
       });
     } catch (err) {
-      setFollowing(prevFollowing);
       emitFollowChange(creatorId, {
         isFollowing: prevFollowing,
         updatedAt: Math.max(Date.now(), startTime + 1),
@@ -314,7 +296,7 @@ export function PopClipTile({
               onClick={handleToggleFollow}
               onKeyDown={(event) => event.stopPropagation()}
               className={clsx(
-                "inline-flex items-center justify-center rounded-full border px-3 py-1 text-[11px] font-semibold transition duration-150 ease-out active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--ring)] focus-visible:ring-offset-1 focus-visible:ring-offset-[color:var(--surface-1)]",
+                "inline-flex min-w-[84px] items-center justify-center rounded-full border px-3 py-1 text-[11px] font-semibold transition duration-150 ease-out active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--ring)] focus-visible:ring-offset-1 focus-visible:ring-offset-[color:var(--surface-1)]",
                 following
                   ? "border-[color:var(--brand-strong)] bg-[color:var(--brand-strong)] text-white hover:bg-[color:var(--brand)]"
                   : "border-[color:var(--surface-border)] bg-[color:var(--surface-2)] text-[color:var(--text)] hover:bg-[color:var(--surface-3)]"

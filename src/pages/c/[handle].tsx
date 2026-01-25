@@ -4,6 +4,7 @@ import type { GetServerSideProps } from "next";
 import { randomUUID } from "crypto";
 import { useCallback, useEffect, useRef, useState, type MouseEvent, type TouchEvent, type WheelEvent } from "react";
 import { useRouter } from "next/router";
+import Link from "next/link";
 import { ChevronLeft, ChevronRight, Lock, Pencil, ThumbsUp, UserCheck, UserPlus } from "lucide-react";
 import { PublicHero } from "../../components/public-profile/PublicHero";
 import { PublicProfileStatsRow } from "../../components/public-profile/PublicProfileStatsRow";
@@ -22,9 +23,10 @@ import { ensureAnalyticsCookie } from "../../lib/analyticsCookie";
 import { track } from "../../lib/analyticsClient";
 import { ANALYTICS_EVENTS } from "../../lib/analyticsEvents";
 import { notifyCreatorStatusUpdated } from "../../lib/creatorStatusEvents";
-import { emitFollowChange, getFollowSnapshot, setFollowSnapshot, subscribeFollow } from "../../lib/followEvents";
+import { emitFollowChange, getFollowSnapshot } from "../../lib/followEvents";
 import { normalizeImageSrc } from "../../utils/normalizeImageSrc";
 import { getPublicProfileStats } from "../../lib/publicProfileStats";
+import { useFollowState } from "../../lib/useFollowState";
 
 type Props = {
   notFound?: boolean;
@@ -219,36 +221,15 @@ export default function PublicCreatorByHandle({
   const popclipQueryHandledRef = useRef<string | null>(null);
   const [chatPending, setChatPending] = useState(false);
   const [followPending, setFollowPending] = useState(false);
-  const [isFollowingState, setIsFollowingState] = useState(Boolean(isFollowing));
-  const [followersCount, setFollowersCount] = useState(
-    typeof followerCount === "number" && Number.isFinite(followerCount) ? followerCount : 0
-  );
+  const initialFollowersCount =
+    typeof followerCount === "number" && Number.isFinite(followerCount) ? followerCount : 0;
+  const followState = useFollowState(creatorId, {
+    isFollowing: Boolean(isFollowing),
+    followersCount: initialFollowersCount,
+  });
+  const isFollowingState = followState.isFollowing;
+  const followersCount = typeof followState.followersCount === "number" ? followState.followersCount : 0;
   const popclipQueryId = typeof router.query.popclip === "string" ? router.query.popclip : "";
-
-  useEffect(() => {
-    if (!creatorId) return;
-    const baselineCount =
-      typeof followerCount === "number" && Number.isFinite(followerCount) ? followerCount : undefined;
-    const baseline = { isFollowing: Boolean(isFollowing), followersCount: baselineCount, updatedAt: 0 };
-    const snapshot = setFollowSnapshot(creatorId, baseline);
-    if (snapshot && snapshot.updatedAt > baseline.updatedAt) {
-      setIsFollowingState(snapshot.isFollowing);
-      if (typeof snapshot.followersCount === "number") {
-        setFollowersCount(snapshot.followersCount);
-      }
-    } else {
-      setIsFollowingState(Boolean(isFollowing));
-      if (typeof baselineCount === "number") {
-        setFollowersCount(baselineCount);
-      }
-    }
-    return subscribeFollow(creatorId, (next) => {
-      setIsFollowingState(next.isFollowing);
-      if (typeof next.followersCount === "number") {
-        setFollowersCount(next.followersCount);
-      }
-    });
-  }, [creatorId, followerCount, isFollowing]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -414,10 +395,14 @@ export default function PublicCreatorByHandle({
           typeof payload?.viewerCanComment === "boolean" ? payload.viewerCanComment : Boolean(payload?.canComment);
         setCanComment(resolvedCanComment);
         setViewerIsLoggedIn(Boolean(payload?.viewerIsLoggedIn));
-        if (typeof payload?.viewerIsFollowing === "boolean") {
-          const snapshot = creatorId ? getFollowSnapshot(creatorId) : null;
+        if (typeof payload?.viewerIsFollowing === "boolean" && creatorId) {
+          const snapshot = getFollowSnapshot(creatorId);
           if (!snapshot || snapshot.updatedAt <= 0) {
-            setIsFollowingState(payload.viewerIsFollowing);
+            emitFollowChange(creatorId, {
+              isFollowing: payload.viewerIsFollowing,
+              followersCount: snapshot?.followersCount,
+              updatedAt: Date.now(),
+            });
           }
         }
         setViewerHasPurchased(Boolean(payload?.viewerHasPurchased));
@@ -1318,8 +1303,6 @@ export default function PublicCreatorByHandle({
     const nextFollowing = !prevFollowing;
     const startTime = Date.now();
     const optimisticCount = Math.max(0, prevCount + (nextFollowing ? 1 : -1));
-    setIsFollowingState(nextFollowing);
-    setFollowersCount(optimisticCount);
     emitFollowChange(creatorId, {
       isFollowing: nextFollowing,
       followersCount: optimisticCount,
@@ -1347,12 +1330,6 @@ export default function PublicCreatorByHandle({
           ? data.following
           : nextFollowing;
       const resolvedAt = Math.max(Date.now(), startTime + 1);
-      setIsFollowingState(resolvedFollowing);
-      if (typeof data?.followersCount === "number" && Number.isFinite(data.followersCount)) {
-        setFollowersCount(data.followersCount);
-      } else {
-        setFollowersCount(Math.max(0, prevCount + (resolvedFollowing ? 1 : -1)));
-      }
       emitFollowChange(creatorId, {
         isFollowing: resolvedFollowing,
         followersCount:
@@ -1363,8 +1340,6 @@ export default function PublicCreatorByHandle({
       });
     } catch (_err) {
       logPublicFetchFailure(endpoint, responseStatus, _err);
-      setIsFollowingState(prevFollowing);
-      setFollowersCount(prevCount);
       emitFollowChange(creatorId, {
         isFollowing: prevFollowing,
         followersCount: prevCount,
@@ -1425,12 +1400,12 @@ export default function PublicCreatorByHandle({
           <h1 className="text-2xl font-semibold">Perfil no disponible</h1>
           <p className="text-sm text-[color:var(--muted)]">El creador aún no ha activado su perfil público.</p>
           <div className="flex justify-center pt-2">
-            <a
+            <Link
               href="/explore"
               className="inline-flex items-center justify-center rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-4 py-2 text-xs font-semibold text-[color:var(--text)] hover:bg-[color:var(--surface-2)]"
             >
               Volver a explorar
-            </a>
+            </Link>
           </div>
         </div>
       </div>
