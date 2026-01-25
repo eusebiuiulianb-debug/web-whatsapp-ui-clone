@@ -1,8 +1,10 @@
+import * as Dialog from "@radix-ui/react-dialog";
+import * as Popover from "@radix-ui/react-popover";
 import clsx from "clsx";
 import { Bookmark, BookmarkCheck, MessageCircle, Sparkles } from "lucide-react";
 import Image from "next/image";
 import Link from "next/link";
-import { useEffect, useRef, useState, type MouseEvent } from "react";
+import { useEffect, useState, type MouseEvent } from "react";
 import { ContextMenu, type ContextMenuItem } from "../ui/ContextMenu";
 import { IconGlyph } from "../ui/IconGlyph";
 import { normalizeImageSrc } from "../../utils/normalizeImageSrc";
@@ -86,8 +88,6 @@ export function PopClipTile({
   const [following, setFollowing] = useState(isFollowing);
   const [followPending, setFollowPending] = useState(false);
   const [chipsOpen, setChipsOpen] = useState(false);
-  const chipsButtonRef = useRef<HTMLButtonElement | null>(null);
-  const chipsPopoverRef = useRef<HTMLDivElement | null>(null);
   const title = item.title?.trim() || "PopClip";
   const caption = (item.caption || "").trim() || item.title?.trim() || "";
   const previewSrc = item.thumbnailUrl || item.posterUrl || item.previewImageUrl || "";
@@ -107,8 +107,8 @@ export function PopClipTile({
   const locationChipLabel = locationLabel ? `📍 ${locationLabel} (aprox.)` : "";
   const chipItems = [availableLabel, responseLabel, distanceLabel, locationChipLabel].filter(Boolean);
   const isDesktopLg = useMediaQuery("(min-width: 1024px)");
-  const isTabletMd = useMediaQuery("(min-width: 768px)");
-  const maxChips = isDesktopLg ? 3 : isTabletMd ? 4 : 5;
+  const isTabletUp = useMediaQuery("(min-width: 768px)");
+  const maxChips = isDesktopLg ? 3 : isTabletUp ? 4 : 5;
   const visibleChips = chipItems.slice(0, maxChips);
   const hiddenChips = chipItems.slice(maxChips);
   const hiddenCount = hiddenChips.length;
@@ -151,40 +151,6 @@ export function PopClipTile({
   useEffect(() => {
     setFollowing(isFollowing);
   }, [isFollowing]);
-
-  useEffect(() => {
-    if (!chipsOpen || hiddenCount === 0 || !isTabletMd) return;
-    const handlePointerDown = (event: PointerEvent) => {
-      const target = event.target as Node | null;
-      if (!target) return;
-      if (chipsPopoverRef.current?.contains(target)) return;
-      if (chipsButtonRef.current?.contains(target)) return;
-      setChipsOpen(false);
-    };
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") setChipsOpen(false);
-    };
-    document.addEventListener("pointerdown", handlePointerDown);
-    document.addEventListener("keydown", handleKeyDown);
-    return () => {
-      document.removeEventListener("pointerdown", handlePointerDown);
-      document.removeEventListener("keydown", handleKeyDown);
-    };
-  }, [chipsOpen, hiddenCount, isTabletMd]);
-
-  useEffect(() => {
-    if (!chipsOpen || hiddenCount === 0 || isTabletMd) return;
-    const previousOverflow = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") setChipsOpen(false);
-    };
-    document.addEventListener("keydown", handleKeyDown);
-    return () => {
-      document.body.style.overflow = previousOverflow;
-      document.removeEventListener("keydown", handleKeyDown);
-    };
-  }, [chipsOpen, hiddenCount, isTabletMd]);
 
   useEffect(() => {
     if (hiddenCount === 0 && chipsOpen) setChipsOpen(false);
@@ -399,83 +365,106 @@ export function PopClipTile({
               </span>
             ))}
             {hiddenCount > 0 ? (
-              <button
-                ref={chipsButtonRef}
-                type="button"
-                aria-label={`Ver ${hiddenCount} etiquetas más`}
-                title={isTabletMd ? chipItemsTitle : undefined}
-                onPointerDown={(event) => event.stopPropagation()}
-                onClick={(event) => {
-                  event.stopPropagation();
-                  setChipsOpen((prev) => !prev);
-                }}
-                onKeyDown={(event) => event.stopPropagation()}
-                className="whitespace-nowrap rounded-full border border-white/15 bg-white/10 px-2.5 py-0.5 text-[10px] font-semibold text-white/90"
-              >
-                +{hiddenCount}
-              </button>
-            ) : null}
-            {chipsOpen && hiddenCount > 0 && isTabletMd ? (
-              <div
-                ref={chipsPopoverRef}
-                role="dialog"
-                aria-label="Etiquetas"
-                className="absolute right-0 top-full z-30 mt-2 w-[min(90vw,280px)] rounded-xl border border-white/10 bg-[color:rgba(8,12,20,0.95)] p-3 shadow-xl"
-              >
-                <div className="flex flex-wrap gap-2">
-                  {chipItems.map((badge, index) => (
-                    <span
-                      key={`${badge}-${index}`}
-                      className="whitespace-nowrap rounded-full border border-white/15 bg-white/10 px-2.5 py-0.5 text-[10px] font-semibold text-white/90"
-                    >
-                      {badge}
-                    </span>
-                  ))}
-                </div>
-              </div>
-            ) : null}
-          </div>
-        ) : null}
-        {chipsOpen && hiddenCount > 0 && !isTabletMd ? (
-          <div className="fixed inset-0 z-50 md:hidden">
-            <button
-              type="button"
-              aria-label="Cerrar etiquetas"
-              onClick={() => setChipsOpen(false)}
-              className="absolute inset-0 bg-black/50 backdrop-blur-sm"
-            />
-            <div className="absolute inset-x-0 bottom-0">
-              <div
-                role="dialog"
-                aria-modal="true"
-                aria-label="Etiquetas"
-                className="mx-auto w-full max-w-lg rounded-t-2xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] shadow-2xl"
-              >
-                <div className="flex items-center justify-between border-b border-[color:var(--surface-border)] px-4 py-3">
-                  <p className="text-sm font-semibold text-[color:var(--text)]">Etiquetas</p>
-                  <button
-                    type="button"
-                    aria-label="Cerrar"
-                    onClick={() => setChipsOpen(false)}
-                    className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] text-sm font-semibold text-[color:var(--text)] hover:border-[color:var(--surface-border-hover)]"
-                  >
-                    ✕
-                  </button>
-                </div>
-                <div className="max-h-[60vh] overflow-y-auto px-4 py-4">
-                  <div className="flex flex-wrap gap-2">
-                    {chipItems.map((badge, index) => (
-                      <span
-                        key={`${badge}-${index}`}
+              <>
+                {isTabletUp ? (
+                  <Popover.Root open={chipsOpen} onOpenChange={setChipsOpen}>
+                    <Popover.Trigger asChild>
+                      <button
+                        type="button"
+                        aria-label={`Ver ${hiddenCount} etiquetas más`}
+                        title={chipItemsTitle}
+                        onPointerDown={(event) => event.stopPropagation()}
+                        onClick={(event) => event.stopPropagation()}
+                        onKeyDown={(event) => {
+                          if (event.key === "Enter" || event.key === " ") {
+                            event.stopPropagation();
+                          }
+                        }}
                         className="whitespace-nowrap rounded-full border border-white/15 bg-white/10 px-2.5 py-0.5 text-[10px] font-semibold text-white/90"
                       >
-                        {badge}
-                      </span>
-                    ))}
-                  </div>
-                </div>
-              </div>
-            </div>
+                        +{hiddenCount}
+                      </button>
+                    </Popover.Trigger>
+                    <Popover.Portal>
+                      <Popover.Content
+                        side="top"
+                        align="end"
+                        sideOffset={8}
+                        collisionPadding={12}
+                        onPointerDown={(event) => event.stopPropagation()}
+                        onClick={(event) => event.stopPropagation()}
+                        className="z-50 max-h-[180px] w-[min(90vw,280px)] overflow-auto rounded-xl border border-white/10 bg-[color:rgba(8,12,20,0.95)] p-3 shadow-xl"
+                      >
+                        <div className="flex flex-wrap gap-2">
+                          {hiddenChips.map((badge, index) => (
+                            <span
+                              key={`${badge}-${index}`}
+                              className="whitespace-nowrap rounded-full border border-white/15 bg-white/10 px-2.5 py-0.5 text-[10px] font-semibold text-white/90"
+                            >
+                              {badge}
+                            </span>
+                          ))}
+                        </div>
+                      </Popover.Content>
+                    </Popover.Portal>
+                  </Popover.Root>
+                ) : (
+                  <Dialog.Root open={chipsOpen} onOpenChange={setChipsOpen}>
+                    <Dialog.Trigger asChild>
+                      <button
+                        type="button"
+                        aria-label={`Ver ${hiddenCount} etiquetas más`}
+                        onPointerDown={(event) => event.stopPropagation()}
+                        onClick={(event) => event.stopPropagation()}
+                        onKeyDown={(event) => {
+                          if (event.key === "Enter" || event.key === " ") {
+                            event.stopPropagation();
+                          }
+                        }}
+                        className="whitespace-nowrap rounded-full border border-white/15 bg-white/10 px-2.5 py-0.5 text-[10px] font-semibold text-white/90"
+                      >
+                        +{hiddenCount}
+                      </button>
+                    </Dialog.Trigger>
+                    <Dialog.Portal>
+                      <Dialog.Overlay className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm" />
+                      <Dialog.Content
+                        role="dialog"
+                        aria-label="Etiquetas"
+                        onPointerDown={(event) => event.stopPropagation()}
+                        onClick={(event) => event.stopPropagation()}
+                        className="fixed inset-x-0 bottom-0 z-50 max-h-[70vh] w-full overflow-auto rounded-t-2xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] shadow-2xl"
+                      >
+                        <div className="flex items-center justify-between border-b border-[color:var(--surface-border)] px-4 py-3">
+                          <p className="text-sm font-semibold text-[color:var(--text)]">Etiquetas</p>
+                          <Dialog.Close asChild>
+                            <button
+                              type="button"
+                              aria-label="Cerrar"
+                              className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] text-sm font-semibold text-[color:var(--text)] hover:border-[color:var(--surface-border-hover)]"
+                            >
+                              ✕
+                            </button>
+                          </Dialog.Close>
+                        </div>
+                        <div className="px-4 py-4">
+                          <div className="flex flex-wrap gap-2">
+                            {hiddenChips.map((badge, index) => (
+                              <span
+                                key={`${badge}-${index}`}
+                                className="whitespace-nowrap rounded-full border border-white/15 bg-white/10 px-2.5 py-0.5 text-[10px] font-semibold text-white/90"
+                              >
+                                {badge}
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+                      </Dialog.Content>
+                    </Dialog.Portal>
+                  </Dialog.Root>
+                )}
+              </>
+            ) : null}
           </div>
         ) : null}
         <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 sm:gap-3">

@@ -36,6 +36,8 @@
     "@emoji-mart/data": "^1.2.1",
     "@emoji-mart/react": "^1.1.1",
     "@prisma/client": "6.19.0",
+    "@radix-ui/react-dialog": "^1.1.15",
+    "@radix-ui/react-popover": "^1.1.15",
     "@upstash/ratelimit": "^2.0.7",
     "@upstash/redis": "^1.36.0",
     "clsx": "^2.1.1",
