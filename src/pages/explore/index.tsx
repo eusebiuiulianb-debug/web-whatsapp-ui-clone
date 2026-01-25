@@ -1841,10 +1841,11 @@ export default function Explore() {
   }, [filterQueryString, seedKey]);
 
   return (
-    <div className="flex min-h-screen w-full flex-col">
+    <>
       <Head>
         <title>IntimiPop - Explorar</title>
       </Head>
+      <div className="flex min-h-screen w-full flex-col">
         <div
           className={clsx(
             "fixed left-0 right-0 top-0 z-40 hidden transition-all md:block",
@@ -2577,7 +2578,7 @@ export default function Explore() {
           onClose={closeCaptionSheet}
         />
       </div>
-    </div>
+    </>
   );
 }
 
