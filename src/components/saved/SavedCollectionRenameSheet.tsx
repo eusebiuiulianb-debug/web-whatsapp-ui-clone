@@ -52,8 +52,12 @@ export function SavedCollectionRenameSheet({
       return;
     }
     const trimmed = name.trim();
-    if (trimmed.length < 2 || trimmed.length > 32) {
-      setError("El nombre debe tener entre 2 y 32 caracteres.");
+    if (trimmed.length < 1) {
+      setError("El nombre no puede estar vacio.");
+      return;
+    }
+    if (trimmed.length > 40) {
+      setError("El nombre debe tener como maximo 40 caracteres.");
       return;
     }
     setSaving(true);

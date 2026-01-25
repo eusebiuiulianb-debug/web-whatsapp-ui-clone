@@ -107,8 +107,12 @@ export function SavedOrganizerSheet({
   const handleCreate = async () => {
     if (creating) return;
     const trimmed = name.trim();
-    if (trimmed.length < 2) {
-      setError("Usa un nombre de al menos 2 caracteres.");
+    if (trimmed.length < 1) {
+      setError("El nombre no puede estar vacio.");
+      return;
+    }
+    if (trimmed.length > 40) {
+      setError("El nombre debe tener como maximo 40 caracteres.");
       return;
     }
     setCreating(true);

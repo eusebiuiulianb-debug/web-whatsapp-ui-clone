@@ -80,6 +80,6 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 function normalizeName(value: unknown): string | null {
   if (typeof value !== "string") return null;
   const trimmed = value.trim();
-  if (trimmed.length < 2 || trimmed.length > 32) return null;
+  if (trimmed.length < 1 || trimmed.length > 40) return null;
   return trimmed;
 }
