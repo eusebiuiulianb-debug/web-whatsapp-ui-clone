@@ -113,143 +113,144 @@ export function PopClipTile({
 
   return (
     <div className="group flex w-full flex-col overflow-hidden rounded-2xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] text-left shadow-sm transition duration-200 hover:-translate-y-0.5 hover:shadow-lg hover:shadow-[color:rgba(var(--brand-rgb),0.18)]">
-      <div
-        role="button"
-        tabIndex={0}
-        onClick={onOpen}
-        onKeyDown={(event) => {
-          if (event.key === "Enter" || event.key === " ") {
-            event.preventDefault();
-            onOpen();
-          }
-        }}
-        aria-label={`Abrir ${title}`}
-        className="relative aspect-[10/13] w-full cursor-pointer overflow-hidden focus:outline-none focus:ring-1 focus:ring-[color:var(--ring)] sm:aspect-[3/4] md:aspect-[4/5]"
-      >
-        {showImage ? (
-          <Image
-            src={normalizeImageSrc(previewSrc)}
-            alt={title}
-            layout="fill"
-            objectFit="cover"
-            sizes="(max-width: 768px) 50vw, (max-width: 1280px) 33vw, 25vw"
-            className="object-cover transition-transform duration-300 group-hover:scale-[1.02]"
-            onError={() => setThumbFailed(true)}
-          />
-        ) : (
-          <div className="relative flex h-full w-full items-center justify-center overflow-hidden bg-gradient-to-br from-[color:rgba(10,14,24,0.9)] via-[color:rgba(18,24,38,0.9)] to-[color:rgba(6,9,18,0.95)] text-white/60">
-            <div className="absolute inset-0 opacity-60">
-              <div className="absolute inset-0 bg-[radial-gradient(circle_at_top,rgba(255,255,255,0.14),transparent_55%)]" />
-              <div className="absolute inset-0 animate-pulse bg-[linear-gradient(120deg,transparent,rgba(255,255,255,0.16),transparent)]" />
-            </div>
-            <div className="relative flex flex-col items-center gap-1">
-              <Sparkles className="h-6 w-6 text-white/70" aria-hidden="true" />
-              <span className="text-[11px] font-semibold text-white/70">PopClip</span>
-            </div>
-          </div>
-        )}
-        <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-black/45 via-black/10 to-transparent opacity-80 transition duration-200 md:opacity-70 md:group-hover:opacity-90" />
-
-        <div className="absolute inset-x-0 top-0 p-2.5">
-          <div className="flex items-center justify-between gap-2">
-            <Link
-              href={profileHref}
-              onClick={(event) => event.stopPropagation()}
-              aria-label={`Ver perfil de @${item.creator.handle}`}
-              className="inline-flex min-w-0 items-center gap-2 rounded-full border border-white/10 bg-black/45 px-2 py-1.5 text-white backdrop-blur-sm transition hover:bg-black/60"
-            >
-              <span className="inline-flex min-w-0 items-center gap-2">
-                <span className="h-7 w-7 shrink-0 overflow-hidden rounded-full border border-white/20 bg-white/10">
-                  {showAvatar ? (
-                    <Image
-                      src={normalizeImageSrc(avatarSrc)}
-                      alt={item.creator.displayName}
-                      width={28}
-                      height={28}
-                      className="h-full w-full object-cover"
-                      onError={() => setAvatarFailed(true)}
-                    />
-                  ) : (
-                    <span className="flex h-full w-full items-center justify-center text-xs font-semibold text-white">
-                      {creatorInitial}
-                    </span>
-                  )}
-                </span>
-                <span className="truncate text-xs font-semibold text-white">@{item.creator.handle}</span>
-              </span>
-            </Link>
-            <div className="flex items-center gap-2">
-              {quickActions.length > 0 ? (
-                <ContextMenu
-                  buttonAriaLabel="Acciones rápidas"
-                  items={quickActions}
-                  align="right"
-                  closeOnScroll
-                  menuClassName="min-w-[160px] w-[min(90vw,220px)]"
-                  renderButton={({ ref, onClick, onPointerDown, ariaLabel, ariaExpanded, ariaHaspopup, title }) => (
-                    <button
-                      ref={ref}
-                      type="button"
-                      aria-label={ariaLabel}
-                      aria-expanded={ariaExpanded}
-                      aria-haspopup={ariaHaspopup}
-                      title={title}
-                      onClick={onClick}
-                      onPointerDown={onPointerDown}
-                      className="pointer-events-auto inline-flex h-11 w-11 items-center justify-center rounded-full border border-white/15 bg-black/40 text-white/80 backdrop-blur-sm transition hover:bg-black/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--ring)] focus-visible:ring-offset-1 focus-visible:ring-offset-black/40"
-                    >
-                      <IconGlyph name="dots" ariaHidden />
-                    </button>
-                  )}
+      <div className="flex items-center justify-between gap-3 px-3 pt-3">
+        <Link
+          href={profileHref}
+          onClick={(event) => event.stopPropagation()}
+          aria-label={`Ver perfil de @${item.creator.handle}`}
+          className="inline-flex min-w-0 items-center gap-2 rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-2 py-1.5 text-[color:var(--text)] transition hover:bg-[color:var(--surface-3)]"
+        >
+          <span className="inline-flex min-w-0 items-center gap-2">
+            <span className="h-7 w-7 shrink-0 overflow-hidden rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-1)]">
+              {showAvatar ? (
+                <Image
+                  src={normalizeImageSrc(avatarSrc)}
+                  alt={item.creator.displayName}
+                  width={28}
+                  height={28}
+                  className="h-full w-full object-cover"
+                  onError={() => setAvatarFailed(true)}
                 />
-              ) : null}
-              <button
-                type="button"
-                aria-label={isSaved ? "Quitar guardado" : "Guardar clip"}
-                title={isSaved ? "Quitar guardado" : "Guardar clip"}
-                aria-pressed={isSaved}
-                onClick={(event) => {
-                  event.preventDefault();
-                  event.stopPropagation();
-                  onToggleSave?.();
-                }}
-                onKeyDown={(event) => event.stopPropagation()}
-                className={clsx(
-                  "inline-flex h-11 w-11 items-center justify-center rounded-full border text-white backdrop-blur-sm transition hover:bg-black/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--ring)] focus-visible:ring-offset-1 focus-visible:ring-offset-black/40",
-                  isSaved ? "border-white/40 bg-white/15" : "border-white/15 bg-black/40"
-                )}
-              >
-                {isSaved ? (
-                  <BookmarkCheck className="h-5 w-5 text-white" aria-hidden="true" />
-                ) : (
-                  <Bookmark className="h-5 w-5 text-white/80" aria-hidden="true" />
-                )}
-              </button>
-            </div>
-          </div>
-        </div>
-        {showCaption ? (
-          <div className="pointer-events-none absolute inset-x-0 bottom-0 p-2.5 transition md:opacity-0 md:translate-y-2 md:group-hover:opacity-100 md:group-hover:translate-y-0">
-            <div className="rounded-xl border border-white/10 bg-black/45 px-3 py-2 text-[11px] text-white/90 backdrop-blur-sm">
-              <p className="line-clamp-2 leading-snug md:line-clamp-1">{caption}</p>
-              {showCaptionMore ? (
+              ) : (
+                <span className="flex h-full w-full items-center justify-center text-xs font-semibold text-[color:var(--text)]">
+                  {creatorInitial}
+                </span>
+              )}
+            </span>
+            <span className="truncate text-xs font-semibold text-[color:var(--text)]">@{item.creator.handle}</span>
+          </span>
+        </Link>
+        <div className="flex items-center gap-2">
+          {quickActions.length > 0 ? (
+            <ContextMenu
+              buttonAriaLabel="Acciones rápidas"
+              items={quickActions}
+              align="right"
+              closeOnScroll
+              menuClassName="min-w-[160px] w-[min(90vw,220px)]"
+              renderButton={({ ref, onClick, onPointerDown, ariaLabel, ariaExpanded, ariaHaspopup, title }) => (
                 <button
+                  ref={ref}
                   type="button"
-                  aria-label="Ver más"
-                  onClick={(event) => {
-                    event.preventDefault();
-                    event.stopPropagation();
-                    onOpenCaption?.();
-                  }}
-                  onKeyDown={(event) => event.stopPropagation()}
-                  className="pointer-events-auto mt-1 text-[11px] font-semibold text-white/80 underline decoration-white/40 underline-offset-2 transition hover:text-white focus:outline-none focus:ring-1 focus:ring-white/50"
+                  aria-label={ariaLabel}
+                  aria-expanded={ariaExpanded}
+                  aria-haspopup={ariaHaspopup}
+                  title={title}
+                  onClick={onClick}
+                  onPointerDown={onPointerDown}
+                  className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] text-[color:var(--text)] transition hover:bg-[color:var(--surface-3)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--ring)] focus-visible:ring-offset-1 focus-visible:ring-offset-[color:var(--surface-1)]"
                 >
-                  Ver más
+                  <IconGlyph name="dots" ariaHidden />
                 </button>
-              ) : null}
+              )}
+            />
+          ) : null}
+          <button
+            type="button"
+            aria-label={isSaved ? "Quitar guardado" : "Guardar clip"}
+            title={isSaved ? "Quitar guardado" : "Guardar clip"}
+            aria-pressed={isSaved}
+            onClick={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+              onToggleSave?.();
+            }}
+            onKeyDown={(event) => event.stopPropagation()}
+            className={clsx(
+              "inline-flex h-9 w-9 items-center justify-center rounded-full border bg-[color:var(--surface-2)] transition hover:bg-[color:var(--surface-3)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--ring)] focus-visible:ring-offset-1 focus-visible:ring-offset-[color:var(--surface-1)]",
+              isSaved
+                ? "border-[color:rgba(var(--brand-rgb),0.6)] text-[color:var(--text)]"
+                : "border-[color:var(--surface-border)] text-[color:var(--muted)]"
+            )}
+          >
+            {isSaved ? (
+              <BookmarkCheck className="h-5 w-5" aria-hidden="true" />
+            ) : (
+              <Bookmark className="h-5 w-5" aria-hidden="true" />
+            )}
+          </button>
+        </div>
+      </div>
+      <div className="px-3 pt-2">
+        <div
+          role="button"
+          tabIndex={0}
+          onClick={onOpen}
+          onKeyDown={(event) => {
+            if (event.key === "Enter" || event.key === " ") {
+              event.preventDefault();
+              onOpen();
+            }
+          }}
+          aria-label={`Abrir ${title}`}
+          className="relative aspect-[10/13] w-full cursor-pointer overflow-hidden rounded-2xl focus:outline-none focus:ring-1 focus:ring-[color:var(--ring)] sm:aspect-[3/4] md:aspect-[4/5]"
+        >
+          {showImage ? (
+            <Image
+              src={normalizeImageSrc(previewSrc)}
+              alt={title}
+              layout="fill"
+              objectFit="cover"
+              sizes="(max-width: 768px) 50vw, (max-width: 1280px) 33vw, 25vw"
+              className="object-cover transition-transform duration-300 group-hover:scale-[1.02]"
+              onError={() => setThumbFailed(true)}
+            />
+          ) : (
+            <div className="relative flex h-full w-full items-center justify-center overflow-hidden bg-gradient-to-br from-[color:rgba(10,14,24,0.9)] via-[color:rgba(18,24,38,0.9)] to-[color:rgba(6,9,18,0.95)] text-white/60">
+              <div className="absolute inset-0 opacity-60">
+                <div className="absolute inset-0 bg-[radial-gradient(circle_at_top,rgba(255,255,255,0.14),transparent_55%)]" />
+                <div className="absolute inset-0 animate-pulse bg-[linear-gradient(120deg,transparent,rgba(255,255,255,0.16),transparent)]" />
+              </div>
+              <div className="relative flex flex-col items-center gap-1">
+                <Sparkles className="h-6 w-6 text-white/70" aria-hidden="true" />
+                <span className="text-[11px] font-semibold text-white/70">PopClip</span>
+              </div>
             </div>
-          </div>
-        ) : null}
+          )}
+          <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-black/45 via-black/10 to-transparent opacity-80 transition duration-200 md:opacity-70 md:group-hover:opacity-90" />
+          {showCaption ? (
+            <div className="pointer-events-none absolute inset-x-0 bottom-0 p-2.5 transition md:opacity-0 md:translate-y-2 md:group-hover:opacity-100 md:group-hover:translate-y-0">
+              <div className="rounded-xl border border-white/10 bg-black/45 px-3 py-2 text-[11px] text-white/90 backdrop-blur-sm">
+                <p className="line-clamp-2 leading-snug md:line-clamp-1">{caption}</p>
+                {showCaptionMore ? (
+                  <button
+                    type="button"
+                    aria-label="Ver más"
+                    onClick={(event) => {
+                      event.preventDefault();
+                      event.stopPropagation();
+                      onOpenCaption?.();
+                    }}
+                    onKeyDown={(event) => event.stopPropagation()}
+                    className="pointer-events-auto mt-1 text-[11px] font-semibold text-white/80 underline decoration-white/40 underline-offset-2 transition hover:text-white focus:outline-none focus:ring-1 focus:ring-white/50"
+                  >
+                    Ver más
+                  </button>
+                ) : null}
+              </div>
+            </div>
+          ) : null}
+        </div>
       </div>
 
       <div className="flex flex-col gap-2 border-t border-white/10 bg-[color:rgba(8,12,20,0.85)] px-3 pb-3 pt-3 text-white/90 sm:p-4">
