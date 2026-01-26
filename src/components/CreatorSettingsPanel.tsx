@@ -1,4 +1,5 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/router";
 import {
   CreatorConfig,
   DEFAULT_CREATOR_CONFIG,
@@ -16,11 +17,54 @@ export default function CreatorSettingsPanel({ isOpen, onClose }: CreatorSetting
   const [formData, setFormData] = useState<CreatorConfig>(config);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
+  const [profilePlan, setProfilePlan] = useState<"FREE" | "PRO">("FREE");
+  const [profileVerified, setProfileVerified] = useState(false);
+  const [profileServices, setProfileServices] = useState("");
+  const [profileLoading, setProfileLoading] = useState(false);
+  const [profileError, setProfileError] = useState("");
+  const router = useRouter();
+
+  const normalizedServices = useMemo(
+    () =>
+      profileServices
+        .split(",")
+        .map((tag) => tag.trim())
+        .filter((tag) => Boolean(tag)),
+    [profileServices]
+  );
 
   useEffect(() => {
     if (isOpen) {
       setFormData(config);
       setError("");
+      setNotice("");
+      setProfileError("");
+      setProfileLoading(true);
+      fetch("/api/creator/profile", { cache: "no-store" })
+        .then(async (res) => {
+          if (!res.ok) throw new Error("request failed");
+          const payload = (await res.json().catch(() => null)) as
+            | { plan?: string; isVerified?: boolean; offerTags?: string[] }
+            | null;
+          const plan = payload?.plan === "PRO" ? "PRO" : "FREE";
+          const isVerified = payload?.isVerified === true;
+          const offerTags = Array.isArray(payload?.offerTags)
+            ? payload.offerTags.filter((tag) => typeof tag === "string" && tag.trim().length > 0)
+            : [];
+          setProfilePlan(plan);
+          setProfileVerified(isVerified);
+          setProfileServices(offerTags.join(", "));
+          setFormData((prev) => ({
+            ...prev,
+            isVerified,
+            offerTags,
+          }));
+        })
+        .catch(() => {
+          setProfileError("No se pudo cargar el perfil público.");
+        })
+        .finally(() => setProfileLoading(false));
     }
   }, [config, isOpen]);
 
@@ -30,6 +74,7 @@ export default function CreatorSettingsPanel({ isOpen, onClose }: CreatorSetting
     try {
       setSaving(true);
       setError("");
+      setProfileError("");
       setConfig(formData);
       await fetch("/api/creator", {
         method: "POST",
@@ -42,7 +87,24 @@ export default function CreatorSettingsPanel({ isOpen, onClose }: CreatorSetting
           uiLocale: normalizeUiLocale(formData.uiLocale) || "es",
         }),
       });
-      onClose();
+
+      const profileRes = await fetch("/api/creator/profile", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          plan: profilePlan,
+          isVerified: profileVerified,
+          services: normalizedServices,
+        }),
+      });
+      const profilePayload = (await profileRes.json().catch(() => null)) as { ok?: boolean; error?: string } | null;
+      if (!profileRes.ok || !profilePayload?.ok) {
+        throw new Error(profilePayload?.error || "No se pudo guardar el perfil público");
+      }
+
+      setNotice("Perfil público actualizado.");
+      setTimeout(() => setNotice(""), 2400);
+      void router.replace(router.asPath);
     } catch (_err) {
       setError("No se pudieron guardar en el servidor. Los cambios locales se han aplicado.");
     } finally {
@@ -53,6 +115,9 @@ export default function CreatorSettingsPanel({ isOpen, onClose }: CreatorSetting
   function handleReset() {
     setFormData(DEFAULT_CREATOR_CONFIG);
     setConfig(DEFAULT_CREATOR_CONFIG);
+    setProfilePlan("FREE");
+    setProfileVerified(false);
+    setProfileServices("");
   }
 
   function updateQuickReply(key: keyof CreatorConfig["quickReplies"], value: string) {
@@ -84,6 +149,8 @@ export default function CreatorSettingsPanel({ isOpen, onClose }: CreatorSetting
         </div>
         <div className="flex flex-col gap-6 px-6 py-4">
           {error && <div className="text-sm text-[color:var(--danger)]">{error}</div>}
+          {notice && <div className="text-sm text-[color:var(--brand)]">{notice}</div>}
+          {profileError && <div className="text-sm text-[color:var(--danger)]">{profileError}</div>}
           <section className="flex flex-col gap-3">
             <div>
               <label className="block text-sm text-[color:var(--muted)] mb-1">Nombre del creador</label>
@@ -132,6 +199,59 @@ export default function CreatorSettingsPanel({ isOpen, onClose }: CreatorSetting
                 value={formData.creatorDescription}
                 onChange={e => setFormData(prev => ({ ...prev, creatorDescription: e.target.value }))}
               />
+            </div>
+          </section>
+
+          <section className="flex flex-col gap-3">
+            <div className="flex items-center justify-between">
+              <h3 className="text-md font-semibold">Perfil público</h3>
+              {profileLoading && <span className="text-xs text-[color:var(--muted)]">Cargando...</span>}
+            </div>
+            <div>
+              <label className="block text-sm text-[color:var(--muted)] mb-1">Plan</label>
+              <select
+                className="w-full bg-[color:var(--surface-2)] border border-[color:var(--surface-border)] rounded-md px-3 py-2 text-[color:var(--text)]"
+                value={profilePlan}
+                onChange={(e) => setProfilePlan(e.target.value === "PRO" ? "PRO" : "FREE")}
+              >
+                <option value="FREE">FREE</option>
+                <option value="PRO">PRO</option>
+              </select>
+            </div>
+            <label className="flex items-center gap-2 text-sm text-[color:var(--muted)]">
+              <input
+                type="checkbox"
+                className="h-4 w-4"
+                checked={profileVerified}
+                onChange={(e) => {
+                  const next = e.target.checked;
+                  setProfileVerified(next);
+                  setFormData((prev) => ({ ...prev, isVerified: next }));
+                }}
+              />
+              Verificado
+            </label>
+            <div>
+              <label className="block text-sm text-[color:var(--muted)] mb-1">Servicios (separados por coma)</label>
+              <input
+                className="w-full bg-[color:var(--surface-2)] border border-[color:var(--surface-border)] rounded-md px-3 py-2 text-[color:var(--text)]"
+                value={profileServices}
+                onChange={(e) => {
+                  const value = e.target.value;
+                  setProfileServices(value);
+                  setFormData((prev) => ({
+                    ...prev,
+                    offerTags: value
+                      .split(",")
+                      .map((tag) => tag.trim())
+                      .filter((tag) => Boolean(tag)),
+                  }));
+                }}
+                placeholder="Sexting, Audios, Roleplay"
+              />
+              <p className="text-[12px] text-[color:var(--muted)] mt-1">
+                Se muestran como chips en el perfil público.
+              </p>
             </div>
           </section>
 
