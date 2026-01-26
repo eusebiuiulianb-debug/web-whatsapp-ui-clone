@@ -147,6 +147,8 @@ export const PopClipTile = memo(function PopClipTile({
   const hiddenChips = chipItems.slice(maxChips);
   const hiddenCount = hiddenChips.length;
   const chipItemsTitle = chipItems.join(" • ");
+  const overflowChipClass =
+    "inline-flex items-center justify-center rounded-full border border-white/15 bg-white/10 px-2 py-1 text-[11px] leading-none font-medium text-white/90 min-w-[44px] shrink-0";
   const creatorInitial = item.creator.displayName?.trim()?.[0]?.toUpperCase() || "C";
   const quickActions: ContextMenuItem[] = [];
   const canOrganize = Boolean(isSaved && onOrganize && organizerItemId);
@@ -594,7 +596,7 @@ export const PopClipTile = memo(function PopClipTile({
           )}
         >
           {chipItems.length > 0 ? (
-            <div className="relative flex min-h-[28px] items-center gap-2 overflow-x-auto">
+            <div className="relative flex flex-wrap items-center gap-2">
               {visibleChips.map((badge, index) => (
                 <span
                   key={`${badge}-${index}`}
@@ -619,9 +621,10 @@ export const PopClipTile = memo(function PopClipTile({
                               event.stopPropagation();
                             }
                           }}
-                          className="whitespace-nowrap rounded-full border border-white/15 bg-white/10 px-2.5 py-0.5 text-[10px] font-semibold text-white/90"
+                          className={overflowChipClass}
                         >
                           +{hiddenCount}
+                          <span className="hidden md:inline">&nbsp;más</span>
                         </button>
                       </Popover.Trigger>
                       <Popover.Portal>
@@ -660,9 +663,10 @@ export const PopClipTile = memo(function PopClipTile({
                               event.stopPropagation();
                             }
                           }}
-                          className="whitespace-nowrap rounded-full border border-white/15 bg-white/10 px-2.5 py-0.5 text-[10px] font-semibold text-white/90"
+                          className={overflowChipClass}
                         >
                           +{hiddenCount}
+                          <span className="hidden md:inline">&nbsp;más</span>
                         </button>
                       </Dialog.Trigger>
                       <Dialog.Portal>

@@ -37,7 +37,6 @@ npm install
 npx prisma generate --schema prisma/schema.prisma
 npx prisma migrate dev --schema prisma/schema.prisma
 npm run dev
-
 ```
 
 Por defecto: `npm run dev` (abre en `http://localhost:3005`).

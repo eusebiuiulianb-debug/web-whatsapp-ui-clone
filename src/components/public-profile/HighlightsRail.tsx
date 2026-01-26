@@ -139,15 +139,24 @@ export function HighlightsRail({
 
   useEffect(() => {
     if (typeof window === "undefined" || !("matchMedia" in window)) return;
-    const mediaQuery = window.matchMedia("(pointer: coarse)");
+    const mediaQuery: MediaQueryList = window.matchMedia("(pointer: coarse)");
     const update = () => setIsCoarsePointer(mediaQuery.matches);
     update();
-    if ("addEventListener" in mediaQuery) {
-      mediaQuery.addEventListener("change", update);
-      return () => mediaQuery.removeEventListener("change", update);
+    const legacyMediaQuery = mediaQuery as unknown as {
+      addEventListener?: (type: "change", listener: (event: MediaQueryListEvent) => void) => void;
+      removeEventListener?: (type: "change", listener: (event: MediaQueryListEvent) => void) => void;
+      addListener?: (listener: (event: MediaQueryListEvent) => void) => void;
+      removeListener?: (listener: (event: MediaQueryListEvent) => void) => void;
+    };
+    if (typeof legacyMediaQuery.addEventListener === "function") {
+      legacyMediaQuery.addEventListener("change", update);
+      return () => legacyMediaQuery.removeEventListener?.("change", update);
     }
-    mediaQuery.addListener(update);
-    return () => mediaQuery.removeListener(update);
+    if (typeof legacyMediaQuery.addListener === "function") {
+      legacyMediaQuery.addListener(update);
+      return () => legacyMediaQuery.removeListener?.(update);
+    }
+    return;
   }, []);
 
   const handleTrackPointerDown = useCallback((event: PointerEvent<HTMLDivElement>) => {

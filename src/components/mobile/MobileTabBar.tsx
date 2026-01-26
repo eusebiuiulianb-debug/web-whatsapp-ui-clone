@@ -21,7 +21,7 @@ const TABS: TabItem[] = [
   { key: "me", label: "Tu", href: "/creator/panel", icon: User },
 ];
 
-const VISIBLE_ROUTES = new Set(["/discover", "/explore", "/login", "/c/[handle]"]);
+const VISIBLE_ROUTES = new Set(["/discover", "/explore", "/login", "/c/[handle]", "/[handle]"]);
 
 function TabLink({
   href,
@@ -75,7 +75,7 @@ export function MobileTabBar() {
   const router = useRouter();
   const pathname = router.pathname;
   const currentPath = router.asPath.split("?")[0] || "";
-  const shouldRender = pathname.startsWith("/creator") || VISIBLE_ROUTES.has(pathname);
+  const shouldRender = VISIBLE_ROUTES.has(pathname);
   const shouldPadBody = shouldRender && pathname !== "/c/[handle]";
   const [creatorAvailable, setCreatorAvailable] = useState<boolean | null>(null);
   const [quickOpen, setQuickOpen] = useState(false);
@@ -168,7 +168,7 @@ export function MobileTabBar() {
 
   return (
     <>
-      <nav className="fixed inset-x-0 bottom-0 z-40 border-t border-[color:var(--surface-border)] bg-[color:var(--surface-1)]/95 pb-[env(safe-area-inset-bottom)] backdrop-blur-xl md:hidden">
+      <nav className="fixed inset-x-0 bottom-0 z-40 border-t border-[color:var(--surface-border)] bg-[color:var(--surface-1)]/95 pb-[env(safe-area-inset-bottom)] backdrop-blur-xl lg:hidden">
         <div className="mx-auto flex w-full max-w-6xl items-end justify-around px-4 pb-2 pt-2">
           {resolvedTabs.map((tab) => {
             const basePath = tab.href.split("?")[0];
