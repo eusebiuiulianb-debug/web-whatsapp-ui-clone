@@ -100,7 +100,7 @@ export function PackTile({
           aria-label={isProfileMinimal ? undefined : `Abrir ${item.title}`}
           className={`relative w-full overflow-hidden rounded-2xl focus:outline-none focus:ring-1 focus:ring-[color:var(--ring)] ${
             isProfileMinimal
-              ? "aspect-[3/4] sm:aspect-[16/10]"
+              ? "aspect-[3/4]"
               : isProfileCompact
                 ? "h-[180px] sm:h-auto sm:aspect-[3/4] md:aspect-[4/5]"
                 : "aspect-[10/13] sm:aspect-[3/4] md:aspect-[4/5]"

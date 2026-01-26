@@ -9,7 +9,6 @@ import {
   type MouseEvent,
   type TouchEvent,
   type WheelEvent,
-  type PointerEvent,
 } from "react";
 import { useRouter } from "next/router";
 import Link from "next/link";
@@ -17,6 +16,7 @@ import { ChevronLeft, ChevronRight, Lock, Pencil, ThumbsUp } from "lucide-react"
 import { HomeSectionCard } from "../../components/home/HomeSectionCard";
 import { PackTile, type PackTileItem } from "../../components/packs/PackTile";
 import { PopClipTile, type PopClipTileItem } from "../../components/popclips/PopClipTile";
+import { HighlightsRail } from "../../components/public-profile/HighlightsRail";
 import { PublicHero } from "../../components/public-profile/PublicHero";
 import { PublicProfileStatsRow } from "../../components/public-profile/PublicProfileStatsRow";
 import { Skeleton } from "../../components/ui/Skeleton";
@@ -86,7 +86,6 @@ const DEFAULT_LOCATION_PRECISION_KM = 3;
 const MIN_FOLLOW_MUTATION_MS = 400;
 const CHAT_CTA_LABEL = "Abrir chat";
 const LOCKED_CTA_LABEL = "Ver acceso";
-const clampValue = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
 
 type HighlightTab = "popclips" | "pack" | "sub" | "extra";
 
@@ -226,14 +225,6 @@ export default function PublicCreatorByHandle({
   const [viewerComment, setViewerComment] = useState<{ rating: number; text: string } | null>(null);
   const [activeHighlight, setActiveHighlight] = useState<HighlightTab>("popclips");
   const [highlightModalOpen, setHighlightModalOpen] = useState(false);
-  const [highlightScrollState, setHighlightScrollState] = useState({
-    show: false,
-    thumbWidth: 0,
-    thumbLeft: 0,
-    scrollLeft: 0,
-    scrollMax: 0,
-  });
-  const [highlightDragging, setHighlightDragging] = useState(false);
   const [activePopclip, setActivePopclip] = useState<PublicPopClip | null>(null);
   const [commentSheetOpen, setCommentSheetOpen] = useState(false);
   const [commentRating, setCommentRating] = useState(5);
@@ -248,16 +239,6 @@ export default function PublicCreatorByHandle({
   const popclipTouchStartRef = useRef<number | null>(null);
   const popclipTouchLastRef = useRef<number | null>(null);
   const popclipQueryHandledRef = useRef<string | null>(null);
-  const highlightScrollRef = useRef<HTMLDivElement | null>(null);
-  const highlightScrollTrackRef = useRef<HTMLDivElement | null>(null);
-  const highlightScrollRafRef = useRef<number | null>(null);
-  const highlightScrollDragRef = useRef<{
-    pointerId: number;
-    startX: number;
-    startThumbLeft: number;
-    maxThumbLeft: number;
-    scrollMax: number;
-  } | null>(null);
   const [chatPending, setChatPending] = useState(false);
   const [followPending, setFollowPending] = useState(false);
   const initialFollowersCount =
@@ -741,7 +722,7 @@ export default function PublicCreatorByHandle({
   const showHighlightLoadMore = activeHighlight === "popclips" && Boolean(popClipsCursor);
   const highlightLoading = activeHighlight === "popclips" && popClipsLoading;
   const highlightModalLoading = highlightLoading && activeHighlightAll.length === 0;
-  const highlightTileWidthClass = "w-[110px] sm:w-[140px] lg:w-[170px]";
+  const highlightTileWidthClass = "w-[clamp(150px,18vw,220px)]";
   const highlightEmptyCopyByTab: Record<HighlightTab, string> = {
     popclips: "Aún no hay PopClips publicados.",
     pack: "Aún no hay packs publicados.",
@@ -1104,151 +1085,6 @@ export default function PublicCreatorByHandle({
   const highlightViewAllLabel =
     highlightModalCount > 0 ? `${highlightViewAllBaseLabel} (${highlightModalCount})` : highlightViewAllBaseLabel;
   const shouldShowHighlightViewAll = highlightHasMore && highlightModalCount > 0;
-
-  const updateHighlightScroll = useCallback(() => {
-    const container = highlightScrollRef.current;
-    if (!container) {
-      setHighlightScrollState((prev) =>
-        prev.show ? { show: false, thumbWidth: 0, thumbLeft: 0, scrollLeft: 0, scrollMax: 0 } : prev
-      );
-      return;
-    }
-    const { scrollLeft, scrollWidth, clientWidth } = container;
-    const scrollMax = Math.max(0, scrollWidth - clientWidth);
-    if (scrollMax <= 1) {
-      setHighlightScrollState((prev) =>
-        prev.show ? { show: false, thumbWidth: 0, thumbLeft: 0, scrollLeft: 0, scrollMax: 0 } : prev
-      );
-      return;
-    }
-    const trackWidth = highlightScrollTrackRef.current?.clientWidth || clientWidth;
-    if (!trackWidth) {
-      setHighlightScrollState((prev) =>
-        prev.show ? { show: false, thumbWidth: 0, thumbLeft: 0, scrollLeft: 0, scrollMax: 0 } : prev
-      );
-      return;
-    }
-    const rawThumbWidth = trackWidth * (clientWidth / scrollWidth);
-    const thumbWidth = clampValue(rawThumbWidth, 28, Math.min(72, trackWidth));
-    const maxLeft = Math.max(0, trackWidth - thumbWidth);
-    const thumbLeft = maxLeft > 0 ? (scrollLeft / scrollMax) * maxLeft : 0;
-    setHighlightScrollState((prev) => {
-      if (
-        prev.show &&
-        Math.abs(prev.thumbWidth - thumbWidth) < 0.5 &&
-        Math.abs(prev.thumbLeft - thumbLeft) < 0.5 &&
-        Math.abs(prev.scrollLeft - scrollLeft) < 0.5 &&
-        Math.abs(prev.scrollMax - scrollMax) < 0.5
-      ) {
-        return prev;
-      }
-      return { show: true, thumbWidth, thumbLeft, scrollLeft, scrollMax };
-    });
-  }, []);
-
-  const scheduleHighlightScrollUpdate = useCallback(() => {
-    if (typeof window === "undefined") return;
-    if (highlightScrollRafRef.current !== null) return;
-    highlightScrollRafRef.current = window.requestAnimationFrame(() => {
-      highlightScrollRafRef.current = null;
-      updateHighlightScroll();
-    });
-  }, [updateHighlightScroll]);
-
-  useEffect(() => {
-    const container = highlightScrollRef.current;
-    if (!container) {
-      setHighlightScrollState((prev) =>
-        prev.show ? { show: false, thumbWidth: 0, thumbLeft: 0, scrollLeft: 0, scrollMax: 0 } : prev
-      );
-      return;
-    }
-    scheduleHighlightScrollUpdate();
-    const handleScroll = () => scheduleHighlightScrollUpdate();
-    const handleResize = () => scheduleHighlightScrollUpdate();
-    container.addEventListener("scroll", handleScroll, { passive: true });
-    window.addEventListener("resize", handleResize);
-    return () => {
-      container.removeEventListener("scroll", handleScroll);
-      window.removeEventListener("resize", handleResize);
-      if (highlightScrollRafRef.current !== null) {
-        window.cancelAnimationFrame(highlightScrollRafRef.current);
-        highlightScrollRafRef.current = null;
-      }
-    };
-  }, [activeHighlight, hasHighlightTiles, scheduleHighlightScrollUpdate]);
-
-  const handleHighlightTrackPointerDown = useCallback((event: PointerEvent<HTMLDivElement>) => {
-    if (event.button !== 0) return;
-    const container = highlightScrollRef.current;
-    const track = highlightScrollTrackRef.current;
-    if (!container || !track) return;
-    const scrollMax = Math.max(0, container.scrollWidth - container.clientWidth);
-    if (scrollMax <= 0) return;
-    const trackRect = track.getBoundingClientRect();
-    const trackWidth = trackRect.width;
-    if (!trackWidth) return;
-    const rawThumbWidth = trackWidth * (container.clientWidth / container.scrollWidth);
-    const thumbWidth = clampValue(rawThumbWidth, 28, Math.min(72, trackWidth));
-    const maxLeft = Math.max(0, trackWidth - thumbWidth);
-    const targetLeft = clampValue(event.clientX - trackRect.left - thumbWidth / 2, 0, maxLeft);
-    const ratio = maxLeft > 0 ? targetLeft / maxLeft : 0;
-    container.scrollTo({ left: ratio * scrollMax, behavior: "smooth" });
-    event.preventDefault();
-    event.stopPropagation();
-  }, []);
-
-  const handleHighlightThumbPointerDown = useCallback((event: PointerEvent<HTMLDivElement>) => {
-    if (event.button !== 0) return;
-    const container = highlightScrollRef.current;
-    const track = highlightScrollTrackRef.current;
-    if (!container || !track) return;
-    const scrollMax = Math.max(0, container.scrollWidth - container.clientWidth);
-    if (scrollMax <= 0) return;
-    const trackRect = track.getBoundingClientRect();
-    const trackWidth = trackRect.width;
-    if (!trackWidth) return;
-    const rawThumbWidth = trackWidth * (container.clientWidth / container.scrollWidth);
-    const thumbWidth = clampValue(rawThumbWidth, 28, Math.min(72, trackWidth));
-    const maxThumbLeft = Math.max(0, trackWidth - thumbWidth);
-    const startThumbLeft = maxThumbLeft > 0 ? (container.scrollLeft / scrollMax) * maxThumbLeft : 0;
-    highlightScrollDragRef.current = {
-      pointerId: event.pointerId,
-      startX: event.clientX,
-      startThumbLeft,
-      maxThumbLeft,
-      scrollMax,
-    };
-    setHighlightDragging(true);
-    event.currentTarget.setPointerCapture(event.pointerId);
-    event.preventDefault();
-    event.stopPropagation();
-  }, []);
-
-  const handleHighlightThumbPointerMove = useCallback((event: PointerEvent<HTMLDivElement>) => {
-    const dragState = highlightScrollDragRef.current;
-    if (!dragState || dragState.pointerId !== event.pointerId) return;
-    const container = highlightScrollRef.current;
-    if (!container) return;
-    const deltaX = event.clientX - dragState.startX;
-    const nextThumbLeft = clampValue(dragState.startThumbLeft + deltaX, 0, dragState.maxThumbLeft);
-    const ratio = dragState.maxThumbLeft > 0 ? nextThumbLeft / dragState.maxThumbLeft : 0;
-    container.scrollLeft = ratio * dragState.scrollMax;
-    event.preventDefault();
-    event.stopPropagation();
-  }, []);
-
-  const handleHighlightThumbPointerUp = useCallback((event: PointerEvent<HTMLDivElement>) => {
-    const dragState = highlightScrollDragRef.current;
-    if (!dragState || dragState.pointerId !== event.pointerId) return;
-    highlightScrollDragRef.current = null;
-    setHighlightDragging(false);
-    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
-      event.currentTarget.releasePointerCapture(event.pointerId);
-    }
-    event.preventDefault();
-    event.stopPropagation();
-  }, []);
 
   const handleClosePopclipViewer = () => {
     setActivePopclip(null);
@@ -1732,18 +1568,13 @@ export default function PublicCreatorByHandle({
               </div>
               {!hasHighlightTiles ? (
                 highlightLoading ? (
-                  <div className="relative">
-                    <div className="no-scrollbar flex gap-2 overflow-x-auto pb-2 pr-4 scroll-pr-4 snap-x snap-mandatory scroll-smooth sm:gap-3">
-                      {Array.from({ length: HIGHLIGHT_PREVIEW_MAX }).map((_, idx) => (
-                        <Skeleton
-                          key={`highlight-skeleton-${idx}`}
-                          className={`aspect-[3/4] sm:aspect-[16/10] ${highlightTileWidthClass} shrink-0 snap-start rounded-2xl`}
-                        />
-                      ))}
-                      <div className="w-4 shrink-0" />
-                    </div>
-                    <div className="pointer-events-none absolute right-0 top-0 h-full w-6 bg-gradient-to-l from-[color:var(--surface-0)] to-transparent" />
-                  </div>
+                  <HighlightsRail
+                    isLoading
+                    skeletonCount={HIGHLIGHT_PREVIEW_MAX}
+                    tileWidthClass={highlightTileWidthClass}
+                    maxWidthClass="max-w-[960px]"
+                    trackClassName="hidden md:block"
+                  />
                 ) : (
                   <div className="rounded-2xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-4 py-3 text-xs text-[color:var(--muted)] space-y-3">
                     <p>{highlightEmptyCopyByTab[activeHighlight]}</p>
@@ -1772,64 +1603,16 @@ export default function PublicCreatorByHandle({
                   </div>
                 )
               ) : (
-                <div className="relative">
-                  <div
-                    ref={highlightScrollRef}
-                    className="no-scrollbar flex gap-2 overflow-x-auto pb-2 pr-4 scroll-pr-4 snap-x snap-mandatory scroll-smooth sm:gap-3"
-                    style={highlightDragging ? { scrollSnapType: "none", scrollBehavior: "auto" } : undefined}
-                  >
-                    {highlightTileEntries.map(({ item, node }) => (
-                      <div key={item.id} className={`${highlightTileWidthClass} shrink-0 snap-start`}>
-                        {node}
-                      </div>
-                    ))}
-                    {shouldShowHighlightViewAll ? (
-                      <div className={`${highlightTileWidthClass} shrink-0 snap-start`}>
-                        <button
-                          type="button"
-                          onClick={handleViewAllHighlights}
-                          className="relative aspect-[3/4] sm:aspect-[16/10] w-full overflow-hidden rounded-2xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] text-left shadow-sm transition hover:-translate-y-0.5 hover:shadow-lg"
-                        >
-                          <div className="absolute inset-0 bg-gradient-to-br from-[color:rgba(10,14,24,0.9)] via-[color:rgba(18,24,38,0.9)] to-[color:rgba(6,9,18,0.95)]" />
-                          <div className="relative flex h-full flex-col items-center justify-center gap-0.5 px-2 text-white/90">
-                            <span className="text-center text-[11px] font-semibold">{highlightViewAllBaseLabel}</span>
-                            {highlightModalCount > 0 ? (
-                              <span className="text-[10px] text-white/70">({highlightModalCount})</span>
-                            ) : null}
-                          </div>
-                        </button>
-                      </div>
-                    ) : null}
-                    <div className="w-4 shrink-0" />
-                  </div>
-                  <div className="pointer-events-none absolute right-0 top-0 h-full w-6 bg-gradient-to-l from-[color:var(--surface-0)] to-transparent" />
-                  {highlightScrollState.show ? (
-                    <div
-                      ref={highlightScrollTrackRef}
-                      onPointerDown={handleHighlightTrackPointerDown}
-                      className="relative mt-2 h-1 w-full select-none rounded-full bg-white/10"
-                    >
-                      <div
-                        role="slider"
-                        aria-label="Scroll de destacados"
-                        aria-valuemin={0}
-                        aria-valuemax={Math.round(highlightScrollState.scrollMax)}
-                        aria-valuenow={Math.round(highlightScrollState.scrollLeft)}
-                        onPointerDown={handleHighlightThumbPointerDown}
-                        onPointerMove={handleHighlightThumbPointerMove}
-                        onPointerUp={handleHighlightThumbPointerUp}
-                        onPointerCancel={handleHighlightThumbPointerUp}
-                        className={`absolute left-0 top-0 h-full rounded-full bg-white/30 shadow-[0_0_6px_rgba(255,255,255,0.35)] touch-none${
-                          highlightDragging ? " cursor-grabbing" : " cursor-grab transition-[transform,width] duration-150"
-                        }`}
-                        style={{
-                          width: `${highlightScrollState.thumbWidth}px`,
-                          transform: `translateX(${highlightScrollState.thumbLeft}px)`,
-                        }}
-                      />
-                    </div>
-                  ) : null}
-                </div>
+                <HighlightsRail
+                  items={highlightTileEntries.map(({ item, node }) => ({ id: item.id, node }))}
+                  showViewAll={shouldShowHighlightViewAll}
+                  viewAllLabel={highlightViewAllBaseLabel}
+                  viewAllCount={highlightModalCount}
+                  onViewAll={handleViewAllHighlights}
+                  tileWidthClass={highlightTileWidthClass}
+                  maxWidthClass="max-w-[960px]"
+                  trackClassName="hidden md:block"
+                />
               )}
             </div>
           </HomeSectionCard>
@@ -2519,12 +2302,12 @@ export const getServerSideProps: GetServerSideProps<Props> = async (ctx) => {
   const trustLine = match.bioLinkTagline ?? match.subtitle ?? "";
   const bio = match.bioLinkDescription ?? match.description ?? "";
   const websiteUrl = profile?.websiteUrl ?? null;
-  const isVerified =
-    resolveVerifiedFlag((match as { isVerified?: unknown }).isVerified) ||
-    resolveVerifiedFlag((profile as { isVerified?: unknown } | null)?.isVerified);
-  const offerTags = resolveOfferTags(
-    (profile as { offerTags?: unknown } | null)?.offerTags ?? (match as { offerTags?: unknown }).offerTags
-  );
+  const isVerified = profile
+    ? resolveVerifiedFlag((profile as { isVerified?: unknown }).isVerified)
+    : resolveVerifiedFlag((match as { isVerified?: unknown }).isVerified);
+  const offerTags = profile
+    ? resolveOfferTags((profile as { offerTags?: unknown }).offerTags)
+    : resolveOfferTags((match as { offerTags?: unknown }).offerTags);
   const profilePayload = {
     creatorId: match.id,
     creatorName: match.name || "Creador",

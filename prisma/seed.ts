@@ -372,7 +372,7 @@ async function main() {
     name: "Eusebiu",
     handle: slugifyHandle("Eusebiu"),
     isVerified: true,
-    offerTags: ["Sexting", "Roleplay", "Audios", "Retos"],
+    offerTags: ["Sexting", "Audios", "Roleplay", "1:1", "Packs", "Extras"],
     subtitle: "Responde en menos de 24h",
     description:
       "Bienvenido a mi espacio en NOVSY. Aquí comparto avances, envío audios personalizados y respondo tus ideas para crear contenido hecho a tu medida. Únete para acceder a sesiones 1:1, material exclusivo y priorizar tus pedidos.",
@@ -387,8 +387,19 @@ async function main() {
 
   await prisma.creatorProfile.upsert({
     where: { creatorId: creator.id },
-    update: { visibilityMode: "SOLO_LINK", websiteUrl: "https://novsy.app" },
-    create: { creatorId: creator.id, visibilityMode: "SOLO_LINK", websiteUrl: "https://novsy.app" },
+    update: {
+      visibilityMode: "SOLO_LINK",
+      websiteUrl: "https://novsy.app",
+      isVerified: true,
+      offerTags: ["Sexting", "Audios", "Roleplay", "1:1", "Packs", "Extras"],
+    },
+    create: {
+      creatorId: creator.id,
+      visibilityMode: "SOLO_LINK",
+      websiteUrl: "https://novsy.app",
+      isVerified: true,
+      offerTags: ["Sexting", "Audios", "Roleplay", "1:1", "Packs", "Extras"],
+    },
   });
 
   const agencyTemplateSeeds = buildAgencyTemplateSeeds();

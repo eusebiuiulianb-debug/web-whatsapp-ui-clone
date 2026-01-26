@@ -32,7 +32,7 @@ export function OfferTagsRow({ tags, maxVisible = DEFAULT_MAX_VISIBLE, label = "
   return (
     <div className={clsx("space-y-2", className)}>
       <p className="text-[11px] font-semibold text-[color:var(--muted)]">{label}</p>
-      <div className="flex items-center gap-2 overflow-x-auto whitespace-nowrap no-scrollbar sm:flex-wrap sm:overflow-visible sm:whitespace-normal">
+      <div className="flex flex-nowrap items-center gap-2 overflow-x-auto whitespace-nowrap no-scrollbar">
         {visibleTags.map((tag, index) => (
           <span key={`${tag}-${index}`} className={chipClassName}>
             {tag}

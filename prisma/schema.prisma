@@ -64,6 +64,8 @@ model CreatorProfile {
   id                        String   @id @default(cuid())
   creatorId                 String   @unique
   creator                   Creator  @relation(fields: [creatorId], references: [id])
+  isVerified                Boolean  @default(false)
+  offerTags                 Json?
   coverUrl                  String?
   websiteUrl                String?
   visibilityMode            CreatorVisibilityMode @default(SOLO_LINK)
