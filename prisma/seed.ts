@@ -390,6 +390,7 @@ async function main() {
     update: {
       visibilityMode: "SOLO_LINK",
       websiteUrl: "https://novsy.app",
+      plan: "PRO",
       isVerified: true,
       offerTags: ["Sexting", "Audios", "Roleplay", "1:1", "Packs", "Extras"],
     },
@@ -397,6 +398,7 @@ async function main() {
       creatorId: creator.id,
       visibilityMode: "SOLO_LINK",
       websiteUrl: "https://novsy.app",
+      plan: "PRO",
       isVerified: true,
       offerTags: ["Sexting", "Audios", "Roleplay", "1:1", "Packs", "Extras"],
     },

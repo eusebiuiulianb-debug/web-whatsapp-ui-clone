@@ -20,9 +20,12 @@ type Props = {
   maxWidthClass?: string;
   showTrack?: boolean;
   trackClassName?: string;
+  widthVarsClass?: string;
 };
 
-const DEFAULT_TILE_WIDTH = "w-[clamp(150px,18vw,220px)]";
+const DEFAULT_WIDTH_VARS =
+  "[--card-w:160px] sm:[--card-w:180px] md:[--card-w:200px] lg:[--card-w:220px]";
+const DEFAULT_TILE_WIDTH = "w-[var(--card-w)]";
 const DEFAULT_TILE_ASPECT = "aspect-[3/4]";
 const clampValue = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
 
@@ -38,7 +41,8 @@ export function HighlightsRail({
   tileAspectClass = DEFAULT_TILE_ASPECT,
   maxWidthClass = "max-w-[960px]",
   showTrack = true,
-  trackClassName = "hidden md:block",
+  trackClassName = "block",
+  widthVarsClass = DEFAULT_WIDTH_VARS,
 }: Props) {
   const railRef = useRef<HTMLDivElement | null>(null);
   const trackRef = useRef<HTMLDivElement | null>(null);
@@ -58,6 +62,7 @@ export function HighlightsRail({
     scrollMax: 0,
   });
   const [dragging, setDragging] = useState(false);
+  const [isCoarsePointer, setIsCoarsePointer] = useState(false);
 
   const updateScrollState = useCallback(() => {
     const container = railRef.current;
@@ -131,6 +136,19 @@ export function HighlightsRail({
   useEffect(() => {
     scheduleScrollUpdate();
   }, [items.length, isLoading, showViewAll, scheduleScrollUpdate]);
+
+  useEffect(() => {
+    if (typeof window === "undefined" || !("matchMedia" in window)) return;
+    const mediaQuery = window.matchMedia("(pointer: coarse)");
+    const update = () => setIsCoarsePointer(mediaQuery.matches);
+    update();
+    if ("addEventListener" in mediaQuery) {
+      mediaQuery.addEventListener("change", update);
+      return () => mediaQuery.removeEventListener("change", update);
+    }
+    mediaQuery.addListener(update);
+    return () => mediaQuery.removeListener(update);
+  }, []);
 
   const handleTrackPointerDown = useCallback((event: PointerEvent<HTMLDivElement>) => {
     if (event.button !== 0) return;
@@ -206,13 +224,15 @@ export function HighlightsRail({
 
   const shouldRenderViewAll = Boolean(showViewAll && onViewAll);
   const shouldRenderRail = isLoading || items.length > 0 || shouldRenderViewAll;
+  const shouldShowTrack = showTrack && (scrollState.show || isCoarsePointer);
+  const trackVisibilityClass = isCoarsePointer ? "opacity-100" : "opacity-60";
   if (!shouldRenderRail) return null;
 
   return (
-    <div className={clsx("relative w-full", maxWidthClass)}>
+    <div className={clsx("relative w-full", maxWidthClass, widthVarsClass)}>
       <div
         ref={railRef}
-        className="no-scrollbar flex flex-nowrap gap-3 overflow-x-auto pb-2 pr-4 scroll-pr-4 snap-x snap-mandatory scroll-smooth"
+        className="no-scrollbar flex flex-nowrap gap-3 overflow-x-auto pb-2 pr-4 scroll-pr-4 snap-x snap-mandatory scroll-smooth overscroll-x-contain"
         style={dragging ? { scrollSnapType: "none", scrollBehavior: "auto" } : undefined}
       >
         {isLoading
@@ -246,14 +266,14 @@ export function HighlightsRail({
         ) : null}
         <div className="w-4 shrink-0" />
       </div>
-      {showTrack ? (
+      {shouldShowTrack ? (
         <div
           ref={trackRef}
           onPointerDown={handleTrackPointerDown}
           className={clsx(
             "relative mt-2 h-1 w-full select-none rounded-full bg-white/10 transition-opacity",
             trackClassName,
-            scrollState.show ? "opacity-100" : "pointer-events-none opacity-0"
+            trackVisibilityClass
           )}
         >
           {scrollState.show ? (
@@ -275,7 +295,9 @@ export function HighlightsRail({
                 transform: `translateX(${scrollState.thumbLeft}px)`,
               }}
             />
-          ) : null}
+          ) : (
+            <div className="absolute inset-0 rounded-full bg-white/15" aria-hidden="true" />
+          )}
         </div>
       ) : null}
     </div>

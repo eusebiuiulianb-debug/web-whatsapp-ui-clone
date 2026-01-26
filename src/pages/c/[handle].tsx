@@ -51,6 +51,7 @@ type Props = {
   avatarUrl?: string | null;
   creatorHandle?: string;
   isVerified?: boolean;
+  plan?: "FREE" | "PRO";
   offerTags?: string[];
   isCreatorViewer?: boolean;
   stats?: PublicProfileStats;
@@ -86,6 +87,7 @@ const DEFAULT_LOCATION_PRECISION_KM = 3;
 const MIN_FOLLOW_MUTATION_MS = 400;
 const CHAT_CTA_LABEL = "Abrir chat";
 const LOCKED_CTA_LABEL = "Ver acceso";
+const DEFAULT_SERVICES_TAGS = ["Chat", "Audios", "Sesiones 1:1", "Packs"];
 
 type HighlightTab = "popclips" | "pack" | "sub" | "extra";
 
@@ -191,6 +193,7 @@ export default function PublicCreatorByHandle({
   avatarUrl,
   creatorHandle,
   isVerified,
+  plan,
   offerTags,
   isCreatorViewer,
   stats,
@@ -250,6 +253,8 @@ export default function PublicCreatorByHandle({
   const isFollowingState = followState.isFollowing;
   const followersCount = typeof followState.followersCount === "number" ? followState.followersCount : 0;
   const popclipQueryId = typeof router.query.popclip === "string" ? router.query.popclip : "";
+  const resolvedOfferTags =
+    Array.isArray(offerTags) && offerTags.length > 0 ? offerTags : DEFAULT_SERVICES_TAGS;
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -722,7 +727,6 @@ export default function PublicCreatorByHandle({
   const showHighlightLoadMore = activeHighlight === "popclips" && Boolean(popClipsCursor);
   const highlightLoading = activeHighlight === "popclips" && popClipsLoading;
   const highlightModalLoading = highlightLoading && activeHighlightAll.length === 0;
-  const highlightTileWidthClass = "w-[clamp(150px,18vw,220px)]";
   const highlightEmptyCopyByTab: Record<HighlightTab, string> = {
     popclips: "Aún no hay PopClips publicados.",
     pack: "Aún no hay packs publicados.",
@@ -1467,10 +1471,11 @@ export default function PublicCreatorByHandle({
             tagline={tagline}
             topEligible={topEligible}
             isVerified={isVerified}
+            plan={plan}
             chips={creatorChips}
             chipsPlacement="meta"
             chipsAction={statusEditAction}
-            offerTags={offerTags}
+            offerTags={resolvedOfferTags}
             primaryCtaLabel={CHAT_CTA_LABEL}
             primaryHref={chatHref}
             primaryOnClick={handleOpenChat}
@@ -1571,9 +1576,7 @@ export default function PublicCreatorByHandle({
                   <HighlightsRail
                     isLoading
                     skeletonCount={HIGHLIGHT_PREVIEW_MAX}
-                    tileWidthClass={highlightTileWidthClass}
                     maxWidthClass="max-w-[960px]"
-                    trackClassName="hidden md:block"
                   />
                 ) : (
                   <div className="rounded-2xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-4 py-3 text-xs text-[color:var(--muted)] space-y-3">
@@ -1609,9 +1612,7 @@ export default function PublicCreatorByHandle({
                   viewAllLabel={highlightViewAllBaseLabel}
                   viewAllCount={highlightModalCount}
                   onViewAll={handleViewAllHighlights}
-                  tileWidthClass={highlightTileWidthClass}
                   maxWidthClass="max-w-[960px]"
-                  trackClassName="hidden md:block"
                 />
               )}
             </div>
@@ -2208,6 +2209,7 @@ const resolveOfferTags = (value: unknown) => {
 };
 
 const resolveVerifiedFlag = (value: unknown) => value === true;
+const resolveCreatorPlan = (value: unknown): "FREE" | "PRO" => (value === "PRO" ? "PRO" : "FREE");
 
 export const getServerSideProps: GetServerSideProps<Props> = async (ctx) => {
   const prisma = (await import("../../lib/prisma.server")).default;
@@ -2308,6 +2310,9 @@ export const getServerSideProps: GetServerSideProps<Props> = async (ctx) => {
   const offerTags = profile
     ? resolveOfferTags((profile as { offerTags?: unknown }).offerTags)
     : resolveOfferTags((match as { offerTags?: unknown }).offerTags);
+  const plan = profile
+    ? resolveCreatorPlan((profile as { plan?: unknown }).plan)
+    : resolveCreatorPlan((match as { plan?: unknown }).plan);
   const profilePayload = {
     creatorId: match.id,
     creatorName: match.name || "Creador",
@@ -2317,6 +2322,7 @@ export const getServerSideProps: GetServerSideProps<Props> = async (ctx) => {
     subtitle: trustLine,
     websiteUrl,
     isVerified,
+    plan,
     offerTags,
   };
   const contentPayload = {

@@ -6,6 +6,7 @@ import { PublicLocationBadge } from "./PublicLocationBadge";
 import { Skeleton } from "../ui/Skeleton";
 import { OfferTagsRow } from "./OfferTagsRow";
 import { VerifiedBadge } from "../ui/VerifiedBadge";
+import { ProBadge } from "../ui/ProBadge";
 
 type ChipItem = string | { label: string; className?: string } | { node: ReactNode; key?: string };
 
@@ -16,6 +17,7 @@ type Props = {
   trustLine?: string;
   topEligible?: boolean;
   isVerified?: boolean;
+  plan?: "FREE" | "PRO";
   location?: CreatorLocation | null;
   chips: ChipItem[];
   chipsPlacement?: "meta" | "footer";
@@ -42,6 +44,7 @@ export function PublicHero({
   trustLine,
   topEligible,
   isVerified,
+  plan,
   location,
   chips,
   chipsPlacement = "footer",
@@ -64,6 +67,7 @@ export function PublicHero({
   const showMeta = Boolean(trustLine) || showLocation;
   const showSeparator = Boolean(trustLine) && showLocation;
   const hasChips = chips.length > 0 || Boolean(chipsAction);
+  const isPro = plan === "PRO";
   const renderChips = (extraClassName?: string) => {
     if (!hasChips) return null;
     return (
@@ -111,6 +115,7 @@ export function PublicHero({
         <div className="min-w-0 flex-1 space-y-1">
           <div className="flex items-center gap-2 min-w-0 min-h-[28px]">
             <h1 className="text-xl font-semibold text-[color:var(--text)] truncate">{name}</h1>
+            {isPro ? <ProBadge className="shrink-0" /> : null}
             {isVerified ? <VerifiedBadge className="shrink-0" /> : null}
             {topEligible && (
               <span className="inline-flex shrink-0 items-center rounded-full border border-[color:rgba(245,158,11,0.6)] bg-[color:rgba(245,158,11,0.16)] px-2 py-0.5 text-[10px] font-semibold text-[color:var(--text)]">
@@ -131,8 +136,6 @@ export function PublicHero({
           {chipsPlacement === "meta" ? renderChips("pt-2") : null}
         </div>
       </div>
-
-      <OfferTagsRow tags={offerTags} className="pt-1" />
 
       <div className="flex flex-col gap-2 sm:flex-row sm:items-stretch">
         <a
@@ -172,6 +175,8 @@ export function PublicHero({
           {secondaryCtaContent ?? secondaryCtaLabel}
         </a>
       </div>
+
+      <OfferTagsRow tags={offerTags} className="pt-1" />
 
       {chipsPlacement === "footer" ? renderChips() : null}
     </section>

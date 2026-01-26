@@ -302,12 +302,14 @@ async function main() {
     where: { creatorId: creator.id },
     update: {
       visibilityMode: "SOLO_LINK",
+      plan: "PRO",
       isVerified: true,
       offerTags: ["Sexting", "Audios", "Roleplay", "1:1", "Packs", "Extras"],
     },
     create: {
       creatorId: creator.id,
       visibilityMode: "SOLO_LINK",
+      plan: "PRO",
       isVerified: true,
       offerTags: ["Sexting", "Audios", "Roleplay", "1:1", "Packs", "Extras"],
     },

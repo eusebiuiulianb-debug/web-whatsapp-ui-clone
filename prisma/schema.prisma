@@ -66,6 +66,7 @@ model CreatorProfile {
   creator                   Creator  @relation(fields: [creatorId], references: [id])
   isVerified                Boolean  @default(false)
   offerTags                 Json?
+  plan                      CreatorPlan @default(FREE)
   coverUrl                  String?
   websiteUrl                String?
   visibilityMode            CreatorVisibilityMode @default(SOLO_LINK)
@@ -84,6 +85,11 @@ model CreatorProfile {
   vipOnly                   Boolean  @default(false)
   createdAt                 DateTime @default(now())
   updatedAt                 DateTime @updatedAt
+}
+
+enum CreatorPlan {
+  FREE
+  PRO
 }
 
 enum CreatorVisibilityMode {
