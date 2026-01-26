@@ -2,15 +2,18 @@ import { useEffect, useMemo } from "react";
 import { MapContainer, TileLayer, Circle, useMap } from "react-leaflet";
 import L from "leaflet";
 import { decode } from "ngeohash";
+import type { Map as LeafletMap } from "leaflet";
+import { MAP_ATTRIBUTION, MAP_TILE_URL } from "../../lib/mapTiles";
 
 const DEFAULT_CITY_RADIUS_METERS = 2000;
 
 type Props = {
   geohash: string;
   radiusKm?: number | null;
+  onMapReady?: (map: LeafletMap) => void;
 };
 
-export default function LocationMapClient({ geohash, radiusKm }: Props) {
+export default function LocationMapClient({ geohash, radiusKm, onMapReady }: Props) {
   const center = useMemo(() => decodeGeohash(geohash), [geohash]);
   const radiusMeters = useMemo(() => {
     if (Number.isFinite(radiusKm) && (radiusKm as number) > 0) {
@@ -45,11 +48,12 @@ export default function LocationMapClient({ geohash, radiusKm }: Props) {
       attributionControl={false}
       className="h-full w-full"
     >
+      <MapReady onReady={onMapReady} />
       <MapInvalidateSize />
       <FitCircleBounds center={centerPoint} radiusMeters={radiusMeters} />
       <TileLayer
-        url="https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png"
-        attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>'
+        url={MAP_TILE_URL}
+        attribution={MAP_ATTRIBUTION}
       />
       <Circle
         center={centerPoint}
@@ -82,6 +86,15 @@ function MapInvalidateSize() {
       window.clearTimeout(timeout);
     };
   }, [map]);
+  return null;
+}
+
+function MapReady({ onReady }: { onReady?: (map: LeafletMap) => void }) {
+  const map = useMap();
+  useEffect(() => {
+    if (!onReady) return;
+    onReady(map);
+  }, [map, onReady]);
   return null;
 }
 

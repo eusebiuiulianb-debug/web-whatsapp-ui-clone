@@ -11,6 +11,7 @@ import { IconGlyph } from "../ui/IconGlyph";
 import { normalizeImageSrc } from "../../utils/normalizeImageSrc";
 import { emitFollowChange, setFollowSnapshot } from "../../lib/followEvents";
 import { useFollowState } from "../../lib/useFollowState";
+import { FollowButtonLabel } from "../follow/FollowButtonLabel";
 
 export type PopClipTileItem = {
   id: string;
@@ -39,6 +40,14 @@ type Props = {
   onOpen: (item: PopClipTileItem) => void;
   profileHref: string;
   chatHref: string;
+  variant?: "explore" | "profileCompact" | "profileMinimal";
+  secondaryCta?: {
+    label: string;
+    href?: string;
+    ariaLabel?: string;
+    onClick?: (event: MouseEvent<HTMLButtonElement>) => void;
+  } | null;
+  followButtonVariant?: "primary" | "secondary";
   isFollowing?: boolean;
   onFollowChange?: (creatorId: string, isFollowing: boolean) => void;
   onFollowError?: (message: string) => void;
@@ -77,6 +86,9 @@ export const PopClipTile = memo(function PopClipTile({
   onOpen,
   profileHref,
   chatHref,
+  variant = "explore",
+  secondaryCta,
+  followButtonVariant = "primary",
   isFollowing = false,
   onFollowChange,
   onFollowError,
@@ -89,6 +101,9 @@ export const PopClipTile = memo(function PopClipTile({
   onShare,
   onReport,
 }: Props) {
+  const isProfileCompact = variant === "profileCompact";
+  const isProfileMinimal = variant === "profileMinimal";
+  const showHeader = !isProfileCompact && !isProfileMinimal;
   const [thumbFailed, setThumbFailed] = useState(false);
   const [imageLoaded, setImageLoaded] = useState(false);
   const [avatarFailed, setAvatarFailed] = useState(false);
@@ -138,6 +153,22 @@ export const PopClipTile = memo(function PopClipTile({
   const canToggleSave = Boolean(isSaved && onToggleSave);
   const hasSavedActions = canOrganize || canToggleSave;
   const MIN_FOLLOW_MUTATION_MS = 400;
+  const resolvedSecondaryCta =
+    secondaryCta === undefined
+      ? {
+          label: "Ver perfil",
+          href: profileHref,
+        }
+      : secondaryCta;
+  const followButtonBaseClass =
+    followButtonVariant === "secondary"
+      ? "inline-flex h-10 min-w-[110px] items-center justify-center rounded-full border px-4 text-[12px] font-semibold transition duration-150 ease-out active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--ring)] focus-visible:ring-offset-1 focus-visible:ring-offset-[color:var(--surface-1)]"
+      : "inline-flex min-w-[84px] items-center justify-center rounded-full border px-3 py-1 text-[11px] font-semibold transition duration-150 ease-out active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--ring)] focus-visible:ring-offset-1 focus-visible:ring-offset-[color:var(--surface-1)]";
+  const followButtonStateClass = following
+    ? "border-[color:var(--brand-strong)] bg-[color:var(--brand-strong)] text-white hover:bg-[color:var(--brand)]"
+    : followButtonVariant === "secondary"
+      ? "border-white/20 bg-white/5 text-white/90 hover:bg-white/10"
+      : "border-[color:var(--surface-border)] bg-[color:var(--surface-2)] text-[color:var(--text)] hover:bg-[color:var(--surface-3)]";
   if (canOrganize && organizerItemId && onOrganize) {
     quickActions.push({
       label: "Mover a...",
@@ -272,40 +303,63 @@ export const PopClipTile = memo(function PopClipTile({
   return (
     <div
       style={{ contentVisibility: "auto", containIntrinsicSize: "360px 680px", contain: "layout paint" }}
-      className="group flex w-full flex-col overflow-hidden rounded-2xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] text-left shadow-sm transition duration-200 hover:-translate-y-0.5 hover:shadow-lg hover:shadow-[color:rgba(var(--brand-rgb),0.18)]"
+      role={isProfileMinimal ? "button" : undefined}
+      tabIndex={isProfileMinimal ? 0 : undefined}
+      onClick={
+        isProfileMinimal
+          ? () => {
+              onOpen(item);
+            }
+          : undefined
+      }
+      onKeyDown={
+        isProfileMinimal
+          ? (event) => {
+              if (event.key === "Enter" || event.key === " ") {
+                event.preventDefault();
+                onOpen(item);
+              }
+            }
+          : undefined
+      }
+      className={clsx(
+        "group flex w-full flex-col overflow-hidden rounded-2xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] text-left shadow-sm transition duration-200 hover:-translate-y-0.5 hover:shadow-lg hover:shadow-[color:rgba(var(--brand-rgb),0.18)]",
+        isProfileMinimal && "cursor-pointer"
+      )}
     >
-      <div className="flex items-center justify-between gap-3 px-3 pt-3">
-        <Link
-          href={profileHref}
-          prefetch={false}
-          onPointerDown={(event) => event.stopPropagation()}
-          onClick={(event) => event.stopPropagation()}
-          onKeyDown={(event) => event.stopPropagation()}
-          aria-label={`Ver perfil de @${item.creator.handle}`}
-          className="inline-flex min-w-0 items-center gap-2 rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-2 py-1.5 text-[color:var(--text)] transition hover:bg-[color:var(--surface-3)]"
-        >
-          <span className="inline-flex min-w-0 items-center gap-2">
-            <span className="h-7 w-7 shrink-0 overflow-hidden rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-1)]">
-              {showAvatar ? (
-                <Image
-                  src={normalizeImageSrc(avatarSrc)}
-                  alt={item.creator.displayName}
-                  width={28}
-                  height={28}
-                  className="h-full w-full object-cover"
-                  onError={() => setAvatarFailed(true)}
-                />
-              ) : (
-                <span className="flex h-full w-full items-center justify-center text-xs font-semibold text-[color:var(--text)]">
-                  {creatorInitial}
-                </span>
-              )}
+      {showHeader ? (
+        <div className="flex items-center justify-between gap-3 px-3 pt-3">
+          <Link
+            href={profileHref}
+            prefetch={false}
+            onPointerDown={(event) => event.stopPropagation()}
+            onClick={(event) => event.stopPropagation()}
+            onKeyDown={(event) => event.stopPropagation()}
+            aria-label={`Ver perfil de @${item.creator.handle}`}
+            className="inline-flex min-w-0 items-center gap-2 rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-2 py-1.5 text-[color:var(--text)] transition hover:bg-[color:var(--surface-3)]"
+          >
+            <span className="inline-flex min-w-0 items-center gap-2">
+              <span className="h-7 w-7 shrink-0 overflow-hidden rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-1)]">
+                {showAvatar ? (
+                  <Image
+                    src={normalizeImageSrc(avatarSrc)}
+                    alt={item.creator.displayName}
+                    width={28}
+                    height={28}
+                    className="h-full w-full object-cover"
+                    onError={() => setAvatarFailed(true)}
+                  />
+                ) : (
+                  <span className="flex h-full w-full items-center justify-center text-xs font-semibold text-[color:var(--text)]">
+                    {creatorInitial}
+                  </span>
+                )}
+              </span>
+              <span className="truncate text-xs font-semibold text-[color:var(--text)]">@{item.creator.handle}</span>
             </span>
-            <span className="truncate text-xs font-semibold text-[color:var(--text)]">@{item.creator.handle}</span>
-          </span>
-        </Link>
-        <div className="flex items-center gap-2">
-          {hasCreatorId ? (
+          </Link>
+          <div className="flex items-center gap-2">
+            {hasCreatorId ? (
             <button
               type="button"
               aria-pressed={following}
@@ -314,80 +368,88 @@ export const PopClipTile = memo(function PopClipTile({
               onPointerDown={(event) => event.stopPropagation()}
               onClick={handleToggleFollow}
               onKeyDown={(event) => event.stopPropagation()}
-              className={clsx(
-                "inline-flex min-w-[84px] items-center justify-center rounded-full border px-3 py-1 text-[11px] font-semibold transition duration-150 ease-out active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--ring)] focus-visible:ring-offset-1 focus-visible:ring-offset-[color:var(--surface-1)]",
-                following
-                  ? "border-[color:var(--brand-strong)] bg-[color:var(--brand-strong)] text-white hover:bg-[color:var(--brand)]"
-                  : "border-[color:var(--surface-border)] bg-[color:var(--surface-2)] text-[color:var(--text)] hover:bg-[color:var(--surface-3)]"
-              )}
+              className={clsx(followButtonBaseClass, followButtonStateClass)}
             >
-              {followPending ? "..." : following ? "Siguiendo" : "Seguir"}
+              <FollowButtonLabel isFollowing={following} isPending={followPending} />
             </button>
           ) : null}
-          {quickActions.length > 0 ? (
-            <ContextMenu
-              buttonAriaLabel="Acciones rápidas"
-              items={quickActions}
-              align="right"
-              closeOnScroll
-              menuClassName="min-w-[160px] w-[min(90vw,220px)]"
-              renderButton={({ ref, onClick, onPointerDown, ariaLabel, ariaExpanded, ariaHaspopup, title }) => (
-                <button
-                  ref={ref}
-                  type="button"
-                  aria-label={ariaLabel}
-                  aria-expanded={ariaExpanded}
-                  aria-haspopup={ariaHaspopup}
-                  title={title}
-                  onClick={onClick}
-                  onPointerDown={onPointerDown}
-                  className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] text-[color:var(--text)] transition hover:bg-[color:var(--surface-3)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--ring)] focus-visible:ring-offset-1 focus-visible:ring-offset-[color:var(--surface-1)]"
-                >
-                  <IconGlyph name="dots" ariaHidden />
-                </button>
+            {quickActions.length > 0 ? (
+              <ContextMenu
+                buttonAriaLabel="Acciones rápidas"
+                items={quickActions}
+                align="right"
+                closeOnScroll
+                menuClassName="min-w-[160px] w-[min(90vw,220px)]"
+                renderButton={({ ref, onClick, onPointerDown, ariaLabel, ariaExpanded, ariaHaspopup, title }) => (
+                  <button
+                    ref={ref}
+                    type="button"
+                    aria-label={ariaLabel}
+                    aria-expanded={ariaExpanded}
+                    aria-haspopup={ariaHaspopup}
+                    title={title}
+                    onClick={onClick}
+                    onPointerDown={onPointerDown}
+                    className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] text-[color:var(--text)] transition hover:bg-[color:var(--surface-3)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--ring)] focus-visible:ring-offset-1 focus-visible:ring-offset-[color:var(--surface-1)]"
+                  >
+                    <IconGlyph name="dots" ariaHidden />
+                  </button>
+                )}
+              />
+            ) : null}
+            <button
+              type="button"
+              aria-label={isSaved ? "Quitar guardado" : "Guardar clip"}
+              title={isSaved ? "Quitar guardado" : "Guardar clip"}
+              aria-pressed={isSaved}
+              onClick={(event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                onToggleSave?.(item);
+              }}
+              onKeyDown={(event) => event.stopPropagation()}
+              className={clsx(
+                "inline-flex h-9 w-9 items-center justify-center rounded-full border bg-[color:var(--surface-2)] transition hover:bg-[color:var(--surface-3)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--ring)] focus-visible:ring-offset-1 focus-visible:ring-offset-[color:var(--surface-1)]",
+                isSaved
+                  ? "border-[color:rgba(var(--brand-rgb),0.6)] text-[color:var(--text)]"
+                  : "border-[color:var(--surface-border)] text-[color:var(--muted)]"
               )}
-            />
-          ) : null}
-          <button
-            type="button"
-            aria-label={isSaved ? "Quitar guardado" : "Guardar clip"}
-            title={isSaved ? "Quitar guardado" : "Guardar clip"}
-            aria-pressed={isSaved}
-            onClick={(event) => {
-              event.preventDefault();
-              event.stopPropagation();
-              onToggleSave?.(item);
-            }}
-            onKeyDown={(event) => event.stopPropagation()}
-            className={clsx(
-              "inline-flex h-9 w-9 items-center justify-center rounded-full border bg-[color:var(--surface-2)] transition hover:bg-[color:var(--surface-3)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--ring)] focus-visible:ring-offset-1 focus-visible:ring-offset-[color:var(--surface-1)]",
-              isSaved
-                ? "border-[color:rgba(var(--brand-rgb),0.6)] text-[color:var(--text)]"
-                : "border-[color:var(--surface-border)] text-[color:var(--muted)]"
-            )}
-          >
-            {isSaved ? (
-              <BookmarkCheck className="h-5 w-5" aria-hidden="true" />
-            ) : (
-              <Bookmark className="h-5 w-5" aria-hidden="true" />
-            )}
-          </button>
+            >
+              {isSaved ? (
+                <BookmarkCheck className="h-5 w-5" aria-hidden="true" />
+              ) : (
+                <Bookmark className="h-5 w-5" aria-hidden="true" />
+              )}
+            </button>
+          </div>
         </div>
-      </div>
-      <div className="px-3 pt-2">
+      ) : null}
+      <div className={isProfileMinimal ? "p-0" : clsx("px-3", isProfileCompact ? "pt-3" : "pt-2")}>
         <div
           ref={mediaContainerRef}
-          role="button"
-          tabIndex={0}
-          onClick={() => onOpen(item)}
-          onKeyDown={(event) => {
-            if (event.key === "Enter" || event.key === " ") {
-              event.preventDefault();
-              onOpen(item);
-            }
-          }}
-          aria-label={`Abrir ${title}`}
-          className="relative aspect-[10/13] w-full cursor-pointer overflow-hidden rounded-2xl focus:outline-none focus:ring-1 focus:ring-[color:var(--ring)] sm:aspect-[3/4] md:aspect-[4/5]"
+          role={isProfileMinimal ? undefined : "button"}
+          tabIndex={isProfileMinimal ? -1 : 0}
+          onClick={isProfileMinimal ? undefined : () => onOpen(item)}
+          onKeyDown={
+            isProfileMinimal
+              ? undefined
+              : (event) => {
+                  if (event.key === "Enter" || event.key === " ") {
+                    event.preventDefault();
+                    onOpen(item);
+                  }
+                }
+          }
+          aria-label={isProfileMinimal ? undefined : `Abrir ${title}`}
+          className={clsx(
+            "relative w-full overflow-hidden rounded-2xl focus:outline-none focus:ring-1 focus:ring-[color:var(--ring)]",
+            isProfileMinimal
+              ? "aspect-[3/4] sm:aspect-[16/10]"
+              : isProfileCompact
+                ? "h-[180px] sm:h-auto sm:aspect-[3/4] md:aspect-[4/5]"
+                : "aspect-[10/13] sm:aspect-[3/4] md:aspect-[4/5]",
+            !isProfileMinimal && "cursor-pointer"
+          )}
         >
           {showImage ? (
             <>
@@ -415,6 +477,8 @@ export const PopClipTile = memo(function PopClipTile({
                 )}
               />
             </>
+          ) : isProfileMinimal ? (
+            <div className="h-full w-full bg-[color:var(--surface-2)]" />
           ) : (
             <div className="relative flex h-full w-full items-center justify-center overflow-hidden bg-gradient-to-br from-[color:rgba(10,14,24,0.9)] via-[color:rgba(18,24,38,0.9)] to-[color:rgba(6,9,18,0.95)] text-white/60">
               <div className="absolute inset-0 opacity-60">
@@ -428,7 +492,13 @@ export const PopClipTile = memo(function PopClipTile({
             </div>
           )}
           <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-black/45 via-black/10 to-transparent opacity-80 transition duration-200 md:opacity-70 md:group-hover:opacity-90" />
-          {showCaption && (!showCaptionMore || !isCaptionOpen) ? (
+          {isProfileMinimal ? (
+            <div className="pointer-events-none absolute inset-x-0 bottom-0 z-20 bg-gradient-to-t from-black/70 via-black/20 to-transparent p-2">
+              <p className="text-[11px] font-semibold text-white/90 line-clamp-1" title={title}>
+                {title}
+              </p>
+            </div>
+          ) : showCaption && (!showCaptionMore || !isCaptionOpen) ? (
             <div className="pointer-events-none absolute inset-x-0 bottom-0 z-20 min-h-[44px] bg-gradient-to-t from-black/70 via-black/30 to-transparent p-3 transition">
               <div className="pointer-events-auto text-[11px] text-white/90">
                 <p className="min-h-[28px] line-clamp-2 leading-snug md:line-clamp-1">
@@ -463,7 +533,7 @@ export const PopClipTile = memo(function PopClipTile({
               </div>
             </div>
           ) : null}
-          {showCaptionMore && isCaptionOpen ? (
+          {!isProfileMinimal && showCaptionMore && isCaptionOpen ? (
             <div
               ref={captionPanelRef}
               role="dialog"
@@ -516,101 +586,54 @@ export const PopClipTile = memo(function PopClipTile({
         </div>
       </div>
 
-      <div className="flex flex-col gap-2 border-t border-white/10 bg-[color:rgba(8,12,20,0.85)] px-3 pb-3 pt-3 text-white/90 sm:p-4">
-        {chipItems.length > 0 ? (
-          <div className="relative flex min-h-[28px] items-center gap-2 overflow-x-auto">
-            {visibleChips.map((badge, index) => (
-              <span
-                key={`${badge}-${index}`}
-                className="whitespace-nowrap rounded-full border border-white/15 bg-white/10 px-2.5 py-0.5 text-[10px] font-semibold text-white/90"
-              >
-                {badge}
-              </span>
-            ))}
-            {hiddenCount > 0 ? (
-              <>
-                {isTabletUp ? (
-                  <Popover.Root open={chipsOpen} onOpenChange={setChipsOpen}>
-                    <Popover.Trigger asChild>
-                      <button
-                        type="button"
-                        aria-label={`Ver ${hiddenCount} etiquetas más`}
-                        title={chipItemsTitle}
-                        onPointerDown={(event) => event.stopPropagation()}
-                        onClick={(event) => event.stopPropagation()}
-                        onKeyDown={(event) => {
-                          if (event.key === "Enter" || event.key === " ") {
-                            event.stopPropagation();
-                          }
-                        }}
-                        className="whitespace-nowrap rounded-full border border-white/15 bg-white/10 px-2.5 py-0.5 text-[10px] font-semibold text-white/90"
-                      >
-                        +{hiddenCount}
-                      </button>
-                    </Popover.Trigger>
-                    <Popover.Portal>
-                      <Popover.Content
-                        side="top"
-                        align="end"
-                        sideOffset={8}
-                        collisionPadding={12}
-                        onPointerDown={(event) => event.stopPropagation()}
-                        onClick={(event) => event.stopPropagation()}
-                        className="z-50 max-h-[180px] w-[min(90vw,280px)] overflow-auto rounded-xl border border-white/10 bg-[color:rgba(8,12,20,0.95)] p-3 shadow-xl"
-                      >
-                        <div className="flex flex-wrap gap-2">
-                          {hiddenChips.map((badge, index) => (
-                            <span
-                              key={`${badge}-${index}`}
-                              className="whitespace-nowrap rounded-full border border-white/15 bg-white/10 px-2.5 py-0.5 text-[10px] font-semibold text-white/90"
-                            >
-                              {badge}
-                            </span>
-                          ))}
-                        </div>
-                      </Popover.Content>
-                    </Popover.Portal>
-                  </Popover.Root>
-                ) : (
-                  <Dialog.Root open={chipsOpen} onOpenChange={setChipsOpen}>
-                    <Dialog.Trigger asChild>
-                      <button
-                        type="button"
-                        aria-label={`Ver ${hiddenCount} etiquetas más`}
-                        onPointerDown={(event) => event.stopPropagation()}
-                        onClick={(event) => event.stopPropagation()}
-                        onKeyDown={(event) => {
-                          if (event.key === "Enter" || event.key === " ") {
-                            event.stopPropagation();
-                          }
-                        }}
-                        className="whitespace-nowrap rounded-full border border-white/15 bg-white/10 px-2.5 py-0.5 text-[10px] font-semibold text-white/90"
-                      >
-                        +{hiddenCount}
-                      </button>
-                    </Dialog.Trigger>
-                    <Dialog.Portal>
-                      <Dialog.Overlay className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm" />
-                      <Dialog.Content
-                        role="dialog"
-                        aria-label="Etiquetas"
-                        onPointerDown={(event) => event.stopPropagation()}
-                        onClick={(event) => event.stopPropagation()}
-                        className="fixed inset-x-0 bottom-0 z-50 max-h-[70vh] w-full overflow-auto rounded-t-2xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] shadow-2xl"
-                      >
-                        <div className="flex items-center justify-between border-b border-[color:var(--surface-border)] px-4 py-3">
-                          <p className="text-sm font-semibold text-[color:var(--text)]">Etiquetas</p>
-                          <Dialog.Close asChild>
-                            <button
-                              type="button"
-                              aria-label="Cerrar"
-                              className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] text-sm font-semibold text-[color:var(--text)] hover:border-[color:var(--surface-border-hover)]"
-                            >
-                              ✕
-                            </button>
-                          </Dialog.Close>
-                        </div>
-                        <div className="px-4 py-4">
+      {!isProfileMinimal ? (
+        <div
+          className={clsx(
+            "flex flex-col gap-2 border-t border-white/10 bg-[color:rgba(8,12,20,0.85)] px-3 text-white/90 sm:p-4",
+            isProfileCompact ? "pb-2 pt-2" : "pb-3 pt-3"
+          )}
+        >
+          {chipItems.length > 0 ? (
+            <div className="relative flex min-h-[28px] items-center gap-2 overflow-x-auto">
+              {visibleChips.map((badge, index) => (
+                <span
+                  key={`${badge}-${index}`}
+                  className="whitespace-nowrap rounded-full border border-white/15 bg-white/10 px-2.5 py-0.5 text-[10px] font-semibold text-white/90"
+                >
+                  {badge}
+                </span>
+              ))}
+              {hiddenCount > 0 ? (
+                <>
+                  {isTabletUp ? (
+                    <Popover.Root open={chipsOpen} onOpenChange={setChipsOpen}>
+                      <Popover.Trigger asChild>
+                        <button
+                          type="button"
+                          aria-label={`Ver ${hiddenCount} etiquetas más`}
+                          title={chipItemsTitle}
+                          onPointerDown={(event) => event.stopPropagation()}
+                          onClick={(event) => event.stopPropagation()}
+                          onKeyDown={(event) => {
+                            if (event.key === "Enter" || event.key === " ") {
+                              event.stopPropagation();
+                            }
+                          }}
+                          className="whitespace-nowrap rounded-full border border-white/15 bg-white/10 px-2.5 py-0.5 text-[10px] font-semibold text-white/90"
+                        >
+                          +{hiddenCount}
+                        </button>
+                      </Popover.Trigger>
+                      <Popover.Portal>
+                        <Popover.Content
+                          side="top"
+                          align="end"
+                          sideOffset={8}
+                          collisionPadding={12}
+                          onPointerDown={(event) => event.stopPropagation()}
+                          onClick={(event) => event.stopPropagation()}
+                          className="z-50 max-h-[180px] w-[min(90vw,280px)] overflow-auto rounded-xl border border-white/10 bg-[color:rgba(8,12,20,0.95)] p-3 shadow-xl"
+                        >
                           <div className="flex flex-wrap gap-2">
                             {hiddenChips.map((badge, index) => (
                               <span
@@ -621,45 +644,123 @@ export const PopClipTile = memo(function PopClipTile({
                               </span>
                             ))}
                           </div>
-                        </div>
-                      </Dialog.Content>
-                    </Dialog.Portal>
-                  </Dialog.Root>
-                )}
-              </>
+                        </Popover.Content>
+                      </Popover.Portal>
+                    </Popover.Root>
+                  ) : (
+                    <Dialog.Root open={chipsOpen} onOpenChange={setChipsOpen}>
+                      <Dialog.Trigger asChild>
+                        <button
+                          type="button"
+                          aria-label={`Ver ${hiddenCount} etiquetas más`}
+                          onPointerDown={(event) => event.stopPropagation()}
+                          onClick={(event) => event.stopPropagation()}
+                          onKeyDown={(event) => {
+                            if (event.key === "Enter" || event.key === " ") {
+                              event.stopPropagation();
+                            }
+                          }}
+                          className="whitespace-nowrap rounded-full border border-white/15 bg-white/10 px-2.5 py-0.5 text-[10px] font-semibold text-white/90"
+                        >
+                          +{hiddenCount}
+                        </button>
+                      </Dialog.Trigger>
+                      <Dialog.Portal>
+                        <Dialog.Overlay className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm" />
+                        <Dialog.Content
+                          role="dialog"
+                          aria-label="Etiquetas"
+                          onPointerDown={(event) => event.stopPropagation()}
+                          onClick={(event) => event.stopPropagation()}
+                          className="fixed inset-x-0 bottom-0 z-50 max-h-[70vh] w-full overflow-auto rounded-t-2xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] shadow-2xl"
+                        >
+                          <div className="flex items-center justify-between border-b border-[color:var(--surface-border)] px-4 py-3">
+                            <p className="text-sm font-semibold text-[color:var(--text)]">Etiquetas</p>
+                            <Dialog.Close asChild>
+                              <button
+                                type="button"
+                                aria-label="Cerrar"
+                                className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] text-sm font-semibold text-[color:var(--text)] hover:border-[color:var(--surface-border-hover)]"
+                              >
+                                ✕
+                              </button>
+                            </Dialog.Close>
+                          </div>
+                          <div className="px-4 py-4">
+                            <div className="flex flex-wrap gap-2">
+                              {hiddenChips.map((badge, index) => (
+                                <span
+                                  key={`${badge}-${index}`}
+                                  className="whitespace-nowrap rounded-full border border-white/15 bg-white/10 px-2.5 py-0.5 text-[10px] font-semibold text-white/90"
+                                >
+                                  {badge}
+                                </span>
+                              ))}
+                            </div>
+                          </div>
+                        </Dialog.Content>
+                      </Dialog.Portal>
+                    </Dialog.Root>
+                  )}
+                </>
+              ) : null}
+            </div>
+          ) : null}
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 sm:gap-3">
+            <Link
+              href={chatHref}
+              onPointerDown={(event) => event.stopPropagation()}
+              onClick={(event) => event.stopPropagation()}
+              onKeyDown={(event) => event.stopPropagation()}
+              aria-label="Abrir chat"
+              title="Abrir chat"
+              className="flex w-full"
+            >
+              <span className="inline-flex h-10 w-full items-center justify-center gap-2 rounded-full border border-[color:var(--brand-strong)] bg-[color:var(--brand-strong)] px-4 text-[12px] font-semibold text-white shadow-sm transition hover:bg-[color:var(--brand)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--ring)] focus-visible:ring-offset-1 focus-visible:ring-offset-black/40">
+                <MessageCircle className="h-4 w-4" aria-hidden="true" />
+                Abrir chat
+              </span>
+            </Link>
+            {resolvedSecondaryCta ? (
+              resolvedSecondaryCta.href ? (
+                <Link
+                  href={resolvedSecondaryCta.href}
+                  prefetch={false}
+                  onPointerDown={(event) => event.stopPropagation()}
+                  onClick={(event) => event.stopPropagation()}
+                  onKeyDown={(event) => event.stopPropagation()}
+                  aria-label={resolvedSecondaryCta.ariaLabel || resolvedSecondaryCta.label}
+                  className="flex w-full"
+                >
+                  <span className="inline-flex h-10 w-full items-center justify-center gap-1.5 rounded-full border border-white/20 bg-white/5 px-4 text-[12px] font-semibold text-white/90 transition hover:bg-white/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--ring)] focus-visible:ring-offset-1 focus-visible:ring-offset-black/40">
+                    {resolvedSecondaryCta.label}
+                    <span aria-hidden="true">→</span>
+                  </span>
+                </Link>
+              ) : (
+                <button
+                  type="button"
+                  aria-label={resolvedSecondaryCta.ariaLabel || resolvedSecondaryCta.label}
+                  onPointerDown={(event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                  }}
+                  onClick={(event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    resolvedSecondaryCta.onClick?.(event);
+                  }}
+                  onKeyDown={(event) => event.stopPropagation()}
+                  className="inline-flex h-10 w-full items-center justify-center gap-1.5 rounded-full border border-white/20 bg-white/5 px-4 text-[12px] font-semibold text-white/90 transition hover:bg-white/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--ring)] focus-visible:ring-offset-1 focus-visible:ring-offset-black/40"
+                >
+                  {resolvedSecondaryCta.label}
+                  <span aria-hidden="true">→</span>
+                </button>
+              )
             ) : null}
           </div>
-        ) : null}
-        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 sm:gap-3">
-          <Link
-            href={chatHref}
-            onPointerDown={(event) => event.stopPropagation()}
-            onClick={(event) => event.stopPropagation()}
-            onKeyDown={(event) => event.stopPropagation()}
-            aria-label="Abrir chat"
-            title="Abrir chat"
-            className="flex w-full"
-          >
-            <span className="inline-flex h-10 w-full items-center justify-center gap-2 rounded-full border border-[color:var(--brand-strong)] bg-[color:var(--brand-strong)] px-4 text-[12px] font-semibold text-white shadow-sm transition hover:bg-[color:var(--brand)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--ring)] focus-visible:ring-offset-1 focus-visible:ring-offset-black/40">
-              <MessageCircle className="h-4 w-4" aria-hidden="true" />
-              Abrir chat
-            </span>
-          </Link>
-          <Link
-            href={profileHref}
-            prefetch={false}
-            onPointerDown={(event) => event.stopPropagation()}
-            onClick={(event) => event.stopPropagation()}
-            onKeyDown={(event) => event.stopPropagation()}
-            className="flex w-full"
-          >
-            <span className="inline-flex h-10 w-full items-center justify-center gap-1.5 rounded-full border border-white/20 bg-white/5 px-4 text-[12px] font-semibold text-white/90 transition hover:bg-white/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--ring)] focus-visible:ring-offset-1 focus-visible:ring-offset-black/40">
-              Ver perfil
-              <span aria-hidden="true">→</span>
-            </span>
-          </Link>
         </div>
-      </div>
+      ) : null}
     </div>
   );
 });

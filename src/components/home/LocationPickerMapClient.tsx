@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef } from "react";
 import { Circle, MapContainer, Marker, TileLayer, useMap, useMapEvents } from "react-leaflet";
 import L from "leaflet";
 import type { Map as LeafletMap } from "leaflet";
+import { MAP_ATTRIBUTION, MAP_TILE_URL } from "../../lib/mapTiles";
 
 type Props = {
   center: { lat: number; lng: number };
@@ -43,8 +44,8 @@ export default function LocationPickerMapClient({ center, radiusKm, onCenterChan
       <MapFitBounds center={centerPoint} radiusMeters={radiusMeters} />
       <MapClickHandler onCenterChange={onCenterChange} />
       <TileLayer
-        url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-        attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+        url={MAP_TILE_URL}
+        attribution={MAP_ATTRIBUTION}
       />
       <Circle
         center={centerPoint}

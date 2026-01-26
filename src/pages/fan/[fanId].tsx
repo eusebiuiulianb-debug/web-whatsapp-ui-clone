@@ -3,6 +3,7 @@ import { GetServerSideProps } from "next";
 import { useRouter } from "next/router";
 import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent, type KeyboardEvent, type ReactNode } from "react";
 import { ChatComposerBar } from "../../components/ChatComposerBar";
+import { VerifiedBadge } from "../../components/ui/VerifiedBadge";
 import MessageBalloon, { splitOffer, type OfferMeta } from "../../components/MessageBalloon";
 import { EmojiPicker } from "../../components/EmojiPicker";
 import { useCreatorConfig } from "../../context/CreatorConfigContext";
@@ -189,6 +190,19 @@ export function FanChatPage({
   const creatorName = config.creatorName || "Tu creador";
   const creatorFirstName = creatorName.trim().split(" ")[0] || creatorName;
   const creatorInitial = creatorName.trim().charAt(0).toUpperCase() || "C";
+  const creatorVerified = Boolean(config.isVerified);
+  const creatorOfferTags = useMemo(() => {
+    if (!Array.isArray(config.offerTags)) return [];
+    return config.offerTags
+      .map((tag) => (typeof tag === "string" ? tag.trim() : ""))
+      .filter((tag) => Boolean(tag));
+  }, [config.offerTags]);
+  const creatorOfferLine = useMemo(() => {
+    if (creatorOfferTags.length === 0) return "";
+    const visible = creatorOfferTags.slice(0, 3);
+    const suffix = creatorOfferTags.length > visible.length ? " · ..." : "";
+    return `Servicios: ${visible.join(" · ")}${suffix}`;
+  }, [creatorOfferTags]);
   const creatorHandle = useMemo(() => {
     const raw = config.creatorHandle || config.creatorName || "creator";
     return slugifyHandle(raw);
@@ -2874,8 +2888,14 @@ export function FanChatPage({
             {creatorInitial}
           </div>
           <div className="flex flex-col leading-tight min-w-0">
-            <span className="text-[color:var(--text)] font-medium text-sm truncate">{creatorName}</span>
+            <div className="flex items-center gap-2 min-w-0">
+              <span className="text-[color:var(--text)] font-medium text-sm truncate">{creatorName}</span>
+              {creatorVerified ? <VerifiedBadge className="shrink-0" /> : null}
+            </div>
             <span className="ui-muted text-sm truncate">{headerSubtitle}</span>
+            {creatorOfferLine ? (
+              <span className="text-xs text-[color:var(--muted)] truncate">{creatorOfferLine}</span>
+            ) : null}
           </div>
         </div>
         {walletEnabled === true ? (

@@ -14,6 +14,8 @@ model Creator {
   id                         String                      @id @default("creator-1")
   name                       String
   handle                     String?                     @unique
+  isVerified                 Boolean                     @default(false)
+  offerTags                  Json?
   subtitle                   String
   uiLocale                   String                      @default("es")
   description                String

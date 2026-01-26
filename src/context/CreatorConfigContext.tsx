@@ -38,6 +38,8 @@ export function CreatorConfigProvider({ children }: { children: ReactNode }) {
           uiLocale: data.creator?.uiLocale || DEFAULT_CREATOR_CONFIG.uiLocale,
           creatorDescription: data.creator?.description || DEFAULT_CREATOR_CONFIG.creatorDescription,
           avatarUrl: data.creator?.avatarUrl || DEFAULT_CREATOR_CONFIG.avatarUrl || "",
+          isVerified: Boolean(data.creator?.isVerified),
+          offerTags: Array.isArray(data.creator?.offerTags) ? data.creator.offerTags : [],
           quickReplies: DEFAULT_CREATOR_CONFIG.quickReplies,
           packs: data.packs || DEFAULT_CREATOR_CONFIG.packs,
         };

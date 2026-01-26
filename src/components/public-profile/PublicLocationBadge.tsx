@@ -1,6 +1,8 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { CreatorLocation } from "../../types/creatorLocation";
 import { LocationMap } from "./LocationMap";
+import type { Map as LeafletMap } from "leaflet";
+import { MAP_ATTRIBUTION } from "../../lib/mapTiles";
 
 const DEFAULT_AREA_RADIUS_KM = 5;
 
@@ -14,6 +16,7 @@ export function PublicLocationBadge({ location, align = "start", variant = "badg
   const [open, setOpen] = useState(false);
   const [isVisible, setIsVisible] = useState(false);
   const [prefersReducedMotion, setPrefersReducedMotion] = useState(false);
+  const mapRef = useRef<LeafletMap | null>(null);
   const visibility = location?.visibility ?? "OFF";
   const label = (location?.label ?? "").trim();
   const geohash = (location?.geohash ?? "").trim();
@@ -85,6 +88,12 @@ export function PublicLocationBadge({ location, align = "start", variant = "badg
     };
   }, [open]);
 
+  useEffect(() => {
+    if (!open) return;
+    const timeout = window.setTimeout(() => mapRef.current?.invalidateSize(), 80);
+    return () => window.clearTimeout(timeout);
+  }, [open]);
+
   const handleOpen = () => {
     setIsVisible(true);
     if (prefersReducedMotion || typeof window === "undefined") {
@@ -97,6 +106,10 @@ export function PublicLocationBadge({ location, align = "start", variant = "badg
   const handleClose = () => {
     setOpen(false);
   };
+
+  const handleMapReady = useCallback((map: LeafletMap) => {
+    mapRef.current = map;
+  }, []);
 
   if (!shouldRender) return null;
 
@@ -125,7 +138,7 @@ export function PublicLocationBadge({ location, align = "start", variant = "badg
 
       {showModal && (
         <div
-          className={`fixed inset-0 z-50 bg-black/60 backdrop-blur-sm ${overlayMotionClass} ${overlayStateClass}`}
+          className={`fixed inset-0 z-50 bg-black/25 ${overlayMotionClass} ${overlayStateClass}`}
           onClick={handleClose}
         >
           <div className="fixed inset-0 flex items-end sm:items-center justify-center p-3 sm:p-6">
@@ -134,7 +147,7 @@ export function PublicLocationBadge({ location, align = "start", variant = "badg
               aria-modal="true"
               aria-label="Ubicación aproximada"
               onClick={(event) => event.stopPropagation()}
-              className={`w-full sm:w-[520px] max-h-[85vh] overflow-hidden rounded-t-2xl sm:rounded-2xl border border-white/10 bg-[color:var(--surface-1)] shadow-2xl ${panelMotionClass} ${panelStateClass}`}
+              className={`w-full sm:w-[520px] h-[80vh] max-h-[85vh] sm:h-auto overflow-hidden rounded-t-2xl sm:rounded-2xl border border-white/10 bg-[color:var(--surface-1)] shadow-2xl ${panelMotionClass} ${panelStateClass}`}
             >
                 <div className="px-4 pt-3 pb-4 sm:px-5 sm:pt-5 sm:pb-5 space-y-3">
                   <div className="mx-auto h-1 w-10 rounded-full bg-white/20 sm:hidden" />
@@ -158,7 +171,7 @@ export function PublicLocationBadge({ location, align = "start", variant = "badg
                 </div>
                 {hasMap ? (
                   <div className="h-[260px] sm:h-[340px] w-full overflow-hidden rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] shadow-[inset_0_0_0_1px_rgba(255,255,255,0.04)] [&_.leaflet-control-attribution]:hidden">
-                    <LocationMap geohash={geohash} radiusKm={resolvedRadiusKm} />
+                    <LocationMap geohash={geohash} radiusKm={resolvedRadiusKm} onMapReady={handleMapReady} />
                   </div>
                 ) : (
                   <div className="rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-4 py-3 text-xs text-[color:var(--muted)] space-y-3">
@@ -175,27 +188,10 @@ export function PublicLocationBadge({ location, align = "start", variant = "badg
                     )}
                   </div>
                 )}
-                <p className="text-[10px] text-[color:var(--muted)] opacity-80">
-                  ©{" "}
-                  <a
-                    href="https://www.openstreetmap.org/copyright"
-                    target="_blank"
-                    rel="noreferrer"
-                    className="underline underline-offset-2"
-                  >
-                    OpenStreetMap
-                  </a>
-                  {" · "}
-                  ©{" "}
-                  <a
-                    href="https://carto.com/attributions"
-                    target="_blank"
-                    rel="noreferrer"
-                    className="underline underline-offset-2"
-                  >
-                    CARTO
-                  </a>
-                </p>
+                <p
+                  className="text-[10px] text-[color:var(--muted)] opacity-80"
+                  dangerouslySetInnerHTML={{ __html: MAP_ATTRIBUTION }}
+                />
               </div>
             </div>
           </div>

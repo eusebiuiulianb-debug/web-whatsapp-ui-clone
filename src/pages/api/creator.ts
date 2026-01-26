@@ -31,6 +31,8 @@ async function handleGet(res: NextApiResponse) {
       avatarUrl: creator.bioLinkAvatarUrl || "",
       uiLocale: creator.uiLocale || "es",
       handle: creator.handle || slugifyHandle(creator.name),
+      isVerified: Boolean(creator.isVerified),
+      offerTags: normalizeOfferTags(creator.offerTags),
     };
 
     const mappedPacks = creator.packs.map((pack) => ({
@@ -86,6 +88,8 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
       avatarUrl: creator.bioLinkAvatarUrl || "",
       uiLocale: creator.uiLocale || "es",
       handle: creator.handle || slugifyHandle(creator.name),
+      isVerified: Boolean(creator.isVerified),
+      offerTags: normalizeOfferTags(creator.offerTags),
     };
 
     const mappedPacks = creator.packs.map((pack) => ({
@@ -107,4 +111,11 @@ function slugifyHandle(value?: string | null) {
     .trim()
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "");
+}
+
+function normalizeOfferTags(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((tag) => (typeof tag === "string" ? tag.trim() : ""))
+    .filter((tag) => Boolean(tag));
 }

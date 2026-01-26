@@ -290,6 +290,8 @@ async function main() {
       id: "creator-1",
       name: "Eusebiu",
       handle: "eusebiu",
+      isVerified: true,
+      offerTags: ["Sexting", "Roleplay", "Audios", "Retos"],
       subtitle: "Responde en menos de 24h",
       description:
         "Bienvenido a mi espacio en NOVSY. Aquí comparto avances, envío audios personalizados y respondo tus ideas para crear contenido hecho a tu medida. Únete para acceder a sesiones 1:1, material exclusivo y priorizar tus pedidos.",

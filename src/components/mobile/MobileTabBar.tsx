@@ -21,7 +21,7 @@ const TABS: TabItem[] = [
   { key: "me", label: "Tu", href: "/creator/panel", icon: User },
 ];
 
-const VISIBLE_ROUTES = new Set(["/discover", "/explore", "/login"]);
+const VISIBLE_ROUTES = new Set(["/discover", "/explore", "/login", "/c/[handle]"]);
 
 function TabLink({
   href,
@@ -76,6 +76,7 @@ export function MobileTabBar() {
   const pathname = router.pathname;
   const currentPath = router.asPath.split("?")[0] || "";
   const shouldRender = pathname.startsWith("/creator") || VISIBLE_ROUTES.has(pathname);
+  const shouldPadBody = shouldRender && pathname !== "/c/[handle]";
   const [creatorAvailable, setCreatorAvailable] = useState<boolean | null>(null);
   const [quickOpen, setQuickOpen] = useState(false);
   const queryPart = router.asPath.split("?")[1] ?? "";
@@ -94,12 +95,15 @@ export function MobileTabBar() {
     creatorAvailable === false ? "fan" : pathname.startsWith("/creator") || creatorAvailable ? "creator" : "fan";
 
   useEffect(() => {
-    if (!shouldRender) return;
+    if (!shouldPadBody) {
+      document.body.classList.remove("has-mobile-tabbar");
+      return;
+    }
     document.body.classList.add("has-mobile-tabbar");
     return () => {
       document.body.classList.remove("has-mobile-tabbar");
     };
-  }, [shouldRender]);
+  }, [shouldPadBody]);
 
   useEffect(() => {
     if (!shouldRender) return;

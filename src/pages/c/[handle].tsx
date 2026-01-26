@@ -1,16 +1,28 @@
 import Head from "next/head";
-import Image from "next/image";
 import type { GetServerSideProps } from "next";
 import { randomUUID } from "crypto";
-import { useCallback, useEffect, useRef, useState, type MouseEvent, type TouchEvent, type WheelEvent } from "react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type MouseEvent,
+  type TouchEvent,
+  type WheelEvent,
+  type PointerEvent,
+} from "react";
 import { useRouter } from "next/router";
 import Link from "next/link";
-import { ChevronLeft, ChevronRight, Lock, Pencil, ThumbsUp, UserCheck, UserPlus } from "lucide-react";
+import { ChevronLeft, ChevronRight, Lock, Pencil, ThumbsUp } from "lucide-react";
+import { HomeSectionCard } from "../../components/home/HomeSectionCard";
+import { PackTile, type PackTileItem } from "../../components/packs/PackTile";
+import { PopClipTile, type PopClipTileItem } from "../../components/popclips/PopClipTile";
 import { PublicHero } from "../../components/public-profile/PublicHero";
 import { PublicProfileStatsRow } from "../../components/public-profile/PublicProfileStatsRow";
 import { Skeleton } from "../../components/ui/Skeleton";
 import { PublicLocationBadge } from "../../components/public-profile/PublicLocationBadge";
 import { LocationPickerDialog } from "../../components/location/LocationPickerDialog";
+import { FollowButtonLabel } from "../../components/follow/FollowButtonLabel";
 import type {
   PublicCatalogItem,
   PublicCommentReply,
@@ -38,6 +50,8 @@ type Props = {
   subtitle?: string;
   avatarUrl?: string | null;
   creatorHandle?: string;
+  isVerified?: boolean;
+  offerTags?: string[];
   isCreatorViewer?: boolean;
   stats?: PublicProfileStats;
   followerCount?: number;
@@ -64,11 +78,15 @@ type CatalogItemRow = {
 const POPCLIP_PAGE_SIZE = 12;
 const CREATOR_COMMENT_PREVIEW = 2;
 const HIGHLIGHT_PREVIEW_MAX = 4;
+const HIGHLIGHT_LOAD_MORE_SKELETONS = 3;
 const CREATOR_COMMENT_MAX_LENGTH = 600;
 const MAX_REPLY_PARTICIPANTS = 10;
 const IS_DEV = process.env.NODE_ENV === "development";
 const DEFAULT_LOCATION_PRECISION_KM = 3;
 const MIN_FOLLOW_MUTATION_MS = 400;
+const CHAT_CTA_LABEL = "Abrir chat";
+const LOCKED_CTA_LABEL = "Ver acceso";
+const clampValue = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
 
 type HighlightTab = "popclips" | "pack" | "sub" | "extra";
 
@@ -173,6 +191,8 @@ export default function PublicCreatorByHandle({
   availability,
   avatarUrl,
   creatorHandle,
+  isVerified,
+  offerTags,
   isCreatorViewer,
   stats,
   followerCount,
@@ -202,9 +222,18 @@ export default function PublicCreatorByHandle({
   const [canComment, setCanComment] = useState(false);
   const [viewerIsLoggedIn, setViewerIsLoggedIn] = useState(false);
   const [viewerHasPurchased, setViewerHasPurchased] = useState(false);
+  const [viewerPurchaseResolved, setViewerPurchaseResolved] = useState(false);
   const [viewerComment, setViewerComment] = useState<{ rating: number; text: string } | null>(null);
   const [activeHighlight, setActiveHighlight] = useState<HighlightTab>("popclips");
   const [highlightModalOpen, setHighlightModalOpen] = useState(false);
+  const [highlightScrollState, setHighlightScrollState] = useState({
+    show: false,
+    thumbWidth: 0,
+    thumbLeft: 0,
+    scrollLeft: 0,
+    scrollMax: 0,
+  });
+  const [highlightDragging, setHighlightDragging] = useState(false);
   const [activePopclip, setActivePopclip] = useState<PublicPopClip | null>(null);
   const [commentSheetOpen, setCommentSheetOpen] = useState(false);
   const [commentRating, setCommentRating] = useState(5);
@@ -219,6 +248,16 @@ export default function PublicCreatorByHandle({
   const popclipTouchStartRef = useRef<number | null>(null);
   const popclipTouchLastRef = useRef<number | null>(null);
   const popclipQueryHandledRef = useRef<string | null>(null);
+  const highlightScrollRef = useRef<HTMLDivElement | null>(null);
+  const highlightScrollTrackRef = useRef<HTMLDivElement | null>(null);
+  const highlightScrollRafRef = useRef<number | null>(null);
+  const highlightScrollDragRef = useRef<{
+    pointerId: number;
+    startX: number;
+    startThumbLeft: number;
+    maxThumbLeft: number;
+    scrollMax: number;
+  } | null>(null);
   const [chatPending, setChatPending] = useState(false);
   const [followPending, setFollowPending] = useState(false);
   const initialFollowersCount =
@@ -363,6 +402,7 @@ export default function PublicCreatorByHandle({
     setCommentsAvgRating(null);
     setHelpfulPending({});
     setViewerIsLoggedIn(false);
+    setViewerPurchaseResolved(false);
     fetch(endpoint, { signal: controller.signal })
       .then(async (res) => {
         responseStatus = res.status;
@@ -407,6 +447,7 @@ export default function PublicCreatorByHandle({
         }
         setViewerHasPurchased(Boolean(payload?.viewerHasPurchased));
         setViewerComment(payload?.viewerComment ?? null);
+        setViewerPurchaseResolved(true);
       })
       .catch((err) => {
         if (err instanceof DOMException && err.name === "AbortError") return;
@@ -415,25 +456,28 @@ export default function PublicCreatorByHandle({
         setCreatorComments([]);
         setCanComment(false);
         setCommentsAvgRating(null);
+        setViewerPurchaseResolved(false);
       })
       .finally(() => setCommentsLoading(false));
     return () => controller.abort();
   }, [creatorHandle, creatorId]);
 
   const chatHref = appendReturnTo(appendSearchIfRelative(baseChatHref, searchParams), returnTo);
+  const profileHref = creatorHandle ? `/c/${encodeURIComponent(creatorHandle)}` : "/c/creator";
   const followHref = "#";
   const followLabel = isFollowingState ? "Siguiendo" : "Seguir";
   const followAriaLabel = followLabel;
   const followTitle = isFollowingState ? "Dejar de seguir a este creador" : "Seguir a este creador";
   const followContent = (
-    <span
-      className={`inline-flex items-center gap-2 transition duration-150 ease-out${
+    <FollowButtonLabel
+      isFollowing={isFollowingState}
+      isPending={followPending}
+      showIcon
+      labelClassName="hidden sm:inline"
+      className={`inline-flex items-center transition duration-150 ease-out${
         isFollowingState ? " scale-[1.02]" : " scale-100"
       }`}
-    >
-      {isFollowingState ? <UserCheck className="h-4 w-4" /> : <UserPlus className="h-4 w-4" />}
-      <span className="hidden sm:inline">{followLabel}</span>
-    </span>
+    />
   );
 
   useEffect(() => {
@@ -610,6 +654,17 @@ export default function PublicCreatorByHandle({
         ]
       : []),
   ];
+  const popclipCreatorHandle = (creatorHandle ?? "").trim() || "creator";
+  const popclipCreatorName = (creatorName ?? "").trim() || popclipCreatorHandle;
+  const popclipCreator: PopClipTileItem["creator"] = {
+    handle: popclipCreatorHandle,
+    displayName: popclipCreatorName,
+    avatarUrl: avatarUrl ?? null,
+    isAvailable: creatorAvailability === "AVAILABLE",
+    responseTime: responseSlaLabel ?? "",
+    locationLabel: hasPublicLocation ? locationLabel : "",
+    allowLocation: hasPublicLocation,
+  };
   const statusEditAction = isCreatorViewer ? (
     <button
       type="button"
@@ -682,12 +737,11 @@ export default function PublicCreatorByHandle({
   const activeHighlightAll = highlightAllByTab[activeHighlight];
   const activeHighlightTotal = highlightTotalsByTab[activeHighlight];
   const highlightHasMore = activeHighlightTotal > activeHighlights.length;
-  const activeHighlightLabel =
-    HIGHLIGHT_TABS.find((tab) => tab.id === activeHighlight)?.label ?? t("highlights");
   const highlightModalCount = activeHighlightTotal > 0 ? activeHighlightTotal : activeHighlightAll.length;
   const showHighlightLoadMore = activeHighlight === "popclips" && Boolean(popClipsCursor);
   const highlightLoading = activeHighlight === "popclips" && popClipsLoading;
   const highlightModalLoading = highlightLoading && activeHighlightAll.length === 0;
+  const highlightTileWidthClass = "w-[110px] sm:w-[140px] lg:w-[170px]";
   const highlightEmptyCopyByTab: Record<HighlightTab, string> = {
     popclips: "Aún no hay PopClips publicados.",
     pack: "Aún no hay packs publicados.",
@@ -959,10 +1013,19 @@ export default function PublicCreatorByHandle({
     handleCloseLocationDialog();
   };
 
-  const handleOpenHighlightModal = () => {
+  const handleViewAllHighlights = () => {
     if (activeHighlightAll.length === 0) return;
     setHighlightModalOpen(true);
   };
+
+  useEffect(() => {
+    if (!highlightModalOpen) return;
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setHighlightModalOpen(false);
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [highlightModalOpen]);
 
   const handleSelectHighlightItem = (item: HighlightItem) => {
     if (item.kind === "popclip") {
@@ -980,69 +1043,212 @@ export default function PublicCreatorByHandle({
     }
   };
 
-  const renderHighlightCard = (item: HighlightItem, showAction = true) => (
-    <div
-      key={item.id}
-      role="button"
-      tabIndex={0}
-      onClick={() => handleSelectHighlightItem(item)}
-      onKeyDown={(event) => {
-        if (event.key === "Enter" || event.key === " ") {
-          event.preventDefault();
-          handleSelectHighlightItem(item);
-        }
-      }}
-      className="snap-start rounded-2xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] p-3 shadow-sm transition hover:-translate-y-0.5 hover:shadow-lg focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[color:var(--brand)] cursor-pointer"
-    >
-      <div className="relative aspect-[4/3] w-full overflow-hidden rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-2)]">
-        {item.videoUrl ? (
-          <video
-            className="h-full w-full object-cover"
-            src={item.videoUrl}
-            poster={item.thumbUrl ? normalizeImageSrc(item.thumbUrl) : undefined}
-            muted
-            loop
-            playsInline
-            preload="metadata"
-            autoPlay
-          />
-        ) : item.thumbUrl ? (
-          <Image
-            src={normalizeImageSrc(item.thumbUrl)}
-            alt={item.title}
-            width={320}
-            height={240}
-            sizes="(max-width: 640px) 50vw, 25vw"
-            className="h-full w-full object-cover"
-          />
-        ) : (
-          <div className="flex h-full w-full items-center justify-center bg-gradient-to-br from-[color:var(--surface-1)] to-[color:var(--surface-2)] text-[10px] text-[color:var(--muted)]">
-            Sin preview
-          </div>
-        )}
-        {item.priceLabel ? (
-          <span className="absolute right-2 top-2 rounded-full border border-[color:rgba(15,23,42,0.4)] bg-[color:rgba(15,23,42,0.7)] px-2 py-0.5 text-[10px] font-semibold text-[color:var(--text)]">
-            {item.priceLabel}
-          </span>
-        ) : null}
-      </div>
-      <p className="mt-2 text-xs font-semibold text-[color:var(--text)] line-clamp-2 min-h-[2.25rem]">
-        {item.title}
-      </p>
-      {showAction && (
-        <button
-          type="button"
-          onClick={(event) => {
-            event.stopPropagation();
-            handleSelectHighlightItem(item);
-          }}
-          className="mt-2 inline-flex h-7 items-center justify-center rounded-full border border-[color:var(--surface-border)] px-3 text-[10px] font-semibold text-[color:var(--text)] hover:bg-[color:var(--surface-2)]"
-        >
-          Ver
-        </button>
-      )}
-    </div>
-  );
+  const buildPopclipTileItem = (clip: PublicPopClip): PopClipTileItem => {
+    const title = (clip.title?.trim() || clip.pack.title || "PopClip").trim();
+    const captionSource = (clip.title?.trim() || clip.pack.title || "").trim();
+    return {
+      id: clip.id,
+      creatorId: creatorId || undefined,
+      title,
+      caption: captionSource || null,
+      thumbnailUrl: clip.posterUrl ?? clip.pack.coverUrl ?? null,
+      posterUrl: clip.posterUrl ?? null,
+      previewImageUrl: clip.pack.coverUrl ?? null,
+      creator: popclipCreator,
+    };
+  };
+
+  const renderHighlightTile = (item: HighlightItem) => {
+    if (item.kind === "popclip") {
+      if (!item.popclip) return null;
+      const tileItem = buildPopclipTileItem(item.popclip);
+      return (
+        <PopClipTile
+          key={item.id}
+          item={tileItem}
+          onOpen={() => handleSelectHighlightItem(item)}
+          profileHref={profileHref}
+          chatHref={chatHref}
+          variant="profileMinimal"
+        />
+      );
+    }
+    const showLockedOverlay = viewerPurchaseResolved && !isCreatorViewer && !viewerHasPurchased;
+    const packTileItem: PackTileItem = {
+      id: item.id,
+      kind: item.kind as PackTileItem["kind"],
+      title: item.title,
+      priceLabel: item.priceLabel,
+      thumbUrl: item.thumbUrl ?? null,
+    };
+    return (
+      <PackTile
+        key={item.id}
+        item={packTileItem}
+        onOpen={() => handleSelectHighlightItem(item)}
+        chatHref={chatHref}
+        detailHref={item.detailHref}
+        variant="profileMinimal"
+        showLockedOverlay={showLockedOverlay}
+        lockedCtaLabel={LOCKED_CTA_LABEL}
+      />
+    );
+  };
+
+  const highlightTileEntries = activeHighlights.flatMap((item) => {
+    const node = renderHighlightTile(item);
+    return node ? [{ item, node }] : [];
+  });
+  const hasHighlightTiles = highlightTileEntries.length > 0;
+  const highlightViewAllBaseLabel = t("seeAll");
+  const highlightViewAllLabel =
+    highlightModalCount > 0 ? `${highlightViewAllBaseLabel} (${highlightModalCount})` : highlightViewAllBaseLabel;
+  const shouldShowHighlightViewAll = highlightHasMore && highlightModalCount > 0;
+
+  const updateHighlightScroll = useCallback(() => {
+    const container = highlightScrollRef.current;
+    if (!container) {
+      setHighlightScrollState((prev) =>
+        prev.show ? { show: false, thumbWidth: 0, thumbLeft: 0, scrollLeft: 0, scrollMax: 0 } : prev
+      );
+      return;
+    }
+    const { scrollLeft, scrollWidth, clientWidth } = container;
+    const scrollMax = Math.max(0, scrollWidth - clientWidth);
+    if (scrollMax <= 1) {
+      setHighlightScrollState((prev) =>
+        prev.show ? { show: false, thumbWidth: 0, thumbLeft: 0, scrollLeft: 0, scrollMax: 0 } : prev
+      );
+      return;
+    }
+    const trackWidth = highlightScrollTrackRef.current?.clientWidth || clientWidth;
+    if (!trackWidth) {
+      setHighlightScrollState((prev) =>
+        prev.show ? { show: false, thumbWidth: 0, thumbLeft: 0, scrollLeft: 0, scrollMax: 0 } : prev
+      );
+      return;
+    }
+    const rawThumbWidth = trackWidth * (clientWidth / scrollWidth);
+    const thumbWidth = clampValue(rawThumbWidth, 28, Math.min(72, trackWidth));
+    const maxLeft = Math.max(0, trackWidth - thumbWidth);
+    const thumbLeft = maxLeft > 0 ? (scrollLeft / scrollMax) * maxLeft : 0;
+    setHighlightScrollState((prev) => {
+      if (
+        prev.show &&
+        Math.abs(prev.thumbWidth - thumbWidth) < 0.5 &&
+        Math.abs(prev.thumbLeft - thumbLeft) < 0.5 &&
+        Math.abs(prev.scrollLeft - scrollLeft) < 0.5 &&
+        Math.abs(prev.scrollMax - scrollMax) < 0.5
+      ) {
+        return prev;
+      }
+      return { show: true, thumbWidth, thumbLeft, scrollLeft, scrollMax };
+    });
+  }, []);
+
+  const scheduleHighlightScrollUpdate = useCallback(() => {
+    if (typeof window === "undefined") return;
+    if (highlightScrollRafRef.current !== null) return;
+    highlightScrollRafRef.current = window.requestAnimationFrame(() => {
+      highlightScrollRafRef.current = null;
+      updateHighlightScroll();
+    });
+  }, [updateHighlightScroll]);
+
+  useEffect(() => {
+    const container = highlightScrollRef.current;
+    if (!container) {
+      setHighlightScrollState((prev) =>
+        prev.show ? { show: false, thumbWidth: 0, thumbLeft: 0, scrollLeft: 0, scrollMax: 0 } : prev
+      );
+      return;
+    }
+    scheduleHighlightScrollUpdate();
+    const handleScroll = () => scheduleHighlightScrollUpdate();
+    const handleResize = () => scheduleHighlightScrollUpdate();
+    container.addEventListener("scroll", handleScroll, { passive: true });
+    window.addEventListener("resize", handleResize);
+    return () => {
+      container.removeEventListener("scroll", handleScroll);
+      window.removeEventListener("resize", handleResize);
+      if (highlightScrollRafRef.current !== null) {
+        window.cancelAnimationFrame(highlightScrollRafRef.current);
+        highlightScrollRafRef.current = null;
+      }
+    };
+  }, [activeHighlight, hasHighlightTiles, scheduleHighlightScrollUpdate]);
+
+  const handleHighlightTrackPointerDown = useCallback((event: PointerEvent<HTMLDivElement>) => {
+    if (event.button !== 0) return;
+    const container = highlightScrollRef.current;
+    const track = highlightScrollTrackRef.current;
+    if (!container || !track) return;
+    const scrollMax = Math.max(0, container.scrollWidth - container.clientWidth);
+    if (scrollMax <= 0) return;
+    const trackRect = track.getBoundingClientRect();
+    const trackWidth = trackRect.width;
+    if (!trackWidth) return;
+    const rawThumbWidth = trackWidth * (container.clientWidth / container.scrollWidth);
+    const thumbWidth = clampValue(rawThumbWidth, 28, Math.min(72, trackWidth));
+    const maxLeft = Math.max(0, trackWidth - thumbWidth);
+    const targetLeft = clampValue(event.clientX - trackRect.left - thumbWidth / 2, 0, maxLeft);
+    const ratio = maxLeft > 0 ? targetLeft / maxLeft : 0;
+    container.scrollTo({ left: ratio * scrollMax, behavior: "smooth" });
+    event.preventDefault();
+    event.stopPropagation();
+  }, []);
+
+  const handleHighlightThumbPointerDown = useCallback((event: PointerEvent<HTMLDivElement>) => {
+    if (event.button !== 0) return;
+    const container = highlightScrollRef.current;
+    const track = highlightScrollTrackRef.current;
+    if (!container || !track) return;
+    const scrollMax = Math.max(0, container.scrollWidth - container.clientWidth);
+    if (scrollMax <= 0) return;
+    const trackRect = track.getBoundingClientRect();
+    const trackWidth = trackRect.width;
+    if (!trackWidth) return;
+    const rawThumbWidth = trackWidth * (container.clientWidth / container.scrollWidth);
+    const thumbWidth = clampValue(rawThumbWidth, 28, Math.min(72, trackWidth));
+    const maxThumbLeft = Math.max(0, trackWidth - thumbWidth);
+    const startThumbLeft = maxThumbLeft > 0 ? (container.scrollLeft / scrollMax) * maxThumbLeft : 0;
+    highlightScrollDragRef.current = {
+      pointerId: event.pointerId,
+      startX: event.clientX,
+      startThumbLeft,
+      maxThumbLeft,
+      scrollMax,
+    };
+    setHighlightDragging(true);
+    event.currentTarget.setPointerCapture(event.pointerId);
+    event.preventDefault();
+    event.stopPropagation();
+  }, []);
+
+  const handleHighlightThumbPointerMove = useCallback((event: PointerEvent<HTMLDivElement>) => {
+    const dragState = highlightScrollDragRef.current;
+    if (!dragState || dragState.pointerId !== event.pointerId) return;
+    const container = highlightScrollRef.current;
+    if (!container) return;
+    const deltaX = event.clientX - dragState.startX;
+    const nextThumbLeft = clampValue(dragState.startThumbLeft + deltaX, 0, dragState.maxThumbLeft);
+    const ratio = dragState.maxThumbLeft > 0 ? nextThumbLeft / dragState.maxThumbLeft : 0;
+    container.scrollLeft = ratio * dragState.scrollMax;
+    event.preventDefault();
+    event.stopPropagation();
+  }, []);
+
+  const handleHighlightThumbPointerUp = useCallback((event: PointerEvent<HTMLDivElement>) => {
+    const dragState = highlightScrollDragRef.current;
+    if (!dragState || dragState.pointerId !== event.pointerId) return;
+    highlightScrollDragRef.current = null;
+    setHighlightDragging(false);
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+    event.preventDefault();
+    event.stopPropagation();
+  }, []);
 
   const handleClosePopclipViewer = () => {
     setActivePopclip(null);
@@ -1362,7 +1568,7 @@ export default function PublicCreatorByHandle({
   const highlightEmptyCta: HighlightEmptyCta = (() => {
     if (!viewerIsLoggedIn) {
       return {
-        label: "Entrar al chat",
+        label: CHAT_CTA_LABEL,
         href: chatHref,
         onClick: handleOpenChat,
         disabled: chatPending,
@@ -1376,7 +1582,7 @@ export default function PublicCreatorByHandle({
         disabled: highlightFollowDisabled,
       };
     }
-    if (hasHighlightPacks && !viewerHasPurchased && activeHighlight !== "pack") {
+    if (hasHighlightPacks && viewerPurchaseResolved && !viewerHasPurchased && activeHighlight !== "pack") {
       return {
         label: "Ver packs",
         onClick: () => {
@@ -1386,7 +1592,7 @@ export default function PublicCreatorByHandle({
       };
     }
     return {
-      label: "Entrar al chat",
+      label: CHAT_CTA_LABEL,
       href: chatHref,
       onClick: handleOpenChat,
       disabled: chatPending,
@@ -1418,16 +1624,18 @@ export default function PublicCreatorByHandle({
         <title>{String(creatorName || "Perfil público")}</title>
       </Head>
       <div className="min-h-screen bg-[color:var(--surface-0)] text-[color:var(--text)] overflow-x-hidden">
-        <main className="mx-auto w-full max-w-6xl px-4 pb-16 pt-6 space-y-6 min-w-0">
+        <main className="mx-auto w-full max-w-6xl px-4 pb-[calc(72px+env(safe-area-inset-bottom))] pt-6 space-y-6 min-w-0 md:pb-16">
           <PublicHero
             name={creatorName}
             avatarUrl={avatarUrl}
             tagline={tagline}
             topEligible={topEligible}
+            isVerified={isVerified}
             chips={creatorChips}
             chipsPlacement="meta"
             chipsAction={statusEditAction}
-            primaryCtaLabel="Entrar al chat privado"
+            offerTags={offerTags}
+            primaryCtaLabel={CHAT_CTA_LABEL}
             primaryHref={chatHref}
             primaryOnClick={handleOpenChat}
             primaryDisabled={chatPending}
@@ -1438,6 +1646,7 @@ export default function PublicCreatorByHandle({
             secondaryHref={followHref}
             secondaryOnClick={handleFollow}
             secondaryDisabled={followPending}
+            secondaryVariant="tile"
           />
           {showPreviewBanner && (
             <div className="rounded-xl border border-[color:rgba(var(--brand-rgb),0.35)] bg-[color:var(--surface-1)] px-4 py-2 text-xs text-[color:var(--muted)]">
@@ -1486,78 +1695,144 @@ export default function PublicCreatorByHandle({
             </div>
           )}
 
-          <section className="space-y-3 min-w-0">
-            <div className="flex items-center justify-between min-w-0">
-              <h2 className="text-base font-semibold text-[color:var(--text)]">{t("highlights")}</h2>
-              {highlightHasMore && (
+          <HomeSectionCard
+            title={t("highlights")}
+            rightSlot={
+              shouldShowHighlightViewAll ? (
                 <button
                   type="button"
-                  onClick={handleOpenHighlightModal}
+                  onClick={handleViewAllHighlights}
                   className="text-xs font-semibold text-[color:var(--brand)] hover:underline"
                 >
-                  {t("seeAll")} ({activeHighlightTotal})
+                  {highlightViewAllLabel}
                 </button>
+              ) : null
+            }
+            className="min-w-0"
+          >
+            <div className="space-y-3">
+              <div className="flex flex-wrap gap-2">
+                {HIGHLIGHT_TABS.map((tab) => {
+                  const isActive = tab.id === activeHighlight;
+                  return (
+                    <button
+                      key={tab.id}
+                      type="button"
+                      onClick={() => setActiveHighlight(tab.id)}
+                      className={`rounded-full border px-3 py-1 text-[11px] font-semibold transition ${
+                        isActive
+                          ? "border-[color:rgba(var(--brand-rgb),0.6)] bg-[color:rgba(var(--brand-rgb),0.16)] text-[color:var(--text)]"
+                          : "border-[color:var(--surface-border)] bg-[color:var(--surface-1)] text-[color:var(--muted)] hover:text-[color:var(--text)]"
+                      }`}
+                    >
+                      {tab.label}
+                    </button>
+                  );
+                })}
+              </div>
+              {!hasHighlightTiles ? (
+                highlightLoading ? (
+                  <div className="relative">
+                    <div className="no-scrollbar flex gap-2 overflow-x-auto pb-2 pr-4 scroll-pr-4 snap-x snap-mandatory scroll-smooth sm:gap-3">
+                      {Array.from({ length: HIGHLIGHT_PREVIEW_MAX }).map((_, idx) => (
+                        <Skeleton
+                          key={`highlight-skeleton-${idx}`}
+                          className={`aspect-[3/4] sm:aspect-[16/10] ${highlightTileWidthClass} shrink-0 snap-start rounded-2xl`}
+                        />
+                      ))}
+                      <div className="w-4 shrink-0" />
+                    </div>
+                    <div className="pointer-events-none absolute right-0 top-0 h-full w-6 bg-gradient-to-l from-[color:var(--surface-0)] to-transparent" />
+                  </div>
+                ) : (
+                  <div className="rounded-2xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-4 py-3 text-xs text-[color:var(--muted)] space-y-3">
+                    <p>{highlightEmptyCopyByTab[activeHighlight]}</p>
+                    <div className="flex flex-wrap gap-2">
+                      {"href" in highlightEmptyCta ? (
+                        <a
+                          href={highlightEmptyCta.href}
+                          onClick={highlightEmptyCta.onClick}
+                          aria-disabled={highlightEmptyCta.disabled}
+                          className={`inline-flex h-8 items-center justify-center rounded-full border border-[color:var(--surface-border)] px-3 text-[10px] font-semibold text-[color:var(--text)] hover:bg-[color:var(--surface-2)]${
+                            highlightEmptyCta.disabled ? " opacity-60 pointer-events-none" : ""
+                          }`}
+                        >
+                          {highlightEmptyCta.label}
+                        </a>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={highlightEmptyCta.onClick}
+                          className="inline-flex h-8 items-center justify-center rounded-full border border-[color:rgba(var(--brand-rgb),0.5)] px-3 text-[10px] font-semibold text-[color:var(--text)] hover:bg-[color:rgba(var(--brand-rgb),0.12)]"
+                        >
+                          {highlightEmptyCta.label}
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                )
+              ) : (
+                <div className="relative">
+                  <div
+                    ref={highlightScrollRef}
+                    className="no-scrollbar flex gap-2 overflow-x-auto pb-2 pr-4 scroll-pr-4 snap-x snap-mandatory scroll-smooth sm:gap-3"
+                    style={highlightDragging ? { scrollSnapType: "none", scrollBehavior: "auto" } : undefined}
+                  >
+                    {highlightTileEntries.map(({ item, node }) => (
+                      <div key={item.id} className={`${highlightTileWidthClass} shrink-0 snap-start`}>
+                        {node}
+                      </div>
+                    ))}
+                    {shouldShowHighlightViewAll ? (
+                      <div className={`${highlightTileWidthClass} shrink-0 snap-start`}>
+                        <button
+                          type="button"
+                          onClick={handleViewAllHighlights}
+                          className="relative aspect-[3/4] sm:aspect-[16/10] w-full overflow-hidden rounded-2xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] text-left shadow-sm transition hover:-translate-y-0.5 hover:shadow-lg"
+                        >
+                          <div className="absolute inset-0 bg-gradient-to-br from-[color:rgba(10,14,24,0.9)] via-[color:rgba(18,24,38,0.9)] to-[color:rgba(6,9,18,0.95)]" />
+                          <div className="relative flex h-full flex-col items-center justify-center gap-0.5 px-2 text-white/90">
+                            <span className="text-center text-[11px] font-semibold">{highlightViewAllBaseLabel}</span>
+                            {highlightModalCount > 0 ? (
+                              <span className="text-[10px] text-white/70">({highlightModalCount})</span>
+                            ) : null}
+                          </div>
+                        </button>
+                      </div>
+                    ) : null}
+                    <div className="w-4 shrink-0" />
+                  </div>
+                  <div className="pointer-events-none absolute right-0 top-0 h-full w-6 bg-gradient-to-l from-[color:var(--surface-0)] to-transparent" />
+                  {highlightScrollState.show ? (
+                    <div
+                      ref={highlightScrollTrackRef}
+                      onPointerDown={handleHighlightTrackPointerDown}
+                      className="relative mt-2 h-1 w-full select-none rounded-full bg-white/10"
+                    >
+                      <div
+                        role="slider"
+                        aria-label="Scroll de destacados"
+                        aria-valuemin={0}
+                        aria-valuemax={Math.round(highlightScrollState.scrollMax)}
+                        aria-valuenow={Math.round(highlightScrollState.scrollLeft)}
+                        onPointerDown={handleHighlightThumbPointerDown}
+                        onPointerMove={handleHighlightThumbPointerMove}
+                        onPointerUp={handleHighlightThumbPointerUp}
+                        onPointerCancel={handleHighlightThumbPointerUp}
+                        className={`absolute left-0 top-0 h-full rounded-full bg-white/30 shadow-[0_0_6px_rgba(255,255,255,0.35)] touch-none${
+                          highlightDragging ? " cursor-grabbing" : " cursor-grab transition-[transform,width] duration-150"
+                        }`}
+                        style={{
+                          width: `${highlightScrollState.thumbWidth}px`,
+                          transform: `translateX(${highlightScrollState.thumbLeft}px)`,
+                        }}
+                      />
+                    </div>
+                  ) : null}
+                </div>
               )}
             </div>
-            <div className="flex flex-wrap gap-2">
-              {HIGHLIGHT_TABS.map((tab) => {
-                const isActive = tab.id === activeHighlight;
-                return (
-                  <button
-                    key={tab.id}
-                    type="button"
-                    onClick={() => setActiveHighlight(tab.id)}
-                    className={`rounded-full border px-3 py-1 text-[11px] font-semibold transition ${
-                      isActive
-                        ? "border-[color:rgba(var(--brand-rgb),0.6)] bg-[color:rgba(var(--brand-rgb),0.16)] text-[color:var(--text)]"
-                        : "border-[color:var(--surface-border)] bg-[color:var(--surface-1)] text-[color:var(--muted)] hover:text-[color:var(--text)]"
-                    }`}
-                  >
-                    {tab.label}
-                  </button>
-                );
-              })}
-            </div>
-            {activeHighlights.length === 0 ? (
-              highlightLoading ? (
-                <div className="grid grid-flow-col auto-cols-[minmax(140px,1fr)] gap-3 overflow-x-auto pb-2 snap-x snap-mandatory sm:grid-flow-row sm:grid-cols-2 lg:grid-cols-3 sm:auto-cols-auto sm:overflow-visible">
-                  {Array.from({ length: HIGHLIGHT_PREVIEW_MAX }).map((_, idx) => (
-                    <Skeleton key={`highlight-skeleton-${idx}`} className="h-[180px] w-full rounded-2xl" />
-                  ))}
-                </div>
-              ) : (
-                <div className="rounded-2xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-4 py-3 text-xs text-[color:var(--muted)] space-y-3">
-                  <p>{highlightEmptyCopyByTab[activeHighlight]}</p>
-                  <div className="flex flex-wrap gap-2">
-                    {"href" in highlightEmptyCta ? (
-                      <a
-                        href={highlightEmptyCta.href}
-                        onClick={highlightEmptyCta.onClick}
-                        aria-disabled={highlightEmptyCta.disabled}
-                        className={`inline-flex h-8 items-center justify-center rounded-full border border-[color:var(--surface-border)] px-3 text-[10px] font-semibold text-[color:var(--text)] hover:bg-[color:var(--surface-2)]${
-                          highlightEmptyCta.disabled ? " opacity-60 pointer-events-none" : ""
-                        }`}
-                      >
-                        {highlightEmptyCta.label}
-                      </a>
-                    ) : (
-                      <button
-                        type="button"
-                        onClick={highlightEmptyCta.onClick}
-                        className="inline-flex h-8 items-center justify-center rounded-full border border-[color:rgba(var(--brand-rgb),0.5)] px-3 text-[10px] font-semibold text-[color:var(--text)] hover:bg-[color:rgba(var(--brand-rgb),0.12)]"
-                      >
-                        {highlightEmptyCta.label}
-                      </button>
-                    )}
-                  </div>
-                </div>
-              )
-            ) : (
-              <div className="grid grid-flow-col auto-cols-[minmax(140px,1fr)] gap-3 overflow-x-auto pb-2 snap-x snap-mandatory sm:grid-flow-row sm:grid-cols-2 lg:grid-cols-3 sm:auto-cols-auto sm:overflow-visible">
-                {activeHighlights.map((item) => renderHighlightCard(item))}
-              </div>
-            )}
-          </section>
+          </HomeSectionCard>
 
           <section className="space-y-3 min-w-0">
             <div className="flex items-center justify-between min-w-0">
@@ -1715,7 +1990,7 @@ export default function PublicCreatorByHandle({
               <div
                 role="dialog"
                 aria-modal="true"
-                aria-label={`Ver ${activeHighlightLabel}`}
+                aria-label="Destacados"
                 onClick={(event) => event.stopPropagation()}
                 className="flex w-full sm:w-[720px] max-h-[85vh] flex-col overflow-hidden rounded-t-2xl sm:rounded-2xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] shadow-2xl"
               >
@@ -1723,12 +1998,31 @@ export default function PublicCreatorByHandle({
                   <div className="sticky top-0 z-10 border-b border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-4 pt-3 pb-3 sm:px-5 sm:pt-5 sm:pb-4">
                     <div className="mx-auto h-1 w-10 rounded-full bg-white/20 sm:hidden" />
                     <div className="flex items-start justify-between gap-3 pt-3 sm:pt-0">
-                      <div className="space-y-1">
+                      <div className="space-y-2">
                         <p className="text-sm font-semibold text-[color:var(--text)]">
-                          {activeHighlightLabel}{" "}
+                          {t("highlights")}{" "}
                           <span className="text-[color:var(--muted)]">({highlightModalCount})</span>
                         </p>
                         <p className="text-xs text-[color:var(--muted)]">Contenido destacado del creador.</p>
+                        <div className="flex flex-wrap gap-2">
+                          {HIGHLIGHT_TABS.map((tab) => {
+                            const isActive = tab.id === activeHighlight;
+                            return (
+                              <button
+                                key={tab.id}
+                                type="button"
+                                onClick={() => setActiveHighlight(tab.id)}
+                                className={`rounded-full border px-3 py-1 text-[11px] font-semibold transition ${
+                                  isActive
+                                    ? "border-[color:rgba(var(--brand-rgb),0.6)] bg-[color:rgba(var(--brand-rgb),0.16)] text-[color:var(--text)]"
+                                    : "border-[color:var(--surface-border)] bg-[color:var(--surface-1)] text-[color:var(--muted)] hover:text-[color:var(--text)]"
+                                }`}
+                              >
+                                {tab.label}
+                              </button>
+                            );
+                          })}
+                        </div>
                       </div>
                       <button
                         type="button"
@@ -1745,16 +2039,27 @@ export default function PublicCreatorByHandle({
                       <div className="mb-3 text-xs text-[color:var(--danger)]">{popClipsError}</div>
                     )}
                     {highlightModalLoading ? (
-                      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
                         {Array.from({ length: 6 }).map((_, idx) => (
-                          <Skeleton key={`highlight-modal-skeleton-${idx}`} className="h-[180px] w-full rounded-2xl" />
+                          <Skeleton
+                            key={`highlight-modal-skeleton-${idx}`}
+                            className="aspect-[16/10] w-full rounded-2xl"
+                          />
                         ))}
                       </div>
                     ) : activeHighlightAll.length === 0 ? (
                       <p className="text-xs text-[color:var(--muted)]">{highlightEmptyCopyByTab[activeHighlight]}</p>
                     ) : (
-                      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-                        {activeHighlightAll.map((item) => renderHighlightCard(item, true))}
+                      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                        {activeHighlightAll.map((item) => renderHighlightTile(item))}
+                        {popClipsLoadingMore
+                          ? Array.from({ length: HIGHLIGHT_LOAD_MORE_SKELETONS }).map((_, idx) => (
+                              <Skeleton
+                                key={`highlight-more-skeleton-${idx}`}
+                                className="aspect-[16/10] w-full rounded-2xl"
+                              />
+                            ))
+                          : null}
                       </div>
                     )}
                     {showHighlightLoadMore && (
@@ -2028,7 +2333,7 @@ export default function PublicCreatorByHandle({
                         }}
                         className="inline-flex h-8 items-center justify-center rounded-full border border-[color:var(--surface-border)] px-3 text-[10px] font-semibold text-[color:var(--text)] hover:bg-[color:var(--surface-2)]"
                       >
-                        Entrar al chat
+                        {CHAT_CTA_LABEL}
                       </a>
                     )}
                   </div>
@@ -2111,6 +2416,15 @@ export default function PublicCreatorByHandle({
     </>
   );
 }
+
+const resolveOfferTags = (value: unknown) => {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((tag) => (typeof tag === "string" ? tag.trim() : ""))
+    .filter((tag) => Boolean(tag));
+};
+
+const resolveVerifiedFlag = (value: unknown) => value === true;
 
 export const getServerSideProps: GetServerSideProps<Props> = async (ctx) => {
   const prisma = (await import("../../lib/prisma.server")).default;
@@ -2205,6 +2519,12 @@ export const getServerSideProps: GetServerSideProps<Props> = async (ctx) => {
   const trustLine = match.bioLinkTagline ?? match.subtitle ?? "";
   const bio = match.bioLinkDescription ?? match.description ?? "";
   const websiteUrl = profile?.websiteUrl ?? null;
+  const isVerified =
+    resolveVerifiedFlag((match as { isVerified?: unknown }).isVerified) ||
+    resolveVerifiedFlag((profile as { isVerified?: unknown } | null)?.isVerified);
+  const offerTags = resolveOfferTags(
+    (profile as { offerTags?: unknown } | null)?.offerTags ?? (match as { offerTags?: unknown }).offerTags
+  );
   const profilePayload = {
     creatorId: match.id,
     creatorName: match.name || "Creador",
@@ -2213,6 +2533,8 @@ export const getServerSideProps: GetServerSideProps<Props> = async (ctx) => {
     bio,
     subtitle: trustLine,
     websiteUrl,
+    isVerified,
+    offerTags,
   };
   const contentPayload = {
     catalogItems,

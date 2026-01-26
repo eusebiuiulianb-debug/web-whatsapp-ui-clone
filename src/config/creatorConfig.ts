@@ -7,6 +7,8 @@ export interface CreatorConfig {
   uiLocale: string;
   creatorDescription: string;
   avatarUrl?: string;
+  isVerified?: boolean;
+  offerTags?: string[];
   quickReplies: {
     saludoRapido: string;
     packBienvenida: string;
@@ -24,6 +26,8 @@ export const DEFAULT_CREATOR_CONFIG: CreatorConfig = {
   uiLocale: "es",
   creatorDescription:
     "Bienvenido a mi espacio en NOVSY. Aquí comparto avances, envío audios personalizados y respondo tus ideas para crear contenido hecho a tu medida. Únete para acceder a sesiones 1:1, material exclusivo y priorizar tus pedidos.",
+  isVerified: false,
+  offerTags: [],
   quickReplies: {
     saludoRapido: "¡Gracias por escribirme! ¿Qué te gustaría trabajar o ver primero?",
     packBienvenida:
@@ -45,10 +49,16 @@ export function loadCreatorConfig(baseConfig: CreatorConfig = DEFAULT_CREATOR_CO
     if (!stored) return baseConfig;
     const parsed = JSON.parse(stored);
     const storedHandle = typeof parsed.creatorHandle === "string" ? parsed.creatorHandle.trim() : "";
+    const parsedOfferTags = Array.isArray(parsed.offerTags)
+      ? parsed.offerTags.map((tag: unknown) => (typeof tag === "string" ? tag.trim() : "")).filter(Boolean)
+      : undefined;
+    const parsedVerified = typeof parsed.isVerified === "boolean" ? parsed.isVerified : undefined;
     return {
       ...baseConfig,
       ...parsed,
       creatorHandle: storedHandle || baseConfig.creatorHandle,
+      isVerified: parsedVerified ?? baseConfig.isVerified,
+      offerTags: parsedOfferTags ?? baseConfig.offerTags,
       quickReplies: {
         ...baseConfig.quickReplies,
         ...(parsed.quickReplies || {}),
