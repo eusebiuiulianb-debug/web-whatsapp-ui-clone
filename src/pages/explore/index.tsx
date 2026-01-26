@@ -1899,13 +1899,17 @@ export default function Explore() {
     try {
       const res = await fetch("/api/dev/seed-popclips", { method: "POST" });
       const payload = (await res.json().catch(() => null)) as
-        | { ok?: boolean; created?: number; createdIds?: string[] }
+        | { ok?: boolean; count?: number; createdIds?: string[]; error?: string }
         | null;
       if (!res.ok || !payload?.ok) {
-        setSeedError("No se pudieron generar los clips demo.");
+        const message = payload?.error || "No se pudieron generar los clips demo.";
+        setSeedError(message);
+        showToast(message);
         return;
       }
       const createdIds = Array.isArray(payload.createdIds) ? payload.createdIds : [];
+      const count = typeof payload.count === "number" && Number.isFinite(payload.count) ? payload.count : createdIds.length;
+      setSeedError("");
       if (createdIds.length > 0) {
         const autoSaveIds = createdIds.slice(0, 3);
         await Promise.all(
@@ -1920,12 +1924,15 @@ export default function Explore() {
         await refreshSavedItems({ silent: true });
       }
       setSeedKey((prev) => prev + 1);
+      showToast(count > 0 ? `Clips demo generados (${count}).` : "Clips demo listos.");
     } catch (_err) {
-      setSeedError("No se pudieron generar los clips demo.");
+      const message = "No se pudieron generar los clips demo.";
+      setSeedError(message);
+      showToast(message);
     } finally {
       setSeedLoading(false);
     }
-  }, [isDev, refreshSavedItems, seedLoading]);
+  }, [isDev, refreshSavedItems, seedLoading, showToast]);
 
   const loadMoreFeed = useCallback(async () => {
     if (!feedCursor || loadMorePendingRef.current) return;
@@ -1940,7 +1947,7 @@ export default function Explore() {
     const endpoint = `/api/public/popclips/feed?${params.toString()}`;
     setFeedLoadingMore(true);
     try {
-      const res = await fetch(endpoint, { signal: controller.signal });
+      const res = await fetch(endpoint, { signal: controller.signal, cache: "no-store" });
       const payload = (await res.json().catch(() => null)) as
         | { items?: PopClipFeedItem[]; nextCursor?: string | null }
         | null;
@@ -1990,7 +1997,7 @@ export default function Explore() {
     const controller = new AbortController();
     setCreatorsLoading(true);
     setCreatorsError("");
-    fetch(endpoint, { signal: controller.signal })
+    fetch(endpoint, { signal: controller.signal, cache: "no-store" })
       .then(async (res) => {
         const payload = (await res.json().catch(() => null)) as
           | { creators?: RecommendedCreator[]; items?: RecommendedCreator[] }
