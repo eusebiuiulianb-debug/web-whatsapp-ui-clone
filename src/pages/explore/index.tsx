@@ -22,6 +22,7 @@ import { IconGlyph } from "../../components/ui/IconGlyph";
 import { ContextMenu } from "../../components/ui/ContextMenu";
 import { PillButton } from "../../components/ui/PillButton";
 import { Skeleton } from "../../components/ui/Skeleton";
+import { VerifiedInlineBadge } from "../../components/ui/VerifiedInlineBadge";
 import { useRouter } from "next/router";
 import { countActiveFilters, parseHomeFilters, toHomeFiltersQuery, type HomeFilters } from "../../lib/homeFilters";
 import { subscribeCreatorStatusUpdates } from "../../lib/creatorStatusEvents";
@@ -39,6 +40,8 @@ type RecommendedCreator = {
   handle: string;
   displayName: string;
   avatarUrl?: string | null;
+  isVerified?: boolean;
+  isPro?: boolean;
   availability?: string;
   responseTime?: string;
   locationLabel?: string | null;
@@ -64,6 +67,8 @@ type PopClipFeedItem = {
     handle: string;
     displayName: string;
     avatarUrl?: string | null;
+    isVerified?: boolean;
+    isPro?: boolean;
     vipEnabled?: boolean;
     isAvailable?: boolean;
     locationLabel?: string | null;
@@ -1821,7 +1826,7 @@ export default function Explore() {
   };
 
   const renderFilterChips = () => (
-    <div className="no-scrollbar flex flex-nowrap items-center gap-2 overflow-x-auto lg:flex-wrap lg:overflow-visible">
+    <div className="no-scrollbar flex flex-nowrap items-center gap-2 overflow-x-auto xl:flex-wrap xl:overflow-visible">
       <PillButton intent="secondary" size="sm" onClick={() => setCategorySheetOpen(true)}>
         Categorías
       </PillButton>
@@ -3043,7 +3048,12 @@ function HomeCreatorCard({
           </div>
           <div className="min-w-0">
             <div className="text-sm font-semibold text-[color:var(--text)] truncate">{creator.displayName}</div>
-            <div className="text-xs text-[color:var(--muted)] truncate">@{creator.handle}</div>
+            <div className="flex min-w-0 items-center gap-1 text-xs text-[color:var(--muted)]">
+              <span className="truncate">@{creator.handle}</span>
+              {creator.isVerified ? (
+                <VerifiedInlineBadge collapseAt="lg" className="shrink-0" />
+              ) : null}
+            </div>
           </div>
         </div>
         <div className="flex items-center gap-2">

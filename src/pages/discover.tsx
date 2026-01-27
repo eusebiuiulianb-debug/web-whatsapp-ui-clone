@@ -16,6 +16,7 @@ import { DesktopMenuNav } from "../components/navigation/DesktopMenuNav";
 import { LocationMap } from "../components/public-profile/LocationMap";
 import { IconGlyph } from "../components/ui/IconGlyph";
 import { Skeleton } from "../components/ui/Skeleton";
+import { VerifiedInlineBadge } from "../components/ui/VerifiedInlineBadge";
 import { normalizeImageSrc } from "../utils/normalizeImageSrc";
 
 const DEFAULT_LIMIT = 12;
@@ -47,6 +48,8 @@ type CreatorResult = {
   handle: string;
   displayName: string;
   avatarUrl?: string | null;
+  isVerified?: boolean;
+  isPro?: boolean;
   availability: string;
   responseTime: string;
   locationLabel?: string | null;
@@ -254,7 +257,7 @@ export default function DiscoverPage() {
       <Head>
         <title>Discovery · NOVSY</title>
       </Head>
-      <div className="sticky top-0 z-40 border-b border-[color:var(--surface-border)] bg-[color:var(--surface-1)]/90 backdrop-blur-xl">
+      <div className="sticky top-0 z-40 border-b border-white/10 bg-black/55 backdrop-blur-2xl">
         <div className="mx-auto flex w-full max-w-6xl items-center justify-between gap-4 px-4 pt-[env(safe-area-inset-top)] pb-3 md:px-6 lg:px-8">
           <Link href="/explore" legacyBehavior passHref>
             <a className="text-[11px] font-semibold uppercase tracking-[0.28em] text-[color:var(--muted)]">
@@ -379,7 +382,12 @@ function CreatorCard({ creator }: { creator: CreatorResult }) {
           </div>
           <div className="min-w-0">
             <div className="text-sm font-semibold text-[color:var(--text)] truncate">{creator.displayName}</div>
-            <div className="text-xs text-[color:var(--muted)] truncate">@{creator.handle}</div>
+            <div className="flex min-w-0 items-center gap-1 text-xs text-[color:var(--muted)]">
+              <span className="truncate">@{creator.handle}</span>
+              {creator.isVerified ? (
+                <VerifiedInlineBadge collapseAt="lg" className="shrink-0" />
+              ) : null}
+            </div>
             {priceLabel ? (
               <div className="mt-1 text-xs text-[color:var(--muted)]">Desde {priceLabel}</div>
             ) : null}

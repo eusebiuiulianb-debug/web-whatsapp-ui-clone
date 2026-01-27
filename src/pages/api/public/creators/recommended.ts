@@ -11,6 +11,8 @@ type CreatorResult = {
   handle: string;
   displayName: string;
   avatarUrl?: string | null;
+  isVerified?: boolean;
+  isPro?: boolean;
   bioShort?: string | null;
   vipEnabled?: boolean;
   avgResponseHours?: number | null;
@@ -33,6 +35,8 @@ type CreatorCandidate = {
   responseValue: CreatorResponseTime;
   avgResponseHours: number | null;
   vipEnabled: boolean;
+  isVerified: boolean;
+  isPro: boolean;
   popClipsCount: number;
   locationLabel?: string | null;
   locationGeohash?: string | null;
@@ -107,6 +111,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       const responseValue = normalizeResponseTime(profile?.responseSla) ?? "LT_24H";
       const avgResponseHours = resolveResponseHours(responseValue);
       const vipEnabled = Boolean(profile?.vipOnly) || availabilityValue === "VIP_ONLY";
+      const isVerified = Boolean(profile?.isVerified ?? creator.isVerified);
+      const isPro = profile?.plan === "PRO";
       const locationVisibility = (profile?.locationVisibility || "").toUpperCase();
       const locationEnabled =
         locationVisibility !== "OFF" &&
@@ -130,6 +136,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         responseValue,
         avgResponseHours,
         vipEnabled,
+        isVerified,
+        isPro,
         popClipsCount,
         locationLabel,
         locationGeohash,
@@ -206,6 +214,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       handle: creator.handle,
       displayName: creator.displayName,
       avatarUrl: creator.avatarUrl ?? null,
+      isVerified: creator.isVerified,
+      isPro: creator.isPro,
       bioShort: creator.bioShort ?? null,
       vipEnabled: creator.vipEnabled,
       avgResponseHours: creator.avgResponseHours ?? null,

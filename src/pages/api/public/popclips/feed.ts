@@ -18,6 +18,8 @@ type PopClipFeedItem = {
     handle: string;
     displayName: string;
     avatarUrl: string | null;
+    isVerified: boolean;
+    isPro: boolean;
     vipEnabled: boolean;
     avgResponseHours: number | null;
     responseTime: string | null;
@@ -57,6 +59,7 @@ const CLIP_SELECT = {
       id: true,
       name: true,
       bioLinkAvatarUrl: true,
+      isVerified: true,
       profile: {
         select: {
           availability: true,
@@ -66,6 +69,8 @@ const CLIP_SELECT = {
           locationGeohash: true,
           locationVisibility: true,
           allowDiscoveryUseLocation: true,
+          isVerified: true,
+          plan: true,
         },
       },
     },
@@ -217,6 +222,8 @@ function mapFeedItems(items: FeedClipRow[], userLocation: { lat: number; lng: nu
     const responseTime = formatResponseTimeLabel(responseValue);
     const vipEnabled = Boolean(clip.creator?.profile?.vipOnly) || availabilityValue === "VIP_ONLY";
     const isAvailable = availabilityValue === "AVAILABLE" || availabilityValue === "VIP_ONLY";
+    const isVerified = Boolean(clip.creator?.profile?.isVerified ?? clip.creator?.isVerified);
+    const isPro = clip.creator?.profile?.plan === "PRO";
     const locationVisibility = (clip.creator?.profile?.locationVisibility || "").toUpperCase();
     const locationEnabled =
       locationVisibility !== "OFF" &&
@@ -244,6 +251,8 @@ function mapFeedItems(items: FeedClipRow[], userLocation: { lat: number; lng: nu
         handle,
         displayName: creatorName,
         avatarUrl: normalizeAvatarUrl(clip.creator?.bioLinkAvatarUrl ?? null),
+        isVerified,
+        isPro,
         vipEnabled,
         avgResponseHours,
         responseTime,

@@ -10,6 +10,8 @@ type CreatorItem = {
   handle: string;
   displayName: string;
   avatarUrl?: string | null;
+  isVerified?: boolean;
+  isPro?: boolean;
   availability: string;
   responseTime: string;
   locationLabel?: string | null;
@@ -141,6 +143,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       const profile = creator.profile;
       const availabilityValue = normalizeAvailability(profile?.availability) ?? "AVAILABLE";
       const responseValue = normalizeResponseTime(profile?.responseSla) ?? "LT_24H";
+      const isVerified = Boolean(profile?.isVerified ?? creator.isVerified);
+      const isPro = profile?.plan === "PRO";
       const locationVisibility = (profile?.locationVisibility || "").toUpperCase();
       const locationEnabled =
         locationVisibility !== "OFF" &&
@@ -159,6 +163,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         handle: slugifyHandle(creator.name || "creator"),
         displayName: creator.name || "Creador",
         avatarUrl,
+        isVerified,
+        isPro,
         availability: formatAvailabilityLabel(availabilityValue),
         responseTime: formatResponseTimeLabel(responseValue),
         locationLabel,

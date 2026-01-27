@@ -1,7 +1,7 @@
 import * as Dialog from "@radix-ui/react-dialog";
 import * as Popover from "@radix-ui/react-popover";
 import clsx from "clsx";
-import { Bookmark, BookmarkCheck, MessageCircle, Sparkles } from "lucide-react";
+import { MessageCircle, Sparkles } from "lucide-react";
 import Image from "next/image";
 import Link from "next/link";
 import { memo, useEffect, useRef, useState, type MouseEvent } from "react";
@@ -12,6 +12,8 @@ import { normalizeImageSrc } from "../../utils/normalizeImageSrc";
 import { emitFollowChange, setFollowSnapshot } from "../../lib/followEvents";
 import { useFollowState } from "../../lib/useFollowState";
 import { FollowButtonLabel } from "../follow/FollowButtonLabel";
+import { VerifiedInlineBadge } from "../ui/VerifiedInlineBadge";
+import { PopClipMediaActions, popClipMediaActionButtonClass } from "./PopClipMediaActions";
 
 export type PopClipTileItem = {
   id: string;
@@ -27,6 +29,8 @@ export type PopClipTileItem = {
     handle: string;
     displayName: string;
     avatarUrl?: string | null;
+    isVerified?: boolean;
+    isPro?: boolean;
     vipEnabled?: boolean;
     isAvailable?: boolean;
     responseTime?: string | null;
@@ -357,7 +361,14 @@ export const PopClipTile = memo(function PopClipTile({
                   </span>
                 )}
               </span>
-              <span className="truncate text-xs font-semibold text-[color:var(--text)]">@{item.creator.handle}</span>
+              <span className="flex min-w-0 items-center gap-1">
+                <span className="truncate text-xs font-semibold text-[color:var(--text)]">
+                  @{item.creator.handle}
+                </span>
+                {item.creator.isVerified ? (
+                  <VerifiedInlineBadge collapseAt="lg" className="shrink-0" />
+                ) : null}
+              </span>
             </span>
           </Link>
           <div className="flex items-center gap-2">
@@ -375,54 +386,6 @@ export const PopClipTile = memo(function PopClipTile({
               <FollowButtonLabel isFollowing={following} isPending={followPending} />
             </button>
           ) : null}
-            {quickActions.length > 0 ? (
-              <ContextMenu
-                buttonAriaLabel="Acciones rápidas"
-                items={quickActions}
-                align="right"
-                closeOnScroll
-                menuClassName="min-w-[160px] w-[min(90vw,220px)]"
-                renderButton={({ ref, onClick, onPointerDown, ariaLabel, ariaExpanded, ariaHaspopup, title }) => (
-                  <button
-                    ref={ref}
-                    type="button"
-                    aria-label={ariaLabel}
-                    aria-expanded={ariaExpanded}
-                    aria-haspopup={ariaHaspopup}
-                    title={title}
-                    onClick={onClick}
-                    onPointerDown={onPointerDown}
-                    className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] text-[color:var(--text)] transition hover:bg-[color:var(--surface-3)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--ring)] focus-visible:ring-offset-1 focus-visible:ring-offset-[color:var(--surface-1)]"
-                  >
-                    <IconGlyph name="dots" ariaHidden />
-                  </button>
-                )}
-              />
-            ) : null}
-            <button
-              type="button"
-              aria-label={isSaved ? "Quitar guardado" : "Guardar clip"}
-              title={isSaved ? "Quitar guardado" : "Guardar clip"}
-              aria-pressed={isSaved}
-              onClick={(event) => {
-                event.preventDefault();
-                event.stopPropagation();
-                onToggleSave?.(item);
-              }}
-              onKeyDown={(event) => event.stopPropagation()}
-              className={clsx(
-                "inline-flex h-9 w-9 items-center justify-center rounded-full border bg-[color:var(--surface-2)] transition hover:bg-[color:var(--surface-3)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--ring)] focus-visible:ring-offset-1 focus-visible:ring-offset-[color:var(--surface-1)]",
-                isSaved
-                  ? "border-[color:rgba(var(--brand-rgb),0.6)] text-[color:var(--text)]"
-                  : "border-[color:var(--surface-border)] text-[color:var(--muted)]"
-              )}
-            >
-              {isSaved ? (
-                <BookmarkCheck className="h-5 w-5" aria-hidden="true" />
-              ) : (
-                <Bookmark className="h-5 w-5" aria-hidden="true" />
-              )}
-            </button>
           </div>
         </div>
       ) : null}
@@ -453,6 +416,44 @@ export const PopClipTile = memo(function PopClipTile({
             !isProfileMinimal && "cursor-pointer"
           )}
         >
+          {showHeader ? (
+            <PopClipMediaActions
+              isSaved={isSaved}
+              onToggleSave={onToggleSave ? () => onToggleSave(item) : undefined}
+              menu={
+                quickActions.length > 0 ? (
+                  <ContextMenu
+                    buttonAriaLabel="Acciones rápidas"
+                    items={quickActions}
+                    align="right"
+                    closeOnScroll
+                    menuClassName="min-w-[160px] w-[min(90vw,220px)]"
+                    renderButton={({ ref, onClick, onPointerDown, ariaLabel, ariaExpanded, ariaHaspopup, title }) => (
+                      <button
+                        ref={ref}
+                        type="button"
+                        aria-label={ariaLabel}
+                        aria-expanded={ariaExpanded}
+                        aria-haspopup={ariaHaspopup}
+                        title={title}
+                        onPointerDown={(event) => {
+                          event.stopPropagation();
+                          onPointerDown(event);
+                        }}
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          onClick(event);
+                        }}
+                        className={popClipMediaActionButtonClass}
+                      >
+                        <IconGlyph name="dots" ariaHidden />
+                      </button>
+                    )}
+                  />
+                ) : null
+              }
+            />
+          ) : null}
           {showImage ? (
             <>
               <Image

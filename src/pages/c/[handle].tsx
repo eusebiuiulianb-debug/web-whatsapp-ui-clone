@@ -647,6 +647,8 @@ export default function PublicCreatorByHandle({
     handle: popclipCreatorHandle,
     displayName: popclipCreatorName,
     avatarUrl: avatarUrl ?? null,
+    isVerified: Boolean(isVerified),
+    isPro: plan === "PRO",
     isAvailable: creatorAvailability === "AVAILABLE",
     responseTime: responseSlaLabel ?? "",
     locationLabel: hasPublicLocation ? locationLabel : "",
