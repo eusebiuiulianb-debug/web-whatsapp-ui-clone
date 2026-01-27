@@ -1,7 +1,9 @@
 import * as Popover from "@radix-ui/react-popover";
+import clsx from "clsx";
 import { Bookmark, Home, Inbox, Menu, Plus, User } from "lucide-react";
 import { useRouter } from "next/router";
 import { useEffect, useMemo, useState, type MouseEvent } from "react";
+import { QuickActionsSheet } from "../mobile/QuickActionsSheet";
 
 type QuickAction = {
   id: string;
@@ -10,7 +12,7 @@ type QuickAction = {
   href: string;
 };
 
-export function DesktopMenuNav() {
+export function DesktopMenuNav({ className }: { className?: string }) {
   const router = useRouter();
   const pathname = router.pathname;
   const currentPath = router.asPath.split("?")[0] || "";
@@ -158,69 +160,48 @@ export function DesktopMenuNav() {
 
   return (
     <>
-      <div className="hidden lg:block fixed top-6 left-0 right-0 z-40 pointer-events-none">
-        <div className="mx-auto w-full max-w-6xl px-4 sm:px-6 flex justify-end pointer-events-auto">
-          <Popover.Root open={menuOpen} onOpenChange={setMenuOpen}>
-            <Popover.Trigger asChild>
-              <button
-                type="button"
-                aria-label="Menú"
-                className="inline-flex items-center gap-2 rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-1)]/95 px-4 py-3 text-sm font-semibold text-[color:var(--text)] shadow-lg backdrop-blur-xl hover:bg-[color:var(--surface-2)]"
-              >
-                <Menu className="h-4 w-4" aria-hidden="true" />
-                Menú
-              </button>
-            </Popover.Trigger>
-            <Popover.Portal>
-              <Popover.Content
-                side="bottom"
-                align="end"
-                sideOffset={12}
-                collisionPadding={16}
-                className="z-50 w-[240px] rounded-2xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)]/95 p-2 text-[color:var(--text)] shadow-2xl backdrop-blur-xl"
-              >
-                <div className="flex flex-col gap-1">
-                  <MenuItem
-                    icon={Home}
-                    label="Inicio"
-                    active={isHomeActive}
-                    onClick={handleHome}
-                  />
-                  <MenuItem
-                    icon={Bookmark}
-                    label="Guardados"
-                    active={isSavedActive}
-                    onClick={handleSaved}
-                  />
-                  <MenuItem
-                    icon={Plus}
-                    label="Nuevo"
-                    onClick={() => {
-                      setMenuOpen(false);
-                      setQuickOpen(true);
-                    }}
-                  />
-                  <MenuItem
-                    icon={Inbox}
-                    label="Chats"
-                    active={isChatsActive}
-                    onClick={() => handleNav(chatsHref)}
-                  />
-                  <MenuItem
-                    icon={User}
-                    label="Tú"
-                    active={isMeActive}
-                    onClick={() => handleNav(meHref)}
-                  />
-                </div>
-              </Popover.Content>
-            </Popover.Portal>
-          </Popover.Root>
-        </div>
-      </div>
+      <Popover.Root open={menuOpen} onOpenChange={setMenuOpen}>
+        <Popover.Trigger asChild>
+          <button
+            type="button"
+            aria-label="Menú"
+            className={clsx(
+              "inline-flex items-center justify-center gap-2 rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-1)]/95 text-sm font-semibold text-[color:var(--text)] shadow-lg backdrop-blur-xl transition hover:bg-[color:var(--surface-2)] h-9 w-9 xl:h-auto xl:w-auto xl:px-4 xl:py-2.5",
+              className
+            )}
+          >
+            <Menu className="h-4 w-4" aria-hidden="true" />
+            <span className="hidden xl:inline">Menú</span>
+          </button>
+        </Popover.Trigger>
+        <Popover.Portal>
+          <Popover.Content
+            side="bottom"
+            align="end"
+            sideOffset={12}
+            collisionPadding={16}
+            className="z-50 w-[240px] rounded-2xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)]/95 p-2 text-[color:var(--text)] shadow-2xl backdrop-blur-xl"
+          >
+            <div className="flex flex-col gap-1">
+              <MenuItem icon={Home} label="Inicio" active={isHomeActive} onClick={handleHome} />
+              <MenuItem icon={Bookmark} label="Guardados" active={isSavedActive} onClick={handleSaved} />
+              <MenuItem
+                icon={Plus}
+                label="Nuevo"
+                onClick={() => {
+                  setMenuOpen(false);
+                  setQuickOpen(true);
+                }}
+              />
+              <MenuItem icon={Inbox} label="Chats" active={isChatsActive} onClick={() => handleNav(chatsHref)} />
+              <MenuItem icon={User} label="Tú" active={isMeActive} onClick={() => handleNav(meHref)} />
+            </div>
+          </Popover.Content>
+        </Popover.Portal>
+      </Popover.Root>
 
       {quickOpen ? (
-        <div className="hidden lg:flex fixed inset-0 z-50 items-center justify-center bg-black/50 backdrop-blur-sm">
+        <div className="hidden xl:flex fixed inset-0 z-50 items-center justify-center bg-black/50 backdrop-blur-sm">
           <button
             type="button"
             aria-label="Cerrar acciones rapidas"
@@ -267,6 +248,8 @@ export function DesktopMenuNav() {
           </div>
         </div>
       ) : null}
+
+      <QuickActionsSheet open={quickOpen} onClose={() => setQuickOpen(false)} mode={quickMode} />
     </>
   );
 }

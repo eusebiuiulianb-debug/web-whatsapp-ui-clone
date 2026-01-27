@@ -8,7 +8,6 @@ import { CreatorConfigProvider } from "../context/CreatorConfigContext";
 import { initCrossTabEvents } from "../lib/crossTabEvents";
 import { RealtimeToastHost } from "../components/creator/RealtimeToastHost";
 import { MobileTabBar } from "../components/mobile/MobileTabBar";
-import { DesktopMenuNav } from "../components/navigation/DesktopMenuNav";
 
 function MyApp({ Component, pageProps }: AppProps) {
   const router = useRouter();
@@ -22,8 +21,9 @@ function MyApp({ Component, pageProps }: AppProps) {
     <CreatorConfigProvider>
       <ConversationProvider>
         <Component {...pageProps} />
-        <MobileTabBar />
-        <DesktopMenuNav />
+        <div className="xl:hidden">
+          <MobileTabBar />
+        </div>
         {showCreatorToasts && <RealtimeToastHost />}
       </ConversationProvider>
     </CreatorConfigProvider>

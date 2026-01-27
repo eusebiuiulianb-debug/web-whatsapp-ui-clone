@@ -12,6 +12,7 @@ import {
   useState,
 } from "react";
 import { HomeSectionCard } from "../components/home/HomeSectionCard";
+import { DesktopMenuNav } from "../components/navigation/DesktopMenuNav";
 import { LocationMap } from "../components/public-profile/LocationMap";
 import { IconGlyph } from "../components/ui/IconGlyph";
 import { Skeleton } from "../components/ui/Skeleton";
@@ -253,13 +254,16 @@ export default function DiscoverPage() {
       <Head>
         <title>Discovery · NOVSY</title>
       </Head>
-      <div className="sticky top-0 z-40 border-b border-[color:var(--surface-border)] bg-[color:var(--surface-1)]/90 backdrop-blur-xl md:hidden">
-        <div className="mx-auto w-full max-w-6xl px-4 pt-[env(safe-area-inset-top)] pb-2">
+      <div className="sticky top-0 z-40 border-b border-[color:var(--surface-border)] bg-[color:var(--surface-1)]/90 backdrop-blur-xl">
+        <div className="mx-auto flex w-full max-w-6xl items-center justify-between gap-4 px-4 pt-[env(safe-area-inset-top)] pb-3 md:px-6 lg:px-8">
           <Link href="/explore" legacyBehavior passHref>
             <a className="text-[11px] font-semibold uppercase tracking-[0.28em] text-[color:var(--muted)]">
               IntimiPop
             </a>
           </Link>
+          <div className="hidden xl:flex">
+            <DesktopMenuNav className="inline-flex" />
+          </div>
         </div>
       </div>
       <div className="mx-auto flex w-full max-w-6xl flex-col gap-6 px-4 py-6 md:px-6 lg:px-8">

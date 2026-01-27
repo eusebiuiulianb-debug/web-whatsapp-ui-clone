@@ -14,6 +14,7 @@ import { useRouter } from "next/router";
 import Link from "next/link";
 import { ChevronLeft, ChevronRight, Lock, Pencil, ThumbsUp } from "lucide-react";
 import { HomeSectionCard } from "../../components/home/HomeSectionCard";
+import { DesktopMenuNav } from "../../components/navigation/DesktopMenuNav";
 import { PackTile, type PackTileItem } from "../../components/packs/PackTile";
 import { PopClipTile, type PopClipTileItem } from "../../components/popclips/PopClipTile";
 import { HighlightsRail } from "../../components/public-profile/HighlightsRail";
@@ -1464,7 +1465,10 @@ export default function PublicCreatorByHandle({
         <title>{String(creatorName || "Perfil público")}</title>
       </Head>
       <div className="min-h-screen bg-[color:var(--surface-0)] text-[color:var(--text)] overflow-x-hidden">
-        <main className="mx-auto w-full max-w-6xl px-4 pb-[calc(72px+env(safe-area-inset-bottom))] pt-6 space-y-6 min-w-0 md:pb-16">
+        <main className="mx-auto w-full max-w-6xl px-4 pb-[calc(72px+env(safe-area-inset-bottom))] pt-6 space-y-6 min-w-0 xl:pb-16">
+          <div className="hidden xl:flex justify-end xl:mb-4">
+            <DesktopMenuNav className="inline-flex" />
+          </div>
           <PublicHero
             name={creatorName}
             avatarUrl={avatarUrl}

@@ -93,7 +93,7 @@ export function QuickActionsSheet({ open, onClose, mode }: QuickActionsSheetProp
   if (!open) return null;
 
   return (
-    <div className="fixed inset-0 z-50 lg:hidden">
+    <div className="fixed inset-0 z-50 xl:hidden">
       <button
         type="button"
         aria-label="Cerrar acciones rapidas"

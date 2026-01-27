@@ -15,6 +15,8 @@ import {
 import { HomeCategorySheet, type HomeCategory } from "../../components/home/HomeCategorySheet";
 import { HomeFilterSheet } from "../../components/home/HomeFilterSheet";
 import { HomeSectionCard } from "../../components/home/HomeSectionCard";
+import { DesktopMenuNav } from "../../components/navigation/DesktopMenuNav";
+import { PublicStickyHeader } from "../../components/navigation/PublicStickyHeader";
 import { PopClipTile, type PopClipTileItem } from "../../components/popclips/PopClipTile";
 import { IconGlyph } from "../../components/ui/IconGlyph";
 import { ContextMenu } from "../../components/ui/ContextMenu";
@@ -286,18 +288,13 @@ export default function Explore() {
   const [organizerItemId, setOrganizerItemId] = useState<string | null>(null);
   const [organizerCollectionId, setOrganizerCollectionId] = useState<string | null>(null);
   const heroSearchWrapperRef = useRef<HTMLDivElement | null>(null);
-  const mobileSearchWrapperRef = useRef<HTMLDivElement | null>(null);
-  const stickySearchWrapperRef = useRef<HTMLDivElement | null>(null);
   const heroSearchInputRef = useRef<HTMLInputElement | null>(null);
-  const mobileSearchInputRef = useRef<HTMLInputElement | null>(null);
-  const stickySearchInputRef = useRef<HTMLInputElement | null>(null);
   const popclipsRef = useRef<HTMLDivElement | null>(null);
   const packsRef = useRef<HTMLElement | null>(null);
   const suppressSearchOpenRef = useRef(false);
   const [isSearchOpen, setIsSearchOpen] = useState(false);
   const [activeSearchIndex, setActiveSearchIndex] = useState(-1);
   const [recentSearches, setRecentSearches] = useState<string[]>([]);
-  const [showStickySearch, setShowStickySearch] = useState(false);
   const [showBackToTop, setShowBackToTop] = useState(false);
   const [isMac, setIsMac] = useState(false);
   const [recommendedCreators, setRecommendedCreators] = useState<RecommendedCreator[]>([]);
@@ -389,23 +386,12 @@ export default function Explore() {
       if (options?.suppressOpen) {
         suppressSearchOpenRef.current = true;
       }
-      const stickyInput = stickySearchInputRef.current;
-      const mobileInput = mobileSearchInputRef.current;
       const heroInput = heroSearchInputRef.current;
-      const isVisible = (input: HTMLInputElement | null) =>
-        Boolean(input && input.getClientRects().length > 0);
-      const input =
-        (showStickySearch && isVisible(stickyInput) && stickyInput) ||
-        (isVisible(mobileInput) && mobileInput) ||
-        (isVisible(heroInput) && heroInput) ||
-        stickyInput ||
-        mobileInput ||
-        heroInput;
-      if (!input) return;
-      input.focus();
-      if (options?.select) input.select();
+      if (!heroInput) return;
+      heroInput.focus();
+      if (options?.select) heroInput.select();
     },
-    [showStickySearch]
+    []
   );
 
   const applyFilters = useCallback(
@@ -626,9 +612,7 @@ export default function Explore() {
       const target = event.target;
       if (!target || !(target instanceof Node)) return;
       const insideHero = heroSearchWrapperRef.current?.contains(target) ?? false;
-      const insideMobile = mobileSearchWrapperRef.current?.contains(target) ?? false;
-      const insideSticky = stickySearchWrapperRef.current?.contains(target) ?? false;
-      if (insideHero || insideMobile || insideSticky) return;
+      if (insideHero) return;
       closeSearchPanel();
     };
     window.addEventListener("mousedown", handlePointer);
@@ -641,11 +625,9 @@ export default function Explore() {
 
   useEffect(() => {
     if (typeof window === "undefined") return;
-    const threshold = 180;
     let ticking = false;
     const update = () => {
       const scrollTop = window.scrollY || document.documentElement.scrollTop || 0;
-      setShowStickySearch(scrollTop > threshold);
       const popclipsEl = popclipsRef.current;
       if (popclipsEl) {
         const offset = popclipsEl.getBoundingClientRect().top + scrollTop;
@@ -1839,7 +1821,7 @@ export default function Explore() {
   };
 
   const renderFilterChips = () => (
-    <div className="flex flex-wrap items-center gap-2">
+    <div className="no-scrollbar flex flex-nowrap items-center gap-2 overflow-x-auto lg:flex-wrap lg:overflow-visible">
       <PillButton intent="secondary" size="sm" onClick={() => setCategorySheetOpen(true)}>
         Categorías
       </PillButton>
@@ -2031,90 +2013,46 @@ export default function Explore() {
         <title>IntimiPop - Explorar</title>
       </Head>
       <div className="flex min-h-screen w-full flex-col">
-        <div
-          className={clsx(
-            "fixed left-0 right-0 top-0 z-40 hidden transition-all md:block",
-            showStickySearch ? "opacity-100" : "pointer-events-none -translate-y-2 opacity-0"
-          )}
-        >
-          <div className="border-b border-[color:var(--surface-border)] bg-[color:var(--surface-1)]/80 backdrop-blur-xl">
-            <div className="mx-auto w-full max-w-6xl px-4 py-2 md:px-6 lg:px-8">
-              <div ref={stickySearchWrapperRef} className="relative">
-                <label className="sr-only" htmlFor="sticky-search">
-                  Buscar
-                </label>
-                <div className="group flex h-9 items-center gap-3 rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-3 text-[color:var(--text)] transition-colors hover:border-[color:var(--surface-border-hover)] focus-within:border-[color:var(--surface-border-hover)] focus-within:ring-1 focus-within:ring-[color:var(--surface-ring)]">
-                  <Search className="h-4 w-4 flex-none text-[color:var(--muted)]" aria-hidden="true" />
-                  <input
-                    id="sticky-search"
-                    ref={stickySearchInputRef}
-                    type="text"
-                    value={search}
-                    onChange={handleSearchChange}
-                    onFocus={handleSearchFocus}
-                    onKeyDown={handleSearchKeyDown}
-                    placeholder="Buscar creadores, packs o PopClips"
-                    aria-controls="search-suggestions"
-                    className="h-6 w-full bg-transparent text-xs text-[color:var(--text)] placeholder:text-[color:var(--muted)] focus:outline-none"
-                  />
-                  {hasSearchValue ? (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        clearSearchValue();
-                        focusSearchInput({ suppressOpen: true });
-                      }}
-                      className="inline-flex h-6 w-6 items-center justify-center rounded-full text-[color:var(--muted)] hover:text-[color:var(--text)] focus:outline-none focus:ring-1 focus:ring-[color:var(--ring)]"
-                      aria-label="Limpiar búsqueda"
-                    >
-                      <X className="h-4 w-4" aria-hidden="true" />
-                    </button>
-                  ) : null}
-                  <kbd
-                    className="hidden flex-none rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-2 py-0.5 text-[10px] font-medium text-[color:var(--muted)] sm:inline-flex"
-                    aria-hidden="true"
-                  >
-                    {isMac ? "⌘ K" : "Ctrl K"}
-                  </kbd>
-                </div>
-                {showStickySearch ? renderSearchDropdown() : null}
-              </div>
+        <PublicStickyHeader
+          title="Explora creadores"
+          compactTitle="Explora"
+          subtitle="Filtra por ubicación, disponibilidad y estilo. Abre chat cuando te encaje."
+          brand={
+            <Link href="/explore" legacyBehavior passHref>
+              <a
+                onClick={(event) => {
+                  event.preventDefault();
+                  setSearch("");
+                  setSelectedCategoryId(null);
+                  setFollowingOnly(false);
+                  setSavedOnly(false);
+                  setExploreIntent("all");
+                  setSavedView("all");
+                  setActiveCollectionId(null);
+                  closeSearchPanel();
+                  scrollToTop();
+                  void router.push("/explore");
+                }}
+              >
+                IntimiPop
+              </a>
+            </Link>
+          }
+          actions={
+            <div className="hidden xl:flex">
+              <DesktopMenuNav className="inline-flex" />
             </div>
-          </div>
-        </div>
-        <div className="sticky top-0 z-40 border-b border-[color:var(--surface-border)] bg-[color:var(--surface-1)]/90 backdrop-blur-xl md:hidden">
-          <div className="mx-auto w-full max-w-6xl px-4 pt-[env(safe-area-inset-top)] pb-3">
-            <div className="flex items-center justify-between">
-              <Link href="/explore" legacyBehavior passHref>
-                <a
-                  onClick={(event) => {
-                    event.preventDefault();
-                    setSearch("");
-                    setSelectedCategoryId(null);
-                    setFollowingOnly(false);
-                    setSavedOnly(false);
-                    setExploreIntent("all");
-                    setSavedView("all");
-                    setActiveCollectionId(null);
-                    closeSearchPanel();
-                    scrollToTop();
-                    void router.push("/explore");
-                  }}
-                  className="text-[11px] font-semibold uppercase tracking-[0.28em] text-[color:var(--muted)]"
-                >
-                  IntimiPop
-                </a>
-              </Link>
-            </div>
-            <div ref={mobileSearchWrapperRef} className="relative mt-3">
-              <label className="sr-only" htmlFor="mobile-search">
+          }
+          search={
+            <div ref={heroSearchWrapperRef} className="relative">
+              <label className="sr-only" htmlFor="home-search">
                 Buscar
               </label>
-              <div className="group flex h-10 items-center gap-3 rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-4 text-[color:var(--text)] transition-colors hover:border-[color:var(--surface-border-hover)] focus-within:border-[color:var(--surface-border-hover)] focus-within:ring-1 focus-within:ring-[color:var(--surface-ring)]">
+              <div className="group flex h-10 items-center gap-3 rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-4 text-[color:var(--text)] transition-colors hover:border-[color:var(--surface-border-hover)] focus-within:border-[color:var(--surface-border-hover)] focus-within:ring-1 focus-within:ring-[color:var(--surface-ring)] sm:h-11">
                 <Search className="h-4 w-4 flex-none text-[color:var(--muted)]" aria-hidden="true" />
                 <input
-                  id="mobile-search"
-                  ref={mobileSearchInputRef}
+                  id="home-search"
+                  ref={heroSearchInputRef}
                   type="text"
                   value={search}
                   onChange={handleSearchChange}
@@ -2137,78 +2075,19 @@ export default function Explore() {
                     <X className="h-4 w-4" aria-hidden="true" />
                   </button>
                 ) : null}
+                <kbd
+                  className="hidden flex-none rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-2 py-0.5 text-[11px] font-medium text-[color:var(--muted)] sm:inline-flex"
+                  aria-hidden="true"
+                >
+                  {isMac ? "⌘ K" : "Ctrl K"}
+                </kbd>
               </div>
               {renderSearchDropdown()}
             </div>
-            <div className="mt-3">{renderFilterChips()}</div>
-          </div>
-        </div>
-        <div className="mx-auto flex w-full max-w-6xl flex-col gap-6 px-4 py-6 md:px-6 lg:px-8 overflow-x-hidden">
-          <HomeSectionCard className="relative">
-            <div
-              className="pointer-events-none absolute inset-0 rounded-2xl opacity-70"
-              style={{
-                backgroundImage:
-                  "radial-gradient(circle at 20% 20%, rgba(var(--brand-rgb), 0.12), transparent 40%), radial-gradient(circle at 80% 0%, rgba(59,130,246,0.18), transparent 45%), linear-gradient(135deg, var(--surface-1) 0%, var(--surface-2) 100%)",
-              }}
-            />
-            <div className="relative flex flex-col gap-5">
-              <div className="space-y-1">
-                <p className="text-xs font-semibold uppercase tracking-[0.2em] text-[color:var(--muted)]">
-                  INTIMIPOP
-                </p>
-                <h1 className="text-2xl font-semibold text-[color:var(--text)]">Explora creadores</h1>
-                <p className="text-sm text-[color:var(--muted)]">
-                  Filtra por ubicación, disponibilidad y estilo. Abre chat cuando te encaje.
-                </p>
-              </div>
-
-              <div className="hidden md:block">
-                <div className="space-y-3">
-                  <div ref={heroSearchWrapperRef} className="relative">
-                    <label className="sr-only" htmlFor="home-search">
-                      Buscar
-                    </label>
-                    <div className="group flex h-11 items-center gap-3 rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-4 text-[color:var(--text)] transition-colors hover:border-[color:var(--surface-border-hover)] focus-within:border-[color:var(--surface-border-hover)] focus-within:ring-1 focus-within:ring-[color:var(--surface-ring)]">
-                      <Search className="h-4 w-4 flex-none text-[color:var(--muted)]" aria-hidden="true" />
-                      <input
-                        id="home-search"
-                        ref={heroSearchInputRef}
-                        type="text"
-                        value={search}
-                        onChange={handleSearchChange}
-                        onFocus={handleSearchFocus}
-                        onKeyDown={handleSearchKeyDown}
-                        placeholder="Buscar creadores, packs o PopClips"
-                        aria-controls="search-suggestions"
-                        className="h-7 w-full bg-transparent text-sm text-[color:var(--text)] placeholder:text-[color:var(--muted)] focus:outline-none"
-                      />
-                      {hasSearchValue ? (
-                        <button
-                          type="button"
-                          onClick={() => {
-                            clearSearchValue();
-                            focusSearchInput({ suppressOpen: true });
-                          }}
-                          className="inline-flex h-7 w-7 items-center justify-center rounded-full text-[color:var(--muted)] hover:text-[color:var(--text)] focus:outline-none focus:ring-1 focus:ring-[color:var(--ring)]"
-                          aria-label="Limpiar búsqueda"
-                        >
-                          <X className="h-4 w-4" aria-hidden="true" />
-                        </button>
-                      ) : null}
-                      <kbd
-                        className="flex-none rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-2 py-0.5 text-[11px] font-medium text-[color:var(--muted)]"
-                        aria-hidden="true"
-                      >
-                        {isMac ? "⌘ K" : "Ctrl K"}
-                      </kbd>
-                    </div>
-                    {!showStickySearch ? renderSearchDropdown() : null}
-                  </div>
-                  {renderFilterChips()}
-                </div>
-              </div>
-
+          }
+          chips={
+            <div className="flex flex-col gap-2">
+              {renderFilterChips()}
               {selectedCategory ? (
                 <div className="flex flex-wrap items-center gap-2">
                   <FilterChip
@@ -2219,8 +2098,9 @@ export default function Explore() {
                 </div>
               ) : null}
             </div>
-          </HomeSectionCard>
-
+          }
+        />
+        <div className="mx-auto flex w-full max-w-6xl flex-col gap-6 px-4 py-6 md:px-6 lg:px-8 overflow-x-hidden">
           {searchTerm ? (
             <div className="flex flex-wrap items-center justify-between gap-3 rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-4 py-2 text-xs text-[color:var(--muted)]">
               <div className="flex flex-wrap items-center gap-2">
@@ -2239,10 +2119,10 @@ export default function Explore() {
           ) : null}
 
           <div id="popclips" ref={popclipsRef} className="scroll-mt-24">
-          <HomeSectionCard
-            title="PopClips"
-            subtitle="Explora clips y entra al chat cuando te encaje."
-          >
+            <HomeSectionCard
+              title="PopClips"
+              subtitle="Explora clips y entra al chat cuando te encaje."
+            >
             {savedOnly ? (
               <div className="space-y-4">
                 <div className="flex flex-wrap items-center gap-2">
