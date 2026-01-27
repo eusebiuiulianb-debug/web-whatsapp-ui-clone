@@ -56,6 +56,7 @@ type RecommendedCreator = {
 type PopClipFeedItem = {
   id: string;
   creatorId: string;
+  packId?: string | null;
   title?: string | null;
   caption?: string | null;
   thumbnailUrl?: string | null;
@@ -75,6 +76,7 @@ type PopClipFeedItem = {
     locationLabel?: string | null;
     allowLocation?: boolean;
     responseTime?: string | null;
+    popclipPreviewLimit?: number;
   };
   stats?: {
     likeCount?: number;
@@ -2795,7 +2797,7 @@ export default function Explore() {
           buildChatHref={(item) =>
             appendReturnTo(`/go/${encodeURIComponent(item.creator.handle)}`, router.asPath)
           }
-          buildProfileHref={(item) => `/c/${encodeURIComponent(item.creator.handle)}`}
+          buildProfileHref={(item) => `/c/${encodeURIComponent(item.creator.handle)}#popclips`}
         />
         <CaptionSheet
           open={captionSheetOpen}

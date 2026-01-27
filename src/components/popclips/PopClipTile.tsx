@@ -18,6 +18,7 @@ import { PopClipMediaActions, popClipMediaActionButtonClass } from "./PopClipMed
 export type PopClipTileItem = {
   id: string;
   creatorId?: string;
+  packId?: string | null;
   title?: string | null;
   caption?: string | null;
   thumbnailUrl?: string | null;
@@ -36,6 +37,7 @@ export type PopClipTileItem = {
     responseTime?: string | null;
     locationLabel?: string | null;
     allowLocation?: boolean;
+    popclipPreviewLimit?: number;
   };
 };
 

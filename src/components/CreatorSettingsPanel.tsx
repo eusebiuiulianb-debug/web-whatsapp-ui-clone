@@ -7,6 +7,8 @@ import {
 import { useCreatorConfig } from "../context/CreatorConfigContext";
 import { UI_LOCALES, UI_LOCALE_LABELS, normalizeUiLocale } from "../lib/language";
 
+const PREVIEW_LIMIT_OPTIONS = [1, 3, 5] as const;
+
 interface CreatorSettingsPanelProps {
   isOpen: boolean;
   onClose: () => void;
@@ -21,6 +23,7 @@ export default function CreatorSettingsPanel({ isOpen, onClose }: CreatorSetting
   const [profilePlan, setProfilePlan] = useState<"FREE" | "PRO">("FREE");
   const [profileVerified, setProfileVerified] = useState(false);
   const [profileServices, setProfileServices] = useState("");
+  const [profilePreviewLimit, setProfilePreviewLimit] = useState<1 | 3 | 5>(3);
   const [profileLoading, setProfileLoading] = useState(false);
   const [profileError, setProfileError] = useState("");
   const router = useRouter();
@@ -45,16 +48,22 @@ export default function CreatorSettingsPanel({ isOpen, onClose }: CreatorSetting
         .then(async (res) => {
           if (!res.ok) throw new Error("request failed");
           const payload = (await res.json().catch(() => null)) as
-            | { plan?: string; isVerified?: boolean; offerTags?: string[] }
+            | { plan?: string; isVerified?: boolean; offerTags?: string[]; popclipPreviewLimit?: number }
             | null;
           const plan = payload?.plan === "PRO" ? "PRO" : "FREE";
           const isVerified = payload?.isVerified === true;
           const offerTags = Array.isArray(payload?.offerTags)
             ? payload.offerTags.filter((tag) => typeof tag === "string" && tag.trim().length > 0)
             : [];
+          const previewLimit =
+            typeof payload?.popclipPreviewLimit === "number" &&
+            PREVIEW_LIMIT_OPTIONS.includes(payload.popclipPreviewLimit as 1 | 3 | 5)
+              ? (payload.popclipPreviewLimit as 1 | 3 | 5)
+              : 3;
           setProfilePlan(plan);
           setProfileVerified(isVerified);
           setProfileServices(offerTags.join(", "));
+          setProfilePreviewLimit(previewLimit);
           setFormData((prev) => ({
             ...prev,
             isVerified,
@@ -95,6 +104,7 @@ export default function CreatorSettingsPanel({ isOpen, onClose }: CreatorSetting
           plan: profilePlan,
           isVerified: profileVerified,
           services: normalizedServices,
+          popclipPreviewLimit: profilePreviewLimit,
         }),
       });
       const profilePayload = (await profileRes.json().catch(() => null)) as { ok?: boolean; error?: string } | null;
@@ -118,6 +128,7 @@ export default function CreatorSettingsPanel({ isOpen, onClose }: CreatorSetting
     setProfilePlan("FREE");
     setProfileVerified(false);
     setProfileServices("");
+    setProfilePreviewLimit(3);
   }
 
   function updateQuickReply(key: keyof CreatorConfig["quickReplies"], value: string) {
@@ -251,6 +262,28 @@ export default function CreatorSettingsPanel({ isOpen, onClose }: CreatorSetting
               />
               <p className="text-[12px] text-[color:var(--muted)] mt-1">
                 Se muestran como chips en el perfil público.
+              </p>
+            </div>
+            <div>
+              <label className="block text-sm text-[color:var(--muted)] mb-1">Vista previa PopClips (viewer)</label>
+              <select
+                className="w-full bg-[color:var(--surface-2)] border border-[color:var(--surface-border)] rounded-md px-3 py-2 text-[color:var(--text)]"
+                value={profilePreviewLimit}
+                onChange={(e) => {
+                  const next = Number(e.target.value);
+                  if (PREVIEW_LIMIT_OPTIONS.includes(next as 1 | 3 | 5)) {
+                    setProfilePreviewLimit(next as 1 | 3 | 5);
+                  }
+                }}
+              >
+                {PREVIEW_LIMIT_OPTIONS.map((limit) => (
+                  <option key={limit} value={limit}>
+                    {limit}
+                  </option>
+                ))}
+              </select>
+              <p className="text-[12px] text-[color:var(--muted)] mt-1">
+                Controla cuántos PopClips se muestran como vista previa en el viewer público.
               </p>
             </div>
           </section>

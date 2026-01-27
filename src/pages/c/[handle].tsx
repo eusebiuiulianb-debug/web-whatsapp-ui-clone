@@ -1542,87 +1542,89 @@ export default function PublicCreatorByHandle({
             </div>
           )}
 
-          <HomeSectionCard
-            title={t("highlights")}
-            rightSlot={
-              shouldShowHighlightViewAll ? (
-                <button
-                  type="button"
-                  onClick={handleViewAllHighlights}
-                  className="text-xs font-semibold text-[color:var(--brand)] hover:underline"
-                >
-                  {highlightViewAllLabel}
-                </button>
-              ) : null
-            }
-            className="min-w-0"
-          >
-            <div className="space-y-3">
-              <div className="flex flex-wrap gap-2">
-                {HIGHLIGHT_TABS.map((tab) => {
-                  const isActive = tab.id === activeHighlight;
-                  return (
-                    <button
-                      key={tab.id}
-                      type="button"
-                      onClick={() => setActiveHighlight(tab.id)}
-                      className={`rounded-full border px-3 py-1 text-[11px] font-semibold transition ${
-                        isActive
-                          ? "border-[color:rgba(var(--brand-rgb),0.6)] bg-[color:rgba(var(--brand-rgb),0.16)] text-[color:var(--text)]"
-                          : "border-[color:var(--surface-border)] bg-[color:var(--surface-1)] text-[color:var(--muted)] hover:text-[color:var(--text)]"
-                      }`}
-                    >
-                      {tab.label}
-                    </button>
-                  );
-                })}
-              </div>
-              {!hasHighlightTiles ? (
-                highlightLoading ? (
+          <div id="popclips" className="min-w-0">
+            <HomeSectionCard
+              title={t("highlights")}
+              rightSlot={
+                shouldShowHighlightViewAll ? (
+                  <button
+                    type="button"
+                    onClick={handleViewAllHighlights}
+                    className="text-xs font-semibold text-[color:var(--brand)] hover:underline"
+                  >
+                    {highlightViewAllLabel}
+                  </button>
+                ) : null
+              }
+              className="min-w-0"
+            >
+              <div className="space-y-3">
+                <div className="flex flex-wrap gap-2">
+                  {HIGHLIGHT_TABS.map((tab) => {
+                    const isActive = tab.id === activeHighlight;
+                    return (
+                      <button
+                        key={tab.id}
+                        type="button"
+                        onClick={() => setActiveHighlight(tab.id)}
+                        className={`rounded-full border px-3 py-1 text-[11px] font-semibold transition ${
+                          isActive
+                            ? "border-[color:rgba(var(--brand-rgb),0.6)] bg-[color:rgba(var(--brand-rgb),0.16)] text-[color:var(--text)]"
+                            : "border-[color:var(--surface-border)] bg-[color:var(--surface-1)] text-[color:var(--muted)] hover:text-[color:var(--text)]"
+                        }`}
+                      >
+                        {tab.label}
+                      </button>
+                    );
+                  })}
+                </div>
+                {!hasHighlightTiles ? (
+                  highlightLoading ? (
+                    <HighlightsRail
+                      isLoading
+                      skeletonCount={HIGHLIGHT_PREVIEW_MAX}
+                      maxWidthClass="max-w-[960px]"
+                    />
+                  ) : (
+                    <div className="rounded-2xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-4 py-3 text-xs text-[color:var(--muted)] space-y-3">
+                      <p>{highlightEmptyCopyByTab[activeHighlight]}</p>
+                      <div className="flex flex-wrap gap-2">
+                        {"href" in highlightEmptyCta ? (
+                          <a
+                            href={highlightEmptyCta.href}
+                            onClick={highlightEmptyCta.onClick}
+                            aria-disabled={highlightEmptyCta.disabled}
+                            className={`inline-flex h-8 items-center justify-center rounded-full border border-[color:var(--surface-border)] px-3 text-[10px] font-semibold text-[color:var(--text)] hover:bg-[color:var(--surface-2)]${
+                              highlightEmptyCta.disabled ? " opacity-60 pointer-events-none" : ""
+                            }`}
+                          >
+                            {highlightEmptyCta.label}
+                          </a>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={highlightEmptyCta.onClick}
+                            className="inline-flex h-8 items-center justify-center rounded-full border border-[color:rgba(var(--brand-rgb),0.5)] px-3 text-[10px] font-semibold text-[color:var(--text)] hover:bg-[color:rgba(var(--brand-rgb),0.12)]"
+                          >
+                            {highlightEmptyCta.label}
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  )
+                ) : (
                   <HighlightsRail
-                    isLoading
-                    skeletonCount={HIGHLIGHT_PREVIEW_MAX}
+                    items={highlightTileEntries.map(({ item, node }) => ({ id: item.id, node }))}
+                    showViewAll={shouldShowHighlightViewAll}
+                    viewAllLabel={highlightViewAllBaseLabel}
+                    viewAllCount={highlightModalCount}
+                    onViewAll={handleViewAllHighlights}
                     maxWidthClass="max-w-[960px]"
                   />
-                ) : (
-                  <div className="rounded-2xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-4 py-3 text-xs text-[color:var(--muted)] space-y-3">
-                    <p>{highlightEmptyCopyByTab[activeHighlight]}</p>
-                    <div className="flex flex-wrap gap-2">
-                      {"href" in highlightEmptyCta ? (
-                        <a
-                          href={highlightEmptyCta.href}
-                          onClick={highlightEmptyCta.onClick}
-                          aria-disabled={highlightEmptyCta.disabled}
-                          className={`inline-flex h-8 items-center justify-center rounded-full border border-[color:var(--surface-border)] px-3 text-[10px] font-semibold text-[color:var(--text)] hover:bg-[color:var(--surface-2)]${
-                            highlightEmptyCta.disabled ? " opacity-60 pointer-events-none" : ""
-                          }`}
-                        >
-                          {highlightEmptyCta.label}
-                        </a>
-                      ) : (
-                        <button
-                          type="button"
-                          onClick={highlightEmptyCta.onClick}
-                          className="inline-flex h-8 items-center justify-center rounded-full border border-[color:rgba(var(--brand-rgb),0.5)] px-3 text-[10px] font-semibold text-[color:var(--text)] hover:bg-[color:rgba(var(--brand-rgb),0.12)]"
-                        >
-                          {highlightEmptyCta.label}
-                        </button>
-                      )}
-                    </div>
-                  </div>
-                )
-              ) : (
-                <HighlightsRail
-                  items={highlightTileEntries.map(({ item, node }) => ({ id: item.id, node }))}
-                  showViewAll={shouldShowHighlightViewAll}
-                  viewAllLabel={highlightViewAllBaseLabel}
-                  viewAllCount={highlightModalCount}
-                  onViewAll={handleViewAllHighlights}
-                  maxWidthClass="max-w-[960px]"
-                />
-              )}
-            </div>
-          </HomeSectionCard>
+                )}
+              </div>
+            </HomeSectionCard>
+          </div>
 
           <section className="space-y-3 min-w-0">
             <div className="flex items-center justify-between min-w-0">

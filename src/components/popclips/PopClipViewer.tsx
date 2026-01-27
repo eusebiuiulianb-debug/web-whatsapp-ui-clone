@@ -2,7 +2,7 @@ import * as Dialog from "@radix-ui/react-dialog";
 import clsx from "clsx";
 import { MessageCircle, Sparkles, X } from "lucide-react";
 import Image from "next/image";
-import Link from "next/link";
+import { useRouter } from "next/router";
 import {
   useCallback,
   useEffect,
@@ -20,6 +20,9 @@ import { PopClipMediaActions, popClipMediaActionButtonClass } from "./PopClipMed
 import type { PopClipTileItem } from "./PopClipTile";
 
 const CAPTION_PREVIEW_LIMIT = 140;
+const PACK_PREVIEW_LIMIT = 4;
+const DEFAULT_CREATOR_PREVIEW_LIMIT = 3;
+const CREATOR_PREVIEW_LIMITS = [1, 3, 5] as const;
 const WHEEL_LOCK_MS = 450;
 const WHEEL_THRESHOLD = 32;
 const SWIPE_THRESHOLD = 48;
@@ -49,7 +52,8 @@ export function PopClipViewer({
   buildChatHref,
   buildProfileHref,
 }: Props) {
-  const activeItem = items[activeIndex];
+  const router = useRouter();
+  const activeItem = items[activeIndex] ?? null;
   const wheelLockRef = useRef(0);
   const touchStartRef = useRef<number | null>(null);
   const touchLastRef = useRef<number | null>(null);
@@ -151,6 +155,61 @@ export function PopClipViewer({
     () => (activeItem && menuItems ? menuItems(activeItem) : []),
     [activeItem, menuItems]
   );
+  const creatorPreviewLimit = normalizeCreatorPreviewLimit(activeItem?.creator?.popclipPreviewLimit);
+  const creatorKey = activeItem ? activeItem.creatorId ?? activeItem.creator.handle : "";
+  const packId = activeItem?.packId ?? null;
+  const packScopeItems = useMemo(
+    () =>
+      activeItem && packId
+        ? items.filter(
+            (item) =>
+              item.packId === packId && (item.creatorId ?? item.creator.handle) === creatorKey
+          )
+        : [],
+    [activeItem, creatorKey, items, packId]
+  );
+  const creatorScopeItems = useMemo(
+    () =>
+      activeItem
+        ? items.filter((item) => (item.creatorId ?? item.creator.handle) === creatorKey)
+        : [],
+    [activeItem, creatorKey, items]
+  );
+  const packOtherItems = packScopeItems.filter((item) => item.id !== activeItem?.id);
+  const packPreview = packOtherItems.slice(0, PACK_PREVIEW_LIMIT);
+  const creatorPreview = creatorScopeItems.slice(0, creatorPreviewLimit);
+  const packTotal = packScopeItems.length;
+  const creatorTotal = creatorScopeItems.length;
+  const packMore = Math.max(0, packTotal - (packPreview.length + 1));
+  const showPackPreview = Boolean(packId) && packOtherItems.length >= 3;
+  const previewItems = showPackPreview ? packPreview : creatorPreview;
+  const shouldShowPreview = showPackPreview ? packPreview.length >= 3 : creatorPreview.length > 0;
+  const previewTitle = showPackPreview
+    ? "Este pack incluye"
+    : activeItem
+      ? `Más de @${activeItem.creator.handle}`
+      : "Más";
+  const previewScopeIndex = showPackPreview
+    ? Math.max(1, packScopeItems.findIndex((item) => item.id === activeItem?.id) + 1)
+    : 1;
+  const previewHeading = showPackPreview
+    ? packTotal
+      ? `${previewTitle} · ${previewScopeIndex}/${packTotal}`
+      : previewTitle
+    : activeItem
+      ? `${previewTitle} · Vista previa (${creatorPreview.length})`
+      : previewTitle;
+  const previewCtaLabel = showPackPreview ? "Ver pack" : "Ver perfil";
+  const previewCtaTotal = showPackPreview ? packTotal : creatorTotal;
+  const previewCtaLabelWithCount = previewCtaTotal
+    ? `${previewCtaLabel} (${previewCtaTotal})`
+    : previewCtaLabel;
+  const previewCtaHref =
+    showPackPreview && packId && activeItem
+      ? `/p/${encodeURIComponent(activeItem.creator.handle)}/${encodeURIComponent(packId)}`
+      : activeItem
+        ? buildProfileHref(activeItem)
+        : "#";
 
   if (!open || !activeItem) return null;
 
@@ -158,11 +217,36 @@ export function PopClipViewer({
   const handleClose = () => onOpenChange(false);
   const chatHref = buildChatHref(activeItem);
   const profileHref = buildProfileHref(activeItem);
+  const showTopProfileCta = showPackPreview || !shouldShowPreview;
+
+  const navigateFromViewer = (href: string) => {
+    if (!href) return;
+    handleClose();
+    if (typeof window === "undefined") {
+      void router.push(href);
+      return;
+    }
+    window.requestAnimationFrame(() => {
+      void router.push(href);
+    });
+  };
+
+  const handlePreviewSelect = (clipId: string) => {
+    if (showPackPreview) {
+      navigateFromViewer(previewCtaHref);
+      return;
+    }
+    const nextIndex = items.findIndex((item) => item.id === clipId);
+    if (nextIndex >= 0) onNavigate(nextIndex);
+  };
 
   return (
     <Dialog.Root open={open} onOpenChange={onOpenChange}>
       <Dialog.Portal>
-        <Dialog.Overlay className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm" />
+        <Dialog.Overlay
+          className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm"
+          onClick={handleClose}
+        />
         <div className="fixed inset-0 z-50 flex items-stretch justify-center p-0 lg:items-center lg:p-6 pointer-events-none">
           <Dialog.Content
             role="dialog"
@@ -171,122 +255,206 @@ export function PopClipViewer({
             onTouchStart={handleTouchStart}
             onTouchMove={handleTouchMove}
             onTouchEnd={handleTouchEnd}
-            className="pointer-events-auto relative flex h-full w-full flex-col overflow-hidden bg-[color:var(--surface-1)] text-[color:var(--text)] lg:h-auto lg:max-h-[90vh] lg:w-[min(92vw,430px)] lg:rounded-3xl lg:border lg:border-[color:var(--surface-border)] lg:shadow-2xl"
+            className="pointer-events-auto relative flex h-full w-full max-h-[calc(100dvh-24px)] min-h-0 flex-col bg-[color:var(--surface-1)] text-[color:var(--text)] lg:h-auto lg:max-h-[90vh] lg:w-[min(92vw,430px)] lg:rounded-3xl lg:border lg:border-[color:var(--surface-border)] lg:shadow-2xl"
           >
-            <div className="flex flex-col gap-4 p-4 pt-5 lg:p-5">
-              <div className="relative aspect-[9/16] w-full overflow-hidden rounded-2xl border border-[color:var(--surface-border)] bg-[color:var(--surface-2)]">
-                {showImage ? (
-                  <Image
-                    src={normalizeImageSrc(previewSrc)}
-                    alt={activeItem.title?.trim() || "PopClip"}
-                    layout="fill"
-                    objectFit="cover"
-                    sizes="(max-width: 1024px) 100vw, 430px"
-                    className="object-cover"
-                  />
-                ) : (
-                  <div className="relative flex h-full w-full items-center justify-center overflow-hidden bg-gradient-to-br from-[color:rgba(10,14,24,0.9)] via-[color:rgba(18,24,38,0.9)] to-[color:rgba(6,9,18,0.95)] text-white/60">
-                    <div className="absolute inset-0 opacity-60">
-                      <div className="absolute inset-0 bg-[radial-gradient(circle_at_top,rgba(255,255,255,0.14),transparent_55%)]" />
-                      <div className="absolute inset-0 animate-pulse bg-[linear-gradient(120deg,transparent,rgba(255,255,255,0.16),transparent)]" />
+            <div className="flex h-full min-h-0 flex-col">
+              <div className="flex-shrink-0 px-4 pt-5 lg:px-5 lg:pt-5">
+                <div className="relative aspect-[9/16] w-full max-h-[70dvh] overflow-hidden rounded-2xl border border-[color:var(--surface-border)] bg-[color:var(--surface-2)]">
+                  {showImage ? (
+                    <Image
+                      src={normalizeImageSrc(previewSrc)}
+                      alt={activeItem.title?.trim() || "PopClip"}
+                      layout="fill"
+                      objectFit="cover"
+                      sizes="(max-width: 1024px) 100vw, 430px"
+                      className="object-cover"
+                    />
+                  ) : (
+                    <div className="relative flex h-full w-full items-center justify-center overflow-hidden bg-gradient-to-br from-[color:rgba(10,14,24,0.9)] via-[color:rgba(18,24,38,0.9)] to-[color:rgba(6,9,18,0.95)] text-white/60">
+                      <div className="absolute inset-0 opacity-60">
+                        <div className="absolute inset-0 bg-[radial-gradient(circle_at_top,rgba(255,255,255,0.14),transparent_55%)]" />
+                        <div className="absolute inset-0 animate-pulse bg-[linear-gradient(120deg,transparent,rgba(255,255,255,0.16),transparent)]" />
+                      </div>
+                      <div className="relative flex flex-col items-center gap-1">
+                        <Sparkles className="h-6 w-6 text-white/70" aria-hidden="true" />
+                        <span className="text-[11px] font-semibold text-white/70">PopClip</span>
+                      </div>
                     </div>
-                    <div className="relative flex flex-col items-center gap-1">
-                      <Sparkles className="h-6 w-6 text-white/70" aria-hidden="true" />
-                      <span className="text-[11px] font-semibold text-white/70">PopClip</span>
-                    </div>
-                  </div>
-                )}
-                <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-black/45 via-black/10 to-transparent" />
-                <Dialog.Close asChild>
-                  <button
-                    type="button"
-                    aria-label="Cerrar"
-                    className={clsx(popClipMediaActionButtonClass, "absolute left-3 top-3")}
-                  >
-                    <X className="h-4 w-4" aria-hidden="true" />
-                  </button>
-                </Dialog.Close>
-                <PopClipMediaActions
-                  isSaved={isClipSaved}
-                  onToggleSave={onToggleSave ? () => onToggleSave(activeItem) : undefined}
-                  menu={
-                    resolvedMenuItems.length > 0 ? (
-                      <ContextMenu
-                        buttonAriaLabel="Acciones rápidas"
-                        items={resolvedMenuItems}
-                        align="right"
-                        closeOnScroll
-                        portalTarget={menuPortalEl}
-                        menuClassName="popclip-viewer-menu min-w-[160px] w-[min(90vw,220px)]"
-                        renderButton={({ ref, onClick, onPointerDown, ariaLabel, ariaExpanded, ariaHaspopup, title }) => (
-                          <button
-                            ref={ref}
-                            type="button"
-                            aria-label={ariaLabel}
-                            aria-expanded={ariaExpanded}
-                            aria-haspopup={ariaHaspopup}
-                            title={title}
-                            onPointerDown={(event) => {
-                              event.stopPropagation();
-                              onPointerDown(event);
-                            }}
-                            onClick={(event) => {
-                              event.stopPropagation();
-                              onClick(event);
-                            }}
-                            className={popClipMediaActionButtonClass}
-                          >
-                            <IconGlyph name="dots" ariaHidden />
-                          </button>
-                        )}
-                      />
-                    ) : null
-                  }
-                />
-              </div>
-              <div className="flex flex-col gap-2">
-                <div className="flex flex-wrap items-center gap-2">
-                  <span className="text-sm font-semibold text-[color:var(--text)]">
-                    @{activeItem.creator.handle}
-                  </span>
-                  {activeItem.creator.isVerified ? (
-                    <VerifiedInlineBadge collapseAt="lg" className="shrink-0" />
-                  ) : null}
-                </div>
-                <div className="text-sm text-[color:var(--muted)]">
-                  <p className={clsx(!captionExpanded && "line-clamp-3")}>{visibleCaption}</p>
-                  {isCaptionLong ? (
+                  )}
+                  <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-black/45 via-black/10 to-transparent" />
+                  <Dialog.Close asChild>
                     <button
                       type="button"
-                      onClick={() => setCaptionExpanded((prev) => !prev)}
-                      className="mt-2 text-xs font-semibold text-[color:var(--text)] underline decoration-[color:var(--surface-border)] underline-offset-4"
+                      aria-label="Cerrar"
+                      className={clsx(popClipMediaActionButtonClass, "absolute left-3 top-3")}
                     >
-                      {captionExpanded ? "Ver menos" : "Ver más"}
+                      <X className="h-4 w-4" aria-hidden="true" />
                     </button>
-                  ) : null}
+                  </Dialog.Close>
+                  <PopClipMediaActions
+                    isSaved={isClipSaved}
+                    onToggleSave={onToggleSave ? () => onToggleSave(activeItem) : undefined}
+                    menu={
+                      resolvedMenuItems.length > 0 ? (
+                        <ContextMenu
+                          buttonAriaLabel="Acciones rápidas"
+                          items={resolvedMenuItems}
+                          align="right"
+                          closeOnScroll
+                          portalTarget={menuPortalEl}
+                          menuClassName="popclip-viewer-menu min-w-[160px] w-[min(90vw,220px)]"
+                          renderButton={({ ref, onClick, onPointerDown, ariaLabel, ariaExpanded, ariaHaspopup, title }) => (
+                            <button
+                              ref={ref}
+                              type="button"
+                              aria-label={ariaLabel}
+                              aria-expanded={ariaExpanded}
+                              aria-haspopup={ariaHaspopup}
+                              title={title}
+                              onPointerDown={(event) => {
+                                event.stopPropagation();
+                                onPointerDown(event);
+                              }}
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                onClick(event);
+                              }}
+                              className={popClipMediaActionButtonClass}
+                            >
+                              <IconGlyph name="dots" ariaHidden />
+                            </button>
+                          )}
+                        />
+                      ) : null
+                    }
+                  />
                 </div>
               </div>
-              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-                <Link
-                  href={chatHref}
-                  onClick={handleClose}
-                  className="inline-flex h-10 w-full items-center justify-center gap-2 rounded-full border border-[color:var(--brand-strong)] bg-[color:var(--brand-strong)] px-4 text-[12px] font-semibold text-white shadow-sm transition hover:bg-[color:var(--brand)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--ring)] focus-visible:ring-offset-1 focus-visible:ring-offset-black/40"
-                >
-                  <span className="inline-flex items-center gap-2">
-                    <MessageCircle className="h-4 w-4" aria-hidden="true" />
-                    <span>Abrir chat</span>
-                  </span>
-                </Link>
-                <Link
-                  href={profileHref}
-                  onClick={handleClose}
-                  className="inline-flex h-10 w-full items-center justify-center gap-2 rounded-full border border-white/20 bg-white/5 px-4 text-[12px] font-semibold text-white/90 transition hover:bg-white/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--ring)] focus-visible:ring-offset-1 focus-visible:ring-offset-black/40"
-                >
-                  <span className="inline-flex items-center gap-2">
-                    <span>Ver perfil</span>
-                    <span aria-hidden="true">→</span>
-                  </span>
-                </Link>
+              <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-4 pt-4 lg:px-5 lg:pb-5 lg:pt-5">
+                <div className="flex flex-col gap-4">
+                  <div className="flex flex-col gap-2">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="text-sm font-semibold text-[color:var(--text)]">
+                        @{activeItem.creator.handle}
+                      </span>
+                      {activeItem.creator.isVerified ? (
+                        <VerifiedInlineBadge collapseAt="lg" className="shrink-0" />
+                      ) : null}
+                    </div>
+                    <div className="text-sm text-[color:var(--muted)]">
+                      <p className={clsx(!captionExpanded && "line-clamp-3")}>{visibleCaption}</p>
+                      {isCaptionLong ? (
+                        <button
+                          type="button"
+                          onClick={() => setCaptionExpanded((prev) => !prev)}
+                          className="mt-2 text-xs font-semibold text-[color:var(--text)] underline decoration-[color:var(--surface-border)] underline-offset-4"
+                        >
+                          {captionExpanded ? "Ver menos" : "Ver más"}
+                        </button>
+                      ) : null}
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                    <button
+                      type="button"
+                      onClick={() => navigateFromViewer(chatHref)}
+                      className="inline-flex h-10 w-full items-center justify-center gap-2 rounded-full border border-[color:var(--brand-strong)] bg-[color:var(--brand-strong)] px-4 text-[12px] font-semibold text-white shadow-sm transition hover:bg-[color:var(--brand)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--ring)] focus-visible:ring-offset-1 focus-visible:ring-offset-black/40"
+                    >
+                      <span className="inline-flex items-center gap-2">
+                        <MessageCircle className="h-4 w-4" aria-hidden="true" />
+                        <span>Abrir chat</span>
+                      </span>
+                    </button>
+                    {showTopProfileCta ? (
+                      <button
+                        type="button"
+                        onClick={() => navigateFromViewer(profileHref)}
+                        className="inline-flex h-10 w-full items-center justify-center gap-2 rounded-full border border-white/20 bg-white/5 px-4 text-[12px] font-semibold text-white/90 transition hover:bg-white/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--ring)] focus-visible:ring-offset-1 focus-visible:ring-offset-black/40"
+                      >
+                        <span className="inline-flex min-w-0 items-center gap-2">
+                          <span className="truncate">Ver perfil</span>
+                          <span aria-hidden="true">→</span>
+                        </span>
+                      </button>
+                    ) : null}
+                  </div>
+                  {shouldShowPreview ? (
+                    <div className="space-y-2">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-xs font-semibold uppercase tracking-[0.2em] text-[color:var(--muted)]">
+                          {previewHeading}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => navigateFromViewer(previewCtaHref)}
+                          className="inline-flex items-center rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-3 py-1 text-[10px] font-semibold text-[color:var(--text)] transition hover:bg-[color:var(--surface-2)]"
+                        >
+                          <span className="inline-flex items-center gap-1">
+                            <span>{previewCtaLabelWithCount}</span>
+                            <span aria-hidden="true">→</span>
+                          </span>
+                        </button>
+                      </div>
+                      <div className="grid grid-cols-4 gap-2 md:grid-cols-5">
+                        {previewItems.map((item) => {
+                          const thumbSrc =
+                            item.thumbnailUrl || item.posterUrl || item.previewImageUrl || "";
+                          const thumbLabel =
+                            item.title?.trim() ||
+                            item.caption?.trim() ||
+                            `PopClip de @${item.creator.handle}`;
+                          return (
+                            <button
+                              key={item.id}
+                              type="button"
+                              onClick={() => handlePreviewSelect(item.id)}
+                              className="group relative aspect-[9/16] w-full overflow-hidden rounded-xl border border-white/10 bg-[color:var(--surface-2)] focus:outline-none focus:ring-2 focus:ring-[color:var(--ring)]"
+                            >
+                              {thumbSrc ? (
+                                <Image
+                                  src={normalizeImageSrc(thumbSrc)}
+                                  alt={thumbLabel}
+                                  layout="fill"
+                                  objectFit="cover"
+                                  sizes="(max-width: 768px) 25vw, (max-width: 1024px) 20vw, 84px"
+                                  className="object-cover transition duration-200 group-hover:scale-[1.03]"
+                                />
+                              ) : (
+                                <div className="flex h-full w-full items-center justify-center text-[10px] font-semibold text-white/70">
+                                  PopClip
+                                </div>
+                              )}
+                            </button>
+                          );
+                        })}
+                        {showPackPreview && packMore > 0 ? (
+                          <button
+                            type="button"
+                            onClick={() => navigateFromViewer(previewCtaHref)}
+                            aria-label={
+                              showPackPreview
+                                ? `Ver pack con ${packTotal} items`
+                                : `Ver perfil con ${creatorTotal} clips`
+                            }
+                            className="relative flex aspect-[9/16] w-full items-center justify-center overflow-hidden rounded-xl border border-white/15 bg-[color:var(--surface-2)] text-sm font-semibold text-white/90 transition hover:bg-[color:var(--surface-1)] focus:outline-none focus:ring-2 focus:ring-[color:var(--ring)]"
+                          >
+                            <span className="text-base font-semibold">+{packMore}</span>
+                          </button>
+                        ) : null}
+                        {!showPackPreview && creatorTotal > creatorPreview.length ? (
+                          <button
+                            type="button"
+                            onClick={() => navigateFromViewer(previewCtaHref)}
+                            aria-label={`Ver perfil con ${creatorTotal} clips`}
+                            className="flex aspect-[9/16] w-full items-center justify-center rounded-xl border border-white/15 bg-[color:var(--surface-2)] text-[11px] font-semibold text-white/90 transition hover:bg-[color:var(--surface-1)] focus:outline-none focus:ring-2 focus:ring-[color:var(--ring)]"
+                          >
+                            <span>Ver perfil ({creatorTotal})</span>
+                          </button>
+                        ) : null}
+                      </div>
+                    </div>
+                  ) : null}
+                </div>
               </div>
             </div>
             <div ref={setMenuPortalRef} className="contents" />
@@ -295,4 +463,11 @@ export function PopClipViewer({
       </Dialog.Portal>
     </Dialog.Root>
   );
+}
+
+function normalizeCreatorPreviewLimit(value?: number | null) {
+  if (value && CREATOR_PREVIEW_LIMITS.includes(value as (typeof CREATOR_PREVIEW_LIMITS)[number])) {
+    return value as (typeof CREATOR_PREVIEW_LIMITS)[number];
+  }
+  return DEFAULT_CREATOR_PREVIEW_LIMIT;
 }

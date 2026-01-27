@@ -6,8 +6,11 @@ import { normalizeImageSrc } from "../../../../utils/normalizeImageSrc";
 const CREATOR_ID = "creator-1";
 
 type CreatorPlan = "FREE" | "PRO";
+type PopclipPreviewLimit = 1 | 3 | 5;
 
 const PLAN_VALUES = new Set<CreatorPlan>(["FREE", "PRO"]);
+const PREVIEW_LIMIT_VALUES = new Set<PopclipPreviewLimit>([1, 3, 5]);
+const DEFAULT_PREVIEW_LIMIT: PopclipPreviewLimit = 3;
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method === "GET") return handleGet(res);
@@ -21,13 +24,14 @@ async function handleGet(res: NextApiResponse) {
   try {
     const profile = await prisma.creatorProfile.findUnique({
       where: { creatorId: CREATOR_ID },
-      select: { coverUrl: true, plan: true, isVerified: true, offerTags: true },
+      select: { coverUrl: true, plan: true, isVerified: true, offerTags: true, popclipPreviewLimit: true },
     });
     return res.status(200).json({
       coverUrl: profile?.coverUrl ?? null,
       plan: profile?.plan ?? "FREE",
       isVerified: Boolean(profile?.isVerified),
       offerTags: normalizeOfferTags(profile?.offerTags),
+      popclipPreviewLimit: profile?.popclipPreviewLimit ?? DEFAULT_PREVIEW_LIMIT,
     });
   } catch (err) {
     console.error("Error loading creator profile", err);
@@ -63,6 +67,7 @@ async function handlePatch(req: NextApiRequest, res: NextApiResponse) {
       isVerified?: unknown;
       offerTags?: unknown;
       services?: unknown;
+      popclipPreviewLimit?: unknown;
     }> | undefined;
     if (!payload) return sendBadRequest(res, "payload required");
 
@@ -88,7 +93,15 @@ async function handlePatch(req: NextApiRequest, res: NextApiResponse) {
       return sendBadRequest(res, "services invalid");
     }
 
-    if (plan === null && isVerified === null && tagsSource === undefined) {
+    const previewLimit =
+      payload.popclipPreviewLimit === undefined
+        ? null
+        : normalizePreviewLimit(payload.popclipPreviewLimit);
+    if (payload.popclipPreviewLimit !== undefined && previewLimit === null) {
+      return sendBadRequest(res, "popclipPreviewLimit invalid");
+    }
+
+    if (plan === null && isVerified === null && tagsSource === undefined && previewLimit === null) {
       return sendBadRequest(res, "no fields to update");
     }
 
@@ -99,13 +112,15 @@ async function handlePatch(req: NextApiRequest, res: NextApiResponse) {
         plan: plan ?? "FREE",
         isVerified: isVerified ?? false,
         offerTags: offerTags,
+        popclipPreviewLimit: previewLimit ?? DEFAULT_PREVIEW_LIMIT,
       },
       update: {
         ...(plan ? { plan } : {}),
         ...(isVerified !== null ? { isVerified } : {}),
         ...(tagsSource !== undefined ? { offerTags } : {}),
+        ...(previewLimit !== null ? { popclipPreviewLimit: previewLimit } : {}),
       },
-      select: { plan: true, isVerified: true, offerTags: true },
+      select: { plan: true, isVerified: true, offerTags: true, popclipPreviewLimit: true },
     });
 
     return res.status(200).json({
@@ -113,6 +128,7 @@ async function handlePatch(req: NextApiRequest, res: NextApiResponse) {
       plan: profile.plan,
       isVerified: Boolean(profile.isVerified),
       offerTags: normalizeOfferTags(profile.offerTags),
+      popclipPreviewLimit: profile.popclipPreviewLimit ?? DEFAULT_PREVIEW_LIMIT,
     });
   } catch (err) {
     console.error("Error updating creator profile", err);
@@ -125,4 +141,17 @@ function normalizeOfferTags(value: unknown): string[] {
   return value
     .map((tag) => (typeof tag === "string" ? tag.trim() : ""))
     .filter((tag) => Boolean(tag));
+}
+
+function normalizePreviewLimit(value: unknown): PopclipPreviewLimit | null {
+  if (typeof value === "number" && PREVIEW_LIMIT_VALUES.has(value as PopclipPreviewLimit)) {
+    return value as PopclipPreviewLimit;
+  }
+  if (typeof value === "string") {
+    const parsed = Number(value);
+    if (Number.isFinite(parsed) && PREVIEW_LIMIT_VALUES.has(parsed as PopclipPreviewLimit)) {
+      return parsed as PopclipPreviewLimit;
+    }
+  }
+  return null;
 }

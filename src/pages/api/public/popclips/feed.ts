@@ -9,6 +9,7 @@ import { distanceKmFromGeohash } from "../../../../lib/geo";
 type PopClipFeedItem = {
   id: string;
   creatorId: string;
+  packId?: string | null;
   title: string | null;
   caption?: string | null;
   thumbnailUrl: string | null;
@@ -26,6 +27,7 @@ type PopClipFeedItem = {
     isAvailable: boolean;
     locationLabel: string | null;
     allowLocation?: boolean;
+    popclipPreviewLimit?: number;
   };
   stats?: {
     likeCount: number;
@@ -45,11 +47,13 @@ const MIN_KM = 5;
 const MAX_KM = 200;
 const MIN_FALLBACK_ITEMS = 6;
 const DISCOVERABLE_VISIBILITY = ["PUBLIC", "DISCOVERABLE"] as const;
+const DEFAULT_PREVIEW_LIMIT = 3;
 
 const CLIP_SELECT = {
   id: true,
   title: true,
   caption: true,
+  catalogItemId: true,
   posterUrl: true,
   durationSec: true,
   savesCount: true,
@@ -71,6 +75,7 @@ const CLIP_SELECT = {
           allowDiscoveryUseLocation: true,
           isVerified: true,
           plan: true,
+          popclipPreviewLimit: true,
         },
       },
     },
@@ -224,6 +229,7 @@ function mapFeedItems(items: FeedClipRow[], userLocation: { lat: number; lng: nu
     const isAvailable = availabilityValue === "AVAILABLE" || availabilityValue === "VIP_ONLY";
     const isVerified = Boolean(clip.creator?.profile?.isVerified ?? clip.creator?.isVerified);
     const isPro = clip.creator?.profile?.plan === "PRO";
+    const popclipPreviewLimit = normalizePreviewLimit(clip.creator?.profile?.popclipPreviewLimit);
     const locationVisibility = (clip.creator?.profile?.locationVisibility || "").toUpperCase();
     const locationEnabled =
       locationVisibility !== "OFF" &&
@@ -240,6 +246,7 @@ function mapFeedItems(items: FeedClipRow[], userLocation: { lat: number; lng: nu
     return {
       id: clip.id,
       creatorId: clip.creator?.id ?? "",
+      packId: clip.catalogItemId ?? null,
       title: clip.title ?? null,
       caption: clip.caption ?? clip.title ?? null,
       thumbnailUrl: clip.posterUrl ?? null,
@@ -259,6 +266,7 @@ function mapFeedItems(items: FeedClipRow[], userLocation: { lat: number; lng: nu
         isAvailable,
         locationLabel,
         allowLocation,
+        popclipPreviewLimit,
       },
       stats: {
         likeCount: clip._count?.reactions ?? 0,
@@ -327,6 +335,11 @@ function normalizeAvailability(value?: string | null): CreatorAvailability | nul
   if (normalized === "VIP_ONLY") return "VIP_ONLY";
   if (normalized === "NOT_AVAILABLE" || normalized === "OFFLINE") return "OFFLINE";
   return null;
+}
+
+function normalizePreviewLimit(value?: number | null) {
+  if (value === 1 || value === 3 || value === 5) return value;
+  return DEFAULT_PREVIEW_LIMIT;
 }
 
 function normalizeResponseTime(value?: string | null): CreatorResponseTime | null {
