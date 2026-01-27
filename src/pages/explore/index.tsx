@@ -17,9 +17,10 @@ import { HomeFilterSheet } from "../../components/home/HomeFilterSheet";
 import { HomeSectionCard } from "../../components/home/HomeSectionCard";
 import { DesktopMenuNav } from "../../components/navigation/DesktopMenuNav";
 import { PublicStickyHeader } from "../../components/navigation/PublicStickyHeader";
+import { PopClipViewer } from "../../components/popclips/PopClipViewer";
 import { PopClipTile, type PopClipTileItem } from "../../components/popclips/PopClipTile";
 import { IconGlyph } from "../../components/ui/IconGlyph";
-import { ContextMenu } from "../../components/ui/ContextMenu";
+import { ContextMenu, type ContextMenuItem } from "../../components/ui/ContextMenu";
 import { PillButton } from "../../components/ui/PillButton";
 import { Skeleton } from "../../components/ui/Skeleton";
 import { VerifiedInlineBadge } from "../../components/ui/VerifiedInlineBadge";
@@ -286,6 +287,9 @@ export default function Explore() {
   const [hydrated, setHydrated] = useState(false);
   const [captionSheetClip, setCaptionSheetClip] = useState<PopClipTileItem | null>(null);
   const [captionSheetOpen, setCaptionSheetOpen] = useState(false);
+  const [viewerOpen, setViewerOpen] = useState(false);
+  const [viewerItems, setViewerItems] = useState<PopClipTileItem[]>([]);
+  const [viewerIndex, setViewerIndex] = useState(-1);
   const [toast, setToast] = useState<{ message: string; actionLabel?: string; onAction?: () => void } | null>(null);
   const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const savedQueryRef = useRef(false);
@@ -305,6 +309,12 @@ export default function Explore() {
   const [recommendedCreators, setRecommendedCreators] = useState<RecommendedCreator[]>([]);
   const [creatorsLoading, setCreatorsLoading] = useState(false);
   const [creatorsError, setCreatorsError] = useState("");
+
+  useEffect(() => {
+    if (viewerOpen) return;
+    setViewerItems([]);
+    setViewerIndex(-1);
+  }, [viewerOpen]);
 
   const filters = useMemo(
     () =>
@@ -1221,6 +1231,18 @@ export default function Explore() {
     [showToast]
   );
 
+  const buildViewerMenuItems = useCallback(
+    (item: PopClipTileItem) => {
+      const items: ContextMenuItem[] = [
+        { label: "Copiar link", icon: "link", onClick: () => handleCopyLink(item) },
+        { label: "Compartir", icon: "send", onClick: () => handleShareLink(item) },
+        { label: "Reportar", icon: "alert", danger: true, onClick: () => handleReportClip(item) },
+      ];
+      return items;
+    },
+    [handleCopyLink, handleReportClip, handleShareLink]
+  );
+
   const updateFeedSaveCount = useCallback((clipId: string, delta: number) => {
     setFeedItems((prev) =>
       prev.map((item) => {
@@ -1961,17 +1983,26 @@ export default function Explore() {
     }
   }, [feedCursor, filterQueryString]);
 
+  const openPopclipWithItems = useCallback((items: PopClipTileItem[], item: PopClipTileItem) => {
+    const resolvedItems = items.length > 0 ? items : [item];
+    const nextIndex = resolvedItems.findIndex((entry) => entry.id === item.id);
+    setViewerItems(resolvedItems);
+    setViewerIndex(nextIndex >= 0 ? nextIndex : 0);
+    setViewerOpen(true);
+  }, []);
+
   const openPopclip = useCallback(
     (item: PopClipTileItem) => {
-      const baseQuery = sanitizeQuery(router.query);
-      baseQuery.popclip = item.id;
-      void router.push(
-        { pathname: `/c/${encodeURIComponent(item.creator.handle)}`, query: baseQuery },
-        undefined,
-        { shallow: true }
-      );
+      openPopclipWithItems(filteredFeedItems, item);
     },
-    [router]
+    [filteredFeedItems, openPopclipWithItems]
+  );
+
+  const openSavedPopclip = useCallback(
+    (item: PopClipTileItem) => {
+      openPopclipWithItems(filteredSavedPopclips, item);
+    },
+    [filteredSavedPopclips, openPopclipWithItems]
   );
 
   useEffect(() => {
@@ -2271,7 +2302,7 @@ export default function Explore() {
                                   <PopClipTile
                                     key={item.id}
                                     item={item}
-                                    onOpen={openPopclip}
+                                    onOpen={openSavedPopclip}
                                     profileHref={`/c/${encodeURIComponent(item.creator.handle)}`}
                                     chatHref={appendReturnTo(
                                       `/go/${encodeURIComponent(item.creator.handle)}`,
@@ -2751,6 +2782,20 @@ export default function Explore() {
             setOpenLocationPicker(false);
           }}
           openLocationOnMount={openLocationPicker}
+        />
+        <PopClipViewer
+          open={viewerOpen}
+          items={viewerItems}
+          activeIndex={viewerIndex}
+          onOpenChange={setViewerOpen}
+          onNavigate={setViewerIndex}
+          onToggleSave={handleToggleSave}
+          isSaved={(item) => savedPopclipSet.has(item.id)}
+          menuItems={buildViewerMenuItems}
+          buildChatHref={(item) =>
+            appendReturnTo(`/go/${encodeURIComponent(item.creator.handle)}`, router.asPath)
+          }
+          buildProfileHref={(item) => `/c/${encodeURIComponent(item.creator.handle)}`}
         />
         <CaptionSheet
           open={captionSheetOpen}

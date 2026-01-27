@@ -47,6 +47,7 @@ type ContextMenuProps = {
   renderButton?: (props: ContextMenuButtonRenderProps) => ReactNode;
   menuClassName?: string;
   closeOnScroll?: boolean;
+  portalTarget?: HTMLElement | null;
 };
 
 const MENU_GAP = 8;
@@ -62,12 +63,10 @@ export function ContextMenu({
   renderButton,
   menuClassName,
   closeOnScroll = false,
+  portalTarget: portalTargetProp,
 }: ContextMenuProps) {
   const [open, setOpen] = useState(false);
-  const [portalTarget, setPortalTarget] = useState<HTMLElement | null>(() => {
-    if (typeof document === "undefined") return null;
-    return document.body;
-  });
+  const [portalTarget, setPortalTarget] = useState<HTMLElement | null>(null);
   const [menuStyle, setMenuStyle] = useState<{ top: number; left: number; visibility: "visible" | "hidden" }>({
     top: 0,
     left: 0,
@@ -120,10 +119,13 @@ export function ContextMenu({
   }, [open]);
 
   useEffect(() => {
-    if (portalTarget) return;
+    if (portalTargetProp) {
+      setPortalTarget(portalTargetProp);
+      return;
+    }
     if (typeof document === "undefined") return;
     setPortalTarget(document.body);
-  }, [portalTarget]);
+  }, [portalTargetProp]);
 
   useEffect(() => {
     if (!open) return;
