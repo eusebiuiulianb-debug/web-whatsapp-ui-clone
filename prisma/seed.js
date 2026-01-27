@@ -305,6 +305,8 @@ async function main() {
       plan: "PRO",
       isVerified: true,
       offerTags: ["Sexting", "Audios", "Roleplay", "1:1", "Packs", "Extras"],
+      ratingAvg: 4.8,
+      ratingCount: 127,
     },
     create: {
       creatorId: creator.id,
@@ -312,6 +314,8 @@ async function main() {
       plan: "PRO",
       isVerified: true,
       offerTags: ["Sexting", "Audios", "Roleplay", "1:1", "Packs", "Extras"],
+      ratingAvg: 4.8,
+      ratingCount: 127,
     },
   });
 
@@ -507,6 +511,19 @@ async function main() {
       })),
       skipDuplicates: true,
     });
+  }
+
+  if (seededFans.length > 0) {
+    const demoPopclip = await prisma.popClip.findFirst({ where: { creatorId: creator.id } });
+    if (demoPopclip) {
+      await prisma.popClipComment.deleteMany({ where: { popClipId: demoPopclip.id } });
+      const demoComments = Array.from({ length: 18 }).map((_, index) => ({
+        popClipId: demoPopclip.id,
+        fanId: seededFans[index % seededFans.length].id,
+        text: `Comentario demo ${index + 1}`,
+      }));
+      await prisma.popClipComment.createMany({ data: demoComments });
+    }
   }
 
   await prisma.fanFollowUp.createMany({

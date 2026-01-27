@@ -15,6 +15,7 @@ type PopClipFeedItem = {
   thumbnailUrl: string | null;
   durationSec: number | null;
   createdAt: string;
+  commentCount?: number;
   creator: {
     handle: string;
     displayName: string;
@@ -28,6 +29,8 @@ type PopClipFeedItem = {
     locationLabel: string | null;
     allowLocation?: boolean;
     popclipPreviewLimit?: number;
+    ratingAvg?: number | null;
+    ratingCount?: number | null;
   };
   stats?: {
     likeCount: number;
@@ -48,6 +51,7 @@ const MAX_KM = 200;
 const MIN_FALLBACK_ITEMS = 6;
 const DISCOVERABLE_VISIBILITY = ["PUBLIC", "DISCOVERABLE"] as const;
 const DEFAULT_PREVIEW_LIMIT = 3;
+let hasLoggedFeedShape = false;
 
 const CLIP_SELECT = {
   id: true,
@@ -76,6 +80,8 @@ const CLIP_SELECT = {
           isVerified: true,
           plan: true,
           popclipPreviewLimit: true,
+          ratingAvg: true,
+          ratingCount: true,
         },
       },
     },
@@ -152,6 +158,19 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     const userLocation = hasUserLocation ? { lat: lat as number, lng: lng as number } : null;
 
     const mapped = mapFeedItems(sliced, userLocation);
+    if (process.env.NODE_ENV !== "production" && !hasLoggedFeedShape) {
+      const first = rawClips[0];
+      if (first) {
+        console.log("[popclips.feed] shape", {
+          commentCount: first._count?.comments,
+          ratingAvg: first.creator?.profile?.ratingAvg ?? null,
+          ratingCount: first.creator?.profile?.ratingCount ?? null,
+          profileRatingAvg: first.creator?.profile?.ratingAvg ?? null,
+          profileRatingCount: first.creator?.profile?.ratingCount ?? null,
+        });
+        hasLoggedFeedShape = true;
+      }
+    }
     const strictFiltered = applyFilters(mapped, {
       avail,
       r24,
@@ -230,6 +249,8 @@ function mapFeedItems(items: FeedClipRow[], userLocation: { lat: number; lng: nu
     const isVerified = Boolean(clip.creator?.profile?.isVerified ?? clip.creator?.isVerified);
     const isPro = clip.creator?.profile?.plan === "PRO";
     const popclipPreviewLimit = normalizePreviewLimit(clip.creator?.profile?.popclipPreviewLimit);
+    const ratingAvg = clip.creator?.profile?.ratingAvg ?? null;
+    const ratingCount = clip.creator?.profile?.ratingCount ?? 0;
     const locationVisibility = (clip.creator?.profile?.locationVisibility || "").toUpperCase();
     const locationEnabled =
       locationVisibility !== "OFF" &&
@@ -254,6 +275,7 @@ function mapFeedItems(items: FeedClipRow[], userLocation: { lat: number; lng: nu
       durationSec: clip.durationSec ?? null,
       createdAt: clip.createdAt.toISOString(),
       savesCount: clip.savesCount ?? 0,
+      commentCount: clip._count?.comments ?? 0,
       creator: {
         handle,
         displayName: creatorName,
@@ -267,6 +289,8 @@ function mapFeedItems(items: FeedClipRow[], userLocation: { lat: number; lng: nu
         locationLabel,
         allowLocation,
         popclipPreviewLimit,
+        ratingAvg,
+        ratingCount,
       },
       stats: {
         likeCount: clip._count?.reactions ?? 0,

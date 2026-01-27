@@ -1,6 +1,6 @@
 import * as Dialog from "@radix-ui/react-dialog";
 import clsx from "clsx";
-import { MessageCircle, Sparkles, X } from "lucide-react";
+import { ChevronDown, MessageCircle, Sparkles, X } from "lucide-react";
 import Image from "next/image";
 import { useRouter } from "next/router";
 import {
@@ -15,6 +15,8 @@ import {
 import { normalizeImageSrc } from "../../utils/normalizeImageSrc";
 import { ContextMenu, type ContextMenuItem } from "../ui/ContextMenu";
 import { IconGlyph } from "../ui/IconGlyph";
+import { MetaChip } from "../ui/MetaChip";
+import { MiniRating } from "../ui/MiniRating";
 import { VerifiedInlineBadge } from "../ui/VerifiedInlineBadge";
 import { PopClipMediaActions, popClipMediaActionButtonClass } from "./PopClipMediaActions";
 import type { PopClipTileItem } from "./PopClipTile";
@@ -59,10 +61,36 @@ export function PopClipViewer({
   const touchLastRef = useRef<number | null>(null);
   const [captionExpanded, setCaptionExpanded] = useState(false);
   const [menuPortalEl, setMenuPortalEl] = useState<HTMLElement | null>(null);
+  const [showScrollHint, setShowScrollHint] = useState(false);
+  const [hasScrolled, setHasScrolled] = useState(false);
+  const contentScrollRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     setCaptionExpanded(false);
   }, [activeItem?.id]);
+
+  useEffect(() => {
+    setHasScrolled(false);
+  }, [open, activeItem?.id]);
+
+  useEffect(() => {
+    if (!open) return;
+    const node = contentScrollRef.current;
+    if (!node) return;
+    const updateHint = () => {
+      const maxScroll = node.scrollHeight - node.clientHeight;
+      const hasOverflow = maxScroll > 8;
+      if (node.scrollTop > 0 && !hasScrolled) {
+        setHasScrolled(true);
+      }
+      setShowScrollHint(hasOverflow && !hasScrolled && node.scrollTop <= 0);
+    };
+    updateHint();
+    node.addEventListener("scroll", updateHint, { passive: true });
+    return () => {
+      node.removeEventListener("scroll", updateHint);
+    };
+  }, [open, activeItem?.id, hasScrolled]);
 
   useEffect(() => {
     if (!open) return;
@@ -199,7 +227,7 @@ export function PopClipViewer({
     : activeItem
       ? `${previewTitle} · Vista previa (${creatorPreview.length})`
       : previewTitle;
-  const previewCtaLabel = showPackPreview ? "Ver pack" : "Ver perfil";
+  const previewCtaLabel = showPackPreview ? "Ver pack" : "Ver PopClips";
   const previewCtaTotal = showPackPreview ? packTotal : creatorTotal;
   const previewCtaLabelWithCount = previewCtaTotal
     ? `${previewCtaLabel} (${previewCtaTotal})`
@@ -210,6 +238,24 @@ export function PopClipViewer({
       : activeItem
         ? buildProfileHref(activeItem)
         : "#";
+  const allowLocation = activeItem?.creator?.allowLocation !== false;
+  const distanceLabel =
+    allowLocation && Number.isFinite(activeItem?.distanceKm ?? NaN)
+      ? `≈${Math.round(activeItem?.distanceKm as number)} km`
+      : "";
+  const locationLabel = allowLocation ? (activeItem?.creator?.locationLabel || "").trim() : "";
+  const locationChipLabel = locationLabel ? `📍 ${locationLabel} (aprox.)` : "";
+  const commentCount =
+    typeof activeItem?.commentCount === "number"
+      ? activeItem.commentCount
+      : typeof activeItem?.stats?.commentCount === "number"
+        ? activeItem.stats.commentCount
+        : 0;
+  const ratingValue = activeItem?.creator?.ratingAvg ?? null;
+  const ratingCount = activeItem?.creator?.ratingCount ?? null;
+  const SHOW_ZERO_COUNTS =
+    process.env.NEXT_PUBLIC_DEMO === "1" || process.env.NODE_ENV !== "production";
+  const showCommentCount = SHOW_ZERO_COUNTS || commentCount > 0;
 
   if (!open || !activeItem) return null;
 
@@ -255,7 +301,7 @@ export function PopClipViewer({
             onTouchStart={handleTouchStart}
             onTouchMove={handleTouchMove}
             onTouchEnd={handleTouchEnd}
-            className="pointer-events-auto relative flex h-full w-full max-h-[calc(100dvh-24px)] min-h-0 flex-col bg-[color:var(--surface-1)] text-[color:var(--text)] lg:h-auto lg:max-h-[90vh] lg:w-[min(92vw,430px)] lg:rounded-3xl lg:border lg:border-[color:var(--surface-border)] lg:shadow-2xl"
+            className="pointer-events-auto relative flex h-screen min-h-screen h-[100dvh] min-h-[100dvh] w-full max-h-[100dvh] flex-col bg-[color:var(--surface-1)] text-[color:var(--text)] lg:h-auto lg:max-h-[90vh] lg:w-[min(92vw,430px)] lg:rounded-3xl lg:border lg:border-[color:var(--surface-border)] lg:shadow-2xl [--bottom-nav-h:72px] xl:[--bottom-nav-h:0px]"
           >
             <div className="flex h-full min-h-0 flex-col">
               <div className="flex-shrink-0 px-4 pt-5 lg:px-5 lg:pt-5">
@@ -330,7 +376,10 @@ export function PopClipViewer({
                   />
                 </div>
               </div>
-              <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-4 pt-4 lg:px-5 lg:pb-5 lg:pt-5">
+              <div
+                ref={contentScrollRef}
+                className="relative min-h-0 flex-1 overflow-y-auto px-4 pb-[calc(16px+env(safe-area-inset-bottom)+var(--bottom-nav-h,0px))] pt-4 lg:px-5 lg:pb-5 lg:pt-5 lg:[scrollbar-width:thin] lg:[&::-webkit-scrollbar]:w-1.5 lg:[&::-webkit-scrollbar-thumb]:bg-white/20 lg:[&::-webkit-scrollbar-thumb]:rounded-full lg:[&::-webkit-scrollbar-track]:bg-transparent"
+              >
                 <div className="flex flex-col gap-4">
                   <div className="flex flex-col gap-2">
                     <div className="flex flex-wrap items-center gap-2">
@@ -339,6 +388,23 @@ export function PopClipViewer({
                       </span>
                       {activeItem.creator.isVerified ? (
                         <VerifiedInlineBadge collapseAt="lg" className="shrink-0" />
+                      ) : null}
+                    </div>
+                    <div className="flex flex-wrap items-center gap-2 text-[10px] font-semibold text-white/80">
+                      <MiniRating
+                        avg={ratingValue}
+                        count={ratingCount}
+                        variant="chip"
+                        emptyLabel={SHOW_ZERO_COUNTS ? "Nuevo" : undefined}
+                      />
+                      {distanceLabel ? <MetaChip label={distanceLabel} /> : null}
+                      {locationChipLabel ? <MetaChip label={locationChipLabel} /> : null}
+                      {showCommentCount ? (
+                        <MetaChip
+                          icon="💬"
+                          label={`${commentCount}`}
+                          ariaLabel={`${commentCount} comentarios`}
+                        />
                       ) : null}
                     </div>
                     <div className="text-sm text-[color:var(--muted)]">
@@ -445,16 +511,25 @@ export function PopClipViewer({
                           <button
                             type="button"
                             onClick={() => navigateFromViewer(previewCtaHref)}
-                            aria-label={`Ver perfil con ${creatorTotal} clips`}
+                            aria-label={`Ver PopClips con ${creatorTotal} clips`}
                             className="flex aspect-[9/16] w-full items-center justify-center rounded-xl border border-white/15 bg-[color:var(--surface-2)] text-[11px] font-semibold text-white/90 transition hover:bg-[color:var(--surface-1)] focus:outline-none focus:ring-2 focus:ring-[color:var(--ring)]"
                           >
-                            <span>Ver perfil ({creatorTotal})</span>
+                            <span>Ver PopClips ({creatorTotal})</span>
                           </button>
                         ) : null}
                       </div>
                     </div>
                   ) : null}
                 </div>
+                {showScrollHint ? (
+                  <div className="pointer-events-none sticky bottom-0 flex flex-col items-center gap-1 pb-3">
+                    <div className="h-10 w-full bg-gradient-to-t from-[color:var(--surface-1)] to-transparent" />
+                    <span className="rounded-full border border-white/10 bg-black/40 px-3 py-1 text-[10px] font-semibold text-white/80 shadow-sm">
+                      Desliza para ver más
+                    </span>
+                    <ChevronDown className="h-4 w-4 text-white/70" aria-hidden="true" />
+                  </div>
+                ) : null}
               </div>
             </div>
             <div ref={setMenuPortalRef} className="contents" />

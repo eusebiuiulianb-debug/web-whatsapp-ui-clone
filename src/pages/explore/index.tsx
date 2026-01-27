@@ -65,6 +65,7 @@ type PopClipFeedItem = {
   durationSec?: number | null;
   createdAt: string;
   savesCount?: number | null;
+  commentCount?: number;
   creator: {
     handle: string;
     displayName: string;
@@ -77,6 +78,8 @@ type PopClipFeedItem = {
     allowLocation?: boolean;
     responseTime?: string | null;
     popclipPreviewLimit?: number;
+    ratingAvg?: number | null;
+    ratingCount?: number | null;
   };
   stats?: {
     likeCount?: number;
@@ -2050,7 +2053,7 @@ export default function Explore() {
       <Head>
         <title>IntimiPop - Explorar</title>
       </Head>
-      <div className="flex min-h-screen w-full flex-col">
+      <div className="flex min-h-[100dvh] min-h-screen w-full flex-col">
         <PublicStickyHeader
           title="Explora creadores"
           compactTitle="Explora"
@@ -2138,7 +2141,7 @@ export default function Explore() {
             </div>
           }
         />
-        <div className="mx-auto flex w-full max-w-6xl flex-col gap-6 px-4 py-6 md:px-6 lg:px-8 overflow-x-hidden">
+        <div className="mx-auto flex w-full max-w-6xl flex-col gap-6 px-4 py-6 md:px-6 lg:px-8 overflow-x-hidden [--bottom-nav-h:72px] pb-[calc(var(--bottom-nav-h,72px)+env(safe-area-inset-bottom))] xl:[--bottom-nav-h:0px]">
           {searchTerm ? (
             <div className="flex flex-wrap items-center justify-between gap-3 rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-4 py-2 text-xs text-[color:var(--muted)]">
               <div className="flex flex-wrap items-center gap-2">

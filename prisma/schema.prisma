@@ -84,6 +84,8 @@ model CreatorProfile {
   availability              CreatorAvailability @default(AVAILABLE)
   vipOnly                   Boolean  @default(false)
   popclipPreviewLimit       Int      @default(3)
+  ratingAvg                 Float?
+  ratingCount               Int      @default(0)
   createdAt                 DateTime @default(now())
   updatedAt                 DateTime @updatedAt
 }
