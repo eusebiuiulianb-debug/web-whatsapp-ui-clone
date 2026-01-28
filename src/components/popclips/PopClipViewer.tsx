@@ -1,6 +1,6 @@
 import * as Dialog from "@radix-ui/react-dialog";
 import clsx from "clsx";
-import { ChevronDown, MessageCircle, Sparkles, X } from "lucide-react";
+import { MessageCircle, Sparkles, X } from "lucide-react";
 import Image from "next/image";
 import { useRouter } from "next/router";
 import {
@@ -61,9 +61,10 @@ export function PopClipViewer({
   const touchLastRef = useRef<number | null>(null);
   const [captionExpanded, setCaptionExpanded] = useState(false);
   const [menuPortalEl, setMenuPortalEl] = useState<HTMLElement | null>(null);
-  const [showScrollHint, setShowScrollHint] = useState(false);
+  const [canScroll, setCanScroll] = useState(false);
   const [hasScrolled, setHasScrolled] = useState(false);
   const contentScrollRef = useRef<HTMLDivElement | null>(null);
+  const isDesktop = useMediaQuery("(min-width: 768px) and (pointer: fine)");
 
   useEffect(() => {
     setCaptionExpanded(false);
@@ -74,23 +75,31 @@ export function PopClipViewer({
   }, [open, activeItem?.id]);
 
   useEffect(() => {
-    if (!open) return;
+    if (!open || !isDesktop) {
+      setCanScroll(false);
+      return;
+    }
     const node = contentScrollRef.current;
-    if (!node) return;
-    const updateHint = () => {
+    if (!node) {
+      setCanScroll(false);
+      return;
+    }
+    let frame = 0;
+    const measure = () => {
       const maxScroll = node.scrollHeight - node.clientHeight;
-      const hasOverflow = maxScroll > 8;
-      if (node.scrollTop > 0 && !hasScrolled) {
-        setHasScrolled(true);
-      }
-      setShowScrollHint(hasOverflow && !hasScrolled && node.scrollTop <= 0);
+      setCanScroll(maxScroll > 8);
     };
-    updateHint();
-    node.addEventListener("scroll", updateHint, { passive: true });
+    const scheduleMeasure = () => {
+      if (frame) cancelAnimationFrame(frame);
+      frame = window.requestAnimationFrame(measure);
+    };
+    scheduleMeasure();
+    window.addEventListener("resize", scheduleMeasure);
     return () => {
-      node.removeEventListener("scroll", updateHint);
+      window.removeEventListener("resize", scheduleMeasure);
+      if (frame) cancelAnimationFrame(frame);
     };
-  }, [open, activeItem?.id, hasScrolled]);
+  }, [open, activeItem?.id, isDesktop]);
 
   useEffect(() => {
     if (!open) return;
@@ -245,17 +254,9 @@ export function PopClipViewer({
       : "";
   const locationLabel = allowLocation ? (activeItem?.creator?.locationLabel || "").trim() : "";
   const locationChipLabel = locationLabel ? `📍 ${locationLabel} (aprox.)` : "";
-  const commentCount =
-    typeof activeItem?.commentCount === "number"
-      ? activeItem.commentCount
-      : typeof activeItem?.stats?.commentCount === "number"
-        ? activeItem.stats.commentCount
-        : 0;
   const ratingValue = activeItem?.creator?.ratingAvg ?? null;
   const ratingCount = activeItem?.creator?.ratingCount ?? null;
-  const SHOW_ZERO_COUNTS =
-    process.env.NEXT_PUBLIC_DEMO === "1" || process.env.NODE_ENV !== "production";
-  const showCommentCount = SHOW_ZERO_COUNTS || commentCount > 0;
+  const showScrollHint = isDesktop && canScroll && !hasScrolled;
 
   if (!open || !activeItem) return null;
 
@@ -378,6 +379,11 @@ export function PopClipViewer({
               </div>
               <div
                 ref={contentScrollRef}
+                onScroll={() => {
+                  if (!hasScrolled && (contentScrollRef.current?.scrollTop ?? 0) > 2) {
+                    setHasScrolled(true);
+                  }
+                }}
                 className="relative min-h-0 flex-1 overflow-y-auto px-4 pb-[calc(16px+env(safe-area-inset-bottom)+var(--bottom-nav-h,0px))] pt-4 lg:px-5 lg:pb-5 lg:pt-5 lg:[scrollbar-width:thin] lg:[&::-webkit-scrollbar]:w-1.5 lg:[&::-webkit-scrollbar-thumb]:bg-white/20 lg:[&::-webkit-scrollbar-thumb]:rounded-full lg:[&::-webkit-scrollbar-track]:bg-transparent"
               >
                 <div className="flex flex-col gap-4">
@@ -395,17 +401,9 @@ export function PopClipViewer({
                         avg={ratingValue}
                         count={ratingCount}
                         variant="chip"
-                        emptyLabel={SHOW_ZERO_COUNTS ? "Nuevo" : undefined}
                       />
                       {distanceLabel ? <MetaChip label={distanceLabel} /> : null}
                       {locationChipLabel ? <MetaChip label={locationChipLabel} /> : null}
-                      {showCommentCount ? (
-                        <MetaChip
-                          icon="💬"
-                          label={`${commentCount}`}
-                          ariaLabel={`${commentCount} comentarios`}
-                        />
-                      ) : null}
                     </div>
                     <div className="text-sm text-[color:var(--muted)]">
                       <p className={clsx(!captionExpanded && "line-clamp-3")}>{visibleCaption}</p>
@@ -522,12 +520,13 @@ export function PopClipViewer({
                   ) : null}
                 </div>
                 {showScrollHint ? (
-                  <div className="pointer-events-none sticky bottom-0 flex flex-col items-center gap-1 pb-3">
-                    <div className="h-10 w-full bg-gradient-to-t from-[color:var(--surface-1)] to-transparent" />
-                    <span className="rounded-full border border-white/10 bg-black/40 px-3 py-1 text-[10px] font-semibold text-white/80 shadow-sm">
-                      Desliza para ver más
-                    </span>
-                    <ChevronDown className="h-4 w-4 text-white/70" aria-hidden="true" />
+                  <div className="pointer-events-none absolute inset-x-0 bottom-0">
+                    <div className="h-12 w-full bg-gradient-to-t from-[color:var(--surface-1)] to-transparent opacity-90" />
+                    <div className="absolute inset-x-0 bottom-3 flex items-center justify-center">
+                      <span className="text-[10px] font-medium text-[color:var(--muted)] opacity-80">
+                        Desliza
+                      </span>
+                    </div>
                   </div>
                 ) : null}
               </div>
@@ -538,6 +537,25 @@ export function PopClipViewer({
       </Dialog.Portal>
     </Dialog.Root>
   );
+}
+
+function useMediaQuery(query: string) {
+  const [matches, setMatches] = useState(false);
+
+  useEffect(() => {
+    if (typeof window === "undefined" || !window.matchMedia) return undefined;
+    const mediaQueryList = window.matchMedia(query);
+    const updateMatch = () => setMatches(mediaQueryList.matches);
+    updateMatch();
+    if (mediaQueryList.addEventListener) {
+      mediaQueryList.addEventListener("change", updateMatch);
+      return () => mediaQueryList.removeEventListener("change", updateMatch);
+    }
+    mediaQueryList.addListener(updateMatch);
+    return () => mediaQueryList.removeListener(updateMatch);
+  }, [query]);
+
+  return matches;
 }
 
 function normalizeCreatorPreviewLimit(value?: number | null) {

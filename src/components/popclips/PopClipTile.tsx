@@ -8,7 +8,6 @@ import { memo, useEffect, useRef, useState, type MouseEvent } from "react";
 import { ContextMenu, type ContextMenuItem } from "../ui/ContextMenu";
 import { Skeleton } from "../ui/Skeleton";
 import { IconGlyph } from "../ui/IconGlyph";
-import { MetaChip } from "../ui/MetaChip";
 import { MiniRating } from "../ui/MiniRating";
 import { normalizeImageSrc } from "../../utils/normalizeImageSrc";
 import { emitFollowChange, setFollowSnapshot } from "../../lib/followEvents";
@@ -154,15 +153,6 @@ export const PopClipTile = memo(function PopClipTile({
       ? `≈${Math.round(item.distanceKm as number)} km`
       : "";
   const locationChipLabel = locationLabel ? `📍 ${locationLabel} (aprox.)` : "";
-  const commentCount =
-    typeof item.commentCount === "number"
-      ? item.commentCount
-      : typeof item.stats?.commentCount === "number"
-        ? item.stats.commentCount
-        : 0;
-  const SHOW_ZERO_COUNTS =
-    process.env.NEXT_PUBLIC_DEMO === "1" || process.env.NODE_ENV !== "production";
-  const showCommentCount = SHOW_ZERO_COUNTS || commentCount > 0;
   const ratingValue = item.creator.ratingAvg ?? null;
   const ratingCount = item.creator.ratingCount ?? null;
   const chipItems = [availableLabel, responseLabel, distanceLabel, locationChipLabel].filter(Boolean);
@@ -390,11 +380,7 @@ export const PopClipTile = memo(function PopClipTile({
                 {item.creator.isVerified ? (
                   <VerifiedInlineBadge collapseAt="lg" className="shrink-0" />
                 ) : null}
-                <MiniRating
-                  avg={ratingValue}
-                  count={ratingCount}
-                  emptyLabel={SHOW_ZERO_COUNTS ? "Nuevo" : undefined}
-                />
+                <MiniRating avg={ratingValue} count={ratingCount} />
               </span>
             </span>
           </Link>
@@ -736,15 +722,6 @@ export const PopClipTile = memo(function PopClipTile({
                   )}
                 </>
               ) : null}
-            </div>
-          ) : null}
-          {showCommentCount ? (
-            <div className="flex flex-wrap items-center gap-2">
-              <MetaChip
-                icon="💬"
-                label={`${commentCount}`}
-                ariaLabel={`${commentCount} comentarios`}
-              />
             </div>
           ) : null}
           <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 sm:gap-3">
