@@ -19,6 +19,7 @@ import { DesktopMenuNav } from "../../components/navigation/DesktopMenuNav";
 import { PublicStickyHeader } from "../../components/navigation/PublicStickyHeader";
 import { PopClipViewer } from "../../components/popclips/PopClipViewer";
 import { PopClipTile, type PopClipTileItem } from "../../components/popclips/PopClipTile";
+import { PopClipFeedProvider, usePopClipFeedContext } from "../../components/popclips/PopClipFeedContext";
 import { IconGlyph } from "../../components/ui/IconGlyph";
 import { ContextMenu, type ContextMenuItem } from "../../components/ui/ContextMenu";
 import { PillButton } from "../../components/ui/PillButton";
@@ -254,7 +255,16 @@ const HOW_IT_WORKS_STEPS = [
 ];
 
 export default function Explore() {
+  return (
+    <PopClipFeedProvider>
+      <ExploreContent />
+    </PopClipFeedProvider>
+  );
+}
+
+function ExploreContent() {
   const router = useRouter();
+  const feedContext = usePopClipFeedContext();
   const isDev = process.env.NODE_ENV === "development";
   const [search, setSearch] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
@@ -331,6 +341,11 @@ export default function Explore() {
     setViewerItems([]);
     setViewerIndex(-1);
   }, [viewerOpen]);
+
+  useEffect(() => {
+    if (viewerOpen) return;
+    feedContext?.clear();
+  }, [feedContext, viewerOpen]);
 
   const filters = useMemo(
     () =>
@@ -1601,6 +1616,11 @@ export default function Explore() {
     if (!followingOnly) return filtered;
     return filtered.filter((item) => followingSet.has(item.creatorId));
   }, [feedItems, filterClips, followingOnly, followingSet]);
+
+  useEffect(() => {
+    if (!feedContext || viewerOpen) return;
+    feedContext.setIds(filteredFeedItems.map((item) => item.id));
+  }, [feedContext, filteredFeedItems, viewerOpen]);
   const filteredSavedPopclips = useMemo(() => {
     if (!normalizedSearch) return savedPopclips;
     return savedPopclips.filter((item) => {
@@ -2093,13 +2113,28 @@ export default function Explore() {
     }
   }, [feedCursor, feedQueryString]);
 
+  const handleViewerNavigate = useCallback(
+    (nextIndex: number) => {
+      setViewerIndex(nextIndex);
+      feedContext?.setCurrentIndex(nextIndex);
+    },
+    [feedContext]
+  );
+
   const openPopclipWithItems = useCallback((items: PopClipTileItem[], item: PopClipTileItem) => {
     const resolvedItems = items.length > 0 ? items : [item];
     const nextIndex = resolvedItems.findIndex((entry) => entry.id === item.id);
     setViewerItems(resolvedItems);
-    setViewerIndex(nextIndex >= 0 ? nextIndex : 0);
+    const resolvedIndex = nextIndex >= 0 ? nextIndex : 0;
+    setViewerIndex(resolvedIndex);
     setViewerOpen(true);
-  }, []);
+    if (feedContext) {
+      feedContext.setFeed(
+        resolvedItems.map((entry) => entry.id),
+        resolvedIndex
+      );
+    }
+  }, [feedContext]);
 
   const openPopclip = useCallback(
     (item: PopClipTileItem) => {
@@ -2918,7 +2953,7 @@ export default function Explore() {
           items={viewerItems}
           activeIndex={viewerIndex}
           onOpenChange={setViewerOpen}
-          onNavigate={setViewerIndex}
+          onNavigate={handleViewerNavigate}
           onToggleSave={handleToggleSave}
           isSaved={(item) => savedPopclipSet.has(item.id)}
           showFollow

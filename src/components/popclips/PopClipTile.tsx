@@ -11,6 +11,7 @@ import { normalizeImageSrc } from "../../utils/normalizeImageSrc";
 import { formatDistanceKm } from "../../utils/formatDistanceKm";
 import { VerifiedInlineBadge } from "../ui/VerifiedInlineBadge";
 import { PopClipMediaActions, popClipMediaActionButtonClass } from "./PopClipMediaActions";
+import { ServicesSheet } from "./ServicesSheet";
 
 export type PopClipTileItem = {
   id: string;
@@ -107,6 +108,7 @@ export const PopClipTile = memo(function PopClipTile({
   const [imageLoaded, setImageLoaded] = useState(false);
   const [avatarFailed, setAvatarFailed] = useState(false);
   const [isCaptionOpen, setIsCaptionOpen] = useState(false);
+  const [servicesOpen, setServicesOpen] = useState(false);
   const mediaContainerRef = useRef<HTMLDivElement | null>(null);
   const captionPanelRef = useRef<HTMLDivElement | null>(null);
   const captionTriggerRef = useRef<HTMLButtonElement | null>(null);
@@ -190,6 +192,10 @@ export const PopClipTile = memo(function PopClipTile({
   useEffect(() => {
     if (!showCaptionMore && isCaptionOpen) setIsCaptionOpen(false);
   }, [showCaptionMore, isCaptionOpen]);
+
+  useEffect(() => {
+    if (!showServiceRow && servicesOpen) setServicesOpen(false);
+  }, [servicesOpen, showServiceRow]);
 
   useEffect(() => {
     setImageLoaded(false);
@@ -331,13 +337,19 @@ export const PopClipTile = memo(function PopClipTile({
                     </span>
                   ))}
                   {hiddenServiceCount > 0 ? (
-                    <span
+                    <button
+                      type="button"
+                      onClick={(event) => {
+                        event.preventDefault();
+                        event.stopPropagation();
+                        setServicesOpen(true);
+                      }}
                       className={serviceChipClassName}
-                      aria-label={`${hiddenServiceCount} servicios más`}
-                      title={`${hiddenServiceCount} servicios más`}
+                      aria-label={`Ver ${hiddenServiceCount} servicios más`}
+                      title={`Ver ${hiddenServiceCount} servicios más`}
                     >
                       +{hiddenServiceCount}
-                    </span>
+                    </button>
                   ) : null}
                 </div>
               </div>
@@ -574,6 +586,9 @@ export const PopClipTile = memo(function PopClipTile({
             </Link>
           </div>
         </div>
+      ) : null}
+      {showServiceRow ? (
+        <ServicesSheet open={servicesOpen} onOpenChange={setServicesOpen} tags={serviceTags} />
       ) : null}
     </div>
   );

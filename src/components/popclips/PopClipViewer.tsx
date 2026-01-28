@@ -1,25 +1,28 @@
 import * as Dialog from "@radix-ui/react-dialog";
 import clsx from "clsx";
-import { MessageCircle, Play, RotateCcw, Sparkles, X } from "lucide-react";
+import { ChevronDown, ChevronUp, MessageCircle, Play, RotateCcw, Sparkles, X } from "lucide-react";
 import Image from "next/image";
 import { useRouter } from "next/router";
 import { useCallback, useEffect, useRef, useState, type TouchEvent, type WheelEvent } from "react";
 import { emitFollowChange, setFollowSnapshot } from "../../lib/followEvents";
 import { useFollowState } from "../../lib/useFollowState";
 import { normalizeImageSrc } from "../../utils/normalizeImageSrc";
+import { usePopClipFeedContext } from "./PopClipFeedContext";
 import { ContextMenu, type ContextMenuItem } from "../ui/ContextMenu";
 import { FollowButtonLabel } from "../follow/FollowButtonLabel";
 import { IconGlyph } from "../ui/IconGlyph";
 import { MetaChip } from "../ui/MetaChip";
 import { VerifiedInlineBadge } from "../ui/VerifiedInlineBadge";
 import { PopClipMediaActions, popClipMediaActionButtonClass } from "./PopClipMediaActions";
+import { ServicesSheet } from "./ServicesSheet";
 import type { PopClipTileItem } from "./PopClipTile";
 
 const CAPTION_PREVIEW_LIMIT = 140;
 const WHEEL_LOCK_MS = 450;
 const WHEEL_THRESHOLD = 32;
-const SWIPE_THRESHOLD = 48;
+const SWIPE_THRESHOLD = 60;
 const MIN_FOLLOW_MUTATION_MS = 400;
+const EMPTY_FEED_IDS: string[] = [];
 
 type Props = {
   open: boolean;
@@ -61,6 +64,7 @@ export function PopClipViewer({
   const touchLastRef = useRef<number | null>(null);
   const [captionExpanded, setCaptionExpanded] = useState(false);
   const [menuPortalEl, setMenuPortalEl] = useState<HTMLElement | null>(null);
+  const [servicesOpen, setServicesOpen] = useState(false);
   const [canScroll, setCanScroll] = useState(false);
   const [hasScrolled, setHasScrolled] = useState(false);
   const [isPaused, setIsPaused] = useState(false);
@@ -69,9 +73,11 @@ export function PopClipViewer({
   const contentScrollRef = useRef<HTMLDivElement | null>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const isDesktop = useMediaQuery("(min-width: 768px) and (pointer: fine)");
+  const feedContext = usePopClipFeedContext();
 
   useEffect(() => {
     setCaptionExpanded(false);
+    setServicesOpen(false);
   }, [activeItem?.id]);
 
   useEffect(() => {
@@ -86,6 +92,10 @@ export function PopClipViewer({
   useEffect(() => {
     setFollowPending(false);
   }, [activeItem?.creatorId]);
+
+  useEffect(() => {
+    if (!open) setServicesOpen(false);
+  }, [open]);
 
   useEffect(() => {
     if (!open || !isDesktop) {
@@ -130,8 +140,30 @@ export function PopClipViewer({
     };
   }, [open]);
 
+  const feedIds = feedContext?.ids ?? EMPTY_FEED_IDS;
+  const feedIndex = typeof feedContext?.currentIndex === "number" ? feedContext.currentIndex : activeIndex;
+  const showFeedControls = feedIds.length > 1 && feedIndex >= 0;
+  const canGoPrev = showFeedControls && feedIndex > 0;
+  const canGoNext = showFeedControls && feedIndex < feedIds.length - 1;
 
-  const canNavigate = items.length > 1;
+  const canNavigate = items.length > 1 && showFeedControls;
+
+  const updateRouteForClip = useCallback(
+    (clipId: string) => {
+      if (!clipId) return;
+      const nextQuery: Record<string, string | string[]> = {};
+      Object.entries(router.query).forEach(([key, value]) => {
+        if (value === undefined) return;
+        nextQuery[key] = value;
+      });
+      nextQuery.popclip = clipId;
+      void router.replace({ pathname: router.pathname, query: nextQuery }, undefined, {
+        shallow: true,
+        scroll: false,
+      });
+    },
+    [router]
+  );
 
   const handleNavigate = useCallback(
     (direction: "next" | "prev") => {
@@ -140,9 +172,31 @@ export function PopClipViewer({
       const nextIndex = activeIndex + delta;
       if (nextIndex < 0 || nextIndex >= items.length) return;
       onNavigate(nextIndex);
+      feedContext?.setCurrentIndex(nextIndex);
+      if (showFeedControls) {
+        const nextId = feedIds[nextIndex] ?? items[nextIndex]?.id ?? "";
+        updateRouteForClip(nextId);
+      }
     },
-    [activeIndex, canNavigate, items.length, onNavigate]
+    [activeIndex, canNavigate, feedContext, feedIds, items, onNavigate, showFeedControls, updateRouteForClip]
   );
+
+  useEffect(() => {
+    if (!open || !showFeedControls) return;
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (isEditableTarget(event.target)) return;
+      if (event.key === "ArrowUp") {
+        event.preventDefault();
+        handleNavigate("prev");
+      }
+      if (event.key === "ArrowDown") {
+        event.preventDefault();
+        handleNavigate("next");
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [handleNavigate, open, showFeedControls]);
 
   const handleWheel = useCallback(
     (event: WheelEvent<HTMLDivElement>) => {
@@ -571,13 +625,15 @@ export function PopClipViewer({
                             </span>
                           ))}
                           {hiddenServiceCount > 0 ? (
-                            <span
+                            <button
+                              type="button"
+                              onClick={() => setServicesOpen(true)}
                               className={serviceChipClassName}
-                              aria-label={`${hiddenServiceCount} servicios más`}
-                              title={`${hiddenServiceCount} servicios más`}
+                              aria-label={`Ver ${hiddenServiceCount} servicios más`}
+                              title={`Ver ${hiddenServiceCount} servicios más`}
                             >
                               +{hiddenServiceCount}
-                            </span>
+                            </button>
                           ) : null}
                         </div>
                       </div>
@@ -630,8 +686,41 @@ export function PopClipViewer({
                 ) : null}
               </div>
             </div>
+            {showFeedControls ? (
+              <div className="pointer-events-auto absolute right-3 top-1/2 z-30 flex -translate-y-1/2 flex-col gap-2">
+                <button
+                  type="button"
+                  aria-label="PopClip anterior"
+                  onClick={() => handleNavigate("prev")}
+                  disabled={!canGoPrev}
+                  className={clsx(
+                    "inline-flex h-9 w-9 items-center justify-center rounded-full border bg-[color:rgba(0,0,0,0.45)] text-white/90 shadow-lg backdrop-blur-sm transition",
+                    canGoPrev
+                      ? "border-white/20 hover:bg-[color:rgba(0,0,0,0.6)]"
+                      : "border-white/10 opacity-40 cursor-not-allowed"
+                  )}
+                >
+                  <ChevronUp className="h-4 w-4" aria-hidden="true" />
+                </button>
+                <button
+                  type="button"
+                  aria-label="PopClip siguiente"
+                  onClick={() => handleNavigate("next")}
+                  disabled={!canGoNext}
+                  className={clsx(
+                    "inline-flex h-9 w-9 items-center justify-center rounded-full border bg-[color:rgba(0,0,0,0.45)] text-white/90 shadow-lg backdrop-blur-sm transition",
+                    canGoNext
+                      ? "border-white/20 hover:bg-[color:rgba(0,0,0,0.6)]"
+                      : "border-white/10 opacity-40 cursor-not-allowed"
+                  )}
+                >
+                  <ChevronDown className="h-4 w-4" aria-hidden="true" />
+                </button>
+              </div>
+            ) : null}
             <div ref={setMenuPortalRef} className="contents" />
           </Dialog.Content>
+          <ServicesSheet open={servicesOpen} onOpenChange={setServicesOpen} tags={serviceTags} />
         </div>
       </Dialog.Portal>
     </Dialog.Root>
@@ -655,6 +744,16 @@ function useMediaQuery(query: string) {
   }, [query]);
 
   return matches;
+}
+
+function isEditableTarget(target: EventTarget | null) {
+  const element = target as HTMLElement | null;
+  if (!element) return false;
+  if (element instanceof HTMLInputElement) return true;
+  if (element instanceof HTMLTextAreaElement) return true;
+  if (element instanceof HTMLSelectElement) return true;
+  if (element.isContentEditable) return true;
+  return Boolean(element.closest('[contenteditable="true"]'));
 }
 
 function normalizeMediaSrc(src?: string | null): string {
