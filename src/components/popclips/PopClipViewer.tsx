@@ -1,6 +1,6 @@
 import * as Dialog from "@radix-ui/react-dialog";
 import clsx from "clsx";
-import { MessageCircle, Sparkles, X } from "lucide-react";
+import { MessageCircle, Play, RotateCcw, Sparkles, X } from "lucide-react";
 import Image from "next/image";
 import { useRouter } from "next/router";
 import { useCallback, useEffect, useRef, useState, type TouchEvent, type WheelEvent } from "react";
@@ -51,6 +51,8 @@ export function PopClipViewer({
   const [menuPortalEl, setMenuPortalEl] = useState<HTMLElement | null>(null);
   const [canScroll, setCanScroll] = useState(false);
   const [hasScrolled, setHasScrolled] = useState(false);
+  const [isPaused, setIsPaused] = useState(false);
+  const [isEnded, setIsEnded] = useState(false);
   const contentScrollRef = useRef<HTMLDivElement | null>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const isDesktop = useMediaQuery("(min-width: 768px) and (pointer: fine)");
@@ -61,6 +63,11 @@ export function PopClipViewer({
 
   useEffect(() => {
     setHasScrolled(false);
+  }, [open, activeItem?.id]);
+
+  useEffect(() => {
+    setIsPaused(false);
+    setIsEnded(false);
   }, [open, activeItem?.id]);
 
   useEffect(() => {
@@ -209,6 +216,7 @@ export function PopClipViewer({
   const responseLabel = (activeItem?.creator?.responseTime || "").trim();
   const chipLabels = [availableLabel, responseLabel, locationChipLabel].filter(Boolean);
   const showScrollHint = isDesktop && canScroll && !hasScrolled;
+  const showVideoOverlay = isVideo && (isPaused || isEnded);
 
   useEffect(() => {
     if (!open || !isVideo || !videoSrc) return;
@@ -243,6 +251,18 @@ export function PopClipViewer({
       }
     } else {
       videoEl.pause();
+    }
+  };
+
+  const handleVideoOverlayClick = () => {
+    const videoEl = videoRef.current;
+    if (!videoEl) return;
+    if (isEnded) {
+      videoEl.currentTime = 0;
+    }
+    const playPromise = videoEl.play();
+    if (playPromise && typeof playPromise.catch === "function") {
+      playPromise.catch(() => null);
     }
   };
 
@@ -297,6 +317,19 @@ export function PopClipViewer({
                       preload="metadata"
                       controls={false}
                       onClick={handleVideoToggle}
+                      onPlay={() => {
+                        setIsPaused(false);
+                        setIsEnded(false);
+                      }}
+                      onPause={() => {
+                        const ended = videoRef.current?.ended ?? false;
+                        setIsEnded(ended);
+                        setIsPaused(!ended);
+                      }}
+                      onEnded={() => {
+                        setIsEnded(true);
+                        setIsPaused(false);
+                      }}
                       className="h-full w-full object-cover"
                     />
                   ) : showImage ? (
@@ -321,11 +354,27 @@ export function PopClipViewer({
                     </div>
                   )}
                   <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-black/45 via-black/10 to-transparent" />
+                  {showVideoOverlay ? (
+                    <button
+                      type="button"
+                      aria-label={isEnded ? "Repetir" : "Reproducir"}
+                      onClick={handleVideoOverlayClick}
+                      className="absolute inset-0 z-20 flex items-center justify-center bg-black/35 text-white/90 backdrop-blur-sm transition-opacity"
+                    >
+                      <span className="flex h-14 w-14 items-center justify-center rounded-full border border-white/30 bg-black/60 shadow-lg">
+                        {isEnded ? (
+                          <RotateCcw className="h-6 w-6" aria-hidden="true" />
+                        ) : (
+                          <Play className="ml-0.5 h-6 w-6" aria-hidden="true" />
+                        )}
+                      </span>
+                    </button>
+                  ) : null}
                   <Dialog.Close asChild>
                     <button
                       type="button"
                       aria-label="Cerrar"
-                      className={clsx(popClipMediaActionButtonClass, "absolute left-3 top-3")}
+                      className={clsx(popClipMediaActionButtonClass, "absolute left-3 top-3 z-30")}
                     >
                       <X className="h-4 w-4" aria-hidden="true" />
                     </button>
