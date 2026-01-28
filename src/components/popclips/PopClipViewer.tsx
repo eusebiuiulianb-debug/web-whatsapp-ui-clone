@@ -350,25 +350,26 @@ export function PopClipViewer({
                       ) : null}
                     </div>
                   </div>
-                  <div className="flex items-center gap-2">
+                  <div className="grid grid-cols-2 gap-2">
+                    <button
+                      type="button"
+                      onClick={() => navigateFromViewer(chatHref)}
+                      className="inline-flex h-10 w-full items-center justify-center gap-2 rounded-full border border-white/20 bg-white/5 px-4 text-[12px] font-semibold text-white/90 transition hover:bg-white/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--ring)] focus-visible:ring-offset-1 focus-visible:ring-offset-black/40"
+                    >
+                      <span className="inline-flex items-center gap-2">
+                        <MessageCircle className="h-4 w-4" aria-hidden="true" />
+                        <span>Abrir chat</span>
+                      </span>
+                    </button>
                     <button
                       type="button"
                       onClick={() => navigateFromViewer(profileHref)}
-                      className="inline-flex h-10 flex-1 items-center justify-center gap-2 rounded-full border border-[color:var(--brand-strong)] bg-[color:var(--brand-strong)] px-4 text-[12px] font-semibold text-white shadow-sm transition hover:bg-[color:var(--brand)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--ring)] focus-visible:ring-offset-1 focus-visible:ring-offset-black/40"
+                      className="inline-flex h-10 w-full items-center justify-center gap-2 rounded-full border border-[color:var(--brand-strong)] bg-[color:var(--brand-strong)] px-4 text-[12px] font-semibold text-white shadow-sm transition hover:bg-[color:var(--brand)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--ring)] focus-visible:ring-offset-1 focus-visible:ring-offset-black/40"
                     >
                       <span className="inline-flex min-w-0 items-center gap-2">
                         <span className="truncate">Ver perfil</span>
                         <span aria-hidden="true">→</span>
                       </span>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => navigateFromViewer(chatHref)}
-                      aria-label="Abrir chat"
-                      title="Abrir chat"
-                      className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-white/20 bg-white/5 text-white/90 transition hover:bg-white/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--ring)] focus-visible:ring-offset-1 focus-visible:ring-offset-black/40"
-                    >
-                      <MessageCircle className="h-4 w-4" aria-hidden="true" />
                     </button>
                   </div>
                 </div>

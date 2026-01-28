@@ -8,7 +8,6 @@ import { memo, useEffect, useRef, useState, type MouseEvent } from "react";
 import { ContextMenu, type ContextMenuItem } from "../ui/ContextMenu";
 import { Skeleton } from "../ui/Skeleton";
 import { IconGlyph } from "../ui/IconGlyph";
-import { MiniRating } from "../ui/MiniRating";
 import { normalizeImageSrc } from "../../utils/normalizeImageSrc";
 import { emitFollowChange, setFollowSnapshot } from "../../lib/followEvents";
 import { useFollowState } from "../../lib/useFollowState";
@@ -155,14 +154,25 @@ export const PopClipTile = memo(function PopClipTile({
   const locationChipLabel = locationLabel ? `📍 ${locationLabel} (aprox.)` : "";
   const ratingValue = item.creator.ratingAvg ?? null;
   const ratingCount = item.creator.ratingCount ?? null;
+  const hasRating =
+    typeof ratingValue === "number" &&
+    Number.isFinite(ratingValue) &&
+    typeof ratingCount === "number" &&
+    ratingCount > 0;
+  const ratingLabel = hasRating ? `★ ${ratingValue.toFixed(1)} · ${ratingCount} reseñas` : "";
   const chipItems = [availableLabel, responseLabel, distanceLabel, locationChipLabel].filter(Boolean);
   const isDesktopLg = useMediaQuery("(min-width: 1024px)");
   const isTabletUp = useMediaQuery("(min-width: 768px)");
   const maxChips = isDesktopLg ? 3 : isTabletUp ? 4 : 5;
   const visibleChips = chipItems.slice(0, maxChips);
   const hiddenChips = chipItems.slice(maxChips);
-  const hiddenCount = hiddenChips.length;
-  const chipItemsTitle = chipItems.join(" • ");
+  const locationPopoverLabel = locationLabel ? `${locationLabel} (aprox.)` : "";
+  const hiddenChipLabels = hiddenChips.map((label) =>
+    label === locationChipLabel && locationPopoverLabel ? locationPopoverLabel : label
+  );
+  const hiddenMetaLabels = ratingLabel ? [...hiddenChipLabels, ratingLabel] : hiddenChipLabels;
+  const hiddenCount = hiddenMetaLabels.length;
+  const chipItemsTitle = [...chipItems, ...(ratingLabel ? [ratingLabel] : [])].join(" • ");
   const overflowChipClass =
     "inline-flex items-center justify-center rounded-full border border-white/15 bg-white/10 px-2 py-1 text-[11px] leading-none font-medium text-white/90 min-w-[44px] shrink-0";
   const creatorInitial = item.creator.displayName?.trim()?.[0]?.toUpperCase() || "C";
@@ -380,7 +390,6 @@ export const PopClipTile = memo(function PopClipTile({
                 {item.creator.isVerified ? (
                   <VerifiedInlineBadge collapseAt="lg" className="shrink-0" />
                 ) : null}
-                <MiniRating avg={ratingValue} count={ratingCount} />
               </span>
             </span>
           </Link>
@@ -652,14 +661,14 @@ export const PopClipTile = memo(function PopClipTile({
                           className="z-50 max-h-[180px] w-[min(90vw,280px)] overflow-auto rounded-xl border border-white/10 bg-[color:rgba(8,12,20,0.95)] p-3 shadow-xl"
                         >
                           <div className="flex flex-wrap gap-2">
-                            {hiddenChips.map((badge, index) => (
-                              <span
-                                key={`${badge}-${index}`}
-                                className="whitespace-nowrap rounded-full border border-white/15 bg-white/10 px-2.5 py-0.5 text-[10px] font-semibold text-white/90"
-                              >
-                                {badge}
-                              </span>
-                            ))}
+                          {hiddenMetaLabels.map((badge, index) => (
+                            <span
+                              key={`${badge}-${index}`}
+                              className="whitespace-nowrap rounded-full border border-white/15 bg-white/10 px-2.5 py-0.5 text-[10px] font-semibold text-white/90"
+                            >
+                              {badge}
+                            </span>
+                          ))}
                           </div>
                         </Popover.Content>
                       </Popover.Portal>
@@ -706,7 +715,7 @@ export const PopClipTile = memo(function PopClipTile({
                           </div>
                           <div className="px-4 py-4">
                             <div className="flex flex-wrap gap-2">
-                              {hiddenChips.map((badge, index) => (
+                              {hiddenMetaLabels.map((badge, index) => (
                                 <span
                                   key={`${badge}-${index}`}
                                   className="whitespace-nowrap rounded-full border border-white/15 bg-white/10 px-2.5 py-0.5 text-[10px] font-semibold text-white/90"
