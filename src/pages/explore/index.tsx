@@ -82,6 +82,7 @@ type PopClipFeedItem = {
     popclipPreviewLimit?: number;
     ratingAvg?: number | null;
     ratingCount?: number | null;
+    offerTags?: string[] | null;
   };
   stats?: {
     likeCount?: number;
@@ -2898,6 +2899,12 @@ function mergePopclipMeta(fetched: PopClipFeedItem, fallback?: PopClipFeedItem |
       : fallbackCreator.allowLocation;
   const isAvailable =
     typeof fetchedCreator.isAvailable === "boolean" ? fetchedCreator.isAvailable : fallbackCreator.isAvailable;
+  const offerTags =
+    Array.isArray(fetchedCreator.offerTags) && fetchedCreator.offerTags.length > 0
+      ? fetchedCreator.offerTags
+      : Array.isArray(fallbackCreator.offerTags)
+        ? fallbackCreator.offerTags
+        : undefined;
   const resolvedDistance = resolveDistance(fetched.distanceKm) ?? resolveDistance(fallback.distanceKm) ?? null;
   const creatorRating =
     resolveRating(fetched.creatorRating) ?? resolveRating(fallback.creatorRating);
@@ -2915,6 +2922,7 @@ function mergePopclipMeta(fetched: PopClipFeedItem, fallback?: PopClipFeedItem |
       locationLabel,
       allowLocation,
       isAvailable,
+      offerTags,
     },
   };
 }

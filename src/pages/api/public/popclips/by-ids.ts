@@ -33,6 +33,7 @@ type PopClipFeedItem = {
     popclipPreviewLimit?: number;
     ratingAvg?: number | null;
     ratingCount?: number | null;
+    offerTags?: string[] | null;
   };
   stats?: {
     likeCount: number;
@@ -78,6 +79,7 @@ const CLIP_SELECT = {
           popclipPreviewLimit: true,
           ratingAvg: true,
           ratingCount: true,
+          offerTags: true,
         },
       },
     },
@@ -191,6 +193,7 @@ function mapItems(items: ClipRow[]): PopClipFeedItem[] {
     const popclipPreviewLimit = normalizePreviewLimit(clip.creator?.profile?.popclipPreviewLimit);
     const ratingAvg = clip.creator?.profile?.ratingAvg ?? null;
     const ratingCount = clip.creator?.profile?.ratingCount ?? 0;
+    const offerTags = normalizeOfferTags(clip.creator?.profile?.offerTags);
     const locationVisibility = (clip.creator?.profile?.locationVisibility || "").toUpperCase();
     const locationEnabled =
       locationVisibility !== "OFF" &&
@@ -226,6 +229,7 @@ function mapItems(items: ClipRow[]): PopClipFeedItem[] {
         popclipPreviewLimit,
         ratingAvg,
         ratingCount,
+        offerTags,
       },
       stats: {
         likeCount: clip._count?.reactions ?? 0,
@@ -276,6 +280,13 @@ function normalizeAvailability(value?: string | null): CreatorAvailability | nul
 function normalizePreviewLimit(value?: number | null) {
   if (value === 1 || value === 3 || value === 5) return value;
   return DEFAULT_PREVIEW_LIMIT;
+}
+
+function normalizeOfferTags(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((tag) => (typeof tag === "string" ? tag.trim() : ""))
+    .filter((tag) => Boolean(tag));
 }
 
 function normalizeResponseTime(value?: string | null): CreatorResponseTime | null {

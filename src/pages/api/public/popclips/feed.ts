@@ -33,6 +33,7 @@ type PopClipFeedItem = {
     popclipPreviewLimit?: number;
     ratingAvg?: number | null;
     ratingCount?: number | null;
+    offerTags?: string[] | null;
   };
   stats?: {
     likeCount: number;
@@ -84,6 +85,7 @@ const CLIP_SELECT = {
           popclipPreviewLimit: true,
           ratingAvg: true,
           ratingCount: true,
+          offerTags: true,
         },
       },
     },
@@ -254,6 +256,7 @@ function mapFeedItems(items: FeedClipRow[], userLocation: { lat: number; lng: nu
     const popclipPreviewLimit = normalizePreviewLimit(clip.creator?.profile?.popclipPreviewLimit);
     const ratingAvg = clip.creator?.profile?.ratingAvg ?? null;
     const ratingCount = clip.creator?.profile?.ratingCount ?? 0;
+    const offerTags = normalizeOfferTags(clip.creator?.profile?.offerTags);
     const locationVisibility = (clip.creator?.profile?.locationVisibility || "").toUpperCase();
     const locationEnabled =
       locationVisibility !== "OFF" &&
@@ -294,6 +297,7 @@ function mapFeedItems(items: FeedClipRow[], userLocation: { lat: number; lng: nu
         popclipPreviewLimit,
         ratingAvg,
         ratingCount,
+        offerTags,
       },
       stats: {
         likeCount: clip._count?.reactions ?? 0,
@@ -449,6 +453,13 @@ function sortByDistance(items: PopClipFeedItem[]) {
 
 function roundDistance(distanceKm: number) {
   return Math.round(distanceKm * 10) / 10;
+}
+
+function normalizeOfferTags(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((tag) => (typeof tag === "string" ? tag.trim() : ""))
+    .filter((tag) => Boolean(tag));
 }
 
 function normalizeAvatarUrl(value?: string | null): string | null {

@@ -1,11 +1,11 @@
 import * as Dialog from "@radix-ui/react-dialog";
 import * as Popover from "@radix-ui/react-popover";
 import clsx from "clsx";
-import { MessageCircle, Sparkles } from "lucide-react";
+import { MessageCircle, Sparkles, Star } from "lucide-react";
 import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/router";
-import { memo, useEffect, useRef, useState, type MouseEvent } from "react";
+import { memo, useEffect, useRef, useState, type MouseEvent, type ReactNode } from "react";
 import { ContextMenu, type ContextMenuItem } from "../ui/ContextMenu";
 import { Skeleton } from "../ui/Skeleton";
 import { IconGlyph } from "../ui/IconGlyph";
@@ -48,6 +48,7 @@ export type PopClipTileItem = {
     popclipPreviewLimit?: number;
     ratingAvg?: number | null;
     ratingCount?: number | null;
+    offerTags?: string[] | null;
   };
 };
 
@@ -151,11 +152,11 @@ export const PopClipTile = memo(function PopClipTile({
   const availableLabel = item.creator.isAvailable ? "Disponible" : "";
   const responseLabel = (item.creator.responseTime || "").trim();
   const locationLabel = allowLocation ? (item.creator.locationLabel || "").trim() : "";
+  const locationDisplay = locationLabel ? `${locationLabel} (aprox.)` : "";
   const distanceLabel =
     allowLocation && Number.isFinite(item.distanceKm ?? NaN)
       ? `≈${Math.round(item.distanceKm as number)} km`
       : "";
-  const locationChipLabel = locationLabel ? `📍 ${locationLabel} (aprox.)` : "";
   const ratingValue =
     typeof item.creatorRating === "number" && Number.isFinite(item.creatorRating)
       ? item.creatorRating
@@ -169,22 +170,62 @@ export const PopClipTile = memo(function PopClipTile({
         ? item.creator.ratingCount
         : 0;
   const hasRating = typeof ratingValue === "number" && ratingCount > 0;
-  const ratingLabel = hasRating ? `★ ${ratingValue.toFixed(1)} · ${ratingCount} reseñas` : "";
-  const chipItems = [availableLabel, responseLabel, distanceLabel, locationChipLabel].filter(Boolean);
+  const ratingLabel = hasRating ? `${ratingValue.toFixed(1)} · ${ratingCount} reseñas` : "";
+  const rawServices = Array.isArray(item.creator.offerTags) ? item.creator.offerTags : [];
+  const serviceTags = Array.from(
+    new Set(
+      rawServices
+        .map((tag) => (typeof tag === "string" ? tag.trim() : ""))
+        .filter((tag) => Boolean(tag))
+    )
+  );
+  const visibleServiceTags = serviceTags.slice(0, 6);
+  const extraServiceCount = Math.max(0, serviceTags.length - visibleServiceTags.length);
+  const locationDot = (
+    <span className="h-1.5 w-1.5 rounded-full bg-red-400" aria-hidden="true" />
+  );
+  const ratingStar = (
+    <Star className="h-3 w-3 text-amber-300" fill="currentColor" aria-hidden="true" />
+  );
+  type MetaChipItem = { key: string; label: string; icon?: ReactNode };
+  const serviceChips: MetaChipItem[] = visibleServiceTags.map((tag, index) => ({
+    key: `service-${tag}-${index}`,
+    label: tag,
+  }));
+  const serviceMoreChip: MetaChipItem | null =
+    extraServiceCount > 0 ? { key: "service-more", label: `+${extraServiceCount} más` } : null;
+  const baseChips: MetaChipItem[] = [
+    availableLabel ? { key: "available", label: availableLabel } : null,
+    responseLabel ? { key: "response", label: responseLabel } : null,
+    distanceLabel ? { key: "distance", label: distanceLabel } : null,
+    locationDisplay ? { key: "location", label: locationDisplay, icon: locationDot } : null,
+  ].filter(Boolean) as MetaChipItem[];
+  const ratingChip: MetaChipItem | null = hasRating
+    ? { key: "rating", label: ratingLabel, icon: ratingStar }
+    : null;
   const isDesktopLg = useMediaQuery("(min-width: 1024px)");
   const isTabletUp = useMediaQuery("(min-width: 768px)");
   const maxChips = isDesktopLg ? 3 : isTabletUp ? 4 : 5;
-  const visibleChips = chipItems.slice(0, maxChips);
-  const hiddenChips = chipItems.slice(maxChips);
-  const locationPopoverLabel = locationLabel ? `${locationLabel} (aprox.)` : "";
-  const hiddenChipLabels = hiddenChips.map((label) =>
-    label === locationChipLabel && locationPopoverLabel ? locationPopoverLabel : label
-  );
-  const hiddenMetaLabels = ratingLabel ? [...hiddenChipLabels, ratingLabel] : hiddenChipLabels;
-  const hiddenCount = hiddenMetaLabels.length;
-  const chipItemsTitle = [...chipItems, ...(ratingLabel ? [ratingLabel] : [])].join(" • ");
+  const visibleChips = baseChips.slice(0, maxChips);
+  const hiddenBaseChips = baseChips.slice(maxChips);
+  const overflowMetaItems = ratingChip ? [...hiddenBaseChips, ratingChip] : hiddenBaseChips;
+  const hiddenCount = hiddenBaseChips.length + (ratingChip ? 1 : 0) + serviceTags.length;
+  const chipItemsTitle = [
+    ...baseChips.map((chip) => chip.label),
+    ...(ratingChip ? [ratingChip.label] : []),
+    ...serviceTags,
+  ].join(" • ");
   const overflowChipClass =
     "inline-flex items-center justify-center rounded-full border border-white/15 bg-white/10 px-2 py-1 text-[11px] leading-none font-medium text-white/90 min-w-[44px] shrink-0";
+  const renderMetaChip = (chip: MetaChipItem) => (
+    <span
+      key={chip.key}
+      className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-full border border-white/15 bg-white/10 px-2.5 py-0.5 text-[10px] font-semibold text-white/90"
+    >
+      {chip.icon ? <span className="inline-flex items-center">{chip.icon}</span> : null}
+      <span>{chip.label}</span>
+    </span>
+  );
   const creatorInitial = item.creator.displayName?.trim()?.[0]?.toUpperCase() || "C";
   const quickActions: ContextMenuItem[] = [];
   const canOrganize = Boolean(isSaved && onOrganize && organizerItemId);
@@ -646,16 +687,9 @@ export const PopClipTile = memo(function PopClipTile({
             isProfileCompact ? "pb-2 pt-2" : "pb-3 pt-3"
           )}
         >
-          {chipItems.length > 0 ? (
+          {baseChips.length > 0 || hiddenCount > 0 ? (
             <div className="relative flex flex-wrap items-center gap-2">
-              {visibleChips.map((badge, index) => (
-                <span
-                  key={`${badge}-${index}`}
-                  className="whitespace-nowrap rounded-full border border-white/15 bg-white/10 px-2.5 py-0.5 text-[10px] font-semibold text-white/90"
-                >
-                  {badge}
-                </span>
-              ))}
+              {visibleChips.map((chip) => renderMetaChip(chip))}
               {hiddenCount > 0 ? (
                 <>
                   {isTabletUp ? (
@@ -688,16 +722,22 @@ export const PopClipTile = memo(function PopClipTile({
                           onClick={(event) => event.stopPropagation()}
                           className="z-50 w-fit max-w-[260px] min-w-[160px] rounded-2xl border border-white/10 bg-black/80 p-2 shadow-lg backdrop-blur"
                         >
-                          <div className="flex flex-wrap gap-2">
-                          {hiddenMetaLabels.map((badge, index) => (
-                            <span
-                              key={`${badge}-${index}`}
-                              className="max-w-full truncate whitespace-nowrap rounded-full border border-white/15 bg-white/10 px-2.5 py-0.5 text-[10px] font-semibold text-white/90"
-                            >
-                              {badge}
-                            </span>
-                          ))}
-                          </div>
+                          {overflowMetaItems.length > 0 ? (
+                            <div className="flex flex-wrap gap-2">
+                              {overflowMetaItems.map((chip) => renderMetaChip(chip))}
+                            </div>
+                          ) : null}
+                          {serviceChips.length > 0 ? (
+                            <div className="mt-2 border-t border-white/10 pt-2">
+                              <p className="text-[9px] font-semibold uppercase tracking-[0.2em] text-white/60">
+                                Servicios
+                              </p>
+                              <div className="mt-2 flex flex-wrap gap-2">
+                                {serviceChips.map((chip) => renderMetaChip(chip))}
+                                {serviceMoreChip ? renderMetaChip(serviceMoreChip) : null}
+                              </div>
+                            </div>
+                          ) : null}
                         </Popover.Content>
                       </Popover.Portal>
                     </Popover.Root>
@@ -730,7 +770,29 @@ export const PopClipTile = memo(function PopClipTile({
                           className="fixed inset-x-0 bottom-0 z-50 max-h-[70vh] w-full overflow-auto rounded-t-2xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] shadow-2xl"
                         >
                           <div className="flex items-center justify-between border-b border-[color:var(--surface-border)] px-4 py-3">
-                            <p className="text-sm font-semibold text-[color:var(--text)]">Etiquetas</p>
+                            <div className="flex items-center gap-2">
+                              <span className="h-7 w-7 shrink-0 overflow-hidden rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-2)]">
+                                {showAvatar ? (
+                                  <Image
+                                    src={normalizeImageSrc(avatarSrc)}
+                                    alt={item.creator.displayName}
+                                    width={28}
+                                    height={28}
+                                    className="h-full w-full object-cover"
+                                    onError={() => setAvatarFailed(true)}
+                                  />
+                                ) : (
+                                  <span className="flex h-full w-full items-center justify-center text-[10px] font-semibold text-[color:var(--text)]">
+                                    {creatorInitial}
+                                  </span>
+                                )}
+                              </span>
+                              <div>
+                                <p className="text-sm font-semibold text-[color:var(--text)]">
+                                  Etiquetas de @{item.creator.handle}
+                                </p>
+                              </div>
+                            </div>
                             <Dialog.Close asChild>
                               <button
                                 type="button"
@@ -742,16 +804,49 @@ export const PopClipTile = memo(function PopClipTile({
                             </Dialog.Close>
                           </div>
                           <div className="px-4 py-4">
-                            <div className="flex flex-wrap gap-2">
-                              {hiddenMetaLabels.map((badge, index) => (
-                                <span
-                                  key={`${badge}-${index}`}
-                                  className="whitespace-nowrap rounded-full border border-white/15 bg-white/10 px-2.5 py-0.5 text-[10px] font-semibold text-white/90"
-                                >
-                                  {badge}
-                                </span>
-                              ))}
+                            <div className="space-y-2 text-sm text-[color:var(--text)]">
+                              {locationDisplay ? (
+                                <div className="flex items-center gap-2">
+                                  {locationDot}
+                                  <span>{locationDisplay}</span>
+                                </div>
+                              ) : null}
+                              {distanceLabel ? (
+                                <div className="flex items-center gap-2 text-white/80">
+                                  <span className="h-1.5 w-1.5 rounded-full bg-white/40" aria-hidden="true" />
+                                  <span>{distanceLabel}</span>
+                                </div>
+                              ) : null}
+                              {ratingChip ? (
+                                <div className="flex items-center gap-2 text-white/90">
+                                  {ratingStar}
+                                  <span>{ratingLabel}</span>
+                                </div>
+                              ) : null}
+                              {responseLabel ? (
+                                <div className="flex items-center gap-2 text-white/80">
+                                  <span className="h-1.5 w-1.5 rounded-full bg-white/40" aria-hidden="true" />
+                                  <span>{responseLabel}</span>
+                                </div>
+                              ) : null}
+                              {availableLabel ? (
+                                <div className="flex items-center gap-2 text-white/80">
+                                  <span className="h-1.5 w-1.5 rounded-full bg-emerald-400/80" aria-hidden="true" />
+                                  <span>{availableLabel}</span>
+                                </div>
+                              ) : null}
                             </div>
+                            {serviceChips.length > 0 ? (
+                              <div className="mt-4">
+                                <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-white/60">
+                                  Servicios
+                                </p>
+                                <div className="mt-2 flex flex-wrap gap-2">
+                                  {serviceChips.map((chip) => renderMetaChip(chip))}
+                                  {serviceMoreChip ? renderMetaChip(serviceMoreChip) : null}
+                                </div>
+                              </div>
+                            ) : null}
                           </div>
                         </Dialog.Content>
                       </Dialog.Portal>
