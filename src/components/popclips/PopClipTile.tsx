@@ -681,18 +681,18 @@ export const PopClipTile = memo(function PopClipTile({
                       <Popover.Portal>
                         <Popover.Content
                           side="top"
-                          align="end"
+                          align="start"
                           sideOffset={8}
                           collisionPadding={12}
                           onPointerDown={(event) => event.stopPropagation()}
                           onClick={(event) => event.stopPropagation()}
-                          className="z-50 max-h-[180px] w-[min(90vw,280px)] overflow-auto rounded-xl border border-white/10 bg-[color:rgba(8,12,20,0.95)] p-3 shadow-xl"
+                          className="z-50 w-fit max-w-[260px] min-w-[160px] rounded-2xl border border-white/10 bg-black/80 p-2 shadow-lg backdrop-blur"
                         >
                           <div className="flex flex-wrap gap-2">
                           {hiddenMetaLabels.map((badge, index) => (
                             <span
                               key={`${badge}-${index}`}
-                              className="whitespace-nowrap rounded-full border border-white/15 bg-white/10 px-2.5 py-0.5 text-[10px] font-semibold text-white/90"
+                              className="max-w-full truncate whitespace-nowrap rounded-full border border-white/15 bg-white/10 px-2.5 py-0.5 text-[10px] font-semibold text-white/90"
                             >
                               {badge}
                             </span>
